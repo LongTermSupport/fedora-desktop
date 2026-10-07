@@ -163,8 +163,15 @@ place_member() {
     tar -c --no-recursion -f "${dir}/bundle.tar" -C "${dir}" \
         "${TEAM}" "${TEAM}/member.json" "${TEAM}/token" || return 1
     MEMBERS_PRESENT=1
-    member_run "${member}" place "${dir}/bundle.tar" \
-        tar -x --no-same-owner -f - -C "/var/lib/$(member_name "${member}")" || status=$?
+    # Not tar -x: under the service's seccomp filter (DynamicUser implies RestrictSUIDSGID)
+    # GNU tar's file opens fail with ENOSYS, "Function not implemented" (journal 26-10-07),
+    # while Python opens with plain openat. The data filter refuses links, absolute paths and
+    # any member outside the target, and does not restore ownership.
+    member_run "${member}" place "${dir}/bundle.tar" python3 -I -c '
+import sys, tarfile
+with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as bundle:
+    bundle.extractall(sys.argv[1], filter="data")
+' "/var/lib/$(member_name "${member}")" || status=$?
     rm -f -- "${dir}/bundle.tar" "${dir}/${TEAM}/token" || return 1
     show "${member}" place
     expect_status "${member}" place "${status}" 0 || return 1

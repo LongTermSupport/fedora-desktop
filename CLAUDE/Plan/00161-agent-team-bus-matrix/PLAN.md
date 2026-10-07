@@ -86,9 +86,9 @@ repository; opt-in per machine and per team.
   them), authenticated with the ccy token. Host run 26-10-07 (journal): U01 complete
   (Stop fires per turn; a bypass session needs `crossSessionInbound: accept`; dedupe window
   20-33 s; back-to-back notices are separate turns), and H1's dummy leg reached the bus
-  address from every podman network, which settles DESIGN.md §5.3. Open: H2's docker leg
-  (its image was absent; `deploy.bash` now pulls a pinned busybox), H6 (Element Desktop is
-  not installed yet, U27) and the libvirt guest owner step.
+  address from every podman network, which settles DESIGN.md §5.3; H2's docker and LXC legs
+  reached it too (third run). Open: H6 (Element Desktop is not installed yet, U27) and the
+  libvirt guest owner step.
 - [ ] 🔄 **M1 host-to-host ping, through the installer**: U02–U11, U13–U17. Built and
   integrated (wave 1): U02 (spec `docs/agent-bus-protocol.md`, `protocol.py`), U03
   (`limits.py`), U04 (`config.py`, its `limits` parsed by U03) and U14 (`teamfile.py`,
@@ -103,14 +103,16 @@ repository; opt-in per machine and per team.
   `agent_bus_address` in the untracked host_vars, or `--bus-address=`): `software` (which
   stays installed, with `agentbus0`), a throwaway team, both run twice with no `CHANGED`,
   `check`, `remove --purge`, then `triage.bash --reach-only` for H1/H2's dummy leg. Host run
-  26-10-07: every installer leg passed, and the play legs too (M3); it stopped at H2's
-  docker leg, for which `deploy.bash` now pulls the image first. Re-run pending.
+  26-10-07: every installer leg passed, and the play legs too (M3); the third run, with the
+  pinned busybox pulled first, passed `deploy.bash` end to end.
   Wave 5: U11 (`cli.py` `send`, `say`, `recv`, `wait`, one long-poll thread per team;
   `test_cli.py` against the fake homeserver) built, reviewed and fixed. Wave 7: U17
   (`acceptance.bash`, M1.1–M1.3, its checks in `acceptance_check.py`, the bus address
   shared with `deploy.bash` through `_bus-address.inc.bash`) built, reviewed and fixed.
-  Its host run is pending: `meta-deploy.bash` runs it after `deploy.bash`; it needs
-  GitHub's API reachable without a credential and a fetched upstream branch.
+  `meta-deploy.bash` runs it after `deploy.bash`; it needs GitHub's API reachable without a
+  credential and a fetched upstream branch. First host run (26-10-07) stopped at the
+  members' bundle extraction (`tar` under the members' seccomp filter); they now extract
+  with Python's `tarfile`. Re-run pending.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
