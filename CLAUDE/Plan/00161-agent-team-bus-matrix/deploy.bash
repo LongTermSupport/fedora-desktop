@@ -30,8 +30,9 @@
 #   9. `docker pull` of the busybox image triage H2 runs in (_h2-docker-image.inc.bash, pinned
 #      by digest; it stays), when docker is installed, since the triage itself pulls nothing;
 #  10. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory;
-#  11. U19: play-claude-yolo.yml, which installs the ccy launcher and rebuilds the image with
-#      the pingbus zipapp and the agent-bus kit (CCY 3.85.0, container 2.45).
+#  11. U19, U31: play-claude-yolo.yml, which installs the ccy launcher (its --teams flag) and
+#      rebuilds the image with the pingbus zipapp, the agent-bus kit and the entrypoint's
+#      seat claim (CCY 3.86.0, container 2.46).
 #
 # WHAT STAYS, deliberately (every desktop carries the homeserver software): the packages of
 # DESIGN.md section 3.2, the agent-bus user, /var/lib/agent-bus{,-install}, the pinned
@@ -138,7 +139,7 @@ plan_deploy_leg "play-agent-bus.yml with ${TEAM} absent, purged: a change" play_
 plan_deploy_leg "pull triage H2's docker image (busybox, pinned)" pull_h2_docker_image
 plan_deploy_leg "triage H1 and H2 against ${BUS_ADDRESS}" \
     "${PLAN_SCRIPT_DIR}/triage.bash" --reach-only "--bus-address=${BUS_ADDRESS}"
-plan_deploy_leg "play-claude-yolo.yml (U19: the pingbus kit in the ccy image)" \
+plan_deploy_leg "play-claude-yolo.yml (U19, U31: ccy --teams and the pingbus kit in the image)" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 # STANDARD-EXCEPTION(R9): no acceptance.bash leg here, where R9 puts it. meta-deploy.bash
 # runs acceptance.bash after this script and the second triage, so a leg here would run it twice.

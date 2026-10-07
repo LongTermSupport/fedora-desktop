@@ -372,7 +372,7 @@ echo "=== the wiring: each piece is called where the production path runs ==="
 add_line="$(grep -nF "restore_askpass_ssh_add \"\$RESTORE_ASKPASS_MOUNT\" \"\$key\"" "$ENTRYPOINT" | cut -d: -f1)"
 check "the entrypoint's key loop adds each key through restore_askpass_ssh_add" "yes" "$(yes_if test -n "$add_line")"
 fin_line="$(grep -nxF "restore_askpass_finish \"\$RESTORE_ASKPASS_MOUNT\"" "$ENTRYPOINT" | cut -d: -f1)"
-exec_line="$(grep -nxF "exec \"\$@\"" "$ENTRYPOINT" | cut -d: -f1)"
+exec_line="$(grep -nxF "exec \"\${_ccy_seat_exec[@]}\" \"\$@\"" "$ENTRYPOINT" | cut -d: -f1)"
 check "entrypoint finishes after its ssh-add and before exec" "yes" \
     "$(yes_if test -n "$add_line" -a -n "$fin_line" -a -n "$exec_line" -a "${fin_line:-0}" -gt "${add_line:-0}" -a "${fin_line:-0}" -lt "${exec_line:-0}")"
 # A --max-age restart of a restored session relaunches unattended too, so the file is taken on

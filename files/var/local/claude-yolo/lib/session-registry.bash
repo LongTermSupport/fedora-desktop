@@ -93,7 +93,9 @@ ccy_registry_launch_args() {
 #   dropped, with value --update-token, --export-token, --connect, --disconnect, --prompt,
 #                       --run-for, --until (a deadline is absolute: a replay would restart or
 #                       miss it; a supervisor-requested relaunch carries it in the environment)
-#   kept, with value    --token, --ssh-key, --network, --engine, --max-age
+#   kept, with value    --token, --ssh-key, --network, --engine, --max-age, --teams (a
+#                       session comes back in the same agent team bus seats; --teams=<list>
+#                       is kept as one word)
 # A word that is not a flag is a first message to claude — stale on replay — unless it
 # follows a flag ccy does not know, when it is that flag's value (`--model opus`).
 #
@@ -105,7 +107,7 @@ CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --custom --custo
     --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore
     --help --version -h -v)
 CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until)
-CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age)
+CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age --teams)
 CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise)
 
 # ccy_registry_flag_class <word> — drop, drop-value, keep-value, keep, or unknown.
@@ -114,6 +116,9 @@ ccy_registry_flag_class() {
     case "$word" in
     --rebuild=* | --update-token=*)
         printf 'drop\n'
+        ;;
+    --teams=*)
+        printf 'keep\n'
         ;;
     *)
         if _ccy_registry_listed "$word" "${CCY_REGISTRY_DROP_FLAGS[@]}"; then

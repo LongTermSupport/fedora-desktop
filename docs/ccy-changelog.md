@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.86.0 — container 2.46
+
+- **`ccy --teams <seat>@<team>[,…]` puts a session in agent team bus teams** (Plan 00161),
+  one seat in each team; a plain `ccy` is in no team. The list is checked on the host by
+  `agent-bus seat check` before any prompt, SSH or token work (64 a malformed list, 78 a
+  team not running here, 78 with no `agent-bus` installed), and `agent-bus seat take`
+  creates any missing seat and refuses a held one (75) just before the container starts.
+  The container gets `PINGBUS_SEATS` and the `ccy-seats` label, and a restart or restore
+  comes back with `--teams <canonical list>`. Gated by `scripts/test-ccy-teams.bash`.
+- **The entrypoint takes seats only from the launcher.** With `PINGBUS_SEATS` it puts
+  `pingbus seat exec --` in front of both final exec lines, which claims every seat and
+  checks each bundle, and adds the bus plugin and settings. A `PINGBUS_*` variable set,
+  changed or unset by `ccy.env` or `ccy.env.local` refuses the launch, as does a
+  `PINGBUS_TEAMS` or `PINGBUS_HOME` from the launcher (a ccy older than the image). 3.85.0's
+  `PINGBUS_TEAMS` opt-in in `ccy.env.local` is gone. Gated by `scripts/test-ccy-agent-bus.bash`.
+- **`ccy.env.local.dist` version 3** drops the `PINGBUS_TEAMS` block and says that
+  `HOOKS_DAEMON_HOSTNAME` also names a new seat's host. A `ccy.env.local` based on version 2
+  gets the usual launch warning: take any `PINGBUS_TEAMS` line out of it.
+- **A headless launch never prompts for its launch choices.** With no `--token`,
+  `--ssh-key`, `--ssh-agent`, `--no-ssh`, `--network` or `--no-network` it takes the saved
+  Quick Launch choices without asking (an empty saved key or network meaning `--no-ssh` or
+  `--no-network`), and is refused when there are none. A key that needs a passphrase
+  refuses a headless launch before the container starts, naming `ssh-add`.
+
 ## 3.85.2 — container 2.45
 
 - **A checkout's own signing setting decides whether a signing key is needed.** ccy read

@@ -388,21 +388,21 @@ risks are bounded and named below, not eliminated.
 
 ### What the container CAN reach
 
-| Exposed                                 | How                                                                                                                                                                                                      |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Your project directory                  | Bind-mounted read/write at `/workspace`                                                                                                                                                                  |
-| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)                                                                                                                       |
-| A Claude OAuth token                    | Environment variable — no credential files are mounted                                                                                                                                                   |
-| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                                                                                                                                      |
-| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                                                                                                                                    |
-| Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139)                                                                                                              |
-| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop and Ctrl+V can paste images ([container clipboard](features/container-clipboard.md))                          |
-| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                                                                                                                                 |
-| The network                             | Normal outbound; optionally a named container network                                                                                                                                                    |
-| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine                                                                                                                |
-| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                                                                                                                                |
-| An agent team bus bundle                | Only when `ccy.env.local` sets `PINGBUS_TEAMS`: each team's `member.json` and access token, in `.claude/ccy/pingbus/<team>/` inside the workspace (git-ignored), placed by a human                       |
-| The agent team bus address              | Only with a bundle: the team's homeserver at its `base_url`, through the container's usual route (pasta), either the host's dummy bus address or a WireGuard address ([protocol](agent-bus-protocol.md)) |
+| Exposed                                 | How                                                                                                                                                                                                                     |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Your project directory                  | Bind-mounted read/write at `/workspace`                                                                                                                                                                                 |
+| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)                                                                                                                                      |
+| A Claude OAuth token                    | Environment variable — no credential files are mounted                                                                                                                                                                  |
+| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                                                                                                                                                     |
+| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                                                                                                                                                   |
+| Commit signing                          | Through an ssh-agent holding the session's SSH key; no key is copied in for it (Plan 00139)                                                                                                                             |
+| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop and Ctrl+V can paste images ([container clipboard](features/container-clipboard.md))                                         |
+| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                                                                                                                                                |
+| The network                             | Normal outbound; optionally a named container network                                                                                                                                                                   |
+| The host machine's name                 | `CCY_HOST_HOSTNAME` — the container's own `HOSTNAME` is its container id, not the machine                                                                                                                               |
+| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                                                                                                                                               |
+| An agent team bus seat                  | Only when launched with `--teams`: each named seat's `member.json`, access token and pingbus state, in `.claude/ccy/pingbus/seats/<team>/<seat>/` inside the workspace (git-ignored), created on the host by the launch |
+| The agent team bus address              | Only with `--teams`: the team's homeserver at its `base_url`, through the container's usual route (pasta), the host's dummy bus address ([protocol](agent-bus-protocol.md))                                             |
 
 ### What it CANNOT reach
 
@@ -702,18 +702,19 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag              | Effect                                                                                                                                                                                              |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ccy`             | Start a session in the current directory                                                                                                                                                            |
-| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                                                                            |
-| `--prompt "text"` | Start with a preseeded prompt                                                                                                                                                                       |
-| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form)                                                                                                                               |
-| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                                                                        |
-| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                           |
-| `--top`           | Container manager: list and stop running CCY containers                                                                                                                                             |
-| `ccy-sessions`    | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back |
-| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                    |
-| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                   |
+| Flag              | Effect                                                                                                                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ccy`             | Start a session in the current directory                                                                                                                                                                                                                                             |
+| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                                                                                                                                                             |
+| `--prompt "text"` | Start with a preseeded prompt                                                                                                                                                                                                                                                        |
+| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices without asking, or is refused when there are none; a key that needs a passphrase is refused (load it with `ssh-add` and use `--ssh-agent`) |
+| `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team, e.g. `--teams dev1@dev-team,qa2@other-team` (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                                                |
+| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                         |
+| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                            |
+| `--top`           | Container manager: list and stop running CCY containers                                                                                                                                                                                                                              |
+| `ccy-sessions`    | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                  |
+| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                     |
+| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                    |
 
 ### Image and updates
 
@@ -921,20 +922,25 @@ a bare `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` sets a shell variable that neve
 process that reads it. The project's value wins because the file is sourced after the
 launcher's forwarded environment is already in place.
 
-#### `PINGBUS_TEAMS` — join the agent team bus
+#### `--teams` — the agent team bus
 
-Off unless this checkout's `ccy.env.local` asks for it (never `ccy.env`, which a session
-can edit; the launch refuses it there):
+A session is in an agent team bus team only when its launch names it, with one seat in
+each team; a plain `ccy` is in none. Nothing in `ccy.env` or `ccy.env.local` chooses a team:
+the container refuses to start when either sets a `PINGBUS_*` variable.
 
 ```bash
-# .claude/ccy/ccy.env.local
-export PINGBUS_TEAMS=team-a
+ccy --teams dev1@dev-team,qa2@other-team    # quote a list written with spaces
 ```
 
-Each listed team's bundle (`agent-bus add-member` output) goes in
-`.claude/ccy/pingbus/<team>/`, or under `PINGBUS_HOME` if set. The container refuses to
-start when `pingbus config check` rejects one. When it passes, `pingbus` is on `PATH` and
-the session runs with the bus plugin. The protocol is in
+The launcher checks the list on the host (`agent-bus seat check`, exit 64 for a malformed
+list, 78 for a team whose homeserver is not running on this machine) before anything else
+runs. Just before the container starts, `agent-bus seat take` creates any seat that does
+not exist yet (one `sudo agent-bus add-member`; a headless launch, a restore or a restart
+uses only sudo's cached credential) and refuses a seat another session holds (75). The
+container gets `PINGBUS_SEATS` and the `ccy-seats` label; its entrypoint claims every seat,
+puts `pingbus` on `PATH` and starts `claude` with the bus plugin. A restart or a restore
+comes back in the same seats. `agent-bus` comes from `play-agent-bus.yml`. Seats, their
+names and their reuse are in [agent-bus.md](agent-bus.md); the protocol is in
 [agent-bus-protocol.md](agent-bus-protocol.md).
 
 #### `CCY_CHILD_CLAUDE` — let a session spawn child `claude` processes
@@ -1212,9 +1218,11 @@ can find and group sessions without parsing container names:
 | `ccy-github`   | the GitHub account this session is authenticated as |
 | `ccy-token`    | the stored Anthropic token label you picked         |
 | `ccy-ssh-keys` | the mounted SSH key basenames, space-separated      |
+| `ccy-seats`    | the agent team bus seats, `<seat>@<team>[,…]`       |
 
-The last three are `none` when the axis does not apply, so "no GitHub identity" is stated
-rather than looking like an unlabelled container.
+`ccy-github`, `ccy-token` and `ccy-ssh-keys` are `none` when the axis does not apply, so "no
+GitHub identity" is stated rather than looking like an unlabelled container. `ccy-seats` is
+only on a session launched with `--teams`.
 
 Do **not** use the image's `claude-yolo-version` label to find sessions. Image labels are
 inherited by anything built FROM the CCY image, so it identifies a lineage, not a session

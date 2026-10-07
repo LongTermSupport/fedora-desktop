@@ -666,7 +666,7 @@ check_ccy_gitignore_safety() {
 # ccy.env.local. Raise CCY_ENV_LOCAL_DIST_VERSION whenever the template text changes.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-CCY_ENV_LOCAL_DIST_VERSION=2
+CCY_ENV_LOCAL_DIST_VERSION=3
 
 ccy_env_local_dist_text() {
     cat <<EOF
@@ -693,15 +693,11 @@ ccy_env_local_dist_text() {
 # machine's name), then the container's hostname. Set it to give this install a
 # role, e.g. the one install that runs a role-scoped cron job. Only matters in a
 # project that uses the hooks daemon.
+# It also names the host part of the handle of an agent team bus seat that
+# "ccy --teams <seat>@<team>" creates in this checkout; unset, that part is "local".
+# A team is chosen by each launch, never here: the container refuses to start when
+# this file sets a bus variable.
 #export HOOKS_DAEMON_HOSTNAME=<role-name>
-
-# ── Agent team bus ────────────────────────────────────────────────────────────
-# The teams this checkout's sessions join, comma-separated. Each listed team's
-# bundle from "agent-bus add-member" goes in .claude/ccy/pingbus/<team>/, which
-# ccy's .gitignore keeps out of git. Set here and nowhere else: the launch refuses
-# PINGBUS_TEAMS from ccy.env or the environment, and refuses to start when a listed
-# team's bundle fails "pingbus config check". Unset, the image's copy is inert.
-#export PINGBUS_TEAMS=<team>[,<team>]
 EOF
 }
 

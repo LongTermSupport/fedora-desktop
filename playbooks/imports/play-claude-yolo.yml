@@ -325,8 +325,8 @@
         - skills
 
     # The agent team bus member kit (Plan 00161 DESIGN.md section 5.3): the plugin, its
-    # settings and the pingbus zipapp. Inert in the image until a checkout's ccy.env.local sets
-    # PINGBUS_TEAMS. The non-ccy launcher agent-bus-claude is not staged: the entrypoint does
+    # settings and the pingbus zipapp. Inert in the image unless the launch names seats with
+    # ccy --teams, which passes PINGBUS_SEATS. The non-ccy launcher agent-bus-claude is not staged: the entrypoint does
     # its job here. Add-only like the child-claude copies above.
     - name: Create Optional Agent-Bus Directories in Docker Build Context
       become: true
@@ -458,6 +458,7 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-registry.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/restart-request.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-lifecycle.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
       # `launchers` is on the lib and on every script that sources it (ccy, cc,
       # ccy-sessions), with the directories they land in: a tag that deployed one
       # without the others would recreate the new-lib-under-old-cc break.
