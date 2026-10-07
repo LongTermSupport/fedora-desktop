@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.85.0"  # A checkout can join the agent team bus from ccy.env.local. See docs/ccy-changelog.md.
+CCY_VERSION="3.85.1"  # --version, --help and --list-tokens work outside a git repository. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -120,81 +120,6 @@ CCY_HASH=$(
 # Configuration file schema version
 CONFIG_VERSION=1
 
-# Fail fast: Must be run from a git repository root
-check_git_repo || exit 1
-
-# Security check: Ensure no dangerous files are tracked in .claude/ccy/
-check_ccy_gitignore_safety || exit 1
-
-# ccy's tracked template for this checkout's ccy.env.local, and a warning if that file is older
-ccy_env_local_dist_sync || exit 1
-
-# Hostname restriction: prevent running Desktop CCY on projects locked to a specific host
-check_allowed_hostname || exit 1
-
-# Is this the relaunch of a session that asked to restart (ccy_handle_restart_exit, at the end
-# of this script)? Nobody is watching it, so it must never wait at a prompt: its arguments
-# carry every launch choice the session ran with, the prompts with one safe answer take it,
-# and the rest stop the launch with the manual resume command (lib/restart-request.bash).
-# Until the container starts, stdin is /dev/null, so a prompt nobody has accounted for here
-# fails instead of waiting for ever; the terminal comes back just before `container_cmd run`.
-ccy_restart_marker_take || exit 1
-if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
-    exec {CCY_RESTART_TTY_FD}<&0 </dev/null
-fi
-
-# Migration: detect and offer to remove old session directories (v2.x -> v3.x). A restart
-# keeps them without asking: keeping is the answer that changes nothing, and if they are still
-# here the person gave that answer when the session was launched.
-if [ -d ".claude/ccy/sessions" ] && [ -z "$CCY_RESTART_RELAUNCH_SESSION" ]; then
-    session_count=$(find .claude/ccy/sessions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)  # FAIL-FAST-OK: wc always yields a number, and 0 means "no migration needed" — the safe default
-    if [ "$session_count" -gt 0 ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "Migration: Old session directories detected"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "CCY v3.0 no longer uses sessions. Found $session_count old session(s) in:"
-        echo "  .claude/ccy/sessions/"
-        echo ""
-        echo "Claude Code now uses .claude/ directly (project-level state)."
-        echo ""
-        read -rp "$CCY_PROMPT_MIGRATION " remove_sessions
-        case "$remove_sessions" in
-            y|Y|yes|Yes)
-                rm -rf .claude/ccy/sessions
-                echo "✓ Removed .claude/ccy/sessions/"
-                # Also remove config.json if it exists (session config)
-                [ -f ".claude/ccy/config.json" ] && rm -f .claude/ccy/config.json && echo "✓ Removed .claude/ccy/config.json"
-                # Remove .claude/ccy if empty. `rmdir` refuses a non-empty
-                # directory by design, so it IS the emptiness test — asking `ls`
-                # first only added a path on which "could not list the directory"
-                # was indistinguishable from "the directory is empty", and then
-                # rmdir ran anyway on that guess.
-                if [ -d ".claude/ccy" ]; then
-                    if rmdir_result=$(rmdir .claude/ccy 2>&1); then
-                        echo "✓ Removed empty .claude/ccy/"
-                    else
-                        echo "  Kept .claude/ccy/ — $rmdir_result"
-                    fi
-                fi
-                echo ""
-                ;;
-            *)
-                echo "Keeping old sessions. You can remove them later with:"
-                echo "  rm -rf .claude/ccy/sessions/"
-                echo ""
-                ;;
-        esac
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-    fi
-fi
-
-# Get project name from directory (used for container naming)
-# Uses parent-project format to avoid collisions (defined in lib/common.bash)
-PROJECT_NAME=$(get_project_name)
-
 IMAGE_NAME="claude-yolo:latest"
 # Base image (no LSPs) - available for project Dockerfiles that want leaner images
 BASE_IMAGE_NAME="claude-yolo:base"
@@ -212,6 +137,10 @@ VERSION_CHECK_CACHE="$HOME/.cache/claude-yolo-update-checks"
 # directory, never inside VERSION_CHECK_CACHE: that one is disposable and is deleted on every
 # rebuild, and deleting this one would reset the bound that stops a restart loop.
 CCY_RESTART_HISTORY_DIR="$HOME/.cache/claude-yolo-restart-history"
+
+# The informational options come BEFORE the repository-root check: they print and exit,
+# operate on no project, and must work from any directory. Nothing above this point reads
+# or writes the working directory. Every other option goes through the check below.
 
 # Show version if requested
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
@@ -408,6 +337,88 @@ EOF
 
     exit 0
 fi
+
+# `ccy --list-tokens` on its own reads only the token store. Combined with other options it
+# is handled after argument parsing, behind the repository-root check, as any launch is.
+if [ "$#" -eq 1 ] && [ "$1" = "--list-tokens" ]; then
+    list_tokens "$TOKEN_DIR" "ccy"
+    exit 0
+fi
+
+# Fail fast: Must be run from a git repository root
+check_git_repo || exit 1
+
+# Security check: Ensure no dangerous files are tracked in .claude/ccy/
+check_ccy_gitignore_safety || exit 1
+
+# ccy's tracked template for this checkout's ccy.env.local, and a warning if that file is older
+ccy_env_local_dist_sync || exit 1
+
+# Hostname restriction: prevent running Desktop CCY on projects locked to a specific host
+check_allowed_hostname || exit 1
+
+# Is this the relaunch of a session that asked to restart (ccy_handle_restart_exit, at the end
+# of this script)? Nobody is watching it, so it must never wait at a prompt: its arguments
+# carry every launch choice the session ran with, the prompts with one safe answer take it,
+# and the rest stop the launch with the manual resume command (lib/restart-request.bash).
+# Until the container starts, stdin is /dev/null, so a prompt nobody has accounted for here
+# fails instead of waiting for ever; the terminal comes back just before `container_cmd run`.
+ccy_restart_marker_take || exit 1
+if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+    exec {CCY_RESTART_TTY_FD}<&0 </dev/null
+fi
+
+# Migration: detect and offer to remove old session directories (v2.x -> v3.x). A restart
+# keeps them without asking: keeping is the answer that changes nothing, and if they are still
+# here the person gave that answer when the session was launched.
+if [ -d ".claude/ccy/sessions" ] && [ -z "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+    session_count=$(find .claude/ccy/sessions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)  # FAIL-FAST-OK: wc always yields a number, and 0 means "no migration needed" — the safe default
+    if [ "$session_count" -gt 0 ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Migration: Old session directories detected"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "CCY v3.0 no longer uses sessions. Found $session_count old session(s) in:"
+        echo "  .claude/ccy/sessions/"
+        echo ""
+        echo "Claude Code now uses .claude/ directly (project-level state)."
+        echo ""
+        read -rp "$CCY_PROMPT_MIGRATION " remove_sessions
+        case "$remove_sessions" in
+            y|Y|yes|Yes)
+                rm -rf .claude/ccy/sessions
+                echo "✓ Removed .claude/ccy/sessions/"
+                # Also remove config.json if it exists (session config)
+                [ -f ".claude/ccy/config.json" ] && rm -f .claude/ccy/config.json && echo "✓ Removed .claude/ccy/config.json"
+                # Remove .claude/ccy if empty. `rmdir` refuses a non-empty
+                # directory by design, so it IS the emptiness test — asking `ls`
+                # first only added a path on which "could not list the directory"
+                # was indistinguishable from "the directory is empty", and then
+                # rmdir ran anyway on that guess.
+                if [ -d ".claude/ccy" ]; then
+                    if rmdir_result=$(rmdir .claude/ccy 2>&1); then
+                        echo "✓ Removed empty .claude/ccy/"
+                    else
+                        echo "  Kept .claude/ccy/ — $rmdir_result"
+                    fi
+                fi
+                echo ""
+                ;;
+            *)
+                echo "Keeping old sessions. You can remove them later with:"
+                echo "  rm -rf .claude/ccy/sessions/"
+                echo ""
+                ;;
+        esac
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+    fi
+fi
+
+# Get project name from directory (used for container naming)
+# Uses parent-project format to avoid collisions (defined in lib/common.bash)
+PROJECT_NAME=$(get_project_name)
 
 # Function to load last launch configuration for current project
 # Returns 0 if valid config loaded, 1 if no config or invalid
@@ -926,7 +937,7 @@ if [ "$HEADLESS_MODE" = true ]; then
     fi
 fi
 
-# Handle --top mode (global container management - doesn't need git repo)
+# Handle --top mode (global container management: lists and can stop every ccy container)
 if [ "$TOP_MODE" = true ]; then
     show_container_top "yolo"
     exit 0
