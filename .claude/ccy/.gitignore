@@ -37,3 +37,4 @@
 # daemon refreshes this tracked copy on upgrade; commit the update when it does.
 !claude-supervise*
 !claude-supervise.py
+!ccy.env.local.dist

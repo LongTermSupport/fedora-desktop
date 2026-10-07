@@ -83,10 +83,10 @@ the daemon or an agent.
   fixed ([report](subagent-reports/261006-qa-reviewer-dist-opus-5-5.md)). Upstream issue #88 (daemon-owned) withdrawn
   and closed. The prototype install is the hooks daemon's own SDLC runner, whose
   `ccy.env.local` the infra agent places by IaC.
-- [ ] 🔄 **Task 3.4**: Review (`qa-reviewer`), deploy through `deploy.bash`, and commit this
+- [x] ✅ **Task 3.4**: Review (`qa-reviewer`), deploy through `deploy.bash`, and commit this
   repository's own generated dist after the first launch on 3.83.0. Reviewed; CCY 3.84.0
-  deployed (meta-deploy `20261006-162702`, PASS). Left: the dist this repository's next ccy
-  launch writes, committed.
+  deployed (meta-deploy `20261006-162702`, PASS). This repository's first launch on 3.85.1
+  wrote dist version 2 and the `.gitignore` exception; both committed (2026-10-07).
 - [x] ✅ **Task 3.3**: The owner said yes ("Absolutely"): ccy binds an existing
   `ccy.env.local` read-only over the workspace (`ccy_env_local_mount_args`), so a session
   cannot rewrite its own role override. No file, no mount. Tested in the same gate. CCY
@@ -98,8 +98,9 @@ the daemon or an agent.
 - [ ] A session in a project with `.claude/ccy/ccy.env.local` prints that it sourced it,
   and its values are set in the session.
 - [ ] `git status` in that project does not list the file.
-- [ ] After a launch on CCY 3.83.0, `.claude/ccy/ccy.env.local.dist` exists, is tracked, and
-  names its version; a `ccy.env.local` based on an older one draws the launch warning.
+- [x] After a launch on CCY 3.83.0, `.claude/ccy/ccy.env.local.dist` exists, is tracked, and
+  names its version; a `ccy.env.local` based on an older one draws the launch warning (the
+  file: this repository, 2026-10-07; the warning: `scripts/test-ccy-env-local-dist.bash`).
 
 ## Delivery & Milestones
 
