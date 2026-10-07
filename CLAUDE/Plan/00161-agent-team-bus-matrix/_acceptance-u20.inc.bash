@@ -179,7 +179,7 @@ u20_owner_needs() {
 # u20_prerequisites — what M2 needs on this host, checked before M1 spends any time: ccy and its
 # image at the version the launcher requires with the agent-bus kit in it, agent-bus, and this
 # checkout's saved Quick Launch choices as the installed ccy takes them headless: the record of
-# this ccy version, its token unexpired, every SSH key usable with nobody to type a passphrase.
+# the format this ccy reads, its token unexpired, every SSH key usable with nobody to type a passphrase.
 # Then nothing of an interrupted run is left: no container in an acceptance seat, no seat.
 u20_prerequisites() {
     local want have ccy_version config_version keys key
@@ -211,7 +211,7 @@ u20_prerequisites() {
         u20_owner_needs "the ccy image has no ${CCY_KIT_PINGBUS}: ${play}"
         return 1
     fi
-    if ! keys="$("${U20[@]}" launch-keys "${PLAN_REPO_ROOT}" "${ccy_version}" "${config_version}")"; then
+    if ! keys="$("${U20[@]}" launch-keys "${PLAN_REPO_ROOT}" "${config_version}")"; then
         u20_owner_needs "launch ccy ${ccy_version} interactively in ${PLAN_REPO_ROOT} once, choosing the token and SSH keys the acceptance sessions reuse (Quick Launch saves them)"
         return 1
     fi

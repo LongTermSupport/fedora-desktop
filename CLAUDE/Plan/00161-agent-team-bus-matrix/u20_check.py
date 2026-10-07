@@ -43,8 +43,8 @@ the session ran and what they printed. Commands (stdout is the payload; reasons 
   watcher-pids                       stdin "PID<TAB>argv": the PIDs running `pingbus watch`
   seat-containers TEAM               stdin "ID<TAB>ccy-seats label": those holding a TEAM seat
   expect-no-seats-label              stdin a container's labels (JSON): a ccy session, no ccy-seats
-  launch-keys CHECKOUT CCY_VERSION CONFIG_VERSION   LAST_SSH_KEYS, one per line, refused when
-                                     ccy would discard the record as another version's
+  launch-keys CHECKOUT CONFIG_VERSION   LAST_SSH_KEYS, one per line, refused when ccy would
+                                     discard the record (another format, a key missing)
   ccy-token CHECKOUT                 the name of the ccy token ccy last launched CHECKOUT
                                      with, refused when ccy would refuse it (never its value)
   scrub CHECKOUT DIR                 replace that token's value in every file under DIR;
@@ -570,10 +570,14 @@ def seat_containers(listing: str, team: str) -> list[str]:
 _CONF_RE = re.compile(r'(?:export\s+)?([A-Z_]+)=(?:"([^"]*)"|(\S*))\s*')
 
 
-def launch_keys(checkout_dir: pathlib.Path, ccy_version: str, config_version: str) -> list[str]:
+_LAUNCH_CHOICE_KEYS = ("LAST_TOKEN", "LAST_SSH_KEYS", "LAST_NETWORK")
+
+
+def launch_keys(checkout_dir: pathlib.Path, config_version: str) -> list[str]:
     """The SSH keys (paths, or `ssh-agent`) ccy's headless Quick Launch will take from this
-    checkout's record; refused when ccy would discard the record (another ccy version or
-    record schema), since a headless launch then has no choices and is refused (D57)."""
+    checkout's record; refused when ccy would discard the record (another or no record
+    format, or a choice key missing), since a headless launch then has no choices and is
+    refused (D57). The ccy version that wrote it does not matter (Plan 00135 Task 7.5)."""
     conf = up.ccy_launch_conf(checkout_dir)
     if not conf.is_file():
         raise ValueError(f"no ccy launch record at {conf}: {up.LAUNCH_HINT}")
@@ -582,12 +586,15 @@ def launch_keys(checkout_dir: pathlib.Path, ccy_version: str, config_version: st
         match = _CONF_RE.fullmatch(line.strip())
         if match is not None:
             values[match.group(1)] = match.group(2) if match.group(2) is not None else match.group(3)
-    saved = (values.get("SAVED_CCY_VERSION"), values.get("SAVED_CONFIG_VERSION"))
-    if saved != (ccy_version, config_version):
-        raise ValueError(f"{conf} was saved by ccy {saved[0]} (record schema {saved[1]}), and the installed "
-                         f"ccy is {ccy_version} (schema {config_version}), so a headless launch would discard "
-                         f"it and be refused: launch ccy interactively in this checkout once (Quick Launch)")
-    return values.get("LAST_SSH_KEYS", "").split()
+    relaunch = "so a headless launch would discard it and be refused: launch ccy interactively in this checkout once (Quick Launch)"
+    saved = values.get("SAVED_CONFIG_VERSION")
+    if saved != config_version:
+        raise ValueError(f"{conf} is in record format {saved or 'none'} and the installed ccy reads format "
+                         f"{config_version}, {relaunch}")
+    missing = [key for key in _LAUNCH_CHOICE_KEYS if key not in values]
+    if missing:
+        raise ValueError(f"{conf} has no {', '.join(missing)} line, {relaunch}")
+    return values["LAST_SSH_KEYS"].split()
 
 
 # ---------------------------------------------------------------- the ccy token
@@ -706,7 +713,7 @@ COMMANDS = {
     "watcher-pids": (0, lambda a: _print_lines(watcher_pids(sys.stdin.read()))),
     "seat-containers": (1, lambda a: _print_lines(seat_containers(sys.stdin.read(), a[0]))),
     "expect-no-seats-label": (0, lambda a: _verdict(expect_no_seats_label(json.loads(sys.stdin.read())))),
-    "launch-keys": (3, lambda a: _print_lines(launch_keys(pathlib.Path(a[0]), a[1], a[2]))),
+    "launch-keys": (2, lambda a: _print_lines(launch_keys(pathlib.Path(a[0]), a[1]))),
     "ccy-token": (1, lambda a: print(_token(a[0]).name)),
     "scrub": (2, lambda a: _print_lines(scrub(pathlib.Path(a[1]), _token(a[0]).value))),
 }

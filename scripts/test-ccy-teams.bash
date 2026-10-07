@@ -318,6 +318,47 @@ check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err"
 check "headless with a launch-choice flag: the block is not entered" \
     "token= keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true --no-ssh)"
 
+echo "=== Quick Launch across ccy versions: kept while the file's format is unchanged ==="
+
+conf="$proj/.claude/ccy/.last-launch.conf"
+# save_as <format line, or ""> <ccy version> <hash> [key line to leave out]: a saved file as
+# another ccy wrote it. The harness's own ccy is 9.9.9, hash h, format 1.
+save_as() {
+    : >"$PROMPT_LOG"
+    {
+        [ -z "$1" ] || printf '%s\n' "$1"
+        printf 'SAVED_CCY_VERSION="%s"\nSAVED_CCY_HASH="%s"\n' "$2" "$3"
+        printf '%s\n' 'LAST_TOKEN="personal"' 'LAST_SSH_KEYS="/keys/id_a"' 'LAST_NETWORK="proj_net"'
+    } | grep -v "^${4:-NOTHING}=" >"$conf"
+}
+kept_choices="token=personal keys=/keys/id_a no_ssh=false net=proj_net no_net=false rc=0 prompt=no"
+refused="rc=1 prompt=no"
+file_left() { if [ -f "$conf" ]; then echo kept; else echo removed; fi; }
+
+save_as SAVED_CONFIG_VERSION=1 3.80.0 old
+check "another ccy version, same format: the saved choices are taken headless" "$kept_choices" "$(quick true)"
+check "  the file is kept" "kept" "$(file_left)"
+check "  no version-change discard is announced" "no" "$(has "version changed" "$work/quick.err")"
+save_as SAVED_CONFIG_VERSION=1 3.80.0 old
+check "another ccy version, same format: interactive still offers them" "yes" \
+    "$(quick false | grep -q 'prompt=yes' && echo yes || echo no)"
+save_as SAVED_CONFIG_VERSION=1 9.9.9 other-hash
+check "same version, another hash (an unbumped change): warned, choices kept" "$kept_choices" "$(quick true)"
+check "  the warning names the developer error" "yes" "$(has "without version bump" "$work/quick.err")"
+
+save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+check "another format: discarded, so headless is refused" "$refused" "$(quick true | grep -o 'rc=.*')"
+check "  the file is removed" "removed" "$(file_left)"
+check "  the discard names the format" "yes" "$(has "format" "$work/quick.err")"
+save_as "" 3.80.0 old
+check "no format line: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
+save_as SAVED_CONFIG_VERSION=1 3.80.0 old LAST_NETWORK
+check "a format-1 file missing a key: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
+check "  it names the missing key" "yes" "$(has "LAST_NETWORK" "$work/quick.err")"
+save_as SAVED_CONFIG_VERSION=1 3.80.0 old LAST_TOKEN
+check "a missing key is not filled from the environment" "$refused removed" \
+    "$(LAST_TOKEN=leaked quick true | grep -o 'rc=.*') $(file_left)"
+
 echo "=== headless: a key that needs a passphrase is refused before launch ==="
 
 awk '/^# A headless launch never unlocks an SSH key/ {p=1} p {print} p && /^fi$/ {exit}' "$LAUNCHER" >"$work/keys.bash"

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.86.2"  # Every PINGBUS_* refused from ccy.env; headless Quick Launch on stderr. See docs/ccy-changelog.md.
+CCY_VERSION="3.86.3"  # Quick Launch choices kept across ccy versions while their format is unchanged. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -119,7 +119,8 @@ CCY_HASH=$(
     } | md5sum | cut -d' ' -f1 | cut -c1-16
 )
 
-# Configuration file schema version
+# The Quick Launch file's format: the keys it holds and what they mean. Bump it only when
+# those change. A saved file of this format is kept across CCY_VERSION changes.
 CONFIG_VERSION=1
 
 IMAGE_NAME="claude-yolo:latest"
@@ -446,7 +447,9 @@ load_launch_config() {
     # Source config. `source=/dev/null` states a fact rather than silencing a
     # check: .last-launch.conf is user runtime state written at launch, not a
     # file in this repo, so there is nothing for shellcheck to follow. The
-    # failure IS handled — the `||` branch below reports and resets it.
+    # failure IS handled — the `||` branch below reports and resets it. What the file does
+    # not set must not come from the environment, so the keys are cleared first.
+    unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_LAUNCH_DATE
     # shellcheck source=/dev/null
     source "$config_file" 2>/dev/null || {
         echo "Warning: Config file corrupted, reconfiguring..." >&2
@@ -454,15 +457,15 @@ load_launch_config() {
         return 1
     }
 
-    # Validate CONFIG_VERSION (schema version)
-    if [[ "${SAVED_CONFIG_VERSION:-0}" != "$CONFIG_VERSION" ]]; then
+    # The format decides whether the saved choices can be read, not the ccy version that
+    # wrote them. A file with no format line was not written by ccy and is not trusted.
+    if [[ "${SAVED_CONFIG_VERSION:-none}" != "$CONFIG_VERSION" ]]; then
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "⚠️  Config schema outdated" >&2
+        echo "⚠️  Saved launch configuration is in another format" >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "Saved config:  v${SAVED_CONFIG_VERSION:-0}" >&2
-        echo "Expected:      v${CONFIG_VERSION}" >&2
+        echo "Saved format:  ${SAVED_CONFIG_VERSION:-none}" >&2
+        echo "This ccy reads format ${CONFIG_VERSION}" >&2
         echo "" >&2
-        echo "Your saved launch configuration uses an old format." >&2
         echo "Reconfiguring with interactive prompts..." >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
         echo "" >&2
@@ -470,19 +473,19 @@ load_launch_config() {
         return 1
     fi
 
-    # Validate CCY_VERSION and CCY_HASH together
-    local version_match=false
-    local hash_match=false
+    # Every key of the format is present, even if empty: an empty one is a choice.
+    local key
+    for key in LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK; do
+        if [[ ! -v "$key" ]]; then
+            echo "Saved launch configuration $config_file has no $key line; reconfiguring with interactive prompts..." >&2
+            rm -f "$config_file"
+            return 1
+        fi
+    done
 
-    [[ "${CCY_VERSION}" == "${SAVED_CCY_VERSION:-}" ]] && version_match=true
-    [[ "${CCY_HASH}" == "${SAVED_CCY_HASH:-}" ]] && hash_match=true
-
-    if $version_match && $hash_match; then
-        # Perfect match - config is valid
-        return 0
-
-    elif $version_match && ! $hash_match; then
-        # VERSION same but HASH different = Developer forgot to update version!
+    # Same version, different hash: the launcher changed without a version bump. Said for
+    # the developer; the choices are still in this ccy's format, so they are kept.
+    if [[ "${CCY_VERSION}" == "${SAVED_CCY_VERSION:-}" && "${CCY_HASH}" != "${SAVED_CCY_HASH:-}" ]]; then
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
         echo "⚠️  DEVELOPER ERROR: CCY script modified without version bump" >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
@@ -492,28 +495,11 @@ load_launch_config() {
         echo "" >&2
         echo "The CCY script has been modified but CCY_VERSION was not updated." >&2
         echo "This is a developer error - version numbers must be incremented" >&2
-        echo "when the script changes to ensure config compatibility." >&2
-        echo "" >&2
-        echo "Forcing reconfiguration for safety..." >&2
+        echo "when the script changes." >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
         echo "" >&2
-        rm -f "$config_file"
-        return 1
-
-    elif ! $version_match; then
-        # VERSION different = Normal upgrade/downgrade
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "ℹ️  CCY version changed" >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "Saved config:  v${SAVED_CCY_VERSION:-unknown}" >&2
-        echo "Current CCY:   v${CCY_VERSION}" >&2
-        echo "" >&2
-        echo "Reconfiguring for compatibility with new version..." >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "" >&2
-        rm -f "$config_file"
-        return 1
     fi
+    return 0
 }
 
 # Function to save launch configuration for current project
@@ -1217,7 +1203,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo ""
     elif [ "$HEADLESS_MODE" = true ]; then
         # Every choice below would be a prompt, read from the session's own input.
-        print_error "Headless launch with no launch choices: this checkout has no saved Quick Launch choices for this ccy version, and a headless launch never asks."
+        print_error "Headless launch with no launch choices: this checkout has no saved Quick Launch choices this ccy can read, and a headless launch never asks."
         echo "  Launch ccy once here interactively, or give the choices: --token NAME and --ssh-key PATH, --ssh-agent or --no-ssh (and --network NAME or --no-network)." >&2
         exit 1
     fi
@@ -1244,8 +1230,8 @@ if [ "$NO_SSH_MODE" = false ] && [ ${#SSH_KEYS[@]} -eq 0 ]; then
     # would stop at the same menu with nobody to answer it. Its record takes the key file
     # (lib/session-registry.bash). A forwarded agent, or no key, cannot be replayed: such a
     # restore still stops at the menu, and verify-restore reports it there. A session with
-    # no launch flags is left to Quick Launch, whose saved settings do not survive a
-    # CCY_VERSION change (load_launch_config), so its first restore after an upgrade prompts.
+    # no launch flags is left to Quick Launch, whose saved settings survive a CCY_VERSION
+    # change while their format (CONFIG_VERSION) is unchanged (load_launch_config).
     if [ ${#SSH_KEYS[@]} -eq 1 ] && [ "${SSH_KEYS[0]}" != "$SSH_AGENT_SENTINEL" ]; then
         ccy_session_name=$(ccy_tmux_current_session) || exit 1
         if [ -n "$ccy_session_name" ]; then

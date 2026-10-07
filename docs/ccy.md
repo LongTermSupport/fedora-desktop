@@ -263,9 +263,11 @@ the pane for a person — except the SSH key passphrase on a headless server, be
 menu, would be in no argument. Once the key is chosen, the launcher adds `--ssh-key <file>`
 to the session's record, and its restore never shows the menu. A session started with
 none of those flags is restored through Quick Launch, and its record is left alone. Quick
-Launch's saved settings are discarded whenever the ccy version changes, so the first
-restore after a ccy upgrade stops such a session at the prompts, and `verify-restore`
-reports it `WAITING-AT-PROMPT`. A forwarded agent (`--ssh-agent`) or "no key" cannot be replayed:
+Launch's saved settings survive a ccy upgrade (since CCY 3.86.3): they are discarded only
+when the file's format (`SAVED_CONFIG_VERSION`, raised only when its keys or their meaning
+change) is not the one this ccy reads, or a choice key is missing. The first restore after
+such a change stops the session at the prompts, and `verify-restore` reports it
+`WAITING-AT-PROMPT`. A forwarded agent (`--ssh-agent`) or "no key" cannot be replayed:
 that restore still waits at the menu, and `verify-restore` reports
 `WAITING-AT-PROMPT ssh-key`.
 

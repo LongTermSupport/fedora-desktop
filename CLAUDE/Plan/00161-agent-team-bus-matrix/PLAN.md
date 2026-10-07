@@ -202,9 +202,11 @@ repository; opt-in per machine and per team.
   refuses every `PINGBUS_*` variable from `ccy.env`/`ccy.env.local` (D62); a headless
   launch's Quick Launch banner goes to stderr; the real `pingbus seat exec` command line
   is gated (ccy 3.86.2, container 2.48). The review's finding on a ccy upgrade discarding
-  Quick Launch choices before U20's acceptance is the owner's decision, open. Its host run is
+  Quick Launch choices before U20's acceptance is settled by Plan 00135 Task 7.5 (ccy
+  3.86.3): the choices are kept across ccy versions while their format is unchanged, and
+  U20's prerequisite checks the format, not the version. Its host run is
   `meta-deploy.bash` (deploy, then acceptance); the owner launches ccy here interactively
-  once between the ccy upgrade and the acceptance (the prerequisites say so). The
+  only if the checkout has no saved choices of this format (the prerequisites say so). The
   throwaway-checkout build below is superseded. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)

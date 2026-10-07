@@ -565,41 +565,55 @@ class ContainerTest(unittest.TestCase):
 
 class LaunchChoicesTest(unittest.TestCase):
     def conf(self, tmp: str, version: str = "3.86.1", keys: str = "/home/u/.ssh/id_ed25519 ssh-agent",
-             config: str = "1") -> pathlib.Path:
+             config: str | None = "1", omit: str = "") -> pathlib.Path:
         checkout = pathlib.Path(tmp)
         (checkout / ".claude" / "ccy").mkdir(parents=True, exist_ok=True)
-        (checkout / ".claude" / "ccy" / ".last-launch.conf").write_text(
-            f'# CCY Launch Configuration\nSAVED_CONFIG_VERSION={config}\nSAVED_CCY_VERSION="{version}"\n'
-            f'LAST_TOKEN="team1"\nLAST_SSH_KEYS="{keys}"\nLAST_NETWORK=""\n', encoding="utf-8")
+        lines = ["# CCY Launch Configuration"]
+        if config is not None:
+            lines.append(f"SAVED_CONFIG_VERSION={config}")
+        lines += [f'SAVED_CCY_VERSION="{version}"', 'LAST_TOKEN="team1"', f'LAST_SSH_KEYS="{keys}"', 'LAST_NETWORK=""']
+        lines = [line for line in lines if not (omit and line.startswith(f"{omit}="))]
+        (checkout / ".claude" / "ccy" / ".last-launch.conf").write_text("\n".join(lines) + "\n", encoding="utf-8")
         return checkout
 
-    def test_the_saved_keys_of_this_ccy_version(self) -> None:
+    def test_the_saved_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             checkout = self.conf(tmp)
-            self.assertEqual(uc.launch_keys(checkout, "3.86.1", "1"), ["/home/u/.ssh/id_ed25519", "ssh-agent"])
+            self.assertEqual(uc.launch_keys(checkout, "1"), ["/home/u/.ssh/id_ed25519", "ssh-agent"])
+
+    def test_another_ccy_version_of_the_same_format_is_taken(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(uc.launch_keys(self.conf(tmp, version="3.80.0"), "1"),
+                             ["/home/u/.ssh/id_ed25519", "ssh-agent"])
 
     def test_no_keys_is_no_ssh(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(uc.launch_keys(self.conf(tmp, keys=""), "3.86.1", "1"), [])
+            self.assertEqual(uc.launch_keys(self.conf(tmp, keys=""), "1"), [])
 
-    def test_another_ccy_version_or_schema_is_refused(self) -> None:
+    def test_another_or_no_format_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
-                uc.launch_keys(self.conf(tmp, version="3.86.0"), "3.86.1", "1")
+                uc.launch_keys(self.conf(tmp, config="2"), "1")
             with self.assertRaises(ValueError):
-                uc.launch_keys(self.conf(tmp, config="0"), "3.86.1", "1")
+                uc.launch_keys(self.conf(tmp, config=None), "1")
+
+    def test_a_missing_key_is_refused(self) -> None:
+        for key in ("LAST_TOKEN", "LAST_SSH_KEYS", "LAST_NETWORK"):
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(ValueError, msg=key):
+                    uc.launch_keys(self.conf(tmp, omit=key), "1")
 
     def test_no_record_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
-                uc.launch_keys(pathlib.Path(tmp), "3.86.1", "1")
+                uc.launch_keys(pathlib.Path(tmp), "1")
 
     def test_cli(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             checkout = self.conf(tmp)
-            self.assertEqual(run_main("launch-keys", str(checkout), "3.86.1", "1")[:2],
+            self.assertEqual(run_main("launch-keys", str(checkout), "1")[:2],
                              (0, "/home/u/.ssh/id_ed25519\nssh-agent\n"))
-            status, _, err = run_main("launch-keys", str(checkout), "3.87.0", "1")
+            status, _, err = run_main("launch-keys", str(checkout), "2")
             self.assertEqual(status, 1)
             self.assertIn("launch ccy", err)
 

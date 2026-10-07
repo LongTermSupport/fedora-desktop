@@ -265,8 +265,8 @@ Report: [`subagent-reports/261006-issue69-fixes-opus.md`](subagent-reports/26100
   key chosen at the prompt goes into the record", "the SSH key menu, as it is printed") and
   `test-ccy-sessions-take-over.bash` ("which CCY session this process runs in"). The
   launcher's call into the new code is covered only by an awk source-order check; the
-  launcher cannot run in the container. Sessions started with no flags are not covered:
-  Quick Launch's saved settings go on every ccy version change (Task 7.5).
+  launcher cannot run in the container. Sessions started with no flags are restored through
+  Quick Launch, whose saved settings now survive a ccy version change (Task 7.5).
 - [x] ✅ **Task 7.3**: `ccy-sessions reboot` asks logind's `CanReboot` before it warns
   anyone, and refuses on any answer but `yes`, pointing to `sudo reboot-with-update`. Every
   session that cannot be warned is named in the same refusal, with its options. A failed
@@ -278,12 +278,19 @@ Report: [`subagent-reports/261006-issue69-fixes-opus.md`](subagent-reports/26100
   infra agent repeats the server reboot check and runs `ccy-sessions verify-restore --wait 300`.
   Task 7.1's fix ships in the same CCY 3.82.0. Deployed on the desktop: meta-deploy
   `20261006-134254` (`run.bash --changed`, `play-claude-yolo.yml` failed=0). The server
-  needs the same play from F44. Expected: a session started with no launch
-  flags reads `WAITING-AT-PROMPT` on the first reboot after the deploy (Task 7.5).
-- [ ] 🧑 **Task 7.5**: OWNER decision, found while fixing 7.2: `load_launch_config` deletes
-  the saved Quick Launch settings on any ccy version change, so after most deploys the first
-  restore of a session started with no flags goes through every prompt again. Keep that, or
-  keep the settings across versions when their shape has not changed?
+  needs the same play from F44. Expected: a session started with no launch flags is
+  restored through Quick Launch without a prompt once the host runs CCY 3.86.3 or later,
+  including the first reboot after that deploy: the file an earlier ccy saved is format 1
+  and is kept (Task 7.5).
+- [x] ✅ **Task 7.5**: OWNER decision (2026-10-07): option A, keep the saved Quick Launch
+  settings across ccy versions when their shape has not changed. `load_launch_config`
+  deleted them on any ccy version change. It now keeps them while the file's format
+  (`SAVED_CONFIG_VERSION`, the existing `CONFIG_VERSION=1`, raised only when the keys or
+  their meaning change) matches, and discards them when the format differs or is missing or
+  a choice key is missing. Every existing file is format 1 with the same keys, so it is
+  kept. CCY 3.86.3. Also unblocks Plan 00161's U20 prerequisite, which now checks the
+  format, not the version. Tests: `test-ccy-teams.bash` ("Quick Launch across ccy versions").
+  [report](subagent-reports/261007-quick-launch-across-versions-opus.md).
 
 ## Dependencies
 

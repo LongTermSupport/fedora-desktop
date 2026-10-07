@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.86.3 — container 2.48
+
+- **Quick Launch keeps its saved choices across ccy versions** (Plan 00135 Task 7.5). The
+  saved `.claude/ccy/.last-launch.conf` was deleted on every `CCY_VERSION` change, so after
+  most deploys the next launch went through every prompt again, a session restored with no
+  launch flags stopped at them, and a headless launch was refused. The file is now kept
+  while its format (`SAVED_CONFIG_VERSION`, still 1, raised only when the keys or their
+  meaning change) matches, whichever ccy version wrote it. It is discarded, as before, when
+  the format differs or is missing, and now also when `LAST_TOKEN`, `LAST_SSH_KEYS` or
+  `LAST_NETWORK` is missing; values the file does not set are no longer taken from the
+  environment. Files written by earlier versions are format 1 with the same keys, so they
+  are kept. The saved token, keys and network go through the same checks as before. Same
+  version with a different hash (an unbumped change) still warns, but no longer discards.
+  Gated by `scripts/test-ccy-teams.bash`.
+
 ## 3.86.2 — container 2.48
 
 - **Every `PINGBUS_*` variable is refused from `ccy.env` and `ccy.env.local`** (Plan
