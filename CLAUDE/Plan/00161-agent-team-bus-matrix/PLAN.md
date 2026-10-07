@@ -132,6 +132,13 @@ repository; opt-in per machine and per team.
   session with a real bundle. The ccy address (DESIGN.md §5.3) is settled as the bus
   address, as the podman README and `docs/ccy.md` already say (H1's dummy leg, 26-10-07).
   `admin.py` does not accept the address pasta gives `host.containers.internal`.
+  Wave 8: U20 built, host run pending: `acceptance.bash` slice M2
+  (`_acceptance-u20.inc.bash`, `u20_check.py`, `test_u20_check.py`; [report](subagent-reports/261007-u20-builder-opus.md)).
+  Three real ccy sessions run headless with stream-json input, each in a throwaway checkout
+  opted in through `ccy.env.local`, logged in with the ccy token by name: M2.1 an idle one
+  woken by its socket acks a review from another, M2.2 a second same-count notice wakes it
+  again, M2.3 one without the socket is woken by `pingbus wait`, M2.4 a human message reaches
+  only the one it mentions. `meta-deploy.bash` already runs `acceptance.bash`.
 - [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
   on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
@@ -144,6 +151,15 @@ repository; opt-in per machine and per team.
   per-encapsulation READMEs, `test_member_docs.py`) built, reviewed and fixed; its podman
   README was checked against U19's entrypoint as built: it matches, the address included
   (settled by H1's dummy leg, M2). No host run of its own.
+  U23 built, host run pending: `acceptance.bash` slice (`_acceptance-u23.inc.bash`), after
+  M1 in the same acceptance team. A throwaway LXC container (Fedora from the download
+  template) and a throwaway docker container (a digest-pinned python image) each join by
+  their README's steps (the kit, `suggest-handle`, `add-member`, the bundle, `config check`),
+  their bridge networks added to `allow_from` as found at run time, and exchange a review and
+  an ack with M1's member a. The VM member is a libvirt guest the owner names
+  (`--vm-ssh=` or `agent_bus_acceptance_vm` in the untracked host_vars); without LXC,
+  rootful Docker or that guest, the leg reports SKIPPED-NEEDS-OWNER and the run exits 3,
+  NOT ACCEPTED, naming what the owner must provide.
 - [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it). Wave 7: U25 (`element.py`, `play-agent-bus-element.yml`,
   `agent_bus_element_teams` in `localhost.yml.dist`) built, reviewed and fixed. Its host
