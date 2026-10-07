@@ -132,6 +132,13 @@ repository; opt-in per machine and per team.
   session with a real bundle. The ccy address (DESIGN.md §5.3) is settled as the bus
   address, as the podman README and `docs/ccy.md` already say (H1's dummy leg, 26-10-07).
   `admin.py` does not accept the address pasta gives `host.containers.internal`.
+  Wave 8: U20 built, host run pending: `acceptance.bash` slice M2
+  (`_acceptance-u20.inc.bash`, `u20_check.py`, `test_u20_check.py`; [report](subagent-reports/261007-u20-builder-opus.md)).
+  Three real ccy sessions run headless with stream-json input, each in a throwaway checkout
+  opted in through `ccy.env.local`, logged in with the ccy token by name: M2.1 an idle one
+  woken by its socket acks a review from another, M2.2 a second same-count notice wakes it
+  again, M2.3 one without the socket is woken by `pingbus wait`, M2.4 a human message reaches
+  only the one it mentions. `meta-deploy.bash` already runs `acceptance.bash`.
 - [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
   on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
