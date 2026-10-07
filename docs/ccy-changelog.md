@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.86.1 — container 2.47
+
+- **`--no-supervise` runs `claude` unwrapped even when the project arms a wrapper.** A
+  project's `ccy.env` (or `ccy.env.local`) arms the supervisor with
+  `export CCY_CLAUDE_WRAPPER="${CCY_CLAUDE_WRAPPER:-…}"`, and `--no-supervise` forwards no
+  value to beat it, so the project's wrapper came back and the flag did nothing in such a
+  project. The entrypoint now sets every wrapper aside under `--no-supervise`, saying on
+  stderr which one it did not use. A headless session driven through a pipe (Plan 00161's
+  acceptance) needs this: the PTY supervisor is not for piped input. Gated by
+  `scripts/test-ccy-agent-bus.bash`.
+
 ## 3.86.0 — container 2.46
 
 - **`ccy --teams <seat>@<team>[,…]` puts a session in agent team bus teams** (Plan 00161),

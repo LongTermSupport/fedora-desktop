@@ -1118,7 +1118,8 @@ ccy --no-supervise   # or: CCY_NO_SUPERVISOR=1 ccy
 ```
 
 This runs `claude` unwrapped — no auto-compaction **and no ctrl+z guard**, so ctrl+z can
-freeze the session. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).
+freeze the session. It also sets aside a wrapper the project's `ccy.env` or `ccy.env.local`
+arms (since CCY 3.86.1), and says so at launch. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).
 
 **If the supervisor is missing or broken.** A project with no
 `.claude/ccy/claude-supervise.py` gets a one-line notice at launch saying ctrl+z is

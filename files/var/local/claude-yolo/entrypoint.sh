@@ -576,6 +576,9 @@ unset _ccy_bus_var _ccy_bus_was _ccy_bus_before_PINGBUS_SEATS _ccy_bus_before_PI
 # ── Supervisor wrap: DEFAULT ON when the project ships a supervisor ───────────
 #
 # Precedence, highest first:
+#   0. `ccy --no-supervise` (CCY_NO_SUPERVISOR=1): no wrapper at all, whatever the
+#      project's ccy.env or ccy.env.local armed, since they arm it with the
+#      ${CCY_CLAUDE_WRAPPER:-...} idiom and --no-supervise forwards no value to beat it.
 #   1. CCY_CLAUDE_WRAPPER forwarded from the host (`ccy --supervise`, or a host
 #      export) — an explicit operator instruction, always wins.
 #   2. CCY_CLAUDE_WRAPPER set by the project ccy.env (or this checkout's ccy.env.local)
@@ -595,7 +598,12 @@ unset _ccy_bus_var _ccy_bus_was _ccy_bus_before_PINGBUS_SEATS _ccy_bus_before_PI
 # everywhere. Opt out entirely with CCY_NO_SUPERVISOR=1 / `ccy --no-supervise`.
 CCY_SUPERVISOR_PATH="${CCY_SUPERVISOR_PATH:-/workspace/.claude/ccy/claude-supervise.py}"
 
-if [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]] && [[ "${CCY_NO_SUPERVISOR:-}" != "1" ]]; then
+if [[ "${CCY_NO_SUPERVISOR:-}" == "1" ]]; then
+    if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
+        echo "Supervisor: off (--no-supervise); the wrapper the project set is not used: $CCY_CLAUDE_WRAPPER" >&2
+    fi
+    unset CCY_CLAUDE_WRAPPER
+elif [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     if [ -f "$CCY_SUPERVISOR_PATH" ]; then
         # Syntax-check before exec. A corrupt or truncated supervisor would
         # otherwise take every session in every project down with it, and this

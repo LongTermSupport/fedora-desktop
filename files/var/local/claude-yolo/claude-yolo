@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.86.0"  # ccy --teams <seat>@<team>[,...] puts a session in agent team bus teams; headless Quick Launch. See docs/ccy-changelog.md.
+CCY_VERSION="3.86.1"  # --no-supervise beats a wrapper the project's ccy.env arms. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,7 +76,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.46"
+REQUIRED_CONTAINER_VERSION="2.47"
 
 set -e
 

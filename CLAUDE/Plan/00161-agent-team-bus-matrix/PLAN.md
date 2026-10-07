@@ -186,10 +186,18 @@ repository; opt-in per machine and per team.
   **U33 built** (`pingbus history`, read backwards
   from the room through the receive checks, `HISTORY` lines, the skill's section; D55; no
   host run of its own, exercised by U20); U30 and U33 merged together on
-  `seats-integration` (the skill's seats section names `pingbus history`). **U20 is to be reworked**
-  to run in this checkout with sessions launched by `ccy --teams <seat>@acceptance` and no
-  checkout or owner setup step (DESIGN.md §12 "U20"); its throwaway-checkout build below
-  is superseded and its host run waits for U29–U33. U12 built:
+  `seats-integration` (the skill's seats section names `pingbus history`). **U20 reworked,
+  built, host run pending**: M2 in this checkout (DESIGN.md §12 "U20"), sessions launched by
+  `ccy --headless --no-restore --no-supervise --teams <seat>@acceptance` onto seats `acca`,
+  `accb`, `accc` their launches create, no setup step; M2.0-M2.10 (seats created, woken by
+  the socket twice, the watcher-lost fallback, a human message, refused launches, seats freed,
+  a seat's later session and its return after removal reading `pingbus history`, a plain
+  `ccy` on no team, the checkout unchanged); `--no-supervise` now beats the project's
+  wrapper (ccy 3.86.1, container 2.47); D59-D60;
+  [report](subagent-reports/261007-U20-rework-builder-opus.md). Its host run is
+  `meta-deploy.bash` (deploy, then acceptance); the owner launches ccy here interactively
+  once between the ccy upgrade and the acceptance (the prerequisites say so). The
+  throwaway-checkout build below is superseded. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
   the syncer keeps for `status`; `wait` and `watch` publish `listening`. U18 built:
@@ -205,7 +213,7 @@ repository; opt-in per machine and per team.
   session with a real bundle. The ccy address (DESIGN.md §5.3) is settled as the bus
   address, as the podman README and `docs/ccy.md` already say (H1's dummy leg, 26-10-07).
   `admin.py` does not accept the address pasta gives `host.containers.internal`.
-  Wave 8: U20 built, host run pending: `acceptance.bash` slice M2
+  Wave 8 (superseded by the rework above): U20 built: `acceptance.bash` slice M2
   (`_acceptance-u20.inc.bash`, `u20_check.py`, `test_u20_check.py`; [report](subagent-reports/261007-u20-builder-opus.md)).
   Three real ccy sessions run headless with stream-json input, each in a throwaway checkout
   opted in through `ccy.env.local`, logged in with the ccy token by name: M2.1 an idle one
@@ -215,7 +223,6 @@ repository; opt-in per machine and per team.
   host run stopped at launch: ccy refused signing on with no SSH identity, reading only
   `~/.gitconfig`. CCY 3.85.2 takes the checkout's own signing setting first, and U20's
   checkouts turn signing off ([report](subagent-reports/261007-ccy-signing-local-opus.md)).
-  Host rerun pending.
 - [ ] 🔄 **M3 other encapsulations on this host, the play**: U21–U23. U24 (a team on another
   machine over WireGuard) is a later phase, not part of v1 (DESIGN.md D46). U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`

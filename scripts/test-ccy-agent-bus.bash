@@ -97,10 +97,12 @@ exec() {
 }
 STUB
 
-# run_step <wrapper|-> <args...>: the stub's lines joined with ';', or "rc=<n>" when the
-# step refused. "-" runs with no supervisor at all. Inherits the caller's environment, which
-# is where the launcher's -e variables would be. PROJECT-ENV announces each file it sources
-# on stdout; anything else there lands in the result and fails the exact comparisons.
+# run_step <wrapper|-|+> <args...>: the stub's lines joined with ';', or "rc=<n>" when the
+# step refused. "-" is `ccy --no-supervise` (no wrapper from the host, CCY_NO_SUPERVISOR=1);
+# "+" forwards neither, so the project's ccy.env or the default decides. Inherits the
+# caller's environment, which is where the launcher's -e variables would be. PROJECT-ENV
+# announces each file it sources on stdout; anything else there lands in the result and
+# fails the exact comparisons.
 run_step() {
     local wrapper="$1" out rc
     shift
@@ -110,6 +112,8 @@ run_step() {
         if [ "$wrapper" = "-" ]; then
             unset CCY_CLAUDE_WRAPPER
             export CCY_NO_SUPERVISOR=1
+        elif [ "$wrapper" = "+" ]; then
+            unset CCY_CLAUDE_WRAPPER CCY_NO_SUPERVISOR
         else
             export CCY_CLAUDE_WRAPPER="$wrapper"
         fi
@@ -164,6 +168,24 @@ check "a ccy.env.local that sets only the role: untouched" \
     "argv=claude|--x;$PLAIN_ENV" "$(run_step - claude --x)"
 check "a command other than claude is left alone" \
     "argv=bash|-l;$PLAIN_ENV" "$(run_step - bash -l)"
+
+echo "=== --no-supervise beats a wrapper the project's ccy.env arms ==="
+
+# This repository's own ccy.env arms the supervisor with ${CCY_CLAUDE_WRAPPER:-...}, the
+# idiom that lets a host-forwarded wrapper win. --no-supervise forwards none, so without the
+# rule the project's wrapper came back: a headless session driven through a pipe (Plan 00161
+# U20) then ran under the PTY supervisor it asked to be rid of.
+PROJECT_WRAPPER="export CCY_CLAUDE_WRAPPER=\"\${CCY_CLAUDE_WRAPPER:-python3 $ccy/claude-supervise.py --arm --}\""
+env_files "$PROJECT_WRAPPER" ""
+check "without --no-supervise the project's wrapper runs claude" \
+    "argv=python3|$ccy/claude-supervise.py|--arm|--|claude|--x;$PLAIN_ENV" "$(run_step + claude --x)"
+check "with --no-supervise claude runs unwrapped" \
+    "argv=claude|--x;$PLAIN_ENV" "$(run_step - claude --x)"
+check "and says the project's wrapper was set aside" "yes" "$(err_has "--no-supervise")"
+env_files "" "$PROJECT_WRAPPER"
+check "a wrapper armed by ccy.env.local is set aside too" \
+    "argv=claude|--x;$PLAIN_ENV" "$(run_step - claude --x)"
+env_files "" ""
 
 echo "=== a launch with --teams: PINGBUS_SEATS from the launcher ==="
 
