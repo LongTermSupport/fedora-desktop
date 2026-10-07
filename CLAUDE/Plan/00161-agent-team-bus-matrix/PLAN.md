@@ -16,7 +16,8 @@ homeserver per team, installed by a play or a standalone installer on any Fedora
 server, a standard-library CLI (`pingbus`) through which an agent sends and receives
 **pings** (a closed verb plus a reference to a committed artefact), free text from the
 team's humans aimed at specific agents, hooks that wake an idle session, a launch flag that
-puts one ccy session in a team (`ccy --team`), and an optional desktop client play. v1
+puts one ccy session in one or more teams, a seat in each (`ccy --teams <seat>@<team>[,…]`),
+and an optional desktop client play. v1
 teams live on this machine; teams spanning machines are a later phase (owner, 2026-10-07).
 
 The owner's answers (Task 1.3) change two of the issue's rules: humans may send free text to
@@ -99,14 +100,23 @@ repository; opt-in per machine and per team.
 - [x] ✅ **Task 1.8**: OWNER: the rework's three questions, answered 2026-10-07 (journal) and
   folded into DESIGN.md (§1, §5.2, §5.3, §5.5, §5.6, §12 "U20", D44–D46;
   [report](subagent-reports/261007-seats-design-launch-team-opus.md)): a ccy session is in a
-  team only when launched with it (`ccy --team <team> [--seat <name>]`), and a plain `ccy`
-  is in none; no checkout-level opt-in (`agent-bus join`/`leave`, `PINGBUS_TEAMS` in
-  `ccy.env.local`, `seat add` and `--no-bus` dropped); a seat is one identity across the
-  teams its launches name; v1 teams live on this machine, so U24 and success criterion 3
-  move to a later phase.
+  team only when launched with it, and a plain `ccy` is in none; no checkout-level opt-in
+  (`agent-bus join`/`leave`, `PINGBUS_TEAMS` in `ccy.env.local`, `seat add` and `--no-bus`
+  dropped); v1 teams live on this machine, so U24 and success criterion 3 move to a later
+  phase. Its flags (`--team`, `--seat`) and its one seat identity across teams are replaced
+  by Task 1.10.
 
 - [x] ✅ **Task 1.9**: The phone (probe H7) and U26 leave v1 with cross-machine teams (owner,
   2026-10-07; DESIGN.md D47): v1 humans use Element Desktop on this machine.
+
+- [x] ✅ **Task 1.10**: OWNER decisions 2026-10-07 (journal) folded into DESIGN.md (§1, §2,
+  §5.2, §5.3, §5.5, §5.6, §9, §12 "U20", D48–D50;
+  [report](subagent-reports/261007-seats-design-teams-flag-opus.md)): one flag,
+  `ccy --teams <seat>@<team>[,…]`, replaces `--team`/`--seat`; a seat belongs to one team
+  (the identity is the (team, seat) pair, replacing D45) and a session holds at most one
+  seat per team; nothing picks a seat for a launch, so lowest-free numbering is removed; a
+  seat's handle `<host>` is the checkout's role where `ccy.env.local` sets one, else
+  `local`, so U20 no longer needs the owner to assign `HOOKS_DAEMON_HOSTNAME`.
 
 ### Phase 2: Build, by milestone (units U00–U33 in DESIGN.md §12)
 
@@ -150,17 +160,20 @@ repository; opt-in per machine and per team.
   `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
   member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. Seats
-  (Tasks 1.6–1.8), designed, not built: **U29** seat handles, registry v2, park and
-  return (`add-member --seat`, `park-member`); **U30** the seat claim (`pingbus seat exec`), `SEAT` lines in `status`, the seat at SessionStart; **U31** ccy `--team`
-  (repeatable) and `--seat` (refused without `--team`); with `--team` the launcher picks
-  and creates the seat on the host (unnamed launches on the lowest free number), passes
-  the teams and seat into the container, labels it `ccy-seat`; a plain `ccy` passes
-  nothing; the entrypoint refuses bus variables from `ccy.env`/`ccy.env.local`; U19's
-  `ccy.env.local` block removed; headless Quick Launch; **U32** the host commands
-  `agent-bus seat take|list|remove`; **U33** `pingbus history`. **U20 is to be reworked**
-  to run in this checkout with sessions launched by `ccy --team acceptance --seat <name>`
-  and no checkout setup step (DESIGN.md §12 "U20"); its throwaway-checkout build below is
-  superseded and its host run waits for U29–U33. U12 built:
+  (Tasks 1.6–1.10), designed, not built: **U29** seat handles, registry v2, park and
+  return (`add-member --seat`, `park-member`), `local` named in the protocol's handle
+  rules; **U30** the `<seat>@<team>` list parser, the claim of every listed seat
+  (`pingbus seat exec`, a lock per seat, the session home of links), `SEAT` lines in
+  `status`, the seats at SessionStart; **U31** ccy `--teams <seat>@<team>[,…]` (malformed
+  lists and a second seat of one team refused, 64); the launcher creates any missing seat
+  on the host, passes `PINGBUS_SEATS` into the container, labels it `ccy-seats`; a plain
+  `ccy` passes nothing; the entrypoint refuses bus variables from
+  `ccy.env`/`ccy.env.local`; U19's `ccy.env.local` block removed; headless Quick Launch;
+  **U32** the host commands `agent-bus seat check|take|list|remove` (a new seat's `<host>`
+  the checkout's role, else `local`); **U33** `pingbus history`. **U20 is to be reworked**
+  to run in this checkout with sessions launched by `ccy --teams <seat>@acceptance` and no
+  checkout or owner setup step (DESIGN.md §12 "U20"); its throwaway-checkout build below
+  is superseded and its host run waits for U29–U33. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
   the syncer keeps for `status`; `wait` and `watch` publish `listening`. U18 built:
@@ -171,7 +184,7 @@ repository; opt-in per machine and per team.
   from `--plugin-dir <kit>/plugin/pingbus`. Wave 7: U19 (the ccy image joins
   teams listed in `PINGBUS_TEAMS` from `ccy.env.local`; container 2.45, CCY 3.85.0;
   `scripts/test-ccy-agent-bus.bash`) built, reviewed and fixed; its `ccy.env.local` opt-in is
-  superseded by `ccy --team` and is removed by U31. Its host run, the
+  superseded by `ccy --teams` and is removed by U31. Its host run, the
   `play-claude-yolo.yml` image rebuild, is the last step of `deploy.bash`; then a ccy
   session with a real bundle. The ccy address (DESIGN.md §5.3) is settled as the bus
   address, as the podman README and `docs/ccy.md` already say (H1's dummy leg, 26-10-07).
@@ -217,10 +230,11 @@ repository; opt-in per machine and per team.
 
 ## Success Criteria
 
-- [ ] Several ccy sessions in one checkout, each launched with `--team` on its own seat,
-  exchange a `review` ping and an `ack`; the idle one is woken; a later session in a seat
-  continues as its member and reads its history; a plain `ccy` in the same checkout is on
-  no team (owner, 2026-10-07: DESIGN.md D34, D40, D44).
+- [ ] Several ccy sessions in one checkout, each launched with `--teams <seat>@<team>` on
+  its own seat, exchange a `review` ping and an `ack`; the idle one is woken; a later
+  session in a seat continues as its member and reads its history; two sessions cannot
+  hold one seat, and one launch cannot take two seats of one team; a plain `ccy` in the
+  same checkout is on no team (owner, 2026-10-07: DESIGN.md D34, D40, D44, D48).
 - [ ] A human's message addressed to one agent in Element reaches that agent, marked as
   from that human; no other agent's `pingbus` delivers it, and no agent's free text
   reaches another agent.
