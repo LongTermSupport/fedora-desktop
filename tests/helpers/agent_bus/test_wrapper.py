@@ -238,6 +238,54 @@ class WrapperTest(unittest.TestCase):
         self.assertEqual(run.returncode, 77)
         self.assertIn("root", run.stderr)
 
+    def run_unprivileged(self, *args: str, stub: str = "") -> subprocess.CompletedProcess:
+        """The wrapper as an ordinary user: as root, dropped to nobody (a world-readable copy
+        of the wrapper, since the checkout may not be readable by nobody)."""
+        wrapper, drop = WRAPPER, []
+        if ROOT:
+            setpriv = shutil.which("setpriv")
+            self.assertIsNotNone(setpriv)
+            drop = [setpriv, "--reuid=65534", "--regid=65534", "--clear-groups"]
+            public = tempfile.mkdtemp()
+            self.addCleanup(shutil.rmtree, public)
+            os.chmod(public, 0o755)
+            wrapper = pathlib.Path(public) / "agent-bus"
+            shutil.copy(WRAPPER, wrapper)
+            os.chmod(wrapper, 0o644)
+        script = f'source "$1"; {stub}; shift; main "$@"'
+        return subprocess.run([*drop, "bash", "-c", script, "bash", str(wrapper), *args],
+                              capture_output=True, text=True, check=False, cwd="/")
+
+    def test_seat_commands_run_as_the_caller_in_place(self) -> None:
+        stub = 'run_user_tool() { printf "%s\\n" "$PWD" "$@"; }'
+        for args in (["seat", "list"], ["seat", "take", "dev1@team-a", "--no-prompt"]):
+            with self.subTest(args=args):
+                run = self.run_unprivileged(*args, stub=stub)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.splitlines(), ["/", *args])
+
+    def test_seat_commands_are_refused_as_root(self) -> None:
+        stub = 'run_user_tool() { echo ran; }; run_admin_tool() { echo ran; }'
+        run = self.run_wrapper("seat", "take", "dev1@team-a", stub=stub)
+        if ROOT:
+            self.assertEqual(run.returncode, 77)
+            self.assertIn("not through sudo", run.stderr)
+            self.assertEqual(run.stdout, "")
+        else:
+            self.assertEqual(run.stdout, "ran\n")
+
+    def test_the_user_tool_runs_the_zipapp_without_a_privilege_change(self) -> None:
+        text = WRAPPER.read_text()
+        body = text[text.index("run_user_tool() {"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn('/usr/bin/python3 -I "$AGENT_BUS_PYZ" "$@"', body)
+        self.assertNotIn("runuser", body)
+        self.assertNotIn("cd ", body)
+
+    def test_usage_lines_name_the_checkout_seat_commands(self) -> None:
+        usage = [line for line in WRAPPER.read_text().splitlines() if line.startswith("#   agent-bus seat ")]
+        self.assertEqual([line.split()[3] for line in usage], ["check", "take", "list", "remove"])
+
     def test_shellcheck(self) -> None:
         run = subprocess.run(["shellcheck", "-x", str(WRAPPER)], capture_output=True, text=True, check=False)
         self.assertEqual(run.returncode, 0, run.stdout)

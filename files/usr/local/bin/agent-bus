@@ -13,8 +13,16 @@
 #   sudo agent-bus rotate-token TEAM HANDLE --out=DIR
 #   sudo agent-bus human password TEAM NAME
 #
+# A ccy checkout's seats (DESIGN.md section 5.6) are the exception: run as yourself, in
+# the checkout, never through sudo, since root never writes in a user's checkout. They
+# reach the root side only through `sudo agent-bus add-member|park-member`.
+#   agent-bus seat check SEAT@TEAM[,SEAT@TEAM...]
+#   agent-bus seat take SEAT@TEAM[,SEAT@TEAM...] [--no-prompt]
+#   agent-bus seat list
+#   agent-bus seat remove SEAT@TEAM[,SEAT@TEAM...]
+#
 # Exit codes: the tool's (DESIGN.md section 4), plus 64 for a bad --out or a missing
-# sudo, and 77 when not run as root.
+# sudo, and 77 when an admin command is not run as root or a seat command is.
 set -euo pipefail
 
 readonly AGENT_BUS_USER=agent-bus
@@ -42,6 +50,11 @@ die() {
 run_admin_tool() {
     cd /
     runuser -u "$AGENT_BUS_USER" -- /usr/bin/python3 -I "$AGENT_BUS_PYZ" "$@"
+}
+
+# The seat commands: as the caller, in the caller's directory (the checkout).
+run_user_tool() {
+    exec /usr/bin/python3 -I "$AGENT_BUS_PYZ" "$@"
 }
 
 place_bundle() {
@@ -99,6 +112,12 @@ place_bundle() {
 }
 
 main() {
+    if [[ ${1:-} == seat ]]; then
+        [[ $EUID -ne 0 ]] \
+            || die "$EXIT_NOT_ROOT" "run agent-bus seat as yourself in the checkout, not through sudo: root never writes in a user's checkout"
+        run_user_tool "$@"
+        return
+    fi
     [[ $EUID -eq 0 ]] || die "$EXIT_NOT_ROOT" "run it as root: sudo agent-bus ..."
     case ${1:-} in
         add-member | rotate-token)

@@ -72,8 +72,7 @@ container 2.45 → 2.46.
   refused until one interactive launch there (or explicit `--token` and `--ssh-key`/
   `--ssh-agent`/`--no-ssh`). U20's rework launches headless sessions: it must pass the
   choices as flags or expect one interactive launch first.
-- **Decision numbering.** D56-D57 may collide with rows U32 adds on its own branch;
-  renumber on integration as D55 was.
+- **Decision numbering.** D56-D57 kept on integration; U32's row became D58.
 - **Host run.** None of its own: `deploy.bash`'s last leg (play-claude-yolo.yml) already
   installs the launcher and rebuilds the image; its label now names U31. Plan 00161 is
   already in `meta-deploy.bash`'s `PLANS`. A real `--teams` launch is exercised by U20.

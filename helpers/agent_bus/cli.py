@@ -24,8 +24,8 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import BinaryIO, TextIO
 
-from helpers.agent_bus import admin, registry, render, teamfile
-from helpers.pingbus import protocol
+from helpers.agent_bus import admin, checkout, registry, render, teamfile
+from helpers.pingbus import config, inbox, protocol
 
 PROG = "agent-bus"
 TOOL_VERSION = "0.1.0"
@@ -35,6 +35,7 @@ EXIT_OK = 0
 EXIT_USAGE = 64
 EXIT_UNREACHABLE = 69
 EXIT_REFUSED = 70
+EXIT_BUSY = 75
 EXIT_CONFIG = 78
 
 HUMAN_ACTIONS = ("password", "devices", "logout-all", "lock", "unlock")
@@ -181,6 +182,39 @@ def cmd_render_dropin(args: argparse.Namespace, io: _Io) -> int:
     return EXIT_OK
 
 
+# ---------------------------------------------------------------- a ccy checkout's seats
+
+
+def cmd_seat_check(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
+    io.lines([checkout.check(args.seats, system)])
+    return EXIT_OK
+
+
+def _emitter(io: _Io) -> Callable[[str], None]:
+    def emit(line: str) -> None:
+        io.lines([line])
+        io.stdout.flush()
+    return emit
+
+
+def cmd_seat_take(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
+    checkout.take(args.seats, system, no_prompt=args.no_prompt, say=io.say, emit=_emitter(io))
+    return EXIT_OK
+
+
+def cmd_seat_list(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
+    lines, failures = checkout.seat_list(system)
+    io.lines(lines)
+    for failure in failures:
+        io.say(failure)
+    return EXIT_CONFIG if failures else EXIT_OK
+
+
+def cmd_seat_remove(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
+    checkout.remove(args.seats, system, say=io.say, emit=_emitter(io))
+    return EXIT_OK
+
+
 def cmd_version(args: argparse.Namespace, io: _Io) -> int:
     io.lines([f"{PROG} {TOOL_VERSION} protocol {protocol.PROTOCOL_VERSION}"])
     return EXIT_OK
@@ -249,11 +283,33 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
                         help="the interface carrying each listen address")
     dropin.set_defaults(handler=cmd_render_dropin)
     commands.add_parser("version", help="print the versions").set_defaults(handler=cmd_version)
+
+    seat_parser = commands.add_parser(
+        "seat", help="a ccy checkout's seats: run as yourself (not through sudo), in the checkout")
+    seats = seat_parser.add_subparsers(dest="seat", metavar="WHAT", required=True)
+    seat_list_help = "<seat>@<team>[,<seat>@<team>...], one seat per team"
+    seat_check = seats.add_parser("check", help="check a list; print it in canonical form; change nothing")
+    seat_check.add_argument("seats", metavar="LIST", help=seat_list_help)
+    seat_check.set_defaults(seat_handler=cmd_seat_check)
+    seat_take = seats.add_parser("take", help="create each named seat this checkout lacks; refuse a held one")
+    seat_take.add_argument("seats", metavar="LIST", help=seat_list_help)
+    seat_take.add_argument("--no-prompt", action="store_true",
+                           help="run sudo with -n: only its cached credential (a headless launch)")
+    seat_take.set_defaults(seat_handler=cmd_seat_take)
+    seats.add_parser("list", help="one SEAT line per seat of this checkout").set_defaults(
+        seat_handler=cmd_seat_list)
+    seat_remove = seats.add_parser("remove", help="park each named seat and delete its directory")
+    seat_remove.add_argument("seats", metavar="LIST", help=seat_list_help)
+    seat_remove.set_defaults(seat_handler=cmd_seat_remove)
     return parser
 
 
 def _run(args: argparse.Namespace, root: pathlib.Path,
-         transport_factory: Callable[[str], admin.Transport], io: _Io) -> int:
+         transport_factory: Callable[[str], admin.Transport], io: _Io,
+         checkout_system: checkout.System | None) -> int:
+    if hasattr(args, "seat_handler"):
+        system = checkout.real_system() if checkout_system is None else checkout_system
+        return args.seat_handler(args, system, io)
     if hasattr(args, "team_handler"):
         team = admin.load_team(root, args.team)
         return args.team_handler(args, team, transport_factory(team.base_url()), io)
@@ -268,17 +324,24 @@ def main(
     stdin: TextIO | None = None,
     stdout: BinaryIO | None = None,
     stderr: TextIO | None = None,
+    checkout_system: checkout.System | None = None,
 ) -> int:
     io = _Io(sys.stdin if stdin is None else stdin, sys.stdout.buffer if stdout is None else stdout,
              sys.stderr if stderr is None else stderr)
     try:
         args = build_parser(io.stdout).parse_args(argv)
-        return _run(args, pathlib.Path(root), transport_factory, io)
+        return _run(args, pathlib.Path(root), transport_factory, io, checkout_system)
     except _ParserExit as done:
         return done.status
-    except UsageError as exc:
+    except (UsageError, config.UsageError) as exc:
         io.say(str(exc))
         return EXIT_USAGE
+    except inbox.Busy as exc:
+        io.say(str(exc))
+        return EXIT_BUSY
+    except (checkout.CheckoutError, config.ConfigError, inbox.StateError) as exc:
+        io.say(str(exc))
+        return EXIT_CONFIG
     except admin.Unreachable as exc:
         io.say(str(exc))
         return EXIT_UNREACHABLE
