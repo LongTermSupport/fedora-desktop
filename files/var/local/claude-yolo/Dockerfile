@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.45"
+LABEL claude-yolo-version="2.46"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -369,8 +369,9 @@ COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 #
 # optional/agent-bus/ is the agent team bus member kit (Plan 00161): the pingbus zipapp,
 # which play-claude-yolo.yml builds from helpers/ with the same reproducible builder as
-# agent-bus-install, the Claude Code plugin and its settings. The entrypoint links pingbus
-# and loads the plugin only when ccy.env.local sets PINGBUS_TEAMS.
+# agent-bus-install, the Claude Code plugin and its settings. The entrypoint links pingbus,
+# loads the plugin and claims the seats only when the launch passed PINGBUS_SEATS
+# (ccy --teams).
 COPY optional/ /opt/claude-yolo/optional/
 RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude \
     && chmod 755 /opt/claude-yolo/optional/agent-bus/pingbus

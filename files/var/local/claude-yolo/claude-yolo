@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.85.2"  # A checkout's own commit/tag signing setting decides whether a key is needed. See docs/ccy-changelog.md.
+CCY_VERSION="3.86.0"  # ccy --teams <seat>@<team>[,...] puts a session in agent team bus teams; headless Quick Launch. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session)
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-seats)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -68,13 +68,15 @@ source "$SCRIPT_DIR/lib/restart-request.bash"
 source "$SCRIPT_DIR/lib/session-lifecycle.bash"
 # shellcheck source=lib/tmux-session.bash
 source "$SCRIPT_DIR/lib/tmux-session.bash"
+# shellcheck source=lib/agent-bus-seats.bash
+source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.45"
+REQUIRED_CONTAINER_VERSION="2.46"
 
 set -e
 
@@ -184,7 +186,17 @@ Options:
   --custom-docker        AI-guided Dockerfile creation and customization
   --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
   --prompt "text"        Start Claude Code with a preseeded prompt
-  --headless             Run in headless mode (requires --prompt)
+  --headless             Run in headless mode (requires --prompt). With no --token,
+                         --ssh-key, --ssh-agent, --no-ssh, --network or --no-network it
+                         takes this checkout's saved Quick Launch choices without asking,
+                         and is refused when there are none; a key that needs a
+                         passphrase is refused (load it with ssh-add, use --ssh-agent)
+  --teams SEAT@TEAM[,SEAT@TEAM...]
+                         Put this session in agent team bus teams, one seat in each
+                         (e.g. --teams dev1@dev-team,qa2@other-team; quote a list with
+                         spaces). A seat is created on its first use (sudo agent-bus
+                         add-member) and is held by one session at a time. Without
+                         --teams a session is in no team. Needs play-agent-bus.yml.
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -581,6 +593,14 @@ NEXT_IS_UNTIL=false
 OPT_MAX_AGE=""
 OPT_RUN_FOR=""
 OPT_UNTIL=""
+# --teams: its list as given, and where the flag and its value sit in the arguments (1-based;
+# the same position for --teams=<list>), so the canonical list can replace them.
+NEXT_IS_TEAMS=false
+TEAMS_GIVEN=false
+TEAMS_LIST=""
+TEAMS_FLAG_POS=0
+TEAMS_VALUE_POS=0
+CCY_ARG_POS=0
 SAW_DOUBLE_DASH=false
 
 # The arguments exactly as given, for a supervisor-requested relaunch (see the end of this
@@ -588,12 +608,22 @@ SAW_DOUBLE_DASH=false
 CCY_ORIG_ARGS=("$@")
 
 for arg in "$@"; do
+    CCY_ARG_POS=$((CCY_ARG_POS + 1))
     if [ "$SAW_DOUBLE_DASH" = true ]; then
         # Everything after `--` is forwarded raw to claude without ccy parsing
         CLAUDE_ARGS+=("$arg")
     elif [ "$arg" = "--" ]; then
         # POSIX-style separator: end of ccy options, rest is for claude
         SAW_DOUBLE_DASH=true
+    elif [ "$NEXT_IS_TEAMS" = true ]; then
+        # An option where the list belongs means the list was left out (exit 64, usage).
+        if [[ "$arg" == -* ]]; then
+            print_error "--teams needs a list, <seat>@<team>[,<seat>@<team>...], before $arg"
+            exit 64
+        fi
+        TEAMS_LIST="$arg"
+        TEAMS_VALUE_POS=$CCY_ARG_POS
+        NEXT_IS_TEAMS=false
     elif [ "$NEXT_IS_ENGINE" = true ]; then
         # Validate engine choice
         if [[ "$arg" != "docker" ]] && [[ "$arg" != "podman" ]]; then
@@ -653,6 +683,19 @@ for arg in "$@"; do
         NEXT_IS_RUN_FOR=true
     elif [ "$arg" = "--until" ]; then
         NEXT_IS_UNTIL=true
+    elif [ "$arg" = "--teams" ] || [[ "$arg" == "--teams="* ]]; then
+        if [ "$TEAMS_GIVEN" = true ]; then
+            print_error "--teams is given once, with every seat in it: --teams <seat>@<team>,<seat>@<team>"
+            exit 64
+        fi
+        TEAMS_GIVEN=true
+        TEAMS_FLAG_POS=$CCY_ARG_POS
+        if [ "$arg" = "--teams" ]; then
+            NEXT_IS_TEAMS=true
+        else
+            TEAMS_LIST="${arg#--teams=}"
+            TEAMS_VALUE_POS=$CCY_ARG_POS
+        fi
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
         REBUILD_MODE="full"
@@ -733,6 +776,36 @@ for arg in "$@"; do
         CLAUDE_ARGS+=("$arg")
     fi
 done
+
+# --teams <seat>@<team>[,...] (lib/agent-bus-seats.bash). Checked here, before any prompt,
+# SSH or token work, by `agent-bus seat check`, which holds the seat and team grammar and
+# prints the canonical list; its exit code is the launch's. The canonical list then replaces
+# the one given in this launch's arguments, so tmux's session record (a restore) and a
+# restart replay it. Without --teams nothing here runs and agent-bus is never called.
+CCY_SEATS=""
+if [ "$NEXT_IS_TEAMS" = true ] || { [ "$TEAMS_GIVEN" = true ] && [ -z "$TEAMS_LIST" ]; }; then
+    print_error "--teams needs a list: --teams <seat>@<team>[,<seat>@<team>...]"
+    exit 64
+fi
+if [ "$TEAMS_GIVEN" = true ]; then
+    _ccy_teams_rc=0
+    CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST") || _ccy_teams_rc=$?
+    if [ "$_ccy_teams_rc" -ne 0 ]; then
+        # An unquoted `--teams a@x, b@y` reaches ccy as `a@x,` and a separate word.
+        _ccy_teams_next="${*:$((TEAMS_VALUE_POS + 1)):1}"
+        if [[ "$TEAMS_LIST" =~ ,[[:space:]]*$ ]] && [ -n "$_ccy_teams_next" ]; then
+            echo "  The shell split the list at a space. Write it without the space, or quote it:" >&2
+            echo "    --teams '${TEAMS_LIST} ${_ccy_teams_next}'" >&2
+        fi
+        exit "$_ccy_teams_rc"
+    fi
+    _ccy_teams_args=()
+    mapfile -d '' -t _ccy_teams_args < <(ccy_teams_canonical_args "$TEAMS_FLAG_POS" "$TEAMS_VALUE_POS" "$CCY_SEATS" "$@")
+    wait "$!" || exit 1
+    set -- "${_ccy_teams_args[@]}"
+    CCY_ORIG_ARGS=("$@")
+    unset _ccy_teams_args _ccy_teams_rc _ccy_teams_next
+fi
 
 # Export the GitHub-443 toggle as the env var consumed BOTH by the host-side SSH
 # probe in build_ssh_mounts_and_validate (ssh-handling.bash) and by the container
@@ -815,6 +888,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
                 --headless --supervise --no-supervise --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
                 --max-age --run-for --until
+                --teams
                 --update-token --list-tokens --export-token --network --connect --disconnect
                 --custom --custom-docker --top --prevent --help
             )
@@ -1080,8 +1154,12 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         while true; do
             # A restore takes the saved configuration without asking: it is the one the
             # person last chose in this project, and the only evidence of what they want.
+            # So does a headless launch, whose stdin is the session's own input.
             if [ "$SESSION_RESTORE" = true ]; then
                 echo "Session restore: using the previous configuration."
+                use_config=Y
+            elif [ "$HEADLESS_MODE" = true ]; then
+                echo "Headless launch: using the previous configuration."
                 use_config=Y
             else
                 read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config
@@ -1105,6 +1183,18 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                         SPECIFIED_NETWORK="$LAST_NETWORK"
                         NETWORK_FROM_CONFIG=true
                     fi
+                    # Headless, an empty saved choice is that choice (no key, no network),
+                    # never the picker it would otherwise fall through to; a saved launch
+                    # with no token cannot be replayed.
+                    if [ "$HEADLESS_MODE" = true ]; then
+                        if [[ -z "$LAST_TOKEN" ]]; then
+                            print_error "Headless launch: the saved Quick Launch choices name no token, and a headless launch never asks for one."
+                            echo "  Launch with --token NAME (and --ssh-key, --ssh-agent or --no-ssh)." >&2
+                            exit 1
+                        fi
+                        [[ -n "$LAST_SSH_KEYS" ]] || NO_SSH_MODE=true
+                        [[ -n "$LAST_NETWORK" ]] || NO_NETWORK_MODE=true
+                    fi
                     break
                     ;;
                 N|n|No|no)
@@ -1123,7 +1213,22 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
 
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
+    elif [ "$HEADLESS_MODE" = true ]; then
+        # Every choice below would be a prompt, read from the session's own input.
+        print_error "Headless launch with no launch choices: this checkout has no saved Quick Launch choices for this ccy version, and a headless launch never asks."
+        echo "  Launch ccy once here interactively, or give the choices: --token NAME and --ssh-key PATH, --ssh-agent or --no-ssh (and --network NAME or --no-network)." >&2
+        exit 1
     fi
+fi
+
+# A headless launch never unlocks an SSH key: ssh-add's passphrase prompt would read the
+# session's own input, or wait for ever. A key that needs one refuses it here, before the
+# container starts (a server restore's passphrase file still counts).
+if [ "$HEADLESS_MODE" = true ] \
+    && ! ccy_restart_keys_unattended "$RESTORE_SSH_PASSPHRASE_FILE" "${SSH_KEYS[@]}"; then
+    print_error "Headless launch: an SSH key needs a passphrase (see above), and a headless launch never asks for one."
+    echo "  Load it into your ssh-agent first (ssh-add <key>) and launch with --ssh-agent, or use a key with no passphrase, or --no-ssh." >&2
+    exit 1
 fi
 
 # Discover and select SSH keys (sets SSH_KEYS array)
@@ -3527,6 +3632,15 @@ ccy_lifecycle_finalize || exit 1
 # `set -e` would turn the container's exit status into this script's before the restart
 # check below could look at it, so capture it. Any status other than 75 is passed straight
 # through, as it always was.
+#
+# The agent team bus seats of a launch with --teams are taken here, as late as possible, so a
+# seat is created (sudo agent-bus add-member) only for a launch that is about to start; a held
+# seat or one that cannot be made stops it with agent-bus's code. With nobody to answer
+# (headless, a restore, a restart) sudo never prompts. A plain launch calls nothing and its
+# container gets no bus variable and no ccy-seats label (lib/agent-bus-seats.bash).
+_ccy_seats_unattended="$CCY_UNATTENDED_LAUNCH"
+[ "$HEADLESS_MODE" = true ] && _ccy_seats_unattended=true
+ccy_seats_take "$CCY_SEATS" "$_ccy_seats_unattended" || exit $?
 container_rc=0
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
@@ -3535,6 +3649,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     --label "ccy-github=$CCY_LABEL_GITHUB" \
     --label "ccy-token=$CCY_LABEL_TOKEN" \
     --label "ccy-ssh-keys=$CCY_LABEL_SSH_KEYS" \
+    "${CCY_SEAT_RUN_ARGS[@]}" \
     $NETWORK_FLAG \
     "${GPU_DEVICE_FLAGS[@]}" \
     "${DOCKER_MOUNTS[@]}" \

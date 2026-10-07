@@ -168,11 +168,16 @@ repository; opt-in per machine and per team.
   primitive, the session home of links, `SEAT` lines in `status`; `config.py` accepts a
   linked team entry only onto a user-owned 0700 directory; the seats at SessionStart; the
   skill's seats section; protocol §12-§15; D52-D54; no host run of its own, reaches the
-  image with U31 and is exercised by U20); the rest not built: **U31** ccy `--teams <seat>@<team>[,…]` (malformed
-  lists and a second seat of one team refused, 64); the launcher creates any missing seat
-  on the host, passes `PINGBUS_SEATS` into the container, labels it `ccy-seats`; a plain
-  `ccy` passes nothing; the entrypoint refuses bus variables from
-  `ccy.env`/`ccy.env.local`; U19's `ccy.env.local` block removed; headless Quick Launch;
+  image with U31 and is exercised by U20); **U31 built**, host run pending (ccy 3.86.0,
+  container 2.46: `ccy --teams <seat>@<team>[,…]` checked by `agent-bus seat check` before
+  anything runs, `seat take` just before the container, `PINGBUS_SEATS` and the `ccy-seats`
+  label, `--teams <canonical list>` in restart and restore; a plain `ccy` calls no
+  `agent-bus`; the entrypoint takes seats only from the launcher and fronts both final
+  exec lines with `pingbus seat exec --`; dist version 3 without U19's block; headless
+  Quick Launch; `lib/agent-bus-seats.bash`, `scripts/test-ccy-teams.bash`; D56-D57;
+  [report](subagent-reports/261007-U31-builder-opus.md); its host run is the image
+  rebuild in `deploy.bash`, and it needs U32's `seat check`/`seat take` to launch into a
+  team); not built:
   **U32** the host commands `agent-bus seat check|take|list|remove` (a new seat's `<host>`
   the checkout's role, else `local`); **U33 built** (`pingbus history`, read backwards
   from the room through the receive checks, `HISTORY` lines, the skill's section; D55; no

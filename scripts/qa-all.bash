@@ -593,8 +593,9 @@ fi
 project_env_summary=$(qa_gate_case_count "$project_env_out")
 qa_pass_line ccy-project-env "$project_env_summary"
 
-# entrypoint.sh's agent team bus step (Plan 00161 U19): opt-in from ccy.env.local only, a
-# refused bundle stops the launch, the plugin args land inside the wrapper's --, inert unset.
+# entrypoint.sh's agent team bus step (Plan 00161 U31): seats only from the launcher's
+# PINGBUS_SEATS (a bus variable from ccy.env or ccy.env.local refused), the plugin args land
+# inside the wrapper's --, the seat claim fronts both final exec lines, inert unset.
 ccy_agent_bus_out=""
 if ! ccy_agent_bus_out="$(bash "$SCRIPT_DIR/test-ccy-agent-bus.bash" 2>&1)"; then
     qa_hard_gate_failed ccy-agent-bus \
@@ -603,6 +604,18 @@ if ! ccy_agent_bus_out="$(bash "$SCRIPT_DIR/test-ccy-agent-bus.bash" 2>&1)"; the
 fi
 ccy_agent_bus_summary=$(qa_gate_case_count "$ccy_agent_bus_out")
 qa_pass_line ccy-agent-bus "$ccy_agent_bus_summary"
+
+# The launcher's --teams (Plan 00161 U31): usage errors and agent-bus seat check's refusals stop
+# the launch before any prompt, seat take just before the container, a plain launch calls no
+# agent-bus; headless Quick Launch takes the saved choices and never reaches a prompt.
+ccy_teams_out=""
+if ! ccy_teams_out="$(bash "$SCRIPT_DIR/test-ccy-teams.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-teams \
+        "ccy --teams launcher tests failed" \
+        "$ccy_teams_out"
+fi
+ccy_teams_summary=$(qa_gate_case_count "$ccy_teams_out")
+qa_pass_line ccy-teams "$ccy_teams_summary"
 
 # lib/common.bash's .claude/ccy/.gitignore guard: session data stays ignored, the tracked
 # files (ccy.env.local.dist among them) are let through, ccy.env.local never is.
