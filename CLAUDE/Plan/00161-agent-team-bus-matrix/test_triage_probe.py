@@ -595,8 +595,8 @@ class StoppingTest(unittest.TestCase):
         self.assertEqual(calls, ["stop"])
 
 
-def _done(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess([], returncode, stdout, "")
+def _done(stdout: str = "", returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess([], returncode, stdout, stderr)
 
 
 class _FakeListener:
@@ -612,7 +612,8 @@ class _FakeListener:
 class AddressLegsTest(unittest.TestCase):
     """H1 and H2 with every host call replaced: only their gap reporting is under test."""
 
-    def leg(self, name: str, bus_address: str, which: dict[str, str]) -> str:
+    def leg(self, name: str, bus_address: str, which: dict[str, str],
+            run_result: subprocess.CompletedProcess[str] | None = None) -> str:
         hosts = {"primary": "198.51.100.20"}
         if bus_address:
             hosts["bus"] = bus_address
@@ -623,7 +624,7 @@ class AddressLegsTest(unittest.TestCase):
                 mock.patch.object(tp, "_host_addresses", return_value=hosts),
                 mock.patch.object(tp, "Listener", _FakeListener),
                 mock.patch.object(tp, "_bridges", return_value=[]),
-                mock.patch.object(tp, "run", return_value=_done("net-a active")),
+                mock.patch.object(tp, "run", return_value=run_result or _done("net-a active")),
                 mock.patch.object(tp, "run_ok", return_value=""),
                 mock.patch.object(tp.shutil, "which", side_effect=which.get),
                 mock.patch.object(tp.time, "sleep"),
@@ -651,6 +652,18 @@ class AddressLegsTest(unittest.TestCase):
         text = self.leg("h2", "192.0.2.7", {"virsh": "/usr/bin/virsh"})
         self.assertIn("owner step", text)
         self.assertNotIn("Not established here", text)
+
+    def test_h2_with_the_docker_image_missing_names_the_deploy_leg_that_pulls_it(self) -> None:
+        missing = _done(returncode=1, stderr="Error: No such image: busybox")
+        with self.assertRaisesRegex(tp.ProbeError, "not present locally"):
+            self.leg("h2", "192.0.2.7", {"docker": "/usr/bin/docker"}, missing)
+        self.assertIn("deploy.bash pulls it", self.text)
+
+    def test_h2_with_docker_failing_otherwise_reports_dockers_error(self) -> None:
+        denied = _done(returncode=1, stderr="permission denied while trying to connect to the Docker daemon socket")
+        with self.assertRaisesRegex(tp.ProbeError, "permission denied") as caught:
+            self.leg("h2", "192.0.2.7", {"docker": "/usr/bin/docker"}, denied)
+        self.assertNotIn("not present", str(caught.exception))
 
 
 class ListenerTagTest(unittest.TestCase):

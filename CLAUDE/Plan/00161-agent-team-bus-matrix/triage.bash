@@ -77,6 +77,9 @@ done
 # shellcheck source=../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_h2-docker-image.inc.bash
+source "${PLAN_SCRIPT_DIR}/_h2-docker-image.inc.bash"
 
 PLAN_USAGE="usage: triage.bash [--bus-address=<ip>] [--docker-image=<ref>] [--element-seconds=<n>] [--claude-only | --reach-only] [-h|--help]
 
@@ -85,7 +88,8 @@ Host-only, read-only, never prompts.
   --bus-address=<ip>     an address already assigned on this host (the future agentbus0
                          address); H1, H2 and the H3 unit also try it
   --docker-image=<ref>   a locally present image with sh and nc for H2's docker leg
-                         (default docker.io/library/busybox:latest; nothing is pulled)
+                         (default ${H2_DOCKER_IMAGE%%@*}, pinned by digest; nothing is
+                         pulled here, deploy.bash pulls it)
   --element-seconds=<n>  how long H6 runs Element under pasta (default 60)
   --claude-only          only the U01 Claude Code legs (no sudo)
   --reach-only           only H1 and H2, against --bus-address (which it needs)
@@ -96,7 +100,7 @@ plan_mode gather
 plan_parse_common_flags "$@"
 
 busAddress=""
-dockerImage="docker.io/library/busybox:latest"
+dockerImage="${H2_DOCKER_IMAGE}"
 elementSeconds="60"
 claudeOnly=0
 reachOnly=0

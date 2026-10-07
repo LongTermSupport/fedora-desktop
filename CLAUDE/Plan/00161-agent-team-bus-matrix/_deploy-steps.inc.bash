@@ -8,7 +8,7 @@
 # on the first failure, explicitly, since a leg runs in an `if` where errexit is off.
 #
 # Reads deploy.bash's globals: INSTALLER, BUS_ADDRESS, TEAM, TEAM_FILE, PLAY_VARS_PRESENT,
-# PLAY_VARS_ABSENT, and the plan library's PLAN_RUN_DIR, PLAN_REPO_ROOT and PLAN_SCRIPT_DIR.
+# PLAY_VARS_ABSENT, H2_DOCKER_IMAGE, and the plan library's PLAN_RUN_DIR, PLAN_REPO_ROOT and PLAN_SCRIPT_DIR.
 # Sets TEAM_PRESENT.
 
 # run_installer <label> <args...> — agent-bus-install as root. Its stdout (the CHANGED and
@@ -155,6 +155,16 @@ play_team_present_again() {
 play_team_absent() {
     run_play play-absent "${PLAY_VARS_ABSENT}" changed || return 1
     TEAM_PRESENT=0
+}
+
+# pull_h2_docker_image — the image triage H2's docker leg runs in, which the triage never
+# pulls itself. With no docker there is nothing to pull, and H2 records docker as not installed.
+pull_h2_docker_image() {
+    if ! command -v docker >/dev/null; then
+        printf '==> docker is not installed: nothing to pull, H2 records that\n'
+        return 0
+    fi
+    docker pull --quiet "${H2_DOCKER_IMAGE}" || return 1
 }
 
 # On the way out of a failed run (plan_on_cleanup): the throwaway team must not outlive it.

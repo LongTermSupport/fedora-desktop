@@ -27,15 +27,17 @@
 #   8. U22: play-agent-bus.yml with extra vars declaring only zz-deploy-check (the same team
 #      file) present: the recap must count a change; again: it must count none; then the
 #      team absent with purge: it must count a change. The same plan_on_cleanup applies;
-#   9. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory;
-#  10. U19: play-claude-yolo.yml, which installs the ccy launcher and rebuilds the image with
+#   9. `docker pull` of the busybox image triage H2 runs in (_h2-docker-image.inc.bash, pinned
+#      by digest; it stays), when docker is installed, since the triage itself pulls nothing;
+#  10. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory;
+#  11. U19: play-claude-yolo.yml, which installs the ccy launcher and rebuilds the image with
 #      the pingbus zipapp and the agent-bus kit (CCY 3.85.0, container 2.45).
 #
 # WHAT STAYS, deliberately (every desktop carries the homeserver software): the packages of
 # DESIGN.md section 3.2, the agent-bus user, /var/lib/agent-bus{,-install}, the pinned
 # Tuwunel, the zipapps, /usr/local/bin/agent-bus and pingbus, /usr/local/sbin/agent-bus-install,
 # the member kit, the three template units (no instance enabled), and the NetworkManager dummy
-# connection agentbus0 holding <ip>, across reboots. Nothing of zz-deploy-check stays. The
+# connection agentbus0 holding <ip>, across reboots; and the busybox image in docker. Nothing of zz-deploy-check stays. The
 # log, the team file, the play vars and each installer and play run's stdout stay in the
 # untracked run directory.
 #
@@ -67,6 +69,9 @@ readonly TEAM="zz-deploy-check"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=_bus-address.inc.bash
 source "${PLAN_SCRIPT_DIR}/_bus-address.inc.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_h2-docker-image.inc.bash
+source "${PLAN_SCRIPT_DIR}/_h2-docker-image.inc.bash"
 
 PLAN_USAGE="usage: deploy.bash [--bus-address=<ip>] [-h|--help]
 
@@ -130,6 +135,7 @@ plan_deploy_leg "write the play vars for ${TEAM} present and absent" write_play_
 plan_deploy_leg "play-agent-bus.yml with ${TEAM} present: a change" play_team_present
 plan_deploy_leg "play-agent-bus.yml again: no change" play_team_present_again
 plan_deploy_leg "play-agent-bus.yml with ${TEAM} absent, purged: a change" play_team_absent
+plan_deploy_leg "pull triage H2's docker image (busybox, pinned)" pull_h2_docker_image
 plan_deploy_leg "triage H1 and H2 against ${BUS_ADDRESS}" \
     "${PLAN_SCRIPT_DIR}/triage.bash" --reach-only "--bus-address=${BUS_ADDRESS}"
 plan_deploy_leg "play-claude-yolo.yml (U19: the pingbus kit in the ccy image)" \

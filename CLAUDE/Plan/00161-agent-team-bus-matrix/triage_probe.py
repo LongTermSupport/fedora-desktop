@@ -1574,12 +1574,17 @@ def leg_h2(args: argparse.Namespace, report: Report) -> None:
     hosts = _host_addresses(args.bus_address)
     listener = Listener(list(hosts.values()))
     rows: list[list[object]] = []
-    owner_needed = _bus_gap(args.bus_address)
+    not_established = _bus_gap(args.bus_address)
     try:
-        if not shutil.which("docker"):
+        inspected = run(["docker", "image", "inspect", args.docker_image]) if shutil.which("docker") else None
+        if inspected is None:
             rows.append(["docker", "-", "-", "not installed"])
-        elif run(["docker", "image", "inspect", args.docker_image]).returncode != 0:
-            owner_needed.append(f"docker: image {args.docker_image} is not present locally (this triage pulls nothing)")
+        elif inspected.returncode != 0 and "no such image" in inspected.stderr.lower():
+            not_established.append(f"docker: image {args.docker_image} is not present locally "
+                                "(this triage pulls nothing; deploy.bash pulls it)")
+        elif inspected.returncode != 0:
+            not_established.append(f"docker image inspect {args.docker_image} exited {inspected.returncode}: "
+                                f"{inspected.stderr.strip()}")
         else:
             for name, host in hosts.items():
                 result = run(["docker", "run", "--rm", args.docker_image, "sh", "-c",
@@ -1591,7 +1596,7 @@ def leg_h2(args: argparse.Namespace, report: Report) -> None:
         else:
             running = run_ok(["sudo", "-n", "lxc-ls", "--running", "-1"]).split()
             if not running:
-                owner_needed.append("lxc: no running container; start one and re-run")
+                not_established.append("lxc: no running container; start one and re-run")
             for name, host in (hosts.items() if running else ()):
                 result = run(["sudo", "-n", "lxc-attach", "-n", running[0], "--", "bash", "-c",
                               f"printf '%s\\n' h2-lxc-{name} > /dev/tcp/{host}/{listener.port} && echo connected"],
@@ -1611,9 +1616,9 @@ def leg_h2(args: argparse.Namespace, report: Report) -> None:
     report.table(["Engine", "Target", "Exit", "Result"], rows)
     report.table(["Listener address", "Source seen", "Tag"], [list(r) for r in listener.records])
     report.table(["Bridge", "Addresses", "Ports", "firewalld zone"], _bridges())
-    if owner_needed:
-        report.write("Not established here:\n\n" + "\n".join(f"- {item}" for item in owner_needed))
-        raise ProbeError("; ".join(owner_needed))
+    if not_established:
+        report.write("Not established here:\n\n" + "\n".join(f"- {item}" for item in not_established))
+        raise ProbeError("; ".join(not_established))
 
 
 def leg_h6(args: argparse.Namespace, report: Report) -> None:
@@ -1700,7 +1705,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--scratch", default="")
     parser.add_argument("--fixtures", default="")
     parser.add_argument("--bus-address", default="")
-    parser.add_argument("--docker-image", default="docker.io/library/busybox:latest")
+    parser.add_argument("--docker-image", default="")
     parser.add_argument("--element-seconds", type=int, default=60)
     parser.add_argument("--tuwunel-version", default=TUWUNEL_VERSION)
     args = parser.parse_args(argv)
@@ -1713,6 +1718,8 @@ def main(argv: list[str]) -> int:
         parser.error(f"{args.leg} needs --scratch")
     if args.leg == "h4" and not args.fixtures:
         parser.error("h4 needs --fixtures")
+    if args.leg == "h2" and not args.docker_image:
+        parser.error("h2 needs --docker-image (triage.bash passes the pinned one)")
     report = Report(pathlib.Path(args.report))
     try:
         LEGS[args.leg](args, report)

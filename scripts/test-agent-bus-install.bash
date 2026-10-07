@@ -144,6 +144,8 @@ case $cmd in
                 elif [[ -e $units/$u.failed ]]; then echo failed
                 else echo inactive; fi ;;
             UnitFileState) if [[ -e $units/$u.enabled ]]; then echo enabled; else echo disabled; fi ;;
+            # systemd prints a list-valued property set twice (IPv4 and IPv6) on two lines.
+            SocketBindDeny) printf 'any\nany\n' ;;
             *) echo "stub-$prop" ;;
         esac ;;
     *) echo "systemctl stub: unexpected $cmd" >&2; exit 99 ;;
@@ -712,6 +714,9 @@ check "check passes on a fresh install" "0" "$RC"
 check "check prints the listen addresses" "yes" "$(says $'^CHECK\tlisten\tok\t' "$OUT")"
 check "check prints the firewalld rules" "yes" "$(says $'^CHECK\tfirewalld\tok\t' "$OUT")"
 check "check prints the unit's IP filter" "yes" "$(says $'^CHECK\tIPAddressAllow\t' "$OUT")"
+check "a property systemd prints on two lines stays on its CHECK line" "yes" \
+    "$(says $'^CHECK\tSocketBindDeny\tinfo\tany any$' "$OUT")"
+check "  and leaves no stray line" "0" "$(count '^any$' "$OUT")"
 check "check changes nothing" "0" \
     "$(count '^(systemctl (start|restart|stop|enable|disable|daemon-reload)|firewall-cmd .*--(add|remove)-)' "$(LOG)")"
 rm "$STUB_DIR/fw/permanent.public"

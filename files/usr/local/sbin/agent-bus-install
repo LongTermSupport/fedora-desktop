@@ -1048,9 +1048,11 @@ cmd_check() {
     fact ActiveState "$(verdict "$state" active)" "$state"
     state=$(systemctl show -P UnitFileState "$hs")
     fact UnitFileState "$(verdict "$state" enabled)" "$state"
-    local property
+    local property value
     for property in User IPAddressDeny IPAddressAllow RestrictAddressFamilies IPAccounting SocketBindDeny SocketBindAllow; do
-        fact "$property" info "$(systemctl show -P "$property" "$hs")"
+        # A list property set more than once (SocketBindDeny per family) comes one per line.
+        value=$(systemctl show -P "$property" "$hs")
+        fact "$property" info "${value//$'\n'/ }"
     done
     local dropin dropin_state=missing
     dropin=$(dropin_dir "$team")/network.conf

@@ -531,16 +531,16 @@ What differs beyond the table:
   and `--settings /opt/claude-yolo/optional/agent-bus/settings.json` to the `claude`
   arguments (inside any supervisor wrapper's `--`). When it is not set, nothing is installed
   or added: the image's copy is inert.
-- **Open, blocks U19: the ccy `base_url`.** Probe H1 (JOURNAL 2026-10-06) found that a ccy
-  container reaches a same-host homeserver only through `host.containers.internal`, a
-  hostname, while agent-bus-protocol.md §12 and U04's `config.check_base_url` (which U09's
-  client also applies) allow `http://` only to an IP literal in `plain_http_hosts`. No ccy
-  bundle naming that address passes. Decided (coordinator): the dummy `<bus_ip>`, if H1's
-  dummy leg (re-run once U16 creates the interface) shows a ccy container reaching it; that
-  keeps §12 unchanged. Fallback if it does not: a named exception to §12 for
-  `host.containers.internal` only, which podman writes into the container's own
-  `/etc/hosts`, so nothing outside the container can redirect it. Not the literal address
-  the alias resolves to: that is pasta's internal choice and may change.
+- **Settled: the ccy `base_url` is `http://<bus_ip>:<port>`.** Probe H1 (JOURNAL
+  2026-10-06) found that, without a bus address, a ccy container reaches a same-host
+  homeserver only through `host.containers.internal`, a hostname, which agent-bus-protocol.md
+  §12 and U04's `config.check_base_url` (which U09's client also applies) refuse for
+  `http://`: they allow only an IP literal in `plain_http_hosts`. H1's dummy leg, re-run
+  against `agentbus0` once U16 created it (JOURNAL 2026-10-07), reached `<bus_ip>` from the
+  ccy image on the default, a named and the pasta network alike, with the source seen as
+  `<bus_ip>`; the host's primary address was refused from all three. So the bus address is
+  the ccy address and §12 is unchanged; the `host.containers.internal` exception is not
+  needed.
 - **Nothing else in ccy changes.** No launcher flag, no host-side credential store, no deny
   list entry (the team's secrets belong to another user), no extra network (the container's
   usual route reaches `<bus_ip>` and WireGuard addresses through pasta, probe H1).
@@ -589,8 +589,8 @@ a Stop hook as the guard on both.**
   "agent-bus: N pending (H from humans, P pings), notice S. Run `pingbus recv`." Only
   counts, never content. `S` is the watcher's own monotonic counter: the socket drops a
   message identical to an earlier one, and without `S` the sequence "1 pending", `recv`,
-  "1 pending" would lose the second and leave the session asleep. U01 measures how long
-  that dedupe window is. The watcher exits when the session's socket goes away, which also
+  "1 pending" would lose the second and leave the session asleep. U01 measured that dedupe
+  window (an identical body from the same sender) as longer than 20 s and at most 33 s. The watcher exits when the session's socket goes away, which also
   keeps it running across `/clear`, where SessionEnd fires and the session goes on, so
   `pingbus hook session-end` does nothing and the plugin does not register it (U18). A team that fails (homeserver unreachable, trust lost) is
   reported and dropped like a busy one, and the others carry on; the watcher exits with
