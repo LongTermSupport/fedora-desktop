@@ -48,9 +48,11 @@ member_run() {
     shift 3
     name="$(member_name "${member}")"
     # The redirections are the desktop user's own files, opened before sudo runs: --pipe
-    # hands the open descriptors to the service.
+    # hands the open descriptors to the service. --expand-environment=no: systemd-run
+    # otherwise expands $NAME in the arguments as ExecStart= does, and a Matrix event ID
+    # starts with `$`, so `ack --re <event>` arrived with no event (journal 26-10-07).
     {
-        sudo -n systemd-run --quiet --pipe --wait --collect --service-type=exec \
+        sudo -n systemd-run --quiet --pipe --wait --collect --service-type=exec --expand-environment=no \
             "--unit=${name}-${label}" --property=DynamicUser=yes "--property=User=${name}" \
             "--property=StateDirectory=${name}" \
             "--setenv=PINGBUS_HOME=/var/lib/${name}" "--setenv=PINGBUS_TEAMS=${TEAM}" -- "$@"

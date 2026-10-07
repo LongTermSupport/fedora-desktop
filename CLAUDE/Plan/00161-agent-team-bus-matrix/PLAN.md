@@ -112,7 +112,9 @@ repository; opt-in per machine and per team.
   `meta-deploy.bash` runs it after `deploy.bash`; it needs GitHub's API reachable without a
   credential and a fetched upstream branch. First host run (26-10-07) stopped at the
   members' bundle extraction (`tar` under the members' seccomp filter); they now extract
-  with Python's `tarfile`. Re-run pending.
+  with Python's `tarfile`. The next run joined both members and carried the first real
+  ping (a's `review` to b's `wait`), then lost the ack's event ID to `systemd-run`'s `$`
+  expansion, now off. Re-run pending.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
