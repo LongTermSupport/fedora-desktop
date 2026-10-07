@@ -19,6 +19,9 @@ with their own exit codes.
 Memberships and the statuses §8 lets it read are kept in `room.json` (`inbox`), so an
 offline `status` can list unexpected members and stale statuses (Plan 00161 U12).
 
+`history` (§13, U33) reads the room backwards with `/messages` through the same checks and
+stores nothing: the room, not the local cache, is a seat's record.
+
 Validation is `protocol`'s; storage is `inbox`'s; the forge check is `forge`'s. Diagnostics
 go to `log` (stderr by default) and name a room by its ID only, never anything an event
 carried.
@@ -50,6 +53,14 @@ GAP_FILTER = {"types": [protocol.EVENT_MESSAGE]}
 GAP_PAGE_LIMIT = 100
 #: A gap longer than this many pages is a misbehaving server, not a backlog: exit 7.
 GAP_MAX_PAGES = 20
+#: `history` reads the room backwards in pages of this many messages, at most this many
+#: pages: the newest 5000 room messages bound one team's scan (§13).
+HISTORY_PAGE_LIMIT = 100
+HISTORY_MAX_PAGES = 50
+HISTORY_DEFAULT_ITEMS = 50
+HISTORY_MAX_ITEMS = 500
+HISTORY_IN = "in"
+HISTORY_OUT = "out"
 
 
 class RoomUntrusted(protocol.Untrusted):
@@ -67,6 +78,40 @@ class Batch:
     stored: int
     accepted: tuple[str, ...]
     drops: Mapping[str, int]
+
+
+@dataclasses.dataclass(frozen=True)
+class HistoryItem:
+    """One item of a seat's history (§13 `history`): a ping received (`in`, `ping`) or
+    sent (`out`, `ping`), a human message received (`in`, `human`), or an agent text this
+    member sent (`out`, `sent_event_id`; its text is never kept)."""
+
+    direction: str
+    origin_server_ts: int
+    ping: protocol.Ping | None = None
+    human: protocol.HumanMessage | None = None
+    sent_event_id: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class History:
+    """`items` newest first; drop counts by reason code; `complete` is False when the scan
+    stopped at `HISTORY_MAX_PAGES` with older messages left unread."""
+
+    items: tuple[HistoryItem, ...]
+    drops: Mapping[str, int]
+    complete: bool
+
+
+def _envelope_ok(event: Mapping[str, object]) -> bool:
+    """§9 receive steps 1 and 3 for an event this member sent (step 2 ignores those)."""
+    unsigned = event.get("unsigned")
+    ts = event.get("origin_server_ts")
+    return (protocol.is_event_id(event.get("event_id"))
+            and "state_key" not in event
+            and not (isinstance(unsigned, dict) and "redacted_because" in unsigned)
+            and isinstance(event.get("content"), dict)
+            and type(ts) is int and ts >= 0)
 
 
 def sync_filter(room_id: str, timeline_limit: int, *, lazy_members: bool = True) -> dict:
@@ -415,14 +460,102 @@ class Syncer:
             return "stale"
         if not self._flood.admit(ping.sender, now):
             return "rate"
-        if ping.ref is not None:
-            if self._forge is None:
-                self._forge = self._forge_for(record)
-            try:
-                forge.check_ping(ping, record, self._forge)
-            except forge.ForgeError as exc:
-                return exc.drop_reason
+        return self._forge_check(ping, record)
+
+    def _forge_check(self, ping: protocol.Ping, record: protocol.TeamRecord) -> str | None:
+        """§6 for a ping with a reference: its drop reason, or None when it resolves."""
+        if ping.ref is None:
+            return None
+        if self._forge is None:
+            self._forge = self._forge_for(record)
+        try:
+            forge.check_ping(ping, record, self._forge)
+        except forge.ForgeError as exc:
+            return exc.drop_reason
         return None
+
+    # ── history ──────────────────────────────────────────────────────────────────────────
+
+    def history(self, limit: int) -> History:
+        """This member's past items, newest first, at most `limit` (§13 `history`), read
+        from the room itself, so fresh local state loses nothing. Each received item goes
+        through the offline receive steps and the forge check; an item this member sent
+        goes through the send-side rules. The age and flood limits do not apply: history is
+        old by design and nothing here is acted on. Nothing is stored, consumed or acked,
+        and the sync token is left alone."""
+        if type(limit) is not int or not 1 <= limit <= HISTORY_MAX_ITEMS:
+            raise ValueError(f"limit must be an integer from 1 to {HISTORY_MAX_ITEMS}")
+        record = self.verify_room()
+        ctx = record.context(self.member.server_name)
+        room = self.member.room
+        cursor = _next_batch(self.client.sync(filter=sync_filter(room, 0), timeout_ms=0))
+        items: list[HistoryItem] = []
+        drops: collections.Counter[str] = collections.Counter()
+        seen: set[str] = set()
+        for _ in range(HISTORY_MAX_PAGES):
+            page = self.client.messages(room, from_token=cursor, direction="b",
+                                        limit=HISTORY_PAGE_LIMIT, filter=GAP_FILTER)
+            chunk = page.get("chunk")
+            if not isinstance(chunk, list):
+                raise matrix.Unreachable("GET /messages", detail="the answer has no chunk list")
+            for event in chunk:
+                item, reason = self._history_item(event, record, ctx, seen)
+                if reason is not None:
+                    drops[reason] += 1
+                elif item is not None:
+                    items.append(item)
+                    if len(items) == limit:
+                        return History(tuple(items), dict(drops), True)
+            end = page.get("end")
+            if not chunk or not isinstance(end, str) or end == cursor:
+                return History(tuple(items), dict(drops), True)
+            cursor = end
+        return History(tuple(items), dict(drops), False)
+
+    def _history_item(self, event: object, record: protocol.TeamRecord, ctx: protocol.Context,
+                      seen: set[str]) -> tuple[HistoryItem | None, str | None]:
+        """(the item, None), (None, a drop reason), or (None, None) for an event that is
+        not this member's to see."""
+        member = self.member
+        if isinstance(event, dict) and event.get("sender") == member.user_id:
+            return self._own_item(event, record, ctx)
+        outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text)
+        if outcome.kind == protocol.IGNORE:
+            return None, None
+        seen.add(event["event_id"])
+        if outcome.kind == protocol.DROP:
+            return None, outcome.reason
+        if outcome.human is not None:
+            return HistoryItem(HISTORY_IN, outcome.human.origin_server_ts, human=outcome.human), None
+        reason = self._forge_check(outcome.ping, record)
+        if reason is not None:
+            return None, reason
+        return HistoryItem(HISTORY_IN, outcome.ping.origin_server_ts, ping=outcome.ping), None
+
+    def _own_item(self, event: dict, record: protocol.TeamRecord,
+                  ctx: protocol.Context) -> tuple[HistoryItem | None, str | None]:
+        """An event this member sent: a ping (§4-§6, §11, the role, the forge check) or an
+        agent text (§7, a role holder); anything else, or both at once, is `schema`."""
+        if not _envelope_ok(event):
+            return None, "schema"
+        content, sender = event["content"], self.member.user_id
+        event_id, ts = event["event_id"], event["origin_server_ts"]
+        try:
+            if protocol.TEXT_KEY in content:
+                if protocol.PING_KEY in content:
+                    raise protocol.Refusal("schema")
+                protocol.validate_text_content(content, ctx)
+                protocol.check_text_sender(sender, ctx)
+                return HistoryItem(HISTORY_OUT, ts, sent_event_id=event_id), None
+            ping = protocol.validate_content(content, ctx)
+            protocol.check_role(ping.verb, sender, ctx)
+        except protocol.Refusal as refusal:
+            return None, refusal.reason
+        ping = dataclasses.replace(ping, sender=sender, event_id=event_id, origin_server_ts=ts)
+        reason = self._forge_check(ping, record)
+        if reason is not None:
+            return None, reason
+        return HistoryItem(HISTORY_OUT, ts, ping=ping), None
 
     # ── this member's status ─────────────────────────────────────────────────────────────
 

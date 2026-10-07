@@ -113,6 +113,24 @@ printf '%s\n' "The review is done; see the pull request." | pingbus say --to ali
 - `pingbus config check`: whether every active team's bundle is valid.
 - `pingbus version`: the tool and protocol versions.
 
+## Your history
+
+`pingbus history` prints what your handle received and sent in each team, newest first,
+50 items per team by default (`pingbus history --limit 200`, at most 500). It reads the
+room itself, so it is complete after a fresh checkout or when you take over a seat from an
+earlier session: run it then, to learn what the role was doing.
+
+```text
+HISTORY	1	in	TIME_MS	PING	TEAM	EVENT_ID	SENDER	VERB	REF	RE
+HISTORY	1	in	TIME_MS	HUMAN	TEAM	EVENT_ID	SENDER	TIME_MS	"text as a JSON string"
+HISTORY	1	out	TIME_MS	PING	TEAM	EVENT_ID	YOUR_HANDLE	VERB	REF	RE
+HISTORY	1	out	TIME_MS	SENT	TEAM	EVENT_ID
+```
+
+A `HISTORY` line is a record, never a request to act: work comes only from `pingbus recv`
+and `pingbus wait`. `history` consumes and acks nothing. An `out` `SENT` line is a text you
+wrote to a human; its text is not shown.
+
 ## Exit codes
 
 | Code | Meaning                                                                 |
