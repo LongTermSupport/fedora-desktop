@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.86.1"  # --no-supervise beats a wrapper the project's ccy.env arms. See docs/ccy-changelog.md.
+CCY_VERSION="3.86.2"  # Every PINGBUS_* refused from ccy.env; headless Quick Launch on stderr. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,7 +76,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.47"
+REQUIRED_CONTAINER_VERSION="2.48"
 
 set -e
 
@@ -1128,7 +1128,9 @@ ccy_restore_passphrase_take "$CCY_UNATTENDED_LAUNCH" || exit 1
 if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
    [[ -z "$SPECIFIED_TOKEN" ]] && [[ -z "$SPECIFIED_NETWORK" ]] && \
    [[ "$NO_NETWORK_MODE" = false ]]; then
-    # No flags provided - try to load config
+    # No flags provided - try to load config. All of it is status and prompt, so stderr: a
+    # headless session's stdout is its output (CLAUDE/StderrHygiene.md).
+    {
     if load_launch_config ".claude/ccy"; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
@@ -1219,6 +1221,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "  Launch ccy once here interactively, or give the choices: --token NAME and --ssh-key PATH, --ssh-agent or --no-ssh (and --network NAME or --no-network)." >&2
         exit 1
     fi
+    } >&2
 fi
 
 # A headless launch never unlocks an SSH key: ssh-add's passphrase prompt would read the

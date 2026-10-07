@@ -34,6 +34,7 @@ readonly SVC_NAME=agent-bus
 readonly PACKAGES=(
     python3 firewalld NetworkManager zstd curl jq
     tcpdump # acceptance.bash P1/P2 capture the homeserver's traffic with it; not dead weight.
+    util-linux # setpriv: the agent-bus wrapper writes an --out bundle as the sudo user.
 )
 readonly BUS_IFACE=agentbus0
 readonly RELEASE_URL=https://github.com/matrix-construct/tuwunel/releases/download

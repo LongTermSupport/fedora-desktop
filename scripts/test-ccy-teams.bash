@@ -279,13 +279,15 @@ quick() {
         HEADLESS_MODE="$1" SESSION_RESTORE=false NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
         [ "${2:-}" = --no-ssh ] && NO_SSH_MODE=true
-        . "$0" >/dev/null
+        . "$0" >"$QUICK_OUT"
         printf "token=%s keys=%s no_ssh=%s net=%s no_net=%s" "$SPECIFIED_TOKEN" "${SSH_KEYS[*]}" \
             "$NO_SSH_MODE" "$SPECIFIED_NETWORK" "$NO_NETWORK_MODE"' "$work/quick.bash" "$headless" "$@" \
         2>"$work/quick.err")
     printf ' rc=%s prompt=%s' "$?" "$(if [ -s "$PROMPT_LOG" ]; then echo yes; else echo no; fi)"
 }
 export PROMPT_LOG="$work/prompt.log"
+# What the block printed on stdout: a headless session's stdout is its output (StderrHygiene).
+export QUICK_OUT="$work/quick.out"
 save() {
     : >"$PROMPT_LOG"
     printf 'SAVED_CONFIG_VERSION=1\nSAVED_CCY_VERSION="9.9.9"\nSAVED_CCY_HASH="h"\nLAST_TOKEN="%s"\nLAST_SSH_KEYS="%s"\nLAST_NETWORK="%s"\n' \
@@ -295,6 +297,9 @@ save() {
 save personal /keys/id_a proj_net
 check "headless with saved choices: taken, no prompt" \
     "token=personal keys=/keys/id_a no_ssh=false net=proj_net no_net=false rc=0 prompt=no" "$(quick true)"
+check "  the Quick Launch banner went to stderr, nothing to stdout" "yes" \
+    "$(if [ ! -s "$QUICK_OUT" ]; then has "Headless launch: using the previous configuration" "$work/quick.err"; else
+        echo no; fi)"
 save personal /keys/id_a proj_net
 check "interactive with saved choices: the prompt is still asked" "yes" \
     "$(quick false | grep -q 'prompt=yes' && echo yes || echo no)"

@@ -4,8 +4,10 @@ Spec: Plan 00161 DESIGN.md section 5.6 ("Seat commands"), with section 5.5's lis
 layout and reuse, and section 5.2's `<host>` rule (D49). Run by the checkout's owner as
 themselves, in the checkout (the working directory's git top level); the `agent-bus`
 wrapper refuses them as root, since root never writes in a user's checkout. The only way
-to the root side is `sudo agent-bus add-member|park-member`, so the wrapper's placement
-rules (section 5.1) hold unchanged.
+to the root side is `sudo agent-bus add-member|park-member`. `add-member` is asked for the
+bundle on stdout (`--out=-`, D61): a sibling seat's session can rewrite the checkout, so
+`take` places the files itself, as the user, through directories it opened without
+following a symlink (`claim_seat_dir`, `SeatClaim.place`).
 
 Pure: `role_from_env_local` (the `HOOKS_DAEMON_HOSTNAME` that `ccy.env.local` assigns,
 read by parsing, never by sourcing), `seat_host` (that role normalised, else `local`),
@@ -23,6 +25,7 @@ everything this host or checkout cannot do (`CheckoutError`).
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 import os
 import pathlib
@@ -30,6 +33,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tarfile
 import time
 from collections.abc import Callable, Sequence
 
@@ -168,12 +172,13 @@ def _refuse_held(observed: Sequence[Observed]) -> None:
             raise seat.SeatHeld(seen.ref)
 
 
-def take_actions(observed: Sequence[Observed], seats_root: pathlib.Path,
+def take_actions(observed: Sequence[Observed],
                  needs: Callable[[], tuple[Identity, str]]) -> tuple[AddMember, ...]:
     """One `add-member` per named seat with no directory (a new member, or a parked one
     returning: the root side tells them apart), none for a seat that exists, and none at
     all when one is held. `needs` gives the identity and the bus address, asked only when
-    a seat is to be created."""
+    a seat is to be created. Each call asks for the bundle on stdout (`--out=-`), which
+    `take` places itself: root never writes in the checkout (D61)."""
     _refuse_held(observed)
     for seen in observed:
         if seen.exists and seen.handle is None:
@@ -189,9 +194,127 @@ def take_actions(observed: Sequence[Observed], seats_root: pathlib.Path,
         AddMember(ref, identity.handle(ref), (
             "add-member", ref.team, f"--repo={identity.repo}", f"--seat={ref.seat}",
             f"--host={identity.host}", f"--type={MEMBER_TYPE}", f"--role={MEMBER_ROLE}",
-            f"--address={address}", f"--out={seat.seat_dir(seats_root, ref)}"))
+            f"--address={address}", "--out=-"))
         for ref in missing
     )
+
+
+# ── placing a bundle, as the user, by open directories (D61) ─────────────────────────────
+
+#: The bundle's files, in the order they are written: `member.json` last, so a seat whose
+#: placement stopped part way has no bundle and `take` names the way back.
+BUNDLE_ORDER = (config.TOKEN_FILE, "README", config.MEMBER_FILE)
+BUNDLE_FILE_MAX_BYTES = config.MEMBER_FILE_MAX_BYTES
+FILE_MODE = 0o600
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_NEW_FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def read_bundle(data: bytes) -> dict[str, bytes]:
+    """The bundle `add-member --out=-` printed: a tar of exactly `member.json`, `token` and
+    `README`, each a regular file of bounded size; anything else is refused."""
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
+            members = tar.getmembers()
+            names = sorted(member.name for member in members)
+            if names != sorted(BUNDLE_ORDER):
+                raise CheckoutError(f"the bundle holds {', '.join(names) or 'nothing'}, not "
+                                    f"{', '.join(sorted(BUNDLE_ORDER))}")
+            files = {}
+            for member in members:
+                if not member.isreg() or member.size > BUNDLE_FILE_MAX_BYTES:
+                    raise CheckoutError(f"the bundle's {member.name} is not a regular file of at most "
+                                        f"{BUNDLE_FILE_MAX_BYTES} bytes")
+                handle = tar.extractfile(member)
+                if handle is None:
+                    raise CheckoutError(f"the bundle's {member.name} cannot be read")
+                files[member.name] = handle.read()
+            return files
+    except tarfile.TarError as exc:
+        raise CheckoutError(f"the bundle is not a readable tar ({exc})") from None
+
+
+def _open_dir(name: str, parent_fd: int | None, uid: int, *, create: bool) -> int:
+    """The directory `name` under `parent_fd` (an absolute path when None), opened without
+    following a symlink and refused unless owned by `uid`; made (0700) first when `create`
+    and missing."""
+    made = False
+    if create:
+        try:
+            os.mkdir(name, DIR_MODE, dir_fd=parent_fd)
+            made = True
+        except FileExistsError:
+            made = False
+    try:
+        fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        raise CheckoutError(f"{name} is missing from the seats' tree") from None
+    except OSError as exc:  # ELOOP: a symlink; ENOTDIR: not a directory
+        raise CheckoutError(f"{name} is a symlink or not a directory ({exc.strerror}); the seats' "
+                            "tree must be real directories") from None
+    info = os.fstat(fd)
+    if info.st_uid != uid:
+        os.close(fd)
+        raise CheckoutError(f"{name} is owned by uid {info.st_uid}, not {uid}; the seats' tree must be yours")
+    if made:
+        os.fchmod(fd, DIR_MODE)
+    return fd
+
+
+@dataclasses.dataclass
+class SeatClaim:
+    """A seat's directory, newly made by this `take` and held open with its parent."""
+
+    ref: seat.SeatRef
+    parent_fd: int
+    fd: int
+
+    def place(self, data: bytes) -> None:
+        """Write the bundle into the claimed directory: each file new, 0600, by the open
+        directory, never by a path another session could re-point."""
+        files = read_bundle(data)
+        for name in BUNDLE_ORDER:
+            fd = os.open(name, _NEW_FILE_FLAGS, FILE_MODE, dir_fd=self.fd)
+            try:
+                os.fchmod(fd, FILE_MODE)
+                view = memoryview(files[name])
+                while view:
+                    view = view[os.write(fd, view):]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+    def abandon(self) -> None:
+        """Remove the directory again (empty: nothing was placed)."""
+        os.rmdir(self.ref.seat, dir_fd=self.parent_fd)
+
+    def close(self) -> None:
+        os.close(self.fd)
+        os.close(self.parent_fd)
+
+
+def claim_seat_dir(top: pathlib.Path, ref: seat.SeatRef, uid: int) -> SeatClaim:
+    """Make `ref`'s directory, walking from the checkout one open directory at a time
+    (no symlink followed, each owned by `uid`) and making the seats' tree below
+    `.claude/ccy/` (0700) on the way; refused when the seat's directory is already there."""
+    parts = (*seat.CHECKOUT_SEATS.parts, ref.team)
+    fd = _open_dir(str(top), None, uid, create=False)
+    try:
+        for index, part in enumerate(parts):
+            child = _open_dir(part, fd, uid, create=index >= len(CCY_DIR.parts))
+            os.close(fd)
+            fd = child
+        try:
+            os.mkdir(ref.seat, DIR_MODE, dir_fd=fd)
+        except FileExistsError:
+            raise CheckoutError(f"seat {ref.text}'s directory appeared while it was being taken "
+                                "(another launch?): launch again") from None
+        seat_fd = _open_dir(ref.seat, fd, uid, create=False)
+        os.fchmod(seat_fd, DIR_MODE)
+    except BaseException:
+        os.close(fd)
+        raise
+    return SeatClaim(ref, fd, seat_fd)
 
 
 def remove_actions(observed: Sequence[Observed], needs: Callable[[], Identity]) -> tuple[ParkMember, ...]:
@@ -218,8 +341,9 @@ class System:
     uid: int
     team_active: Callable[[str], bool]
     bus_address: Callable[[], str]
-    #: `sudo agent-bus ARGV` (`sudo -n` when no prompt is allowed): its exit code and stdout.
-    agent_bus: Callable[[Sequence[str], bool], tuple[int, str]]
+    #: `sudo agent-bus ARGV` (`sudo -n` when no prompt is allowed): its exit code and stdout
+    #: (bytes: `add-member --out=-` prints the bundle's tar).
+    agent_bus: Callable[[Sequence[str], bool], tuple[int, bytes]]
     clock_ms: Callable[[], int]
 
 
@@ -249,10 +373,10 @@ def _ip_bus_address() -> str:
     return parse_bus_address(run.stdout)
 
 
-def _sudo_agent_bus(argv: Sequence[str], no_prompt: bool) -> tuple[int, str]:
+def _sudo_agent_bus(argv: Sequence[str], no_prompt: bool) -> tuple[int, bytes]:
     command = ["sudo", *(["-n"] if no_prompt else []), WRAPPER, *argv]
     try:
-        run = subprocess.run(command, stdout=subprocess.PIPE, text=True, check=False)
+        run = subprocess.run(command, stdout=subprocess.PIPE, check=False)
     except FileNotFoundError:
         raise CheckoutError("sudo is not installed") from None
     return run.returncode, run.stdout
@@ -389,7 +513,7 @@ def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], Non
     """`seat take`: create every named seat that has no directory; refuse a held one."""
     refs = _parse_and_check_teams(text, system)
     top = find_checkout(system)
-    tree = _seat_tree(top, system.uid, [ref.team for ref in refs])
+    _seat_tree(top, system.uid, [ref.team for ref in refs])
     _check_ignored(top)
     root = seat.checkout_seats_root(top)
     observed = _observe(root, refs, system.uid)
@@ -397,23 +521,29 @@ def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], Non
     def needs() -> tuple[Identity, str]:
         return Identity(_repo(top), checkout_host(top, system.uid)), system.bus_address()
 
-    actions = take_actions(observed, root, needs)
-    if not actions:
-        return
-    for path in tree:
-        if not _real_dir(path, system.uid, "the seats' tree"):
-            os.mkdir(path, DIR_MODE)
-            os.chmod(path, DIR_MODE)
+    actions = take_actions(observed, needs)
     for action in actions:
-        say(f"creating seat {action.ref.text} as {action.handle} in team {action.ref.team}")
-        code, _ = system.agent_bus(action.argv, no_prompt)
-        if code != 0:
-            hint = ("; a launch with no prompt uses only sudo's cached credential: run `sudo -v`, "
-                    "then launch again") if no_prompt else ""
-            raise CheckoutError(
-                f"seat {action.ref.text} could not be created: sudo agent-bus add-member exited "
-                f"{code}, for the reason above{hint}"
-            )
+        claim = claim_seat_dir(top, action.ref, system.uid)
+        try:
+            say(f"creating seat {action.ref.text} as {action.handle} in team {action.ref.team}")
+            code, bundle = system.agent_bus(action.argv, no_prompt)
+            if code != 0:
+                claim.abandon()
+                hint = ("; a launch with no prompt uses only sudo's cached credential: run `sudo -v`, "
+                        "then launch again") if no_prompt else ""
+                raise CheckoutError(
+                    f"seat {action.ref.text} could not be created: sudo agent-bus add-member exited "
+                    f"{code}, for the reason above{hint}"
+                )
+            try:
+                claim.place(bundle)
+            except (CheckoutError, OSError) as exc:
+                raise CheckoutError(
+                    f"seat {action.ref.text} ({action.handle}) was added but its bundle could not be "
+                    f"placed: {exc}; run `agent-bus seat remove {action.ref.text}`, then launch again"
+                ) from None
+        finally:
+            claim.close()
         emit(f"CHANGED\tseat {action.ref.text} {action.handle}")
 
 

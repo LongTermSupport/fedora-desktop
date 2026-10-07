@@ -8,7 +8,8 @@ Spec: Plan 00161 DESIGN.md section 5.6 ("Seat commands"), 5.5 (the list rules, t
 layout, reuse) and 5.2 (a new seat's `<host>`: the role `ccy.env.local` assigns, else
 `local`, D49). Each test builds a real git checkout in a temporary directory; the host's
 side (`systemctl is-active`, `agentbus0`'s address and `sudo agent-bus`) is replaced by a
-recorder whose `add-member` places a bundle as the root wrapper would.
+recorder whose `add-member --out=-` hands the bundle back as a tar on stdout, as the root
+wrapper does, so the seat's files are placed by the code under test (D61).
 """
 
 from __future__ import annotations
@@ -17,11 +18,14 @@ import io
 import json
 import os
 import pathlib
+import shutil
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -51,6 +55,25 @@ def arg(argv: Sequence[str], name: str) -> str:
     return next(a.split("=", 1)[1] for a in argv if a.startswith(f"--{name}="))
 
 
+def bundle_files(team: str, handle: str) -> dict[str, bytes | tarfile.TarInfo]:
+    return {"member.json": member_json(team, handle).encode(), "token": b"syt_secret",
+            "README": b"next steps"}
+
+
+def make_tar(files: dict[str, bytes | tarfile.TarInfo]) -> bytes:
+    """A tar of `files`; a TarInfo value is added as it is (a link, a directory)."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        for name, data in files.items():
+            if isinstance(data, tarfile.TarInfo):
+                tar.addfile(data)
+                continue
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(data), 0o644
+            tar.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
 class FakeHost:
     """The host side: which teams run here, the bus address, and `sudo agent-bus`."""
 
@@ -59,6 +82,10 @@ class FakeHost:
         self.address = BUS_IP
         self.calls: list[tuple[tuple[str, ...], bool]] = []
         self.fail: dict[str, int] = {}
+        #: Run while `add-member` is out at the root side: another session's move.
+        self.during_add: Callable[[], None] | None = None
+        #: A bundle to hand back in place of the well-formed one.
+        self.bundle: dict[str, bytes | tarfile.TarInfo] | None = None
 
     def team_active(self, team: str) -> bool:
         return team in self.active
@@ -68,20 +95,19 @@ class FakeHost:
             raise checkout.CheckoutError("agentbus0 is absent")
         return self.address
 
-    def agent_bus(self, argv: Sequence[str], no_prompt: bool) -> tuple[int, str]:
+    def agent_bus(self, argv: Sequence[str], no_prompt: bool) -> tuple[int, bytes]:
         self.calls.append((tuple(argv), no_prompt))
         if argv[0] in self.fail:
-            return self.fail[argv[0]], ""
+            return self.fail[argv[0]], b""
         if argv[0] == "add-member":
-            out = pathlib.Path(arg(argv, "out"))
+            # As the root wrapper does with --out=-: the bundle comes back on stdout as a
+            # tar, and nothing is written anywhere.
+            assert arg(argv, "out") == "-", argv
+            if self.during_add is not None:
+                self.during_add()
             handle = f"{arg(argv, 'repo')}.{arg(argv, 'seat')}+{arg(argv, 'host')}.podman"
-            out.mkdir(mode=0o700)
-            out.chmod(0o700)
-            (out / "member.json").write_text(member_json(argv[1], handle), encoding="utf-8")
-            (out / "token").write_text("syt_secret", encoding="ascii")
-            (out / "token").chmod(0o600)
-            return 0, ""
-        return 0, f"CHANGED\trevoked the token of {argv[2]}\nCHANGED\tparked {argv[2]}\n"
+            return 0, make_tar(self.bundle or bundle_files(argv[1], handle))
+        return 0, f"CHANGED\trevoked the token of {argv[2]}\nCHANGED\tparked {argv[2]}\n".encode()
 
     def verbs(self) -> list[tuple[str, ...]]:
         return [call[:2] if call[0] == "park-member" else (call[0], call[1], arg(call, "seat"))
@@ -257,22 +283,22 @@ class ActionsTest(unittest.TestCase):
 
     def test_take_adds_only_the_missing_seats(self):
         observed = (self.obs("dev1"), self.obs("qa", TEAM_B, exists=True, handle="myrepo.qa+local.podman"))
-        actions = checkout.take_actions(observed, self.ROOT, lambda: (self.WHO, BUS_IP))
+        actions = checkout.take_actions(observed, lambda: (self.WHO, BUS_IP))
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0].handle, "myrepo.dev1+local.podman")
         self.assertEqual(actions[0].argv, (
             "add-member", TEAM_A, "--repo=myrepo", "--seat=dev1", "--host=local", "--type=podman",
-            "--role=worker", f"--address={BUS_IP}", f"--out={self.ROOT}/{TEAM_A}/dev1"))
+            "--role=worker", f"--address={BUS_IP}", "--out=-"))
 
     def test_take_with_every_seat_present_needs_nothing_from_the_host(self):
         def never():
             raise AssertionError("the identity is not needed")
         observed = (self.obs("dev1", exists=True, handle="myrepo.dev1+local.podman"),)
-        self.assertEqual(checkout.take_actions(observed, self.ROOT, never), ())
+        self.assertEqual(checkout.take_actions(observed, never), ())
 
     def test_one_held_seat_refuses_everything(self):
         observed = (self.obs("dev1"), self.obs("qa", TEAM_B, exists=True, held=True, handle="h"))
-        for plan in (lambda: checkout.take_actions(observed, self.ROOT, lambda: (self.WHO, BUS_IP)),
+        for plan in (lambda: checkout.take_actions(observed, lambda: (self.WHO, BUS_IP)),
                      lambda: checkout.remove_actions(observed, lambda: self.WHO)):
             with self.assertRaises(seat.SeatHeld) as caught:
                 plan()
@@ -281,7 +307,7 @@ class ActionsTest(unittest.TestCase):
 
     def test_take_refuses_a_seat_directory_without_a_bundle(self):
         with self.assertRaises(checkout.CheckoutError) as caught:
-            checkout.take_actions((self.obs("dev1", exists=True),), self.ROOT, lambda: (self.WHO, BUS_IP))
+            checkout.take_actions((self.obs("dev1", exists=True),), lambda: (self.WHO, BUS_IP))
         self.assertIn("agent-bus seat remove dev1@team-a", str(caught.exception))
 
     def test_remove_parks_the_bundles_handle_or_the_checkouts(self):
@@ -403,6 +429,86 @@ class TakeCommandTest(CheckoutTestCase):
         self.assertEqual(out, "")
         self.assertEqual(len(self.host.calls), 1)
         self.assertIn("sudo -v", err)
+        # The seat's directory, claimed before the call, goes again.
+        self.assertFalse((self.seats / TEAM_A / "dev1").exists())
+
+    def test_the_bundle_is_placed_by_the_user_with_private_modes(self):
+        code, _, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(code, 0, err)
+        directory = self.seats / TEAM_A / "dev1"
+        info = directory.lstat()
+        self.assertTrue(stat.S_ISDIR(info.st_mode))
+        self.assertEqual((info.st_uid, stat.S_IMODE(info.st_mode)), (os.getuid(), 0o700))
+        for name, data in bundle_files(TEAM_A, "myrepo.dev1+local.podman").items():
+            info = (directory / name).lstat()
+            self.assertTrue(stat.S_ISREG(info.st_mode), name)
+            self.assertEqual((info.st_uid, stat.S_IMODE(info.st_mode)), (os.getuid(), 0o600), name)
+            self.assertEqual((directory / name).read_bytes(), data)
+
+    def test_a_symlink_swapped_in_while_add_member_runs_is_not_followed(self):
+        # Another session in the checkout replaces the team's directory with a symlink
+        # after the checks: the placement goes by the directories it opened, never by path.
+        elsewhere = self.top.parent / "elsewhere"
+        elsewhere.mkdir()
+        self.addCleanup(shutil.rmtree, elsewhere)
+        moved = self.top / "moved"
+
+        def swap() -> None:
+            (self.seats / TEAM_A).rename(moved)
+            (self.seats / TEAM_A).symlink_to(elsewhere)
+
+        self.host.during_add = swap
+        code, _, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(list(elsewhere.iterdir()), [], err)
+        if code == 0:
+            self.assertTrue((moved / "dev1" / "member.json").is_file())
+
+    def test_a_symlinked_component_is_refused_at_placement(self):
+        elsewhere = self.top.parent / "elsewhere"
+        elsewhere.mkdir()
+        self.addCleanup(shutil.rmtree, elsewhere)
+        self.seats.parent.mkdir()
+        self.seats.symlink_to(elsewhere)
+        with self.assertRaises(checkout.CheckoutError) as caught:
+            checkout.claim_seat_dir(self.top, seat.SeatRef("dev1", TEAM_A), os.getuid())
+        self.assertIn("symlink", str(caught.exception))
+        self.assertEqual(list(elsewhere.iterdir()), [])
+
+    def test_a_malformed_bundle_is_refused_and_nothing_secret_is_placed(self):
+        good = bundle_files(TEAM_A, "myrepo.dev1+local.podman")
+        link = tarfile.TarInfo("token")
+        link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+        cases = {"missing": {k: v for k, v in good.items() if k != "member.json"},
+                 "extra": {**good, "extra": b"x"},
+                 "escaping": {**good, "../escape": b"x"},
+                 "a link": {**{k: v for k, v in good.items() if k != "token"}, "token": link}}
+        for name, bundle in cases.items():
+            with self.subTest(name):
+                self.host.bundle = bundle
+                code, out, err = self.run_cli("seat", "take", "dev1@team-a")
+                self.assertEqual(code, EX_CONFIG, err)
+                self.assertEqual(out, "")
+                self.assertIn("agent-bus seat remove dev1@team-a", err)
+                directory = self.seats / TEAM_A / "dev1"
+                self.assertFalse((directory / "member.json").exists())
+                self.assertFalse((directory / "token").exists())
+                self.assertFalse((self.top / ".claude" / "ccy" / "escape").exists())
+                shutil.rmtree(directory)
+
+    def test_a_seat_directory_that_appears_meanwhile_is_not_overwritten(self):
+        directory = self.seats / TEAM_A / "dev1"
+        real_observe = checkout._observe
+
+        def appear(*args, **kwargs):
+            found = real_observe(*args, **kwargs)
+            directory.mkdir(parents=True)
+            return found
+
+        with mock.patch.object(checkout, "_observe", side_effect=appear):
+            code, _, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(code, EX_CONFIG, err)
+        self.assertEqual(self.host.calls, [])
+        self.assertEqual(list(directory.iterdir()), [])
 
     def test_the_checkout_must_ignore_the_bundles(self):
         (self.ccy / ".gitignore").write_text("!*\n", encoding="utf-8")

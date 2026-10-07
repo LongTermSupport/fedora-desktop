@@ -417,11 +417,15 @@ echo "✓ /workspace marked as trusted (hasTrustDialogAccepted)"
 # Top level, not a function: a `declare` in either file must stay global.
 # scripts/test-ccy-project-env.bash runs the block between the markers.
 # >>> PROJECT-ENV
-# The agent team bus variables as the launcher passed them, set or not; AGENT-BUS below
-# refuses a launch in which either file set, changed or unset one.
-for _ccy_bus_var in PINGBUS_SEATS PINGBUS_TEAMS PINGBUS_HOME; do
-    printf -v "_ccy_bus_before_$_ccy_bus_var" '%s' "${!_ccy_bus_var+set:${!_ccy_bus_var}}"
-done
+# Every PINGBUS_* variable as the launcher passed it, one NAME=value line each; AGENT-BUS
+# below refuses a launch in which either file set, changed or unset any of them.
+_ccy_bus_snapshot() {
+    local name
+    for name in "${!PINGBUS_@}"; do
+        printf '%s=%q\n' "$name" "${!name}"
+    done
+}
+_ccy_bus_before=$(_ccy_bus_snapshot)
 for _ccy_env_file in /workspace/.claude/ccy/ccy.env /workspace/.claude/ccy/ccy.env.local; do
     if [ -f "$_ccy_env_file" ]; then
         echo "Sourcing project ccy env: $_ccy_env_file"
@@ -524,8 +528,8 @@ fi
 #
 # A session is in a team only when its launch said so: `ccy --teams <seat>@<team>[,...]` on
 # the host passes PINGBUS_SEATS, and nothing the session can write may choose a team or seat.
-# So a launch in which ccy.env (tracked) or ccy.env.local set, changed or unset a bus
-# variable is refused, and so is a PINGBUS_TEAMS or PINGBUS_HOME from the launcher: it passes
+# So a launch in which ccy.env (tracked) or ccy.env.local set, changed or unset any PINGBUS_*
+# variable is refused (D62), and so is a PINGBUS_TEAMS or PINGBUS_HOME from the launcher: it passes
 # only PINGBUS_SEATS, and `pingbus seat exec` derives the other two, so either one arriving
 # means a launcher older than this image. With PINGBUS_SEATS, pingbus goes on PATH (the
 # plugin's hooks run it by name), claude gets the plugin and the settings that let the
@@ -537,15 +541,16 @@ fi
 # >>> AGENT-BUS
 _ccy_agent_bus=/opt/claude-yolo/optional/agent-bus
 _ccy_seat_exec=()
-for _ccy_bus_var in PINGBUS_SEATS PINGBUS_TEAMS PINGBUS_HOME; do
-    _ccy_bus_was="_ccy_bus_before_$_ccy_bus_var"
-    if [ "${!_ccy_bus_var+set:${!_ccy_bus_var}}" != "${!_ccy_bus_was}" ]; then
-        echo "✗ CCY: .claude/ccy/ccy.env or ccy.env.local sets, changes or unsets $_ccy_bus_var." >&2
-        echo "  A session's agent team bus seats come only from its launch: ccy --teams <seat>@<team>[,...] on the host." >&2
-        echo "  Take $_ccy_bus_var out of the file." >&2
-        exit 1
-    fi
-done
+_ccy_bus_after=$(_ccy_bus_snapshot)
+if [ "$_ccy_bus_after" != "$_ccy_bus_before" ]; then
+    # The names on a line in one snapshot and not the other.
+    _ccy_bus_changed=$(printf '%s\n%s\n' "$_ccy_bus_before" "$_ccy_bus_after" \
+        | sort | uniq -u | awk -F= 'NF { print $1 }' | sort -u | paste -sd' ' -)
+    echo "✗ CCY: .claude/ccy/ccy.env or ccy.env.local sets, changes or unsets $_ccy_bus_changed." >&2
+    echo "  Neither file may touch a PINGBUS_* variable: a session's agent team bus seats come only from its launch, ccy --teams <seat>@<team>[,...] on the host." >&2
+    echo "  Take every PINGBUS_* line out of the file." >&2
+    exit 1
+fi
 for _ccy_bus_var in PINGBUS_TEAMS PINGBUS_HOME; do
     if [ -n "${!_ccy_bus_var+set}" ]; then
         echo "✗ CCY: $_ccy_bus_var came from the launcher, which passes only PINGBUS_SEATS: ccy on the host is older than this image." >&2
@@ -570,7 +575,8 @@ if [ -n "${PINGBUS_SEATS+set}" ]; then
     set -- "$1" --plugin-dir "$_ccy_agent_bus/plugin/pingbus" --settings "$_ccy_agent_bus/settings.json" "${@:2}"
     _ccy_seat_exec=("$_ccy_agent_bus/pingbus" seat exec --)
 fi
-unset _ccy_bus_var _ccy_bus_was _ccy_bus_before_PINGBUS_SEATS _ccy_bus_before_PINGBUS_TEAMS _ccy_bus_before_PINGBUS_HOME
+unset _ccy_bus_var _ccy_bus_before _ccy_bus_after _ccy_bus_changed
+unset -f _ccy_bus_snapshot
 # <<< AGENT-BUS
 
 # ── Supervisor wrap: DEFAULT ON when the project ships a supervisor ───────────

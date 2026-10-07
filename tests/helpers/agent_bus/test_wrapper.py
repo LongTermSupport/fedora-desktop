@@ -6,9 +6,11 @@ Run from the repo root:
 
 DESIGN.md section 5.1: the `agent-bus` user cannot write into a human's 0700 home, so
 `add-member` writes the bundle to its stdout as a tar and the root wrapper unpacks it in a
-fresh private directory and places each file with `install -d -o "$SUDO_UID" -m 0700` and
-`install -o "$SUDO_UID" -m 0600` under `--out`. The wrapper is sourced with its
-`run_admin_tool` replaced, so these tests need neither the `agent-bus` user nor the zipapp.
+fresh private directory. With `--out=DIR` it places each file there as the sudo user
+(setpriv), 0700 directory and 0600 files, never as root; with `add-member --out=-` it
+prints the three files as a tar on stdout and writes nothing (D61). The wrapper is sourced
+with its `run_admin_tool` replaced, so these tests need neither the `agent-bus` user nor
+the zipapp.
 """
 
 from __future__ import annotations
@@ -53,6 +55,17 @@ def make_tar(files: dict[str, bytes]) -> bytes:
 BUNDLE = {"member.json": b'{"team": "team-a"}', "token": b"syt_abc", "README": b"next steps"}
 
 
+def owner_home(base: pathlib.Path) -> pathlib.Path:
+    """`base/home`, the sudo user's own directory: the wrapper writes there as that user,
+    so `base` is made passable and `home` theirs."""
+    os.chmod(base, 0o711)
+    home = base / "home"
+    home.mkdir(mode=0o700)
+    if ROOT:
+        os.chown(home, OWNER, GROUP)
+    return home
+
+
 class WrapperTest(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -61,15 +74,81 @@ class WrapperTest(unittest.TestCase):
         self.args_file = self.tmp / "args"
         self.tar_file = self.tmp / "bundle.tar"
         self.tar_file.write_bytes(make_tar(BUNDLE))
-        self.out = self.tmp / "home" / "pingbus" / "team-a"
+        self.out = owner_home(self.tmp) / "pingbus" / "team-a"
 
-    def run_wrapper(self, *args: str, sudo: bool = True, stub: str = STUB) -> subprocess.CompletedProcess:
+    def run_wrapper(self, *args: str, sudo: bool = True, stub: str = STUB,
+                    text: bool = True) -> subprocess.CompletedProcess:
         env = {"PATH": os.environ["PATH"], "ARGS_FILE": str(self.args_file), "TAR_FILE": str(self.tar_file)}
         if sudo:
             env.update({"SUDO_UID": str(OWNER), "SUDO_GID": str(GROUP)})
         script = f'source "$1"; {stub}; shift; main "$@"'
         return subprocess.run(["bash", "-c", script, "bash", str(WRAPPER), *args],
-                              capture_output=True, text=True, env=env, check=False)
+                              capture_output=True, text=text, env=env, check=False)
+
+    def make_out(self, mode: int = 0o700) -> None:
+        """The sudo user's existing bundle directory, as rotate-token finds it."""
+        for path in (self.out.parent, self.out):
+            path.mkdir(mode=mode, exist_ok=True)
+            os.chmod(path, mode)
+            if ROOT:
+                os.chown(path, OWNER, GROUP)
+        (self.out / "member.json").write_text("{}")
+
+    def files_under_tmp(self) -> list[str]:
+        return sorted(str(p.relative_to(self.tmp)) for p in self.tmp.rglob("*"))
+
+    # ── --out=-: the bundle on stdout, nothing written (D61) ──────────────────────────
+
+    def test_out_dash_prints_the_bundle_and_writes_nothing(self) -> None:
+        before = self.files_under_tmp()
+        run = self.run_wrapper("add-member", "team-a", "--seat=dev1", "--out=-", text=False)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tool_args(), ["add-member", "team-a", "--seat=dev1"])
+        self.assertEqual(self.files_under_tmp(), sorted([*before, "args"]))
+        with tarfile.open(fileobj=io.BytesIO(run.stdout), mode="r:") as tar:
+            members = tar.getmembers()
+            self.assertEqual(sorted(m.name for m in members), sorted(BUNDLE))
+            for member in members:
+                self.assertTrue(member.isreg())
+                self.assertEqual(member.mode, 0o600)
+                self.assertEqual(tar.extractfile(member).read(), BUNDLE[member.name])
+        self.assertNotIn(b"syt_abc", run.stderr)
+
+    def test_out_dash_passes_only_the_bundle_files(self) -> None:
+        self.tar_file.write_bytes(make_tar({**BUNDLE, "../escape": b"x", "extra": b"y"}))
+        run = self.run_wrapper("add-member", "team-a", "--out=-", text=False)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        with tarfile.open(fileobj=io.BytesIO(run.stdout), mode="r:") as tar:
+            self.assertEqual(sorted(tar.getnames()), sorted(BUNDLE))
+
+    def test_out_dash_with_an_incomplete_bundle_prints_nothing(self) -> None:
+        self.tar_file.write_bytes(make_tar({"token": b"syt_abc"}))
+        run = self.run_wrapper("add-member", "team-a", "--out=-", text=False)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(run.stdout, b"")
+
+    def test_out_dash_is_for_add_member_only(self) -> None:
+        run = self.run_wrapper("rotate-token", "team-a", "h.1+x.podman", "--out=-")
+        self.assertEqual(run.returncode, 64)
+        self.assertFalse(self.args_file.exists())
+
+    # ── --out=DIR: written as the sudo user, never as root (D61) ────────────────────
+
+    @unittest.skipUnless(ROOT, "the privilege drop is seen only from root")
+    def test_out_dir_is_written_as_the_sudo_user_not_root(self) -> None:
+        # A directory the sudo user cannot write in: root could, the user cannot, so a
+        # bundle placed there would mean root wrote it.
+        system_dir = self.tmp / "system-dir"
+        system_dir.mkdir(mode=0o755)
+        os.chmod(system_dir, 0o755)
+        link = self.out.parent.parent / "link"
+        link.symlink_to(system_dir)
+        for out in (system_dir / "team-a", link / "team-a"):
+            with self.subTest(out=out):
+                run = self.run_wrapper("add-member", "team-a", f"--out={out}")
+                self.assertNotEqual(run.returncode, 0)
+                self.assertEqual(list(system_dir.iterdir()), [])
+                self.assertNotIn("syt_abc", run.stderr)
 
     def tool_args(self) -> list[str]:
         return self.args_file.read_text().splitlines()
@@ -156,22 +235,17 @@ class WrapperTest(unittest.TestCase):
         self.assertFalse((self.out / "token").exists())
 
     def test_rotate_token_leaves_the_directory_alone(self) -> None:
-        self.out.mkdir(parents=True, mode=0o750)
-        os.chmod(self.out, 0o750)
-        if ROOT:
-            os.chown(self.out, OWNER, GROUP)
-        (self.out / "member.json").write_text("{}")
+        self.make_out(0o750)
         self.tar_file.write_bytes(make_tar({"token": b"syt_new"}))
         run = self.run_wrapper("rotate-token", "team-a", "h.1+x.podman", f"--out={self.out}")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(stat.S_IMODE(self.out.stat().st_mode), 0o750)
 
     def test_rotate_token_replaces_only_the_token(self) -> None:
-        self.out.mkdir(parents=True)
-        (self.out / "member.json").write_text("{}")
+        self.make_out()
         (self.out / "token").write_text("old")
         if ROOT:
-            os.chown(self.out, OWNER, GROUP)
+            os.chown(self.out / "token", OWNER, GROUP)
         self.tar_file.write_bytes(make_tar({"token": b"syt_new"}))
         run = self.run_wrapper("rotate-token", "team-a", "h.1+x.podman", f"--out={self.out}")
         self.assertEqual(run.returncode, 0, run.stderr)
@@ -306,7 +380,7 @@ class RealBundleTest(AdminTestCase):
                                   type_="podman", role="worker", address="192.0.2.10", human_text=False)
         tar_file = self.root / "bundle.tar"
         tar_file.write_bytes(bundle.tar)
-        home = self.root / "home" / "pingbus"
+        home = owner_home(self.root) / "pingbus"
         env = {"PATH": os.environ["PATH"], "ARGS_FILE": str(self.root / "args"), "TAR_FILE": str(tar_file),
                "SUDO_UID": str(OWNER), "SUDO_GID": str(GROUP)}
         script = f'source "$1"; {STUB}; shift; main "$@"'

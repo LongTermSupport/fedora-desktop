@@ -194,7 +194,15 @@ repository; opt-in per machine and per team.
   a seat's later session and its return after removal reading `pingbus history`, a plain
   `ccy` on no team, the checkout unchanged); `--no-supervise` now beats the project's
   wrapper (ccy 3.86.1, container 2.47); D59-D60;
-  [report](subagent-reports/261007-U20-rework-builder-opus.md). Its host run is
+  [report](subagent-reports/261007-U20-rework-builder-opus.md). **Seats review fixes**
+  ([review](subagent-reports/261007-seats-qa-reviewer-opus.md),
+  [fixes](subagent-reports/261007-seats-review-fixes-opus.md)): root no longer writes in a
+  checkout (`seat take` asks `add-member --out=-` for the bundle and places it as the user
+  by opened directories; `--out=<dir>` is written as the sudo user; D61); the entrypoint
+  refuses every `PINGBUS_*` variable from `ccy.env`/`ccy.env.local` (D62); a headless
+  launch's Quick Launch banner goes to stderr; the real `pingbus seat exec` command line
+  is gated (ccy 3.86.2, container 2.48). The review's finding on a ccy upgrade discarding
+  Quick Launch choices before U20's acceptance is the owner's decision, open. Its host run is
   `meta-deploy.bash` (deploy, then acceptance); the owner launches ccy here interactively
   once between the ccy upgrade and the acceptance (the prerequisites say so). The
   throwaway-checkout build below is superseded. U12 built:

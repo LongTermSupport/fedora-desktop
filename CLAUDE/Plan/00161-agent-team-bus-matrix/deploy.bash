@@ -32,7 +32,8 @@
 #  10. `triage.bash --reach-only --bus-address=<ip>`, whose report stays in its run directory;
 #  11. U19, U31: play-claude-yolo.yml, which installs the ccy launcher (its --teams flag) and
 #      rebuilds the image with the pingbus zipapp, the agent-bus kit and the entrypoint's
-#      seat claim (CCY 3.86.1, container 2.47: also --no-supervise over the project's wrapper).
+#      seat claim (CCY 3.86.2, container 2.48: also --no-supervise over the project's wrapper,
+#      and every PINGBUS_* refused from ccy.env).
 #
 # WHAT STAYS, deliberately (every desktop carries the homeserver software): the packages of
 # DESIGN.md section 3.2, the agent-bus user, /var/lib/agent-bus{,-install}, the pinned

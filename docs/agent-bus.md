@@ -137,8 +137,10 @@ seat, which the launch creates (see [A ccy session: seats](#a-ccy-session-seats)
 
    `--address` is the homeserver address the member will use: one of the team's `listen`
    addresses (for a ccy member, see its README). `--out` must not exist yet; the bundle
-   (`member.json`, `token` and a `README` with the next steps) is written there, owned by
-   the user who ran sudo. `--no-human-text` makes a member that takes pings only (see
+   (`member.json`, `token` and a `README` with the next steps) is written there as the
+   user who ran sudo, never as root, so `--out` must be somewhere that user can write.
+   `--out=-` prints the three files as a tar on stdout instead and writes nothing, for a
+   caller that places them itself. `--no-human-text` makes a member that takes pings only (see
    [Joining a team hosted elsewhere](#joining-a-team-hosted-elsewhere)).
 
 3. Put the bundle where the member reads it and list the team in `PINGBUS_TEAMS`, then
@@ -185,9 +187,11 @@ A **seat** is a durable member of one team in one checkout. `dev1@<team>` is the
 member, with its handle, role, pending pings and history, every time a session is launched
 into it; one live session holds a seat at a time, and a launch into a held seat is
 refused. The first launch that names a seat creates it: one `add-member` run with sudo (a
-headless launch uses only sudo's cached credential, so run `sudo -v` first), its bundle
-written to `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`, which ccy's
-`.claude/ccy/.gitignore` keeps out of git. A session taking over a seat reads what the seat
+headless launch uses only sudo's cached credential, so run `sudo -v` first), which hands
+the bundle back on stdout; the launch's seat step, running as you, writes it to
+`<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`, which ccy's
+`.claude/ccy/.gitignore` keeps out of git. Root writes nothing in the checkout, since
+other sessions in it can change it, and a symlink anywhere in that path is refused. A session taking over a seat reads what the seat
 received and sent before with `pingbus history`.
 
 A seat's handle is `<repo>.<seat>+<host>.podman`: `<repo>` from the checkout's forge
@@ -224,7 +228,7 @@ seat's role is changed with `set-role`, the handle read from `agent-bus seat lis
 - `sudo agent-bus remove-member <team> <handle>` removes a member for good; its handle is
   never reused.
 - `sudo agent-bus rotate-token <team> <handle> --out=<bundle-dir>` logs the member out and
-  writes a new `token` into a bundle directory owned by the user who ran sudo, which must
+  writes a new `token`, as the user who ran sudo, into a bundle directory owned by them, which must
   already hold the member's `member.json`. For a member that runs as another user,
   rotate into a copy and install the new `token` for the member as before.
 

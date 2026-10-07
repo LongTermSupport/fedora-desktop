@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.86.2 — container 2.48
+
+- **Every `PINGBUS_*` variable is refused from `ccy.env` and `ccy.env.local`** (Plan
+  00161 D62). The entrypoint checked only `PINGBUS_SEATS`, `PINGBUS_TEAMS` and
+  `PINGBUS_HOME`, so a `PINGBUS_FORGE_TOKEN` or `PINGBUS_FORGE_TOKEN_FILE` in either file
+  still reached pingbus, though both files are meant to say nothing about the bus. It now
+  compares every `PINGBUS_*` variable before and after sourcing them, and a launch in which
+  either file set, changed or unset any of them is refused, naming each one. Gated by
+  `scripts/test-ccy-agent-bus.bash`, which now also replays the entrypoint's
+  `pingbus seat exec -- …` command line through the real zipapp.
+- **A headless launch's Quick Launch banner goes to stderr.** With no launch-choice flag,
+  the banner and "Headless launch: using the previous configuration." were printed on
+  stdout, which is the headless session's own output. The whole Quick Launch block now
+  writes to stderr, the interactive prompt included (it already did). Gated by
+  `scripts/test-ccy-teams.bash`.
+
 ## 3.86.1 — container 2.47
 
 - **`--no-supervise` runs `claude` unwrapped even when the project arms a wrapper.** A
@@ -39,8 +55,9 @@ Two version numbers move independently — see
   comes back with `--teams <canonical list>`. Gated by `scripts/test-ccy-teams.bash`.
 - **The entrypoint takes seats only from the launcher.** With `PINGBUS_SEATS` it puts
   `pingbus seat exec --` in front of both final exec lines, which claims every seat and
-  checks each bundle, and adds the bus plugin and settings. A `PINGBUS_*` variable set,
-  changed or unset by `ccy.env` or `ccy.env.local` refuses the launch, as does a
+  checks each bundle, and adds the bus plugin and settings. `PINGBUS_SEATS`, `PINGBUS_TEAMS`
+  or `PINGBUS_HOME` set, changed or unset by `ccy.env` or `ccy.env.local` refuses the
+  launch (every `PINGBUS_*` variable since 3.86.2), as does a
   `PINGBUS_TEAMS` or `PINGBUS_HOME` from the launcher (a ccy older than the image). 3.85.0's
   `PINGBUS_TEAMS` opt-in in `ccy.env.local` is gone. Gated by `scripts/test-ccy-agent-bus.bash`.
 - **`ccy.env.local.dist` version 3** drops the `PINGBUS_TEAMS` block and says that
