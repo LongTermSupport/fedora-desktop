@@ -336,6 +336,17 @@ it day to day:
   while changing nothing. The log is
   `journalctl -u fedora-desktop-self-update -u fedora-desktop-self-update-verify --no-pager | cat`.
   A failure also appears in `fedora-desktop-health` and the login snippet.
+- **What it fetches, and what `nothing` means.** The cycle runs as root against its own
+  deploy clone, `/var/lib/fedora-desktop/deploy`, never a person's checkout. It fetches
+  `self_update_branch` (and, on the tags channel, the release tags) from that clone's
+  `origin`, which must equal `self_update_remote_url`, an `https://` URL: no SSH identity is
+  involved. A fetch that fails is a refusal and an alert, never `nothing`. `old`/`new` are
+  the deployed commit before and after. `nothing` means the fetch worked and no commit above
+  the deployed one is trusted: on the branch channel each newer commit is unsigned, or
+  signed by a key not in `self_update_signing_public_keys` (or not under
+  `self_update_signing_principal`). For each signed one, `run --dry-run` writes
+  `<sha> is signed (status …, signer …) but not trusted` to stderr; an unsigned one is
+  passed over without a line.
 - **Slack alerts (optional).** Each server can post its failures, and each completed
   deploy, to a Slack incoming webhook. Declare `self_update_slack_webhook_url`
   vault-encrypted in host_vars. That is the IaC route, and for a headless install it
