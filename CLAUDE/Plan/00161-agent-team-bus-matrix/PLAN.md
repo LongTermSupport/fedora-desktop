@@ -15,8 +15,9 @@ credentials. The owner asked to deliver the bus that issue #59 designs: a privat
 homeserver per team, installed by a play or a standalone installer on any Fedora desktop or
 server, a standard-library CLI (`pingbus`) through which an agent sends and receives
 **pings** (a closed verb plus a reference to a committed artefact), free text from the
-team's humans aimed at specific agents, hooks that wake an idle session, an opt-in setting
-to join a team, and an optional desktop client play.
+team's humans aimed at specific agents, hooks that wake an idle session, a launch flag that
+puts one ccy session in a team (`ccy --team`), and an optional desktop client play. v1
+teams live on this machine; teams spanning machines are a later phase (owner, 2026-10-07).
 
 The owner's answers (Task 1.3) change two of the issue's rules: humans may send free text to
 agents, and a team spans hosts and encapsulations. The rest hold: agent-to-agent traffic is
@@ -40,6 +41,8 @@ repository; opt-in per machine and per team.
 
 - Federation, or a homeserver on the public internet.
 - Homeservers on anything but Fedora (for now).
+- Teams spanning machines (a member or homeserver on another host, over WireGuard): a later
+  phase (owner, 2026-10-07; DESIGN.md D46). The design for it is kept, marked "later phase".
 - Per-agent forge identities (issue open question 5: revisit later).
 - An MCP server.
 
@@ -93,10 +96,18 @@ repository; opt-in per machine and per team.
   checkout, and `ccy --seat <name>` creates a seat on first use (IaC optional, none built);
   v1 seats join only teams on this host; the grammar widens inside protocol v1.
 
-- [ ] **Task 1.8**: OWNER: three questions from the rework (DESIGN.md "Owner questions"),
-  each with the answer the design assumes: an unnamed `ccy` creates the next numbered seat
-  when all are held; every seat is in every team its checkout joined (so U20 needs this
-  checkout joined to no other team); U24 and success criterion 3 stay in v1.
+- [x] ✅ **Task 1.8**: OWNER: the rework's three questions, answered 2026-10-07 (journal) and
+  folded into DESIGN.md (§1, §5.2, §5.3, §5.5, §5.6, §12 "U20", D44–D46;
+  [report](subagent-reports/261007-seats-design-launch-team-opus.md)): a ccy session is in a
+  team only when launched with it (`ccy --team <team> [--seat <name>]`), and a plain `ccy`
+  is in none; no checkout-level opt-in (`agent-bus join`/`leave`, `PINGBUS_TEAMS` in
+  `ccy.env.local`, `seat add` and `--no-bus` dropped); a seat is one identity across the
+  teams its launches name; v1 teams live on this machine, so U24 and success criterion 3
+  move to a later phase.
+
+- [ ] **Task 1.9**: OWNER: one question (DESIGN.md "Owner questions"): does the phone (probe
+  H7, U26) leave v1 with cross-machine teams? Recommended: yes; v1 humans use Element
+  Desktop on this machine.
 
 ### Phase 2: Build, by milestone (units U00–U33 in DESIGN.md §12)
 
@@ -140,12 +151,16 @@ repository; opt-in per machine and per team.
   `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
   member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. Seats
-  (Tasks 1.6, 1.7), designed, not built: **U29** seat handles, registry v2, park and
-  return (`add-member --seat`, `park-member`); **U30** the seat claim (`pingbus seat exec`), `SEAT` lines in `status`, the seat at SessionStart; **U31** ccy picks and creates
-  the seat on the host (`--seat`, unnamed launches on the lowest free number), `--no-bus`,
-  the `ccy-seat` label, headless Quick Launch, the entrypoint's seats block; **U32** the
-  host commands `agent-bus join`, `leave` and `seat list|add|take|remove`; **U33**
-  `pingbus history`. **U20 is to be reworked** to run in this checkout through `agent-bus join` and `ccy --seat` (DESIGN.md §12 "U20"); its throwaway-checkout build below is
+  (Tasks 1.6–1.8), designed, not built: **U29** seat handles, registry v2, park and
+  return (`add-member --seat`, `park-member`); **U30** the seat claim (`pingbus seat exec`), `SEAT` lines in `status`, the seat at SessionStart; **U31** ccy `--team`
+  (repeatable) and `--seat` (refused without `--team`); with `--team` the launcher picks
+  and creates the seat on the host (unnamed launches on the lowest free number), passes
+  the teams and seat into the container, labels it `ccy-seat`; a plain `ccy` passes
+  nothing; the entrypoint refuses bus variables from `ccy.env`/`ccy.env.local`; U19's
+  `ccy.env.local` block removed; headless Quick Launch; **U32** the host commands
+  `agent-bus seat take|list|remove`; **U33** `pingbus history`. **U20 is to be reworked**
+  to run in this checkout with sessions launched by `ccy --team acceptance --seat <name>`
+  and no checkout setup step (DESIGN.md §12 "U20"); its throwaway-checkout build below is
   superseded and its host run waits for U29–U33. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
@@ -156,7 +171,8 @@ repository; opt-in per machine and per team.
   run confirmed Stop firing and notices under real turns; U20 must confirm the plugin loads
   from `--plugin-dir <kit>/plugin/pingbus`. Wave 7: U19 (the ccy image joins
   teams listed in `PINGBUS_TEAMS` from `ccy.env.local`; container 2.45, CCY 3.85.0;
-  `scripts/test-ccy-agent-bus.bash`) built, reviewed and fixed. Its host run, the
+  `scripts/test-ccy-agent-bus.bash`) built, reviewed and fixed; its `ccy.env.local` opt-in is
+  superseded by `ccy --team` and is removed by U31. Its host run, the
   `play-claude-yolo.yml` image rebuild, is the last step of `deploy.bash`; then a ccy
   session with a real bundle. The ccy address (DESIGN.md §5.3) is settled as the bus
   address, as the podman README and `docs/ccy.md` already say (H1's dummy leg, 26-10-07).
@@ -172,7 +188,8 @@ repository; opt-in per machine and per team.
   `~/.gitconfig`. CCY 3.85.2 takes the checkout's own signing setting first, and U20's
   checkouts turn signing off ([report](subagent-reports/261007-ccy-signing-local-opus.md)).
   Host rerun pending.
-- [ ] 🔄 **M3 other encapsulations and hosts, the play**: U21–U24. U22 built:
+- [ ] 🔄 **M3 other encapsulations on this host, the play**: U21–U23. U24 (a team on another
+  machine over WireGuard) is a later phase, not part of v1 (DESIGN.md D46). U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`
   on every desktop, then `remove` for each `agent_bus_teams` entry with `state: absent` and
   `team` for each present one, changed only on the installer's `CHANGED` lines; the
@@ -201,16 +218,22 @@ repository; opt-in per machine and per team.
 
 ## Success Criteria
 
-- [ ] Several ccy sessions in one checkout, each on its own seat, exchange a `review` ping
-  and an `ack`; the idle one is woken; a later session in a seat continues as its member and
-  reads its history (owner, 2026-10-07: DESIGN.md D34, D40).
+- [ ] Several ccy sessions in one checkout, each launched with `--team` on its own seat,
+  exchange a `review` ping and an `ack`; the idle one is woken; a later session in a seat
+  continues as its member and reads its history; a plain `ccy` in the same checkout is on
+  no team (owner, 2026-10-07: DESIGN.md D34, D40, D44).
 - [ ] A human's message addressed to one agent in Element reaches that agent, marked as
   from that human; no other agent's `pingbus` delivers it, and no agent's free text
   reaches another agent.
-- [ ] An agent in a different encapsulation on another host (LXC or VM) is in the same team
-  and exchanges a ping.
+- [ ] Agents in LXC, docker and a VM on this host are in the same team as the desktop's
+  members and exchange a ping (U23).
 - [ ] The homeserver makes no outbound connection and answers only on the addresses the
   team's members use (checked, per the issue's privacy list).
+
+Later phase, not required to close this plan (owner, 2026-10-07; DESIGN.md D46):
+
+- An agent in a different encapsulation on another host (LXC or VM) is in the same team and
+  exchanges a ping (U24, over WireGuard).
 
 ## Delivery & Milestones
 
