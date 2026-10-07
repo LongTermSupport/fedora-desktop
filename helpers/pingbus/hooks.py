@@ -11,7 +11,10 @@ event, a stored file or an exception carried reaches the output: every text is o
 
 - `session-start` starts `pingbus watch` detached when the session has an inbox socket and
   some active team has no waker; it reports the wake path, the pending count and any
-  failure class.
+  failure class, and, for a ccy session's seats (DESIGN.md section 5.5), each seat it
+  holds with its handle, the `pingbus history` pointer when the seat has earlier traffic,
+  and its team's other seats, held or free. Seat, team and handle are the only names a
+  template carries, each filled only after it passed its grammar (`fill`).
 - `prompt` (UserPromptSubmit) reports the pending count and any failure class.
 - `stop` is the guard. It never blocks when `stop_hook_active` is true. It blocks once for
   a set of pending items (a new item blocks again), and otherwise, at most once per
@@ -34,7 +37,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from typing import TextIO
 
-from helpers.pingbus import config, inbox, notify, protocol
+from helpers.pingbus import config, inbox, notify, protocol, seat
 
 EVENTS = ("session-start", "prompt", "stop", "session-end")
 HOOK_EVENT_NAMES = {
@@ -49,8 +52,15 @@ NO_WAKER_EVERY_S = 600
 FAILURE_EVERY_S = 600
 INPUT_MAX_BYTES = 1 << 20
 
-#: The only fields a template may carry: counts.
+#: The only fields a template may carry: counts, and names that passed their grammar.
 COUNT_FIELDS = ("total", "humans", "pings", "held", "teams", "free")
+LOCK_STATES = ("held", "free")
+NAME_FIELDS: dict[str, Callable[[object], bool]] = {
+    "seat": protocol.is_seat_name,
+    "team": protocol.is_team_name,
+    "handle": lambda value: protocol.parse_handle(value) is not None,
+    "lock": lambda value: value in LOCK_STATES,
+}
 TEMPLATES = {
     "pending": "agent-bus: {total} pending ({humans} from humans, {pings} pings). Run `pingbus recv`.",
     "stop_pending": ("agent-bus: {total} pending ({humans} from humans, {pings} pings). "
@@ -59,7 +69,11 @@ TEMPLATES = {
                  "will wake this session. Run `pingbus wait` with run_in_background."),
     "watcher_started": "agent-bus: the wake path is the inbox socket; the watcher was started.",
     "seat_held": ("agent-bus: {held} of {teams} active teams already have a watcher or waiter "
-                  "(this session's own, or another session holds the seat: run `pingbus status`)."),
+                  "(this session's own, or another process of this seat: run `pingbus status`)."),
+    "seat_self": "agent-bus: this session holds seat {seat}@{team}, as {handle}.",
+    "seat_sibling": "agent-bus: seat {seat}@{team} is {lock}, as {handle}.",
+    "seat_history": ("agent-bus: seat {seat}@{team} has earlier traffic: "
+                     "`pingbus history --team {team}` shows what it received and sent."),
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "
                   "with run_in_background."),
     "watcher_failed": ("agent-bus: the watcher could not be started. Run `pingbus status`; "
@@ -83,6 +97,32 @@ class _Failure(Exception):
 
 def pending_text(total: int, humans: int, pings: int) -> str:
     return TEMPLATES["pending"].format(total=total, humans=humans, pings=pings)
+
+
+def fill(name: str, **fields: object) -> str:
+    """A template filled with names, each refused (`ValueError`) unless it passes its own
+    grammar, so nothing a bundle file holds reaches the session beyond a valid name."""
+    for key, value in fields.items():
+        check = NAME_FIELDS.get(key)
+        if check is None or not check(value):
+            raise ValueError(f"template {name}: field {key} is not a valid name")
+    return TEMPLATES[name].format(**fields)
+
+
+def seat_lines(environ: Mapping[str, str], teams: tuple[str, ...]) -> list[str]:
+    """SessionStart's seat context (DESIGN.md section 5.5): for each seat this session
+    holds, its own line, the pointer to `pingbus history` when it has earlier traffic, and
+    its team's other seats in the checkout, held or free. Offline."""
+    lines: list[str] = []
+    for view in seat.session_seats(config.resolve_home(environ), teams):
+        names = {"seat": view.ref.seat, "team": view.ref.team, "handle": view.handle}
+        if view.own:
+            lines.append(fill("seat_self", **names))
+            if view.history:
+                lines.append(fill("seat_history", seat=view.ref.seat, team=view.ref.team))
+        else:
+            lines.append(fill("seat_sibling", lock=view.state, **names))
+    return lines
 
 
 # ── what the hooks look at ───────────────────────────────────────────────────────────────
@@ -304,18 +344,25 @@ class _Hook:
                 lines.append(TEMPLATES["watcher_started"])
         if held:
             lines.append(TEMPLATES["seat_held"].format(held=held, teams=teams))
-        lines += self._pending_and_failure(surveyed)
+        seat_failure = None
+        try:
+            lines += seat_lines(self.environ, tuple(view.team for view in surveyed.teams))
+        except (config.ConfigError, inbox.StateError, OSError) as exc:
+            self.err.write(f"pingbus: hook session-start: the seats cannot be read: {exc}\n")
+            seat_failure = "state"
+        lines += self._pending_and_failure(surveyed, seat_failure)
         return _context(self.event, lines)
 
     def prompt(self) -> dict:
         return _context(self.event, self._pending_and_failure(survey(self.environ)))
 
-    def _pending_and_failure(self, surveyed: Survey) -> list[str]:
+    def _pending_and_failure(self, surveyed: Survey, extra_failure: str | None = None) -> list[str]:
         lines = []
         total, humans, pings = surveyed.counts()
         if total:
             lines.append(pending_text(total, humans, pings))
-        failure = surveyed.failure()
+        found = {surveyed.failure(), extra_failure}
+        failure = next((cls for cls in FAILURE_CLASSES if cls in found), None)
         if failure is not None:
             lines.append(TEMPLATES[failure])
         return lines

@@ -203,6 +203,7 @@ class BusCase(unittest.TestCase):
             long_poll_ms=long_poll_ms,
             tick_s=0.05,
             threads=self.threads,
+            seats_root=self.tmp / "checkout" / "seats",
         )
 
     def run_cli(self, *argv: str, stdin: str | bytes = b"", long_poll_ms: int = LONG_POLL_MS,

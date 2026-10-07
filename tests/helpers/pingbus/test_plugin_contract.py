@@ -239,6 +239,24 @@ class SkillTest(unittest.TestCase):
         ):
             self.assertIn(phrase, self.flat)
 
+    def test_the_seats_section(self) -> None:
+        """DESIGN.md section 5.5 "Hooks": the session's own handles, how to find its
+        siblings, reading a taken-over seat's history, and who cannot be pinged."""
+        section = " ".join(self.text.split("\n## Seats\n", 1)[1].split("\n## ", 1)[0].split())
+        for phrase in (
+            "`pingbus status`",
+            "`SEAT`",
+            "`self`",
+            "this session holds seat",
+            "has earlier traffic",
+            "launched without `--teams`",
+            "cannot be pinged",
+        ):
+            self.assertIn(phrase, section)
+        for template, phrase in (("seat_self", "this session holds seat"),
+                                 ("seat_history", "has earlier traffic")):
+            self.assertIn(phrase, hooks.TEMPLATES[template])
+
     def test_no_install_specific_text(self) -> None:
         self.assertNotRegex(self.text, r"/workspace/|/home/|@[a-z0-9.-]+\.(com|org|net)\b")
 

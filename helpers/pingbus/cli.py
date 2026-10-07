@@ -37,6 +37,7 @@ from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
 from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify, protocol, syncer
+from helpers.pingbus import seat as seating
 
 PROG = "pingbus"
 TOOL_VERSION = "0.1.0"
@@ -70,7 +71,8 @@ EXIT_CODES = {
     EXIT_RATE: "rate limited (local limit, duplicate, server 429 after retries, or forge rate limit)",
     EXIT_UNTRUSTED: "the team room is not trusted (§8), or not joined",
     EXIT_USAGE: "usage error",
-    EXIT_BUSY: "busy: another process holds this account's sync lock (`wait`, `watch`)",
+    EXIT_BUSY: ("busy: another process holds this account's sync lock (`wait`, `watch`), "
+                "or another session holds a seat (`seat exec`)"),
     EXIT_CONFIG: "configuration refused (§12, §10 bounds, Python older than 3.11)",
 }
 
@@ -487,7 +489,9 @@ class Runtime:
     wait for a `recv` lock holder; `long_poll_ms` caps each `/sync` of `wait`; `tick_s` is how often
     `wait` looks for a TIMEOUT falling due while nothing arrives; `threads` collects
     `wait`'s and `watch`'s long-poll threads; `notice_interval_s` spaces the watcher's
-    notices; `spawn` starts the watcher from the SessionStart hook."""
+    notices; `spawn` starts the watcher from the SessionStart hook; `seats_root` is the
+    checkout's seats (`SEAT` lines, the claim), `session_home` the home a claim builds, and
+    `execvpe` replaces the process with the session once its seats are claimed."""
 
     forge_for: Callable[
         [config.Member, Mapping[str, str]], Callable[[protocol.TeamRecord], forge.Forge]
@@ -500,6 +504,9 @@ class Runtime:
     threads: list[threading.Thread] = dataclasses.field(default_factory=list)
     notice_interval_s: float = notify.NOTICE_MIN_INTERVAL_S
     spawn: Callable[[Mapping[str, str], pathlib.Path], object] = hooks.spawn_watcher
+    seats_root: pathlib.Path = seating.CCY_SEATS_ROOT
+    session_home: pathlib.Path = seating.SESSION_HOME
+    execvpe: Callable[[str, list[str], dict[str, str]], object] = os.execvpe
 
 
 class _LockedStream:
@@ -1155,7 +1162,44 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
             first_failure = first_failure or code
             continue
         out.write(lines.getvalue())
+    try:
+        seat_lines, seat_failures = seating.seat_lines(rt.seats_root, config.resolve_home(environ))
+    except inbox.StateError as exc:
+        seat_lines, seat_failures = [], [str(exc)]
+    for line in seat_lines:
+        out.write(line + "\n")
+    for message in seat_failures:
+        err.write(f"{PROG}: {message}\n")
+        first_failure = first_failure or EXIT_CONFIG
     return EXIT_OK if first_failure is None else first_failure
+
+
+# ---------------------------------------------------------------- the claim: seat exec
+
+
+def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Claim every seat of the launch (`PINGBUS_SEATS`), build the session home, check
+    every bundle and the forge credential source as `config check` does, then replace this
+    process with the command, which inherits the seat locks (DESIGN.md section 5.5)."""
+    rt: Runtime = args.runtime
+    command = list(args.command)
+    if command[:1] == ["--"]:
+        command = command[1:]
+    if not command:
+        raise config.UsageError(f"{PROG} seat exec: name the command to run")
+    forge_credential_source(environ)
+    claimed = seating.claim(environ, root=rt.seats_root, home=rt.session_home,
+                            clock_ms=rt.clock_ms, sleep=rt.sleep)
+    names = ", ".join(f"{ref.text} ({member.handle})"
+                      for ref, member in zip(claimed.refs, claimed.members, strict=True))
+    err.write(f"✓ agent team bus: {names}\n")
+    err.flush()
+    out.flush()
+    try:
+        rt.execvpe(command[0], command, claimed.environ)
+    except OSError as exc:
+        raise config.ConfigError(f"{PROG} seat exec: cannot run {command[0]}: {exc.strerror or exc}") from None
+    return EXIT_OK
 
 
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
@@ -1225,6 +1269,15 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     hook = command("hook", cmd_hook, "a Claude Code hook: stdin hook JSON, stdout hook JSON")
     hook.add_argument("event", choices=hooks.EVENTS, metavar="EVENT",
                       help=" | ".join(hooks.EVENTS))
+    seat_parser = commands.add_parser("seat", help="this ccy session's seats")
+    team_option(seat_parser, argparse.SUPPRESS)
+    seat_commands = seat_parser.add_subparsers(dest="seat_command", metavar="SUBCOMMAND",
+                                               required=True)
+    seat_exec = seat_commands.add_parser(
+        "exec", help="claim the seats in PINGBUS_SEATS, then run CMD holding them (ccy's entrypoint)")
+    team_option(seat_exec, argparse.SUPPRESS)
+    seat_exec.add_argument("command", nargs=argparse.REMAINDER, metavar="CMD")
+    seat_exec.set_defaults(handler=cmd_seat_exec)
     return parser
 
 
