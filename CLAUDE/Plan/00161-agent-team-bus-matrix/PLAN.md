@@ -173,8 +173,12 @@ repository; opt-in per machine and per team.
   on the host, passes `PINGBUS_SEATS` into the container, labels it `ccy-seats`; a plain
   `ccy` passes nothing; the entrypoint refuses bus variables from
   `ccy.env`/`ccy.env.local`; U19's `ccy.env.local` block removed; headless Quick Launch;
-  **U32** the host commands `agent-bus seat check|take|list|remove` (a new seat's `<host>`
-  the checkout's role, else `local`); **U33 built** (`pingbus history`, read backwards
+  **U32 built** (`helpers/agent_bus/checkout.py` and `agent-bus seat check|take|list|remove`,
+  run as the user and refused as root by the wrapper; a new seat's `<host>` the role
+  `ccy.env.local` assigns, read without sourcing, else `local`; `docs/agent-bus.md`,
+  `README.podman` and the podman bundle README now say `ccy --teams`; D56; no host run of
+  its own, exercised by U20; [report](subagent-reports/261007-U32-builder-opus.md));
+  **U33 built** (`pingbus history`, read backwards
   from the room through the receive checks, `HISTORY` lines, the skill's section; D55; no
   host run of its own, exercised by U20); U30 and U33 merged together on
   `seats-integration` (the skill's seats section names `pingbus history`). **U20 is to be reworked**

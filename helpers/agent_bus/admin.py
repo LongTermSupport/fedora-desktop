@@ -83,9 +83,9 @@ KIT_DIR = "/usr/local/share/agent-bus/kit"
 
 #: What a member does with its bundle, per type (DESIGN.md section 5.2).
 NEXT_STEPS = {
-    "podman": "A ccy (podman) member: this directory belongs at <checkout>/.claude/ccy/pingbus/{team}/,\n"
-              "where ccy's .gitignore ignores it; add `export PINGBUS_TEAMS={team}` to the\n"
-              "checkout's untracked .claude/ccy/ccy.env.local (placed by that install's IaC).",
+    "podman": "A ccy (podman) seat: `agent-bus seat take <seat>@{team}`, run by `ccy --teams`, wrote\n"
+              "this directory to <checkout>/.claude/ccy/pingbus/seats/{team}/<seat>/, which ccy's\n"
+              ".gitignore ignores. A session is in team {team} only when launched with that flag.",
     "host": "A bare-host member: copy this directory to ~/.config/pingbus/{team}/ of the dedicated\n"
             "agent user (never a user that holds a human's Matrix session), list {team} in\n"
             "PINGBUS_TEAMS in ~/.config/pingbus/env, and start sessions with agent-bus-claude.",

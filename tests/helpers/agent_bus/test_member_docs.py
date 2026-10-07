@@ -226,6 +226,44 @@ class CommandsExistTest(unittest.TestCase):
         self.assertEqual(invocations(by_path, "agent-bus"), [])
 
 
+class CcySeatsTest(unittest.TestCase):
+    """DESIGN.md row U32: a ccy session joins a team only by `ccy --teams <seat>@<team>`, a
+    seat per team, reused, with its history, `local` the default `<host>`; U19's
+    `ccy.env.local` opt-in is gone from every text."""
+
+    def texts(self) -> dict[str, str]:
+        return {"guide": DOC.read_text(encoding="utf-8"),
+                "README.podman": kit_readme("podman").read_text(encoding="utf-8"),
+                "bundle README": admin.bundle_readme("myrepo.dev1+local.podman", "team-a", "podman")}
+
+    def test_the_ccy_opt_in_is_gone(self):
+        for name, text in self.texts().items():
+            with self.subTest(name):
+                self.assertNotIn("PINGBUS_TEAMS=<team>", text)
+                self.assertNotIn("export PINGBUS_TEAMS", text)
+                self.assertNotIn("PINGBUS_TEAMS={team}", text)
+                self.assertNotIn(".claude/ccy/pingbus/<team>/", text)
+                self.assertNotIn("opts in through", " ".join(text.split()))
+
+    def test_the_launch_and_the_seat_layout(self):
+        for name, text in self.texts().items():
+            flat = " ".join(text.split())
+            with self.subTest(name):
+                self.assertIn("ccy --teams", flat)
+                self.assertRegex(flat, r"\.claude/ccy/pingbus/seats/(<team>|team-a)/<seat>/")
+
+    def test_seats_reuse_history_and_local(self):
+        for name in ("guide", "README.podman"):
+            flat = " ".join(self.texts()[name].split())
+            with self.subTest(name):
+                self.assertIn("one seat per team per session", flat.lower())
+                self.assertIn("pingbus history", flat)
+                self.assertIn("`local`", flat)
+                self.assertIn("agent-bus seat remove", flat)
+                self.assertIn("agent-bus seat list", flat)
+                self.assertIn("as yourself", flat)
+
+
 class GuideTest(unittest.TestCase):
     def setUp(self) -> None:
         self.text = DOC.read_text(encoding="utf-8")
