@@ -89,7 +89,7 @@ repository; opt-in per machine and per team.
   address from every podman network, which settles DESIGN.md §5.3; H2's docker and LXC legs
   reached it too (third run). Open: H6 (Element Desktop is not installed yet, U27) and the
   libvirt guest owner step.
-- [ ] 🔄 **M1 host-to-host ping, through the installer**: U02–U11, U13–U17. Built and
+- [x] ✅ **M1 host-to-host ping, through the installer**: U02–U11, U13–U17. Built and
   integrated (wave 1): U02 (spec `docs/agent-bus-protocol.md`, `protocol.py`), U03
   (`limits.py`), U04 (`config.py`, its `limits` parsed by U03) and U14 (`teamfile.py`,
   `registry.py`, their grammars imported from `protocol.py`). Wave 2: U05 (`cli.py`, the
@@ -114,7 +114,9 @@ repository; opt-in per machine and per team.
   members' bundle extraction (`tar` under the members' seccomp filter); they now extract
   with Python's `tarfile`. The next run joined both members and carried the first real
   ping (a's `review` to b's `wait`), then lost the ack's event ID to `systemd-run`'s `$`
-  expansion, now off. Re-run pending.
+  expansion, now off. Run of 26-10-07 (meta-deploy `20261007-142049`): `deploy.bash` and
+  `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
+  member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
