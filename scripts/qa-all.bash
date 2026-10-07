@@ -692,6 +692,18 @@ fi
 network_disconnect_summary=$(qa_gate_case_count "$network_disconnect_out")
 qa_pass_line ccy-network-disconnect "$network_disconnect_summary"
 
+# ccy's informational options (--version, --help, a bare --list-tokens) must work outside a
+# git repository, and every other invocation must still refuse there. The real launcher,
+# run from a scratch non-repository directory against a stub engine and a scratch home.
+info_flags_out=""
+if ! info_flags_out="$(bash "$SCRIPT_DIR/test-ccy-info-flags.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-info-flags \
+        "ccy informational-option tests failed" \
+        "$info_flags_out"
+fi
+info_flags_summary=$(qa_gate_case_count "$info_flags_out")
+qa_pass_line ccy-info-flags "$info_flags_summary"
+
 # ssh-suspend-guard's session detection: the guard asked `ss` about port 22 and grepped for
 # sshd, so on a host whose sshd listens elsewhere it never took the inhibit lock and the
 # machine suspended mid-session — the one outcome it exists to prevent, arriving silently.

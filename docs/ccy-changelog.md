@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.85.1 — container 2.45
+
+- **The informational options work from any directory.** `ccy --version` (`-v`),
+  `ccy --help` (`-h`) and `ccy --list-tokens` on its own now print and exit before the
+  repository-root check, so they no longer fail with "Not in a git repository root
+  directory" when run from a home directory. Every other invocation, `--list-tokens`
+  combined with other options included, still refuses to run outside a repository root.
+  Gated by `scripts/test-ccy-info-flags.bash`.
+
 ## 3.85.0 — container 2.45
 
 - **A checkout can join the agent team bus (Plan 00161).** The image carries the member
