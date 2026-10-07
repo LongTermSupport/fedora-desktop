@@ -345,6 +345,57 @@ new_case tag-only-no-identity gpg.format=ssh "user.signingkey=$ID_LITERAL" tag.g
 run_cfg "" 0
 if [ "$RC" -ne 0 ]; then pass "refused with only tag.gpgsign on"; else fail "accepted with tag.gpgsign on"; fi
 
+echo "== the project's own config: inside the container its .git/config is what git reads"
+# project_signing <setting>...: make the case's project a repository with these local
+# settings.
+project_signing() {
+    local line
+    git init -q "$CASE/project"
+    for line in "$@"; do
+        git -C "$CASE/project" config --local "${line%%=*}" "${line#*=}"
+    done
+}
+new_case local-off "${SIGNING_ON[@]}"
+project_signing commit.gpgsign=false tag.gpgsign=false
+before="$(cat "$CASE/stage/gitconfig")"
+run_cfg "" 0
+if [ "$RC" -eq 0 ] && [ "$(cat "$CASE/stage/gitconfig")" = "$before" ] && staged_nothing; then
+    pass "signing off in the project, on in ~/.gitconfig: launches with no identity, the copy untouched"
+else
+    fail "rc=$RC, or the copy changed: $OUT"
+fi
+new_case local-unset "${SIGNING_ON[@]}"
+project_signing user.name=someone
+run_cfg "" 0
+if [ "$RC" -ne 0 ]; then pass "a repository that sets neither falls back to ~/.gitconfig: refused"; else fail "accepted with signing on in ~/.gitconfig"; fi
+SIGNING_OFF=(gpg.format=ssh "user.signingkey=$ID_LITERAL" commit.gpgsign=false tag.gpgsign=false)
+new_case local-on "${SIGNING_OFF[@]}"
+project_signing commit.gpgsign=true
+run_cfg "" 0
+if [ "$RC" -ne 0 ] && [[ "$OUT" == *"Commit signing is on in this project's git config"* ]]; then
+    pass "signing on in the project, off in ~/.gitconfig, no identity: refused, naming the project's config"
+else
+    fail "rc=$RC, or the refusal does not name the project's config: $OUT"
+fi
+run_cfg "$CASE/home/.ssh/github_work" 0
+if [ "$RC" -eq 0 ] && [ "$(signingkey_in_copy)" = "$IN_CONTAINER" ]; then
+    pass "signing on in the project, with a key-file identity: the copy names it"
+else
+    fail "rc=$RC, copy names '$(signingkey_in_copy)': $OUT"
+fi
+new_case local-commit-off-tag-on "${SIGNING_ON[@]}"
+project_signing commit.gpgsign=false
+run_cfg "" 0
+if [ "$RC" -ne 0 ]; then pass "commits off in the project, tags on in ~/.gitconfig: refused"; else fail "accepted with tag signing still on"; fi
+new_case local-invalid "${SIGNING_OFF[@]}"
+project_signing commit.gpgsign=maybe
+run_cfg "" 0
+if [ "$RC" -ne 0 ] && [[ "$OUT" == *"Could not read commit.gpgsign from the git config of $CASE/project"* ]]; then
+    pass "a value git cannot read as a boolean fails, naming the setting"
+else
+    fail "rc=$RC, or the error does not name the setting: $OUT"
+fi
+
 echo "== signing on, OpenPGP format"
 new_case on-openpgp "user.signingkey=$ID_LITERAL" commit.gpgsign=true
 run_cfg "$CASE/home/.ssh/github_work" 0

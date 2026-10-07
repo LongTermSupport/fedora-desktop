@@ -151,7 +151,8 @@ u20_prerequisites() {
 }
 
 # u20_make_checkouts — one throwaway git checkout per member, each its own ccy project, opted
-# in to the acceptance team through ccy.env.local; c's ccy.env turns its inbox socket off.
+# in to the acceptance team through ccy.env.local, with commit and tag signing off in its own
+# config (ccy launches with --no-ssh); c's ccy.env turns its inbox socket off.
 u20_make_checkouts() {
     local m checkout dist
     dist="$(awk -F= '/^CCY_ENV_LOCAL_DIST_VERSION=/ { print $2; exit }' "$(dirname "${CCY_LAUNCHER}")/lib/common.bash")" || return 1
@@ -165,6 +166,9 @@ u20_make_checkouts() {
         checkout="$(u20_checkout "${m}")"
         mkdir -p -- "${U20_EVIDENCE}/${m}" || return 1
         git init -q -- "${checkout}" || return 1
+        # The sessions never commit, and ccy needs no signing key for a checkout whose own config turns signing off.
+        git -C "${checkout}" config --local commit.gpgsign false || return 1
+        git -C "${checkout}" config --local tag.gpgsign false || return 1
         mkdir -p -- "$(u20_home "${m}")" || return 1
         printf '# based on ccy.env.local.dist version %s\nexport PINGBUS_TEAMS=%s\n' "${dist}" "${TEAM}" \
             >"$(u20_state "${m}")/ccy.env.local" || return 1

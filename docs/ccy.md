@@ -436,7 +436,8 @@ The residual risks worth naming honestly:
   whoever can push and sign from the container can ship to it. On the default tags channel
   the same key must also sign a release tag, which the release command makes. Every launch prints the key it signs with
   (`✓ Commit signing: …`). A session with no SSH identity cannot sign, so with signing on
-  it refuses to start.
+  it refuses to start. Whether signing is on is the project's own `commit.gpgsign` and
+  `tag.gpgsign` where its `.git/config` sets them, else your `~/.gitconfig`'s.
 - **With only a forwarded agent, the key follows the project's remotes.** The session
   signs with the key git on the host picks for the project, if the agent holds it. The
   project is writable from inside, so an agent that adds a `github.com-<alias>` remote gets

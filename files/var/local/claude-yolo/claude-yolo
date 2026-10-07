@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.85.1"  # --version, --help and --list-tokens work outside a git repository. See docs/ccy-changelog.md.
+CCY_VERSION="3.85.2"  # A checkout's own commit/tag signing setting decides whether a key is needed. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
