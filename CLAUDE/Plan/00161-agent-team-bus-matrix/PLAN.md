@@ -105,9 +105,8 @@ repository; opt-in per machine and per team.
   teams its launches name; v1 teams live on this machine, so U24 and success criterion 3
   move to a later phase.
 
-- [ ] **Task 1.9**: OWNER: one question (DESIGN.md "Owner questions"): does the phone (probe
-  H7, U26) leave v1 with cross-machine teams? Recommended: yes; v1 humans use Element
-  Desktop on this machine.
+- [x] ✅ **Task 1.9**: The phone (probe H7) and U26 leave v1 with cross-machine teams (owner,
+  2026-10-07; DESIGN.md D47): v1 humans use Element Desktop on this machine.
 
 ### Phase 2: Build, by milestone (units U00–U33 in DESIGN.md §12)
 
