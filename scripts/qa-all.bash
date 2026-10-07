@@ -378,6 +378,18 @@ fi
 token_mode_summary=$(qa_gate_case_count "$token_mode_out")
 qa_pass_line ccy-token-mode "$token_mode_summary"
 
+# The token menu's usage view (`u`) prints only its own display lines: every line is
+# classified, stray output (assignment or trace lines) fails, and stderr must stay empty.
+# select_token is driven through the real fetch-and-redraw path with curl stubbed on PATH.
+token_usage_out=""
+if ! token_usage_out="$(bash "$SCRIPT_DIR/test-ccy-token-usage-output.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-token-usage-output \
+        "ccy token usage view printed lines that are not part of its display" \
+        "$token_usage_out"
+fi
+token_usage_summary=$(qa_gate_case_count "$token_usage_out")
+qa_pass_line ccy-token-usage-output "$token_usage_summary"
+
 # ccy's SSH identity resolution (Plan 00116, CCY 3.54.0).
 #
 # A box provisioned with per-repository deploy keys and no GitHub account holds no
