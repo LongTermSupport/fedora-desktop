@@ -1,42 +1,54 @@
 Agent team bus: joining a team as a `podman` (ccy) member
 =========================================================
 
-A `podman` member is a Claude Code agent in a ccy session (or another rootless podman
-container) on the same machine as the team's homeserver, or reaching it over WireGuard.
-This file is the short version; the full guide, including what joining a team grants and
-its limits, is docs/agent-bus.md in the fedora-desktop repository.
+A `podman` member (`--type=podman`) is a Claude Code agent in a ccy session on the same
+machine as the team's homeserver. This file is the short version; the full guide,
+including what joining a team grants and its limits, is docs/agent-bus.md in the
+fedora-desktop repository.
 
 A ccy session does not use this kit: `pingbus`, the plugin and the settings come from the
-ccy image, and ccy's entrypoint adds them when the checkout opts in.
+ccy image, and ccy's entrypoint adds them only to a session launched with `--teams`.
 
-1. The member's arguments. `--type=podman`; `--repo` is the last part of the checkout's
-   forge remote URL with `.git` removed (the checkout directory's name when it has no
-   remote); `--host` is the install's role, the HOOKS_DAEMON_HOSTNAME its ccy.env.local
-   sets, or another name for the install that is never its real hostname: handles appear
-   in public forge text. (`pingbus suggest-handle` prints the same for the other member
-   types, but a ccy session has `pingbus` only once it has opted in.)
-
-2. The bundle. On the homeserver host, a human with sudo writes it straight into the
-   checkout, where ccy's .claude/ccy/.gitignore keeps it out of git:
+1. Launching into a team. A ccy session is in a team only when it is launched with it:
 
    ```
-   sudo agent-bus add-member <team> --repo=<repo> --host=<role> --type=podman --role=worker --address=<bus_ip> --out=<checkout>/.claude/ccy/pingbus/<team>
+   ccy --teams <seat>@<team>[,<seat>@<team>...]
    ```
 
-   `--address` is the team's address on this machine's bus interface, agentbus0 (or its
-   WireGuard address for a homeserver on another machine). Add `--no-human-text` if this
-   member should take pings only.
+   One seat per team per session; a session may be in several teams. A plain `ccy` is in
+   no team, whatever seats the checkout has. Nothing in the checkout opts it in: nothing
+   about the bus goes in ccy.env.local.
 
-3. Opting in. The checkout's untracked .claude/ccy/ccy.env.local, placed by the install's
-   IaC and never by an agent, carries:
+2. Seats. A seat is a durable member of one team in this checkout: `dev1@<team>` is the
+   same member, with its handle, role, pending pings and history, every time a session is
+   launched into it. The first launch that names a seat creates it on the host, through
+   one `add-member` run with sudo (an interactive launch lets sudo ask for the password; a
+   headless one uses only sudo's cached credential, so run `sudo -v` first), and writes
+   its bundle to .claude/ccy/pingbus/seats/<team>/<seat>/, which ccy's
+   .claude/ccy/.gitignore keeps out of git. One live session holds a seat at a time; a
+   launch into a held seat is refused. A session taking over a seat reads what the seat
+   received and sent before with `pingbus history`.
+
+3. The handle. A seat's handle is `<repo>.<seat>+<host>.podman`: `<repo>` from the
+   checkout's forge remote, `<host>` the HOOKS_DAEMON_HOSTNAME that the checkout's
+   ccy.env.local assigns, or the literal `local` when it assigns none. A handle never
+   carries the machine's hostname: handles appear in public forge text.
+
+4. On the host, in the checkout, as yourself (not through sudo):
 
    ```
-   export PINGBUS_TEAMS=<team>
-   export HOOKS_DAEMON_HOSTNAME=<role>
+   agent-bus seat list
+   agent-bus seat remove <seat>@<team>
    ```
 
-   ccy mounts an existing ccy.env.local read-only, so a session cannot change its own
-   teams or role.
+   `seat list` prints a SEAT line per seat (team, seat, held or free, `self` or `-`,
+   handle). `seat remove` parks the seat's handle in its team (its token revoked; its
+   account, role and history kept) and deletes its directory, and the checkout's bus
+   directory once nothing is left in it; launching into the same `<seat>@<team>` again
+   returns the seat with a new token. A seat whose directory was lost is recovered the
+   same way: remove it, then launch again. To give a seat another role:
+   `sudo agent-bus set-role <team> <handle> --role=orchestrator`, the handle read from
+   `agent-bus seat list`.
 
-4. Start ccy as usual. With PINGBUS_TEAMS set, the entrypoint runs `pingbus config check`
-   for every listed team and refuses to start if one fails.
+The team's homeserver must run on this machine (agent-bus-hs@<team>.service is active),
+and the seat reaches it at the machine's bus address, on agentbus0.

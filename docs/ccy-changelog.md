@@ -17,6 +17,73 @@ Two version numbers move independently — see
 
 ---
 
+## 3.86.3 — container 2.48
+
+- **Quick Launch keeps its saved choices across ccy versions** (Plan 00135 Task 7.5). The
+  saved `.claude/ccy/.last-launch.conf` was deleted on every `CCY_VERSION` change, so after
+  most deploys the next launch went through every prompt again, a session restored with no
+  launch flags stopped at them, and a headless launch was refused. The file is now kept
+  while its format (`SAVED_CONFIG_VERSION`, still 1, raised only when the keys or their
+  meaning change) matches, whichever ccy version wrote it. It is discarded, as before, when
+  the format differs or is missing, and now also when `LAST_TOKEN`, `LAST_SSH_KEYS` or
+  `LAST_NETWORK` is missing; values the file does not set are no longer taken from the
+  environment. Files written by earlier versions are format 1 with the same keys, so they
+  are kept. The saved token, keys and network go through the same checks as before. Same
+  version with a different hash (an unbumped change) still warns, but no longer discards.
+  Gated by `scripts/test-ccy-teams.bash`.
+
+## 3.86.2 — container 2.48
+
+- **Every `PINGBUS_*` variable is refused from `ccy.env` and `ccy.env.local`** (Plan
+  00161 D62). The entrypoint checked only `PINGBUS_SEATS`, `PINGBUS_TEAMS` and
+  `PINGBUS_HOME`, so a `PINGBUS_FORGE_TOKEN` or `PINGBUS_FORGE_TOKEN_FILE` in either file
+  still reached pingbus, though both files are meant to say nothing about the bus. It now
+  compares every `PINGBUS_*` variable before and after sourcing them, and a launch in which
+  either file set, changed or unset any of them is refused, naming each one. Gated by
+  `scripts/test-ccy-agent-bus.bash`, which now also replays the entrypoint's
+  `pingbus seat exec -- …` command line through the real zipapp.
+- **A headless launch's Quick Launch banner goes to stderr.** With no launch-choice flag,
+  the banner and "Headless launch: using the previous configuration." were printed on
+  stdout, which is the headless session's own output. The whole Quick Launch block now
+  writes to stderr, the interactive prompt included (it already did). Gated by
+  `scripts/test-ccy-teams.bash`.
+
+## 3.86.1 — container 2.47
+
+- **`--no-supervise` runs `claude` unwrapped even when the project arms a wrapper.** A
+  project's `ccy.env` (or `ccy.env.local`) arms the supervisor with
+  `export CCY_CLAUDE_WRAPPER="${CCY_CLAUDE_WRAPPER:-…}"`, and `--no-supervise` forwards no
+  value to beat it, so the project's wrapper came back and the flag did nothing in such a
+  project. The entrypoint now sets every wrapper aside under `--no-supervise`, saying on
+  stderr which one it did not use. A headless session driven through a pipe (Plan 00161's
+  acceptance) needs this: the PTY supervisor is not for piped input. Gated by
+  `scripts/test-ccy-agent-bus.bash`.
+
+## 3.86.0 — container 2.46
+
+- **`ccy --teams <seat>@<team>[,…]` puts a session in agent team bus teams** (Plan 00161),
+  one seat in each team; a plain `ccy` is in no team. The list is checked on the host by
+  `agent-bus seat check` before any prompt, SSH or token work (64 a malformed list, 78 a
+  team not running here, 78 with no `agent-bus` installed), and `agent-bus seat take`
+  creates any missing seat and refuses a held one (75) just before the container starts.
+  The container gets `PINGBUS_SEATS` and the `ccy-seats` label, and a restart or restore
+  comes back with `--teams <canonical list>`. Gated by `scripts/test-ccy-teams.bash`.
+- **The entrypoint takes seats only from the launcher.** With `PINGBUS_SEATS` it puts
+  `pingbus seat exec --` in front of both final exec lines, which claims every seat and
+  checks each bundle, and adds the bus plugin and settings. `PINGBUS_SEATS`, `PINGBUS_TEAMS`
+  or `PINGBUS_HOME` set, changed or unset by `ccy.env` or `ccy.env.local` refuses the
+  launch (every `PINGBUS_*` variable since 3.86.2), as does a
+  `PINGBUS_TEAMS` or `PINGBUS_HOME` from the launcher (a ccy older than the image). 3.85.0's
+  `PINGBUS_TEAMS` opt-in in `ccy.env.local` is gone. Gated by `scripts/test-ccy-agent-bus.bash`.
+- **`ccy.env.local.dist` version 3** drops the `PINGBUS_TEAMS` block and says that
+  `HOOKS_DAEMON_HOSTNAME` also names a new seat's host. A `ccy.env.local` based on version 2
+  gets the usual launch warning: take any `PINGBUS_TEAMS` line out of it.
+- **A headless launch never prompts for its launch choices.** With no `--token`,
+  `--ssh-key`, `--ssh-agent`, `--no-ssh`, `--network` or `--no-network` it takes the saved
+  Quick Launch choices without asking (an empty saved key or network meaning `--no-ssh` or
+  `--no-network`), and is refused when there are none. A key that needs a passphrase
+  refuses a headless launch before the container starts, naming `ssh-add`.
+
 ## 3.85.2 — container 2.45
 
 - **A checkout's own signing setting decides whether a signing key is needed.** ccy read

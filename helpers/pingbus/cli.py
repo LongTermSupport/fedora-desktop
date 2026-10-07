@@ -5,8 +5,8 @@ Spec: docs/agent-bus-protocol.md §13 (commands), §14 (exit codes), §15 (outpu
 bucket, TIMEOUT), §12 (multi-team, the lock), §3 (`suggest-handle`), §1 (`version`).
 The offline commands are `version`, `validate`, `config check`, `suggest-handle`,
 `inbox`, `status` and `hook …` (the hooks are `hooks`'s); the network commands are `send`,
-`say`, `recv`, `wait` (Plan 00161 U11) and `watch` (U12), built on `syncer` for room trust
-and receiving; `watch` wakes the session through `notify`.
+`say`, `recv`, `wait` (Plan 00161 U11), `watch` (U12) and `history` (U33), built on
+`syncer` for room trust and receiving; `watch` wakes the session through `notify`.
 
 Streams: stdout carries only a command's payload (the §15 stdout lines, `validate`'s
 verdict, and the report commands' text); every diagnostic goes to stderr. Nothing read
@@ -37,6 +37,7 @@ from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
 from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify, protocol, syncer
+from helpers.pingbus import seat as seating
 
 PROG = "pingbus"
 TOOL_VERSION = "0.1.0"
@@ -70,7 +71,8 @@ EXIT_CODES = {
     EXIT_RATE: "rate limited (local limit, duplicate, server 429 after retries, or forge rate limit)",
     EXIT_UNTRUSTED: "the team room is not trusted (§8), or not joined",
     EXIT_USAGE: "usage error",
-    EXIT_BUSY: "busy: another process holds this account's sync lock (`wait`, `watch`)",
+    EXIT_BUSY: ("busy: another process holds this account's sync lock (`wait`, `watch`), "
+                "or another session holds a seat (`seat exec`)"),
     EXIT_CONFIG: "configuration refused (§12, §10 bounds, Python older than 3.11)",
 }
 
@@ -84,7 +86,10 @@ LINES = {
     "TIMEOUT": (STDOUT, ("team", "event ID of the unanswered ping", "silent target", "verb", "ref")),
     "SENT": (STDOUT, ("team", "event ID")),
     "DROPPED": (STDERR, ("count", "reason=count pairs joined by ,")),
+    "HISTORY": (STDOUT, ("direction", "origin_server_ts", "line", "its fields after 1")),
 }
+#: A `HISTORY` line's directions: received by this member, or sent by it.
+HISTORY_DIRECTIONS = (syncer.HISTORY_IN, syncer.HISTORY_OUT)
 
 #: The last verified team record (spec §12 `state/team.json`): the `agent_bus.team`
 #: content as the syncer verified it. Re-parsed on every read: it is a cache.
@@ -205,6 +210,26 @@ def timeout_line(
 
 def sent_line(team: str, event_id: str) -> str:
     return format_line("SENT", _team(team), _event_id(event_id))
+
+
+def history_line(team: str, server_name: str, item: syncer.HistoryItem) -> str:
+    """A `HISTORY` line: the direction, the time, then the `PING`, `HUMAN` or `SENT` line
+    the item would be, less its version. Each part passes its own line's grammar."""
+    if item.direction not in HISTORY_DIRECTIONS:
+        raise ValueError("direction field is not in or out")
+    ts = item.origin_server_ts
+    if type(ts) is not int or ts < 0:
+        raise ValueError("origin_server_ts field is not a non-negative integer")
+    if item.ping is not None:
+        inner = ping_line(team, server_name, item.ping)
+    elif item.human is not None:
+        inner = human_line(team, server_name, item.human)
+    elif item.sent_event_id is not None:
+        inner = sent_line(team, item.sent_event_id)
+    else:
+        raise ValueError("a history item records a ping, a human message or a sent text")
+    kind, _version, fields = inner.split("\t", 2)
+    return "\t".join(("HISTORY", str(protocol.PROTOCOL_VERSION), item.direction, str(ts), kind, fields))
 
 
 def dropped_line(counts: Mapping[str, int]) -> str:
@@ -487,7 +512,9 @@ class Runtime:
     wait for a `recv` lock holder; `long_poll_ms` caps each `/sync` of `wait`; `tick_s` is how often
     `wait` looks for a TIMEOUT falling due while nothing arrives; `threads` collects
     `wait`'s and `watch`'s long-poll threads; `notice_interval_s` spaces the watcher's
-    notices; `spawn` starts the watcher from the SessionStart hook."""
+    notices; `spawn` starts the watcher from the SessionStart hook; `seats_root` is the
+    checkout's seats (`SEAT` lines, the claim), `session_home` the home a claim builds, and
+    `execvpe` replaces the process with the session once its seats are claimed."""
 
     forge_for: Callable[
         [config.Member, Mapping[str, str]], Callable[[protocol.TeamRecord], forge.Forge]
@@ -500,6 +527,9 @@ class Runtime:
     threads: list[threading.Thread] = dataclasses.field(default_factory=list)
     notice_interval_s: float = notify.NOTICE_MIN_INTERVAL_S
     spawn: Callable[[Mapping[str, str], pathlib.Path], object] = hooks.spawn_watcher
+    seats_root: pathlib.Path = seating.CCY_SEATS_ROOT
+    session_home: pathlib.Path = seating.SESSION_HOME
+    execvpe: Callable[[str, list[str], dict[str, str]], object] = os.execvpe
 
 
 class _LockedStream:
@@ -1023,6 +1053,38 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
                 lock.release()
 
 
+# ---------------------------------------------------------------- history
+
+
+def cmd_history(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """What this member received and sent in each active team (or `--team`), newest first,
+    read from the room: a record, never work. Nothing is consumed, acked or stored. A team
+    that fails is reported and the others still print; the exit is the first failure's."""
+    rt: Runtime = args.runtime
+    limit = args.limit
+    if not 1 <= limit <= syncer.HISTORY_MAX_ITEMS:
+        raise config.UsageError(f"history --limit: from 1 to {syncer.HISTORY_MAX_ITEMS}")
+    first_failure: int | None = None
+    for member in config.load_active(environ, team=args.team):
+        try:
+            found = _seat(member, environ, rt, err).syncer.history(limit)
+            lines = [history_line(member.team, member.server_name, item) for item in found.items]
+        except FAILURES as exc:
+            code, message = failure(exc)
+            err.write(f"{PROG}: team {member.team}: {message}\n")
+            first_failure = first_failure or code
+            continue
+        for line in lines:
+            emit(line, out, err)
+        if found.drops:
+            emit(dropped_line(found.drops), out, err)
+        if not found.complete:
+            scanned = syncer.HISTORY_MAX_PAGES * syncer.HISTORY_PAGE_LIMIT
+            err.write(f"{PROG}: team {member.team}: history read the newest {scanned} room "
+                      "messages; older messages were not read\n")
+    return EXIT_OK if first_failure is None else first_failure
+
+
 # ---------------------------------------------------------------- hooks
 
 HOOK_INPUT_MAX = hooks.INPUT_MAX_BYTES
@@ -1155,7 +1217,44 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
             first_failure = first_failure or code
             continue
         out.write(lines.getvalue())
+    try:
+        seat_lines, seat_failures = seating.seat_lines(rt.seats_root, config.resolve_home(environ))
+    except inbox.StateError as exc:
+        seat_lines, seat_failures = [], [str(exc)]
+    for line in seat_lines:
+        out.write(line + "\n")
+    for message in seat_failures:
+        err.write(f"{PROG}: {message}\n")
+        first_failure = first_failure or EXIT_CONFIG
     return EXIT_OK if first_failure is None else first_failure
+
+
+# ---------------------------------------------------------------- the claim: seat exec
+
+
+def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Claim every seat of the launch (`PINGBUS_SEATS`), build the session home, check
+    every bundle and the forge credential source as `config check` does, then replace this
+    process with the command, which inherits the seat locks (DESIGN.md section 5.5)."""
+    rt: Runtime = args.runtime
+    command = list(args.command)
+    if command[:1] == ["--"]:
+        command = command[1:]
+    if not command:
+        raise config.UsageError(f"{PROG} seat exec: name the command to run")
+    forge_credential_source(environ)
+    claimed = seating.claim(environ, root=rt.seats_root, home=rt.session_home,
+                            clock_ms=rt.clock_ms, sleep=rt.sleep)
+    names = ", ".join(f"{ref.text} ({member.handle})"
+                      for ref, member in zip(claimed.refs, claimed.members, strict=True))
+    err.write(f"✓ agent team bus: {names}\n")
+    err.flush()
+    out.flush()
+    try:
+        rt.execvpe(command[0], command, claimed.environ)
+    except OSError as exc:
+        raise config.ConfigError(f"{PROG} seat exec: cannot run {command[0]}: {exc.strerror or exc}") from None
+    return EXIT_OK
 
 
 def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
@@ -1220,11 +1319,25 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     wait.add_argument("--timeout", type=int, metavar="S",
                       help="seconds (default: the member's wait_timeout_s)")
     command("watch", cmd_watch, "fill the inbox and notify the session socket (SessionStart starts it)")
+    history = command("history", cmd_history,
+                      "what this member received and sent, newest first, read from the room")
+    history.add_argument("--limit", type=int, default=syncer.HISTORY_DEFAULT_ITEMS, metavar="N",
+                         help=f"at most N items per team (default {syncer.HISTORY_DEFAULT_ITEMS}, "
+                              f"at most {syncer.HISTORY_MAX_ITEMS})")
     command("inbox", cmd_inbox, "list pending items without consuming them (offline)")
     command("status", cmd_status, "per team: trust, wake path, counts and members (offline)")
     hook = command("hook", cmd_hook, "a Claude Code hook: stdin hook JSON, stdout hook JSON")
     hook.add_argument("event", choices=hooks.EVENTS, metavar="EVENT",
                       help=" | ".join(hooks.EVENTS))
+    seat_parser = commands.add_parser("seat", help="this ccy session's seats")
+    team_option(seat_parser, argparse.SUPPRESS)
+    seat_commands = seat_parser.add_subparsers(dest="seat_command", metavar="SUBCOMMAND",
+                                               required=True)
+    seat_exec = seat_commands.add_parser(
+        "exec", help="claim the seats in PINGBUS_SEATS, then run CMD holding them (ccy's entrypoint)")
+    team_option(seat_exec, argparse.SUPPRESS)
+    seat_exec.add_argument("command", nargs=argparse.REMAINDER, metavar="CMD")
+    seat_exec.set_defaults(handler=cmd_seat_exec)
     return parser
 
 

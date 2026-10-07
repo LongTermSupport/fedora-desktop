@@ -184,14 +184,22 @@ class TestHandleSeparator(unittest.TestCase):
     def test_pattern_is_built_from_its_part_patterns(self) -> None:
         # Other modules (the registry's seat) compose the same parts, so they are public.
         self.assertIn(p.HANDLE_REPO_PATTERN, p.HANDLE_PATTERN)
+        self.assertIn(p.HANDLE_SEAT_PATTERN, p.HANDLE_PATTERN)
         self.assertIn(p.HANDLE_HOST_PATTERN, p.HANDLE_PATTERN)
         self.assertEqual(p.HANDLE_REPO_PATTERN, r"[a-z0-9][a-z0-9_-]{0,47}")
+        self.assertEqual(p.HANDLE_SEAT_PATTERN, r"[1-9][0-9]{0,5}|[a-z][a-z0-9]{0,11}")
         self.assertEqual(p.HANDLE_HOST_PATTERN, r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
     def test_format_handle(self) -> None:
         self.assertEqual(p.format_handle("myrepo", 3, "workstation", "lxc"), "myrepo.3+workstation.lxc")
         h = p.parse_handle(p.format_handle("a_b", 999999, "h-1", "vm"))
         self.assertEqual((h.repo, h.n, h.host, h.type), ("a_b", 999999, "h-1", "vm"))
+
+    def test_format_handle_takes_a_seat(self) -> None:
+        self.assertEqual(p.format_handle("myrepo", "dev", "local", "podman"), "myrepo.dev+local.podman")
+        self.assertEqual(p.format_handle("myrepo", "7", "local", "podman"), "myrepo.7+local.podman")
+        h = p.parse_handle(p.format_handle("myrepo", "qa2", "workstation", "podman"))
+        self.assertEqual((h.seat, h.n), ("qa2", None))
 
 
 class TestVerbByRefForm(RefusalAssertions):
@@ -713,6 +721,45 @@ class TestIdentifiers(unittest.TestCase):
                 self.assertEqual(p.parse_handle(handle) is not None, valid)
         h = p.parse_handle("myrepo.12+workstation.podman")
         self.assertEqual((h.repo, h.n, h.host, h.type), ("myrepo", 12, "workstation", "podman"))
+        self.assertEqual(h.seat, "12")
+
+    def test_named_seat_handles(self) -> None:
+        # DESIGN.md section 5.5: `<seat>` is a number or a name; every pre-U29 handle above
+        # still parses, a named seat is `[a-z][a-z0-9]{0,11}`.
+        cases = [
+            ("myrepo.dev+local.podman", True),
+            ("myrepo.dev1+local.podman", True),
+            ("myrepo.qa2+workstation.podman", True),
+            ("myrepo.pm+local.lxc", True),
+            ("myrepo.d+local.podman", True),
+            ("myrepo." + "a" * 12 + "+local.podman", True),
+            ("myrepo." + "a" * 13 + "+local.podman", False),
+            ("myrepo.a0123456789b+local.podman", True),
+            ("myrepo.dev-1+local.podman", False),
+            ("myrepo.dev_1+local.podman", False),
+            ("myrepo.dev.1+local.podman", False),
+            ("myrepo.Dev+local.podman", False),
+            ("myrepo.1dev+local.podman", False),
+            ("myrepo.0dev+local.podman", False),
+            ("myrepo.0+local.podman", False),
+            ("myrepo.007+local.podman", False),
+            ("myrepo.+local.podman", False),
+            ("myrepo.dev@team+local.podman", False),
+        ]
+        for handle, valid in cases:
+            with self.subTest(handle=handle):
+                self.assertEqual(p.parse_handle(handle) is not None, valid)
+        h = p.parse_handle("myrepo.dev1+local.podman")
+        self.assertEqual((h.repo, h.seat, h.n, h.host, h.type), ("myrepo", "dev1", None, "local", "podman"))
+
+    def test_seat_names(self) -> None:
+        for seat, valid in (("1", True), ("999999", True), ("1000000", False), ("0", False),
+                            ("01", False), ("dev", True), ("dev1", True), ("a" * 12, True),
+                            ("a" * 13, False), ("dev-1", False), ("dev_1", False), ("dev.1", False),
+                            ("Dev", False), ("1a", False), ("", False), (" dev", False),
+                            ("dev\n", False), (1, False), (None, False)):
+            with self.subTest(seat=seat):
+                self.assertEqual(p.is_seat_name(seat), valid)
 
     def test_team_names(self) -> None:
         for name, valid in (("a", True), ("team-a", True), ("a" * 24, True), ("a" * 25, False),

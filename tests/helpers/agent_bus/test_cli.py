@@ -175,9 +175,39 @@ class MemberCommandsTest(CliTestCase):
         self.ok(ADD)
         self.ok(["set-role", "team-a", HANDLE, "--role=orchestrator"])
         listed = self.ok(["list", "team-a"]).text
-        self.assertIn(f"MEMBER\t{HANDLE}\torchestrator\tinvite\n", listed)
+        self.assertIn(f"MEMBER\t{HANDLE}\torchestrator\tinvite\tactive\n", listed)
         self.ok(["remove-member", "team-a", HANDLE])
         self.assertNotIn(HANDLE, self.ok(["list", "team-a"]).text)
+
+    def test_add_member_with_a_seat_then_park_and_return(self) -> None:
+        seat_handle = "myrepo.dev1+local.podman"
+        argv = [a for a in ADD if not a.startswith("--host=")] + ["--host=local", "--seat=dev1"]
+        first = self.ok(argv)
+        member = json.loads(tarfile.open(fileobj=io.BytesIO(first.out)).extractfile("member.json").read())
+        self.assertTrue(member["user_id"].startswith(f"@{seat_handle}:"))
+        self.assertIn(f"added {seat_handle}", first.err)
+        refused = self.run_cli(argv)
+        self.assertEqual((refused.code, refused.out), (70, b""))
+        self.assertIn("current member", refused.err)
+        parked = self.ok(["park-member", "team-a", seat_handle])
+        self.assertEqual(parked.text, f"CHANGED\trevoked the token of {seat_handle}\nCHANGED\tparked {seat_handle}\n")
+        self.assertIn(f"MEMBER\t{seat_handle}\tworker\tinvite\tparked\n", self.ok(["list", "team-a"]).text)
+        returned = self.ok(argv)
+        self.assertEqual(sorted(tarfile.open(fileobj=io.BytesIO(returned.out)).getnames()),
+                         ["README", "member.json", "token"])
+        self.assertIn(f"returned {seat_handle}", returned.err)
+        self.assertIn(f"MEMBER\t{seat_handle}\tworker\tinvite\tactive\n", self.ok(["list", "team-a"]).text)
+
+    def test_seat_usage_errors_exit_64(self) -> None:
+        for seat in ("--seat=dev-1", "--seat=0", "--seat=Dev", "--seat="):
+            with self.subTest(seat=seat):
+                run = self.run_cli([*ADD, seat])
+                self.assertEqual((run.code, run.out), (64, b""))
+        self.assertEqual(self.run_cli(["park-member", "team-a"]).code, 64)
+
+    def test_park_member_of_an_unknown_handle_exits_70(self) -> None:
+        run = self.run_cli(["park-member", "team-a", HANDLE])
+        self.assertEqual((run.code, run.out), (70, b""))
 
     def test_rotate_token_writes_a_token_tar(self) -> None:
         self.ok(ADD)
@@ -219,6 +249,10 @@ class SecretHygieneTest(CliTestCase):
         member_token = bundle.extractfile("token").read().decode()
         self.ok(["set-role", "team-a", HANDLE, "--role=orchestrator"])
         self.ok(["list", "team-a"])
+        seat_add = [*ADD, "--seat=dev"]
+        seat_token = tarfile.open(fileobj=io.BytesIO(self.ok(seat_add).out)).extractfile("token").read().decode()
+        self.ok(["park-member", "team-a", "myrepo.dev+workstation.podman"])
+        returned_token = tarfile.open(fileobj=io.BytesIO(self.ok(seat_add).out)).extractfile("token").read().decode()
         rotated = tarfile.open(fileobj=io.BytesIO(self.ok(["rotate-token", "team-a", HANDLE]).out))
         rotated_token = rotated.extractfile("token").read().decode()
         human_password = self.ok(["human", "password", "team-a", "alice"]).text.strip()
@@ -229,7 +263,7 @@ class SecretHygieneTest(CliTestCase):
         self.run_cli(["human", "password", "team-a", "bob"])
         self.ok(["bootstrap", "team-a"])
         secrets_dir = self.team_dir / "secrets"
-        found = [self.shared_secret, member_token, rotated_token, human_password,
+        found = [self.shared_secret, member_token, seat_token, returned_token, rotated_token, human_password,
                  (secrets_dir / "admin.token").read_text(), (secrets_dir / "admin.password").read_text()]
         found += [u.password for u in self.fake.users.values() if u.password]
         for argv, run in self.runs:

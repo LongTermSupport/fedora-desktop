@@ -160,20 +160,54 @@ repository; opt-in per machine and per team.
   `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
   member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
 - [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. Seats
-  (Tasks 1.6–1.10), designed, not built: **U29** seat handles, registry v2, park and
-  return (`add-member --seat`, `park-member`), `local` named in the protocol's handle
-  rules; **U30** the `<seat>@<team>` list parser, the claim of every listed seat
-  (`pingbus seat exec`, a lock per seat, the session home of links), `SEAT` lines in
-  `status`, the seats at SessionStart; **U31** ccy `--teams <seat>@<team>[,…]` (malformed
-  lists and a second seat of one team refused, 64); the launcher creates any missing seat
-  on the host, passes `PINGBUS_SEATS` into the container, labels it `ccy-seats`; a plain
-  `ccy` passes nothing; the entrypoint refuses bus variables from
-  `ccy.env`/`ccy.env.local`; U19's `ccy.env.local` block removed; headless Quick Launch;
-  **U32** the host commands `agent-bus seat check|take|list|remove` (a new seat's `<host>`
-  the checkout's role, else `local`); **U33** `pingbus history`. **U20 is to be reworked**
-  to run in this checkout with sessions launched by `ccy --teams <seat>@acceptance` and no
-  checkout or owner setup step (DESIGN.md §12 "U20"); its throwaway-checkout build below
-  is superseded and its host run waits for U29–U33. U12 built:
+  (Tasks 1.6–1.10), designed; **U29 built** (seat handles in `protocol.py`, registry v2,
+  `add-member --seat` with park and return, `park-member`, `local` named in the
+  protocol's handle rules; D51; no host run of its own, exercised by U20); **U30 built**
+  (`seat.py`: the `<seat>@<team>` list parser and canonical form, the claim of every
+  listed seat by `pingbus seat exec` with a `seat.lock` per seat on `inbox.py`'s one lock
+  primitive, the session home of links, `SEAT` lines in `status`; `config.py` accepts a
+  linked team entry only onto a user-owned 0700 directory; the seats at SessionStart; the
+  skill's seats section; protocol §12-§15; D52-D54; no host run of its own, reaches the
+  image with U31 and is exercised by U20); **U31 built**, host run pending (ccy 3.86.0,
+  container 2.46: `ccy --teams <seat>@<team>[,…]` checked by `agent-bus seat check` before
+  anything runs, `seat take` just before the container, `PINGBUS_SEATS` and the `ccy-seats`
+  label, `--teams <canonical list>` in restart and restore; a plain `ccy` calls no
+  `agent-bus`; the entrypoint takes seats only from the launcher and fronts both final
+  exec lines with `pingbus seat exec --`; dist version 3 without U19's block; headless
+  Quick Launch; `lib/agent-bus-seats.bash`, `scripts/test-ccy-teams.bash`; D56-D57;
+  [report](subagent-reports/261007-U31-builder-opus.md); its host run is the image
+  rebuild in `deploy.bash`, and it needs U32's `seat check`/`seat take` to launch into a
+  team); **U32 built** (`helpers/agent_bus/checkout.py` and `agent-bus seat check|take|list|remove`,
+  run as the user and refused as root by the wrapper; a new seat's `<host>` the role
+  `ccy.env.local` assigns, read without sourcing, else `local`; `docs/agent-bus.md`,
+  `README.podman` and the podman bundle README now say `ccy --teams`; D58; no host run of
+  its own, exercised by U20; [report](subagent-reports/261007-U32-builder-opus.md));
+  U31 and U32 merged together on `seats-integration`;
+  **U33 built** (`pingbus history`, read backwards
+  from the room through the receive checks, `HISTORY` lines, the skill's section; D55; no
+  host run of its own, exercised by U20); U30 and U33 merged together on
+  `seats-integration` (the skill's seats section names `pingbus history`). **U20 reworked,
+  built, host run pending**: M2 in this checkout (DESIGN.md §12 "U20"), sessions launched by
+  `ccy --headless --no-restore --no-supervise --teams <seat>@acceptance` onto seats `acca`,
+  `accb`, `accc` their launches create, no setup step; M2.0-M2.10 (seats created, woken by
+  the socket twice, the watcher-lost fallback, a human message, refused launches, seats freed,
+  a seat's later session and its return after removal reading `pingbus history`, a plain
+  `ccy` on no team, the checkout unchanged); `--no-supervise` now beats the project's
+  wrapper (ccy 3.86.1, container 2.47); D59-D60;
+  [report](subagent-reports/261007-U20-rework-builder-opus.md). **Seats review fixes**
+  ([review](subagent-reports/261007-seats-qa-reviewer-opus.md),
+  [fixes](subagent-reports/261007-seats-review-fixes-opus.md)): root no longer writes in a
+  checkout (`seat take` asks `add-member --out=-` for the bundle and places it as the user
+  by opened directories; `--out=<dir>` is written as the sudo user; D61); the entrypoint
+  refuses every `PINGBUS_*` variable from `ccy.env`/`ccy.env.local` (D62); a headless
+  launch's Quick Launch banner goes to stderr; the real `pingbus seat exec` command line
+  is gated (ccy 3.86.2, container 2.48). The review's finding on a ccy upgrade discarding
+  Quick Launch choices before U20's acceptance is settled by Plan 00135 Task 7.5 (ccy
+  3.86.3): the choices are kept across ccy versions while their format is unchanged, and
+  U20's prerequisite checks the format, not the version. Its host run is
+  `meta-deploy.bash` (deploy, then acceptance); the owner launches ccy here interactively
+  only if the checkout has no saved choices of this format (the prerequisites say so). The
+  throwaway-checkout build below is superseded. U12 built:
   `hooks.py` (the four hooks, offline; the Stop guard), `notify.py` (the inbox socket
   client), `cli.py` `watch`, `hook`, `inbox`, `status`, and the room view (`room.json`)
   the syncer keeps for `status`; `wait` and `watch` publish `listening`. U18 built:
@@ -189,7 +223,7 @@ repository; opt-in per machine and per team.
   session with a real bundle. The ccy address (DESIGN.md §5.3) is settled as the bus
   address, as the podman README and `docs/ccy.md` already say (H1's dummy leg, 26-10-07).
   `admin.py` does not accept the address pasta gives `host.containers.internal`.
-  Wave 8: U20 built, host run pending: `acceptance.bash` slice M2
+  Wave 8 (superseded by the rework above): U20 built: `acceptance.bash` slice M2
   (`_acceptance-u20.inc.bash`, `u20_check.py`, `test_u20_check.py`; [report](subagent-reports/261007-u20-builder-opus.md)).
   Three real ccy sessions run headless with stream-json input, each in a throwaway checkout
   opted in through `ccy.env.local`, logged in with the ccy token by name: M2.1 an idle one
@@ -199,7 +233,6 @@ repository; opt-in per machine and per team.
   host run stopped at launch: ccy refused signing on with no SSH identity, reading only
   `~/.gitconfig`. CCY 3.85.2 takes the checkout's own signing setting first, and U20's
   checkouts turn signing off ([report](subagent-reports/261007-ccy-signing-local-opus.md)).
-  Host rerun pending.
 - [ ] 🔄 **M3 other encapsulations on this host, the play**: U21–U23. U24 (a team on another
   machine over WireGuard) is a later phase, not part of v1 (DESIGN.md D46). U22 built:
   `play-agent-bus.yml` (imported by `playbook-main.yml`) runs `agent-bus-install software`

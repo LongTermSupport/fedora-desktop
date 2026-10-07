@@ -49,10 +49,22 @@ def event_id(n: int) -> str:
     return "$" + f"{n:043d}"
 
 
+#: What each named template field may be: a count, or a name that passed its grammar.
+FIELD_RES = {
+    **dict.fromkeys(hooks.COUNT_FIELDS, r"\d+"),
+    "seat": rf"(?:{protocol.HANDLE_SEAT_PATTERN})",
+    "team": protocol.TEAM_NAME_PATTERN,
+    "handle": protocol.HANDLE_PATTERN,
+    "lock": "(?:held|free)",
+}
+
+
 def template_re(template: str) -> re.Pattern[str]:
-    """A template with each `{name}` standing for a non-negative integer."""
-    parts = re.split(r"\{[a-z_]+\}", template)
-    return re.compile(r"\d+".join(re.escape(part) for part in parts))
+    """A template with each `{name}` standing for what that field may hold."""
+    pattern = ""
+    for literal, field in re.findall(r"([^{]*)(?:\{([a-z_]+)\})?", template):
+        pattern += re.escape(literal) + (FIELD_RES[field] if field else "")
+    return re.compile(pattern)
 
 
 TEMPLATE_RES = [template_re(t) for t in hooks.TEMPLATES.values()]
@@ -174,11 +186,26 @@ class HookCase(unittest.TestCase):
 
 
 class TemplateTest(unittest.TestCase):
-    def test_templates_carry_counts_only(self):
+    def test_templates_carry_counts_and_checked_names_only(self):
         for name, template in hooks.TEMPLATES.items():
             for field in re.findall(r"\{([a-z_]+)\}", template):
-                self.assertIn(field, hooks.COUNT_FIELDS, name)
+                self.assertIn(field, (*hooks.COUNT_FIELDS, *hooks.NAME_FIELDS), name)
             self.assertNotIn("\t", template)
+
+    def test_a_name_field_is_filled_only_after_its_grammar(self):
+        self.assertEqual(hooks.fill("seat_self", seat="dev1", team="team-a", handle="myrepo.dev1+local.podman"),
+                         "agent-bus: this session holds seat dev1@team-a, as myrepo.dev1+local.podman.")
+        for bad in ({"seat": "dev-1"}, {"team": "Team"}, {"handle": "not a handle"}):
+            fields = {"seat": "dev1", "team": "team-a", "handle": "myrepo.dev1+local.podman", **bad}
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                hooks.fill("seat_self", **fields)
+        with self.assertRaises(ValueError):
+            hooks.fill("seat_sibling", seat="dev1", team="team-a", handle="myrepo.dev1+local.podman",
+                       lock="mine")
+
+    def test_seat_held_no_longer_suggests_another_session(self):
+        self.assertNotIn("another session", hooks.TEMPLATES["seat_held"])
+        self.assertIn("another process of this seat", hooks.TEMPLATES["seat_held"])
 
     def test_pending_template_matches_the_socket_notice_counts(self):
         self.assertEqual(hooks.pending_text(3, 1, 2),
@@ -285,6 +312,76 @@ class SessionStartTest(HookCase):
         self.assertEqual(hooks.watch_argv({"PATH": str(bindir)}), [str(exe), "watch"])
         with self.assertRaises(FileNotFoundError):
             hooks.watch_argv({"PATH": str(self.tmp)})
+
+
+class SessionStartSeatTest(HookCase):
+    """DESIGN.md section 5.5 "Hooks": a line per seat the session holds, its team's other
+    seats with `held` or `free` and their handles, and the `history` pointer when the seat
+    has earlier traffic; read offline through the session home's links."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.root = self.tmp / "checkout" / "seats"
+        self.own = self.root / TEAM / "dev1"
+        self.own.parent.mkdir(parents=True)
+        os.rename(self.home / TEAM, self.own)
+        self.own.chmod(0o700)
+        (self.home / TEAM).symlink_to(self.own)
+        self.state = inbox.TeamState(self.own / "state")
+        self.sibling = self.root / TEAM / "qa2"
+        self.sibling.mkdir(mode=0o700)
+        member = json.loads((self.own / "member.json").read_text(encoding="utf-8"))
+        member["user_id"] = f"@myrepo.qa2+local.podman:{SN}"
+        (self.sibling / "member.json").write_text(json.dumps(member), encoding="utf-8")
+
+    def start(self) -> dict:
+        return self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"})
+
+    def test_the_own_seat_and_the_siblings_are_named(self):
+        holder = inbox.acquire_lock_at(self.sibling / "seat.lock", inbox.SEAT_KIND, claimed_ms=1)
+        self.addCleanup(holder.release)
+        lines = self.context(self.start()).split("\n")
+        self.assertIn(hooks.fill("seat_self", seat="dev1", team=TEAM,
+                                 handle="myrepo.1+workstation.podman"), lines)
+        self.assertIn(hooks.fill("seat_sibling", seat="qa2", team=TEAM,
+                                 handle="myrepo.qa2+local.podman", lock="held"), lines)
+        self.assertFalse(any("history" in line for line in lines), "no traffic, no pointer")
+
+    def test_a_free_sibling_is_free(self):
+        lines = self.context(self.start()).split("\n")
+        self.assertIn(hooks.fill("seat_sibling", seat="qa2", team=TEAM,
+                                 handle="myrepo.qa2+local.podman", lock="free"), lines)
+
+    def test_earlier_traffic_points_at_history(self):
+        self.plant_human(1)
+        self.state.consume(event_id(1))
+        lines = self.context(self.start()).split("\n")
+        self.assertIn(hooks.fill("seat_history", seat="dev1", team=TEAM), lines)
+
+    def test_sent_items_point_at_history_too(self):
+        self.state.ensure_dirs()
+        inbox.write_json_file(self.state.path / inbox.OUTBOX_FILE, {"v": 1, "pings": [], "gate": None})
+        self.assertIn(hooks.fill("seat_history", seat="dev1", team=TEAM),
+                      self.context(self.start()).split("\n"))
+
+    def test_seats_of_teams_the_session_is_not_in_are_not_listed(self):
+        other = self.root / "other-team" / "pm"
+        other.mkdir(parents=True, mode=0o700)
+        self.assertNotIn("other-team", self.context(self.start()))
+
+    def test_a_plain_bundle_gives_no_seat_lines(self):
+        (self.home / TEAM).unlink()
+        os.rename(self.own, self.home / TEAM)
+        self.assertNotIn("seat dev1", self.context(self.start()))
+
+    def test_a_sibling_whose_bundle_is_unreadable_is_a_state_failure(self):
+        (self.sibling / "member.json").write_text("{", encoding="utf-8")
+        context = self.context(self.start())
+        self.assertIn(hooks.TEMPLATES["state"], context)
+        self.assertNotIn("seat qa2", context)
+
+    def test_the_seat_lines_are_offline(self):
+        self.start()  # the socket module is replaced: any network use fails the test
 
 
 # ── Stop ───────────────────────────────────────────────────────────────────────────────

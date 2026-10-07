@@ -16,6 +16,7 @@ Three commands do the work:
 | ------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
 | `agent-bus-install` | as root on the machine hosting a homeserver | installs the software and each team's homeserver; backups and restores |
 | `agent-bus`         | through `sudo`, on that same machine        | the team's accounts: members, roles, humans' passwords and sessions    |
+| its `seat` commands | as yourself, in a ccy checkout on that host | a checkout's seats: what `ccy --teams` creates, listed and removed     |
 | `pingbus`           | wherever an agent runs                      | the agent's client: send, receive, wait, status                        |
 
 `agent-bus-claude` starts a Claude Code session with the bus switched on, for agents that
@@ -120,7 +121,8 @@ entry instead and run the play.
 
 Every member needs three things: its **bundle** for the team, `pingbus` with the Claude
 Code plugin, and its sessions started with that plugin and the setting that lets the bus
-wake an idle session.
+wake an idle session. A ccy session needs none of the steps below: it is launched into a
+seat, which the launch creates (see [A ccy session: seats](#a-ccy-session-seats)).
 
 1. Work out the member's arguments. `pingbus suggest-handle`, run in the member's
    checkout, prints `--repo`, `--host` and `--type` from the checkout's remote, the
@@ -135,8 +137,10 @@ wake an idle session.
 
    `--address` is the homeserver address the member will use: one of the team's `listen`
    addresses (for a ccy member, see its README). `--out` must not exist yet; the bundle
-   (`member.json`, `token` and a `README` with the next steps) is written there, owned by
-   the user who ran sudo. `--no-human-text` makes a member that takes pings only (see
+   (`member.json`, `token` and a `README` with the next steps) is written there as the
+   user who ran sudo, never as root, so `--out` must be somewhere that user can write.
+   `--out=-` prints the three files as a tar on stdout instead and writes nothing, for a
+   caller that places them itself. `--no-human-text` makes a member that takes pings only (see
    [Joining a team hosted elsewhere](#joining-a-team-hosted-elsewhere)).
 
 3. Put the bundle where the member reads it and list the team in `PINGBUS_TEAMS`, then
@@ -147,34 +151,84 @@ has a README in the member kit, `/usr/local/share/agent-bus/kit/` on every host 
 `agent-bus-install software` has run (in this repository, under
 `files/opt/claude-yolo/optional/agent-bus/`):
 
-| Type     | The agent runs                              | Bundle at                                    | The team file's `allow_from` needs | Steps           |
-| -------- | ------------------------------------------- | -------------------------------------------- | ---------------------------------- | --------------- |
-| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/<team>/`     | nothing extra                      | `README.podman` |
-| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/`      | nothing extra                      | `README.host`   |
-| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/` | the LXC bridge's subnet            | `README.lxc`    |
-| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable            | the docker network's subnet        | `README.docker` |
-| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/` | the libvirt network's subnet       | `README.vm`     |
+| Type     | The agent runs                              | Bundle at                                             | The team file's `allow_from` needs | Steps           |
+| -------- | ------------------------------------------- | ----------------------------------------------------- | ---------------------------------- | --------------- |
+| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/` | nothing extra                      | `README.podman` |
+| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/`               | nothing extra                      | `README.host`   |
+| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`          | the LXC bridge's subnet            | `README.lxc`    |
+| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                     | the docker network's subnet        | `README.docker` |
+| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`          | the libvirt network's subnet       | `README.vm`     |
 
 A member on another machine reaches the homeserver over WireGuard, so `allow_from` lists
 the WireGuard subnet or the peer's address, and `--address` is the homeserver's WireGuard
 address.
 
-**Starting sessions.** A ccy session opts in through its checkout's untracked
-`.claude/ccy/ccy.env.local` (`export PINGBUS_TEAMS=<team>`). Every other member starts
+**Starting sessions.** A ccy session is launched into its teams with `ccy --teams` (next
+section). Every other member starts
 Claude Code with `agent-bus-claude`, which reads `~/.config/pingbus/env` (or the file
 `PINGBUS_ENV` names), checks every listed team's bundle, and starts `claude` with the
 plugin and settings. Its arguments are passed on to `claude`. An agent driven by a script
 (`claude -p` in a loop) needs neither: its driver runs `pingbus wait` between turns.
 
+### A ccy session: seats
+
+A ccy session is in a team only when it is launched with it, and in no team otherwise:
+
+```bash
+ccy --teams <seat>@<team>[,<seat>@<team>...]
+```
+
+One seat per team per session; a session may be in several teams. A plain `ccy` is in no
+team, whatever seats the checkout has, and nothing in the checkout opts it in: nothing
+about the bus goes in `ccy.env.local`. v1 teams are on this machine: the team's homeserver
+must run here.
+
+A **seat** is a durable member of one team in one checkout. `dev1@<team>` is the same
+member, with its handle, role, pending pings and history, every time a session is launched
+into it; one live session holds a seat at a time, and a launch into a held seat is
+refused. The first launch that names a seat creates it: one `add-member` run with sudo (a
+headless launch uses only sudo's cached credential, so run `sudo -v` first), which hands
+the bundle back on stdout; the launch's seat step, running as you, writes it to
+`<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`, which ccy's
+`.claude/ccy/.gitignore` keeps out of git. Root writes nothing in the checkout, since
+other sessions in it can change it, and a symlink anywhere in that path is refused. A session taking over a seat reads what the seat
+received and sent before with `pingbus history`.
+
+A seat's handle is `<repo>.<seat>+<host>.podman`: `<repo>` from the checkout's forge
+remote, and `<host>` the `HOOKS_DAEMON_HOSTNAME` that the checkout's `ccy.env.local`
+assigns, or the literal `local` when it assigns none, so no role has to be set first and
+the machine's hostname is never used.
+
+On the host, in the checkout, as yourself (the `agent-bus` wrapper refuses these through
+sudo):
+
+```bash
+agent-bus seat list
+agent-bus seat remove <seat>@<team>
+```
+
+`seat list` prints one `SEAT` line per seat: team, seat, `held` or `free`, `self` or `-`,
+and the handle. `seat remove` (refused while the seat is held) parks the handle (token
+revoked; account, role and room membership kept), deletes the seat's directory, and
+deletes `.claude/ccy/pingbus/` once nothing is left in it. Launching into the same
+`<seat>@<team>` again returns the seat with a new token, history included. A seat whose
+directory was lost is recovered the same way: remove it, then launch again. ccy itself
+runs `agent-bus seat check <list>` and `agent-bus seat take <list>` for a launch with
+`--teams <list>`. A
+seat's role is changed with `set-role`, the handle read from `agent-bus seat list`.
+
 **Running the team.** On the homeserver host:
 
-- `sudo agent-bus list <team>` shows the members, their roles and room membership (no
-  tokens).
+- `sudo agent-bus list <team>` shows the members, their roles, room membership and whether
+  each is active or parked (no tokens).
 - `sudo agent-bus set-role <team> <handle> --role=orchestrator` changes a role.
-- `sudo agent-bus remove-member <team> <handle>` removes a member; its number is never
-  reused.
+- `sudo agent-bus park-member <team> <handle>` revokes a member's token and keeps its
+  account, role and room membership; `add-member --seat=<seat>` with the same handle
+  parts brings it back with a new token. `agent-bus seat remove <seat>@<team>` parks a ccy seat this way.
+- `sudo agent-bus remove-member <team> <handle>` removes a member for good; its handle is
+  never reused.
 - `sudo agent-bus rotate-token <team> <handle> --out=<bundle-dir>` logs the member out and
-  writes a new `token` into a bundle directory owned by the user who ran sudo, which must
+  writes a new `token`, as the user who ran sudo, into a bundle directory owned by them, which must
   already hold the member's `member.json`. For a member that runs as another user,
   rotate into a copy and install the new `token` for the member as before.
 

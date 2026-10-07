@@ -5,15 +5,26 @@
 # every command runs as that user (runuser). A bundle cannot be written by agent-bus into
 # a human's 0700 home, so for add-member and rotate-token the tool writes it to stdout as
 # a tar, and this wrapper, as root, unpacks the named files in a private temporary
-# directory and installs them under --out for the user who ran sudo.
+# directory. With --out=DIR it installs them there as the user who ran sudo (setpriv),
+# never as root (D61); with add-member --out=- it prints them as a tar on stdout for the
+# caller to place, which is how `agent-bus seat take` fills a checkout.
 #
 # Usage (see `sudo agent-bus --help`):
-#   sudo agent-bus add-member TEAM --repo=R --host=H --type=T --role=R --address=IP --out=DIR
+#   sudo agent-bus add-member TEAM --repo=R [--seat=S] --host=H --type=T --role=R --address=IP --out=DIR|-
+#   sudo agent-bus park-member TEAM HANDLE
 #   sudo agent-bus rotate-token TEAM HANDLE --out=DIR
 #   sudo agent-bus human password TEAM NAME
 #
+# A ccy checkout's seats (DESIGN.md section 5.6) are the exception: run as yourself, in
+# the checkout, never through sudo, since root never writes in a user's checkout. They
+# reach the root side only through `sudo agent-bus add-member|park-member`.
+#   agent-bus seat check SEAT@TEAM[,SEAT@TEAM...]
+#   agent-bus seat take SEAT@TEAM[,SEAT@TEAM...] [--no-prompt]
+#   agent-bus seat list
+#   agent-bus seat remove SEAT@TEAM[,SEAT@TEAM...]
+#
 # Exit codes: the tool's (DESIGN.md section 4), plus 64 for a bad --out or a missing
-# sudo, and 77 when not run as root.
+# sudo, and 77 when an admin command is not run as root or a seat command is.
 set -euo pipefail
 
 readonly AGENT_BUS_USER=agent-bus
@@ -43,6 +54,11 @@ run_admin_tool() {
     runuser -u "$AGENT_BUS_USER" -- /usr/bin/python3 -I "$AGENT_BUS_PYZ" "$@"
 }
 
+# The seat commands: as the caller, in the caller's directory (the checkout).
+run_user_tool() {
+    exec /usr/bin/python3 -I "$AGENT_BUS_PYZ" "$@"
+}
+
 place_bundle() {
     local command=$1
     shift
@@ -62,13 +78,18 @@ place_bundle() {
                 ;;
         esac
     done
-    [[ -n $out ]] || die "$EXIT_USAGE" "$command needs --out=DIR, the member's bundle directory"
+    [[ -n $out ]] || die "$EXIT_USAGE" "$command needs --out=DIR, the member's bundle directory, or --out=-"
+    if [[ $out == - ]]; then
+        [[ $command == add-member ]] || die "$EXIT_USAGE" "--out=- is for add-member only"
+        print_bundle "${args[@]}"
+        return
+    fi
     [[ $out == /* ]] || die "$EXIT_USAGE" "--out must be an absolute path"
     [[ ${SUDO_UID:-} =~ ^[0-9]+$ && ${SUDO_GID:-} =~ ^[0-9]+$ ]] \
         || die "$EXIT_USAGE" "run it through sudo: the bundle is given to the user who ran sudo"
 
-    # Root never chowns or chmods a directory it did not create: add-member makes a new
-    # one, and rotate-token writes only into the sudo user's own real directory.
+    # Every write under --out is made as the sudo user (as_sudo_user), so a path another
+    # process of that user re-points can only lead where that user could write anyway.
     local -a files
     if [[ $command == add-member ]]; then
         files=("${BUNDLE_FILES[@]}")
@@ -82,22 +103,57 @@ place_bundle() {
         [[ -f $out/member.json ]] || die "$EXIT_USAGE" "$out holds no bundle to rotate the token of"
     fi
 
-    WORK_DIR=$(mktemp -d)
-    trap remove_work_dir EXIT
-    run_admin_tool "$command" "${args[@]}" >"$WORK_DIR/bundle.tar"
-    mkdir "$WORK_DIR/files"
-    tar -x --no-same-owner --no-same-permissions -f "$WORK_DIR/bundle.tar" -C "$WORK_DIR/files" -- "${files[@]}"
+    unpack_bundle "$command" "${args[@]}" -- "${files[@]}"
+    umask 077
     if [[ $command == add-member ]]; then
-        install -d -o "$SUDO_UID" -g "$SUDO_GID" -m 0700 -- "$out"
+        as_sudo_user install -d -m 0700 -- "$out"
     fi
     local file
     for file in "${files[@]}"; do
-        install -o "$SUDO_UID" -g "$SUDO_GID" -m 0600 -- "$WORK_DIR/files/$file" "$out/$file"
+        # Root opens its private copy as stdin; the user only reads that descriptor.
+        as_sudo_user dd "of=$out/$file" status=none <"$WORK_DIR/files/$file"
+        as_sudo_user chmod 0600 -- "$out/$file"
     done
     printf 'agent-bus: wrote %s to %s\n' "${files[*]}" "$out" >&2
 }
 
+# The user who ran sudo, with no supplementary groups: who writes under --out=DIR.
+as_sudo_user() {
+    setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --clear-groups -- "$@"
+}
+
+# unpack_bundle COMMAND ARGS... -- FILES...: run the tool and unpack the named files of
+# its tar in a fresh private directory ($WORK_DIR/files); any of them missing fails.
+unpack_bundle() {
+    local -a tool_args=()
+    while [[ $1 != -- ]]; do
+        tool_args+=("$1")
+        shift
+    done
+    shift
+    WORK_DIR=$(mktemp -d)
+    trap remove_work_dir EXIT
+    run_admin_tool "${tool_args[@]}" >"$WORK_DIR/bundle.tar"
+    mkdir "$WORK_DIR/files"
+    tar -x --no-same-owner --no-same-permissions -f "$WORK_DIR/bundle.tar" -C "$WORK_DIR/files" -- "$@"
+}
+
+# add-member --out=-: the bundle's three files, re-packed as a tar on stdout, for a caller
+# that places them itself (agent-bus seat take, D61). Root writes nothing outside its own
+# private directory.
+print_bundle() {
+    unpack_bundle add-member "$@" -- "${BUNDLE_FILES[@]}"
+    tar -c --owner=0 --group=0 --numeric-owner --mode=0600 -C "$WORK_DIR/files" -f - -- "${BUNDLE_FILES[@]}"
+    printf 'agent-bus: printed %s as a tar on stdout\n' "${BUNDLE_FILES[*]}" >&2
+}
+
 main() {
+    if [[ ${1:-} == seat ]]; then
+        [[ $EUID -ne 0 ]] \
+            || die "$EXIT_NOT_ROOT" "run agent-bus seat as yourself in the checkout, not through sudo: root never writes in a user's checkout"
+        run_user_tool "$@"
+        return
+    fi
     [[ $EUID -eq 0 ]] || die "$EXIT_NOT_ROOT" "run it as root: sudo agent-bus ..."
     case ${1:-} in
         add-member | rotate-token)

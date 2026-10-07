@@ -83,9 +83,9 @@ KIT_DIR = "/usr/local/share/agent-bus/kit"
 
 #: What a member does with its bundle, per type (DESIGN.md section 5.2).
 NEXT_STEPS = {
-    "podman": "A ccy (podman) member: this directory belongs at <checkout>/.claude/ccy/pingbus/{team}/,\n"
-              "where ccy's .gitignore ignores it; add `export PINGBUS_TEAMS={team}` to the\n"
-              "checkout's untracked .claude/ccy/ccy.env.local (placed by that install's IaC).",
+    "podman": "A ccy (podman) seat: `agent-bus seat take <seat>@{team}`, run by `ccy --teams`, wrote\n"
+              "this directory to <checkout>/.claude/ccy/pingbus/seats/{team}/<seat>/, which ccy's\n"
+              ".gitignore ignores. A session is in team {team} only when launched with that flag.",
     "host": "A bare-host member: copy this directory to ~/.config/pingbus/{team}/ of the dedicated\n"
             "agent user (never a user that holds a human's Matrix session), list {team} in\n"
             "PINGBUS_TEAMS in ~/.config/pingbus/env, and start sessions with agent-bus-claude.",
@@ -115,6 +115,9 @@ class ConfigError(AdminError):
 class Bundle:
     handle: str
     tar: bytes
+    role: str
+    #: A parked seat that returned (DESIGN.md section 5.5), not a new member.
+    returned: bool = False
 
 
 @dataclass(frozen=True)
@@ -646,38 +649,76 @@ def _registry_change(team: Team, change: Callable[[registry.Registry], tuple[reg
 
 
 def add_member(team: Team, transport: Transport, *, repo: str, host: str, type_: str, role: str,
-               address: str, human_text: bool) -> Bundle:
+               address: str, human_text: bool, seat: str | None = None) -> Bundle:
     """A new handle, its account (discarded password, no `admin` key), its token, its
-    invite, the team record with its role, and its bundle as a tar (protocol §12)."""
+    invite, the team record with its role, and its bundle as a tar (protocol §12).
+
+    With `seat` the handle's `<seat>` is that one, not the counter's next number. A seat
+    whose handle is parked returns instead (DESIGN.md section 5.5): the same account,
+    role and room membership, a newly minted token and the bundle written again. A
+    handle that is a current, unparked member is refused before any account call."""
     if type_ not in registry.TYPES:
         raise AdminError(f"--type must be one of {', '.join(registry.TYPES)}")
     _member_address(team, address)
     try:
         repo = registry.normalise_repo(repo)
+        if seat is not None:
+            registry.build_handle(repo, seat, host, type_)
     except registry.HandleError as exc:
         raise AdminError(str(exc)) from None
     api = _session(team, transport)
     room = _room_id(team)
-    handle = _registry_change(team, lambda reg: reg.add_member(repo, host, type_, role))
+
+    def claim(reg: registry.Registry) -> tuple[registry.Registry, tuple[str, str, bool]]:
+        if seat is not None:
+            handle = registry.build_handle(repo, seat, host, type_)
+            if reg.is_parked(handle):
+                return reg.unpark(handle), (handle, reg.members[handle], True)
+        updated, handle = reg.add_member(repo, host, type_, role, seat)
+        return updated, (handle, role, False)
+
+    handle, role, returned = _registry_change(team, claim)
     user_id = team.user_id(handle)
     try:
-        if api.account(user_id) is not None:
-            raise AdminError(f"{handle} already has an account on the homeserver")
-        api.create_account(user_id, handle)
+        account = api.account(user_id)
+        if returned and (account is None or account.get("deactivated") is not False):
+            raise AdminError(f"{handle} has no active account on the homeserver, so it cannot return")
+        if not returned:
+            if account is not None:
+                raise AdminError(f"{handle} already has an account on the homeserver")
+            api.create_account(user_id, handle)
         token = api.mint(user_id)
     except BaseException:
-        _registry_change(team, lambda reg: (reg.remove_member(handle), None))
+        if returned:
+            _registry_change(team, lambda reg: (reg.park(handle), None))
+        else:
+            _registry_change(team, lambda reg: (reg.remove_member(handle), None))
         raise
-    api.invite(room, user_id)
+    if api.membership(room, user_id) not in JOINED:
+        api.invite(room, user_id)
     _sync_team(api, room, [])
-    return Bundle(handle, _bundle(team, room, handle, type_, token, address, human_text))
+    return Bundle(handle, _bundle(team, room, handle, type_, token, address, human_text), role, returned)
+
+
+def park_member(team: Team, transport: Transport, handle: str) -> list[str]:
+    """The member's token revoked (a password reset with `logout_devices`, as `rotate-token`
+    does), then its handle marked parked; its account, role and room membership stay, and
+    `add-member --seat` returns it (DESIGN.md section 5.5). Parking again revokes again."""
+    api = _session(team, transport)
+    user_id = _active_member(api, handle)
+    api.reset_password(user_id, generate_password())
+    changes = [f"revoked the token of {handle}"]
+    if _registry_change(team, lambda reg: (reg.park(handle), not reg.is_parked(handle))):
+        changes.append(f"parked {handle}")
+    return changes
 
 
 def _issued(reg: registry.Registry, handle: str) -> None:
+    """A numbered handle at most its prefix's counter; a named seat has no counter."""
     parsed = protocol.parse_handle(handle)
     if parsed is None:
         raise AdminError(f"{handle!r} is not an agent handle")
-    if parsed.n > reg.counters.get(registry.seat_of(handle), 0):
+    if parsed.n is not None and parsed.n > reg.counters.get(registry.prefix_of(handle), 0):
         raise AdminError(f"{handle} was never issued in team {reg.team}")
 
 
@@ -712,7 +753,8 @@ def set_role(team: Team, transport: Transport, handle: str, role: str) -> list[s
     return changes
 
 
-def _current_member(api: _Api, handle: str) -> str:
+def _active_member(api: _Api, handle: str) -> str:
+    """The user ID of a member in the registry, parked or not, with an active account."""
     team = api.team
     if handle not in registry.load_registry(team.registry_path, team.name).members:
         raise AdminError(f"{handle} is not a member of team {team.name}")
@@ -724,21 +766,26 @@ def _current_member(api: _Api, handle: str) -> str:
 
 
 def rotate_token(team: Team, transport: Transport, handle: str) -> bytes:
-    """Every device of the member logged out, a new token minted; a tar holding `token`."""
+    """Every device of the member logged out, a new token minted; a tar holding `token`.
+    A parked member gets no token: it returns through `add-member --seat`."""
     api = _session(team, transport)
-    user_id = _current_member(api, handle)
+    user_id = _active_member(api, handle)
+    if registry.load_registry(team.registry_path, team.name).is_parked(handle):
+        raise AdminError(f"{handle} is parked: return it with add-member --seat")
     api.reset_password(user_id, generate_password())
     return _tar({config.TOKEN_FILE: api.mint(user_id).encode()})
 
 
 def list_members(team: Team, transport: Transport) -> list[str]:
-    """`HUMAN <name> <membership>` and `MEMBER <handle> <role> <membership>`; no tokens."""
+    """`HUMAN <name> <membership>` and `MEMBER <handle> <role> <membership> active|parked`;
+    no tokens."""
     api = _session(team, transport)
     room = _room_id(team)
     lines = [f"HUMAN\t{name}\t{api.membership(room, team.user_id(name)) or '-'}"
              for name in sorted(team.file.humans)]
     reg = registry.load_registry(team.registry_path, team.name)
     lines += [f"MEMBER\t{handle}\t{role}\t{api.membership(room, team.user_id(handle)) or '-'}"
+              f"\t{'parked' if reg.is_parked(handle) else 'active'}"
               for handle, role in sorted(reg.members.items())]
     return lines
 

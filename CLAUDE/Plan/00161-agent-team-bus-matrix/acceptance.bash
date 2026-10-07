@@ -20,22 +20,35 @@
 #   M1.3 a sends `review` (a commit reference) to b, who never answers: a's `wait` prints one
 #        TIMEOUT, for it, after a's 60 s ack deadline, and none for the review b acked.
 #
-# M2 CHECKS, U20's row (_acceptance-u20.inc.bash): three real ccy sessions, run headless with
-# stream-json input so each sits idle between turns, each in its own throwaway checkout (its
-# own ccy project) opted in through ccy.env.local: ccy-a (orchestrator) and ccy-b with the
-# inbox socket, ccy-c without it. Judged on room events, `pingbus status` and the sessions'
-# recorded turns and notices, never on what the model says.
-#   M2.1 ccy-a is told to send `review` to ccy-b; ccy-b, idle and never written to again, is
+# M2 CHECKS, U20's row (_acceptance-u20.inc.bash): real ccy sessions in THIS checkout, run
+# headless with stream-json input so each sits idle between turns, each launched with
+# `ccy --teams <seat>@acceptance` onto a seat its first launch creates: acca (made
+# orchestrator), accb and accc (workers). No checkout or owner setup step. Judged on room
+# events, `agent-bus seat list`, `sudo agent-bus list`, each seat's `pingbus status`, the
+# containers' labels and the sessions' transcripts (found by session ID), never on what the
+# model says.
+#   M2.0 the three launches create their seats: 0700/0600, git-ignored, three new members,
+#        each handle's host the checkout's rule, all held; ccy.env.local unchanged;
+#   M2.1 acca is told to send `review` to accb; accb, idle and never written to again, is
 #        woken by its watcher's notice and acks it;
-#   M2.2 a second review reaches ccy-b once its inbox is empty: a second notice with the same
-#        count and the next number, within 20 s of the first, and ccy-b acks it;
-#   M2.3 ccy-c, with no socket, waits with a background `pingbus wait`; a review ends it and
-#        ccy-c acks, with no notice ever reaching it;
-#   M2.4 the human's message mentioning ccy-a only is acked by ccy-a alone.
-# M2 NEEDS from the owner: ccy installed with its image current (deploy.bash's last leg), this
-# checkout launched with ccy once (its ccy token, by name, is the sessions' login; the value is
-# never handled here), and what ccy itself needs to launch (gh logged in). Every wait is
-# bounded, the longest at 600 s for a ccy launch.
+#   M2.2 a second review reaches accb once its inbox is empty: a second notice with the same
+#        count and the next number, within 20 s of the first, and accb acks it;
+#   M2.3 accc's watcher is stopped; the Stop guard blocks once, accc waits with a background
+#        `pingbus wait`; a review ends it and accc acks, with no notice ever reaching it;
+#   M2.4 the human's message mentioning acca only is acked by acca alone;
+#   M2.5 a launch on a held seat (75), naming two seats of the team (64), or with a trailing
+#        comma (64) is refused, nothing changed;
+#   M2.6 the seats are free once their sessions end;
+#   M2.7 a later session in accb is the same member and its `pingbus history` holds its past;
+#   M2.8 accc removed (parked) and returned by a launch: the same member, its history read;
+#   M2.9 a plain `ccy` is on no team;
+#   M2.10 after `agent-bus seat remove` of the three: ccy.env.local, .claude/ccy/pingbus/,
+#        git status and HEAD as before M2.0.
+# M2 NEEDS from the owner: ccy installed with its image current (deploy.bash's last leg); ccy
+# launched interactively here once at that version, saving the token and SSH choice the
+# sessions reuse (the token by name; its value is never handled here) with every SSH key
+# usable unattended (ssh-agent or no passphrase); and no launch of their own naming @acceptance
+# here during the run. Every wait is bounded, the longest at 600 s for a ccy launch.
 #
 # U23 CHECKS (milestone M3a, _acceptance-u23.inc.bash), after M1's, in the same team: an LXC,
 # a docker and a VM member each join by its README (the kit, suggest-handle, add-member, the
@@ -59,9 +72,10 @@
 # systemd creates /var/lib/private itself on a host that had none; the run removes it again
 # when it was absent at the start and is empty at the end. The one thing that can outlive a
 # run is that empty directory after an interrupted first run: the next run finds it present.
-# M2 adds three ccy checkouts under the run directory (removed at the end, their transcripts
-# kept), their sessions' containers (found by their ccy-project label, removed first too), and
-# three podman members of the team (gone with it).
+# M2 adds the acceptance seats to this checkout's git-ignored .claude/ccy/pingbus/seats/ (removed
+# by `agent-bus seat remove`, and deleted first if an interrupted run left them), its sessions'
+# containers (found by their ccy-seats label, removed first too) and transcripts (moved into the
+# run directory), and three podman members of the team (gone with it).
 # The run directory keeps the evidence (each member's stdout and stderr, the team file, the
 # human's message, acceptance-report.md); the tokens leave it once each member holds its own.
 #
@@ -102,9 +116,11 @@ PLAN_USAGE="usage: acceptance.bash [--bus-address=<ip>] [--vm-ssh=<user>@<addres
 Plan 00161's acceptance, slice M1 (unit U17): creates the acceptance team with
 agent-bus-install, two host members as transient systemd DynamicUser services, and a human
 login; checks a review ping received by wait and acked, a human message delivered only to
-the member it mentions, and a TIMEOUT for an unanswered ping. Slice M2 (unit U20): three
-headless ccy sessions as members; an idle one woken by its socket (twice at the same count),
-one without the socket woken by pingbus wait, a human message acked by the one it mentions.
+the member it mentions, and a TIMEOUT for an unanswered ping. Slice M2 (unit U20): headless
+ccy sessions in this checkout, each launched with --teams <seat>@acceptance; an idle one woken
+by its socket (twice at the same count), one whose watcher is gone woken by pingbus wait, a
+human message acked by the one it mentions, refused launches, a seat that outlives its
+session and returns after removal, a plain ccy on no team, the checkout left as it was.
 Then slice U23: an LXC, a docker and a VM member join the same team and exchange a review
 and an ack with the desktop's member. Then removes all of it.
   --bus-address=<ip>   the team's listen address; without it, ${BUS_ADDRESS_VAR} from the
@@ -222,7 +238,7 @@ check_leg() {
 
 plan_deploy_leg "remove acceptance members and a ${TEAM} team left by an interrupted run" teardown leftover
 plan_deploy_leg "remove U23 members left by an interrupted run" u23_teardown leftover
-plan_deploy_leg "U20: ccy, its image and the ccy token for the M2 sessions; no ccy container of an interrupted run" u20_prerequisites
+plan_deploy_leg "U20: ccy, its image and this checkout's saved launch choices for the M2 sessions; no acceptance seat or its container left by an interrupted run" u20_prerequisites
 plan_deploy_leg "the references the pings carry" resolve_reference
 plan_deploy_leg "write the ${TEAM} team file" write_acceptance_team_file
 plan_deploy_leg "agent-bus-install team ${TEAM}" install_team team
@@ -231,14 +247,22 @@ plan_deploy_leg "members take their bundles, pass config check and join the team
 check_leg "M1.1 review sent, received by wait, acked" check_review_ack
 check_leg "M1.2 a human message reaches only the member it mentions" check_human_addressed
 check_leg "M1.3 TIMEOUT for an unanswered review, none for the acked one" check_timeout
-plan_deploy_leg "U20: three ccy checkouts opted in to ${TEAM} (ccy-c without the inbox socket)" u20_make_checkouts
-plan_deploy_leg "U20: agent-bus add-member: ccy-a (orchestrator), ccy-b and ccy-c (workers)" u20_add_members
-plan_deploy_leg "U20: the three ccy sessions started headless, each idle after its orders" u20_start_sessions
-check_leg "M2.1 an idle ccy session woken by its socket acks a review from another ccy session" u20_check_review_ack
+plan_deploy_leg "U20: record this checkout and the ${TEAM} members before M2.0" u20_record
+plan_deploy_leg "U20: ccy --teams acca@${TEAM}, accb@${TEAM}, accc@${TEAM} launched in turn; acca made orchestrator" u20_launch_seats
+check_leg "M2.0 each launch created its seat: the owner's, git-ignored, a new member with the checkout's host, held" u20_check_seats_created
+plan_deploy_leg "U20: each session given its orders, idle with a watcher" u20_give_orders
+check_leg "M2.1 an idle ccy session woken by its socket acks a review from a sibling seat" u20_check_review_ack
 check_leg "M2.2 a second notice with the same count wakes it again" u20_check_same_count
-check_leg "M2.3 a ccy session without the socket is woken by pingbus wait" u20_check_wait_fallback
+check_leg "M2.3 a ccy session whose watcher is gone is woken by pingbus wait" u20_check_wait_fallback
 check_leg "M2.4 a human message reaches only the ccy session it mentions" u20_check_human_addressed
-plan_deploy_leg "U20: end the ccy sessions, keep their transcripts, remove the checkouts" u20_end_sessions
+check_leg "M2.5 a held seat, two seats of one team and a trailing comma are refused, nothing changed" u20_check_refused
+plan_deploy_leg "U20: end the three sessions, keep their watcher logs and transcripts" u20_end_seats
+check_leg "M2.6 the seats are free once their sessions end" u20_check_seats_free
+check_leg "M2.7 a later session in a seat is the same member and reads its history" u20_check_seat_returns
+check_leg "M2.8 a seat removed and launched into again returns as the same member, with its history" u20_check_seat_removed_and_returned
+check_leg "M2.9 a plain ccy is on no team" u20_check_plain
+plan_deploy_leg "U20: agent-bus seat remove ${U20_SEAT_LIST}; the evidence scrubbed" u20_cleanup
+check_leg "M2.10 the checkout is as it was before M2.0" u20_check_checkout_unchanged
 plan_deploy_leg "U23: an LXC member's throwaway container" u23_prepare lxc
 plan_deploy_leg "U23: a docker member's throwaway container" u23_prepare docker
 plan_deploy_leg "U23: a VM member's guest, as the owner gave it" u23_prepare vm

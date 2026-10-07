@@ -417,11 +417,16 @@ echo "✓ /workspace marked as trusted (hasTrustDialogAccepted)"
 # Top level, not a function: a `declare` in either file must stay global.
 # scripts/test-ccy-project-env.bash runs the block between the markers.
 # >>> PROJECT-ENV
+# Every PINGBUS_* variable as the launcher passed it, one NAME=value line each; AGENT-BUS
+# below refuses a launch in which either file set, changed or unset any of them.
+_ccy_bus_snapshot() {
+    local name
+    for name in "${!PINGBUS_@}"; do
+        printf '%s=%q\n' "$name" "${!name}"
+    done
+}
+_ccy_bus_before=$(_ccy_bus_snapshot)
 for _ccy_env_file in /workspace/.claude/ccy/ccy.env /workspace/.claude/ccy/ccy.env.local; do
-    if [ "$_ccy_env_file" = /workspace/.claude/ccy/ccy.env.local ]; then
-        # The agent team bus is joined from ccy.env.local only; AGENT-BUS below reads this.
-        _ccy_pingbus_teams_before_local=${PINGBUS_TEAMS+set}
-    fi
     if [ -f "$_ccy_env_file" ]; then
         echo "Sourcing project ccy env: $_ccy_env_file"
         # shellcheck source=/dev/null
@@ -521,53 +526,65 @@ fi
 
 # ── Optional: the agent team bus (Plan 00161) ─────────────────────────────────
 #
-# Opt-in is PINGBUS_TEAMS in this checkout's ccy.env.local, which the launcher binds
-# read-only, so a session cannot choose its own teams. Set before that file is read (by
-# ccy.env, the image or the container environment) it is refused. Opted in, `pingbus config
-# check` must accept every listed team's bundle under PINGBUS_HOME or the container does not
-# start: opted in but broken is an error, not a silent no-op. Then pingbus goes on PATH (the
-# plugin's hooks run it by name) and claude gets the plugin and the settings that let the
-# watcher's wake notice start a turn. They go right after `claude`, so they land inside a
-# supervisor wrapper's `--`. Unset, nothing is linked or added and the image's copy is inert.
-# scripts/test-ccy-agent-bus.bash runs this block and the rest of the file after it.
+# A session is in a team only when its launch said so: `ccy --teams <seat>@<team>[,...]` on
+# the host passes PINGBUS_SEATS, and nothing the session can write may choose a team or seat.
+# So a launch in which ccy.env (tracked) or ccy.env.local set, changed or unset any PINGBUS_*
+# variable is refused (D62), and so is a PINGBUS_TEAMS or PINGBUS_HOME from the launcher: it passes
+# only PINGBUS_SEATS, and `pingbus seat exec` derives the other two, so either one arriving
+# means a launcher older than this image. With PINGBUS_SEATS, pingbus goes on PATH (the
+# plugin's hooks run it by name), claude gets the plugin and the settings that let the
+# watcher's wake notice start a turn, right after `claude` so they land inside a supervisor
+# wrapper's `--`, and `pingbus seat exec --` goes in front of both final exec lines: it claims
+# every seat, builds the session home and checks each bundle, and refuses to start the
+# session if any of that fails. Without it, nothing is linked or added and the image's copy
+# is inert. scripts/test-ccy-agent-bus.bash runs this block and the rest of the file after it.
 # >>> AGENT-BUS
 _ccy_agent_bus=/opt/claude-yolo/optional/agent-bus
-if [ -n "${PINGBUS_TEAMS:-}" ]; then
-    if [ "${_ccy_pingbus_teams_before_local:-}" = set ]; then
-        echo "✗ CCY: PINGBUS_TEAMS was set before .claude/ccy/ccy.env.local was read (by ccy.env, the image or the container environment)." >&2
-        echo "  A checkout joins the agent team bus only from ccy.env.local, which its install's IaC places and a session cannot edit." >&2
+_ccy_seat_exec=()
+_ccy_bus_after=$(_ccy_bus_snapshot)
+if [ "$_ccy_bus_after" != "$_ccy_bus_before" ]; then
+    # The names on a line in one snapshot and not the other.
+    _ccy_bus_changed=$(printf '%s\n%s\n' "$_ccy_bus_before" "$_ccy_bus_after" \
+        | sort | uniq -u | awk -F= 'NF { print $1 }' | sort -u | paste -sd' ' -)
+    echo "✗ CCY: .claude/ccy/ccy.env or ccy.env.local sets, changes or unsets $_ccy_bus_changed." >&2
+    echo "  Neither file may touch a PINGBUS_* variable: a session's agent team bus seats come only from its launch, ccy --teams <seat>@<team>[,...] on the host." >&2
+    echo "  Take every PINGBUS_* line out of the file." >&2
+    exit 1
+fi
+for _ccy_bus_var in PINGBUS_TEAMS PINGBUS_HOME; do
+    if [ -n "${!_ccy_bus_var+set}" ]; then
+        echo "✗ CCY: $_ccy_bus_var came from the launcher, which passes only PINGBUS_SEATS: ccy on the host is older than this image." >&2
+        echo "  Update ccy (play-claude-yolo.yml), then launch with ccy --teams <seat>@<team>[,...]." >&2
         exit 1
     fi
+done
+if [ -n "${PINGBUS_SEATS+set}" ]; then
     for _ccy_need in pingbus settings.json plugin/pingbus/.claude-plugin/plugin.json plugin/pingbus/hooks/hooks.json; do
         if [ ! -f "$_ccy_agent_bus/$_ccy_need" ]; then
-            echo "✗ CCY: this checkout joins the agent team bus (PINGBUS_TEAMS=$PINGBUS_TEAMS), but the image has no $_ccy_agent_bus/$_ccy_need." >&2
+            echo "✗ CCY: this session was launched into agent team bus seats ($PINGBUS_SEATS), but the image has no $_ccy_agent_bus/$_ccy_need." >&2
             echo "  The image predates the feature. Rebuild it: ccy --rebuild" >&2
             exit 1
         fi
     done
     if [ "${1:-}" != claude ]; then
-        echo "✗ CCY: this checkout joins the agent team bus, but the command is '${1:-}', not claude, so the bus plugin cannot be added." >&2
+        echo "✗ CCY: this session was launched into agent team bus seats, but the command is '${1:-}', not claude, so the bus plugin cannot be added." >&2
         exit 1
     fi
-    export PINGBUS_TEAMS
-    export PINGBUS_HOME="${PINGBUS_HOME:-/workspace/.claude/ccy/pingbus}"
-    _ccy_bus_rc=0
-    "$_ccy_agent_bus/pingbus" config check >&2 || _ccy_bus_rc=$?
-    if [ "$_ccy_bus_rc" -ne 0 ]; then
-        echo "✗ CCY: pingbus config check refused this checkout's agent team bus setup (exit $_ccy_bus_rc)." >&2
-        echo "  Teams: $PINGBUS_TEAMS; bundles under $PINGBUS_HOME/<team>/. Fix the bundle, or take PINGBUS_TEAMS out of ccy.env.local." >&2
-        exit 1
-    fi
+    export PINGBUS_SEATS
     ln -sf "$_ccy_agent_bus/pingbus" /usr/local/bin/pingbus
     set -- "$1" --plugin-dir "$_ccy_agent_bus/plugin/pingbus" --settings "$_ccy_agent_bus/settings.json" "${@:2}"
-    echo "✓ agent team bus: $PINGBUS_TEAMS (bundles in $PINGBUS_HOME)" >&2
+    _ccy_seat_exec=("$_ccy_agent_bus/pingbus" seat exec --)
 fi
-unset _ccy_pingbus_teams_before_local
+unset _ccy_bus_var _ccy_bus_before _ccy_bus_after _ccy_bus_changed
+unset -f _ccy_bus_snapshot
 # <<< AGENT-BUS
 
 # ── Supervisor wrap: DEFAULT ON when the project ships a supervisor ───────────
 #
 # Precedence, highest first:
+#   0. `ccy --no-supervise` (CCY_NO_SUPERVISOR=1): no wrapper at all, whatever the
+#      project's ccy.env or ccy.env.local armed, since they arm it with the
+#      ${CCY_CLAUDE_WRAPPER:-...} idiom and --no-supervise forwards no value to beat it.
 #   1. CCY_CLAUDE_WRAPPER forwarded from the host (`ccy --supervise`, or a host
 #      export) — an explicit operator instruction, always wins.
 #   2. CCY_CLAUDE_WRAPPER set by the project ccy.env (or this checkout's ccy.env.local)
@@ -587,7 +604,12 @@ unset _ccy_pingbus_teams_before_local
 # everywhere. Opt out entirely with CCY_NO_SUPERVISOR=1 / `ccy --no-supervise`.
 CCY_SUPERVISOR_PATH="${CCY_SUPERVISOR_PATH:-/workspace/.claude/ccy/claude-supervise.py}"
 
-if [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]] && [[ "${CCY_NO_SUPERVISOR:-}" != "1" ]]; then
+if [[ "${CCY_NO_SUPERVISOR:-}" == "1" ]]; then
+    if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
+        echo "Supervisor: off (--no-supervise); the wrapper the project set is not used: $CCY_CLAUDE_WRAPPER" >&2
+    fi
+    unset CCY_CLAUDE_WRAPPER
+elif [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     if [ -f "$CCY_SUPERVISOR_PATH" ]; then
         # Syntax-check before exec. A corrupt or truncated supervisor would
         # otherwise take every session in every project down with it, and this
@@ -703,11 +725,12 @@ if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     if ccy_lifecycle_wanted; then
         ccy_lifecycle_extend_wrapper || exit 1
     fi
-    exec "${_ccy_wrapper[@]}" "$@"
+    exec "${_ccy_seat_exec[@]}" "${_ccy_wrapper[@]}" "$@"
 fi
 if ccy_lifecycle_wanted; then
     echo "✗ CCY: --max-age/--run-for/--until are carried out by the supervisor, and this session runs without one." >&2
     echo "  Install the hooks daemon in this project (it deploys the supervisor), or drop the option." >&2
     exit 1
 fi
-exec "$@"
+# The agent team bus seat claim, when the launch named seats (AGENT-BUS above).
+exec "${_ccy_seat_exec[@]}" "$@"

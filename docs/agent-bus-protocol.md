@@ -61,17 +61,18 @@ stop an agent account posting other messages; every receiver drops them (§9).
 
 ## 3. Identifiers
 
-| Name               | Pattern                                                                                                                                               | Notes                                                                          |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| team name          | `[a-z][a-z0-9-]{0,23}`                                                                                                                                | Also the homeserver instance name.                                             |
-| agent handle       | `(?P<repo>[a-z0-9][a-z0-9_-]{0,47})\.(?P<n>[1-9][0-9]{0,5})\+(?P<host>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.(?P<type>podman\|lxc\|docker\|vm\|host)` | The Matrix localpart and display name. Example: `myrepo.1+workstation.podman`. |
-| reserved localpart | `admin`, `conduit`                                                                                                                                    | Never a handle or a human.                                                     |
-| human localpart    | `[a-z][a-z0-9_-]{0,31}`, not reserved                                                                                                                 | Contains no `+`, so it never equals a handle.                                  |
-| user ID            | `@<localpart>:<server_name>`, `<server_name>` equal to the member config's                                                                            | Any other server: drop (`sender` / `target`).                                  |
-| room ID            | `![A-Za-z0-9_-]{43}`                                                                                                                                  | Room version 12 only.                                                          |
-| event ID           | `\$[A-Za-z0-9_-]{43}`                                                                                                                                 | Checked before it is used for anything, a file name included.                  |
+| Name               | Pattern                                                                                                                                                                       | Notes                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| team name          | `[a-z][a-z0-9-]{0,23}`                                                                                                                                                        | Also the homeserver instance name.                                                                          |
+| agent handle       | `(?P<repo>[a-z0-9][a-z0-9_-]{0,47})\.(?P<seat>[1-9][0-9]{0,5}\|[a-z][a-z0-9]{0,11})\+(?P<host>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.(?P<type>podman\|lxc\|docker\|vm\|host)` | The Matrix localpart and display name. Examples: `myrepo.1+workstation.podman`, `myrepo.dev1+local.podman`. |
+| seat               | `[1-9][0-9]{0,5}\|[a-z][a-z0-9]{0,11}`                                                                                                                                        | A number or a name; no `-`, `_`, `.` or `@`, and no leading `0`.                                            |
+| reserved localpart | `admin`, `conduit`                                                                                                                                                            | Never a handle or a human.                                                                                  |
+| human localpart    | `[a-z][a-z0-9_-]{0,31}`, not reserved                                                                                                                                         | Contains no `+`, so it never equals a handle.                                                               |
+| user ID            | `@<localpart>:<server_name>`, `<server_name>` equal to the member config's                                                                                                    | Any other server: drop (`sender` / `target`).                                                               |
+| room ID            | `![A-Za-z0-9_-]{43}`                                                                                                                                                          | Room version 12 only.                                                                                       |
+| event ID           | `\$[A-Za-z0-9_-]{43}`                                                                                                                                                         | Checked before it is used for anything, a file name included.                                               |
 
-The `+` between `<n>` and `<host>` is one constant (`HANDLE_SEP`). Probe H4 creates a real
+The `+` between `<seat>` and `<host>` is one constant (`HANDLE_SEP`). Probe H4 creates a real
 handle through both account-creation calls; if Tuwunel's strict localpart check refuses
 `+`, the separator becomes `=` before version 1 is released.
 
@@ -80,12 +81,21 @@ handle through both account-creation calls; if Tuwunel's strict localpart check 
 - `<repo>`: the last path component of the forge remote URL, `.git` removed; with no
   remote, the checkout directory name. Lowercase; every character outside `[a-z0-9_-]`
   becomes `-`; leading `-`/`_` stripped; truncated to 48. Empty is refused.
-- `<n>`: one more than the registry's counter for `<repo>+<host>.<type>` on this team;
-  never reused.
+- `<seat>`: the seat `add-member --seat` names, or, without `--seat`, one more than the
+  registry's counter for the prefix `<repo>+<host>.<type>` on this team. A counter number
+  is never reused, and the counter steps past a number `--seat` issued. A ccy session's
+  seats are always named by its launch (`ccy --teams <seat>@<team>`); every other member
+  is numbered by the counter.
+- `--seat` reuses a seat by design: on a **parked** handle (`park-member` revoked its
+  token and kept its account, role and room membership) it returns the same member with a
+  new token. It is refused on a handle that is a current, unparked member, and on one
+  whose account was deactivated by `remove-member`, which never returns.
 - `<host>`: `HOOKS_DAEMON_HOSTNAME` (the install's role), or the value the human passes as
-  `--host`; lowercased, every character outside `[a-z0-9-]` becomes `-`. Never
-  `CCY_HOST_HOSTNAME` or the system hostname: handles appear in public forge text, so with
-  neither a role nor `--host`, `suggest-handle` and `add-member` refuse (exit 78 / 64).
+  `--host`; lowercased, every character outside `[a-z0-9-]` becomes `-`. A ccy seat's
+  `<host>` is the role its checkout's `ccy.env.local` assigns, else the literal `local`,
+  which names no machine. Never `CCY_HOST_HOSTNAME` or the system hostname: handles appear
+  in public forge text, so with neither a role nor `--host`, `suggest-handle` and
+  `add-member` refuse (exit 78 / 64).
 - `<type>`: where the session runs: `podman` (ccy or another rootless podman container),
   `docker`, `lxc`, `vm`, or `host` (bare desktop or server).
 
@@ -302,6 +312,12 @@ credential-assignment  (?i)\b(?:password|passwd|pwd|secret|token|access[_-]?toke
 Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
 command that needs it; `status` says why).
 
+A `roles` key names a numbered or a named seat alike, for example
+`@myrepo.3+workstation.host:<sn>` and `@myrepo.dev1+local.podman:<sn>`; a parked member
+keeps its entry. A pingbus built before named seats reads a record listing one as invalid
+and treats the room as untrusted, so every member of a team takes the current pingbus
+before a named seat joins it.
+
 **Status**: `agent_bus.status`, state key = the sender's own user ID, content
 `{"v": 1, "state": "listening", "until": <int ms>}`, serialised at most 256 bytes. The
 server forces only a state key starting with `@` to equal its sender; at power 0 any member
@@ -475,8 +491,28 @@ when a non-blocking `flock` on it fails and the kind it holds is `watch` or `wai
 ever recorded: `/workspace` is shared across container namespaces, where a PID means
 nothing.
 
-- `PINGBUS_HOME`: default `${XDG_CONFIG_HOME:-~/.config}/pingbus`; a ccy session uses
-  `/workspace/.claude/ccy/pingbus` (the entrypoint sets it).
+A team entry of `PINGBUS_HOME` is normally the bundle directory itself; a symlink is
+accepted only onto a real directory (not itself a link) owned by the user, with mode 0700,
+and refused (exit 78) otherwise.
+
+**Seats** (a ccy checkout, Plan 00161 DESIGN.md section 5.5). A seat is one `<seat>@<team>`
+pair (§3 seat and team grammars): a member of one team, whose bundle and state live in
+`.claude/ccy/pingbus/seats/<team>/<seat>/` under the checkout, created on the host by the
+launch that first names it. `seat.lock` beside the bundle is held with `flock` by the one
+session in that seat, which writes `seat <claim time in ms>` into it; as with `lock`, the
+seat is held exactly when a non-blocking `flock` fails, and no PID is recorded. The
+launcher passes the session's seats as `PINGBUS_SEATS`, a list of `<seat>@<team>` items
+joined by `,` with at most one seat per team. `seat exec` (§13) reads it, takes every
+seat's lock without waiting, and builds the session home `/tmp/pingbus-home` (mode 0700,
+private to the container), holding one symlink per seat, `<team>` onto that seat's
+directory, and the session's own `stop-guard.json` and `watch.log`. It sets `PINGBUS_HOME`
+to the session home and `PINGBUS_TEAMS` to the list's teams for the command it then runs,
+which inherits the locks: they are released when the last process of the session exits.
+
+- `PINGBUS_HOME`: default `${XDG_CONFIG_HOME:-~/.config}/pingbus`; a ccy session launched
+  with `--teams` uses `/tmp/pingbus-home`, which `seat exec` builds and sets.
+- `PINGBUS_SEATS`: the session's seats, set by the ccy launcher only; read by `seat exec`
+  alone. Missing or malformed: exit 78.
 - `PINGBUS_TEAMS`: comma-separated team names, each with a bundle; the **active** teams.
   Unset or empty: pingbus refuses every command but `version`, `validate` and
   `suggest-handle` (exit 78). A listed team with no valid bundle: exit 78.
@@ -514,42 +550,56 @@ Global options: `--team NAME`. Every command reads arguments only and never prom
 Account and room administration is not a pingbus command: it is `agent-bus` on the
 homeserver host.
 
-| Command                                                                        | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Network |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs; `--to-orchestrator` means every orchestrator in the team record but the sender, refused (`target`) when there is none                                                                                                                                                                                                                                                                                                                                                                                               | yes     |
-| `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin as UTF-8, less one trailing newline; `--to` takes human localparts or full user IDs, never a handle                                                                                                                                                                                                                                                                                                                                                                                                                                   | yes     |
-| `recv`                                                                         | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | yes     |
-| `wait [--timeout S]`                                                           | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | yes     |
-| `watch`                                                                        | started by the SessionStart hook: hold the locks, sync, fill the inbox, notify the session socket (counts and a rising notice number) whenever an item is pending that was not at the last look, at most one notice per 2 s; exit 0 when the socket goes; a team that fails is reported and dropped, and the watcher exits with the first failure's code once no team is left; refused (78) without `CLAUDE_CODE_MESSAGING_SOCKET` and its token                                                                                                                                                                                                                                                                                                         | yes     |
-| `inbox`                                                                        | print pending items without consuming: one `PENDING` line each (team, event ID, sender, `origin_server_ts`, verb or `human`), never the text, which only `recv` prints from its re-fetched copy                                                                                                                                                                                                                                                                                                                                                                                                            | no      |
-| `status`                                                                       | per team: handle, room trust, wake path (from the lock: watcher, waiter, none), pending count, overdue acks, drops, unexpected members; members' user IDs with their role or `human`, and their status (stale marked), from the last verified team record. Lines: `TEAM` (team, handle, then `key=value` fields `trust`, `wake`, `pending`, `humans`, `pings`, `overdue`, `dropped`, `unexpected`, `-` where the room is not trusted), `UNTRUSTED` (team, the recorded reason), `MEMBER` (team, localpart, role or `human`, `listening`, `stale` or `-`), `UNEXPECTED` (team, user ID, `join` or `invite`). A team that fails is reported on stderr and prints nothing; the others still print, and the exit is the first failure's code | no      |
-| `validate VERB [REF] [--re EVENT_ID]` / `validate --event FILE`                | run the offline send-side or receive-side validator against the active team's last verified record (`--event` needs one; with no active team, `VERB` is checked for grammar only); prints `OK`, the reason code (exit 4), or `ignore <reason>` for an event a receiver skips silently (`agent-text` among them)                                                                                                                                                                                                                                                                                            | no      |
-| `config check`                                                                 | validate every active team's bundle and the forge credential source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | no      |
-| `suggest-handle`                                                               | print the `agent-bus add-member` arguments this environment implies (§3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | no      |
-| `hook session-start` / `hook prompt` / `hook stop` / `hook session-end`        | Claude Code hook entry points: stdin hook JSON, stdout hook JSON; always exit 0; fixed templates only. `session-start` starts `watch` detached when the session has the socket and a team has no waker; `stop` never blocks when `stop_hook_active` is true, blocks once per set of pending items, and at most once per 600 s for a failure class or a team with no waker; `session-end` does nothing (the watcher exits when the socket goes)                                                                                                                                                             | no      |
-| `version`                                                                      | §1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | no      |
+| Command                                                                        | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Network |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs; `--to-orchestrator` means every orchestrator in the team record but the sender, refused (`target`) when there is none                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | yes     |
+| `say --to HUMAN[,HUMAN…]`                                                      | the only way to emit an agent text (§7); the text is read from stdin as UTF-8, less one trailing newline; `--to` takes human localparts or full user IDs, never a handle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | yes     |
+| `recv`                                                                         | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | yes     |
+| `wait [--timeout S]`                                                           | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | yes     |
+| `watch`                                                                        | started by the SessionStart hook: hold the locks, sync, fill the inbox, notify the session socket (counts and a rising notice number) whenever an item is pending that was not at the last look, at most one notice per 2 s; exit 0 when the socket goes; a team that fails is reported and dropped, and the watcher exits with the first failure's code once no team is left; refused (78) without `CLAUDE_CODE_MESSAGING_SOCKET` and its token                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | yes     |
+| `inbox`                                                                        | print pending items without consuming: one `PENDING` line each (team, event ID, sender, `origin_server_ts`, verb or `human`), never the text, which only `recv` prints from its re-fetched copy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | no      |
+| `status`                                                                       | per team: handle, room trust, wake path (from the lock: watcher, waiter, none), pending count, overdue acks, drops, unexpected members; members' user IDs with their role or `human`, and their status (stale marked), from the last verified team record. Lines: `TEAM` (team, handle, then `key=value` fields `trust`, `wake`, `pending`, `humans`, `pings`, `overdue`, `dropped`, `unexpected`, `-` where the room is not trusted), `UNTRUSTED` (team, the recorded reason), `MEMBER` (team, localpart, role or `human`, `listening`, `stale` or `-`), `UNEXPECTED` (team, user ID, `join` or `invite`). A team that fails is reported on stderr and prints nothing; the others still print, and the exit is the first failure's code. Then, when the checkout has a seats directory, one `SEAT` (team, seat, `held` or `free`, `self` or `-`, handle) per seat; a seat whose bundle cannot be read is reported on stderr (exit 78) and the others still print | no      |
+| `history [--limit N]`                                                          | what this member received and sent in each active team (or `--team`), newest first, read from the room: `HISTORY` lines (§15), at most `N` per team (default 50; 1 to 500, else 64); a record that consumes, acks and stores nothing (below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | yes     |
+| `validate VERB [REF] [--re EVENT_ID]` / `validate --event FILE`                | run the offline send-side or receive-side validator against the active team's last verified record (`--event` needs one; with no active team, `VERB` is checked for grammar only); prints `OK`, the reason code (exit 4), or `ignore <reason>` for an event a receiver skips silently (`agent-text` among them)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | no      |
+| `config check`                                                                 | validate every active team's bundle and the forge credential source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | no      |
+| `suggest-handle`                                                               | print the `agent-bus add-member` arguments this environment implies (§3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | no      |
+| `hook session-start` / `hook prompt` / `hook stop` / `hook session-end`        | Claude Code hook entry points: stdin hook JSON, stdout hook JSON; always exit 0; fixed templates only. `session-start` starts `watch` detached when the session has the socket and a team has no waker; `stop` never blocks when `stop_hook_active` is true, blocks once per set of pending items, and at most once per 600 s for a failure class or a team with no waker; `session-end` does nothing (the watcher exits when the socket goes)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | no      |
+| `seat exec [--] CMD…`                                                          | run by ccy's entrypoint in front of the session (§12 "Seats"): claim every seat in `PINGBUS_SEATS` (exit 75 when another session holds one, and none is kept), build the session home, check every bundle as `config check` does (exit 78), print the seats and handles on stderr, then replace itself with `CMD`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | no      |
+| `version`                                                                      | §1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | no      |
+
+**`history`** reads the room, not the local state, so a member whose state is new (a seat
+returned, a fresh checkout) still sees its past. A `/sync` with `timeline.limit: 0` gives a
+`next_batch`, which is never saved; `/messages` is paged backwards from it, at most 50 pages
+of 100 room messages per team, and a scan that stops there says so on stderr. It keeps the
+pings this member sent or that name it in `to`, the agent texts it sent, and the human
+messages addressed to it (§7). A received item passes the offline receive steps (§9) and
+the forge check (§6); an item it sent passes the send-side rules of §4-§7 and §11, its
+role, and for a ping the forge check. The age and flood limits do not apply: nothing is
+acted on. Failures are counted on one `DROPPED` line per team, and nothing goes to
+`dropped.log`. A team that fails is reported and the others still print; the exit is 0,
+or the first failing team's code.
 
 Invites are accepted by the syncer itself, after the checks in §8. `show`, `peers` and
 `tail` are deferred: no success criterion needs them, and `status` lists the members.
 
 ## 14. Exit codes (stable)
 
-| Code | Meaning                                                                                                   |
-| ---- | --------------------------------------------------------------------------------------------------------- |
-| 0    | success; `recv`/`wait` printed at least one line (drops and other teams' failures, if any, are on stderr) |
-| 1    | never assigned (an uncaught exception)                                                                    |
-| 2    | never assigned (argparse's default is remapped to 64)                                                     |
-| 3    | nothing: `recv` found nothing; `wait` reached its timeout                                                 |
-| 4    | refused by the validator (`secret` included), or by role                                                  |
-| 5    | the reference did not resolve at the forge, or failed the provenance check                                |
-| 6    | `recv` only: received items were dropped and no valid line was printed                                    |
-| 7    | homeserver unreachable                                                                                    |
-| 8    | authentication refused (token rejected)                                                                   |
-| 9    | rate limited (local limit, duplicate, server 429 after retries, or forge rate limit)                      |
-| 10   | the team room is not trusted (§8), or not joined                                                          |
-| 64   | usage error                                                                                               |
-| 75   | busy: another process holds this account's sync lock (`wait`, `watch`)                                    |
-| 78   | configuration refused (§12, §10 bounds, Python older than 3.11)                                           |
+| Code | Meaning                                                                                                               |
+| ---- | --------------------------------------------------------------------------------------------------------------------- |
+| 0    | success; `recv`/`wait` printed at least one line (drops and other teams' failures, if any, are on stderr)             |
+| 1    | never assigned (an uncaught exception)                                                                                |
+| 2    | never assigned (argparse's default is remapped to 64)                                                                 |
+| 3    | nothing: `recv` found nothing; `wait` reached its timeout                                                             |
+| 4    | refused by the validator (`secret` included), or by role                                                              |
+| 5    | the reference did not resolve at the forge, or failed the provenance check                                            |
+| 6    | `recv` only: received items were dropped and no valid line was printed                                                |
+| 7    | homeserver unreachable                                                                                                |
+| 8    | authentication refused (token rejected)                                                                               |
+| 9    | rate limited (local limit, duplicate, server 429 after retries, or forge rate limit)                                  |
+| 10   | the team room is not trusted (§8), or not joined                                                                      |
+| 64   | usage error                                                                                                           |
+| 75   | busy: another process holds this account's sync lock (`wait`, `watch`), or another session holds a seat (`seat exec`) |
+| 78   | configuration refused (§12, §10 bounds, Python older than 3.11)                                                       |
 
 `wait` never exits because of drops alone.
 
@@ -567,6 +617,7 @@ only ever appended in later versions, never reordered.
 | `TIMEOUT` | stdout | `TIMEOUT`, `1`, team, event ID of the unanswered ping, silent target, verb, ref                                            |
 | `SENT`    | stdout | `SENT`, `1`, team, event ID (from `send` or `say`)                                                                         |
 | `DROPPED` | stderr | `DROPPED`, `1`, count, `reason=count` pairs joined by `,` (one line per batch: per team per pass; re-fetch drops included) |
+| `HISTORY` | stdout | `HISTORY`, `1`, direction (`in`/`out`), `origin_server_ts` (ms), line (`PING`/`HUMAN`/`SENT`), its fields after `1`        |
 
 The `HUMAN` text field is `json.dumps(body, ensure_ascii=True)`, so newlines, tabs and
 control characters arrive escaped, and the line stays one line. Examples:
@@ -576,12 +627,36 @@ PING	1	<team>	$AbC…	orch.1+workstation.podman	review	pr:example-org/myrepo#12@
 HUMAN	1	<team>	$DeF…	alice	1791234567890	"please halt and commit what you have"
 ```
 
+A `HISTORY` line (`history`, §13) records one item: `in` for one this member received,
+`out` for one it sent; the item's `origin_server_ts`; then the line the item would be,
+less its `1`: `PING` for a ping either way (an `out` ping's sender is this member),
+`HUMAN` for a human message, `SENT` for an agent text this member sent (team and event ID
+only: the text is never printed). It is a record of the past, never a request to act:
+work comes from `recv` and `wait` only.
+
+```
+HISTORY	1	out	1791234567999	PING	<team>	$GhI…	myrepo.1+workstation.podman	ack	-	$AbC…
+HISTORY	1	in	1791234567890	HUMAN	<team>	$DeF…	alice	1791234567890	"please halt and commit what you have"
+```
+
+The report commands' lines carry no version field and are defined with their command in
+§13: `PENDING` (`inbox`), `TEAM`, `UNTRUSTED`, `MEMBER`, `UNEXPECTED` and `SEAT`
+(`status`). A `SEAT` line is `SEAT`, team, seat, `held` or `free`, `self` (a seat this
+session holds) or `-`, handle; the host's `agent-bus seat list` prints the same lines from
+the same code. Example:
+
+```
+SEAT	<team>	dev1	held	self	myrepo.dev1+local.podman
+```
+
 All other human-facing text goes to stderr, except for the report commands (`inbox`,
 `status`, `config check`, `suggest-handle`) whose text is their output. No command prints a
 room name, topic, invite reason, display name, `formatted_body`, unknown status key or
 exception text taken from an event. The socket notification and every hook output are
-fixed templates carrying counts only; the socket notification also carries the watcher's
-monotonic notice number, because the socket drops a message identical to an earlier one:
+fixed templates carrying counts, and names that passed their §3 grammar (a session's
+seats, their teams and handles, at SessionStart); the socket notification also carries the
+watcher's monotonic notice number, because the socket drops a message identical to an
+earlier one:
 
 ```
 agent-bus: <N> pending (<H> from humans, <P> pings), notice <S>. Run `pingbus recv`.
