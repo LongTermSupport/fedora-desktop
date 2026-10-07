@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00162-ccy-sessions-always-sign-commits](00162-ccy-sessions-always-sign-commits/) - Sense check of "every ccy session signs its commits": already true on the default path and owned by Plan 00139; the gap left is signed-but-Unverified commits when the launch key's account does not own the commit email. Recommended to fold into Plan 00139.
+
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.
 
 - [00160-ccy-env-local-override](00160-ccy-env-local-override/) - ccy sources an untracked `.claude/ccy/ccy.env.local` after `ccy.env`, so one checkout can override the project's ccy settings without a commit; ccy writes the tracked `ccy.env.local.dist` template and warns when a `ccy.env.local` is based on an older one; `ccy.env.local` is read-only inside the container. CCY 3.84.0, container 2.44.
