@@ -1009,6 +1009,24 @@
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
 
+    # Asked of the restore unit itself: list-dependencies of default.target expands only
+    # target units, so a service's own Wants= never shows there.
+    - name: Read Back Whether The Live Restore Unit Pulls In The Set-Going Unit
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --user
+          - list-dependencies
+          - ccy-sessions-restore.service
+          - --plain
+          - --no-pager
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+      register: ccy_set_going_readback
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — the verdict is the next task
+      when: ccy_restore_sessions | default(false) | bool
+
     - name: Assert The Restore Unit's Live State Matches The Opt-In
       ansible.builtin.fail:
         msg: >-
@@ -1023,7 +1041,10 @@
                   and 'ccy-sessions-restore.service' in ccy_restore_readback.stdout %}
           ccy-sessions-restore.service runs at boot, but the running user manager does not
           pull in ccy-sessions-set-going.service with it (the restore unit's Wants=), so the
-          restored sessions would wait at their prompts with nothing to set them going.
+          restored sessions would wait at their prompts with nothing to set them going
+          (`systemctl --user list-dependencies ccy-sessions-restore.service` exited
+          {{ ccy_set_going_readback.rc }}: {{ ccy_set_going_readback.stdout | default('') }}
+          {{ ccy_set_going_readback.stderr | default('') }}).
           {% elif ccy_restore_sessions | default(false) | bool %}
           ccy-sessions-restore.service is enabled on disk but default.target does not name it
           in the running user manager, so it will not run at boot.
@@ -1033,14 +1054,16 @@
           {% endif %}
           Collect, on the host:
           `systemctl --user list-dependencies default.target --no-pager | cat`,
+          `systemctl --user list-dependencies ccy-sessions-restore.service --no-pager | cat`,
           `ls -l ~/.config/systemd/user/default.target.wants/ | cat`
-          and `systemctl --user show ccy-sessions-restore.service -p LoadState -p UnitFileState -p WantedBy --no-pager | cat`.
+          and `systemctl --user show ccy-sessions-restore.service -p LoadState -p UnitFileState -p WantedBy -p Wants --no-pager | cat`.
       when: >-
         ccy_restore_readback.rc != 0
         or (('ccy-sessions-restore.service' in ccy_restore_readback.stdout)
             != (ccy_restore_sessions | default(false) | bool))
         or ((ccy_restore_sessions | default(false) | bool)
-            and 'ccy-sessions-set-going.service' not in ccy_restore_readback.stdout)
+            and (ccy_set_going_readback.rc != 0
+                 or 'ccy-sessions-set-going.service' not in ccy_set_going_readback.stdout))
 
     - name: Create Claude YOLO Tokens Directory
       ansible.builtin.file:
