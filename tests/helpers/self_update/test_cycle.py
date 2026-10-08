@@ -857,24 +857,54 @@ class TestVerify(CycleCase):
         self.assertIn(f"reset-failed {cycle.VERIFY_UNIT}", self.host.calls)
         self.assertEqual(cycle.VERIFY_UNIT, "fedora-desktop-self-update-verify.service")
 
-    def test_a_failed_state_that_cannot_be_cleared_is_said_and_recorded_not_hidden(self) -> None:
+    def test_a_failed_state_that_cannot_be_cleared_is_a_failure_not_a_warning(self) -> None:
         self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
         self.host.reset_failed_rc = 5
         code, _, err = self.verify()
-        self.assertEqual(code, cycle.EXIT_OK, "the sessions came back; the deploy is still done")
-        self.assertEqual(self.result()["outcome"], "deployed")
+        self.assertEqual(code, cycle.EXIT_RESET_FAILED)
+        self.assertEqual(self.result()["outcome"], "deployed", "the sessions came back: the deploy is done")
         self.assertIn("reset-failed exited 5", self.result()["detail"])
         self.assertIn("reset-failed exited 5", err)
+        self.assertIsNone(self.state.read_owed(), "the sessions were checked; only the unit's state is left")
 
-    def test_a_failing_check_is_23_and_alerts(self) -> None:
+    def test_a_failing_check_is_23_alerts_and_stays_owed(self) -> None:
+        """fedora-desktop#88: the check stays owed, so a later run checks again, and its
+        pass is what reaches reset-failed."""
         self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
         self.host.verify_rc = 1
         code, _, err = self.verify()
         self.assertEqual(code, cycle.EXIT_VERIFY_FAILED)
-        self.assertIsNone(self.state.read_owed())
+        owed = self.state.read_owed()
+        self.assertIsNotNone(owed)
+        assert owed is not None
+        self.assertEqual(owed.boot, "boot-0")
         self.assertEqual(self.result()["outcome"], "verify-failed")
         self.assertIn("ALERT", err)
         self.assertNotIn(f"reset-failed {cycle.VERIFY_UNIT}", self.host.calls, "a failure is left showing")
+
+    def test_a_rerun_after_a_failed_check_checks_again_and_its_pass_clears_the_unit(self) -> None:
+        self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
+        self.host.verify_rc = 1
+        self.verify()
+        self.host.verify_rc = 0
+        self.host.calls.clear()
+        code, _, _ = self.verify()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertEqual(self.host.calls, [
+            f"verify-restore {cycle.VERIFY_WAIT_SECONDS}", f"reset-failed {cycle.VERIFY_UNIT}", "alert deployed",
+        ])
+        self.assertIsNone(self.state.read_owed())
+
+    def test_a_cycle_after_a_failed_check_still_runs_and_does_not_reboot_on_the_stale_owed(self) -> None:
+        self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
+        self.host.verify_rc = 1
+        self.verify()
+        self.state.write_deployed(NEW)
+        self.host.update_result = cycle.UpdateResult(rc=0, old=NEW, new=None, target=None, nothing=NEW)
+        self.host.calls.clear()
+        code, _, _ = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertNotIn("reboot", self.host.calls)
 
 
 class TestVerifyCeiling(unittest.TestCase):

@@ -338,9 +338,11 @@ it day to day:
   A failure also appears in `fedora-desktop-health` and the login snippet.
 - **After the reboot.** `fedora-desktop-self-update-verify.service` waits until the session
   restore has settled: every session is running and set going, or has definitely failed
-  ([ccy.md](ccy.md#sessions-survive-a-reboot)). It gives up after 25 minutes. A passing
-  verify clears that unit's failed state, so a failed attempt answered by a later pass
-  leaves nothing in the login banner.
+  ([ccy.md](ccy.md#sessions-survive-a-reboot)). It gives up after 25 minutes. A failed
+  verify (exit 23) keeps the check owed: put the sessions right, then
+  `sudo fedora-desktop-self-update verify` checks again, and the next boot's unit does too.
+  A pass clears that unit's failed state, so the login banner stops naming it. If it cannot
+  be cleared, verify exits 25.
 - **What it fetches, and what `nothing` means.** The cycle runs as root against its own
   deploy clone, `/var/lib/fedora-desktop/deploy`, never a person's checkout. It fetches
   `self_update_branch` (and, on the tags channel, the release tags) from that clone's

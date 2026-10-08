@@ -312,9 +312,11 @@ after five minutes with five of six sessions still starting, leaving its unit fa
   session whose prompt cannot be read is left untouched and named in the output, never
   skipped silently. Built as `ccy-sessions set-going`, run by
   `ccy-sessions-set-going.service` after the restore (the restore's `Wants=`), so the wait
-  never holds `default.target`; the manifest (format 2) records what each session got.
-  CCY 3.87.0. Gated by `scripts/test-ccy-sessions-reboot.bash` and
-  `scripts/test-ccy-session-registry.bash`.
+  never holds `default.target`; the manifest (format 2, written under a lock) records what
+  each session got. After review: one session per conversation, a `--resume <id>` session
+  read from that conversation, and `continue` after the compaction for a session with no
+  supervisor (journal 26-10-08, second entry). CCY 3.88.0. Gated by
+  `scripts/test-ccy-sessions-reboot.bash` and `scripts/test-ccy-session-registry.bash`.
 - [x] ✅ **Task 8.3**: `verify-restore` reports a continuing session whose compaction (or
   `continue`) did not start within a short window, instead of counting it OK.
   `NOT-SET-GOING <compact|continue>-not-started` when the transcript shows no input within
@@ -323,8 +325,10 @@ after five minutes with five of six sessions still starting, leaving its unit fa
   (every recorded session running, or definitely failed), not a fixed five minutes, and a
   passing `verify` clears its unit's failed state. The verify unit belongs to Plan 00137's
   self-update; the change is made here because the wait is on this plan's restore.
-  `verify-restore --wait` stops once settled; the ceiling is 1500 s; a pass runs
-  `systemctl reset-failed fedora-desktop-self-update-verify.service`. Gated by
+  `verify-restore --wait` stops once settled; the ceiling is 1500 s; a failed verify keeps
+  the check owed, so a later run re-checks; a pass runs
+  `systemctl reset-failed fedora-desktop-self-update-verify.service` (exit 25 if that
+  fails). Gated by
   `tests/helpers/self_update/test_cycle.py` and `scripts/test-self-update-cycle.bash`.
 - [ ] 🧑 **Task 8.5**: HOST: after an unattended self-update reboot with several sessions,
   every session is running and past its prompt, `verify` exits 0 and `systemctl --failed` is

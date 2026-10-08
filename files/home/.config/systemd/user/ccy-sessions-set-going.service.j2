@@ -6,6 +6,10 @@ Documentation=https://github.com/LongTermSupport/fedora-desktop
 # (fedora-desktop#88). This types its first input: /compact at or above the floor below,
 # continue under it. Pulled in by ccy-sessions-restore.service (its Wants=) and started once
 # that has written the restore manifest. No [Install]: enabling the restore is the switch.
+# After= without Requires=, deliberately: the restore exits non-zero when ONE record fails
+# (a deleted checkout) after starting all the others, and Requires= would then leave every
+# one of those at its prompt. When the restore wrote no manifest for this boot at all,
+# set-going says so, names the restore's journal, and exits 1.
 After=ccy-sessions-restore.service
 
 [Service]

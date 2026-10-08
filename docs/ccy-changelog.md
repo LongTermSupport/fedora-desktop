@@ -27,16 +27,21 @@ Two version numbers move independently — see
   context size from the conversation's transcript and types `/compact` at or above
   `ccy_restore_compact_floor_tokens` (150,000 by default), else `continue`. A session found
   already running is never typed into. One whose prompt never draws, that is busy, or whose
-  context cannot be read is left alone and named. The restore manifest is now format 2 and
-  records what each session got. A format-1 manifest from an earlier restore in the same
-  boot is refused by name.
+  context cannot be read is left alone and named, as is one with someone attached or text
+  in its input box. Two sessions that resume one conversation get one set going, the other
+  is named `shares-conversation-with-<name>`; a `--resume <id>` launch is judged on that
+  conversation; a session with no supervisor gets `continue` once its compaction ends. The
+  restore manifest is now format 2, written under a lock, and records what each session
+  got; a second restore in a boot keeps what set-going did. A format-1 manifest from an
+  earlier restore in the same boot is refused by name.
 - **`verify-restore` checks the input was taken.** A session set going whose transcript
   shows no input within two minutes is `NOT-SET-GOING compact-not-started` (or
   `continue-not-started`), and one left alone is `NOT-SET-GOING <reason>`; neither counts
   as OK. `--wait` stops once the restore has settled (nothing `STARTING` or
   `SETTING-GOING`, the same report twice running) rather than only when every session is
-  OK. `fedora-desktop-self-update verify` waits up to 25 minutes instead of 5, and a pass
-  clears its unit's failed state. Gated by `scripts/test-ccy-session-registry.bash`,
+  OK. `fedora-desktop-self-update verify` waits up to 25 minutes instead of 5; a failed
+  verify keeps the check owed, so a later run checks again, and a pass clears its unit's
+  failed state (exit 25 when it cannot). Gated by `scripts/test-ccy-session-registry.bash`,
   `scripts/test-ccy-sessions-reboot.bash`, `scripts/test-self-update-cycle.bash` and
   `tests/helpers/self_update/test_cycle.py`.
 

@@ -68,6 +68,8 @@ EXIT_UNWARNABLE = 22
 EXIT_VERIFY_FAILED = 23
 #: Not in the contract's table: `systemctl reboot` itself refused.
 EXIT_REBOOT_FAILED = 24
+#: The restored sessions passed, but the verify unit's failed state could not be cleared.
+EXIT_RESET_FAILED = 25
 EXIT_USAGE = 64
 EXIT_CONFIG = 70
 EXIT_LOCKED = 75
@@ -487,22 +489,28 @@ def verify(config: Config, host: Host, state: State, *, stdout: TextIO, stderr: 
     if owed is None or owed.boot == host.boot_id():
         return EXIT_OK
     rc = host.verify_restore(VERIFY_WAIT_SECONDS)
+    if rc != 0:
+        # The check stays owed (fedora-desktop#88): the unit runs it again at the next boot,
+        # and `sudo fedora-desktop-self-update verify` re-checks by hand once the sessions are
+        # put right, whose pass is what clears the failed state this attempt leaves.
+        return _finish(state, host, stdout, stderr, code=EXIT_VERIFY_FAILED, phase="verify", outcome="verify-failed",
+                       new=owed.new, tag=owed.tag, plays=owed.plays,
+                       detail="a restored session is not running, or was not set going; the check stays owed",
+                       announce=True)
     state.clear_owed()
-    if rc == 0:
-        # A pass clears a failed state an earlier attempt left on the unit, so the login
-        # banner stops naming a failure that has been answered. If it cannot be cleared the
-        # deploy is still done: said, and recorded in the result, but not a failed verify.
-        detail = "every restored session is running"
-        reset_rc = host.reset_failed(VERIFY_UNIT)
-        if reset_rc != 0:
-            problem = f"{VERIFY_UNIT}'s failed state could not be cleared (systemctl reset-failed exited {reset_rc})"
-            stderr.write(f"self-update: {problem}\n")
-            detail = f"{detail}; {problem}"
-        return _finish(state, host, stdout, stderr, code=EXIT_OK, phase="verify", outcome="deployed",
-                       new=owed.new, tag=owed.tag, plays=owed.plays, detail=detail, announce=True)
-    return _finish(state, host, stdout, stderr, code=EXIT_VERIFY_FAILED, phase="verify", outcome="verify-failed",
-                   new=owed.new, tag=owed.tag, plays=owed.plays, detail="a restored session is not running, or waits at a prompt",
-                   announce=True)
+    # A pass clears a failed state an earlier attempt left on the unit, so the login banner
+    # stops naming a failure that has been answered. Failing to is a failure of its own: the
+    # deploy is done and recorded so, but the banner would still say otherwise.
+    detail = "every restored session is running"
+    code = EXIT_OK
+    reset_rc = host.reset_failed(VERIFY_UNIT)
+    if reset_rc != 0:
+        problem = f"{VERIFY_UNIT}'s failed state could not be cleared (systemctl reset-failed exited {reset_rc})"
+        stderr.write(f"self-update: {problem}\n")
+        detail = f"{detail}; {problem}"
+        code = EXIT_RESET_FAILED
+    return _finish(state, host, stdout, stderr, code=code, phase="verify", outcome="deployed",
+                   new=owed.new, tag=owed.tag, plays=owed.plays, detail=detail, announce=True)
 
 
 def status(state: State, *, stdout: TextIO) -> int:

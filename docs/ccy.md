@@ -299,9 +299,12 @@ which waits for each session the restore started to draw Claude's prompt (20 min
 most). It then reads the conversation's context size from its transcript and types the
 first input:
 
-- **at or above the floor**, `/compact` (a ccy session's supervisor types `continue` once
-  the compaction ends);
+- **at or above the floor**, `/compact`. A ccy session's supervisor types `continue` once
+  the compaction ends. For a session with no supervisor (`cc`, or `ccy --no-supervise`),
+  `set-going` waits for the compaction to show in the transcript and types `continue` itself;
 - **below it**, `continue`.
+
+A session restored with `--resume <id>` is judged on that conversation, not the newest one.
 
 The floor is 150,000 tokens. Change it per machine in `host_vars`, then run the play:
 
@@ -309,10 +312,14 @@ The floor is 150,000 tokens. Change it per machine in `host_vars`, then run the 
 ccy_restore_compact_floor_tokens: 200000
 ```
 
-A session the restore found already running is never typed into. Some sessions are left
-alone and named in the journal (`journalctl --user -u ccy-sessions-set-going -b --no-pager | cat`):
-one whose prompt never draws, one already busy when it does, one with no readable
-transcript. The others still go on.
+A session the restore found already running is never typed into. Two sessions in one
+project that both `--continue` resume the same conversation, so only the first to draw its
+prompt is set going; the other is left alone as `shares-conversation-with-<name>`. Other
+sessions left alone, each named in the journal
+(`journalctl --user -u ccy-sessions-set-going -b --no-pager | cat`): one whose prompt never
+draws, one already busy when it does, one with someone attached or text in its input box,
+one with no readable transcript. The others still go on. If the restore wrote no manifest
+for the boot, set-going says so and fails rather than guess.
 
 Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,

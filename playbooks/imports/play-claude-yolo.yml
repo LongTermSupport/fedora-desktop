@@ -1019,6 +1019,11 @@
           ccy-sessions-restore.service will run at boot is unknown. This usually means no
           user manager is reachable for {{ user_login }} — play-systemd-user-tweaks.yml
           (part of playbook-main.yml) starts it.
+          {% elif (ccy_restore_sessions | default(false) | bool)
+                  and 'ccy-sessions-restore.service' in ccy_restore_readback.stdout %}
+          ccy-sessions-restore.service runs at boot, but the running user manager does not
+          pull in ccy-sessions-set-going.service with it (the restore unit's Wants=), so the
+          restored sessions would wait at their prompts with nothing to set them going.
           {% elif ccy_restore_sessions | default(false) | bool %}
           ccy-sessions-restore.service is enabled on disk but default.target does not name it
           in the running user manager, so it will not run at boot.
@@ -1034,6 +1039,8 @@
         ccy_restore_readback.rc != 0
         or (('ccy-sessions-restore.service' in ccy_restore_readback.stdout)
             != (ccy_restore_sessions | default(false) | bool))
+        or ((ccy_restore_sessions | default(false) | bool)
+            and 'ccy-sessions-set-going.service' not in ccy_restore_readback.stdout)
 
     - name: Create Claude YOLO Tokens Directory
       ansible.builtin.file:

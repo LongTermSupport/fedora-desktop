@@ -473,7 +473,7 @@ check "and published for the host-health report" "$(result_key alert)" "$(publis
 check "the outcome is still the cycle's own" "verify-failed" "$(result_key outcome)"
 check "the webhook's secret path is in no output or record" "no" \
     "$(cat "$OUT" "$ERR" "$STATE/last-result" "$PUBLISHED/result" | grep -q 'EXAMPLE/EXAMPLE' && echo yes || echo no)"
-rm -f "$WEBHOOK_FILE" "$STATE/last-result" "$PUBLISHED/result"
+rm -f "$WEBHOOK_FILE" "$STATE/last-result" "$PUBLISHED/result" "$STATE/owed-verify"
 write_config ""
 
 # ── verify ─────────────────────────────────────────────────────────────────────────────
@@ -495,15 +495,19 @@ check "the restore check runs as the user, waiting at most the ceiling, and a fa
     "ccy-sessions verify-restore --wait 1500" "$(calls)"
 check "a failed restore check is recorded" "verify-failed" "$(result_key outcome)"
 check "a failed restore check is alerted" "yes" "$(says 'ALERT verify-failed' "$ERR")"
-check "the marker is cleared after a failed check" "no" "$(has "$STATE/owed-verify")"
+check "the check stays owed after a failure, so a later run checks again (#88)" "yes" "$(has "$STATE/owed-verify")"
 
-write_owed "an-earlier-boot"
 cycle verify
 check "a passed restore check exits 0" "0" "$RC"
 check "and clears the verify unit's failed state (#88)" \
     "ccy-sessions verify-restore --wait 1500|systemctl reset-failed fedora-desktop-self-update-verify.service" \
     "$(calls | paste -sd '|')"
 check "a passed restore check is recorded as deployed" "deployed" "$(result_key outcome)"
+
+write_owed "an-earlier-boot"
+FAKE_REBOOT_RC=5 cycle verify
+check "a failed state that cannot be cleared is its own failure (25)" "25" "$RC"
+check "and says why" "yes" "$(says 'reset-failed exited 5' "$ERR")"
 check "the record names the commit" "$FIRST" "$(result_key new)"
 check "the marker is cleared after a passed check" "no" "$(has "$STATE/owed-verify")"
 rm -f "$STATE/last-result"
