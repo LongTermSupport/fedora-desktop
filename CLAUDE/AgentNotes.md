@@ -308,6 +308,30 @@ This is a specific instance of the general "Executing actions with care"
 principle, but worth calling out because "make it opt-in" can *feel* like it
 satisfies that principle when it does not.
 
+### A reference clone is brought up to date before it is read
+
+`untracked/repos/` holds local clones of private repositories that fedora-desktop work
+consults. Before reading anything there, run this from the fedora-desktop root:
+
+```bash
+.claude/hooks-daemon/bin/hooks-daemon reference-repos
+```
+
+It fetches every governed clone and fast-forwards it to its default branch. Read a clone
+only once that run reports it up to date. A clone it cannot fast-forward (behind, off its
+default branch, or with local changes) is reported with a `fix:` command: run it first.
+The daemon also blocks a read of a clone with no in-date reading
+(R-REFERENCE-REPO-NOT-VERIFIED).
+
+**Why:** a stale clone gives answers that look right and are wrong, with no error to warn
+you.
+
+**How to apply:** the clones are private. The per-checkout `untracked/repos/CLAUDE.md`
+(untracked) holds each clone's rules: follow it. Never name a clone, quote it, or carry its
+identifiers into anything fedora-desktop tracks or publishes, and put research about one
+under `untracked/`, never in a plan's tracked files. `.claude/rules/reference-repos.md`
+loads this section whenever a path under `untracked/repos/` is touched.
+
 ---
 
 ## Project Gotchas

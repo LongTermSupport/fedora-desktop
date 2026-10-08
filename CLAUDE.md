@@ -187,6 +187,7 @@ the topic file that owns the fact — never a copy.
 | `environment/`, `vault.bash`, `*_vars/`                      | `secrets-and-vault.md` | SecurityRules, ExampleValues                    |
 | `extensions/`, gnome-shell dirs                              | `gnome-extensions.md`  | GnomeShell, the ESLint requirement              |
 | `scripts/qa-*.bash`, `ruff.toml`, workflows                  | `qa-gates.md`          | QA.md, and how these gates have failed before   |
+| `untracked/repos/` (private reference clones)                | `reference-repos.md`   | AgentNotes — refresh before reading, never cite |
 
 **When you add a fact that only matters for certain paths, add it to the rule, not here.**
 `CLAUDE.md` is resident in every session; the rules are not.
