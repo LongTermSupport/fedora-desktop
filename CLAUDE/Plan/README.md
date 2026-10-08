@@ -34,6 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00163-ccy-one-key-agent-forwarding](00163-ccy-one-key-agent-forwarding/) - ccy forwards one chosen key from the owner's ssh-agent through a filtering socket, never the whole agent, so a headless launch can use a passphrase-protected key with no prompt.
 
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.
 

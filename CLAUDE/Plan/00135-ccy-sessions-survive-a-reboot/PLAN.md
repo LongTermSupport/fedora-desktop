@@ -292,6 +292,33 @@ Report: [`subagent-reports/261006-issue69-fixes-opus.md`](subagent-reports/26100
   format, not the version. Tests: `test-ccy-teams.bash` ("Quick Launch across ccy versions").
   [report](subagent-reports/261007-quick-launch-across-versions-opus.md).
 
+### Phase 8: fedora-desktop#88, a restored session is set going, and verify waits for it
+
+The infra agent found three gaps on the restore path after unattended self-update reboots
+(issue #88, body and its 2026-10-08 comment). A restored `--continue` session either starts
+work on a cold prompt cache before anyone can compact it, or, with nothing queued, sits at an
+empty prompt until a person types `continue`; and `fedora-desktop-self-update verify` gave up
+after five minutes with five of six sessions still starting, leaving its unit failed.
+
+- [ ] ⬜ **Task 8.1**: design, in this plan's journal, the restore-time context check: how
+  `ccy-sessions restore` reads a restored session's context size once its prompt has drawn,
+  and the floor at or above which it compacts. Grounded in what the pane or the transcript
+  actually shows, not assumed.
+- [ ] ⬜ **Task 8.2**: `ccy-sessions restore` sets each restored session going once its prompt
+  has drawn, before any work turn: at or above the floor it sends `/compact` (the
+  supervisor's continue-after-compaction carries the session on); below it, `continue`. A
+  session whose prompt cannot be read is left untouched and named in the output, never
+  skipped silently.
+- [ ] ⬜ **Task 8.3**: `verify-restore` reports a continuing session whose compaction (or
+  `continue`) did not start within a short window, instead of counting it OK.
+- [ ] ⬜ **Task 8.4**: `fedora-desktop-self-update verify` waits until the restore settles
+  (every recorded session running, or definitely failed), not a fixed five minutes, and a
+  passing `verify` clears its unit's failed state. The verify unit belongs to Plan 00137's
+  self-update; the change is made here because the wait is on this plan's restore.
+- [ ] 🧑 **Task 8.5**: HOST: after an unattended self-update reboot with several sessions,
+  every session is running and past its prompt, `verify` exits 0 and `systemctl --failed` is
+  empty (the infra agent's acceptance on the server; the owner's meta-deploy on the desktop).
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).
