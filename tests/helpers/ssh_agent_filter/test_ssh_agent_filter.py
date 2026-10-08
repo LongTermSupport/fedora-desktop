@@ -182,6 +182,34 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(agent_filter.classify(bytes([agent_filter.SSH_AGENTC_REQUEST_IDENTITIES])), "identities")
         self.assertEqual(agent_filter.classify(bytes([agent_filter.SSH_AGENTC_SIGN_REQUEST])), "sign")
 
+    def test_an_identities_request_with_trailing_bytes_is_refused(self):
+        request = bytes([agent_filter.SSH_AGENTC_REQUEST_IDENTITIES]) + b"extra"
+        self.assertEqual(agent_filter.classify(request), "refuse")
+
+    def test_read_message_gives_up_on_a_message_left_unfinished(self):
+        left, right = socket.socketpair()
+        previous = agent_filter.MESSAGE_SECONDS
+        agent_filter.MESSAGE_SECONDS = 0.2
+        try:
+            with left, right:
+                left.sendall(b"\x00\x00")
+                started = time.monotonic()
+                with self.assertRaises(agent_filter.ProtocolError):
+                    agent_filter.read_message(right)
+                self.assertLess(time.monotonic() - started, 5)
+        finally:
+            agent_filter.MESSAGE_SECONDS = previous
+
+    def test_a_process_is_recognised_by_its_start_time_not_its_pid_alone(self):
+        started = agent_filter.process_start_time(os.getpid())
+        self.assertIsNotNone(started)
+        self.assertTrue(agent_filter.process_alive(os.getpid(), started))
+        # The same pid with another start time is another process: the one watched is gone.
+        self.assertFalse(agent_filter.process_alive(os.getpid(), started + "0"))
+        child = subprocess.Popen(["true"])
+        child.wait(timeout=WAIT_SECONDS)
+        self.assertIsNone(agent_filter.process_start_time(child.pid))
+
     def test_parse_fingerprint_accepts_only_sha256(self):
         self.assertEqual(agent_filter.parse_fingerprint(self.keys.a_fingerprint), self.keys.a_fingerprint)
         for bad in ("", "MD5:aa:bb", "SHA256:", "SHA256:not base64!", self.keys.a_fingerprint + "="):
@@ -405,6 +433,31 @@ class FilterAgainstRealAgentTests(_RealAgentCase):
         finally:
             for client in clients:
                 client.close()
+
+    def test_connections_past_the_cap_are_closed_and_the_cap_frees_up(self):
+        clients = []
+        try:
+            for _ in range(agent_filter.MAX_CLIENTS):
+                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                client.settimeout(WAIT_SECONDS)
+                client.connect(str(self.filtered))
+                client.sendall(_message(bytes([agent_filter.SSH_AGENTC_REQUEST_IDENTITIES])))
+                self.assertIsNotNone(agent_filter.read_message(client))
+                clients.append(client)
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as extra:
+                extra.settimeout(WAIT_SECONDS)
+                extra.connect(str(self.filtered))
+                self.assertEqual(extra.recv(1), b"")
+        finally:
+            for client in clients:
+                client.close()
+        deadline = time.monotonic() + WAIT_SECONDS
+        while True:
+            listed = _run(["ssh-add", "-l"], self.filtered_env())
+            if listed.returncode == 0 or time.monotonic() > deadline:
+                break
+            time.sleep(0.1)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
 
     def test_the_socket_is_owner_only(self):
         mode = stat.S_IMODE(self.filtered.stat().st_mode)

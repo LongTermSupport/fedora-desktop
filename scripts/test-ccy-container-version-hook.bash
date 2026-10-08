@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Unit-test the pre-commit hook's container version gate.
+# Unit-test the pre-commit hook's container version gate, and its CCY_VERSION gate over ccy's
+# one-key agent, whose source lives under helpers/ rather than beside the launcher.
 #
 # WHY THIS TEST EXISTS. The entrypoint and the supervisor plugins are baked into the ccy image,
 # and a running container only picks up a change to them through a container version bump. The
@@ -58,6 +59,9 @@ printf '#!/usr/bin/env bash\necho start\n' >"$ccy/entrypoint.sh"
 printf 'PLUGIN_API = 1\n' >"$ccy/supervisor-plugins/ccy_lifecycle.py"
 printf '#!/usr/bin/env bash\necho guard\n' >"$ccy/guard-tool"
 printf '#!/usr/bin/env bash\necho host\n' >"$ccy/host-only-tool"
+filter_src="$repo/helpers/ssh_agent_filter/ssh_agent_filter.py"
+mkdir -p "$(dirname "$filter_src")"
+printf 'MAX = 1\n' >"$filter_src"
 git -C "$repo" add -A
 git -C "$repo" commit -q --no-verify -m baseline
 
@@ -76,6 +80,7 @@ baseline() {
     printf 'PLUGIN_API = 1\n' >"$ccy/supervisor-plugins/ccy_lifecycle.py"
     printf '#!/usr/bin/env bash\necho guard\n' >"$ccy/guard-tool"
     printf '#!/usr/bin/env bash\necho host\n' >"$ccy/host-only-tool"
+    printf 'MAX = 1\n' >"$filter_src"
     git -C "$repo" add -A
 }
 has() { if grep -q -F -- "$1" "$work/hook.out"; then echo yes; else echo no; fi; }
@@ -115,6 +120,19 @@ baseline
 printf '#!/usr/bin/env bash\necho host side\n' >"$ccy/host-only-tool"
 check "a file in the ccy directory the image does not copy needs no container bump" "0" "$(hook_status)"
 check "…and prints no container check" "no" "$(has 'container version bump requirement')"
+baseline
+
+echo "=== the CCY version gate: ccy's one-key agent (Plan 00163) ==="
+
+# Its source is a helper, deployed into lib/ beside the libraries the gate already covers.
+printf 'MAX = 2\n' >"$filter_src"
+check "a one-key agent change without a CCY_VERSION bump is rejected" "1" "$(hook_status)"
+check "…and says to bump CCY_VERSION" "yes" "$(has 'CCY version bump required')"
+baseline
+
+printf 'MAX = 2\n' >"$filter_src"
+write_launcher 1.0.1 2.0
+check "a one-key agent change with CCY_VERSION bumped passes" "0" "$(hook_status)"
 baseline
 
 printf 'unrelated\n' >"$repo/README.txt"

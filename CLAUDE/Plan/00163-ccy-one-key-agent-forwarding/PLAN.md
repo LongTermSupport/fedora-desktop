@@ -61,9 +61,11 @@ untracked, as it concerns a private repository.
 - [x] ✅ **Task 2.1**: when a selected key file needs a passphrase and the host agent holds
   its public key, mount the filtered agent's socket (as `--ssh-agent` mounts the agent) in
   place of the key file; say so in one line. Otherwise behave as today. CCY version bump.
-  `ccy_agent_forwards_key` / `ccy_agent_filter_start` in `lib/ssh-handling.bash`, for exactly
-  one selected key file; the headless, restart and restore checks
-  (`ccy_restart_keys_unattended`) ask the same question. CCY 3.87.0.
+  `ccy_agent_forward_select` in `lib/ssh-handling.bash` decides for the whole selection
+  (every held passphrase key, when that leaves none needing a passphrase, never beside
+  `--ssh-agent`); `ccy_agent_filter_start`, the headless, restart and restore checks
+  (`ccy_restart_keys_unattended`) and U20 all take it. The fingerprint comes from the key
+  file itself and a disagreeing `.pub` refuses the match. CCY 3.87.1 (review fixes).
 - [x] ✅ **Task 2.2**: commit signing with the filtered agent signs with that key (the
   forwarded-agent path in `ssh-handling.bash`), and a key the agent does not hold still
   fails as today. `configure_git_signing` takes the one-key agent's socket and names the
@@ -71,7 +73,7 @@ untracked, as it concerns a private repository.
 - [x] ✅ **Task 2.3**: `docs/ccy.md` and `docs/ccy-changelog.md`; `--help`.
 - [x] ✅ **Task 2.4**: Plan 00161's U20 prerequisite accepts a passphrase key that the agent
   running meta-deploy holds, and says to `ssh-add` it otherwise. It calls the installed
-  ccy's own `ccy_agent_forwards_key`.
+  ccy's own `ccy_restart_keys_unattended` over the whole saved selection.
 
 ### Phase 3: proof
 

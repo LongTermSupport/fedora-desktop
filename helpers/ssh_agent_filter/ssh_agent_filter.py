@@ -4,19 +4,24 @@
 It listens on a socket of its own and relays to the owner's agent (`--upstream`, else
 SSH_AUTH_SOCK), answering by the SSH agent protocol (draft-miller-ssh-agent):
 
-  REQUEST_IDENTITIES (11)  the upstream's answer, keeping only the allowed key(s)
+  REQUEST_IDENTITIES (11)  the upstream's answer, keeping only the allowed key(s); the
+                           request is the bare type byte, and one carrying more is refused
   SIGN_REQUEST (13)        relayed when it names an allowed key, else FAILURE
   anything else            FAILURE: add, remove, remove-all, lock, unlock, smartcard,
                            and every extension (27), session-bind included
 
 A key is allowed by its SHA256 fingerprint, as `ssh-keygen -l` and `ssh-add -l` print it.
-Each client gets its own upstream connection, opened when it first needs one. A message is
-at most MAX_MESSAGE bytes; anything longer, or malformed framing, closes that client only.
-No key, signature or data is logged: the log names message types and errors.
+Each client gets its own upstream connection, opened when it first needs one; at most
+MAX_CLIENTS are served at once and a client past that is closed. A message is at most
+MAX_MESSAGE bytes and, once begun, must arrive within MESSAGE_SECONDS; anything longer,
+slower, or malformed closes that client only. No key, signature or data is logged: the log
+names message types and errors.
 
 The launcher (files/var/local/claude-yolo/lib/ssh-handling.bash) runs it in the background
 for one session, inside an owner-only directory on XDG_RUNTIME_DIR, and stops it with
-SIGTERM; `--parent-pid` names the launcher, and the filter also stops when that is gone.
+SIGTERM; `--parent-pid` names the launcher, and the filter also stops when that process is
+gone. The process is known by its pid and its start time, so a pid reused by another process
+counts as gone.
 Deployed beside the launcher's libraries by playbooks/imports/play-claude-yolo.yml, and run
 there by path, so it imports nothing but the standard library.
 """
@@ -42,6 +47,8 @@ SSH_AGENTC_EXTENSION = 27
 
 # OpenSSH's own agent refuses messages over 256 KiB (AGENT_MAX_LEN in authfd.h).
 MAX_MESSAGE = 256 * 1024
+MAX_CLIENTS = 16
+MESSAGE_SECONDS = 30.0
 PARENT_POLL_SECONDS = 1.0
 FAILURE_MESSAGE = bytes([SSH_AGENT_FAILURE])
 
@@ -83,7 +90,7 @@ def _string(data: bytes) -> bytes:
 
 
 def classify(request: bytes) -> str:
-    if request[:1] == bytes([SSH_AGENTC_REQUEST_IDENTITIES]):
+    if request == bytes([SSH_AGENTC_REQUEST_IDENTITIES]):
         return "identities"
     if request[:1] == bytes([SSH_AGENTC_SIGN_REQUEST]):
         return "sign"
@@ -127,15 +134,26 @@ def _receive_exactly(sock: socket.socket, length: int) -> bytes:
 
 
 def read_message(sock: socket.socket) -> bytes | None:
-    """One message's payload, or None when the peer closed between messages."""
+    """One message's payload, or None when the peer closed between messages.
+
+    Waiting for a message to begin is unbounded (a client may sit idle between requests);
+    once begun, the rest must arrive within MESSAGE_SECONDS.
+    """
     first = sock.recv(4)
     if not first:
         return None
-    header = first + (_receive_exactly(sock, 4 - len(first)) if len(first) < 4 else b"")
-    (length,) = struct.unpack(">I", header)
-    if length == 0 or length > MAX_MESSAGE:
-        raise ProtocolError(f"message length {length} is outside 1..{MAX_MESSAGE}")
-    return _receive_exactly(sock, length)
+    previous = sock.gettimeout()
+    sock.settimeout(MESSAGE_SECONDS)
+    try:
+        header = first + (_receive_exactly(sock, 4 - len(first)) if len(first) < 4 else b"")
+        (length,) = struct.unpack(">I", header)
+        if length == 0 or length > MAX_MESSAGE:
+            raise ProtocolError(f"message length {length} is outside 1..{MAX_MESSAGE}")
+        return _receive_exactly(sock, length)
+    except socket.timeout as error:
+        raise ProtocolError(f"message not completed within {MESSAGE_SECONDS}s") from error
+    finally:
+        sock.settimeout(previous)
 
 
 def write_message(sock: socket.socket, payload: bytes) -> None:
@@ -215,14 +233,21 @@ class _Client:
             self.client.close()
 
 
-def _parent_alive(pid: int) -> bool:
+def process_start_time(pid: int) -> str | None:
+    """The process's start time (field 22 of /proc/<pid>/stat), or None when it is gone."""
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+        with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as stat_file:
+            stat = stat_file.read()
+    except FileNotFoundError:
+        return None
+    # The command name (field 2) is in parentheses and may hold spaces or ")"; fields 3
+    # onwards follow the last ")".
+    return stat[stat.rindex(")") + 2 :].split()[19]
+
+
+def process_alive(pid: int, start_time: str) -> bool:
+    """Whether pid is still the process that started at start_time, not a reuse of its pid."""
+    return process_start_time(pid) == start_time
 
 
 def _bind(listen_path: str) -> socket.socket:
@@ -256,21 +281,39 @@ def _raise_stop(_signum, _frame) -> None:
     raise _Stop
 
 
+def _serve_counted(client: _Client, slots: threading.BoundedSemaphore) -> None:
+    try:
+        client.serve()
+    finally:
+        slots.release()
+
+
 def serve(listen_path: str, upstream_path: str, allowed: set[str], parent_pid: int | None) -> None:
+    parent_start = None
+    if parent_pid is not None:
+        parent_start = process_start_time(parent_pid)
+        if parent_start is None:
+            raise ProcessLookupError(f"process {parent_pid} (--parent-pid) is not running")
     server = _bind(listen_path)
     signal.signal(signal.SIGTERM, _raise_stop)
     signal.signal(signal.SIGINT, _raise_stop)
     signal.signal(signal.SIGHUP, _raise_stop)
     server.settimeout(PARENT_POLL_SECONDS)
+    slots = threading.BoundedSemaphore(MAX_CLIENTS)
     log(f"serving {len(allowed)} key(s) on {listen_path}")
     try:
-        while parent_pid is None or _parent_alive(parent_pid):
+        while parent_pid is None or process_alive(parent_pid, parent_start):
             try:
                 client, _address = server.accept()
             except socket.timeout:
                 continue
             client.settimeout(None)
-            threading.Thread(target=_Client(client, upstream_path, allowed).serve, daemon=True).start()
+            if not slots.acquire(blocking=False):
+                log(f"closed a client: {MAX_CLIENTS} are already being served")
+                client.close()
+                continue
+            handler = _Client(client, upstream_path, allowed)
+            threading.Thread(target=_serve_counted, args=(handler, slots), daemon=True).start()
         log(f"process {parent_pid} is gone; stopping")
     except _Stop:
         log("stopping on a signal")

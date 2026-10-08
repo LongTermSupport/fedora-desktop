@@ -316,6 +316,38 @@ check "…but another passphrase key beside it, not held, still refuses" 1 "$?"
 ( unset SSH_AUTH_SOCK; ccy_restart_keys_unattended "" "$work/key-locked" </dev/null 2>/dev/null )
 check "with no agent at all it refuses as before" 1 "$?"
 
+# The check and the launch take one decision over the whole selection (ccy_agent_forward_select):
+# a key passes here exactly when the launch forwards it, or it opens with no passphrase.
+# forwarded <keys...> → the keys the launch would forward, space separated.
+forwarded() {
+    SSH_AUTH_SOCK="$work/agent.sock" ccy_agent_forward_select "$@" </dev/null 2>/dev/null
+    printf '%s' "${CCY_AGENT_FORWARD_KEYS[*]}"
+}
+SSH_AUTH_SOCK="$work/agent.sock" ccy_restart_keys_unattended "" "$work/key-locked" "$work/key-open" </dev/null 2>/dev/null
+check "a held passphrase key beside a key with no passphrase opens unattended" 0 "$?"
+check "…because the launch forwards the held key and mounts the other" "$work/key-locked" \
+    "$(forwarded "$work/key-locked" "$work/key-open")"
+check "a held passphrase key beside one the agent does not hold: the launch forwards nothing" "" \
+    "$(forwarded "$work/key-locked" "$work/key-other")"
+SSH_AUTH_SOCK="$work/agent.sock" ccy_restart_keys_unattended "" "$work/key-locked" "$SSH_AGENT_SENTINEL" </dev/null 2>/dev/null
+check "a held passphrase key beside --ssh-agent is refused (the launch forwards no key then)" 1 "$?"
+check "…and the launch forwards nothing" "" "$(forwarded "$work/key-locked" "$SSH_AGENT_SENTINEL")"
+ssh-keygen -q -t ed25519 -N 'fixture-passphrase-not-a-secret' -C '' -f "$work/key-held2"
+SSH_AUTH_SOCK="$work/agent.sock" SSH_ASKPASS_REQUIRE=force SSH_ASKPASS="$work/askpass" \
+    ssh-add -q "$work/key-held2" </dev/null 2>/dev/null
+check "two held passphrase keys are both forwarded" "$work/key-locked $work/key-held2" \
+    "$(forwarded "$work/key-locked" "$work/key-held2")"
+
+# A .pub beside the key that is another key's public half never makes ccy forward that key.
+cp "$work/key-locked.pub" "$work/key-locked.pub.kept"
+cp "$work/key-held2.pub" "$work/key-locked.pub"
+SSH_AUTH_SOCK="$work/agent.sock" ccy_restart_keys_unattended "" "$work/key-locked" </dev/null 2>"$work/spoof.err"
+check "a .pub naming another key the agent holds is not trusted: refused" 1 "$?"
+check "…and says the .pub is not the key's" "yes" \
+    "$(grep -q -F "key-locked.pub is not the public half" "$work/spoof.err" && echo yes || echo no)"
+check "…and nothing is forwarded for it" "" "$(forwarded "$work/key-locked")"
+mv "$work/key-locked.pub.kept" "$work/key-locked.pub"
+
 echo "=== ccy_restart_marker_take ==="
 
 # marker <value|-> → "rc=<status> session=<id> env=<set|unset>". Called inside $( ), so

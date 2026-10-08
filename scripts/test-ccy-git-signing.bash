@@ -552,7 +552,7 @@ CCY_AGENT_FILTER_HELPER="$REPO_ROOT/helpers/ssh_agent_filter/ssh_agent_filter.py
 SSH_KEYS=("$CASE/home/.ssh/key_0")
 SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ccy_agent_filter_start >"$WORK/filter.out" 2>&1
 RC=$?
-if [ "$RC" -eq 0 ] && [ "$CCY_AGENT_FILTER_KEY" = "$CASE/home/.ssh/key_0" ] && [ -S "$CCY_AGENT_FILTER_SOCK" ]; then
+if [ "$RC" -eq 0 ] && [ "${CCY_AGENT_FILTER_KEYS[*]}" = "$CASE/home/.ssh/key_0" ] && [ -S "$CCY_AGENT_FILTER_SOCK" ]; then
     pass "the one-key agent starts for the key the agent holds"
 else
     fail "the one-key agent did not start (rc=$RC): $(cat "$WORK/filter.out")"
@@ -610,7 +610,7 @@ else
 fi
 filter_pid="$CCY_AGENT_FILTER_PID" filter_dir="$CCY_AGENT_FILTER_DIR"
 ccy_agent_filter_stop
-if [ ! -e "$filter_dir" ] && ! kill -0 "$filter_pid" 2>/dev/null && [ -z "$CCY_AGENT_FILTER_KEY" ]; then
+if [ ! -e "$filter_dir" ] && ! kill -0 "$filter_pid" 2>/dev/null && [ ${#CCY_AGENT_FILTER_KEYS[@]} -eq 0 ]; then
     pass "stopping it ends the process and removes its directory"
 else
     fail "after ccy_agent_filter_stop: dir $(ls -d "$filter_dir" 2>&1), pid $filter_pid"
@@ -623,6 +623,18 @@ else
     fail "a passphrase-less key started the one-key agent: $(cat "$WORK/filter.out")"
     ccy_agent_filter_stop
 fi
+# The mixed selection the unattended checks accept: the held passphrase key forwarded, the
+# passphrase-less key mounted as a file, and only the forwarded one offered.
+SSH_KEYS=("$REAL_CASE/home/.ssh/key_0" "$WORK/other-key")
+SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ccy_agent_filter_start >"$WORK/filter.out" 2>&1
+RC=$?
+offered="$(SSH_AUTH_SOCK="${CCY_AGENT_FILTER_SOCK:-none}" ssh-add -L 2>&1 | cut -d' ' -f1,2)"
+if [ "$RC" -eq 0 ] && [ "${CCY_AGENT_FILTER_KEYS[*]}" = "$REAL_CASE/home/.ssh/key_0" ] && [ "$offered" = "$REAL_PUBLIC" ]; then
+    pass "beside a passphrase-less key, the held passphrase key is forwarded alone"
+else
+    fail "mixed selection (rc=$RC, forwarded '${CCY_AGENT_FILTER_KEYS[*]}', offered '$offered'): $(cat "$WORK/filter.out")"
+fi
+ccy_agent_filter_stop
 SSH_KEYS=()
 
 echo "== the launcher"
