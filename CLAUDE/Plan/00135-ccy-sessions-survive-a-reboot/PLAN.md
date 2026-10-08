@@ -300,21 +300,36 @@ work on a cold prompt cache before anyone can compact it, or, with nothing queue
 empty prompt until a person types `continue`; and `fedora-desktop-self-update verify` gave up
 after five minutes with five of six sessions still starting, leaving its unit failed.
 
-- [ ] ⬜ **Task 8.1**: design, in this plan's journal, the restore-time context check: how
+- [x] ✅ **Task 8.1**: design, in this plan's journal, the restore-time context check: how
   `ccy-sessions restore` reads a restored session's context size once its prompt has drawn,
   and the floor at or above which it compacts. Grounded in what the pane or the transcript
-  actually shows, not assumed.
-- [ ] ⬜ **Task 8.2**: `ccy-sessions restore` sets each restored session going once its prompt
+  actually shows, not assumed. Journal 26-10-08: the prompt is Claude's framed `❯` input
+  box (measured on 2.1.293), the size is the transcript's last main-thread usage or
+  compaction boundary, the floor is `ccy_restore_compact_floor_tokens` (default 150000).
+- [x] ✅ **Task 8.2**: `ccy-sessions restore` sets each restored session going once its prompt
   has drawn, before any work turn: at or above the floor it sends `/compact` (the
   supervisor's continue-after-compaction carries the session on); below it, `continue`. A
   session whose prompt cannot be read is left untouched and named in the output, never
-  skipped silently.
-- [ ] ⬜ **Task 8.3**: `verify-restore` reports a continuing session whose compaction (or
+  skipped silently. Built as `ccy-sessions set-going`, run by
+  `ccy-sessions-set-going.service` after the restore (the restore's `Wants=`), so the wait
+  never holds `default.target`; the manifest (format 2, written under a lock) records what
+  each session got. After review: one session per conversation, a `--resume <id>` session
+  read from that conversation, and `continue` after the compaction for a session with no
+  supervisor (journal 26-10-08, second entry). CCY 3.88.0. Gated by
+  `scripts/test-ccy-sessions-reboot.bash` and `scripts/test-ccy-session-registry.bash`.
+- [x] ✅ **Task 8.3**: `verify-restore` reports a continuing session whose compaction (or
   `continue`) did not start within a short window, instead of counting it OK.
-- [ ] ⬜ **Task 8.4**: `fedora-desktop-self-update verify` waits until the restore settles
+  `NOT-SET-GOING <compact|continue>-not-started` when the transcript shows no input within
+  `CCY_SESSIONS_START_WINDOW` (120 s); `NOT-SET-GOING <reason>` for one left alone.
+- [x] ✅ **Task 8.4**: `fedora-desktop-self-update verify` waits until the restore settles
   (every recorded session running, or definitely failed), not a fixed five minutes, and a
   passing `verify` clears its unit's failed state. The verify unit belongs to Plan 00137's
   self-update; the change is made here because the wait is on this plan's restore.
+  `verify-restore --wait` stops once settled; the ceiling is 1500 s; a failed verify keeps
+  the check owed, so a later run re-checks; a pass runs
+  `systemctl reset-failed fedora-desktop-self-update-verify.service` (exit 25 if that
+  fails). Gated by
+  `tests/helpers/self_update/test_cycle.py` and `scripts/test-self-update-cycle.bash`.
 - [ ] 🧑 **Task 8.5**: HOST: after an unattended self-update reboot with several sessions,
   every session is running and past its prompt, `verify` exits 0 and `systemctl --failed` is
   empty (the infra agent's acceptance on the server; the owner's meta-deploy on the desktop).

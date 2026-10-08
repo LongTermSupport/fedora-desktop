@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+sys.path.insert(0, REPO_ROOT)
 
 from helpers.self_update import cycle, published, update
 from helpers.self_update.affected_plays import Report
@@ -49,6 +51,7 @@ class FakeHost:
         self.notify_rc: dict[str, int] = {}
         self.reboot_rc = 0
         self.verify_rc = 0
+        self.reset_failed_rc = 0
         self.boot = "boot-1"
         self.cancel_on_sleep: int | None = None
         self.toolchain_error: str | None = None
@@ -95,6 +98,10 @@ class FakeHost:
     def verify_restore(self, wait_seconds: int) -> int:
         self.calls.append(f"verify-restore {wait_seconds}")
         return self.verify_rc
+
+    def reset_failed(self, unit: str) -> int:
+        self.calls.append(f"reset-failed {unit}")
+        return self.reset_failed_rc
 
     def reboot(self) -> int:
         self.calls.append("reboot")
@@ -835,19 +842,90 @@ class TestVerify(CycleCase):
         self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
         code, _, err = self.verify()
         self.assertEqual(code, cycle.EXIT_OK)
-        self.assertEqual(self.host.calls, [f"verify-restore {cycle.VERIFY_WAIT_SECONDS}", "alert deployed"])
+        self.assertEqual(self.host.calls, [
+            f"verify-restore {cycle.VERIFY_WAIT_SECONDS}", f"reset-failed {cycle.VERIFY_UNIT}", "alert deployed",
+        ])
         self.assertIsNone(self.state.read_owed())
         self.assertEqual(self.result()["outcome"], "deployed")
         self.assertIn("ALERT", err, "a completed cycle's summary is announced too (D8)")
 
-    def test_a_failing_check_is_23_and_alerts(self) -> None:
+    def test_a_passing_check_clears_its_units_failed_state(self) -> None:
+        """fedora-desktop#88: an earlier failed attempt left the unit failed in the login
+        banner; the pass that follows is what clears it."""
+        self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
+        self.verify()
+        self.assertIn(f"reset-failed {cycle.VERIFY_UNIT}", self.host.calls)
+        self.assertEqual(cycle.VERIFY_UNIT, "fedora-desktop-self-update-verify.service")
+
+    def test_a_failed_state_that_cannot_be_cleared_is_a_failure_not_a_warning(self) -> None:
+        self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
+        self.host.reset_failed_rc = 5
+        code, _, err = self.verify()
+        self.assertEqual(code, cycle.EXIT_RESET_FAILED)
+        self.assertEqual(self.result()["outcome"], "deployed", "the sessions came back: the deploy is done")
+        self.assertIn("reset-failed exited 5", self.result()["detail"])
+        self.assertIn("reset-failed exited 5", err)
+        self.assertIsNone(self.state.read_owed(), "the sessions were checked; only the unit's state is left")
+
+    def test_a_failing_check_is_23_alerts_and_stays_owed(self) -> None:
+        """fedora-desktop#88: the check stays owed, so a later run checks again, and its
+        pass is what reaches reset-failed."""
         self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
         self.host.verify_rc = 1
         code, _, err = self.verify()
         self.assertEqual(code, cycle.EXIT_VERIFY_FAILED)
-        self.assertIsNone(self.state.read_owed())
+        owed = self.state.read_owed()
+        self.assertIsNotNone(owed)
+        assert owed is not None
+        self.assertEqual(owed.boot, "boot-0")
         self.assertEqual(self.result()["outcome"], "verify-failed")
         self.assertIn("ALERT", err)
+        self.assertNotIn(f"reset-failed {cycle.VERIFY_UNIT}", self.host.calls, "a failure is left showing")
+
+    def test_a_rerun_after_a_failed_check_checks_again_and_its_pass_clears_the_unit(self) -> None:
+        self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
+        self.host.verify_rc = 1
+        self.verify()
+        self.host.verify_rc = 0
+        self.host.calls.clear()
+        code, _, _ = self.verify()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertEqual(self.host.calls, [
+            f"verify-restore {cycle.VERIFY_WAIT_SECONDS}", f"reset-failed {cycle.VERIFY_UNIT}", "alert deployed",
+        ])
+        self.assertIsNone(self.state.read_owed())
+
+    def test_a_cycle_after_a_failed_check_still_runs_and_does_not_reboot_on_the_stale_owed(self) -> None:
+        self.state.write_owed(boot="boot-0", new=NEW, plays=(PLAY,))
+        self.host.verify_rc = 1
+        self.verify()
+        self.state.write_deployed(NEW)
+        self.host.update_result = cycle.UpdateResult(rc=0, old=NEW, new=None, target=None, nothing=NEW)
+        self.host.calls.clear()
+        code, _, _ = self.run_cycle()
+        self.assertEqual(code, cycle.EXIT_OK)
+        self.assertNotIn("reboot", self.host.calls)
+
+
+class TestVerifyCeiling(unittest.TestCase):
+    """The verify waits for the restore to settle, up to a ceiling that has to fit between
+    what the restore can take and what the unit allows (fedora-desktop#88). Read from the
+    files that set each, so a change to one that breaks the order fails here."""
+
+    def _read(self, relative: str) -> str:
+        with open(os.path.join(REPO_ROOT, relative), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_the_ceiling_outlasts_set_going_and_its_start_window(self) -> None:
+        tool = self._read("files/home/.local/bin/ccy-sessions")
+        wait = int(re.search(r'^SET_GOING_WAIT="\$\{CCY_SESSIONS_SET_GOING_WAIT:-(\d+)\}"', tool, re.M).group(1))
+        window = int(re.search(r'^START_WINDOW="\$\{CCY_SESSIONS_START_WINDOW:-(\d+)\}"', tool, re.M).group(1))
+        self.assertGreater(cycle.VERIFY_WAIT_SECONDS, wait + window)
+
+    def test_the_unit_outlasts_the_ceiling(self) -> None:
+        unit = self._read("files/etc/systemd/system/fedora-desktop-self-update-verify.service.j2")
+        minutes = int(re.search(r"^TimeoutStartSec=(\d+)min$", unit, re.M).group(1))
+        self.assertLess(cycle.VERIFY_WAIT_SECONDS, minutes * 60)
 
 
 class TestReleaseTag(CycleCase):

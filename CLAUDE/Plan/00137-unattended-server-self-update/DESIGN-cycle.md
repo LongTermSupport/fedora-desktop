@@ -126,7 +126,9 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 - `run --dry-run`: every step up to the plays, which it prints and does not run. It never
   warns, reboots or moves the clone.
 - `verify`: the post-boot check. It runs `ccy-sessions verify-restore --wait` as `USER`,
-  then records and alerts on the result.
+  then records and alerts on the result. Since Plan 00135 Phase 8 (fedora-desktop#88): a
+  failed check stays owed, so the next boot's unit and a by-hand `verify` check again, and
+  a pass clears the verify unit's failed state with `systemctl reset-failed`.
 - `status`: prints the last result for a human.
 
 ## Exit codes
@@ -142,6 +144,7 @@ These keys have no defaults. The orchestrator refuses to run if one is missing:
 | 22   | a session could not be warned               |
 | 23   | the verify found a session not OK           |
 | 24   | the reboot was refused                      |
+| 25   | verify passed; its unit stays marked failed |
 | 77   | not run as root                             |
 | 130  | the warning countdown was cancelled         |
 

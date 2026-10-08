@@ -51,13 +51,23 @@
 #                                                   reboot with nobody to authenticate
 #   ccy-sessions restore [--dry-run]                start every session recorded as running
 #                                                   at the last shutdown (the boot unit)
+#   ccy-sessions set-going                          once each session this boot's restore
+#                                                   started has drawn Claude's prompt, type
+#                                                   its first input: /compact when its
+#                                                   context is at or above
+#                                                   CCY_RESTORE_COMPACT_FLOOR_TOKENS, else
+#                                                   continue (the unit after the restore)
 #   ccy-sessions verify-restore [--wait SECONDS]    check every session this boot's restore
 #                                                   brought up, one line each on stdout:
 #                                                   "<name> OK", "<name> STARTING",
+#                                                   "<name> SETTING-GOING",
+#                                                   "<name> NOT-SET-GOING <why>",
 #                                                   "<name> WAITING-AT-PROMPT <which>" or
 #                                                   "<name> DEAD <why>"; exit 0 only if all
-#                                                   are OK. --wait polls until they are, or
-#                                                   the time is up
+#                                                   are OK. --wait polls until the restore
+#                                                   has settled (nothing STARTING or
+#                                                   SETTING-GOING, and the same answer twice
+#                                                   running), or the time is up
 #   ccy-sessions -h|--help                          this text
 #
 # notify and reboot speak to each project through ITS OWN hooks-daemon CLI
@@ -79,6 +89,19 @@
 # attach and answer it. verify-restore is how nobody has to look: it names each session's
 # state from what its screen shows and whether its container runs.
 #
+# A restored session comes back at an empty prompt with a cold prompt cache, and would wait
+# there for a person. set-going is what starts it: it waits (CCY_SESSIONS_SET_GOING_WAIT
+# seconds at most) for each started session's prompt to draw, reads the context size from
+# the conversation's transcript (the --resume'd one, else the newest), and types /compact
+# (the supervisor's continue-after-compaction then carries a ccy session on; for one with
+# no supervisor, set-going types continue once the compaction is in the transcript) or
+# continue. One session per conversation is set going: a second sharing it is left alone.
+# A session whose prompt never draws, is already busy, has someone attached or text in its
+# box, or whose context cannot be read is left alone and named on stderr; the others go on.
+# Exit 0 when every one was set going, 1 when any was not. verify-restore
+# reports a session that did not take what was typed within CCY_SESSIONS_START_WINDOW
+# seconds as NOT-SET-GOING, and one left alone the same way.
+#
 # Runs on the HOST: inside a CCY container there is no server.
 set -euo pipefail
 
@@ -88,8 +111,24 @@ MAX_TRIES=3
 # A minute, in seconds. Overridable so the countdown can be driven by a test; nothing else
 # should ever set it.
 MINUTE_SECONDS="${CCY_SESSIONS_MINUTE_SECONDS:-60}"
-# How often verify-restore --wait looks again, in seconds. Overridable for the same reason.
+# How often verify-restore --wait and set-going look again, in seconds. Overridable for the
+# same reason, as are the three set-going times below.
 POLL_SECONDS="${CCY_SESSIONS_POLL_SECONDS:-5}"
+# How long set-going waits, in all, for the restored sessions' prompts to draw. An image
+# rebuild after an update is the slow case. fedora-desktop-self-update's verify ceiling
+# (helpers/self_update/cycle.py) is this plus START_WINDOW plus margin.
+SET_GOING_WAIT="${CCY_SESSIONS_SET_GOING_WAIT:-1200}"
+# How long after its first input is typed a session has to take it before verify-restore
+# reports it NOT-SET-GOING.
+START_WINDOW="${CCY_SESSIONS_START_WINDOW:-120}"
+# The pause between typing a line and pressing Enter, the supervisor's _SUBMIT_DELAY_SECONDS:
+# an Enter arriving with the text is read as part of it.
+SUBMIT_DELAY="${CCY_SESSIONS_SUBMIT_DELAY:-0.2}"
+# What set-going types. The compact's instruction is /compact's own argument, as the
+# supervisor's is; the space after the command also closes Claude's completion menu, so the
+# Enter submits the line instead of completing the command name.
+SET_GOING_COMPACT="/compact This session was restored after a reboot. After compacting, carry on with the work that was in progress."
+SET_GOING_CONTINUE="continue"
 
 # The help text IS the header comment above, printed back. It stops at the first line that
 # is not a comment rather than at a hardcoded line number: the range form printed `t -euo
@@ -105,7 +144,7 @@ usage_error() {
 
 subcommand="${1:-}"
 case "${subcommand}" in
-"" | notify | reboot | restore | verify-restore) ;;
+"" | notify | reboot | restore | set-going | verify-restore) ;;
 -l | --list)
     if [[ $# -gt 1 ]]; then
         usage_error "'${subcommand}' takes no further arguments."
@@ -557,12 +596,308 @@ cmd_restore() {
     ccy_registry_restore "$@"
 }
 
+# ── set-going: a restored session's first input ──────────────────────────────────────────
+
+# type_into <name> <text> — type the text into the session's pane, then press Enter on its
+# own after SUBMIT_DELAY, the way the supervisor submits a line. Reports go to stderr.
+type_into() {
+    local name="${1}" text="${2}" out
+    if ! out="$(ccy_tmux send-keys -t "=${name}:" -l "${text}" 2>&1)"; then
+        print_error "typing into ${name} failed: ${out}"
+        return 1
+    fi
+    sleep "${SUBMIT_DELAY}"
+    if ! out="$(ccy_tmux send-keys -t "=${name}:" Enter 2>&1)"; then
+        print_error "pressing Enter in ${name} failed: ${out}"
+        return 1
+    fi
+}
+
+# The boot set-going works for, and how many sessions it left alone in this run.
+SET_GOING_BOOT=""
+LEFT_ALONE=0
+
+# going_set <name> <expect-going> <going> <at> <detail> <transcript> — record what was done
+# with one session, under the manifest's lock, only while its entry still says
+# <expect-going>. Afterwards RM_* hold the manifest as it now is.
+going_set() {
+    local rc=0
+    ccy_restore_manifest_update "${SET_GOING_BOOT}" "$@" || rc=$?
+    case "${rc}" in
+    0) return 0 ;;
+    3)
+        echo "${1}: its entry in the restore manifest changed while it was being set going (a second restore this boot); that entry stands." >&2
+        return 0
+        ;;
+    *)
+        print_error "the restore manifest could not be updated for ${1}."
+        return 1
+        ;;
+    esac
+}
+
+# leave_alone <name> <expect-going> <reason> — set-going will not touch the session: recorded
+# as untouched with the reason, and named on stderr.
+leave_alone() {
+    LEFT_ALONE=$((LEFT_ALONE + 1))
+    echo "left ${1} untouched: ${3}" >&2
+    going_set "${1}" "${2}" untouched "" "${3}" ""
+}
+
+# WAITED_ON — per session, why it is not yet ready, for the reason it is left alone with if
+# the wait runs out.
+declare -A WAITED_ON=()
+
+# conversation_owner <transcript> <name> — the other session already set going on this
+# conversation, printed; nothing when there is none. Two sessions in one project that both
+# --continue resume the same conversation: only one may drive it.
+conversation_owner() {
+    local i
+    for i in "${!RM_NAMES[@]}"; do
+        [[ "${RM_NAMES[i]}" != "${2}" && "${RM_TRANSCRIPT[i]}" == "${1}" ]] || continue
+        case "${RM_GOING[i]}" in
+        compacting | compact | continue)
+            printf '%s\n' "${RM_NAMES[i]}"
+            return 0
+            ;;
+        esac
+    done
+}
+
+# look_at <name> <prefix> <attached> — what the session's pane shows, printed as one word:
+# unreadable, dead:<why>, waiting:<prompt>, attached, not-drawn, busy, typed or ready.
+look_at() {
+    local name="${1}" prefix="${2}" attached="${3}" screen state
+    if ! screen="$(ccy_tmux capture-pane -p -e -t "=${name}:" 2>&1)"; then
+        print_error "the screen of ${name} could not be read: ${screen}"
+        printf 'unreadable\n'
+        return 0
+    fi
+    state="$(ccy_restore_verdict "${prefix}" 1 "$(ccy_screen_plain "${screen}")" up)"
+    case "${state}" in
+    DEAD*)
+        printf 'dead:%s\n' "${state#DEAD }"
+        return 0
+        ;;
+    WAITING-AT-PROMPT*)
+        printf 'waiting:%s\n' "${state#WAITING-AT-PROMPT }"
+        return 0
+        ;;
+    esac
+    # A person attached is at the keyboard: whatever they are doing, nothing is typed over it.
+    if [[ "${attached}" -gt 0 ]]; then
+        printf 'attached\n'
+        return 0
+    fi
+    ccy_claude_screen_state "${screen}"
+}
+
+# set_one_going <name> <floor> <live 0|1> <attached> — one pending session. Once its prompt
+# has drawn: /compact at or above the floor (followed by continue when it has no supervisor,
+# see continue_after_compaction), else continue. Left pending while there is something to
+# wait for; anything that cannot be read or sent leaves it untouched, with the reason.
+set_one_going() {
+    local name="${1}" floor="${2}" live="${3}" attached="${4}" i state tdir file tokens
+    local going text at owner
+    i="$(ccy_restore_manifest_index "${name}")" || return 0
+    if [[ "${live}" != 1 ]]; then
+        leave_alone "${name}" pending session-not-running
+        return
+    fi
+    state="$(look_at "${name}" "${RM_PREFIXES[i]}" "${attached}")"
+    case "${state}" in
+    unreadable) leave_alone "${name}" pending screen-unreadable || return 1 ;;
+    dead:*) leave_alone "${name}" pending "${state#dead:}" || return 1 ;;
+    waiting:*) WAITED_ON[${name}]="waiting-at-prompt-${state#waiting:}" ;;
+    not-drawn) WAITED_ON[${name}]=prompt-not-drawn ;;
+    attached) leave_alone "${name}" pending attached || return 1 ;;
+    busy) leave_alone "${name}" pending busy-before-set-going || return 1 ;;
+    typed) leave_alone "${name}" pending input-box-not-empty || return 1 ;;
+    esac
+    [[ "${state}" == ready ]] || return 0
+    if ! tdir="$(ccy_transcript_dir "${RM_PREFIXES[i]}" "${RM_DIRS[i]}" "${CLAUDE_CONFIG_DIR:-${HOME}/.claude}")" ||
+        ! file="$(ccy_transcript_for "${tdir}" "${RM_RESUME[i]}")"; then
+        leave_alone "${name}" pending no-transcript
+        return
+    fi
+    owner="$(conversation_owner "${file}" "${name}")"
+    if [[ -n "${owner}" ]]; then
+        echo "${name} shares its conversation with ${owner}, which is set going; left alone." >&2
+        leave_alone "${name}" pending "shares-conversation-with-${owner}"
+        return
+    fi
+    if ! tokens="$(ccy_transcript_context_tokens "${file}")"; then
+        leave_alone "${name}" pending context-unreadable
+        return
+    fi
+    going="continue"
+    text="${SET_GOING_CONTINUE}"
+    if [[ "${tokens}" -ge "${floor}" ]]; then
+        going=compact
+        text="${SET_GOING_COMPACT}"
+        # Nothing carries a session with no supervisor on after its compaction: it waits as
+        # compacting, and continue_after_compaction types continue once the compaction ends.
+        [[ "${RM_SUPERVISED[i]}" == yes ]] || going=compacting
+    fi
+    # Taken before typing, so whatever the input writes to the transcript is at or after it.
+    at="${EPOCHSECONDS}"
+    if ! type_into "${name}" "${text}"; then
+        leave_alone "${name}" pending send-failed
+        return
+    fi
+    echo "set ${name} going: ${going} (context ${tokens} tokens, compact floor ${floor}, supervised: ${RM_SUPERVISED[i]})." >&2
+    going_set "${name}" pending "${going}" "${at}" "${tokens}" "${file}"
+}
+
+# continue_after_compaction <name> <live 0|1> <attached> — a session with no supervisor that
+# was typed /compact: once the transcript shows the compaction finished, type continue.
+continue_after_compaction() {
+    local name="${1}" live="${2}" attached="${3}" i done_yet state at
+    i="$(ccy_restore_manifest_index "${name}")" || return 0
+    if [[ "${live}" != 1 ]]; then
+        leave_alone "${name}" compacting session-ended-while-compacting
+        return
+    fi
+    if ! done_yet="$(ccy_transcript_compacted_since "${RM_TRANSCRIPT[i]}" "${RM_AT[i]}")"; then
+        leave_alone "${name}" compacting context-unreadable
+        return
+    fi
+    if [[ "${done_yet}" != yes ]]; then
+        WAITED_ON[${name}]=compaction-not-finished
+        return 0
+    fi
+    state="$(look_at "${name}" "${RM_PREFIXES[i]}" "${attached}")"
+    case "${state}" in
+    ready) ;;
+    busy)
+        # Something has already set it working after the compaction; that is the point.
+        echo "${name} is already working after its compaction; nothing more typed." >&2
+        going_set "${name}" compacting compact "${RM_AT[i]}" "${RM_DETAIL[i]}" "${RM_TRANSCRIPT[i]}"
+        return
+        ;;
+    not-drawn)
+        WAITED_ON[${name}]=prompt-not-back-after-compaction
+        return 0
+        ;;
+    attached | typed) leave_alone "${name}" compacting "${state}-after-compaction" || return 1 ;;
+    *) leave_alone "${name}" compacting "${state#*:}-after-compaction" || return 1 ;;
+    esac
+    [[ "${state}" == ready ]] || return 0
+    at="${EPOCHSECONDS}"
+    if ! type_into "${name}" "${SET_GOING_CONTINUE}"; then
+        leave_alone "${name}" compacting send-failed-after-compaction
+        return
+    fi
+    echo "set ${name} going after its compaction: continue." >&2
+    going_set "${name}" compacting continue "${at}" "${RM_DETAIL[i]}" "${RM_TRANSCRIPT[i]}"
+}
+
+# work_left — the names of the manifest's sessions still to act on (pending or compacting).
+work_left() {
+    local i
+    for i in "${!RM_NAMES[@]}"; do
+        case "${RM_GOING[i]}" in
+        pending | compacting) printf '%s\n' "${RM_NAMES[i]}" ;;
+        esac
+    done
+}
+
+cmd_set_going() {
+    if [[ $# -gt 0 ]]; then
+        usage_error "'set-going' takes no arguments."
+    fi
+    local floor="${CCY_RESTORE_COMPACT_FLOOR_TOKENS:-}" deadline listing name attached _dir lock fd i waited
+    local -a work=()
+    local -A is_live=() attached_to=()
+    # One set-going at a time: a second restore in the same boot starts another, which waits
+    # here and then finds whatever that restore added still pending.
+    lock="$(ccy_registry_manifest_path).set-going.lock" || return 1
+    if ! exec {fd}>>"${lock}"; then
+        print_error "could not open set-going's lock ${lock}"
+        return 1
+    fi
+    if ! flock -w "${SET_GOING_WAIT}" "${fd}"; then
+        print_error "another set-going still holds ${lock} after ${SET_GOING_WAIT}s; nothing was set going by this one."
+        return 1
+    fi
+    if ! ccy_restore_manifest_read; then
+        print_error "this boot's restore recorded no sessions, so nothing can be set going; journalctl --user -u ccy-sessions-restore -b --no-pager | cat says why."
+        return 1
+    fi
+    SET_GOING_BOOT="$(ccy_boot_id)" || return 1
+    if [[ "${RM_BOOT}" != "${SET_GOING_BOOT}" ]]; then
+        print_error "the restore manifest is from an earlier boot: this boot's restore failed before writing one (journalctl --user -u ccy-sessions-restore -b --no-pager | cat), so nothing is set going."
+        return 1
+    fi
+    mapfile -t work < <(work_left)
+    if [[ "${#work[@]}" -eq 0 ]]; then
+        echo "No session this boot's restore started is waiting to be set going." >&2
+        return 0
+    fi
+    if [[ ! "${floor}" =~ ^[1-9][0-9]*$ ]]; then
+        print_error "CCY_RESTORE_COMPACT_FLOOR_TOKENS is '${floor}', not a whole number of tokens, so no restored session can be set going. ccy-sessions-set-going.service sets it from ccy_restore_compact_floor_tokens (play-claude-yolo.yml)."
+        for name in "${work[@]}"; do
+            i="$(ccy_restore_manifest_index "${name}")" || continue
+            leave_alone "${name}" "${RM_GOING[i]}" no-compact-floor || return 1
+        done
+        return 1
+    fi
+    deadline=$((SECONDS + SET_GOING_WAIT))
+    while :; do
+        is_live=()
+        attached_to=()
+        if ! listing="$(ccy_tmux_list)"; then
+            print_error "the live session list could not be read, so no further session can be set going."
+            for name in "${work[@]}"; do
+                i="$(ccy_restore_manifest_index "${name}")" || continue
+                leave_alone "${name}" "${RM_GOING[i]}" session-list-unreadable || return 1
+            done
+            return 1
+        fi
+        while read -r name attached _dir; do
+            [[ -n "${name}" ]] || continue
+            is_live["${name}"]=1
+            attached_to["${name}"]="${attached:-0}"
+        done <<<"${listing}"
+        for name in "${work[@]}"; do
+            i="$(ccy_restore_manifest_index "${name}")" || continue
+            case "${RM_GOING[i]}" in
+            pending)
+                set_one_going "${name}" "${floor}" "${is_live[${name}]:-0}" "${attached_to[${name}]:-0}" || return 1
+                ;;
+            compacting)
+                continue_after_compaction "${name}" "${is_live[${name}]:-0}" "${attached_to[${name}]:-0}" || return 1
+                ;;
+            esac
+        done
+        ccy_restore_manifest_read || return 1
+        mapfile -t work < <(work_left)
+        [[ "${#work[@]}" -gt 0 ]] || break
+        if [[ "${SECONDS}" -ge "${deadline}" ]]; then
+            for name in "${work[@]}"; do
+                i="$(ccy_restore_manifest_index "${name}")" || continue
+                waited=prompt-not-drawn
+                [[ "${RM_GOING[i]}" != compacting ]] || waited=compaction-not-finished
+                leave_alone "${name}" "${RM_GOING[i]}" \
+                    "${WAITED_ON[${name}]:-${waited}}-after-${SET_GOING_WAIT}s" || return 1
+            done
+            break
+        fi
+        sleep "${POLL_SECONDS}"
+    done
+    if [[ "${LEFT_ALONE}" -gt 0 ]]; then
+        print_error "${LEFT_ALONE} restored session(s) were not set going; each is named above, and verify-restore reports it."
+        return 1
+    fi
+}
+
 # restore_states — "<name> <STATE>[ <detail>]" for every session in the manifest (RM_*),
 # from one pass over the host: the live list, one screen capture per live session, one
-# process table, and one engine query per engine a session uses. A probe that fails is a
-# failure, never a state: "could not look" must not read as "dead" or as "fine".
+# process table, one engine query per engine a session uses, and the transcript of each
+# session set going. A probe that fails is a failure, never a state: "could not look" must
+# not read as "dead" or as "fine".
 restore_states() {
-    local listing containers name engine container i live screen state
+    local listing containers name engine container i live screen state took going
     local -A is_live=() client=() running=() engines=()
     listing="$(ccy_tmux_list)" || return 1
     while read -r name _; do
@@ -605,13 +940,21 @@ restore_states() {
                 fi
             fi
         fi
-        state="$(ccy_restore_verdict "${RM_PREFIXES[i]}" "${live}" "${screen}" "${container}")"
+        took=-
+        case "${RM_GOING[i]}" in
+        compacting | compact | continue)
+            took="$(ccy_transcript_took_input_since "${RM_TRANSCRIPT[i]}" "${RM_AT[i]}")" || return 1
+            ;;
+        esac
+        going="$(ccy_restore_going_state "${RM_GOING[i]}" "${RM_AT[i]}" "${RM_DETAIL[i]}" \
+            "${EPOCHSECONDS}" "${START_WINDOW}" "${took}")"
+        state="$(ccy_restore_verdict "${RM_PREFIXES[i]}" "${live}" "${screen}" "${container}" "${going}")"
         printf '%s %s\n' "${name}" "${state}"
     done
 }
 
 cmd_verify_restore() {
-    local wait=0 deadline states boot
+    local wait=0 deadline states boot previous=""
     while [[ $# -gt 0 ]]; do
         case "${1}" in
         --wait)
@@ -634,12 +977,19 @@ cmd_verify_restore() {
         echo "This boot's restore brought up no sessions; nothing to verify." >&2
         return 0
     fi
+    # Settled: every session OK, or none still STARTING or SETTING-GOING and the same report
+    # read twice running, so a prompt seen for one poll while the launcher answers it is
+    # not taken for where the session stopped.
     deadline=$((SECONDS + wait))
     while :; do
         states="$(restore_states)" || return 1
         if ! grep -qv ' OK$' <<<"${states}" || [[ "${SECONDS}" -ge "${deadline}" ]]; then
             break
         fi
+        if [[ "${states}" == "${previous}" ]] && ! grep -qE ' (STARTING|SETTING-GOING)$' <<<"${states}"; then
+            break
+        fi
+        previous="${states}"
         sleep "${POLL_SECONDS}"
     done
     printf '%s\n' "${states}"
@@ -660,6 +1010,10 @@ reboot)
     ;;
 restore)
     cmd_restore "$@"
+    exit
+    ;;
+set-going)
+    cmd_set_going "$@"
     exit
     ;;
 verify-restore)

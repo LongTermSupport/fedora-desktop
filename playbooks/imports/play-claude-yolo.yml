@@ -40,6 +40,13 @@
       {{ provisioning_profile == 'server'
          and (ccy_restore_sessions | default(false) | bool)
          and (github_accounts | default({}) | length > 0) }}
+    # A restored session's first input (Plan 00135 Task 8.2, fedora-desktop#88): /compact
+    # when its conversation's context is at least this many tokens, else `continue`. 150k is
+    # the supervisor's red line on a 200k-window model; a 1M-window session is compacted
+    # sooner than the supervisor would, because its first turn after a reboot re-sends the
+    # whole context with a cold cache anyway. Set ccy_restore_compact_floor_tokens in
+    # host_vars to change it; the reasoning is in the plan's 26-10-08 journal.
+    ccy_restore_compact_floor: "{{ ccy_restore_compact_floor_tokens | default(150000) | int }}"
   pre_tasks:
     - name: Load container defaults
       ansible.builtin.include_vars:
@@ -844,6 +851,27 @@
         group: "{{ user_login }}"
         mode: "0644"
 
+    - name: Assert The Restore Compact Floor Is A Positive Number Of Tokens
+      ansible.builtin.assert:
+        that:
+          - ccy_restore_compact_floor | int > 0
+        fail_msg: >-
+          ccy_restore_compact_floor_tokens is '{{ ccy_restore_compact_floor_tokens | default('') }}',
+          which is not a whole number of tokens above zero. It is the context size at or above
+          which a session restored after a reboot is compacted before it carries on
+          (docs/ccy.md, Sessions Survive a Reboot). Fix or remove it in host_vars.
+        quiet: true
+
+    # Wanted by the restore unit, so it is deployed wherever that is, and runs only where the
+    # restore does. It carries the floor, which is why it is a template.
+    - name: Deploy the ccy Session Set-Going Unit
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/ccy-sessions-set-going.service.j2"
+        dest: "/home/{{ user_login }}/.config/systemd/user/ccy-sessions-set-going.service"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
     # Resolved, never defaulted: a guessed uid points the user-manager calls below at
     # another user's runtime directory without failing (play-container-watch.yml has the
     # history). `fail_key: false` hands the verdict to the assert, whose message names the
@@ -991,6 +1019,11 @@
           ccy-sessions-restore.service will run at boot is unknown. This usually means no
           user manager is reachable for {{ user_login }} — play-systemd-user-tweaks.yml
           (part of playbook-main.yml) starts it.
+          {% elif (ccy_restore_sessions | default(false) | bool)
+                  and 'ccy-sessions-restore.service' in ccy_restore_readback.stdout %}
+          ccy-sessions-restore.service runs at boot, but the running user manager does not
+          pull in ccy-sessions-set-going.service with it (the restore unit's Wants=), so the
+          restored sessions would wait at their prompts with nothing to set them going.
           {% elif ccy_restore_sessions | default(false) | bool %}
           ccy-sessions-restore.service is enabled on disk but default.target does not name it
           in the running user manager, so it will not run at boot.
@@ -1006,6 +1039,8 @@
         ccy_restore_readback.rc != 0
         or (('ccy-sessions-restore.service' in ccy_restore_readback.stdout)
             != (ccy_restore_sessions | default(false) | bool))
+        or ((ccy_restore_sessions | default(false) | bool)
+            and 'ccy-sessions-set-going.service' not in ccy_restore_readback.stdout)
 
     - name: Create Claude YOLO Tokens Directory
       ansible.builtin.file:
