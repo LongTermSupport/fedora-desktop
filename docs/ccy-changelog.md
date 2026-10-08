@@ -17,6 +17,29 @@ Two version numbers move independently — see
 
 ---
 
+## 3.87.0 — container 2.48
+
+- **A restored session is set going** (Plan 00135 Phase 8, fedora-desktop#88). A session
+  restored with `--continue` came back at an empty prompt and waited for a person. Typing
+  `/compact` into it from outside after the restore landed behind work already under way.
+  `ccy-sessions set-going`, run by the new `ccy-sessions-set-going.service` after the
+  restore, now waits for each started session's Claude prompt to draw. It then reads the
+  context size from the conversation's transcript and types `/compact` at or above
+  `ccy_restore_compact_floor_tokens` (150,000 by default), else `continue`. A session found
+  already running is never typed into. One whose prompt never draws, that is busy, or whose
+  context cannot be read is left alone and named. The restore manifest is now format 2 and
+  records what each session got. A format-1 manifest from an earlier restore in the same
+  boot is refused by name.
+- **`verify-restore` checks the input was taken.** A session set going whose transcript
+  shows no input within two minutes is `NOT-SET-GOING compact-not-started` (or
+  `continue-not-started`), and one left alone is `NOT-SET-GOING <reason>`; neither counts
+  as OK. `--wait` stops once the restore has settled (nothing `STARTING` or
+  `SETTING-GOING`, the same report twice running) rather than only when every session is
+  OK. `fedora-desktop-self-update verify` waits up to 25 minutes instead of 5, and a pass
+  clears its unit's failed state. Gated by `scripts/test-ccy-session-registry.bash`,
+  `scripts/test-ccy-sessions-reboot.bash`, `scripts/test-self-update-cycle.bash` and
+  `tests/helpers/self_update/test_cycle.py`.
+
 ## 3.86.3 — container 2.48
 
 - **Quick Launch keeps its saved choices across ccy versions** (Plan 00135 Task 7.5). The

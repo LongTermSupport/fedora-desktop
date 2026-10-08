@@ -336,6 +336,11 @@ it day to day:
   while changing nothing. The log is
   `journalctl -u fedora-desktop-self-update -u fedora-desktop-self-update-verify --no-pager | cat`.
   A failure also appears in `fedora-desktop-health` and the login snippet.
+- **After the reboot.** `fedora-desktop-self-update-verify.service` waits until the session
+  restore has settled: every session is running and set going, or has definitely failed
+  ([ccy.md](ccy.md#sessions-survive-a-reboot)). It gives up after 25 minutes. A passing
+  verify clears that unit's failed state, so a failed attempt answered by a later pass
+  leaves nothing in the login banner.
 - **What it fetches, and what `nothing` means.** The cycle runs as root against its own
   deploy clone, `/var/lib/fedora-desktop/deploy`, never a person's checkout. It fetches
   `self_update_branch` (and, on the tags channel, the release tags) from that clone's

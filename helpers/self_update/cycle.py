@@ -74,8 +74,16 @@ EXIT_LOCKED = 75
 #: Not in the contract's table: the countdown was interrupted (SIGINT/SIGTERM).
 EXIT_CANCELLED = 130
 
-#: How long the post-boot check waits for restored sessions to settle.
-VERIFY_WAIT_SECONDS = 300
+#: The most the post-boot check waits for the restore to settle. `verify-restore --wait`
+#: returns as soon as every session is running or has definitely failed; this ceiling only
+#: bounds a restore that never settles. It must outlast ccy-sessions' set-going wait plus its
+#: start window, and fit inside the verify unit's TimeoutStartSec (tests/helpers/
+#: self_update/test_cycle.py reads both). fedora-desktop#88: five minutes was not enough
+#: for six sessions.
+VERIFY_WAIT_SECONDS = 1500
+#: The unit that runs `verify`, whose failed state a passing verify clears: it is the one the
+#: login banner lists from `systemctl --failed` after a failed attempt.
+VERIFY_UNIT = "fedora-desktop-self-update-verify.service"
 MINUTE = 60
 #: Real seconds per countdown minute. Overridable ONLY so scripts/test-self-update-cycle.bash
 #: can drive a countdown; sudo's env_reset strips it, and the systemd unit never sets it.
@@ -291,6 +299,7 @@ class Host(Protocol):
     def run_play(self, play: str) -> int: ...
     def notify(self, args: list[str]) -> int: ...
     def verify_restore(self, wait_seconds: int) -> int: ...
+    def reset_failed(self, unit: str) -> int: ...
     def reboot(self) -> int: ...
     def boot_id(self) -> str: ...
     def sleep(self, seconds: float) -> None: ...
@@ -480,9 +489,17 @@ def verify(config: Config, host: Host, state: State, *, stdout: TextIO, stderr: 
     rc = host.verify_restore(VERIFY_WAIT_SECONDS)
     state.clear_owed()
     if rc == 0:
+        # A pass clears a failed state an earlier attempt left on the unit, so the login
+        # banner stops naming a failure that has been answered. If it cannot be cleared the
+        # deploy is still done: said, and recorded in the result, but not a failed verify.
+        detail = "every restored session is running"
+        reset_rc = host.reset_failed(VERIFY_UNIT)
+        if reset_rc != 0:
+            problem = f"{VERIFY_UNIT}'s failed state could not be cleared (systemctl reset-failed exited {reset_rc})"
+            stderr.write(f"self-update: {problem}\n")
+            detail = f"{detail}; {problem}"
         return _finish(state, host, stdout, stderr, code=EXIT_OK, phase="verify", outcome="deployed",
-                       new=owed.new, tag=owed.tag, plays=owed.plays, detail="every restored session is running",
-                       announce=True)
+                       new=owed.new, tag=owed.tag, plays=owed.plays, detail=detail, announce=True)
     return _finish(state, host, stdout, stderr, code=EXIT_VERIFY_FAILED, phase="verify", outcome="verify-failed",
                    new=owed.new, tag=owed.tag, plays=owed.plays, detail="a restored session is not running, or waits at a prompt",
                    announce=True)
@@ -802,6 +819,9 @@ class RealHost:
 
     def verify_restore(self, wait_seconds: int) -> int:
         return self._ccy_sessions(["verify-restore", "--wait", str(wait_seconds)])
+
+    def reset_failed(self, unit: str) -> int:
+        return subprocess.run(["systemctl", "reset-failed", unit], stdin=subprocess.DEVNULL, check=False).returncode
 
     def reboot(self) -> int:
         return subprocess.run(["systemctl", "reboot"], stdin=subprocess.DEVNULL, check=False).returncode

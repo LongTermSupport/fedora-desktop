@@ -1,0 +1,19 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Set each ccy and cc session the boot's restore started going, once its prompt has drawn
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# A session restored with --continue comes back at an empty prompt with a cold prompt cache
+# (fedora-desktop#88). This types its first input: /compact at or above the floor below,
+# continue under it. Pulled in by ccy-sessions-restore.service (its Wants=) and started once
+# that has written the restore manifest. No [Install]: enabling the restore is the switch.
+After=ccy-sessions-restore.service
+
+[Service]
+# exec, not oneshot. The restore is a oneshot that default.target waits for, and the user
+# manager, user@UID.service and a desktop login all wait for default.target. This waits up
+# to CCY_SESSIONS_SET_GOING_WAIT (20 minutes by default) for prompts to draw, so it must
+# not hold any of them: an exec unit counts as started the moment it runs.
+Type=exec
+# ccy_restore_compact_floor_tokens in host_vars, play-claude-yolo.yml's default otherwise.
+Environment=CCY_RESTORE_COMPACT_FLOOR_TOKENS={{ ccy_restore_compact_floor }}
+ExecStart=%h/.local/bin/ccy-sessions set-going

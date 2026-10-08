@@ -602,6 +602,10 @@ check "it lists the started and the already-live sessions, in record order" "cc-
     "$(IFS='|' && printf '%s' "${RM_NAMES[*]}")"
 check "with each one's launcher" "cc|ccy|ccy" "$(IFS='|' && printf '%s' "${RM_PREFIXES[*]}")"
 check "and directory" "$KEEP|$KEEP|$KEEP" "$(IFS='|' && printf '%s' "${RM_DIRS[*]}")"
+# The two it started wait for set-going; the one a person started is never typed into.
+check "the started ones are pending set-going, the live one is not set going" "pending|pending|none" \
+    "$(IFS='|' && printf '%s' "${RM_GOING[*]}")"
+check "with nothing yet sent" "||" "$(IFS='|' && printf '%s' "${RM_AT[*]}")"
 
 # Dry run: the same decisions printed, nothing started, and the manifest untouched.
 rm -f "$STARTED_LOG"
@@ -666,16 +670,37 @@ bad_manifest() {
     fi
 }
 mkdir -p "$(dirname "$MANIFEST")"
+ENTRY=$'name=a\nprefix=ccy\ndir=/d\ngoing=pending\nat=\ndetail=\ntranscript=\n'
 bad_manifest "a wrong header" $'something else\nboot=b\n'
-bad_manifest "no boot" $'ccy-restore-manifest 1\nname=a\nprefix=ccy\ndir=/d\n'
-bad_manifest "an entry cut short" $'ccy-restore-manifest 1\nboot=b\nname=a\nprefix=ccy\n'
-bad_manifest "fields out of order" $'ccy-restore-manifest 1\nboot=b\nprefix=ccy\nname=a\ndir=/d\n'
-bad_manifest "an unknown key" $'ccy-restore-manifest 1\nboot=b\nname=a\nprefix=ccy\ndir=/d\nextra=x\n'
+bad_manifest "no boot" $'ccy-restore-manifest 2\n'"$ENTRY"
+bad_manifest "an entry cut short" $'ccy-restore-manifest 2\nboot=b\nname=a\nprefix=ccy\ndir=/d\ngoing=pending\n'
+bad_manifest "fields out of order" $'ccy-restore-manifest 2\nboot=b\nprefix=ccy\nname=a\ndir=/d\ngoing=pending\nat=\ndetail=\ntranscript=\n'
+bad_manifest "an unknown key" $'ccy-restore-manifest 2\nboot=b\n'"$ENTRY"$'extra=x\n'
+bad_manifest "a going word that is none of the five" $'ccy-restore-manifest 2\nboot=b\nname=a\nprefix=ccy\ndir=/d\ngoing=maybe\nat=\ndetail=\ntranscript=\n'
+bad_manifest "a time that is not seconds" $'ccy-restore-manifest 2\nboot=b\nname=a\nprefix=ccy\ndir=/d\ngoing=compact\nat=soon\ndetail=1\ntranscript=/t\n'
 bad_manifest "an empty file" ""
+# A format-1 manifest, written by the ccy-sessions before set-going, is refused by name.
+printf 'ccy-restore-manifest 1\nboot=b\nname=a\nprefix=ccy\ndir=/d\n' >"$MANIFEST"
+out="$(ccy_restore_manifest_read 2>&1)"
+check "an older format is refused, and says it is another version" "yes" \
+    "$([[ "$out" == *"another version of ccy-sessions"* ]] && echo yes || echo "no: $out")"
+check "the writer refuses a short group" "1" "$(ccy_restore_manifest_write a ccy /d 2>/dev/null; echo $?)"
+check "and a value with a newline in it" "1" \
+    "$(ccy_restore_manifest_write a ccy $'/d\nname=b' none "" "" "" 2>/dev/null; echo $?)"
 # A directory with spaces and an equals sign survives, because only the first '=' splits.
-ccy_restore_manifest_write "ccy-odd" ccy "$SCRATCH/odd dir=x"
-ccy_restore_manifest_read
-check "a directory with spaces and '=' round-trips" "$SCRATCH/odd dir=x" "${RM_DIRS[0]}"
+ccy_restore_manifest_write "ccy-odd" ccy "$SCRATCH/odd dir=x" compact 1700000000 250000 "$SCRATCH/t x.jsonl"
+if ccy_restore_manifest_read; then
+    check "a directory with spaces and '=' round-trips" "$SCRATCH/odd dir=x" "${RM_DIRS[0]}"
+    check "and so does what set-going did" "compact|1700000000|250000|$SCRATCH/t x.jsonl" \
+        "${RM_GOING[0]}|${RM_AT[0]}|${RM_DETAIL[0]}|${RM_TRANSCRIPT[0]}"
+    RM_GOING[0]=untouched RM_AT[0]="" RM_DETAIL[0]=busy-before-set-going RM_TRANSCRIPT[0]=""
+    ccy_restore_manifest_rewrite
+    ccy_restore_manifest_read
+    check "a rewrite writes the arrays back" "untouched||busy-before-set-going|" \
+        "${RM_GOING[0]}|${RM_AT[0]}|${RM_DETAIL[0]}|${RM_TRANSCRIPT[0]}"
+else
+    check "a written manifest reads back" "ok" "refused"
+fi
 
 echo ""
 echo "=== verdict: one restored session's state, from what its screen shows ==="
@@ -701,6 +726,92 @@ check "ccy with its client but no listed container is starting" "STARTING" "$(cc
 check "ccy with its container up is ok" "OK" "$(ccy_restore_verdict ccy 1 "claude" up)"
 check "cc past its prompts is ok (no container to ask about)" "OK" "$(ccy_restore_verdict cc 1 "claude" -)"
 check "an unknown launcher is not waved through" "DEAD unknown-launcher-zz" "$(ccy_restore_verdict zz 1 "" up)"
+# What set-going did only matters once the session is otherwise OK; a session still at a
+# prompt or starting reports that first.
+check "set going and taken: ok" "OK" "$(ccy_restore_verdict ccy 1 "claude" up started)"
+check "not yet set going: setting-going, not ok" "SETTING-GOING" "$(ccy_restore_verdict cc 1 "claude" - setting-going)"
+check "left alone: not-set-going, with why" "NOT-SET-GOING busy-before-set-going" \
+    "$(ccy_restore_verdict ccy 1 "claude" up failed:busy-before-set-going)"
+check "a starting container outranks setting-going" "STARTING" "$(ccy_restore_verdict ccy 1 "" starting setting-going)"
+check "a prompt outranks not-set-going" "WAITING-AT-PROMPT token-select" \
+    "$(ccy_restore_verdict cc 1 "$CCY_PROMPT_TOKEN_SELECT [0-2]: " - failed:waiting-at-prompt-token-select-after-1200s)"
+check "an unknown going word is not waved through" "NOT-SET-GOING unknown-state-maybe" \
+    "$(ccy_restore_verdict cc 1 "claude" - maybe)"
+
+echo ""
+echo "=== going: from a manifest entry to the word the verdict takes ==="
+check "found running: nothing to wait for" "-" "$(ccy_restore_going_state none "" "" 100 120 -)"
+check "pending: still setting going" "setting-going" "$(ccy_restore_going_state pending "" "" 100 120 -)"
+check "left alone: failed, with the reason" "failed:no-transcript" "$(ccy_restore_going_state untouched "" no-transcript 100 120 -)"
+check "compact taken: started" "started" "$(ccy_restore_going_state compact 100 300000 105 120 yes)"
+check "compact not taken inside the window: still setting going" "setting-going" \
+    "$(ccy_restore_going_state compact 100 300000 219 120 no)"
+check "compact not taken by the end of the window: failed" "failed:compact-not-started" \
+    "$(ccy_restore_going_state compact 100 300000 220 120 no)"
+check "continue not taken: failed, naming continue" "failed:continue-not-started" \
+    "$(ccy_restore_going_state continue 100 5000 400 120 no)"
+
+echo ""
+echo "=== Claude's prompt: drawn, busy, or not yet (from the pane) ==="
+# Claude Code 2.1.x's input box, as capture-pane prints it (Plan 00135 journal 26-10-08).
+RULE="$(printf '─%.0s' $(seq 1 60))"
+DRAWN="$(printf '%s\n' " ▐▛███▜▌   Claude Code" "" "$RULE" "❯ " "$RULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle)")"
+check "the framed input box is a drawn prompt" "ready" "$(ccy_claude_screen_state "$DRAWN")"
+check "with placeholder text in it, still drawn" "ready" \
+    "$(ccy_claude_screen_state "$(printf '%s\n' "$RULE" '❯ Try "fix typecheck errors"' "$RULE")")"
+check "a turn running above it is busy" "busy" \
+    "$(ccy_claude_screen_state "$(printf '%s\n' "✻ Compacting conversation… (12s · esc to interrupt)" "$RULE" "❯ " "$RULE")")"
+check "a selection dialog's cursor is not a prompt" "not-drawn" \
+    "$(ccy_claude_screen_state "$(printf '%s\n' "Do you trust the files in this folder?" "" "❯ 1. Yes, proceed" "  2. No, exit")")"
+check "a box with no rule under it is not drawn yet" "not-drawn" "$(ccy_claude_screen_state "$(printf '%s\n' "$RULE" "❯ ")")"
+check "the launcher's own output is not drawn" "not-drawn" "$(ccy_claude_screen_state $'Building image...\n> ')"
+check "an empty screen is not drawn" "not-drawn" "$(ccy_claude_screen_state "")"
+
+echo ""
+echo "=== the transcript: where it is, how big the context is, whether input was taken ==="
+check "ccy's transcripts are under the project's .claude/ccy, at /workspace" "/p/my proj/.claude/ccy/projects/-workspace" \
+    "$(ccy_transcript_dir ccy "/p/my proj" /home/u/.claude)"
+check "cc's are under the config home, named for the directory" "/home/u/.claude/projects/-p-my-proj-v1-2" \
+    "$(ccy_transcript_dir cc "/p/my proj/v1.2" /home/u/.claude)"
+check "an unknown launcher has none" "1" "$(ccy_transcript_dir zz /p /h 2>/dev/null; echo $?)"
+TD="$SCRATCH/transcripts"
+mkdir -p "$TD/older-session-subagents"
+check "no transcript at all is a failure" "1" "$(ccy_transcript_newest "$TD" 2>/dev/null; echo $?)"
+check "nor is a missing directory a transcript" "1" "$(ccy_transcript_newest "$TD/nope" 2>/dev/null; echo $?)"
+printf '{}\n' >"$TD/old.jsonl"
+touch -d '2026-01-01 00:00' "$TD/old.jsonl"
+printf '{}\n' >"$TD/new.jsonl"
+touch -d '2026-01-02 00:00' "$TD/new.jsonl"
+printf '{}\n' >"$TD/older-session-subagents/agent.jsonl"
+check "the newest conversation is the one --continue resumes" "$TD/new.jsonl" "$(ccy_transcript_newest "$TD")"
+# A transcript in the shapes measured on a real one: an assistant usage, a sub-agent's
+# usage after it (another context), an error placeholder, and a half-written last line.
+T="$SCRATCH/t.jsonl"
+{
+    printf '%s\n' '{"type":"user","timestamp":"2026-10-08T10:00:00.000Z","message":{"content":"hi"}}'
+    printf '%s\n' '{"type":"assistant","message":{"model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":4543,"cache_read_input_tokens":203980,"output_tokens":866}}}'
+    printf '%s\n' '{"type":"assistant","isSidechain":true,"message":{"model":"claude-opus-5-5","usage":{"input_tokens":9,"cache_creation_input_tokens":0,"cache_read_input_tokens":40000}}}'
+    printf '%s\n' '{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    printf '%s' '{"type":"assistant","message":{"usa'
+} >"$T"
+check "the context is the last main-thread usage, all three input counts" "208525" "$(ccy_transcript_context_tokens "$T")"
+printf '\n%s\n' '{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual","preTokens":432810,"postTokens":11753}}' >>"$T"
+check "a compaction after it: the size it left" "11753" "$(ccy_transcript_context_tokens "$T")"
+printf '%s\n' '{"type":"user","timestamp":"2026-10-08T10:00:00.000Z","message":{"content":"hi"}}' >"$SCRATCH/none.jsonl"
+check "no size recorded is a failure" "1" "$(ccy_transcript_context_tokens "$SCRATCH/none.jsonl" 2>/dev/null; echo $?)"
+check "an unreadable transcript is a failure" "1" "$(ccy_transcript_context_tokens "$SCRATCH/missing.jsonl" 2>/dev/null; echo $?)"
+# 2026-10-08T10:00:00Z is 1791453600.
+SENT=1791453600
+check "input before the send is not input since" "no" "$(ccy_transcript_took_input_since "$T" $((SENT + 1)))"
+{
+    printf '%s\n' '{"type":"user","isMeta":true,"timestamp":"2026-10-08T10:05:00.000Z","message":{"content":"Caveat"}}'
+    printf '%s\n' '{"type":"user","isSidechain":true,"timestamp":"2026-10-08T10:05:00.000Z","message":{"content":"sub"}}'
+} >>"$T"
+check "a meta note or a sub-agent's prompt is not input" "no" "$(ccy_transcript_took_input_since "$T" $((SENT + 1)))"
+printf '%s\n' '{"type":"user","timestamp":"2026-10-08T10:05:00.120Z","message":{"content":"continue"}}' >>"$T"
+check "the typed input, after the send, is" "yes" "$(ccy_transcript_took_input_since "$T" $((SENT + 300)))"
+check "and not if it was before the send" "no" "$(ccy_transcript_took_input_since "$T" $((SENT + 301)))"
+check "an unreadable transcript is a failure here too" "1" "$(ccy_transcript_took_input_since "$SCRATCH/missing.jsonl" 1 2>/dev/null; echo $?)"
 
 # Every name in the table is distinct, and no prompt text is empty: an empty text would
 # match every screen, and a shared name would report the wrong prompt.

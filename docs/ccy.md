@@ -289,11 +289,39 @@ key is added: the container's is deleted before Claude starts.
 - The cost: anyone who can read your home directory can use the key, as with the vault
   password file. Turn it off with `ccy_restore_sessions: false`, which removes the file.
 
-A launch that named its token, key and network therefore comes back unattended. Check
-with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
+A launch that named its token, key and network therefore comes back unattended.
+
+**A restored session is set going** (since CCY 3.87.0, fedora-desktop#88). It comes back at
+an empty prompt with its conversation reloaded and a cold prompt cache. Without a nudge it
+would wait there for a person. `ccy-sessions-set-going.service` runs after the restore, and
+the restore pulls it in, so it needs no switch of its own. It runs `ccy-sessions set-going`,
+which waits for each session the restore started to draw Claude's prompt (20 minutes at
+most). It then reads the conversation's context size from its transcript and types the
+first input:
+
+- **at or above the floor**, `/compact` (a ccy session's supervisor types `continue` once
+  the compaction ends);
+- **below it**, `continue`.
+
+The floor is 150,000 tokens. Change it per machine in `host_vars`, then run the play:
+
+```yaml
+ccy_restore_compact_floor_tokens: 200000
+```
+
+A session the restore found already running is never typed into. Some sessions are left
+alone and named in the journal (`journalctl --user -u ccy-sessions-set-going -b --no-pager | cat`):
+one whose prompt never draws, one already busy when it does, one with no readable
+transcript. The others still go on.
+
+Check with `ccy-sessions verify-restore [--wait SECONDS]`. It reads the manifest the boot's
 restore wrote (`~/.local/state/ccy/last-restore`) and prints one line per session: `OK`,
-`STARTING`, `WAITING-AT-PROMPT <prompt>` or `DEAD <reason>`. It exits non-zero unless every
-session is `OK`. `--wait` keeps polling until they all are or the time runs out.
+`STARTING`, `SETTING-GOING`, `NOT-SET-GOING <reason>`, `WAITING-AT-PROMPT <prompt>` or
+`DEAD <reason>`. `NOT-SET-GOING` is a session left alone, or one whose transcript shows no
+input within two minutes of the keys being typed (`compact-not-started`,
+`continue-not-started`). It exits non-zero unless every session is `OK`. `--wait` polls
+until the restore has settled: nothing `STARTING` or `SETTING-GOING`, and the same answer
+twice running. It also stops when the time runs out.
 
 | Situation at boot                         | What restore does                                                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |

@@ -7,6 +7,11 @@ Documentation=https://github.com/LongTermSupport/fedora-desktop
 # server is started under a transient `systemd --user` scope, exactly as an interactive
 # launch starts it. With linger enabled (play-systemd-user-tweaks.yml) default.target is
 # reached at boot, before anyone logs in.
+#
+# Once it has started them, ccy-sessions-set-going.service (ordered after this unit) waits
+# for each one's prompt and types its first input. That wait is not done here: this unit
+# holds default.target, and with it the user manager's start and a desktop login.
+Wants=ccy-sessions-set-going.service
 
 [Service]
 Type=oneshot

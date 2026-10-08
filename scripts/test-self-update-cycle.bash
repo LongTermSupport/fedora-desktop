@@ -491,7 +491,8 @@ check "and leaves the marker" "yes" "$(has "$STATE/owed-verify")"
 write_owed "an-earlier-boot"
 FAKE_VERIFY_RC=1 cycle verify
 check "a failed restore check exits 23" "23" "$RC"
-check "the restore check runs as the user with the contract's wait" "ccy-sessions verify-restore --wait 300" "$(calls)"
+check "the restore check runs as the user, waiting at most the ceiling, and a failure is left showing" \
+    "ccy-sessions verify-restore --wait 1500" "$(calls)"
 check "a failed restore check is recorded" "verify-failed" "$(result_key outcome)"
 check "a failed restore check is alerted" "yes" "$(says 'ALERT verify-failed' "$ERR")"
 check "the marker is cleared after a failed check" "no" "$(has "$STATE/owed-verify")"
@@ -499,6 +500,9 @@ check "the marker is cleared after a failed check" "no" "$(has "$STATE/owed-veri
 write_owed "an-earlier-boot"
 cycle verify
 check "a passed restore check exits 0" "0" "$RC"
+check "and clears the verify unit's failed state (#88)" \
+    "ccy-sessions verify-restore --wait 1500|systemctl reset-failed fedora-desktop-self-update-verify.service" \
+    "$(calls | paste -sd '|')"
 check "a passed restore check is recorded as deployed" "deployed" "$(result_key outcome)"
 check "the record names the commit" "$FIRST" "$(result_key new)"
 check "the marker is cleared after a passed check" "no" "$(has "$STATE/owed-verify")"

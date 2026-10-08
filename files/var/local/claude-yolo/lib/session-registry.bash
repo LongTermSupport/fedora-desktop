@@ -560,7 +560,15 @@ ccy_registry_restore_args() {
 # and the ones it found already running), written when it finishes, and it names the boot
 # it ran in: a manifest from an earlier boot says nothing about this one.
 # It lives beside the registry, never inside it: restore reads every file in the registry.
-CCY_RESTORE_MANIFEST_HEADER="ccy-restore-manifest 1"
+#
+# Each entry also says what `ccy-sessions set-going` did with the session (Plan 00135
+# Task 8.2): `going` is none (found already running: a person started it, nothing is typed
+# into it), pending (restored, not yet decided), compact or continue (what was typed, at
+# `at`, epoch seconds), or untouched (left alone, `detail` says why). For compact and
+# continue `detail` is the context size in tokens and `transcript` the file it was read
+# from, which verify-restore reads again to see whether the input was taken.
+CCY_RESTORE_MANIFEST_HEADER="ccy-restore-manifest 2"
+CCY_RESTORE_MANIFEST_KEYS=(name prefix dir going at detail transcript)
 
 # ccy_registry_manifest_path — the manifest's path, printed.
 ccy_registry_manifest_path() {
@@ -579,10 +587,22 @@ ccy_boot_id() {
     printf '%s\n' "$id"
 }
 
-# ccy_restore_manifest_write [<name> <prefix> <dir>]... — record the sessions a restore
-# started, stamped with this boot's id. Written whole then moved into place, like a record.
+# ccy_restore_manifest_write [<name> <prefix> <dir> <going> <at> <detail> <transcript>]... —
+# record the sessions a restore brought up, stamped with this boot's id. Written whole then
+# moved into place, like a record. A value holding a newline is refused: it would read back
+# as two lines.
 ccy_restore_manifest_write() {
-    local path boot tmp
+    local path boot tmp value width="${#CCY_RESTORE_MANIFEST_KEYS[@]}"
+    if [[ $(($# % width)) -ne 0 ]]; then
+        print_error "ccy_restore_manifest_write takes groups of $width values, not $#."
+        return 1
+    fi
+    for value in "$@"; do
+        if [[ "$value" == *$'\n'* ]]; then
+            print_error "the restore manifest cannot hold a value with a newline in it: $value"
+            return 1
+        fi
+    done
     path=$(ccy_registry_manifest_path) || return 1
     boot=$(ccy_boot_id) || return 1
     (umask 077 && mkdir -p "$(dirname "$path")") || {
@@ -595,9 +615,12 @@ ccy_restore_manifest_write() {
         {
             printf '%s\n' "$CCY_RESTORE_MANIFEST_HEADER"
             printf 'boot=%s\n' "$boot"
-            while [[ $# -ge 3 ]]; do
-                printf 'name=%s\nprefix=%s\ndir=%s\n' "$1" "$2" "$3"
-                shift 3
+            local key
+            while [[ $# -ge "$width" ]]; do
+                for key in "${CCY_RESTORE_MANIFEST_KEYS[@]}"; do
+                    printf '%s=%s\n' "$key" "$1"
+                    shift
+                done
             done
         } >"$tmp"
     ); then
@@ -613,13 +636,16 @@ ccy_restore_manifest_write() {
 }
 
 # ccy_restore_manifest_read — parse the manifest into RM_BOOT and the parallel arrays
-# RM_NAMES, RM_PREFIXES and RM_DIRS. Strict, like ccy_registry_read: each entry is a name=,
-# prefix=, dir= triple in that order, and anything else is a rejection. A missing manifest
-# is a rejection too, with its own message: no restore has run.
+# RM_NAMES, RM_PREFIXES, RM_DIRS, RM_GOING, RM_AT, RM_DETAIL and RM_TRANSCRIPT. Strict,
+# like ccy_registry_read: each entry is every key of CCY_RESTORE_MANIFEST_KEYS in that
+# order, `going` one of its five words and `at` digits or empty, and anything else is a
+# rejection. A missing manifest is a rejection too, with its own message: no restore has run.
 ccy_restore_manifest_read() {
-    local path line key value first=true expect=name
+    local path line key value first=true expect_at=0 expect
+    local width="${#CCY_RESTORE_MANIFEST_KEYS[@]}"
+    expect="${CCY_RESTORE_MANIFEST_KEYS[0]}"
     RM_BOOT=""
-    RM_NAMES=() RM_PREFIXES=() RM_DIRS=()
+    RM_NAMES=() RM_PREFIXES=() RM_DIRS=() RM_GOING=() RM_AT=() RM_DETAIL=() RM_TRANSCRIPT=()
     path=$(ccy_registry_manifest_path) || return 1
     if [[ ! -e "$path" ]]; then
         print_error "no session restore has been recorded ($path does not exist)."
@@ -632,6 +658,10 @@ ccy_restore_manifest_read() {
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$first" == true ]]; then
             first=false
+            if [[ "$line" == "ccy-restore-manifest "* && "$line" != "$CCY_RESTORE_MANIFEST_HEADER" ]]; then
+                print_error "the restore manifest $path is '$line', written by another version of ccy-sessions; this one reads '$CCY_RESTORE_MANIFEST_HEADER'. The next restore (at the next boot) writes it again."
+                return 1
+            fi
             if [[ "$line" != "$CCY_RESTORE_MANIFEST_HEADER" ]]; then
                 print_error "the restore manifest $path does not start with '$CCY_RESTORE_MANIFEST_HEADER' and is not read."
                 return 1
@@ -645,7 +675,7 @@ ccy_restore_manifest_read() {
             print_error "the restore manifest $path has a line without '=': $line"
             return 1
         fi
-        if [[ "$key" == boot && -z "$RM_BOOT" && "$expect" == name && "${#RM_NAMES[@]}" -eq 0 ]]; then
+        if [[ "$key" == boot && -z "$RM_BOOT" && "$expect_at" -eq 0 && "${#RM_NAMES[@]}" -eq 0 ]]; then
             RM_BOOT="$value"
             continue
         fi
@@ -654,10 +684,30 @@ ccy_restore_manifest_read() {
             return 1
         fi
         case "$key" in
-        name) RM_NAMES+=("$value") expect=prefix ;;
-        prefix) RM_PREFIXES+=("$value") expect=dir ;;
-        dir) RM_DIRS+=("$value") expect=name ;;
+        name) RM_NAMES+=("$value") ;;
+        prefix) RM_PREFIXES+=("$value") ;;
+        dir) RM_DIRS+=("$value") ;;
+        going)
+            case "$value" in
+            none | pending | compact | continue | untouched) RM_GOING+=("$value") ;;
+            *)
+                print_error "the restore manifest $path has going=$value, which is none of none, pending, compact, continue or untouched, and is not read."
+                return 1
+                ;;
+            esac
+            ;;
+        at)
+            if [[ ! "$value" =~ ^[0-9]*$ ]]; then
+                print_error "the restore manifest $path has at=$value, which is not a time in seconds, and is not read."
+                return 1
+            fi
+            RM_AT+=("$value")
+            ;;
+        detail) RM_DETAIL+=("$value") ;;
+        transcript) RM_TRANSCRIPT+=("$value") ;;
         esac
+        expect_at=$(((expect_at + 1) % width))
+        expect="${CCY_RESTORE_MANIFEST_KEYS[expect_at]}"
     done <"$path"
     if [[ "$first" == true ]]; then
         print_error "the restore manifest $path is empty."
@@ -667,28 +717,46 @@ ccy_restore_manifest_read() {
         print_error "the restore manifest $path names no boot."
         return 1
     fi
-    if [[ "$expect" != name ]]; then
+    if [[ "$expect_at" -ne 0 ]]; then
         print_error "the restore manifest $path ends part-way through an entry."
         return 1
     fi
 }
 
-# ccy_restore_verdict <prefix> <live 0|1> <screen> <container> — one restored session's
-# state, printed as "<STATE>[ <detail>]". PURE: every probe arrives as text, so every
-# shape is testable (scripts/test-ccy-session-registry.bash).
+# ccy_restore_manifest_rewrite — write RM_* back as the manifest (set-going's update after
+# each decision). The boot is re-stamped from ccy_boot_id, so a caller checks RM_BOOT first.
+ccy_restore_manifest_rewrite() {
+    local i
+    local -a entries=()
+    for i in "${!RM_NAMES[@]}"; do
+        entries+=("${RM_NAMES[i]}" "${RM_PREFIXES[i]}" "${RM_DIRS[i]}" "${RM_GOING[i]}"
+            "${RM_AT[i]}" "${RM_DETAIL[i]}" "${RM_TRANSCRIPT[i]}")
+    done
+    ccy_restore_manifest_write "${entries[@]}"
+}
+
+# ccy_restore_verdict <prefix> <live 0|1> <screen> <container> [<going>] — one restored
+# session's state, printed as "<STATE>[ <detail>]". PURE: every probe arrives as text, so
+# every shape is testable (scripts/test-ccy-session-registry.bash).
 #   <screen>     the pane's visible text (tmux capture-pane -p)
 #   <container>  for ccy: "up" when the session's container is running, "starting" when
 #                its engine client exists and the container is not yet listed, "-" when
 #                there is no engine client; ignored for cc, which runs claude on the host
+#   <going>      whether set-going has set it going (ccy_restore_going_state): "-" or
+#                "started" (nothing more to wait for), "setting-going", or
+#                "failed:<reason>"; default "-"
 #
 # The screen is judged by its LAST non-blank line, where a prompt waiting for input sits:
 #   DEAD launcher-exited            the trampoline's hold line: the launcher has returned
 #   WAITING-AT-PROMPT <name>        a prompt from ccy_known_prompts
 #   STARTING                        a ccy session with no running container yet
+#   SETTING-GOING                   running, and set-going has not yet seen it take input
+#   NOT-SET-GOING <reason>          running, and set-going left it alone or it never
+#                                   took what was typed
 #   OK                              anything else, with the container up for ccy
 # A session that is not live at all is "DEAD session-not-running".
 ccy_restore_verdict() {
-    local prefix="$1" live="$2" screen="$3" container="$4"
+    local prefix="$1" live="$2" screen="$3" container="$4" going="${5:--}"
     local last="" line name text
     if [[ "$live" != 1 ]]; then
         printf 'DEAD session-not-running\n'
@@ -711,19 +779,172 @@ ccy_restore_verdict() {
         fi
     done < <(ccy_known_prompts)
     case "$prefix" in
-    cc)
-        printf 'OK\n'
-        ;;
+    cc) ;;
     ccy)
-        if [[ "$container" == up ]]; then
-            printf 'OK\n'
-        else
+        if [[ "$container" != up ]]; then
             printf 'STARTING\n'
+            return 0
         fi
         ;;
     *)
         printf 'DEAD unknown-launcher-%s\n' "$prefix"
+        return 0
         ;;
+    esac
+    case "$going" in
+    - | started) printf 'OK\n' ;;
+    setting-going) printf 'SETTING-GOING\n' ;;
+    failed:*) printf 'NOT-SET-GOING %s\n' "${going#failed:}" ;;
+    *) printf 'NOT-SET-GOING unknown-state-%s\n' "$going" ;;
+    esac
+}
+
+# ── setting a restored session going (Plan 00135 Task 8.2, fedora-desktop#88) ──────────
+#
+# A session restored with --continue comes back at an empty prompt with its conversation
+# reloaded and a cold prompt cache. `ccy-sessions set-going` types the first thing into it:
+# `/compact` when its context is at or above the floor, so the first cold turn is the one
+# that shrinks it, else `continue`. What follows reads the two things that decision needs:
+# whether Claude's prompt has drawn (the pane) and how big the context is (the transcript).
+# The reasoning, and what each was measured against, is in Plan 00135's journal (26-10-08).
+
+# ccy_claude_screen_state <screen> — "ready", "busy" or "not-drawn". PURE.
+# Claude Code's input box is a line beginning with ❯ framed by rule lines of ─ above and
+# below it. The same ❯ marks the cursor in Claude's selection dialogs, which are not framed
+# that way, so only a framed ❯ counts. Busy is the box plus "esc to interrupt", the spinner
+# line Claude shows while a turn or a compaction runs: typing then would queue behind it.
+ccy_claude_screen_state() {
+    local screen="$1" i j
+    local -a lines=()
+    # Ten rule characters as a literal prefix, not a regex repeat: in the C locale a unit may
+    # run in, a repeat would apply to the last byte of the three-byte ─ only.
+    local rule='──────────'
+    mapfile -t lines <<<"$screen"
+    for ((i = 1; i < ${#lines[@]}; i++)); do
+        [[ "${lines[i]}" == ❯* && "${lines[i - 1]}" == "$rule"* ]] || continue
+        for ((j = i + 1; j < ${#lines[@]}; j++)); do
+            if [[ "${lines[j]}" == "$rule"* ]]; then
+                if [[ "$screen" == *"esc to interrupt"* ]]; then
+                    printf 'busy\n'
+                else
+                    printf 'ready\n'
+                fi
+                return 0
+            fi
+        done
+    done
+    printf 'not-drawn\n'
+}
+
+# ccy_transcript_dir <prefix> <dir> <config-home> — the directory holding a session's
+# Claude transcripts, printed. PURE. ccy runs claude in its container at /workspace with
+# /root/.claude linked to the project's .claude/ccy, so its transcripts are always under
+# .claude/ccy/projects/-workspace. cc runs claude on the host, which names the directory for
+# the working directory with every character that is not a letter or digit made a '-'.
+ccy_transcript_dir() {
+    local prefix="$1" dir="$2" config_home="$3"
+    case "$prefix" in
+    ccy) printf '%s/.claude/ccy/projects/-workspace\n' "$dir" ;;
+    cc) printf '%s/projects/%s\n' "$config_home" "${dir//[^A-Za-z0-9]/-}" ;;
+    *)
+        print_error "no transcript directory is known for launcher '$prefix'."
+        return 1
+        ;;
+    esac
+}
+
+# ccy_transcript_newest <transcript-dir> — the newest *.jsonl directly in it, printed: the
+# conversation `claude --continue` resumes. Subdirectories hold sub-agent transcripts and
+# are not looked in. None there is a failure, with the reason on stderr.
+ccy_transcript_newest() {
+    local tdir="$1" newest="" file
+    if [[ ! -d "$tdir" ]]; then
+        print_error "there is no transcript directory $tdir"
+        return 1
+    fi
+    for file in "$tdir"/*.jsonl; do
+        [[ -f "$file" ]] || continue
+        if [[ -z "$newest" || "$file" -nt "$newest" ]]; then
+            newest="$file"
+        fi
+    done
+    if [[ -z "$newest" ]]; then
+        print_error "there is no transcript in $tdir"
+        return 1
+    fi
+    printf '%s\n' "$newest"
+}
+
+# ccy_transcript_context_tokens <file> — the conversation's context size in tokens, printed:
+# that of the LAST main-thread entry carrying one. An assistant message's input, cache-write
+# and cache-read tokens together are what the next turn re-sends (Claude Code's own context
+# figure); a compaction boundary's postTokens is the size a compaction left. Sub-agent
+# (sidechain) entries are another context, and a <synthetic> assistant message is an error
+# placeholder with zero usage, so neither counts. A line that is not JSON is skipped: the
+# last one can be half-written while Claude appends to it. No size anywhere is a failure.
+ccy_transcript_context_tokens() {
+    local file="$1" tokens
+    if ! tokens=$(jq -R -n -r '
+        [inputs | fromjson? | objects | select((.isSidechain // false) | not)
+         | if .type == "assistant" and (.message.usage | type) == "object"
+              and (.message.model // "") != "<synthetic>" then
+             .message.usage | (.input_tokens // 0) + (.cache_creation_input_tokens // 0)
+                 + (.cache_read_input_tokens // 0)
+           elif .type == "system" and .subtype == "compact_boundary"
+              and (.compactMetadata.postTokens | type) == "number" then
+             .compactMetadata.postTokens
+           else empty end] | last // "none"' "$file" 2>&1); then
+        print_error "the transcript $file could not be read: $tokens"
+        return 1
+    fi
+    if [[ ! "$tokens" =~ ^[0-9]+$ ]]; then
+        print_error "the transcript $file records no context size."
+        return 1
+    fi
+    printf '%s\n' "$tokens"
+}
+
+# ccy_transcript_took_input_since <file> <epoch> — "yes" when the conversation took input at
+# or after <epoch>, else "no". Input that is submitted is written to the transcript as a
+# main-thread user entry the moment it is taken (a typed /compact, its expansion, or
+# `continue`); a line left sitting in the input box writes nothing. Meta entries are
+# Claude's own notes, not input.
+ccy_transcript_took_input_since() {
+    local file="$1" since="$2" answer
+    if ! answer=$(jq -R -n -r --argjson since "$since" '
+        [inputs | fromjson? | objects
+         | select(.type == "user" and ((.isSidechain // false) | not) and ((.isMeta // false) | not))
+         | .timestamp | strings | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601
+         | select(. >= $since)] | if length > 0 then "yes" else "no" end' "$file" 2>&1); then
+        print_error "the transcript $file could not be read: $answer"
+        return 1
+    fi
+    printf '%s\n' "$answer"
+}
+
+# ccy_restore_going_state <going> <at> <detail> <now> <window> <took-input yes|no|-> — the
+# <going> word ccy_restore_verdict takes, from one manifest entry. PURE.
+#   none                          "-": not this restore's to set going
+#   pending                       "setting-going"
+#   untouched                     "failed:<detail>"
+#   compact | continue            "started" once it took input; "setting-going" until
+#                                 <window> seconds after <at>; then "failed:<what>-not-started"
+ccy_restore_going_state() {
+    local going="$1" at="$2" detail="$3" now="$4" window="$5" took="$6"
+    case "$going" in
+    none) printf -- '-\n' ;;
+    pending) printf 'setting-going\n' ;;
+    untouched) printf 'failed:%s\n' "${detail:-no-reason-recorded}" ;;
+    compact | continue)
+        if [[ "$took" == yes ]]; then
+            printf 'started\n'
+        elif [[ $((now - at)) -lt "$window" ]]; then
+            printf 'setting-going\n'
+        else
+            printf 'failed:%s-not-started\n' "$going"
+        fi
+        ;;
+    *) printf 'failed:unknown-going-%s\n' "$going" ;;
     esac
 }
 
@@ -788,7 +1009,10 @@ ccy_restore_passphrase_take() {
 #
 # Each session is started with CCY_SESSION_RESTORE=1 on its command, which lets the launcher
 # answer the prompts that have one safe answer. The rest still ask, in the pane, and
-# `ccy-sessions verify-restore` names them from the manifest written at the end.
+# `ccy-sessions verify-restore` names them from the manifest written at the end. Each
+# session started here is entered there as pending; `ccy-sessions set-going`, run by its own
+# unit after this one, waits for it and types its first input. This returns as soon as the
+# sessions exist, because a boot's user manager waits for it.
 #
 # On a headless server the unit's drop-in also sets CCY_RESTORE_SSH_PASSPHRASE_FILE. It is
 # checked before anything starts, and a bad one starts nothing: every ccy session would only
@@ -860,7 +1084,8 @@ ccy_registry_restore() {
             echo "skip $REC_NAME: already running." >&2
             # Still one of the sessions that should be up, so still one to verify: a second
             # restore in the same boot must not hide a session stuck at a prompt since the first.
-            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR")
+            # Not this restore's to set going: whoever started it is driving it.
+            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR" none "" "" "")
             continue
         fi
         if [[ ! -d "$REC_DIR" ]]; then
@@ -880,7 +1105,7 @@ ccy_registry_restore() {
         if ccy_tmux_start_detached "$REC_NAME" "$REC_DIR" env "${marker[@]}" "$REC_LAUNCHER" "${args[@]}"; then
             echo "restored $REC_NAME in $REC_DIR." >&2
             started=$((started + 1))
-            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR")
+            manifest+=("$REC_NAME" "$REC_PREFIX" "$REC_DIR" pending "" "" "")
         else
             print_error "could not start $REC_NAME in $REC_DIR (the record is kept at $file)."
             failures=$((failures + 1))
