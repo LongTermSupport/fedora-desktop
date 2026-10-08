@@ -466,6 +466,8 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/restart-request.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-lifecycle.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
+        # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
+        - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"
       # `launchers` is on the lib and on every script that sources it (ccy, cc,
       # ccy-sessions), with the directories they land in: a tag that deployed one
       # without the others would recreate the new-lib-under-old-cc break.

@@ -394,10 +394,17 @@ check "and discards a passphrase an SSH_ASKPASS helper supplied" "yes" \
     "$(yes_if grep -qx '    ccy_askpass_passphrase_discard' <<<"$cleanup_def")"
 # The guard driven above (probe-killed) is installed before the probe runs, since the
 # launcher's cleanup trap is set only after it.
-guard_line="$(grep -nx "trap '_probe_agent_stop; ccy_askpass_passphrase_discard' EXIT" "$LAUNCHER" | cut -d: -f1)"
+guard_line="$(grep -nx "trap '_probe_agent_stop; ccy_askpass_passphrase_discard; ccy_agent_filter_stop' EXIT" "$LAUNCHER" | cut -d: -f1)"
 probe_line="$(grep -nx 'build_ssh_mounts_and_validate "ccy" || exit 1' "$LAUNCHER" | cut -d: -f1)"
 check "the launcher guards its probe against being killed, before running it" "yes" \
     "$(yes_if test -n "$guard_line" -a -n "$probe_line" -a "${guard_line:-0}" -lt "${probe_line:-0}")"
+# The one-key agent (Plan 00163) is started under that guard, before the probe signs through it,
+# and the cleanup that replaces the guard stops it too.
+filter_line="$(grep -nx 'ccy_agent_filter_start || exit 1' "$LAUNCHER" | cut -d: -f1)"
+check "the one-key agent starts after the guard is set and before the probe" "yes" \
+    "$(yes_if test -n "$filter_line" -a "${guard_line:-0}" -lt "${filter_line:-0}" -a "${filter_line:-0}" -lt "${probe_line:-0}")"
+check "and the launcher's cleanup stops it" "yes" \
+    "$(yes_if grep -qx '    ccy_agent_filter_stop' <<<"$cleanup_def")"
 # A run that fails part-way must never leave a drop-in naming a file not yet written (the
 # next boot would then restore nothing): the file is written before the drop-in is
 # deployed, and the drop-in removed before the file.

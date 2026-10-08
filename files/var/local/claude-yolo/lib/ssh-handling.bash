@@ -2,7 +2,10 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.7.1 - configure_git_signing takes commit/tag signing on or off from the
+# Version: 1.8.0 - A selected key file that needs a passphrase and that the session's agent
+#                  holds is forwarded from the agent through ccy's one-key agent, in place
+#                  of the file (ccy_agent_filter_start, Plan 00163).
+#          1.7.1 - configure_git_signing takes commit/tag signing on or off from the
 #                  project's local config first (Plan 00161).
 #          1.7.0 - configure_git_signing signs through an agent; no private key is staged
 #                  (Plan 00139).
@@ -734,6 +737,10 @@ _github_probe_identity() {
     local -a identity_opts guard=()
     if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
         identity_opts=(-o IdentitiesOnly=no -o IdentityAgent="${SSH_AUTH_SOCK:-none}")
+    elif ccy_agent_filter_forwards "$key"; then
+        # A key ccy forwards from the agent signs through the one-key agent; BatchMode so
+        # that, should the agent refuse, ssh fails rather than asking for the file's passphrase.
+        identity_opts=(-i "$key" -o IdentitiesOnly=yes -o IdentityAgent="$CCY_AGENT_FILTER_SOCK" -o BatchMode=yes)
     else
         identity_opts=(-i "$key" -o IdentitiesOnly=yes -o IdentityAgent="${CCY_PROBE_AGENT_SOCK:-none}")
     fi
@@ -958,6 +965,8 @@ ccy_askpass_passphrase_supply() {
     [ ${#SSH_KEYS[@]} -eq 1 ] || return 0
     local key="${SSH_KEYS[0]}"
     [ "$key" != "$SSH_AGENT_SENTINEL" ] || return 0
+    # A key ccy forwards from the agent is unlocked there already.
+    ! ccy_agent_filter_forwards "$key" || return 0
 
     # An empty passphrase opens a key that has none: nothing to supply.
     local unlock_probe
@@ -998,6 +1007,237 @@ ccy_askpass_passphrase_discard() {
     CCY_SUPPLIED_PP_FILE=""
 }
 
+# ── Key files the person's agent already holds: forward those keys alone (Plan 00163) ──
+#
+# A key file with a passphrase is unlocked by a person, twice; a headless launch, a restart
+# and a restore have nobody to ask. When the session's ssh-agent already holds that key,
+# ccy forwards it from the agent instead of mounting the file: through ccy's one-key agent
+# (ssh_agent_filter.py, beside this library), which lists and signs with the selected keys
+# only and refuses everything else, so the container never reaches the agent's other keys,
+# and can neither add, remove nor lock any. It is mounted where --ssh-agent mounts the whole
+# agent. SSH_KEYS keeps the key files, so Quick Launch, the session record and a restart name
+# them as before, and each launch decides afresh from what the agent holds then.
+#
+# Which keys: ccy_agent_forward_select, the one decision the launch, its unattended checks
+# (ccy_restart_keys_unattended) and Plan 00161's acceptance all take.
+#
+# The filter lives as long as the launcher: started here, stopped by ccy_agent_filter_stop
+# from the launcher's EXIT trap and cleanup (a restart runs cleanup before its exec), and it
+# stops by itself when the launcher is gone (a SIGKILL runs no trap).
+CCY_AGENT_FILTER_HELPER="$(dirname "${BASH_SOURCE[0]}")/ssh_agent_filter.py"
+CCY_AGENT_FILTER_KEYS=()
+CCY_AGENT_FILTER_DIR=""
+CCY_AGENT_FILTER_SOCK=""
+CCY_AGENT_FILTER_PID=""
+CCY_AGENT_KEY_FINGERPRINT=""
+CCY_AGENT_FORWARD_KEYS=()
+CCY_AGENT_FORWARD_FPS=()
+CCY_AGENT_FILTER_START_TRIES=100
+
+# _ssh_fingerprint_of <file> — stdout: the SHA256 fingerprint ssh-keygen -l prints for it.
+_ssh_fingerprint_of() {
+    local listing
+    listing=$(ssh-keygen -E sha256 -lf "$1" 2>&1) || return 1
+    awk 'NR == 1 && $2 ~ /^SHA256:/ { print $2; found = 1 } END { exit !found }' <<<"$listing"
+}
+
+# ssh_key_fingerprint <key-file> — stdout: its SHA256 fingerprint, from the private key file
+# itself: an OpenSSH private key keeps its public half unencrypted, so no passphrase is asked.
+# ssh-keygen -l prefers a .pub beside the file it is given, so it is given a link to the key
+# in a directory holding nothing else. A .pub beside the key must agree: one that names
+# another key would forward that other key, so the key is then not matched at all.
+ssh_key_fingerprint() {
+    local key="$1" dir target fingerprint public_fp rc=0
+    target=$(realpath -e -- "$key" 2>&1) || return 1
+    dir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ccy-keyfp.XXXXXX") || return 1
+    if ln -s -- "$target" "$dir/key"; then
+        fingerprint=$(_ssh_fingerprint_of "$dir/key") || rc=1
+    else
+        rc=1
+    fi
+    rm -rf -- "$dir" || return 1
+    [ "$rc" -eq 0 ] || return 1
+    if [ -e "$key.pub" ]; then
+        if ! public_fp=$(_ssh_fingerprint_of "$key.pub") || [ "$public_fp" != "$fingerprint" ]; then
+            echo "note: $key.pub is not the public half of $key (the key file is $fingerprint), so ccy does not look for $key in your ssh-agent" >&2
+            return 1
+        fi
+    fi
+    printf '%s\n' "$fingerprint"
+}
+
+# ssh_key_needs_passphrase <key-file> — status 0 when the empty passphrase is refused as a
+# wrong one. A key with none, or a missing or unreadable file, is not one that needs it.
+ssh_key_needs_passphrase() {
+    local probe
+    if probe=$(ssh-keygen -y -P '' -f "$1" 2>&1); then
+        return 1
+    fi
+    [[ "$probe" == *passphrase* ]]
+}
+
+# ccy_agent_forwards_key <key-file> — whether this key could be forwarded from the agent at
+# SSH_AUTH_SOCK instead of mounting the file: it needs a passphrase, and the agent holds a
+# key with its fingerprint. Sets CCY_AGENT_KEY_FINGERPRINT. One key's half of the decision;
+# ccy_agent_forward_select makes it for the selection.
+ccy_agent_forwards_key() {
+    local key="$1" fingerprint listed rc=0
+    CCY_AGENT_KEY_FINGERPRINT=""
+    [ "$key" != "$SSH_AGENT_SENTINEL" ] || return 1
+    [ -n "${SSH_AUTH_SOCK:-}" ] || return 1
+    ssh_key_needs_passphrase "$key" || return 1
+    fingerprint=$(ssh_key_fingerprint "$key") || return 1
+    listed=$(ssh-add -l -E sha256 2>&1) || rc=$?
+    [ "$rc" -eq 0 ] || return 1
+    awk -v fp="$fingerprint" '$2 == fp { found = 1 } END { exit !found }' <<<"$listed" || return 1
+    CCY_AGENT_KEY_FINGERPRINT="$fingerprint"
+}
+
+# ccy_agent_forward_select <ssh-keys...> — THE decision, for the whole selection: which key
+# files are forwarded from the agent. Each one that needs a passphrase and that the agent
+# holds is, PROVIDED that leaves no selected key needing a passphrase: every other key is
+# mounted as a file, and with an agent forwarded nothing in the container unlocks a file, so
+# a mixed selection would still stop at a prompt. Then nothing is forwarded and the launch
+# unlocks every file as it always has. A selection naming the whole agent (SSH_AGENT_SENTINEL)
+# forwards no key this way. Sets CCY_AGENT_FORWARD_KEYS and CCY_AGENT_FORWARD_FPS.
+ccy_agent_forward_select() {
+    CCY_AGENT_FORWARD_KEYS=()
+    CCY_AGENT_FORWARD_FPS=()
+    local key
+    local -a keys=() fps=()
+    for key in "$@"; do
+        [ "$key" != "$SSH_AGENT_SENTINEL" ] || return 0
+    done
+    for key in "$@"; do
+        if ccy_agent_forwards_key "$key"; then
+            keys+=("$key")
+            fps+=("$CCY_AGENT_KEY_FINGERPRINT")
+        elif ssh_key_needs_passphrase "$key"; then
+            return 0
+        fi
+    done
+    CCY_AGENT_FORWARD_KEYS=("${keys[@]}")
+    CCY_AGENT_FORWARD_FPS=("${fps[@]}")
+}
+
+# ccy_agent_filter_forwards <key-file> — status 0 when the running one-key agent forwards it.
+ccy_agent_filter_forwards() {
+    local forwarded
+    for forwarded in "${CCY_AGENT_FILTER_KEYS[@]}"; do
+        [ "$forwarded" = "$1" ] && return 0
+    done
+    return 1
+}
+
+# ccy_agent_filter_start — when ccy_agent_forward_select forwards any selected key, start the
+# one-key agent for those keys and set CCY_AGENT_FILTER_KEYS/_SOCK/_PID/_DIR. Otherwise sets
+# nothing and returns 0. A filter that was wanted and did not start fails.
+ccy_agent_filter_start() {
+    [ -z "$CCY_AGENT_FILTER_PID" ] || return 0
+    ccy_agent_forward_select "${SSH_KEYS[@]}"
+    [ ${#CCY_AGENT_FORWARD_KEYS[@]} -gt 0 ] || return 0
+    local key names="" fingerprint
+    local -a allow=()
+    for key in "${CCY_AGENT_FORWARD_KEYS[@]}"; do
+        names+="${names:+, }$(basename "$key")"
+    done
+    for fingerprint in "${CCY_AGENT_FORWARD_FPS[@]}"; do
+        allow+=(--allow "$fingerprint")
+    done
+
+    if [ ! -f "$CCY_AGENT_FILTER_HELPER" ]; then
+        print_error "ccy's one-key agent is not installed at $CCY_AGENT_FILTER_HELPER"
+        echo "  Re-run playbooks/imports/play-claude-yolo.yml, which installs it." >&2
+        return 1
+    fi
+    if ! command -v python3 >/dev/null; then
+        print_error "python3 not found: ccy's one-key agent needs it to forward $names from your ssh-agent"
+        return 1
+    fi
+    if ! CCY_AGENT_FILTER_DIR=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ccy-agent.XXXXXX"); then
+        print_error "could not create a directory for ccy's one-key agent under ${XDG_RUNTIME_DIR:-/tmp}"
+        CCY_AGENT_FILTER_DIR=""
+        return 1
+    fi
+    CCY_AGENT_FILTER_SOCK="$CCY_AGENT_FILTER_DIR/agent.sock"
+    python3 -I "$CCY_AGENT_FILTER_HELPER" --listen "$CCY_AGENT_FILTER_SOCK" \
+        --upstream "$SSH_AUTH_SOCK" "${allow[@]}" --parent-pid "$$" \
+        </dev/null >/dev/null 2>"$CCY_AGENT_FILTER_DIR/log" &
+    CCY_AGENT_FILTER_PID=$!
+
+    local tries=0 alive listed rc=0
+    while [ ! -S "$CCY_AGENT_FILTER_SOCK" ]; do
+        if ! alive=$(kill -0 "$CCY_AGENT_FILTER_PID" 2>&1) || [ "$tries" -ge "$CCY_AGENT_FILTER_START_TRIES" ]; then
+            print_error "ccy's one-key agent did not start for $names${alive:+ ($alive)}. It said:"
+            cat -- "$CCY_AGENT_FILTER_DIR/log" >&2
+            ccy_agent_filter_stop
+            return 1
+        fi
+        tries=$((tries + 1))
+        sleep 0.1
+    done
+    listed=$(SSH_AUTH_SOCK="$CCY_AGENT_FILTER_SOCK" ssh-add -l -E sha256 2>&1) || rc=$?
+    for fingerprint in "${CCY_AGENT_FORWARD_FPS[@]}"; do
+        if [ "$rc" -ne 0 ] || ! awk -v fp="$fingerprint" '$2 == fp { found = 1 } END { exit !found }' <<<"$listed"; then
+            print_error "ccy's one-key agent does not offer every key of $names (ssh-add -l through it: $listed)"
+            cat -- "$CCY_AGENT_FILTER_DIR/log" >&2
+            ccy_agent_filter_stop
+            return 1
+        fi
+    done
+    CCY_AGENT_FILTER_KEYS=("${CCY_AGENT_FORWARD_KEYS[@]}")
+    if [ ${#CCY_AGENT_FILTER_KEYS[@]} -eq 1 ]; then
+        echo "✓ $names needs a passphrase and your ssh-agent holds it: forwarding that one key from the agent (no prompt; the agent's other keys stay out of the container)"
+    else
+        echo "✓ $names need passphrases and your ssh-agent holds them: forwarding those keys alone from the agent (no prompt; the agent's other keys stay out of the container)"
+    fi
+}
+
+# ccy_agent_filter_stop — stop the one-key agent and remove its directory. Safe to repeat.
+ccy_agent_filter_stop() {
+    local out rc=0
+    if [ -n "$CCY_AGENT_FILTER_PID" ]; then
+        if out=$(kill "$CCY_AGENT_FILTER_PID" 2>&1); then
+            wait "$CCY_AGENT_FILTER_PID" || rc=$?
+            if [ "$rc" -ne 0 ]; then
+                echo "note: ccy's one-key agent (pid $CCY_AGENT_FILTER_PID) exited with status $rc" >&2
+            fi
+        else
+            echo "note: ccy's one-key agent (pid $CCY_AGENT_FILTER_PID) was already gone: $out" >&2
+        fi
+    fi
+    if [ -n "$CCY_AGENT_FILTER_DIR" ] && ! rm -rf -- "$CCY_AGENT_FILTER_DIR"; then
+        print_error "could not remove ccy's one-key agent directory $CCY_AGENT_FILTER_DIR"
+        return 1
+    fi
+    CCY_AGENT_FILTER_PID=""
+    CCY_AGENT_FILTER_DIR=""
+    CCY_AGENT_FILTER_SOCK=""
+    CCY_AGENT_FILTER_KEYS=()
+}
+
+# _agent_public_for_key <agent-socket> <key-file> — stdout: "type base64" of the identity the
+# agent lists with the key file's fingerprint; status 1 when it lists none.
+_agent_public_for_key() {
+    local sock="$1" key="$2" fingerprint listed line line_fp
+    fingerprint=$(ssh_key_fingerprint "$key") || return 1
+    listed=$(SSH_AUTH_SOCK="$sock" ssh-add -L 2>&1) || return 1
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        if ! line_fp=$(ssh-keygen -E sha256 -lf - <<<"$line" 2>&1); then
+            echo "note: skipping an identity the agent lists that ssh-keygen cannot read: $line_fp" >&2
+            continue
+        fi
+        read -r _ line_fp _ <<<"$line_fp"
+        if [ "$line_fp" = "$fingerprint" ]; then
+            read -r line_fp line _ <<<"$line"
+            printf '%s %s' "$line_fp" "$line"
+            return 0
+        fi
+    done <<<"$listed"
+    return 1
+}
+
 # _probe_unlock_keys <tool_name> — unlock every selected key file into the private probe
 # agent, BEFORE any GitHub connection is opened (see _probe_agent_start). Requires SSH_KEYS;
 # RESTORE_SSH_PASSPHRASE_FILE is set only on a server's session restore. Ordinarily it asks
@@ -1027,6 +1267,8 @@ _probe_unlock_keys() {
     for unlock_key in "${SSH_KEYS[@]}"; do
         # The session's agent is already unlocked by definition.
         [ "$unlock_key" = "$SSH_AGENT_SENTINEL" ] && continue
+        # So is a key ccy forwards from it.
+        ccy_agent_filter_forwards "$unlock_key" && continue
         if ! _probe_agent_add_key "$unlock_key" "$CCY_PROBE_ASKPASS_DIR"; then
             print_error "Could not unlock SSH key: $unlock_key"
             if [ -n "$CCY_SUPPLIED_PP_FILE" ]; then
@@ -1166,6 +1408,16 @@ build_ssh_mounts_and_validate() {
                            "-e" "SSH_AUTH_SOCK=/run/ccy/ssh-agent"
                            "--security-opt" "label=disable")
             key_label="ssh-agent"
+        elif ccy_agent_filter_forwards "$key"; then
+            # The one-key agent, mounted once however many keys it forwards, as the whole
+            # agent is above, and for the same SELinux reason: an unconfined process serves it.
+            if [ "$SSH_AGENT_FORWARDED" != "1" ]; then
+                SSH_AGENT_FORWARDED=1
+                SSH_RUN_OPTS+=("-v" "$CCY_AGENT_FILTER_SOCK:/run/ccy/ssh-agent"
+                               "-e" "SSH_AUTH_SOCK=/run/ccy/ssh-agent"
+                               "--security-opt" "label=disable")
+            fi
+            key_label="key $(basename "$key"), from your ssh-agent"
         else
             local container_key_path="/root/.ssh/key_$i"
             if [ "${CCY_SELINUX_MODE:-off}" != "off" ]; then
@@ -1611,8 +1863,10 @@ _signing_key_name() {
 #   $3 the primary SSH identity: a host key path, $SSH_AGENT_SENTINEL, or empty
 #   $4 where a key-file identity is mounted in the container
 #   $5 1 when the session's ssh-agent is forwarded into the container
+#   $6 the one-key agent's socket when it forwards the key-file identity in place of the
+#      file (ccy_agent_filter_start), else empty: the copy then names that key's public half
 configure_git_signing() {
-    local gitconfig="$1" project="$2" primary="$3" in_container="$4" forwarded="$5"
+    local gitconfig="$1" project="$2" primary="$3" in_container="$4" forwarded="$5" filter_sock="${6:-}"
     local name value rc format key signingkey label public="" signing=false
     local in_repo=false probe signing_on_in="in ~/.gitconfig"
 
@@ -1678,8 +1932,19 @@ configure_git_signing() {
         return 1
     fi
 
-    # A forwarded agent must hold the key: nothing in the container can unlock it.
-    if [ "$forwarded" = "1" ] || [ "$primary" = "$SSH_AGENT_SENTINEL" ]; then
+    # A forwarded agent must hold the key: nothing in the container can unlock it. The
+    # one-key agent offers only the identity's own key, and no file of it is mounted, so the
+    # copy names its public half as the agent gives it.
+    if [ -n "$filter_sock" ] && [ "$primary" != "$SSH_AGENT_SENTINEL" ]; then
+        local offered
+        if ! offered=$(_agent_public_for_key "$filter_sock" "$key"); then
+            _git_signing_refusal "ccy's one-key agent does not offer $(basename "$key")" \
+                "Load it into your ssh-agent with: ssh-add $key"
+            return 1
+        fi
+        signingkey="key::$offered"
+        label="$(basename "$key"), the session's SSH identity, from your ssh-agent"
+    elif [ "$forwarded" = "1" ] || [ "$primary" = "$SSH_AGENT_SENTINEL" ]; then
         case "$key" in
             key::*) public="${key#key::}" ;;
             *)
@@ -1730,6 +1995,10 @@ export -f _host_signing_key_for
 export -f _git_signing_refusal
 export -f _signing_key_name
 export -f configure_git_signing
+export -f _agent_public_for_key
+export -f ssh_key_fingerprint
+export -f ssh_key_needs_passphrase
+export -f ccy_agent_forwards_key
 export -f discover_and_select_ssh_keys
 export -f build_ssh_mounts_and_validate
 export -f resolve_github_ssh_alias
