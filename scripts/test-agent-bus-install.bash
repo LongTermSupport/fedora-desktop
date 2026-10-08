@@ -7,7 +7,7 @@
 # the readiness step. Its decisions only show on a real host, so this runs the real script
 # under AGENT_BUS_INSTALL_TEST_PREFIX, which roots every path it writes under a scratch
 # directory and skips the root check, with stub systemctl, firewall-cmd, nmcli, curl, ip,
-# ss, dnf, rpm, getent, useradd, zstd, uname, systemd-run and agent-bus first on PATH. The
+# ss, dnf, rpm, getent, useradd, zstd, uname, systemd-run, journalctl and agent-bus first on PATH. The
 # stubs keep their state in files and log every call; the agent-bus stub runs the real
 # `render` commands from this checkout, so team-file validation is the real one.
 #
@@ -143,6 +143,10 @@ case $cmd in
                 if [[ -e $units/$u.active ]]; then echo active
                 elif [[ -e $units/$u.failed ]]; then echo failed
                 else echo inactive; fi ;;
+            SubState)
+                if [[ -e $units/$u.active ]]; then echo running
+                elif [[ -e $units/$u.failed ]]; then echo auto-restart
+                else echo dead; fi ;;
             UnitFileState) if [[ -e $units/$u.enabled ]]; then echo enabled; else echo disabled; fi ;;
             # systemd prints a list-valued property set twice (IPv4 and IPv6) on two lines.
             SocketBindDeny) printf 'any\nany\n' ;;
@@ -150,6 +154,10 @@ case $cmd in
         esac ;;
     *) echo "systemctl stub: unexpected $cmd" >&2; exit 99 ;;
 esac
+EOF
+
+stub journalctl <<'EOF'
+echo "stub journal: tuwunel exited, status=1/FAILURE"
 EOF
 
 stub firewall-cmd <<'EOF'
@@ -656,8 +664,10 @@ team_file beta '["192.0.2.10"]' '[]' >"$TF"
 touch "$STUB_DIR/fail-start/agent-bus-hs@beta.service"
 run team --team-file "$TF"
 check "the readiness step fails the run" "1" "$RC"
-check "the failure names the unit and its state" "yes" "$(says 'agent-bus-hs@beta.service is failed' "$ERR")"
-check "it points at the unit's log, without scanning it" "yes" "$(says 'journalctl -u agent-bus-hs@beta.service' "$ERR")"
+check "the failure names the unit, its state and sub-state" "yes" "$(says 'agent-bus-hs@beta.service is failed \(auto-restart\)' "$ERR")"
+check "it points at the unit's log" "yes" "$(says 'journalctl -u agent-bus-hs@beta.service' "$ERR")"
+check "it prints the unit's last journal lines" "yes" "$(says '^stub journal: tuwunel exited' "$ERR")"
+check "the journal read is of that unit" "yes" "$(says '^journalctl --unit agent-bus-hs@beta.service --lines 40 ' "$(LOG)")"
 check "bootstrap does not run" "0" "$(count '^agent-bus bootstrap' "$(LOG)")"
 
 echo "== team: a firewalld add that fails part-way"

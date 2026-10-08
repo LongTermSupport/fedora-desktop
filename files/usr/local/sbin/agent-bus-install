@@ -39,6 +39,7 @@ readonly PACKAGES=(
 readonly BUS_IFACE=agentbus0
 readonly RELEASE_URL=https://github.com/matrix-construct/tuwunel/releases/download
 readonly READY_TRIES=60
+readonly JOURNAL_LINES=40
 readonly BACKUP_WAIT_TRIES=60
 readonly TEAM_RE='^[a-z][a-z0-9-]{0,23}$'
 readonly UNIT_FILES=(agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer)
@@ -628,10 +629,21 @@ remove_firewall() {
     rm -f -- "$record"
 }
 
+# The unit's last journal lines, to stderr: the run log then carries why Tuwunel exited.
+print_unit_journal() {
+    local unit=$1
+    say "the last $JOURNAL_LINES journal lines of $unit:"
+    if ! journalctl --unit "$unit" --lines "$JOURNAL_LINES" --no-pager --output short-iso >&2; then
+        say "journalctl could not read the journal of $unit"
+    fi
+}
+
 # Poll the homeserver until it answers; fail as soon as its unit is not active (an unknown
-# tuwunel.toml key makes Tuwunel exit 1, error_on_unknown_config_opts), with no journal scan.
+# tuwunel.toml key makes Tuwunel exit 1, error_on_unknown_config_opts). The verdict is the
+# unit's state, never a journal scan; the journal is printed only to explain a failure.
+# A Type=simple unit is "activating" only in auto-restart, after its process has exited.
 wait_ready() {
-    local unit=$1 port=$2 try state answer=""
+    local unit=$1 port=$2 try state sub answer=""
     local url=http://127.0.0.1:$port/_tuwunel/server_version
     for ((try = 1; try <= READY_TRIES; try++)); do
         if answer=$(curl --fail --silent --show-error --noproxy '*' --max-time 2 "$url" 2>&1); then
@@ -640,12 +652,15 @@ wait_ready() {
         fi
         state=$(unit_state "$unit")
         if [[ $state != active ]]; then
-            die "$EXIT_FAIL" "readiness: $unit is $state, not active: it did not start (an unknown or" \
+            sub=$(systemctl show -P SubState "$unit")
+            print_unit_journal "$unit"
+            die "$EXIT_FAIL" "readiness: $unit is $state ($sub), not active: it did not start (an unknown or" \
                 "malformed tuwunel.toml key is one cause). See: systemctl status --no-pager $unit;" \
                 "journalctl -u $unit --no-pager"
         fi
         sleep 1
     done
+    print_unit_journal "$unit"
     die "$EXIT_FAIL" "readiness: $unit is active but $url did not answer in $READY_TRIES s: $answer"
 }
 

@@ -323,7 +323,8 @@ file's defaults hold private address ranges the repository's scanner refuses; th
 URL and its SHA-256 are recorded in `test_render.py`, so a pin bump must regenerate it). By default Tuwunel only
 warns about an unknown key and carries on; `error_on_unknown_config_opts = true` makes one
 fatal at start (H4: exit 1), so a misspelt or retired key fails the unit and the installer's
-readiness step (U16) reports it, with no journal scan. H4 starts Tuwunel with exactly this
+readiness step (U16) reports it: the verdict is the unit's state, never a journal scan,
+and the unit's last journal lines are printed with the failure to say why. H4 starts Tuwunel with exactly this
 key set, which proves the pinned version knows every key.
 
 | Key                               | Value                                                          | Why                                                                |
