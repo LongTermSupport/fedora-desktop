@@ -10,6 +10,10 @@
 #                  kill the status table.
 #          1.1.0 - Container engine abstraction (docker/podman support)
 
+# Wrong answers a container menu takes before it gives up (return 2), so a menu whose input
+# is not a person cannot loop for ever.
+CCY_CONTAINER_MENU_TRIES=3
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZOMBIE CONTAINER DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -201,8 +205,12 @@ show_zombie_container_tui() {
     echo "  [q] Quit without starting new session"
     echo ""
 
+    local attempts=0
     while true; do
-        read -rp "$CCY_PROMPT_ZOMBIE_MENU " choice
+        if ! read -rp "$CCY_PROMPT_ZOMBIE_MENU " choice; then
+            echo "No answer: the input closed. Not starting a session." >&2
+            return 2
+        fi
         echo ""
 
         case "$choice" in
@@ -251,6 +259,11 @@ show_zombie_container_tui() {
                 return 1
                 ;;
             *)
+                attempts=$((attempts + 1))
+                if [ "$attempts" -ge "$CCY_CONTAINER_MENU_TRIES" ]; then
+                    echo "No valid answer in $CCY_CONTAINER_MENU_TRIES tries. Not starting a session." >&2
+                    return 2
+                fi
                 echo "Invalid choice. Please enter a, s, i, or q."
                 echo ""
                 ;;
@@ -281,7 +294,7 @@ check_zombie_containers_startup() {
 
     if [ "$zombie_count" -gt 0 ]; then
         if [ "$restoring" = true ]; then
-            echo "Session restore: leaving ${zombie_count} container(s) without a terminal running (${zombies[*]}); a restore never stops a container it cannot prove dead." >&2
+            echo "Unattended launch: leaving ${zombie_count} container(s) without a terminal running (${zombies[*]}); a launch nobody answers never stops a container it cannot prove dead." >&2
             return 0
         fi
         show_zombie_container_tui "$suffix"
@@ -506,12 +519,13 @@ show_container_top() {
 
 # Check for running containers for current project and offer to manage them
 # Called at ccy startup after git repo check
-# Args: project_name, suffix, restoring (true when this launch is a session restore)
-# Returns: 0 to continue, 1 to abort
+# Args: project_name, suffix, unattended (true when nobody can answer: a restore, a
+# restart or a headless launch)
+# Returns: 0 to continue, 1 when the person quit, 2 when no answer came
 #
-# A restore answers "continue alongside" without asking. Sessions that ran together in one
-# project before a reboot are restored together, so a sibling's container is expected, and
-# stopping it would kill the session the restore has just brought back.
+# Unattended, it answers "continue alongside" without asking. Sessions that ran together in
+# one project are restored together, and several seats of one team run headless in one
+# checkout, so a sibling's container is expected, and stopping it would kill that session.
 check_project_containers_startup() {
     local project_name="$1"
     local suffix="${2:-yolo}"
@@ -528,7 +542,7 @@ check_project_containers_startup() {
     fi
 
     if [ "$restoring" = true ]; then
-        echo "Session restore: starting alongside ${#containers[@]} running container(s) for this project (${containers[*]})." >&2
+        echo "Unattended launch: starting alongside ${#containers[@]} running container(s) for this project (${containers[*]})." >&2
         return 0
     fi
 
@@ -566,8 +580,12 @@ check_project_containers_startup() {
     echo "  [q] Quit"
     echo ""
 
+    local attempts=0
     while true; do
-        read -rp "$CCY_PROMPT_EXISTING_CONTAINERS " choice
+        if ! read -rp "$CCY_PROMPT_EXISTING_CONTAINERS " choice; then
+            echo "No answer: the input closed. Not starting a session." >&2
+            return 2
+        fi
         echo ""
 
         case "$choice" in
@@ -614,6 +632,11 @@ check_project_containers_startup() {
                 return 1
                 ;;
             *)
+                attempts=$((attempts + 1))
+                if [ "$attempts" -ge "$CCY_CONTAINER_MENU_TRIES" ]; then
+                    echo "No valid answer in $CCY_CONTAINER_MENU_TRIES tries. Not starting a session." >&2
+                    return 2
+                fi
                 echo "Invalid choice. Please enter c, s, m, or q."
                 echo ""
                 ;;

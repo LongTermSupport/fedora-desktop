@@ -254,7 +254,8 @@ does, with three exceptions (since CCY 3.61.0). A restored
 `ccy` accepts its project's saved Quick Launch configuration, leaves containers left over
 from before the reboot running rather than asking what to do with them, and starts
 alongside sibling sessions in the same project. Each of these is the one answer that
-cannot lose work, and each is announced on stderr. Every other prompt (token choice, SSH
+cannot lose work, and each is announced on stderr. A restart and a `--headless` launch
+take the same two container answers (headless since CCY 3.88.1). Every other prompt (token choice, SSH
 key or passphrase, GitHub-over-443, network, compose) has no safe answer, so it waits in
 the pane for a person — except the SSH key passphrase on a headless server, below.
 

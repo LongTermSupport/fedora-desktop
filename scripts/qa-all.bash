@@ -558,6 +558,18 @@ fi
 gpu_device_summary=$(qa_gate_case_count "$gpu_device_out")
 qa_pass_line ccy-gpu-device "$gpu_device_summary"
 
+# lib/docker-health.bash: the existing- and orphaned-container menus. A launch nobody can
+# answer (restore, restart, headless) takes their one safe answer, and a menu with no answer
+# or three wrong ones gives up instead of looping on a closed or non-human input.
+container_menus_out=""
+if ! container_menus_out="$(bash "$SCRIPT_DIR/test-ccy-container-menus.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-container-menus \
+        "ccy container menu tests failed" \
+        "$container_menus_out"
+fi
+container_menus_summary=$(qa_gate_case_count "$container_menus_out")
+qa_pass_line ccy-container-menus "$container_menus_summary"
+
 # lib/restart-request.bash: a supervisor's restart request is a file written by code in the
 # container and acted on by the host, so it is validated strictly (regular file, size, JSON,
 # freshness, session id), the restart count is bounded, and the relaunch argv replaces every

@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.88.1 — container 2.48
+
+- **A headless launch never stops at a container menu** (Plan 00161, found by U20's M2).
+  `ccy --headless` in a checkout with another ccy container running reached the "Existing
+  Containers Detected" menu, and its stdin was the session's own input: every read got an
+  invalid answer and it looped for ever. A headless launch now takes the answers a restore
+  and a restart already take: it starts alongside the project's running containers, and
+  leaves containers without a terminal running. Several seats of one team in one checkout
+  are each such a container.
+- **Both container menus give up** when their input closes, or after three wrong answers,
+  and the launch exits 1. Quitting with `q` still exits 0.
+
 ## 3.88.0 — container 2.48
 
 - **A restored session is set going** (Plan 00135 Phase 8, fedora-desktop#88). A session

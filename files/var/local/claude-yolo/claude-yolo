@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.88.0"  # A restored session is set going once its prompt draws: /compact or continue. See docs/ccy-changelog.md.
+CCY_VERSION="3.88.1"  # A headless launch never stops at a container menu. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1684,11 +1684,27 @@ fi
 # These are stopped/dead containers where --rm never fired — auto-removed
 clean_stale_containers_startup "yolo"
 
+# The container menus below have one safe answer when nobody can answer them: a restore, a
+# restart, or a headless launch, whose stdin is the session's own input. Under --teams the
+# other seats' headless containers are exactly what those menus would list.
+CCY_NO_CONTAINER_PROMPTS="$CCY_UNATTENDED_LAUNCH"
+if [ "$HEADLESS_MODE" = true ]; then
+    CCY_NO_CONTAINER_PROMPTS=true
+fi
+
+# A menu answered q (1) is the person's choice to stop; one that got no answer (2) is a failure.
+ccy_container_menu_exit() {
+    local rc="$1"
+    [ "$rc" -eq 0 ] && return 0
+    [ "$rc" -eq 1 ] && exit 0
+    exit 1
+}
+
 # Check for zombie containers (running but with no controlling terminal). Unattended, a
 # restore's answer: leave them, since none can be proved dead.
-if ! check_zombie_containers_startup "yolo" "$CCY_UNATTENDED_LAUNCH"; then
-    exit 0
-fi
+container_menu_rc=0
+check_zombie_containers_startup "yolo" "$CCY_NO_CONTAINER_PROMPTS" || container_menu_rc=$?
+ccy_container_menu_exit "$container_menu_rc"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # EXISTING CONTAINER CHECK
@@ -1698,10 +1714,9 @@ fi
 # This helps users avoid accumulating containers they forgot about. Unattended, a restore's
 # answer: start alongside them. A restart's own container is already gone (--rm), so any
 # still running belongs to another session, which stopping would kill.
-if ! check_project_containers_startup "$PROJECT_NAME" "yolo" "$CCY_UNATTENDED_LAUNCH"; then
-    # User chose to quit
-    exit 0
-fi
+container_menu_rc=0
+check_project_containers_startup "$PROJECT_NAME" "yolo" "$CCY_NO_CONTAINER_PROMPTS" || container_menu_rc=$?
+ccy_container_menu_exit "$container_menu_rc"
 
 # Set terminal title to project name
 printf '\033]0;CCY: %s\007' "$PROJECT_NAME"

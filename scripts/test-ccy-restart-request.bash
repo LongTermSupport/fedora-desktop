@@ -637,8 +637,8 @@ check "the network chain has a restart branch between --no-network and detection
             END {print (a && b && c && a < b && b < c) ? "yes" : "no"}' "$LAUNCHER")"
 check "a restart rejoins its network without the compose-start offer" "1" \
     "$(grep -c -F "|| check_and_start_compose_services \"\$SPECIFIED_NETWORK\" \"\$PROJECT_NAME\"; then" "$LAUNCHER")"
-check "zombie and sibling containers take the unattended answer on a restart too" "1 1" \
-    "$(grep -c -F "check_zombie_containers_startup \"yolo\" \"\$CCY_UNATTENDED_LAUNCH\"" "$LAUNCHER") $(grep -c -F "check_project_containers_startup \"\$PROJECT_NAME\" \"yolo\" \"\$CCY_UNATTENDED_LAUNCH\"" "$LAUNCHER")"
+check "zombie and sibling containers take the unattended answer on a restart too" "1 1 1" \
+    "$(grep -c -x -F "CCY_NO_CONTAINER_PROMPTS=\"\$CCY_UNATTENDED_LAUNCH\"" "$LAUNCHER") $(grep -c -F "check_zombie_containers_startup \"yolo\" \"\$CCY_NO_CONTAINER_PROMPTS\"" "$LAUNCHER") $(grep -c -F "check_project_containers_startup \"\$PROJECT_NAME\" \"yolo\" \"\$CCY_NO_CONTAINER_PROMPTS\"" "$LAUNCHER")"
 check "a restart may use a server restore's passphrase file" "1" \
     "$(grep -c -x -F "ccy_restore_passphrase_take \"\$CCY_UNATTENDED_LAUNCH\" || exit 1" "$LAUNCHER")"
 check "the old-sessions migration is not asked on a restart" "1" \
