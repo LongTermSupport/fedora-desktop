@@ -24,22 +24,30 @@ for lib in session-registry restart-request; do
         exit 1
     fi
 done
-# session-registry's writers call print_error; the functions under test do not, but
-# define it so a regression that starts calling it fails on content, not on a missing name.
-print_error() { printf 'ERROR: %s\n' "$*" >&2; }
+# The launcher's own SSH library, as it sources it: the key functions read its forwarded-agent
+# sentinel and ask its ccy_agent_forwards_key whether the agent holds a key.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../files/var/local/claude-yolo/lib/common-pure.bash
+source "$LIB_DIR/common-pure.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../files/var/local/claude-yolo/lib/ssh-handling.bash
+source "$LIB_DIR/ssh-handling.bash"
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../files/var/local/claude-yolo/lib/session-registry.bash
 source "$LIB_DIR/session-registry.bash"
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../files/var/local/claude-yolo/lib/restart-request.bash
 source "$LIB_DIR/restart-request.bash"
-
-# The forwarded-agent sentinel, read from ssh-handling.bash rather than retyped, so the key
-# functions are tested against the value the launcher really uses.
-SSH_AGENT_SENTINEL=$(awk -F'"' '/^readonly SSH_AGENT_SENTINEL=/ {print $2}' "$LIB_DIR/ssh-handling.bash")
-if [ -z "$SSH_AGENT_SENTINEL" ]; then
-    echo "FAIL: SSH_AGENT_SENTINEL not found in $LIB_DIR/ssh-handling.bash" >&2
+if [ -z "${SSH_AGENT_SENTINEL:-}" ] || ! declare -F ccy_agent_forwards_key >/dev/null; then
+    echo "FAIL: SSH_AGENT_SENTINEL or ccy_agent_forwards_key missing from $LIB_DIR/ssh-handling.bash" >&2
     exit 1
 fi
-export SSH_AGENT_SENTINEL
+for tool in ssh-agent ssh-add ssh-keygen; do
+    if ! command -v "$tool" >/dev/null; then
+        echo "FAIL: $tool not found; the key cases drive a real ssh-agent (install openssh-clients through the playbooks)" >&2
+        exit 1
+    fi
+done
 
 for fn in ccy_restart_request_read ccy_restart_request_discard ccy_restart_budget_take ccy_restart_relaunch_args \
     ccy_restart_choice_args ccy_restart_keys_unattended ccy_restart_marker_take ccy_restart_refuse; do
@@ -279,6 +287,34 @@ ccy_restart_keys_unattended "$work/pp-file" "$work/key-locked" 2>/dev/null
 check "a named passphrase file (a server restore) lets it through" 0 "$?"
 ccy_restart_keys_unattended "" "$work/no-such-key" 2>/dev/null
 check "a key that cannot be read is refused" 1 "$?"
+check "…and the refusal says to load it into the agent" "yes" \
+    "$(grep -q -F "ssh-add $work/key-locked" "$work/locked.err" && echo yes || echo no)"
+
+# A real agent: a passphrase key it holds opens unattended (ccy forwards that one key from
+# it), matched by fingerprint, with or without the .pub beside the key file.
+agent_out=$(ssh-agent -s -a "$work/agent.sock")
+agent_pid=$(printf '%s\n' "$agent_out" | awk -F'[=;]' '/SSH_AGENT_PID=/ { print $2 }')
+trap '[ -n "${agent_pid:-}" ] && kill "$agent_pid"; rm -rf "$work"' EXIT
+ssh-keygen -q -t ed25519 -N 'fixture-passphrase-not-a-secret' -C '' -f "$work/key-other"
+cp "$work/key-locked.pub" "$work/key-locked.pub.kept"
+SSH_AUTH_SOCK="$work/agent.sock" ssh-add -q "$work/key-open" 2>/dev/null
+SSH_AUTH_SOCK="$work/agent.sock" ccy_restart_keys_unattended "" "$work/key-locked" </dev/null 2>/dev/null
+check "a passphrase key the agent does not hold is still refused" 1 "$?"
+printf '#!/bin/sh\necho fixture-passphrase-not-a-secret\n' >"$work/askpass"
+chmod 700 "$work/askpass"
+SSH_AUTH_SOCK="$work/agent.sock" SSH_ASKPASS_REQUIRE=force SSH_ASKPASS="$work/askpass" \
+    ssh-add -q "$work/key-locked" </dev/null 2>/dev/null
+check "(fixture: the locked key is loaded into the agent)" 0 "$?"
+SSH_AUTH_SOCK="$work/agent.sock" ccy_restart_keys_unattended "" "$work/key-locked" </dev/null 2>/dev/null
+check "a passphrase key the agent holds opens unattended" 0 "$?"
+rm -f "$work/key-locked.pub"
+SSH_AUTH_SOCK="$work/agent.sock" ccy_restart_keys_unattended "" "$work/key-locked" </dev/null 2>/dev/null
+check "…matched from the key file itself when no .pub is beside it" 0 "$?"
+mv "$work/key-locked.pub.kept" "$work/key-locked.pub"
+SSH_AUTH_SOCK="$work/agent.sock" ccy_restart_keys_unattended "" "$work/key-locked" "$work/key-other" </dev/null 2>/dev/null
+check "…but another passphrase key beside it, not held, still refuses" 1 "$?"
+( unset SSH_AUTH_SOCK; ccy_restart_keys_unattended "" "$work/key-locked" </dev/null 2>/dev/null )
+check "with no agent at all it refuses as before" 1 "$?"
 
 echo "=== ccy_restart_marker_take ==="
 
@@ -334,7 +370,8 @@ STUB
 # input arrives in HC_* variables.
 cat >"$work/driver.bash" <<'DRIVER'
 set -e
-print_error() { printf 'ERROR: %s\n' "$*" >&2; }
+source "$HC_LIB_DIR/common-pure.bash"
+source "$HC_LIB_DIR/ssh-handling.bash"
 source "$HC_LIB_DIR/session-registry.bash"
 source "$HC_LIB_DIR/restart-request.bash"
 source "$HC_WORK/handler.bash"

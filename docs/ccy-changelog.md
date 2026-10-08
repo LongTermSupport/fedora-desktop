@@ -17,6 +17,24 @@ Two version numbers move independently — see
 
 ---
 
+## 3.87.0 — container 2.48
+
+- **A key file that needs a passphrase is forwarded from your ssh-agent as that one key**
+  (Plan 00163). When exactly one key file is selected, it needs a passphrase, and the
+  session's agent holds a key with its fingerprint (from the `.pub`, or the key file itself),
+  ccy no longer mounts the file and asks for the passphrase. It starts its one-key agent
+  (`ssh_agent_filter.py`, installed beside the launcher's libraries), which lists and signs
+  with that key only and refuses everything else, adding, removing and locking keys and
+  every agent extension included, and mounts its socket where `--ssh-agent` mounts the
+  agent. A headless launch, a restart and a restore of such a session start with no prompt;
+  commit signing names the key's public half. Saved Quick Launch choices and session records
+  still name the key file. The one-key agent lives in an owner-only directory on
+  `XDG_RUNTIME_DIR` and stops with the launcher. The refusals for a key that needs a
+  passphrase now say to `ssh-add` it, not to use `--ssh-agent`. Plain `--ssh-agent` is
+  unchanged. Gated by `tests/helpers/ssh_agent_filter/` (a real ssh-agent holding two
+  keys), `scripts/test-ccy-ssh-handling.bash`, `scripts/test-ccy-git-signing.bash` and
+  `scripts/test-ccy-restart-request.bash`.
+
 ## 3.86.3 — container 2.48
 
 - **Quick Launch keeps its saved choices across ccy versions** (Plan 00135 Task 7.5). The

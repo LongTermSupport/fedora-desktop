@@ -35,6 +35,7 @@
 # and its functions send_ping, human_login, human_logout, human_curl, evidence.
 
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
+readonly CCY_SSH_LIB="/var/local/claude-yolo/lib/ssh-handling.bash"
 readonly CCY_IMAGE="claude-yolo:latest"
 readonly CCY_KIT_PINGBUS="/opt/claude-yolo/optional/agent-bus/pingbus"
 readonly U20=(python3 -I "${PLAN_SCRIPT_DIR}/u20_check.py")
@@ -176,13 +177,28 @@ u20_owner_needs() {
     return 1
 }
 
+# u20_agent_forwards_key <key-file> — the installed ccy's own decision (ccy_agent_forwards_key
+# in its lib/ssh-handling.bash, Plan 00163): the key needs a passphrase and the ssh-agent of this
+# terminal holds it, so ccy forwards that one key from the agent and asks for nothing. In a
+# subshell, so the library's names never reach acceptance.bash.
+#   status 0  ccy forwards it    1  it does not    2  the installed ccy has no such check
+u20_agent_forwards_key() {
+    (
+        # shellcheck source=/dev/null
+        source "${CCY_SSH_LIB}" || exit 2
+        declare -F ccy_agent_forwards_key >/dev/null || exit 2
+        ccy_agent_forwards_key "$1"
+    )
+}
+
 # u20_prerequisites — what M2 needs on this host, checked before M1 spends any time: ccy and its
 # image at the version the launcher requires with the agent-bus kit in it, agent-bus, and this
 # checkout's saved Quick Launch choices as the installed ccy takes them headless: the record of
-# the format this ccy reads, its token unexpired, every SSH key usable with nobody to type a passphrase.
+# the format this ccy reads, its token unexpired, every SSH key usable with nobody to type a
+# passphrase (none needed, or the agent of this terminal holds it, as ccy itself decides).
 # Then nothing of an interrupted run is left: no container in an acceptance seat, no seat.
 u20_prerequisites() {
-    local want have ccy_version config_version keys key
+    local want have ccy_version config_version keys key why rc
     local play="run play-claude-yolo.yml (deploy.bash runs it)"
     if [[ ! -x "${CCY_LAUNCHER}" ]]; then
         u20_owner_needs "ccy is not installed (${CCY_LAUNCHER}): ${play}"
@@ -225,9 +241,18 @@ u20_prerequisites() {
                 u20_owner_needs "the saved launch uses your ssh-agent, and the terminal running meta-deploy.bash has none with a key in it: ssh-add your key there first"
                 return 1
             fi
-        elif ! ssh-keygen -y -P '' -f "${key}" >/dev/null; then
-            u20_owner_needs "SSH key ${key} needs a passphrase, and a headless launch never asks: ssh-add it and launch ccy here once with --ssh-agent (Quick Launch saves that), or choose a key with no passphrase"
-            return 1
+        elif ! why="$(ssh-keygen -y -P '' -f "${key}" 2>&1 >/dev/null)"; then
+            rc=0
+            u20_agent_forwards_key "${key}" || rc=$?
+            if [[ "${rc}" -eq 2 ]]; then
+                u20_owner_needs "the installed ccy cannot forward a key from your ssh-agent (${CCY_SSH_LIB} has no ccy_agent_forwards_key): ${play}"
+                return 1
+            fi
+            if [[ "${rc}" -ne 0 ]]; then
+                u20_owner_needs "SSH key ${key} does not open without a passphrase (${why//$'\n'/ }), a headless launch never asks, and the ssh-agent of the terminal running meta-deploy.bash does not hold it: ssh-add ${key} there first (ccy then forwards that one key), or choose a key with no passphrase"
+                return 1
+            fi
+            printf '==> SSH key %s needs a passphrase; your ssh-agent holds it, so ccy forwards that one key\n' "${key}"
         fi
     done
     printf '==> ccy %s (image %s), saved launch choices of this version, ccy token %s, %s SSH key choice(s) usable unattended\n' \

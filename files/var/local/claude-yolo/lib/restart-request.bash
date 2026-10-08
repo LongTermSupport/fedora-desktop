@@ -380,9 +380,11 @@ ccy_restart_choice_args() {
 
 # ccy_restart_keys_unattended <passphrase-file> [ssh-keys...] — whether every SSH key can be
 # unlocked with nobody at the keyboard. A forwarded agent is unlocked already. A key file opens
-# unattended when it has no passphrase, or when a passphrase file is named (a server's session
-# restore; ssh-handling.bash feeds it to ssh-add through askpass). Anything else would stop
-# the relaunch at ssh-add's prompt, on the host or inside the container.
+# unattended when it has no passphrase, when the session's ssh-agent holds it (ccy then
+# forwards that one key from the agent, ccy_agent_forwards_key in ssh-handling.bash), or when
+# a passphrase file is named (a server's session restore; ssh-handling.bash feeds it to
+# ssh-add through askpass). Anything else would stop the relaunch at ssh-add's prompt, on the
+# host or inside the container.
 #   status 0  every key opens unattended
 #   status 1  a key does not; which one and why on stderr
 ccy_restart_keys_unattended() {
@@ -395,9 +397,10 @@ ccy_restart_keys_unattended() {
         [ "$key" = "$sentinel" ] && continue
         # -P '' tries the empty passphrase and never asks; the public key on stdout is not wanted.
         if ! why=$(ssh-keygen -y -P '' -f "$key" 2>&1 >/dev/null); then
+            ccy_agent_forwards_key "$key" && continue
             why=$(printf '%s' "$why" | tr '\n' ' ')
-            printf 'SSH key %s does not open without a passphrase (%s), and nobody is at the keyboard to type one.\n' \
-                "$key" "$why" >&2
+            printf 'SSH key %s does not open without a passphrase (%s), nobody is at the keyboard to type one, and your ssh-agent does not hold it (ssh-add %s loads it).\n' \
+                "$key" "$why" "$key" >&2
             return 1
         fi
     done

@@ -43,25 +43,35 @@ untracked, as it concerns a private repository.
 
 ### Phase 1: the filtered agent
 
-- [ ] ⬜ **Task 1.1**: a stdlib Python helper, test first: listens on a new owner-only socket,
+- [x] ✅ **Task 1.1**: a stdlib Python helper, test first: listens on a new owner-only socket,
   relays to `SSH_AUTH_SOCK`, answers REQUEST_IDENTITIES with only the allowed public key,
   forwards SIGN_REQUEST only for that key blob, and answers FAILURE to every other message
   (add, remove, lock, unlock, extensions). Tests against a real `ssh-agent` holding two keys.
-- [ ] ⬜ **Task 1.2**: its lifetime: started by the launcher before the container, on the
+  `helpers/ssh_agent_filter/ssh_agent_filter.py` (keys allowed by SHA256 fingerprint),
+  `tests/helpers/ssh_agent_filter/test_ssh_agent_filter.py`.
+- [x] ✅ **Task 1.2**: its lifetime: started by the launcher before the container, on the
   runtime directory, and stopped with the session (including a restored or detached one).
   Decide and record how in this plan's journal, from how the launcher runs the container.
+  A child of the launcher, stopped by its EXIT trap and `cleanup`, and by itself when the
+  launcher's pid is gone (journal decision, T1.2). Installed by `play-claude-yolo.yml`'s
+  shared-library loop beside the launcher's libraries.
 
 ### Phase 2: the launcher
 
-- [ ] ⬜ **Task 2.1**: when a selected key file needs a passphrase and the host agent holds
+- [x] ✅ **Task 2.1**: when a selected key file needs a passphrase and the host agent holds
   its public key, mount the filtered agent's socket (as `--ssh-agent` mounts the agent) in
   place of the key file; say so in one line. Otherwise behave as today. CCY version bump.
-- [ ] ⬜ **Task 2.2**: commit signing with the filtered agent signs with that key (the
+  `ccy_agent_forwards_key` / `ccy_agent_filter_start` in `lib/ssh-handling.bash`, for exactly
+  one selected key file; the headless, restart and restore checks
+  (`ccy_restart_keys_unattended`) ask the same question. CCY 3.87.0.
+- [x] ✅ **Task 2.2**: commit signing with the filtered agent signs with that key (the
   forwarded-agent path in `ssh-handling.bash`), and a key the agent does not hold still
-  fails as today.
-- [ ] ⬜ **Task 2.3**: `docs/ccy.md` and `docs/ccy-changelog.md`; `--help`.
-- [ ] ⬜ **Task 2.4**: Plan 00161's U20 prerequisite accepts a passphrase key that the agent
-  running meta-deploy holds, and says to `ssh-add` it otherwise.
+  fails as today. `configure_git_signing` takes the one-key agent's socket and names the
+  key's public half (`key::`) as that agent offers it.
+- [x] ✅ **Task 2.3**: `docs/ccy.md` and `docs/ccy-changelog.md`; `--help`.
+- [x] ✅ **Task 2.4**: Plan 00161's U20 prerequisite accepts a passphrase key that the agent
+  running meta-deploy holds, and says to `ssh-add` it otherwise. It calls the installed
+  ccy's own `ccy_agent_forwards_key`.
 
 ### Phase 3: proof
 
