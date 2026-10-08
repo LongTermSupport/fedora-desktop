@@ -380,9 +380,11 @@ ccy_restart_choice_args() {
 
 # ccy_restart_keys_unattended <passphrase-file> [ssh-keys...] — whether every SSH key can be
 # unlocked with nobody at the keyboard. A forwarded agent is unlocked already. A key file opens
-# unattended when it has no passphrase, or when a passphrase file is named (a server's session
-# restore; ssh-handling.bash feeds it to ssh-add through askpass). Anything else would stop
-# the relaunch at ssh-add's prompt, on the host or inside the container.
+# unattended when it has no passphrase, when the launch forwards it from the session's ssh-agent
+# (ccy_agent_forward_select in ssh-handling.bash, the very decision the launch takes, over the
+# whole selection), or when a passphrase file is named (a server's session restore;
+# ssh-handling.bash feeds it to ssh-add through askpass). Anything else would stop the relaunch
+# at ssh-add's prompt, on the host or inside the container.
 #   status 0  every key opens unattended
 #   status 1  a key does not; which one and why on stderr
 ccy_restart_keys_unattended() {
@@ -390,14 +392,18 @@ ccy_restart_keys_unattended() {
     shift
     local sentinel="${SSH_AGENT_SENTINEL:?ccy_restart_keys_unattended needs lib/ssh-handling.bash loaded first}"
     [ -z "$passphrase_file" ] || return 0
-    local key why
+    local key why forwarded
+    ccy_agent_forward_select "$@"
     for key in "$@"; do
         [ "$key" = "$sentinel" ] && continue
         # -P '' tries the empty passphrase and never asks; the public key on stdout is not wanted.
         if ! why=$(ssh-keygen -y -P '' -f "$key" 2>&1 >/dev/null); then
+            for forwarded in "${CCY_AGENT_FORWARD_KEYS[@]}"; do
+                [ "$forwarded" = "$key" ] && continue 2
+            done
             why=$(printf '%s' "$why" | tr '\n' ' ')
-            printf 'SSH key %s does not open without a passphrase (%s), and nobody is at the keyboard to type one.\n' \
-                "$key" "$why" >&2
+            printf 'SSH key %s does not open without a passphrase (%s), nobody is at the keyboard to type one, and ccy will not forward it from your ssh-agent: ssh-add %s, and every other selected key that needs a passphrase, and do not select --ssh-agent beside it.\n' \
+                "$key" "$why" "$key" >&2
             return 1
         fi
     done

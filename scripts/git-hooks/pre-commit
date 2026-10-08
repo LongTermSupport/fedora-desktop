@@ -122,11 +122,14 @@ fi
 
 CCY_SCRIPT="files/var/local/claude-yolo/claude-yolo"
 CCY_LIB_DIR="files/var/local/claude-yolo/lib"
+# ccy's one-key agent: its source is a TDD'd helper, deployed into lib/ beside the libraries
+# (play-claude-yolo.yml) and covered by the runtime hash there (lib/*.py).
+CCY_HELPER_DIR="helpers/ssh_agent_filter"
 
 CCY_STAGED=()
 for FILE in "${STAGED_FILE_LIST[@]}"; do
     case "$FILE" in
-        "$CCY_SCRIPT" | "$CCY_LIB_DIR"/*.bash) CCY_STAGED+=("$FILE") ;;
+        "$CCY_SCRIPT" | "$CCY_LIB_DIR"/*.bash | "$CCY_HELPER_DIR"/*.py) CCY_STAGED+=("$FILE") ;;
     esac
 done
 

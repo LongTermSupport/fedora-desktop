@@ -82,6 +82,9 @@ case "$mode" in
         exit 0
         ;;
     T)
+        if [ -n "${STUB_SSH_ARGV_LOG:-}" ]; then
+            printf '%s\n' "$@" >>"$STUB_SSH_ARGV_LOG"
+        fi
         # STUB_SSH_HANG stands in for an agent that asks before it signs and gets no answer.
         if [ -n "${STUB_SSH_HANG:-}" ]; then
             sleep "$STUB_SSH_HANG"
@@ -761,11 +764,77 @@ else
     fail "missing key: $(tr '\n' ' ' < "$WORK/supply.result")"
 fi
 
+: > "$ASKPASS_LOG"
+(
+    CCY_AGENT_FILTER_KEYS=("$K_LOCKED")
+    run_supply "$ASKPASS_OK" true "$K_LOCKED"
+)
+if supply_has "rc=0" && supply_has "file=" && [ ! -s "$ASKPASS_LOG" ]; then
+    pass "a key forwarded from the agent through the one-key agent is not asked about"
+else
+    fail "filtered key: $(tr '\n' ' ' < "$WORK/supply.result")"
+fi
+
+# ── A key forwarded through the one-key agent (Plan 00163) ──────────────────
+hdr "the one-key agent: probe and mounts"
+
+: > "$WORK/filter-probe.argv"
+got=$(CCY_AGENT_FILTER_KEYS=("$K_LOCKED")
+      CCY_AGENT_FILTER_SOCK="$WORK/filter.sock" STUB_SSH_ARGV_LOG="$WORK/filter-probe.argv" \
+      STUB_GREETING="Hi person! You've successfully authenticated, but GitHub does not provide shell access." \
+      _github_probe_identity "$K_LOCKED" github.com 22)
+if [ "$got" = "person" ] && grep -qxF "IdentityAgent=$WORK/filter.sock" "$WORK/filter-probe.argv" \
+        && grep -qxF "IdentitiesOnly=yes" "$WORK/filter-probe.argv" && grep -qxF "BatchMode=yes" "$WORK/filter-probe.argv" \
+        && grep -qxF -- "$K_LOCKED" "$WORK/filter-probe.argv"; then
+    pass "the forwarded key is probed as itself, through the one-key agent, and can never prompt"
+else
+    fail "filter probe → '$got': $(tr '\n' ' ' < "$WORK/filter-probe.argv")"
+fi
+
+# build_ssh_mounts_and_validate, driven for this one case: outside any repository (no alias),
+# a deploy-key greeting (no account, so no gh-token lookup) and a caller GH_TOKEN, so gh is
+# only looked for. Two keys the one-key agent forwards and one passphrase-less key file: the
+# forwarded keys' files must not be mounted, the one-key agent's socket must be, once, and
+# the other key file is mounted as always.
+mkdir -p "$WORK/norepo"
+printf '#!/usr/bin/env bash\necho "stub gh: unexpected invocation: $*" >&2\nexit 99\n' > "$STUB_BIN/gh"
+chmod 700 "$STUB_BIN/gh"
+cp "$K_LOCKED" "$WORK/locked_key_2"
+(
+    cd "$WORK/norepo" || exit 1
+    command_exists() { command -v "$1" >/dev/null; }
+    SSH_KEYS=("$K_LOCKED" "$WORK/locked_key_2" "$K_ALPHA")
+    CCY_AGENT_FILTER_KEYS=("$K_LOCKED" "$WORK/locked_key_2")
+    CCY_AGENT_FILTER_SOCK="$WORK/filter.sock"
+    CCY_SELINUX_MODE=off
+    GH_TOKEN=fixture-token
+    export GH_TOKEN
+    STUB_GREETING="Hi owner/repo! You've successfully authenticated, but GitHub does not provide shell access." \
+        build_ssh_mounts_and_validate ccy </dev/null > "$WORK/build.out" 2>&1
+    printf 'rc=%s\n' "$?"
+    printf 'forwarded=%s\n' "$SSH_AGENT_FORWARDED"
+    printf 'paths=%s\n' "${#SSH_KEY_PATHS[@]}"
+    printf 'mounts=%s\n' "${#SSH_MOUNTS[@]}"
+    printf 'opts=%s\n' "${SSH_RUN_OPTS[*]}"
+) > "$WORK/build.result"
+if grep -qxF "rc=0" "$WORK/build.result" && grep -qxF "forwarded=1" "$WORK/build.result" \
+        && grep -qxF "paths=1" "$WORK/build.result" && grep -qxF "mounts=2" "$WORK/build.result" \
+        && grep -qxF "opts=-v $WORK/filter.sock:/run/ccy/ssh-agent -e SSH_AUTH_SOCK=/run/ccy/ssh-agent --security-opt label=disable" "$WORK/build.result"; then
+    pass "the one-key agent's socket is mounted once where --ssh-agent mounts the agent, its keys' files are not, the other key file is"
+else
+    fail "build: $(tr '\n' ' ' < "$WORK/build.result") / $(tr '\n' ' ' < "$WORK/build.out")"
+fi
+if grep -qF "from your ssh-agent" "$WORK/build.out" && ! grep -qF "Enter passphrase" "$WORK/build.out"; then
+    pass "…named as the key from your ssh-agent, with no passphrase asked"
+else
+    fail "build output: $(tr '\n' ' ' < "$WORK/build.out")"
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "ccy ssh-handling: passed: $passed  failed: $failed"
-echo "(build_ssh_mounts_and_validate itself is not driven here: it calls gh and"
-echo " prompts; its pieces above are what this suite vouches for.)"
+echo "(build_ssh_mounts_and_validate is driven here only for the one-key agent: it calls gh"
+echo " and prompts; otherwise its pieces above are what this suite vouches for.)"
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi

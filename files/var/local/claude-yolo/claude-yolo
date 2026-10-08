@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.86.3"  # Quick Launch choices kept across ccy versions while their format is unchanged. See docs/ccy-changelog.md.
+CCY_VERSION="3.87.1"  # Passphrase keys your ssh-agent holds are forwarded alone. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,10 +110,12 @@ if [ "$CCY_LIB_COUNT" -eq 0 ]; then
     print_error "No libraries found in $SCRIPT_DIR/lib — refusing to vouch for an empty hash."
     exit 1
 fi
+# lib/*.py is the one-key agent (ssh_agent_filter.py), which ships beside the libraries and
+# runs as part of a launch, so it is part of the program too.
 CCY_HASH=$(
     {
         grep -v '^CCY_HASH=' "$0"
-        find "$SCRIPT_DIR/lib" -maxdepth 1 -name '*.bash' -type f -print0 |
+        find "$SCRIPT_DIR/lib" -maxdepth 1 \( -name '*.bash' -o -name '*.py' \) -type f -print0 |
             LC_ALL=C sort -z |
             xargs -0 cat
     } | md5sum | cut -d' ' -f1 | cut -c1-16
@@ -163,7 +165,9 @@ Options:
   --rebuild[=MODE]       Rebuild: (default) full clean rebuild; claude=fast npm update base only; project=npm update + rebuild project image
   --debug                Interactive debug layer selection (CCY, entrypoint, Claude Code)
   --engine ENGINE        Use specific container engine (docker/podman, default: podman)
-  --ssh-key PATH         SSH private key to mount (can be specified multiple times)
+  --ssh-key PATH         SSH private key to mount (can be specified multiple times). A
+                         key that needs a passphrase, when your ssh-agent holds it, is
+                         forwarded from the agent instead: those keys only, no prompt
   --ssh-agent            Forward the session's ssh-agent ($SSH_AUTH_SOCK, e.g. from ssh -A)
                          into the container; pushes authenticate as whoever it signs as.
                          Runs that container with SELinux labelling disabled (the only
@@ -191,7 +195,7 @@ Options:
                          --ssh-key, --ssh-agent, --no-ssh, --network or --no-network it
                          takes this checkout's saved Quick Launch choices without asking,
                          and is refused when there are none; a key that needs a
-                         passphrase is refused (load it with ssh-add, use --ssh-agent)
+                         passphrase is refused unless your ssh-agent holds it (ssh-add it)
   --teams SEAT@TEAM[,SEAT@TEAM...]
                          Put this session in agent team bus teams, one seat in each
                          (e.g. --teams dev1@dev-team,qa2@other-team; quote a list with
@@ -1216,7 +1220,7 @@ fi
 if [ "$HEADLESS_MODE" = true ] \
     && ! ccy_restart_keys_unattended "$RESTORE_SSH_PASSPHRASE_FILE" "${SSH_KEYS[@]}"; then
     print_error "Headless launch: an SSH key needs a passphrase (see above), and a headless launch never asks for one."
-    echo "  Load it into your ssh-agent first (ssh-add <key>) and launch with --ssh-agent, or use a key with no passphrase, or --no-ssh." >&2
+    echo "  Load it into your ssh-agent first (ssh-add <key>): ccy then forwards that one key from the agent. Or use a key with no passphrase, or --no-ssh." >&2
     exit 1
 fi
 
@@ -1248,7 +1252,13 @@ ccy_selinux_mode
 # SIGTERM, a SIGHUP; bash runs the EXIT trap for both) must not leave the probe agent holding
 # unlocked keys, nor a restore's passphrase copy on XDG_RUNTIME_DIR. The probe's own RETURN
 # trap covers only a normal return.
-trap '_probe_agent_stop; ccy_askpass_passphrase_discard' EXIT
+trap '_probe_agent_stop; ccy_askpass_passphrase_discard; ccy_agent_filter_stop' EXIT
+
+# Selected key files that need a passphrase, which the session's ssh-agent holds: those keys
+# are forwarded from the agent through ccy's one-key agent, and their files are neither
+# unlocked nor mounted (ccy_agent_forward_select, lib/ssh-handling.bash). SSH_KEYS still
+# names the files.
+ccy_agent_filter_start || exit 1
 
 # One selected key file, and an SSH_ASKPASS helper that can answer for it: no prompt, here or
 # in the container (lib/ssh-handling.bash).
@@ -1309,10 +1319,22 @@ fi
 if [ "${SSH_AGENT_FORWARDED:-0}" = "1" ]; then
     echo ""
     echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}${COLOR_BOLD}  🔑 SSH-AGENT FORWARDED INTO THE CONTAINER${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
-    echo "  The session's agent ($SSH_AUTH_SOCK) is mounted; git inside signs with"
-    echo "  every key it holds, as ${GITHUB_USERNAME:-its identity}."
+    if [ ${#CCY_AGENT_FILTER_KEYS[@]} -gt 0 ]; then
+        ccy_filter_names=""
+        for ccy_filter_key in "${CCY_AGENT_FILTER_KEYS[@]}"; do
+            ccy_filter_names+="${ccy_filter_names:+, }$(basename "$ccy_filter_key")"
+        done
+        echo -e "${COLOR_YELLOW}${COLOR_BOLD}  🔑 SELECTED SSH KEYS FORWARDED FROM YOUR SSH-AGENT${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+        echo "  Only $ccy_filter_names, through ccy's one-key agent: the container lists"
+        echo "  and signs with those keys, as ${GITHUB_USERNAME:-its identity}, and cannot reach,"
+        echo "  add, remove or lock any other key in your agent."
+    else
+        echo -e "${COLOR_YELLOW}${COLOR_BOLD}  🔑 SSH-AGENT FORWARDED INTO THE CONTAINER${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+        echo "  The session's agent ($SSH_AUTH_SOCK) is mounted; git inside signs with"
+        echo "  every key it holds, as ${GITHUB_USERNAME:-its identity}."
+    fi
     echo "  SELinux labelling is DISABLED for this container (--security-opt label=disable):"
     echo "  it is the only way container_t can connect to an unconfined agent's socket."
     echo "  The mount namespace still limits the container to what is mounted."
@@ -2244,6 +2266,7 @@ cleanup() {
     # The duty of the probe's trap this one replaces; a no-op once the probe has returned.
     _probe_agent_stop
     ccy_askpass_passphrase_discard
+    ccy_agent_filter_stop
 
     # Show debug log if CCY debugging is enabled
     if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then
@@ -2261,13 +2284,23 @@ trap cleanup EXIT
 # session's primary identity, and the gitconfig copy names it. SSH_KEY_PATHS gains an
 # entry only for a key file, so a key-file primary is always its first. After the trap,
 # so a refusal still removes the staged files.
+# A key forwarded through the one-key agent has no file in the container: the copy names
+# its public half instead. Beside such keys every mounted key file has no passphrase
+# (ccy_agent_forward_select), so it signs by itself and needs no agent to hold it.
 signing_primary="${SSH_KEYS[0]:-}"
 signing_in_container=""
-if [ -n "$signing_primary" ] && [ "$signing_primary" != "$SSH_AGENT_SENTINEL" ]; then
+signing_filter_sock=""
+signing_forwarded="${SSH_AGENT_FORWARDED:-0}"
+if [ -n "$signing_primary" ] && ccy_agent_filter_forwards "$signing_primary"; then
+    signing_filter_sock="$CCY_AGENT_FILTER_SOCK"
+elif [ -n "$signing_primary" ] && [ "$signing_primary" != "$SSH_AGENT_SENTINEL" ]; then
     signing_in_container="${SSH_KEY_PATHS[0]}"
+    if [ ${#CCY_AGENT_FILTER_KEYS[@]} -gt 0 ]; then
+        signing_forwarded=0
+    fi
 fi
 if ! configure_git_signing "$CONFIG_TEMP/gitconfig" "$PWD" "$signing_primary" \
-    "$signing_in_container" "${SSH_AGENT_FORWARDED:-0}"; then
+    "$signing_in_container" "$signing_forwarded" "$signing_filter_sock"; then
     exit 1
 fi
 
@@ -3516,7 +3549,7 @@ ccy_handle_restart_exit() {
     # arguments cannot carry, so a key that needs one stops the restart here, before the
     # budget and an image update are spent on a launch that would wait at ssh-add.
     if ! ccy_restart_keys_unattended "$RESTORE_SSH_PASSPHRASE_FILE" "${SSH_KEYS[@]}"; then
-        ccy_restart_refuse "$session_id" "the relaunch would wait at an SSH passphrase prompt; an SSH_ASKPASS unlock needs someone present too. For unattended restarts launch with a key that has no passphrase, or with --ssh-agent, which exposes every key the agent holds (docs/ccy.md)."
+        ccy_restart_refuse "$session_id" "the relaunch would wait at an SSH passphrase prompt; an SSH_ASKPASS unlock needs someone present too. For unattended restarts load the key into your ssh-agent (ssh-add), which ccy then forwards as that one key, or launch with a key that has no passphrase (docs/ccy.md)."
         exit 1
     fi
 

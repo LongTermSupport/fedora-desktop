@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.87.1 — container 2.48
+
+- **Key files that need a passphrase are forwarded from your ssh-agent, alone** (Plan
+  00163). When a selected key file needs a passphrase and the session's agent holds a key
+  with its fingerprint, ccy no longer mounts the file and asks for the passphrase. It starts
+  its one-key agent (`ssh_agent_filter.py`, installed beside the launcher's libraries), which
+  lists and signs with the selected keys only and refuses everything else, adding, removing
+  and locking keys and every agent extension included, and mounts its socket where
+  `--ssh-agent` mounts the agent; passphrase-less key files are mounted beside it. It does so
+  only when that leaves no selected key needing a passphrase, and never beside
+  `--ssh-agent`. The headless, restart and restore checks take the same decision
+  (`ccy_agent_forward_select`), so a launch they pass never stops at a prompt. A headless
+  launch, a restart and a restore of such a session start with no prompt; commit signing
+  names the key's public half. The fingerprint is taken from the key file itself, and a
+  `.pub` beside it that names another key stops the match. Saved Quick Launch choices and
+  session records still name the key files. The one-key agent lives in an owner-only
+  directory on `XDG_RUNTIME_DIR`, serves at most 16 clients, and stops with the launcher
+  (known by pid and start time). It is covered by the runtime hash (`lib/*.py`) and the
+  pre-commit version gate. The refusals for a key that needs a passphrase now say to
+  `ssh-add` it, not to use `--ssh-agent`. Plain `--ssh-agent` is unchanged. Gated by
+  `tests/helpers/ssh_agent_filter/` (a real ssh-agent holding two keys),
+  `scripts/test-ccy-ssh-handling.bash`, `scripts/test-ccy-git-signing.bash`,
+  `scripts/test-ccy-restart-request.bash` and `scripts/test-ccy-container-version-hook.bash`.
+
 ## 3.86.3 — container 2.48
 
 - **Quick Launch keeps its saved choices across ccy versions** (Plan 00135 Task 7.5). The

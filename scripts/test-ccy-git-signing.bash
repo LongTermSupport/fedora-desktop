@@ -541,6 +541,102 @@ else
     fail "with no .pub beside the key, the commit is not signed"
 fi
 
+echo "== a passphrase key the agent holds, forwarded alone through ccy's one-key agent"
+# The launcher's own ccy_agent_filter_start, in front of the real agent, which also holds a
+# second key. No .pub is beside the key file (removed above), so the key is matched from the
+# file itself, and the copy names the public half the one-key agent offers.
+ssh-keygen -q -t ed25519 -N "" -C other -f "$WORK/other-key"
+SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ssh-add -q "$WORK/other-key" </dev/null 2>/dev/null
+REAL_PUBLIC="$(ssh-keygen -y -P test-passphrase -f "$CASE/home/.ssh/key_0" | cut -d' ' -f1,2)"
+CCY_AGENT_FILTER_HELPER="$REPO_ROOT/helpers/ssh_agent_filter/ssh_agent_filter.py"
+SSH_KEYS=("$CASE/home/.ssh/key_0")
+SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ccy_agent_filter_start >"$WORK/filter.out" 2>&1
+RC=$?
+if [ "$RC" -eq 0 ] && [ "${CCY_AGENT_FILTER_KEYS[*]}" = "$CASE/home/.ssh/key_0" ] && [ -S "$CCY_AGENT_FILTER_SOCK" ]; then
+    pass "the one-key agent starts for the key the agent holds"
+else
+    fail "the one-key agent did not start (rc=$RC): $(cat "$WORK/filter.out")"
+fi
+if grep -q "key_0 needs a passphrase and your ssh-agent holds it: forwarding that one key" "$WORK/filter.out"; then
+    pass "the launch says so, in one line"
+else
+    fail "no line saying the key is forwarded from the agent: $(cat "$WORK/filter.out")"
+fi
+offered="$(SSH_AUTH_SOCK="$CCY_AGENT_FILTER_SOCK" ssh-add -L 2>&1 | cut -d' ' -f1,2)"
+if [ "$offered" = "$REAL_PUBLIC" ]; then
+    pass "through it the agent lists that key alone, not the other one it holds"
+else
+    fail "the one-key agent lists: $offered"
+fi
+REAL_CASE="$CASE"
+new_case real-filtered gpg.format=ssh "user.signingkey=$ID_LITERAL" commit.gpgsign=true \
+    user.name=Signer user.email=signer@example.com
+# real_cfg <args>: configure_git_signing as case_git runs it, but with the real ssh-add, as
+# case_git's stub would stand in for the one-key agent under test.
+real_cfg() {
+    HOME="$CASE/home" GIT_CONFIG_GLOBAL="$CASE/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+        configure_git_signing "$@"
+}
+OUT="$(real_cfg "$CASE/stage/gitconfig" "$CASE/project" \
+    "$REAL_CASE/home/.ssh/key_0" "" 1 "$CCY_AGENT_FILTER_SOCK" 2>&1)"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(signingkey_in_copy)" = "key::$REAL_PUBLIC" ]; then
+    pass "the copy names the forwarded key's public half"
+else
+    fail "rc=$RC, copy '$(signingkey_in_copy)': $OUT"
+fi
+case "$OUT" in
+    *"Commit signing: key_0, the session's SSH identity, from your ssh-agent"*) pass "the launch names the key and where it signs" ;;
+    *) fail "the launch line: $OUT" ;;
+esac
+repo="$CASE/repo"
+git init -q "$repo"
+if SSH_AUTH_SOCK="$CCY_AGENT_FILTER_SOCK" SSH_ASKPASS=/bin/false SSH_ASKPASS_REQUIRE=force \
+        GIT_CONFIG_GLOBAL="$CASE/stage/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+        setsid git -C "$repo" commit -q --allow-empty -m "signed through the one-key agent" </dev/null &&
+    in_copy_git -c gpg.ssh.allowedSignersFile="$REAL_CASE/allowed_signers" verify-commit HEAD 2>/dev/null; then
+    pass "a commit is signed through the one-key agent, and verifies"
+else
+    fail "a commit through the one-key agent is not signed by the key"
+fi
+new_case real-filtered-other gpg.format=ssh "user.signingkey=$ID_LITERAL" commit.gpgsign=true
+OUT="$(real_cfg "$CASE/stage/gitconfig" "$CASE/project" \
+    "$WORK/other-key" "" 1 "$CCY_AGENT_FILTER_SOCK" 2>&1)"
+RC=$?
+if [ "$RC" -ne 0 ] && [[ "$OUT" == *"one-key agent does not offer other-key"* ]] && [[ "$OUT" == *"ssh-add $WORK/other-key"* ]]; then
+    pass "a key the one-key agent does not offer refuses, saying to ssh-add it"
+else
+    fail "a key the one-key agent does not offer: rc=$RC $OUT"
+fi
+filter_pid="$CCY_AGENT_FILTER_PID" filter_dir="$CCY_AGENT_FILTER_DIR"
+ccy_agent_filter_stop
+if [ ! -e "$filter_dir" ] && ! kill -0 "$filter_pid" 2>/dev/null && [ ${#CCY_AGENT_FILTER_KEYS[@]} -eq 0 ]; then
+    pass "stopping it ends the process and removes its directory"
+else
+    fail "after ccy_agent_filter_stop: dir $(ls -d "$filter_dir" 2>&1), pid $filter_pid"
+fi
+SSH_KEYS=("$WORK/other-key")
+SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ccy_agent_filter_start >"$WORK/filter.out" 2>&1
+if [ -z "$CCY_AGENT_FILTER_PID" ] && [ ! -s "$WORK/filter.out" ]; then
+    pass "a key with no passphrase is mounted as before: no one-key agent"
+else
+    fail "a passphrase-less key started the one-key agent: $(cat "$WORK/filter.out")"
+    ccy_agent_filter_stop
+fi
+# The mixed selection the unattended checks accept: the held passphrase key forwarded, the
+# passphrase-less key mounted as a file, and only the forwarded one offered.
+SSH_KEYS=("$REAL_CASE/home/.ssh/key_0" "$WORK/other-key")
+SSH_AUTH_SOCK="$REAL_AGENT_SOCK" ccy_agent_filter_start >"$WORK/filter.out" 2>&1
+RC=$?
+offered="$(SSH_AUTH_SOCK="${CCY_AGENT_FILTER_SOCK:-none}" ssh-add -L 2>&1 | cut -d' ' -f1,2)"
+if [ "$RC" -eq 0 ] && [ "${CCY_AGENT_FILTER_KEYS[*]}" = "$REAL_CASE/home/.ssh/key_0" ] && [ "$offered" = "$REAL_PUBLIC" ]; then
+    pass "beside a passphrase-less key, the held passphrase key is forwarded alone"
+else
+    fail "mixed selection (rc=$RC, forwarded '${CCY_AGENT_FILTER_KEYS[*]}', offered '$offered'): $(cat "$WORK/filter.out")"
+fi
+ccy_agent_filter_stop
+SSH_KEYS=()
+
 echo "== the launcher"
 # Configured after the EXIT trap is set, so a refusal still removes the directory holding
 # the gitconfig copy.

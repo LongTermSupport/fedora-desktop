@@ -429,7 +429,8 @@ The residual risks worth naming honestly:
   git remote access. A project's own deploy key is the narrow choice: it reaches one
   repository. A forwarded agent (`--ssh-agent`) is the widest: every key it holds can be
   used to sign, for as long as the session lasts, and that container also runs without
-  SELinux confinement.
+  SELinux confinement. A key file your agent holds is forwarded alone, through CCY's
+  one-key agent: only the selected keys can be used, though that container is unconfined too.
 - **The session's SSH key also signs commits**, whenever your git config signs. The
   container signs through the agent that holds it: the container's own, for a key you
   chose at launch, or your forwarded one. So anything it signs is Verified as the account
@@ -704,19 +705,19 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag              | Effect                                                                                                                                                                                                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ccy`             | Start a session in the current directory                                                                                                                                                                                                                                             |
-| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                                                                                                                                                             |
-| `--prompt "text"` | Start with a preseeded prompt                                                                                                                                                                                                                                                        |
-| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices without asking, or is refused when there are none; a key that needs a passphrase is refused (load it with `ssh-add` and use `--ssh-agent`) |
-| `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team, e.g. `--teams dev1@dev-team,qa2@other-team` (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                                                |
-| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                         |
-| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                            |
-| `--top`           | Container manager: list and stop running CCY containers                                                                                                                                                                                                                              |
-| `ccy-sessions`    | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                  |
-| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                     |
-| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                    |
+| Flag              | Effect                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ccy`             | Start a session in the current directory                                                                                                                                                                                                                                                                            |
+| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                            |
+| `--prompt "text"` | Start with a preseeded prompt                                                                                                                                                                                                                                                                                       |
+| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
+| `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team, e.g. `--teams dev1@dev-team,qa2@other-team` (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                                                                               |
+| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                        |
+| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                           |
+| `--top`           | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                             |
+| `ccy-sessions`    | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                 |
+| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                    |
+| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                   |
 
 ### Image and updates
 
@@ -738,7 +739,7 @@ are forwarded unchanged.
 | `--update-token=N`   | Replace an existing named token                                              |
 | `--list-tokens`      | List tokens with expiry                                                      |
 | `--export-token`     | Export token(s) as a portable import script                                  |
-| `--ssh-key PATH`     | Mount a specific key (repeatable)                                            |
+| `--ssh-key PATH`     | Mount a specific key (repeatable); one your agent holds is forwarded instead |
 | `--ssh-agent`        | Forward the session's ssh-agent (SELinux labelling off)                      |
 | `--no-ssh`           | Mount no key (git push will not work; with signing on, the launch refuses)   |
 | `--github-443`       | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked           |
@@ -1285,6 +1286,24 @@ environment. If the program is a gpg-backed one, CCY names the terminal (`GPG_TT
 Several keys, a passphrase-less key, a forwarded agent, a launch with no terminal or a
 program that gives no answer fall back to the ordinary prompt.
 
+**Key files your ssh-agent already holds: those keys alone, from the agent** (Plan 00163).
+When a selected key file needs a passphrase and the session's agent (`ssh-add -l`) holds a
+key with the same fingerprint, CCY does not mount the file. It starts its **one-key agent**,
+a socket of its own in front of your agent that lists and signs with the selected keys only,
+and refuses everything else: adding, removing or locking keys, every other key the agent
+holds, and agent extensions. That socket is mounted where `--ssh-agent` mounts the whole
+agent, so the launch asks for no passphrase, headless and restarted launches included, and
+git in the container pushes and signs commits with those keys. Selected keys with no
+passphrase are mounted as files beside it. This happens only when it leaves no selected key
+needing a passphrase, and never beside `--ssh-agent`; otherwise every file is unlocked as
+before. The launch says so in one line. Quick Launch and session records still name the key
+files, and every launch checks the agent afresh: load the key with `ssh-add ~/.ssh/<key>`
+before launching. The fingerprint is read from the key file itself (an OpenSSH private key
+keeps its public half unencrypted); a `.pub` beside it that names a different key stops the
+key being matched at all. The one-key agent lives in an owner-only directory on the runtime
+directory and stops with the launcher. Like `--ssh-agent`, it runs the container with
+SELinux labelling disabled (below).
+
 ```bash
 ccy --ssh-key ~/.ssh/<key>   # specific key file (repeatable)
 ccy --ssh-agent              # forward the session's ssh-agent
@@ -1431,9 +1450,10 @@ command.
 The relaunch asks nothing. It reuses the token file, SSH keys, GitHub-443 mode and network
 the session ran with, even those picked at a prompt. Where no answer is safe it stops with
 the resume command instead: an SSH key that needs a passphrase (including one first unlocked
-through your `SSH_ASKPASS` helper, which also needs someone present), or an expired or
-invalid token. For sessions that should restart unattended, use a key with no passphrase,
-or `--ssh-agent`, which exposes every key the agent holds. An agent that asks before it signs
+through your `SSH_ASKPASS` helper, which also needs someone present) that your ssh-agent
+does not hold, or an expired or invalid token. For sessions that should restart unattended,
+load the key into your agent with `ssh-add` (CCY then forwards that one key, as above), or
+use a key with no passphrase. An agent that asks before it signs
 cannot be answered either: on a restart the GitHub check gives up after 60 seconds and says so.
 
 ### Session limits: `--max-age`, `--run-for`, `--until`
