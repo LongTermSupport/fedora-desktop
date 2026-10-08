@@ -741,6 +741,10 @@ run backup-now --team alpha
 check "backup-now succeeds" "0" "$RC"
 [[ $RC -eq 0 ]] || cat "$ERR" >&2
 check "it signals the homeserver" "yes" "$(says '^systemctl kill --kill-whom=main --signal=SIGUSR2 agent-bus-hs@alpha.service' "$(LOG)")"
+# A Tuwunel signalled before its handler is installed dies of SIGUSR2 (measured on the host).
+first_poll=$(grep -nm1 '^curl .*_tuwunel/server_version' "$(LOG)" | cut -d: -f1)
+first_kill=$(grep -nm1 '^systemctl kill --kill-whom=main --signal=SIGUSR2' "$(LOG)" | cut -d: -f1)
+check "  only once the homeserver answers" "yes" "$(yes_if test "${first_poll:-0}" -gt 0 -a "${first_poll:-0}" -lt "${first_kill:-0}")"
 TARS=$ROOT/var/lib/agent-bus-install/alpha/backups
 TAR=$TARS/agent-bus-state-1.tar
 check "the state tar is in root's own directory, 0600" "600" "$(mode "$TAR")"

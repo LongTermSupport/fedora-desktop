@@ -937,9 +937,14 @@ cmd_backup_now() {
     require_root
     local team=${OPT[team]}
     require_team_dir "$team"
-    local dir=$STATE_ROOT/$team unit
+    local dir=$STATE_ROOT/$team unit port
     unit=$(hs_unit "$team")
     require_running "$unit"
+    # SIGUSR2 kills a Tuwunel that has not yet installed its handler. The timer is
+    # Persistent, so a missed run fires the moment it starts: with the homeserver at boot,
+    # or at install beside a team name used before. Signal only one that answers.
+    port=$(jq -r .port "$dir/team.json")
+    wait_ready "$unit" "$port"
     make_work_dir
     local meta=$dir/backups/meta before latest try
     before=$(latest_backup "$meta")
