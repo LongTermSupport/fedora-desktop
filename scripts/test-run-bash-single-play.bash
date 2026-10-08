@@ -242,6 +242,12 @@ check "runs the play bare on NOPASSWD" "0" "$(calls | grep -c -- '--become-passw
 check "prints no unattended banner" "no" "$(yes_if grep -q 'Unattended play preflight' <<<"$out")"
 check "holds the lock while it runs" "lock: held" "$(calls | grep '^lock:')"
 
+echo "=== an attended failing play in a batch (RUN_BASH_OFFER_ISSUE=0) ==="
+run_play FAKE_NOPASSWD=1 FAKE_PLAY_RC=4 RUN_BASH_OFFER_ISSUE=0 \
+    PATH="$FAKE_HOME/.local/bin:$BIN:/usr/bin:/bin" -- --interactive "$PLAY"
+check "exits with the play's own status" "4" "$rc"
+check "and does not offer to file an issue" "no" "$(yes_if grep -q 'create a GitHub issue' <<<"$out")"
+
 echo "=== RUN_BASH_ANSIBLE_PLAYBOOK: a caller pins the ansible it trusts ==="
 SYSTEM_BIN="$SCRATCH/system-bin"
 mkdir -p "$SYSTEM_BIN"

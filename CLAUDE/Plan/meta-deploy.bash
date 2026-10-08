@@ -130,6 +130,10 @@ fi
 # PLAN_ASSUME_YES is still exported so any plan script that asks its own question
 # does not stop the run either.
 export PLAN_ASSUME_YES=1
+# A playbook entry runs through run.bash, which offers to file a GitHub issue when a play
+# fails. That question would hold the batch (and its summary) until someone answered it;
+# the failure is in the unit's log and the summary instead.
+export RUN_BASH_OFFER_ISSUE=0
 
 # --- run ---------------------------------------------------------------------
 # Most plan scripts write their own run log, but not all: 00099's acceptance.bash

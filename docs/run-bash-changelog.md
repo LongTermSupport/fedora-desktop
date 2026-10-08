@@ -15,6 +15,12 @@ the index, not the record.
 
 ---
 
+## 1.32.0 — a play run by meta-deploy does not offer to file an issue
+
+A failed attended play offers to file a GitHub issue. With `RUN_BASH_OFFER_ISSUE=0` it does
+not, and still exits with the play's status. `CLAUDE/Plan/meta-deploy.bash` sets it, so a
+failed playbook entry no longer holds the batch, and its summary, at that question.
+
 ## 1.31.0 — `--changed --yes` runs the list without asking (Plan 00141)
 
 `./run.bash --changed --yes` runs the changed plays without the "Run them now?" question,

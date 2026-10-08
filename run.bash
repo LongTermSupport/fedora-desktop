@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.31.0"
+RUN_BASH_VERSION="1.32.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -1196,6 +1196,12 @@ ONE PLAY, UNATTENDED (maintenance, e.g. a timer)
   75. A caller holding the lock itself passes it down with FEDORA_DESKTOP_PLAY_LOCK_FD
   and the inherited descriptor (helpers/play_lock/lock.py).
 
+ONE PLAY IN A BATCH
+       RUN_BASH_OFFER_ISSUE=0 ./playbooks/imports/play-x.yml
+  An attended play that fails offers to file a GitHub issue. RUN_BASH_OFFER_ISSUE=0
+  leaves the offer out and still exits with the play's status, so a batch (meta-deploy)
+  goes on to its next unit instead of waiting at the question.
+
 FAIL-FAST GUARANTEE
   Any missing required value or unmet precondition aborts with a clear message
   naming the exact fix — a headless run never hangs waiting on a prompt, and a
@@ -1949,8 +1955,11 @@ run_playbook_with_issue_option(){
     error "Failed: $name (exit code: $exit_code)"
     
     # Offer to create GitHub issue (posts to the PUBLIC tracker — default No). --yes means
-    # nobody is there to answer, so it is not offered.
-    if [[ "${ASSUME_YES:-}" != "true" ]] && confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
+    # nobody is there to answer, and RUN_BASH_OFFER_ISSUE=0 means a batch runs this play
+    # (CLAUDE/Plan/meta-deploy.bash), where a prompt would hold every later unit; neither
+    # is offered.
+    if [[ "${ASSUME_YES:-}" != "true" && "${RUN_BASH_OFFER_ISSUE:-1}" != "0" ]] \
+        && confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
       create_github_issue "$playbook" "$exit_code"
     fi
 
