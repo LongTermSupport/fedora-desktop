@@ -52,7 +52,7 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    00164-stt-enter-lost-after-focus-retake
+    00164-stt-enter-lost-after-focus-retake/triage.bash
     00165-ccy-container-uses-host-time-zone
     00161-agent-team-bus-matrix
 )
