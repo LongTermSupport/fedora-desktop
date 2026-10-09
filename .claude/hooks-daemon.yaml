@@ -18,7 +18,7 @@ daemon:
   log_level: INFO
   enable_hello_world_handlers: false
   enforce_single_daemon_process: true  # Auto-enabled (container detected)
-  expected_version: "3.68.0"  # daemon version this project expects; `provision.sh` installs exactly this
+  expected_version: "3.69.0"  # daemon version this project expects; `provision.sh` installs exactly this
 
 # CCY container workflow (Plan 00147 / fedora-desktop#31).
 # deploy_supervisor: true keeps the standalone PTY supervisor (claude-supervise.py,

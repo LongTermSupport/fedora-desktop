@@ -681,6 +681,7 @@ from rule to instrument:
 | `plan-promotion-disposition` | R8      | staged              | **Never** — weak keyword approximation                |
 | `source-tree-markdown`       | R2, R7d | sweep               | **Never** — always advisory                           |
 | `unenforced-approval-gate`   | R14     | edit, staged, sweep | Yes — every instance, pre-existing or new             |
+| `unlisted-fake-value`        | R1      | edit, sweep         | **Never** — advisory; the registry is the fix         |
 
 Two properties of that table are worth internalising:
 

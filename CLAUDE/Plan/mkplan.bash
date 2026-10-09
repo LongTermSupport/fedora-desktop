@@ -13,6 +13,7 @@
 # Usage:
 #   <plan-dir>/mkplan.bash "descriptive-kebab-name"
 #   <plan-dir>/mkplan.bash --journal <plan-number> <category> <body-file> [--ref R] [--title T]
+#   <plan-dir>/mkplan.bash --resolve-conflict <day-file>
 #
 # Deployment contract (READ THIS):
 #   The script scaffolds plans in ITS OWN directory, resolved from BASH_SOURCE
@@ -60,6 +61,11 @@
 # the caller never supplies (and cannot mis-estimate) a timestamp. It does
 # NOT take the lock above and NEVER touches the counter — the two operations
 # have different lifecycles and must stay provably separate (D6a).
+#
+# --resolve-conflict <day-file> (ledger 00474 N345): resolves a merge conflict
+# in a JOURNAL day-file to the union of both sides' entries (time order, each
+# entry once) and stages it. The one sanctioned route: a hand edit is denied,
+# and `git checkout --ours/--theirs` discards the other side's entries.
 
 set -euo pipefail
 
@@ -75,6 +81,8 @@ readonly LOCK_RETRY_SECONDS=0.1
 # Journal assets (Plan 00163), also used by --journal (Plan 00427).
 readonly JOURNAL_DIR_BASENAME="JOURNAL"
 readonly JOURNAL_TEMPLATE_BASENAME="_JOURNAL_TEMPLATE_.md"
+# A day-file's own name, as --resolve-conflict (ledger 00474 N345) requires.
+readonly JOURNAL_DAYFILE_NAME_PATTERN='^[0-9]{1,5}-Journal-[0-9]{2}-[0-9]{2}-[0-9]{2}\.md$'
 
 # The grammar's legal category set (Plan 00427 D5), mirrored from
 # _JOURNAL_TEMPLATE_.md's "Entry grammar" line -- the template is the prose
@@ -102,6 +110,7 @@ usage() {
     cat >&2 <<'USAGE'
 Usage: mkplan.bash "descriptive-kebab-name"
        mkplan.bash --journal <plan-number> <category> <body-file> [--ref R] [--title T]
+       mkplan.bash --resolve-conflict <day-file>
 
 Creates the next sequentially-numbered plan folder (in this script's own
 directory, or $MKPLAN_PLAN_DIR if set) and scaffolds its PLAN.md.
@@ -467,6 +476,200 @@ run_journal_mode() {
     printf '%s\n' "$journal_file"
 }
 
+resolve_conflict_usage() {
+    cat >&2 <<'USAGE'
+Usage: mkplan.bash --resolve-conflict <day-file>
+
+Resolves a merge conflict in a plan JOURNAL/ day-file by writing the UNION of
+both sides: the header once, every entry exactly once (byte-identical entries
+are merged), ordered by time with ours first on equal stamps. The result is
+staged with `git add`. Entries keep their original time and day.
+
+Reads the index stages (`git show :2:` ours, `:3:` theirs), or the conflict
+markers in the working file when the index holds no stages. Refuses, writing
+nothing, when the path is not a day-file, holds no conflict, has only one side,
+or when either side cannot be read as a header followed by `## HH:MM` entries.
+
+Use this instead of `git checkout --ours/--theirs`, which discards the other
+side's entries, and instead of editing the day-file by hand.
+USAGE
+}
+
+# Split a day-file carrying conflict markers into the two sides: $2 receives
+# everything outside a hunk plus each hunk's first (HEAD) side, $3 the same with
+# each hunk's second side. A diff3 base section is dropped. Prints the number of
+# hunks on stdout; an unterminated or out-of-order hunk is an error.
+_journal_split_markers() {
+    awk -v ours_path="$2" -v theirs_path="$3" '
+        BEGIN { state = 0; hunks = 0; printf "" > ours_path; printf "" > theirs_path }
+        function bad(why) {
+            printf "mkplan: error: malformed conflict markers at line %d: %s\n", NR, why > "/dev/stderr"
+            failed = 1; exit 2
+        }
+        /^<<<<<<<( |$)/ { if (state != 0) bad("nested hunk"); state = 1; hunks++; next }
+        /^\|\|\|\|\|\|\|( |$)/ { if (state != 1) bad("base marker outside a hunk side"); state = 2; next }
+        /^=======$/ { if (state != 1 && state != 2) bad("separator outside a hunk"); state = 3; next }
+        /^>>>>>>>( |$)/ { if (state != 3) bad("closing marker without a separator"); state = 0; next }
+        {
+            if (state == 0 || state == 1) print > ours_path
+            if (state == 0 || state == 3) print > theirs_path
+        }
+        END {
+            if (failed) exit 2
+            if (state != 0) { print "mkplan: error: a conflict hunk is never closed" > "/dev/stderr"; exit 2 }
+            print hunks
+        }
+    ' "$1"
+}
+
+# Print the union of two day-file sides ($1 ours, $2 theirs): the header once,
+# then each entry once, in time order (ties keep ours first). Exits 2 with a
+# message when either side cannot be read as a header plus entries -- an
+# unclosed fence, a `## ` heading that is no entry, no header, or headers that
+# differ -- because dropping what cannot be placed is the loss this mode exists
+# to prevent. An entry is delimited as the daemon's journal parser does: a
+# `## HH:MM` heading outside a fenced block runs to the next one.
+_journal_union() {
+    awk '
+        function fail(why) {
+            printf "mkplan: error: %s\n", why > "/dev/stderr"
+            failed = 1; exit 2
+        }
+        function add_line(line) {
+            if (line ~ /^[[:space:]]*$/) {
+                if (has) pend = pend "\n" line
+                return
+            }
+            cur = has ? cur pend "\n" line : line
+            has = 1; pend = ""
+        }
+        function close_block() {
+            if (has) {
+                if (kind == "pre") { pre[side] = cur }
+                else { n++; etext[n] = cur; etime[n] = substr(cur, 4, 5) }
+            }
+            cur = ""; has = 0; pend = ""
+        }
+        function side_name() { return side == 1 ? "ours" : "theirs" }
+        function finish_side() {
+            close_block()
+            if (in_fence) fail("the " side_name() " side has an unclosed code fence, so its entries cannot be told apart")
+            if (pre[side] == "") fail("the " side_name() " side has no header text above its first entry")
+        }
+        FNR == 1 {
+            if (NR > 1) finish_side()
+            side++; in_fence = 0; kind = "pre"; cur = ""; has = 0; pend = ""
+        }
+        {
+            line = $0
+            if (match(line, /^[[:space:]]*(```|~~~)/)) {
+                marker = substr(line, RSTART + RLENGTH - 3, 3)
+                if (!in_fence) { in_fence = 1; fence = marker }
+                else if (marker == fence) { in_fence = 0 }
+                add_line(line)
+                next
+            }
+            if (!in_fence && line ~ /^## /) {
+                if (line ~ /^## [0-9][0-9]:[0-9][0-9]([^0-9A-Za-z_]|$)/) {
+                    close_block(); kind = "entry"; add_line(line)
+                    next
+                }
+                fail("the " side_name() " side has a heading that is not a journal entry: " line)
+            }
+            add_line(line)
+        }
+        END {
+            if (failed) exit 2
+            finish_side()
+            if (side != 2) fail("expected two sides, read " side)
+            if (pre[1] != pre[2]) fail("the two sides have different header text above their entries; resolve that by hand")
+            for (i = 1; i <= n; i++) {
+                if (etext[i] in seen) continue
+                seen[etext[i]] = 1
+                kept[++m] = i
+            }
+            for (a = 2; a <= m; a++) {
+                moving = kept[a]; b = a - 1
+                while (b >= 1 && etime[kept[b]] > etime[moving]) { kept[b + 1] = kept[b]; b-- }
+                kept[b + 1] = moving
+            }
+            print pre[1]
+            for (a = 1; a <= m; a++) { print ""; print etext[kept[a]] }
+        }
+    ' "$1" "$2"
+}
+
+# True (0) iff the index holds stage $2 of path $3 in the repository at $1.
+_journal_has_stage() {
+    git -C "$1" ls-files --unmerged -- "$3" | awk -v stage="$2" '$3 == stage { found = 1 } END { exit found ? 0 : 1 }'
+}
+
+# Resolve a conflicted JOURNAL day-file to the union of both sides, then stage
+# it. Every refusal happens before the day-file is touched. Takes no lock and
+# never touches $COUNTER_KEY, like --journal.
+run_resolve_conflict_mode() {
+    shift # drop the leading --resolve-conflict
+
+    if [[ $# -ne 1 ]]; then
+        resolve_conflict_usage
+        die "--resolve-conflict expects exactly one argument (the day-file), got $#"
+    fi
+
+    local arg="$1" base dir_arg dir abs repo_root rel
+    base="$(basename "$arg")"
+    dir_arg="$(dirname "$arg")"
+    if [[ ! "$base" =~ $JOURNAL_DAYFILE_NAME_PATTERN ]]; then
+        die "not a journal day-file (expected NNNNN-Journal-YY-MM-DD.md inside a $JOURNAL_DIR_BASENAME/ folder): $arg"
+    fi
+    if [[ ! -d "$dir_arg" ]]; then
+        die "day-file not found: $arg"
+    fi
+    dir="$(cd -P "$dir_arg" && pwd)"
+    if [[ "$(basename "$dir")" != "$JOURNAL_DIR_BASENAME" ]]; then
+        die "not a journal day-file (it is not inside a $JOURNAL_DIR_BASENAME/ folder): $arg"
+    fi
+    abs="$dir/$base"
+    if [[ ! -f "$abs" ]]; then
+        die "day-file not found: $arg"
+    fi
+    if ! repo_root="$(git -C "$dir" rev-parse --show-toplevel)"; then
+        die "$dir is not inside a git repository"
+    fi
+    rel="${abs#"$repo_root"/}"
+
+    # Global, not local: the EXIT trap runs after this function has returned.
+    resolve_scratch="$(mktemp -d)"
+    trap 'rm -rf "$resolve_scratch"' EXIT
+    local ours="$resolve_scratch/ours" theirs="$resolve_scratch/theirs" result="$resolve_scratch/result"
+
+    local has_ours=0 has_theirs=0
+    if _journal_has_stage "$repo_root" 2 "$rel"; then has_ours=1; fi
+    if _journal_has_stage "$repo_root" 3 "$rel"; then has_theirs=1; fi
+
+    if (( has_ours && has_theirs )); then
+        git -C "$repo_root" show ":2:$rel" > "$ours" || die "could not read the ours side of $rel"
+        git -C "$repo_root" show ":3:$rel" > "$theirs" || die "could not read the theirs side of $rel"
+    elif (( has_ours || has_theirs )); then
+        die "only one side of the conflict in $rel is present in the index, so there is nothing to union -- decide that case by hand"
+    else
+        local hunks
+        hunks="$(_journal_split_markers "$abs" "$ours" "$theirs")" || exit 1
+        if (( hunks == 0 )); then
+            die "no merge conflict in $rel: the index holds no unmerged stages and the file has no conflict markers"
+        fi
+    fi
+
+    if [[ ! -s "$ours" || ! -s "$theirs" ]]; then
+        die "one side of the conflict in $rel is empty, so there is nothing to union -- decide that case by hand"
+    fi
+
+    _journal_union "$ours" "$theirs" > "$result" || exit 1
+
+    cat "$result" > "$abs" || die "could not write $rel"
+    git -C "$repo_root" add -- "$rel" || die "could not stage $rel"
+    printf 'mkplan: resolved %s to the union of both sides and staged it\n' "$rel" >&2
+}
+
 # --- argument handling -----------------------------------------------------
 
 if [[ $# -eq 1 ]] && { [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; }; then
@@ -476,6 +679,11 @@ fi
 
 if [[ "${1:-}" == "--journal" ]]; then
     run_journal_mode "$@"
+    exit 0
+fi
+
+if [[ "${1:-}" == "--resolve-conflict" ]]; then
+    run_resolve_conflict_mode "$@"
     exit 0
 fi
 

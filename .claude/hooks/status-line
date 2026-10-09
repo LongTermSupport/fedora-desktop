@@ -17,9 +17,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../init.sh"
 
 # Ensure daemon is running (lazy startup)
-if ! ensure_daemon; then
+if ! _HOOKS_DAEMON_NONBLOCKING_START=true ensure_daemon; then
     # raw_stdout event (generated; Plan 00189): Claude Code reads this
     # hook's stdout RAW, so a JSON error here would be taken literally.
+    if [[ "${_HOOKS_DAEMON_STARTING:-false}" == "true" ]]; then
+        # Still starting, not failed: answered, so exit 0.
+        echo "${_HOOKS_DAEMON_STATUS_LOADING_TEXT:-⏳ hooks daemon loading…}"
+        exit 0
+    fi
     # Diagnostic on stderr; non-zero exit = not handled.
     # This stdout is a DISPLAY line, so the outage stays visible.
     echo "${_HOOKS_DAEMON_STATUS_DOWN_TEXT:-⚠️ DAEMON FAILED}"

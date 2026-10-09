@@ -74,6 +74,17 @@ _HOOKS_DAEMON_REPO_UNCONFIGURED=false
 _HOOKS_DAEMON_VENV_MISSING=false
 _HOOKS_DAEMON_VENV_MISSING_VERSION=""
 
+# Set by _detect_unsupported_python while an answer is being built: the version
+# of the system python3 when it is OLDER than the daemon's minimum, else empty.
+# It turns the "not installed" / "venv missing" advice (install the daemon),
+# which cannot succeed on such a Python, into one that names the versions and
+# says to upgrade Python. _HOOKS_DAEMON_MIN_PYTHON_FALLBACK is used only when the
+# clone's pyproject.toml (the source of truth, `requires-python`) is unreadable;
+# tests/integration/test_init_sh_unsupported_python.py pins the two together.
+_HOOKS_DAEMON_UNSUPPORTED_PYTHON=""
+_HOOKS_DAEMON_MIN_PYTHON=""
+_HOOKS_DAEMON_MIN_PYTHON_FALLBACK="3.11"
+
 # Set by start_daemon when this hook's start deadline came while the daemon
 # it launched was still starting (Plan 00466 review 8, R8-1): nothing is
 # wrong, and the call is denied with a "retry" rather than a diagnosis.
@@ -422,6 +433,43 @@ sys.exit(0 if is_provision_call(hook_input, sys.argv[1]) else 1)
 }
 
 #
+# The events whose output contract defines hookSpecificOutput.additionalContext
+# (contracts/claude-code-hooks/<Event>.json). Claude Code validates hook output
+# strictly: hookSpecificOutput on any OTHER event (SessionEnd, PreCompact,
+# Notification, ...) invalidates the whole document, so those get the universal
+# top-level systemMessage instead. The one list every fail-open answer in this
+# file consults; tests pin it against the contracts.
+_HOOKS_DAEMON_CONTEXT_EVENTS="PreToolUse PostToolUse PostToolUseFailure PostToolBatch PostModelSwitch SessionStart SubagentStart Stop SubagentStop UserPromptExpansion UserPromptSubmit"
+
+#
+# _hooks_daemon_event_takes_context() - True when the event's output contract
+# accepts hookSpecificOutput.additionalContext.
+#
+# Args:
+#   $1 - event name
+_hooks_daemon_event_takes_context() {
+    [[ " $_HOOKS_DAEMON_CONTEXT_EVENTS " == *" ${1:-} "* ]]
+}
+
+#
+# _hooks_daemon_fail_open_json() - Print the schema-valid fail-open document
+# carrying a message, for the event (jq encoder).
+#
+# additionalContext where the event's contract has it, else systemMessage.
+#
+# Args:
+#   $1 - event name (non-empty)
+#   $2 - message
+_hooks_daemon_fail_open_json() {
+    if _hooks_daemon_event_takes_context "$1"; then
+        jq -n --arg event "$1" --arg context "$2" \
+            '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+    else
+        jq -n --arg msg "$2" '{"systemMessage": $msg}'
+    fi
+}
+
+#
 # _hooks_daemon_emit_needs_provision() - The answer to EVERY hook event in a
 # checkout that needs provisioning (Plan 00477 Tasks 3.1-3.3).
 #
@@ -434,7 +482,8 @@ sys.exit(0 if is_provision_call(hook_input, sys.argv[1]) else 1)
 #   PreToolUse                       warn: additionalContext. block: a deny,
 #                                    unless the call is provision itself
 #   Stop, SubagentStop               warn: systemMessage. block: decision=block
-#   every other event                additionalContext
+#   every other event                additionalContext where its contract has
+#                                    one, else systemMessage
 #
 # With neither jq nor python3 nothing can encode the message, so a constant
 # answer is given: a deny (no command can be recognised as provision) for a
@@ -500,7 +549,12 @@ $_HOOKS_DAEMON_UNPROVISIONED_MODE_NOTE"
                 shape="block"
             fi
             ;;
-        *) shape="context" ;;
+        *)
+            shape="context"
+            if ! _hooks_daemon_event_takes_context "$event_name"; then
+                shape="system"
+            fi
+            ;;
     esac
 
     if command -v jq > /dev/null; then
@@ -952,6 +1006,28 @@ Nothing has been changed: hooks never move the daemon to another version themsel
             "$_hd_advice")
     fi
 
+    # An unsupported system Python is the real cause behind a "not installed" or
+    # "venv missing" answer, and the advice those give (install the daemon) cannot
+    # succeed on it. Say what is wrong instead: the version found, the version
+    # required, and to upgrade. Only the MESSAGE changes; every flag, and so every
+    # event's allow/block decision below, is untouched, so this stays fail-open.
+    if [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" || "$_HOOKS_DAEMON_VENV_MISSING" == "true" ]]; then
+        _detect_unsupported_python
+        if [[ -n "$_HOOKS_DAEMON_UNSUPPORTED_PYTHON" ]]; then
+            context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+                "HOOKS DAEMON: INACTIVE - UNSUPPORTED PYTHON VERSION" \
+                "" \
+                "The python3 in this environment is $_HOOKS_DAEMON_UNSUPPORTED_PYTHON, but the hooks daemon requires Python $_HOOKS_DAEMON_MIN_PYTHON or later." \
+                "Checkout: $_hooks_daemon_checkout" \
+                "" \
+                "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE. Claude Code itself works normally." \
+                "" \
+                "TO FIX - upgrade Python: install Python $_HOOKS_DAEMON_MIN_PYTHON or later (for example python3.12) and make it the python3 on PATH." \
+                "Then use the hooks-daemon skill to install or upgrade the daemon (Skill tool: skill=hooks-daemon, args=install)," \
+                "and restart your Claude session for hooks to activate.")
+        fi
+    fi
+
     # Event-specific JSON formatting. jq is used only on this pure-error path
     # (the hot-path transport is jq-free since Plan 00156); a jq-less fallback
     # follows below for hosts without it.
@@ -972,14 +1048,13 @@ Nothing has been changed: hooks never move the daemon to another version themsel
             # CI enforced: hard deny/block for ALL event types to prevent work
             local ci_reason="Hooks daemon REQUIRED (ci_enabled: true) but not installed"
             if [[ "$event_name" == "PreToolUse" ]]; then
-                jq -n --arg reason "$context_msg" \
-                    '{"decision": "deny", "reason": $reason}'
+                jq -n --arg event "$event_name" --arg reason "$context_msg" \
+                    '{"hookSpecificOutput": {"hookEventName": $event, "permissionDecision": "deny", "permissionDecisionReason": $reason}}'
             elif [[ "$event_name" == "Stop" || "$event_name" == "SubagentStop" ]]; then
                 jq -n --arg reason "$ci_reason" \
                     '{"decision": "block", "reason": $reason}'
             else
-                jq -n --arg event "$event_name" --arg context "$context_msg" \
-                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+                _hooks_daemon_fail_open_json "$event_name" "$context_msg"
             fi
         elif [[ "$_HOOKS_DAEMON_VENV_MISSING" == "true" ]]; then
             # Venv missing for this path: Stop/SubagentStop block, others
@@ -991,8 +1066,7 @@ Nothing has been changed: hooks never move the daemon to another version themsel
                 jq -n --arg reason "$venv_block_reason" \
                     '{"decision": "block", "reason": $reason}'
             else
-                jq -n --arg event "$event_name" --arg context "$context_msg" \
-                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+                _hooks_daemon_fail_open_json "$event_name" "$context_msg"
             fi
         elif [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" ]]; then
             # Not installed: Stop/SubagentStop block, others fail-open with install guidance.
@@ -1004,8 +1078,7 @@ Nothing has been changed: hooks never move the daemon to another version themsel
                     "Hooks daemon not installed at $_hooks_daemon_checkout - protection not active" \
                     '{"decision": "block", "reason": $reason}'
             else
-                jq -n --arg event "$event_name" --arg context "$context_msg" \
-                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+                _hooks_daemon_fail_open_json "$event_name" "$context_msg"
             fi
         else
             # Standard: Stop/SubagentStop block; PreToolUse denies (Plan
@@ -1018,8 +1091,7 @@ Nothing has been changed: hooks never move the daemon to another version themsel
                 jq -n --arg event "$event_name" --arg reason "$_pretooluse_deny_msg" \
                     '{"hookSpecificOutput": {"hookEventName": $event, "permissionDecision": "deny", "permissionDecisionReason": $reason}}'
             else
-                jq -n --arg event "$event_name" --arg context "$context_msg" \
-                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+                _hooks_daemon_fail_open_json "$event_name" "$context_msg"
             fi
         fi
     else
@@ -1035,8 +1107,18 @@ Nothing has been changed: hooks never move the daemon to another version themsel
 import json
 import sys
 
-event_name, context_msg, ci_enforced, not_installed, checkout, venv_missing, venv_block_reason, pretooluse_deny, pretooluse_deny_msg = sys.argv[1:10]
+event_name, context_msg, ci_enforced, not_installed, checkout, venv_missing, venv_block_reason, pretooluse_deny, pretooluse_deny_msg, context_events = sys.argv[1:11]
 stop_events = ("Stop", "SubagentStop")
+
+
+def fail_open(event, msg):
+    # additionalContext only where the event contract has it (the shell list in
+    # _HOOKS_DAEMON_CONTEXT_EVENTS, passed in); otherwise the universal
+    # systemMessage, since hookSpecificOutput invalidates the whole document.
+    if event in context_events.split():
+        return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": msg}}
+    return {"systemMessage": msg}
+
 
 if not event_name:
     # No event name: see the jq branch above. systemMessage is universal, so it
@@ -1046,11 +1128,17 @@ if not event_name:
     resp = {"systemMessage": context_msg}
 elif ci_enforced == "true":
     if event_name == "PreToolUse":
-        resp = {"decision": "deny", "reason": context_msg}
+        resp = {
+            "hookSpecificOutput": {
+                "hookEventName": event_name,
+                "permissionDecision": "deny",
+                "permissionDecisionReason": context_msg,
+            }
+        }
     elif event_name in stop_events:
         resp = {"decision": "block", "reason": "Hooks daemon REQUIRED (ci_enabled: true) but not installed"}
     else:
-        resp = {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context_msg}}
+        resp = fail_open(event_name, context_msg)
 elif venv_missing == "true":
     # Clone present, venv missing for this path: same reasoning as the jq
     # branch above -- the block reason must not read as plain NOT_INSTALLED,
@@ -1059,7 +1147,7 @@ elif venv_missing == "true":
     if event_name in stop_events:
         resp = {"decision": "block", "reason": venv_block_reason}
     else:
-        resp = {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context_msg}}
+        resp = fail_open(event_name, context_msg)
 elif not_installed == "true":
     if event_name in stop_events:
         resp = {
@@ -1067,7 +1155,7 @@ elif not_installed == "true":
             "reason": f"Hooks daemon not installed at {checkout} - protection not active",
         }
     else:
-        resp = {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context_msg}}
+        resp = fail_open(event_name, context_msg)
 else:
     # Standard: Stop/SubagentStop block; PreToolUse denies (Plan 00466 N24
     # review 3 MA4) unless stdin was the exact recovery command; every
@@ -1083,12 +1171,12 @@ else:
             }
         }
     else:
-        resp = {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": context_msg}}
+        resp = fail_open(event_name, context_msg)
 
 print(json.dumps(resp))
 ' "$event_name" "$context_msg" "$_HOOKS_DAEMON_CI_ENFORCED" "$_HOOKS_DAEMON_NOT_INSTALLED" \
             "$_hooks_daemon_checkout" "$_HOOKS_DAEMON_VENV_MISSING" "$venv_block_reason" \
-            "$_pretooluse_deny" "$_pretooluse_deny_msg" || {
+            "$_pretooluse_deny" "$_pretooluse_deny_msg" "$_HOOKS_DAEMON_CONTEXT_EVENTS" || {
             # No jq and no working python3: nothing can encode the reason, but
             # a deny must still reach Claude Code (Plan 00466 round 3, R2-1).
             local _hd_encoder_rc=$?
@@ -1215,6 +1303,44 @@ fi
 # (HOOKS_DAEMON_PYTHON or a discovered venv-*/bin/python), never bare
 # `python3`. The scan-fallback handles cross-fingerprint resolution.
 PYTHON_CMD=""  # populated lazily by _resolve_python_cmd
+
+# _detect_unsupported_python() - Is the system python3 older than the daemon needs?
+#
+# Sets _HOOKS_DAEMON_UNSUPPORTED_PYTHON to the python3 version when it is below
+# the minimum, and _HOOKS_DAEMON_MIN_PYTHON to that minimum; both are empty
+# otherwise. Always returns 0 and never fails the caller: a missing python3, an
+# unreadable pyproject.toml or an unparseable version all mean "not shown to be
+# unsupported", which leaves the existing answer unchanged (fail-open).
+_detect_unsupported_python() {
+    _HOOKS_DAEMON_UNSUPPORTED_PYTHON=""
+    _HOOKS_DAEMON_MIN_PYTHON=""
+    if [[ -z "$(command -v python3)" ]]; then
+        return 0
+    fi
+
+    local min="$_HOOKS_DAEMON_MIN_PYTHON_FALLBACK"
+    local pyproject="${HOOKS_DAEMON_ROOT_DIR:-}/pyproject.toml"
+    local line=""
+    if [[ -n "${HOOKS_DAEMON_ROOT_DIR:-}" && -f "$pyproject" ]]; then
+        line="$(grep -E '^requires-python' "$pyproject")" || line=""
+    fi
+    if [[ "$line" =~ ([0-9]+\.[0-9]+) ]]; then
+        min="${BASH_REMATCH[1]}"
+    fi
+
+    local found=""
+    found="$(python3 -c 'import sys; v = sys.version_info; print("%d.%d.%d" % (v[0], v[1], v[2]))')" || found=""
+    if [[ ! "$found" =~ ^([0-9]+)\.([0-9]+)\. ]]; then
+        return 0
+    fi
+    local found_major="${BASH_REMATCH[1]}" found_minor="${BASH_REMATCH[2]}"
+    local min_major="${min%%.*}" min_minor="${min#*.}"
+    if (( found_major < min_major || (found_major == min_major && found_minor < min_minor) )); then
+        _HOOKS_DAEMON_UNSUPPORTED_PYTHON="$found"
+        _HOOKS_DAEMON_MIN_PYTHON="$min"
+    fi
+    return 0
+}
 
 # Plan 00104 Phase 4: delegate to canonical library at
 # ${HOOKS_DAEMON_ROOT_DIR}/scripts/lib/resolve_venv.sh. The library invokes
@@ -1444,6 +1570,19 @@ DAEMON_STARTUP_TIMEOUT=150
 # come one helper run's start-lock wait and the request the daemon answers.
 # Twin of Timeout.HOOK_START_DEADLINE_SEC.
 _HOOKS_DAEMON_START_DEADLINE=15
+
+# Plan 00495 Task 2.7: a DISPLAY-line forwarder (the status line) sets
+# _HOOKS_DAEMON_NONBLOCKING_START=true in front of ensure_daemon. Its start
+# is then waited on for only _HOOKS_DAEMON_NONBLOCKING_DEADLINE seconds, and
+# a daemon that is alive but not yet answering counts as STARTING (not
+# failed) however long it takes: the start carries on in the background and
+# the forwarder prints the loading line. Hooks that judge a call never set it.
+_HOOKS_DAEMON_NONBLOCKING_START=false
+_HOOKS_DAEMON_NONBLOCKING_DEADLINE=1
+
+# What the status line shows while the daemon is starting. Twin of
+# EventID.STATUS_LINE.daemon_loading_stdout.
+_HOOKS_DAEMON_STATUS_LOADING_TEXT="⏳ hooks daemon loading…"
 
 # Export paths for use by forwarder scripts
 export HOOKS_DAEMON_ROOT_DIR
@@ -1852,6 +1991,9 @@ start_daemon() {
     # launcher that has finished leaves DAEMON_STARTUP_TIMEOUT for its
     # daemon to answer, and never more than the budget.
     local deadline=$_HOOKS_DAEMON_START_DEADLINE settle_end=""
+    if [[ "$_HOOKS_DAEMON_NONBLOCKING_START" == "true" ]]; then
+        deadline=$_HOOKS_DAEMON_NONBLOCKING_DEADLINE
+    fi
     while ((SECONDS < deadline)); do
         if is_daemon_running && [[ -S "$SOCKET_PATH" ]]; then
             _hooks_daemon_end_launch
@@ -1876,7 +2018,14 @@ start_daemon() {
 
     # The launcher is still at work: the daemon is starting, and nothing is
     # known to be wrong. This hook answers now, before its timeout.
-    if [[ "$launch_done" == false ]]; then
+    #
+    # A non-blocking caller also counts a launcher that has finished while its
+    # daemon is alive and the settle time has not passed: that daemon is
+    # still coming up. A daemon that is not running by then has failed.
+    if [[ "$launch_done" == false ]] ||
+        { [[ "$_HOOKS_DAEMON_NONBLOCKING_START" == "true" ]] &&
+            { [[ -z "$settle_end" ]] || ((SECONDS < settle_end)); } &&
+            is_daemon_running; }; then
         _HOOKS_DAEMON_STARTING=true
         echo "HOOKS DAEMON: the daemon is still starting ${deadline}s into this hook, which answers now rather than run past its timeout" >&2
         return 1
@@ -2531,9 +2680,13 @@ ensure_daemon() {
                 echo '⚠️ NO STATUS DATA'
                 return 0
             fi
-            printf '{"hookSpecificOutput": {"hookEventName": "%s", "additionalContext": "%s"}}\n' \
-                "$event_name" \
-                "HOOKS DAEMON: Not installed in CI environment. Safety handlers are INACTIVE. All operations allowed without validation. This warning appears once."
+            local ci_advisory="HOOKS DAEMON: Not installed in CI environment. Safety handlers are INACTIVE. All operations allowed without validation. This warning appears once."
+            if _hooks_daemon_event_takes_context "$event_name"; then
+                printf '{"hookSpecificOutput": {"hookEventName": "%s", "additionalContext": "%s"}}\n' \
+                    "$event_name" "$ci_advisory"
+            else
+                printf '{"systemMessage": "%s"}\n' "$ci_advisory"
+            fi
         }
         export -f send_request_stdin
         return 0
@@ -2725,6 +2878,13 @@ import sys
 
 event_name = sys.argv[1] if len(sys.argv) > 1 else 'Unknown'
 response_mode = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Events whose contract defines hookSpecificOutput.additionalContext: the shell
+# list _HOOKS_DAEMON_CONTEXT_EVENTS, expanded when this source is built.
+context_events = '$_HOOKS_DAEMON_CONTEXT_EVENTS'.split()
+
+# The status line's baseline while the daemon is starting (_HOOKS_DAEMON_STATUS_LOADING_TEXT).
+status_loading_text = '$_HOOKS_DAEMON_STATUS_LOADING_TEXT'
 
 # Socket budget for the whole connect+send+recv exchange. Default 30s; operators
 # can raise it via CLAUDE_HOOKS_SOCKET_TIMEOUT (also lets tests drive the timeout
@@ -3043,14 +3203,19 @@ def emit_error_json(event_name, error_type, error_details):
         # Other events, and the one PreToolUse case that fails open: an
         # exact daemon-recovery command (Plan 00466 N24 review 3 MA4's
         # carve-out) on any of the error_types denied above.
-        # hookSpecificOutput with context -- the existing, documented
-        # fail-open shape.
-        response = {
-            'hookSpecificOutput': {
-                'hookEventName': event_name,
-                'additionalContext': context,
+        # hookSpecificOutput with context where the event's contract has it
+        # (the shell list, interpolated below); otherwise the universal
+        # systemMessage, because hookSpecificOutput on any other event
+        # invalidates the whole document.
+        if event_name in context_events:
+            response = {
+                'hookSpecificOutput': {
+                    'hookEventName': event_name,
+                    'additionalContext': context,
+                }
             }
-        }
+        else:
+            response = {'systemMessage': context}
     print(json.dumps(response))
 
 def fail(error_type, error_details):
@@ -3063,7 +3228,13 @@ def fail(error_type, error_details):
         # diagnostic on stderr — no silent error suppression (Plan 00156 review
         # finding 3). (The non-status path logs stderr inside emit_error_json.)
         print(f'HOOKS DAEMON ERROR [{error_type}]: {error_details}', file=sys.stderr)
-        print('⚠️ NO STATUS DATA')
+        # Plan 00495 Task 2.7: the daemon's process is alive (the wrapper
+        # gated on it) but its socket is not answering yet: it is still
+        # starting, which is not the same as having no status data.
+        if error_type in ('socket_not_found', 'connection_refused'):
+            print(status_loading_text)
+        else:
+            print('⚠️ NO STATUS DATA')
     elif response_mode == 'worktree':
         # WorktreeCreate stdout is parsed as a path; a transport failure has no
         # valid path to offer. Fail creation cleanly (non-zero) with the reason
@@ -3367,6 +3538,8 @@ export -f _hooks_daemon_stdin_is_recovery_command
 export -f _hooks_daemon_recovery_command
 export -f _hooks_daemon_static_deny
 export -f _hooks_daemon_stdin_is_provision_command
+export -f _hooks_daemon_event_takes_context
+export _HOOKS_DAEMON_CONTEXT_EVENTS
 export -f _hooks_daemon_emit_needs_provision
 export -f _detect_needs_provision
 export -f _config_daemon_key_raw

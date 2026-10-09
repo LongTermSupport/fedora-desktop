@@ -1,0 +1,109 @@
+#!/bin/sh
+#
+# DAEMON-OWNED FILE - do not edit. Deployed into your project by the
+# claude-code-hooks-daemon installer and refreshed on every upgrade, so local
+# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
+# .claude/ Are Yours?", for the full list.
+#
+# claude-supervise: launcher for the ccy PTY supervisor (claude-supervise.py).
+#
+# WHY A SHELL SCRIPT: the supervisor needs Python 3.11 or later, and newer
+# syntax fails when Python PARSES the file, before any version check inside it
+# could run. This launcher runs first, picks a supported interpreter, and
+# execs the supervisor under it. If there is none it prints a loud warning and
+# execs the wrapped command (claude) directly, UNSUPERVISED: an unsupported
+# Python must never stop Claude Code from opening.
+#
+# CONTRACT
+#   ccy.env sets CCY_CLAUDE_WRAPPER to "<this file> --arm --"; ccy runs
+#   "<wrapper> claude <args>", so this script receives
+#   "[supervisor flags] -- <claude argv...>".
+#   Interpreter order: $CCY_PYTHON, python3.14, 3.13, 3.12, 3.11, python3; the
+#   first that reports Python >= 3.11 wins. Supported: exec it on
+#   claude-supervise.py with every argument unchanged. Otherwise: warn on
+#   stderr, then exec everything after the first "--".
+#   Environment: CCY_PYTHON picks the interpreter;
+#   CCY_UNSUPPORTED_PYTHON_PAUSE (default 5) is the seconds the warning is
+#   held on an interactive terminal before claude starts (0 disables).
+
+# The supported minimum; must equal pyproject.toml's requires-python (pinned by
+# tests/unit/supervise/test_launcher.py).
+MIN_MAJOR=3
+MIN_MINOR=11
+MIN_VERSION="$MIN_MAJOR.$MIN_MINOR"
+
+# Run everything after the first "--" (the wrapped command); never returns on
+# success. Called with the launcher's own arguments.
+run_unsupervised() {
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--" ]; then
+            shift
+            if [ "$#" -eq 0 ]; then
+                break
+            fi
+            exec "$@"
+        fi
+        shift
+    done
+    echo "claude-supervise: no command after '--'; nothing to run." >&2
+    exit 2
+}
+
+# True when "$1" is an interpreter reporting Python >= MIN_VERSION.
+is_supported() {
+    "$1" -c "import sys; sys.exit(0 if sys.version_info >= ($MIN_MAJOR, $MIN_MINOR) else 1)" >/dev/null 2>&1
+}
+
+# Print "$1"'s version, or nothing when it cannot say.
+version_of() {
+    "$1" -c 'import sys; print("%d.%d.%d" % tuple(sys.version_info[:3]))' 2>/dev/null
+}
+
+warn_unsupported() {
+    found="no python3 found on PATH"
+    if command -v python3 >/dev/null 2>&1; then
+        found="python3 is $(version_of python3)"
+    fi
+    {
+        echo ""
+        echo "################################################################"
+        echo "# CCY SUPERVISOR DISABLED: THIS PYTHON VERSION IS NOT SUPPORTED #"
+        echo "################################################################"
+        echo "# Found:    $found"
+        echo "# Required: Python $MIN_VERSION or later"
+        echo "#"
+        echo "# Claude Code is starting WITHOUT the ccy supervisor. Supervision is"
+        echo "# OFF: no automatic /compact, no continue, no goal or model restore."
+        echo "#"
+        echo "# Fix: install Python $MIN_VERSION or later (python3.11, python3.12 or"
+        echo "# python3.13) in this container, or point CCY_PYTHON at one, e.g."
+        echo "#   export CCY_PYTHON=/usr/bin/python3.12"
+        echo "################################################################"
+        echo ""
+    } >&2
+    if [ -t 2 ]; then
+        sleep "${CCY_UNSUPPORTED_PYTHON_PAUSE:-5}" 2>/dev/null
+    fi
+}
+
+self_dir="${0%/*}"
+if [ "$self_dir" = "$0" ]; then
+    self_dir="."
+fi
+supervisor="$self_dir/claude-supervise.py"
+
+for candidate in "${CCY_PYTHON:-}" python3.14 python3.13 python3.12 python3.11 python3; do
+    [ -n "$candidate" ] || continue
+    interpreter=$(command -v "$candidate" 2>/dev/null) || continue
+    [ -x "$interpreter" ] || continue
+    if is_supported "$interpreter"; then
+        if [ -f "$supervisor" ]; then
+            exec "$interpreter" "$supervisor" "$@"
+        fi
+        echo "claude-supervise: $supervisor is missing; running claude unsupervised." >&2
+        run_unsupervised "$@"
+    fi
+done
+
+warn_unsupported
+run_unsupervised "$@"

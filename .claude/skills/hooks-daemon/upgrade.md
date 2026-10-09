@@ -218,8 +218,14 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    project_root=...
    modified_files=...
    config_diff_summary=...
+   handler_changes=...
    UPGRADE_METADATA>>>
    ```
+
+   `handler_changes` lists every handler this upgrade stops or starts running
+   for your config (`stops:handlers.<event>.<key>,...`, empty when none). When
+   it is non-empty, say so in the commit subject or body and show the user the
+   restore snippet the upgrade printed.
 
 If the daemon is not RUNNING after upgrade, do NOT commit — investigate
 first (`.claude/hooks-daemon/bin/hooks-daemon logs`).

@@ -103,8 +103,18 @@ ever delivered (``install_input_signal_guards``: SIGTSTP + SIGQUIT, plus ignored
 SIGTTIN/SIGTTOU). Ctrl+C (SIGINT) is deliberately left working. Each swallow
 surfaces a transient status-line notice via the message channel below.
 
+PLUGINS (Plan 00487). A launcher can extend the supervisor without forking it:
+each ``--plugin <name>=<worker.py>`` flag names a stdlib-only worker half (never
+found by scanning), vetted before it is imported and imported only by the
+``--worker`` subprocess. Its ``on_idle`` is asked at the END of the
+``decide_once`` cascade and may return ``ExitForRestart``; a plugin that fails
+in ANY way is disabled, the supervisor recovers, and the session is told once
+by a fixed-template notice. See ``CLAUDE/development/CcySupervisor.md`` for the
+contract, the failure path and the exit status.
+
 Usage:
-    claude-supervise.py [--dry-run | --arm] [--log PATH] -- <child argv...>
+    claude-supervise.py [--dry-run | --arm] [--log PATH]
+                        [--plugin NAME=WORKER.PY ...] -- <child argv...>
 
 HOST-TIER SURFACE (Plan 00317). The PTY host (`supervise()`/`_forward_io()`)
 never reloads -- it owns the live child. Everything it does beyond raw byte
@@ -189,25 +199,30 @@ import base64
 import enum
 import errno
 import fcntl
+import functools
 import hashlib
+import importlib.util
+import io
 import json
 import os
 import pty
+import re
 import select
 import signal
+import stat
 import struct
-import subprocess  # nosec B404 - spawns ONLY `python3 <self> --worker`, a fixed argv, never a shell
+import subprocess  # nosec B404 - spawns ONLY `python3 <self> --worker` and `<child> --version`, fixed argv, never a shell
 import sys
 import termios
 import threading
 import time
 import traceback
 import tty
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, Protocol, cast
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -217,7 +232,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.68.0"
+__version__ = "3.69.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -270,7 +285,10 @@ def _front_truncate_file(path: Path, *, max_bytes: int, retain_bytes: int) -> No
 # (Plan 00164 Phase 3). Lives in the same 'supervise' subdir as the decision log.
 _SUPERVISOR_STATUS_FILENAME = "supervisor-status.json"
 
-_USAGE = "Usage: claude-supervise.py [--dry-run | --arm] [--log PATH] -- <child argv...>\n"
+_USAGE = (
+    "Usage: claude-supervise.py [--dry-run | --arm] [--log PATH] "
+    "[--plugin NAME=WORKER.PY ...] -- <child argv...>\n"
+)
 
 # CLI test-trigger mode: writes a manual model-switch signal and exits --
 # never starts a supervisor. See `_run_emit_model_switch`.
@@ -1490,6 +1508,9 @@ class Decision(enum.Enum):
     WOULD_AUDIT = "would-audit"
     WOULD_OPERATOR_SIGNAL = "would-operator-signal"
     WOULD_SESSION_ACTIONS = "would-session-actions"
+    WOULD_CRON_RECONCILE = "would-cron-reconcile"
+    WOULD_PLUGIN_NOTICE = "would-plugin-notice"
+    WOULD_SESSION_NOTICE = "would-session-notice"
 
 
 class SupervisorState(enum.Enum):
@@ -1625,6 +1646,11 @@ class TickFacts:
     # resetting this specific clock would silently re-open the very unbounded
     # gate this plan exists to close). False on legacy hosts.
     input_line_abandoned: bool = False
+    # Plan 00470 Task 2.3: seconds the child has produced no output, the proxy
+    # for "no hook traffic" (the daemon has no channel to the supervisor for
+    # it). 0.0 -- never quiet -- on a legacy host and when no output has been
+    # seen, so the cron-expiry watchdog fails closed.
+    output_quiet_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -1697,6 +1723,17 @@ class TickOutcome:
     # would show the just-flushed text as non-empty forever. False for every
     # other decision and for legacy replies without the field.
     abandoned_box_flushed: bool = False
+    # Plan 00487: what the plugin runtime has to tell the HOST. Failures and
+    # versions are CUMULATIVE for the worker's lifetime and re-sent every tick
+    # (the host's handling is idempotent), so a reply the host discarded as
+    # stale cannot lose a failure. Each failure is `(plugin, kind, hook,
+    # detail)`, closed-set values only. `plugin_log_lines` are the lines
+    # plugins wrote through `api.audit`. `exit_for_restart` is `(plugin,
+    # reason)` when a plugin asked the session to exit for a relaunch.
+    plugin_failures: tuple[tuple[str, str, str, str], ...] = ()
+    plugin_versions: tuple[tuple[str, str], ...] = ()
+    plugin_log_lines: tuple[str, ...] = ()
+    exit_for_restart: tuple[str, str] | None = None
 
 
 def _coerce_float(value: object) -> float:
@@ -1841,6 +1878,34 @@ def _redirect_worker_stderr_to_log() -> None:
     sys.stderr = stream
 
 
+def _isolate_worker_channels() -> tuple[TextIO, TextIO]:
+    """Give the worker private protocol streams and repoint the standard ones.
+
+    The worker's stdin/stdout are the tick and reply pipes to the PTY host, and
+    plugin code runs in this process. Returns ``(requests, replies)`` over
+    private duplicates of fds 0 and 1, then points fd 0 at ``/dev/null`` and fd
+    1 (plus ``sys.stdin``/``sys.stdout``) at whatever stderr is -- the worker
+    error log once `_redirect_worker_stderr_to_log` ran. Anything plugin code
+    prints, writes to ``sys.stdout`` or writes to fd 1 therefore lands in the
+    log and can never be parsed as a reply or steal a tick. Call it before any
+    plugin is loaded.
+    """
+    sys.stdout.flush()
+    request_fd = os.dup(0)
+    reply_fd = os.dup(1)
+    devnull_fd = os.open(os.devnull, os.O_RDONLY)
+    try:
+        os.dup2(devnull_fd, 0)
+    finally:
+        os.close(devnull_fd)
+    os.dup2(sys.stderr.fileno(), 1)
+    sys.stdin = io.StringIO("")
+    sys.stdout = sys.stderr
+    requests = os.fdopen(request_fd, "r", encoding="utf-8")
+    replies = os.fdopen(reply_fd, "w", encoding="utf-8", buffering=1)
+    return requests, replies
+
+
 def compute_source_hash(path: Path) -> str:
     """Return a short sha256 hex digest of ``path``'s bytes (staleness key).
 
@@ -1864,6 +1929,7 @@ def write_supervisor_status(
     source_hash: str,
     pid: int,
     started_at: float,
+    plugins: Sequence[Mapping[str, str]] | None = None,
 ) -> Path | None:
     """Atomically write the running supervisor's identity for staleness checks.
 
@@ -1876,12 +1942,17 @@ def write_supervisor_status(
         The status file path on success, or None on failure.
     """
     status_path = _supervisor_status_path(untracked_dir)
-    payload = {
+    payload: dict[str, object] = {
         "version": version,
         "source_hash": source_hash,
         "pid": pid,
         "started_at": started_at,
     }
+    if plugins is not None:
+        # Plan 00487: name/version/state(loaded|failed|disabled)/reason per plugin.
+        # Omitted entirely when no plugin was named, so a consumer that predates
+        # the key sees exactly the payload it always saw.
+        payload["plugins"] = [dict(plugin) for plugin in plugins]
     try:
         status_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = status_path.parent / f".{_SUPERVISOR_STATUS_FILENAME}.{pid}.tmp"
@@ -2774,6 +2845,80 @@ _DRY_RUN_SESSION_ACTIONS_BODY_PREFIX = (
 )
 
 
+# ── Cron-expiry watchdog (Plan 00470 Task 2.3) ──────────────────────────────
+# A session cron dies seven days after creation. The daemon records each one in
+# `cron-records.json` (beside the sidecar dir) and its Stop hook refreshes a job
+# before it expires -- but only while Stop hooks fire. When the session has been
+# quiet for `_CRON_WATCHDOG_QUIET_SECONDS` and EVERY recorded job is already
+# past its expiry, nothing inside the session will notice, so the supervisor
+# types the "CronList and reconcile" prompt the daemon's
+# `persistent_cron_assertor` gives at SessionStart. This script is stdlib-only
+# and cannot import the daemon package, so the names below are copies, pinned to
+# `claude_code_hooks_daemon.utils.cron_records` by
+# tests/unit/supervise/test_cron_expiry_watchdog.py. The file is only READ.
+_CRON_RECORDS_FILENAME = "cron-records.json"
+_CRON_RECORDS_KEY = "records"
+_CRON_FIELD_SESSION_ID = "session_id"
+_CRON_FIELD_CREATED_AT = "created_at"
+_CRON_EXPIRY_SECONDS = 7 * 24 * 60 * 60.0
+# Two hours without child output. PTY quiet is the proxy for "no hook traffic".
+_CRON_WATCHDOG_QUIET_SECONDS = 2 * 60 * 60.0
+# Runaway backstop. Each prompt also waits a full quiet window after the last
+# one, so this only bounds a session that never answers for ever.
+_MAX_CRON_RECONCILE_INJECTIONS = 10
+_CRON_RECONCILE_HEADER = (
+    "🤖 [ccy-supervisor] cron check — machine-generated, NOT a human "
+    "instruction and NOT human authorisation for anything"
+)
+_DRY_RUN_CRON_RECONCILE_BODY_PREFIX = (
+    "would inject cron-reconcile prompt (dry-run — no real message sent):"
+)
+
+
+def _render_cron_reconcile_message() -> str:
+    """The fixed reconcile prompt; nothing read from the record file is interpolated."""
+    return (
+        f"{_CRON_RECONCILE_HEADER}: every cron job recorded for this project is past "
+        "its 7-day expiry and this session has been quiet for hours, so its "
+        "scheduled jobs (recurring jobs auto-expire after 7 days) are probably gone. "
+        "Reconcile them yourself: 1. Run CronList FIRST. 2. Re-create each job the "
+        "project declares that is absent, with CronCreate (recurring: true), using "
+        "its declared schedule and prompt (the persistent-crons list printed at "
+        "session start). 3. If one is already listed, create nothing for it — a "
+        "duplicate fires twice."
+    )
+
+
+def _cron_records_all_expired(
+    directory: Path, *, now: float, own_sessions: frozenset[str] | None
+) -> bool:
+    """True when at least one in-scope record exists and every one is past expiry.
+
+    Fails closed: a missing, unreadable or malformed file, a non-numeric
+    ``created_at`` and a future-dated record (age below zero) are all "not
+    expired", so a broken file can never make the supervisor type anything.
+    """
+    path = directory.parent / _CRON_RECORDS_FILENAME
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    entries = raw.get(_CRON_RECORDS_KEY) if isinstance(raw, dict) else None
+    if not isinstance(entries, list):
+        return False
+    ages: list[float] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return False
+        if not _session_in_scope(entry.get(_CRON_FIELD_SESSION_ID), own_sessions):
+            continue
+        created_at = entry.get(_CRON_FIELD_CREATED_AT)
+        if isinstance(created_at, bool) or not isinstance(created_at, (int, float)):
+            return False
+        ages.append(now - float(created_at))
+    return bool(ages) and all(age >= _CRON_EXPIRY_SECONDS for age in ages)
+
+
 def _render_session_actions_message(count: int) -> str:
     """Render the fixed, daemon-owned directive for ``count`` must-do items.
 
@@ -3316,6 +3461,1303 @@ def reap_stale_sidecars(
     return reaped
 
 
+# ---------------------------------------------------------------------------
+# Plugin API (Plan 00487)
+#
+# A project names plugins EXPLICITLY, with a repeatable
+# ``--plugin <name>=<worker.py>`` flag before ``--``. Nothing is found by
+# scanning. A plugin file is stdlib-only, vetted (regular file, owned by this
+# uid or root, neither it nor its directory group/world-writable) and never
+# imported by the PTY HOST: the host only vets the file and keeps a registry
+# (`PluginHost`); the ``--worker`` subprocess imports the files the host passed
+# on (`PluginRuntime`). Plugin code runs ONLY in that worker: when the worker
+# is silent or down the host's in-process fallback runs the built-in families
+# alone, and plugins resume when a worker answers again.
+#
+# A worker half is ``create_worker_half(api)`` returning an object with
+# ``on_start()`` and ``on_idle(tick)``. ``on_idle`` runs ONLY at the end of the
+# `decide_once` cascade, after every built-in family, when the same gates hold
+# as for those families plus ``can_inject`` and no own line pending.
+#
+# A plugin can never block the supervisor or the session. Every hook call runs
+# on a thread with a short budget well inside the host's worker read timeout,
+# and every failure takes ONE path: detect (exception, overrun, wedge, bad
+# result, load failure), disable for the rest of the supervisor process (the
+# host passes ``--disable-plugin`` on every worker (re)start), recover (an
+# overrun or wedge restarts the worker without the plugin), and tell the
+# session through the built-in plugin-notice family, which is rendered from
+# FIXED templates only -- a validated name plus closed-set values, never
+# plugin text or exception text.
+# ---------------------------------------------------------------------------
+
+_PLUGIN_API_MAJOR = 1
+_PLUGIN_API_VERSION = (_PLUGIN_API_MAJOR, 0)
+_PLUGIN_FLAG = "--plugin"
+_DISABLE_PLUGIN_FLAG = "--disable-plugin"
+_PLUGIN_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+_PLUGIN_SPEC_SEPARATOR = "="
+_PLUGIN_UNNAMED = "(unnamed)"
+_PLUGIN_MODULE_PREFIX = "_ccy_plugin_"
+_PLUGIN_API_ATTRIBUTE = "PLUGIN_API"
+_PLUGIN_FACTORY_NAME = "create_worker_half"
+_PLUGIN_STATE_DIR_MODE = 0o700
+_PLUGIN_UNSAFE_MODE_BITS = stat.S_IWGRP | stat.S_IWOTH
+_ROOT_UID = 0
+
+# Where the supervisor keeps state that must outlive a container restart: under
+# the project's own `.claude/ccy/` (the directory this script is deployed in,
+# gitignored by that directory's `.gitignore`). Plugin state dirs live under
+# `plugins/<name>/`; the exit-for-restart request lives at the top level.
+_CCY_STATE_SUBDIRECTORY = "state"
+_CCY_STATE_DIR_ENV = "CCY_SUPERVISOR_STATE_DIR"
+_PLUGIN_STATE_SUBDIRECTORY = "plugins"
+
+# Hook time budgets. A tick's reply is awaited for `_WORKER_READ_TIMEOUT_SECONDS`
+# (2.0s), so the whole plugin share of a tick stays at half of that and a single
+# hook gets less still. Plugins past the tick budget are simply not asked this
+# tick (not a failure).
+_PLUGIN_HOOK_BUDGET_SECONDS = 0.5
+_PLUGIN_TICK_BUDGET_SECONDS = 1.0
+_PLUGIN_LOAD_BUDGET_SECONDS = 1.0
+# A marker older than a hook's budget plus this grace means the worker is stuck
+# INSIDE that hook (a budgeted thread could not return it), not merely slow.
+_PLUGIN_WEDGE_GRACE_SECONDS = 0.25
+
+_PLUGIN_TEXT_MAX_CHARS = 200
+_PLUGIN_VERSION_MAX_CHARS = 64
+_PLUGIN_REASON_MAX_CHARS = 120
+_PLUGIN_AUDIT_MAX_PENDING = 20
+_PLUGIN_STATUS_TTL_DEFAULT_SECONDS = 10.0
+_PLUGIN_STATUS_TTL_MIN_SECONDS = 1.0
+_PLUGIN_STATUS_TTL_MAX_SECONDS = 60.0
+_PLUGIN_MARKER_PREFIX = "plugin-in-hook"
+
+# Reasons a plugin was refused at load: a CLOSED set, because they reach
+# `supervisor-status.json` and a notice is rendered only from closed values.
+_LOAD_REASON_BAD_SPEC = "bad-spec"
+_LOAD_REASON_BAD_NAME = "bad-name"
+_LOAD_REASON_NOT_ABSOLUTE = "not-absolute"
+_LOAD_REASON_NOT_A_FILE = "not-a-file"
+_LOAD_REASON_OWNER = "wrong-owner"
+_LOAD_REASON_WRITABLE = "group-or-world-writable"
+_LOAD_REASON_DUPLICATE = "duplicate-name"
+_LOAD_REASON_API = "api-mismatch"
+_LOAD_REASON_IMPORT = "import-error"
+_LOAD_REASON_NO_FACTORY = "no-factory"
+_LOAD_REASON_FACTORY = "factory-error"
+_LOAD_REASON_BAD_HALF = "bad-half"
+_LOAD_REASON_STATE_DIR = "state-dir"
+_LOAD_REASON_TIMEOUT = "timeout"
+_LOAD_REASON_UNSPECIFIED = "unspecified"
+_PLUGIN_LOAD_REASONS = frozenset(
+    {
+        _LOAD_REASON_BAD_SPEC,
+        _LOAD_REASON_BAD_NAME,
+        _LOAD_REASON_NOT_ABSOLUTE,
+        _LOAD_REASON_NOT_A_FILE,
+        _LOAD_REASON_OWNER,
+        _LOAD_REASON_WRITABLE,
+        _LOAD_REASON_DUPLICATE,
+        _LOAD_REASON_API,
+        _LOAD_REASON_IMPORT,
+        _LOAD_REASON_NO_FACTORY,
+        _LOAD_REASON_FACTORY,
+        _LOAD_REASON_BAD_HALF,
+        _LOAD_REASON_STATE_DIR,
+        _LOAD_REASON_TIMEOUT,
+        _LOAD_REASON_UNSPECIFIED,
+    }
+)
+
+# The closed sets a failure is described with.
+_PLUGIN_HOOK_LOAD = "load"
+_PLUGIN_HOOK_ON_START = "on_start"
+_PLUGIN_HOOK_ON_IDLE = "on_idle"
+_PLUGIN_HOOKS = frozenset({_PLUGIN_HOOK_LOAD, _PLUGIN_HOOK_ON_START, _PLUGIN_HOOK_ON_IDLE})
+_PLUGIN_KIND_LOAD = "load"
+_PLUGIN_KIND_EXCEPTION = "exception"
+_PLUGIN_KIND_OVERRUN = "overrun"
+_PLUGIN_KIND_WEDGE = "wedge"
+_PLUGIN_KIND_BAD_RESULT = "bad-result"
+# The plugin kept asking to end the session and the session kept not ending
+# (`RestartCoordinator` gave up on it `_RESTART_MAX_ABANDONED` times).
+_PLUGIN_KIND_EXIT_STUCK = "exit-stuck"
+# The HOST's own plugin handling failed unexpectedly (`PluginContainment`), so
+# every plugin is switched off rather than left running unsupervised.
+_PLUGIN_KIND_HOST_FAULT = "host-fault"
+_PLUGIN_KINDS = frozenset(
+    {
+        _PLUGIN_KIND_LOAD,
+        _PLUGIN_KIND_EXCEPTION,
+        _PLUGIN_KIND_OVERRUN,
+        _PLUGIN_KIND_WEDGE,
+        _PLUGIN_KIND_BAD_RESULT,
+        _PLUGIN_KIND_EXIT_STUCK,
+        _PLUGIN_KIND_HOST_FAULT,
+    }
+)
+# A failure of these kinds leaves a thread (or the whole worker) possibly still
+# running plugin code, so the host recovers by restarting the worker.
+_PLUGIN_KINDS_NEEDING_WORKER_RESTART = frozenset(
+    {_PLUGIN_KIND_OVERRUN, _PLUGIN_KIND_WEDGE, _PLUGIN_KIND_EXIT_STUCK, _PLUGIN_KIND_HOST_FAULT}
+)
+
+_PLUGIN_STATE_LOADED = "loaded"
+_PLUGIN_STATE_FAILED = "failed"
+_PLUGIN_STATE_DISABLED = "disabled"
+_DISABLED_BY_FLAG_REASON = f"disabled by {_DISABLE_PLUGIN_FLAG}"
+
+_BUDGET_OK = "ok"
+_BUDGET_EXCEPTION = "exception"
+_BUDGET_OVERRUN = "overrun"
+
+
+class PluginLoadError(Exception):
+    """A plugin was refused at load; ``reason`` is a member of ``_PLUGIN_LOAD_REASONS``.
+
+    ``name`` is set only once the plugin's name has been validated, because a
+    notice may name only a validated name.
+    """
+
+    def __init__(self, reason: str, name: str | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.name = name
+
+
+@dataclass(frozen=True)
+class PluginSpec:
+    """A parsed ``--plugin <name>=<path>`` flag value."""
+
+    name: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class PluginFailure:
+    """One plugin failure, described ONLY by validated or closed-set values.
+
+    ``kind`` is a member of ``_PLUGIN_KINDS``, ``hook`` of ``_PLUGIN_HOOKS``
+    and ``detail`` (load failures only) of ``_PLUGIN_LOAD_REASONS``. Never
+    exception text, never plugin text.
+    """
+
+    plugin: str
+    kind: str
+    hook: str
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class IdleTick:
+    """What a worker half's ``on_idle`` is told."""
+
+    now: float
+    session_id: str | None
+
+
+@dataclass(frozen=True)
+class ExitForRestart:
+    """An ``on_idle`` result: end the session at this idle point and exit for a relaunch.
+
+    The host types ``/exit``, and once the child has exited, writes the restart
+    request file and exits with `EXIT_STATUS_RESTART_REQUESTED` so the launcher
+    can relaunch with ``--resume <id>``. ``reason`` is short, logged only and
+    never typed into the chat.
+    """
+
+    reason: str
+
+
+NOTIFY_RESTART_SOON = "restart-soon"
+NOTIFY_DEADLINE_REACHED = "deadline-reached"
+_NOTIFY_KINDS = frozenset({NOTIFY_RESTART_SOON, NOTIFY_DEADLINE_REACHED})
+_NOTIFY_MINUTES_MIN = 1
+_NOTIFY_MINUTES_MAX = 240
+
+
+@dataclass(frozen=True)
+class Notify:
+    """An ``on_idle`` result: ask the supervisor to tell the session something.
+
+    ``kind`` is `NOTIFY_RESTART_SOON` (``minutes`` is then required, an int from
+    1 to `_NOTIFY_MINUTES_MAX`) or `NOTIFY_DEADLINE_REACHED` (no ``minutes``).
+    The plugin supplies NO text: the supervisor renders the line from its own
+    fixed template, marks it as machine-generated, types it at an idle point
+    and rate-limits it per kind.
+    """
+
+    kind: str
+    minutes: int | None = None
+
+
+@dataclass(frozen=True)
+class PluginNotification:
+    """A validated `Notify` together with the plugin that returned it."""
+
+    plugin: str
+    kind: str
+    minutes: int | None
+
+
+@dataclass(frozen=True)
+class PluginExitRequest:
+    """A validated `ExitForRestart` together with the plugin that returned it."""
+
+    plugin: str
+    reason: str
+
+
+# What `on_idle` may return is judged INSIDE the hook's time budget (on the
+# budgeted thread), because reading a plugin-controlled value -- an attribute
+# access, a property, a ``__str__`` -- can run plugin code or hang.
+_BAD_IDLE_RESULT = object()
+
+
+def _validated_idle_result(value: object) -> object:
+    """None, a cleaned `ExitForRestart`, a validated `Notify`, or `_BAD_IDLE_RESULT`.
+
+    The reason must be a plain ``str`` (not a subclass, whose ``__str__`` could
+    run plugin code later); it is cleaned and bounded here.
+    """
+    if value is None:
+        return None
+    if isinstance(value, ExitForRestart):
+        reason = value.reason
+        if type(reason) is not str:
+            return _BAD_IDLE_RESULT
+        return ExitForRestart(_clean_text(reason, _PLUGIN_REASON_MAX_CHARS))
+    if isinstance(value, Notify):
+        kind, minutes = value.kind, value.minutes
+        if type(kind) is not str or kind not in _NOTIFY_KINDS:
+            return _BAD_IDLE_RESULT
+        if kind == NOTIFY_RESTART_SOON:
+            if (
+                type(minutes) is not int
+                or not _NOTIFY_MINUTES_MIN <= minutes <= _NOTIFY_MINUTES_MAX
+            ):
+                return _BAD_IDLE_RESULT
+        elif minutes is not None:
+            return _BAD_IDLE_RESULT
+        return Notify(kind, minutes)
+    return _BAD_IDLE_RESULT
+
+
+def _clean_text(value: object, limit: int) -> str:
+    """One printable line of at most ``limit`` characters from any value.
+
+    Plugin-supplied text only ever reaches a log or the status line, never the
+    chat, but control characters (escape sequences, newlines) are still removed
+    so a plugin cannot forge log lines or terminal output.
+    """
+    printable = "".join(ch if ch.isprintable() else " " for ch in str(value))
+    return " ".join(printable.split())[:limit]
+
+
+def parse_plugin_spec(raw: str) -> PluginSpec:
+    """Parse ``<name>=<absolute path>``; raise `PluginLoadError` naming the closed reason."""
+    name, separator, path_text = raw.partition(_PLUGIN_SPEC_SEPARATOR)
+    if not separator or not path_text:
+        raise PluginLoadError(_LOAD_REASON_BAD_SPEC)
+    if _PLUGIN_NAME_PATTERN.fullmatch(name) is None:
+        raise PluginLoadError(_LOAD_REASON_BAD_NAME)
+    path = Path(path_text)
+    if not path.is_absolute():
+        raise PluginLoadError(_LOAD_REASON_NOT_ABSOLUTE, name=name)
+    return PluginSpec(name=name, path=path)
+
+
+def _default_plugin_uids() -> frozenset[int]:
+    """The owners a plugin file may have: this supervisor's uid, or root."""
+    return frozenset({os.getuid(), _ROOT_UID})
+
+
+def check_plugin_file(path: Path, *, allowed_uids: Collection[int] | None = None) -> str | None:
+    """Vet a plugin file WITHOUT importing it; return a closed refusal reason or None.
+
+    It must be a regular file (a symlink is refused: the vetted bytes must be
+    the ones imported), and both it and its directory must be owned by an
+    allowed uid and not group- or world-writable. The same check runs again in
+    the worker immediately before the import.
+    """
+    uids = allowed_uids if allowed_uids is not None else _default_plugin_uids()
+    try:
+        file_info = path.lstat()
+        directory_info = path.parent.stat()
+    except OSError:
+        return _LOAD_REASON_NOT_A_FILE
+    if not stat.S_ISREG(file_info.st_mode):
+        return _LOAD_REASON_NOT_A_FILE
+    for info in (file_info, directory_info):
+        if info.st_uid not in uids:
+            return _LOAD_REASON_OWNER
+        if info.st_mode & _PLUGIN_UNSAFE_MODE_BITS:
+            return _LOAD_REASON_WRITABLE
+    return None
+
+
+def _ccy_state_dir() -> Path:
+    """The persistent supervisor state directory (`.claude/ccy/state/`).
+
+    ``CCY_SUPERVISOR_STATE_DIR`` overrides it, for a launcher that keeps this
+    state elsewhere on the persistent mount (and for tests).
+    """
+    override = os.environ.get(_CCY_STATE_DIR_ENV)
+    return Path(override) if override else _SELF_PATH.parent / _CCY_STATE_SUBDIRECTORY
+
+
+def _plugin_state_root() -> Path:
+    """Parent of every plugin's private `state_dir`."""
+    return _ccy_state_dir() / _PLUGIN_STATE_SUBDIRECTORY
+
+
+def _plugin_marker_path(untracked_dir: Path, supervisor_pid: int) -> Path:
+    """The atomic "a hook is running" marker for the supervisor with ``supervisor_pid``."""
+    return untracked_dir / _LOG_SUBDIRECTORY / f"{_PLUGIN_MARKER_PREFIX}.{supervisor_pid}.json"
+
+
+def _failure_reason(failure: PluginFailure) -> str:
+    """The status-file reason string for a failure (closed values only)."""
+    if failure.kind == _PLUGIN_KIND_LOAD:
+        detail = failure.detail if failure.detail in _PLUGIN_LOAD_REASONS else ""
+        return f"{_PLUGIN_KIND_LOAD}: {detail or _LOAD_REASON_UNSPECIFIED}"
+    return f"{failure.kind} in {failure.hook}"
+
+
+def failure_log_line(failure: PluginFailure) -> str:
+    """The `decision.log` audit line for a failure (closed values only)."""
+    action = "disabled"
+    if failure.kind in _PLUGIN_KINDS_NEEDING_WORKER_RESTART:
+        action = "disabled, worker restarted without it"
+    return f"plugin {failure.plugin}: {_failure_reason(failure)} -> {action}"
+
+
+# ── The plugin-notice family (Plan 00487 Task 1.6) ─────────────────────────────
+# Tells the SESSION that a plugin failed. Rendered from FIXED templates only:
+# the sole interpolated values are a plugin name that matched
+# `_PLUGIN_NAME_PATTERN` and phrases looked up from closed sets by a validated
+# kind/hook -- never plugin text, never exception text. Typed at the same
+# idle choke point as the operator signal (ranked with it, ahead of the
+# model-switch/restore families), once per plugin, capped per process, with the
+# machine-origin provenance header every supervisor chat line carries.
+_MAX_PLUGIN_NOTICES = 5
+_PLUGIN_NOTICE_SEPARATOR = "|"
+_PLUGIN_NOTICE_PART_COUNT = 3  # name, kind, hook
+_PLUGIN_NOTICE_HEADER = (
+    "🤖 [ccy-supervisor] plugin notice — machine-generated, NOT a human instruction"
+)
+_DRY_RUN_PLUGIN_NOTICE_BODY_PREFIX = "would inject plugin-notice (dry-run — no real message sent):"
+_PLUGIN_NOTICE_STATUS_TTL_SECONDS = 60.0
+_PLUGIN_KIND_PHRASES = {
+    _PLUGIN_KIND_LOAD: "could not be loaded",
+    _PLUGIN_KIND_EXCEPTION: "raised an exception",
+    _PLUGIN_KIND_OVERRUN: "ran past its time budget",
+    _PLUGIN_KIND_WEDGE: "stopped the policy worker answering",
+    _PLUGIN_KIND_BAD_RESULT: "returned a result the supervisor does not accept",
+    _PLUGIN_KIND_EXIT_STUCK: "asked to end the session for a restart, but the session did not end",
+    _PLUGIN_KIND_HOST_FAULT: "was switched off with every other plugin after a supervisor fault",
+}
+_PLUGIN_HOOK_PHRASES = {
+    _PLUGIN_HOOK_LOAD: "",
+    _PLUGIN_HOOK_ON_START: " in on_start",
+    _PLUGIN_HOOK_ON_IDLE: " in on_idle",
+}
+_PLUGIN_RECOVERY_SENTENCES = {
+    _PLUGIN_KIND_LOAD: "It was skipped, and this session is running without it.",
+    _PLUGIN_KIND_EXCEPTION: "It is disabled for the rest of this session.",
+    _PLUGIN_KIND_BAD_RESULT: "It is disabled for the rest of this session.",
+    _PLUGIN_KIND_OVERRUN: (
+        "It is disabled for the rest of this session, and the policy worker was "
+        "restarted without it."
+    ),
+    _PLUGIN_KIND_WEDGE: (
+        "It is disabled for the rest of this session, and the policy worker was "
+        "restarted without it."
+    ),
+    _PLUGIN_KIND_EXIT_STUCK: (
+        "It is disabled for the rest of this session, and the policy worker was "
+        "restarted without it."
+    ),
+    _PLUGIN_KIND_HOST_FAULT: (
+        "No plugin runs for the rest of this session, and the policy worker was "
+        "restarted without any."
+    ),
+}
+_PLUGIN_NOTICE_CLOSING = "No action is needed from you."
+
+
+def parse_plugin_notice_item(item: str) -> tuple[str, str, str] | None:
+    """Validate a queued `name|kind|hook` notice; None unless every part is legal."""
+    parts = item.split(_PLUGIN_NOTICE_SEPARATOR)
+    if len(parts) != _PLUGIN_NOTICE_PART_COUNT:
+        return None
+    name, kind, hook = parts
+    if (
+        _PLUGIN_NAME_PATTERN.fullmatch(name) is None
+        or kind not in _PLUGIN_KINDS
+        or hook not in _PLUGIN_HOOKS
+    ):
+        return None
+    return name, kind, hook
+
+
+def render_plugin_notice(name: str, kind: str, hook: str) -> str:
+    """The fixed sentence telling the session that plugin ``name`` failed.
+
+    ``name``, ``kind`` and ``hook`` must already be validated
+    (`parse_plugin_notice_item`); they select or fill literal templates and
+    nothing else reaches the text.
+    """
+    return (
+        f"{_PLUGIN_NOTICE_HEADER}: plugin `{name}` {_PLUGIN_KIND_PHRASES[kind]}"
+        f"{_PLUGIN_HOOK_PHRASES[hook]}. {_PLUGIN_RECOVERY_SENTENCES[kind]} "
+        f"{_PLUGIN_NOTICE_CLOSING}"
+    )
+
+
+def report_plugin_failure(
+    machine: CompactStateMachine, failure: PluginFailure, *, status_dir: Path, now: float
+) -> bool:
+    """Owe the session a notice for ``failure`` and warn on the status line.
+
+    Idempotent per plugin: True only the first time (the notice is armed and the
+    WARNING posted), so a worker that re-reports every failure on every tick
+    costs nothing.
+    """
+    if not machine.arm_plugin_notice(failure.plugin, failure.kind, failure.hook):
+        return False
+    write_status_message(
+        status_dir,
+        text=(
+            f"⚠ ccy plugin {failure.plugin} {_PLUGIN_KIND_PHRASES[failure.kind]} " "and is disabled"
+        ),
+        expires_at=now + _PLUGIN_NOTICE_STATUS_TTL_SECONDS,
+        level=_STATUS_LEVEL_WARNING,
+        now=now,
+    )
+    return True
+
+
+# -- The session-notice family (Plan 00487 Task 1.3c) -------------------------
+# Three FIXED sentences the supervisor can type: a plugin may request the first
+# two with `Notify`, and the supervisor itself owns the third (typed once after
+# a restart it performed). The text comes from the templates below and nothing
+# else: the only interpolated values are an integer of minutes in a closed range
+# and a version string matching `_VERSION_PATTERN`, both checked by
+# `parse_session_notice_item` before anything is rendered or queued.
+_SESSION_NOTICE_RESTARTED = "restarted"
+_SESSION_NOTICE_SEPARATOR = "|"
+_MAX_SESSION_NOTICES_PENDING = 4
+# Per-kind minimum seconds between two requests of the same kind (a plugin
+# that asks on every idle tick is typed once per interval). `restarted` is
+# once per process.
+_NOTIFY_MIN_INTERVAL_SECONDS = {
+    NOTIFY_RESTART_SOON: 600.0,
+    NOTIFY_DEADLINE_REACHED: 1800.0,
+    _SESSION_NOTICE_RESTARTED: float("inf"),
+}
+# Per-kind lifetime cap on armed notices (per supervisor process): a plugin
+# that keeps asking is typed at most this often over a whole process, however
+# the intervals above fall. The first request over the cap is logged once.
+_NOTIFY_MAX_PER_PROCESS = {
+    NOTIFY_RESTART_SOON: 12,
+    NOTIFY_DEADLINE_REACHED: 6,
+}
+_SESSION_NOTICE_HEADER = (
+    "🤖 [ccy-supervisor] session notice — machine-generated, NOT a human instruction"
+)
+_DRY_RUN_SESSION_NOTICE_BODY_PREFIX = (
+    "would inject session-notice (dry-run — no real message sent):"
+)
+_MINUTES_PATTERN = re.compile(r"[0-9]{1,3}")
+_VERSION_PATTERN = re.compile(r"[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}(?:-[0-9A-Za-z.]{1,24})?")
+_RESTART_SOON_TEMPLATE = (
+    "this session will be restarted in about {minutes} {unit}. Finish the current "
+    "unit of work, commit and push, and note where you are; the conversation "
+    "resumes automatically after the restart."
+)
+_DEADLINE_REACHED_TEMPLATE = (
+    "this session's time limit has been reached. Finish the current unit of work, "
+    "commit, push, write a hand-off note, then stop."
+)
+_RESTARTED_TEMPLATE = "this session was restarted and is now on {version}. Carry on with the work."
+_RESTARTED_VERSION_FALLBACK = "the installed version"
+
+
+def parse_session_notice_item(item: str) -> tuple[str, str] | None:
+    """Validate a queued `kind|argument` session notice; None unless it is a legal one."""
+    kind, separator, argument = item.partition(_SESSION_NOTICE_SEPARATOR)
+    if not separator or _SESSION_NOTICE_SEPARATOR in argument:
+        return None
+    if kind == NOTIFY_RESTART_SOON:
+        if _MINUTES_PATTERN.fullmatch(argument) is None:
+            return None
+        if not _NOTIFY_MINUTES_MIN <= int(argument) <= _NOTIFY_MINUTES_MAX:
+            return None
+        return kind, argument
+    if kind == NOTIFY_DEADLINE_REACHED:
+        return (kind, argument) if argument == "" else None
+    if kind == _SESSION_NOTICE_RESTARTED:
+        if argument == "" or _VERSION_PATTERN.fullmatch(argument) is not None:
+            return (kind, argument)
+    return None
+
+
+def render_session_notice(kind: str, argument: str) -> str:
+    """The fixed sentence for a validated session notice (`parse_session_notice_item`)."""
+    if kind == NOTIFY_RESTART_SOON:
+        minutes = int(argument)
+        body = _RESTART_SOON_TEMPLATE.format(
+            minutes=minutes, unit="minute" if minutes == 1 else "minutes"
+        )
+    elif kind == NOTIFY_DEADLINE_REACHED:
+        body = _DEADLINE_REACHED_TEMPLATE
+    else:
+        version = f"version {argument}" if argument else _RESTARTED_VERSION_FALLBACK
+        body = _RESTARTED_TEMPLATE.format(version=version)
+    return f"{_SESSION_NOTICE_HEADER}: {body}"
+
+
+@dataclass(frozen=True)
+class _BudgetedResult:
+    status: str
+    value: object = None
+    traceback_text: str = ""
+    error: BaseException | None = None
+
+
+def _run_budgeted(fn: Callable[[], object], budget_seconds: float) -> _BudgetedResult:
+    """Run ``fn`` on a daemon thread and wait at most ``budget_seconds`` for it.
+
+    A thread cannot be killed, so an overrun thread is abandoned (it may
+    still be running); the caller's recovery is to restart the whole worker.
+    """
+    box: list[_BudgetedResult] = []
+
+    def _target() -> None:
+        try:
+            value = fn()
+        except BaseException as error:
+            # Deliberately broad: a plugin may raise anything, SystemExit
+            # included, and none of it may reach the supervisor.
+            box.append(_BudgetedResult(_BUDGET_EXCEPTION, None, traceback.format_exc(), error))
+        else:
+            box.append(_BudgetedResult(_BUDGET_OK, value))
+
+    thread = threading.Thread(target=_target, name="ccy-plugin-hook", daemon=True)
+    thread.start()
+    thread.join(budget_seconds)
+    if thread.is_alive():
+        return _BudgetedResult(_BUDGET_OVERRUN)
+    if not box:
+        return _BudgetedResult(_BUDGET_EXCEPTION, None, "plugin hook thread ended with no result")
+    return box[0]
+
+
+def _ask_idle(half: WorkerHalf, tick: IdleTick) -> object:
+    """Call ``half.on_idle(tick)`` and validate what it returned (runs on the budgeted thread)."""
+    return _validated_idle_result(half.on_idle(tick))
+
+
+class WorkerHalf(Protocol):
+    """The shape a plugin's `create_worker_half(api)` must return."""
+
+    name: str
+    version: str
+
+    def on_start(self) -> None:
+        """Called once when the runtime starts (a worker hot reload starts it again)."""
+
+    def on_idle(self, tick: IdleTick) -> ExitForRestart | Notify | None:
+        """Called at the end of the idle cascade; may ask for an exit-for-restart or a notice."""
+
+
+class PluginApi:
+    """What a worker half's factory is handed.
+
+    ``api_version`` is ``(major, minor)``; ``state_dir`` is a per-plugin 0700
+    directory that survives a container restart; ``session_id()`` is the
+    supervisor's own session id, or None when it is not exactly one;
+    ``status`` posts a transient status-line message; ``audit`` writes a
+    `decision.log` line. ``ExitForRestart`` and ``Notify`` (with the kinds
+    ``RESTART_SOON`` and ``DEADLINE_REACHED``) build the results `on_idle`
+    may return.
+    """
+
+    ExitForRestart: ClassVar[type[ExitForRestart]] = ExitForRestart
+    Notify: ClassVar[type[Notify]] = Notify
+    RESTART_SOON: ClassVar[str] = NOTIFY_RESTART_SOON
+    DEADLINE_REACHED: ClassVar[str] = NOTIFY_DEADLINE_REACHED
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        state_dir: Path,
+        session_ids: Callable[[], frozenset[str]],
+        status_sink: Callable[[str, str, str, float], object],
+        audit_sink: Callable[[str, str], object],
+    ) -> None:
+        self.api_version = _PLUGIN_API_VERSION
+        self.state_dir = state_dir
+        self._name = name
+        self._session_ids = session_ids
+        self._status_sink = status_sink
+        self._audit_sink = audit_sink
+
+    def session_id(self) -> str | None:
+        """The one own session id, or None when there are none or several."""
+        ids = self._session_ids()
+        return next(iter(ids)) if len(ids) == 1 else None
+
+    def status(
+        self,
+        text: str,
+        level: str = _STATUS_LEVEL_INFO,
+        ttl: float = _PLUGIN_STATUS_TTL_DEFAULT_SECONDS,
+    ) -> None:
+        """Post ``text`` to the status line for about ``ttl`` seconds."""
+        self._status_sink(self._name, text, level, ttl)
+
+    def audit(self, message: str) -> None:
+        """Write ``message`` as one `decision.log` line."""
+        self._audit_sink(self._name, message)
+
+
+class PluginRuntime:
+    """The worker-side plugin runner: loads worker halves and calls their hooks.
+
+    Plugins are asked in the order they were named. Every call is budgeted
+    (`_run_budgeted`); any failure disables that plugin for the rest of the
+    process and is recorded in `failures`, which the caller reports on EVERY
+    tick (the report is idempotent) so a lost reply cannot lose a failure.
+    """
+
+    def __init__(
+        self,
+        *,
+        state_root: Path,
+        status_dir: Path,
+        marker_path: Path,
+        session_ids: Callable[[], frozenset[str]] = cached_own_session_ids,
+        allowed_uids: Collection[int] | None = None,
+        hook_budget_seconds: float = _PLUGIN_HOOK_BUDGET_SECONDS,
+        tick_budget_seconds: float = _PLUGIN_TICK_BUDGET_SECONDS,
+        load_budget_seconds: float = _PLUGIN_LOAD_BUDGET_SECONDS,
+        monotonic: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
+        status_sink: Callable[[str, str, str, float], object] | None = None,
+    ) -> None:
+        self._state_root = state_root
+        self._status_dir = status_dir
+        self._marker_path = marker_path
+        self._session_ids = session_ids
+        self._allowed_uids = allowed_uids
+        self._hook_budget = hook_budget_seconds
+        self._tick_budget = tick_budget_seconds
+        self._load_budget = load_budget_seconds
+        self._monotonic = monotonic
+        self._wall_clock = wall_clock
+        self._halves: dict[str, WorkerHalf] = {}
+        self._versions: dict[str, str] = {}
+        self._disabled: set[str] = set()
+        self._failures: list[PluginFailure] = []
+        self._notifications: list[PluginNotification] = []
+        self._audit_lines: list[str] = []
+        # In-memory only (never sent to the host): the traceback behind each
+        # failure, for `PluginTestHarness` to show a plugin author.
+        self._tracebacks: dict[str, str] = {}
+        # Where `api.status` goes: the status-line message file, unless a test
+        # harness substitutes a recorder.
+        self._status_sink = status_sink if status_sink is not None else self._post_status
+        self._lock = threading.Lock()
+
+    @property
+    def state_root(self) -> Path:
+        """Parent of every plugin's private `state_dir`."""
+        return self._state_root
+
+    @property
+    def loaded(self) -> list[tuple[str, str]]:
+        """``(name, version)`` of every plugin still enabled, in flag order."""
+        return [(name, self._versions[name]) for name in self._halves if name not in self._disabled]
+
+    @property
+    def failures(self) -> tuple[PluginFailure, ...]:
+        """Every failure this runtime has recorded (cumulative)."""
+        return tuple(self._failures)
+
+    @property
+    def notifications(self) -> tuple[PluginNotification, ...]:
+        """The `Notify` results of the latest `run_idle` only (reset by each run)."""
+        return tuple(self._notifications)
+
+    def half(self, name: str) -> WorkerHalf:
+        """The loaded worker half called ``name`` (test and harness access)."""
+        return self._halves[name]
+
+    def traceback_for(self, name: str) -> str:
+        """The traceback behind ``name``'s failure, or "" (kept in memory, for a test harness)."""
+        return self._tracebacks.get(name, "")
+
+    def disable(self, name: str) -> None:
+        """Stop calling ``name`` (the host disabled it for a failure it detected)."""
+        self._disabled.add(name)
+
+    def take_audit_lines(self) -> tuple[str, ...]:
+        """The `decision.log` lines plugins wrote since the last call."""
+        with self._lock:
+            lines, self._audit_lines = tuple(self._audit_lines), []
+        return lines
+
+    # -- loading ---------------------------------------------------------
+
+    def load(self, specs: Sequence[tuple[str, Path]], disabled: Collection[str]) -> None:
+        """Import and instantiate each named plugin, in order; a failure skips only it."""
+        self._disabled.update(disabled)
+        for name, path in specs:
+            if name in self._disabled:
+                continue
+            try:
+                self._load_one(name, path)
+            except PluginLoadError as error:
+                self._fail(name, _PLUGIN_KIND_LOAD, _PLUGIN_HOOK_LOAD, detail=error.reason)
+
+    def _load_one(self, name: str, path: Path) -> None:
+        refusal = check_plugin_file(path, allowed_uids=self._allowed_uids)
+        if refusal is not None:
+            raise PluginLoadError(refusal)
+        state_dir = self._make_state_dir(name)
+        api = PluginApi(
+            name=name,
+            state_dir=state_dir,
+            session_ids=self._session_ids,
+            status_sink=self._status_sink,
+            audit_sink=self._record_audit,
+        )
+        self._write_marker(name, _PLUGIN_HOOK_LOAD)
+        try:
+            result = _run_budgeted(lambda: self._import_half(name, path, api), self._load_budget)
+        finally:
+            self._clear_marker()
+        if result.status == _BUDGET_OVERRUN:
+            raise PluginLoadError(_LOAD_REASON_TIMEOUT)
+        if result.status != _BUDGET_OK:
+            self._tracebacks[name] = result.traceback_text
+        if isinstance(result.error, PluginLoadError):
+            raise PluginLoadError(result.error.reason)
+        if result.status != _BUDGET_OK:
+            append_worker_error(f"plugin {name} failed to load:\n{result.traceback_text}")
+            raise PluginLoadError(_LOAD_REASON_IMPORT)
+        half = cast("WorkerHalf", result.value)
+        self._halves[name] = half
+        self._versions[name] = _clean_text(getattr(half, "version", ""), _PLUGIN_VERSION_MAX_CHARS)
+
+    def _make_state_dir(self, name: str) -> Path:
+        state_dir = self._state_root / name
+        try:
+            state_dir.mkdir(mode=_PLUGIN_STATE_DIR_MODE, parents=True, exist_ok=True)
+            state_dir.chmod(_PLUGIN_STATE_DIR_MODE)
+        except OSError as error:
+            raise PluginLoadError(_LOAD_REASON_STATE_DIR) from error
+        return state_dir
+
+    @staticmethod
+    def _import_half(name: str, path: Path, api: PluginApi) -> object:
+        """Import ``path`` and build its worker half; raise `PluginLoadError` on any refusal."""
+        module_name = f"{_PLUGIN_MODULE_PREFIX}{name}"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise PluginLoadError(_LOAD_REASON_IMPORT)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException as error:
+            # A plugin's import can raise anything; none of it escapes the loader.
+            sys.modules.pop(module_name, None)
+            raise PluginLoadError(_LOAD_REASON_IMPORT) from error
+        declared = getattr(module, _PLUGIN_API_ATTRIBUTE, None)
+        if type(declared) is not int or declared != _PLUGIN_API_MAJOR:
+            raise PluginLoadError(_LOAD_REASON_API)
+        factory = getattr(module, _PLUGIN_FACTORY_NAME, None)
+        if not callable(factory):
+            raise PluginLoadError(_LOAD_REASON_NO_FACTORY)
+        try:
+            half = factory(api)
+        except Exception as error:
+            raise PluginLoadError(_LOAD_REASON_FACTORY) from error
+        if (
+            getattr(half, "name", None) != name
+            or not isinstance(getattr(half, "version", None), str)
+            or not callable(getattr(half, "on_start", None))
+            or not callable(getattr(half, "on_idle", None))
+        ):
+            raise PluginLoadError(_LOAD_REASON_BAD_HALF)
+        return half
+
+    # -- hooks -----------------------------------------------------------
+
+    def start(self) -> None:
+        """Call every enabled half's ``on_start`` once, in flag order."""
+        for name, half in list(self._halves.items()):
+            if name not in self._disabled:
+                self._call(name, _PLUGIN_HOOK_ON_START, half.on_start, self._hook_budget)
+
+    def run_idle(self, now: float) -> PluginExitRequest | None:
+        """Ask each enabled plugin ``on_idle`` in flag order; the first exit request wins.
+
+        A `Notify` result is collected (see `notifications`) and the next plugin
+        is still asked.
+        """
+        deadline = self._monotonic() + self._tick_budget
+        self._notifications = []
+        ids = self._session_ids()
+        tick = IdleTick(now=now, session_id=next(iter(ids)) if len(ids) == 1 else None)
+        for name, half in list(self._halves.items()):
+            if name in self._disabled:
+                continue
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                break
+            outcome = self._call(
+                name,
+                _PLUGIN_HOOK_ON_IDLE,
+                functools.partial(_ask_idle, half, tick),
+                min(self._hook_budget, remaining),
+            )
+            if outcome is None or outcome.value is None:
+                continue
+            if isinstance(outcome.value, ExitForRestart):
+                return PluginExitRequest(plugin=name, reason=outcome.value.reason)
+            if isinstance(outcome.value, Notify):
+                self._notifications.append(
+                    PluginNotification(name, outcome.value.kind, outcome.value.minutes)
+                )
+                continue
+            self._fail(name, _PLUGIN_KIND_BAD_RESULT, _PLUGIN_HOOK_ON_IDLE)
+        return None
+
+    def _call(
+        self, name: str, hook: str, fn: Callable[[], object], budget: float
+    ) -> _BudgetedResult | None:
+        """Run one hook under its budget; record a failure and return None if it failed."""
+        self._write_marker(name, hook)
+        try:
+            result = _run_budgeted(fn, budget)
+        finally:
+            self._clear_marker()
+        if result.status == _BUDGET_OK:
+            return result
+        if result.status == _BUDGET_OVERRUN:
+            self._fail(name, _PLUGIN_KIND_OVERRUN, hook)
+        else:
+            append_worker_error(f"plugin {name} {hook} raised:\n{result.traceback_text}")
+            self._tracebacks[name] = result.traceback_text
+            self._fail(name, _PLUGIN_KIND_EXCEPTION, hook)
+        return None
+
+    def _fail(self, name: str, kind: str, hook: str, *, detail: str = "") -> None:
+        if name in self._disabled and any(f.plugin == name for f in self._failures):
+            return
+        self._disabled.add(name)
+        self._failures.append(PluginFailure(name, kind, hook, detail))
+
+    # -- the in-hook marker ------------------------------------------------
+
+    def _write_marker(self, name: str, hook: str) -> None:
+        payload = {"plugin": name, "hook": hook, "started_at": self._wall_clock()}
+        try:
+            self._marker_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._marker_path.with_name(f".{self._marker_path.name}.{os.getpid()}.tmp")
+            tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+            tmp_path.replace(self._marker_path)
+        except OSError as error:
+            append_worker_error(f"could not write plugin in-hook marker: {error}")
+
+    def _clear_marker(self) -> None:
+        try:
+            self._marker_path.unlink(missing_ok=True)
+        except OSError as error:
+            append_worker_error(f"could not clear plugin in-hook marker: {error}")
+
+    # -- sinks handed to the api ------------------------------------------
+
+    def _post_status(self, name: str, text: str, level: str, ttl: float) -> None:
+        shown_level = (
+            level if level in (_STATUS_LEVEL_INFO, _STATUS_LEVEL_WARNING) else _STATUS_LEVEL_INFO
+        )
+        bounded_ttl = min(
+            max(_coerce_float(ttl), _PLUGIN_STATUS_TTL_MIN_SECONDS), _PLUGIN_STATUS_TTL_MAX_SECONDS
+        )
+        write_status_message(
+            self._status_dir,
+            text=f"[{name}] {_clean_text(text, _PLUGIN_TEXT_MAX_CHARS)}",
+            expires_at=self._wall_clock() + bounded_ttl,
+            level=shown_level,
+        )
+
+    def _record_audit(self, name: str, message: str) -> None:
+        line = f"plugin {name}: {_clean_text(message, _PLUGIN_TEXT_MAX_CHARS)}"
+        with self._lock:
+            self._audit_lines.append(line)
+            del self._audit_lines[:-_PLUGIN_AUDIT_MAX_PENDING]
+
+
+class PluginHarnessError(Exception):
+    """A plugin failed (or was misused) under `PluginTestHarness`."""
+
+
+_HARNESS_SESSION_ID = "harness-session"
+
+
+class PluginTestHarness:
+    """Unit-test a plugin's worker half without a live session (Plan 00487).
+
+    Loads the half through the REAL loader -- the same vetting, API-major check
+    and budgeted hook calls the supervisor uses -- with no worker process, no
+    PTY and nothing written outside ``work_dir``. Where the supervisor disables
+    a failing plugin and carries on, the harness RAISES `PluginHarnessError`
+    with the traceback, because a test wants the failure.
+
+    ``session_ids`` is what the plugin's ``api.session_id()`` sees (exactly one
+    id yields that id; none or several yield None). ``api.status`` calls are
+    recorded in `status_messages` as ``(text, level, ttl)`` instead of being
+    written to the status line.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        plugin_path: Path,
+        *,
+        work_dir: Path,
+        session_ids: Collection[str] = (_HARNESS_SESSION_ID,),
+        allowed_uids: Collection[int] | None = None,
+    ) -> None:
+        self.status_messages: list[tuple[str, str, float]] = []
+        self._name = name
+        self._plugin_path = plugin_path
+        self._audit: list[str] = []
+        self._started = False
+        self._runtime = PluginRuntime(
+            state_root=work_dir / "state",
+            status_dir=work_dir / "untracked",
+            marker_path=work_dir / "in-hook.json",
+            session_ids=lambda: frozenset(session_ids),
+            allowed_uids=allowed_uids if allowed_uids is not None else _default_plugin_uids(),
+            status_sink=self._record_status,
+        )
+
+    @property
+    def half(self) -> WorkerHalf:
+        """The loaded worker half (after `start`)."""
+        return self._runtime.half(self._name)
+
+    @property
+    def state_dir(self) -> Path:
+        """The plugin's private 0700 state directory."""
+        return self._runtime.state_root / self._name
+
+    @property
+    def notifications(self) -> tuple[PluginNotification, ...]:
+        """The `Notify` results the latest `idle` collected."""
+        return self._runtime.notifications
+
+    def audit_lines(self) -> tuple[str, ...]:
+        """Every `decision.log` line the plugin wrote through ``api.audit`` so far."""
+        self._audit.extend(self._runtime.take_audit_lines())
+        return tuple(self._audit)
+
+    def start(self) -> None:
+        """Load the half and run ``on_start``; raise on any failure."""
+        self._runtime.load([(self._name, self._plugin_path)], frozenset())
+        self._raise_on_failure()
+        self._runtime.start()
+        self._raise_on_failure()
+        self._started = True
+
+    def idle(self, now: float | None = None) -> PluginExitRequest | None:
+        """Ask the plugin ``on_idle`` once; return its exit request, if any; raise on failure."""
+        if not self._started:
+            raise PluginHarnessError("call start() before idle()")
+        request = self._runtime.run_idle(time.time() if now is None else now)
+        self._raise_on_failure()
+        return request
+
+    def _record_status(self, _name: str, text: str, level: str, ttl: float) -> None:
+        self.status_messages.append((text, level, ttl))
+
+    def _raise_on_failure(self) -> None:
+        failures = self._runtime.failures
+        if failures:
+            failure = failures[0]
+            raise PluginHarnessError(
+                f"plugin {failure.plugin} failed: {_failure_reason(failure)}\n"
+                f"{self._runtime.traceback_for(failure.plugin)}"
+            )
+
+
+@dataclass
+class _PluginEntry:
+    """One configured plugin as the HOST sees it (never imported here)."""
+
+    name: str
+    path: Path | None
+    version: str = ""
+    state: str = _PLUGIN_STATE_LOADED
+    reason: str = ""
+
+
+class PluginHost:
+    """The PTY host's registry of configured plugins -- it never imports one.
+
+    Vets each ``--plugin`` file, builds the argv a worker is started with
+    (the loadable plugins plus the disabled set, re-read on EVERY worker
+    start so a hot reload cannot bring a disabled plugin back), records
+    failures reported by the worker or detected here, and keeps the plugin
+    list in `supervisor-status.json` current.
+    """
+
+    def __init__(
+        self,
+        raw_specs: Sequence[str],
+        *,
+        write_status: Callable[[list[dict[str, str]]], object] | None = None,
+        allowed_uids: Collection[int] | None = None,
+        status_dir: Path | None = None,
+        marker_path: Path | None = None,
+        disabled: Collection[str] = (),
+    ) -> None:
+        self._write_status = write_status
+        self._allowed_uids = allowed_uids
+        self._all_off = False
+        self._status_dir = status_dir
+        self._marker_path = marker_path
+        self._entries: list[_PluginEntry] = []
+        self._by_name: dict[str, _PluginEntry] = {}
+        self._startup_failures: list[PluginFailure] = []
+        for raw in raw_specs:
+            try:
+                self._add(raw)
+            except Exception as error:
+                # A bug while vetting one flag skips that plugin, never the session.
+                append_worker_error(f"could not vet --plugin {raw!r}: {error!r}")
+                name = raw.partition(_PLUGIN_SPEC_SEPARATOR)[0]
+                if _PLUGIN_NAME_PATTERN.fullmatch(name) is None or name in self._by_name:
+                    self._refuse(_PLUGIN_UNNAMED, None, _LOAD_REASON_UNSPECIFIED, notify=None)
+                else:
+                    self._refuse(name, None, _LOAD_REASON_UNSPECIFIED, notify=name)
+        # A plugin the command line itself names in `--disable-plugin` starts off.
+        for name in disabled:
+            entry = self._by_name.get(name)
+            if entry is not None and entry.state == _PLUGIN_STATE_LOADED:
+                entry.state = _PLUGIN_STATE_DISABLED
+                entry.reason = _DISABLED_BY_FLAG_REASON
+        if self._entries:
+            self._publish()
+
+    def _add(self, raw: str) -> None:
+        try:
+            spec = parse_plugin_spec(raw)
+        except PluginLoadError as error:
+            self._refuse(error.name or _PLUGIN_UNNAMED, None, error.reason, notify=error.name)
+            return
+        if spec.name in self._by_name:
+            self._refuse(
+                spec.name, spec.path, _LOAD_REASON_DUPLICATE, notify=spec.name, register=False
+            )
+            return
+        refusal = check_plugin_file(spec.path, allowed_uids=self._allowed_uids)
+        if refusal is not None:
+            self._refuse(spec.name, spec.path, refusal, notify=spec.name)
+            return
+        entry = _PluginEntry(name=spec.name, path=spec.path)
+        self._entries.append(entry)
+        self._by_name[spec.name] = entry
+
+    def _refuse(
+        self,
+        name: str,
+        path: Path | None,
+        reason: str,
+        *,
+        notify: str | None,
+        register: bool = True,
+    ) -> None:
+        failure = PluginFailure(name, _PLUGIN_KIND_LOAD, _PLUGIN_HOOK_LOAD, reason)
+        entry = _PluginEntry(
+            name=name,
+            path=path,
+            state=_PLUGIN_STATE_FAILED,
+            reason=_failure_reason(failure),
+        )
+        self._entries.append(entry)
+        if register and notify is not None:
+            self._by_name[name] = entry
+        if notify is not None:
+            self._startup_failures.append(failure)
+
+    def take_startup_failures(self) -> list[PluginFailure]:
+        """Load refusals found while vetting the flags (once), for the notice family."""
+        failures, self._startup_failures = self._startup_failures, []
+        return failures
+
+    def worker_argv(self) -> list[str]:
+        """The plugin flags for a worker start: loadable plugins, then the disabled set.
+
+        Empty once `disable_all` has run: that worker is started with no plugin flags.
+        """
+        argv: list[str] = []
+        if self._all_off:
+            return argv
+        for entry in self._entries:
+            if entry.state != _PLUGIN_STATE_FAILED and entry.path is not None:
+                argv += [_PLUGIN_FLAG, f"{entry.name}{_PLUGIN_SPEC_SEPARATOR}{entry.path}"]
+        for entry in self._entries:
+            if entry.state == _PLUGIN_STATE_DISABLED:
+                argv += [_DISABLE_PLUGIN_FLAG, entry.name]
+        return argv
+
+    def disabled_names(self) -> frozenset[str]:
+        """Every plugin that must stay off for the rest of this supervisor process."""
+        return frozenset(
+            e.name
+            for e in self._entries
+            if e.state in (_PLUGIN_STATE_DISABLED, _PLUGIN_STATE_FAILED)
+        )
+
+    def status_entries(self) -> list[dict[str, str]]:
+        """The plugin list as written to `supervisor-status.json`."""
+        return [
+            {"name": e.name, "version": e.version, "state": e.state, "reason": e.reason}
+            for e in self._entries
+        ]
+
+    def record_loaded(self, name: str, version: str) -> None:
+        """The worker confirmed ``name`` loaded at ``version``."""
+        entry = self._by_name.get(name)
+        if entry is None or entry.state != _PLUGIN_STATE_LOADED or entry.version == version:
+            return
+        entry.version = _clean_text(version, _PLUGIN_VERSION_MAX_CHARS)
+        self._publish()
+
+    def record_failure(self, name: str, kind: str, hook: str, detail: str = "") -> bool:
+        """Disable ``name`` for a failure; True only the first time (idempotent)."""
+        entry = self._by_name.get(name)
+        if entry is None or entry.state != _PLUGIN_STATE_LOADED:
+            return False
+        entry.state = _PLUGIN_STATE_FAILED if kind == _PLUGIN_KIND_LOAD else _PLUGIN_STATE_DISABLED
+        entry.reason = _failure_reason(PluginFailure(name, kind, hook, detail))
+        self._publish()
+        return True
+
+    def disable_all(self) -> list[str]:
+        """Switch every plugin off for good; the names of those still loaded until now.
+
+        Sets the all-off latch FIRST, so even a failure part-way through leaves
+        every later worker start with no plugin flags.
+        """
+        self._all_off = True
+        newly_disabled: list[str] = []
+        for entry in self._entries:
+            if entry.state == _PLUGIN_STATE_LOADED:
+                entry.state = _PLUGIN_STATE_DISABLED
+                entry.reason = _failure_reason(
+                    PluginFailure(entry.name, _PLUGIN_KIND_HOST_FAULT, _PLUGIN_HOOK_ON_IDLE)
+                )
+                newly_disabled.append(entry.name)
+        if newly_disabled:
+            self._publish()
+        return newly_disabled
+
+    def _resolved_status_dir(self) -> Path:
+        return self._status_dir if self._status_dir is not None else _daemon_untracked_dir()
+
+    def _resolved_marker_path(self) -> Path:
+        if self._marker_path is not None:
+            return self._marker_path
+        return _plugin_marker_path(self._resolved_status_dir(), os.getpid())
+
+    def detect_wedge(self, now_wall: float) -> PluginFailure | None:
+        """Name the plugin a silent worker is stuck inside, from its in-hook marker.
+
+        The worker writes the marker atomically before each hook call and clears
+        it after, so a marker that has outlived the hook's budget (plus a
+        grace) means the worker is stuck INSIDE that hook -- a budgeted thread
+        could not return it. A fresh marker is a slow hook, not a wedge, and
+        anything outside the closed sets blames nobody.
+        """
+        try:
+            payload = json.loads(self._resolved_marker_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        name, hook, started_at = (
+            payload.get("plugin"),
+            payload.get("hook"),
+            payload.get("started_at"),
+        )
+        if (
+            not isinstance(name, str)
+            or not isinstance(hook, str)
+            or hook not in _PLUGIN_HOOKS
+            or isinstance(started_at, bool)
+            or not isinstance(started_at, (int, float))
+        ):
+            return None
+        entry = self._by_name.get(name)
+        if entry is None or entry.state != _PLUGIN_STATE_LOADED:
+            return None
+        budget = (
+            _PLUGIN_LOAD_BUDGET_SECONDS
+            if hook == _PLUGIN_HOOK_LOAD
+            else _PLUGIN_HOOK_BUDGET_SECONDS
+        )
+        if now_wall - started_at < budget + _PLUGIN_WEDGE_GRACE_SECONDS:
+            return None
+        return PluginFailure(name, _PLUGIN_KIND_WEDGE, hook)
+
+    def clear_marker(self) -> None:
+        """Forget the in-hook marker (the worker that wrote it has been replaced)."""
+        try:
+            self._resolved_marker_path().unlink(missing_ok=True)
+        except OSError as error:
+            append_worker_error(f"could not clear plugin in-hook marker: {error}")
+
+    def _publish(self) -> None:
+        if self._write_status is not None:
+            self._write_status(self.status_entries())
+
+
+def _parse_worker_plugin_flags(argv: Sequence[str]) -> tuple[list[str], frozenset[str]]:
+    """The ``--plugin`` specs and ``--disable-plugin`` names on a ``--worker`` argv."""
+    parser = argparse.ArgumentParser(add_help=False)
+    _add_plugin_arguments(parser)
+    known, _unknown = parser.parse_known_args(list(argv))
+    return list(known.plugin), frozenset(known.disable_plugin)
+
+
+def _add_plugin_arguments(parser: argparse.ArgumentParser) -> None:
+    """Register the plugin flags shared by the host and the worker command lines."""
+    parser.add_argument(
+        _PLUGIN_FLAG,
+        dest="plugin",
+        action="append",
+        default=[],
+        help="Load a plugin: <name>=<absolute path of its worker half>. Repeatable; "
+        "plugins are asked in the order given.",
+    )
+    parser.add_argument(
+        _DISABLE_PLUGIN_FLAG,
+        dest="disable_plugin",
+        action="append",
+        default=[],
+        help="Keep a plugin off. Passed by the host on every worker (re)start.",
+    )
+
+
 class CompactStateMachine:
     """Decision H compact-and-resume machine (pure; injects nothing).
 
@@ -3409,6 +4851,10 @@ class CompactStateMachine:
         # backstop only (see _MAX_SESSION_ACTIONS_INJECTIONS) -- the daemon
         # writes at most one signal per session start, consumed on injection.
         self._session_actions_injections = 0
+        # Plan 00470 Task 2.3: cron-reconcile prompts typed this process, and
+        # when the last one went (see _MAX_CRON_RECONCILE_INJECTIONS).
+        self._cron_reconcile_injections = 0
+        self._cron_reconcile_last_ts: float | None = None
         # Plan 00278: the last observed (session, family) pair and an open
         # downgrade episode ("session:family"), which gate the /model
         # auto-restore and the flag-cleaning /compact.
@@ -3434,6 +4880,17 @@ class CompactStateMachine:
         # (/model) since the last flush. Flushed as ONE visible bot-prefixed
         # message on the next injectable tick; bounded FIFO.
         self._audit_pending: list[str] = []
+        # Plan 00487: plugin failures owed to the chat, as `name|kind|hook`
+        # items, and the names already told (pending or typed) -- one notice
+        # per plugin, capped per process. Round-tripped like the audit backlog.
+        self._plugin_notices_pending: list[str] = []
+        self._plugin_noticed: list[str] = []
+        self._session_notices_pending: list[str] = []
+        self._session_notice_last: dict[str, float] = {}
+        # Lifetime count of armed notices per kind, and the kinds whose cap has
+        # already been logged (the cap is logged once, not on every request).
+        self._session_notice_counts: dict[str, int] = {}
+        self._session_notice_cap_logged: list[str] = []
         # Plan 00328: an injected `/model <family>` whose landing has not been
         # observed yet (`session:family` + when), and the families a restore
         # has been PROVEN unable to reach. A PTY write succeeding is not the
@@ -3610,6 +5067,89 @@ class CompactStateMachine:
         self._audit_pending.append(item)
         if len(self._audit_pending) > _MAX_AUDIT_ITEMS:
             del self._audit_pending[0]
+
+    @property
+    def plugin_notices_pending(self) -> tuple[str, ...]:
+        """Plugin-failure notices owed to the chat, oldest first (`name|kind|hook`)."""
+        return tuple(self._plugin_notices_pending)
+
+    def next_plugin_notice(self) -> tuple[str, str, str] | None:
+        """The oldest owed plugin notice as validated `(name, kind, hook)`, or None."""
+        while self._plugin_notices_pending:
+            parsed = parse_plugin_notice_item(self._plugin_notices_pending[0])
+            if parsed is not None:
+                return parsed
+            del self._plugin_notices_pending[0]
+        return None
+
+    def arm_plugin_notice(self, name: str, kind: str, hook: str) -> bool:
+        """Owe the chat one notice for a plugin failure; True only when newly armed.
+
+        One notice per plugin (a repeated report of the same failure is a
+        no-op), capped at `_MAX_PLUGIN_NOTICES` per process, and only for a
+        validated name and closed-set kind/hook.
+        """
+        item = f"{name}{_PLUGIN_NOTICE_SEPARATOR}{kind}{_PLUGIN_NOTICE_SEPARATOR}{hook}"
+        if parse_plugin_notice_item(item) is None or name in self._plugin_noticed:
+            return False
+        if len(self._plugin_noticed) >= _MAX_PLUGIN_NOTICES:
+            return False
+        self._plugin_noticed.append(name)
+        self._plugin_notices_pending.append(item)
+        return True
+
+    @property
+    def session_notices_pending(self) -> tuple[str, ...]:
+        """Session notices owed to the chat, oldest first (`kind|argument`)."""
+        return tuple(self._session_notices_pending)
+
+    def next_session_notice(self) -> tuple[str, str] | None:
+        """The oldest owed session notice as a validated `(kind, argument)`, or None."""
+        while self._session_notices_pending:
+            parsed = parse_session_notice_item(self._session_notices_pending[0])
+            if parsed is not None:
+                return parsed
+            del self._session_notices_pending[0]
+        return None
+
+    def arm_session_notice(self, kind: str, argument: str, *, now_wall: float) -> bool:
+        """Owe the chat one session notice; True only when newly armed.
+
+        Refused for anything `parse_session_notice_item` rejects, within the
+        kind's minimum interval of its previous arming, or when the queue is full.
+        """
+        item = f"{kind}{_SESSION_NOTICE_SEPARATOR}{argument}"
+        if parse_session_notice_item(item) is None:
+            return False
+        last = self._session_notice_last.get(kind)
+        if last is not None and now_wall - last < _NOTIFY_MIN_INTERVAL_SECONDS[kind]:
+            return False
+        cap = _NOTIFY_MAX_PER_PROCESS.get(kind)
+        count = self._session_notice_counts.get(kind, 0)
+        if cap is not None and count >= cap:
+            if kind not in self._session_notice_cap_logged:
+                self._session_notice_cap_logged.append(kind)
+                append_worker_error(
+                    f"session notice {kind} reached its per-process cap of {cap}; "
+                    "further requests of that kind are dropped"
+                )
+            return False
+        if len(self._session_notices_pending) >= _MAX_SESSION_NOTICES_PENDING:
+            return False
+        self._session_notices_pending.append(item)
+        self._session_notice_last[kind] = now_wall
+        self._session_notice_counts[kind] = count + 1
+        return True
+
+    def mark_session_notice_injection(self) -> None:
+        """The oldest owed session notice was typed: stop owing it (success-only, host-side)."""
+        if self._session_notices_pending:
+            del self._session_notices_pending[0]
+
+    def mark_plugin_notice_injection(self) -> None:
+        """The oldest owed notice was typed: stop owing it (success-only, host-side)."""
+        if self._plugin_notices_pending:
+            del self._plugin_notices_pending[0]
 
     def mark_audit_injection(self) -> None:
         """Clear the audit backlog once the banner for it has been posted.
@@ -4048,6 +5588,21 @@ class CompactStateMachine:
         self._session_actions_injections += 1
 
     @property
+    def cron_reconcile_injections(self) -> int:
+        """How many cron-reconcile prompts this process has typed (Plan 00470)."""
+        return self._cron_reconcile_injections
+
+    @property
+    def cron_reconcile_last_ts(self) -> float | None:
+        """Wall time of the last cron-reconcile prompt, or None if none yet."""
+        return self._cron_reconcile_last_ts
+
+    def mark_cron_reconcile_injection(self, now_wall: float) -> None:
+        """Count one cron-reconcile prompt and remember when it went (Plan 00470)."""
+        self._cron_reconcile_injections += 1
+        self._cron_reconcile_last_ts = now_wall
+
+    @property
     def pause_compacted_for(self) -> float | None:
         """The ``paused_at`` of the usage pause already compacted, or None (Plan 00479)."""
         return self._pause_compacted_for
@@ -4106,6 +5661,8 @@ class CompactStateMachine:
             "last_goal_text": self._last_goal_text,
             "standing_auth_injections": self._standing_auth_injections,
             "session_actions_injections": self._session_actions_injections,
+            "cron_reconcile_injections": self._cron_reconcile_injections,
+            "cron_reconcile_last_ts": self._cron_reconcile_last_ts,
             "last_model_session": self._last_model_session,
             "last_model_family": self._last_model_family,
             "downgrade_episode": self._downgrade_episode,
@@ -4116,6 +5673,12 @@ class CompactStateMachine:
             "flag_compactions": self._flag_compactions,
             "pause_compacted_for": self._pause_compacted_for,
             "audit_pending": list(self._audit_pending),
+            "plugin_notices_pending": list(self._plugin_notices_pending),
+            "plugin_noticed": list(self._plugin_noticed),
+            "session_notices_pending": list(self._session_notices_pending),
+            "session_notice_last": dict(self._session_notice_last),
+            "session_notice_counts": dict(self._session_notice_counts),
+            "session_notice_cap_logged": list(self._session_notice_cap_logged),
             "restore_awaiting": self._restore_awaiting,
             "restore_awaiting_ts": self._restore_awaiting_ts,
             "unavailable_families": list(self._unavailable_families),
@@ -4184,6 +5747,15 @@ class CompactStateMachine:
             self._standing_auth_injections = _coerce_int(state["standing_auth_injections"])
         if "session_actions_injections" in state:
             self._session_actions_injections = _coerce_int(state["session_actions_injections"])
+        if "cron_reconcile_injections" in state:
+            self._cron_reconcile_injections = _coerce_int(state["cron_reconcile_injections"])
+        if "cron_reconcile_last_ts" in state:
+            raw_ts = state["cron_reconcile_last_ts"]
+            self._cron_reconcile_last_ts = (
+                float(raw_ts)
+                if isinstance(raw_ts, (int, float)) and not isinstance(raw_ts, bool)
+                else None
+            )
         if "last_model_session" in state:
             raw = state["last_model_session"]
             self._last_model_session = None if raw is None else str(raw)
@@ -4213,6 +5785,54 @@ class CompactStateMachine:
             raw_items = state["audit_pending"]
             if isinstance(raw_items, list):
                 self._audit_pending = [str(item) for item in raw_items[:_MAX_AUDIT_ITEMS]]
+        if "plugin_notices_pending" in state:
+            raw_notices = state["plugin_notices_pending"]
+            if isinstance(raw_notices, list):
+                self._plugin_notices_pending = [
+                    item
+                    for item in raw_notices
+                    if isinstance(item, str) and parse_plugin_notice_item(item) is not None
+                ][:_MAX_PLUGIN_NOTICES]
+        if "plugin_noticed" in state:
+            raw_names = state["plugin_noticed"]
+            if isinstance(raw_names, list):
+                self._plugin_noticed = [name for name in raw_names if isinstance(name, str)][
+                    :_MAX_PLUGIN_NOTICES
+                ]
+        if "session_notices_pending" in state:
+            raw_session_notices = state["session_notices_pending"]
+            if isinstance(raw_session_notices, list):
+                self._session_notices_pending = [
+                    item
+                    for item in raw_session_notices
+                    if isinstance(item, str) and parse_session_notice_item(item) is not None
+                ][:_MAX_SESSION_NOTICES_PENDING]
+        if "session_notice_last" in state:
+            raw_last = state["session_notice_last"]
+            if isinstance(raw_last, dict):
+                self._session_notice_last = {
+                    kind: float(stamp)
+                    for kind, stamp in raw_last.items()
+                    if kind in _NOTIFY_MIN_INTERVAL_SECONDS
+                    and isinstance(stamp, (int, float))
+                    and not isinstance(stamp, bool)
+                }
+        if "session_notice_counts" in state:
+            raw_counts = state["session_notice_counts"]
+            if isinstance(raw_counts, dict):
+                self._session_notice_counts = {
+                    kind: int(count)
+                    for kind, count in raw_counts.items()
+                    if kind in _NOTIFY_MAX_PER_PROCESS
+                    and isinstance(count, int)
+                    and not isinstance(count, bool)
+                }
+        if "session_notice_cap_logged" in state:
+            raw_logged = state["session_notice_cap_logged"]
+            if isinstance(raw_logged, list):
+                self._session_notice_cap_logged = [
+                    kind for kind in raw_logged if kind in _NOTIFY_MAX_PER_PROCESS
+                ]
         if "restore_awaiting" in state:
             raw = state["restore_awaiting"]
             self._restore_awaiting = None if raw is None else str(raw)
@@ -4599,8 +6219,17 @@ _DRY_RUN_COMPACT_BODY = "compact suggestion fired (dry-run — not a real /compa
 # "resume and continue" -- with no provenance framing: the agent should act on
 # what it is told regardless of who initiated it (reinforced by the `continue`
 # keystroke the supervisor injects once compaction ends).
+# Why the note exists: the supervisor presses Esc to flush a /compact queued
+# behind an in-flight turn, and Claude Code reports the interrupted tool call as
+# "The user doesn't want to proceed with this tool use... STOP", which an agent
+# reads as a human rejection and stops to wait. The note says it was not.
+_ESC_INTERRUPT_NOTE = (
+    "Any tool call interrupted or reported as rejected just before this compact "
+    "was the supervisor pressing Esc to make the compact run, NOT a human rejection."
+)
 _ARMED_COMPACT_BODY = (
-    "After compacting, immediately resume and continue the work that was in progress."
+    f"{_ESC_INTERRUPT_NOTE} After compacting, retry any tool call that was "
+    "interrupted, then immediately resume and continue the work that was in progress."
 )
 # Plan 00281: the instruction body for a flag-cleaning /compact. Phrased WITHOUT
 # the trigger vocabulary itself (naming those categories would re-seed the very
@@ -4612,7 +6241,8 @@ _FLAG_COMPACT_BODY = (
     "sensitive or security-adjacent material, keep only what was done and the "
     "outcome — leave out the low-level technical specifics, sample text, and "
     "sensitive strings, which are preserved in git and the plan docs. This keeps "
-    "the continuing context from re-triggering content classifiers. Then resume "
+    "the continuing context from re-triggering content classifiers. "
+    f"{_ESC_INTERRUPT_NOTE} Then retry any tool call that was interrupted, resume "
     "and continue the work in progress."
 )
 _DRY_RUN_FLAG_COMPACT_BODY = (
@@ -4626,7 +6256,9 @@ _DRY_RUN_FLAG_COMPACT_BODY = (
 _PAUSE_COMPACT_BODY = (
     "Usage ceiling reached: this session is PAUSED until {resume}. After "
     "compacting, do nothing further — take no action, send no message and do "
-    "not continue any work — until the scheduled resume cron fires at {resume}."
+    "not continue any work — until the scheduled resume cron fires at {resume}. "
+    "(Any interrupted tool call was the supervisor's Esc, NOT a human rejection; "
+    "do not retry it now.)"
 )
 _DRY_RUN_PAUSE_COMPACT_BODY = (
     "usage-pause compact fired (dry-run — not a real /compact, not human input)"
@@ -4993,6 +6625,18 @@ def _is_work_idle(
     return (now_monotonic - output_activity.last_output_monotonic) >= work_settle_seconds
 
 
+def _output_quiet_seconds(output_activity: OutputActivity, *, now_monotonic: float) -> float:
+    """Seconds since the child last produced output; 0.0 when none was seen yet.
+
+    Plan 00470 Task 2.3: unlike :func:`_is_work_idle` a child that has produced
+    nothing is NOT reported quiet, so the cron-expiry watchdog cannot fire on a
+    session whose output the supervisor never observed.
+    """
+    if output_activity.last_output_monotonic is None:
+        return 0.0
+    return max(0.0, now_monotonic - output_activity.last_output_monotonic)
+
+
 def _is_benign_not_red(reading: SidecarReading | None) -> bool:
     """True when the supervisor POSITIVELY sees a not-red, non-stale context.
 
@@ -5121,6 +6765,7 @@ def decide_once(
     own_sessions: frozenset[str] | None = None,
     goal_signal_ttl_seconds: float = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS,
     model_confirm_enters: int = _DEFAULT_MODEL_CONFIRM_ENTERS,
+    plugins: PluginRuntime | None = None,
 ) -> TickOutcome:
     """Decide what to inject this tick WITHOUT touching the PTY (Plan 00164 P4).
 
@@ -5403,6 +7048,59 @@ def decide_once(
                 # Consumed in dry-run too -- the demonstration episode is
                 # spent either way, mirroring the goal signal's rule.
                 consume_signal_path = str(operator_path)
+                deferred_log = None
+                noop_reason_log = None
+    # ── Plugin notice (Plan 00487): a plugin failed, the session is told once ─
+    # Ranked with the operator signal -- ahead of the model-switch/restore and
+    # goal families -- and under the same gates: strictly subordinate to
+    # compact/continue/escape, and typed only at the idle + empty-box choke
+    # point, never over a still-unconfirmed own line. The text is rendered from
+    # fixed templates by `render_plugin_notice`; the status-line WARNING and the
+    # audit line were produced when the failure was observed.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+    ):
+        owed_notice = machine.next_plugin_notice()
+        # Plan 00487 Task 1.3c: a session notice (a plugin's `Notify`, or the
+        # supervisor's own RESTARTED line) rides the same gates and the same
+        # slot, after any plugin-failure notice.
+        owed_session_notice = machine.next_session_notice() if owed_notice is None else None
+        if owed_notice is not None or owed_session_notice is not None:
+            notice_label = "plugin notice" if owed_notice is not None else "session notice"
+            if machine.own_line_pending:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: {notice_label} pending but "
+                    f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
+                )
+            elif not can_inject:
+                if facts.idle and not facts.input_line_empty:
+                    deferred_log = f"{_DEFERRED_LOG_PREFIX} ({notice_label} pending)"
+                else:
+                    noop_reason_log = f"{_NOOP_LOG_PREFIX}: {notice_label} pending but session busy"
+            else:
+                if owed_notice is not None:
+                    notice_message = render_plugin_notice(*owed_notice)
+                    decision_value = Decision.WOULD_PLUGIN_NOTICE.value
+                    reason = "plugin failure -> would inject notice"
+                    dry_run_prefix = _DRY_RUN_PLUGIN_NOTICE_BODY_PREFIX
+                else:
+                    assert owed_session_notice is not None
+                    notice_message = render_session_notice(*owed_session_notice)
+                    decision_value = Decision.WOULD_SESSION_NOTICE.value
+                    reason = f"session notice ({owed_session_notice[0]}) -> would inject notice"
+                    dry_run_prefix = _DRY_RUN_SESSION_NOTICE_BODY_PREFIX
+                if dry_run:
+                    payload = (
+                        f"{_format_bot_prefix(facts.now_wall)} {dry_run_prefix} {notice_message}"
+                    )
+                else:
+                    # Already opens with the machine-origin header: typed verbatim
+                    # as one user-role line, no slash command, no extra chrome.
+                    payload = notice_message
+                submit = True
                 deferred_log = None
                 noop_reason_log = None
     # ── Manual model-switch override (test trigger / deliberate override) ────
@@ -5898,6 +7596,92 @@ def decide_once(
                 consume_signal_path = str(actions_path)
                 deferred_log = None
                 noop_reason_log = None
+    # ── Cron-expiry watchdog (Plan 00470 Task 2.3) ──────────────────────────
+    # LAST of the built-in families, below session-actions: it fires only on a
+    # tick nothing else claimed, after a long quiet spell, when every recorded
+    # cron job is past its seven-day expiry. The usage pause above has already
+    # returned for a paused session, so it never reaches here. Nothing is
+    # consumed (the trigger is a file the daemon owns), so the spacing rule --
+    # one prompt per quiet window -- and the cap keep it from repeating.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and facts.output_quiet_seconds >= _CRON_WATCHDOG_QUIET_SECONDS
+        and (
+            machine.cron_reconcile_last_ts is None
+            or facts.now_wall - machine.cron_reconcile_last_ts >= _CRON_WATCHDOG_QUIET_SECONDS
+        )
+        and _cron_records_all_expired(sidecar_dir, now=facts.now_wall, own_sessions=own_sessions)
+    ):
+        if own_line_blocks_text:
+            noop_reason_log = (
+                f"{_NOOP_LOG_PREFIX}: cron-reconcile prompt pending but "
+                f"{_OWN_LINE_NOOP_PREFIX} still in the input box"
+            )
+        elif not can_inject:
+            if facts.idle and not facts.input_line_empty:
+                deferred_log = f"{_DEFERRED_LOG_PREFIX} (cron-reconcile prompt pending)"
+            else:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: cron-reconcile prompt pending but session busy"
+                )
+        elif machine.cron_reconcile_injections >= _MAX_CRON_RECONCILE_INJECTIONS:
+            noop_reason_log = f"{_NOOP_LOG_PREFIX}: cron-reconcile injection cap reached"
+        else:
+            decision_value = Decision.WOULD_CRON_RECONCILE.value
+            reason = (
+                "every recorded cron expired and the session is quiet -> would inject reconcile"
+            )
+            if dry_run:
+                payload = (
+                    f"{_format_bot_prefix(facts.now_wall)} "
+                    f"{_DRY_RUN_CRON_RECONCILE_BODY_PREFIX} {_render_cron_reconcile_message()}"
+                )
+            else:
+                payload = _render_cron_reconcile_message()
+            submit = True
+            deferred_log = None
+            noop_reason_log = None
+    # ── Plugins (Plan 00487) ────────────────────────────────────────────────
+    # LAST of everything: a plugin's `on_idle` is asked only when no built-in
+    # family claimed the tick, i.e. the same gates as the families above plus
+    # `can_inject` (idle, empty box) and no unconfirmed own line. Plugins are
+    # asked in the order they were named; the first to return an
+    # `ExitForRestart` wins. A plugin never types anything: its only effect on
+    # the session is the exit request, which the HOST validates and performs.
+    exit_for_restart: tuple[str, str] | None = None
+    if (
+        plugins is not None
+        and payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and can_inject
+        and not machine.own_line_pending
+    ):
+        exit_request = plugins.run_idle(facts.now_wall)
+        for notification in plugins.notifications:
+            # The supervisor renders the line itself; only the kind and a
+            # bounded integer cross from the plugin. Rate-limited per kind.
+            machine.arm_session_notice(
+                notification.kind,
+                "" if notification.minutes is None else str(notification.minutes),
+                now_wall=facts.now_wall,
+            )
+        if exit_request is not None:
+            exit_for_restart = (exit_request.plugin, exit_request.reason)
+            reason = f"plugin {exit_request.plugin} asked to exit for restart"
+    if plugins is not None:
+        # Plan 00487 Task 1.6: owe the session a notice (and warn on the status
+        # line) for every plugin failure seen so far. Idempotent, so the
+        # cumulative list is walked on every tick: a failure whose armed notice
+        # was lost with a discarded reply is armed again by the next tick.
+        for plugin_failure in plugins.failures:
+            report_plugin_failure(
+                machine, plugin_failure, status_dir=sidecar_dir.parent, now=facts.now_wall
+            )
     # Remember a submitted own LINE (never a raw keypress, never a dry-run
     # marker) as unconfirmed box content -- recorded at decision time, like
     # the audit trail, so the follow-up ships by worker hot-reload alone. A
@@ -5926,6 +7710,14 @@ def decide_once(
             audit_flush_log_line if decision_value != Decision.WOULD_AUDIT.value else None
         ),
         abandoned_box_flushed=evaluation.abandoned_box_flush,
+        plugin_failures=(
+            tuple((f.plugin, f.kind, f.hook, f.detail) for f in plugins.failures)
+            if plugins is not None
+            else ()
+        ),
+        plugin_versions=tuple(plugins.loaded) if plugins is not None else (),
+        plugin_log_lines=plugins.take_audit_lines() if plugins is not None else (),
+        exit_for_restart=exit_for_restart,
     )
 
 
@@ -6023,6 +7815,12 @@ def _apply_post_injection_bookkeeping(
         machine.mark_standing_auth_injection()
     elif outcome.decision_value == Decision.WOULD_SESSION_ACTIONS.value:
         machine.mark_session_actions_injection()
+    elif outcome.decision_value == Decision.WOULD_CRON_RECONCILE.value:
+        machine.mark_cron_reconcile_injection(now_wall if now_wall is not None else time.time())
+    elif outcome.decision_value == Decision.WOULD_PLUGIN_NOTICE.value:
+        machine.mark_plugin_notice_injection()
+    elif outcome.decision_value == Decision.WOULD_SESSION_NOTICE.value:
+        machine.mark_session_notice_injection()
     elif outcome.decision_value == Decision.WOULD_MODEL.value:
         # Cap/backoff bookkeeping is reserved for the AUTO-restore path --
         # the manual test-trigger switch has its own signal-consumption
@@ -6062,6 +7860,9 @@ def _poll_once(
     model_confirm_enters: int = _DEFAULT_MODEL_CONFIRM_ENTERS,
     input_line_abandoned: bool = False,
     on_input_line_flushed: Callable[[], None] | None = None,
+    plugins: PluginRuntime | None = None,
+    on_outcome: Callable[[TickOutcome], None] | None = None,
+    output_quiet_seconds: float = 0.0,
 ) -> Evaluation:
     """One in-process supervisor tick: decide (``decide_once``) then inject.
 
@@ -6076,6 +7877,12 @@ def _poll_once(
     to reset whatever tracked ``HumanInputLine`` it owns, which this function
     has no reference to (``input_line_empty``/``input_line_abandoned`` arrive
     as plain booleans, same as every other fact here).
+
+    ``plugins`` (Plan 00487) is the in-process plugin runtime, asked exactly as
+    the worker asks its own; ``on_outcome`` receives the tick's `TickOutcome`
+    after it was applied, so the caller can act on what the plugins reported
+    (failures, an exit-for-restart request) through the same code the worker
+    path uses.
     """
     facts = TickFacts(
         now_wall=now_wall,
@@ -6084,6 +7891,7 @@ def _poll_once(
         human_compact_submitted=human_compact_submitted,
         work_idle=work_idle,
         input_line_abandoned=input_line_abandoned,
+        output_quiet_seconds=output_quiet_seconds,
     )
     outcome = decide_once(
         machine,
@@ -6098,11 +7906,14 @@ def _poll_once(
         own_sessions=own_sessions,
         goal_signal_ttl_seconds=goal_signal_ttl_seconds,
         model_confirm_enters=model_confirm_enters,
+        plugins=plugins,
     )
     injected = _apply_decision(outcome, master_writer=master_writer, log=log)
     _apply_post_injection_bookkeeping(machine, outcome, injected=injected, now_wall=now_wall)
     if outcome.abandoned_box_flushed and on_input_line_flushed is not None:
         on_input_line_flushed()
+    if on_outcome is not None:
+        on_outcome(outcome)
     return Evaluation(decision=Decision(outcome.decision_value), reason=outcome.reason)
 
 
@@ -6131,6 +7942,7 @@ def _facts_to_json(facts: TickFacts) -> str:
             "machine_state": facts.machine_state,
             "tick_id": facts.tick_id,
             "input_line_abandoned": facts.input_line_abandoned,
+            "output_quiet_seconds": facts.output_quiet_seconds,
         }
     )
 
@@ -6148,6 +7960,7 @@ def _facts_from_json(line: str) -> TickFacts:
         machine_state=data.get("machine_state"),
         tick_id=int(data.get("tick_id", 0)),
         input_line_abandoned=bool(data.get("input_line_abandoned", False)),
+        output_quiet_seconds=float(data.get("output_quiet_seconds", 0.0)),
     )
 
 
@@ -6170,8 +7983,50 @@ def _outcome_to_json(outcome: TickOutcome) -> str:
             "is_flag_compact": outcome.is_flag_compact,
             "audit_flush_log": outcome.audit_flush_log,
             "abandoned_box_flushed": outcome.abandoned_box_flushed,
+            "plugin_failures": [list(failure) for failure in outcome.plugin_failures],
+            "plugin_versions": [list(pair) for pair in outcome.plugin_versions],
+            "plugin_log_lines": list(outcome.plugin_log_lines),
+            "exit_for_restart": (
+                list(outcome.exit_for_restart) if outcome.exit_for_restart is not None else None
+            ),
         }
     )
+
+
+def _decode_plugin_failures(raw: object) -> tuple[tuple[str, str, str, str], ...]:
+    """Well-formed `(plugin, kind, hook, detail)` entries of a decoded JSON list; the rest are dropped."""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(
+        (item[0], item[1], item[2], item[3])
+        for item in raw
+        if isinstance(item, list) and len(item) == 4 and all(isinstance(part, str) for part in item)
+    )
+
+
+def _decode_plugin_versions(raw: object) -> tuple[tuple[str, str], ...]:
+    """Well-formed `(plugin, version)` entries of a decoded JSON list; the rest are dropped."""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(
+        (item[0], item[1])
+        for item in raw
+        if isinstance(item, list) and len(item) == 2 and all(isinstance(part, str) for part in item)
+    )
+
+
+def _decode_plugin_log_lines(raw: object) -> tuple[str, ...]:
+    """The string entries of a decoded JSON list; anything else is dropped."""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(line for line in raw if isinstance(line, str))
+
+
+def _decode_exit_for_restart(raw: object) -> tuple[str, str] | None:
+    """The `(plugin, reason)` pair of a decoded JSON list, or None when malformed."""
+    if isinstance(raw, list) and len(raw) == 2 and all(isinstance(part, str) for part in raw):
+        return (raw[0], raw[1])
+    return None
 
 
 def _outcome_from_json(line: str) -> TickOutcome:
@@ -6193,6 +8048,10 @@ def _outcome_from_json(line: str) -> TickOutcome:
         is_flag_compact=bool(data.get("is_flag_compact", False)),
         audit_flush_log=data.get("audit_flush_log"),
         abandoned_box_flushed=bool(data.get("abandoned_box_flushed", False)),
+        plugin_failures=_decode_plugin_failures(data.get("plugin_failures")),
+        plugin_versions=_decode_plugin_versions(data.get("plugin_versions")),
+        plugin_log_lines=_decode_plugin_log_lines(data.get("plugin_log_lines")),
+        exit_for_restart=_decode_exit_for_restart(data.get("exit_for_restart")),
     )
 
 
@@ -6215,6 +8074,7 @@ def run_worker(
     dry_run: bool,
     sidecar_dir: Path,
     policy: CompactPolicy,
+    plugins: PluginRuntime | None = None,
 ) -> int:
     """Policy-worker loop: read TickFacts lines, emit TickOutcome lines.
 
@@ -6247,6 +8107,9 @@ def run_worker(
     """
     machine = CompactStateMachine(policy)
     line_recognizer = HumanInputLine()
+    if plugins is not None:
+        # Plan 00487: once per worker start (a hot reload starts it again).
+        plugins.start()
     for raw in in_stream:
         line = raw.strip()
         if not line:
@@ -6301,6 +8164,7 @@ def run_worker(
                 own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
                 goal_signal_ttl_seconds=policy.goal_signal_ttl_seconds,
                 model_confirm_enters=policy.model_confirm_enters,
+                plugins=plugins,
             )
         except Exception:
             # SAFETY NET: a single tick's exception must not kill the worker
@@ -6357,10 +8221,14 @@ class PolicyWorker:
         *,
         dry_run: bool,
         read_timeout: float = _WORKER_READ_TIMEOUT_SECONDS,
+        extra_argv: Callable[[], list[str]] | None = None,
     ) -> None:
         self._self_path = self_path
         self._dry_run = dry_run
         self._read_timeout = read_timeout
+        # Plan 00487: read afresh on EVERY start so the disabled-plugin set rides
+        # on each worker (re)start and a hot reload cannot bring a plugin back.
+        self._extra_argv = extra_argv
         self._proc: subprocess.Popen[str] | None = None
         self._err_stream: TextIO | None = None
         self._source_fingerprint = self._current_fingerprint()
@@ -6396,6 +8264,12 @@ class PolicyWorker:
         argv = [sys.executable, str(self._self_path), _WORKER_FLAG]
         if not self._dry_run:
             argv.append("--arm")
+        if self._extra_argv is not None:
+            try:
+                argv.extend(self._extra_argv())
+            except Exception as error:
+                # The worker starts without plugins rather than not at all.
+                append_worker_error(f"could not build the worker plugin flags: {error!r}")
         # The worker's stderr MUST go to a file (or /dev/null), NEVER the PTY the
         # host inherited: an uncaught per-tick traceback would otherwise flood
         # the live Claude session. Open the error log; fall back to devnull.
@@ -6463,7 +8337,12 @@ class PolicyWorker:
                 return None
             try:
                 outcome = _outcome_from_json(line)
-            except (ValueError, KeyError):
+            except Exception as exc:
+                # TOTAL on purpose: whatever is on the pipe is parsed untrusted,
+                # and a TypeError/AttributeError from a JSON scalar or list must
+                # be a bad reply (the host falls back), never an exception
+                # reaching the PTY loop and ending the session.
+                append_worker_error(f"bad worker reply ({type(exc).__name__}): {exc}")
                 return None
             if outcome.tick_id == tick_id:
                 return outcome
@@ -6636,6 +8515,517 @@ def _exit_code_from_status(status: int) -> int:
     return 1
 
 
+# ---------------------------------------------------------------------------
+# Exit for restart (Plan 00487 Task 1.3b)
+#
+# Claude Code is baked into the ccy image, so only a relaunch of the container
+# picks up a new version. A plugin that wants one returns `ExitForRestart` from
+# `on_idle`; the host then ends the session cleanly and tells the launcher so:
+#
+#   1. refuse unless exactly one own session id is known (the relaunch has to
+#      resume THE conversation, and a wrong id would resume another);
+#   2. type `/exit` through the ordinary injection path;
+#   3. HOLD every other injection until the child exits -- bounded: a child
+#      that ignores `/exit` is abandoned after `_RESTART_EXIT_WAIT_SECONDS` and
+#      the session carries on as if nothing had been asked;
+#   4. once the child has exited, write `.claude/ccy/state/restart-request.json`
+#      (session_id, reason, plugin, requested_at) and exit with
+#      `EXIT_STATUS_RESTART_REQUESTED` so the launcher relaunches with
+#      `--resume <session_id>`.
+#
+# The launcher must treat the status as a request only when the file is present
+# and fresh, and delete the file once it has read it.
+# ---------------------------------------------------------------------------
+
+# sysexits.h EX_TEMPFAIL: "temporary failure, retry". Never `claude`'s own
+# 0/1/2, never the exec failure 127, and below 128 so it cannot be a signal.
+EXIT_STATUS_RESTART_REQUESTED = 75
+_RESTART_REQUEST_FILENAME = "restart-request.json"
+_RESTART_EXIT_COMMAND = "/exit"
+_RESTART_EXIT_WAIT_SECONDS = 30.0
+_RESTART_REQUEST_FILE_MODE = 0o600
+# After a request is abandoned (the child ignored `/exit`) the same ask is not
+# acted on again for this long, and a plugin whose asks have been abandoned this
+# many times in one process is disabled through the uniform failure path.
+_RESTART_RETRY_COOLDOWN_SECONDS = 600.0
+# A small marker, separate from the request file (the launcher removes that one
+# before it relaunches), left at exit so the NEXT supervisor can tell the
+# resumed session once that it was restarted.
+_RESTARTED_MARKER_FILENAME = "restarted.json"
+_RESTARTED_MARKER_MAX_AGE_SECONDS = 24 * 60 * 60.0
+_CLAUDE_VERSION_TIMEOUT_SECONDS = 3.0
+_SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
+_RESTART_MAX_ABANDONED = 3
+
+
+def _restart_request_path() -> Path:
+    """Where the exit-for-restart request file is written."""
+    return _ccy_state_dir() / _RESTART_REQUEST_FILENAME
+
+
+def _restarted_marker_path() -> Path:
+    """Where the "this session was restarted" marker is left (next to the request file)."""
+    return _ccy_state_dir() / _RESTARTED_MARKER_FILENAME
+
+
+def _write_private_json(path: Path, payload: dict[str, object]) -> None:
+    """Write ``payload`` as JSON to ``path`` atomically with mode 0600 (tmp file + replace)."""
+    path.parent.mkdir(mode=_PLUGIN_STATE_DIR_MODE, parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(
+        tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _RESTART_REQUEST_FILE_MODE
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload))
+    tmp_path.replace(path)
+
+
+@dataclass(frozen=True)
+class _PendingRestart:
+    plugin: str
+    reason: str
+    session_id: str
+    requested_at: float
+    deadline: float
+
+
+def _log_noop(log: DecisionLog | None, line: str) -> None:
+    if log is not None:
+        log.write_noop(line)
+
+
+def _log_line(log: DecisionLog | None, line: str) -> None:
+    if log is not None:
+        log.write(line)
+
+
+class RestartCoordinator:
+    """Host-side state of one exit-for-restart request (see the section above)."""
+
+    def __init__(
+        self,
+        *,
+        state_path: Path,
+        marker_path: Path | None = None,
+        wait_seconds: float = _RESTART_EXIT_WAIT_SECONDS,
+        cooldown_seconds: float = _RESTART_RETRY_COOLDOWN_SECONDS,
+        max_abandoned: int = _RESTART_MAX_ABANDONED,
+        monotonic: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._state_path = state_path
+        self._marker_path = (
+            marker_path
+            if marker_path is not None
+            else state_path.with_name(_RESTARTED_MARKER_FILENAME)
+        )
+        self._wait_seconds = wait_seconds
+        self._cooldown_seconds = cooldown_seconds
+        self._max_abandoned = max_abandoned
+        self._abandoned: dict[str, int] = {}
+        self._cooldown_until = float("-inf")
+        self._monotonic = monotonic
+        self._wall_clock = wall_clock
+        self._sleep = sleep
+        self._pending: _PendingRestart | None = None
+
+    @property
+    def pending(self) -> bool:
+        """True from the moment `/exit` was typed until the child exits or the wait is abandoned."""
+        return self._pending is not None
+
+    def expired(self) -> bool:
+        """True when a pending request has waited out its bound."""
+        return self._pending is not None and self._monotonic() >= self._pending.deadline
+
+    def request(
+        self,
+        plugin: str,
+        reason: str,
+        *,
+        session_ids: frozenset[str],
+        machine: CompactStateMachine,
+        write_master: Callable[[bytes], None],
+        log: DecisionLog | None,
+        dry_run: bool,
+    ) -> bool:
+        """Start an exit for restart; True only when `/exit` was actually typed."""
+        if self._pending is not None:
+            return False
+        if dry_run:
+            _log_noop(
+                log, f"noop: plugin {plugin} asked to exit for restart (dry-run: not exiting)"
+            )
+            return False
+        if self._monotonic() < self._cooldown_until:
+            _log_noop(
+                log,
+                f"noop: exit for restart asked by plugin {plugin} ignored: cooldown after an "
+                "abandoned attempt",
+            )
+            return False
+        if self._abandoned.get(plugin, 0) >= self._max_abandoned:
+            return False
+        if len(session_ids) != 1:
+            _log_noop(
+                log,
+                f"noop: exit for restart asked by plugin {plugin} refused: the own session id "
+                f"is not unambiguous ({len(session_ids)} known)",
+            )
+            return False
+        (session_id,) = session_ids
+        _perform_injection(write_master, _RESTART_EXIT_COMMAND, submit=True, sleep=self._sleep)
+        machine.mark_own_line_typed(_RESTART_EXIT_COMMAND, self._wall_clock())
+        self._pending = _PendingRestart(
+            plugin=plugin,
+            reason=reason,
+            session_id=session_id,
+            requested_at=self._wall_clock(),
+            deadline=self._monotonic() + self._wait_seconds,
+        )
+        _log_line(
+            log,
+            f"exit for restart: plugin {plugin} asked ({reason}); typed {_RESTART_EXIT_COMMAND}, "
+            "holding injections until the child exits",
+        )
+        return True
+
+    def abandon(self, log: DecisionLog | None) -> str | None:
+        """Give up on a child that did not exit; the session carries on.
+
+        Starts the retry cooldown and counts the attempt against the plugin.
+        Returns the plugin's name when this abandon reached the cap (the caller
+        then disables it), else None.
+        """
+        pending, self._pending = self._pending, None
+        if pending is None:
+            return None
+        self._cooldown_until = self._monotonic() + self._cooldown_seconds
+        count = self._abandoned.get(pending.plugin, 0) + 1
+        self._abandoned[pending.plugin] = count
+        _log_line(
+            log,
+            f"exit for restart: abandoned -- the child did not exit within "
+            f"{self._wait_seconds:g}s of {_RESTART_EXIT_COMMAND} (plugin {pending.plugin}, "
+            f"attempt {count} of {self._max_abandoned})",
+        )
+        return pending.plugin if count >= self._max_abandoned else None
+
+    def finish(self, exit_code: int, log: DecisionLog | None) -> int:
+        """The supervisor's exit status once the child has exited.
+
+        With a pending request: write the request file and return
+        `EXIT_STATUS_RESTART_REQUESTED`. If the file cannot be written the
+        launcher could not act on the status, so the child's own status is
+        returned instead and the failure is logged.
+        """
+        pending, self._pending = self._pending, None
+        if pending is None:
+            return exit_code
+        payload = {
+            "session_id": pending.session_id,
+            "reason": pending.reason,
+            "plugin": pending.plugin,
+            "requested_at": pending.requested_at,
+        }
+        try:
+            _write_private_json(self._state_path, payload)
+        except OSError as error:
+            _log_line(
+                log,
+                f"exit for restart: could not write {self._state_path}: {error}; "
+                f"exiting with the child's status {exit_code}",
+            )
+            return exit_code
+        _log_line(
+            log,
+            f"exit for restart: wrote {self._state_path}; exiting with status "
+            f"{EXIT_STATUS_RESTART_REQUESTED}",
+        )
+        try:
+            _write_private_json(
+                self._marker_path,
+                {"session_id": pending.session_id, "requested_at": pending.requested_at},
+            )
+        except OSError as error:
+            # The restart itself is what matters; only the RESTARTED notice is lost.
+            _log_line(log, f"exit for restart: could not write {self._marker_path}: {error}")
+        return EXIT_STATUS_RESTART_REQUESTED
+
+
+def _resumed_session_id(child_argv: Sequence[str]) -> str | None:
+    """The session id the child is resuming (``--resume <id>``, ``--resume=<id>``, ``-r <id>``)."""
+    candidate: str | None = None
+    for index, argument in enumerate(child_argv):
+        if argument in ("--resume", "-r") and index + 1 < len(child_argv):
+            candidate = child_argv[index + 1]
+            break
+        if argument.startswith("--resume="):
+            candidate = argument.partition("=")[2]
+            break
+    if candidate is None or _SESSION_ID_PATTERN.fullmatch(candidate) is None:
+        return None
+    return candidate
+
+
+def consume_restarted_marker(path: Path, resumed_session_id: str | None, *, now: float) -> bool:
+    """True once, when ``path`` is a fresh restart marker for the session being resumed.
+
+    A matching marker is removed (so it is consumed once). A garbled or stale
+    one is removed and ignored. A marker for another session, or any marker when
+    this launch is not a resume, is left alone.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        data = None
+    session_id = data.get("session_id") if isinstance(data, dict) else None
+    requested_at = data.get("requested_at") if isinstance(data, dict) else None
+    if (
+        not isinstance(session_id, str)
+        or not isinstance(requested_at, (int, float))
+        or isinstance(requested_at, bool)
+        or now - requested_at > _RESTARTED_MARKER_MAX_AGE_SECONDS
+    ):
+        _remove_marker(path)
+        return False
+    if resumed_session_id is None or session_id != resumed_session_id:
+        return False
+    _remove_marker(path)
+    return True
+
+
+def _remove_marker(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as error:
+        append_worker_error(f"could not remove {path}: {error}")
+
+
+def _claude_version(executable: str) -> str | None:
+    """The version ``<executable> --version`` reports, or None. Bounded and validated.
+
+    Takes the first whitespace-separated token of the output; it must match
+    `_VERSION_PATTERN`, so nothing else the command prints can reach the chat.
+    """
+    try:
+        completed = (
+            subprocess.run(  # nosec B603 - fixed argv, the wrapped executable itself, no shell
+                [executable, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=_CLAUDE_VERSION_TIMEOUT_SECONDS,
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    tokens = completed.stdout[:200].split()
+    if tokens and _VERSION_PATTERN.fullmatch(tokens[0]) is not None:
+        return tokens[0]
+    return None
+
+
+def arm_restarted_notice(
+    machine: CompactStateMachine, child_argv: Sequence[str], *, marker_path: Path, now: float
+) -> bool:
+    """Owe the session its one RESTARTED notice when this launch resumes a restarted session.
+
+    Consumes the marker `RestartCoordinator.finish` left; the version comes from
+    ``<child> --version`` (bounded, validated), falling back to the installed
+    version wording. Never raises: a failure costs the notice, not the session.
+    """
+    try:
+        resumed = _resumed_session_id(child_argv)
+        if not consume_restarted_marker(marker_path, resumed, now=now):
+            return False
+        version = _claude_version(child_argv[0]) if child_argv else None
+        return machine.arm_session_notice(_SESSION_NOTICE_RESTARTED, version or "", now_wall=now)
+    except Exception as error:
+        append_worker_error(f"could not arm the restarted notice: {error!r}")
+        return False
+
+
+def handle_plugin_outcome(
+    outcome: TickOutcome,
+    *,
+    machine: CompactStateMachine,
+    restart: RestartCoordinator,
+    write_master: Callable[[bytes], None],
+    log: DecisionLog | None,
+    dry_run: bool,
+    session_ids: frozenset[str],
+    plugin_host: PluginHost | None,
+    restart_worker: Callable[[], bool] | None,
+) -> None:
+    """Act, on the HOST, on what one tick's plugin runtime reported.
+
+    The same function serves a worker-decided tick and an in-process one, so
+    plugins behave identically whichever path the tick took.
+    """
+    for line in outcome.plugin_log_lines:
+        _log_line(log, line)
+    if plugin_host is not None:
+        for plugin, version in outcome.plugin_versions:
+            plugin_host.record_loaded(plugin, version)
+        for plugin, kind, hook, detail in outcome.plugin_failures:
+            # The worker's words are only ever used if they are in the closed sets.
+            if kind not in _PLUGIN_KINDS or hook not in _PLUGIN_HOOKS:
+                continue
+            if plugin_host.record_failure(plugin, kind, hook, detail):
+                _log_line(log, failure_log_line(PluginFailure(plugin, kind, hook, detail)))
+                if kind in _PLUGIN_KINDS_NEEDING_WORKER_RESTART and restart_worker is not None:
+                    restart_worker()
+    if outcome.exit_for_restart is not None:
+        plugin, reason = outcome.exit_for_restart
+        restart.request(
+            plugin,
+            reason,
+            session_ids=session_ids,
+            machine=machine,
+            write_master=write_master,
+            log=log,
+            dry_run=dry_run,
+        )
+
+
+def handle_worker_silence(
+    *,
+    plugin_host: PluginHost,
+    machine: CompactStateMachine,
+    restart_worker: Callable[[], bool] | None,
+    log: DecisionLog | None,
+    status_dir: Path,
+    now_wall: float,
+) -> None:
+    """The worker did not answer a tick: if a plugin hook is why, take the plugin out.
+
+    Disables the culprit named by the in-hook marker, restarts the worker
+    WITHOUT it (the new worker is started with ``--disable-plugin``), and owes the
+    session a notice. Must run BEFORE the tick falls back to the in-process
+    decision, so a plugin that just wedged the worker is not run again in the
+    host. Silence with no culprit (a dead or merely slow worker) is not this
+    function's business.
+    """
+    failure = plugin_host.detect_wedge(now_wall)
+    if failure is None:
+        return
+    if not plugin_host.record_failure(failure.plugin, failure.kind, failure.hook):
+        return
+    _log_line(log, failure_log_line(failure))
+    report_plugin_failure(machine, failure, status_dir=status_dir, now=now_wall)
+    plugin_host.clear_marker()
+    if restart_worker is not None:
+        restart_worker()
+
+
+def _disable_stuck_exit_plugin(
+    plugin: str,
+    *,
+    plugin_host: PluginHost | None,
+    machine: CompactStateMachine,
+    restart_worker: Callable[[], bool] | None,
+    log: DecisionLog | None,
+    status_dir: Path,
+    now_wall: float,
+) -> None:
+    """A plugin's exit-for-restart asks keep being abandoned: take it out.
+
+    The same four steps as every other plugin failure -- disable (surviving a
+    worker reload), recover (restart the worker without it), log, and owe the
+    session its one fixed-template notice.
+    """
+    if plugin_host is None:
+        return
+    failure = PluginFailure(plugin, _PLUGIN_KIND_EXIT_STUCK, _PLUGIN_HOOK_ON_IDLE)
+    if not plugin_host.record_failure(failure.plugin, failure.kind, failure.hook):
+        return
+    _log_line(log, failure_log_line(failure))
+    report_plugin_failure(machine, failure, status_dir=status_dir, now=now_wall)
+    if restart_worker is not None:
+        restart_worker()
+
+
+class PluginContainment:
+    """Runs the host's plugin handling so that no fault in it can reach the session.
+
+    The first unexpected exception in any step stops the host handling plugin
+    results for the rest of the process. That alone would leave the worker
+    running every plugin the host no longer supervises (a plugin that then
+    hangs would stall every tick), so a trip also takes the uniform failure
+    path for ALL of them: every plugin is disabled, the session is told once,
+    and the worker is restarted with no plugin flags.
+    """
+
+    def __init__(
+        self,
+        *,
+        plugin_host: PluginHost | None,
+        machine: CompactStateMachine,
+        restart_worker: Callable[[], bool] | None,
+        log: DecisionLog | None,
+        status_dir: Path,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        self._plugin_host = plugin_host
+        self._machine = machine
+        self._restart_worker = restart_worker
+        self._log = log
+        self._status_dir = status_dir
+        self._clock = clock
+        self._active = True
+
+    @property
+    def active(self) -> bool:
+        """True until a step has tripped the containment."""
+        return self._active
+
+    def run(self, step: Callable[[], None]) -> None:
+        """Run ``step`` unless tripped; trip on the first exception it raises."""
+        if not self._active:
+            return
+        try:
+            step()
+        except Exception as error:
+            self._active = False
+            append_worker_error("plugin handling failed:\n" + traceback.format_exc())
+            _log_line(
+                self._log,
+                f"plugin handling failed ({type(error).__name__}): all plugins disabled",
+            )
+            self._switch_everything_off()
+
+    def _switch_everything_off(self) -> None:
+        host = self._plugin_host
+        if host is None:
+            return
+        names: list[str] = []
+        try:
+            names = host.disable_all()
+            if names:
+                failure = PluginFailure(names[0], _PLUGIN_KIND_HOST_FAULT, _PLUGIN_HOOK_ON_IDLE)
+                _log_line(self._log, failure_log_line(failure))
+                report_plugin_failure(
+                    self._machine, failure, status_dir=self._status_dir, now=self._clock()
+                )
+                host.clear_marker()
+        except Exception:
+            append_worker_error("plugin shutdown after a fault failed:\n" + traceback.format_exc())
+        if names and self._restart_worker is not None:
+            try:
+                self._restart_worker()
+            except Exception:
+                append_worker_error(
+                    "worker restart after a fault failed:\n" + traceback.format_exc()
+                )
+
+
 def _forward_io(
     stdin_fd: int,
     master_fd: int,
@@ -6767,6 +9157,9 @@ def supervise(
     work_settle_seconds: float = _DEFAULT_WORK_SETTLE_SECONDS,
     input_line_abandon_seconds: float = _DEFAULT_INPUT_LINE_ABANDON_SECONDS,
     decider: Callable[[TickFacts], TickOutcome | None] | None = None,
+    plugin_host: PluginHost | None = None,
+    restart_worker: Callable[[], bool] | None = None,
+    restart_coordinator: RestartCoordinator | None = None,
 ) -> int:
     """Run `argv` under a PTY, forwarding I/O and polling the context sidecar.
 
@@ -6830,6 +9223,11 @@ def supervise(
     sidecar_dir = sidecar_dir if sidecar_dir is not None else _default_sidecar_dir()
     policy = policy if policy is not None else CompactPolicy()
     machine = CompactStateMachine(policy)
+    restart = (
+        restart_coordinator
+        if restart_coordinator is not None
+        else RestartCoordinator(state_path=_restart_request_path())
+    )
     mode = "dry-run (injects marker)" if dry_run else "ARMED (injects /compact)"
     # Transient supervisor->status-line message channel (GENERAL; the Ctrl+Z
     # input guard is its first consumer). Co-located with the sidecar dir's
@@ -6842,6 +9240,29 @@ def supervise(
             f"supervisor active ({mode}); polling {sidecar_dir} every "
             f"{poll_seconds}s; wrapping: {argv}"
         )
+    arm_restarted_notice(machine, argv, marker_path=_restarted_marker_path(), now=time.time())
+    # Plan 00487: host-side plugin handling is contained as a whole. The first
+    # unexpected exception in it switches the handling off for the rest of the
+    # process (logged once); the session itself carries on regardless.
+    containment = PluginContainment(
+        plugin_host=plugin_host,
+        machine=machine,
+        restart_worker=restart_worker,
+        log=log,
+        status_dir=sidecar_dir.parent,
+    )
+    _contained = containment.run
+
+    def _report_startup_refusals() -> None:
+        # A plugin the loader refused is skipped, never fatal; say so in the
+        # log, on the status line, and (once, at an idle point) to the session.
+        assert plugin_host is not None
+        for refusal in plugin_host.take_startup_failures():
+            _log_line(log, failure_log_line(refusal))
+            report_plugin_failure(machine, refusal, status_dir=sidecar_dir.parent, now=time.time())
+
+    if plugin_host is not None:
+        _contained(_report_startup_refusals)
 
     # Startup banner + spinner (Plan 00164 Phase 2): give the launching ccy
     # session immediate, informative feedback during the perceptible start-up
@@ -6885,7 +9306,44 @@ def supervise(
     def _write_master(data: bytes) -> None:
         os.write(master_fd, data)
 
+    def _handle_plugin_outcome(outcome: TickOutcome) -> None:
+        # Plan 00487: what the plugin runtime told the host this tick -- audit
+        # lines, failures, an exit-for-restart request -- handled by ONE function
+        # whether the tick was decided by the worker or in-process.
+        _contained(
+            lambda: handle_plugin_outcome(
+                outcome,
+                machine=machine,
+                restart=restart,
+                write_master=_write_master,
+                log=log,
+                dry_run=dry_run,
+                session_ids=cached_own_session_ids(),
+                plugin_host=plugin_host,
+                restart_worker=restart_worker,
+            )
+        )
+
     def _on_poll() -> None:
+        if restart.pending:
+            # Plan 00487 Task 1.3b: `/exit` was typed. Hold EVERYTHING until the
+            # child exits (the select loop then ends) -- or, past the bound,
+            # abandon the request and carry on with the session.
+            if not restart.expired():
+                return
+            capped = restart.abandon(log)
+            if capped is not None:
+                _contained(
+                    lambda: _disable_stuck_exit_plugin(
+                        capped,
+                        plugin_host=plugin_host,
+                        machine=machine,
+                        restart_worker=restart_worker,
+                        log=log,
+                        status_dir=sidecar_dir.parent,
+                        now_wall=time.time(),
+                    )
+                )
         now_monotonic = os.times().elapsed
         idle = _is_idle(
             activity,
@@ -6898,6 +9356,9 @@ def supervise(
             now_monotonic=now_monotonic,
             work_settle_seconds=work_settle_seconds,
         )
+        # Plan 00470 Task 2.3: how long the child has been silent, for the
+        # cron-expiry watchdog.
+        output_quiet_seconds = _output_quiet_seconds(output_activity, now_monotonic=now_monotonic)
         # Consume the human-/compact edge exactly once per tick so a human
         # compaction defers the supervisor's own, never suppresses it forever.
         human_compact = activity.take_compact_submitted()
@@ -6929,11 +9390,29 @@ def supervise(
                     # decides on it -- never on divergent worker-local state.
                     machine_state=machine.export_state(),
                     input_line_abandoned=input_line_abandoned,
+                    output_quiet_seconds=output_quiet_seconds,
                 )
             )
             transition = fallback_transitions.note(worker_answered=outcome is not None)
             if transition is not None and log is not None:
                 log.write(transition)
+            if outcome is None and plugin_host is not None:
+                # Plan 00487: before this tick falls back to the in-process
+                # decision, take out any plugin the silent worker is stuck in.
+                silent_host = plugin_host
+                _contained(
+                    lambda: handle_worker_silence(
+                        plugin_host=silent_host,
+                        machine=machine,
+                        restart_worker=restart_worker,
+                        log=log,
+                        status_dir=sidecar_dir.parent,
+                        # A fresh reading, not this tick's: the worker was waited
+                        # on for up to its read timeout, and the marker's age is
+                        # judged against NOW.
+                        now_wall=time.time(),
+                    )
+                )
         if outcome is not None:
             # Plan 00182: pass the host's authoritative PRE-tick state so a stale
             # WOULD_COMPACT reply (worker still MONITOR, host already awaiting)
@@ -6962,6 +9441,7 @@ def supervise(
             # this the model would show the just-flushed text forever.
             if outcome.abandoned_box_flushed:
                 activity.line.clear()
+            _handle_plugin_outcome(outcome)
         else:
             _poll_once(
                 machine,
@@ -6981,7 +9461,12 @@ def supervise(
                 own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
                 goal_signal_ttl_seconds=policy.goal_signal_ttl_seconds,
                 input_line_abandoned=input_line_abandoned,
+                output_quiet_seconds=output_quiet_seconds,
                 on_input_line_flushed=activity.line.clear,
+                # NEVER a plugin runtime: this fallback runs in the PTY host
+                # process, and plugin code does not (Plan 00487).
+                plugins=None,
+                on_outcome=_handle_plugin_outcome,
             )
 
     previous_handler = signal.signal(signal.SIGWINCH, _on_winch)
@@ -7047,7 +9532,9 @@ def supervise(
             termios.tcsetattr(resolved_stdin_fd, termios.TCSAFLUSH, old_termios)
 
     _pid, status = os.waitpid(pid, 0)
-    exit_code = _exit_code_from_status(status)
+    # A pending exit-for-restart turns the child's clean exit into the dedicated
+    # status (and the request file) the ccy launcher relaunches on.
+    exit_code = restart.finish(_exit_code_from_status(status), log)
 
     if log is not None:
         log.write(
@@ -7099,6 +9586,7 @@ def _parse_supervisor_flags(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Decision log file path (default: $CLAUDE_PROJECT_DIR/untracked/supervise/).",
     )
+    _add_plugin_arguments(parser)
     return parser.parse_args(supervisor_argv)
 
 
@@ -7200,12 +9688,17 @@ def main(argv: list[str] | None = None) -> int:
         # tty either). See Plan 00166.
         _redirect_worker_stderr_to_log()
         try:
+            # Plan 00487: plugin code runs in this process, so the protocol
+            # pipes are made private BEFORE any plugin is loaded.
+            requests, replies = _isolate_worker_channels()
+            worker_sidecar_dir = _default_sidecar_dir()
             return run_worker(
-                sys.stdin,
-                sys.stdout,
+                requests,
+                replies,
                 dry_run="--arm" not in argv,
-                sidecar_dir=_default_sidecar_dir(),
+                sidecar_dir=worker_sidecar_dir,
                 policy=CompactPolicy(),
+                plugins=_make_worker_plugin_runtime(argv, worker_sidecar_dir.parent),
             )
         except Exception:
             # Plan 00361: an escaped exception (typically a half-edited source
@@ -7233,34 +9726,111 @@ def main(argv: list[str] | None = None) -> int:
     # supervisor on disk than the one still running (Plan 00164 Phase 3). The
     # status is removed on exit so a clean shutdown leaves nothing stale behind.
     untracked_dir = _daemon_untracked_dir()
-    write_supervisor_status(
-        untracked_dir,
-        version=__version__,
-        source_hash=compute_source_hash(_SELF_PATH),
-        pid=os.getpid(),
-        started_at=time.time(),
-    )
+    source_hash = compute_source_hash(_SELF_PATH)
+    started_at = time.time()
+
+    def _write_status(plugins: list[dict[str, str]] | None) -> Path | None:
+        return write_supervisor_status(
+            untracked_dir,
+            version=__version__,
+            source_hash=source_hash,
+            pid=os.getpid(),
+            started_at=started_at,
+            plugins=plugins,
+        )
+
+    # Plan 00487: plugins named with `--plugin`. Vetting a file never imports it
+    # and a refusal only skips that plugin -- the session always starts. The host
+    # rewrites the status file's plugin list whenever a plugin's state changes.
+    plugin_host = _make_plugin_host(flags, _write_status, untracked_dir)
+    if plugin_host is None:
+        _write_status(None)
 
     # Run the decision logic in a restartable worker subprocess (Plan 00164
     # Phase 4) so it can hot-reload from a freshly-deployed supervisor without
     # disturbing this PTY host. Worker failure is invisible — the host falls back
     # to an identical in-process decision — so the session is never at risk.
-    worker = _make_policy_worker(flags.dry_run)
+    worker = _make_policy_worker(flags.dry_run, plugin_host=plugin_host)
     decider = _make_worker_decider(worker, log=log) if worker is not None else None
     try:
-        return supervise(child_argv, dry_run=flags.dry_run, log=log, decider=decider)
+        return supervise(
+            child_argv,
+            dry_run=flags.dry_run,
+            log=log,
+            decider=decider,
+            plugin_host=plugin_host,
+            restart_worker=worker.restart if worker is not None else None,
+        )
     finally:
         if worker is not None:
             worker.close()
         remove_supervisor_status(untracked_dir)
 
 
-def _make_policy_worker(dry_run: bool) -> PolicyWorker | None:
+def _make_plugin_host(
+    flags: argparse.Namespace,
+    write_status: Callable[[list[dict[str, str]]], object],
+    untracked_dir: Path,
+) -> PluginHost | None:
+    """Build the host's plugin registry from the flags, or None. Never raises.
+
+    No ``--plugin`` flag means no registry. An unexpected error while building
+    it also means none: the session starts without plugins rather than not at all.
+    """
+    if not flags.plugin:
+        return None
+    try:
+        return PluginHost(
+            flags.plugin,
+            write_status=write_status,
+            status_dir=untracked_dir,
+            marker_path=_plugin_marker_path(untracked_dir, os.getpid()),
+            disabled=flags.disable_plugin,
+        )
+    except Exception as error:
+        append_worker_error(f"plugin setup failed, starting without plugins: {error!r}")
+        return None
+
+
+def _make_worker_plugin_runtime(argv: Sequence[str], untracked_dir: Path) -> PluginRuntime | None:
+    """Build the ``--worker`` subprocess's plugin runtime from its argv, or None.
+
+    The host passed the loadable plugins (``--plugin``) and the disabled set
+    (``--disable-plugin``). The in-hook marker is keyed by the HOST's pid -- this
+    process's parent -- so the host can find it when this worker stops answering.
+    """
+    raw_specs, disabled = _parse_worker_plugin_flags(argv)
+    if not raw_specs:
+        return None
+    runtime = PluginRuntime(
+        state_root=_plugin_state_root(),
+        status_dir=untracked_dir,
+        marker_path=_plugin_marker_path(untracked_dir, os.getppid()),
+    )
+    specs: list[tuple[str, Path]] = []
+    for raw in raw_specs:
+        try:
+            parsed = parse_plugin_spec(raw)
+        except PluginLoadError as error:
+            append_worker_error(f"worker got an unusable --plugin value: {error.reason}")
+            continue
+        specs.append((parsed.name, parsed.path))
+    runtime.load(specs, disabled)
+    return runtime
+
+
+def _make_policy_worker(
+    dry_run: bool, plugin_host: PluginHost | None = None
+) -> PolicyWorker | None:
     """Create + start the policy worker, or None (in-process) when opted out /
     unstartable. Never raises — a worker problem must not break a launch."""
     if os.environ.get(_NO_WORKER_ENV):
         return None
-    worker = PolicyWorker(_SELF_PATH, dry_run=dry_run)
+    worker = PolicyWorker(
+        _SELF_PATH,
+        dry_run=dry_run,
+        extra_argv=plugin_host.worker_argv if plugin_host is not None else None,
+    )
     if not worker.start():
         return None
     return worker
