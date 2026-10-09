@@ -4,8 +4,10 @@
 # WHAT THIS CHANGES (HOST-only; running it is the consent, CLAUDE/PlanScriptStandards.md R8):
 #   play-speech-to-text.yml — deploys the recorders wsi and wsi-stream: after the panel gives
 #   the window pinned at Insert focus back, they paste only once it has kept focus for half
-#   a second, and wait longer before the Enter. A changed wsi-stream restarts the warm
-#   speech server (the play's handler), so its model loads again.
+#   a second, wait longer before the Enter, and check focus again just before it (no Enter,
+#   and a notification that stays, if the window was closed or would not take focus back).
+#   A changed wsi-stream restarts the warm speech server (the play's handler), so its model
+#   loads again.
 #
 # The extension is unchanged, so no logout is needed: the recorders take effect at once.
 #

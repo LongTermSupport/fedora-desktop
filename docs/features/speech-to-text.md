@@ -299,10 +299,19 @@ The text goes into the window that was focused when you pressed Insert, in batch
 streaming mode alike, and with Claude post-processing. While a dictation can still paste,
 that window has a red outline. If focus has moved by the time of a paste (a stray click,
 a window that grabbed focus), the panel gives that window focus back, switching
-workspace if need be, and the text is pasted once it has focus. There is no way to move
-the target during a dictation. If that window was closed, or does not get focus back
-within about 2 s, nothing is pasted: the text not yet pasted goes on the clipboard and a
-notification says so. The paste key is chosen at each paste, for that window:
+workspace if need be, and the text is pasted once it has kept focus for half a second.
+There is no way to move the target during a dictation. If that window was closed, or does
+not get focus back within about 2 s, nothing is pasted: the text not yet pasted goes on
+the clipboard and a notification says so.
+
+After a paste that needed focus given back, the Enter waits 1 s, and the panel checks
+focus once more just before it. Focus lost again is given back the same way, and the Enter
+goes once the window has kept it. If the window was closed, or would not take focus back,
+no Enter (or save) is pressed, the recording ends in error, and a notification that stays
+says the text was pasted but not sent. A window that kept focus throughout is pasted and
+sent with no added wait.
+
+The paste key is chosen at each paste, for that window:
 
 - an app in **Apps using Ctrl+V** (`paste-ctrl-v-apps`) gets Ctrl+V;
 - a terminal gets Ctrl+Shift+V. A terminal is an app whose desktop entry lists the

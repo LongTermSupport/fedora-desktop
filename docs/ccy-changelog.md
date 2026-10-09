@@ -21,8 +21,8 @@ Two version numbers move independently — see
 
 - **Containers run in the host's time zone** (Plan 00165). A container shares the host's
   clock but not its zone: the image's `/etc/localtime` is `Etc/UTC` and nothing set `TZ`,
-  so the status line and `date` in every session showed UTC, an hour behind a UK desktop
-  clock in summer. The launcher now passes `-e TZ=<zone>`, the host's IANA zone name from
+  so the status line and `date` in every session showed UTC, not the desktop
+  clock's local time. The launcher now passes `-e TZ=<zone>`, the host's IANA zone name from
   `timedatectl show -p Timezone --value`, or from the target of the host's `/etc/localtime`
   link when timedatectl gives nothing usable. The name must exist under the host's
   `/usr/share/zoneinfo`; if neither source gives one, the launch stops with the reason

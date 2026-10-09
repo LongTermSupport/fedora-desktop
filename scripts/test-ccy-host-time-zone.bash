@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS. A container shares the host's kernel clock but not its time zone: with
 # no TZ and the image's /etc/localtime pointing at Etc/UTC, every ccy session showed UTC
-# while the desktop clock showed local time, an hour apart in British Summer Time. ccy now
+# while the desktop clock showed local time, hours apart on any host not on UTC. ccy now
 # passes the host's IANA zone name in as TZ. The derivation must never quietly produce UTC:
 # an unresolvable zone is a refusal, not a default, because a wrong zone looks exactly like
 # a right one until somebody compares two clocks.

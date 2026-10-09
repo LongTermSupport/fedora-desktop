@@ -18,8 +18,8 @@ the recorder asks again every 0.1 s. Until this plan, the first "focused" answer
 the paste, and the Enter followed on the same fixed timing as any other paste.
 
 This plan makes a window that was given focus back keep it for half a second before the
-paste, re-asked at every poll, and waits longer between that paste and its Enter. Both
-recorders behave the same. A read-only `triage.bash` pulls the focus / paste / Enter
+paste, re-asked at every poll, waits longer between that paste and its Enter, and asks
+again just before the Enter (Task 2.4). Both recorders behave the same. A read-only `triage.bash` pulls the focus / paste / Enter
 timelines out of the host's debug log, to confirm the cause from real dictations.
 
 ## What the code shows (facts)
@@ -33,17 +33,18 @@ timelines out of the host's debug log, to confirm the cause from real dictations
 - The Claude modes force `--no-auto-enter` by design (`extension.js`, Claude launch), so
   a missing Enter there is expected. The report is about the plain mode.
 
-## Hypotheses (not yet confirmed: Task 1.2)
+## Hypotheses (host log read, Task 1.2; none confirmed until Phase 3)
 
-- **H1**: the app is still taking focus when the keys arrive. A terminal sends its app a
-  focus-in sequence and the app redraws; the paste is read from the clipboard
+- **H1** (weakened): the app is still taking focus when the keys arrive. A terminal sends
+  its app a focus-in sequence and the app redraws; the paste is read from the clipboard
   asynchronously. The Enter then reaches the app too close to (or before) the pasted text,
-  and a TUI that batches input treats it as part of the paste: pasted, not sent.
-- **H2**: focus moves again just after the panel takes it back, so the Enter goes to
-  another window. A re-asked settle catches a flip inside the settle period; a flip
-  after it would not be caught.
-- **H3**: the recorder was run with `--no-auto-enter` (Claude mode or auto-enter off).
-  The triage prints the launch flags and the `auto-enter` setting to rule this out.
+  and a TUI that batches input treats it as part of the paste: pasted, not sent. The host
+  log showed the Enter sent 1–2 s after the paste in failing and working dictations alike.
+- **H2** (leading): focus moves again just after the panel takes it back, so the Enter
+  goes to another window. The settle catches a flip before the paste; Task 2.4's ask
+  just before the Enter catches, gives back and logs a flip after it.
+- **H3** (ruled out by the log: the Enter was sent): the recorder was run with
+  `--no-auto-enter` (Claude mode or auto-enter off).
 
 ## Goals
 
@@ -65,9 +66,10 @@ timelines out of the host's debug log, to confirm the cause from real dictations
   decide the paste and its Enter, whether the deployed recorders are this checkout's, and
   the focus / paste / Enter lines of the last dictations with a focus loss, and of the
   last two without. Dictated text is never copied into the report.
-- [ ] ⬜ **Task 1.2**: Run on the host (through `meta-deploy.bash`, which runs triage
+- [x] ✅ **Task 1.2**: Run on the host (through `meta-deploy.bash`, which runs triage
   before and after the deploy) and record in the journal which hypothesis the log bears
   out. With Debug Logging off the recorders write nothing; turn it on and reproduce.
+  Journal 15:23: H1 weakened, H2 leading (Task 2.4).
 
 ### Phase 2: Fix (tests first)
 
@@ -97,7 +99,9 @@ timelines out of the host's debug log, to confirm the cause from real dictations
   sent. Both batch (`wsi`) and streaming (`wsi-stream`) mode.
 - [ ] ⬜ **Task 3.2**: `triage.bash` after it shows, for those dictations, "has focus
   back", "before the Enter" and the Enter lines in that order.
-- [ ] ⬜ **Task 3.3**: `qa-reviewer` over the plan's commits.
+- [x] ✅ **Task 3.3**: `qa-reviewer` over the plan's commits: FIX-BEFORE-MERGE (the feature
+  doc did not describe the behaviour after a focus retake), stale plan text, two NITs; all
+  fixed. [report](subagent-reports/261009-qa-reviewer-opus.md).
 
 ## Success Criteria
 

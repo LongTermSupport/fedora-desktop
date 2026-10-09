@@ -9,8 +9,8 @@
 
 The owner reported that a ccy session's status line showed an hour earlier than the
 desktop clock. Inside a ccy container `date` prints UTC: the image's `/etc/localtime`
-links to `Etc/UTC` and nothing sets `TZ`. The host is in a UK zone, on British Summer
-Time. The clock itself is the same (a container shares the host's kernel clock); only
+links to `Etc/UTC` and nothing sets `TZ`, while the host runs in a zone ahead of UTC.
+The clock itself is the same (a container shares the host's kernel clock); only
 the time zone differs, so the fix is the zone, not the time.
 
 ccy now resolves the host's IANA zone name on the host and passes it to the container as
@@ -58,7 +58,9 @@ now installed by name (container 2.49), because without zoneinfo glibc reads an 
   rebuilds once.
 - [ ] ⬜ **Task 2.2**: Inside the new session `date` and the status line show the same
   time as the desktop clock.
-- [ ] ⬜ **Task 2.3**: qa-reviewer agent over the branch diff.
+- [x] ✅ **Task 2.3**: qa-reviewer agent over the branch diff: FIX-BEFORE-MERGE (the plan
+  index row's stale CCY version) and a NIT (the owner's zone named in prose), both fixed.
+  [report](subagent-reports/261009-qa-reviewer-opus.md).
 
 ## Success Criteria
 

@@ -72,7 +72,7 @@ show_dictations() {
             next
         }
         block == "" { next }
-        /lost focus|focus back|Pasting into|Paste into|Paste simulated|Simulating (Ctrl|Shift|Enter)|Pasting a chunk|chunk was not pasted|before the Enter|Enter key|Save simulated|Nothing was pasted|would not take focus|was closed|ydotool|Auto-paste failed|Recording aborted/ {
+        /lost focus|focus back|Pasting into|Paste into|Paste simulated|Simulating (Ctrl|Shift|Enter)|Pasting a chunk|chunk was not pasted|before the Enter|sending the Enter|pasted but not sent|Enter key|Save simulated|Nothing was pasted|would not take focus|was closed|ydotool|Auto-paste failed|Recording aborted/ {
             block = block $0 "\n"
             if ($0 ~ /lost focus/) lost = 1
             if ($0 ~ /Paste simulated|Pasting into|Enter key/) pasted = 1

@@ -307,7 +307,9 @@ paste_target_now() {
             if [ "$unfocused" -eq 0 ] || [ "$settled" -eq "$PASTE_FOCUS_SETTLE_POLLS" ]; then
                 PASTE_TARGET=ready
                 if [ "$before" = enter ]; then
-                    if [ "$unfocused" -eq 0 ]; then
+                    if [ -z "${BASH_REMATCH[6]}" ]; then
+                        log "'${BASH_REMATCH[1]}': the panel does not pin focus, so it cannot say whether the window still has it; sending the Enter"
+                    elif [ "$unfocused" -eq 0 ]; then
                         log "'${BASH_REMATCH[1]}' still has focus before the Enter"
                     else
                         log "'${BASH_REMATCH[1]}' has kept focus again; sending the Enter"
