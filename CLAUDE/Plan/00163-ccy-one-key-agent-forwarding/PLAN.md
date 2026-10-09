@@ -80,17 +80,17 @@ untracked, as it concerns a private repository.
 - [x] ✅ **Task 3.1**: `qa-reviewer` over the plan diff, findings resolved: FIX-BEFORE-MERGE
   (the whole-selection decision, the `.pub` match, version coverage, four nits), all fixed in
   CCY 3.87.1. [report](subagent-reports/261008-qa-reviewer-opus.md).
-- [ ] 🧑 **Task 3.2**: HOST: Plan 00161's acceptance (M2) through meta-deploy, with the key in
+- [x] ✅ **Task 3.2**: HOST: Plan 00161's acceptance (M2) through meta-deploy, with the key in
   the owner's agent; the seats push and sign with it. M2.0–M2.10 passed on 26-10-09 with
-  every seat launched headless on the owner's passphrase key and no prompt. Plan 00161's
-  M2.0b now proves the rest inside a seat (one key listed, `ssh-add -D` and a second key
-  refused, a signature made); it runs on the next meta-deploy. A push is not exercised:
-  M2's sessions have no network.
+  every seat launched headless on the owner's passphrase key and no prompt, and M2.0b
+  passed inside a seat on the next run: one key listed, `ssh-add -D` and a second key
+  refused, a signature made with the listed key. A push is not exercised (M2's sessions
+  have no network); git's SSH authentication is the same agent sign request M2.0b makes.
 
 ## Success Criteria
 
-- [ ] Inside a session, `ssh-add -L` lists exactly the chosen key; adding, removing or using
-  any other key fails.
+- [x] Inside a session, `ssh-add -L` lists exactly the chosen key; adding, removing or using
+  any other key fails (Plan 00161 M2.0b, 26-10-09).
 - [x] A headless launch with a passphrase key the host agent holds starts with no prompt
   (Plan 00161 M2, 26-10-09).
 - [ ] `./scripts/qa-all.bash` green.
