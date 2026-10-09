@@ -4,6 +4,7 @@
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: Medium
+**Issue**: [#90](https://github.com/LongTermSupport/fedora-desktop/issues/90)
 
 ## Overview
 
@@ -89,7 +90,7 @@ is not.
 **Context**: The handover asked: hard fail, or warn and confirm? Escape hatch or not?
 **Options considered**: (A) refuse and exit 1. (B) warn and ask "start anyway?". (C) refuse
 unless a flag or variable is set.
-**Decision**: A. A prompt gets answered "y" by reflex, which defeats the point. A flag is
+**Decision**: A, confirmed by the owner, who wants `cc` in line with `ccy`. A prompt gets answered "y" by reflex, which defeats the point. A flag is
 YAGNI next to `claude`, which already starts a session anywhere. The refusal is not a
 recoverable input mistake in the sense of `InteractiveScripts.md`: `cc` cannot change its
 caller's directory, so there is nothing to re-prompt for.
