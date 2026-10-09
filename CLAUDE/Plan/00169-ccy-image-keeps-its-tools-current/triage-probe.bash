@@ -25,6 +25,7 @@ readonly NODE_REF="lts-slim"
 readonly DEPLOYED_LIB="/var/local/claude-yolo/lib/common.bash"
 readonly DEPLOYED_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 readonly PLAY="playbooks/imports/play-claude-yolo.yml"
+readonly ENGINE="${CCY_CONTAINER_ENGINE:-podman}"   # the launcher's own default (lib/common.bash)
 
 # fact <text> — one line of the report, on stdout too.
 fact() {
@@ -33,7 +34,7 @@ fact() {
 
 # ccy_images — every local claude-yolo image as repository:tag, one per line.
 ccy_images() {
-    podman images --filter reference='claude-yolo' --format '{{.Repository}}:{{.Tag}}'
+    "${ENGINE}" images --filter reference='claude-yolo' --format '{{.Repository}}:{{.Tag}}'
 }
 
 probe_host_git() {
@@ -72,8 +73,8 @@ probe_images() {
         return 0
     fi
     while IFS= read -r image; do
-        label="$(podman image inspect --format '{{index .Labels "claude-yolo-version"}}' "${image}")"
-        if git_out="$(podman run --rm --network none --entrypoint git "${image}" --version 2>&1)"; then
+        label="$("${ENGINE}" image inspect --format '{{index .Labels "claude-yolo-version"}}' "${image}")"
+        if git_out="$("${ENGINE}" run --rm --network none --entrypoint git "${image}" --version 2>&1)"; then
             fact "- ${image}: claude-yolo-version ${label:-(none)}, ${git_out}"
         else
             fact "- ${image}: claude-yolo-version ${label:-(none)}, git --version FAILED: ${git_out}"
@@ -85,7 +86,7 @@ probe_images() {
 
 probe_base_digest() {
     local local_digests token registry_digest node_layers images image image_layers
-    if ! local_digests="$(podman image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${NODE_TAG}" 2>&1)"; then
+    if ! local_digests="$("${ENGINE}" image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${NODE_TAG}" 2>&1)"; then
         fact "- local ${NODE_TAG}: not present (${local_digests})"
         local_digests=""
     else
@@ -95,7 +96,7 @@ probe_base_digest() {
                 fact "  - ${line}"
             fi
         done <<<"${local_digests}"
-        fact "- local ${NODE_TAG} created: $(podman image inspect --format '{{.Created}}' "${NODE_TAG}")"
+        fact "- local ${NODE_TAG} created: $("${ENGINE}" image inspect --format '{{.Created}}' "${NODE_TAG}")"
     fi
 
     token="$(curl -fsS --max-time 20 \
@@ -119,11 +120,11 @@ probe_base_digest() {
     fi
 
     [[ -n "${local_digests}" ]] || return 0
-    node_layers="$(podman image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${NODE_TAG}")"
+    node_layers="$("${ENGINE}" image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${NODE_TAG}")"
     images="$(ccy_images)"
     [[ -n "${images}" ]] || return 0
     while IFS= read -r image; do
-        image_layers="$(podman image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${image}")"
+        image_layers="$("${ENGINE}" image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${image}")"
         if [[ "${image_layers}" == "${node_layers}"* ]]; then
             fact "- ${image} is built on the local ${NODE_TAG}'s layers: yes"
         else

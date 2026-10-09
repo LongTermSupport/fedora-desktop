@@ -74,7 +74,8 @@ Fedora at the host's release (D1), so the container's tools are the desktop's to
   and builds locally only as the fallback. The owner confirms the package name and
   visibility before the first publish.
 - **D5 gh:** from GitHub's rpm repo.
-- **D6 Migration:** a major `CCY_VERSION` and container `3.0`. The launcher refuses an
+- **D6 Migration:** a major ccy version (the owner's call); Task 3.7 makes that a major
+  `CCY_VERSION` and container `3.0`. The launcher refuses an
   apt-based project Dockerfile and names the fix (Task 3.8); agents in those projects port
   them. No legacy Debian tag.
 
@@ -234,7 +235,7 @@ Fedora at the host's release (D1), so the container's tools are the desktop's to
 
 - [ ] 🔄 **Task 7.1**: Write `deploy.bash` (runs `play-claude-yolo.yml`, then
   `acceptance.bash`) on `_planlib.inc.bash` (written for Phase 1). Add this plan to
-  `CLAUDE/Plan/meta-deploy.bash` `PLANS` when a host run is pending.
+  `CLAUDE/Plan/meta-deploy.bash` `PLANS` in the same commit as the change it deploys.
 - [ ] ⬜ **Task 7.2**: Extend `acceptance.bash`:
   - the Phase 1 checks
   - container `git --version` meets the floor

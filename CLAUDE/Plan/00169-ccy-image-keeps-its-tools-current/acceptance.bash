@@ -92,6 +92,7 @@ plan_start_log auto
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
 readonly ENTRYPOINT_DEPLOYED="/opt/claude-yolo/entrypoint.sh"
 readonly IMAGE="claude-yolo:latest"
+readonly ENGINE="${CCY_CONTAINER_ENGINE:-podman}"   # the launcher's own default (lib/common.bash)
 readonly GIT_FLOOR="2.48"
 readonly PROMPT="Reply with the single word READY and nothing else."
 readonly LAUNCH_TIMEOUT_S=1800
@@ -114,6 +115,10 @@ check() {
     fi
 }
 yes_if() { if "$@"; then echo yes; else echo no; fi; }
+
+# answered <file> — "yes" when Claude's reply is a line of its own. The launcher echoes the
+# claude command line, prompt included, before every start, so a bare grep for READY always hits.
+answered() { yes_if grep -qxE '[[:space:]]*READY\.?[[:space:]]*' "$1"; }
 
 # version_at_least <have> <floor> — sort -V puts the smaller first.
 version_at_least() {
@@ -145,15 +150,19 @@ launch() {
 }
 
 printf '=== deployed files and the image ===\n'
-for pair in "${sourceDir}/entrypoint.sh:${ENTRYPOINT_DEPLOYED}" "${sourceDir}/claude-yolo:${CCY_LAUNCHER}"; do
+deployedPairs=("${sourceDir}/entrypoint.sh:${ENTRYPOINT_DEPLOYED}" "${sourceDir}/claude-yolo:${CCY_LAUNCHER}")
+for lib in "${sourceDir}"/lib/*.bash; do
+    deployedPairs+=("${lib}:${CCY_LAUNCHER%/*}/lib/${lib##*/}")
+done
+for pair in "${deployedPairs[@]}"; do
     src="${pair%%:*}"
     dst="${pair#*:}"
     check "${dst} is deployed and identical to the checkout" "$(yes_if cmp -s "${src}" "${dst}")"
 done
 wantVersion="$(awk -F'"' '/^LABEL claude-yolo-version=/ {print $2}' "${sourceDir}/Dockerfile")"
 haveVersion=""
-if podman image exists "${IMAGE}"; then
-    haveVersion="$(podman image inspect --format '{{index .Config.Labels "claude-yolo-version"}}' "${IMAGE}")"
+if "${ENGINE}" image exists "${IMAGE}"; then
+    haveVersion="$("${ENGINE}" image inspect --format '{{index .Config.Labels "claude-yolo-version"}}' "${IMAGE}")"
 fi
 check "${IMAGE} carries claude-yolo-version ${wantVersion} (has: ${haveVersion:-absent})" \
     "$(yes_if test -n "${wantVersion}" -a "${haveVersion}" = "${wantVersion}")"
@@ -163,7 +172,7 @@ hostGit="$(git --version | awk '{print $3}')"
 check "the host's git ${hostGit} is ${GIT_FLOOR} or later (it must read the refused repository)" \
     "$(yes_if version_at_least "${hostGit}" "${GIT_FLOOR}")"
 imageGit=""
-if imageGitOut="$(podman run --rm --network none --entrypoint git "${IMAGE}" --version 2>&1)"; then
+if imageGitOut="$("${ENGINE}" run --rm --network none --entrypoint git "${IMAGE}" --version 2>&1)"; then
     imageGit="$(awk '{print $3}' <<<"${imageGitOut}")"
     printf "  the image's git: %s\n" "${imageGit}"
 else
@@ -194,7 +203,7 @@ else
     if version_at_least "${imageGit}" "${GIT_FLOOR}"; then
         check "the image's git ${imageGit} opens it: the launch exits 0" \
             "$(yes_if test "${LAUNCH_STATUS}" -eq 0)"
-        check "Claude answered" "$(yes_if grep -q READY "${refusedOut}")"
+        check "Claude answered" "$(answered "${refusedOut}")"
         notEstablished+=("the refusal itself: the image's git ${imageGit} reads this repository, so only scripts/test-ccy-git-preflight.bash exercises it")
     else
         check "the image's git ${imageGit} refuses it: the launch exits non-zero" \
@@ -203,7 +212,7 @@ else
             "$(yes_if grep -q 'unknown repository extension' "${refusedOut}")"
         check "the output carries the entrypoint's 'cannot read /workspace' line" \
             "$(yes_if grep -q "cannot read /workspace" "${refusedOut}")"
-        check "Claude did not answer" "$(yes_if test "$(yes_if grep -q READY "${refusedOut}")" = no)"
+        check "Claude did not answer" "$(yes_if test "$(answered "${refusedOut}")" = no)"
     fi
 
     printf '=== clean: a plain git init ===\n'
@@ -213,7 +222,7 @@ else
     check "the launch exits 0" "$(yes_if test "${LAUNCH_STATUS}" -eq 0)"
     check "the entrypoint says which git read /workspace" \
         "$(yes_if grep -q '✓ git version .* reads /workspace' "${cleanOut}")"
-    check "Claude answered" "$(yes_if grep -q READY "${cleanOut}")"
+    check "Claude answered" "$(answered "${cleanOut}")"
 fi
 
 remove_repos # the same call an interrupted run makes through plan_on_cleanup
