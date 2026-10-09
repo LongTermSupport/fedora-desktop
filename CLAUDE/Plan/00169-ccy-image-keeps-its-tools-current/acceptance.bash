@@ -132,6 +132,16 @@ remove_repos() {
 }
 plan_on_cleanup remove_repos
 
+# new_repo <name> — a throwaway repository under ${reposDir}. Signing is off in its own
+# config: the launches pass --no-ssh, so a global commit.gpgsign=true would make the
+# launcher refuse (no identity to sign with) before the container ever starts.
+new_repo() {
+    local dir="${reposDir}/$1"
+    git init -q "${dir}"
+    git -C "${dir}" config commit.gpgsign false
+    git -C "${dir}" config tag.gpgsign false
+}
+
 # launch <name> — the deployed ccy, headless, in ${reposDir}/<name>. Writes the combined
 # output to ${PLAN_RUN_DIR}/<name>.out and the exit status to LAUNCH_STATUS.
 LAUNCH_STATUS=0
@@ -195,7 +205,7 @@ else
     mkdir -p -- "${reposDir}"
 
     printf '=== refused: extensions.relativeWorktrees under repositoryformatversion 1 ===\n'
-    git init -q "${reposDir}/refused"
+    new_repo refused
     git -C "${reposDir}/refused" config core.repositoryformatversion 1
     git -C "${reposDir}/refused" config extensions.relativeWorktrees true
     launch refused
@@ -216,7 +226,7 @@ else
     fi
 
     printf '=== clean: a plain git init ===\n'
-    git init -q "${reposDir}/clean"
+    new_repo clean
     launch clean
     cleanOut="${PLAN_RUN_DIR}/clean.out"
     check "the launch exits 0" "$(yes_if test "${LAUNCH_STATUS}" -eq 0)"
