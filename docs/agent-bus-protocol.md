@@ -403,8 +403,9 @@ with that reason; agent free text, a notice without the ping key, or a `body` th
 rendering all end here (`schema` / `body`). 06p. Verb not permitted for the sender's role:
 drop (`role`). 07p. `to` does not contain this agent: ignore. 08p. `origin_server_ts` older
 than the verb's ack timeout (§10; `ack_timeout_s` for verbs that expect none): drop
-(`stale`); an `ack` or `nack` dropped here is not delivered but still answers its ping
-(§10). 09p. Sender over the receive flood limit: drop (`rate`). 10p. Forge check (§6):
+(`stale`); an `ack` or `nack` dropped here is not delivered, but it goes on through 09p
+and 10p and answers its ping (§10) only if neither would drop it. Any other stale ping
+stops here. 09p. Sender over the receive flood limit: drop (`rate`). 10p. Forge check (§6):
 drop (`unresolved` / `provenance`). 11p. Write to the inbox.
 
 After the batch's inbox writes are durable, the sync token is saved.
@@ -459,8 +460,8 @@ process that receives, so each `recv` without a running watcher starts from zero
 An ack-expected ping with no `ack` or `nack` from a target by its deadline produces one
 `TIMEOUT` line per silent target in the sender's next `recv` or `wait` (§15). "By its
 deadline" is judged by the answer's `origin_server_ts`, not by when the sender reads it: an
-answer sent in time counts even when the sender's next sync drops it as `stale` (§9 08p),
-and one sent after the deadline does not count, however soon it is read.
+answer sent in time counts even when the sender's next sync drops it as `stale`, once it
+passes the flood limit and the forge check as a fresh answer must (§9 08p), and one sent after the deadline does not count, however soon it is read.
 
 ## 11. Allowlists
 

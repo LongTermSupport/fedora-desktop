@@ -435,6 +435,20 @@ class FloodTest(TeamCase):
         self.assertEqual(len(batch.accepted), 10)
         self.assertEqual(dict(batch.drops), {"rate": 2})
 
+    def test_a_stale_answer_over_the_flood_limit_does_not_answer(self):
+        s = self.ready()
+        sent = "$" + "A" * 43
+        with self.state.outbox() as box:
+            box.record_sent(sent, "review", None, [self.orch], int(self.now * 1000))
+        self.ping(self.orch, "ack", re=sent)
+        self.now += self.member_limits.ack_timeout_s + 1
+        for _ in range(10):
+            s._flood.admit(self.orch, int(self.now * 1000))
+        self.assertEqual(dict(s.sync_once().drops), {"stale": 1})
+        with self.state.outbox() as box:
+            self.assertEqual([t.target for t in box.due_timeouts(int(self.now * 1000), self.member_limits)],
+                             [self.orch])
+
 
 class PingPipelineTest(TeamCase):
     def test_valid_ping_checked_at_the_forge_then_stored(self):
@@ -529,6 +543,25 @@ class PingPipelineTest(TeamCase):
         with self.state.outbox() as box:
             self.assertEqual(box.due_timeouts(int(self.now * 1000), self.member_limits), ())
             self.assertEqual(box.tracked(), ())
+
+    def stale_nack_answers(self, forge_fail: dict[str, str]) -> bool:
+        s = self.ready()
+        sent = self.track_review()
+        self.forge.fail = forge_fail
+        self.now += 10
+        self.ping(self.orch, "nack", re=sent, ref=PATH_REF)
+        self.now += self.member_limits.ack_timeout_s + 1
+        self.assertEqual(dict(s.sync_once().drops), {"stale": 1})
+        self.assertEqual(self.stored(), [])
+        self.assertEqual(self.forge.checked, [(PATH_REF, ("main",))])
+        with self.state.outbox() as box:
+            return box.due_timeouts(int(self.now * 1000), self.member_limits) == ()
+
+    def test_a_stale_nack_whose_ref_resolves_answers(self):
+        self.assertTrue(self.stale_nack_answers({}))
+
+    def test_a_stale_nack_whose_ref_fails_the_forge_check_leaves_the_timeout(self):
+        self.assertFalse(self.stale_nack_answers({PATH_REF: "provenance"}))
 
     def late_ack_leaves_the_timeout(self, read_after_s: int) -> None:
         s = self.ready()

@@ -210,6 +210,11 @@ def _type_of(event: object) -> object:
     return event.get("type") if isinstance(event, dict) else None
 
 
+def _is_answer(ping: protocol.Ping | None) -> bool:
+    """An `ack` or `nack` naming the ping it answers."""
+    return ping is not None and ping.verb in ("ack", "nack") and ping.re is not None
+
+
 class Syncer:
     """One team's sync engine. `forge_for(record)` gives the forge client for a verified
     record (`forge_factory` builds the real one); `clock_ms` and `log` are injected."""
@@ -429,13 +434,10 @@ class Syncer:
             if protocol.is_event_id(event_id):
                 seen.add(event_id)
             if outcome.kind == protocol.ACCEPT:
-                ping = outcome.ping
-                reason = self._local_checks(outcome, record, now)
-                # Read late is not answered late: a stale answer is not delivered, but it
-                # still counts if it was sent by the ping's deadline (§9 08p, §10).
-                if reason in (None, "stale") and ping is not None and ping.verb in ("ack", "nack") \
-                        and ping.re is not None:
-                    answers.append(ping)
+                stale, reason = self._local_checks(outcome, record, now)
+                if reason is None and _is_answer(outcome.ping):
+                    answers.append(outcome.ping)
+                reason = "stale" if stale else reason
                 outcome = protocol.Outcome(protocol.DROP, reason) if reason else outcome
             if outcome.kind == protocol.DROP:
                 sender = event.get("sender") if isinstance(event, dict) else None
@@ -450,20 +452,25 @@ class Syncer:
         stored = self.state.commit_batch(accepted, next_batch)
         return Batch(False, stored, tuple(e["event_id"] for e in accepted), dict(drops))
 
-    def _local_checks(self, outcome: protocol.Outcome, record: protocol.TeamRecord, now: int) -> str | None:
-        """The steps that need a clock or the network: 10h-11h, 08p-10p. A drop reason or None."""
+    def _local_checks(self, outcome: protocol.Outcome, record: protocol.TeamRecord,
+                      now: int) -> tuple[bool, str | None]:
+        """The steps that need a clock or the network: 10h-11h, 08p-10p. Whether the item is
+        stale, and the drop reason of the other steps or None. A read-late answer still counts
+        if sent by the ping's deadline (§9 08p, §10), so it faces the other steps; any other
+        stale item stops there, spending no flood budget and no forge call."""
         lim = self.member.limits
         if outcome.human is not None:
             message = outcome.human
             if limits.human_stale(message.origin_server_ts, now, lim):
-                return "stale"
-            return None if self._flood.admit(message.sender, now) else "rate"
+                return True, None
+            return False, None if self._flood.admit(message.sender, now) else "rate"
         ping = outcome.ping
-        if limits.ping_stale(ping.origin_server_ts, ping.verb, now, lim):
-            return "stale"
+        stale = limits.ping_stale(ping.origin_server_ts, ping.verb, now, lim)
+        if stale and not _is_answer(ping):
+            return True, None
         if not self._flood.admit(ping.sender, now):
-            return "rate"
-        return self._forge_check(ping, record)
+            return stale, "rate"
+        return stale, self._forge_check(ping, record)
 
     def _forge_check(self, ping: protocol.Ping, record: protocol.TeamRecord) -> str | None:
         """§6 for a ping with a reference: its drop reason, or None when it resolves."""
