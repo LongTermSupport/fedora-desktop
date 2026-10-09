@@ -144,6 +144,13 @@ class OrdersTest(unittest.TestCase):
         self.assertIn("pingbus recv", text)
         self.assertIn("pingbus send ack --re 'EVENT_ID' --to SENDER", text)
         self.assertIn("pingbus wait", text)
+
+    def test_bus_orders_let_a_finished_wait_be_read(self) -> None:
+        # Claude Code keeps a background command's output in a file; a session forbidden to
+        # read it never sees the lines `pingbus wait` printed.
+        text = uc.orders("bus")
+        self.assertIn("read no file but the output of a finished `pingbus wait`", text)
+        self.assertIn("read the file that holds its output", text)
         self.assertIn("run_in_background", text)
         self.assertIn("READY", text)
 

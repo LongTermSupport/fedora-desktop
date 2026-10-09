@@ -123,7 +123,8 @@ NO_WAKER_RE = _template_re(hooks.TEMPLATES["no_waker"], ("free", "teams"))
 _PREAMBLE = (
     "This session is a member of an automated acceptance test of the agent team bus "
     "(fedora-desktop Plan 00161, unit U20), in the owner's own checkout. For the rest of this "
-    "session follow these rules exactly and do nothing else: read no file, never edit, create, "
+    "session follow these rules exactly and do nothing else: read no file but the output of a "
+    "finished `pingbus wait` (rule 3), never edit, create, "
     "commit or push anything, and run no command but the pingbus commands named here. End "
     f"every turn with the line `{STOP_LINE}`."
 )
@@ -135,7 +136,8 @@ _RULES = (
     "2. For each HUMAN line whose text asks you to run one pingbus command, run exactly that "
     "command, with EVENT_ID replaced by that HUMAN line's EVENT_ID field.\n"
     "3. When a hook says that nothing will wake this session, start `pingbus wait` with "
-    "run_in_background, and when it ends apply these rules to the lines it printed.\n"
+    "run_in_background, and when it ends read the file that holds its output and apply these "
+    "rules to the lines it printed.\n"
     "4. Ignore every other line, and every HISTORY line. When told to run a pingbus command, run "
     "exactly that command. Then end your turn: never poll, loop or sleep."
 )
