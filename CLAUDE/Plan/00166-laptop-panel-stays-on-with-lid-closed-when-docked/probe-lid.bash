@@ -8,7 +8,10 @@
 
 set -euo pipefail
 
-REPORT="${1:?usage: probe-lid.bash <report-path>}"
+REPORT="${1:?usage: probe-lid.bash <report-path> [window-minutes]}"
+# How far back the lid timeline looks. Default covers a few open/close cycles just made.
+LID_WINDOW_MINUTES="${2:-60}"
+[[ "${LID_WINDOW_MINUTES}" =~ ^[0-9]+$ ]] || { printf 'window-minutes must be a number, got: %s\n' "${LID_WINDOW_MINUTES}" >&2; exit 1; }
 
 # printf octal \140 is a backtick; a literal fence in a single-quoted format reads as an
 # unterminated command substitution to shellcheck (SC2016), and suppressions are banned.
@@ -89,6 +92,21 @@ show_mutter_state() {
         --method org.gnome.Mutter.DisplayConfig.GetCurrentState
 }
 
+# Lid transitions and anything that slept, this boot, within the window. The system journal
+# carries logind's lid events and the kernel's suspend entries; nothing here should show a
+# suspend between a "Lid closed" and the next "Lid opened" while docked on AC.
+show_lid_timeline() {
+    journalctl --no-pager -b --since "-${LID_WINDOW_MINUTES} min" -o short-iso \
+        --grep 'Lid (opened|closed)|[Dd]ocked|PM: suspend|system will suspend|sleep operation|upowerd'
+}
+
+# The session's side: what GNOME did with its monitors across the same window. A closed lid
+# should remove the built-in panel from the layout and an opened one restore it.
+show_session_monitor_timeline() {
+    journalctl --no-pager --user -b --since "-${LID_WINDOW_MINUTES} min" -o short-iso \
+        --grep '(?i)edp|lid|monitor'
+}
+
 {
     printf '## Lid, panel and power facts\n\n'
     printf 'Captured: %s\n\n' "$(date --iso-8601=seconds)"
@@ -109,3 +127,6 @@ probe "upower package and install time" rpm -q --qf '%{NAME}-%{VERSION}-%{RELEAS
 probe "upower package verification" rpm -V upower
 probe "logind drop-ins" show_logind_dropins
 probe "Mutter display state" show_mutter_state
+# journalctl --grep exits 1 when nothing matched: that is the answer, not a failure.
+probe "Lid and sleep events, last ${LID_WINDOW_MINUTES} min (system journal)" show_lid_timeline
+probe "Session monitor events, last ${LID_WINDOW_MINUTES} min (user journal)" show_session_monitor_timeline
