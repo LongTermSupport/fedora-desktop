@@ -107,10 +107,11 @@ look at the screen, a decision, or a different machine.
 checkout, mounted at `/workspace`, so a commit made here is already on the host. The
 command to hand over is just `./CLAUDE/Plan/meta-deploy.bash`.
 
-**Make no commit while a run is in progress.** For the same reason, a commit here moves
-the HEAD of the checkout the run is testing, and a check that the run leaves the checkout
-as it found it (Plan 00161's M2.10) fails on it. Edit freely during a run, but commit only
-once its `summary.txt` has appeared.
+**Leave tracked files alone while a run is in progress.** For the same reason, a commit
+here moves the HEAD of the checkout the run is testing, and an uncommitted edit to a
+tracked file changes its `git status`; Plan 00161's M2.10 compares both before and after
+and fails on either. Until the run's `summary.txt` appears, keep work in progress under
+`untracked/` (a patch, or a scratch copy) and apply it afterwards.
 
 ### Sub-agents are pre-authorised — dispatch them, do not ask
 
