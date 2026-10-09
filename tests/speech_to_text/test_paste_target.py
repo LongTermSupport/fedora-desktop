@@ -6,7 +6,9 @@ Ctrl+Shift+V, which GTK 4 text views do not bind. Now the panel is asked before 
 paste (PasteKey on D-Bus), and a continuous dictation can paste in chunks as it goes.
 The panel answers for the window focused at Insert (Task 9.10): if focus has moved it
 gives that window focus back and the paste waits for it; a closed window, or one that
-never gets focus back, is not pasted into.
+never gets focus back, is not pasted into. A window given focus back must keep it for a
+moment before the paste, and its Enter waits longer (Plan 00164: the text was pasted but
+the Enter did not send it).
 
 Covered: the panel's reply is parsed (five fields, or three from a panel that does not
 pin), and a panel that cannot answer leaves the key chosen at Insert; the wait for focus
@@ -94,24 +96,40 @@ class PasteTargetNowTest(unittest.TestCase):
 
     def test_the_panel_decides(self):
         self.assertEqual(self.ask(completed("('org.gnome.TextEditor', false, true, true, false)")),
-                         (False, True))
+                         (False, True, False))
         self.assertEqual(self.asked, 1)
+        self.assertEqual(self.waits, [], "a window that kept focus is pasted into at once")
 
     def test_a_panel_that_does_not_pin_still_decides(self):
-        self.assertEqual(self.ask(completed("('org.gnome.TextEditor', false, true)")), (False, True))
+        self.assertEqual(self.ask(completed("('org.gnome.TextEditor', false, true)")),
+                         (False, True, False))
 
     def test_a_panel_without_paste_key_leaves_the_insert_choice_and_no_save(self):
-        self.assertEqual(self.ask(completed("", 1, "No such interface")), (True, False))
+        self.assertEqual(self.ask(completed("", 1, "No such interface")), (True, False, False))
 
     def test_a_panel_that_does_not_answer_leaves_the_insert_choice(self):
-        self.assertEqual(self.ask(subprocess.TimeoutExpired(["gdbus"], 2)), (True, False))
+        self.assertEqual(self.ask(subprocess.TimeoutExpired(["gdbus"], 2)), (True, False, False))
 
-    def test_the_pinned_window_given_focus_back_is_waited_for(self):
+    def test_the_pinned_window_given_focus_back_is_waited_for_and_left_to_settle(self):
+        """Plan 00164: the panel sees focus move the moment it activates the window; the
+        app takes it a moment later. The paste waits until the window has kept focus for
+        PASTE_FOCUS_SETTLE_SECONDS, asking at each poll, and says focus was given back."""
         unfocused = completed("('org.gnome.TextEditor', false, true, false, false)")
         focused = completed("('org.gnome.TextEditor', false, true, true, false)")
-        self.assertEqual(self.ask(unfocused, unfocused, focused), (False, True))
-        self.assertEqual(self.asked, 3, "the panel was not asked again until focus was back")
+        settle_polls = round(wsi_stream.PASTE_FOCUS_SETTLE_SECONDS / wsi_stream.PASTE_FOCUS_POLL_SECONDS)
+        self.assertGreater(settle_polls, 0)
+        self.assertEqual(self.ask(unfocused, unfocused, focused), (False, True, True))
+        self.assertEqual(self.asked, 3 + settle_polls,
+                         "not asked until focus was back, then at each poll while it settled")
         self.assertTrue(self.waits and all(0 < s <= 0.1 for s in self.waits), self.waits)
+        self.assertAlmostEqual(sum(self.waits[2:]), wsi_stream.PASTE_FOCUS_SETTLE_SECONDS, delta=0.05)
+
+    def test_focus_lost_again_while_settling_starts_the_settle_again(self):
+        unfocused = completed("('org.gnome.TextEditor', false, true, false, false)")
+        focused = completed("('org.gnome.TextEditor', false, true, true, false)")
+        settle_polls = round(wsi_stream.PASTE_FOCUS_SETTLE_SECONDS / wsi_stream.PASTE_FOCUS_POLL_SECONDS)
+        self.assertEqual(self.ask(unfocused, focused, focused, unfocused, focused), (False, True, True))
+        self.assertEqual(self.asked, 4 + 1 + settle_polls)
 
     def test_a_pinned_window_that_never_takes_focus_is_not_pasted_into(self):
         unfocused = completed("('org.gnome.TextEditor', false, true, false, false)")
@@ -132,15 +150,16 @@ class AutoPasteKeysTest(unittest.TestCase):
 
     def setUp(self):
         self.pressed = []
+        self.timeline = []  # presses and sleeps, in order
         for name, value in {
             "log": lambda *a, **k: None,
             "copy_to_clipboard": lambda text, use_clipboard=False: True,
-            "press": lambda env, *keys: self.pressed.append(keys),
+            "press": lambda env, *keys: self.pressed.append(keys) or self.timeline.append(keys),
         }.items():
             patcher = mock.patch.object(wsi_stream, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        patcher = mock.patch.object(wsi_stream.time, "sleep", lambda s: None)
+        patcher = mock.patch.object(wsi_stream.time, "sleep", self.timeline.append)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -149,23 +168,37 @@ class AutoPasteKeysTest(unittest.TestCase):
             self.assertTrue(wsi_stream.auto_paste(text, skip_enter=skip_enter))
         return self.pressed
 
+    def wait_before_enter(self):
+        enter = self.timeline.index((ENTER,))
+        return self.timeline[enter - 1]
+
     def test_a_gui_app_gets_ctrl_v_then_enter(self):
-        self.assertEqual(self.paste((False, False)), [(CTRL, V), (ENTER,)])
+        self.assertEqual(self.paste((False, False, False)), [(CTRL, V), (ENTER,)])
 
     def test_a_terminal_gets_ctrl_shift_v(self):
-        self.assertEqual(self.paste((True, False)), [(CTRL, SHIFT, V), (ENTER,)])
+        self.assertEqual(self.paste((True, False, False)), [(CTRL, SHIFT, V), (ENTER,)])
 
     def test_save_follows_the_enter(self):
-        self.assertEqual(self.paste((False, True)), [(CTRL, V), (ENTER,), (CTRL, S)])
+        self.assertEqual(self.paste((False, True, False)), [(CTRL, V), (ENTER,), (CTRL, S)])
 
     def test_a_chunk_has_no_enter_but_is_saved(self):
-        self.assertEqual(self.paste((False, True), skip_enter=True), [(CTRL, V), (CTRL, S)])
+        self.assertEqual(self.paste((False, True, False), skip_enter=True), [(CTRL, V), (CTRL, S)])
 
     def test_nothing_left_to_paste_sends_only_the_enter(self):
-        self.assertEqual(self.paste((False, False), text=""), [(ENTER,)])
+        self.assertEqual(self.paste((False, False, False), text=""), [(ENTER,)])
 
     def test_nothing_to_paste_and_no_enter_presses_nothing(self):
-        self.assertEqual(self.paste((False, True), text="", skip_enter=True), [])
+        self.assertEqual(self.paste((False, True, False), text="", skip_enter=True), [])
+
+    def test_a_short_paste_into_a_window_that_kept_focus_waits_the_usual_time_for_enter(self):
+        self.paste((True, False, False), text="hello")
+        self.assertAlmostEqual(self.wait_before_enter(), 0.3 + len("hello") * 0.002)
+
+    def test_a_paste_into_a_window_given_focus_back_waits_longer_for_enter(self):
+        """Plan 00164: pasted, but the Enter did not send it, when focus had been given back."""
+        self.assertEqual(self.paste((True, False, True), text="hello"), [(CTRL, SHIFT, V), (ENTER,)])
+        self.assertEqual(self.wait_before_enter(), wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS)
+        self.assertGreater(wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS, 0.3 + len("hello") * 0.002)
 
     def test_no_paste_target_presses_nothing_and_copies_nothing(self):
         copied = []

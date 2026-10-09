@@ -60,6 +60,12 @@ PASTE_TARGET_REPLY = re.compile(
 # at each poll (the asking is what re-activates it)
 PASTE_FOCUS_WAIT_SECONDS = 2.0
 PASTE_FOCUS_POLL_SECONDS = 0.1
+# A window given focus back must keep it this long, asked at each poll, before the paste:
+# the panel sees focus move the moment it activates the window, but the app takes it, and
+# a terminal app redraws for it, a moment later (Plan 00164: pasted, but the Enter lost).
+PASTE_FOCUS_SETTLE_SECONDS = 0.5
+# The wait between such a paste and its Enter, longer than the usual one
+PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS = 1.0
 
 # Prints the stop grace in seconds; reads the extension's GSettings key, the one source
 STOP_GRACE_READER = Path(__file__).resolve().parent / "wsi-stop-grace"
@@ -469,37 +475,50 @@ def ask_paste_key():
 
 
 def paste_target_now(fallback_with_shift):
-    """(with_shift, save_after) for the window this dictation pastes into, as the panel
-    judges it, once that window has focus.
+    """(with_shift, save_after, refocused) for the window this dictation pastes into, as
+    the panel judges it, once that window has focus.
 
     The panel pins the window focused at Insert. If focus has moved, the panel gives it
     focus back and this asks again, every PASTE_FOCUS_POLL_SECONDS for up to
-    PASTE_FOCUS_WAIT_SECONDS. Raises PasteTargetUnavailable if the window was closed or
-    never got focus back. A panel that cannot answer (one loaded before PasteKey existed,
-    until the next login) leaves the key chosen at Insert, which is said in the log, and
-    no save.
+    PASTE_FOCUS_WAIT_SECONDS, then until the window has kept focus for
+    PASTE_FOCUS_SETTLE_SECONDS; refocused says so, and the Enter waits longer. Raises
+    PasteTargetUnavailable if the window was closed or never got focus back. A panel that
+    cannot answer (one loaded before PasteKey existed, until the next login) leaves the
+    key chosen at Insert, which is said in the log, and no save.
     """
     polls = round(PASTE_FOCUS_WAIT_SECONDS / PASTE_FOCUS_POLL_SECONDS)
-    for poll in range(polls + 1):
+    settle_polls = round(PASTE_FOCUS_SETTLE_SECONDS / PASTE_FOCUS_POLL_SECONDS)
+    unfocused = settled = 0
+    while True:
         target, why = ask_paste_key()
         if target is None:
             log(f"The panel did not say how to paste into the focused window ({why}); "
                 f"using the key chosen at Insert", "WARN")
-            return fallback_with_shift, False
+            return fallback_with_shift, False, unfocused > 0
         wm_class, with_shift, save_after, focused, gone = target
         if gone:
             raise PasteTargetUnavailable("the window this dictation started in was closed")
-        if focused:
+        if focused and (unfocused == 0 or settled == settle_polls):
             log(f"Pasting into {wm_class!r}: {'Ctrl+Shift+V' if with_shift else 'Ctrl+V'}"
                 f"{', then Ctrl+S' if save_after else ''}")
-            return with_shift, save_after
-        if poll == 0:
-            log(f"{wm_class!r} lost focus during the dictation; waiting for the panel to "
-                f"give it focus back", "WARN")
-        if poll < polls:
-            time.sleep(PASTE_FOCUS_POLL_SECONDS)
-    raise PasteTargetUnavailable(
-        f"the window this dictation started in ({wm_class}) would not take focus back")
+            return with_shift, save_after, unfocused > 0
+        if focused:
+            if settled == 0:
+                log(f"{wm_class!r} has focus back; pasting once it has kept it for "
+                    f"{PASTE_FOCUS_SETTLE_SECONDS} s")
+            settled += 1
+        else:
+            if unfocused == 0:
+                log(f"{wm_class!r} lost focus during the dictation; waiting for the panel to "
+                    f"give it focus back", "WARN")
+            elif settled:
+                log(f"{wm_class!r} lost focus again before the paste", "WARN")
+            settled = 0
+            unfocused += 1
+            if unfocused > polls:
+                raise PasteTargetUnavailable(
+                    f"the window this dictation started in ({wm_class}) would not take focus back")
+        time.sleep(PASTE_FOCUS_POLL_SECONDS)
 
 
 def report_unpasted(text, why, words_pasted=0):
@@ -559,7 +578,7 @@ def auto_paste(text, skip_enter=False, paste_with_shift=True):
     panel that cannot say. An empty `text` pastes nothing: a chunked dictation whose
     text was all pasted already ends with only its Enter.
     """
-    with_shift, save_after = paste_target_now(paste_with_shift)
+    with_shift, save_after, refocused = paste_target_now(paste_with_shift)
 
     env = os.environ.copy()
     env["YDOTOOL_SOCKET"] = "/run/ydotool.socket"
@@ -576,8 +595,13 @@ def auto_paste(text, skip_enter=False, paste_with_shift=True):
             else:
                 press(env, KEY_CTRL, KEY_V)  # every other app
                 log("Paste simulated via Ctrl+V")
-            # Longer delay for longer text
-            time.sleep(min(0.3 + len(text) * 0.002, 1.0))
+            if refocused and not skip_enter:
+                log(f"Waiting {PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS} s before the Enter: "
+                    f"focus was given back for this paste")
+                time.sleep(PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS)
+            else:
+                # Longer delay for longer text
+                time.sleep(min(0.3 + len(text) * 0.002, 1.0))
 
         if not skip_enter:
             press(env, KEY_ENTER)
