@@ -1,6 +1,6 @@
 # Plan 00169: ccy image keeps its tools current
 
-**Status**: Not Started (owner decisions D1-D6 needed before Phase 3)
+**Status**: Not Started (owner decisions D1-D6 recorded 2026-10-09: Fedora)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: High
@@ -70,8 +70,7 @@ desktop's tools.
 - **D2 Fedora release.** Recommended: the host's own release, passed as a build arg, with
   a rebuild when the host upgrades. Alternative: `fedora:latest`, which floats ahead of a
   host that has not upgraded yet.
-- **D3 Node source.** Recommended: Fedora's `nodejs`/`npm`, with a `node >= 22` floor.
-  Alternative: `COPY --from=node:lts-slim`, which keeps upstream's LTS cadence.
+- **D3 Node source.** Considered: Fedora's `nodejs`/`npm`, or `COPY --from=node:lts-slim`.
 - **D4 Refresh trigger and age.** Recommended: a weekly `systemd --user` timer that
   rebuilds in the background, plus an inline rebuild at launch when an image is older than
   twice the maximum age. Alternative: launch-time rebuild only.
@@ -105,15 +104,27 @@ desktop's tools.
 
 ### Phase 2: Decide
 
-- [ ] ⬜ **Task 2.1**: Owner answers D1-D6. Record them in this plan's Technical
-  Decisions and journal them. Phase 3 follows D1.
+- [x] ✅ **Task 2.1**: Owner answers D1-D6 (2026-10-09, journalled):
+  - **D1** Fedora. Phase 3-alt is not taken.
+  - **D2** the host's release, as recommended (owner did not object).
+  - **D3** Node through **nvm** ("nvm is nice to keep things simple and easy to upgrade"),
+    not Fedora's `nodejs`; the `node >= 22` floor stays.
+  - **D4** a weekly background rebuild plus an inline rebuild of a very stale image, as
+    recommended.
+  - **D5** `gh` from GitHub's rpm repo, as recommended.
+  - **D6** a major version of ccy itself, not only of the container: project Dockerfiles
+    are rebuilt for Fedora by the agents in those projects ("probably not hard"), with the
+    Task 3.8 guard naming the fix. No legacy Debian tag.
 
 ### Phase 3 (D1 = Fedora): port the base image
 
 - [ ] ⬜ **Task 3.1**: Build spike in a scratch Dockerfile under the plan folder,
   `FROM registry.fedoraproject.org/fedora:44`. `dnf install` the full package map from
-  RESEARCH Section 4. Record which names resolve (`nodejs`, `npm`, `tini` at
-  `/usr/bin/tini`), npm's global prefix, and the agent-browser `REAL` path, and log it.
+  RESEARCH Section 4, less `nodejs`/`npm` (D3: nvm). Install Node LTS through nvm and put
+  `node`/`npm` and the global npm bin on the PATH every process sees (non-login shells,
+  the entrypoint, hooks), not only an interactive shell's. Record which names resolve
+  (`tini` at `/usr/bin/tini`), npm's global prefix, and the agent-browser `REAL` path,
+  and log it.
 - [ ] ⬜ **Task 3.2**: Rewrite `files/var/local/claude-yolo/Dockerfile`'s base stage:
   - `ARG FEDORA_RELEASE` and `FROM registry.fedoraproject.org/fedora:${FEDORA_RELEASE}`
   - drop the `APT::Sandbox` line
@@ -138,8 +149,9 @@ desktop's tools.
   snippets in `lib/dockerfile-custom.bash`, `CUSTOM-DOCKERFILES.txt`,
   `ccy-startup-info.txt`, `CLAUDE/ContainerRules.md` ("Where a Missing Tool Goes") and
   `docs/containerization.md` to dnf.
-- [ ] ⬜ **Task 3.7**: Make it a major container version (`3.0`) and a minor `CCY_VERSION`.
-  The changelog entry says that existing project Dockerfiles must move from apt to dnf.
+- [ ] ⬜ **Task 3.7**: Make it a major container version (`3.0`) and a major `CCY_VERSION`
+  (D6). The changelog entry says that existing project Dockerfiles must be rebuilt for
+  Fedora (apt to dnf), and how.
 - [ ] ⬜ **Task 3.8**: Implement the D6 migration guard. Before building a project image on
   a Fedora base, the launcher checks the project Dockerfile for `apt-get` or `dpkg`. If it
   finds either, it stops and names the file, the line and `CUSTOM-DOCKERFILES.txt`.
@@ -258,14 +270,14 @@ owning a source build, which is exactly the X.Y.Z maintenance the owner does not
 
 ## Risks & Mitigations
 
-| Risk                                                                      | Impact | Probability | Mitigation                                                                                       |
-| ------------------------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------ |
-| Every client project's apt-based Dockerfile fails after the Fedora switch | H      | H           | Task 3.8 guard names the file and the fix; major container version; changelog; D6                |
-| Chromium headed/Wayland misbehaves on a Fedora userland                   | H      | L           | Chrome for Testing is distro-neutral and ships `rpm.deps`; Task 7.2 exercises all three modes    |
-| A refresh pulls in a regression (new git, Node, Python)                   | M      | M           | Floors and the build checks fail the build and keep the old image; `--refresh-images` reports it |
-| Fedora's Node major lags upstream LTS                                     | L      | M           | `node >= 22` floor; D3 keeps `COPY --from=node:lts-slim` available                               |
-| Python 3.14 breaks an image-side script                                   | L      | L           | The host already runs F44's Python for the same hooks-daemon and supervisor code                 |
-| A refresh rebuild costs a Chrome download and minutes of build            | M      | H           | Background timer (D4), not the launch path, does the routine rebuild                             |
+| Risk                                                                       | Impact | Probability | Mitigation                                                                                              |
+| -------------------------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------------- |
+| Every client project's apt-based Dockerfile fails after the Fedora switch  | H      | H           | Task 3.8 guard names the file and the fix; major container version; changelog; D6                       |
+| Chromium headed/Wayland misbehaves on a Fedora userland                    | H      | L           | Chrome for Testing is distro-neutral and ships `rpm.deps`; Task 7.2 exercises all three modes           |
+| A refresh pulls in a regression (new git, Node, Python)                    | M      | M           | Floors and the build checks fail the build and keep the old image; `--refresh-images` reports it        |
+| nvm's Node is on a shell PATH only, so a non-interactive process misses it | M      | M           | Task 3.1 puts `node`/`npm` on the PATH every process sees, and checks it from a hook and the entrypoint |
+| Python 3.14 breaks an image-side script                                    | L      | L           | The host already runs F44's Python for the same hooks-daemon and supervisor code                        |
+| A refresh rebuild costs a Chrome download and minutes of build             | M      | H           | Background timer (D4), not the launch path, does the routine rebuild                                    |
 
 ## Delivery & Milestones
 
