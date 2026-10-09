@@ -1386,6 +1386,8 @@ replaces the throwaway `git init` checkouts.
   the hooks daemon in this checkout requires of a stop.
 - **Checks** (each judged from the room's events, `agent-bus seat list` and `sudo agent-bus list` on the host, the containers' labels, and the sessions' transcripts, never from
   prose):
+  - **M2.0b** (Plan 00163) inside `acca`'s container the agent ccy forwarded lists exactly
+    one key, refuses `ssh-add -D` and a second key, and signs with its key (`ssh-keygen -Y sign`). Judged by `podman exec` in that container.
   - **M2.1** `acca` is told to send `accb` a `review`: two seats of one checkout. `accb`,
     given no input after its orders, acks it. Judged by the ping and the ack in the room and,
     in `accb`'s transcript, the watcher's notice preceding the turn that ran `pingbus recv`.

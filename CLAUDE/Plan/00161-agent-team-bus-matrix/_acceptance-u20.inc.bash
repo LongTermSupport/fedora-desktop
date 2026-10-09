@@ -539,6 +539,54 @@ u20_check_seats_created() {
     evidence "M2.0 seats acca, accb and accc created by their launches (handles ${U20_HANDLE[acca]}, ${U20_HANDLE[accb]}, ${U20_HANDLE[accc]}; host ${host}), held, git-ignored, 0700/0600; ccy.env.local unchanged: u20/seats-launched, u20/members-launched"
 }
 
+# M2.0b (Plan 00163) — inside acca's container the agent ccy forwarded is its one-key agent:
+# it lists exactly one key, refuses to remove keys or add another, and signs with that key.
+u20_check_one_key() {
+    local ctr="${U20_CTR[acca]}" dir status=0
+    dir="$(u20_ev one-key)"
+    mkdir -p -- "${dir}" || return 1
+    podman exec "${ctr}" ssh-add -L >"${dir}/listed.pub" 2>"${dir}/listed.err" || {
+        printf '[FAIL] ssh-add -L in session acca failed: %s\n' "$(cat -- "${dir}/listed.err")" >&2
+        return 1
+    }
+    if [[ "$(grep -c . "${dir}/listed.pub")" -ne 1 ]]; then
+        printf '[FAIL] session acca'\''s agent lists %d keys, want exactly one: %s/listed.pub\n' \
+            "$(grep -c . "${dir}/listed.pub")" "${dir}" >&2
+        return 1
+    fi
+    podman exec "${ctr}" ssh-add -D >"${dir}/remove-all.out" 2>&1 || status=$?
+    if [[ "${status}" -eq 0 ]]; then
+        printf '[FAIL] session acca'\''s agent let ssh-add -D remove its keys\n' >&2
+        return 1
+    fi
+    # A throwaway key made in the container; 90 is "could not make it", not the agent's answer.
+    status=0
+    podman exec "${ctr}" sh -c \
+        'd=$(mktemp -d) && ssh-keygen -q -t ed25519 -N "" -C m2.0b -f "$d/k" || exit 90; ssh-add "$d/k"' \
+        >"${dir}/add-other.out" 2>&1 || status=$?
+    case "${status}" in
+        0)
+            printf '[FAIL] session acca'\''s agent accepted another key\n' >&2
+            return 1
+            ;;
+        90)
+            printf '[FAIL] could not make a throwaway key in session acca: %s\n' "$(cat -- "${dir}/add-other.out")" >&2
+            return 1
+            ;;
+    esac
+    printf 'M2.0b\n' | podman exec -i "${ctr}" sh -c \
+        'd=$(mktemp -d) && printf "%s\n" "$1" >"$d/k.pub" && ssh-keygen -Y sign -f "$d/k.pub" -n file' \
+        sh "$(cat -- "${dir}/listed.pub")" >"${dir}/signature" 2>"${dir}/sign.err" || {
+        printf '[FAIL] session acca'\''s agent did not sign with its key: %s\n' "$(cat -- "${dir}/sign.err")" >&2
+        return 1
+    }
+    grep -q -- '-----BEGIN SSH SIGNATURE-----' "${dir}/signature" || {
+        printf '[FAIL] the signature from session acca is not an SSH signature: %s/signature\n' "${dir}" >&2
+        return 1
+    }
+    evidence "M2.0b session acca's agent lists one key, refused ssh-add -D and a second key, and signed with its key: u20/one-key/"
+}
+
 # u20_give_orders — each session its standing orders; each idles with a watcher, and its init
 # line shows the pingbus plugin loaded from the image.
 u20_give_orders() {

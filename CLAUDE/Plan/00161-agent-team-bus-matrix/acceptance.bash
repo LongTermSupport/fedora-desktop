@@ -250,6 +250,7 @@ check_leg "M1.3 TIMEOUT for an unanswered review, none for the acked one" check_
 plan_deploy_leg "U20: record this checkout and the ${TEAM} members before M2.0" u20_record
 plan_deploy_leg "U20: ccy --teams acca@${TEAM}, accb@${TEAM}, accc@${TEAM} launched in turn; acca made orchestrator" u20_launch_seats
 check_leg "M2.0 each launch created its seat: the owner's, git-ignored, a new member with the checkout's host, held" u20_check_seats_created
+check_leg "M2.0b a seat's agent forwards exactly one key: lists it, refuses changes, signs with it" u20_check_one_key
 plan_deploy_leg "U20: each session given its orders, idle with a watcher" u20_give_orders
 check_leg "M2.1 an idle ccy session woken by its socket acks a review from a sibling seat" u20_check_review_ack
 check_leg "M2.2 a second notice with the same count wakes it again" u20_check_same_count
