@@ -1,6 +1,6 @@
 # Plan 00163: ccy forwards one key from the owner's ssh-agent, not the whole agent
 
-**Status**: In Progress
+**Status**: Complete (2026-10-09)
 **Created**: 2026-10-08
 **Owner**: joseph
 **Priority**: High
@@ -93,7 +93,7 @@ untracked, as it concerns a private repository.
   any other key fails (Plan 00161 M2.0b, 26-10-09).
 - [x] A headless launch with a passphrase key the host agent holds starts with no prompt
   (Plan 00161 M2, 26-10-09).
-- [ ] `./scripts/qa-all.bash` green.
+- [x] `./scripts/qa-all.bash` green (26-10-09).
 
 ## Delivery & Milestones
 
