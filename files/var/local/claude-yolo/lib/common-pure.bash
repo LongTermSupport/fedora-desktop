@@ -487,8 +487,41 @@ ccy_host_hostname() {
     printf '%s\n' "$raw"
 }
 
+# The HOST's IANA time zone name, passed to the container as TZ.
+#
+# A container shares the host's kernel clock but not its zone: the image's /etc/localtime is
+# Etc/UTC, so without TZ every session showed UTC beside a desktop clock in local time.
+#
+# Arguments: what `timedatectl show -p Timezone --value` printed (empty if it could not run),
+# the target of the host's /etc/localtime symlink (empty if it is not one), and the host's
+# zoneinfo directory. timedatectl is asked first; the link is the fallback. A candidate is
+# accepted only if it has IANA name grammar AND names a file under zoneinfo — a name glibc
+# cannot find is silently treated as UTC, so an unknown name is a refusal, never a default.
+#
+# Pure: every input is an argument, so each shape is driven by scripts/test-ccy-host-time-zone.bash.
+# stdout is the zone name; diagnostics go to stderr.
+ccy_host_time_zone() {
+    local from_timedatectl="${1-}" localtime_link="${2-}" zoneinfo_dir="${3-}"
+    local from_link="" candidate
+    case "$localtime_link" in
+        */zoneinfo/*) from_link="${localtime_link##*/zoneinfo/}" ;;
+    esac
+    for candidate in "$from_timedatectl" "$from_link"; do
+        # The grammar is the guard for the `podman run -e` value: no dots (so no `..`), no
+        # leading slash, nothing a shell would read.
+        if [[ "$candidate" =~ ^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$ ]] \
+            && [ -f "$zoneinfo_dir/$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    echo "could not determine the host time zone: timedatectl gave '$from_timedatectl' and /etc/localtime links to '$localtime_link'; neither is a zone under $zoneinfo_dir. Refusing to start the container on UTC." >&2
+    return 1
+}
+
 export -f print_error
 export -f is_token_valid
 export -f ccy_validate_mount_line
 export -f get_project_name
 export -f ccy_host_hostname
+export -f ccy_host_time_zone

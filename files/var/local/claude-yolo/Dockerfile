@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.48"
+LABEL claude-yolo-version="2.49"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -54,7 +54,13 @@ RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/no-sandbox
 # this image (fedora-desktop's is at /workspace/.claude/ccy/Dockerfile when you
 # are inside its container). Only tooling that is useful in EVERY project
 # belongs in this list.
+#
+# tzdata is named although the base image has it today: the launcher passes the
+# host's zone as TZ (e.g. Europe/London), and without /usr/share/zoneinfo glibc
+# reads an unknown zone as UTC, silently. Debian 13 dropped tzdata from its
+# required set, and node:lts-slim floats onto newer Debian releases.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
     curl \
     wget \
     jq \

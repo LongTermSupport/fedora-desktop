@@ -712,6 +712,19 @@ fi
 host_hostname_summary=$(qa_gate_case_count "$host_hostname_out")
 qa_pass_line ccy-host-hostname "$host_hostname_summary"
 
+# ccy_host_time_zone (Plan 00165): TZ gives the container the host's zone, since the image's
+# own is UTC. Driven through timedatectl and /etc/localtime-link answers, the refusals (no
+# zone, a name not under zoneinfo, shell metacharacters), the launcher's run argv, and a
+# ccy.env / ccy.env.local TZ overriding it.
+host_tz_out=""
+if ! host_tz_out="$(bash "$SCRIPT_DIR/test-ccy-host-time-zone.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-host-time-zone \
+        "ccy host time zone unit tests failed" \
+        "$host_tz_out"
+fi
+host_tz_summary=$(qa_gate_case_count "$host_tz_out")
+qa_pass_line ccy-host-time-zone "$host_tz_summary"
+
 # The ccy-sessions network column: a tmux session and a container know nothing about each
 # other, so the picker joins them through the process tree. Get the walk wrong and a row
 # labels a session with ANOTHER session's network — worse than showing nothing, because a
