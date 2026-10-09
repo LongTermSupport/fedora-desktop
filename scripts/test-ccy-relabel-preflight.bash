@@ -361,6 +361,26 @@ else
     check "no terminal to ask on: the launch stops" "rc=1" "$(last_rc "$out")"
     contains "  and points at the printed fix" "no terminal to ask on" "$out"
     check "  and sudo was not run" "" "$(cat "$STUB_SUDO_LOG")"
+
+    # --headless on a terminal: its stdin is the session's input, so a y there is not an
+    # answer from a person (fedora-desktop#87 review R1).
+    p="$(fresh_project headless)"
+    reset_logs
+    set_map "$MAP_FOREIGN"
+    headless_driver="$WORK/driver-headless.bash"
+    cat >"$headless_driver" <<DRIVER
+export PATH="$STUB_BIN:\$PATH" CCY_CONTAINER_ENGINE=podman
+source "$LIB_DIR/common.bash"
+file_selinux_label() { echo user_home_t; }
+CCY_MOUNT_RELABEL=z
+HEADLESS_MODE=true
+workspace_relabel_preflight "$p"
+echo "rc=\$?"
+DRIVER
+    out="$(script -qec "bash $(printf '%q' "$headless_driver")" /dev/null <<<"y" 2>&1 | tr -d '\r')"
+    check "--headless on a terminal: the launch stops too" "rc=1" "$(last_rc "$out")"
+    contains "  and says why" "--headless launch" "$out"
+    check "  and sudo was not run" "" "$(cat "$STUB_SUDO_LOG")"
 fi
 
 echo ""

@@ -17,6 +17,36 @@ Two version numbers move independently — see
 
 ---
 
+## 3.89.1 — container 2.48
+
+- **A restore answers the compose question from the session's record** (fedora-desktop#87,
+  Plan 00135). A session restored after a reboot found its project's compose network with
+  the containers stopped and waited at `Start services with podman-compose up -d? [Y/n]`
+  with nobody there. A session's record now keeps how the compose services stood when the
+  session started (`compose=started|declined|running`, an optional key; the record format
+  stays 1), and a restore replays it as the new `--compose start|skip` flag (`ask`, the
+  default, asks). A record from an older ccy has no answer: its restore asks in the pane,
+  says why, and records the answer.
+- **A restore never ends on a stack that will not start.** Ending the launch would make the
+  session's record go with it, and the session would never be restored again. A restore
+  tries `up -d` three times, ten seconds apart, then asks the compose question in its pane
+  (y tries again, n carries on without the services and leaves the record saying started,
+  Ctrl+C ends the session), where `verify-restore` reports it. `--compose start` given to a
+  launch outside a restore still ends that launch with the reason.
+- **No launch question is read with nobody to answer it.** Under `--headless`, or with
+  stdin that is not a terminal, each launch question takes its one safe answer or stops the
+  launch naming the question and the flag that answers it, instead of reading the session's
+  input, hanging, or ending on EOF with nothing said. A restore and a restart take the same
+  safe answers (keeping old session directories, continuing without a vanished network or
+  without an SSH key, GitHub over 443). `--debug` is refused under `--headless` or with no
+  terminal, since its layer chooser asks.
+- **Behaviour change: a launch with no terminal no longer starts the compose services by
+  default.** Before, such a launch reached the compose question, read end-of-input, and took
+  the default, yes, running `up -d`; under `--headless` with piped input it read the
+  session's own input as the answer. It now stops, naming `compose-start` and
+  `--compose start|skip`. Give the flag to any scripted or `--headless` launch in a project
+  whose compose services may be stopped.
+
 ## 3.88.2 — container 2.48
 
 - **Flags after `--` are forwarded without being judged** (Plan 00161, found by U20's M2).

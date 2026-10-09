@@ -484,7 +484,13 @@ discover_and_select_ssh_keys() {
         echo "Or log in with agent forwarding (ssh -A) and pass:"
         echo "  $tool_name --ssh-agent"
         echo ""
-        read -rp "$CCY_PROMPT_SSH_NO_KEY " _unused
+        # Enter is the only answer that starts a session, and with nobody to press it (a
+        # restore, a restart, no terminal) it is taken: the session starts as it did before.
+        if ccy_launch_unattended; then
+            echo "Nobody to ask (a restore, a restart or no terminal): continuing WITHOUT an SSH key."
+        else
+            read -rp "$CCY_PROMPT_SSH_NO_KEY " _unused
+        fi
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
@@ -849,6 +855,10 @@ _probe_agent_add_key() {
         if [ "$round" -lt 3 ]; then
             echo ""
             echo "Key not unlocked: $key"
+            if ccy_nobody_to_ask; then
+                ccy_prompt_refuse ssh-passphrase-retry "Load the key into your ssh-agent first (ssh-add), or launch with a key that has no passphrase, or --no-ssh."
+                return 1
+            fi
             read -rp "$CCY_PROMPT_SSH_PASSPHRASE_RETRY (round $round of 3), or Ctrl+C to abort: " _unused
         fi
     done
@@ -1339,6 +1349,26 @@ resolve_token_owner_login() {
     return 1
 }
 
+# ccy_github_443_answer — whether to route GitHub SSH over 443 for this session, when port 22
+# failed and 443 works: status 0 for yes. With nobody to ask (ccy_launch_unattended) it is
+# yes, the only way the launch can go on; a person is asked, and only n declines.
+ccy_github_443_answer() {
+    if ccy_launch_unattended; then
+        echo "  Nobody to ask (headless, a restore, a restart or no terminal) — enabling 443 automatically (the only way to proceed)."
+        return 0
+    fi
+    local reply_443=""
+    if ! read -rp "$CCY_PROMPT_GITHUB_443 " reply_443; then
+        echo "" >&2
+        print_error "No answer: the input closed at the GitHub-over-443 question."
+        return 1
+    fi
+    case "$reply_443" in
+    [Nn]*) return 1 ;;
+    *) return 0 ;;
+    esac
+}
+
 # Function to build SSH mounts and validate GitHub connection
 # Args: $1 = tool_name (for display)
 # Requires: SSH_KEYS global array (paths, or SSH_AGENT_SENTINEL for the session's agent)
@@ -1480,19 +1510,7 @@ build_ssh_mounts_and_validate() {
                 echo "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)."
                 echo "  Port 22 is likely blocked on this network."
                 echo "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
-                local enable_443=false
-                if [ "${HEADLESS_MODE:-false}" = "true" ] || [ ! -t 0 ]; then
-                    echo "  Non-interactive launch — enabling 443 automatically (the only way to proceed)."
-                    enable_443=true
-                else
-                    local reply_443
-                    read -rp "$CCY_PROMPT_GITHUB_443 " reply_443
-                    case "$reply_443" in
-                        [Nn]*) enable_443=false ;;
-                        *) enable_443=true ;;
-                    esac
-                fi
-                if [ "$enable_443" = "true" ]; then
+                if ccy_github_443_answer; then
                     export GITHUB_SSH_443=1
                     gh_ssh_host="ssh.github.com"
                     gh_ssh_port="443"

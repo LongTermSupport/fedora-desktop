@@ -19,7 +19,10 @@
 # FORMAT: one field per line, `key=value`, header line first, `arg=` repeated in order.
 # Read with `read -r`, never sourced — a state file is data, not code — and a value that
 # cannot be one line (a newline inside an argument) is refused at write time rather than
-# written as two lines that read back as something else.
+# written as two lines that read back as something else. `compose=` is optional: how the
+# project's compose services stood when the session started (CCY_REGISTRY_COMPOSE_OUTCOMES),
+# which a restore replays as --compose. A record without it is read as having no answer, so
+# the header stays at 1; a ccy older than the key refuses a record that has it, by name.
 #
 # WHAT IS REPLAYED: the arguments a restore starts the launcher with are the ORIGINAL ones
 # with the one-shot set removed. `--prevent` writes `never` into the project's
@@ -33,6 +36,17 @@
 # needs ccy_tmux_list and ccy_tmux_start_detached from lib/tmux-session.bash.
 
 CCY_REGISTRY_HEADER="ccy-session-record 1"
+
+# How a session's compose services stood, as its record's compose= value:
+#   started   ccy ran `up -d` for this session (asked, or --compose start)
+#   declined  the answer was no (asked, or --compose skip)
+#   running   they were running already, so nothing was asked
+CCY_REGISTRY_COMPOSE_OUTCOMES=(started declined running)
+
+# _ccy_registry_compose_outcome_ok <outcome> — whether it is one of the three.
+_ccy_registry_compose_outcome_ok() {
+    _ccy_registry_listed "${1-}" "${CCY_REGISTRY_COMPOSE_OUTCOMES[@]}"
+}
 
 # ccy_registry_dir — the registry directory, printed. A relative state home is refused for
 # the reason helpers/play_ledger/ledger.py refuses one: the location would then depend on
@@ -92,7 +106,9 @@ ccy_registry_launch_args() {
 #                       (the agent socket is a different path after a reboot) and the opt-out
 #   dropped, with value --update-token, --export-token, --connect, --disconnect, --prompt,
 #                       --run-for, --until (a deadline is absolute: a replay would restart or
-#                       miss it; a supervisor-requested relaunch carries it in the environment)
+#                       miss it; a supervisor-requested relaunch carries it in the environment),
+#                       --compose (the record's compose= is what a restore replays, so a
+#                       replayed flag would say it twice, and differently once answered)
 #   kept, with value    --token, --ssh-key, --network, --engine, --max-age, --teams (a
 #                       session comes back in the same agent team bus seats; --teams=<list>
 #                       is kept as one word)
@@ -106,7 +122,7 @@ ccy_registry_launch_args() {
 CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --custom --custom-docker --top
     --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore
     --help --version -h -v)
-CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until)
+CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until --compose)
 CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age --teams)
 CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise)
 
@@ -216,10 +232,23 @@ ccy_registry_replay_args() {
     done
 }
 
-# ccy_registry_write <name> <dir> <launcher> <prefix> <yes|no> [replay-args...] — write (or
-# replace) the record for a session. Private to the user, written whole then moved into
-# place, so a reader never sees half a record.
+# ccy_registry_write [--compose <outcome>] <name> <dir> <launcher> <prefix> <yes|no>
+# [replay-args...] — write (or replace) the record for a session. Private to the user, written
+# whole then moved into place, so a reader never sees half a record. Every rewrite of an
+# existing record passes its REC_COMPOSE back, or the outcome is lost.
 ccy_registry_write() {
+    local compose=""
+    if [[ "${1:-}" == "--compose" ]]; then
+        compose="${2-}"
+        shift 2 || {
+            print_error "ccy_registry_write: --compose needs an outcome."
+            return 1
+        }
+        if [[ -n "$compose" ]] && ! _ccy_registry_compose_outcome_ok "$compose"; then
+            print_error "session record: compose outcome '$compose' is not one of ${CCY_REGISTRY_COMPOSE_OUTCOMES[*]}; the record was not written."
+            return 1
+        fi
+    fi
     local name="${1:?ccy_registry_write requires a session name}"
     local dir="${2:?ccy_registry_write requires a directory}"
     local launcher="${3:?ccy_registry_write requires a launcher path}"
@@ -260,6 +289,9 @@ ccy_registry_write() {
             printf 'launcher=%s\n' "$launcher"
             printf 'prefix=%s\n' "$prefix"
             printf 'restore=%s\n' "$restore"
+            if [[ -n "$compose" ]]; then
+                printf 'compose=%s\n' "$compose"
+            fi
             for arg in "$@"; do
                 printf 'arg=%s\n' "$arg"
             done
@@ -351,7 +383,7 @@ ccy_registry_forget_network() {
             continue
         fi
         [[ -e "$file" ]] || continue
-        if ! ccy_registry_write "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${kept[@]}"; then
+        if ! ccy_registry_write --compose "$REC_COMPOSE" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${kept[@]}"; then
             failures=$((failures + 1))
             continue
         fi
@@ -413,9 +445,35 @@ ccy_registry_record_ssh_key() {
     fi
     [[ "$REC_PREFIX" == "ccy" ]] || return 0
     _ccy_registry_args_with_ssh_key with_key "$key" "${REC_ARGS[@]}" || return 0
-    ccy_registry_write "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${with_key[@]}" || return 1
+    ccy_registry_write --compose "$REC_COMPOSE" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${with_key[@]}" || return 1
     printf 'Recorded --ssh-key %s for session %s: a restore after a reboot uses it without asking.\n' \
         "$key" "$name" >&2
+}
+
+# ccy_registry_record_compose <name> <outcome> — put how the project's compose services stood
+# (CCY_REGISTRY_COMPOSE_OUTCOMES) into session <name>'s record, so its restore after a reboot
+# starts with --compose and never waits at the compose question with nobody there
+# (fedora-desktop#87). The launcher calls it once the network and compose decisions are made.
+# No record (a session ccy did not start under tmux) is nothing to do; a record that cannot be
+# read or rewritten is a failure. The rewrite goes through ccy_registry_write.
+ccy_registry_record_compose() {
+    local name="${1:?ccy_registry_record_compose requires a session name}"
+    local outcome="${2:?ccy_registry_record_compose requires an outcome}"
+    local regdir file
+    if ! _ccy_registry_compose_outcome_ok "$outcome"; then
+        print_error "compose outcome '$outcome' is not one of ${CCY_REGISTRY_COMPOSE_OUTCOMES[*]}; nothing recorded for session $name."
+        return 1
+    fi
+    regdir=$(ccy_registry_dir) || return 1
+    file="$regdir/$name"
+    [[ -e "$file" ]] || return 0
+    if ! ccy_registry_read "$file"; then
+        print_error "the restore record of session $name could not be read, so how its compose services stood cannot be recorded."
+        return 1
+    fi
+    ccy_registry_write --compose "$outcome" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$REC_RESTORE" "${REC_ARGS[@]}" || return 1
+    printf 'Recorded compose=%s for session %s: a restore after a reboot answers the compose question the same way.\n' \
+        "$outcome" "$name" >&2
 }
 
 # ccy_registry_remove <name> — delete a session's record. An absent record is not an error:
@@ -427,12 +485,13 @@ ccy_registry_remove() {
 }
 
 # ccy_registry_read <file> — parse a record into REC_NAME, REC_DIR, REC_LAUNCHER,
-# REC_PREFIX, REC_RESTORE and the REC_ARGS array. Strict: a wrong header, an unknown key or a
-# missing field is a rejection, never a guess — a guessed record starts the wrong thing in
-# the wrong place.
+# REC_PREFIX, REC_RESTORE, REC_COMPOSE (empty when the record has none) and the REC_ARGS
+# array. Strict: a wrong header, an unknown key, an unknown compose outcome or a missing
+# field is a rejection, never a guess — a guessed record starts the wrong thing in the wrong
+# place.
 ccy_registry_read() {
     local file="${1:?ccy_registry_read requires a record path}" line key value first=true
-    REC_NAME="" REC_DIR="" REC_LAUNCHER="" REC_PREFIX="" REC_RESTORE=""
+    REC_NAME="" REC_DIR="" REC_LAUNCHER="" REC_PREFIX="" REC_RESTORE="" REC_COMPOSE=""
     REC_ARGS=()
     if [[ ! -r "$file" ]]; then
         print_error "session record $file cannot be read."
@@ -460,6 +519,13 @@ ccy_registry_read() {
         launcher) REC_LAUNCHER="$value" ;;
         prefix) REC_PREFIX="$value" ;;
         restore) REC_RESTORE="$value" ;;
+        compose)
+            if ! _ccy_registry_compose_outcome_ok "$value"; then
+                print_error "session record $file has compose='$value'; expected one of ${CCY_REGISTRY_COMPOSE_OUTCOMES[*]}."
+                return 1
+            fi
+            REC_COMPOSE="$value"
+            ;;
         arg) REC_ARGS+=("$value") ;;
         *)
             print_error "session record $file has an unknown key '$key' and is not read."
@@ -508,18 +574,40 @@ ccy_registry_trampoline() {
     printf '%s' "\"\$@\"; rc=\$?; rm -f -- ${quoted}; if [ \"\$rc\" -ne 0 ]; then printf '\\n${prefix} exited with status %s. ${CCY_SESSION_ENDED_TEXT}\\n' \"\$rc\"; read -r; fi; exit \"\$rc\""
 }
 
-# ccy_registry_restore_args <prefix> [replay-args...] — the arguments a restore starts the
-# launcher with, one per line: the recorded set, with `--supervise` for ccy unless the record
-# already says --supervise or --no-supervise, then `--continue` unless the record already
-# continues or resumes a conversation. cc forwards every argument to claude, and --supervise
-# is ccy's flag, so cc gets --continue only.
+# ccy_registry_restore_args [--compose <outcome>] <prefix> [replay-args...] — the arguments a
+# restore starts the launcher with, one per line: the recorded set, with `--compose start`
+# (outcome started or running: `up -d` leaves running services alone) or `--compose skip`
+# (declined) for ccy when the record holds an outcome, and `--supervise` for ccy unless the
+# record already says --supervise or --no-supervise, then `--continue` unless the record
+# already continues or resumes a conversation. cc forwards every argument to claude and has
+# no compose question, and --compose and --supervise are ccy's flags, so cc gets --continue
+# only. A record with no outcome gets no --compose: the launcher then asks, as for a person.
 #
-# After a recorded `--` every word is claude's, so --supervise goes in before it, and a
+# After a recorded `--` every word is claude's, so ccy's flags go in before it, and a
 # --supervise after it is claude's word rather than ccy's. --continue is claude's flag and
 # reaches claude from either side, so it is appended.
 ccy_registry_restore_args() {
+    local outcome=""
+    if [[ "${1:-}" == "--compose" ]]; then
+        outcome="${2-}"
+        shift 2 || {
+            print_error "ccy_registry_restore_args: --compose needs an outcome."
+            return 1
+        }
+    fi
     local prefix="${1:?ccy_registry_restore_args requires a prefix}"
     shift
+    local -a ccy_flags=()
+    if [[ "$prefix" == "ccy" && -n "$outcome" ]]; then
+        case "$outcome" in
+        started | running) ccy_flags+=(--compose start) ;;
+        declined) ccy_flags+=(--compose skip) ;;
+        *)
+            print_error "compose outcome '$outcome' is not one of ${CCY_REGISTRY_COMPOSE_OUTCOMES[*]}."
+            return 1
+            ;;
+        esac
+    fi
     local arg has_supervise=false has_continue=false after_dd=false
     for arg in "$@"; do
         if [[ "$arg" == "--" ]]; then
@@ -531,21 +619,20 @@ ccy_registry_restore_args() {
         --continue | -c | --resume | -r) has_continue=true ;;
         esac
     done
-    local add_supervise=false
-    [[ "$prefix" == "ccy" && "$has_supervise" == false ]] && add_supervise=true
+    [[ "$prefix" == "ccy" && "$has_supervise" == false ]] && ccy_flags+=(--supervise)
     after_dd=false
     for arg in "$@"; do
         if [[ "$arg" == "--" && "$after_dd" == false ]]; then
             after_dd=true
-            if [[ "$add_supervise" == true ]]; then
-                printf '%s\n' "--supervise"
-                add_supervise=false
+            if [[ ${#ccy_flags[@]} -gt 0 ]]; then
+                printf '%s\n' "${ccy_flags[@]}"
+                ccy_flags=()
             fi
         fi
         printf '%s\n' "$arg"
     done
-    if [[ "$add_supervise" == true ]]; then
-        printf '%s\n' "--supervise"
+    if [[ ${#ccy_flags[@]} -gt 0 ]]; then
+        printf '%s\n' "${ccy_flags[@]}"
     fi
     if [[ "$has_continue" == false ]]; then
         printf '%s\n' "--continue"
@@ -1273,7 +1360,8 @@ ccy_restore_passphrase_take() {
 # the live set cannot be read: restoring on top of an unknown set could double every session.
 #
 # Each session is started with CCY_SESSION_RESTORE=1 on its command, which lets the launcher
-# answer the prompts that have one safe answer. The rest still ask, in the pane, and
+# answer the prompts that have one safe answer, and a ccy record's compose outcome becomes
+# --compose (ccy_registry_restore_args). The rest still ask, in the pane, and
 # `ccy-sessions verify-restore` names them from the manifest written at the end. Each
 # session started here is entered there as pending; `ccy-sessions set-going`, run by its own
 # unit after this one, waits for it and types its first input. This returns as soon as the
@@ -1345,7 +1433,12 @@ ccy_registry_restore() {
             echo "skip $REC_NAME: marked no-restore." >&2
             continue
         fi
-        mapfile -t args < <(ccy_registry_restore_args "$REC_PREFIX" "${REC_ARGS[@]}")
+        if ! mapfile -t args < <(ccy_registry_restore_args --compose "$REC_COMPOSE" "$REC_PREFIX" "${REC_ARGS[@]}") \
+            || ! wait "$!"; then
+            print_error "could not work out the arguments to restore $REC_NAME with (the record is kept at $file)."
+            failures=$((failures + 1))
+            continue
+        fi
         resume="$(ccy_registry_resume_id "${args[@]}")"
         supervised="$(ccy_registry_supervised "$REC_PREFIX" "${args[@]}")"
         if [[ -n "${live[$REC_NAME]:-}" ]]; then
