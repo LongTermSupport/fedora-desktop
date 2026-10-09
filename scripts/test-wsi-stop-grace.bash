@@ -550,16 +550,41 @@ check "focus moved away: wsi waits until the panel has given the window focus ba
 # Plan 00164: pasted, but the Enter did not send it, when focus had been given back. The
 # window must keep focus for PASTE_FOCUS_SETTLE_POLLS more answers before the paste, and
 # the Enter waits longer after it.
-check "…asking until it has, then while it settles" "$((3 + 5))" \
+check "…asking until it has, then while it settles, then once before the Enter" "$((3 + 5 + 1))" \
     "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
 check "…and the Enter waits longer after a paste into a window given focus back" "1" \
     "$(grep -c 'focus was given back for this paste' "$work/wsi.err")"
 
 focused="('org.gnome.TextEditor', false, true, true, false)"
 batch_paste "$unfocused|$focused|$focused|$unfocused|$focused" --paste-with-shift 1
-check "focus lost again while it settles: the settle starts again" "$((4 + 1 + 5))" \
+check "focus lost again while it settles: the settle starts again" "$((4 + 1 + 5 + 1))" \
     "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
 check "…then the paste goes in" "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
+
+# Plan 00164 (H2): after a retake, focus can move away again after the paste and take the
+# Enter with it. The panel is asked again just before the Enter. Given focus back, the
+# window answers "focused" for 1 + 5 asks before the paste goes in.
+retaken="$unfocused|$focused|$focused|$focused|$focused|$focused|$focused"
+batch_paste "$retaken|$focused" --paste-with-shift 1
+check "focus kept through to the Enter: asked once more, and the Enter sent" \
+    "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
+check "…one ask more than the paste took" "$((7 + 1))" "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+check "…and the log says it still had focus" "1" \
+    "$(grep -c 'still has focus before the Enter' "$work/wsi.err")"
+
+batch_paste "$retaken|$unfocused|$focused" --paste-with-shift 1
+check "focus lost again after the paste: given back, then the Enter sent after the settle" \
+    "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
+check "…asked until it had kept focus again" "$((7 + 1 + 1 + 5))" \
+    "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+check "…and the log says so" "1" \
+    "$(grep -c 'lost focus again after the paste; giving it focus back before the Enter' "$work/wsi.err")"
+
+WANT_RC=1 batch_paste "$retaken|('', false, false, false, true)" --paste-with-shift 1
+check "the window closed after the paste: pasted, no Enter and no save" "$CTRL_V" "$KEYS"
+check "…and a notification that stays says it was pasted but not sent" "1" \
+    "$(grep -c "Notify .*pasted but not sent.*was closed.* 0\$" "$events/gdbus.log")"
+check "…and the panel is told ERROR" "1" "$(grep -c 'StateChanged ERROR' "$events/gdbus.log")"
 
 batch_paste "$focused" --paste-with-shift 1
 check "a window that kept focus: no wait for a settle, the usual wait for the Enter" "0" \

@@ -81,6 +81,13 @@ timelines out of the host's debug log, to confirm the cause from real dictations
   itself stays bounded at 2 s of "not focused" answers.
 - [x] ✅ **Task 2.3**: `wsi`: the same, `PASTE_FOCUS_SETTLE_POLLS` (5) and
   `PASTE_ENTER_DELAY_AFTER_REFOCUS` (1.0 s), `PASTE_REFOCUSED` set by `paste_target_now`.
+- [x] ✅ **Task 2.4** (H2): after a paste that followed a retake, both recorders ask
+  `PasteKey` again just before the Enter (`paste_target_now(..., for_enter=True)` /
+  `paste_target_now enter`, after the 1 s wait) and log the answer; focus lost again is
+  given back and settles as before the paste. A window closed or never given focus back:
+  no Enter and no save, a notification that stays says "pasted but not sent", exit 1. A
+  window that kept focus throughout is not asked again. Tests in the Task 2.1 files;
+  host-verified only by Phase 3.
 
 ### Phase 3: Verify on the host
 

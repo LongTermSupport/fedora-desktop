@@ -267,6 +267,9 @@ notify_desktop() {
 # save_after, focused, gone); a panel that does not pin (loaded before that, until the
 # next login) answers the first three. A panel that cannot answer (one loaded before
 # PasteKey existed) leaves the key chosen at Insert, which is said in the log, and no save.
+# "paste_target_now enter": asked again just before the Enter that follows a paste after
+# a retake, and logged as such. It sets only PASTE_TARGET: the keys were chosen for the
+# paste, and a panel that cannot answer then changes nothing.
 SAVE_AFTER=false
 PASTE_TARGET=ready
 PASTE_REFOCUSED=false
@@ -274,7 +277,7 @@ PASTE_FOCUS_POLLS=20
 PASTE_FOCUS_SETTLE_POLLS=5
 PASTE_ENTER_DELAY_AFTER_REFOCUS=1.0
 paste_target_now() {
-    local reply rc why unfocused=0 settled=0
+    local before="${1:-paste}" reply rc why unfocused=0 settled=0
     local answer="^\('((\\\\.|[^'\\\\])*)', (true|false), (true|false)(, (true|false), (true|false))?\)$"
     while true; do
         if reply=$(timeout 2 gdbus call --session --dest org.gnome.Shell \
@@ -286,9 +289,13 @@ paste_target_now() {
         if [ "$rc" -ne 0 ] || ! [[ "$reply" =~ $answer ]]; then
             why="$reply"
             [ "$rc" -eq 124 ] && why="no answer within 2 s"
+            PASTE_TARGET=ready
+            if [ "$before" = enter ]; then
+                log "WARN: The panel did not say whether the window has focus before the Enter ($why); sending it"
+                return
+            fi
             log "WARN: The panel did not say how to paste into the focused window ($why); using the key chosen at Insert"
             SAVE_AFTER=false
-            PASTE_TARGET=ready
             return
         fi
         if [ "${BASH_REMATCH[7]}" = true ]; then
@@ -298,21 +305,31 @@ paste_target_now() {
         # Focused, or a panel that does not pin (no fourth field)
         if [ "${BASH_REMATCH[6]}" != false ]; then
             if [ "$unfocused" -eq 0 ] || [ "$settled" -eq "$PASTE_FOCUS_SETTLE_POLLS" ]; then
+                PASTE_TARGET=ready
+                if [ "$before" = enter ]; then
+                    if [ "$unfocused" -eq 0 ]; then
+                        log "'${BASH_REMATCH[1]}' still has focus before the Enter"
+                    else
+                        log "'${BASH_REMATCH[1]}' has kept focus again; sending the Enter"
+                    fi
+                    return
+                fi
                 PASTE_WITH_SHIFT=$([ "${BASH_REMATCH[3]}" = true ] && echo 1 || echo 0)
                 SAVE_AFTER="${BASH_REMATCH[4]}"
-                PASTE_TARGET=ready
                 log "Pasting into '${BASH_REMATCH[1]}': $([ "$PASTE_WITH_SHIFT" = 1 ] && echo Ctrl+Shift+V || echo Ctrl+V)$([ "$SAVE_AFTER" = true ] && echo ', then Ctrl+S')"
                 return
             fi
             if [ "$settled" -eq 0 ]; then
-                log "'${BASH_REMATCH[1]}' has focus back; pasting once it has kept it for $PASTE_FOCUS_SETTLE_POLLS more checks, 0.1 s apart"
+                log "'${BASH_REMATCH[1]}' has focus back; $([ "$before" = enter ] && echo 'sending the Enter' || echo pasting) once it has kept it for $PASTE_FOCUS_SETTLE_POLLS more checks, 0.1 s apart"
             fi
             settled=$((settled + 1))
         else
-            if [ "$unfocused" -eq 0 ]; then
+            if [ "$unfocused" -eq 0 ] && [ "$before" = enter ]; then
+                log "WARN: '${BASH_REMATCH[1]}' lost focus again after the paste; giving it focus back before the Enter"
+            elif [ "$unfocused" -eq 0 ]; then
                 log "WARN: '${BASH_REMATCH[1]}' lost focus during the dictation; waiting for the panel to give it focus back"
             elif [ "$settled" -gt 0 ]; then
-                log "WARN: '${BASH_REMATCH[1]}' lost focus again before the paste"
+                log "WARN: '${BASH_REMATCH[1]}' lost focus again before the $([ "$before" = enter ] && echo Enter || echo paste)"
             fi
             PASTE_REFOCUSED=true
             settled=0
@@ -324,6 +341,16 @@ paste_target_now() {
         fi
         sleep 0.1
     done
+}
+
+# paste_target_why — why the window pinned at Insert cannot take the keys (PASTE_TARGET
+# "closed" or "unfocused"), printed for a message
+paste_target_why() {
+    if [ "$PASTE_TARGET" = closed ]; then
+        echo "the window this dictation started in was closed"
+    else
+        echo "the window this dictation started in would not take focus back"
+    fi
 }
 
 #============================================================================
@@ -1219,11 +1246,7 @@ if [ "$AUTO_PASTE" = true ]; then
 
     # The window pinned at Insert cannot take the paste: the text stays on the clipboard
     if [ "$PASTE_TARGET" != ready ]; then
-        if [ "$PASTE_TARGET" = closed ]; then
-            unpasted_why="the window this dictation started in was closed"
-        else
-            unpasted_why="the window this dictation started in would not take focus back"
-        fi
+        unpasted_why=$(paste_target_why)
         # log_error tells the panel ERROR; the notification then replaces its own with one
         # that stays
         log_error "Nothing was pasted: $unpasted_why"
@@ -1265,6 +1288,15 @@ if [ "$AUTO_PASTE" = true ]; then
     if [ "$PASTE_REFOCUSED" = true ] && [ "$SKIP_AUTO_ENTER" = false ]; then
         log "Waiting ${PASTE_ENTER_DELAY_AFTER_REFOCUS} s before the Enter: focus was given back for this paste"
         sleep "$PASTE_ENTER_DELAY_AFTER_REFOCUS"
+        # Focus can move away again after the retake (Plan 00164): asked again, the panel
+        # gives it back once more, or there is no window to send the Enter (or save) to
+        paste_target_now enter
+        if [ "$PASTE_TARGET" != ready ]; then
+            unsent_why=$(paste_target_why)
+            log_error "The text was pasted but not sent: $unsent_why"
+            notify_desktop "The text was pasted but not sent: $unsent_why. No Enter was pressed." "dialog-error" 0
+            exit 1
+        fi
     else
         sleep 0.3
     fi

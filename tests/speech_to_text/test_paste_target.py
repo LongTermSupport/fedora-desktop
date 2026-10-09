@@ -8,7 +8,8 @@ The panel answers for the window focused at Insert (Task 9.10): if focus has mov
 gives that window focus back and the paste waits for it; a closed window, or one that
 never gets focus back, is not pasted into. A window given focus back must keep it for a
 moment before the paste, and its Enter waits longer (Plan 00164: the text was pasted but
-the Enter did not send it).
+the Enter did not send it); the panel is then asked again before the Enter, which is not
+sent into a window that was closed or would not take focus back.
 
 Covered: the panel's reply is parsed (five fields, or three from a panel that does not
 pin), and a panel that cannot answer leaves the key chosen at Insert; the wait for focus
@@ -78,7 +79,7 @@ class PasteTargetNowTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def ask(self, *results):
+    def ask(self, *results, for_enter=False):
         """paste_target_now against the panel answering each of `results` in turn
         (the last repeats); the number of times it was asked is self.asked."""
         replies = list(results)
@@ -92,7 +93,7 @@ class PasteTargetNowTest(unittest.TestCase):
 
         self.asked = 0
         with mock.patch.object(wsi_stream.subprocess, "run", run):
-            return wsi_stream.paste_target_now(fallback_with_shift=True)
+            return wsi_stream.paste_target_now(fallback_with_shift=True, for_enter=for_enter)
 
     def test_the_panel_decides(self):
         self.assertEqual(self.ask(completed("('org.gnome.TextEditor', false, true, true, false)")),
@@ -144,6 +145,26 @@ class PasteTargetNowTest(unittest.TestCase):
         self.assertIn("closed", str(raised.exception))
         self.assertEqual(self.asked, 1)
 
+    def test_before_the_enter_a_window_that_kept_focus_is_asked_once(self):
+        focused = completed("('org.gnome.Ptyxis', true, false, true, false)")
+        self.assertEqual(self.ask(focused, for_enter=True), (True, False, False))
+        self.assertEqual(self.asked, 1)
+        self.assertEqual(self.waits, [])
+
+    def test_before_the_enter_focus_lost_again_is_given_back_and_left_to_settle(self):
+        """Plan 00164 (H2): focus moved again after the paste, so the Enter went to
+        another window. It is given back and settles, as before the paste."""
+        unfocused = completed("('org.gnome.Ptyxis', true, false, false, false)")
+        focused = completed("('org.gnome.Ptyxis', true, false, true, false)")
+        settle_polls = round(wsi_stream.PASTE_FOCUS_SETTLE_SECONDS / wsi_stream.PASTE_FOCUS_POLL_SECONDS)
+        self.assertEqual(self.ask(unfocused, focused, for_enter=True), (True, False, True))
+        self.assertEqual(self.asked, 2 + settle_polls)
+
+    def test_before_the_enter_a_closed_window_takes_no_enter(self):
+        with self.assertRaises(wsi_stream.PasteTargetUnavailable) as raised:
+            self.ask(completed("('', false, false, false, true)"), for_enter=True)
+        self.assertIn("closed", str(raised.exception))
+
 
 class AutoPasteKeysTest(unittest.TestCase):
     """The keys auto_paste presses, for each answer the panel can give."""
@@ -163,14 +184,30 @@ class AutoPasteKeysTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def target(self, before_paste, before_enter=None):
+        """A paste_target_now answering `before_paste`, and `before_enter` (default the
+        same) when asked again before the Enter; an exception is raised. Its asks are
+        self.asks, True for the one before the Enter, and are in self.timeline."""
+        self.asks = []
+
+        def paste_target_now(fallback, for_enter=False):
+            self.asks.append(for_enter)
+            self.timeline.append("asked")
+            answer = before_enter if for_enter and before_enter is not None else before_paste
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return paste_target_now
+
     def paste(self, target, text="hello", skip_enter=False):
-        with mock.patch.object(wsi_stream, "paste_target_now", lambda fallback: target):
+        with mock.patch.object(wsi_stream, "paste_target_now", self.target(target)):
             self.assertTrue(wsi_stream.auto_paste(text, skip_enter=skip_enter))
         return self.pressed
 
     def wait_before_enter(self):
-        enter = self.timeline.index((ENTER,))
-        return self.timeline[enter - 1]
+        """The wait after the paste: before the Enter, and before any ask for it"""
+        paste = next(i for i, step in enumerate(self.timeline) if step in ((CTRL, V), (CTRL, SHIFT, V)))
+        return self.timeline[paste + 1]
 
     def test_a_gui_app_gets_ctrl_v_then_enter(self):
         self.assertEqual(self.paste((False, False, False)), [(CTRL, V), (ENTER,)])
@@ -200,6 +237,31 @@ class AutoPasteKeysTest(unittest.TestCase):
         self.assertEqual(self.wait_before_enter(), wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS)
         self.assertGreater(wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS, 0.3 + len("hello") * 0.002)
 
+    def test_a_window_that_kept_focus_is_not_asked_again_before_the_enter(self):
+        self.paste((True, False, False))
+        self.assertEqual(self.asks, [False])
+
+    def test_after_a_retake_the_panel_is_asked_again_just_before_the_enter(self):
+        """Plan 00164 (H2): focus can move away again after the paste. The panel is asked
+        after the wait, so a window that lost it again is given it back before the Enter."""
+        self.assertEqual(self.paste((True, False, True)), [(CTRL, SHIFT, V), (ENTER,)])
+        self.assertEqual(self.asks, [False, True])
+        enter = self.timeline.index((ENTER,))
+        self.assertEqual(self.timeline[enter - 2:enter],
+                         [wsi_stream.PASTE_ENTER_DELAY_AFTER_REFOCUS_SECONDS, "asked"])
+
+    def test_a_retake_with_no_enter_due_asks_once(self):
+        self.assertEqual(self.paste((False, True, True), skip_enter=True), [(CTRL, V), (CTRL, S)])
+        self.assertEqual(self.asks, [False])
+
+    def test_a_window_closed_after_the_paste_takes_no_enter_and_no_save(self):
+        closed = wsi_stream.PasteTargetUnavailable("the window this dictation started in was closed")
+        with mock.patch.object(wsi_stream, "paste_target_now", self.target((False, True, True), closed)), \
+                self.assertRaises(wsi_stream.EnterNotSent) as raised:
+            wsi_stream.auto_paste("hello")
+        self.assertEqual(self.pressed, [(CTRL, V)], "pasted, then nothing pressed into another window")
+        self.assertIn("closed", str(raised.exception))
+
     def test_no_paste_target_presses_nothing_and_copies_nothing(self):
         copied = []
 
@@ -213,6 +275,32 @@ class AutoPasteKeysTest(unittest.TestCase):
             wsi_stream.auto_paste("hello")
         self.assertEqual(self.pressed, [])
         self.assertEqual(copied, [], "the caller says where the text goes")
+
+
+class PasteAndReportTest(unittest.TestCase):
+    """What the end of a dictation reports when its Enter could not be sent"""
+
+    def test_pasted_but_not_sent_is_said_and_fails(self):
+        notified, signals = [], []
+        args = mock.Mock(no_auto_enter=False, paste_with_shift=True)
+
+        def not_sent(*args, **kwargs):
+            raise wsi_stream.EnterNotSent("the window this dictation started in was closed")
+
+        with mock.patch.object(wsi_stream, "auto_paste", not_sent), \
+                mock.patch.object(wsi_stream, "log", lambda *a, **k: None), \
+                mock.patch.object(wsi_stream, "emit_dbus_text", lambda *a: signals.append(a)), \
+                mock.patch.object(wsi_stream, "emit_dbus_signal", lambda *a: signals.append(a)), \
+                mock.patch.object(wsi_stream, "desktop_notification",
+                                  lambda message, timeout: notified.append((message, timeout))), \
+                mock.patch.object(wsi_stream.sys, "stderr"):
+            self.assertEqual(wsi_stream.paste_and_report("hello", args, "hello"), 1)
+        self.assertEqual(len(notified), 1)
+        message, timeout = notified[0]
+        self.assertIn("pasted but not sent", message)
+        self.assertIn("closed", message)
+        self.assertEqual(timeout, 0, "the notification stays")
+        self.assertIn(("StateChanged", "ERROR"), signals)
 
 
 class ChunkPasterTest(unittest.TestCase):
