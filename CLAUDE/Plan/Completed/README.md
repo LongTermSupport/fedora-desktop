@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00103-slack-flatpak-rejects-md-dropped-from-nautilus](00103-slack-flatpak-rejects-md-dropped-from-nautilus/) - Slack Flatpak rejected a `.md` dragged from Nautilus: the sandbox only had `xdg-download`; `play-comms.yml` now grants `home:ro`, deployed and confirmed on the host
+
 - [00102-dash-to-dock-does-not-dodge-ptyxis-terminal](00102-dash-to-dock-does-not-dodge-ptyxis-terminal/) - Dash to Dock stayed on top of an un-maximised Ptyxis window; `intellihide-mode` is now `ALL_WINDOWS` via `play-gnome-shell-extensions.yml`, deployed and accepted on the host
 
 - [00091-podman-first-docker-optional](00091-podman-first-docker-optional/) - Demoted rootful Docker from core to an optional playbook (podman-first); merged via PR #42

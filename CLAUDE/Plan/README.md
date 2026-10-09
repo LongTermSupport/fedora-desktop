@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00163-ccy-one-key-agent-forwarding](00163-ccy-one-key-agent-forwarding/) - ccy forwards one chosen key from the owner's ssh-agent through a filtering socket, never the whole agent, so a headless launch can use a passphrase-protected key with no prompt.
+- [00164-stt-enter-lost-after-focus-retake](00164-stt-enter-lost-after-focus-retake/) - Speech-to-text: after the panel gives the dictation's window focus back, the text was pasted but the Enter did not send it. `wsi` and `wsi-stream` now paste only once the window has kept focus for 0.5 s, and wait 1 s before the Enter; a read-only triage reads the focus / paste / Enter timeline from the debug log.
 
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.
 
@@ -202,6 +202,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00163-ccy-one-key-agent-forwarding](Completed/00163-ccy-one-key-agent-forwarding/) - ccy forwards one chosen key from the owner's ssh-agent through a filtering socket, never the whole agent, so a headless launch can use a passphrase-protected key with no prompt. Accepted on the host by Plan 00161: every seat launched headless on a passphrase key, and inside a seat the agent listed one key, refused changes and signed with it.
+
 - [00157-cc-desktop-launcher-broken](Completed/00157-cc-desktop-launcher-broken/) - Bug: host `cc` stopped starting sessions. Triage found the wrapper, its libraries, the claude install and the credentials all sound; `cc` worked again once the session the boot restore had started (`cc --continue`) was gone. Likely cause, unconfirmed: claude's "No conversation found to continue" in that restored session. Left behind: a triage whose interactive-shell probe cannot hang, and a reaper for a hung run.
 
 - [00151-container-clipboard-sharing](Completed/00151-container-clipboard-sharing/) - Ctrl+V image paste works inside ccy: `wl-clipboard` and a 5 s `wl-paste` guard in the shared image (container 2.41+), deployed with a 20-check acceptance and confirmed by the owner. LXC stays a documented manual recipe, as this repo has no LXC config under IaC.
@@ -259,8 +261,6 @@ Use these Unicode icons in plan documents:
 - [00106-run-bash-git-ref-headless](Completed/00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort. run.bash 1.18.0; proven on a real headless box.
 
 - [00105-tmux-sessions-single-key-menu](Completed/00105-tmux-sessions-single-key-menu/) - tmux for detachable long-running dev sessions behind one key: F12 opens a new/rename/switch/detach/kill menu; status bar off. Deployed and verified on a headless box.
-
-- [00103-slack-flatpak-rejects-md-dropped-from-nautilus](Completed/00103-slack-flatpak-rejects-md-dropped-from-nautilus/) - Slack Flatpak rejected a `.md` dragged from Nautilus: the sandbox only had `xdg-download`; `play-comms.yml` now grants `home:ro`, deployed and confirmed on the host
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

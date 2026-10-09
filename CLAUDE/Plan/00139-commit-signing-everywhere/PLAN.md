@@ -242,6 +242,7 @@ whatever the repository, so a key whose account does not have the commit email v
 an arbitrary `--ssh-key` or a deploy key produces Unverified commits without a word. The
 owner chose to fold the fix in here (2026-10-07).
 
+**Held by the owner:** Phase 6 is not started or raised until the owner raises it again.
 
 - [ ] ⬜ **Task 6.1**: Write the test first: new cases in `scripts/test-ccy-git-signing.bash`
   with `gh` stubbed on `PATH`. A registered key with the commit email verified passes. A key
@@ -277,11 +278,13 @@ owner chose to fold the fix in here (2026-10-07).
   (the login key, 38; an account key, 2). A commit does not record whether a person, a
   host agent or a ccy agent made it, so the owner confirms one of their own and one from a
   host `cc` session.
+
 - [x] The self-update gate still refuses an unsigned HEAD, and accepts a HEAD the machine
   key signed. `test-self-update-cycle.bash`, a hard gate in `qa-all.bash`, 163 checks: an
   unsigned tip is not taken, a first cycle from an unsigned HEAD is refused (20) saying
   why, a signed commit is deployed, a tampered one is refused. That a real server trusts
   this machine's key is Task 3.1's owner step.
+
 - [x] No doc still says signing is deliberate or opt-in. A search of `docs/` and `CLAUDE/`
   outside the plans finds none.
 

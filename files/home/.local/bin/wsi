@@ -259,18 +259,24 @@ notify_desktop() {
 # "closed" / "unfocused" when nothing may be pasted.
 #
 # The panel pins the window focused at Insert. If focus has moved, the panel gives it
-# focus back and this asks again every 0.1 s, PASTE_FOCUS_POLLS times (about 2 s). The
-# answer is (wm_class, with_shift, save_after, focused, gone); a panel that does not pin
-# (loaded before that, until the next login) answers the first three. A panel that cannot
-# answer (one loaded before PasteKey existed) leaves the key chosen at Insert, which is
-# said in the log, and no save.
+# focus back and this asks again every 0.1 s, PASTE_FOCUS_POLLS times (about 2 s), then
+# until the window has kept focus for PASTE_FOCUS_SETTLE_POLLS more answers, and sets
+# PASTE_REFOCUSED so the Enter waits longer: the panel sees focus move the moment it
+# activates the window, but the app takes it, and a terminal app redraws for it, a moment
+# later (Plan 00164: pasted, but the Enter lost). The answer is (wm_class, with_shift,
+# save_after, focused, gone); a panel that does not pin (loaded before that, until the
+# next login) answers the first three. A panel that cannot answer (one loaded before
+# PasteKey existed) leaves the key chosen at Insert, which is said in the log, and no save.
 SAVE_AFTER=false
 PASTE_TARGET=ready
+PASTE_REFOCUSED=false
 PASTE_FOCUS_POLLS=20
+PASTE_FOCUS_SETTLE_POLLS=5
+PASTE_ENTER_DELAY_AFTER_REFOCUS=1.0
 paste_target_now() {
-    local reply rc why poll
+    local reply rc why unfocused=0 settled=0
     local answer="^\('((\\\\.|[^'\\\\])*)', (true|false), (true|false)(, (true|false), (true|false))?\)$"
-    for ((poll = 0; poll <= PASTE_FOCUS_POLLS; poll++)); do
+    while true; do
         if reply=$(timeout 2 gdbus call --session --dest org.gnome.Shell \
                 --object-path "$PANEL_DBUS_PATH" --method "${PANEL_DBUS_INTERFACE}.PasteKey" 2>&1); then
             rc=0
@@ -291,20 +297,33 @@ paste_target_now() {
         fi
         # Focused, or a panel that does not pin (no fourth field)
         if [ "${BASH_REMATCH[6]}" != false ]; then
-            PASTE_WITH_SHIFT=$([ "${BASH_REMATCH[3]}" = true ] && echo 1 || echo 0)
-            SAVE_AFTER="${BASH_REMATCH[4]}"
-            PASTE_TARGET=ready
-            log "Pasting into '${BASH_REMATCH[1]}': $([ "$PASTE_WITH_SHIFT" = 1 ] && echo Ctrl+Shift+V || echo Ctrl+V)$([ "$SAVE_AFTER" = true ] && echo ', then Ctrl+S')"
-            return
+            if [ "$unfocused" -eq 0 ] || [ "$settled" -eq "$PASTE_FOCUS_SETTLE_POLLS" ]; then
+                PASTE_WITH_SHIFT=$([ "${BASH_REMATCH[3]}" = true ] && echo 1 || echo 0)
+                SAVE_AFTER="${BASH_REMATCH[4]}"
+                PASTE_TARGET=ready
+                log "Pasting into '${BASH_REMATCH[1]}': $([ "$PASTE_WITH_SHIFT" = 1 ] && echo Ctrl+Shift+V || echo Ctrl+V)$([ "$SAVE_AFTER" = true ] && echo ', then Ctrl+S')"
+                return
+            fi
+            if [ "$settled" -eq 0 ]; then
+                log "'${BASH_REMATCH[1]}' has focus back; pasting once it has kept it for $PASTE_FOCUS_SETTLE_POLLS more checks, 0.1 s apart"
+            fi
+            settled=$((settled + 1))
+        else
+            if [ "$unfocused" -eq 0 ]; then
+                log "WARN: '${BASH_REMATCH[1]}' lost focus during the dictation; waiting for the panel to give it focus back"
+            elif [ "$settled" -gt 0 ]; then
+                log "WARN: '${BASH_REMATCH[1]}' lost focus again before the paste"
+            fi
+            PASTE_REFOCUSED=true
+            settled=0
+            unfocused=$((unfocused + 1))
+            if [ "$unfocused" -gt "$PASTE_FOCUS_POLLS" ]; then
+                PASTE_TARGET=unfocused
+                return
+            fi
         fi
-        if [ "$poll" -eq 0 ]; then
-            log "WARN: '${BASH_REMATCH[1]}' lost focus during the dictation; waiting for the panel to give it focus back"
-        fi
-        if [ "$poll" -lt "$PASTE_FOCUS_POLLS" ]; then
-            sleep 0.1
-        fi
+        sleep 0.1
     done
-    PASTE_TARGET=unfocused
 }
 
 #============================================================================
@@ -1243,8 +1262,12 @@ if [ "$AUTO_PASTE" = true ]; then
     fi
     log_debug "Paste simulated successfully"
     # Delay to ensure paste completes before sending Enter
-    # Longer text requires more time for the target app to process
-    sleep 0.3
+    if [ "$PASTE_REFOCUSED" = true ] && [ "$SKIP_AUTO_ENTER" = false ]; then
+        log "Waiting ${PASTE_ENTER_DELAY_AFTER_REFOCUS} s before the Enter: focus was given back for this paste"
+        sleep "$PASTE_ENTER_DELAY_AFTER_REFOCUS"
+    else
+        sleep 0.3
+    fi
 
     # Send Enter key by default in auto-paste mode (unless disabled)
     if [ "$SKIP_AUTO_ENTER" = false ]; then

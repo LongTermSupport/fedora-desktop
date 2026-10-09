@@ -547,7 +547,23 @@ batch_paste "$unfocused|$unfocused|('org.gnome.TextEditor', false, true, true, f
     --paste-with-shift 1
 check "focus moved away: wsi waits until the panel has given the window focus back" \
     "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
-check "…asking until it has" "3" "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+# Plan 00164: pasted, but the Enter did not send it, when focus had been given back. The
+# window must keep focus for PASTE_FOCUS_SETTLE_POLLS more answers before the paste, and
+# the Enter waits longer after it.
+check "…asking until it has, then while it settles" "$((3 + 5))" \
+    "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+check "…and the Enter waits longer after a paste into a window given focus back" "1" \
+    "$(grep -c 'focus was given back for this paste' "$work/wsi.err")"
+
+focused="('org.gnome.TextEditor', false, true, true, false)"
+batch_paste "$unfocused|$focused|$focused|$unfocused|$focused" --paste-with-shift 1
+check "focus lost again while it settles: the settle starts again" "$((4 + 1 + 5))" \
+    "$(grep -c 'Panel.PasteKey' "$events/gdbus.log")"
+check "…then the paste goes in" "$CTRL_V | $ENTER | $CTRL_S" "$KEYS"
+
+batch_paste "$focused" --paste-with-shift 1
+check "a window that kept focus: no wait for a settle, the usual wait for the Enter" "0" \
+    "$(grep -c 'focus was given back for this paste' "$work/wsi.err")"
 
 WANT_RC=1 batch_paste "('', false, false, false, true)" --paste-with-shift 1
 check "the pinned window was closed: nothing pressed" "" "$KEYS"

@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8-9.10) built, all merged to F44 but 6.1, 9.9 and 9.10; host checks Tasks 0.5, 1.2, 6.2, 8.4 and 9.5 pending)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8-9.10) built, all merged to F44; host checks Tasks 0.5, 6.2, 8.4 and 9.5 pending)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
