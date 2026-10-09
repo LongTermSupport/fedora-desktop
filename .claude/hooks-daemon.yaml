@@ -83,10 +83,7 @@ handlers:
     sudo_pip: {enabled: true, priority: 10}                 # Block sudo pip
     curl_pipe_shell: {enabled: true, priority: 10}          # Block curl | bash patterns
     lock_file_edit_blocker: {enabled: true, priority: 10}   # Block direct editing of lock files
-    # Off until the upstream fix lands: it fails closed with TooManyToEnumerateError on
-    # ordinary shell text ($?, "%s\n", line continuations). The never-read rules in
-    # CLAUDE/SecurityRules.md still apply by hand meanwhile.
-    secret_file_guard: {enabled: false}
+    secret_file_guard: {enabled: true}                      # Never read *.secret*/vault-pass/SSH keys into context
     daemon_location_guard: {enabled: true, priority: 11}    # Prevent cd into .claude/hooks-daemon
     absolute_path: {enabled: true, priority: 12}            # Require absolute paths in file operations
     error_hiding_blocker: {enabled: true, priority: 13}     # Block || true, except: pass, empty catch

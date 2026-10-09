@@ -14,7 +14,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 ## Active Handlers
 
-### PreToolUse (69 handlers)
+### PreToolUse (70 handlers)
 
 | Priority | Handler | Behaviour | Description |
 |----------|---------|----------|-------------|
@@ -34,6 +34,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 14 | artifact_publish_blocker | BLOCKING | Deny artefact publishing; allow read-only enumeration |
 | 14 | issue_filing_gate | BLOCKING | Deny an upstream issue whose body nothing checked |
 | 14 | project_containment | BLOCKING | Deny a write to a path named outside the repository root |
+| 14 | secret_file_guard | BLOCKING | Deny any tool call that would put a protected file's contents into context |
 | 14 | subagent_cron_delete_blocker | BLOCKING | Deny ``CronDelete`` inside a subagent; the coordinator is unaffected |
 | 14 | subagent_worktree_write_guard | BLOCKING | Deny a subagent's write into a checkout other than the one it works in |
 | 15 | dangerous_permissions | BLOCKING | Block chmod 777 and dangerous permission commands |
