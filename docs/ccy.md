@@ -256,8 +256,42 @@ from before the reboot running rather than asking what to do with them, and star
 alongside sibling sessions in the same project. Each of these is the one answer that
 cannot lose work, and each is announced on stderr. A restart and a `--headless` launch
 take the same two container answers (headless since CCY 3.88.1). Every other prompt (token choice, SSH
-key or passphrase, GitHub-over-443, network, compose) has no safe answer, so it waits in
-the pane for a person — except the SSH key passphrase on a headless server, below.
+key or passphrase, network) has no safe answer, so it waits in
+the pane for a person — except the SSH key passphrase on a headless server, below, and the
+compose question, which the record answers (next paragraph).
+
+**How the compose services stood is recorded** (since CCY 3.89.1). When a session meets its
+project's compose stack at launch (the question `Start services with podman-compose up -d?`,
+or services found already running), its record gets `compose=started`, `declined` or
+`running`. That is how they stood when the session started: a stack started or stopped by
+hand later is not recorded. A restore replays it as `--compose start` (started or running:
+`up -d`, which leaves running services alone) or `--compose skip`, so the question is never
+shown. A record written by an older ccy has no answer: its restore asks in the pane, says
+why on the line above, and records the answer for next time; `verify-restore` reports it
+`WAITING-AT-PROMPT compose-start` until then. You can give `--compose start|skip|ask`
+yourself; `ask` is the default.
+
+**A restore never ends on a stack that will not start.** Right after a boot `up -d` fails
+for passing reasons, and a launch that ended would take the session's record with it, so
+the session would never be restored again. A restore tries `up -d` three times, ten seconds
+apart; if it still fails, the compose question is asked in the pane, after the reason: y
+tries again, n carries on without the services (the record still says started, so the next
+restore tries again), Ctrl+C ends the session. `verify-restore` reports the session
+`WAITING-AT-PROMPT compose-start` meanwhile. `--compose start` given to a launch outside a
+restore ends that launch with the reason, since a person is watching it.
+
+**No launch question is read with nobody to answer it** (since CCY 3.89.1). Under
+`--headless`, or with stdin that is not a terminal, a launch question either takes its one
+safe answer (Quick Launch's saved choices, keeping old session directories, continuing
+without a vanished or unreachable network, continuing without an SSH key, GitHub over 443,
+leaving compose services running at the end) or stops the launch naming the question and
+the flag that answers it (`--token`, `--network`/`--no-network`, `--compose`; `--debug`,
+whose layer chooser asks, is refused). A restore and a restart take the same safe answers in
+their panes, except the compose-stop question at the end of a session, which is asked of
+whoever ends it. **This changes one default:** a launch with no terminal used to read
+end-of-input at the compose question and so start the services; it now stops, naming
+`--compose start|skip`. Give the flag to a scripted or `--headless` launch in a project whose
+compose services may be stopped.
 
 **A key chosen at the SSH key menu is recorded** (since CCY 3.82.0). A session started with
 `--token`, `--network` or `--no-network` skips Quick Launch, so its key, if picked at the

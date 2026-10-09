@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.89.0"  # Containers run in the host's time zone (TZ). See docs/ccy-changelog.md.
+CCY_VERSION="3.90.0"  # Containers run in the host's time zone (TZ). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -182,6 +182,11 @@ Options:
   --export-token [NAME]  Export token(s) as portable import script (interactive if no name)
   --network NETWORK      Auto-connect to specified container network on launch
   --no-network           Skip network auto-detection
+  --compose start|skip|ask
+                         Answer the question that would start this project's compose
+                         services: start runs up -d, skip leaves them stopped, ask (the
+                         default) asks. A session's record keeps how they stood, and a
+                         restore after a reboot replays it with this flag
   --connect [NETWORK]    Connect running container to network (also saves it as the
                          project's default, which every later launch reconnects to)
   --disconnect [NETWORK] Disconnect running container from network (picker if no name),
@@ -401,7 +406,15 @@ if [ -d ".claude/ccy/sessions" ] && [ -z "$CCY_RESTART_RELAUNCH_SESSION" ]; then
         echo ""
         echo "Claude Code now uses .claude/ directly (project-level state)."
         echo ""
-        read -rp "$CCY_PROMPT_MIGRATION " remove_sessions
+        # Keeping them is the same safe answer with nobody to ask: no terminal, --headless, or a
+        # restore. This runs before the arguments are parsed, so HEADLESS_MODE is not set yet
+        # and the arguments are scanned, and the restore marker is read properly further down.
+        if ccy_nobody_to_ask || ccy_args_headless "$@" || [ -n "${CCY_SESSION_RESTORE:-}" ]; then
+            echo "Nobody to ask (no terminal, --headless, or a session restore): the old session directories are kept."
+            remove_sessions=n
+        else
+            read -rp "$CCY_PROMPT_MIGRATION " remove_sessions
+        fi
         case "$remove_sessions" in
             y|Y|yes|Yes)
                 rm -rf .claude/ccy/sessions
@@ -573,6 +586,10 @@ GITHUB_443_MODE=false
 SPECIFIED_NETWORK=""
 NETWORK_FROM_CONFIG=false
 NO_NETWORK_MODE=false
+# --compose: how the questions that would start the project's compose services are answered
+# (lib/network-management.bash, ccy_compose_answer).
+COMPOSE_MODE=ask
+NEXT_IS_COMPOSE=false
 HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
@@ -659,6 +676,15 @@ for arg in "$@"; do
     elif [ "$NEXT_IS_NETWORK" = true ]; then
         SPECIFIED_NETWORK="$arg"
         NEXT_IS_NETWORK=false
+    elif [ "$NEXT_IS_COMPOSE" = true ]; then
+        case "$arg" in
+        start | skip | ask) COMPOSE_MODE="$arg" ;;
+        *)
+            print_error "--compose takes start, skip or ask, not '$arg'"
+            exit 64
+            ;;
+        esac
+        NEXT_IS_COMPOSE=false
     elif [ "$NEXT_IS_PROMPT" = true ]; then
         PROMPT_TEXT="$arg"
         NEXT_IS_PROMPT=false
@@ -752,6 +778,8 @@ for arg in "$@"; do
         NEXT_IS_EXPORT_TOKEN=true
     elif [ "$arg" = "--network" ]; then
         NEXT_IS_NETWORK=true
+    elif [ "$arg" = "--compose" ]; then
+        NEXT_IS_COMPOSE=true
     elif [ "$arg" = "--connect" ]; then
         CONNECT_MODE=true
         NEXT_IS_CONNECT=true
@@ -826,13 +854,14 @@ GITHUB_443_PRELAUNCH="$GITHUB_SSH_443"
 # Session limits (lib/session-lifecycle.bash). Validated here, before any prompt, so a typo
 # costs nothing; the deadline itself is worked out at launch. A value-taking option that ends
 # the command line is a mistake, not a request for the default.
-for _ccy_dangling in max-age:"$NEXT_IS_MAX_AGE" run-for:"$NEXT_IS_RUN_FOR" until:"$NEXT_IS_UNTIL"; do
+for _ccy_dangling in max-age:"$NEXT_IS_MAX_AGE" run-for:"$NEXT_IS_RUN_FOR" until:"$NEXT_IS_UNTIL" compose:"$NEXT_IS_COMPOSE"; do
     if [ "${_ccy_dangling#*:}" = true ]; then
         print_error "--${_ccy_dangling%%:*} needs a value (see ccy --help)"
         exit 1
     fi
 done
 unset _ccy_dangling
+debug "compose questions answered by --compose: $COMPOSE_MODE (read by lib/network-management.bash)"
 ccy_lifecycle_validate_options "$OPT_MAX_AGE" "$OPT_RUN_FOR" "$OPT_UNTIL" "$NO_SUPERVISE_MODE" || exit 1
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -887,7 +916,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
                 --headless --supervise --no-supervise --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
                 --max-age --run-for --until
                 --teams
-                --update-token --list-tokens --export-token --network --connect --disconnect
+                --update-token --list-tokens --export-token --network --compose --connect --disconnect
                 --custom --custom-docker --top --prevent --help
             )
             claude_known=$(grep -oE -- '--[a-zA-Z][a-zA-Z0-9-]*' <<< "$claude_help" | sort -u)
@@ -910,6 +939,14 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
             exit 1
         fi
     fi
+fi
+
+# The debug chooser asks which layers to debug, and later waits for Enter: with nobody to
+# answer (--headless, or no terminal) it is refused before it asks.
+if [ "$SHOW_DEBUG_CHOOSER" = true ] && ccy_nobody_to_ask; then
+    print_error "--debug asks which layers to debug, and nobody can answer it here (a --headless launch, or stdin is not a terminal)."
+    echo "  Launch without --debug, or with --debug from a terminal, without --headless." >&2
+    exit 64
 fi
 
 # Handle debug layer selection
@@ -1160,6 +1197,9 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                 use_config=Y
             elif [ "$HEADLESS_MODE" = true ]; then
                 echo "Headless launch: using the previous configuration."
+                use_config=Y
+            elif ccy_nobody_to_ask; then
+                echo "No terminal to ask on: using the previous configuration."
                 use_config=Y
             else
                 read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config
@@ -1429,6 +1469,10 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         echo ""
         echo "This token cannot be used. You must create a new token."
         echo ""
+        if ccy_nobody_to_ask; then
+            ccy_prompt_refuse token-expired "Renew it where a person can use a browser: ccy --update-token=$token_name"
+            exit 1
+        fi
         read -rp "$CCY_PROMPT_TOKEN_EXPIRED " create_now
         if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
             create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$token_name"
@@ -1462,6 +1506,10 @@ else
         echo ""
         echo "You need to create a token before using ccy."
         echo ""
+        if ccy_nobody_to_ask; then
+            ccy_prompt_refuse token-none "Create one where a person can use a browser: ccy --create-token"
+            exit 1
+        fi
         read -rp "$CCY_PROMPT_TOKEN_NONE " create_now
 
         if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
@@ -1474,6 +1522,10 @@ else
         post_create_token_exit
     else
         # Multiple tokens exist or single token - show selection
+        if ccy_nobody_to_ask; then
+            ccy_prompt_refuse token-select "Launch with --token NAME (ccy --list-tokens lists them)."
+            exit 1
+        fi
         select_token "$TOKEN_DIR" "container" || {
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
@@ -1581,6 +1633,10 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
     echo "  3) Exit and fix manually"
     echo ""
 
+    if ccy_nobody_to_ask; then
+        ccy_prompt_refuse token-recovery "Check it with ccy --list-tokens, or launch with another --token NAME."
+        exit 1
+    fi
     while true; do
         read -rp "$CCY_PROMPT_TOKEN_RECOVERY " recovery_choice
         echo ""
@@ -2502,8 +2558,15 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
                 echo ""
 
                 while true; do
-                    read -rp "$CCY_PROMPT_NETWORK_CONTINUE " continue_choice
-                    continue_choice=${continue_choice:-Y}
+                    # Nobody to ask: the question's own default, which starts the session
+                    # rather than losing it; the saved network cannot be brought back here.
+                    if ccy_launch_unattended; then
+                        echo "Nobody to ask (a restore, a restart or no terminal): taking the default."
+                        continue_choice=Y
+                    else
+                        read -rp "$CCY_PROMPT_NETWORK_CONTINUE " continue_choice
+                        continue_choice=${continue_choice:-Y}
+                    fi
                     echo ""
 
                     case "$continue_choice" in
@@ -2668,6 +2731,11 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo "  4) Quit"
         echo ""
 
+        # Option 1 stops containers and removes networks: a person's choice, never a default.
+        if ccy_nobody_to_ask; then
+            ccy_prompt_refuse network-engine-conflict "Resolve the mismatch above, or launch with --no-network or --network NAME."
+            exit 1
+        fi
         while true; do
             read -rp "$CCY_PROMPT_NETWORK_ENGINE_CONFLICT " cleanup_choice
             echo ""
@@ -2756,17 +2824,23 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                         if command -v podman-compose &>/dev/null; then
                             while true; do
-                                read -rp "$CCY_PROMPT_COMPOSE_START podman-compose up -d? [Y/n]: " start_compose
-                                start_compose=${start_compose:-Y}
+                                ccy_compose_answer "$CCY_PROMPT_COMPOSE_START podman-compose up -d? [Y/n]: " Y
+                                start_compose="$CCY_COMPOSE_REPLY"
                                 echo ""
 
                                 case "$start_compose" in
                                     Y|y|Yes|yes)
                                         echo "Starting podman-compose..."
-                                        if podman-compose up -d; then
+                                        _ccy_up_rc=0
+                                        ccy_compose_up podman-compose podman-compose || _ccy_up_rc=$?
+                                        if [ "$_ccy_up_rc" -eq 2 ]; then
+                                            continue
+                                        fi
+                                        if [ "$_ccy_up_rc" -eq 0 ]; then
                                             echo ""
                                             echo "✓ Compose services started"
                                             echo ""
+                                            ccy_compose_outcome_set started
                                             # Track for session-end teardown offer
                                             export CCY_COMPOSE_WAS_STARTED=true
                                             export CCY_COMPOSE_CMD="podman-compose"
@@ -2798,6 +2872,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                         break
                                         ;;
                                     N|n|No|no)
+                                        ccy_compose_outcome_set declined
                                         echo "Skipping compose startup"
                                         echo "Run 'podman-compose up -d' manually when ready"
                                         COMPOSE_ALREADY_HANDLED=true
@@ -2892,8 +2967,14 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo ""
 
         while true; do
-            read -rp "$CCY_PROMPT_NETWORK_CONTINUE " mismatch_choice
-            mismatch_choice=${mismatch_choice:-Y}
+            # Nobody to ask: the question's own default; nothing here can fix the mismatch.
+            if ccy_launch_unattended; then
+                echo "Nobody to ask (a restore, a restart or no terminal): taking the default."
+                mismatch_choice=Y
+            else
+                read -rp "$CCY_PROMPT_NETWORK_CONTINUE " mismatch_choice
+                mismatch_choice=${mismatch_choice:-Y}
+            fi
             echo ""
 
             case "$mismatch_choice" in
@@ -2930,6 +3011,10 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo "Found network: $AUTO_CONNECT_NETWORK"
         echo ""
 
+        if ccy_nobody_to_ask; then
+            ccy_prompt_refuse network-connect "Launch with --network $AUTO_CONNECT_NETWORK or --no-network."
+            exit 1
+        fi
         while true; do
             read -rp "$CCY_PROMPT_NETWORK_CONNECT (Y/n): " connect_choice
             connect_choice=${connect_choice:-Y}  # Default to Yes
@@ -2965,6 +3050,10 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo "Best match: $AUTO_CONNECT_NETWORK"
         echo ""
 
+        if ccy_nobody_to_ask; then
+            ccy_prompt_refuse network-connect "Launch with --network NAME (one of ${MATCHING_NETWORKS[*]}) or --no-network."
+            exit 1
+        fi
         while true; do
             read -rp "$CCY_PROMPT_NETWORK_CONNECT (Y/n/list): " connect_choice
             connect_choice=${connect_choice:-Y}
@@ -3090,17 +3179,24 @@ else
 
             if [ -n "$COMPOSE_CMD" ]; then
                 while true; do
-                    read -rp "$CCY_PROMPT_COMPOSE_START_SAVED ($COMPOSE_CMD up -d) [y/N] " start_compose
-                    start_compose=${start_compose:-N}
+                    ccy_compose_answer "$CCY_PROMPT_COMPOSE_START_SAVED ($COMPOSE_CMD up -d) [y/N] " N
+                    start_compose="$CCY_COMPOSE_REPLY"
                     echo ""
 
                     case "$start_compose" in
                         Y|y|Yes|yes)
                             echo "Starting compose services..."
-                            if $COMPOSE_CMD up -d; then
+                            _ccy_up_rc=0
+                            read -ra _ccy_compose_words <<<"$COMPOSE_CMD"
+                            ccy_compose_up "$COMPOSE_CMD" "${_ccy_compose_words[@]}" || _ccy_up_rc=$?
+                            if [ "$_ccy_up_rc" -eq 2 ]; then
+                                continue
+                            fi
+                            if [ "$_ccy_up_rc" -eq 0 ]; then
                                 echo ""
                                 echo "✓ Compose services started"
                                 echo ""
+                                ccy_compose_outcome_set started
                                 echo "Waiting for networks to be created..."
                                 sleep 2
 
@@ -3127,6 +3223,7 @@ else
                             break
                             ;;
                         N|n|No|no|"")
+                            ccy_compose_outcome_set declined
                             echo "Skipping compose startup"
                             break
                             ;;
@@ -3167,6 +3264,16 @@ else
     fi  # End of if [[ -z "$SPECIFIED_NETWORK" ]] (persisted network check)
 fi
 fi  # End of network flag handling (if/elif/else)
+
+# How the project's compose services stood (started, declined, or already running) goes into
+# this session's record, so a restore after a reboot answers the compose question the same
+# way, with --compose, and nobody has to be there (fedora-desktop#87).
+# A failure to write it does not end the launch: the record keeps its previous answer, and
+# ending here would make the trampoline remove the whole record, so the session would never
+# be restored again.
+if ! ccy_compose_record_outcome; then
+    echo "⚠ Could not record how the compose services stood (see above); this session's restore record keeps its previous compose answer." >&2
+fi
 
 # Network Strategy: Use requested network but verify it has internet access
 # =========================================================================
@@ -3786,8 +3893,15 @@ if [[ "${CCY_COMPOSE_WAS_STARTED:-}" = "true" ]]; then
     echo ""
 
     while true; do
-        read -rp "$CCY_PROMPT_COMPOSE_STOP [Y/n]: " _stop_choice
-        _stop_choice=${_stop_choice:-Y}
+        # Nobody to ask: leave them running. Stopping is the one answer that cannot be undone
+        # by asking again later.
+        if ccy_nobody_to_ask; then
+            echo "Nobody to ask (a --headless launch, or no terminal): leaving them running."
+            _stop_choice=n
+        else
+            read -rp "$CCY_PROMPT_COMPOSE_STOP [Y/n]: " _stop_choice
+            _stop_choice=${_stop_choice:-Y}
+        fi
         echo ""
         case "$_stop_choice" in
             Y|y|Yes|yes)

@@ -214,8 +214,8 @@ workspace_relabel_preflight() {
         echo ""
     } >&2
 
-    if [ ! -t 0 ]; then
-        print_error "ccy did not start: there is no terminal to ask on. Run the fix above, then start ccy again."
+    if ccy_nobody_to_ask; then
+        print_error "ccy did not start: there is no terminal to ask on (or this is a --headless launch, whose input is the session's). Run the fix above, then start ccy again."
         return 1
     fi
     local reply="" tries=0 answer=""

@@ -97,6 +97,53 @@ ccy_known_prompts() {
         token-setup "$CCY_PROMPT_TOKEN_SETUP"
 }
 
+# ── a prompt nobody can answer ────────────────────────────────────────────────────────────
+#
+# A launch question needs someone to answer it. A --headless launch has nobody (its stdin is
+# the session's own input, which a read would eat), and neither does stdin that is not a
+# terminal (a restart's relaunch, a pipe, a unit). There a `read` either eats input, hangs, or
+# hits EOF and lets `set -e` end the launch with no word said. Each launch question therefore
+# asks ccy_nobody_to_ask first, and then takes its one safe answer or refuses by name with
+# ccy_prompt_refuse. ccy_launch_unattended adds the launches made with nobody at the keyboard
+# though a terminal exists: a restore (in its tmux pane) and a restart. A question whose safe
+# answer a restore can take uses that one; the rest ask in a restore's pane, where a person
+# can attach, and verify-restore reports the session as waiting there.
+
+# ccy_nobody_to_ask — true when no person can answer a launch question: HEADLESS_MODE is true,
+# or stdin is not a terminal.
+ccy_nobody_to_ask() {
+    [[ "${HEADLESS_MODE:-false}" == true || ! -t 0 ]]
+}
+
+# ccy_args_headless [args...] — true when the launcher's own arguments (before any `--`) hold
+# --headless. For the code that runs before the arguments are parsed, when HEADLESS_MODE is not
+# set yet. A --headless that is the value of a flag counts too; its one use is to take a
+# question's safe answer, which is the right side to err on.
+ccy_args_headless() {
+    local arg
+    for arg in "$@"; do
+        [[ "$arg" == "--" ]] && return 1
+        [[ "$arg" == "--headless" ]] && return 0
+    done
+    return 1
+}
+
+# ccy_launch_unattended — true when nobody is expected at the keyboard: ccy_nobody_to_ask, or
+# CCY_UNATTENDED_LAUNCH (the launcher's: a restore or a restart) is true.
+ccy_launch_unattended() {
+    ccy_nobody_to_ask || [[ "${CCY_UNATTENDED_LAUNCH:-false}" == true ]]
+}
+
+# ccy_prompt_refuse <prompt-name> <remedy> — say, on stderr, that the launch question
+# <prompt-name> (a ccy_known_prompts name) cannot be asked, and what to launch with instead.
+# The caller then exits non-zero: this only reports.
+ccy_prompt_refuse() {
+    local name="${1:?ccy_prompt_refuse requires a prompt name}"
+    local remedy="${2:?ccy_prompt_refuse requires a remedy}"
+    print_error "ccy stopped at its ${name} question: nobody can answer it here (a --headless launch, or stdin is not a terminal)."
+    printf '  %s\n' "$remedy" >&2
+}
+
 # Decide whether SELinux will refuse this container's reads of a home-directory bind.
 #
 # On an Enforcing host a ccy container runs as container_t and is denied `read`

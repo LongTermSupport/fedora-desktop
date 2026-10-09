@@ -47,7 +47,7 @@ now installed by name (container 2.49), because without zoneinfo glibc reads an 
 - [x] ✅ **Task 1.2**: `ccy_host_time_zone` in `lib/common-pure.bash`; the launcher
   resolves it and passes `-e "TZ=$CCY_HOST_TZ"` on its single `run`, which every launch
   path shares (interactive, headless, `--teams` seats, `ccy --` passthrough).
-- [x] ✅ **Task 1.3**: `tzdata` named in the base Dockerfile; container 2.49; CCY 3.89.0;
+- [x] ✅ **Task 1.3**: `tzdata` named in the base Dockerfile; container 2.49; CCY 3.90.0 (3.89.0 on the worktree branch, renumbered on the merge beside Plan 00135's 3.89.1);
   changelog and `docs/ccy.md` row; the test wired into `scripts/qa-all.bash`;
   `deploy.bash` and the `meta-deploy.bash` entry.
 
@@ -67,4 +67,4 @@ now installed by name (container 2.49), because without zoneinfo glibc reads an 
 
 ## Delivery & Milestones
 
-- Implementation commit on the plan's worktree branch (CCY 3.89.0, container 2.49).
+- Implementation commit on the plan's worktree branch, merged to F44 (CCY 3.90.0, container 2.49).

@@ -5,7 +5,7 @@
 # (CLAUDE/PlanScriptStandards.md R2): Ansible never runs in the CCY container.
 #
 # THE ONE LEG:
-#   play-claude-yolo.yml — installs the CCY 3.89.0 launcher, which passes the host's zone
+#   play-claude-yolo.yml — installs the CCY 3.90.0 launcher, which passes the host's zone
 #   to every container as TZ, and the container 2.49 Dockerfile (tzdata by name). The
 #   image rebuilds once, on the next ccy launch.
 #
@@ -37,7 +37,7 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check]
 
 Runs, on the HOST:
 
-  playbooks/imports/play-claude-yolo.yml   (launcher 3.89.0, container 2.49)
+  playbooks/imports/play-claude-yolo.yml   (launcher 3.90.0, container 2.49)
 
 --check previews without changing anything."
 
