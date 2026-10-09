@@ -1235,9 +1235,12 @@ ccy_transcript_context_tokens() {
 # main-thread user entry the moment it is taken (a typed /compact, its expansion, or
 # `continue`); a line left sitting in the input box writes nothing. Meta entries are
 # Claude's own notes, not input.
+#
+# jq runs with TZ=UTC here and below: jq 1.6's fromdateiso8601 adds an hour to a `Z` time
+# whenever the local zone is in daylight saving, and ccy sessions run in the host's zone.
 ccy_transcript_took_input_since() {
     local file="$1" since="$2" answer
-    if ! answer=$(jq -R -n -r --argjson since "$since" '
+    if ! answer=$(TZ=UTC jq -R -n -r --argjson since "$since" '
         [inputs | fromjson? | objects
          | select(.type == "user" and ((.isSidechain // false) | not) and ((.isMeta // false) | not))
          | .timestamp | strings | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601
@@ -1253,7 +1256,7 @@ ccy_transcript_took_input_since() {
 # "no". A session with no supervisor is typed `continue` only once this says yes.
 ccy_transcript_compacted_since() {
     local file="$1" since="$2" answer
-    if ! answer=$(jq -R -n -r --argjson since "$since" '
+    if ! answer=$(TZ=UTC jq -R -n -r --argjson since "$since" '
         [inputs | fromjson? | objects
          | select(.type == "system" and .subtype == "compact_boundary" and ((.isSidechain // false) | not))
          | .timestamp | strings | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601

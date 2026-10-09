@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.90.1 — container 2.49
+
+- **Transcript times are read as UTC in any zone.** `ccy_transcript_took_input_since` and
+  `ccy_transcript_compacted_since` turn a transcript's `Z` timestamps into epochs with jq's
+  `fromdateiso8601`. jq 1.6 (the Debian image's) adds an hour to such a time whenever the local
+  zone is in daylight saving, so once 3.90.0 gave containers the host's zone, input typed
+  just after a send was dated an hour late and counted as later than it was. jq now runs
+  with `TZ=UTC` for both.
+
 ## 3.90.0 — container 2.49
 
 - **Containers run in the host's time zone** (Plan 00165). A container shares the host's

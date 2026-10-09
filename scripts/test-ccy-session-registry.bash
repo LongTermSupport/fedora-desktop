@@ -991,6 +991,11 @@ check "a sub-agent's compaction is not this one's" "no" "$(ccy_transcript_compac
 printf '%s\n' '{"type":"system","subtype":"compact_boundary","timestamp":"2026-10-08T10:06:30.500Z","compactMetadata":{"postTokens":9000}}' >>"$T"
 check "a boundary after the /compact: compacted" "yes" "$(ccy_transcript_compacted_since "$T" $((SENT + 390)))"
 check "not if it was before" "no" "$(ccy_transcript_compacted_since "$T" $((SENT + 391)))"
+# A zone in daylight saving on that date: jq 1.6 reads a `Z` time an hour late there.
+check "input is dated in UTC in a daylight-saving zone" "no" \
+    "$(TZ=America/New_York ccy_transcript_took_input_since "$T" $((SENT + 301)))"
+check "and so is a compaction" "no" \
+    "$(TZ=America/New_York ccy_transcript_compacted_since "$T" $((SENT + 391)))"
 
 # Every name in the table is distinct, and no prompt text is empty: an empty text would
 # match every screen, and a shared name would report the wrong prompt.
