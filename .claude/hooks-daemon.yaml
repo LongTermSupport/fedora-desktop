@@ -282,10 +282,12 @@ handlers:
     host_hostname: {enabled: true}                  # Which host the session is really running on
     daemon_stats: {enabled: false, priority: 30}    # Daemon health metrics (owner removed it from the bar)
 
-  # WorktreeCreate - seed a fresh worktree with the gitignored local config an
-  # agent needs to behave like the session that spawned it. symlink, because the
-  # file is only ever read. vault-pass.secret is deliberately NOT seeded: it is a
-  # protected path and playbooks never run inside a worktree or the container.
+  # WorktreeCreate - seed a fresh worktree with the gitignored files an agent needs
+  # to behave like the session that spawned it, and for ./scripts/qa-all.bash to
+  # run there (CLAUDE/QA.md, "The same command does not reach the same verdict
+  # everywhere"). symlink, because each is only ever read. Fires only for a
+  # worktree Claude Code creates (EnterWorktree, agent isolation), not a bare
+  # `git worktree add`.
   worktree_create:
     worktree_create:
       enabled: true
@@ -301,6 +303,20 @@ handlers:
             # creation outright. Fabricating the file instead would have forced a
             # root dir that is currently correct by default.
             - path: .claude/hooks-daemon.env
+              optional: true
+            # qa-ansible-syntax needs the vault password file to EXIST; it never
+            # reads it, as --syntax-check does not decrypt. optional: a clean
+            # clone has none until vault.bash makes one.
+            - path: vault-pass.secret
+              optional: true
+            # qa-js needs ESLint's dev tooling; no playbook installs it, so a
+            # checkout may not have it.
+            - path: extensions/node_modules
+              optional: true
+            # The pre-commit and commit-msg hooks build their private-identifier
+            # denylist from it, and skip that check when it is absent: a worktree
+            # without it commits unchecked for this machine's own names.
+            - path: environment/localhost/host_vars/localhost.yml
               optional: true
 
 # Pseudo-events: synthetic events fired from real ones with frequency control.

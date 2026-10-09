@@ -48,6 +48,11 @@
         path: /etc/UPower/UPower.conf
       register: upower_conf
 
+    - name: Check whether the firmware exposes a lid switch
+      ansible.builtin.stat:
+        path: /proc/acpi/button/lid
+      register: acpi_lid
+
     - name: Check whether systemd scans a system-sleep hook directory
       ansible.builtin.stat:
         path: /usr/lib/systemd/system-sleep
@@ -119,14 +124,20 @@
       # train the operator to ignore it.
       notify: warn-reboot-required
 
+    # UPower must SEE the lid. Mutter takes the lid state from UPower, not from logind, and
+    # uses it to switch the built-in panel off: with IgnoreLid=true a docked laptop with the
+    # lid shut keeps eDP-1 as a live monitor that windows can be dragged onto and lost.
+    # Suspend is unaffected either way — logind reads the lid switch from the kernel itself,
+    # and the logind drop-in above decides what a closed lid does.
+    #
     # Gated on the FILE, not on the profile. /etc/UPower/UPower.conf ships with the upower
     # package and no playbook in this repo installs upower, so its presence is the only honest
     # precondition. `lineinfile` without `create` fails outright on a missing path.
-    - name: Configure UPower to ignore lid (let logind handle it)
+    - name: Let UPower report the lid so GNOME can switch the built-in panel off
       ansible.builtin.lineinfile:
         path: /etc/UPower/UPower.conf
         regexp: '^IgnoreLid='
-        line: 'IgnoreLid=true'
+        line: 'IgnoreLid=false'
         owner: root
         group: root
         mode: '0644'
@@ -375,6 +386,30 @@
       ansible.builtin.debug:
         msg: "{{ wakeup_coverage.stdout }}"
       when: not ansible_check_mode
+
+    # Read back what Mutter will read. A config line can be right while the running daemon
+    # disagrees (not restarted, a drop-in in UPower.conf.d overriding it), and the failure
+    # shows up only as a lost window. upower was restarted by the flush above; retried
+    # because upowerd re-probes devices after a restart. A host whose firmware has no lid
+    # has nothing to assert.
+    - name: Verify UPower reports the lid
+      ansible.builtin.command:
+        argv:
+          - busctl
+          - get-property
+          - org.freedesktop.UPower
+          - /org/freedesktop/UPower
+          - org.freedesktop.UPower
+          - LidIsPresent
+      register: upower_lid_present
+      changed_when: false
+      until: upower_lid_present.stdout == 'b true'
+      retries: 5
+      delay: 2
+      when:
+        - upower_conf.stat.exists
+        - acpi_lid.stat.exists
+        - not ansible_check_mode
 
   handlers:
     - name: restart-upower

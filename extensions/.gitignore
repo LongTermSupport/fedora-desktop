@@ -1,2 +1,4 @@
-node_modules/
+# No trailing slash: a worktree gets node_modules as a SYMLINK (hooks-daemon worktree
+# seed), and `node_modules/` matches directories only.
+node_modules
 tests/assets/

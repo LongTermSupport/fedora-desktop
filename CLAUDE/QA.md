@@ -156,12 +156,16 @@ it needs a real host and a `gh` token, so it is a host diagnostic.
 than what the repository ships. A local run and a CI run disagreeing is a fact about the
 stage, not a flaky gate — find which input differs before touching anything.
 
-| Gate                     | What it needs from the machine                                                                                      | Where that is missing                                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                 | a clean checkout, and a linked worktree                                  |
-| `qa-js.bash`             | `extensions/node_modules` — its own message says no playbook installs it. Exits **2**, which still aborts the run   | a linked worktree, and any checkout where `npm install` has not been run |
-| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                    | the CCY container and a clean checkout — it self-skips **and names why** |
-| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present | a VM whose only connector is virtual                                     |
+| Gate                     | What it needs from the machine                                                                                      | Where that is missing                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `qa-ansible-syntax.bash` | a vault password file to **exist** (never read — `--syntax-check` does not decrypt)                                 | a clean checkout, and a worktree made by bare `git worktree add`                 |
+| `qa-js.bash`             | `extensions/node_modules` — its own message says no playbook installs it. Exits **2**, which still aborts the run   | a bare `git worktree add`, and any checkout where `npm install` has not been run |
+| `qa-deployed-drift.bash` | deployed copies under `~/.local/bin` to compare the repo against                                                    | the CCY container and a clean checkout — it self-skips **and names why**         |
+| `qa-helper-tests.bash`   | one pair asserts against real `/sys/class/drm` and skips where no connector with a physical display link is present | a VM whose only connector is virtual                                             |
+
+A worktree Claude Code creates gets the first two as symlinks to the main checkout's copies:
+the `worktree_create` seed in `.claude/hooks-daemon.yaml` lists them, with `localhost.yml`
+for the commit hooks' private-identifier check. A bare `git worktree add` gets none of them.
 
 `qa-deployed-drift.bash` is the shape to copy: it states the dependency, skips only for a
 reason it prints, and the reason is checkable.

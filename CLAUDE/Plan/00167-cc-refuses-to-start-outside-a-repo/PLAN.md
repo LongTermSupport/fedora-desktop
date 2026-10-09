@@ -17,14 +17,20 @@ in this repo, but it worked without any of the project's safeguards and without 
 they were missing.
 
 This plan makes `cc` check that it is inside a git working tree before it does anything
-else (before the tmux re-exec and the token chooser), and stop with a clear message if it
-is not.
+else (before the tmux re-exec and the token chooser). If it is not, `cc` offers to switch to
+this machine's fedora-desktop checkout, which is almost always what was meant, and carries
+on from there. If the offer is declined, or there is no terminal to ask on, it stops with a
+clear message.
 
 ## Goals
 
-- `cc` run outside a git working tree exits non-zero with a message naming the directory
-  and the two ways forward: `cd` into a project, or run `claude` directly.
-- It refuses before it creates a tmux session or shows the token chooser.
+- `cc` run outside a git working tree, in a terminal, names the directory and offers to
+  switch to the fedora-desktop checkout. Accepting starts the session there as if `cc` had
+  been typed in it. Declining exits non-zero with the ways forward: `cd` into a project, or
+  run `claude` directly.
+- With no terminal, `cc` outside a repository exits non-zero with the same message and
+  asks nothing.
+- The check happens before `cc` creates a tmux session or shows the token chooser.
 - `cc` inside a repository behaves exactly as it does now.
 
 ## Non-Goals
@@ -45,15 +51,23 @@ is not.
 - [ ] ⬜ **Task 1.2**: Establish what a reboot restore (`ccy-sessions restore`, Plan 00135)
   does when a recorded `cc` session's directory is no longer a repository, and how
   `verify-restore` reports that `cc` exiting. Record it in the journal; no behaviour change
-  is planned for it unless it would hang or be reported as success.
+  is planned for it unless it would hang or be reported as success. A restore has no
+  terminal answer to give, so it must take the no-terminal path, never the offer.
+- [ ] ⬜ **Task 1.3**: Decide how `cc` finds the fedora-desktop checkout. `cc` is copied, not
+  templated, so the path has to reach it from the play, for example as a small file the
+  play writes beside `cc` from its `root_dir`. Nothing install-specific is hardcoded in the
+  repo. Record it as Decision 3.
 
 ### Phase 2: Implement
 
 - [ ] ⬜ **Task 2.1**: In `cc`, after `umask 077` and **before** the interactive-terminal check,
-  run `git rev-parse --show-toplevel` and refuse with `print_error`-style output on stderr
-  when it fails. Before the terminal check, so the refusal is testable without a pty and
-  never reaches tmux. Here `git rev-parse` asking about the cwd is the point, unlike in plan
-  scripts. `git` absent is its own error, not a refusal for the wrong reason.
+  run `git rev-parse --show-toplevel`. Here `git rev-parse` asking about the cwd is the
+  point, unlike in plan scripts. `git` absent is its own error, not a refusal for the wrong
+  reason. Outside a repository with no terminal: refuse on stderr and exit 1. With a
+  terminal: name the directory and offer the fedora-desktop checkout, `[Y/n]`. Validate the
+  answer strictly, re-prompt a bounded number of times on anything else
+  (`InteractiveScripts.md`), `cd` there on yes, and refuse on no. The `cd` happens before the
+  tmux re-exec, so the session name and the restore record both use the checkout.
 - [ ] ⬜ **Task 2.2**: Apply Decision 2 for subdirectories, if Task 1.1 calls for anything.
 - [ ] ⬜ **Task 2.3**: Document the behaviour in `docs/ccy.md` (the `cc` paragraph near line
   198\) and add a `cc` entry to `docs/ccy-changelog.md`. No `CCY_VERSION` bump: `cc` is not
@@ -65,11 +79,12 @@ is not.
 - [ ] ⬜ **Task 3.1**: `deploy.bash` runs `play-claude-yolo.yml`.
 - [ ] ⬜ **Task 3.2**: `acceptance.bash` runs the deployed `/var/local/claude-code/cc` with
   stdin not a terminal: from a fresh `mktemp -d` it must exit 1 with the repository
-  refusal, and from the repository root it must get past that check and stop at the
-  terminal check instead. A tmux session list taken before and after shows no new `cc-`
-  session. Prints `COVERAGE: n of m`.
-- [ ] ⬜ **Task 3.3**: Add the plan to `meta-deploy.bash`; the owner runs it, then types `cc`
-  once in `~` and once in a project.
+  refusal and ask nothing, and from the repository root it must get past that check and
+  stop at the terminal check instead. A tmux session list taken before and after shows no
+  new `cc-` session. Prints `COVERAGE: n of m`. The offer itself needs a terminal and is
+  listed as NOT ESTABLISHABLE for the owner's check.
+- [ ] ⬜ **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs it, then types `cc`
+  in `~` (accepts the offer once and declines it once) and once in a project.
 
 ### Phase 4: Review and close
 
@@ -85,25 +100,34 @@ is not.
 
 ## Technical Decisions
 
-### Decision 1: Hard refusal, no confirm prompt, no override
+### Decision 1: Offer the fedora-desktop checkout; otherwise refuse, with no override
 
 **Context**: The handover asked: hard fail, or warn and confirm? Escape hatch or not?
 **Options considered**: (A) refuse and exit 1. (B) warn and ask "start anyway?". (C) refuse
-unless a flag or variable is set.
-**Decision**: A, confirmed by the owner, who wants `cc` in line with `ccy`. A prompt gets answered "y" by reflex, which defeats the point. A flag is
-YAGNI next to `claude`, which already starts a session anywhere. The refusal is not a
-recoverable input mistake in the sense of `InteractiveScripts.md`: `cc` cannot change its
-caller's directory, so there is nothing to re-prompt for.
+unless a flag or variable is set. (D) offer to switch to the fedora-desktop checkout and
+refuse if that is declined.
+**Decision**: D, at the owner's request. They want `cc` in line with `ccy`, and starting
+`cc` outside a repo almost always meant starting it in this one. Every answer to the offer
+ends in a project session or no session, so unlike (B) a reflexive "y" is harmless. There is
+no flag: plain `claude` already starts a session anywhere (YAGNI). `cc` cannot change its
+caller's directory, but it can `cd` in its own process before it starts `claude`, which is
+all the offer needs.
 **Date**: 2026-10-09
 
 ### Decision 2: Subdirectories of a repository
 
 To be settled by Task 1.1.
 
+### Decision 3: How `cc` finds the checkout
+
+To be settled by Task 1.3.
+
 ## Success Criteria
 
-- [ ] `cc` in a directory outside any git working tree exits 1 with the refusal, and starts
+- [ ] `cc` outside any git working tree with no terminal exits 1 with the refusal and starts
   no tmux session.
+- [ ] `cc` outside any git working tree in a terminal offers the fedora-desktop checkout;
+  yes starts the session there, no exits 1 (owner check).
 - [ ] `cc` at a repository root starts as before (owner check).
 - [ ] Subdirectory behaviour matches Decision 2.
 - [ ] QA passes (`./scripts/qa-all.bash`) and the `qa-reviewer` findings are resolved.
