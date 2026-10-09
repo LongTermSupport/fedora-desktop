@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.89.0"  # Restore replays the recorded compose answer (--compose); no launch question is read with nobody to answer it. See docs/ccy-changelog.md.
+CCY_VERSION="3.89.1"  # Restore replays the recorded compose answer (--compose) and never ends on a stack that will not start. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -406,11 +406,11 @@ if [ -d ".claude/ccy/sessions" ] && [ -z "$CCY_RESTART_RELAUNCH_SESSION" ]; then
         echo ""
         echo "Claude Code now uses .claude/ directly (project-level state)."
         echo ""
-        # Keeping them is the same safe answer with nobody to ask: a restore (its marker is
-        # read properly further down; this runs before the arguments are parsed), or no
-        # terminal.
-        if ccy_nobody_to_ask || [ -n "${CCY_SESSION_RESTORE:-}" ]; then
-            echo "Nobody to ask (a session restore, or no terminal): the old session directories are kept."
+        # Keeping them is the same safe answer with nobody to ask: no terminal, --headless, or a
+        # restore. This runs before the arguments are parsed, so HEADLESS_MODE is not set yet
+        # and the arguments are scanned, and the restore marker is read properly further down.
+        if ccy_nobody_to_ask || ccy_args_headless "$@" || [ -n "${CCY_SESSION_RESTORE:-}" ]; then
+            echo "Nobody to ask (no terminal, --headless, or a session restore): the old session directories are kept."
             remove_sessions=n
         else
             read -rp "$CCY_PROMPT_MIGRATION " remove_sessions
@@ -861,6 +861,7 @@ for _ccy_dangling in max-age:"$NEXT_IS_MAX_AGE" run-for:"$NEXT_IS_RUN_FOR" until
     fi
 done
 unset _ccy_dangling
+debug "compose questions answered by --compose: $COMPOSE_MODE (read by lib/network-management.bash)"
 ccy_lifecycle_validate_options "$OPT_MAX_AGE" "$OPT_RUN_FOR" "$OPT_UNTIL" "$NO_SUPERVISE_MODE" || exit 1
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -938,6 +939,14 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
             exit 1
         fi
     fi
+fi
+
+# The debug chooser asks which layers to debug, and later waits for Enter: with nobody to
+# answer (--headless, or no terminal) it is refused before it asks.
+if [ "$SHOW_DEBUG_CHOOSER" = true ] && ccy_nobody_to_ask; then
+    print_error "--debug asks which layers to debug, and nobody can answer it here (a --headless launch, or stdin is not a terminal)."
+    echo "  Launch without --debug, or with --debug from a terminal, without --headless." >&2
+    exit 64
 fi
 
 # Handle debug layer selection
@@ -2822,7 +2831,12 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                 case "$start_compose" in
                                     Y|y|Yes|yes)
                                         echo "Starting podman-compose..."
-                                        if podman-compose up -d; then
+                                        _ccy_up_rc=0
+                                        ccy_compose_up podman-compose podman-compose || _ccy_up_rc=$?
+                                        if [ "$_ccy_up_rc" -eq 2 ]; then
+                                            continue
+                                        fi
+                                        if [ "$_ccy_up_rc" -eq 0 ]; then
                                             echo ""
                                             echo "✓ Compose services started"
                                             echo ""
@@ -2852,10 +2866,6 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                             fi
                                             COMPOSE_ALREADY_HANDLED=true
                                         else
-                                            if [ "$COMPOSE_MODE" = start ]; then
-                                                print_error "the compose services could not be started (--compose start): 'podman-compose up -d' failed (see above)."
-                                                exit 1
-                                            fi
                                             echo "⚠ podman-compose failed. Check errors above."
                                             COMPOSE_ALREADY_HANDLED=true
                                         fi
@@ -3176,7 +3186,13 @@ else
                     case "$start_compose" in
                         Y|y|Yes|yes)
                             echo "Starting compose services..."
-                            if $COMPOSE_CMD up -d; then
+                            _ccy_up_rc=0
+                            read -ra _ccy_compose_words <<<"$COMPOSE_CMD"
+                            ccy_compose_up "$COMPOSE_CMD" "${_ccy_compose_words[@]}" || _ccy_up_rc=$?
+                            if [ "$_ccy_up_rc" -eq 2 ]; then
+                                continue
+                            fi
+                            if [ "$_ccy_up_rc" -eq 0 ]; then
                                 echo ""
                                 echo "✓ Compose services started"
                                 echo ""
@@ -3201,10 +3217,6 @@ else
                                     echo "✓ Will connect CCY to this network"
                                 fi
                             else
-                                if [ "$COMPOSE_MODE" = start ]; then
-                                    print_error "the compose services could not be started (--compose start): '$COMPOSE_CMD up -d' failed (see above)."
-                                    exit 1
-                                fi
                                 echo ""
                                 echo "⚠ Compose failed to start. Check errors above."
                             fi
@@ -3256,7 +3268,12 @@ fi  # End of network flag handling (if/elif/else)
 # How the project's compose services stood (started, declined, or already running) goes into
 # this session's record, so a restore after a reboot answers the compose question the same
 # way, with --compose, and nobody has to be there (fedora-desktop#87).
-ccy_compose_record_outcome || exit 1
+# A failure to write it does not end the launch: the record keeps its previous answer, and
+# ending here would make the trampoline remove the whole record, so the session would never
+# be restored again.
+if ! ccy_compose_record_outcome; then
+    echo "⚠ Could not record how the compose services stood (see above); this session's restore record keeps its previous compose answer." >&2
+fi
 
 # Network Strategy: Use requested network but verify it has internet access
 # =========================================================================

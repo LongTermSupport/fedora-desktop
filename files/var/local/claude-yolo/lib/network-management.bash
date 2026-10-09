@@ -921,9 +921,62 @@ check_and_start_compose_services() {
 }
 
 # ccy_compose_outcome_set <started|declined|running> — note how the project's compose services
-# stood, for ccy_compose_record_outcome. The launcher's own compose questions call it too.
+# stood, for ccy_compose_record_outcome. The launcher's own compose questions call it too. A no
+# given after a restore's start failed (CCY_COMPOSE_ASK_AGAIN) is "not now", not the answer the
+# record keeps: the record still says started, so the next restore tries again.
 ccy_compose_outcome_set() {
-    CCY_COMPOSE_OUTCOME="${1:?ccy_compose_outcome_set requires an outcome}"
+    local outcome="${1:?ccy_compose_outcome_set requires an outcome}"
+    if [[ "$outcome" == declined && "${CCY_COMPOSE_ASK_AGAIN:-false}" == true ]]; then
+        return 0
+    fi
+    CCY_COMPOSE_OUTCOME="$outcome"
+}
+
+# How often a restore tries `up -d` under --compose start before asking in its pane, and the
+# wait between tries in seconds. Just after a boot it fails for passing reasons: the network
+# not up yet, a port still held, podman's storage settling after an update.
+CCY_COMPOSE_UP_TRIES=3
+CCY_COMPOSE_UP_RETRY_SECONDS=10
+
+# ccy_compose_up <display-name> <compose-command...> — run `<compose-command> up -d`.
+#   0  the services started
+#   1  they did not, and the caller handles that as it always has (a person answered yes)
+#   2  a restore under --compose start, or a person's retry after one, could not start them:
+#      COMPOSE_MODE is now ask and CCY_COMPOSE_ASK_AGAIN true, and the caller asks the
+#      question again in the pane. Ending the launch there would cost the session its restore
+#      record (the trampoline removes it when the launcher returns), so it would never come
+#      back; waiting at the question keeps the record and verify-restore still reports it.
+# Under --compose start outside a restore it exits 1 with the reason: a person gave the flag
+# to a launch they are watching, or the launch has no terminal and so no restore record.
+ccy_compose_up() {
+    local name="${1:?ccy_compose_up requires a display name}"
+    shift
+    local try=1 tries=1 restore_start=false
+    if [[ "${COMPOSE_MODE:-ask}" == start && "${SESSION_RESTORE:-false}" == true ]]; then
+        restore_start=true
+        tries="$CCY_COMPOSE_UP_TRIES"
+    fi
+    while true; do
+        if "$@" up -d; then
+            CCY_COMPOSE_ASK_AGAIN=false
+            return 0
+        fi
+        [[ "$try" -lt "$tries" ]] || break
+        echo "⚠ '$name up -d' failed (try $try of $tries); trying again in ${CCY_COMPOSE_UP_RETRY_SECONDS}s..."
+        sleep "$CCY_COMPOSE_UP_RETRY_SECONDS"
+        try=$((try + 1))
+    done
+    if [[ "$restore_start" == true || "${CCY_COMPOSE_ASK_AGAIN:-false}" == true ]]; then
+        CCY_COMPOSE_UP_FAILED_TRIES="$tries"
+        COMPOSE_MODE=ask
+        CCY_COMPOSE_ASK_AGAIN=true
+        return 2
+    fi
+    if [[ "${COMPOSE_MODE:-ask}" == start ]]; then
+        print_error "the compose services could not be started (--compose start): '$name up -d' failed (see above). Not starting a session without them."
+        exit 1
+    fi
+    return 1
 }
 
 # ccy_compose_record_outcome — put CCY_COMPOSE_OUTCOME (started, declined or running; set by
@@ -970,8 +1023,10 @@ ccy_compose_answer() {
         ccy_prompt_refuse compose-start "Launch with --compose start (run up -d) or --compose skip (leave them stopped)."
         exit 1
     fi
-    if [[ "${SESSION_RESTORE:-false}" == true ]]; then
-        echo "Session restore: this session's record holds no compose answer (it was written by a ccy older than 3.89.0), so the question is asked here. The answer is recorded, and the next restore replays it."
+    if [[ "${CCY_COMPOSE_ASK_AGAIN:-false}" == true ]]; then
+        echo "The compose services did not start after ${CCY_COMPOSE_UP_FAILED_TRIES:-1} tries (see above). y tries again; n carries on without them for now, and the record still says started, so the next restore tries again; Ctrl+C ends the session."
+    elif [[ "${SESSION_RESTORE:-false}" == true ]]; then
+        echo "Session restore: this session's record holds no compose answer (it was written by a ccy older than 3.89.1), so the question is asked here. The answer is recorded, and the next restore replays it."
     fi
     if ! read -rp "$prompt" CCY_COMPOSE_REPLY; then
         echo "" >&2
@@ -983,8 +1038,8 @@ ccy_compose_answer() {
 
 # Internal helper to start compose (shared between offer_compose_start and check_and_start_compose_services)
 # Args: $1 = expected_network, $2 = project_name
-# Sets CCY_COMPOSE_OUTCOME to started or declined once answered. A stack that will not start
-# under --compose start ends the launch: the session it would start is not the recorded one.
+# Notes started or declined once answered (ccy_compose_outcome_set). A stack that will not
+# start under --compose start is ccy_compose_up's to handle: a restore asks again in its pane.
 _do_compose_start() {
     local expected_network="$1"
     local project_name="$2"
@@ -1033,11 +1088,18 @@ _do_compose_start() {
         case "$start_choice" in
             Y|y|Yes|yes)
                 echo "Starting $compose_name..."
-                if $compose_cmd up -d; then
+                local up_rc=0
+                local -a compose_words=()
+                read -ra compose_words <<<"$compose_cmd"
+                ccy_compose_up "$compose_name" "${compose_words[@]}" || up_rc=$?
+                if [ "$up_rc" -eq 2 ]; then
+                    continue
+                fi
+                if [ "$up_rc" -eq 0 ]; then
                     echo ""
                     echo "✓ Compose services started"
                     echo ""
-                    CCY_COMPOSE_OUTCOME=started
+                    ccy_compose_outcome_set started
                     # Track for session-end teardown offer (read by claude-yolo after container exits)
                     export CCY_COMPOSE_WAS_STARTED=true
                     export CCY_COMPOSE_CMD="$compose_cmd"
@@ -1072,17 +1134,13 @@ _do_compose_start() {
                         return 1
                     fi
                 else
-                    if [[ "${COMPOSE_MODE:-ask}" == start ]]; then
-                        print_error "the compose services could not be started (--compose start): '$compose_name up -d' failed (see above). A session without them is not the one that was recorded, so none is started."
-                        exit 1
-                    fi
                     echo "⚠ $compose_name failed. Check errors above."
                     echo "────────────────────────────────────────────────────────────────────────────────"
                     return 1
                 fi
                 ;;
             N|n|No|no)
-                CCY_COMPOSE_OUTCOME=declined
+                ccy_compose_outcome_set declined
                 echo "Skipping compose startup"
                 echo "Run '$compose_name up -d' manually when ready"
                 echo "────────────────────────────────────────────────────────────────────────────────"

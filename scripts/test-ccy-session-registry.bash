@@ -619,7 +619,7 @@ check "  so a launch's --compose and its value are dropped" "--token|work" \
 # The launcher records the outcome once, after the network section, and only from a session
 # ccy started under tmux (the same lookup the SSH key uses).
 check "the launcher records the compose outcome after the network section" "yes" \
-    "$(awk '/End of network flag handling/ { net = NR } /^ccy_compose_record_outcome \|\| exit 1$/ && net && NR > net { found = 1 } END { print (found ? "yes" : "no") }' "$LAUNCHER")"
+    "$(awk '/End of network flag handling/ { net = NR } /^if ! ccy_compose_record_outcome; then$/ && net && NR > net { found = 1 } END { print (found ? "yes" : "no") }' "$LAUNCHER")"
 check "  which hands it to ccy_registry_record_compose for this session" "1" \
     "$(grep -c -F "ccy_registry_record_compose \"\$name\" \"\$CCY_COMPOSE_OUTCOME\"" "$LIB_DIR/network-management.bash")"
 

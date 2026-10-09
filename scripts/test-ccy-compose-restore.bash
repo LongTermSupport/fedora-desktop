@@ -66,20 +66,25 @@ RUNNING="$WORK/running"
 # "rc=<subshell status>" last.
 #
 # The stubs: `network inspect --format {{len .Containers}}` reads $RUNNING (how many containers
-# are up on any network); `podman-compose up -d` appends to $UP_LOG, exits STUB_UP_RC and, on
-# success, brings one container up; `podman-compose ps -q` prints STUB_PS_IDS, whose
-# containers inspect as running when STUB_PS_RUNNING is true.
+# are up on any network); `podman-compose up -d` appends to $UP_LOG and fails (status 3) when
+# STUB_UP_RC is not 0 or while it has been called no more than STUB_UP_FAILS times, else brings
+# one container up; `podman-compose ps -q` prints STUB_PS_IDS, whose containers inspect as
+# running when STUB_PS_RUNNING is true. The session registry lives in $WORK/state, and
+# ccy_tmux_current_session prints STUB_SESSION (the CCY session this launch runs in, or none).
 run_case() {
     local stdin_kind="$1" answer="$2" settings="$3" call="$4"
     local driver="$WORK/driver.bash"
     cat >"$driver" <<DRIVER
 set -uo pipefail
 cd "$PROJECT" || exit 99
-export CONTAINER_ENGINE=podman
-STUB_UP_RC=0 STUB_PS_IDS="" STUB_PS_RUNNING=false
+export CONTAINER_ENGINE=podman CCY_STATE_DIR="$WORK/state"
+STUB_UP_RC=0 STUB_UP_FAILS=0 STUB_PS_IDS="" STUB_PS_RUNNING=false STUB_SESSION=""
 source "$LIB_DIR/common-pure.bash"
 source "$LIB_DIR/network-management.bash"
+source "$LIB_DIR/session-registry.bash"
+source "$LIB_DIR/ssh-handling.bash"
 sleep() { :; }
+ccy_tmux_current_session() { printf '%s' "\$STUB_SESSION"; }
 container_cmd() {
     case "\$1 \${2:-}" in
     "network inspect") cat "$RUNNING" ;;
@@ -93,6 +98,7 @@ podman-compose() {
     "up -d")
         printf 'up -d\n' >>"$UP_LOG"
         [ "\$STUB_UP_RC" -eq 0 ] || return "\$STUB_UP_RC"
+        [ "\$(grep -c . "$UP_LOG")" -gt "\$STUB_UP_FAILS" ] || return 3
         printf '1\n' >"$RUNNING"
         ;;
     "ps -q") printf '%s\n' "\$STUB_PS_IDS" ;;
@@ -100,7 +106,7 @@ podman-compose() {
     esac
 }
 $settings
-( $call; echo "ret=\$?"; echo "outcome=\${CCY_COMPOSE_OUTCOME:-}" )
+( $call; call_rc=\$?; echo; echo "ret=\$call_rc"; echo "outcome=\${CCY_COMPOSE_OUTCOME:-}" )
 echo "rc=\$?"
 DRIVER
     if [ "$stdin_kind" = terminal ]; then
@@ -144,11 +150,73 @@ check "  the outcome is started" "started" "$(field outcome "$out")"
 check "  and it says why it did not ask" "yes" "$(has "$out" "--compose start")"
 check "  and no question was printed" "no" "$(has "$out" "$CCY_PROMPT_COMPOSE_START")"
 
+# A person who gave --compose start at a terminal chose it for a launch they are watching: a
+# stack that will not start ends that fresh launch, with the reason.
 fresh 0 compose.yml
 out="$(run_case none "" "COMPOSE_MODE=start STUB_UP_RC=3" '_do_compose_start project-a_default project-a')"
-check "a stack that will not start is a failure of the launch, not a session without it" "1" "$(field rc "$out")"
+check "not a restore: a stack that will not start ends the launch" "1" "$(field rc "$out")"
 check "  it never returned to carry on" "" "$(field ret "$out")"
 check "  and the reason is named" "yes" "$(has "$out" "could not be started")"
+check "  after one try" "1" "$(ups)"
+
+echo ""
+echo "=== --compose start in a restore: a failure never ends the launch (fedora-desktop#87 review B1) ==="
+# A restored session's record goes when its launcher returns, so a restore that ended on a
+# stack that would not start would never be restored again. Right after a boot `up -d` fails
+# for passing reasons, so it is tried again, and then the question is asked in the pane.
+fresh 0 compose.yml
+out="$(run_case none "" "COMPOSE_MODE=start SESSION_RESTORE=true STUB_UP_FAILS=2" '_do_compose_start project-a_default project-a')"
+check "a passing failure: tried again until it starts, nothing asked" "0|3|started" \
+    "$(field ret "$out")|$(ups)|$(field outcome "$out")"
+check "  and no question was printed" "no" "$(has "$out" "$CCY_PROMPT_COMPOSE_START")"
+
+fresh 0 compose.yml
+out="$(run_case terminal "n" "COMPOSE_MODE=start SESSION_RESTORE=true STUB_UP_RC=3" '_do_compose_start project-a_default project-a')"
+check "it keeps failing: the launch carries on (the subshell returned)" "0|1" "$(field rc "$out")|$(field ret "$out")"
+check "  after every try" "3" "$(ups)"
+check "  the question is asked in the pane" "yes" "$(has "$out" "$CCY_PROMPT_COMPOSE_START")"
+check "  with why, on a line before it" "yes" \
+    "$(printf '%s\n' "$out" | awk -v q="$CCY_PROMPT_COMPOSE_START" 'index($0, "did not start after") { note = NR } index($0, q) == 1 && !ask { ask = NR } END { print (note && ask && note < ask ? "yes" : "no") }')"
+check "  and n there is not the record's answer: no outcome is noted" "" "$(field outcome "$out")"
+
+fresh 0 compose.yml
+out="$(run_case terminal "y" "COMPOSE_MODE=start SESSION_RESTORE=true STUB_UP_FAILS=3" '_do_compose_start project-a_default project-a')"
+check "y there tries again, and a start then is started" "0|4|started" \
+    "$(field ret "$out")|$(ups)|$(field outcome "$out")"
+
+# The record itself, end to end: a restored session whose stack will not start keeps its
+# record, compose=started included, so the next boot tries again.
+rm -rf "$WORK/state"
+mkdir -p "$WORK/state/sessions"
+printf 'ccy-session-record 1\nname=ccy-project-a\ndir=%s\nlauncher=/launch/ccy\nprefix=ccy\nrestore=yes\ncompose=started\narg=--token\narg=work\n' \
+    "$PROJECT" >"$WORK/state/sessions/ccy-project-a"
+fresh 0 compose.yml
+out="$(run_case terminal "n" "COMPOSE_MODE=start SESSION_RESTORE=true STUB_UP_RC=3 STUB_SESSION=ccy-project-a" \
+    '_do_compose_start project-a_default project-a; ccy_compose_record_outcome')"
+check "a failed up -d in a restore leaves the launch running" "0" "$(field rc "$out")"
+check "  and the record in place, still compose=started" "1" \
+    "$(grep -cx 'compose=started' "$WORK/state/sessions/ccy-project-a" 2>&1)"
+
+echo ""
+echo "=== the outcome reaches the record (fedora-desktop#87 review B2) ==="
+rm -rf "$WORK/state"
+mkdir -p "$WORK/state/sessions"
+rec_line() { printf 'ccy-session-record 1\nname=ccy-project-a\ndir=%s\nlauncher=/launch/ccy\nprefix=ccy\nrestore=yes\narg=--token\narg=work\n' "$PROJECT"; }
+rec_line >"$WORK/state/sessions/ccy-project-a"
+out="$(run_case none "" "STUB_SESSION=ccy-project-a CCY_COMPOSE_OUTCOME=running" 'ccy_compose_record_outcome')"
+check "an outcome is written into this session's record" "0|1" \
+    "$(field ret "$out")|$(grep -cx 'compose=running' "$WORK/state/sessions/ccy-project-a")"
+check "  the rest of the record as it was" "2" "$(grep -c '^arg=' "$WORK/state/sessions/ccy-project-a")"
+rec_line >"$WORK/state/sessions/ccy-project-a"
+out="$(run_case none "" "STUB_SESSION=ccy-project-a" 'ccy_compose_record_outcome')"
+check "no outcome: nothing written" "0|0" "$(field ret "$out")|$(grep -c '^compose=' "$WORK/state/sessions/ccy-project-a")"
+out="$(run_case none "" "STUB_SESSION= CCY_COMPOSE_OUTCOME=started" 'ccy_compose_record_outcome')"
+check "no CCY session: nothing written, not a failure" "0|0" "$(field ret "$out")|$(grep -c '^compose=' "$WORK/state/sessions/ccy-project-a")"
+fresh 0 compose.yml
+out="$(run_case none "" "COMPOSE_MODE=start STUB_SESSION=ccy-project-a" '_do_compose_start project-a_default project-a; ccy_compose_record_outcome')"
+check "a start noted by the compose code lands in the record" "1" \
+    "$(grep -cx 'compose=started' "$WORK/state/sessions/ccy-project-a")"
+rm -rf "$WORK/state"
 
 echo ""
 echo "=== --compose skip: a restore whose stack was declined ==="
@@ -220,6 +288,72 @@ check "the saved network gone but the services up: running, nothing asked" "0|ru
     "$(field ret "$out")|$(field outcome "$out")|$(ups)"
 
 echo ""
+echo "=== the launcher's own argument loop sets COMPOSE_MODE (review B2) ==="
+# The loop is taken from the launcher as it stands, from its variable defaults to its `done`,
+# and run on real argv: a replayed `--compose start` must reach COMPOSE_MODE as start.
+awk '/^# Check for wrapper flags$/ { on = 1 } on { print } on && /^done$/ { exit }' "$LAUNCHER" >"$WORK/parse.bash"
+check "the argument loop was found" "yes" \
+    "$(grep -q 'COMPOSE_MODE=ask' "$WORK/parse.bash" && grep -qx 'done' "$WORK/parse.bash" && echo yes || echo no)"
+cat >"$WORK/parse-driver.bash" <<'PARSE_DRIVER'
+set -uo pipefail
+source "$1"
+parse="$2"
+shift 2
+# shellcheck source=/dev/null
+source "$parse"
+printf 'mode=%s dangling=%s\n' "$COMPOSE_MODE" "$NEXT_IS_COMPOSE"
+PARSE_DRIVER
+parse_args() { bash "$WORK/parse-driver.bash" "$LIB_DIR/common-pure.bash" "$WORK/parse.bash" "$@" 2>&1; }
+check "no flag: ask" "mode=ask dangling=false" "$(parse_args --token work)"
+check "--compose start" "mode=start dangling=false" "$(parse_args --token work --compose start)"
+check "--compose skip" "mode=skip dangling=false" "$(parse_args --compose skip --no-network)"
+check "--compose ask" "mode=ask dangling=false" "$(parse_args --compose ask)"
+check "after --, --compose is claude's word" "mode=ask dangling=false" "$(parse_args -- --compose start)"
+check "--compose at the end is left wanting a value (the launcher then refuses it)" "mode=ask dangling=true" \
+    "$(parse_args --token work --compose)"
+check "  and that refusal covers it" "1" "$(grep -c -F "compose:\"\$NEXT_IS_COMPOSE\"" "$LAUNCHER")"
+out="$(parse_args --compose sometimes)"
+check "a value that is none of the three exits 64, naming it" "64|yes" \
+    "$(bash "$WORK/parse-driver.bash" "$LIB_DIR/common-pure.bash" "$WORK/parse.bash" --compose sometimes >"$WORK/parse.out" 2>&1; echo "$?")|$(has "$out" "sometimes")"
+
+echo ""
+echo "=== the SSH questions with nobody to answer (review R1) ==="
+NOKEY_HOME="$WORK/nokey-home"
+mkdir -p "$NOKEY_HOME/.ssh"
+out="$(run_case none "" "HOME=$NOKEY_HOME; unset SSH_AUTH_SOCK; CCY_UNATTENDED_LAUNCH=true" 'discover_and_select_ssh_keys ccy')"
+check "no key at all, a restore: carries on without one, nothing asked" "0|yes|no" \
+    "$(field ret "$out")|$(has "$out" "continuing WITHOUT an SSH key")|$(has "$out" "$CCY_PROMPT_SSH_NO_KEY")"
+out="$(run_case terminal "" "HOME=$NOKEY_HOME; unset SSH_AUTH_SOCK" 'discover_and_select_ssh_keys ccy')"
+check "no key at all, a person: asked, Enter carries on" "0|yes" \
+    "$(field ret "$out")|$(has "$out" "$CCY_PROMPT_SSH_NO_KEY")"
+SSH_ADD_LOG="$WORK/ssh-add.log"
+rm -f "$SSH_ADD_LOG"
+out="$(run_case none "" "CCY_PROBE_AGENT_SOCK=$WORK/agent.sock; ssh-add() { printf 'x\n' >>'$SSH_ADD_LOG'; return 1; }" '_probe_agent_add_key /k/id_one')"
+check "a passphrase that did not open the key, no terminal: refused by name after one try" "1|1|yes" \
+    "$(field ret "$out")|$(grep -c . "$SSH_ADD_LOG")|$(has "$out" "ssh-passphrase-retry")"
+out="$(run_case none "" "CCY_UNATTENDED_LAUNCH=true" 'ccy_github_443_answer')"
+check "GitHub over 443, a restore: yes, nothing asked" "0|no" "$(field ret "$out")|$(has "$out" "$CCY_PROMPT_GITHUB_443")"
+out="$(run_case none "" "" 'ccy_github_443_answer')"
+check "GitHub over 443, no terminal: yes" "0" "$(field ret "$out")"
+out="$(run_case terminal "n" "" 'ccy_github_443_answer')"
+check "GitHub over 443, a person says n: no" "1|yes" "$(field ret "$out")|$(has "$out" "$CCY_PROMPT_GITHUB_443")"
+out="$(run_case terminal "" "" 'ccy_github_443_answer')"
+check "GitHub over 443, a person presses Enter: yes" "0" "$(field ret "$out")"
+check "the 443 question is asked only through ccy_github_443_answer" "1|1" \
+    "$(grep -c -F "read -rp \"\$CCY_PROMPT_GITHUB_443" "$LIB_DIR/ssh-handling.bash")|$(grep -c 'if ccy_github_443_answer; then' "$LIB_DIR/ssh-handling.bash")"
+
+echo ""
+echo "=== --headless before the arguments are parsed, and --debug (review R1) ==="
+out="$(run_case terminal "" "" 'ccy_args_headless --token t --headless --prompt go')"
+check "--headless among the launcher's arguments is seen" "0" "$(field ret "$out")"
+out="$(run_case terminal "" "" 'ccy_args_headless --token t -- --headless')"
+check "--headless after -- is claude's word" "1" "$(field ret "$out")"
+check "the old-session-directories question honours --headless (it runs before the parse)" "1" \
+    "$(grep -c -F "if ccy_nobody_to_ask || ccy_args_headless \"\$@\" || [ -n \"\${CCY_SESSION_RESTORE:-}\" ]; then" "$LAUNCHER")"
+check "--debug is refused with nobody to answer its chooser, before the chooser" "yes" \
+    "$(awk '/SHOW_DEBUG_CHOOSER" = true \] && ccy_nobody_to_ask/ { g = NR } /Enter layer numbers/ && !r { r = NR } END { print (g && r && g < r ? "yes" : "no") }' "$LAUNCHER")"
+
+echo ""
 echo "=== the launcher: every compose question goes through ccy_compose_answer ==="
 check "no compose question is read directly any more" "0" \
     "$(cat "$LAUNCHER" "$LIB_DIR"/*.bash | grep -c -F "read -rp \"\$CCY_PROMPT_COMPOSE_START")"
@@ -240,7 +374,7 @@ echo "=== the launcher: no question is read where nobody can answer it ==="
 # guard_gaps <file> — the line numbers of the questions with no guard of their own.
 guard_gaps() {
     awk '
-        /ccy_nobody_to_ask|ccy_launch_unattended/ { guarded = 1 }
+        /(^|[[:space:]])(el)?if (ccy_nobody_to_ask|ccy_launch_unattended)/ { guarded = 1 }
         /read -rp? *"\$\{?CCY_PROMPT_(NETWORK_PRUNE|TOKEN_REPLACE|NETWORK_PICK)/ { next }
         /read -rp? *"\$\{?CCY_PROMPT_/ { if (!guarded) printf "%s ", NR; guarded = 0 }
     ' "$1"

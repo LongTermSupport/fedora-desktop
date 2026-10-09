@@ -179,15 +179,19 @@ is read where nobody can answer it.
 
 - [x] ✅ **Task 9.1**: The record keeps `compose=started|declined|running` (optional key,
   format stays 1); every rewrite carries it; the restore replays it as `--compose start|skip`;
-  CCY 3.89.0. Tests: `test-ccy-session-registry.bash`, `test-ccy-compose-restore.bash`.
+  CCY 3.89.1. Tests: `test-ccy-session-registry.bash`, `test-ccy-compose-restore.bash`.
 - [x] ✅ **Task 9.2**: Every launch question with nobody to answer (`--headless`, no
   terminal) takes its safe answer or refuses by name; a restore and a restart take the same
   safe answers. Inventory in the 26-10-09 journal.
-- [ ] 🔄 **Task 9.3**: PR review and merge (owner).
-- [ ] 🧑 **Task 9.4**: HOST: after the owner's meta-deploy run of `play-claude-yolo.yml` with
-  3.89.0, start a session in a project with a compose stack, reboot, and
-  `ccy-sessions verify-restore --wait 300` reports it `OK`, its stack up. A session started
-  on an older ccy has no recorded answer and still asks once.
+- [x] ✅ **Task 9.3**: Review findings fixed: a restore never ends on a stack that will not
+  start (retries, then asks in the pane, so the record survives); argv and record-write
+  tests; `--headless` honoured before the parse, by the relabel question and by `--debug`.
+- [ ] 🔄 **Task 9.5**: PR review and merge (owner).
+- [ ] 🧑 **Task 9.4**: HOST: once 3.89.1 is deployed by `play-claude-yolo.yml` (today run only
+  by Plan 00161's `deploy.bash`, while 00161 is in meta-deploy's list), start a session in a
+  project with a compose stack, reboot, and `ccy-sessions verify-restore --wait 300` reports
+  it `OK`, its stack up. A session started on an older ccy has no recorded answer and still
+  asks once.
 
 ## Dependencies
 

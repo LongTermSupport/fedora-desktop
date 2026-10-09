@@ -1349,6 +1349,26 @@ resolve_token_owner_login() {
     return 1
 }
 
+# ccy_github_443_answer — whether to route GitHub SSH over 443 for this session, when port 22
+# failed and 443 works: status 0 for yes. With nobody to ask (ccy_launch_unattended) it is
+# yes, the only way the launch can go on; a person is asked, and only n declines.
+ccy_github_443_answer() {
+    if ccy_launch_unattended; then
+        echo "  Nobody to ask (headless, a restore, a restart or no terminal) — enabling 443 automatically (the only way to proceed)."
+        return 0
+    fi
+    local reply_443=""
+    if ! read -rp "$CCY_PROMPT_GITHUB_443 " reply_443; then
+        echo "" >&2
+        print_error "No answer: the input closed at the GitHub-over-443 question."
+        return 1
+    fi
+    case "$reply_443" in
+    [Nn]*) return 1 ;;
+    *) return 0 ;;
+    esac
+}
+
 # Function to build SSH mounts and validate GitHub connection
 # Args: $1 = tool_name (for display)
 # Requires: SSH_KEYS global array (paths, or SSH_AGENT_SENTINEL for the session's agent)
@@ -1490,19 +1510,7 @@ build_ssh_mounts_and_validate() {
                 echo "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)."
                 echo "  Port 22 is likely blocked on this network."
                 echo "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
-                local enable_443=false
-                if ccy_launch_unattended; then
-                    echo "  Nobody to ask (headless, a restore, a restart or no terminal) — enabling 443 automatically (the only way to proceed)."
-                    enable_443=true
-                else
-                    local reply_443
-                    read -rp "$CCY_PROMPT_GITHUB_443 " reply_443
-                    case "$reply_443" in
-                        [Nn]*) enable_443=false ;;
-                        *) enable_443=true ;;
-                    esac
-                fi
-                if [ "$enable_443" = "true" ]; then
+                if ccy_github_443_answer; then
                     export GITHUB_SSH_443=1
                     gh_ssh_host="ssh.github.com"
                     gh_ssh_port="443"

@@ -115,6 +115,19 @@ ccy_nobody_to_ask() {
     [[ "${HEADLESS_MODE:-false}" == true || ! -t 0 ]]
 }
 
+# ccy_args_headless [args...] — true when the launcher's own arguments (before any `--`) hold
+# --headless. For the code that runs before the arguments are parsed, when HEADLESS_MODE is not
+# set yet. A --headless that is the value of a flag counts too; its one use is to take a
+# question's safe answer, which is the right side to err on.
+ccy_args_headless() {
+    local arg
+    for arg in "$@"; do
+        [[ "$arg" == "--" ]] && return 1
+        [[ "$arg" == "--headless" ]] && return 0
+    done
+    return 1
+}
+
 # ccy_launch_unattended — true when nobody is expected at the keyboard: ccy_nobody_to_ask, or
 # CCY_UNATTENDED_LAUNCH (the launcher's: a restore or a restart) is true.
 ccy_launch_unattended() {
