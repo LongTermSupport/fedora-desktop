@@ -68,6 +68,13 @@ def peer_line(content: str) -> str:
                        "origin": {"kind": "peer", "from": "unknown"}})
 
 
+def absorbed_line(prompt: str, *, kind: str = "peer") -> str:
+    """A message queued while the session was mid-turn, folded into that turn."""
+    return json.dumps({"type": "attachment", "attachment": {
+        "type": "queued_command", "prompt": prompt, "commandMode": "prompt",
+        "origin": {"kind": kind, "from": "unknown"}, "isMeta": True}})
+
+
 def typed_line(content: str) -> str:
     return json.dumps({"type": "user", "message": {"role": "user", "content": content}})
 
@@ -277,6 +284,13 @@ class NoticesTest(unittest.TestCase):
                  peer_line("Another Claude session sent:\n" + notice(1, 0, 1, 7) + "\nEnd."),
                  peer_line(notice(2, 1, 1, 8))]
         self.assertEqual(uc.notices(lines), [(1, 0, 1, 7), (2, 1, 1, 8)])
+
+    def test_a_notice_absorbed_mid_turn_counts(self) -> None:
+        lines = [peer_line(notice(1, 0, 1, 7)), bash_use("pingbus recv"),
+                 absorbed_line(notice(1, 0, 1, 8)), absorbed_line(notice(1, 0, 1, 9), kind="user"),
+                 json.dumps({"type": "attachment", "attachment": {"type": "queued_command"}})]
+        self.assertEqual(uc.notices(lines), [(1, 0, 1, 7), (1, 0, 1, 8)])
+        self.assertEqual(uc.expect_same_count(uc.notices(lines), 1, 0, 1), [])
 
     def test_same_count_needs_two_distinct_numbers(self) -> None:
         two = [(1, 0, 1, 7), (1, 0, 1, 8)]

@@ -280,10 +280,25 @@ def _is_peer(obj: dict) -> bool:
     return obj.get("type") == "user" and isinstance(origin, dict) and origin.get("kind") == "peer"
 
 
+def _absorbed_peer_prompt(obj: dict) -> str | None:
+    """A peer message that arrived mid-turn: Claude Code folds it into that turn as a
+    `queued_command` attachment rather than starting a turn with it."""
+    attachment = obj.get("attachment")
+    if obj.get("type") != "attachment" or not isinstance(attachment, dict):
+        return None
+    origin = attachment.get("origin")
+    if attachment.get("type") != "queued_command" or not isinstance(origin, dict) or origin.get("kind") != "peer":
+        return None
+    prompt = attachment.get("prompt")
+    return prompt if isinstance(prompt, str) else None
+
+
 def _notice_counts(obj: dict) -> list[tuple[int, int, int, int]]:
-    if not _is_peer(obj):
-        return []
-    text = "\n".join(_block_text(block.get("text")) for block in _content_blocks(obj) if isinstance(block, dict))
+    text = _absorbed_peer_prompt(obj)
+    if text is None:
+        if not _is_peer(obj):
+            return []
+        text = "\n".join(_block_text(block.get("text")) for block in _content_blocks(obj) if isinstance(block, dict))
     return [tuple(int(n) for n in match) for match in NOTICE_RE.findall(text)]
 
 
