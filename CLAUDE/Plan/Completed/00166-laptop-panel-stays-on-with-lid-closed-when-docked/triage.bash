@@ -21,7 +21,7 @@ while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
 done
 [[ -e "${repoRoot}/ansible.cfg" ]] || { printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2; exit 1; }
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=../_planlib.inc.bash
+# shellcheck source=../../_planlib.inc.bash
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
@@ -32,6 +32,12 @@ Read-only. Writes its report under untracked/plan-runs/."
 
 plan_mode gather
 plan_parse_common_flags "$@"
+
+if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
+    printf '[FATAL] unknown argument(s): %s\n' "${PLAN_REMAINING_ARGS[*]}" >&2
+    printf '%s\n' "${PLAN_USAGE}" >&2
+    exit 64
+fi
 
 plan_require_host "it reads the host's sysfs, UPower, logind and the GNOME session bus"
 plan_start_log auto
