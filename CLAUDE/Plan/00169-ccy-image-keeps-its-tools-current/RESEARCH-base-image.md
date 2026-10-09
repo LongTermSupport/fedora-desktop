@@ -47,7 +47,8 @@ being behind in **three places**, each documented in a comment there:
 - shellcheck: "the base image's apt build is years behind the host's", so the upstream
   binary is installed.
 - ImageMagick: "Debian 12 ships only IM6. Production target is Fedora … which ships IM7
-  natively", so an AppImage is extracted and wrapped.
+  natively", so an AppImage is extracted and wrapped. (The comment says Fedora 43; the
+  host is on 44.)
 
 ## 3. Option A: stay on Debian
 
@@ -111,7 +112,7 @@ git source build above, because no Debian package will ever satisfy the floor.
 | Need (Debian name)                        | Fedora 44 package                                | F44 version                                      |
 | ----------------------------------------- | ------------------------------------------------ | ------------------------------------------------ |
 | git                                       | `git`                                            | **2.56.0**                                       |
-| node / npm                                | `nodejs24`, `nodejs24-npm`                       | 24.18.0 / 11.16.0                                |
+| node / npm (not installed; D3 chose nvm)  | `nodejs24`, `nodejs24-npm` (explicit names)      | 24.18.0 / 11.16.0                                |
 | python3, python3-pip, python3-venv        | `python3`, `python3-pip` (venv is in the stdlib) | 3.14.8                                           |
 | python3-yaml                              | `python3-pyyaml`                                 | 6.0.3                                            |
 | pipx                                      | `pipx`                                           | 1.15.0                                           |
@@ -130,17 +131,18 @@ git source build above, because no Debian package will ever satisfy the floor.
 | netcat-openbsd                            | `nmap-ncat` or `netcat`                          | 7.92 / 1.238                                     |
 | libimage-exiftool-perl                    | `perl-Image-ExifTool`                            | 13.50                                            |
 | gh (GitHub apt repo)                      | `gh` (Fedora) or GitHub's rpm repo               | 2.97.0 in F44, behind upstream 2.102             |
-| yq (curl download)                        | `yq`                                             | 4.53.3                                           |
+| yq (wget download)                        | `yq`                                             | 4.53.3                                           |
 | uv (curl script)                          | `uv` / `python3-uv`                              | 0.12.23                                          |
 
-The image would install by package four tools that the Debian image installs with `curl`
-(yq, uv, and potentially gh), plus two that the project image installs by hand (shellcheck,
-ImageMagick 7).
+The image would install by package three tools that the Debian image fetches over the
+network (yq by wget, uv by curl, gh from GitHub's apt repo), plus two that the project image
+installs by hand (shellcheck, ImageMagick 7).
 
-**Name resolution not proven:** `mdapi` answers by binary package name, so a bare `nodejs`
-or `npm` returned 400. Fedora is expected to resolve them through `Provides:` on the default
-stream. The build spike (PLAN Task 3.1) proves it with `dnf install nodejs npm` and records
-what was installed.
+**Node name resolution (measured):** `mdapi` answers by binary package name, so a bare
+`nodejs` or `npm` returns 400. Through `Provides:`, the capability `nodejs` is provided by
+`nodejs22` (22.23.1) only, and `npm` by all three of `nodejs20-npm`, `nodejs22-npm`
+(10.9.8) and `nodejs24-npm`. F44 ships three streams (20, 22, 24). The plan does not
+install Fedora's Node (D3: nvm), so this only matters if D3 is reversed.
 
 ### Base image size (measured, registry manifests, compressed amd64 layers)
 
@@ -184,9 +186,9 @@ Dockerfile, `entrypoint.sh`, the launcher, `lib/`, the browser wrappers, templat
 | `Dockerfile:47`                                                                          | `APT::Sandbox::User "root"` (rootless apt workaround)                           | delete; dnf has no `_apt` user                                                     |
 | `Dockerfile:62-111, 119, 162-181`                                                        | `apt-get install` layers                                                        | `dnf install -y --setopt=install_weak_deps=False` + `dnf clean all`                |
 | `Dockerfile:133-139`                                                                     | gh via GitHub apt repo and `dpkg --print-architecture`                          | Fedora `gh` or GitHub's rpm repo (owner decision D5)                               |
-| `Dockerfile:142, 153`                                                                    | yq and uv by curl                                                               | Fedora packages                                                                    |
+| `Dockerfile:142, 153`                                                                    | yq by wget (142), uv by curl (153)                                              | Fedora packages                                                                    |
 | `Dockerfile:4-6, 7-17`                                                                   | PHPantom musl build because of "GLIBC 2.36"                                     | keep the builder (static musl is portable), fix the comment                        |
-| `Dockerfile:19-24`                                                                       | `FROM node:lts-slim`                                                            | `FROM registry.fedoraproject.org/fedora:${FEDORA_RELEASE}` plus Node from dnf (D3) |
+| `Dockerfile:19-24`                                                                       | `FROM node:lts-slim`                                                            | `FROM registry.fedoraproject.org/fedora:${FEDORA_RELEASE}` plus Node from nvm (D3) |
 | `Dockerfile:58-61`                                                                       | tzdata comment about Debian 13                                                  | reword                                                                             |
 | `Dockerfile:291-334`                                                                     | agent-browser wrappers check `*/node_modules/agent-browser/bin/*`               | unchanged if npm's global prefix stays `/usr/local` (measure)                      |
 | `Dockerfile:419`                                                                         | `ENTRYPOINT ["/usr/bin/tini", …]`, repeated in `update_claude_inplace --change` | Fedora `tini` installs `/usr/bin/tini` (verify in spike)                           |
@@ -195,6 +197,7 @@ Dockerfile, `entrypoint.sh`, the launcher, `lib/`, the browser wrappers, templat
 | `Dockerfile.project-template`, `Dockerfile.example-ansible`, `Dockerfile.example-golang` | apt with cache mounts                                                           | rewrite for dnf (`/var/cache/libdnf5` cache mount)                                 |
 | `lib/dockerfile-custom.bash:230, 270, 371, 445-462, 622, 665`                            | AI generator prompt says "Debian slim" and emits apt snippets                   | rewrite for dnf                                                                    |
 | `files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt`                                      | about 20 apt lines, "Debian slim", the Docker apt repo for bookworm             | rewrite                                                                            |
+| `files/var/local/claude-yolo/claude-yolo:2108`                                           | launcher echo "Tip: apt/npm packages are cached between builds for speed"       | reword for dnf; bumps `CCY_VERSION`                                                |
 | `files/opt/claude-yolo/ccy-startup-info.txt:12`                                          | "install packages freely (apt, npm, pip…)"                                      | say dnf                                                                            |
 | `CLAUDE/ContainerRules.md:44-46`                                                         | "`apt-get update && apt-get install`"                                           | say dnf                                                                            |
 | `docs/containerization.md`                                                               | apt cache-mount examples                                                        | rewrite                                                                            |
@@ -215,11 +218,14 @@ A silent fallback to a stale image is not acceptable.
 
 ### Node on Fedora
 
-Fedora 44 ships parallel `nodejs22` and `nodejs24`; 24.18.0 is behind upstream LTS 24.21.0.
+Fedora 44 ships three parallel streams, `nodejs20`, `nodejs22` and `nodejs24`; 24.18.0 is
+behind upstream LTS 24.21.0. The bare `nodejs` capability is `nodejs22`, so
+`dnf install nodejs npm` would give 22.23.1 / 10.9.8, not 24. D3 chose nvm (the first route
+below is the rejected one).
 Claude Code is now a native binary (`bin/claude.exe`) wrapped by npm, so Node mostly serves
 the npm-installed LSPs and agent-browser's JS shim. Two routes:
 
-- **Distro Node** (`dnf install nodejs npm`): it floats with Fedora, which is in line with
+- **Distro Node** (`dnf install nodejs24 nodejs24-npm`; not chosen): it floats with Fedora, which is in line with
   the policy. Fedora moves Node's major with the release, not with upstream LTS. A floor
   assertion (`node >= 22`) catches a regression.
 - **`COPY --from=node:lts-slim`** of `/usr/local/bin/node` and `/usr/local/lib/node_modules/{npm,corepack}`:

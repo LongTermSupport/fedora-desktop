@@ -20,8 +20,8 @@ never chosen: the first ccy commit picked `node:20-slim` for Node, and Debian ca
 it. No stable Debian release ships git 2.48 or later, backports included (trixie is
 2.47.3). The floating `node:lts-slim` tag still resolves to bookworm (measured digest
 equality). Fedora 44, the host's release, ships git 2.56, ShellCheck 0.11.0 and
-ImageMagick 7. These are the versions the project image currently fetches by hand to
-work around Debian.
+ImageMagick 7. The project image fetches ShellCheck and ImageMagick 7 by hand to work
+around Debian (its ImageMagick comment still says Fedora 43); git is not fetched.
 
 This plan does three things. It makes a too-old container fail loudly at launch, on
 either base. It makes images refresh their packages without anyone editing the
@@ -136,7 +136,7 @@ desktop's tools.
 - [ ] ⬜ **Task 3.3**: Chromium dependencies come from Chrome for Testing's own `rpm.deps`
   after `agent-browser install`. Do not use `--with-deps`, whose dnf list names two
   packages missing in F44 and calls `sudo`. The layer fails if any provide does not
-  resolve.
+  resolve. `rpm.deps` line 2 is a rich boolean (`(libgtk-3.so.0()(64bit) or libgtk-4.so.1()(64bit))`), so each provide is passed to dnf quoted.
 - [ ] ⬜ **Task 3.4**: The launcher passes `FEDORA_RELEASE` from the host's
   `/etc/os-release` `VERSION_ID` to both build sites (`build_container_with_hash` and
   `play-claude-yolo.yml`'s build task). The image records it as a label. A mismatch with
@@ -150,7 +150,8 @@ desktop's tools.
   `Dockerfile.example-ansible`, `Dockerfile.example-golang`), the generator prompt and
   snippets in `lib/dockerfile-custom.bash`, `CUSTOM-DOCKERFILES.txt`,
   `ccy-startup-info.txt`, `CLAUDE/ContainerRules.md` ("Where a Missing Tool Goes") and
-  `docs/containerization.md` to dnf.
+  `docs/containerization.md` to dnf. Also the launcher's `claude-yolo:2108` message
+  ("Tip: apt/npm packages are cached between builds for speed"), a `CCY_VERSION` bump.
 - [ ] ⬜ **Task 3.7**: Make it a major container version (`3.0`) and a major `CCY_VERSION`
   (D6). The changelog entry says that existing project Dockerfiles must be rebuilt for
   Fedora (apt to dnf), and how.
@@ -270,10 +271,10 @@ written to. Only Claude Code is updated in place today.
   stable package. It needs a source-built git that nobody security-patches for us. It
   keeps the project image's three workarounds, and keeps drifting from the desktop.
 - **B, Fedora at the host's release**: same distro and versions as the desktop. git
-  2.56, ShellCheck 0.11 and IM7 come as packages, and yq and uv stop being curl
-  installs. Chrome for Testing ships `rpm.deps`. The cost: every apt-based project
-  Dockerfile breaks, the docs and templates need a rewrite, and Node follows Fedora's
-  cadence.
+  2.56, ShellCheck 0.11 and IM7 come as packages, and yq and uv stop being network
+  installs (wget, curl). Chrome for Testing ships `rpm.deps`. The cost: every apt-based project
+  Dockerfile breaks, the docs and templates need a rewrite. Node is nvm (D3), so it
+  does not follow Fedora.
 
 **Recommendation**: B. Debian was incidental, not chosen. Fixing git on Debian means
 owning a source build, which is exactly the X.Y.Z maintenance the owner does not want.
