@@ -1,6 +1,6 @@
 # Plan 00166: laptop panel stays on with lid closed when docked
 
-**Status**: In Progress (fix written; awaiting the host deploy)
+**Status**: In Progress (deployed and accepted; the hand-run suspend matrix remains)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: Medium
@@ -90,23 +90,27 @@ symptom actually was is unknown. The test matrix below is meant to surface it if
 - [x] ✅ **Task 2.3**: Update `docs/playbooks.md` (the play's actions, its abort list, and the
   `IgnoreLid` note) and the header comment in Plan 00104's `deploy.bash`.
 - [x] ✅ **Task 2.4**: Run QA: `./scripts/qa-all.bash`. Every stage this plan touches passes,
-  including `ansible-syntax`. Only `helper-tests` fails, in the `agent_bus` and `pingbus`
-  suites (Plan 00161), because they need root and a host user is not root. None of this
-  plan's files are involved. That is reported to the owner, not fixed here.
+  including `ansible-syntax`. Only `helper-tests` fails, for two separate reasons, in suites
+  this plan does not touch. The `agent_bus` tests need root (exit 77, "run it as root"). The
+  `pingbus` launcher tests run with a restricted PATH that reaches the pyenv shim, which
+  then cannot find `tr` and `sed` (rc 127). Both were reported to the owner, not fixed here.
 
 ### Phase 3: Deploy and accept
 
-- [x] ✅ **Task 3.1**: `deploy.bash` runs `play-suspend-and-lid-policy.yml`, then acceptance.
+- [x] ✅ **Task 3.1**: `deploy.bash` runs `play-suspend-and-lid-policy.yml`. Acceptance is
+  run separately (`STANDARD-EXCEPTION(R9)`, as in Plan 00161), so that an undocked run's
+  COULD NOT ESTABLISH does not report the deploy as failed.
 
 - [x] ✅ **Task 3.2**: `acceptance.bash` (checks in `check-lid.bash`) checks `IgnoreLid=false`,
   `LidIsPresent` = true and, when docked with the lid closed, `LidIsClosed` = true and every
-  built-in connector disabled. It prints `COVERAGE: n of m` and rejects an incomplete run
-  (lid open or nothing external lit). The suspend behaviour and the power profile are in
-  the hand-run matrix below, which the closing banner lists. Run against the unfixed host it
-  rejects with 4 of 4 checks executed and all four failing, so each check sees the bug.
+  built-in connector disabled. It prints the power profile for the owner to compare (row 1),
+  and `COVERAGE: n of m`. Exit 0 accepted, 1 rejected, 2 could not establish (lid open or
+  nothing external lit). Run against the unfixed host it rejects with 4 of 4 checks executed
+  and all four failing, so each check sees the bug.
 
-- [ ] 🔄 **Task 3.3**: Added to `meta-deploy.bash`. The owner runs deploy and
-  acceptance docked with the lid closed, then works through the hardware matrix:
+- [ ] 🔄 **Task 3.3**: Deployed from the desktop session, docked with the lid closed:
+  `IgnoreLid` changed, upower restarted, nothing else changed; acceptance 4 of 4 ACCEPTED.
+  What remains is the owner working through the hardware matrix:
 
   | Scenario                                   | Expected                                                    |
   | ------------------------------------------ | ----------------------------------------------------------- |
@@ -150,11 +154,11 @@ we find out before choosing again.
 
 ## Risks & Mitigations
 
-| Risk                                                      | Impact | Probability | Mitigation                                                               |
-| --------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------ |
-| The unknown February symptom returns (lid close suspends) | H      | L           | Matrix rows 1–2 test exactly that; logind's own policy is unchanged (F4) |
-| GNOME acts on the lid itself once UPower reports it       | M      | L           | Acceptance compares the power profile; the matrix covers suspend         |
-| `restart-upower` briefly drops battery state in the panel | L      | M           | Expected and short-lived; already true of the current handler            |
+| Risk                                                      | Impact | Probability | Mitigation                                                                  |
+| --------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------------------- |
+| The unknown February symptom returns (lid close suspends) | H      | L           | Matrix rows 1–2 test exactly that; logind's own policy is unchanged (F4)    |
+| GNOME acts on the lid itself once UPower reports it       | M      | L           | Acceptance prints the profile; matrix row 1 compares it; rows cover suspend |
+| `restart-upower` briefly drops battery state in the panel | L      | M           | Expected and short-lived; already true of the current handler               |
 
 ## Delivery & Milestones
 

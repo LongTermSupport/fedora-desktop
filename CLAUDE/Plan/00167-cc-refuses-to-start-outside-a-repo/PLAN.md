@@ -114,13 +114,13 @@ caller's directory, but it can `cd` in its own process before it starts `claude`
 all the offer needs.
 **Date**: 2026-10-09
 
-### Decision 3: How `cc` finds the checkout
-
-To be settled by Task 1.3.
-
 ### Decision 2: Subdirectories of a repository
 
 To be settled by Task 1.1.
+
+### Decision 3: How `cc` finds the checkout
+
+To be settled by Task 1.3.
 
 ## Success Criteria
 

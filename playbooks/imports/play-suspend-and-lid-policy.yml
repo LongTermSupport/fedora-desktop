@@ -164,29 +164,6 @@
     - name: Apply every pending handler before verifying the result
       ansible.builtin.meta: flush_handlers
 
-    # Read back what Mutter will read. A config line can be right while the running daemon
-    # disagrees (not restarted, a drop-in in UPower.conf.d overriding it), and the failure
-    # shows up only as a lost window. Retried because upowerd re-probes devices after the
-    # restart above; a host whose firmware has no lid has nothing to assert.
-    - name: Verify UPower reports the lid
-      ansible.builtin.command:
-        argv:
-          - busctl
-          - get-property
-          - org.freedesktop.UPower
-          - /org/freedesktop/UPower
-          - org.freedesktop.UPower
-          - LidIsPresent
-      register: upower_lid_present
-      changed_when: false
-      until: upower_lid_present.stdout == 'b true'
-      retries: 5
-      delay: 2
-      when:
-        - upower_conf.stat.exists
-        - acpi_lid.stat.exists
-        - not ansible_check_mode
-
     # ---- Layer 2: make the request durable whatever the wake source was --------------------
 
     - name: Deploy the aborted-suspend recovery hook
@@ -409,6 +386,30 @@
       ansible.builtin.debug:
         msg: "{{ wakeup_coverage.stdout }}"
       when: not ansible_check_mode
+
+    # Read back what Mutter will read. A config line can be right while the running daemon
+    # disagrees (not restarted, a drop-in in UPower.conf.d overriding it), and the failure
+    # shows up only as a lost window. upower was restarted by the flush above; retried
+    # because upowerd re-probes devices after a restart. A host whose firmware has no lid
+    # has nothing to assert.
+    - name: Verify UPower reports the lid
+      ansible.builtin.command:
+        argv:
+          - busctl
+          - get-property
+          - org.freedesktop.UPower
+          - /org/freedesktop/UPower
+          - org.freedesktop.UPower
+          - LidIsPresent
+      register: upower_lid_present
+      changed_when: false
+      until: upower_lid_present.stdout == 'b true'
+      retries: 5
+      delay: 2
+      when:
+        - upower_conf.stat.exists
+        - acpi_lid.stat.exists
+        - not ansible_check_mode
 
   handlers:
     - name: restart-upower

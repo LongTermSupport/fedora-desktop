@@ -55,7 +55,6 @@ PLANS=(
     00164-stt-enter-lost-after-focus-retake
     00165-ccy-container-uses-host-time-zone
     00161-agent-team-bus-matrix
-    00166-laptop-panel-stays-on-with-lid-closed-when-docked
 )
 
 LIST_ONLY=0

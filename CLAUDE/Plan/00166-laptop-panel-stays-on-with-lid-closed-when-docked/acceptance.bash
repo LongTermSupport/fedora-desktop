@@ -12,7 +12,7 @@
 # WHERE TO RUN: on the HOST, in the GNOME session. Enforced by plan_require_host (R2).
 #
 # Usage: ./acceptance.bash [-h|--help]
-# Exit 0 = ACCEPTED, non-zero = REJECTED.
+# Exit 0 = ACCEPTED, 1 = REJECTED, 2 = COULD NOT ESTABLISH (not docked with the lid closed).
 set -euo pipefail
 scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repoRoot="${scriptDir}"
@@ -35,7 +35,7 @@ Checks, without changing anything: IgnoreLid=false in UPower.conf, UPower report
 and — docked with the lid closed — the built-in panel is disabled. Prints a COVERAGE line
 and rejects an incomplete run.
 
-Exit 0 = ACCEPTED, non-zero = REJECTED."
+Exit 0 = ACCEPTED, 1 = REJECTED, 2 = COULD NOT ESTABLISH."
 
 plan_mode gather
 plan_parse_common_flags "$@"
@@ -49,12 +49,20 @@ fi
 plan_require_host "it reads the host's UPower, sysfs and lid state"
 plan_start_log auto
 
-plan_gather_leg "lid fix in effect" bash "${PLAN_SCRIPT_DIR}/check-lid.bash"
+# Not a plan_gather_leg: plan_finish collapses every failure to exit 1, and this gate has a
+# third verdict. Run directly, its exit status is the verdict; `exit` still drains the run
+# log through the library's EXIT handler (R4).
+check_rc=0
+bash "${PLAN_SCRIPT_DIR}/check-lid.bash" || check_rc=$?
 
 printf '\nBy hand, then record the results in the plan:\n'
-printf '  1. Docked, on AC, lid closed: Settings shows only the external monitors; no suspend.\n'
+printf '  1. Docked, on AC, lid closed: Settings shows only the external monitors; no suspend;\n'
+printf '     the power profile above matches the one before the lid closed.\n'
 printf '  2. Undocked, on AC, lid closed: no suspend.\n'
 printf '  3. On battery, lid closed: suspends.\n'
 printf '  4. Suspend, then unplug the dock: it still suspends (Plan 00104).\n\n'
 
+if [[ "${check_rc}" -ne 0 ]]; then
+    exit "${check_rc}"
+fi
 plan_finish
