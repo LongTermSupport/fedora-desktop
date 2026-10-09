@@ -1,6 +1,6 @@
 # Plan 00169: ccy image keeps its tools current
 
-**Status**: Not Started (owner decisions D1-D6 recorded 2026-10-09: Fedora)
+**Status**: In Progress (owner decisions D1-D6 recorded 2026-10-09; Phase 1 next)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: High
