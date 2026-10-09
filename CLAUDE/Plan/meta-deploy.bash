@@ -54,6 +54,7 @@ PLAN_ROOT="${scriptDir}"
 PLANS=(
     00164-stt-enter-lost-after-focus-retake/triage.bash
     00165-ccy-container-uses-host-time-zone
+    00169-ccy-image-keeps-its-tools-current
     00161-agent-team-bus-matrix
 )
 

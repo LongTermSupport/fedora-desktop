@@ -616,6 +616,17 @@ fi
 project_env_summary=$(qa_gate_case_count "$project_env_out")
 qa_pass_line ccy-project-env "$project_env_summary"
 
+# entrypoint.sh's git preflight (Plan 00169): a /workspace the container's git cannot read
+# stops the session with git's own message, before Claude starts.
+git_preflight_out=""
+if ! git_preflight_out="$(bash "$SCRIPT_DIR/test-ccy-git-preflight.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-git-preflight \
+        "ccy entrypoint git preflight tests failed" \
+        "$git_preflight_out"
+fi
+git_preflight_summary=$(qa_gate_case_count "$git_preflight_out")
+qa_pass_line ccy-git-preflight "$git_preflight_summary"
+
 # entrypoint.sh's agent team bus step (Plan 00161 U31): seats only from the launcher's
 # PINGBUS_SEATS (a bus variable from ccy.env or ccy.env.local refused), the plugin args land
 # inside the wrapper's --, the seat claim fronts both final exec lines, inert unset.

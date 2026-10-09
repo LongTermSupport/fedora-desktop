@@ -1,6 +1,6 @@
 # Plan 00169: ccy image keeps its tools current
 
-**Status**: In Progress (owner decisions D1-D6 recorded 2026-10-09; Phase 1 next)
+**Status**: In Progress (Phase 1 code done; its host triage and acceptance run pending)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: High
@@ -25,9 +25,8 @@ around Debian (its ImageMagick comment still says Fedora 43); git is not fetched
 
 This plan does three things. It makes a too-old container fail loudly at launch, on
 either base. It makes images refresh their packages without anyone editing the
-Dockerfile, while keeping the container-version rules intact. And, if the owner agrees,
-it moves the image to Fedora at the host's release, so the container's tools are the
-desktop's tools.
+Dockerfile, while keeping the container-version rules intact. And it moves the image to
+Fedora at the host's release (D1), so the container's tools are the desktop's tools.
 
 ## Goals
 
@@ -40,7 +39,7 @@ desktop's tools.
 - Version policy: trusted, stable tools float on distro packages. Pins are kept only
   where a stated compatibility or integrity reason demands one, and are registered for
   drift reports.
-- If D1 = Fedora: the image is Fedora at the host's release, and every template, doc and
+- The image is Fedora at the host's release, and every template, doc and
   client-project path that taught apt is ported or fails with a migration message.
 
 ## Non-Goals
@@ -63,60 +62,53 @@ desktop's tools.
   `REQUIRED_CONTAINER_VERSION`. A launcher or `lib/` change bumps `CCY_VERSION`.
 - Pin manifest: `vars/version-pins.yml`, read by `scripts/check-pinned-versions.bash`.
 
-## Owner decisions (block Phase 3 onwards)
+## Owner decisions (recorded; detail in the journal)
 
-- **D1 Base image.** Fedora (recommended) or Debian with a git source-build stage. See
-  [Technical Decisions](#technical-decisions).
-- **D2 Fedora release.** Recommended: the host's own release, passed as a build arg, with
-  a rebuild when the host upgrades. Alternative: `fedora:latest`, which floats ahead of a
-  host that has not upgraded yet.
-- **D3 Node source.** Considered: Fedora's `nodejs`/`npm`, or `COPY --from=node:lts-slim`.
-- **D4 Refresh trigger and age.** Recommended: a weekly `systemd --user` timer that
-  rebuilds in the background, plus an inline rebuild at launch when an image is older than
-  twice the maximum age. Alternative: launch-time rebuild only.
-- **D5 gh source.** Fedora `gh` (2.97 in F44, behind upstream) or GitHub's rpm repo,
-  which stays current.
-- **D6 Client-project migration.** Recommended: the launcher refuses to build a project
-  Dockerfile that still runs `apt-get` on a Fedora base and names the fix. Alternative:
-  keep publishing a legacy Debian `claude-yolo:debian` tag for a transition period.
+- **D1 Base image:** Fedora, the full image `registry.fedoraproject.org/fedora:<release>`
+  (not fedora-minimal, so plain `dnf` is there). Phase 3-alt is not taken.
+- **D2 Fedora release:** the host's own release, passed as a build arg; the image is
+  rebuilt when the host upgrades.
+- **D3 Node:** through nvm, not Fedora's `nodejs`. The `node >= 22` floor stays.
+- **D4 Refresh:** GitHub Actions builds the base image weekly (and on Dockerfile pushes and
+  by hand) and publishes it to GHCR only if the floors and basics checks pass; ccy pulls it
+  and builds locally only as the fallback. The owner confirms the package name and
+  visibility before the first publish.
+- **D5 gh:** from GitHub's rpm repo.
+- **D6 Migration:** a major ccy version (the owner's call); Task 3.7 makes that a major
+  `CCY_VERSION` and container `3.0`. The launcher refuses an
+  apt-based project Dockerfile and names the fix (Task 3.8); agents in those projects port
+  them. No legacy Debian tag.
 
 ## Tasks
 
 ### Phase 1: Fail fast when the container cannot read the repository (either base)
 
-- [ ] ⬜ **Task 1.1**: `triage.bash` (read-only, host). Record the host git version, the
+- [ ] 🔄 **Task 1.1**: `triage.bash` (read-only, host; written, with its probes in
+  `triage-probe.bash`; the host run is pending). Record the host git version, the
   repository's `extensions.*` keys, each ccy image's git version, its
   `claude-yolo-version`, its base-layer digest against the registry's current digest
   for `node:lts-slim`, and whether `podman build` re-pulled `FROM` (it is expected not to
   without `--pull`).
-- [ ] ⬜ **Task 1.2**: In `entrypoint.sh`, directly after git is configured, run
+- [x] ✅ **Task 1.2**: In `entrypoint.sh`, directly after git is configured, run
   `git -C /workspace rev-parse --git-dir`. On failure, print to stderr that the
   container's git (`git --version`) cannot read `/workspace`, followed by git's own
-  captured message verbatim, then `exit 1` before Claude starts.
-  - [ ] ⬜ Bump `LABEL claude-yolo-version` and `REQUIRED_CONTAINER_VERSION` together.
-    Add a `docs/ccy-changelog.md` entry and the matching `docs/ccy.md` line.
-- [ ] ⬜ **Task 1.3**: `acceptance.bash` (host). Make a throwaway repository under
+  captured message verbatim, then `exit 1` before Claude starts. Unconditional: the
+  launcher only starts from a directory holding `.git` (`check_git_repo`). Unit test
+  `scripts/test-ccy-git-preflight.bash`, in `qa-all.bash`.
+  - [x] ✅ Container 2.50, CCY 3.91.0; changelog entry and the `docs/ccy.md` entrypoint step.
+- [ ] 🔄 **Task 1.3**: `acceptance.bash` (host; written, run as `deploy.bash`'s last leg;
+  the host run is pending). Make a throwaway repository under
   `untracked/`, set `extensions.relativeWorktrees=true` and
   `core.repositoryformatversion=1`, and launch ccy non-interactively there. Assert a
   non-zero exit and that the output contains git's `unknown repository extension` line.
   Also launch in a clean throwaway repository and assert the session starts. Print a
-  coverage line.
+  coverage line. Once the image's git is 2.48 or later (Phase 3) the same repository must
+  open instead, and the script says the refusal is then covered by the unit test only.
 
 ### Phase 2: Decide
 
-- [x] ✅ **Task 2.1**: Owner answers D1-D6 (2026-10-09, journalled):
-  - **D1** Fedora. Phase 3-alt is not taken.
-  - **D2** the host's release, as recommended (owner did not object).
-  - **D3** Node through **nvm** ("nvm is nice to keep things simple and easy to upgrade"),
-    not Fedora's `nodejs`; the `node >= 22` floor stays.
-  - **D4** revised by the owner: GitHub Actions builds the base image on a schedule and
-    publishes it, and ccy pulls it ("can we get gh actions to handle image updates
-    automatically"). A local build stays as the fallback and for testing Dockerfile
-    edits. Tasks 4.4 and 4.6.
-  - **D5** `gh` from GitHub's rpm repo, as recommended.
-  - **D6** a major version of ccy itself, not only of the container: project Dockerfiles
-    are rebuilt for Fedora by the agents in those projects ("probably not hard"), with the
-    Task 3.8 guard naming the fix. No legacy Debian tag.
+- [x] ✅ **Task 2.1**: Owner answers D1-D6 (2026-10-09, journalled); see
+  [Owner decisions](#owner-decisions-recorded-detail-in-the-journal).
 
 ### Phase 3 (D1 = Fedora): port the base image
 
@@ -170,7 +162,7 @@ desktop's tools.
   `command -v` on each and fails the build naming every one missing. `docs/ccy.md` lists
   them, so agents in other projects know what they can count on.
 
-### Phase 3-alt (D1 = Debian): keep Debian, build git
+### Phase 3-alt (D1 = Debian): keep Debian, build git — not taken (D1 = Fedora)
 
 - [ ] ⬜ **Task 3A.1**: Add a `git-builder` stage that builds the latest stable git tag
   from kernel.org, resolved at build time (not hardcoded), into `/usr/local`, with its
@@ -241,9 +233,9 @@ desktop's tools.
 
 ### Phase 7: Deploy and accept
 
-- [ ] ⬜ **Task 7.1**: Write `deploy.bash` (runs `play-claude-yolo.yml`) on
-  `_planlib.inc.bash`. Add this plan to `CLAUDE/Plan/meta-deploy.bash` `PLANS` in the same
-  commit.
+- [ ] 🔄 **Task 7.1**: Write `deploy.bash` (runs `play-claude-yolo.yml`, then
+  `acceptance.bash`) on `_planlib.inc.bash` (written for Phase 1). Add this plan to
+  `CLAUDE/Plan/meta-deploy.bash` `PLANS` in the same commit as the change it deploys.
 - [ ] ⬜ **Task 7.2**: Extend `acceptance.bash`:
   - the Phase 1 checks
   - container `git --version` meets the floor
@@ -260,7 +252,7 @@ desktop's tools.
 
 ## Technical Decisions
 
-### Decision 1: base image (owner decision D1, recommendation recorded)
+### Decision 1: base image (owner decision D1)
 
 **Context**: the container's git must be able to read a repository the host's git has
 written to. Only Claude Code is updated in place today.
@@ -276,10 +268,9 @@ written to. Only Claude Code is updated in place today.
   Dockerfile breaks, the docs and templates need a rewrite. Node is nvm (D3), so it
   does not follow Fedora.
 
-**Recommendation**: B. Debian was incidental, not chosen. Fixing git on Debian means
-owning a source build, which is exactly the X.Y.Z maintenance the owner does not want.
-
-**Decision**: pending the owner.
+**Decision**: B, Fedora (the owner, 2026-10-09). Debian was incidental, not chosen, and
+fixing git on Debian means owning a source build, which is exactly the X.Y.Z maintenance
+the owner does not want.
 
 ## Success Criteria
 
@@ -312,3 +303,4 @@ owning a source build, which is exactly the X.Y.Z maintenance the owner does not
      JOURNAL/00169-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan and research written (this commit).
+- Phase 1 entrypoint git preflight, container 2.50 / CCY 3.91.0: `db5bfd39`.
