@@ -85,6 +85,9 @@ QA_PY_EXCLUDE_DIRS=(
     ".claude/hooks-daemon"
     ".claude/ccy/plugins"
     ".claude/ccy/file-history"
+    # Session transcripts and saved tool output: a saved Read of a Python script
+    # starts with its shebang and would be gated as one.
+    ".claude/ccy/projects"
     ".claude/worktrees"
     "roles/vendor"
     "node_modules"
