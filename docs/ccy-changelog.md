@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.89.0 — container 2.49
+
+- **Containers run in the host's time zone** (Plan 00165). A container shares the host's
+  clock but not its zone: the image's `/etc/localtime` is `Etc/UTC` and nothing set `TZ`,
+  so the status line and `date` in every session showed UTC, an hour behind a UK desktop
+  clock in summer. The launcher now passes `-e TZ=<zone>`, the host's IANA zone name from
+  `timedatectl show -p Timezone --value`, or from the target of the host's `/etc/localtime`
+  link when timedatectl gives nothing usable. The name must exist under the host's
+  `/usr/share/zoneinfo`; if neither source gives one, the launch stops with the reason
+  instead of starting on UTC. `TZ` rather than podman's `--tz=local`, because docker has no
+  `--tz` and an `export TZ=...` in a project's `ccy.env` or `ccy.env.local` still wins.
+- **Container 2.49** installs `tzdata` by name. The base image has it today, but without
+  `/usr/share/zoneinfo` glibc reads `TZ=Europe/London` as UTC without a word, and the
+  floating `node:lts-slim` base will move to a Debian release that does not install it by
+  default. One rebuild on the next launch.
+
 ## 3.88.2 — container 2.48
 
 - **Flags after `--` are forwarded without being judged** (Plan 00161, found by U20's M2).

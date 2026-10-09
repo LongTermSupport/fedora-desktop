@@ -53,6 +53,7 @@ PLAN_ROOT="${scriptDir}"
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
     00164-stt-enter-lost-after-focus-retake
+    00165-ccy-container-uses-host-time-zone
     00161-agent-team-bus-matrix
 )
 

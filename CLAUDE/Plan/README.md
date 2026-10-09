@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - ccy sessions showed UTC beside a local desktop clock. The launcher passes the host's IANA zone (timedatectl, else the `/etc/localtime` link) as `TZ` and stops rather than run on UTC; `ccy.env` / `ccy.env.local` can override; the image installs `tzdata` by name. CCY 3.89.0, container 2.49.
+
 - [00164-stt-enter-lost-after-focus-retake](00164-stt-enter-lost-after-focus-retake/) - Speech-to-text: after the panel gives the dictation's window focus back, the text was pasted but the Enter did not send it. `wsi` and `wsi-stream` now paste only once the window has kept focus for 0.5 s, and wait 1 s before the Enter; a read-only triage reads the focus / paste / Enter timeline from the debug log.
 
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.

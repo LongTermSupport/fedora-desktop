@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.88.2"  # Flags after -- are not judged against claude --help. See docs/ccy-changelog.md.
+CCY_VERSION="3.89.0"  # Containers run in the host's time zone (TZ). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,7 +76,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.48"
+REQUIRED_CONTAINER_VERSION="2.49"
 
 set -e
 
@@ -3536,6 +3536,32 @@ if ! CCY_HOST_HOSTNAME="$(ccy_host_hostname "$(uname -n)")"; then
     exit 1
 fi
 
+# --- the host's time zone ------------------------------------------------------
+#
+# The container shares the host's clock but not its zone: the image's /etc/localtime is
+# Etc/UTC, so a session showed UTC beside a desktop clock in local time. TZ carries the
+# host's IANA zone name in. TZ rather than podman's --tz=local, because TZ works the same
+# under docker (which has no --tz) and a project's ccy.env / ccy.env.local `export TZ=...`,
+# sourced by the entrypoint after this environment, still overrides it.
+#
+# Derivation and checks live in ccy_host_time_zone (lib/common-pure.bash), unit-tested by
+# scripts/test-ccy-host-time-zone.bash. A failure aborts: starting on UTC is the bug.
+ccy_tz_timedatectl=""
+if command -v timedatectl >/dev/null; then
+    if ! ccy_tz_timedatectl="$(timedatectl show -p Timezone --value)"; then
+        echo "timedatectl could not report the time zone; falling back to /etc/localtime." >&2
+        ccy_tz_timedatectl=""
+    fi
+fi
+ccy_tz_link=""
+if [ -L /etc/localtime ]; then
+    ccy_tz_link="$(readlink /etc/localtime)"
+fi
+if ! CCY_HOST_TZ="$(ccy_host_time_zone "$ccy_tz_timedatectl" "$ccy_tz_link" /usr/share/zoneinfo)"; then
+    print_error "Could not determine the host time zone — see the reason above."
+    exit 1
+fi
+
 # --- a restart requested by the session supervisor --------------------------
 #
 # Claude Code is baked into the image, so a session that should pick up a newer version (the
@@ -3712,6 +3738,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "SSH_KNOWN_HOSTS_PINS=${SSH_KNOWN_HOSTS_PINS:-}" \
     -e "GITHUB_SSH_443=$GITHUB_SSH_443" \
     -e "CCY_HOST_HOSTNAME=$CCY_HOST_HOSTNAME" \
+    -e "TZ=$CCY_HOST_TZ" \
     -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
     -e "CCY_NO_SUPERVISOR=${CCY_NO_SUPERVISOR:-}" \
     -e "CCY_LIFECYCLE_LAUNCH_ID=${CCY_LIFECYCLE_LAUNCH_ID:-}" \
