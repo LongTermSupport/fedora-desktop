@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - Not Started. The ccy image's git (2.39, Debian bookworm) could not read a repo the host's git had written, and nothing noticed. ccy will refuse to start when the container's git cannot read the repo; tool-version floors at build time; scheduled package refreshes with no version bump; and, pending the owner's decision, a Fedora base at the host's release.
+
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report files the plays manage that a package update or hand edit has changed since their play ran (as UPower.conf was in Plan 00166). Issue #91.
 
 - [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - `cc` typed outside a git working tree starts a session with no project settings: no hooks daemon, no status line. `cc` will check for a repository before its tmux re-exec and token chooser; in a terminal it offers to switch to the fedora-desktop checkout, and otherwise refuses with a pointer to `cd` or plain `claude`. Subdirectory behaviour to be settled from Claude Code's docs. Issue #90.
