@@ -231,15 +231,33 @@ check "--compose is in the help" "1" "$(grep -c '^  --compose start|skip|ask' "$
 
 echo ""
 echo "=== the launcher: no question is read where nobody can answer it ==="
-# Every `read -rp "$CCY_PROMPT_...` in the launcher is a launch-time question. Each must be
-# guarded by ccy_nobody_to_ask or ccy_launch_unattended (directly, or by the question it is
-# nested in) within the lines before it, or be the end-of-session compose-stop. --debug's
-# reads are not $CCY_PROMPT_ ones and run only when a person asked for the debug chooser.
-unguarded="$(awk '
-    /ccy_nobody_to_ask|ccy_launch_unattended/ { guard = NR }
-    /read -rp? *"\$\{?CCY_PROMPT_/ && (guard == 0 || NR - guard > 40) { printf "%s ", NR }
-' "$LAUNCHER")"
-check "every launcher question has a guard within 40 lines before it" "" "$unguarded"
+# Every `read -rp "$CCY_PROMPT_...` in the launcher is a launch-time question. Each must have
+# its own ccy_nobody_to_ask or ccy_launch_unattended guard between the question before it and
+# itself, so one guard cannot stand for two questions. The exceptions are the three asked
+# only inside another question's own loop, after a person has answered that one: network-prune
+# (engine-conflict), token-replace (token-recovery) and network-pick (network-connect).
+# --debug's reads are not $CCY_PROMPT_ ones and run only when a person asked for the chooser.
+# guard_gaps <file> — the line numbers of the questions with no guard of their own.
+guard_gaps() {
+    awk '
+        /ccy_nobody_to_ask|ccy_launch_unattended/ { guarded = 1 }
+        /read -rp? *"\$\{?CCY_PROMPT_(NETWORK_PRUNE|TOKEN_REPLACE|NETWORK_PICK)/ { next }
+        /read -rp? *"\$\{?CCY_PROMPT_/ { if (!guarded) printf "%s ", NR; guarded = 0 }
+    ' "$1"
+}
+check "every launcher question has a guard of its own" "" "$(guard_gaps "$LAUNCHER")"
+# The check has to see one guard go missing, wherever it is: drop each guard block in turn
+# (the line that tests, through the `exit` or `fi` that ends it) from a copy and require the
+# question it protects to be named.
+guard_lines="$(grep -n 'if ccy_nobody_to_ask; then$\|if ccy_launch_unattended; then$' "$LAUNCHER" | cut -d: -f1)"
+missed=""
+for g in $guard_lines; do
+    awk -v g="$g" 'NR < g || NR > g + 3' "$LAUNCHER" >"$WORK/launcher-without-guard"
+    [ -n "$(guard_gaps "$WORK/launcher-without-guard")" ] || missed+="$g "
+done
+check "  and finds the question when any one guard is removed" "" "$missed"
+check "  (guard blocks removed one at a time: at least ten)" "yes" \
+    "$([ "$(wc -w <<<"$guard_lines")" -ge 10 ] && echo yes || echo "no: $(wc -w <<<"$guard_lines")")"
 check "and the guards are there at all" "yes" \
     "$([ "$(grep -c 'ccy_nobody_to_ask\|ccy_launch_unattended' "$LAUNCHER")" -ge 10 ] && echo yes || echo "no: $(grep -c 'ccy_nobody_to_ask\|ccy_launch_unattended' "$LAUNCHER")")"
 
