@@ -333,7 +333,7 @@ u23_bridge() {
 }
 
 u23_prepare_lxc() {
-    local version arch address="" tries
+    local version arch address="" tries state
     if ! command -v lxc-create >/dev/null || [[ ! -x /usr/share/lxc/templates/lxc-download ]]; then
         U23_SKIP[lxc]="LXC with its download template: run playbooks/imports/play-lxc-install-config.yml (playbook-main.yml imports it)"
         return 0
@@ -349,6 +349,12 @@ u23_prepare_lxc() {
     sudo -n lxc-start -n "${U23_NAME}" -d || return 1
     sudo -n lxc-wait -n "${U23_NAME}" -s RUNNING -t 30 || return 1
     for ((tries = 0; tries < 60; tries++)); do
+        # A container that stopped will never get an address: name its state now.
+        state="$(sudo -n lxc-info -n "${U23_NAME}" -sH)" || return 1
+        if [[ "${state}" != RUNNING ]]; then
+            printf '[FAIL] the LXC container %s is %s while waiting for its IPv4 address\n' "${U23_NAME}" "${state}" >&2
+            return 1
+        fi
         address="$(sudo -n lxc-info -n "${U23_NAME}" -iH | awk '/^[0-9]+\./ { print; exit }')" || return 1
         if [[ -n "${address}" ]]; then
             break
