@@ -38,8 +38,6 @@ Use these Unicode icons in plan documents:
 
 - [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - `cc` typed outside a git working tree starts a session with no project settings: no hooks daemon, no status line. `cc` will check for a repository before its tmux re-exec and token chooser; in a terminal it offers to switch to the fedora-desktop checkout, and otherwise refuses with a pointer to `cd` or plain `claude`. Subdirectory behaviour to be settled from Claude Code's docs. Issue #90.
 
-- [00166-laptop-panel-stays-on-with-lid-closed-when-docked](00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - In Progress. With the lid closed while docked, GNOME kept the laptop panel live because `IgnoreLid=true` hid the lid from UPower. Fixed, deployed and accepted; the hand-run suspend matrix remains.
-
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - ccy sessions showed UTC beside a local desktop clock. The launcher passes the host's IANA zone (timedatectl, else the `/etc/localtime` link) as `TZ` and stops rather than run on UTC; `ccy.env` / `ccy.env.local` can override; the image installs `tzdata` by name. CCY 3.90.0, container 2.49.
 
 - [00164-stt-enter-lost-after-focus-retake](00164-stt-enter-lost-after-focus-retake/) - Speech-to-text: after the panel gives the dictation's window focus back, the text was pasted but the Enter did not send it. `wsi` and `wsi-stream` now paste once the window has kept focus for 0.5 s, then wait 1 s and check focus again before the Enter (none, and a lasting notification, if the window is gone); a read-only triage reads the timeline from the debug log.
@@ -209,6 +207,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00166-laptop-panel-stays-on-with-lid-closed-when-docked](Completed/00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - Docked with the lid closed, GNOME kept the laptop panel live because `IgnoreLid=true` hid the lid from UPower. The play sets `IgnoreLid=false` and asserts UPower sees the lid; deployed and accepted. Undocked suspend rows waived by the owner.
 
 - [00163-ccy-one-key-agent-forwarding](Completed/00163-ccy-one-key-agent-forwarding/) - ccy forwards one chosen key from the owner's ssh-agent through a filtering socket, never the whole agent, so a headless launch can use a passphrase-protected key with no prompt. Accepted on the host by Plan 00161: every seat launched headless on a passphrase key, and inside a seat the agent listed one key, refused changes and signed with it.
 

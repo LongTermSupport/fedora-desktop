@@ -95,16 +95,12 @@ show_mutter_state() {
 # Lid transitions and anything that slept, this boot, within the window. The system journal
 # carries logind's lid events and the kernel's suspend entries; nothing here should show a
 # suspend between a "Lid closed" and the next "Lid opened" while docked on AC.
+# Scoped to logind and the kernel: an unscoped grep also matches container logs that happen
+# to contain these words, and buries the dozen lines that matter.
 show_lid_timeline() {
     journalctl --no-pager -b --since "-${LID_WINDOW_MINUTES} min" -o short-iso \
-        --grep 'Lid (opened|closed)|[Dd]ocked|PM: suspend|system will suspend|sleep operation|upowerd'
-}
-
-# The session's side: what GNOME did with its monitors across the same window. A closed lid
-# should remove the built-in panel from the layout and an opened one restore it.
-show_session_monitor_timeline() {
-    journalctl --no-pager --user -b --since "-${LID_WINDOW_MINUTES} min" -o short-iso \
-        --grep '(?i)edp|lid|monitor'
+        _COMM=systemd-logind + _TRANSPORT=kernel \
+        --grep 'Lid (opened|closed)|[Dd]ocked|PM: suspend|system will suspend|sleep operation'
 }
 
 {
@@ -129,4 +125,3 @@ probe "logind drop-ins" show_logind_dropins
 probe "Mutter display state" show_mutter_state
 # journalctl --grep exits 1 when nothing matched: that is the answer, not a failure.
 probe "Lid and sleep events, last ${LID_WINDOW_MINUTES} min (system journal)" show_lid_timeline
-probe "Session monitor events, last ${LID_WINDOW_MINUTES} min (user journal)" show_session_monitor_timeline

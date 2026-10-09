@@ -1,6 +1,6 @@
 # Plan 00166: laptop panel stays on with lid closed when docked
 
-**Status**: In Progress (deployed and accepted; the hand-run suspend matrix remains)
+**Status**: Complete (2026-10-09; matrix rows 2–4 waived by the owner)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: Medium
@@ -108,9 +108,13 @@ symptom actually was is unknown. The test matrix below is meant to surface it if
   nothing external lit). Run against the unfixed host it rejects with 4 of 4 checks executed
   and all four failing, so each check sees the bug.
 
-- [ ] 🔄 **Task 3.3**: Deployed from the desktop session, docked with the lid closed:
+- [x] ✅ **Task 3.3**: Deployed from the desktop session, docked with the lid closed:
   `IgnoreLid` changed, upower restarted, nothing else changed; acceptance 4 of 4 ACCEPTED.
-  What remains is the owner working through the hardware matrix:
+  Row 1 then held through an owner open/close cycle. The journal shows lid opened and
+  closed with no suspend, the panel was off again after the close, and the profile was
+  unchanged (`triage.bash`'s lid timeline). Rows 2–4 were **not exercised**: the owner
+  declined to undock mid-work and accepted the fix without them. This change does not touch
+  the logind lid policy that decides those rows (F4).
 
   | Scenario                                   | Expected                                                    |
   | ------------------------------------------ | ----------------------------------------------------------- |
@@ -121,9 +125,10 @@ symptom actually was is unknown. The test matrix below is meant to surface it if
 
 ### Phase 4: Review and close
 
-- [ ] ⬜ **Task 4.1**: Run the `qa-reviewer` agent over the plan's diff; resolve every BLOCK
-  and FIX-BEFORE-MERGE finding.
-- [ ] ⬜ **Task 4.2**: Remove the plan from `meta-deploy.bash`, mark it Complete, and move it
+- [x] ✅ **Task 4.1**: Run the `qa-reviewer` agent over the plan's diff; resolve every BLOCK
+  and FIX-BEFORE-MERGE finding. FIX-BEFORE-MERGE, 0 blocking, 5 should-fix: all five fixed
+  in `0c909162`.
+- [x] ✅ **Task 4.2**: Remove the plan from `meta-deploy.bash`, mark it Complete, and move it
   to `Completed/`.
 
 ## Dependencies
@@ -147,10 +152,14 @@ we find out before choosing again.
 
 ## Success Criteria
 
-- [ ] Docked with the lid closed, Settings shows three monitors and eDP-1 is disabled.
-- [ ] All four rows of the hardware matrix behave as expected.
-- [ ] The play fails if UPower does not report the lid on a host that has one.
-- [ ] QA passes (`./scripts/qa-all.bash`) and the `qa-reviewer` findings are resolved.
+- [x] Docked with the lid closed, eDP-1 is disabled (sysfs, acceptance) and GNOME no
+  longer counts it as a monitor.
+- [ ] All four rows of the hardware matrix behave as expected: row 1 holds; rows 2–4
+  waived by the owner, not exercised.
+- [x] The play fails if UPower does not report the lid on a host that has one (read-back,
+  run in its final position).
+- [x] `qa-reviewer` findings resolved. QA passes except the unrelated `helper-tests` failures
+  recorded in Task 2.4.
 
 ## Risks & Mitigations
 
