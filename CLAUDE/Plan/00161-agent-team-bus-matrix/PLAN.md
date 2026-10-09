@@ -159,7 +159,9 @@ repository; opt-in per machine and per team.
   expansion, now off. Run of 26-10-07 (meta-deploy `20261007-142049`): `deploy.bash` and
   `acceptance.bash` PASS, M1.1 (review, wait, ack), M1.2 (a human message reaches only the
   member it mentions) and M1.3 (TIMEOUT for the unanswered review only) all PASS.
-- [ ] 🔄 **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. Seats
+- [x] ✅ **M2 ccy members, the idle session woken**: U12, U18–U20, U29–U33. **Accepted on
+  the host 26-10-09**: U20's meta-deploy run passed M2.0–M2.10, which exercises every unit
+  below; the fixes that run needed are in this plan's journal for 26-10-09. Seats
   (Tasks 1.6–1.10), designed; **U29 built** (seat handles in `protocol.py`, registry v2,
   `add-member --seat` with park and return, `park-member`, `local` named in the
   protocol's handle rules; D51; no host run of its own, exercised by U20); **U30 built**
@@ -168,7 +170,7 @@ repository; opt-in per machine and per team.
   primitive, the session home of links, `SEAT` lines in `status`; `config.py` accepts a
   linked team entry only onto a user-owned 0700 directory; the seats at SessionStart; the
   skill's seats section; protocol §12-§15; D52-D54; no host run of its own, reaches the
-  image with U31 and is exercised by U20); **U31 built**, host run pending (ccy 3.86.0,
+  image with U31 and is exercised by U20); **U31 built**, run on the host by U20 (ccy 3.86.0,
   container 2.46: `ccy --teams <seat>@<team>[,…]` checked by `agent-bus seat check` before
   anything runs, `seat take` just before the container, `PINGBUS_SEATS` and the `ccy-seats`
   label, `--teams <canonical list>` in restart and restore; a plain `ccy` calls no
@@ -187,7 +189,7 @@ repository; opt-in per machine and per team.
   from the room through the receive checks, `HISTORY` lines, the skill's section; D55; no
   host run of its own, exercised by U20); U30 and U33 merged together on
   `seats-integration` (the skill's seats section names `pingbus history`). **U20 reworked,
-  built, host run pending**: M2 in this checkout (DESIGN.md §12 "U20"), sessions launched by
+  built, passed on the host 26-10-09**: M2 in this checkout (DESIGN.md §12 "U20"), sessions launched by
   `ccy --headless --no-restore --no-supervise --teams <seat>@acceptance` onto seats `acca`,
   `accb`, `accc` their launches create, no setup step; M2.0-M2.10 (seats created, woken by
   the socket twice, the watcher-lost fallback, a human message, refused launches, seats freed,
@@ -246,7 +248,9 @@ repository; opt-in per machine and per team.
   per-encapsulation READMEs, `test_member_docs.py`) built, reviewed and fixed; its podman
   README was checked against U19's entrypoint as built: it matches, the address included
   (settled by H1's dummy leg, M2). No host run of its own.
-  U23 built, host run pending: `acceptance.bash` slice (`_acceptance-u23.inc.bash`), after
+  U23 built; its first host run (26-10-09) started the LXC member and stopped because
+  `lxc-attach` re-owns the files it is given as stdio, so the run could not read its own
+  output; the LXC steps now hand it pipes. Host run pending: `acceptance.bash` slice (`_acceptance-u23.inc.bash`), after
   M1 in the same acceptance team. A throwaway LXC container (Fedora from the download
   template) and a throwaway docker container (a digest-pinned python image) each join by
   their README's steps (the kit, `suggest-handle`, `add-member`, the bundle, `config check`),

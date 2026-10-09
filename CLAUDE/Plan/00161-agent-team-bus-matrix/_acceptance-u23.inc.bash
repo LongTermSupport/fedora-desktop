@@ -151,6 +151,26 @@ u23_ssh() {
     "${U23_SSH[@]}" -- "${VM_SSH}" "${quoted}"
 }
 
+# u23_lxc_attach <argv...> — argv in the LXC member, its stdin, stdout and stderr all pipes.
+# lxc-attach makes the files it is handed as stdio the container root's own, mode 0600: the
+# run directory's .out and .err would be unreadable to the owner, and a shared input such as
+# /dev/null would be re-owned. Returns argv's status.
+u23_lxc_attach() {
+    local -a piped
+    {
+        (
+            cat | sudo -n lxc-attach -n "${U23_NAME}" --clear-env -- "$@" 3>&- | cat 3>&-
+            exit "${PIPESTATUS[1]}"
+        ) 2>&1 1>&3 3>&- | cat >&2 3>&-
+        piped=("${PIPESTATUS[@]}")
+    } 3>&1
+    if [[ "${piped[1]}" -ne 0 ]]; then
+        printf '[FAIL] u23_lxc_attach: copying the member'\''s stderr failed\n' >&2
+        return 1
+    fi
+    return "${piped[0]}"
+}
+
 # u23_exec <kind> <root|agent> <label> <stdin-file> <argv...> — argv inside the member, as
 # root or as the agent user in its checkout. Its stdout and stderr are kept as <label>.out
 # and <label>.err in the member's run directory. Returns the command's status.
@@ -169,7 +189,7 @@ u23_exec() {
         docker/agent)
             docker exec -i -u "${U23_AGENT}" -w "${U23_CHECKOUT}" "${U23_NAME}" "$@" ;;
         lxc/*)
-            sudo -n lxc-attach -n "${U23_NAME}" --clear-env -- "${inner[@]}" "$@" ;;
+            u23_lxc_attach "${inner[@]}" "$@" ;;
         vm/*)
             u23_ssh sudo -n "${inner[@]}" "$@" ;;
         *)
