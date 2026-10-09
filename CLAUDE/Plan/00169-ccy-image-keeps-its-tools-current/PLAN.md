@@ -109,8 +109,10 @@ desktop's tools.
   - **D2** the host's release, as recommended (owner did not object).
   - **D3** Node through **nvm** ("nvm is nice to keep things simple and easy to upgrade"),
     not Fedora's `nodejs`; the `node >= 22` floor stays.
-  - **D4** a weekly background rebuild plus an inline rebuild of a very stale image, as
-    recommended.
+  - **D4** revised by the owner: GitHub Actions builds the base image on a schedule and
+    publishes it, and ccy pulls it ("can we get gh actions to handle image updates
+    automatically"). A local build stays as the fallback and for testing Dockerfile
+    edits. Tasks 4.4 and 4.6.
   - **D5** `gh` from GitHub's rpm repo, as recommended.
   - **D6** a major version of ccy itself, not only of the container: project Dockerfiles
     are rebuilt for Fedora by the agents in those projects ("probably not hard"), with the
@@ -156,6 +158,16 @@ desktop's tools.
   a Fedora base, the launcher checks the project Dockerfile for `apt-get` or `dpkg`. If it
   finds either, it stops and names the file, the line and `CUSTOM-DOCKERFILES.txt`.
   Shellcheck-clean and covered by a `scripts/test-*.bash` case.
+- [ ] ⬜ **Task 3.9**: The basics every session can rely on (owner: "ensure it then has
+  expected basic tooling included"). The Fedora container image is smaller than an
+  install (no `procps`, `which`, `less`, `iproute` and the like are promised). Write the
+  list as a tracked file beside the floors file (Task 4.1): every command a session or
+  agent is expected to find (start from what the Debian image provides today, measured
+  in the Task 3.1 spike: shell utilities, `ps`, `which`, `less`, `ip`, `ss`, `hostname`,
+  `file`, `unzip`, `xz`, `jq`, `yq`, `curl`, `wget`, `git`, `gh`, `ssh`, `rsync`, an
+  editor, `make`, `gcc`, `python3`, `pip`, `uv`, `node`, `npm`). A base-stage `RUN` runs
+  `command -v` on each and fails the build naming every one missing. `docs/ccy.md` lists
+  them, so agents in other projects know what they can count on.
 
 ### Phase 3-alt (D1 = Debian): keep Debian, build git
 
@@ -181,10 +193,22 @@ desktop's tools.
   and hash are unchanged and no bump is owed. Project images then rebuild through the
   existing "base image updated" path on their next launch. A build or floor failure
   leaves the old image tagged and exits non-zero. Bump `CCY_VERSION`.
-- [ ] ⬜ **Task 4.4**: Add the D4 trigger. `play-claude-yolo.yml` deploys a
-  `systemd --user` timer and service that run `ccy --refresh-images`. At launch, the
-  launcher rebuilds inline when `claude-yolo-built-at` is older than twice the maximum
-  age, so a dead timer cannot leave an image stale.
+- [ ] ⬜ **Task 4.4**: The D4 trigger, in GitHub Actions. A workflow under
+  `.github/workflows/` builds the base image from `files/var/local/claude-yolo/` weekly
+  on a schedule, on every push that changes it, and by hand (`workflow_dispatch`), once
+  per supported Fedora release (D2: the release is a tag, e.g. `:f44`). It runs the
+  floors (4.1) and basics (3.9) checks, and publishes to the GitHub Container Registry
+  (`ghcr.io/<owner>/claude-yolo:<release>` plus a dated tag) only if they pass, so a bad
+  build is never pulled. The built-at label (4.2) and the recipe hash are set as now.
+  OWNER: the first publish makes a public package; confirm the name and visibility
+  before it runs.
+- [ ] ⬜ **Task 4.6**: The launcher pulls the published image for the host's release
+  when it is newer than the local one (compare built-at labels), and builds locally only
+  when the registry cannot be reached or the local Dockerfile differs from the published
+  recipe hash (an unpushed edit being tested). A pull failure with no usable local image
+  fails loud. `ccy --refresh-images` (4.3) becomes "pull, else build". This also takes
+  the long Chrome download off the owner's machine. Bump `CCY_VERSION`; covered by a
+  `scripts/test-*.bash` case with a stub registry answer.
 - [ ] ⬜ **Task 4.5**: Document the rule in `CLAUDE/ContainerRules.md`. The container
   version identifies the recipe, and a refresh rebuilds the same recipe with newer
   packages, so it needs no bump. Any edit to the Dockerfile or `entrypoint.sh` still
@@ -277,7 +301,8 @@ owning a source build, which is exactly the X.Y.Z maintenance the owner does not
 | A refresh pulls in a regression (new git, Node, Python)                    | M      | M           | Floors and the build checks fail the build and keep the old image; `--refresh-images` reports it        |
 | nvm's Node is on a shell PATH only, so a non-interactive process misses it | M      | M           | Task 3.1 puts `node`/`npm` on the PATH every process sees, and checks it from a hook and the entrypoint |
 | Python 3.14 breaks an image-side script                                    | L      | L           | The host already runs F44's Python for the same hooks-daemon and supervisor code                        |
-| A refresh rebuild costs a Chrome download and minutes of build             | M      | H           | Background timer (D4), not the launch path, does the routine rebuild                                    |
+| A refresh rebuild costs a Chrome download and minutes of build             | M      | H           | GitHub Actions builds it (D4, Task 4.4); the owner's machine pulls the result                           |
+| The registry is down or the package is deleted                             | M      | L           | Task 4.6 builds locally when the pull fails; fails loud only with no usable image at all                |
 
 ## Delivery & Milestones
 
