@@ -6,7 +6,7 @@
 #
 # WHAT IT CHANGES:
 #   - /etc/systemd/logind.conf.d/laptop-lid.conf        (lid behaviour)
-#   - /etc/UPower/UPower.conf                           (IgnoreLid=true)
+#   - /etc/UPower/UPower.conf                           (IgnoreLid=false, Plan 00166)
 #   - /etc/udev/rules.d/99-suspend-wakeup-policy.rules  (disarm power-delivery wakeups)
 #   - /usr/lib/systemd/system-sleep/resuspend-aborted-suspend  (re-issue aborted suspends)
 #   - gsettings sleep-inactive-battery-type=suspend     (backstop)

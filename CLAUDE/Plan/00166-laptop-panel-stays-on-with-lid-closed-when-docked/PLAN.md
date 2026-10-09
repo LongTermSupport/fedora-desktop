@@ -1,6 +1,6 @@
 # Plan 00166: laptop panel stays on with lid closed when docked
 
-**Status**: Not Started
+**Status**: In Progress (fix written; awaiting the host deploy)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: Medium
@@ -20,10 +20,10 @@ off. logind is unaffected: it reads the lid switch from the kernel itself.
 
 The setting dates from February, meant to remove a `handle-lid-switch` inhibitor held by
 gnome-settings-daemon's power plugin. It does not do that: the inhibitor is still held with
-`IgnoreLid=true` (handover evidence below), and while docked that inhibitor is what we
-want anyway. The host had `IgnoreLid=false` until Plan 00104's deploy changed it (00104's
-reviewer reports record the file at `false` before that run), so this regression arrived
-with Plan 00104 moving the task into a play that `playbook-main.yml` imports.
+`IgnoreLid=true` (F3), and while docked that inhibitor is what we want anyway. A later
+upower package update replaced the file with the stock one (`IgnoreLid=false`) and kept the
+February file as `UPower.conf.rpmsave` (F8). That fixed the panel by accident until Plan
+00104's deploy wrote `true` back (F7, F9), which is when this regression arrived.
 
 ## Goals
 
@@ -43,17 +43,21 @@ with Plan 00104 moving the task into a play that `playbook-main.yml` imports.
 
 ## Context & Background
 
-Evidence, verified live by the session that wrote the handover:
+F1–F6 were verified live by the session that wrote the handover and confirmed by this plan's
+`triage.bash`. F8–F10 come from that triage.
 
-| ID  | Fact                                                                                                                            |
-| --- | ------------------------------------------------------------------------------------------------------------------------------- |
-| F1  | `/sys/class/drm/card1-eDP-1/enabled` = `enabled` while `/proc/acpi/button/lid/*/state` = `closed`                               |
-| F2  | UPower reports `LidIsPresent=false`, `LidIsClosed=false` with `IgnoreLid=true`                                                  |
-| F3  | `systemd-inhibit --list` shows gsd-power holding `handle-lid-switch` ("External monitor attached…") even with `IgnoreLid=true`  |
-| F4  | logind: `LidClosed=true`, `Docked=true`, `HandleLidSwitchDocked=ignore`, plus this repo's `HandleLidSwitchExternalPower=ignore` |
-| F5  | Power profile changes come from `power-saver-profile-on-low-battery`, not from the lid                                          |
-| F6  | `rpm -V upower` shows `UPower.conf` modified; a `UPower.conf.rpmsave` exists beside it                                          |
-| F7  | Plan 00104 reviewer reports (`subagent-reports/260908-*round2.md`, `*round5.md`) record `IgnoreLid=false` before 00104's deploy |
+| ID  | Fact                                                                                                                                                             |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | `/sys/class/drm/card1-eDP-1/enabled` = `enabled` while `/proc/acpi/button/lid/*/state` = `closed`                                                                |
+| F2  | UPower reports `LidIsPresent=false`, `LidIsClosed=false` with `IgnoreLid=true`                                                                                   |
+| F3  | `systemd-inhibit --list` shows gsd-power holding `handle-lid-switch` ("External monitor attached…") even with `IgnoreLid=true`                                   |
+| F4  | logind: `LidClosed=true`, `Docked=true`, `HandleLidSwitchDocked=ignore`, plus this repo's `HandleLidSwitchExternalPower=ignore`                                  |
+| F5  | Power profile changes come from `power-saver-profile-on-low-battery`, not from the lid                                                                           |
+| F6  | `rpm -V upower` shows `UPower.conf` modified; a `UPower.conf.rpmsave` exists beside it                                                                           |
+| F7  | Plan 00104 reviewer reports (`subagent-reports/260908-*round2.md`, `*round5.md`) record `IgnoreLid=false` before 00104's deploy                                  |
+| F8  | `UPower.conf.rpmsave` is the February file: its only difference from stock is the Ansible-managed `IgnoreLid=true` block                                         |
+| F9  | `UPower.conf` was last written the day of Plan 00104's deploy; the upower package was updated after it                                                           |
+| F10 | Mutter lists eDP-1 in a logical monitor with the lid closed, i.e. treats it as in use; the power profile comes from tuned-ppd over D-Bus (no `powerprofilesctl`) |
 
 History: commit `19ce2c29` added the setting and `c8a627ed` switched it to `lineinfile`.
 Plan 00104 moved the task into this play without revisiting it, and its F9 could not
@@ -65,38 +69,43 @@ symptom actually was is unknown. The test matrix below is meant to surface it if
 
 ### Phase 1: Triage (current, broken state)
 
-- [ ] ⬜ **Task 1.1**: Write `triage.bash` on `_planlib.inc.bash`, read-only. It records:
+- [x] ✅ **Task 1.1**: Write `triage.bash` on `_planlib.inc.bash`, read-only. It records:
   `IgnoreLid` in `UPower.conf`; UPower `LidIsPresent` and `LidIsClosed` (busctl); the ACPI
   lid state; every `/sys/class/drm/*-eDP-*/{enabled,status}`; `systemd-inhibit --list`;
   logind `LidClosed`, `Docked` and `HandleLidSwitch*`; the active power profile;
   `rpm -V upower`; whether `UPower.conf.rpmsave` exists and how it differs.
-- [ ] ⬜ **Task 1.2**: Add the plan to `meta-deploy.bash`. The owner runs triage docked
-  with the lid closed. Record the facts it establishes in the journal.
+- [x] ✅ **Task 1.2**: Run triage docked with the lid closed (it is read-only, so it was run
+  from the desktop session directly). Facts recorded as F8–F10 and in the journal.
 
 ### Phase 2: Fix the play
 
-- [ ] ⬜ **Task 2.1**: Change the task to `line: 'IgnoreLid=false'`, rename it, and rewrite
+- [x] ✅ **Task 2.1**: Change the task to `line: 'IgnoreLid=false'`, rename it, and rewrite
   its comment with the real reason: Mutter needs UPower's lid state to switch the panel off,
   and logind does not read UPower.
-- [ ] ⬜ **Task 2.2**: After the existing `flush_handlers`, add a read-back:
+- [x] ✅ **Task 2.2**: After the existing `flush_handlers`, add a read-back (retried while
+  upowerd re-probes, skipped under `--check`):
   `busctl get-property org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower LidIsPresent`
   must print `b true` on a host whose ACPI exposes a lid, and the play fails otherwise.
   Gate it on the lid's presence in `/proc/acpi/button/lid/`, not on the profile.
-- [ ] ⬜ **Task 2.3**: Update `docs/playbooks.md` (the `IgnoreLid` line near 203) and the
-  header comment in Plan 00104's `deploy.bash` (line 9).
-- [ ] ⬜ **Task 2.4**: Run QA: `./scripts/qa-all.bash`; fix any findings.
+- [x] ✅ **Task 2.3**: Update `docs/playbooks.md` (the play's actions, its abort list, and the
+  `IgnoreLid` note) and the header comment in Plan 00104's `deploy.bash`.
+- [x] ✅ **Task 2.4**: Run QA: `./scripts/qa-all.bash`. Every stage this plan touches passes,
+  including `ansible-syntax`. Only `helper-tests` fails, in the `agent_bus` and `pingbus`
+  suites (Plan 00161), because they need root and a host user is not root. None of this
+  plan's files are involved. That is reported to the owner, not fixed here.
 
 ### Phase 3: Deploy and accept
 
-- [ ] ⬜ **Task 3.1**: `deploy.bash` runs `play-suspend-and-lid-policy.yml`.
+- [x] ✅ **Task 3.1**: `deploy.bash` runs `play-suspend-and-lid-policy.yml`, then acceptance.
 
-- [ ] ⬜ **Task 3.2**: `acceptance.bash` checks `IgnoreLid=false`, `LidIsPresent` = true and,
-  when docked with the lid closed, that every eDP connector is disabled, no suspend has
-  been logged since the lid closed, and the power profile matches the one triage recorded.
-  It prints `COVERAGE: n of m` and rejects an incomplete run. It lists as NOT ESTABLISHABLE
-  the steps that need a person at the machine (rows 2 to 4 below).
+- [x] ✅ **Task 3.2**: `acceptance.bash` (checks in `check-lid.bash`) checks `IgnoreLid=false`,
+  `LidIsPresent` = true and, when docked with the lid closed, `LidIsClosed` = true and every
+  built-in connector disabled. It prints `COVERAGE: n of m` and rejects an incomplete run
+  (lid open or nothing external lit). The suspend behaviour and the power profile are in
+  the hand-run matrix below, which the closing banner lists. Run against the unfixed host it
+  rejects with 4 of 4 checks executed and all four failing, so each check sees the bug.
 
-- [ ] ⬜ **Task 3.3**: Add the plan to `meta-deploy.bash`. The owner runs deploy and
+- [ ] 🔄 **Task 3.3**: Added to `meta-deploy.bash`. The owner runs deploy and
   acceptance docked with the lid closed, then works through the hardware matrix:
 
   | Scenario                                   | Expected                                                    |

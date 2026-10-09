@@ -160,7 +160,10 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 **Actions**:
 
 - Configures systemd-logind lid-close action (suspend on battery, ignore on AC)
-- Sets UPower to ignore the lid, leaving logind in charge
+- Keeps UPower reporting the lid (`IgnoreLid=false`) and asserts it does, because GNOME
+  switches the built-in panel off from UPower's lid state: without it a docked laptop with
+  the lid shut keeps an invisible monitor windows get lost on. Suspend is unaffected —
+  logind reads the lid itself
 - Disarms the AC adapter and USB-C power-delivery ports as wakeup sources, so unplugging a
   cable cannot abort a suspend in progress
   - **Trade-off you will notice**: plugging in the mains no longer wakes a sleeping machine.
@@ -184,8 +187,11 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
   says so rather than failing
 
 **This play is on the default provisioning path and will abort the run** (`any_errors_fatal`)
-in four cases:
+in five cases:
 
+- UPower does not report a lid on a host whose firmware has one — GNOME would keep the
+  built-in panel live with the lid shut (skipped under `--check`, where upowerd has not been
+  restarted).
 - `/usr/lib/systemd/system-sleep` is missing — systemd scans only that path, so the recovery
   hook would be installed where nothing runs it. Checked in preflight, before anything is
   written.
@@ -200,7 +206,8 @@ in four cases:
   installed.
 
 A host with no `/sys/power/state` (cannot sleep) ends cleanly for that host instead, and a
-host with no upower simply skips the `IgnoreLid` task.
+host with no upower simply skips the `IgnoreLid` task, and a host whose firmware has no lid
+skips the read-back.
 
 ### play-network-wait-tuning.yml
 
