@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.88.1"  # A headless launch never stops at a container menu. See docs/ccy-changelog.md.
+CCY_VERSION="3.88.2"  # Flags after -- are not judged against claude --help. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -592,6 +592,8 @@ TEAMS_FLAG_POS=0
 TEAMS_VALUE_POS=0
 CCY_ARG_POS=0
 SAW_DOUBLE_DASH=false
+# How many CLAUDE_ARGS came before a `--`; unset until one is seen (then all of them did).
+CLAUDE_ARGS_BEFORE_SEPARATOR=""
 
 # The arguments exactly as given, for a supervisor-requested relaunch (see the end of this
 # script). The loop below only reads "$@", but a copy cannot be disturbed by a later `set --`.
@@ -603,8 +605,10 @@ for arg in "$@"; do
         # Everything after `--` is forwarded raw to claude without ccy parsing
         CLAUDE_ARGS+=("$arg")
     elif [ "$arg" = "--" ]; then
-        # POSIX-style separator: end of ccy options, rest is for claude
+        # POSIX-style separator: end of ccy options, rest is for claude. The flag check
+        # below reads only the CLAUDE_ARGS gathered before it.
         SAW_DOUBLE_DASH=true
+        CLAUDE_ARGS_BEFORE_SEPARATOR=${#CLAUDE_ARGS[@]}
     elif [ "$NEXT_IS_TEAMS" = true ]; then
         # An option where the list belongs means the list was left out (exit 64, usage).
         if [[ "$arg" == -* ]]; then
@@ -840,7 +844,7 @@ ccy_lifecycle_validate_options "$OPT_MAX_AGE" "$OPT_RUN_FOR" "$OPT_UNTIL" "$NO_S
 # Args after `--` are forwarded raw and skipped.
 # ─────────────────────────────────────────────────────────────────────────────
 suspect_flags=()
-for a in "${CLAUDE_ARGS[@]}"; do
+for a in "${CLAUDE_ARGS[@]:0:${CLAUDE_ARGS_BEFORE_SEPARATOR:-${#CLAUDE_ARGS[@]}}}"; do
     [[ "$a" == --* ]] || continue
     suspect_flags+=("${a%%=*}")
 done
@@ -849,9 +853,12 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
     # Source `claude --help`. Prefer host binary (instant); fall back to running
     # claude inside the base image if the host doesn't have it. If neither is
     # available, skip validation (claude itself will reject bogus flags later).
+    # Text with no usage line is not the help (claude's updater replacing the binary
+    # mid-run has answered with something else), so it counts as no answer.
     claude_help=""
     if command -v claude &>/dev/null; then
         claude_help=$(claude --help 2>&1) || claude_help=""
+        grep -q '^Usage:' <<< "$claude_help" || claude_help=""
     fi
     if [ -z "$claude_help" ] && container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
         if ! claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
@@ -859,6 +866,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
             echo "$claude_help" >&2
             exit 1
         fi
+        grep -q '^Usage:' <<< "$claude_help" || claude_help=""
     fi
 
     if [ -z "$claude_help" ]; then

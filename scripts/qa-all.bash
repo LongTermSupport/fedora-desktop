@@ -570,6 +570,17 @@ fi
 container_menus_summary=$(qa_gate_case_count "$container_menus_out")
 qa_pass_line ccy-container-menus "$container_menus_summary"
 
+# The launcher's fail-fast flag check: only flags before `--` are judged against
+# `claude --help`, and help text with no usage line is no help.
+flag_check_out=""
+if ! flag_check_out="$(bash "$SCRIPT_DIR/test-ccy-flag-check.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-flag-check \
+        "ccy flag check tests failed" \
+        "$flag_check_out"
+fi
+flag_check_summary=$(qa_gate_case_count "$flag_check_out")
+qa_pass_line ccy-flag-check "$flag_check_summary"
+
 # lib/restart-request.bash: a supervisor's restart request is a file written by code in the
 # container and acted on by the host, so it is validated strictly (regular file, size, JSON,
 # freshness, session id), the restart count is bounded, and the relaunch argv replaces every

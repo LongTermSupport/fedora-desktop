@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.88.2 — container 2.48
+
+- **Flags after `--` are forwarded without being judged** (Plan 00161, found by U20's M2).
+  ccy checks each `--flag` meant for claude against `claude --help` before any container
+  work, and its own comment said flags after `--` were skipped, but they were judged too.
+  The third of three back-to-back headless launches was refused for `--input-format --verbose --model`, all after `--`, when the host's `claude --help` answered with
+  something other than the help. Now only flags before `--` are judged, and help text with
+  no `Usage:` line counts as no help, so the check falls back to the image's or skips.
+
 ## 3.88.1 — container 2.48
 
 - **A headless launch never stops at a container menu** (Plan 00161, found by U20's M2).
