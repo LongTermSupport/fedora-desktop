@@ -156,12 +156,11 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   without `textual`, `rich` and `huggingface_hub`, and the ccy image has none of them.
   The test now loads stand-ins for them (none is used by the code under test), so it
   runs anywhere; a control run against 6515dd7c's manager still fails on the defect.
-- [ ] ⬜ **Task 4.4**: The next wider ready-wait rule, not built: treat starts that hand a
-  guest to a manager (`lxc-start`, `virsh start`, `virt-install`) as arming a wait, as
-  `&` does. Instances #6 and #7 were of this shape and are fixed by hand, but a new copy
-  would pass the gate. Not built because their liveness check sits in a helper function
-  and the rule reads only the loop's text; to try next, let the rule follow a function
-  called from the loop's header or body.
+- [x] ✅ **Task 4.4**: The bash rule now arms on `lxc-start`, `virsh start` and
+  `virt-install`, accepts the manager's state probe as liveness, and follows a function
+  the loop calls (one level). It found two more instances, both fixed: `vmtest`'s
+  session-runner wait and Plan 00161's U23 LXC address wait
+  ([report](subagent-reports/261009-task-4-4-builder-opus.md)).
 - [ ] ⬜ **Task 4.5**: OWNER: the ready-wait class stands at 15 of 16 instances fixed,
   1 remaining, Completed Plan 00111's `insulation-steps.bash` (#15). What stopped it: the
   start and the waits run in separate invocations (the pid is kept in a file), and

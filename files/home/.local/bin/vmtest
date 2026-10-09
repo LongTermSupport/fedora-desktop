@@ -948,7 +948,8 @@ session_provision() {
     done
     log "handing the run to the session runner (waits for ${GUEST_RUN_STATE}/run.exit, up to ${PROVISION_TIMEOUT_SECONDS}s)"
     printf '%s\n' "${env_lines[@]}" | guest_ssh "umask 077 && cat >${GUEST_RUN_STATE}/run.env.tmp && mv -f ${GUEST_RUN_STATE}/run.env.tmp ${GUEST_RUN_STATE}/run.env"
-    while ! guest_ssh "test -r ${GUEST_RUN_STATE}/run.exit" 2>/dev/null; do
+    while guest_must_be_up "run.bash in the session" &&
+        ! guest_ssh "test -r ${GUEST_RUN_STATE}/run.exit" 2>/dev/null; do
         sleep 15
         waited=$((waited + 15))
         if [[ "${waited}" -ge "${PROVISION_TIMEOUT_SECONDS}" ]]; then

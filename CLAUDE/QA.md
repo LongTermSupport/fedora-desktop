@@ -762,10 +762,16 @@ exited. Run by `qa-ready-wait-rules.bash` in two halves:
 - **Bash** (`helpers/ready_wait/bash_ready_waits.py`): a loop that runs `sleep` and
   waits for something (it breaks, returns or exits, or is a `while`/`until` on a test),
   after a background start (`cmd &`, or a call to a function that starts one and keeps
-  its `$!`) in the same function or top level, or in a function called from there. It
-  is cleared by `kill -0`, `ps -p` or `wait -n` in its header or body. `wait` on the
-  child, or the end of a `case` arm, ends the scope's armed state. Semgrep is not used
-  for bash because its parser rejects about a quarter of this repo's scripts.
+  its `$!`) in the same function or top level, or in a function called from there. A
+  start that hands a guest to a manager and returns (`lxc-start`, `virsh start`,
+  `virt-install`, run as a command, or a function that runs one) arms it the same
+  way: the guest is the child. It is cleared by `kill -0`, `ps -p` or `wait -n`, or by
+  asking the manager for the guest's state (`lxc-info -s`, `lxc-ls --running`,
+  `virsh domstate`, `virsh list`), in its header or body, or in a function the loop
+  calls by name (one level deep: a check made through a further function is not
+  seen). `wait` on the child, or the end of a `case` arm, ends the scope's armed
+  state. Semgrep is not used for bash because its parser rejects about a quarter of
+  this repo's scripts.
 
 **Why it exists.** A failure known within seconds is hidden behind the whole timeout
 and reported as "timed out", without the process's own error. The speech server ran out
@@ -811,14 +817,10 @@ check that changes the outcome is what it stands for.
 **Where no rule reaches, and why.** These forms of the class are fixed by hand and
 reviewed, not detected:
 
-- **A start that is not a child.** `lxc-start`, `virsh start` and `virt-install` hand
-  the guest to a manager and return; the wait polls the guest, not a pid. Knowing
-  that a command daemonizes is knowledge about the tool, not the text. Check the
-  manager's state on each try (`lxc-info -sH`, `virsh domstate`). **This is the next
-  wider rule, not built yet** (Plan 00156 Task 4.4): the bash rule could take a named
-  list of handing-off starts as arming, as it takes `&`. It was not built because the
-  liveness check for those starts sits in a helper function (`guest_must_be_up`), and
-  the rule reads only the loop's own text, so it would report the fixed waits too.
+- **A handing-off start the rule does not name.** Only `lxc-start`, `virsh start` and
+  `virt-install` are known to hand a guest to a manager; another daemonizing start
+  (`podman run -d`, `systemctl start`, a tool's own `--daemon`) is knowledge about the
+  tool, not the text. Check the manager's state on each try.
 - **Ansible.** `wait_for:` and `until:` after a `systemd` start wait for a socket or a
   daemon's own answer; which unit serves that socket is in the unit's configuration,
   not the task. Read the unit's `ActiveState` in the same retried command, stop on

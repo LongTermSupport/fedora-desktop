@@ -276,6 +276,164 @@ class WhatIsNotABackgroundStart(unittest.TestCase):
             """), [])
 
 
+class ManagerStarts(unittest.TestCase):
+    """`lxc-start`, `virsh start` and `virt-install` hand the guest to a manager and
+    return, so there is no pid; the guest is the child the wait must ask about."""
+
+    def test_a_poll_after_lxc_start_is_reported(self):
+        self.assertEqual(lines("""\
+            if ! sudo lxc-start -n "$name"; then
+                exit 1
+            fi
+            for _ in $(seq 1 30); do
+                ip=$(sudo lxc-info -n "$name" -iH) || ip=""
+                [ -n "$ip" ] && break
+                sleep 1
+            done
+            """), [4])
+
+    def test_a_poll_after_virt_install_is_reported(self):
+        self.assertEqual(lines("""\
+            virt-install --connect "$uri" --name "$dom" \\
+                --import --noautoconsole
+            while ! ssh -p "$port" guest true; do
+                sleep 5
+            done
+            """), [3])
+
+    def test_a_poll_after_virsh_start_with_options_is_reported(self):
+        self.assertEqual(lines("""\
+            virsh -c "$uri" start "$dom" >&2
+            until ssh guest true; do
+                sleep 5
+            done
+            """), [2])
+
+    def test_a_start_in_a_command_substitution_is_a_start(self):
+        self.assertEqual(lines("""\
+            out="$(sudo -n lxc-start -n "$ct" -d 2>&1)" || exit 1
+            until [ -e "$ready" ]; do
+                sleep 1
+            done
+            """), [2])
+
+    def test_a_function_that_starts_a_guest_arms_its_callers(self):
+        self.assertEqual(lines("""\
+            boot_guest() {
+                virt-install --name "$dom" --import --noautoconsole
+            }
+            wait_for_ssh() {
+                while ! ssh guest true; do
+                    sleep 5
+                done
+            }
+            boot_guest
+            wait_for_ssh
+            """), [5])
+
+    def test_the_tool_named_as_an_argument_is_not_a_start(self):
+        self.assertEqual(lines("""\
+            have_tool virt-install
+            command -v lxc-start >/dev/null
+            for probe_bin in lxc-ls lxc-start lxc-stop; do
+                echo "$probe_bin"
+            done
+            virsh -c "$uri" autostart "$dom"
+            until [ -e "$ready" ]; do
+                sleep 1
+            done
+            """), [])
+
+    def test_lxc_info_state_in_the_loop_clears_it(self):
+        self.assertEqual(lines("""\
+            sudo lxc-start -n "$name"
+            while [ "$elapsed" -lt 30 ]; do
+                state=$(sudo lxc-info -n "$name" -sH)
+                [ "$state" = RUNNING ] || exit 1
+                ip=$(sudo lxc-info -n "$name" -iH) || ip=""
+                [ -n "$ip" ] && return 0
+                sleep 1
+            done
+            """), [])
+
+    def test_lxc_ls_running_clears_it(self):
+        self.assertEqual(lines("""\
+            sudo lxc-start -n "$name"
+            until [ -e "$ready" ]; do
+                sudo lxc-ls --running | grep -qx "$name" || exit 1
+                sleep 1
+            done
+            """), [])
+
+    def test_virsh_domstate_and_list_clear_it(self):
+        self.assertEqual(lines("""\
+            virsh -c "$uri" start "$dom"
+            while state="$(virsh -c "$uri" domstate "$dom")" && ! ssh guest true; do
+                sleep 5
+            done
+            until ssh guest true; do
+                virsh list --name | grep -qx "$dom" || exit 1
+                sleep 5
+            done
+            """), [])
+
+
+class LivenessInAHelper(unittest.TestCase):
+    """A function called by name from the loop's header or body is read too, one level
+    deep, so a liveness check kept in a helper counts."""
+
+    def test_a_helper_in_the_loop_header_that_asks_virsh_clears_it(self):
+        self.assertEqual(lines("""\
+            guest_must_be_up() {
+                state="$(virsh -c "$uri" domstate "$dom")" || die "no state"
+                case "$state" in "shut off" | crashed) die "guest is $state" ;; esac
+            }
+            virt-install --name "$dom" --import --noautoconsole
+            while guest_must_be_up SSH && ! ssh guest true; do
+                sleep 5
+            done
+            """), [])
+
+    def test_a_helper_in_the_loop_body_that_kills_0_clears_it(self):
+        self.assertEqual(lines("""\
+            still_alive() {
+                kill -0 "$SERVER_PID" || exit 1
+            }
+            server &
+            SERVER_PID=$!
+            until [ -S "$sock" ]; do
+                still_alive
+                sleep 0.1
+            done
+            """), [])
+
+    def test_a_helper_with_no_liveness_does_not_clear_it(self):
+        self.assertEqual(lines("""\
+            guest_ssh() {
+                ssh -p "$port" guest "$@"
+            }
+            virsh start "$dom"
+            until guest_ssh true; do
+                sleep 5
+            done
+            """), [5])
+
+    def test_only_one_level_of_helper_is_followed(self):
+        self.assertEqual(lines("""\
+            ask_state() {
+                virsh domstate "$dom"
+            }
+            guest_up() {
+                ask_state
+            }
+            virsh start "$dom"
+            until ssh guest true; do
+                guest_up
+                sleep 5
+            done
+            """), [8])
+
+
 class TheLexer(unittest.TestCase):
 
     def test_nested_quotes_in_a_command_substitution_stay_code(self):

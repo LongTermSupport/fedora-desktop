@@ -12,8 +12,15 @@ then reads the order of events in each function body and in the top level.
 
 - A background start arms its scope: `cmd &`, or a call to a function that starts
   one and keeps its pid (`VAR=$!`).
+- So does a start that hands a guest to a manager and returns (`lxc-start`,
+  `virsh start`, `virt-install`, run as a command), or a call to a function that runs
+  one. Its child is the guest, so asking the manager for the guest's state
+  (`lxc-info -s`, `lxc-ls --running`, `virsh domstate`, `virsh list`) is a liveness
+  check too.
 - A loop whose body runs `sleep`, in an armed scope or in a function an armed scope
-  calls, is reported unless its header or body asks whether a process is alive.
+  calls, is reported unless its header or body asks whether a process is alive,
+  itself or in a function it calls by name. That function is read one level deep: a
+  check it makes through a further function is not seen.
 - `wait` on the child, or the end of a `case` arm (`;;`), disarms the scope.
 
 Usage:
@@ -36,7 +43,17 @@ _LAUNCH = re.compile(r"(?<![&|<>])&(?![&>])")
 _LOOP_WORD = re.compile(_SEP + r"(for|while|until|do|done)" + _END, re.M)
 _SLEEP = re.compile(_SEP + r"sleep" + _END, re.M)
 _LEAVE = re.compile(_SEP + r"(?:break|return|exit)" + _END, re.M)
-_LIVENESS = re.compile(r"\bkill\s+(?:-0|-s\s+0|--signal\s+0)(?=\s)|\bwait\s+-n\b|\bps\s+-p\b")
+# The words of one simple command up to the one that follows (quoted text is blank).
+_ARGS = r"(?:[ \t]+[^;&|\n \t]+)*?[ \t]+"
+_LIVENESS = re.compile(
+    r"\bkill\s+(?:-0|-s\s+0|--signal\s+0)(?=\s)|\bwait\s+-n\b|\bps\s+-p\b"
+    r"|\blxc-info" + _ARGS + r"(?:-[A-Za-z]*s[A-Za-z]*|--state)" + _END
+    + r"|\blxc-ls" + _ARGS + r"--(?:running|active)" + _END
+    + r"|\bvirsh" + _ARGS + r"(?:domstate|list)" + _END, re.M)
+_MANAGER_START = re.compile(
+    r"(?:^|[;&|(!{`]|\b(?:then|do|else|elif|if|while|until)\b)[ \t]*"
+    r"(?:(?:!|exec|nohup|sudo(?:[ \t]+-[\w-]+)*|[A-Za-z_]\w*=[^ \t;&|]*)[ \t]+)*"
+    r"(?P<start>lxc-start|virt-install|virsh" + _ARGS + r"start)" + _END, re.M)
 _DISARM = re.compile(_SEP + r"wait(?!\s+-n\b)" + _END + r"|;;", re.M)
 _PID_CAPTURE = re.compile(r"[A-Za-z_]\w*=\$!")
 _FUNCTION = re.compile(
@@ -184,9 +201,10 @@ def _is_wait(code, header, body, done):
     return not (condition in ("true", ":") or condition.startswith("(("))
 
 
-def _unguarded_polls(code, start, end):
+def _unguarded_polls(code, start, end, checkers):
     """Header offsets of the waits in code[start:end] that sleep between tries and
-    never ask whether a process is alive."""
+    never ask whether a process is alive, themselves or through a call to one of
+    `checkers` (call patterns of the functions whose bodies ask)."""
     headers, open_loops, found = [], [], []
     for match in _LOOP_WORD.finditer(code, start, end):
         word = match.group(1)
@@ -198,7 +216,8 @@ def _unguarded_polls(code, start, end):
             header, body = open_loops.pop()
             if (_SLEEP.search(code, body, match.start())
                     and _is_wait(code, header, body, match.start())
-                    and not _LIVENESS.search(code[header:match.end()])):
+                    and not _LIVENESS.search(code[header:match.end()])
+                    and not any(call.search(code[header:match.end()]) for call in checkers)):
                 found.append(header)
     return found
 
@@ -213,8 +232,11 @@ def findings(text):
         return any(start <= pos < end for start, end in bodies)
 
     launchers = {name for name, (_, start, end) in functions.items()
-                 if _LAUNCH.search(code, start, end) and _PID_CAPTURE.search(code, start, end)}
+                 if (_LAUNCH.search(code, start, end) and _PID_CAPTURE.search(code, start, end))
+                 or _MANAGER_START.search(code[start:end])}
     calls = [(name, re.compile(_SEP + re.escape(name) + _END, re.M)) for name in functions]
+    checkers = [pattern for name, pattern in calls
+                if _LIVENESS.search(code[functions[name][1]:functions[name][2]])]
     definitions = {name: start + code[start:].index(name)
                    for name, (start, _, _) in functions.items()}
 
@@ -227,8 +249,10 @@ def findings(text):
 
     def events(start, end, top):
         found = [(m.start(), "launch", None) for m in _LAUNCH.finditer(code, start, end)]
+        found += [(start + m.start("start"), "launch", None)
+                  for m in _MANAGER_START.finditer(code[start:end])]
         found += [(m.start(), "disarm", None) for m in _DISARM.finditer(code, start, end)]
-        found += [(pos, "loop", None) for pos in _unguarded_polls(code, start, end)]
+        found += [(pos, "loop", None) for pos in _unguarded_polls(code, start, end, checkers)]
         for name, pattern in calls:
             found += [(m.start(), "call", name) for m in pattern.finditer(code, start, end)
                       if m.start() != definitions[name] and not _backgrounded(m.end())]
@@ -250,7 +274,7 @@ def findings(text):
                 flagged.add(pos)
             elif armed and kind == "call":
                 _, body_start, body_end = functions[name]
-                flagged.update(_unguarded_polls(code, body_start, body_end))
+                flagged.update(_unguarded_polls(code, body_start, body_end, checkers))
     return sorted(code.count("\n", 0, pos) + 1 for pos in flagged)
 
 

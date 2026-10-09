@@ -6,6 +6,8 @@ set -euo pipefail
 
 work="$(mktemp -d)"
 events="$work/events"
+uri="qemu:///session"
+dom="fixture-guest"
 
 # The originating shape in tmate-share: the URL is polled, the tmate that may have died
 # at once is not.
@@ -69,6 +71,29 @@ while [ ! -s "$work/port" ]; do
     sleep 0.1
 done
 wait "$proxy_pid"
+
+# A start that hands a guest to a manager arms a wait too: the container's address is
+# polled, the container that may have stopped is not.
+container_up() {
+    sudo lxc-start -n "$1"
+    # ruleid: ready-wait-ignores-child-exit
+    for _ in $(seq 1 30); do
+        [ -n "$(sudo lxc-info -n "$1" -iH)" ] && return 0
+        sleep 1
+    done
+    return 1
+}
+
+# Cleared: the guest's state is asked on each try, through a helper the loop calls.
+guest_must_be_up() {
+    [ "$(virsh -c "$uri" domstate "$dom")" = running ] || exit 1
+}
+guest_up() {
+    virsh -c "$uri" start "$dom"
+    until guest_must_be_up && ssh guest true; do
+        sleep 5
+    done
+}
 
 # Not a wait: a monitor that sleeps, with nothing started in the background.
 watch_power() {
