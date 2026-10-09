@@ -627,11 +627,14 @@ class Outbox:
         })
         self.changed = True
 
-    def record_answer(self, re_: str, sender: str) -> bool:
-        """An `ack` or `nack` from `sender` naming `re_`: True when `re_` is a tracked ping
-        that addressed `sender`."""
+    def record_answer(self, re_: str, sender: str, sent_ms: int, member_limits: limits.Limits) -> bool:
+        """An `ack` or `nack` from `sender` naming `re_`, its `origin_server_ts` `sent_ms`:
+        True when `re_` is a tracked ping that addressed `sender`. It answers only if sent
+        by the ping's deadline (§10), however late this member reads it."""
         for entry in self._pings:
             if entry["event_id"] == re_ and sender in entry["to"]:
+                if limits.ack_overdue(entry["sent_ms"], entry["verb"], sent_ms, member_limits):
+                    return True
                 if sender not in entry["answered"]:
                     entry["answered"].append(sender)
                     self.changed = True

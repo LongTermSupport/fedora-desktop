@@ -512,6 +512,43 @@ class PingPipelineTest(TeamCase):
         with self.state.outbox() as box:
             self.assertEqual(box.tracked(), ())
 
+    def track_review(self) -> str:
+        sent = "$" + "A" * 43
+        with self.state.outbox() as box:
+            box.record_sent(sent, "review", PATH_REF, [self.orch], int(self.now * 1000))
+        return sent
+
+    def test_an_ack_sent_in_time_but_read_after_the_timeout_answers_and_is_not_delivered(self):
+        s = self.ready()
+        sent = self.track_review()
+        self.now += 10
+        self.ping(self.orch, "ack", re=sent)
+        self.now += self.member_limits.ack_timeout_s + 1
+        self.assertEqual(dict(s.sync_once().drops), {"stale": 1})
+        self.assertEqual(self.stored(), [])
+        with self.state.outbox() as box:
+            self.assertEqual(box.due_timeouts(int(self.now * 1000), self.member_limits), ())
+            self.assertEqual(box.tracked(), ())
+
+    def late_ack_leaves_the_timeout(self, read_after_s: int) -> None:
+        s = self.ready()
+        sent = self.track_review()
+        self.now += self.member_limits.ack_timeout_s + 1
+        self.ping(self.orch, "ack", re=sent)
+        self.now += read_after_s
+        s.sync_once()
+        with self.state.outbox() as box:
+            due = box.due_timeouts(int(self.now * 1000), self.member_limits)
+        self.assertEqual([t.target for t in due], [self.orch])
+
+    def test_an_ack_sent_after_the_deadline_and_read_at_once_leaves_the_timeout(self):
+        self.late_ack_leaves_the_timeout(0)
+        self.assertEqual(len(self.stored()), 1)
+
+    def test_an_ack_sent_after_the_deadline_and_read_stale_leaves_the_timeout(self):
+        self.late_ack_leaves_the_timeout(self.member_limits.ack_timeout_s + 1)
+        self.assertEqual(self.stored(), [])
+
     def test_drop_log_never_holds_content(self):
         s = self.ready()
         self.send(self.orch, {"msgtype": "m.text", "body": "SECRET-LOOKING-BODY", "m.mentions": {"room": True}})

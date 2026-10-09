@@ -419,7 +419,7 @@ class Syncer:
         seen = set(self.state.known_event_ids())
         now = self._clock_ms()
         accepted: list[dict] = []
-        answers: list[tuple[str, str]] = []
+        answers: list[protocol.Ping] = []
         drops: collections.Counter[str] = collections.Counter()
         for event in events:
             outcome = protocol.validate_event(event, ctx, member.user_id, seen, human_text=member.human_text)
@@ -429,7 +429,13 @@ class Syncer:
             if protocol.is_event_id(event_id):
                 seen.add(event_id)
             if outcome.kind == protocol.ACCEPT:
+                ping = outcome.ping
                 reason = self._local_checks(outcome, record, now)
+                # Read late is not answered late: a stale answer is not delivered, but it
+                # still counts if it was sent by the ping's deadline (§9 08p, §10).
+                if reason in (None, "stale") and ping is not None and ping.verb in ("ack", "nack") \
+                        and ping.re is not None:
+                    answers.append(ping)
                 outcome = protocol.Outcome(protocol.DROP, reason) if reason else outcome
             if outcome.kind == protocol.DROP:
                 sender = event.get("sender") if isinstance(event, dict) else None
@@ -437,13 +443,10 @@ class Syncer:
                 drops[outcome.reason] += 1
             elif outcome.kind == protocol.ACCEPT:
                 accepted.append(event)
-                ping = outcome.ping
-                if ping is not None and ping.verb in ("ack", "nack") and ping.re is not None:
-                    answers.append((ping.re, ping.sender))
         if answers:
             with self.state.outbox() as box:
-                for re_, sender in answers:
-                    box.record_answer(re_, sender)
+                for answer in answers:
+                    box.record_answer(answer.re, answer.sender, answer.origin_server_ts, member.limits)
         stored = self.state.commit_batch(accepted, next_batch)
         return Batch(False, stored, tuple(e["event_id"] for e in accepted), dict(drops))
 

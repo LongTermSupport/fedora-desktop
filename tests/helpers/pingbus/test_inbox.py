@@ -474,9 +474,18 @@ class OutboxTest(StateCase):
     def test_ack_or_nack_from_a_target_answers(self):
         self.send(1, to=(PEER, ORCH))
         with self.state.outbox() as box:
-            self.assertTrue(box.record_answer(event_id(1), PEER))
-            self.assertFalse(box.record_answer(event_id(1), HUMAN))
-            self.assertFalse(box.record_answer(event_id(2), ORCH))
+            self.assertTrue(box.record_answer(event_id(1), PEER, T0 + 1000, LIM))
+            self.assertFalse(box.record_answer(event_id(1), HUMAN, T0 + 1000, LIM))
+            self.assertFalse(box.record_answer(event_id(2), ORCH, T0 + 1000, LIM))
+            due = box.due_timeouts(T0 + 10**9, LIM)
+        self.assertEqual(due, (inbox.Timeout(event_id(1), ORCH, "review", REF),))
+
+    def test_an_answer_counts_by_when_it_was_sent_not_when_it_is_read(self):
+        self.send(1, to=(PEER, ORCH))
+        deadline = T0 + LIM.ack_timeout_s * 1000
+        with self.state.outbox() as box:
+            self.assertTrue(box.record_answer(event_id(1), PEER, deadline, LIM))
+            self.assertTrue(box.record_answer(event_id(1), ORCH, deadline + 1, LIM))
             due = box.due_timeouts(T0 + 10**9, LIM)
         self.assertEqual(due, (inbox.Timeout(event_id(1), ORCH, "review", REF),))
 
@@ -493,7 +502,7 @@ class OutboxTest(StateCase):
     def test_fully_answered_entry_settles(self):
         self.send(1)
         with self.state.outbox() as box:
-            box.record_answer(event_id(1), PEER)
+            box.record_answer(event_id(1), PEER, T0, LIM)
         with self.state.outbox() as box:
             self.assertEqual(box.tracked(), ())
 
