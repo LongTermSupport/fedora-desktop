@@ -491,8 +491,8 @@ def _observe(root: pathlib.Path, refs: Sequence[seat.SeatRef], uid: int) -> tupl
     return tuple(found)
 
 
-def _parse_and_check_teams(text: str, system: System) -> tuple[seat.SeatRef, ...]:
-    refs = seat.parse_seat_list(text)
+def _parse_and_check_teams(text: str, system: System, *, one_per_team: bool = True) -> tuple[seat.SeatRef, ...]:
+    refs = seat.parse_seat_list(text, one_per_team=one_per_team)
     for ref in refs:
         if not system.team_active(ref.team):
             raise CheckoutError(
@@ -562,8 +562,9 @@ def _prune(tree: Sequence[pathlib.Path]) -> None:
 
 def remove(text: str, system: System, *, say: Callable[[str], None], emit: Callable[[str], None]) -> None:
     """`seat remove`: park each named seat's handle, delete its directory, and remove what
-    is left empty up to `.claude/ccy/pingbus/`. Each seat's lock is held while it goes."""
-    refs = _parse_and_check_teams(text, system)
+    is left empty up to `.claude/ccy/pingbus/`. Each seat's lock is held while it goes. The
+    list may name several seats of one team: no session claims it."""
+    refs = _parse_and_check_teams(text, system, one_per_team=False)
     top = find_checkout(system)
     tree = _seat_tree(top, system.uid, [ref.team for ref in refs])
     root = seat.checkout_seats_root(top)

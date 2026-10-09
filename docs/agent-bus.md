@@ -208,8 +208,9 @@ agent-bus seat remove <seat>@<team>
 ```
 
 `seat list` prints one `SEAT` line per seat: team, seat, `held` or `free`, `self` or `-`,
-and the handle. `seat remove` (refused while the seat is held) parks the handle (token
-revoked; account, role and room membership kept), deletes the seat's directory, and
+and the handle. `seat remove` takes one seat or a comma-separated list, several of one
+team included. Refused while a named seat is held, it parks each handle (token
+revoked; account, role and room membership kept), deletes each seat's directory, and
 deletes `.claude/ccy/pingbus/` once nothing is left in it. Launching into the same
 `<seat>@<team>` again returns the seat with a new token, history included. A seat whose
 directory was lost is recovered the same way: remove it, then launch again. ccy itself

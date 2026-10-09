@@ -85,10 +85,11 @@ def _show(item: str) -> str:
     return f" ({item})" if _SHOWABLE_RE.fullmatch(item) else ""
 
 
-def parse_seat_list(text: str) -> tuple[SeatRef, ...]:
+def parse_seat_list(text: str, *, one_per_team: bool = True) -> tuple[SeatRef, ...]:
     """The seats of a `<seat>@<team>[,…]` list, in the order given. Spaces and tabs around
     an item are dropped; everything else that is not one seat of one team per item is
-    refused, and so is a team named twice (one seat per team per session)."""
+    refused, and so is a seat named twice. A list one session claims also refuses a team
+    named twice (`one_per_team`); a list of seats to remove does not."""
     if not isinstance(text, str) or not text.strip(_AROUND_ITEM):
         raise SeatListError("the seat list is empty: give <seat>@<team>[,<seat>@<team>...]")
     items = text.split(",")
@@ -117,8 +118,10 @@ def parse_seat_list(text: str) -> tuple[SeatRef, ...]:
                 "23 lowercase letters, digits or -)"
             )
         ref = SeatRef(name, team)
+        if not one_per_team and ref in refs:
+            raise SeatListError(f"`{ref.text}` is named twice")
         first = by_team.setdefault(team, ref)
-        if first is not ref:
+        if one_per_team and first is not ref:
             raise SeatListError(
                 f"one seat per team per session: `{first.text}` and `{ref.text}` both name team `{team}`"
             )

@@ -114,6 +114,15 @@ class ListRulesTest(unittest.TestCase):
         self.assertIn("`dev1@t` and `dev2@t` both name team `t`", message)
         self.refused("dev1@t, dev1@t", "one seat per team per session")
 
+    def test_a_list_not_for_one_session_may_name_a_team_twice(self):
+        refs = seat.parse_seat_list("dev1@t,dev2@t,qa@u", one_per_team=False)
+        self.assertEqual(seat.canonical(refs), "dev1@t,dev2@t,qa@u")
+
+    def test_a_seat_named_twice_is_refused_in_any_list(self):
+        with self.assertRaises(seat.SeatListError) as caught:
+            seat.parse_seat_list("dev1@t, dev1@t", one_per_team=False)
+        self.assertIn("`dev1@t` is named twice", str(caught.exception))
+
     def test_an_unprintable_item_is_not_echoed(self):
         message = self.refused("dev1@team-a,\x1b[2Jx@y\x00", "item 2")
         self.assertNotIn("\x1b", message)

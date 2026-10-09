@@ -340,7 +340,7 @@ class RefusalsAlikeTest(CheckoutTestCase):
 
     def test_a_malformed_list(self):
         for command in ("check", "take", "remove"):
-            for text in ("dev1@t,dev2@t", "dev1@team-a,", "dev1"):
+            for text in ("dev1@t,dev1@t", "dev1@team-a,", "dev1"):
                 with self.subTest(command=command, text=text):
                     code, out, err = self.run_cli("seat", command, text)
                     self.assertEqual(code, EX_USAGE, err)
@@ -584,6 +584,22 @@ class RemoveCommandTest(CheckoutTestCase):
         self.assertEqual(self.host.verbs(), [("park-member", TEAM_A), ("park-member", TEAM_B)])
         self.assertFalse((self.top / ".claude/ccy/pingbus").exists())
         self.assertEqual(self.tree(), ["ccy", "ccy/.gitignore"])
+
+    def test_several_seats_of_one_team(self):
+        self.assertEqual(self.run_cli("seat", "take", "dev1@team-a")[0], 0)
+        self.assertEqual(self.run_cli("seat", "take", "dev2@team-a")[0], 0)
+        self.host.calls.clear()
+        code, out, err = self.run_cli("seat", "remove", "dev1@team-a,dev2@team-a")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.host.verbs(), [("park-member", TEAM_A), ("park-member", TEAM_A)])
+        self.assertFalse((self.top / ".claude/ccy/pingbus").exists())
+
+    def test_check_and_take_keep_one_seat_per_team(self):
+        for command in ("check", "take"):
+            with self.subTest(command=command):
+                code, _, err = self.run_cli("seat", command, "dev1@team-a,dev2@team-a")
+                self.assertEqual(code, EX_USAGE, err)
+                self.assertIn("one seat per team per session", err)
 
     def test_keeps_what_is_not_empty(self):
         self.assertEqual(self.run_cli("seat", "take", "dev1@team-a,dev2@team-b")[0], 0)

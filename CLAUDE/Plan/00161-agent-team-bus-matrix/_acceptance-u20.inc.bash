@@ -376,7 +376,17 @@ u20_container_up() {
     U20_CTR[${s}]="${ids}"
 }
 
-# u20_start <session> <seat|""> — launch it and wait for its container.
+# u20_seat_held <seat> — `seat list` shows it held; 3 while it is not yet.
+u20_seat_held() {
+    local out state
+    out="$(u20_ev "seat-list-$1")"
+    u20_seat_list "${out}" || return 1
+    state="$(awk -F'\t' -v team="${TEAM}" -v seat="$1" '$1 == "SEAT" && $2 == team && $3 == seat { print $4 }' "${out}")" || return 1
+    [[ "${state}" == "held" ]] || return 3
+}
+
+# u20_start <session> <seat|""> — launch it and wait for its container, and for a seated one
+# its seat held: the claim runs inside the container once it is up.
 u20_start() {
     local s="$1"
     if [[ -z "$2" ]]; then
@@ -386,6 +396,9 @@ u20_start() {
     u20_launch "$1" "$2" || return 1
     u20_poll "${U20_START_S}" "session ${s}'s ccy container running" u20_container_up "${s}" || return 1
     printf '==> session %s: container %s\n' "${s}" "${U20_CTR[${s}]}"
+    if [[ -n "$2" ]]; then
+        u20_poll "${U20_START_S}" "seat $2@${TEAM} held by session ${s}" u20_seat_held "$2" || return 1
+    fi
 }
 
 # u20_tell <session> <u20_check command...> — one stream-json user line to the session.
