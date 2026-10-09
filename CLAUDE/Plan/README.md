@@ -34,11 +34,11 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Nothing watches the files the plays write once a play has run, so a package update or hand edit changes them unseen (Plan 00166's UPower.conf). Record what each file-writing task left, from Plan 00109's play-ledger callback, and report every managed file now different (whole-file checksum, or a partial edit's own line or block gone) plus `.rpmnew` / `.rpmsave`, through the login health report. Detection and review only.
+- [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report files the plays manage that a package update or hand edit has changed since their play ran (as UPower.conf was in Plan 00166). Issue #91.
 
 - [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - `cc` typed outside a git working tree starts a session with no project settings: no hooks daemon, no status line. `cc` will check for a repository before its tmux re-exec and token chooser; in a terminal it offers to switch to the fedora-desktop checkout, and otherwise refuses with a pointer to `cd` or plain `claude`. Subdirectory behaviour to be settled from Claude Code's docs. Issue #90.
 
-- [00166-laptop-panel-stays-on-with-lid-closed-when-docked](00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - Docked with the lid closed, GNOME keeps the laptop panel (eDP-1) active, so windows get lost on it. `IgnoreLid=true` in `UPower.conf` hides the lid from UPower and so from Mutter; a upower update had reset it to stock until Plan 00104's deploy wrote it back. The play now sets `IgnoreLid=false` and asserts UPower reports the lid; deployed and accepted, with the hand-run suspend matrix remaining.
+- [00166-laptop-panel-stays-on-with-lid-closed-when-docked](00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - In Progress. With the lid closed while docked, GNOME kept the laptop panel live because `IgnoreLid=true` hid the lid from UPower. Fixed, deployed and accepted; the hand-run suspend matrix remains.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - ccy sessions showed UTC beside a local desktop clock. The launcher passes the host's IANA zone (timedatectl, else the `/etc/localtime` link) as `TZ` and stops rather than run on UTC; `ccy.env` / `ccy.env.local` can override; the image installs `tzdata` by name. CCY 3.90.0, container 2.49.
 
