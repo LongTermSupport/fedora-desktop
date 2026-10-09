@@ -34,6 +34,10 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - `cc` typed outside a git working tree starts a session with no project settings: no hooks daemon, no status line. `cc` will check for a repository before its tmux re-exec and token chooser, and refuse with a pointer to `cd` or plain `claude`. Subdirectory behaviour to be settled from Claude Code's docs.
+
+- [00166-laptop-panel-stays-on-with-lid-closed-when-docked](00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - Docked with the lid closed, GNOME keeps the laptop panel (eDP-1) active, so windows get lost on it. `IgnoreLid=true` in `UPower.conf` hides the lid from UPower and so from Mutter; it arrived on the host with Plan 00104's deploy. The play will set `IgnoreLid=false` and assert UPower reports the lid, with a hardware test matrix for suspend behaviour.
+
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - ccy sessions showed UTC beside a local desktop clock. The launcher passes the host's IANA zone (timedatectl, else the `/etc/localtime` link) as `TZ` and stops rather than run on UTC; `ccy.env` / `ccy.env.local` can override; the image installs `tzdata` by name. CCY 3.90.0, container 2.49.
 
 - [00164-stt-enter-lost-after-focus-retake](00164-stt-enter-lost-after-focus-retake/) - Speech-to-text: after the panel gives the dictation's window focus back, the text was pasted but the Enter did not send it. `wsi` and `wsi-stream` now paste once the window has kept focus for 0.5 s, then wait 1 s and check focus again before the Enter (none, and a lasting notification, if the window is gone); a read-only triage reads the timeline from the debug log.
