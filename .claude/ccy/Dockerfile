@@ -26,7 +26,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         python3-pil \
         xz-utils \
         gawk \
+        tmux \
     && rm -rf /var/lib/apt/lists/*
+
+# tmux serves scripts/test-ccy-tmux-targets.bash, which checks the session targets ccy and
+# ccy-sessions name against a real tmux server; the other ccy-sessions suites use a fake
+# one. play-claude-yolo.yml installs it on the host. Nothing in the image runs a session
+# under it: ccy starts its tmux sessions on the host.
 
 # gawk serves scripts/test-bash-history-search.bash: the bash-history ranker it tests
 # is gawk, and the base image carries only mawk. play-basic-configs.yml installs it on

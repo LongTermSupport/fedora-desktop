@@ -254,9 +254,13 @@ Report: [`subagent-reports/261006-issue69-fixes-opus.md`](subagent-reports/26100
   `test-ccy-sessions-reboot.bash` stripped the `=`, which is why the suite passed; it now
   refuses an `=name` pane target without the colon, as real tmux does, and the suite's ten
   `verify-restore` cases were red against the old target, green after.
-  - [ ] ⬜ The issue also asks for a test against a REAL tmux server. tmux is not in the CCY
-    image, so that test cannot run in a session here. Adding tmux to the image (Dockerfile,
-    container bump) is the route; it then runs only in sessions started on the new image.
+  - [ ] 🔄 The issue also asks for a test against a REAL tmux server. Built:
+    `test-ccy-tmux-targets.bash`, with tmux added to `.claude/ccy/Dockerfile`. Not yet run:
+    this container has no tmux until ccy restarts and rebuilds the project image. Its QA
+    wiring (the `qa-all.bash` gate, the `CLAUDE/QA.md` row, CI's tmux install) is kept as
+    [`tmux-qa-wiring.patch`](tmux-qa-wiring.patch) so QA stays green meanwhile: in the first
+    session with tmux, run the test, `git apply` the patch, run QA, commit, delete the patch.
+    Journal 26-10-09.
 - [x] ✅ **Task 7.2**: a key chosen at the SSH key menu goes into the session's record as
   `--ssh-key <file>`, so its restore never shows the menu. Only records that skip Quick
   Launch (`--token`, `--network`, `--no-network`) take it; Quick Launch holds the key for
