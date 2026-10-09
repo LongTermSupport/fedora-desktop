@@ -84,9 +84,10 @@
 # the action, so a shutdown with restore on reads "will reboot", and a reboot with restore
 # off reads "will shut down"; what the agent is asked to do is right either way.
 #
-# A restore answers only the prompts that have one safe answer (Quick Launch, and the two
-# running-container menus); every other prompt still asks, in the pane, where a person can
-# attach and answer it. verify-restore is how nobody has to look: it names each session's
+# A restore answers only the prompts that have one safe answer (Quick Launch, the two
+# running-container menus, and the others docs/ccy.md lists) and the compose question, from
+# the compose outcome in the session's record (--compose); every other prompt still asks,
+# in the pane, where a person can attach and answer it. verify-restore is how nobody has to look: it names each session's
 # state from what its screen shows and whether its container runs.
 #
 # A restored session comes back at an empty prompt with a cold prompt cache, and would wait

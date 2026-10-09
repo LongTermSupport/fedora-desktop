@@ -786,6 +786,20 @@ fi
 session_registry_summary=$(qa_gate_case_count "$session_registry_out")
 qa_pass_line ccy-session-registry "$session_registry_summary"
 
+# The compose question and the launch questions nobody can answer (fedora-desktop#87): a
+# restore replays the record's compose outcome as --compose start|skip with no question, and
+# a --headless launch or one with no terminal refuses a question by name instead of eating
+# the session's input or hanging. Driven in fresh shells, on a pseudo-terminal where a person
+# is meant to answer, against a stubbed engine and podman-compose.
+compose_restore_out=""
+if ! compose_restore_out="$(bash "$SCRIPT_DIR/test-ccy-compose-restore.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-compose-restore \
+        "ccy compose-question / unanswerable-prompt unit tests failed" \
+        "$compose_restore_out"
+fi
+compose_restore_summary=$(qa_gate_case_count "$compose_restore_out")
+qa_pass_line ccy-compose-restore "$compose_restore_summary"
+
 # ccy-sessions notify / reboot / restore (Plan 00135): the REAL executable under a fake
 # tmux, a fake systemctl and a per-project stand-in for the daemon CLI. Every project
 # signalled exactly once; a project with no daemon CLI refuses BEFORE anything is signalled

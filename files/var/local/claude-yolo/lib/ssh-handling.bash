@@ -484,7 +484,13 @@ discover_and_select_ssh_keys() {
         echo "Or log in with agent forwarding (ssh -A) and pass:"
         echo "  $tool_name --ssh-agent"
         echo ""
-        read -rp "$CCY_PROMPT_SSH_NO_KEY " _unused
+        # Enter is the only answer that starts a session, and with nobody to press it (a
+        # restore, a restart, no terminal) it is taken: the session starts as it did before.
+        if ccy_launch_unattended; then
+            echo "Nobody to ask (a restore, a restart or no terminal): continuing WITHOUT an SSH key."
+        else
+            read -rp "$CCY_PROMPT_SSH_NO_KEY " _unused
+        fi
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
@@ -849,6 +855,10 @@ _probe_agent_add_key() {
         if [ "$round" -lt 3 ]; then
             echo ""
             echo "Key not unlocked: $key"
+            if ccy_nobody_to_ask; then
+                ccy_prompt_refuse ssh-passphrase-retry "Load the key into your ssh-agent first (ssh-add), or launch with a key that has no passphrase, or --no-ssh."
+                return 1
+            fi
             read -rp "$CCY_PROMPT_SSH_PASSPHRASE_RETRY (round $round of 3), or Ctrl+C to abort: " _unused
         fi
     done
@@ -1481,8 +1491,8 @@ build_ssh_mounts_and_validate() {
                 echo "  Port 22 is likely blocked on this network."
                 echo "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
                 local enable_443=false
-                if [ "${HEADLESS_MODE:-false}" = "true" ] || [ ! -t 0 ]; then
-                    echo "  Non-interactive launch — enabling 443 automatically (the only way to proceed)."
+                if ccy_launch_unattended; then
+                    echo "  Nobody to ask (headless, a restore, a restart or no terminal) — enabling 443 automatically (the only way to proceed)."
                     enable_443=true
                 else
                     local reply_443

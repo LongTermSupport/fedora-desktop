@@ -440,10 +440,15 @@ ccy_registry_write fnet_vanishing "$SCRATCH/proj" /usr/local/bin/ccy ccy yes --n
 real_read_def="$(declare -f ccy_registry_read)"
 # shellcheck source=/dev/null
 source /dev/stdin <<<"_real_ccy_registry_read${real_read_def#ccy_registry_read}"
+# Defined through source, like the real one put back below: a literal definition here reads
+# to shellcheck as the function being defined only after every earlier call (SC2218).
+# shellcheck source=/dev/null
+source /dev/stdin <<'VANISHING_READER'
 ccy_registry_read() {
     _real_ccy_registry_read "$@" || return 1
     [[ "$1" != */fnet_vanishing ]] || rm -f -- "$1"
 }
+VANISHING_READER
 fnet_out="$(ccy_registry_forget_network "$SCRATCH/proj" gone)"
 fnet_rc=$?
 # shellcheck source=/dev/null
@@ -523,6 +528,102 @@ check "the launcher records a key chosen at the prompt, after the menu" "yes" \
     "$(awk '/discover_and_select_ssh_keys "ccy"/ { menu = NR } /ccy_registry_record_ssh_key/ && menu && NR > menu { found = 1 } END { print (found ? "yes" : "no") }' "$LAUNCHER")"
 
 echo ""
+echo "=== how the compose services stood goes into the record (fedora-desktop#87) ==="
+# A restore after a reboot finds a project's compose network with its containers stopped, and
+# the launcher asks whether to start them, with nobody there. The record says how the
+# services stood when the session started, and the restore replays that as --compose.
+rm -rf "$CCY_STATE_DIR"
+ccy_registry_write --compose started cmp_started "$SCRATCH/proj" /launch/ccy ccy yes --token work
+ccy_registry_read "$CCY_STATE_DIR/sessions/cmp_started"
+check "an outcome round-trips, and the rest of the record with it" \
+    "started|cmp_started|yes|$(printf '%q ' --token work)" \
+    "$REC_COMPOSE|$REC_NAME|$REC_RESTORE|$(printf '%q ' "${REC_ARGS[@]}")"
+# A record written before the key existed has none, and is read exactly as before.
+printf 'ccy-session-record 1\nname=cmp_old\ndir=%s\nlauncher=/launch/ccy\nprefix=ccy\nrestore=yes\narg=--token\narg=work\n' \
+    "$SCRATCH/proj" >"$CCY_STATE_DIR/sessions/cmp_old"
+if ccy_registry_read "$CCY_STATE_DIR/sessions/cmp_old"; then
+    check "a record with no compose key still reads, with no outcome" "ok:" "ok:$REC_COMPOSE"
+else
+    check "a record with no compose key still reads, with no outcome" "ok:" "refused"
+fi
+check "  and writing one without --compose writes no compose line" "0" \
+    "$(ccy_registry_write cmp_none "$SCRATCH/proj" /launch/ccy ccy yes && grep -c '^compose=' "$CCY_STATE_DIR/sessions/cmp_none")"
+printf 'ccy-session-record 1\nname=cmp_bad\ndir=%s\nlauncher=/launch/ccy\nprefix=ccy\nrestore=yes\ncompose=maybe\n' \
+    "$SCRATCH/proj" >"$CCY_STATE_DIR/sessions/cmp_bad"
+check "an outcome that is none of the three is refused on read" "1" \
+    "$(ccy_registry_read "$CCY_STATE_DIR/sessions/cmp_bad" 2>"$SCRATCH/cmp.err"; echo $?)"
+check "  and on write, leaving no record" "1:absent" \
+    "$(ccy_registry_write --compose maybe cmp_badw "$SCRATCH/proj" /launch/ccy ccy yes 2>"$SCRATCH/cmp.err"; echo "$?:$([ -e "$CCY_STATE_DIR/sessions/cmp_badw" ] && echo present || echo absent)")"
+rm -f "$CCY_STATE_DIR/sessions/cmp_bad"
+
+# The launcher hands the outcome over once the network and compose decisions are made.
+rk cmp_rec yes --token work -- --model opus
+ccy_registry_record_compose cmp_rec running 2>"$SCRATCH/cmp.err"
+check "recording an outcome: status" "0" "$?"
+ccy_registry_read "$CCY_STATE_DIR/sessions/cmp_rec"
+check "  the record holds it, its arguments and restore mark untouched" \
+    "running|yes|$(printf '%q ' --token work -- --model opus)" \
+    "$REC_COMPOSE|$REC_RESTORE|$(printf '%q ' "${REC_ARGS[@]}")"
+check "  and says so on stderr" "yes" "$(grep -qF 'cmp_rec' "$SCRATCH/cmp.err" && echo yes || echo no)"
+ccy_registry_record_compose cmp_rec declined 2>"$SCRATCH/cmp.err"
+ccy_registry_read "$CCY_STATE_DIR/sessions/cmp_rec"
+check "a later answer replaces the earlier one" "declined" "$REC_COMPOSE"
+check "an outcome that is none of the three is refused" "1" \
+    "$(ccy_registry_record_compose cmp_rec maybe 2>"$SCRATCH/cmp.err"; echo $?)"
+ccy_registry_record_compose no_such_session started 2>"$SCRATCH/cmp.err"
+check "no record (a session ccy did not start) is nothing to do: status" "0" "$?"
+check "  and no record is created" "absent" \
+    "$([ -e "$CCY_STATE_DIR/sessions/no_such_session" ] && echo present || echo absent)"
+printf 'not a record\n' >"$CCY_STATE_DIR/sessions/cmp_broken"
+check "a record that cannot be read is a failure, not a skip" "1" \
+    "$(ccy_registry_record_compose cmp_broken started 2>"$SCRATCH/cmp.err"; echo $?)"
+
+# Every other rewrite of a record goes through ccy_registry_write too, and must carry the
+# outcome across: dropping it would send the next restore back to the prompt.
+rk cmp_key yes --token work
+ccy_registry_record_compose cmp_key started 2>"$SCRATCH/cmp.err"
+ccy_registry_record_ssh_key cmp_key /k/id_one 2>"$SCRATCH/cmp.err"
+ccy_registry_read "$CCY_STATE_DIR/sessions/cmp_key"
+check "recording an SSH key keeps the compose outcome" "started|$(printf '%q ' --token work --ssh-key /k/id_one)" \
+    "$REC_COMPOSE|$(printf '%q ' "${REC_ARGS[@]}")"
+rk cmp_net yes --network gone --token work
+ccy_registry_record_compose cmp_net running 2>"$SCRATCH/cmp.err"
+ccy_registry_forget_network "$SCRATCH/proj" gone >"$SCRATCH/cmp.out"
+ccy_registry_read "$CCY_STATE_DIR/sessions/cmp_net"
+check "forgetting a network keeps the compose outcome" "running|$(printf '%q ' --token work)" \
+    "$REC_COMPOSE|$(printf '%q ' "${REC_ARGS[@]}")"
+rm -rf "$CCY_STATE_DIR"
+
+# What a restore replays: started and running both start the stack (`up -d` leaves running
+# services alone), declined skips it. The flag goes before claude's `--`, like --supervise.
+check "a started stack is restored with --compose start" "--token|work|--compose|start|--supervise|--continue" \
+    "$(joined ccy_registry_restore_args --compose started ccy --token work)"
+check "a stack already running is restored with --compose start" "--compose|start|--supervise|--continue" \
+    "$(joined ccy_registry_restore_args --compose running ccy)"
+check "a declined stack is restored with --compose skip" "--compose|skip|--supervise|--continue" \
+    "$(joined ccy_registry_restore_args --compose declined ccy)"
+check "--compose goes before a recorded --" "--token|t|--compose|start|--supervise|--|--model|opus|--continue" \
+    "$(joined ccy_registry_restore_args --compose started ccy --token t -- --model opus)"
+check "no outcome, no flag: the launcher asks, as it does for a person" "--token|work|--supervise|--continue" \
+    "$(joined ccy_registry_restore_args ccy --token work)"
+check "cc has no compose question, so no flag" "--model|opus|--continue" \
+    "$(joined ccy_registry_restore_args --compose started cc --model opus)"
+check "an unknown outcome is refused" "1" \
+    "$(ccy_registry_restore_args --compose maybe ccy 2>"$SCRATCH/cmp.err" >"$SCRATCH/cmp.out"; echo $?)"
+# The flag a person gives is not replayed: the record's outcome is the one source, and a
+# replayed --compose beside the restore's would be the same flag twice.
+check "--compose is not replayed from the launch arguments" "drop-value" "$(ccy_registry_flag_class --compose)"
+check "  so a launch's --compose and its value are dropped" "--token|work" \
+    "$(joined ccy_registry_replay_args ccy --compose start --token work)"
+
+# The launcher records the outcome once, after the network section, and only from a session
+# ccy started under tmux (the same lookup the SSH key uses).
+check "the launcher records the compose outcome after the network section" "yes" \
+    "$(awk '/End of network flag handling/ { net = NR } /^ccy_compose_record_outcome \|\| exit 1$/ && net && NR > net { found = 1 } END { print (found ? "yes" : "no") }' "$LAUNCHER")"
+check "  which hands it to ccy_registry_record_compose for this session" "1" \
+    "$(grep -c -F "ccy_registry_record_compose \"\$name\" \"\$CCY_COMPOSE_OUTCOME\"" "$LIB_DIR/network-management.bash")"
+
+echo ""
 echo "=== restore: records and live sessions in, decisions out ==="
 # The executor asks two questions of the outside world — which sessions are live, and how to
 # start one — and both are stubbed here, so what runs is every decision and nothing else.
@@ -548,7 +649,7 @@ rm -rf "$SCRATCH/state"
 GONE="$SCRATCH/deleted checkout"
 KEEP="$SCRATCH/kept checkout"
 mkdir -p "$KEEP"
-ccy_registry_write "ccy-alpha" "$KEEP" /launch/ccy ccy yes --token work
+ccy_registry_write --compose started "ccy-alpha" "$KEEP" /launch/ccy ccy yes --token work
 ccy_registry_write "ccy-beta" "$KEEP" /launch/ccy ccy yes
 ccy_registry_write "cc-gamma" "$KEEP" /launch/cc cc yes --model opus
 ccy_registry_write "ccy-oneoff" "$KEEP" /launch/ccy ccy no
@@ -568,8 +669,8 @@ check "a no-restore record is skipped" "yes" \
 # The failure above did not stop the others: every startable record was started, with the
 # right launcher, directory and arguments, and the skipped ones were not. Each is started
 # with the restore marker on its command, which is what lets the launcher answer the prompts
-# that have one safe answer.
-started_alpha="ccy-alpha $(printf '%q' "$KEEP") env CCY_SESSION_RESTORE=1 /launch/ccy --token work --supervise --continue "
+# that have one safe answer, and a record with a compose outcome gets its --compose.
+started_alpha="ccy-alpha $(printf '%q' "$KEEP") env CCY_SESSION_RESTORE=1 /launch/ccy --token work --compose start --supervise --continue "
 started_gamma="cc-gamma $(printf '%q' "$KEEP") env CCY_SESSION_RESTORE=1 /launch/cc --model opus --continue "
 STARTED="$(started_log)"
 check "startable ccy record started with restore args" "yes" "$([[ "$STARTED" == *"$started_alpha"* ]] && echo yes || echo no)"
@@ -924,6 +1025,7 @@ UNREACHABLE_PROMPTS=(
     "network-management.bash|Select network to disconnect [1-\${#candidates[@]}]: |--disconnect, dropped on replay"
     "network-management.bash|Clear the saved default network \$1? [y/N] |--disconnect, dropped on replay"
     "ssh-handling.bash|\$prompt_text|built from CCY_PROMPT_SSH_KEY"
+    "network-management.bash|\$prompt|ccy_compose_answer, given CCY_PROMPT_COMPOSE_START or CCY_PROMPT_COMPOSE_START_SAVED by its callers"
     "ssh-handling.bash|Use it anyway? [y/N] |a sub-prompt of the listed SSH key menu, reached only after a person picks a key"
 )
 unregistered=""

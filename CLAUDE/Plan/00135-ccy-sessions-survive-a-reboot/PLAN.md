@@ -169,6 +169,26 @@ after five minutes with five of six sessions still starting, leaving its unit fa
   every session is running and past its prompt, `verify` exits 0 and `systemctl --failed` is
   empty (the infra agent's acceptance on the server; the owner's meta-deploy on the desktop).
 
+### Phase 9: fedora-desktop#87, a restored session never waits at the compose question
+
+A restore found a project's compose network with its containers stopped (`Exited (0)`) and
+the session waited at `Start services with podman-compose up -d?` with nobody there. The
+owner's design is the issue's last comment: the record keeps how the services stood, the
+restore replays it with no person and no flag the operator passes, and no launch question
+is read where nobody can answer it.
+
+- [x] ✅ **Task 9.1**: The record keeps `compose=started|declined|running` (optional key,
+  format stays 1); every rewrite carries it; the restore replays it as `--compose start|skip`;
+  CCY 3.89.0. Tests: `test-ccy-session-registry.bash`, `test-ccy-compose-restore.bash`.
+- [x] ✅ **Task 9.2**: Every launch question with nobody to answer (`--headless`, no
+  terminal) takes its safe answer or refuses by name; a restore and a restart take the same
+  safe answers. Inventory in the 26-10-09 journal.
+- [ ] 🔄 **Task 9.3**: PR review and merge (owner).
+- [ ] 🧑 **Task 9.4**: HOST: after the owner's meta-deploy run of `play-claude-yolo.yml` with
+  3.89.0, start a session in a project with a compose stack, reboot, and
+  `ccy-sessions verify-restore --wait 300` reports it `OK`, its stack up. A session started
+  on an older ccy has no recorded answer and still asks once.
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).

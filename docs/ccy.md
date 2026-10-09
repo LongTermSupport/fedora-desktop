@@ -256,8 +256,29 @@ from before the reboot running rather than asking what to do with them, and star
 alongside sibling sessions in the same project. Each of these is the one answer that
 cannot lose work, and each is announced on stderr. A restart and a `--headless` launch
 take the same two container answers (headless since CCY 3.88.1). Every other prompt (token choice, SSH
-key or passphrase, GitHub-over-443, network, compose) has no safe answer, so it waits in
-the pane for a person — except the SSH key passphrase on a headless server, below.
+key or passphrase, network) has no safe answer, so it waits in
+the pane for a person — except the SSH key passphrase on a headless server, below, and the
+compose question, which the record answers (next paragraph).
+
+**How the compose services stood is recorded** (since CCY 3.89.0). When a session meets its
+project's compose stack (the question `Start services with podman-compose up -d?`, or
+services found already running), its record gets `compose=started`, `declined` or
+`running`. A restore replays that as `--compose start` (started or running: `up -d`, which
+leaves running services alone) or `--compose skip`, so the question is never shown. A stack
+that will not start under `--compose start` ends that launch with the reason, rather than
+bringing the session up without it. A record written by an older ccy has no answer: its
+restore asks in the pane, says why on the line above, and records the answer for next
+time; `verify-restore` reports it `WAITING-AT-PROMPT compose-start` until then. You can
+give `--compose start|skip|ask` yourself; `ask` is the default.
+
+**No launch question is read with nobody to answer it** (since CCY 3.89.0). Under
+`--headless`, or with stdin that is not a terminal, a launch question either takes its one
+safe answer (Quick Launch's saved choices, keeping old session directories, continuing
+without a vanished or unreachable network, continuing without an SSH key, GitHub over 443,
+leaving compose services running at the end) or stops the launch naming the question and
+the flag that answers it (`--token`, `--network`/`--no-network`, `--compose`). A restore
+and a restart take the same safe answers in their panes, except the compose-stop question
+at the end of a session, which is asked of whoever ends it.
 
 **A key chosen at the SSH key menu is recorded** (since CCY 3.82.0). A session started with
 `--token`, `--network` or `--no-network` skips Quick Launch, so its key, if picked at the

@@ -885,7 +885,11 @@ check_and_start_compose_services() {
 
     # Check if network has running containers
     if network_has_running_containers "$network_name"; then
-        # Services are running, nothing to do
+        # Services are running, nothing to do. With a compose file here they are this
+        # project's stack, and a restore starts them again (ccy_registry_record_compose).
+        if has_compose_files; then
+            CCY_COMPOSE_OUTCOME=running
+        fi
         return 0
     fi
 
@@ -916,8 +920,71 @@ check_and_start_compose_services() {
     return $?
 }
 
+# ccy_compose_outcome_set <started|declined|running> — note how the project's compose services
+# stood, for ccy_compose_record_outcome. The launcher's own compose questions call it too.
+ccy_compose_outcome_set() {
+    CCY_COMPOSE_OUTCOME="${1:?ccy_compose_outcome_set requires an outcome}"
+}
+
+# ccy_compose_record_outcome — put CCY_COMPOSE_OUTCOME (started, declined or running; set by
+# the compose questions and checks here) into this session's restore record, so a restore
+# after a reboot answers the same way (lib/session-registry.bash). Nothing to do when the
+# launch met no compose stack, or runs in no CCY session (no record). Needs
+# ccy_tmux_current_session (lib/tmux-session.bash) and ccy_registry_record_compose.
+ccy_compose_record_outcome() {
+    [[ -n "${CCY_COMPOSE_OUTCOME:-}" ]] || return 0
+    local name
+    name=$(ccy_tmux_current_session) || return 1
+    [[ -n "$name" ]] || return 0
+    ccy_registry_record_compose "$name" "$CCY_COMPOSE_OUTCOME"
+}
+
+# ccy_compose_answer <prompt> <default Y|N> — the answer to a question that would start the
+# project's compose services, Y or N, in CCY_COMPOSE_REPLY. COMPOSE_MODE (the launcher's
+# --compose, default ask) start or skip answers without asking: that is how a restore replays
+# its record. ask reads the answer from the person at the terminal; with nobody to answer
+# (ccy_nobody_to_ask) it refuses by name and exits, rather than eat a headless session's input
+# or hang. A restore that reaches ask has a record from before compose= existed: it says so
+# before the question, because verify-restore names the line the pane stops on.
+ccy_compose_answer() {
+    local prompt="${1:?ccy_compose_answer requires a prompt}" default="${2:?ccy_compose_answer requires a default}"
+    CCY_COMPOSE_REPLY=""
+    case "${COMPOSE_MODE:-ask}" in
+    start)
+        echo "Starting the compose services without asking (--compose start)."
+        CCY_COMPOSE_REPLY=Y
+        return 0
+        ;;
+    skip)
+        echo "Not starting the compose services (--compose skip)."
+        CCY_COMPOSE_REPLY=N
+        return 0
+        ;;
+    ask) ;;
+    *)
+        print_error "--compose is '${COMPOSE_MODE}'; it takes start, skip or ask."
+        exit 1
+        ;;
+    esac
+    if ccy_nobody_to_ask; then
+        ccy_prompt_refuse compose-start "Launch with --compose start (run up -d) or --compose skip (leave them stopped)."
+        exit 1
+    fi
+    if [[ "${SESSION_RESTORE:-false}" == true ]]; then
+        echo "Session restore: this session's record holds no compose answer (it was written by a ccy older than 3.89.0), so the question is asked here. The answer is recorded, and the next restore replays it."
+    fi
+    if ! read -rp "$prompt" CCY_COMPOSE_REPLY; then
+        echo "" >&2
+        print_error "No answer: the input closed at the compose question. Not starting a session."
+        exit 1
+    fi
+    CCY_COMPOSE_REPLY="${CCY_COMPOSE_REPLY:-$default}"
+}
+
 # Internal helper to start compose (shared between offer_compose_start and check_and_start_compose_services)
 # Args: $1 = expected_network, $2 = project_name
+# Sets CCY_COMPOSE_OUTCOME to started or declined once answered. A stack that will not start
+# under --compose start ends the launch: the session it would start is not the recorded one.
 _do_compose_start() {
     local expected_network="$1"
     local project_name="$2"
@@ -959,8 +1026,8 @@ _do_compose_start() {
 
     # Offer to start compose
     while true; do
-        read -rp "$CCY_PROMPT_COMPOSE_START $compose_name up -d? [Y/n]: " start_choice
-        start_choice=${start_choice:-Y}
+        ccy_compose_answer "$CCY_PROMPT_COMPOSE_START $compose_name up -d? [Y/n]: " Y
+        start_choice="$CCY_COMPOSE_REPLY"
         echo ""
 
         case "$start_choice" in
@@ -970,6 +1037,7 @@ _do_compose_start() {
                     echo ""
                     echo "✓ Compose services started"
                     echo ""
+                    CCY_COMPOSE_OUTCOME=started
                     # Track for session-end teardown offer (read by claude-yolo after container exits)
                     export CCY_COMPOSE_WAS_STARTED=true
                     export CCY_COMPOSE_CMD="$compose_cmd"
@@ -1004,12 +1072,17 @@ _do_compose_start() {
                         return 1
                     fi
                 else
+                    if [[ "${COMPOSE_MODE:-ask}" == start ]]; then
+                        print_error "the compose services could not be started (--compose start): '$compose_name up -d' failed (see above). A session without them is not the one that was recorded, so none is started."
+                        exit 1
+                    fi
                     echo "⚠ $compose_name failed. Check errors above."
                     echo "────────────────────────────────────────────────────────────────────────────────"
                     return 1
                 fi
                 ;;
             N|n|No|no)
+                CCY_COMPOSE_OUTCOME=declined
                 echo "Skipping compose startup"
                 echo "Run '$compose_name up -d' manually when ready"
                 echo "────────────────────────────────────────────────────────────────────────────────"
@@ -1094,6 +1167,7 @@ offer_compose_start() {
 
     # If services are already running, use their network without prompting
     if _compose_already_running; then
+        CCY_COMPOSE_OUTCOME=running
         return 0
     fi
 
