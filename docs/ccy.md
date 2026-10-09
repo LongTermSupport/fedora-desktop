@@ -132,8 +132,9 @@ the real order the launcher executes in.
     blocks a launch — and it runs on **every** launch by design.
 10. **Launch.** The container starts with your project bind-mounted at `/workspace`.
 11. **Entrypoint.** Inside, the umask is set to `077` so all new session state is
-    owner-only, `/root/.claude` is symlinked to `/workspace/.claude/ccy/`,
-    `.claude/ccy/ccy.env` and then `ccy.env.local` are sourced if present, and `claude`
+    owner-only, the container's git must be able to read `/workspace` (if it cannot, the
+    session stops with git's own message rather than starting without git),
+    `/root/.claude` is symlinked to `/workspace/.claude/ccy/`, `.claude/ccy/ccy.env` and then `ccy.env.local` are sourced if present, and `claude`
     is exec'd — optionally
     wrapped by a [supervisor](#the-supervisor).
 

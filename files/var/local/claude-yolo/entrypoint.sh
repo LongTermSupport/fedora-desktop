@@ -42,6 +42,26 @@ if [ -f /tmp/claude-config-import/gitconfig ]; then
     cp /tmp/claude-config-import/gitconfig ~/.gitconfig
 fi
 
+# The container's git must be able to read the repository it is given. A host git can
+# write something an older container git refuses (extensions.relativeWorktrees from
+# `git worktree add --relative-paths`), and then every session started with no git and no
+# hooks daemon, silently (Plan 00169). The launcher only starts a session from a directory
+# holding .git (check_git_repo), so /workspace is always meant to be a repository.
+# scripts/test-ccy-git-preflight.bash runs the block between the markers.
+# >>> GIT-PREFLIGHT
+if ! git_preflight_error=$(git -C /workspace rev-parse --git-dir 2>&1 >/dev/null); then
+    echo "ERROR: the container's git ($(git --version)) cannot read /workspace" >&2
+    echo "" >&2
+    echo "What git said:" >&2
+    printf '%s\n' "$git_preflight_error" >&2
+    echo "" >&2
+    echo "Claude is not started: a session without git has no hooks and cannot commit." >&2
+    echo "If the host's git is newer, the repository may use a feature this git predates." >&2
+    exit 1
+fi
+echo "✓ $(git --version) reads /workspace"
+# <<< GIT-PREFLIGHT
+
 # Configure GitHub CLI with token
 mkdir -p ~/.config/gh
 TEMP_TOKEN="$GH_TOKEN"

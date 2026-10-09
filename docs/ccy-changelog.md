@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.91.0 — container 2.50
+
+- **A container git that cannot read the repository stops the session** (Plan 00169). A
+  host git 2.48 or later writes `extensions.relativeWorktrees` into the shared `.git/config`
+  when a worktree is added with `--relative-paths`; the image's git 2.39 then refuses the
+  whole repository, and every session started with no git and no hooks daemon, silently.
+  The entrypoint now runs `git -C /workspace rev-parse --git-dir` straight after git is
+  configured. If it fails, it prints the container's `git --version`, then git's own
+  message verbatim, and exits 1 before Claude starts. The launcher only starts from a
+  directory holding `.git`, so the check has no non-repository case to allow. One rebuild
+  on the next launch.
+
 ## 3.90.1 — container 2.49
 
 - **Transcript times are read as UTC in any zone.** `ccy_transcript_took_input_since` and
