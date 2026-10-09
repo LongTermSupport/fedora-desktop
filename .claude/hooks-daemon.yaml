@@ -313,6 +313,11 @@ handlers:
             # checkout may not have it.
             - path: extensions/node_modules
               optional: true
+            # The pre-commit and commit-msg hooks build their private-identifier
+            # denylist from it, and skip that check when it is absent: a worktree
+            # without it commits unchecked for this machine's own names.
+            - path: environment/localhost/host_vars/localhost.yml
+              optional: true
 
 # Pseudo-events: synthetic events fired from real ones with frequency control.
 # A pseudo-event ABSENT from this file is never registered, so the nitpick
