@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.93.1 — container 2.50
+
+- **3.93.0 and 3.91.1 in one launcher.** The token usage report and import cleanup below,
+  together with 3.91.1's GitHub SSH probe that shows ssh's own reply. Nothing else changes.
+
 ## 3.93.0 — container 2.50
 
 - **A token import offers to remove the files that would shadow it.** A name launches with
@@ -62,6 +67,16 @@ Two version numbers move independently — see
   reports figures read with another file. The menu is not fixed by this: it lists every
   valid file, so two files of one name still share one cache entry and show one set of
   figures, and each `u` now spends one request on that entry. Open gap.
+
+## 3.91.1 — container 2.50
+
+- **A failed GitHub SSH probe shows ssh's own reply.** The launcher probes each chosen key
+  against GitHub before it starts the container. When no `Hi <login>!` came back, it
+  discarded ssh's output and said the key "is not registered with any GitHub account".
+  That was wrong whenever the cause was a dropped connection or an agent that would not
+  sign, and it left nothing to tell them apart. The probe now prints ssh's reply, the
+  endpoint and ssh's exit status on stderr. The error says which reply means an unknown
+  key and which means the network.
 
 ## 3.91.0 — container 2.50
 

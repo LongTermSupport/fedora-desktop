@@ -367,8 +367,18 @@ got=$(STUB_GREETING="Hi owner/repo! You've successfully authenticated, but GitHu
 if [ "$got" = "owner/repo" ]; then pass "deploy key → owner/repo"; else fail "deploy key → '$got'"; fi
 
 got=$(STUB_GREETING="git@github.com: Permission denied (publickey)." \
-      _github_probe_identity "$KEY_DIR/project_a" github.com 22)
+      _github_probe_identity "$KEY_DIR/project_a" github.com 22 2>"$WORK/probe-rejected.err")
 if [ -z "$got" ]; then pass "rejected key → empty"; else fail "rejected key → '$got'"; fi
+# A refused key, a dropped connection and an agent that would not sign all leave the probe
+# empty; only ssh's own reply tells them apart, so a failed probe passes it on.
+if grep -qF 'github.com:22' "$WORK/probe-rejected.err" && grep -qF 'Permission denied (publickey)' "$WORK/probe-rejected.err"; then
+    pass "…and passes on ssh's reply, with the endpoint, on stderr"
+else
+    fail "rejected key: ssh's reply not on stderr: $(tr '\n' ' ' < "$WORK/probe-rejected.err")"
+fi
+STUB_GREETING="Hi quiet! You've successfully authenticated, but GitHub does not provide shell access." \
+    _github_probe_identity "$KEY_DIR/project_a" github.com 22 >/dev/null 2>"$WORK/probe-ok.err"
+if [ ! -s "$WORK/probe-ok.err" ]; then pass "a probe that authenticates says nothing on stderr"; else fail "authenticated probe wrote: $(tr '\n' ' ' < "$WORK/probe-ok.err")"; fi
 
 got=$(SSH_AUTH_SOCK="$sock" STUB_GREETING="Hi person! You've successfully authenticated, but GitHub does not provide shell access." \
       _github_probe_identity ssh-agent github.com 22)

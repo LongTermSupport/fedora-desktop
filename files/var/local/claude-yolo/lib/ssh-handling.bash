@@ -719,7 +719,7 @@ discover_and_select_ssh_keys() {
 
 # Probe GitHub for the identity a key (or the session's agent) authenticates as.
 # Echoes it on success — a login for an account key, `owner/repo` for a deploy
-# key — and nothing on failure (grep returns 1, but callers run inside
+# key — and on failure nothing on stdout, ssh's reply on stderr (returns 1, but callers run inside
 # build_ssh_mounts_and_validate which is invoked as `|| exit 1`, so set -e is
 # disabled — an empty result does not abort).
 # CRITICAL isolation flags — without them the probe falls through to ~/.ssh/config's
@@ -764,7 +764,12 @@ _github_probe_identity() {
         echo "  GitHub probe for ${key} got no answer within ${CCY_UNATTENDED_PROBE_SECONDS:-60}s; an agent that asks before signing cannot be answered on an unattended launch." >&2
         return 1
     fi
-    printf '%s\n' "$out" | grep -oP "Hi \K[^!]+"
+    if ! printf '%s\n' "$out" | grep -oP "Hi \K[^!]+"; then
+        # A refused key, a dropped connection and an agent that would not sign all end
+        # here; only ssh's own reply tells them apart.
+        echo "  GitHub probe for ${key} at ${host}:${port} (ssh exit ${rc}): ${out:-no output}" >&2
+        return 1
+    fi
 }
 
 # ── Private probe agent: unlock passphrase keys BEFORE any connection exists ──
@@ -1535,9 +1540,10 @@ build_ssh_mounts_and_validate() {
             fi
             print_error "SSH key authentication to GitHub failed: $key"
             echo ""
-            echo "The selected SSH key is not registered with any GitHub account or repository."
+            echo "ssh's reply is printed above. 'Permission denied (publickey)' means GitHub does"
+            echo "not know this key; a timeout or a closed connection means the network, so try again."
             echo ""
-            echo "To fix this:"
+            echo "If GitHub does not know the key:"
             echo "  1. Go to https://github.com/settings/keys"
             echo "  2. Click 'New SSH key'"
             echo "  3. Add the public key from: $key.pub"
