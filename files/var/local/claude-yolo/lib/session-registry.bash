@@ -119,7 +119,7 @@ ccy_registry_launch_args() {
 # launcher's flags from its parser and fails on any flag in none of them. --help, --version,
 # -h and -v exit before a session exists, so they never reach a record; they are listed so
 # the population is complete.
-CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --custom --custom-docker --top
+CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --token-usage --custom --custom-docker --top
     --prevent --debug --headless --disable-custom-docker --ssh-agent --no-restore
     --help --version -h -v)
 CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until --compose)
