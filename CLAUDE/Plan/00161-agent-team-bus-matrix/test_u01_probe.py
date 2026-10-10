@@ -39,8 +39,7 @@ up = importlib.util.module_from_spec(_SPEC)
 sys.modules["u01_probe"] = up
 _SPEC.loader.exec_module(up)
 
-# Built at runtime: a 32-hex-character literal trips gitleaks' generic-api-key rule in CI.
-TOKEN = "0123456789abcdef" * 2
+TOKEN = "0123456789abcdef0123456789abcdef"
 
 
 class FrameTest(unittest.TestCase):
