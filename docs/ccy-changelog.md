@@ -17,6 +17,69 @@ Two version numbers move independently — see
 
 ---
 
+## 3.93.3 — container 2.51
+
+- **3.93.2 and 3.91.3 in one launcher.** The token usage report and import cleanup, with
+  3.91.3's unmarked-packet GitHub probe. Nothing else changes. No rebuild.
+
+## 3.93.2 — container 2.51
+
+- **3.93.1 and 3.91.2 in one launcher.** The token usage report, import cleanup and
+  3.91.1's SSH probe reply below, together with 3.91.2's Chrome download with curl and its
+  one-key agent log on a failed forwarded key. The image is 3.91.2's: one rebuild on the
+  next launch for a machine still on container 2.50.
+
+## 3.93.1 — container 2.50
+
+- **3.93.0 and 3.91.1 in one launcher.** The token usage report and import cleanup below,
+  together with 3.91.1's GitHub SSH probe that shows ssh's own reply. Nothing else changes.
+
+## 3.93.0 — container 2.50
+
+- **A token import offers to remove the files that would shadow it.** A name launches with
+  its earliest-dated file, so an old (often expired) `NAME.DATE.token` left on a machine
+  wins over a renewal imported beside it. The script `ccy --export-token NAME` prints now
+  lists the other dated files of that name after writing the new one and asks whether to
+  remove them, default no. `CCY_TOKEN_IMPORT_REMOVE_OTHERS=1` removes and `=0` keeps
+  without asking; with no terminal to ask, they are kept. It removes only
+  `NAME.YYYY-MM-DD.token` files of that exact name and names each one. Export refuses a
+  name outside letters, digits, `_` and `-`, since the name is written into the script.
+- **Shadowing is reported where it bites.** `ccy --token-usage` flags a name whose launch
+  file shadows a later one, and says `SHADOWED RENEWAL` with the file to remove when the
+  launch file is unusable. `ccy --token NAME` warns whenever the name has more than one
+  dated file, naming the one it uses.
+- **A usage cache entry is one file, published by one rename.** Each name's entry is now
+  `<name>.result`: the token file it was read with, the HTTP status and the figures. Fetch
+  part-files are named by the worker's own PID. Two fetches of one name, from the menu or
+  from two ccy processes, can no longer leave an entry whose file name and figures come
+  from different fetches.
+
+## 3.92.1 — container 2.50
+
+- **`CCY_USAGE_TTL=0 ccy --token-usage` reports the figures it just read.** Every entry
+  was judged out of date at age 0, so forcing a fresh read reported every token unavailable
+  and exited 1. Only an entry older than the start of the run and past the TTL is out of
+  date now.
+
+## 3.92.0 — container 2.50
+
+- **`ccy --token-usage [--json]` prints every token's usage limits and exits.** The figures
+  the token menu shows when you press `u`, without the menu: no terminal, repository or
+  container, and nothing written but the usage cache. One row per token name with the 5-hour
+  and 7-day percentage and reset time, or one JSON object (keys listed in `ccy --help`).
+  It fetches through the same cache as `u`, so it costs the same one small request per
+  account and nothing within 15 minutes. A name with two token files is read with the
+  earliest-dated one, the file `ccy --token NAME` launches with, and the other is listed
+  as shadowed and never sent. Exit 1 when no token's usage could be read. No rebuild.
+- **The usage menu no longer shifts a weekly figure into the 5-hour row.** A cache record
+  was split with `IFS=$'\t' read`, and tab is IFS whitespace, so an empty 5-hour field was
+  dropped and every later field moved up one. Records now split with every field in place.
+- **A usage cache entry records the token file it was read with**, and a fetch for a
+  different file of the same name refetches instead of reusing it. `--token-usage` never
+  reports figures read with another file. The menu is not fixed by this: it lists every
+  valid file, so two files of one name still share one cache entry and show one set of
+  figures, and each `u` now spends one request on that entry. Open gap.
+
 ## 3.91.3 — container 2.51
 
 - **The GitHub probe sends its packets unmarked.** By default OpenSSH tags its packets
