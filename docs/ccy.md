@@ -771,7 +771,7 @@ container:
 $ ccy --token-usage
 NAME      EXPIRES     5-HOUR  RESETS                             7-DAY  RESETS                            STATUS
 personal  2027-10-10       -  -                                      -  -                                 unavailable: this token was not authorised to read it
-work      2027-10-10     34%  in 4 hours (2026-10-10 13:13 UTC)     8%  in 6 days (2026-10-16 09:13 UTC)  ok; binding: 5-hour limit
+work      2027-10-10     34%  in 4 hours (2026-10-10 13:13 UTC)     8%  in 6 days (2026-10-16 09:13 UTC)  ok; binding: 5-hour limit; shadows a later file of this name, which ccy never uses: remove the one you do not want
 work      2028-02-22       -  -                                      -  -                                 shadowed: ccy --token work launches with work.2027-10-10.token
 ```
 
