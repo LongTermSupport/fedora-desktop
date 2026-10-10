@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.91.3 — container 2.51
+
+- **The GitHub probe sends its packets unmarked.** By default OpenSSH tags its packets
+  with a DSCP priority marking (`IPQoS ef cs0`). On a Wi-Fi network that drops marked
+  frames, every probe timed out at the TCP connect, on port 22 and on 443 alike. Plain
+  TCP, curl and container traffic crossed the same link without trouble, and ccy refused
+  to start. The probe runs with `-F /dev/null`, which ignores the system ssh config as
+  well as `~/.ssh/config`, so it now passes `-o IPQoS=none` itself. The rest of the
+  host's ssh gets the same setting from `/etc/ssh/ssh_config.d/40-ipqos.conf`, which
+  `play-basic-configs.yml` deploys. No rebuild.
+
 ## 3.91.2 — container 2.51
 
 - **The image build fetches Chrome with curl.** `agent-browser install` gives each attempt

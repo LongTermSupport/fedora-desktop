@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.91.2"  # Chrome fetched with curl; a failed forwarded key shows the one-key agent's log. See docs/ccy-changelog.md.
+CCY_VERSION="3.91.3"  # the GitHub probe sends unmarked packets (IPQoS=none). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

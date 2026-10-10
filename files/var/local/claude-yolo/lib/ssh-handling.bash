@@ -734,6 +734,9 @@ discover_and_select_ssh_keys() {
 # whatever it holds and no -i at all.
 # ConnectTimeout bounds the wait so a DROP-firewalled port 22 fails fast (~10s)
 # instead of hanging on the default TCP timeout before any 443 fallback can run.
+# IPQoS=none because -F /dev/null also drops /etc/ssh/ssh_config.d, where the host
+# turns off ssh's default DSCP marking: some Wi-Fi networks drop marked packets, and
+# the probe would then time out on a link plain TCP crosses fine.
 # It does not bound what follows the connection: an agent that asks before it
 # signs (ssh-add -c, an expired gpg-agent cache) waits for a person. On an
 # unattended launch (CCY_UNATTENDED_LAUNCH: a restart or a restore) there is
@@ -758,6 +761,7 @@ _github_probe_identity() {
         -F /dev/null \
         -o StrictHostKeyChecking=no \
         -o ConnectTimeout=10 \
+        -o IPQoS=none \
         -p "$port" \
         "git@${host}" 2>&1) || rc=$?
     if [ "${#guard[@]}" -gt 0 ] && { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; }; then
