@@ -736,8 +736,9 @@ _usage_report_row() {
         if [[ "$code" =~ ^[1-9][0-9]{2}$ ]]; then
             http="$code"
         fi
-        if [ $(( now - mtime )) -ge "$CCY_USAGE_TTL" ]; then
-            # usage_prime_cache refreshes anything this old, so its fetch did not publish.
+        # `now` was taken before the fetch, so an entry this run wrote is never older than it.
+        # Anything older and past CCY_USAGE_TTL was due a refresh that did not publish.
+        if [ "$mtime" -lt "$now" ] && [ $(( now - mtime )) -ge "$CCY_USAGE_TTL" ]; then
             reason="this run's fetch did not complete, and the cached figures are out of date"
         else
             if [ -f "$cache_dir/$name.summary" ]; then

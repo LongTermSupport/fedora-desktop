@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.92.1 — container 2.50
+
+- **`CCY_USAGE_TTL=0 ccy --token-usage` reports the figures it just read.** Every entry
+  was judged out of date at age 0, so forcing a fresh read reported every token unavailable
+  and exited 1. Only an entry older than the start of the run and past the TTL is out of
+  date now.
+
 ## 3.92.0 — container 2.50
 
 - **`ccy --token-usage [--json]` prints every token's usage limits and exits.** The figures
@@ -30,9 +37,11 @@ Two version numbers move independently — see
 - **The usage menu no longer shifts a weekly figure into the 5-hour row.** A cache record
   was split with `IFS=$'\t' read`, and tab is IFS whitespace, so an empty 5-hour field was
   dropped and every later field moved up one. Records now split with every field in place.
-- **A usage cache entry is used only for the token file it was read with.** The cache is
-  keyed by token name, so the figures of an old token could be shown for its renewal for up
-  to 15 minutes. Each entry now records its file, and a different file refetches.
+- **A usage cache entry records the token file it was read with**, and a fetch for a
+  different file of the same name refetches instead of reusing it. `--token-usage` never
+  reports figures read with another file. The menu is not fixed by this: it lists every
+  valid file, so two files of one name still share one cache entry and show one set of
+  figures, and each `u` now spends one request on that entry. Open gap.
 
 ## 3.91.0 — container 2.50
 

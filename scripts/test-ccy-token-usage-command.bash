@@ -174,6 +174,12 @@ field() {
     printf '<absent>'
 }
 curl_calls() { grep -c '^curl ' "$CALLS"; }
+# Every directory, and every file with its size and mtime, under a home: the usage cache
+# aside, two snapshots differ exactly when the run created or changed something there.
+home_snapshot() {
+    find "$1" -path "$1/.claude-tokens/ccy/usage-cache" -prune \
+        -o -type d -printf 'd %P\n' -o -type f -printf 'f %P %s %T@\n' | sort
+}
 called_with() { if grep -qxF "curl $1" "$CALLS"; then echo yes; else echo no; fi; }
 leaks() {
     local p found=""
@@ -190,6 +196,7 @@ echo "=== --json over a mixed pool: one readable, one refused, one expired, one 
 MIXED=$(new_home mixed "work.$NEXT_YEAR.token=placeholder-work" \
     "work.$LATER.token=placeholder-renewed" "personal.$NEXT_YEAR.token=placeholder-denied" \
     "old.$YESTERDAY.token=placeholder-old")
+MIXED_BEFORE=$(home_snapshot "$MIXED")
 run_ccy "$MIXED" -- --token-usage --json
 FLAT=$(flatten <<<"$OUT")
 check "exit 0 when at least one token was read" "0" "$RC"
@@ -224,8 +231,10 @@ check "exactly two requests" "2" "$(curl_calls)"
 check "no token value on stdout or stderr" "" "$(leaks)"
 check "no engine or tmux call" "" "$(grep -v '^curl ' "$CALLS")"
 check "nothing written to the working directory" "" "$(find "$NOT_A_REPO" -mindepth 1 -print -quit)"
-check "nothing written beside the tokens but the usage cache" "tokens usage-cache" \
-    "$(find "$MIXED/.claude-tokens/ccy" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' ' | xargs)"
+check "the usage cache was written" "yes" \
+    "$([ -f "$MIXED/.claude-tokens/ccy/usage-cache/work.status" ] && echo yes || echo no)"
+check "nothing else in HOME created or changed (no session record, no Quick Launch)" "" \
+    "$(diff <(printf '%s\n' "$MIXED_BEFORE") <(home_snapshot "$MIXED"))"
 check "--json writes nothing to stderr" "" "$ERR"
 
 echo ""
@@ -235,6 +244,31 @@ FLAT=$(flatten <<<"$OUT")
 check "exit 0" "0" "$RC"
 check "no request" "0" "$(curl_calls)"
 check "same figures from the cache" "34 8" "$(field work.five_hour_pct) $(field work.seven_day_pct)"
+
+echo ""
+echo "=== CCY_USAGE_TTL=0 forces a fresh read, and the fresh figures are used ==="
+run_ccy "$MIXED" CCY_USAGE_TTL=0 -- --token-usage --json
+FLAT=$(flatten <<<"$OUT")
+check "exit 0" "0" "$RC"
+check "both readable tokens re-sent" "2" "$(curl_calls)"
+check "work: ok from this run's read" '"ok" 34' "$(field work.status) $(field work.five_hour_pct)"
+
+echo ""
+echo "=== an out-of-date entry whose refresh did not happen is not passed off as current ==="
+# An empty token file is skipped by usage_prime_cache's worker, so the hour-old entry
+# below, written with this very file, is all that is left to read.
+STALE=$(new_home stale "s.$NEXT_YEAR.token=")
+mkdir -p "$STALE/.claude-tokens/ccy/usage-cache"
+printf '200\n' >"$STALE/.claude-tokens/ccy/usage-cache/s.status"
+printf '0.34\t%s\t0.08\t%s\tfive_hour' "$(date +%s)" "$(date +%s)" >"$STALE/.claude-tokens/ccy/usage-cache/s.summary"
+printf 's.%s.token\n' "$NEXT_YEAR" >"$STALE/.claude-tokens/ccy/usage-cache/s.source"
+touch -d '1 hour ago' "$STALE/.claude-tokens/ccy/usage-cache"/s.*
+run_ccy "$STALE" -- --token-usage --json
+FLAT=$(flatten <<<"$OUT")
+check "exit 1" "1" "$RC"
+check "unavailable, not the hour-old figures" '"unavailable" null' "$(field s.status) $(field s.five_hour_pct)"
+check "says the read did not complete" "yes" "$(has "did not complete" "$(field s.reason)")"
+check "no request (the file is empty)" "0" "$(curl_calls)"
 
 echo ""
 echo "=== the table ==="
