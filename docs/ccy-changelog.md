@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.92.0 — container 2.50
+
+- **`ccy --token-usage [--json]` prints every token's usage limits and exits.** The figures
+  the token menu shows when you press `u`, without the menu: no terminal, repository or
+  container, and nothing written but the usage cache. One row per token name with the 5-hour
+  and 7-day percentage and reset time, or one JSON object (keys listed in `ccy --help`).
+  It fetches through the same cache as `u`, so it costs the same one small request per
+  account and nothing within 15 minutes. A name with two token files is read with the
+  earliest-dated one, the file `ccy --token NAME` launches with, and the other is listed
+  as shadowed and never sent. Exit 1 when no token's usage could be read. No rebuild.
+- **The usage menu no longer shifts a weekly figure into the 5-hour row.** A cache record
+  was split with `IFS=$'\t' read`, and tab is IFS whitespace, so an empty 5-hour field was
+  dropped and every later field moved up one. Records now split with every field in place.
+- **A usage cache entry is used only for the token file it was read with.** The cache is
+  keyed by token name, so the figures of an old token could be shown for its renewal for up
+  to 15 minutes. Each entry now records its file, and a different file refetches.
+
 ## 3.91.0 — container 2.50
 
 - **A container git that cannot read the repository stops the session** (Plan 00169). A

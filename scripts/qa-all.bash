@@ -390,6 +390,19 @@ fi
 token_usage_summary=$(qa_gate_case_count "$token_usage_out")
 qa_pass_line ccy-token-usage-output "$token_usage_summary"
 
+# `ccy --token-usage [--json]`: the real launcher outside a repository, curl stubbed. Every
+# token name read once with the file a launch uses, shadowed and expired files never sent,
+# the menu's normalised percentages, valid JSON, exit 1 only when no token was read, and no
+# engine, tmux or token value anywhere in the output.
+token_usage_cmd_out=""
+if ! token_usage_cmd_out="$(bash "$SCRIPT_DIR/test-ccy-token-usage-command.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-token-usage-command \
+        "ccy --token-usage tests failed" \
+        "$token_usage_cmd_out"
+fi
+token_usage_cmd_summary=$(qa_gate_case_count "$token_usage_cmd_out")
+qa_pass_line ccy-token-usage-command "$token_usage_cmd_summary"
+
 # ccy's SSH identity resolution (Plan 00116, CCY 3.54.0).
 #
 # A box provisioned with per-repository deploy keys and no GitHub account holds no

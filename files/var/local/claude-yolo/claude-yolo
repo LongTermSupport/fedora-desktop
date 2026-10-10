@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.91.0"  # A container git that cannot read /workspace stops the session. See docs/ccy-changelog.md.
+CCY_VERSION="3.92.0"  # ccy --token-usage [--json] prints every token's usage limits. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -179,6 +179,10 @@ Options:
   --create-token         Create a new named token
   --update-token=NAME    Replace an existing named token (e.g. invalidated before expiry)
   --list-tokens          List available tokens
+  --token-usage [--json] Print each token's 5-hour and 7-day usage and exit. Needs no
+                         terminal, repository or container. Costs 1 small API call per
+                         account unless read in the last 15 minutes (CCY_USAGE_TTL).
+                         Must be the first option; see "Token usage report" below
   --export-token [NAME]  Export token(s) as portable import script (interactive if no name)
   --network NETWORK      Auto-connect to specified container network on launch
   --no-network           Skip network auto-detection
@@ -269,6 +273,8 @@ Examples:
   ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
+  ccy --token-usage             # Usage limits of every token, as a table
+  ccy --token-usage --json      # The same, as one JSON document
   ccy --export-token             # Interactive multi-token export
   ccy --export-token personal    # Export specific token
 
@@ -290,6 +296,33 @@ Token Management:
   Long-lived OAuth tokens (sk-ant-oat01-...) created via 'claude setup-token'
   Expiry checked on launch - forces recreation when expired or expiring today
   Desktop Claude Code (~/.claude/) is NEVER modified
+
+Token usage report (ccy --token-usage [--json]):
+  One row per token name. A name with two files reports the earliest-dated one, the file
+  'ccy --token NAME' launches with; the later file is listed as shadowed and not read.
+  A token expired or expiring today is reported unavailable and not read. Percentages are 0-100, the scale
+  the token menu shows (over 100 means past the limit). Token values are never printed.
+  Exit status: 0 when at least one token's usage was read; 1 when none was (no tokens,
+  all unavailable, CCY_TOKEN_USAGE=0, no curl); 64 on any option other than --json.
+  JSON (schema 1), one object on stdout:
+    schema          1; bumped only when a key is renamed or removed
+    generated_at    ISO-8601 UTC time of the report
+    scale           CCY_USAGE_SCALE in force: "fraction" (default) or "percent"
+    error           null, or why no token's usage could be read
+    tokens[]        one object per token name:
+      name            token name
+      file            file name the figures belong to (NAME.YYYY-MM-DD.token)
+      expires         YYYY-MM-DD from the file name, or null
+      status          "ok" (at least one figure read) or "unavailable"
+      reason          null when ok, else why the figures are unavailable
+      five_hour_pct   number 0-100+ or null
+      seven_day_pct   number 0-100+ or null
+      resets          {"five_hour": ISO-8601 UTC or null, "seven_day": ... or null}
+      binding_limit   the API's binding bucket (five_hour, seven_day, ...) or null
+      http_status     HTTP status of the reading request, or null
+      fetched_at      ISO-8601 UTC time the figures were read (may be cached), or null
+      warnings        list of strings, e.g. a bucket the API did not report
+      shadowed        list of other file names with this name, never read
 
 State Management:
   Claude Code state (history, todos, settings) persists in /workspace/.claude/
@@ -365,6 +398,16 @@ fi
 if [ "$#" -eq 1 ] && [ "$1" = "--list-tokens" ]; then
     list_tokens "$TOKEN_DIR" "ccy"
     exit 0
+fi
+
+# `ccy --token-usage [--json]` prints every token's usage limits and exits (usage_report,
+# lib/token-management.bash). Here, before the repository check, the session registry, tmux
+# and every engine call: it needs none of them, and must work from a script with no terminal.
+if [ "$1" = "--token-usage" ]; then
+    shift
+    ccy_token_usage_rc=0
+    usage_report "$TOKEN_DIR" "$@" || ccy_token_usage_rc=$?
+    exit "$ccy_token_usage_rc"
 fi
 
 # Fail fast: Must be run from a git repository root
@@ -773,6 +816,11 @@ for arg in "$@"; do
         NEXT_IS_UPDATE_TOKEN=true
     elif [ "$arg" = "--list-tokens" ]; then
         LIST_TOKENS_MODE=true
+    elif [ "$arg" = "--token-usage" ]; then
+        # Handled before the repository check, and only as the first option. Anywhere else
+        # it would reach claude's flag validation, which runs a container to read its help.
+        print_error "--token-usage goes first and takes only --json: ccy --token-usage [--json]"
+        exit 64
     elif [ "$arg" = "--export-token" ]; then
         EXPORT_TOKEN_MODE=true
         NEXT_IS_EXPORT_TOKEN=true
@@ -916,7 +964,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
                 --headless --supervise --no-supervise --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
                 --max-age --run-for --until
                 --teams
-                --update-token --list-tokens --export-token --network --compose --connect --disconnect
+                --update-token --list-tokens --token-usage --export-token --network --compose --connect --disconnect
                 --custom --custom-docker --top --prevent --help
             )
             claude_known=$(grep -oE -- '--[a-zA-Z][a-zA-Z0-9-]*' <<< "$claude_help" | sort -u)

@@ -669,6 +669,7 @@ forces a renewal when a token is expired or expiring today.
 ```bash
 ccy --create-token           # create and name a new token
 ccy --list-tokens            # list tokens and expiry dates
+ccy --token-usage            # each token's usage limits (--json for scripts)
 ccy --token work             # use a specific named token for this session
 ccy --update-token=work      # replace one (e.g. invalidated before expiry)
 ccy --export-token           # interactive: pick token(s) to export
@@ -761,6 +762,39 @@ CCY_USAGE_SCALE=percent ccy # override, if the API ever changes to 0-100
 Nothing else in the display depends on it, and the switch applies to values already
 cached — flipping it costs no extra request.
 
+### Reading usage without the menu: `ccy --token-usage`
+
+The same figures, for a script or a quick look, with no menu, terminal, repository or
+container:
+
+```
+$ ccy --token-usage
+NAME      EXPIRES     5-HOUR  RESETS                             7-DAY  RESETS                            STATUS
+personal  2027-10-10       -  -                                      -  -                                 unavailable: this token was not authorised to read it
+work      2027-10-10     34%  in 4 hours (2026-10-10 13:13 UTC)     8%  in 6 days (2026-10-16 09:13 UTC)  ok; binding: 5-hour limit
+work      2028-02-22       -  -                                      -  -                                 shadowed: ccy --token work launches with work.2027-10-10.token
+```
+
+`ccy --token-usage --json` prints one JSON object instead; `ccy --help` lists every key.
+`--token-usage` must be the first option, and `--json` is the only one it takes.
+
+- **It costs what `u` costs**: one small billed request per account, and the same
+  15-minute cache, so running it twice in a row sends nothing the second time.
+- **Percentages are the menu's**, normalised to 0-100 under `CCY_USAGE_SCALE`. A value the
+  scale cannot produce is reported as `null` with a `SCALE MISMATCH` warning, never as a
+  number.
+- **One row per token name.** When a name has two files (an old token and its renewal), the
+  row is the earliest-dated file, because that is the one `ccy --token NAME` launches with.
+  The other is listed as `shadowed` and is never sent. An expired token is reported as
+  unavailable and is not sent either.
+- **Exit status**: 0 when at least one token's usage was read; 1 when none was (no tokens,
+  every one unavailable, `CCY_TOKEN_USAGE=0`, no curl), with the reason on stderr and in
+  the JSON's `error`; 64 on any other option. A token that cannot be read on its own is
+  `"status": "unavailable"` with a `reason`, and does not fail the command.
+
+`ccy` is a shell alias, which a script does not see. From a script, cron job or systemd
+unit, call the launcher by its path: `/var/local/claude-yolo/claude-yolo --token-usage --json`.
+
 `--export-token` writes a self-contained import script, so you can move a token onto a
 second workstation without repeating the `setup-token` browser flow there.
 
@@ -810,6 +844,7 @@ are forwarded unchanged.
 | `--create-token`     | Create a new named token                                                     |
 | `--update-token=N`   | Replace an existing named token                                              |
 | `--list-tokens`      | List tokens with expiry                                                      |
+| `--token-usage`      | Print each token's usage limits and exit; `--json` for scripts               |
 | `--export-token`     | Export token(s) as a portable import script                                  |
 | `--ssh-key PATH`     | Mount a specific key (repeatable); one your agent holds is forwarded instead |
 | `--ssh-agent`        | Forward the session's ssh-agent (SELinux labelling off)                      |
