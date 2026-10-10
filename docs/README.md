@@ -240,6 +240,7 @@ ccy
 # Token management
 ccy --create-token
 ccy --list-tokens
+ccy --token-usage
 
 # Rebuild after changing .claude/ccy/Dockerfile
 ccy --rebuild

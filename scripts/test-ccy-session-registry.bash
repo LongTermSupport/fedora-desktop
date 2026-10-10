@@ -1027,6 +1027,7 @@ UNREACHABLE_PROMPTS=(
     "token-management.bash|Token: |token creation, reached only past a listed token prompt or a dropped flag"
     "token-management.bash|Try again? (Y/n): |token creation, reached only past a listed token prompt or a dropped flag"
     "token-management.bash|Select tokens to export [1-\${#valid_tokens[@]}, space-separated, or a]: |--export-token, dropped on replay"
+    "token-management.bash|Remove them? [y/N] |text of the import script --export-token prints; it runs on the target machine, never in a launch"
     "network-management.bash|Select network to disconnect [1-\${#candidates[@]}]: |--disconnect, dropped on replay"
     "network-management.bash|Clear the saved default network \$1? [y/N] |--disconnect, dropped on replay"
     "ssh-handling.bash|\$prompt_text|built from CCY_PROMPT_SSH_KEY"

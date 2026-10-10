@@ -113,6 +113,7 @@ class BasicsTest(CliTestCase):
         self.assertEqual(run.code, 78)
         self.assertIn("team-b", run.err)
 
+    @unittest.skipUnless(os.geteuid() == 0, "chown to another user needs root")
     def test_team_dir_owned_by_someone_else_is_refused(self) -> None:
         os.chown(self.team_dir, 65534, 65534)
         run = self.run_cli(["bootstrap", "team-a"])
