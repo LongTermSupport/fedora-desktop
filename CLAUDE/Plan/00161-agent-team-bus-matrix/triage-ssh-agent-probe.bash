@@ -7,9 +7,11 @@
 #   sign    for each saved key the agent lists, four timed attempts (exit 124 is the limit):
 #           sign a scratch file directly through the agent and through the one-key agent, and
 #           ssh -v -T to github.com both ways, then the one-key agent's log
+#   network the host's addresses, routes and rules; timed TCP connects to GitHub's SSH ports
+#           and API from the host and from a rootless container; ssh -v over port 443
 #
 # Read-only. Nothing is added to or removed from the agent; the one-key agent lives in an
-# owner-only directory under <work-dir> for the length of the probe. A probe that cannot
+# owner-only directory under XDG_RUNTIME_DIR for the length of the probe. A probe that cannot
 # establish its fact exits non-zero, so triage-ssh-agent.bash names the leg.
 set -euo pipefail
 
@@ -117,8 +119,9 @@ probe_sign() {
         printf '=== %s\n' "${key}"
         attempts "${key}" "${SSH_AUTH_SOCK}" "directly through the agent"
 
-        filter_dir="${work}/filter-$(basename "${key}")"
-        mkdir -m 700 "${filter_dir}"
+        # A socket path is limited to 108 bytes, which a run directory under the checkout
+        # exceeds; ccy keeps its own one-key agent under XDG_RUNTIME_DIR for the same reason.
+        filter_dir="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/ccy-triage.XXXXXX")"
         python3 -I "${FILTER}" --listen "${filter_dir}/agent.sock" --upstream "${SSH_AUTH_SOCK}" \
             --allow "${fp}" --parent-pid "$$" </dev/null 2>"${filter_dir}/log" &
         filter_pid=$!
@@ -134,18 +137,59 @@ probe_sign() {
         done
         timed "ssh-add -l through the one-key agent" env SSH_AUTH_SOCK="${filter_dir}/agent.sock" ssh-add -l -E sha256
         attempts "${key}" "${filter_dir}/agent.sock" "through the one-key agent"
-        kill "${filter_pid}"
+        if ! kill "${filter_pid}" 2>/dev/null; then
+            printf -- '--- the one-key agent had already exited\n'
+        fi
         rc=0
         wait "${filter_pid}" || rc=$?
         printf -- '--- the one-key agent exited with status %s; its log:\n' "${rc}"
         cat -- "${filter_dir}/log"
+        rm -rf -- "${filter_dir}"
     done
+}
+
+# tcp_try <host> <port> — three timed TCP connects from the host; prints each result.
+tcp_try() {
+    local host="$1" port="$2" n start rc
+    for n in 1 2 3; do
+        start=${SECONDS}
+        rc=0
+        timeout 10 bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>&1 || rc=$?
+        printf -- '--- TCP %s:%s try %s: exit %s after %ss\n' "${host}" "${port}" "${n}" "${rc}" "$((SECONDS - start))"
+    done
+}
+
+# probe_network — why the host's own connections to GitHub's SSH ports time out while a
+# container on the same host gets through: addresses, routes, rules, active connections, the
+# same TCP connects from the host and from a rootless container, and ssh -v over 443.
+probe_network() {
+    local host addr
+    ip -br addr
+    ip route
+    ip rule
+    nmcli -t -f NAME,TYPE,DEVICE connection show --active
+    for host in github.com ssh.github.com api.github.com; do
+        addr="$(getent ahostsv4 "${host}" | awk 'NR == 1 { print $1 }')"
+        printf '%s -> %s; ' "${host}" "${addr:-(no address)}"
+        if [[ -n "${addr}" ]]; then ip route get "${addr}"; else printf '\n'; fi
+    done
+    tcp_try github.com 22
+    tcp_try ssh.github.com 443
+    tcp_try api.github.com 443
+    timed "TCP github.com:22 from a rootless container" \
+        podman run --rm --network podman docker.io/library/alpine nc -z -w 10 github.com 22
+    timed "TCP ssh.github.com:443 from a rootless container" \
+        podman run --rm --network podman docker.io/library/alpine nc -z -w 10 ssh.github.com 443
+    timed "ssh -T ssh.github.com:443 through the agent" \
+        ssh -v -T -o IdentityAgent="${SSH_AUTH_SOCK:-none}" -o BatchMode=yes \
+        -F /dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p 443 git@ssh.github.com
 }
 
 case "${probe}" in
     agent) probe_agent ;;
     keys) collect_keys ;;
     sign) probe_sign ;;
+    network) probe_network ;;
     *)
         printf '[FATAL] unknown probe: %s\n' "${probe}" >&2
         exit 64

@@ -53,7 +53,6 @@ PLAN_ROOT="${scriptDir}"
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
     00161-agent-team-bus-matrix/triage-ssh-agent.bash
-    00169-ccy-image-keeps-its-tools-current
 )
 
 LIST_ONLY=0

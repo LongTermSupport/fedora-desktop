@@ -10,7 +10,11 @@
 #     whether the agent lists it;
 #   - for each such key, four timed attempts, so a hang reads as exit 124: sign a scratch file
 #     (ssh-keygen -Y sign) directly through the agent and through the deployed one-key agent,
-#     and ssh -v -T to github.com both ways, then the one-key agent's log.
+#     and ssh -v -T to github.com both ways, then the one-key agent's log;
+#   - the host's route to GitHub: on 2026-10-10 the host's TCP connect to github.com:22 timed
+#     out while a container on the same host connected, so its addresses, routes, rules and
+#     active connections, timed TCP connects from the host and from a rootless container, and
+#     ssh -v over port 443.
 # Fact-finding only: it renders no verdict (PlanScriptStandards R9). The probes are in
 # triage-ssh-agent-probe.bash beside this script.
 #
@@ -69,6 +73,7 @@ chmod 700 "${WORK}"
 
 plan_gather_leg "the ssh-agent and OpenSSH" bash "${PROBE}" agent "${PLAN_REPO_ROOT}" "${WORK}"
 plan_gather_leg "the keys Quick Launch saved" bash "${PROBE}" keys "${PLAN_REPO_ROOT}" "${WORK}"
+plan_gather_leg "the host's route to GitHub" bash "${PROBE}" network "${PLAN_REPO_ROOT}" "${WORK}"
 plan_gather_leg "signing: directly and through the one-key agent" bash "${PROBE}" sign "${PLAN_REPO_ROOT}" "${WORK}"
 
 plan_finish
