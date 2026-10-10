@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - In Progress. The ccy image's git (2.39, Debian bookworm) could not read a repo the host's git had written, and nothing noticed. ccy will refuse to start when the container's git cannot read the repo; tool-version floors at build time; a Fedora base at the host's release, built weekly by GitHub Actions; Node through nvm; a major ccy version.
+- [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - In Progress. The ccy image's git (2.39, Debian bookworm) could not read a repo the host's git had written, and nothing noticed. ccy now refuses to start when the container's git cannot read the repo (CCY 3.91.0, accepted on the host); still to come: tool-version floors at build time; a Fedora base at the host's release, built weekly by GitHub Actions; Node through nvm; a major ccy version.
 
 - [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report files the plays manage that a package update or hand edit has changed since their play ran (as UPower.conf was in Plan 00166). Issue #91.
 

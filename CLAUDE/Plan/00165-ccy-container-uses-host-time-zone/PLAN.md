@@ -53,11 +53,12 @@ now installed by name (container 2.49), because without zoneinfo glibc reads an 
 
 ### Phase 2: Deploy and verify
 
-- [ ] ⬜ **Task 2.1**: The owner runs `./CLAUDE/Plan/meta-deploy.bash` (this plan's
+- [x] ✅ **Task 2.1**: The owner runs `./CLAUDE/Plan/meta-deploy.bash` (this plan's
   `deploy.bash` runs `play-claude-yolo.yml`), then starts a fresh ccy session; the image
-  rebuilds once.
-- [ ] ⬜ **Task 2.2**: Inside the new session `date` and the status line show the same
-  time as the desktop clock.
+  rebuilds once. Deployed 2026-10-10 by Plan 00169's run of the same play (journalled).
+- [ ] 🔄 **Task 2.2**: Inside the new session `date` and the status line show the same
+  time as the desktop clock. In a session started after the change, `TZ` names the host's zone and `date` reports it;
+  the status line against the desktop clock is the owner's look.
 - [x] ✅ **Task 2.3**: qa-reviewer agent over the branch diff: FIX-BEFORE-MERGE (the plan
   index row's stale CCY version) and a NIT (the owner's zone named in prose), both fixed.
   [report](subagent-reports/261009-qa-reviewer-opus.md).
