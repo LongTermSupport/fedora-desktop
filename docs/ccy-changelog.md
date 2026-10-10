@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.93.0 — container 2.50
+
+- **A token import offers to remove the files that would shadow it.** A name launches with
+  its earliest-dated file, so an old (often expired) `NAME.DATE.token` left on a machine
+  wins over a renewal imported beside it. The script `ccy --export-token NAME` prints now
+  lists the other dated files of that name after writing the new one and asks whether to
+  remove them, default no. `CCY_TOKEN_IMPORT_REMOVE_OTHERS=1` removes and `=0` keeps
+  without asking; with no terminal to ask, they are kept. It removes only
+  `NAME.YYYY-MM-DD.token` files of that exact name and names each one. Export refuses a
+  name outside letters, digits, `_` and `-`, since the name is written into the script.
+- **Shadowing is reported where it bites.** `ccy --token-usage` flags a name whose launch
+  file shadows a later one, and says `SHADOWED RENEWAL` with the file to remove when the
+  launch file is unusable. `ccy --token NAME` warns whenever the name has more than one
+  dated file, naming the one it uses.
+- **A usage cache entry is one file, published by one rename.** Each name's entry is now
+  `<name>.result`: the token file it was read with, the HTTP status and the figures. Fetch
+  part-files are named by the worker's own PID. Two fetches of one name, from the menu or
+  from two ccy processes, can no longer leave an entry whose file name and figures come
+  from different fetches.
+
 ## 3.92.1 — container 2.50
 
 - **`CCY_USAGE_TTL=0 ccy --token-usage` reports the figures it just read.** Every entry

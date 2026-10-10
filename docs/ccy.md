@@ -776,7 +776,9 @@ work      2028-02-22       -  -                                      -  -       
 ```
 
 `ccy --token-usage --json` prints one JSON object instead; `ccy --help` lists every key.
-`--token-usage` must be the first option, and `--json` is the only one it takes.
+`--token-usage` must be the first option, and `--json` is the only one it takes. Given later
+on the command line it is refused: with exit 64 inside a repository, and outside one by the
+repository check every launch makes first.
 
 - **It costs what `u` costs**: one small billed request per account, and the same
   15-minute cache, so running it twice in a row sends nothing the second time.
@@ -786,10 +788,12 @@ work      2028-02-22       -  -                                      -  -       
 - **One row per token name.** When a name has two files (an old token and its renewal), the
   row is the earliest-dated file, because that is the one `ccy --token NAME` launches with.
   The other is listed as `shadowed` and is never sent. An expired token is reported as
-  unavailable and is not sent either.
+  unavailable and is not sent either. When the file a launch uses is expired and a later one
+  is not, the row carries a `SHADOWED RENEWAL` warning naming the file to remove, and
+  `ccy --token NAME` warns too whenever a name has more than one dated file.
 - **Exit status**: 0 when at least one token's usage was read; 1 when none was (no tokens,
-  every one unavailable, `CCY_TOKEN_USAGE=0`, no curl), with the reason on stderr and in
-  the JSON's `error`; 64 on any other option. A token that cannot be read on its own is
+  every one unavailable, `CCY_TOKEN_USAGE=0`, no curl), with the reason in the JSON's
+  `error`, or on stderr for the table; 64 on any other option. A token that cannot be read on its own is
   `"status": "unavailable"` with a `reason`, and does not fail the command.
 
 `ccy` is a shell alias, which a script does not see. From a script, cron job or systemd
@@ -797,6 +801,13 @@ unit, call the launcher by its path: `/var/local/claude-yolo/claude-yolo --token
 
 `--export-token` writes a self-contained import script, so you can move a token onto a
 second workstation without repeating the `setup-token` browser flow there.
+
+Pasting it writes `NAME.DATE.token`. If the target already holds other dated files of that
+name, it lists them and asks whether to remove them (default no), because a launch uses the
+earliest-dated file, so an old one shadows the token just imported. It only ever removes
+`NAME.YYYY-MM-DD.token` files of that exact name, and says which. With no terminal to ask,
+it keeps them. To answer in advance, export `CCY_TOKEN_IMPORT_REMOVE_OTHERS=1` (remove) or
+`=0` (keep) before pasting; any other value stops the import before it writes anything.
 
 **`~/.claude/` on the host is never touched.** Desktop Claude Code and CCY do not share
 credentials or state.

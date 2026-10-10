@@ -3,7 +3,8 @@
 # Token operations for claude-yolo (ccy)
 #
 # Version: 1.15.0 - usage_report: `ccy --token-usage [--json]`. Cache entries carry the
-#                  file they were read with (.source); records split keeping empty fields.
+#                  file they were read with, in one atomically published <name>.result;
+#                  records split keeping empty fields.
 #         1.14.0 - Expiry colours: red when unusable (expired or expiring today),
 #                  yellow within 14 days, green beyond; token_expiry_label.
 #         1.13.0 - The token-setup pause is a registered prompt
@@ -104,6 +105,31 @@ token_expiry_label() {
     if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
         printf ' (expires: %s)' "$(colorize_expiry "${BASH_REMATCH[1]}")"
     fi
+}
+
+# token_shadow_warning <token-file> — warns on stderr when other <name>.<YYYY-MM-DD>.token
+# files share this file's name. A name launches with its earliest-dated file, so after a
+# renewal or an import the old (often expired) file silently wins over the new one.
+token_shadow_warning() {
+    local chosen="$1" dir fn name f mid
+    local -a others=()
+    dir="$(dirname "$chosen")"
+    fn="$(basename "$chosen")"
+    name="${fn%.*.token}"
+    for f in "$dir/$name".*.token; do
+        if [ ! -f "$f" ] || [ "$f" = "$chosen" ]; then
+            continue
+        fi
+        mid="${f##*/}"
+        mid="${mid#"$name".}"
+        mid="${mid%.token}"
+        if [[ "$mid" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            others+=("${f##*/}")
+        fi
+    done
+    [ "${#others[@]}" -gt 0 ] || return 0
+    printf '⚠  Token %s has %d other file(s): %s\n' "$name" "${#others[@]}" "${others[*]}" >&2
+    printf '   ccy uses the earliest-dated, %s. Remove the file you do not want from %s\n' "$fn" "$dir" >&2
 }
 
 # ─── Per-account usage limits (Plan 00101) ──────────────────────────────────
@@ -453,6 +479,10 @@ _usage_fetch_one() {
 # Refreshes the cache for every given token file, fanning the fetches out in
 # parallel so N accounts cost roughly one round trip rather than N.
 #
+# One entry per token NAME, `<cache>/<name>.result`, three lines: the token file name it
+# was read with, the HTTP status (000 when no response came back), and the
+# _usage_extract record (empty when the response carried no figures).
+#
 # Args: $1 = token_dir, $2.. = token file paths
 usage_prime_cache() {
     local token_dir="$1"; shift
@@ -464,21 +494,21 @@ usage_prime_cache() {
     mkdir -p "$cache_dir"
     chmod 700 "$cache_dir"
 
-    local now pids=() token_file filename token_name status mtime age
+    local now pids=() token_file filename token_name entry_file mtime age
+    local -a entry=()
     now="$(date +%s)"
 
     for token_file in "$@"; do
         filename="$(basename "$token_file")"
         token_name="${filename%.*.token}"
-        status="$cache_dir/$token_name.status"
+        entry_file="$cache_dir/$token_name.result"
 
         # Fresh enough? Skip the network — and, here, skip spending quota. The entry is keyed
-        # by NAME, so it only counts when `.source` says it was fetched with this very file:
-        # two files of one name (an old and a renewed token) are two different credentials.
-        if [ -f "$status" ] && [ -f "$cache_dir/$token_name.summary" ] \
-            && [ -f "$cache_dir/$token_name.source" ] \
-            && [ "$(cat "$cache_dir/$token_name.source")" = "$filename" ]; then
-            if mtime="$(stat -c %Y "$status")"; then
+        # by NAME, so it only counts when it was read with this very file: two files of one
+        # name (an old and a renewed token) are two different credentials.
+        if [ -f "$entry_file" ]; then
+            mapfile -t entry < "$entry_file"
+            if [ "${entry[0]:-}" = "$filename" ] && mtime="$(stat -c %Y "$entry_file")"; then
                 age=$(( now - mtime ))
                 if [ "$age" -ge 0 ] && [ "$age" -lt "$CCY_USAGE_TTL" ]; then
                     continue
@@ -492,19 +522,20 @@ usage_prime_cache() {
             # `set -e` — and the whole menu — down with it. Not hypothetical: in
             # Plan 00100 an unreachable endpoint aborted the render and printed
             # no token list at all.
-            # $$-suffixed prefix so two concurrent ccy launches cannot scribble
-            # over each other's part-files.
+            #
+            # Part-files are named by $BASHPID, this worker's own PID ($$ is the
+            # launcher's, shared by every worker), and the entry is published by ONE
+            # rename, so an entry's file name, status and figures always come from the
+            # same fetch: two workers for one name, or two ccy processes, cannot mix them.
             token="$(cat "$token_file")"
             if [ -n "$token" ]; then
-                _usage_fetch_one "$token" "$cache_dir/$token_name.$$"
-                printf '%s\n' "$filename" > "$cache_dir/$token_name.$$.source"
-                chmod 600 "$cache_dir/$token_name.$$.source"
-                mv -f "$cache_dir/$token_name.$$.summary" \
-                      "$cache_dir/$token_name.summary"
-                mv -f "$cache_dir/$token_name.$$.source" \
-                      "$cache_dir/$token_name.source"
-                mv -f "$cache_dir/$token_name.$$.status" \
-                      "$cache_dir/$token_name.status"
+                part="$cache_dir/$token_name.$BASHPID"
+                _usage_fetch_one "$token" "$part"
+                printf '%s\n%s\n%s\n' "$filename" "$(cat "$part.status")" \
+                    "$(cat "$part.summary")" > "$part.result"
+                chmod 600 "$part.result"
+                mv -f "$part.result" "$cache_dir/$token_name.result"
+                rm -f "$part.status" "$part.summary"
             fi
             exit 0
         ) &
@@ -560,7 +591,8 @@ _usage_status_reason() {
 usage_render_block() {
     local token_dir="$1" token_name="$2"
     local DIM='\033[2m' RESET='\033[0m'
-    local cache_dir status code record="" now
+    local cache_dir entry_file record="" now
+    local -a entry=()
     local u5 r5 u7 r7 claim=""
 
     usage_enabled || return 0
@@ -575,22 +607,20 @@ usage_render_block() {
     fi
 
     cache_dir="$(_usage_cache_dir "$token_dir")"
-    status="$cache_dir/$token_name.status"
+    entry_file="$cache_dir/$token_name.result"
 
-    if [ ! -f "$status" ]; then
+    if [ ! -f "$entry_file" ]; then
         _usage_note "not fetched"
         return 0
     fi
 
-    if [ -f "$cache_dir/$token_name.summary" ]; then
-        record="$(cat "$cache_dir/$token_name.summary")"
-    fi
+    mapfile -t entry < "$entry_file"
+    record="${entry[2]:-}"
 
     # Real figures win over the status word — a 429 carrying numbers is more
     # useful than being told "rate limited".
     if [ -z "$record" ]; then
-        code="$(cat "$status")"
-        _usage_note "$(_usage_status_reason "$code")"
+        _usage_note "$(_usage_status_reason "${entry[1]:-000}")"
         return 0
     fi
 
@@ -708,6 +738,7 @@ _usage_report_row() {
     local fn expires="" status="unavailable" reason="" p5="" p7="" claim="" http="" fetched=""
     local warn="" record="" code mtime bucket raw label pct rc
     local u5="" r5="" u7="" r7=""
+    local -a entry=()
     local RS=$'\x1e' US=$'\x1f'
 
     fn="${file##*/}"
@@ -725,13 +756,20 @@ _usage_report_row() {
         else
             reason="token expired on $expires; renew: ccy --update-token=$name"
         fi
-    elif [ ! -f "$cache_dir/$name.status" ] || [ ! -f "$cache_dir/$name.source" ] \
-        || [ "$(cat "$cache_dir/$name.source")" != "$fn" ]; then
+    else
+        if [ -f "$cache_dir/$name.result" ]; then
+            mapfile -t entry < "$cache_dir/$name.result"
+        fi
+    fi
+    if [ -n "$reason" ]; then
+        :
+    elif [ "${entry[0]:-}" != "$fn" ]; then
         reason="no figures were fetched for this token file"
     else
-        mtime="$(stat -c %Y "$cache_dir/$name.status")"
+        mtime="$(stat -c %Y "$cache_dir/$name.result")"
         fetched="$mtime"
-        code="$(cat "$cache_dir/$name.status")"
+        code="${entry[1]:-}"
+        record="${entry[2]:-}"
         # 000 is curl's "no response at all": not a status, and not a JSON number either.
         if [[ "$code" =~ ^[1-9][0-9]{2}$ ]]; then
             http="$code"
@@ -741,9 +779,6 @@ _usage_report_row() {
         if [ "$mtime" -lt "$now" ] && [ $(( now - mtime )) -ge "$CCY_USAGE_TTL" ]; then
             reason="this run's fetch did not complete, and the cached figures are out of date"
         else
-            if [ -f "$cache_dir/$name.summary" ]; then
-                record="$(cat "$cache_dir/$name.summary")"
-            fi
             if [ -z "$record" ]; then
                 reason="$(_usage_status_reason "$code")"
             else
@@ -869,6 +904,15 @@ usage_report() {
         row="$(_usage_report_row "$cache_dir" "${names[$i]}" "${files[$i]}" "$now" "$today")"
         IFS=$'\x1f' read -r e s rs p5 p7 r5 r7 cl hc fa w <<< "$row"
         r_exp+=("$e"); r_status+=("$s"); r_reason+=("$rs"); r_p5+=("$p5"); r_p7+=("$p7")
+        # A later file of the same name is never used while this one exists. Say so loudly
+        # when this one cannot be launched with at all: that is the renewal nobody gets.
+        if [ -n "${shadows[$i]}" ]; then
+            if is_token_valid "${files[$i]}"; then
+                w+="${w:+$'\x1e'}shadows a later file of this name, which ccy never uses: remove the one you do not want"
+            else
+                w+="${w:+$'\x1e'}SHADOWED RENEWAL: ccy launches with this unusable file, not the later one; remove ${files[$i]##*/}"
+            fi
+        fi
         r_r5+=("$r5"); r_r7+=("$r7"); r_claim+=("$cl"); r_http+=("$hc"); r_fetched+=("$fa"); r_warn+=("$w")
         if [ "$s" = "ok" ]; then
             ok_count=$((ok_count + 1))
@@ -1819,19 +1863,79 @@ export_token() {
         return 1
     fi
 
-    # Output a single pasteable command using heredoc
+    # The name is written into the import script, so it is held to create_token's grammar.
+    if ! [[ "$token_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        print_error "Token name '$token_name' is not letters, digits, _ and - only"
+        return 1
+    fi
+
+    # Output a single pasteable command using heredoc. Only the three assignments are
+    # expanded here; the body is quoted, so it runs on the target exactly as written.
     echo "# CCY Token: $token_name | Expires: $expiry_date | Generated: $(date '+%Y-%m-%d %H:%M:%S')"
     echo "# Paste into terminal on target machine, or save in LastPass/1Password."
+    echo "# Other files of this name: asks before removing them; CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps."
     cat <<OUTER
 bash <<'CCYTOKEN'
 set -eo pipefail
-mkdir -p "\$HOME/.claude-tokens/ccy/tokens"
-chmod 700 "\$HOME/.claude-tokens/ccy" "\$HOME/.claude-tokens/ccy/tokens"
-printf '%s' '${token_content}' > "\$HOME/.claude-tokens/ccy/tokens/${token_name}.${expiry_date}.token"
-chmod 600 "\$HOME/.claude-tokens/ccy/tokens/${token_name}.${expiry_date}.token"
-echo "Token '${token_name}' imported (expires ${expiry_date}). Use with: ccy --token ${token_name}"
-CCYTOKEN
+name='${token_name}'
+date='${expiry_date}'
+token='${token_content}'
 OUTER
+    cat <<'BODY'
+case "${CCY_TOKEN_IMPORT_REMOVE_OTHERS:-}" in
+    "" | 0 | 1) ;;
+    *)
+        echo "CCY_TOKEN_IMPORT_REMOVE_OTHERS must be 1 (remove), 0 (keep) or unset (ask). Nothing imported." >&2
+        exit 64
+        ;;
+esac
+dir="$HOME/.claude-tokens/ccy/tokens"
+mkdir -p "$dir"
+chmod 700 "$HOME/.claude-tokens/ccy" "$dir"
+printf '%s' "$token" > "$dir/$name.$date.token"
+chmod 600 "$dir/$name.$date.token"
+echo "Token '$name' imported (expires $date). Use with: ccy --token $name"
+# ccy launches a name with its EARLIEST-dated file, so an older file of this name (often an
+# expired one) shadows the token just written. Only <name>.<YYYY-MM-DD>.token is a candidate.
+others=()
+for f in "$dir/$name".*.token; do
+    [ -f "$f" ] || continue
+    mid="${f##*/}"
+    mid="${mid#"$name".}"
+    mid="${mid%.token}"
+    if [[ "$mid" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && [ "$mid" != "$date" ]; then
+        others+=("$f")
+    fi
+done
+if [ "${#others[@]}" -gt 0 ]; then
+    echo "Other files for token '$name' (ccy launches with the earliest-dated one):"
+    for f in "${others[@]}"; do
+        echo "  ${f##*/}"
+    done
+    answer="${CCY_TOKEN_IMPORT_REMOVE_OTHERS:-}"
+    if [ -z "$answer" ]; then
+        # stdin is this script, so the question goes to the terminal itself.
+        if [ -t 2 ] && read -r -p "Remove them? [y/N] " reply < /dev/tty; then
+            case "$reply" in
+                y | Y | yes | Yes | YES) answer=1 ;;
+                *) answer=0 ;;
+            esac
+        else
+            echo "No terminal to ask, so they were kept. CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes them without asking."
+            answer=0
+        fi
+    fi
+    if [ "$answer" = 1 ]; then
+        for f in "${others[@]}"; do
+            rm -- "$f"
+            echo "Removed ${f##*/}"
+        done
+    else
+        echo "Kept them."
+    fi
+fi
+CCYTOKEN
+BODY
 }
 
 # Interactive multi-token export

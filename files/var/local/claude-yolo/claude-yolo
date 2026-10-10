@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.92.1"  # ccy --token-usage [--json] prints every token's usage limits. See docs/ccy-changelog.md.
+CCY_VERSION="3.93.0"  # Token import offers to remove shadowing files; --token-usage flags them. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -183,7 +183,9 @@ Options:
                          terminal, repository or container. Costs 1 small API call per
                          account unless read in the last 15 minutes (CCY_USAGE_TTL).
                          Must be the first option; see "Token usage report" below
-  --export-token [NAME]  Export token(s) as portable import script (interactive if no name)
+  --export-token [NAME]  Export token(s) as portable import script (interactive if no name).
+                         Pasted, it offers to remove other dated files of the same name
+                         (default no); CCY_TOKEN_IMPORT_REMOVE_OTHERS=1 removes, =0 keeps
   --network NETWORK      Auto-connect to specified container network on launch
   --no-network           Skip network auto-detection
   --compose start|skip|ask
@@ -1481,6 +1483,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         matching_tokens=("$TOKEN_DIR/${SPECIFIED_TOKEN}".*.token)
         if [ -f "${matching_tokens[0]}" ]; then
             SELECTED_TOKEN="${matching_tokens[0]}"
+            token_shadow_warning "$SELECTED_TOKEN"
         else
             print_error "No token found with name: $SPECIFIED_TOKEN"
             echo ""

@@ -84,6 +84,7 @@ case "\$token" in
         exit 7
         ;;
     placeholder-percent) ok_headers 34 8 ;;
+    placeholder-renewed) ok_headers 0.77 0.66 ;;
     placeholder-over) ok_headers 1.01 0.005 ;;
     placeholder-partial) ok_headers '' 0.08 ;;
     *) ok_headers 0.34 0.08 ;;
@@ -232,7 +233,9 @@ check "no token value on stdout or stderr" "" "$(leaks)"
 check "no engine or tmux call" "" "$(grep -v '^curl ' "$CALLS")"
 check "nothing written to the working directory" "" "$(find "$NOT_A_REPO" -mindepth 1 -print -quit)"
 check "the usage cache was written" "yes" \
-    "$([ -f "$MIXED/.claude-tokens/ccy/usage-cache/work.status" ] && echo yes || echo no)"
+    "$([ -f "$MIXED/.claude-tokens/ccy/usage-cache/work.result" ] && echo yes || echo no)"
+check "the cache holds one entry per name read and no part-files" "personal.result work.result" \
+    "$(find "$MIXED/.claude-tokens/ccy/usage-cache" -mindepth 1 -printf '%f\n' | sort | xargs)"
 check "nothing else in HOME created or changed (no session record, no Quick Launch)" "" \
     "$(diff <(printf '%s\n' "$MIXED_BEFORE") <(home_snapshot "$MIXED"))"
 check "--json writes nothing to stderr" "" "$ERR"
@@ -259,10 +262,9 @@ echo "=== an out-of-date entry whose refresh did not happen is not passed off as
 # below, written with this very file, is all that is left to read.
 STALE=$(new_home stale "s.$NEXT_YEAR.token=")
 mkdir -p "$STALE/.claude-tokens/ccy/usage-cache"
-printf '200\n' >"$STALE/.claude-tokens/ccy/usage-cache/s.status"
-printf '0.34\t%s\t0.08\t%s\tfive_hour' "$(date +%s)" "$(date +%s)" >"$STALE/.claude-tokens/ccy/usage-cache/s.summary"
-printf 's.%s.token\n' "$NEXT_YEAR" >"$STALE/.claude-tokens/ccy/usage-cache/s.source"
-touch -d '1 hour ago' "$STALE/.claude-tokens/ccy/usage-cache"/s.*
+printf 's.%s.token\n200\n0.34\t%s\t0.08\t%s\tfive_hour\n' "$NEXT_YEAR" "$(date +%s)" "$(date +%s)" \
+    >"$STALE/.claude-tokens/ccy/usage-cache/s.result"
+touch -d '1 hour ago' "$STALE/.claude-tokens/ccy/usage-cache/s.result"
 run_ccy "$STALE" -- --token-usage --json
 FLAT=$(flatten <<<"$OUT")
 check "exit 1" "1" "$RC"
@@ -364,6 +366,69 @@ check "under one percent keeps its decimals (0.005 reads as 0.5)" "0.5" "$(field
 check "missing 5-hour bucket: null, not shifted" "null 8" "$(field partial.five_hour_pct) $(field partial.seven_day_pct)"
 check "missing 5-hour bucket: said" "yes" "$(has "5-hour: the API did not report it" "$(field partial.warnings)")"
 check "missing 5-hour bucket: still ok" '"ok"' "$(field partial.status)"
+
+echo ""
+echo "=== a renewal shadowed by an expired file of the same name ==="
+RENEWAL=$(new_home renewal "w.$YESTERDAY.token=placeholder-old" "w.$NEXT_YEAR.token=placeholder-work" \
+    "w.backup.token=placeholder-old" "wx.$NEXT_YEAR.token=placeholder-work")
+run_ccy "$RENEWAL" -- --token-usage --json
+FLAT=$(flatten <<<"$OUT")
+check "w: reported with the expired file a launch would use" "\"w.$YESTERDAY.token\" \"unavailable\"" \
+    "$(field w.file) $(field w.status)"
+check "w: the renewal is listed as shadowed" "yes" "$(has "w.$NEXT_YEAR.token" "$(field w.shadowed)")"
+check "w: flagged as a shadowed renewal, naming the file to remove" "yes" \
+    "$(has "SHADOWED RENEWAL: ccy launches with this unusable file, not the later one; remove w.$YESTERDAY.token" "$(field w.warnings)")"
+check "wx is its own name, read normally" '"ok"' "$(field wx.status)"
+check "only wx sent: neither the expired file nor the shadowed renewal" "1 no" \
+    "$(curl_calls) $(called_with placeholder-old)"
+run_ccy "$MIXED" -- --token-usage --json
+FLAT=$(flatten <<<"$OUT")
+check "a usable file that shadows a later one is flagged too" "yes" \
+    "$(has "shadows a later file of this name" "$(field work.warnings)")"
+
+echo ""
+echo "=== the launcher's warning when --token NAME has other files ==="
+RC=0
+OUT=$(bash -c "
+    source '$LIB_DIR/common-pure.bash'
+    source '$LIB_DIR/token-management.bash'
+    token_shadow_warning '$RENEWAL/.claude-tokens/ccy/tokens/w.$YESTERDAY.token'
+" 2>&1) || RC=$?
+check "warning: exit 0" "0" "$RC"
+check "warning names the other dated file" "yes" "$(has "Token w has 1 other file(s): w.$NEXT_YEAR.token" "$OUT")"
+check "warning names the file in use" "yes" "$(has "ccy uses the earliest-dated, w.$YESTERDAY.token" "$OUT")"
+check "warning ignores an undated file and another name" "no no" "$(has backup "$OUT") $(has wx. "$OUT")"
+OUT=$(bash -c "
+    source '$LIB_DIR/common-pure.bash'
+    source '$LIB_DIR/token-management.bash'
+    token_shadow_warning '$RENEWAL/.claude-tokens/ccy/tokens/wx.$NEXT_YEAR.token'
+" 2>&1)
+check "no warning for a name with one file" "" "$OUT"
+check "the launcher calls it where --token NAME picks its file" "1" \
+    "$(grep -cF "token_shadow_warning \"\$SELECTED_TOKEN\"" "$LAUNCHER")"
+
+echo ""
+echo "=== one cache entry never mixes two files' fetches ==="
+# The menu fetches every valid file, so two files of one name are fetched at once into one
+# entry. Whichever wins, its file name, status and figures must be from the same fetch.
+TWO=$(new_home two "work.$NEXT_YEAR.token=placeholder-work" "work.$LATER.token=placeholder-renewed")
+mixed_entries=0
+for round in 1 2 3 4 5 6 7 8 9 10; do
+    rm -rf "$TWO/.claude-tokens/ccy/usage-cache"
+    env PATH="$STUB_BIN:$PATH" bash -c "
+        source '$LIB_DIR/common-pure.bash'
+        source '$LIB_DIR/token-management.bash'
+        usage_prime_cache '$TWO/.claude-tokens/ccy/tokens' \
+            '$TWO/.claude-tokens/ccy/tokens/work.$NEXT_YEAR.token' \
+            '$TWO/.claude-tokens/ccy/tokens/work.$LATER.token'
+    "
+    mapfile -t entry <"$TWO/.claude-tokens/ccy/usage-cache/work.result"
+    case "${entry[0]}:${entry[2]%%$'\t'*}" in
+        "work.$NEXT_YEAR.token:0.34" | "work.$LATER.token:0.77") ;;
+        *) mixed_entries=$((mixed_entries + 1)); printf '        round %s: %q\n' "$round" "${entry[*]}" ;;
+    esac
+done
+check "10 concurrent rounds, every entry consistent" "0" "$mixed_entries"
 
 echo ""
 echo "=== options ==="
