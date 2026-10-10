@@ -840,6 +840,30 @@ else
     fail "build output: $(tr '\n' ' ' < "$WORK/build.out")"
 fi
 
+# A forwarded key that does not authenticate: what the one-key agent did is the evidence, and
+# its directory is removed when ccy stops, so the failure prints its log first.
+mkdir -p "$WORK/filter-dir"
+printf 'ccy ssh-agent filter: upstream agent fixture.sock: message not completed within 30.0s\n' > "$WORK/filter-dir/log"
+(
+    cd "$WORK/norepo" || exit 1
+    command_exists() { command -v "$1" >/dev/null; }
+    SSH_KEYS=("$K_LOCKED")
+    CCY_AGENT_FILTER_KEYS=("$K_LOCKED")
+    CCY_AGENT_FILTER_SOCK="$WORK/filter.sock"
+    CCY_AGENT_FILTER_DIR="$WORK/filter-dir"
+    CCY_SELINUX_MODE=off
+    GH_TOKEN=fixture-token
+    export GH_TOKEN
+    STUB_GREETING="git@github.com: Permission denied (publickey)." \
+        build_ssh_mounts_and_validate ccy </dev/null > "$WORK/build-fail.out" 2>&1
+    printf 'rc=%s\n' "$?"
+) > "$WORK/build-fail.result"
+if grep -qxF "rc=1" "$WORK/build-fail.result" && grep -qF "message not completed within 30.0s" "$WORK/build-fail.out"; then
+    pass "a forwarded key that does not authenticate fails, printing the one-key agent's log"
+else
+    fail "forwarded key failure: $(tr '\n' ' ' < "$WORK/build-fail.result") / $(tr '\n' ' ' < "$WORK/build-fail.out")"
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "ccy ssh-handling: passed: $passed  failed: $failed"

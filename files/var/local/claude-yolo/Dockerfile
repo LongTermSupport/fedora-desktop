@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.50"
+LABEL claude-yolo-version="2.51"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -180,9 +180,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install agent-browser - token-efficient browser automation CLI for AI agents
-RUN npm install -g agent-browser && \
-    agent-browser install
+# Install agent-browser - token-efficient browser automation CLI for AI agents.
+# Chrome is fetched by curl first, into the folder `agent-browser install` looks in, so
+# the install finds it and only confirms it. agent-browser's own download gives each
+# attempt 120 seconds in total, so on a link slower than about 1.6 MB/s the 190 MB zip
+# never finishes. Each curl pass resumes the partial file; ten passes, then the build fails.
+RUN npm install -g agent-browser \
+    && curl -fsSL --retry 5 -o /tmp/chrome-for-testing.json \
+        https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json \
+    && chrome_version="$(jq -er '.channels.Stable.version' /tmp/chrome-for-testing.json)" \
+    && chrome_url="$(jq -er '.channels.Stable.downloads.chrome[] | select(.platform == "linux64") | .url' /tmp/chrome-for-testing.json)" \
+    && chrome_pass=0 \
+    && until curl -fL --continue-at - --speed-limit 1024 --speed-time 60 -o /tmp/chrome-linux64.zip "${chrome_url}"; do \
+        chrome_pass=$((chrome_pass + 1)); \
+        if [ "${chrome_pass}" -ge 10 ]; then echo "Chrome download failed 10 times: ${chrome_url}" >&2; exit 1; fi; \
+        sleep 5; \
+    done \
+    && mkdir -p "/root/.agent-browser/browsers/chrome-${chrome_version}" \
+    && unzip -q /tmp/chrome-linux64.zip -d "/root/.agent-browser/browsers/chrome-${chrome_version}" \
+    && rm /tmp/chrome-linux64.zip /tmp/chrome-for-testing.json \
+    && install_out="$(agent-browser install)" \
+    && printf '%s\n' "${install_out}" \
+    && case "${install_out}" in \
+        *"is already installed"*) ;; \
+        *) echo "agent-browser install did not find the Chrome curl unpacked" >&2; exit 1 ;; \
+    esac
 
 # Configure agent-browser with Wayland/Docker display args. Deliberately NO "headed" key:
 # headed vs headless is chosen per command by the agent-browser-headed and

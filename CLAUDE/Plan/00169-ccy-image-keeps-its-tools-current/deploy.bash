@@ -6,7 +6,7 @@
 # CCY container.
 #
 # THE LEGS:
-#   1. play-claude-yolo.yml — installs the CCY 3.91.0 launcher and the container 2.50
+#   1. play-claude-yolo.yml — installs the CCY 3.91.2 launcher and the container 2.51
 #      entrypoint (the git preflight), and builds claude-yolo:latest.
 #   2. acceptance.bash — launches ccy headless in two throwaway repositories: one the image's
 #      git cannot read (must stop, printing git's message) and a clean one (must start).
@@ -38,7 +38,7 @@ PLAN_USAGE="usage: deploy.bash [-h|--help] [--check] [--token NAME]
 
 Runs, on the HOST:
 
-  playbooks/imports/play-claude-yolo.yml   (launcher 3.91.0, container 2.50)
+  playbooks/imports/play-claude-yolo.yml   (launcher 3.91.2, container 2.51)
   acceptance.bash                          (skipped under --check)
 
 --check previews without changing anything. --token NAME is passed to acceptance.bash."

@@ -1539,6 +1539,11 @@ build_ssh_mounts_and_validate() {
                 return 1
             fi
             print_error "SSH key authentication to GitHub failed: $key"
+            if ccy_agent_filter_forwards "$key" && [ -f "$CCY_AGENT_FILTER_DIR/log" ]; then
+                # Removed when ccy stops, and the only record of what the agent answered.
+                echo "  ccy's one-key agent, which signed for $(basename "$key") through your ssh-agent, logged:"
+                cat -- "$CCY_AGENT_FILTER_DIR/log"
+            fi
             echo ""
             echo "ssh's reply is printed above. 'Permission denied (publickey)' means GitHub does"
             echo "not know this key; a timeout or a closed connection means the network, so try again."

@@ -1,6 +1,6 @@
 # Plan 00169: ccy image keeps its tools current
 
-**Status**: In Progress (Phase 1 code done; its host triage and acceptance run pending)
+**Status**: In Progress (Phase 1 accepted on the host; Phase 3 next)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: High
@@ -83,8 +83,8 @@ Fedora at the host's release (D1), so the container's tools are the desktop's to
 
 ### Phase 1: Fail fast when the container cannot read the repository (either base)
 
-- [ ] 🔄 **Task 1.1**: `triage.bash` (read-only, host; written, with its probes in
-  `triage-probe.bash`; the host run is pending). Record the host git version, the
+- [x] ✅ **Task 1.1**: `triage.bash` (read-only, host, with its probes in
+  `triage-probe.bash`; host run 2026-10-10, journalled). Record the host git version, the
   repository's `extensions.*` keys, each ccy image's git version, its
   `claude-yolo-version`, its base-layer digest against the registry's current digest
   for `node:lts-slim`, and whether `podman build` re-pulled `FROM` (it is expected not to
@@ -96,8 +96,8 @@ Fedora at the host's release (D1), so the container's tools are the desktop's to
   launcher only starts from a directory holding `.git` (`check_git_repo`). Unit test
   `scripts/test-ccy-git-preflight.bash`, in `qa-all.bash`.
   - [x] ✅ Container 2.50, CCY 3.91.0; changelog entry and the `docs/ccy.md` entrypoint step.
-- [ ] 🔄 **Task 1.3**: `acceptance.bash` (host; written, run as `deploy.bash`'s last leg;
-  the host run is pending). Make a throwaway repository under
+- [x] ✅ **Task 1.3**: `acceptance.bash` (host, run as `deploy.bash`'s last leg; 24 of 24
+  on the host 2026-10-10, journalled). Make a throwaway repository under
   `untracked/`, set `extensions.relativeWorktrees=true` and
   `core.repositoryformatversion=1`, and launch ccy non-interactively there. Assert a
   non-zero exit and that the output contains git's `unknown repository extension` line.
@@ -126,7 +126,8 @@ Fedora at the host's release (D1), so the container's tools are the desktop's to
   - yq and uv come from Fedora packages; gh per D5
   - fix the PHPantom and tzdata comments, which talk about Debian
 - [ ] ⬜ **Task 3.3**: Chromium dependencies come from Chrome for Testing's own `rpm.deps`
-  after `agent-browser install`. Do not use `--with-deps`, whose dnf list names two
+  after Chrome is unpacked (keep container 2.51's curl fetch; agent-browser's own download
+  times out on a slow link). Do not use `--with-deps`, whose dnf list names two
   packages missing in F44 and calls `sudo`. The layer fails if any provide does not
   resolve. `rpm.deps` line 2 is a rich boolean (`(libgtk-3.so.0()(64bit) or libgtk-4.so.1()(64bit))`), so each provide is passed to dnf quoted.
 - [ ] ⬜ **Task 3.4**: The launcher passes `FEDORA_RELEASE` from the host's
@@ -274,7 +275,7 @@ the owner does not want.
 
 ## Success Criteria
 
-- [ ] A repository the container's git cannot read stops the ccy launch, printing git's
+- [x] A repository the container's git cannot read stops the ccy launch, printing git's
   own message (acceptance).
 - [ ] The container's git is 2.48 or later and opens a repository with
   `extensions.relativeWorktrees` (acceptance).
