@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.91.0"  # A container git that cannot read /workspace stops the session. See docs/ccy-changelog.md.
+CCY_VERSION="3.91.1"  # A failed GitHub SSH probe shows ssh's own reply. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.91.1 — container 2.50
+
+- **A failed GitHub SSH probe shows ssh's own reply.** The launcher probes each chosen key
+  against GitHub before it starts the container. When no `Hi <login>!` came back, it
+  discarded ssh's output and said the key "is not registered with any GitHub account".
+  That was wrong whenever the cause was a dropped connection or an agent that would not
+  sign, and it left nothing to tell them apart. The probe now prints ssh's reply, the
+  endpoint and ssh's exit status on stderr. The error says which reply means an unknown
+  key and which means the network.
+
 ## 3.91.0 — container 2.50
 
 - **A container git that cannot read the repository stops the session** (Plan 00169). A
