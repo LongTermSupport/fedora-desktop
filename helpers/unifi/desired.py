@@ -99,3 +99,44 @@ def plan_adoptions(devices, desired):
         if not dev.get("adopted", False):
             adoptions.append((dev.get("name", mac), dev["mac"]))
     return adoptions
+
+
+CONNECTED = 1
+
+
+def unsettled(devices, desired):
+    """Return why the devices are not yet RUNNING `desired`; empty once they are.
+
+    The controller's own record changes the moment a change is sent; the device takes
+    it up only on provisioning. So a listed device must be adopted and connected, and
+    each fixed channel must be the one its radio reports running (`radio_table_stats`).
+    """
+    _check_keys(desired, _TOP_LEVEL_KEYS, "the desired state")
+    by_mac = {d.get("mac", "").lower(): d for d in devices}
+    reasons = []
+    for mac in desired.get("adopt", []):
+        dev = by_mac.get(mac.lower())
+        if dev is None:
+            raise DesiredStateError(f"no device with MAC {mac!r} is visible to the controller")
+        name = dev.get("name", mac)
+        if not dev.get("adopted", False):
+            reasons.append(f"{name} not adopted")
+        if dev.get("state") != CONNECTED:
+            reasons.append(f"{name} state {dev.get('state')}, want {CONNECTED} (connected)")
+    for key, wanted_device in desired.get("devices", {}).items():
+        dev = _find_device(devices, key)
+        name = dev.get("name", key)
+        if dev.get("state") != CONNECTED:
+            reasons.append(f"{name} state {dev.get('state')}, want {CONNECTED} (connected)")
+        running = {stat.get("radio"): stat for stat in dev.get("radio_table_stats", [])}
+        for band, wanted_fields in wanted_device.get("radios", {}).items():
+            channel = wanted_fields.get("channel", "auto")
+            if channel == "auto":
+                continue
+            if band not in running:
+                reasons.append(f"{name} {band} not running")
+            elif running[band].get("channel") != channel:
+                reasons.append(
+                    f"{name} {band} running channel {running[band].get('channel')}, want {channel}"
+                )
+    return reasons

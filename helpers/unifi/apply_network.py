@@ -16,7 +16,12 @@ Marker lines on stdout, for the play's changed_when/failed_when:
   UNIFI-CHANGED          (apply: at least one device sent)
   UNIFI-NO-CHANGES       (nothing differs)
 
-Usage: python3 -m helpers.unifi.apply_network (--check | --apply)
+`--settled` asks whether the devices are RUNNING the desired state, which they are
+only once the controller has provisioned them; an apply returns before that. It
+exits 0 with UNIFI-SETTLED, or 3 with one UNIFI-UNSETTLED <reason> line per gap,
+so a play can retry it until the devices have caught up.
+
+Usage: python3 -m helpers.unifi.apply_network (--check | --apply | --settled)
            [--url URL] [--user NAME] < desired.json
 """
 
@@ -26,7 +31,7 @@ import os
 import sys
 
 from helpers.unifi.client import UnifiClient
-from helpers.unifi.desired import DesiredStateError, plan_adoptions, plan_changes
+from helpers.unifi.desired import DesiredStateError, plan_adoptions, plan_changes, unsettled
 
 DEFAULT_URL = "https://localhost:8443"
 DEFAULT_USER = "unifi-admin"
@@ -37,6 +42,8 @@ def main(argv, stdin, stdout, stderr, environ, client_factory=UnifiClient):
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="report differences only")
     mode.add_argument("--apply", action="store_true", help="send the differences")
+    mode.add_argument("--settled", action="store_true",
+                      help="exit 0 once the devices are running the desired state, else 3")
     parser.add_argument("--url", default=DEFAULT_URL)
     parser.add_argument("--user", default=DEFAULT_USER)
     args = parser.parse_args(argv)
@@ -52,11 +59,22 @@ def main(argv, stdin, stdout, stderr, environ, client_factory=UnifiClient):
     client.login()
     devices = client.get("stat/device")
     try:
-        adoptions = plan_adoptions(devices, desired)
-        changes = plan_changes(devices, desired)
+        if args.settled:
+            reasons = unsettled(devices, desired)
+        else:
+            adoptions = plan_adoptions(devices, desired)
+            changes = plan_changes(devices, desired)
     except DesiredStateError as error:
         print(f"desired state does not fit the controller's devices: {error}", file=stderr)
         return 1
+
+    if args.settled:
+        for reason in reasons:
+            print(f"UNIFI-UNSETTLED {reason}", file=stdout)
+        if reasons:
+            return 3
+        print("UNIFI-SETTLED", file=stdout)
+        return 0
 
     if not adoptions and not changes:
         print("UNIFI-NO-CHANGES", file=stdout)

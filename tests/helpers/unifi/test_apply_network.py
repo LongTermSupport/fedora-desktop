@@ -108,8 +108,23 @@ class ApplyNetworkTest(unittest.TestCase):
         self.assertIn("UNIFI-APPLIED AP1", out)
         self.assertLess(out.index("UNIFI-ADOPTED"), out.index("UNIFI-APPLIED"))
 
-    def test_exactly_one_of_check_and_apply_is_required(self):
-        for args in ([], ["--check", "--apply"]):
+    def test_settled_reports_settled_when_devices_run_the_desired_state(self):
+        live = dict(ap("AP1", "1", 36), state=1, radio_table_stats=[{"radio": "na", "channel": 36}])
+        code, out, _, client = self.run_main(["--settled"], [live])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "UNIFI-SETTLED\n")
+        self.assertEqual(client.puts, [])
+
+    def test_settled_names_what_is_still_provisioning_and_exits_3(self):
+        live = dict(ap("AP1", "1", 36), state=5, radio_table_stats=[{"radio": "na", "channel": 40}])
+        code, out, _, client = self.run_main(["--settled"], [live])
+        self.assertEqual(code, 3)
+        self.assertIn("UNIFI-UNSETTLED AP1 state 5, want 1 (connected)", out)
+        self.assertIn("UNIFI-UNSETTLED AP1 na running channel 40, want 36", out)
+        self.assertEqual(client.puts, [])
+
+    def test_exactly_one_mode_is_required(self):
+        for args in ([], ["--check", "--apply"], ["--check", "--settled"]):
             with self.subTest(args=args), self.assertRaises(SystemExit):
                 self.run_main(args, [])
 

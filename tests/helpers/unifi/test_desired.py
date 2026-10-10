@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from helpers.unifi.desired import DesiredStateError, plan_adoptions, plan_changes
+from helpers.unifi.desired import DesiredStateError, plan_adoptions, plan_changes, unsettled
 
 
 def device(name, mac, radios, device_id="id-1", kind="uap"):
@@ -125,6 +125,53 @@ class PlanAdoptionsTest(unittest.TestCase):
     def test_a_listed_mac_the_controller_cannot_see_is_an_error(self):
         with self.assertRaisesRegex(DesiredStateError, "no device with MAC 'cc'"):
             plan_adoptions([self.pending("Other", "bb")], {"adopt": ["cc"]})
+
+
+class UnsettledTest(unittest.TestCase):
+    def live_ap(self, channel, running, state=1):
+        dev = device("AP", "aa", [radio("na", channel=channel)])
+        dev["state"] = state
+        dev["radio_table_stats"] = [{"radio": "na", "channel": running}]
+        return dev
+
+    def wanting(self, channel):
+        return {"devices": {"AP": {"radios": {"na": {"channel": channel}}}}}
+
+    def test_a_connected_ap_running_the_desired_channel_is_settled(self):
+        self.assertEqual(unsettled([self.live_ap(36, 36)], self.wanting(36)), [])
+
+    def test_an_ap_still_on_its_old_channel_is_not_settled(self):
+        self.assertEqual(
+            unsettled([self.live_ap(36, 40)], self.wanting(36)),
+            ["AP na running channel 40, want 36"],
+        )
+
+    def test_an_ap_that_is_not_connected_is_not_settled(self):
+        self.assertEqual(
+            unsettled([self.live_ap(36, 36, state=5)], self.wanting(36)),
+            ["AP state 5, want 1 (connected)"],
+        )
+
+    def test_an_auto_channel_is_not_compared(self):
+        self.assertEqual(unsettled([self.live_ap("auto", 40)], self.wanting("auto")), [])
+
+    def test_a_radio_with_no_running_stats_is_not_settled(self):
+        dev = self.live_ap(36, 36)
+        dev["radio_table_stats"] = []
+        self.assertEqual(unsettled([dev], self.wanting(36)), ["AP na not running"])
+
+    def test_a_listed_device_still_awaiting_adoption_is_not_settled(self):
+        switch = {"_id": "s", "name": "Flex", "mac": "aa:20", "type": "usw", "adopted": False,
+                  "state": 2}
+        self.assertEqual(
+            unsettled([switch], {"adopt": ["aa:20"]}),
+            ["Flex not adopted", "Flex state 2, want 1 (connected)"],
+        )
+
+    def test_an_adopted_connected_listed_device_is_settled(self):
+        switch = {"_id": "s", "name": "Flex", "mac": "aa:20", "type": "usw", "adopted": True,
+                  "state": 1}
+        self.assertEqual(unsettled([switch], {"adopt": ["aa:20"]}), [])
 
 
 if __name__ == "__main__":

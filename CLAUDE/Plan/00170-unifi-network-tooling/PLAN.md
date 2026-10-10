@@ -66,6 +66,12 @@ tooling deployed by the UniFi play.
   controller started on demand; check mode run against the live controller with no Wi-Fi
   drop
 
+- [x] ✅ **Task 1.9**: `--settled`: an apply returns as soon as the controller has the
+  change, but the devices take it up only when the controller provisions them, so a play
+  that stops the controller straight after an apply leaves them on the old config.
+  `--settled` exits 0 once every listed device is adopted, connected and running each
+  fixed channel (`radio_table_stats`), else 3 with the gaps, for the play to retry
+
 ### Phase 2: Durable tooling
 
 - [ ] ⬜ **Task 2.1**: Move both scripts to `files/home/.local/bin/`, deployed by
