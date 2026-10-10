@@ -61,6 +61,13 @@ user_email: "yourname@example.com"
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 
+# Optional: the UniFi controller's web login password (play-unifi-controller.yml, login
+# name unifi-admin). Undeclared, the play generates one and vaults it here. Read it with
+# ./vault.bash get unifi_admin_password. See docs/UnifiSetupGuide.md.
+# unifi_admin_password: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>
+
 # Optional MOK Password for Secure Boot (DisplayLink, NVIDIA, etc.)
 # Required when installing kernel modules with Secure Boot enabled
 # mok_password: !vault |

@@ -16,16 +16,19 @@ unifi-controller start
 
 The playbook deploys the compose file, pulls images, and installs the CLI. It does **not** start the controller — use `unifi-controller start` for that. First startup takes 1-2 minutes. Accept the self-signed certificate warning in the browser.
 
+On a new install the first playbook run ends with a failure at its last step, the [admin login](#admin-login): the database has no admin until the setup wizard has run. Everything else is deployed by then. Complete [Step 2](#step-2-controller-first-run), then run the playbook again.
+
 ## What the Playbook Deploys
 
-| Component | Container | Purpose |
-|-----------|-----------|---------|
-| MongoDB 7.0 | `unifi-mongodb` | Database backend (required by UniFi) |
-| UniFi Network Application | `unifi-network-controller` | AP management, WiFi config, roaming |
+| Component                 | Container                  | Purpose                              |
+| ------------------------- | -------------------------- | ------------------------------------ |
+| MongoDB 7.0               | `unifi-mongodb`            | Database backend (required by UniFi) |
+| UniFi Network Application | `unifi-network-controller` | AP management, WiFi config, roaming  |
 
 Both containers are defined in `~/.local/share/unifi/docker-compose.yml` and managed via `podman compose`. Data persists in `~/.local/share/unifi/`.
 
 The playbook also:
+
 - Opens required firewall ports (see [Ports Reference](#ports-reference))
 - Installs a `unifi-controller` CLI command for on-demand start/stop
 - Installs a GNOME desktop launcher (search "UniFi" in Activities)
@@ -47,9 +50,10 @@ Connect all three APs via ethernet to your router or switch and power them. That
 1. Run `unifi-controller start` — this detects your LAN IP, sets the inform host, and starts the stack
 2. Open **https://localhost:8443** (the script opens it automatically)
 3. Accept the self-signed certificate warning
-4. Create an admin account
+4. Create an admin account. Any name and password will do: the next playbook run renames it to `unifi-admin` and sets the vaulted password (see [Admin Login](#admin-login))
 5. Select **Advanced Setup** to stay local-only (skip Ubiquiti cloud account)
 6. Complete the setup wizard (set device name, timezone, language)
+7. Run the playbook again, then log in as `unifi-admin` with `./vault.bash get unifi_admin_password`
 
 ### Step 3: Adopt All Three APs
 
@@ -69,11 +73,11 @@ All three APs should appear in **Devices** since they're wired to the same netwo
 
 These settings ensure your phone switches APs smoothly without drops:
 
-| Setting | Location | What It Does |
-|---------|----------|--------------|
-| **Fast Roaming (802.11r)** | Settings > WiFi > [network] > Advanced | Pre-authenticates with the next AP before switching — near-zero handoff time |
-| **BSS Transition (802.11v)** | Settings > WiFi > [network] > Advanced | Controller tells clients to move to a better AP |
-| **Minimum RSSI** | Settings > WiFi > [network] > Advanced | Forces clients off a weak AP so they roam to a stronger one (try -75 dBm to start) |
+| Setting                      | Location                               | What It Does                                                                       |
+| ---------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
+| **Fast Roaming (802.11r)**   | Settings > WiFi > [network] > Advanced | Pre-authenticates with the next AP before switching — near-zero handoff time       |
+| **BSS Transition (802.11v)** | Settings > WiFi > [network] > Advanced | Controller tells clients to move to a better AP                                    |
+| **Minimum RSSI**             | Settings > WiFi > [network] > Advanced | Forces clients off a weak AP so they roam to a stronger one (try -75 dBm to start) |
 
 **802.11r note:** Most modern phones and laptops support it. Some older IoT devices (smart bulbs, old printers) may have trouble connecting with it enabled. If that happens, create a second SSID without 802.11r for those devices.
 
@@ -99,6 +103,26 @@ The launch script automatically detects your LAN IP and sets `system_ip` in `sys
 - **Central mounting** — ceiling or high wall mount gives best coverage
 - **Check coverage** in the controller's **WiFi Insights** or **Map** view after setup
 - If you see clients "sticking" to a far AP, lower the **Minimum RSSI** threshold
+
+## Admin Login
+
+The playbook owns the controller's web login. The name is `unifi-admin` (`unifi_admin_name`)
+and the password is `unifi_admin_password`, vault-encrypted in
+`environment/localhost/host_vars/localhost.yml`. On a host without a password, the play
+generates one and vaults it there. Each run writes the name and password into the
+controller's database, starting MongoDB briefly if the controller is stopped.
+
+The play takes over the admin already named `unifi-admin`, or, failing that, the only admin
+there is. With several admins and none of them named so, it stops and asks you to rename the
+one to keep.
+
+Show the login:
+
+```bash
+./vault.bash get unifi_admin_password
+```
+
+To change the password, `./vault.bash replace unifi_admin_password` and re-run the playbook.
 
 ## Starting and Stopping
 
@@ -144,15 +168,15 @@ podman logs -f unifi-mongodb
 
 These ports are opened in the firewall by the playbook:
 
-| Port | Protocol | Purpose | Required |
-|------|----------|---------|----------|
-| 8443 | TCP | Web UI (HTTPS) | Yes |
-| 8080 | TCP | Device communication (inform URL) | Yes |
-| 3478 | UDP | STUN (AP discovery) | Yes |
-| 10001 | UDP | AP discovery (L2) | Yes |
-| 1900 | UDP | UPnP/DLNA | Optional |
-| 8843 | TCP | Guest portal HTTPS | Optional |
-| 6789 | TCP | Speed test | Optional |
+| Port  | Protocol | Purpose                           | Required |
+| ----- | -------- | --------------------------------- | -------- |
+| 8443  | TCP      | Web UI (HTTPS)                    | Yes      |
+| 8080  | TCP      | Device communication (inform URL) | Yes      |
+| 3478  | UDP      | STUN (AP discovery)               | Yes      |
+| 10001 | UDP      | AP discovery (L2)                 | Yes      |
+| 1900  | UDP      | UPnP/DLNA                         | Optional |
+| 8843  | TCP      | Guest portal HTTPS                | Optional |
+| 6789  | TCP      | Speed test                        | Optional |
 
 ## Backup and Restore
 
@@ -232,7 +256,9 @@ The controller's inform URL is set to the container's internal IP (e.g., `10.89.
 
 ### File permission errors on start
 
-The MongoDB container remaps UIDs via rootless Podman, so files under `config/data/` may be owned by a high-numbered UID. The launch script runs `podman unshare chown` to reclaim ownership before each start. If you still get permission errors:
+The MongoDB container remaps UIDs via rootless Podman, so files under `config/data/` may be owned by a high-numbered UID. The launch script runs `podman unshare chown` to reclaim ownership before each start.
+
+If your account's `/etc/subuid` range has changed since the data was written, `podman unshare` cannot reach those files at all. Re-run the playbook: it finds data owned outside the current range and gives it back to your account. If you still get permission errors:
 
 ```bash
 podman unshare chown -R 0:0 ~/.local/share/unifi/config/data/

@@ -12,6 +12,8 @@
     unifi_image: lscr.io/linuxserver/unifi-network-application:latest
     # MongoDB is required by the UniFi Network Application
     unifi_mongo_image: docker.io/library/mongo:7.0
+    # The controller's web login name; its password is unifi_admin_password (vaulted)
+    unifi_admin_name: unifi-admin
   tasks:
     # ── Setup Guide ────────────────────────────────────────────────────────────
     # Full setup guide including wired AP adoption, seamless roaming config,
@@ -28,9 +30,111 @@
         mode: "0755"
       loop:
         - "{{ unifi_data_dir }}"
+        - "{{ unifi_data_dir }}/mongodb"
+        - "{{ unifi_data_dir }}/mongodb/init"
+
+    # The containers own these two once they have started: their entrypoints chown them
+    # to the container's own users. Created as the account when missing and otherwise
+    # left alone; resetting their owner under a running stack makes MongoDB abort with
+    # EACCES on its next checkpoint.
+    - name: Create the UniFi Container-Owned Data Directories
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv: [mkdir, "{{ item }}"]
+        creates: "{{ item }}"
+      loop:
         - "{{ unifi_data_dir }}/config"
         - "{{ unifi_data_dir }}/mongodb/data"
-        - "{{ unifi_data_dir }}/mongodb/init"
+
+    # Rootless podman maps container users onto the account's /etc/subuid range. Files
+    # written under a range the account no longer has show as nobody inside the
+    # namespace, so neither the containers nor `podman unshare chown` can touch them.
+    # Handing them to the account (root in the namespace) is enough: the mongo and
+    # linuxserver entrypoints start as root and chown their data to their own users.
+    - name: Read the Subordinate ID Ranges
+      ansible.builtin.slurp:
+        src: /etc/subuid
+      register: unifi_subuid_file
+
+    - name: Resolve the Account's Subordinate ID Range
+      ansible.builtin.set_fact:
+        unifi_subuid_entries: >-
+          {{ (unifi_subuid_file.content | b64decode).splitlines()
+             | select('match', '^' ~ user_login ~ ':[0-9]+:[0-9]+$') | list }}
+
+    - name: Assert the Account Has Exactly One Subordinate ID Range
+      ansible.builtin.assert:
+        that: unifi_subuid_entries | length == 1
+        fail_msg: >-
+          /etc/subuid has {{ unifi_subuid_entries | length }} entries for {{ user_login }};
+          rootless podman, and this check, need exactly one.
+        quiet: true
+
+    - name: Find UniFi Data Owned Outside the Account's Subordinate ID Range
+      ansible.builtin.command:
+        argv: "{{ unifi_find_orphans }}"
+      vars:
+        unifi_subuid_start: "{{ unifi_subuid_entries[0].split(':')[1] | int }}"
+        unifi_subuid_end: "{{ unifi_subuid_start | int + unifi_subuid_entries[0].split(':')[2] | int - 1 }}"
+        unifi_find_orphans:
+          - find
+          - "{{ unifi_data_dir }}/config"
+          - "{{ unifi_data_dir }}/mongodb/data"
+          - "!"
+          - -user
+          - "{{ user_login }}"
+          - (
+          - -uid
+          - "-{{ unifi_subuid_start }}"
+          - -o
+          - -uid
+          - "+{{ unifi_subuid_end }}"
+          - )
+          - -print
+          - -quit
+      register: unifi_orphaned_data
+      changed_when: false
+
+    - name: Reclaim Orphaned UniFi Data
+      when: unifi_orphaned_data.stdout | length > 0
+      block:
+        # Changing the owner under a running MongoDB aborts it (EACCES on its next
+        # checkpoint), so the stack must be down. Orphaned data means it cannot be
+        # working anyway.
+        - name: Probe Whether UniFi MongoDB Is Running Before the Reclaim
+          become: true
+          become_user: "{{ user_login }}"
+          ansible.builtin.command: podman container inspect --format '{{ '{{' }}.State.Running{{ '}}' }}' unifi-mongodb
+          register: unifi_mongo_running_before_reclaim
+          changed_when: false
+          failed_when: false  # FAIL-FAST-OK: a missing container is the "not running" answer; checked by the assert below
+
+        - name: Assert UniFi MongoDB Is Stopped Before the Reclaim
+          ansible.builtin.assert:
+            that: unifi_mongo_running_before_reclaim.stdout != 'true'
+            fail_msg: >-
+              UniFi data under {{ unifi_data_dir }} is owned outside your subordinate ID range
+              ({{ unifi_orphaned_data.stdout }}), and MongoDB is running. Run
+              `unifi-controller stop`, then re-run this play.
+            quiet: true
+
+        - name: Give Orphaned UniFi Data Back to the Account
+          ansible.builtin.file:
+            path: "{{ item }}"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            recurse: true
+          loop:
+            - "{{ unifi_data_dir }}/config"
+            - "{{ unifi_data_dir }}/mongodb/data"
+
+        - name: Find UniFi Data Still Orphaned After the Reclaim
+          ansible.builtin.command:
+            argv: "{{ unifi_orphaned_data.cmd }}"
+          register: unifi_still_orphaned
+          changed_when: false
+          failed_when: unifi_still_orphaned.rc != 0 or unifi_still_orphaned.stdout | length > 0
 
     # ── MongoDB Init Script ─────────────────────────────────────────────────────
     # UniFi Network Application requires a dedicated MongoDB user/database
@@ -279,3 +383,145 @@
           - ""
           - "  Setup guide: docs/UnifiSetupGuide.md"
           - ""
+
+    # ── Admin Login ─────────────────────────────────────────────────────────────
+    # The controller's web login is owned here: the name is unifi_admin_name, the
+    # password is unifi_admin_password, vault-encrypted in localhost.yml. A host with no
+    # password gets a generated one, vaulted on first run. Read it back with
+    # `./vault.bash get unifi_admin_password`. Last in the play: on a new install the
+    # database has no admin until the setup wizard has run, and everything above must be
+    # deployed for the wizard to be reachable.
+
+    - name: Generate a UniFi Admin Password
+      ansible.builtin.set_fact:
+        unifi_admin_password_generated: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
+      no_log: true
+      when: unifi_admin_password is not defined
+
+    # Passed on stdin, never templated into a command line. stdin_add_newline is off so
+    # the vaulted value is the password and not the password plus a newline.
+    - name: Vault-Encrypt the Generated UniFi Admin Password
+      ansible.builtin.command:
+        argv:
+          - ansible-vault
+          - encrypt_string
+          - --stdin-name
+          - unifi_admin_password
+        chdir: "{{ root_dir }}"
+        stdin: "{{ unifi_admin_password_generated }}"
+        stdin_add_newline: false
+      become: false
+      register: unifi_admin_password_encrypted
+      changed_when: false
+      no_log: true
+      when: unifi_admin_password is not defined
+
+    - name: Save the Vault-Encrypted UniFi Admin Password to localhost.yml
+      ansible.builtin.blockinfile:
+        path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+        marker: "# {mark} ANSIBLE MANAGED: unifi_admin_password"
+        block: "{{ unifi_admin_password_encrypted.stdout }}"
+        create: false
+      become: false
+      no_log: true
+      when: unifi_admin_password is not defined
+
+    - name: Resolve the UniFi Admin Password for This Run
+      ansible.builtin.set_fact:
+        unifi_admin_password_effective: "{{ unifi_admin_password | default(unifi_admin_password_generated) }}"
+      no_log: true
+
+    - name: Apply the Admin Login to the UniFi Database
+      become: true
+      become_user: "{{ user_login }}"
+      block:
+        - name: Probe Whether UniFi MongoDB Is Running
+          ansible.builtin.command: podman container inspect --format '{{ '{{' }}.State.Running{{ '}}' }}' unifi-mongodb
+          register: unifi_mongo_running
+          changed_when: false
+          failed_when: false  # FAIL-FAST-OK: a missing container is the "not running" answer; rc is checked below
+
+        - name: Start UniFi MongoDB for the Admin Update
+          ansible.builtin.command: podman compose up -d mongodb
+          args:
+            chdir: "{{ unifi_data_dir }}"
+          changed_when: true
+          when: unifi_mongo_running.rc != 0 or unifi_mongo_running.stdout != 'true'
+
+        - name: Wait for UniFi MongoDB to Answer
+          ansible.builtin.command:
+            argv: [podman, exec, unifi-mongodb, mongosh, --quiet, -u, unifi, -p, unifi,
+                   --authenticationDatabase, unifi, unifi, --eval, "db.runCommand({ping: 1}).ok"]
+          register: unifi_mongo_ping
+          until: unifi_mongo_ping.rc == 0 and unifi_mongo_ping.stdout | trim == '1'
+          retries: 30
+          delay: 2
+          changed_when: false
+
+        - name: Read the UniFi Admin Accounts
+          ansible.builtin.command:
+            argv: [podman, exec, unifi-mongodb, mongosh, --quiet, -u, unifi, -p, unifi,
+                   --authenticationDatabase, unifi, unifi, --eval,
+                   "print(JSON.stringify(db.admin.find({}, {name: 1, x_shadow: 1}).toArray().map(a => ({id: a._id.toString(), name: a.name, x_shadow: a.x_shadow || ''}))))"]
+          register: unifi_admins_read
+          changed_when: false
+          no_log: true
+
+        # The admin named unifi_admin_name, or else the only admin there is. More than
+        # one admin and none of them named so is a choice for a person, not this play.
+        - name: Choose the UniFi Admin This Play Owns
+          ansible.builtin.set_fact:
+            unifi_admin_target: >-
+              {{ (unifi_admins | selectattr('name', 'equalto', unifi_admin_name) | list
+                  or (unifi_admins if unifi_admins | length == 1 else []))
+                 | first | default({}) }}
+          vars:
+            unifi_admins: "{{ unifi_admins_read.stdout | from_json }}"
+          no_log: true
+
+        - name: Assert There Is One UniFi Admin to Own
+          ansible.builtin.assert:
+            that: unifi_admin_target.id is defined
+            fail_msg: >-
+              The UniFi database has {{ (unifi_admins_read.stdout | from_json) | length }} admin
+              account(s) and none is named {{ unifi_admin_name }}. Everything else is deployed.
+              With no admin (a new install): run `unifi-controller start`, complete the setup
+              wizard with any admin name and password, then re-run this play; it renames that
+              admin to {{ unifi_admin_name }} and sets the vaulted password. With several: rename
+              the one to keep to {{ unifi_admin_name }} in the UniFi UI, then re-run this play.
+            quiet: true
+
+        # Hashed with the stored salt, so an unchanged password gives the stored hash
+        # and the update below is skipped.
+        - name: Hash the UniFi Admin Password
+          ansible.builtin.command:
+            argv: "{{ ['openssl', 'passwd', '-6']
+                      + (['-salt', unifi_admin_target.x_shadow.split('$')[2]]
+                         if unifi_admin_target.x_shadow.startswith('$6$') else [])
+                      + ['-stdin'] }}"
+            stdin: "{{ unifi_admin_password_effective }}"
+          register: unifi_admin_hash
+          changed_when: false
+          no_log: true
+
+        - name: Set the UniFi Admin Name and Password
+          ansible.builtin.command:
+            argv: [podman, exec, -e, UNIFI_ADMIN_ID, -e, UNIFI_ADMIN_NAME, -e, UNIFI_ADMIN_HASH,
+                   unifi-mongodb, mongosh, --quiet, -u, unifi, -p, unifi,
+                   --authenticationDatabase, unifi, unifi, --eval,
+                   "const r = db.admin.updateOne({_id: ObjectId(process.env.UNIFI_ADMIN_ID)}, {$set: {name: process.env.UNIFI_ADMIN_NAME, x_shadow: process.env.UNIFI_ADMIN_HASH}}); if (r.matchedCount !== 1) { quit(1) }"]
+          environment:
+            UNIFI_ADMIN_ID: "{{ unifi_admin_target.id }}"
+            UNIFI_ADMIN_NAME: "{{ unifi_admin_name }}"
+            UNIFI_ADMIN_HASH: "{{ unifi_admin_hash.stdout | trim }}"
+          changed_when: true
+          no_log: true
+          when: >-
+            unifi_admin_target.name != unifi_admin_name
+            or unifi_admin_target.x_shadow != (unifi_admin_hash.stdout | trim)
+
+      always:
+        - name: Stop UniFi MongoDB if This Play Started It
+          ansible.builtin.command: podman stop unifi-mongodb
+          changed_when: true
+          when: unifi_mongo_running.rc != 0 or unifi_mongo_running.stdout != 'true'
