@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.93.3 — container 2.51
+
+- **3.93.2 and 3.91.3 in one launcher.** The token usage report and import cleanup, with
+  3.91.3's unmarked-packet GitHub probe. Nothing else changes. No rebuild.
+
 ## 3.93.2 — container 2.51
 
 - **3.93.1 and 3.91.2 in one launcher.** The token usage report, import cleanup and
@@ -74,6 +79,17 @@ Two version numbers move independently — see
   reports figures read with another file. The menu is not fixed by this: it lists every
   valid file, so two files of one name still share one cache entry and show one set of
   figures, and each `u` now spends one request on that entry. Open gap.
+
+## 3.91.3 — container 2.51
+
+- **The GitHub probe sends its packets unmarked.** By default OpenSSH tags its packets
+  with a DSCP priority marking (`IPQoS ef cs0`). On a Wi-Fi network that drops marked
+  frames, every probe timed out at the TCP connect, on port 22 and on 443 alike. Plain
+  TCP, curl and container traffic crossed the same link without trouble, and ccy refused
+  to start. The probe runs with `-F /dev/null`, which ignores the system ssh config as
+  well as `~/.ssh/config`, so it now passes `-o IPQoS=none` itself. The rest of the
+  host's ssh gets the same setting from `/etc/ssh/ssh_config.d/40-ipqos.conf`, which
+  `play-basic-configs.yml` deploys. No rebuild.
 
 ## 3.91.2 — container 2.51
 

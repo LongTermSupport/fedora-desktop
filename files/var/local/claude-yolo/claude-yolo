@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.93.2"  # Token usage report and import cleanup, with 3.91.2's Chrome download and agent log. See docs/ccy-changelog.md.
+CCY_VERSION="3.93.3"  # Token usage report and import cleanup, with the unmarked-packet GitHub probe (IPQoS=none). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

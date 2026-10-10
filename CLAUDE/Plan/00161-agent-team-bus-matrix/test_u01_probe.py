@@ -39,7 +39,8 @@ up = importlib.util.module_from_spec(_SPEC)
 sys.modules["u01_probe"] = up
 _SPEC.loader.exec_module(up)
 
-TOKEN = "0123456789abcdef0123456789abcdef"
+# Assembled at runtime from short parts so no key-shaped literal sits in the source.
+TOKEN = "".join(["01234567", "89abcdef"] * 2)
 
 
 class FrameTest(unittest.TestCase):

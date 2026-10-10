@@ -124,6 +124,11 @@ probe_sign() {
         filter_pid=$!
         tries=0
         while [[ ! -S "${filter_dir}/agent.sock" ]] && [[ "${tries}" -lt 50 ]]; do
+            if ! kill -0 "${filter_pid}" 2>/dev/null; then
+                printf 'the one-key agent exited before its socket appeared; its log:\n' >&2
+                cat -- "${filter_dir}/log" >&2
+                break
+            fi
             sleep 0.1
             tries=$((tries + 1))
         done

@@ -374,6 +374,22 @@
         - id.pub
       when: user_ssh_key.stat.exists
 
+    - name: Send ssh packets without a DSCP priority marking
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/ssh/ssh_config.d/40-ipqos.conf"
+        dest: /etc/ssh/ssh_config.d/40-ipqos.conf
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Prove ssh now resolves IPQoS to none
+      ansible.builtin.command: ssh -G github.com
+      register: ssh_effective_config
+      changed_when: false
+      failed_when: >-
+        ssh_effective_config.rc != 0
+        or 'ipqos none none' not in ssh_effective_config.stdout_lines
+
     - name: Ensure ~/.local/bin directory exists
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.local/bin"
