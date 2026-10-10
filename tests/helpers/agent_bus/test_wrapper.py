@@ -78,6 +78,8 @@ class WrapperTest(unittest.TestCase):
 
     def run_wrapper(self, *args: str, sudo: bool = True, stub: str = STUB,
                     text: bool = True) -> subprocess.CompletedProcess:
+        if not ROOT:
+            self.skipTest("the wrapper refuses to run unless root (exit 77)")
         env = {"PATH": os.environ["PATH"], "ARGS_FILE": str(self.args_file), "TAR_FILE": str(self.tar_file)}
         if sudo:
             env.update({"SUDO_UID": str(OWNER), "SUDO_GID": str(GROUP)})
@@ -374,6 +376,7 @@ class WrapperTest(unittest.TestCase):
 class RealBundleTest(AdminTestCase):
     """The admin tool's own tar, placed by the wrapper, is a bundle pingbus accepts."""
 
+    @unittest.skipUnless(ROOT, "the wrapper refuses to run unless root (exit 77)")
     def test_placed_bundle_loads(self) -> None:
         self.bootstrap()
         bundle = admin.add_member(self.ctx(), self.transport, repo="myrepo", host="workstation",
