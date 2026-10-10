@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.91.2 — container 2.51
+
+- **The image build fetches Chrome with curl.** `agent-browser install` gives each attempt
+  at the 190 MB Chrome for Testing zip 120 seconds in total, a limit nothing can change.
+  On a link slower than about 1.6 MB/s, every attempt fails partway through and the image
+  build fails with it; two builds out of three failed that way on one host in a day. The
+  Dockerfile now reads the same Stable version and URL from Chrome for Testing and
+  downloads the zip with curl. curl has no total limit, and each pass resumes the partial
+  file, ten passes at most. The zip is unpacked into the folder `agent-browser install`
+  checks, and the build fails unless the install then reports Chrome as already installed.
+  One rebuild on the next launch.
+- **A forwarded key that fails the GitHub probe prints the one-key agent's log.** The log
+  records what your ssh-agent answered. It lives in a directory ccy removes when it stops,
+  so until now it was gone before anyone could read it.
+
 ## 3.91.1 — container 2.50
 
 - **A failed GitHub SSH probe shows ssh's own reply.** The launcher probes each chosen key
