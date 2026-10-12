@@ -144,7 +144,11 @@ Task 1.3 has recorded what the headset actually sends.
 - [x] ✅ **Task 2.1 — D1 (answered by D2): grab for profiled devices.** On a
   dictation device the button is a dictation button, mapped to the Insert toggle, and
   does not also play/pause media. Devices outside the profile are not touched.
-- [ ] ⬜ **Task 2.3 — D3: Which key gesture.** A single play/pause press, or something
+- [x] ✅ **Task 2.3 — D3 (owner): a single press is Insert.** The capture showed the
+  OpenRun sends only single presses; double and long presses send nothing, with or
+  without a dummy AVRCP player (journal 26-10-12). On a dictation device the single
+  press becomes Insert and no longer plays/pauses media. The original question and its
+  branches, kept for the record: A single play/pause press, or something
   else such as a double-press or a long-press. Needs the Task 1.3 probe of which key
   codes the real headset sends (`KEY_PLAYCD`, `KEY_PAUSECD`, `KEY_PLAYPAUSE`, or
   others). **Leading candidate (the owner's stated requirement): a double press toggles
@@ -275,23 +279,22 @@ headset's microphone, so it is rejected.
   script behind a passwordless sudo alias) to the same constraint with less surface.
   The code is root-owned under `/usr/local/`, and its logic is a TDD'd stdlib helper.
 - **Two inputs, because the button travels two ways.** In A2DP it reads the
-  `(AVRCP)` evdev node and takes it with `EVIOCGRAB`, so GNOME does not see a double
-  press as play-pause. A lone single press is re-emitted as play/pause after the
-  double-press window. In HFP it reads the HCI monitor channel (as `btmon` does) for
+  `(AVRCP)` evdev node and takes it with `EVIOCGRAB`, so GNOME does not also see the
+  press as play-pause. In HFP it reads the HCI monitor channel (as `btmon` does) for
   that device's RFCOMM AT commands (`AT+CHUP` and whatever the capture shows). It
   never injects into the Bluetooth stack.
-- **Gesture (D3): a single press stays play/pause; a double press and a long press
-  map as configured.** The first build task is one capture of single, double and long
-  presses in A2DP and in HFP with the owner. It settles timing windows and which
-  codes each gesture sends (two `PLAY`s, `KEY_NEXTSONG`, `AT+BLDN`, `AT+BVRA`, or
-  nothing). A long press may be swallowed by the headset itself (power-off or voice
-  assistant), so a gesture the capture shows unusable is reported, not guessed.
+- **Gesture (D3, owner): a single press is Insert on a dictation device.** The capture
+  showed the OpenRun transmits only single presses (`PLAY` in A2DP, `AT+CHUP` in
+  HFP); double and long presses never leave the headset, and a dummy AVRCP player
+  does not change that. So the mapper needs no timing window for this device. The
+  per-device gesture map stays generic, so a headset that does send other gestures
+  can map them.
 
 ## Success Criteria
 
-- [ ] With the headset connected in A2DP, the D3 gesture (leading candidate: a double
-  press) starts a recording and the next one stops it, through the same toggle as
-  Insert, while a single press still plays/pauses media.
+- [ ] With a dictation device connected, in A2DP and in HFP, a single press starts a
+  recording and the next one stops it, as Insert does, and media does not also
+  play/pause; a headset outside the profile still plays/pauses.
 - [ ] Reconnecting the headset needs no restart and no playbook run.
 - [ ] The desktop user reads the AVRCP node through the deployed udev rule, not group
   membership.
