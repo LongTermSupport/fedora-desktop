@@ -5,6 +5,10 @@ An `lxc` member is a Claude Code agent running inside an LXC container. This fil
 short version; the full guide, including what joining a team grants and its limits, is
 docs/agent-bus.md in the fedora-desktop repository.
 
+On a fedora-desktop host, declare the member in `agent_bus_lxc_members` instead and run
+play-agent-bus.yml: it runs these same steps (helpers/agent_bus_lxc/members.py), leaves
+a member already joined alone, and refuses with what to fix. Elsewhere, by hand:
+
 1. The kit inside the container. Copy this kit, /usr/local/share/agent-bus/kit/, to the
    same path inside the container and link its `pingbus` and `agent-bus-claude` into
    /usr/local/bin. The container needs Python 3.11 or later; `pingbus` refuses an older
