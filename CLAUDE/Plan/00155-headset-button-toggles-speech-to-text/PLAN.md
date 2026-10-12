@@ -131,16 +131,18 @@ needed), and the exact user-unit and helper-deploy steps to copy are in
 Nothing in Phases 3 to 6 starts until D1 to D4 are answered. D3 is asked only after
 Task 1.3 has recorded what the headset actually sends.
 
-- [ ] ⬜ **Task 2.1 — D1: Grab versus no-grab.** `EVIOCGRAB` is exclusive: with a grab,
-  the headset's play/pause would no longer control media, and its other keys would have
-  to be re-emitted through uinput (which needs its own access rule for `/dev/uinput`).
-  A non-grabbing listener means a press both toggles wsi and plays/pauses media. D3's
-  leading candidate (branch A) requires the grab, so answering D3 with it answers D1.
-- [x] ✅ **Task 2.2 — D2: Which headsets.** **Answered: only the Shokz** ("SPECIFICALLY on
-  the shokz"). A configured device-name match (a `host_vars` variable; empty means
-  none), not every `(AVRCP)` device. The owner also said the button "normally sends
-  start stop playing music" and should map to the Insert press. D3 is still settled
-  against the Task 1.3 capture.
+- [x] ✅ **Task 2.2 — D2: Which headsets: a "dictation device" profile.** The owner's
+  key requirement: the change applies **only** to Bluetooth devices given the
+  dictation-device profile. Every other headset keeps its normal behaviour (the button
+  plays and pauses media). The profile is generic, not fitted to the Shokz: a list in
+  `host_vars` (for example `dictation_bluetooth_devices`, matched by the device's
+  Bluetooth name; empty means no device) that any future headset can join. The
+  OpenRun Pro is the first member. Everything this plan deploys — the udev rule, the
+  listener's device match, and any WirePlumber/HFP setting — is scoped to that list,
+  never to every Bluetooth device.
+- [x] ✅ **Task 2.1 — D1 (answered by D2): grab for profiled devices.** On a
+  dictation device the button is a dictation button, mapped to the Insert toggle, and
+  does not also play/pause media. Devices outside the profile are not touched.
 - [ ] ⬜ **Task 2.3 — D3: Which key gesture.** A single play/pause press, or something
   else such as a double-press or a long-press. Needs the Task 1.3 probe of which key
   codes the real headset sends (`KEY_PLAYCD`, `KEY_PAUSECD`, `KEY_PLAYPAUSE`, or
