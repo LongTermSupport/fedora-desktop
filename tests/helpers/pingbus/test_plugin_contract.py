@@ -312,8 +312,10 @@ class LauncherTest(unittest.TestCase):
         # can never be the one found.
         tools = self.root / "tools"
         tools.mkdir()
+        # python3 is this interpreter: the one on PATH may be a version-manager shim
+        # that needs tools this narrowed PATH leaves out
         for tool in ("bash", "python3", "readlink"):
-            found = shutil.which(tool)
+            found = sys.executable if tool == "python3" else shutil.which(tool)
             self.assertIsNotNone(found, f"{tool} is needed to run the launcher")
             (tools / tool).symlink_to(found)
         self.environ = {
