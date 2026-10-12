@@ -70,7 +70,7 @@ Use these Unicode icons in plan documents:
 
 - [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - Signed release tags `44.MINOR.PATCH` (major tracks Fedora), one release command, and the unattended self-update following the newest tag instead of the branch tip
 
-- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - The general speech-to-text improvements plan: a 3 s delayed stop so the last words are kept, unlimited dictation by loop-and-buffer in the warm server (owner's choice), and a review of newer speech models. New speech-to-text work goes here.
+- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - The general speech-to-text improvements plan: a 3 s delayed stop so the last words are kept, unlimited dictation by loop-and-buffer in the warm server (owner's choice), and a review of newer speech models. Planned, owner decisions open: one recording mode (server-mode continuous dictation only), the panel extension made a thin layer over a reloadable user service (Rust recommended), and the stop grace ending on silence. New speech-to-text work goes here.
 
 - [00149-up-arrow-loses-an-interrupted-command](00149-up-arrow-loses-an-interrupted-command/) - Bug: a command stopped with Ctrl+C is not on up-arrow in a local terminal. Dormant: not reproduced in the container or on the host (bash 5.3); reopen with `triage.bash` if it happens again.
 

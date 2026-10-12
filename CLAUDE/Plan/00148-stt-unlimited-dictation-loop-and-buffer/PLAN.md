@@ -1,6 +1,6 @@
 # Plan 00148: speech-to-text improvements (unlimited dictation, delayed stop, models)
 
-**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8-9.10) built, all merged to F44; host checks Tasks 0.5, 6.2, 8.4 and 9.5 pending)
+**Status**: In Progress (Phases 0, 2, 3, 8, Tasks 0.7, 4.1-4.7, 5.1, 6.1, 7.4 and Phase 9 (9.1-9.4, 9.6, 9.8-9.10) built, all merged to F44; host checks Tasks 0.5, 6.2, 8.4 and 9.5 pending; Phases 10-12 planned, owner decisions 11.1-11.4, 12.1, 12.2 open)
 **Created**: 2026-10-02
 **Owner**: joseph
 **Priority**: Medium
@@ -47,7 +47,7 @@ Lineage of the 120, failure analysis, the full pipeline and the IaC file list:
 
 - Typing text into the focused window during recording (paste once at stop).
 - Changing batch `wsi` (30 s) or standard/pre-buffer streaming beyond pointing their help
-  and docs at continuous mode.
+  and docs at continuous mode (Phase 11, a later owner idea, proposes removing them).
 - Moving article mode onto the server session in this plan's first delivery (Phase 5 is a
   follow-on inside the plan, not a prerequisite).
 
@@ -352,55 +352,87 @@ arrive while dictating, and to see which window it will go into.
   outline and the next chunk stay on the pinned window (Task 9.10); close it and see the
   text on the clipboard.
 
-**Order of Phases 11, 12 and 10 (proposed to the owner):** one mode first (less to
-move), then the thin extension, then the silence stop (by then a service-only change,
-tried without a logout).
+**Order of Phases 11, 12 and 10 (proposed to the owner, Task 11.1):** one mode first
+(less to move), then the thin extension, then the silence stop (by then a service-only
+change, tried without a logout).
 
-### Phase 11: One recording mode (owner's idea; decision pending)
+### Phase 11: One recording mode (owner's idea; decisions open)
 
 Owner: "supporting lots of various configuration options is just increasing the
 complexity... have one single mode that works well." Four recorders exist: batch `wsi`
-(its own 1,430-line script), streaming "standard" and "pre-buffer" (both need
-RealtimeSTT), and server mode, which the owner uses with continuous dictation and which
-article mode already rides on (`wsi-article` loads `wsi-stream`). Every stop-path fix is
-made more than once (the grace lives in both `wsi` and `wsi-stream`; Plan 00171 had a
-separate batch-path fix).
+(1,430 lines of bash), streaming "standard" and "pre-buffer" (both need RealtimeSTT), and
+server mode, which the owner uses with continuous dictation and which article mode
+already rides on. Every stop-path fix is made more than once. Caller map, what is given
+up and the migration: [RESEARCH-thin-extension.md](RESEARCH-thin-extension.md) section 1.
 
-- [ ] ⬜ **Task 11.1**: Owner: confirm server-mode continuous dictation as the only mode,
-  given the downsides: no fallback recorder if the server breaks; the warm server holds
-  the model in memory (its idle shutdown stays); the streaming, startup-mode and
-  continuous switches go.
-- [ ] ⬜ **Task 11.2**: Map every caller of the other modes (the extension's launch paths,
-  the Claude shortcuts Ctrl+Insert and Alt+Insert, `wsi-article`, the play's RealtimeSTT
-  pin and installs, docs, tests, QA gates) in the journal.
-- [ ] ⬜ **Task 11.3**: Remove them test-first, keeping the suites green: `wsi` batch,
-  standard and pre-buffer streaming, the fixed streaming limit, RealtimeSTT and its
-  pin, and the settings that chose between them (GSettings keys retired cleanly).
+- [ ] ⬜ **Task 11.1 (owner)**: Keep only server-mode continuous dictation, for Insert,
+  Ctrl+Insert, Alt+Insert and article mode, and the order 11, 12, 10? Given up: a second
+  recorder when the server breaks (its failures stay loud); `auto` without a GPU loads
+  `base`, not batch's `small`; three switches. Recommended: yes.
+- [ ] ⬜ **Task 11.2 (owner)**: Delete batch `wsi` and the play-written
+  `faster-whisper-transcribe` only it uses, rather than keep them as by-hand tools.
+  Recommended: delete.
+- [ ] ⬜ **Task 11.3 (owner)**: Uninstall RealtimeSTT; and remove PyTorch and the rest it
+  pulled in, if Task 11.6 shows nothing else needs them?
+- [ ] ⬜ **Task 11.4 (owner)**: Retire `claude-enabled` too: loaded, never consulted, so
+  Settings shows a switch that does nothing. Recommended: retire.
+- [x] ✅ **Task 11.5**: Every caller of the other modes mapped (scripts, server, extension,
+  prefs, schema, play, tests, QA gates, docs): research doc 1.2.
+- [ ] ⬜ **Task 11.6**: `triage.bash` legs (read-only): the mode keys' values on the host;
+  `pip show` `Required-by` for RealtimeSTT's dependencies.
+- [ ] ⬜ **Task 11.7**: Remove test-first, each removal's control run red: research doc
+  1.2, with the server's `WholeClip` and START's `continuous` flag, one `auto` choice, and
+  the play's RealtimeSTT and `wsi` tasks turned to `state: absent`. `wsi-stream` keeps
+  accepting `--server-mode`, ignored, until Phase 12 (the old extension passes it until
+  the logout). The retired keys stay in the schema, unread, until Task 12.9 resets them.
+- [ ] ⬜ **Task 11.8**: Deploy through meta-deploy, log out; acceptance: Insert,
+  Ctrl+Insert, Alt+Insert, Escape and article mode dictate through the server, Settings
+  shows no mode switch, no `wsi` on `PATH`; docs; `qa-reviewer`.
 
-### Phase 12: The extension becomes a thin layer over a reloadable service (owner's idea)
+### Phase 12: The extension becomes a thin layer over a reloadable service (owner's idea; decisions open)
 
-Owner: a change to the panel's logic should not need a logout. GNOME Shell loads
-extension code only at login, and about 2,000 lines run inside it today, including
-the recording state machine (`panelSession.js`) and most of `extension.js`.
+Owner: a change to the panel's logic should not need a logout. GNOME Shell loads extension
+code only at login, and about 2,000 lines run inside it, including Plan 00171's state
+machine (`panelSession.js`). A user service becomes the single owner of state (state
+machine, recorder launch, settings read at each press, the panel's notifications) and
+publishes it on D-Bus. The extension keeps what needs the Shell: key grabs forwarded to
+the service, drawing the published look, the paste pin and its `PasteKey` answer, the
+focus outline, window activation. "Service down" is a look of its own, never ready. No
+recorder changes. Contract, cgroups, deploy, migration, rollback, tests and risks:
+[RESEARCH-thin-extension.md](RESEARCH-thin-extension.md) section 2.
 
-- [ ] ⬜ **Task 12.1**: Design, in a research note: a user systemd service owning the state
-  machine (Insert/Escape per state, queued start, cancel), recorder launch, mic-health
-  reporting and notifications, publishing its state on D-Bus; the extension keeps only
-  what needs the Shell (key grabs forwarded to the service, icon and menu drawn from the
-  published state, paste target, focus outline, window activation). The service is the
-  single owner of state, so the icon shows only what it reports, and "service down" is a
-  state of its own, never "ready". **Language (owner asked; recommended, awaiting
-  confirmation): the service in Rust**, since it is new code either way (the logic moves
-  out of JavaScript) and a long-running state machine with D-Bus and process supervision
-  suits it. `wsi-stream-server` stays Python: faster-whisper and Silero are Python and its
-  time is spent in the model. The client `wsi-stream` is not rewritten in the same step;
-  its duties can move into the service later. Depends on Plan 00174 (`tooling-rust/`,
-  `rust-qa-ci`), whose first crate (Plan 00155's key mapper) proves the Rust build and
-  deploy first.
-- [ ] ⬜ **Task 12.2**: Build test-first; move the state-machine tests to the service; the
-  extension's own tests shrink to rendering and key forwarding.
-- [ ] ⬜ **Task 12.3**: Deploy (one logout to switch over); then prove a logic change ships
-  with a play run and a service restart, no logout.
+- [ ] ⬜ **Task 12.1 (owner)**: The service's language. Recommended: Rust (Plan 00174's
+  direction for long-running services; new code either way), which waits for Plan 00174
+  Phase 2 and Plan 00155's crate to prove the build and deploy. Alternative: Python with
+  PyGObject, a near line-for-line port with no build step and no wait. Either way
+  `wsi-stream-server` stays Python and `wsi-stream` is not rewritten now (its duties,
+  such as the microphone shortfall report, can move in later).
+- [ ] ⬜ **Task 12.2 (owner)**: A service restart (a play run) during a dictation: the
+  dictation carries on as a recording the panel did not start (red; Insert stops it and
+  keeps the text), or the new service re-adopts it (more code). Recommended: the first.
+- [x] ✅ **Task 12.3**: Design note: research doc section 2.
+- [ ] ⬜ **Task 12.4**: Triage leg (read-only): the systemd user manager's environment
+  against GNOME Shell's for what the recorders need (`WAYLAND_DISPLAY`,
+  `XDG_SESSION_TYPE`, `LANG`, `PATH`, the ydotool socket); gaps fixed in the unit.
+- [ ] ⬜ **Task 12.5**: The contract first: the interface XML in the repo; QA checks the
+  service's `Introspect` against it; the extension's proxy is built from it.
+- [ ] ⬜ **Task 12.6**: The service, test-first: the pure state machine on a fake clock
+  with all 48 cases of `test-stt-panel-session.mjs` (Plan 00171's races first) and the
+  look table; then over a private bus with stub recorders, one surviving a service
+  restart (each recorder runs in its own systemd scope).
+- [ ] ⬜ **Task 12.7**: The play: build and install, a user unit (`Type=dbus`,
+  `Restart=on-failure` with a start limit), a restart handler that reads back the unit
+  active and owning its name. Deployed while the old extension is loaded (nothing presses
+  it), to prove it on the host first.
+- [ ] ⬜ **Task 12.8**: The thin extension, test-first under Node: drawing from properties,
+  key forwarding, press id to pin, service down, no reply, version mismatch;
+  `panelSession.js`, `recorderLaunch.js` and `panelLook.js` leave it; ESLint.
+- [ ] ⬜ **Task 12.9**: Switch over in one deploy and one logout: removed extension files
+  deleted from the deployed directory, Phase 11's retired keys reset in dconf.
+  Acceptance: every key path; a stopped service shows as down and Insert says so; a
+  crash restarts and the icon recovers; a restart mid-dictation as Task 12.2 chose.
+- [ ] ⬜ **Task 12.10**: Prove the goal: a service-only change (a notification's wording)
+  shipped by a play run and a restart, no logout. Docs; `qa-reviewer`.
 
 ### Phase 10: The stop grace ends on silence
 
