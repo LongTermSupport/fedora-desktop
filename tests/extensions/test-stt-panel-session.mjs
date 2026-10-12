@@ -21,16 +21,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const {PanelSession, LAUNCH_SAFETY_MS, ENDING_DISPLAY_MS, UNOWNED_POLL_MS} = await import(
+const {PanelSession, LAUNCH_SAFETY_MS, ENDING_DISPLAY_MS, UNOWNED_POLL_MS, EXIT_SETTLE_MS} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/panelSession.js', import.meta.url).href);
 
 const DICTATION = {kind: 'dictation', target: 'window-1'};
 
 /** A panel whose recorders, PID file, timers and screen the test controls. */
-function harness() {
+function harness({pidFile = null, alive = []} = {}) {
+    // pidFile and alive: what the panel finds when it is created (the extension enabled again)
     const h = {
         spawned: [], kills: [], aborts: [], shown: [], logs: [], errors: [], notes: [],
-        timers: new Map(), alive: new Set(), pidFile: null, spawnError: null,
+        timers: new Map(), alive: new Set(alive), pidFile, spawnError: null,
     };
     let nextTimer = 1;
     let tokens = 0;
@@ -203,11 +204,13 @@ function reported(launch, ...states) {
 
 for (const [key, launch] of KEYS) {
     for (const state of ['LAUNCHING', 'WAITING', 'PREPARING']) {
-        test(`${state}: ${key} cancels the start`, () => {
+        test(`${state}: ${key} cancels the start, and shows it was taken`, () => {
             const h = reported(launch, ...(state === 'LAUNCHING' ? [] : [state]));
             h.panel.insert(launch);
             assert.deepEqual(h.kills, [[h.recorder().pid, 'TERM']]);
             assert.equal(h.spawned.length, 1);
+            // PREPARING: batch and pre-buffer recorders are already capturing, so it is a stop
+            assert.equal(h.shows(), state === 'PREPARING' ? 'STOPPING' : 'CANCELLING');
             h.recorder().exit('signal 15', true);
             assert.equal(h.shows(), 'IDLE');
             assert.deepEqual(h.errors, [], 'a start the owner cancelled was reported as a failure');
@@ -299,6 +302,8 @@ test('the display timer does not make a recorder still alive look idle', () => {
 test('a recorder that exits without saying how it ended resets the panel and says why', () => {
     const h = recording();
     h.recorder().exit('signal 11', true);
+    assert.deepEqual(h.errors, [], 'judged before a late last signal could arrive');
+    h.fire(EXIT_SETTLE_MS);
     assert.equal(h.shows(), 'IDLE');
     assert.equal(h.errors.length, 1);
     assert.match(h.errors[0], /signal 11/);
@@ -308,6 +313,7 @@ test('a recorder that fails before its first report is reported with how it ende
     const h = harness();
     h.panel.insert(DICTATION);
     h.recorder().exit('exit status 1', true);
+    h.fire(EXIT_SETTLE_MS);
     assert.equal(h.shows(), 'IDLE');
     assert.match(h.errors[0], /exit status 1.*before it started/);
     assert.equal(h.timers.size, 0, 'the safety timer outlived the recorder');
@@ -422,34 +428,67 @@ test('a start queued by Insert during a Claude dictation is a plain dictation', 
 
 // ── A recorder the panel did not start ──────────────────────────────────────────────
 
-test('idle with a live recorder the panel does not own: it is stopped, reported, and ours starts after', () => {
+test('a live recorder found when the panel starts (screen unlocked): never shown as ready', () => {
+    // GNOME disables extensions at the screen lock and enables them at unlock; a
+    // dictation recording across the lock is alive, and its panel has gone
+    const h = harness({pidFile: '4242', alive: ['4242']});
+    assert.equal(h.shows(), 'UNOWNED');
+    assert.deepEqual(h.kills, [], 'a recording was stopped without a press');
+    h.fire(UNOWNED_POLL_MS);
+    assert.equal(h.shows(), 'UNOWNED');
+    h.alive.delete('4242');
+    h.fire(UNOWNED_POLL_MS);
+    assert.equal(h.shows(), 'IDLE');
+    assert.equal(h.timers.size, 0);
+});
+
+test('Insert on a recorder the panel did not start only stops it', () => {
+    const h = harness({pidFile: '4242', alive: ['4242']});
+    h.panel.insert(DICTATION);
+    assert.deepEqual(h.kills, [['4242', 'INT']]);
+    assert.equal(h.notes.length, 1);
+    assert.match(h.notes[0], /4242/);
+    assert.equal(h.shows(), 'UNOWNED');
+    assert.equal(h.spawned.length, 0, 'a second recorder was started beside a live one');
+    h.alive.delete('4242');
+    h.fire(UNOWNED_POLL_MS);
+    assert.equal(h.shows(), 'IDLE');
+    assert.equal(h.spawned.length, 0, 'a press that stopped a recording also started one');
+});
+
+test('idle, then a recorder the panel did not start turns up: Insert only stops it', () => {
     const h = harness();
     h.alive.add('4242');
     h.pidFile = '4242';
     h.panel.insert(DICTATION);
     assert.deepEqual(h.kills, [['4242', 'INT']]);
-    assert.equal(h.notes.length, 1);
-    assert.match(h.notes[0], /4242/);
-    assert.equal(h.shows(), 'QUEUED');
-    assert.equal(h.spawned.length, 0, 'a second recorder was started beside a live one');
-    h.fire(UNOWNED_POLL_MS);
+    assert.equal(h.shows(), 'UNOWNED');
+    h.panel.insert(DICTATION);
+    assert.deepEqual(h.kills, [['4242', 'INT'], ['4242', 'INT']], 'the second press did nothing');
     assert.equal(h.spawned.length, 0);
-    h.alive.delete('4242');
-    h.fire(UNOWNED_POLL_MS);
-    assert.equal(h.spawned.length, 1);
-    assert.equal(h.shows(), 'LAUNCHING');
 });
 
-test('a second Insert while waiting for that recorder cancels the start', () => {
-    const h = harness();
+test('a start queued behind the panel\'s recorder still waits for one it did not start', () => {
+    const h = recording();
+    h.report('TRANSCRIBING');
+    h.panel.insert(DICTATION);
     h.alive.add('4242');
     h.pidFile = '4242';
-    h.panel.insert(DICTATION);
-    h.panel.insert(DICTATION);
-    assert.equal(h.shows(), 'IDLE');
-    assert.equal(h.timers.size, 0, 'the poll outlived the cancelled start');
+    h.report('SUCCESS');
+    h.recorder().exit();
+    assert.deepEqual(h.kills.at(-1), ['4242', 'INT']);
+    assert.equal(h.shows(), 'QUEUED');
+    assert.equal(h.spawned.length, 1);
     h.alive.delete('4242');
+    h.fire(UNOWNED_POLL_MS);
+    assert.equal(h.spawned.length, 2);
+});
+
+test('article: refused while a recorder the panel did not start is alive', () => {
+    const h = harness({pidFile: '4242', alive: ['4242']});
+    h.panel.article({kind: 'article'});
     assert.equal(h.spawned.length, 0);
+    assert.equal(h.notes.length, 1);
 });
 
 test('a stale PID file (no live recorder) does not hold up the start', () => {
@@ -500,6 +539,82 @@ test('article: a start queued behind it is not run by its ending', () => {
     assert.equal(h.shows(), 'IDLE');
 });
 
+test('article: Insert after a handed-off launch stops the article recorder, not the launcher', () => {
+    const h = harness();
+    h.panel.article({kind: 'article'});
+    const launcher = h.recorder().pid;
+    h.recorder().exit('exit status 0', false);      // handed to the window already open
+    h.alive.add('5151');
+    h.pidFile = '5151';
+    h.panel.insert(DICTATION);
+    assert.deepEqual(h.kills, [['5151', 'TERM']]);
+    assert.ok(!h.kills.some(([pid]) => pid === launcher), 'the launcher (gone, its PID free for reuse) was signalled');
+});
+
+test('article: Insert after a handed-off launch with no recorder yet says so', () => {
+    const h = harness();
+    h.panel.article({kind: 'article'});
+    h.recorder().exit('exit status 0', false);
+    h.panel.insert(DICTATION);
+    assert.deepEqual(h.kills, []);
+    assert.equal(h.notes.length, 1);
+});
+
+// ── The exit and the last signal, in either order ───────────────────────────────────
+
+for (const [final, how, failed] of [['SUCCESS', 'exit status 0', false], ['ERROR', 'exit status 1', true]]) {
+    test(`${final} then the exit: shown, no error`, () => {
+        const h = recording();
+        h.report('TRANSCRIBING');
+        h.report(final);
+        h.recorder().exit(how, failed);
+        assert.equal(h.shows(), final);
+        assert.deepEqual(h.errors, []);
+        assert.equal(h.panel.ownedPid, null);
+    });
+
+    test(`the exit seen before the last ${final}: ${final} still shown, no false error`, () => {
+        const h = recording();
+        h.report('TRANSCRIBING');
+        h.recorder().exit(how, failed);
+        assert.deepEqual(h.errors, [], 'an error was reported before the last signal could arrive');
+        assert.notEqual(h.shows(), 'IDLE');
+        assert.equal(h.report(final), true, `the late ${final} was dropped`);
+        assert.equal(h.shows(), final);
+        assert.equal(h.panel.ownedPid, null);
+        assert.ok(![...h.timers.values()].some(t => t.ms === EXIT_SETTLE_MS), 'the settle outlived the session');
+        h.fire(ENDING_DISPLAY_MS);
+        assert.equal(h.shows(), 'IDLE');
+        assert.deepEqual(h.errors, []);
+    });
+}
+
+test('an exit no last signal follows is reported once the settle has passed', () => {
+    const h = recording();
+    h.report('TRANSCRIBING');
+    h.recorder().exit('exit status 0', false);
+    h.fire(EXIT_SETTLE_MS);
+    assert.equal(h.shows(), 'IDLE');
+    assert.equal(h.errors.length, 1);
+    assert.match(h.errors[0], /TRANSCRIBING/);
+});
+
+test('a cancel that came too late: the panel follows the recorder', () => {
+    const h = reported(DICTATION, 'WAITING');
+    h.panel.insert(DICTATION);
+    assert.equal(h.shows(), 'CANCELLING');
+    h.report('RECORDING');                          // the start was accepted before the TERM
+    assert.equal(h.shows(), 'RECORDING');
+});
+
+// ── The log ─────────────────────────────────────────────────────────────────────────
+
+test('every change of the icon is logged as "Display: <state>"', () => {
+    const h = recording();
+    const shown = h.logs.filter(l => l.startsWith('Display: '));
+    assert.deepEqual(shown, ['Display: IDLE', 'Display: LAUNCHING', 'Display: RECORDING']);
+});
+
 // ── Error and Progress ──────────────────────────────────────────────────────────────
 
 test('Error and Progress are taken only from the current recorder', () => {
@@ -514,12 +629,14 @@ test('Error and Progress are taken only from the current recorder', () => {
 // ── Teardown ────────────────────────────────────────────────────────────────────────
 
 test('destroy removes every timer it holds', () => {
-    const h = harness();
-    h.alive.add('4242');
-    h.pidFile = '4242';
-    h.panel.insert(DICTATION);      // the unowned poll
+    const h = harness({pidFile: '4242', alive: ['4242']});   // the unowned poll
     h.panel.destroy();
     assert.equal(h.timers.size, 0);
+
+    const s = recording();
+    s.recorder().exit();            // the exit settle
+    s.panel.destroy();
+    assert.equal(s.timers.size, 0);
 
     const g = recording();
     g.report('ERROR');

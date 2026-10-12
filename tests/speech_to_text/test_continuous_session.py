@@ -126,10 +126,17 @@ class SessionCase(unittest.TestCase):
     def mic_stopped(self):
         return self.session.capture_returncode() is not None
 
+    def mic_capturing(self):
+        """Wait until the microphone stub has sent audio: its stop handler is installed
+        before its first write, so a stop sent sooner on a loaded host would kill it."""
+        self.assertTrue(self.wait_until(lambda: self.session.captured_bytes > 0),
+                        "the microphone stub never sent audio")
+
 
 class StopTest(SessionCase):
     def test_stop_drains_the_microphone_and_transcribes_the_last_audio(self):
         s = self.start(mic="plain")
+        self.mic_capturing()
         time.sleep(0.4)
         s.stop("stop requested")
         p = self.finished()
@@ -141,6 +148,16 @@ class StopTest(SessionCase):
         self.assertEqual(len(voiced), mic["written"] // 2, "captured audio missing from segments")
         self.assertEqual(voiced[-1], 1, "the stop burst (the last words) was not transcribed")
         self.assertEqual(p["transcription"], "s0")
+
+    def test_progress_reports_the_seconds_of_audio_the_microphone_delivered(self):
+        s = self.start(mic="plain")
+        self.mic_capturing()
+        time.sleep(0.4)
+        s.stop("stop requested")
+        p = self.finished()
+        expected = round(s.captured_bytes / (server.SAMPLE_RATE * 2), 1)
+        self.assertGreater(s.captured_bytes, 0)
+        self.assertEqual(p["audio_seconds"], expected)
 
     def test_segments_commit_in_order_and_are_journalled(self):
         s = self.start(env={"STUB_PATTERN": "speech=1.5,silence=1.0", "STUB_SPEED": "8"})

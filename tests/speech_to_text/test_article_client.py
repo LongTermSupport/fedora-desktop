@@ -166,6 +166,8 @@ class ArticleCase(unittest.TestCase):
             if command == "STOP":
                 stopped.append(True)
                 return {"status": "draining", "drain_seconds_left": 5, "segments_pending": 1}
+            if command == "ABORT":
+                return {"status": "aborted"}
             return {"status": "error", "message": f"unexpected {command}"}
 
         self.server = StubServer(stream.SERVER_SOCKET, answer)
@@ -381,6 +383,18 @@ class ArticleSessionTest(ArticleCase):
         self.assertEqual(len(starts), 3)
         self.assertIn("WAITING", self.states())
         self.assertEqual(self.raw(), "Alpha\n\n")
+
+    def test_a_stop_while_start_is_in_flight_aborts_what_the_server_started(self):
+        def on_start():
+            threading.Event().wait(0.4)
+            return {"status": "recording", "session_dir": str(self.session_dir)}
+
+        self.scripted([(RECORDING, ())], on_start=on_start)
+        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT"],
+                         "the server was left recording for no client")
+        self.assertNotIn("PREPARING", self.states())
+        self.assertEqual(self.marker_files_left(), [])
 
     def test_another_clients_pid_file_is_left_in_place(self):
         def on_start():

@@ -12,9 +12,14 @@
  * a press on the ready icon always starts a recording. A press while not ready is never
  * ignored: in the stop grace it stops at once, before the microphone is open it cancels
  * the start, and once the microphone has closed it shows the hourglass and queues a
- * start that runs when the recorder has exited (a second press cancels that). A live
- * recorder the panel did not start, found at a press, is stopped and reported, and the
- * start waits for it to exit.
+ * start that runs when the recorder has exited (a second press cancels that).
+ *
+ * A live recorder the panel did not start (one recording across a screen lock, which
+ * disables and re-enables the extension) is looked for when the panel is created and at
+ * each press. While it lives the icon is UNOWNED, never ready; a press only stops it.
+ *
+ * A recorder's exit and its last signal can reach the panel in either order, so an exit
+ * with no ending state yet is judged only after EXIT_SETTLE_MS.
  *
  * No GNOME imports: the spawn, signals, PID file, timers and the icon are handed in, so
  * every decision is tested under Node (tests/extensions/test-stt-panel-session.mjs).
@@ -26,11 +31,15 @@ export const LAUNCH_SAFETY_MS = 10000;
 export const ENDING_DISPLAY_MS = 2000;
 /** How often a start waiting for a recorder the panel did not start looks again. */
 export const UNOWNED_POLL_MS = 250;
+/** How long after a recorder's exit its last signal may still arrive. */
+export const EXIT_SETTLE_MS = 500;
 
 /** States that end a recorder's session; nothing it sends after one is taken. */
 const ENDING = ['SUCCESS', 'ERROR', 'IDLE'];
 /** States in which the microphone is not open yet: a press cancels the start. */
 const STARTING = ['LAUNCHING', 'WAITING', 'PREPARING'];
+/** Starting states in which batch and pre-buffer recorders already capture: a press stops. */
+const CAPTURING = ['PREPARING'];
 /** States in which the microphone is open: a press stops (graced, then at once). */
 const MIC_OPEN = ['RECORDING', 'STOPPING'];
 
@@ -52,10 +61,17 @@ export class PanelSession {
 
         this._session = null;   // the recorder the panel follows, until it has finished
         this._queued = null;    // a start waiting for a recorder to exit
+        this._unowned = null;   // a live recorder the panel did not start, while it lives
         this._ending = null;    // SUCCESS or ERROR while it is on display
         this._displayTimer = null;
         this._shown = null;
         this._destroyed = false;
+        const stranger = this._readRecorderPid();
+        if (stranger !== null) {
+            this._log(`A recorder the panel did not start is running (PID ${stranger}); ` +
+                'Insert stops it');
+            this._watchUnowned(stranger);
+        }
         this._render();
     }
 
@@ -79,7 +95,11 @@ export class PanelSession {
         }
         const session = this._session;
         if (!session) {
-            this._startWhenReady(launch);
+            const stranger = this._readRecorderPid();
+            if (stranger !== null)
+                this._stopUnowned(stranger);
+            else
+                this._start(launch);
             return;
         }
         if (session.launch.kind === 'article' && !session.ended) {
@@ -89,8 +109,10 @@ export class PanelSession {
         const state = session.ended ? 'ENDED' : session.state;
         if (STARTING.includes(state)) {
             session.cancelled = true;
+            session.pressedAs = CAPTURING.includes(state) ? 'STOPPING' : 'CANCELLING';
             this._log(`Insert while ${state}: cancelling the start (TERM to ${session.pid})`);
             this._kill(session.pid, 'TERM');
+            this._render();
         } else if (MIC_OPEN.includes(state)) {
             this._log(`Insert while ${state}: stop (TERM to ${session.pid})`);
             this._kill(session.pid, 'TERM');
@@ -117,7 +139,7 @@ export class PanelSession {
 
     /** The menu's Create Article: only while the panel is ready. */
     article(launch) {
-        if (this._session || this._queued) {
+        if (this._session || this._queued || this._unowned) {
             this._log(`Create Article refused: the panel is busy (${this._shown})`);
             this._notify('Finish the current dictation before starting an article');
             return;
@@ -131,6 +153,9 @@ export class PanelSession {
         if (!session)
             return false;
         this._settleLaunch(session);
+        session.pressedAs = null;
+        if (!STARTING.includes(state))
+            session.cancelled = false;   // the start was under way before the press
         if (ENDING.includes(state)) {
             session.ended = state;
             if (state !== 'IDLE')
@@ -160,6 +185,9 @@ export class PanelSession {
      * recorder's exit can still be delivered). The recorder runs on. */
     destroy() {
         this._settleLaunch(this._session);
+        this._clearExitSettle(this._session);
+        this._clearUnownedPoll();
+        this._unowned = null;
         this._clearQueuedPoll();
         this._queued = null;
         this._clearEndingDisplay();
@@ -206,8 +234,8 @@ export class PanelSession {
         this._clearEndingDisplay();
         const token = this._newToken();
         const session = {
-            token, launch, pid: null, state: 'LAUNCHING', ended: null,
-            exited: false, cancelled: false, aborted: false, safetyTimer: null,
+            token, launch, pid: null, state: 'LAUNCHING', ended: null, pressedAs: null,
+            exited: false, cancelled: false, aborted: false, safetyTimer: null, settleTimer: null,
         };
         this._session = session;
         try {
@@ -267,18 +295,37 @@ export class PanelSession {
         }
         if (session.cancelled || session.aborted) {
             this._log(`Recorder ${session.pid} ended (${how}) as asked`);
-        } else {
+            this._finish(session);
+            return;
+        }
+        // Its last signal may still be on its way: the D-Bus message and the exit are
+        // delivered separately
+        this._log(`Recorder ${session.pid} exited (${how}) while ${session.state}; ` +
+            `waiting ${EXIT_SETTLE_MS} ms for its last signal`);
+        session.settleTimer = this._addTimeout(EXIT_SETTLE_MS, () => {
+            session.settleTimer = null;
+            if (session !== this._session || session.ended)
+                return false;
             const when = session.state === 'LAUNCHING'
                 ? 'before it started; its error is in the session journal'
                 : `while ${session.state}, without saying how the dictation ended`;
             this._reportError(`The recorder ended (${how}) ${when}`);
+            this._finish(session);
+            return false;
+        });
+    }
+
+    _clearExitSettle(session) {
+        if (session?.settleTimer) {
+            this._removeTimeout(session.settleTimer);
+            session.settleTimer = null;
         }
-        this._finish(session);
     }
 
     /** The session is over: the panel is ready, and a start queued behind it runs. */
     _finish(session) {
         this._settleLaunch(session);
+        this._clearExitSettle(session);
         if (this._session === session)
             this._session = null;
         const queued = this._queued;
@@ -292,16 +339,61 @@ export class PanelSession {
     }
 
     _stopArticle(session) {
-        const pid = session.state === 'LAUNCHING' ? session.pid : this._readRecorderPid();
+        // A launcher that handed off has exited: its PID is free for reuse, never signalled
+        const launcherAlive = session.state === 'LAUNCHING' && !session.exited;
+        const pid = launcherAlive ? session.pid : this._readRecorderPid();
         if (pid === null) {
             this._log('Insert during an article: no live article recorder to stop yet');
             this._notify('The article recorder is not running yet; press Insert again in a moment');
             return;
         }
-        if (session.state === 'LAUNCHING')
+        if (launcherAlive)
             session.cancelled = true;
         this._log(`Insert during an article: stopping it (TERM to ${pid})`);
         this._kill(pid, 'TERM');
+    }
+
+    /** A press on a recorder the panel did not start: stop it (INT keeps its text) and
+     * follow it until it exits. The press starts nothing. */
+    _stopUnowned(pid) {
+        const message = `A recording the panel did not start was running (PID ${pid}). ` +
+            'It was stopped; press Insert again to record once the icon is ready.';
+        this._log(message);
+        this._notify(message);
+        this._kill(pid, 'INT');
+        if (this._unowned?.pid !== pid)
+            this._watchUnowned(pid);
+        this._render();
+    }
+
+    _watchUnowned(pid) {
+        this._clearUnownedPoll();
+        this._unowned = {pid, pollTimer: null};
+        this._pollUnowned();
+    }
+
+    _pollUnowned() {
+        const unowned = this._unowned;
+        unowned.pollTimer = this._addTimeout(UNOWNED_POLL_MS, () => {
+            unowned.pollTimer = null;
+            if (this._unowned !== unowned)
+                return false;
+            if (this._isAlive(unowned.pid)) {
+                this._pollUnowned();
+                return false;
+            }
+            this._log(`Recorder ${unowned.pid}, which the panel did not start, has exited`);
+            this._unowned = null;
+            this._render();
+            return false;
+        });
+    }
+
+    _clearUnownedPoll() {
+        if (this._unowned?.pollTimer) {
+            this._removeTimeout(this._unowned.pollTimer);
+            this._unowned.pollTimer = null;
+        }
     }
 
     _queue(queued) {
@@ -370,12 +462,14 @@ export class PanelSession {
         if (this._queued) {
             display = 'QUEUED';
         } else if (session && !session.ended) {
-            display = session.state;
+            display = session.pressedAs ?? session.state;
             launch = session.launch;
         } else if (session) {
             // Ended, but the recorder is still exiting: never the ready icon
             display = this._ending ?? 'FINISHING';
             launch = session.launch;
+        } else if (this._unowned) {
+            display = 'UNOWNED';
         } else {
             display = this._ending ?? 'IDLE';
         }
@@ -383,6 +477,7 @@ export class PanelSession {
             return;
         this._shown = display;
         this._shownKind = launch?.kind;
+        this._log(`Display: ${display}`);
         this._show(display, launch);
     }
 }

@@ -426,7 +426,16 @@ def desktop_notification(message, expire_ms):
     """Desktop notification with no state change (unless --no-notify was passed)."""
     if no_notify:
         return
+    show_notification(message, expire_ms)
 
+
+def urgent_notification(message):
+    """A notification that stays until dismissed and is shown even with notifications
+    turned off (--no-notify): for a dictation lost or cut short, which the user must see."""
+    show_notification(message, 0)
+
+
+def show_notification(message, expire_ms):
     try:
         subprocess.run([
             "gdbus", "call", "--session",
@@ -1161,6 +1170,18 @@ def relay_progress(progress):
         f"backlog={progress.get('backlog_seconds', 0):.0f} behind={behind}"))
 
 
+def microphone_shortfall(progress):
+    """What to tell the user when the microphone delivered under half the recording's
+    length (a Bluetooth headset that dropped out, say), or None. None too when the server
+    does not report audio_seconds, or the recording is under 2 s and too short to judge."""
+    elapsed = progress.get("elapsed_seconds") or 0
+    audio = progress.get("audio_seconds")
+    if audio is None or elapsed < 2 or audio >= elapsed / 2:
+        return None
+    return (f"The microphone delivered {audio:.1f} s of audio in {elapsed:.1f} s of recording. "
+            "Check the microphone (a Bluetooth headset can stop sending sound).")
+
+
 def report_preview_fallback(preview):
     """Standard streaming without a final transcription: the preview goes to the clipboard only.
 
@@ -1243,27 +1264,55 @@ def report_undelivered_dictation(handed):
     desktop_notification(message, 0)  # 0: stays until dismissed
 
 
-def start_recording_on_server(params):
+class StartCancel:
+    """Insert (TERM), Escape (USR1) or INT before the recording started cancels the start.
+
+    While no START can be in flight (the server still loading) the handler exits at once.
+    Once START may be in flight (`deferring`) it only records the signal: exiting then
+    would lose the reply, and a START the server had accepted would leave it recording
+    for no client. The caller checks `signum` once the reply is in, and ABORTs a START
+    the server accepted.
+    """
+
+    def __init__(self):
+        self.signum = None
+        self.deferring = False
+
+    def handler(self, signum, frame):
+        self.signum = signum
+        if not self.deferring:
+            raise SystemExit(1)  # runs atexit cleanup: our PID file removed, IDLE emitted
+
+    def install(self, signums=(signal.SIGINT, signal.SIGTERM, signal.SIGUSR1)):
+        for signum in signums:
+            signal.signal(signum, self.handler)
+
+
+def start_recording_on_server(params, cancel):
     """START, waiting while the server finishes the previous dictation; the last reply.
 
     A server still transcribing the last dictation refuses START with busy "finishing".
     An Insert is an intention to record, so the client waits (WAITING: the panel's
     hourglass) and starts as soon as the server is free, up to START_WAIT_SECONDS. Any
-    other refusal is returned at once. Insert or Escape meanwhile cancels the start (the
-    caller's abort handlers).
+    other refusal is returned at once, and so is any reply once `cancel` has a signal.
     """
     give_up_at = time.monotonic() + START_WAIT_SECONDS
     waiting = False
     while True:
         response = send_server_command("START", params)
-        if response.get("busy") != "finishing" or time.monotonic() >= give_up_at:
+        if (cancel.signum is not None or response.get("busy") != "finishing"
+                or time.monotonic() >= give_up_at):
             return response
         if not waiting:
             waiting = True
             log(f"The server is finishing the previous dictation; waiting up to "
                 f"{START_WAIT_SECONDS} s to start ({response.get('message')})")
             emit_dbus_signal("StateChanged", "WAITING")
-        time.sleep(START_RETRY_SECONDS)
+        retry_at = time.monotonic() + START_RETRY_SECONDS
+        while cancel.signum is None and time.monotonic() < retry_at:
+            time.sleep(0.02)
+        if cancel.signum is not None:
+            return response
 
 
 def report_refused_start(response):
@@ -1353,14 +1402,24 @@ def run_server_mode(args):
     # Insert for a recorder it did not start
     PID_FILE.write_text(str(os.getpid()))
 
-    def abort_startup(signum, frame):
-        # Insert (TERM) or Escape (USR1) while waiting for the server: cancel the start
-        log(f"Signal {signum} received before recording started, aborting")
-        raise SystemExit(1)  # runs atexit cleanup: our PID file removed, IDLE emitted
+    cancel = StartCancel()
+    cancel.install()
 
-    signal.signal(signal.SIGINT, abort_startup)
-    signal.signal(signal.SIGTERM, abort_startup)
-    signal.signal(signal.SIGUSR1, abort_startup)
+    def cancel_start(response):
+        """A signal arrived before the recording started: ABORT what the server started."""
+        nonlocal recording_active
+        log(f"Signal {cancel.signum} received before recording started, cancelling the start")
+        if response.get("status") != "recording":
+            return 1
+        reply = send_server_command("ABORT")
+        failed = reply.get("status") == "error"
+        # Still recording if the ABORT failed: the exit handler then sends ABORT again
+        recording_active, stop.discard = failed, True
+        if failed:
+            log(f"ABORT of the cancelled start failed ({reply}); retrying at exit", "ERROR")
+        else:
+            log(f"The server had started recording; aborted: {reply}")
+        return 1
 
     # Start server if not running (detached: it keeps loading if we are aborted). WAITING:
     # the panel shows the hourglass, the recording starts by itself once the server is up.
@@ -1382,12 +1441,16 @@ def run_server_mode(args):
 
     log("Server ready - instant recording startup!")
 
+    cancel.deferring = True
     response = start_recording_on_server({
-        "continuous": continuous, "max_seconds": max_seconds, "silence_seconds": silence_seconds})
+        "continuous": continuous, "max_seconds": max_seconds, "silence_seconds": silence_seconds},
+        cancel)
+    if cancel.signum is not None:
+        return cancel_start(response)
     if response.get("status") != "recording":
         report_refused_start(response)
         return 1
-    recording_active = True  # Mark as active for cleanup
+    recording_active = True  # START accepted: every exit now sends STOP or ABORT
 
     # From here a stop is a graceful request: the loop below sends STOP once it is due
     # (SIGTERM after the grace). SIGUSR1 is the extension's abort (Escape): ABORT the
@@ -1395,6 +1458,8 @@ def run_server_mode(args):
     # this client instead would leave the server recording until the KEEPALIVEs are
     # missed, refusing every START in the meantime.
     install_stop_handlers(stop, abort_on_usr1=True)
+    if cancel.signum is not None:  # arrived after the check above, before these handlers
+        return cancel_start(response)
 
     # Only now, with the microphone open: a RECORDING sent before START was the red icon
     # the panel showed for a START the server then refused
@@ -1501,10 +1566,25 @@ def run_server_mode(args):
         log(note, "WARN")
         desktop_notification(note, expiry)
 
+    shortfall = microphone_shortfall(progress)
+    if not text and shortfall:
+        message = f"Nothing was transcribed. {shortfall}"
+        log(message, "ERROR")
+        print(f"wsi-stream: {message}", file=sys.stderr)
+        emit_dbus_text("Error", f"Nothing transcribed: the microphone delivered "
+                                f"{progress['audio_seconds']:.1f} s of audio in "
+                                f"{progress['elapsed_seconds']:.1f} s")
+        emit_dbus_signal("StateChanged", "ERROR")
+        urgent_notification(message)
+        return 1
     if not text:
         log("No speech detected", "WARN")
+        emit_dbus_text("Error", "No speech detected")
         notify("ERROR", "No speech detected")
         return 1
+    if shortfall:
+        log(f"Part of the dictation may be missing. {shortfall}", "WARN")
+        urgent_notification(f"Part of this dictation may be missing. {shortfall}")
 
     # Chunks already pasted: what is left goes out at stop (the server's text, before the
     # capitalisation and marker below, which the first chunk carried)

@@ -143,11 +143,6 @@ def request_stop(signum, frame):
     stop_requested = True
 
 
-def abort_startup(signum, frame):
-    log(f"Signal {signum} received during server startup, aborting")
-    raise SystemExit(1)  # the finally in run_article_mode removes the PID file and emits IDLE
-
-
 def describe_failure(progress, session_dir):
     """The message for a dictation that ended FAILED."""
     lines = [f"Article dictation failed: {progress.get('error') or 'unknown error'}",
@@ -187,8 +182,22 @@ def run_article_mode(args):
     last_flush = time.monotonic()
 
     PID_FILE.write_text(str(os.getpid()))
-    signal.signal(signal.SIGINT, abort_startup)
-    signal.signal(signal.SIGTERM, abort_startup)
+    # A stop before the dictation started cancels it; the finally below removes the PID
+    # file and emits IDLE
+    cancel = stream.StartCancel()
+    cancel.install((signal.SIGINT, signal.SIGTERM))
+
+    def cancel_start(response):
+        """A stop arrived before the dictation started: ABORT what the server started."""
+        nonlocal recording_active
+        log(f"Signal {cancel.signum} received before the dictation started, cancelling it")
+        if response.get("status") == "recording":
+            reply = stream.send_server_command("ABORT")
+            # Still recording if the ABORT failed: the finally sends STOP
+            recording_active = reply.get("status") == "error"
+            log(f"The server had started recording; ABORT answered {reply}",
+                "ERROR" if recording_active else "INFO")
+        return 1
 
     try:
         language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
@@ -208,16 +217,22 @@ def run_article_mode(args):
         ARTICLE_BUFFER_FILE.write_text("")
         ARTICLE_TRIGGER_FILE.unlink(missing_ok=True)
 
-        # Waits while the server finishes the last dictation; a stop meanwhile cancels
-        # the start (abort_startup is still the handler)
+        # Waits while the server finishes the last dictation; a stop meanwhile, or while
+        # START is in flight, cancels the start
+        cancel.deferring = True
         response = stream.start_recording_on_server({
-            "continuous": True, "max_seconds": max_seconds, "silence_seconds": silence_seconds})
+            "continuous": True, "max_seconds": max_seconds, "silence_seconds": silence_seconds},
+            cancel)
+        if cancel.signum is not None:
+            return cancel_start(response)
         if response.get("status") != "recording":
             fail(f"Failed to start the dictation: {response.get('message', response)}")
             return 1
         recording_active = True
         signal.signal(signal.SIGINT, request_stop)
         signal.signal(signal.SIGTERM, request_stop)
+        if cancel.signum is not None:  # arrived after the check above, before these handlers
+            return cancel_start(response)
         session_dir = response.get("session_dir")
         journal = Path(session_dir) / "journal.jsonl"
         ARTICLE_RECORDING_ACTIVE_FILE.write_text(str(os.getpid()))

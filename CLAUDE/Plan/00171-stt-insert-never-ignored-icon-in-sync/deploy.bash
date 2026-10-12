@@ -6,15 +6,20 @@
 #   wsi-article-window) and the server (wsi-stream-server), which now tag every D-Bus signal
 #   with the panel's session token, send nothing after SUCCESS or ERROR, remove the shared
 #   PID file only when it names them, and (server mode) announce RECORDING only once the
-#   server has accepted START; and the panel extension (extension.js, the new
-#   panelSession.js and its bundled hourglass icon), which follows one recorder by its
-#   token and queues a press made while the last dictation is still finishing. A changed
-#   wsi-stream restarts the warm speech server (the play's handler).
+#   server has accepted START, and ABORT a START an Insert or Escape cancelled while it was
+#   in flight; the server reports how much audio the microphone delivered, and a dictation
+#   whose microphone fell short says so (always shown, even with notifications off); and
+#   the panel extension (extension.js, the new panelSession.js, panelLook.js and the
+#   bundled hourglass icon), which follows one recorder by its token, queues a press made
+#   while the last dictation is still finishing, never shows ready over a live recorder,
+#   starts recorders in their own process group, and shows the recording badge red. A
+#   changed wsi-stream restarts the warm speech server (the play's handler).
 #
 # The extension changed, so a LOGOUT is needed before its code runs (Wayland). This script
 # therefore does not end with acceptance.bash (R9): log out and back in, play the sequence
-# acceptance.bash names, then run it. Until the logout the old panel runs with the new
-# recorders, which still works: the state is the signals' first argument, as before.
+# acceptance.bash names, then run it. Do not dictate between the deploy and the logout:
+# the old panel with the new recorders is an untested pairing (the new recorders send no
+# IDLE after a result, and the old panel does not know WAITING).
 #
 # Usage: ./deploy.bash [--check] [-y|--yes] [-h|--help]
 set -euo pipefail
@@ -66,6 +71,7 @@ if [[ "${PLAN_CHECK}" == "1" ]]; then
     printf 'Dry run (--check): nothing was deployed, so there is nothing for acceptance.bash to judge.\n'
 else
     printf 'Deploy done. The recorders take effect at once; the panel only after a LOGOUT.\n'
+    printf 'Do not dictate before the logout (old panel + new recorders is untested).\n'
     printf 'Next:\n'
     printf '  1. Log out and back in.\n'
     printf '  2. Turn on Debug Logging (panel menu), then play the sequence:\n'

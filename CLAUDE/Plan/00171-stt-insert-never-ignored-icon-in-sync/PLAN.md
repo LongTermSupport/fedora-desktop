@@ -1,6 +1,6 @@
 # Plan 00171: Speech-to-text: Insert is never ignored, the icon is always in sync
 
-**Status**: In Progress (Phases 2 and 3 built and tested; deploy and host acceptance pending)
+**Status**: In Progress (Phases 2, 3 and 5 built and tested; deploy and host acceptance pending)
 **Created**: 2026-10-12
 **Owner**: joseph
 **Priority**: High
@@ -129,7 +129,48 @@ The owner's requirements:
   `acceptance.bash`) and the host run.
 - [x] ✅ **Task 4.2**: Docs: the Insert table in `docs/features/speech-to-text.md`.
 - [ ] 🔄 **Task 4.3**: `./scripts/qa-all.bash`, ESLint for the extension, then the
-  `qa-reviewer` agent over the plan's diff.
+  `qa-reviewer` agent over the plan's diff. Targeted gates pass (`test-panel-sections.bash`,
+  `test-wsi-stop-grace.bash`, ESLint, `qa-bash`, `qa-python`, `qa-js`, `qa-patterns`,
+  `qa-docs`, the speech-to-text rule gates, `--syntax-check` of the play); the full
+  `qa-all.bash` is the coordinator's.
+
+### Phase 5: The microphone, and the review's fixes (tests first)
+
+- [x] ✅ **Task 5.1 — A dictation the microphone starved is reported.** The owner's case: a
+  24 s dictation whose Bluetooth microphone delivered 0.55 s of audio showed "No speech
+  detected" for a moment, then the green badge, and the dictation was lost. The server's
+  progress now carries `audio_seconds`; `wsi-stream` (server mode) calls a microphone that
+  delivered under half the recording's length (2 s or longer) short. No text and short:
+  ERROR, an `Error` signal for the menu, and a notification that stays and is shown even
+  with notifications off (Decision 6). No text, microphone fine: "No speech detected", now
+  also in the menu. Text and short: pasted, with the same lasting warning that part may be
+  missing.
+- [x] ✅ **Task 5.2 — Green only means SUCCESS.** The recording badge was green; it is red
+  like the recording microphone (amber when behind or near the limit), and so is the
+  article badge. The look of every state is `panelLook.js`, tested by
+  `test-stt-panel-look.mjs`.
+- [x] ✅ **Task 5.3 — A cancelled START cannot leave the server recording.** An Insert or
+  Escape while START was in flight raised at once, so a START the server accepted had no
+  client. The signal is now only recorded while START may be in flight (`StartCancel`), a
+  START the server accepted is ABORTed, and RECORDING is never announced for it; same in
+  `wsi-article`.
+- [x] ✅ **Task 5.4 — The exit and the last signal in either order.** An exit seen before
+  the recorder's last SUCCESS or ERROR waits `EXIT_SETTLE_MS` for it, so no false error
+  and no dropped result.
+- [x] ✅ **Task 5.5 — Never ready over a live recorder after a screen lock.** GNOME disables
+  extensions at the lock and enables them at the unlock, so a dictation running across it
+  outlives its panel. The panel reads the PID file when it starts, shows UNOWNED (red
+  record dot) and polls; a press on a recorder it did not start only stops it (Decision 7).
+- [x] ✅ **Task 5.6 — Every press visible, every look distinct.** A start queued or waited
+  for is a purple hourglass, the last dictation finishing an orange one; Insert cancelling
+  a start shows a grey crossed-out microphone (PREPARING: the stop look, since batch and
+  pre-buffer already capture). Insert after a handed-off article launch signals the
+  article recorder, never the launcher's freed PID.
+- [x] ✅ **Task 5.7 — Escape kills the process group.** Recorders start through `setsid`
+  (which execs, so the PID is still the recorder's) and Escape kills the group, taking a
+  batch recorder's pw-record with it; the global `pkill -f pw-record` is gone.
+- [x] ✅ **Task 5.8 — The icon is in the log.** Every change logs `Display: <state>`, and
+  `probe-insert-sequence.py` fails on a `Display: IDLE` while dictation B records.
 
 ## Technical Decisions
 
@@ -183,8 +224,29 @@ client waits by itself for a server still transcribing an earlier dictation: the
 now says `busy: "finishing"`, the client shows WAITING (the hourglass) and starts as
 soon as the server is free, up to 300 s. A server that is recording someone else's
 dictation (`busy: "recording"`) is an ERROR at once. A live recorder the panel did not
-start is stopped with SIGINT (it keeps its text), reported, and waited for. An article's
+start is stopped with SIGINT (it keeps its text) and reported; a queued start waits for
+it, a fresh press starts nothing (Decision 7). An article's
 session ends at its own last signal, since its window stays open for polishing.
+**Date**: 2026-10-12
+
+### Decision 6: A starved microphone is always reported; green means SUCCESS only
+
+**Context**: The owner lost a dictation to a Bluetooth microphone that delivered 0.55 s of
+audio in 24 s, and saw only the green recording badge.
+**Decision** (owner): a dictation with no text whose microphone fell short is an ERROR
+whose notification is shown even with notifications turned off. The recording badge is
+red, matching the recording microphone, so green only ever means SUCCESS. The warning for
+a short microphone that still produced text is shown the same way, since a warning
+hidden by the default setting (notifications off) would not be seen.
+**Date**: 2026-10-12
+
+### Decision 7: A press on a recorder the panel did not start only stops it
+
+**Context**: After a screen lock the panel is new and the recorder is not its own.
+**Decision**: The panel shows that recorder (UNOWNED) instead of the ready icon, and a
+press stops it (SIGINT, which keeps its text) and starts nothing: the owner who pressed
+Insert over a recording meant "stop". A start already queued behind the panel's own
+recorder still stops such a recorder and waits for it.
 **Date**: 2026-10-12
 
 ## Success Criteria

@@ -23,7 +23,8 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
-import { spawnWatched } from './recorderLaunch.js';
+import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
+import { lookFor, recordingBadgeColor, articleBadgeColor, COLOURS } from './panelLook.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -53,10 +54,6 @@ const COUNTDOWN_LAST_SECONDS = 60;
 const RECORDER_PID_FILE = `/dev/shm/stt-recording-${GLib.get_user_name()}.pid`;
 // A PID file naming a process that is not one of the recorders is stale (a reused PID)
 const RECORDER_CMDLINE = /\/wsi(-stream|-article)?(\0|$)/;
-// Signals the panel sends a recorder
-const RECORDER_SIGNALS = ['TERM', 'INT', 'USR1', 'KILL'];
-// The panel's states that show the hourglass: please wait, the press was taken
-const HOURGLASS_STATES = ['LAUNCHING', 'QUEUED', 'WAITING', 'FINISHING'];
 
 export default class SpeechToTextExtension extends Extension {
     constructor(metadata) {
@@ -675,26 +672,16 @@ export default class SpeechToTextExtension extends Extension {
             return;
         }
 
-        if (HOURGLASS_STATES.includes(state)) {
-            // The press was taken: not ready to record yet, the start runs by itself
-            this._stopCountdown();
-            this._removeAbortKeybinding();
+        // The icon and its colour for every state are panelLook.js's
+        const look = lookFor(state);
+        if (look.icon === 'hourglass')
             this._icon.gicon = this._hourglassIcon;
-            this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
-            return;
-        }
+        else
+            this._icon.icon_name = look.icon;
+        this._icon.style = look.colour ? `color: ${look.colour};` : '';
 
         switch (state) {
-            case 'PREPARING':
-                // Orange mic while the recorder loads (pre-buffer mode is already capturing)
-                this._stopCountdown();
-                this._removeAbortKeybinding();
-                this._icon.icon_name = 'audio-input-microphone-symbolic';
-                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
-                break;
             case 'RECORDING':
-                this._icon.icon_name = 'audio-input-microphone-symbolic';
-                this._icon.style = 'color: #ff4444;';  // Red
                 this._startCountdown();
                 this._addAbortKeybinding();  // Enable Escape key during recording
                 break;
@@ -703,21 +690,10 @@ export default class SpeechToTextExtension extends Extension {
                 // the icon already shows the press was taken. Escape still discards and
                 // Insert again stops at once.
                 this._stopCountdown();
-                this._icon.icon_name = 'content-loading-symbolic';
-                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
-                break;
-            case 'TRANSCRIBING':
-                this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key when transcribing
-                // Change icon to spinner/hourglass for transcribing
-                this._icon.icon_name = 'content-loading-symbolic';
-                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
                 break;
             case 'SUCCESS':
                 this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key when done
-                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
-                this._icon.style = 'color: #44ff44;';  // Green, until panelSession.js shows IDLE
+                this._removeAbortKeybinding();
                 // When auto-paste is OFF the transcript only lands in the PRIMARY
                 // selection — there is no visible feedback that it's ready. Show
                 // a one-shot notification so the user knows to middle-click.
@@ -726,19 +702,15 @@ export default class SpeechToTextExtension extends Extension {
                     Main.notify('Speech to Text', 'Transcribed — middle-click to paste');
                 }
                 break;
-            case 'ERROR':
-                this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key on error
-                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
-                this._icon.style = 'color: #ff4444;';  // Red, until panelSession.js shows IDLE
-                break;
             case 'IDLE':
-            default:
                 this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key when idle
+                this._removeAbortKeybinding();
                 this._elapsedSeconds = 0;
-                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
-                this._icon.style = '';  // Default
+                break;
+            default:
+                // Every other state: no microphone the panel can discard, no countdown
+                this._stopCountdown();
+                this._removeAbortKeybinding();
                 break;
         }
     }
@@ -783,9 +755,10 @@ export default class SpeechToTextExtension extends Extension {
             return;
         }
         this._stopFlashing();
-        // Amber: transcription is falling behind, or the last 10 s of the maximum length
-        const amber = this._dictationBehind || (left !== null && left <= 10);
-        this._countdownLabel.style = `color: white; font-weight: bold; font-size: 13px; background-color: ${amber ? '#ffaa00' : '#44ff44'}; padding: 2px 4px; border-radius: 3px;`;
+        // Red like the recording mic; amber when transcription is falling behind or in the
+        // last 10 s of the maximum length. Never green: green means SUCCESS.
+        const colour = recordingBadgeColor({behind: this._dictationBehind, secondsLeft: left});
+        this._countdownLabel.style = `color: white; font-weight: bold; font-size: 13px; background-color: ${colour}; padding: 2px 4px; border-radius: 3px;`;
     }
 
     /** Continuous dictation: streaming, server startup mode, and the setting on. */
@@ -853,10 +826,10 @@ export default class SpeechToTextExtension extends Extension {
 
             if (this._flashState) {
                 // Red background, white text
-                this._countdownLabel.style = 'color: white; font-weight: bold; font-size: 13px; background-color: #ff4444; padding: 2px 4px; border-radius: 3px;';
+                this._countdownLabel.style = `color: white; font-weight: bold; font-size: 13px; background-color: ${COLOURS.red}; padding: 2px 4px; border-radius: 3px;`;
             } else {
                 // White background, red text
-                this._countdownLabel.style = 'color: #ff4444; font-weight: bold; font-size: 13px; background-color: white; padding: 2px 4px; border-radius: 3px;';
+                this._countdownLabel.style = `color: ${COLOURS.red}; font-weight: bold; font-size: 13px; background-color: white; padding: 2px 4px; border-radius: 3px;`;
             }
 
             return GLib.SOURCE_CONTINUE;
@@ -1044,7 +1017,7 @@ export default class SpeechToTextExtension extends Extension {
         this._countdownLabel = new St.Label({
             text: `ART ${spinnerChars[0]}`,
             y_align: 2,  // Clutter.ActorAlign.CENTER
-            style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
+            style: `color: white; font-weight: bold; font-size: 13px; background-color: ${articleBadgeColor()}; padding: 2px 4px; border-radius: 3px;`
         });
         this._indicator.add_child(this._countdownLabel);
 
@@ -1124,25 +1097,19 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    /** Send `signalName` to recorder `pid`. */
-    _signalProcess(pid, signalName) {
-        if (!/^[0-9]+$/.test(String(pid)) || !RECORDER_SIGNALS.includes(signalName))
-            throw new Error(`refusing to send "${signalName}" to "${pid}"`);
-        this._log(`kill -${signalName} ${pid}`);
-        GLib.spawn_command_line_async(`kill -${signalName} ${pid}`);
+    /** Send `signalName` to recorder `pid`, or to its whole process group with `group`. */
+    _signalProcess(pid, signalName, group = false) {
+        const argv = killArgv(pid, signalName, group);
+        this._log(argv.join(' '));
+        GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
     }
 
-    /** Escape: throw the dictation away. In server mode the audio is the warm server's,
-     * so the recorder is asked (USR1) to ABORT it; otherwise the recorder is killed with
-     * its pw-record, before anything is transcribed. */
+    /** Escape: throw the dictation away (recorderLaunch.js discardSignal says how). */
     _discardRecording(pid, launch) {
-        if (launch.serverMode) {
-            this._signalProcess(pid, 'USR1');
+        const {signal, group} = discardSignal(launch);
+        this._signalProcess(pid, signal, group);
+        if (launch.serverMode)
             return;
-        }
-        this._signalProcess(pid, 'KILL');
-        // batch wsi records with pw-record into its wfile; a killed parent leaves it running
-        GLib.spawn_command_line_async('pkill --signal KILL -f "pw-record.*wfile"');
         // A killed recorder cannot remove its own PID file
         if (this._readPidFile() === String(pid)) {
             Gio.File.new_for_path(RECORDER_PID_FILE).delete(null);
@@ -1403,29 +1370,9 @@ export default class SpeechToTextExtension extends Extension {
         }
         this._statusLabel.label.text = statusText;
 
-        // Color-code based on state
-        switch (state) {
-            case 'RECORDING':
-                this._statusLabel.label.style = 'font-weight: bold; color: #ff4444;';
-                break;
-            case 'LAUNCHING':
-            case 'QUEUED':
-            case 'WAITING':
-            case 'FINISHING':
-            case 'PREPARING':
-            case 'STOPPING':
-            case 'TRANSCRIBING':
-                this._statusLabel.label.style = 'font-weight: bold; color: #ffaa00;';
-                break;
-            case 'SUCCESS':
-                this._statusLabel.label.style = 'font-weight: bold; color: #44ff44;';
-                break;
-            case 'ERROR':
-                this._statusLabel.label.style = 'font-weight: bold; color: #ff4444;';
-                break;
-            default:
-                this._statusLabel.label.style = 'font-weight: bold;';
-        }
+        // The colour the icon has in this state
+        const {colour} = lookFor(state);
+        this._statusLabel.label.style = `font-weight: bold;${colour ? ` color: ${colour};` : ''}`;
     }
 
     _openLogViewer() {

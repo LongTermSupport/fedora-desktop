@@ -86,6 +86,7 @@ class ClientCase(unittest.TestCase):
         self.tokens = []
         self.notes = []
         self.note_expiry = []
+        self.urgent = []
         self.clipboard = []
         self.pasted = []
         self.registered = []
@@ -107,6 +108,7 @@ class ClientCase(unittest.TestCase):
             send_dbus_signal=sent,
             desktop_notification=lambda message, ms: (self.notes.append(message),
                                                       self.note_expiry.append((message, ms))),
+            urgent_notification=self.urgent.append,
             copy_to_clipboard=lambda text, use_clipboard=False: self.clipboard.append(text) or True,
             auto_paste=lambda text, **kw: self.pasted.append(text) or True)
         patches.start()
@@ -122,13 +124,13 @@ class ClientCase(unittest.TestCase):
         self.addCleanup(self.server.close)
 
     def run_client(self, signal_after=None, signum=signal.SIGTERM, auto_paste=False, timeout=120,
-                   wrap_marker=False):
+                   wrap_marker=False, no_notify=False):
         if signal_after is not None:
             timer = threading.Timer(signal_after, os.kill, args=(os.getpid(), signum))
             timer.start()
             self.addCleanup(timer.cancel)
         args = argparse.Namespace(
-            debug=False, no_notify=False, language="en", timeout=timeout, claude_process=False,
+            debug=False, no_notify=no_notify, language="en", timeout=timeout, claude_process=False,
             wrap_marker=wrap_marker, auto_paste=auto_paste, no_auto_enter=True, paste_with_shift=1,
             clipboard=True)
         rc = wsi_stream.run_server_mode(args)
@@ -574,20 +576,53 @@ class SessionOwnershipTest(ClientCase):
     def test_insert_while_waiting_for_the_server_cancels_the_start(self):
         self.serve(lambda command, params: {"status": "error", "busy": "finishing",
                                             "message": "still finishing"})
-        timer = threading.Timer(0.3, os.kill, args=(os.getpid(), signal.SIGTERM))
-        timer.start()
-        self.addCleanup(timer.cancel)
-        args = argparse.Namespace(
-            debug=False, no_notify=False, language="en", timeout=120, claude_process=False,
-            wrap_marker=False, auto_paste=False, no_auto_enter=True, paste_with_shift=1,
-            clipboard=True)
-        with self.assertRaises(SystemExit):
-            wsi_stream.run_server_mode(args)
-        for cleanup in self.registered:
-            cleanup()
+        self.assertEqual(self.run_client(signal_after=0.3), 1)
         self.assertNotIn("RECORDING", self.states())
         self.assertEqual(self.states()[-1], "IDLE", self.states())
         self.assertNotIn("STOP", self.server.commands(), "nothing was recording to stop")
+        self.assertNotIn("ABORT", self.server.commands(), "nothing was recording to abort")
+
+    def slow_start_accepted(self, delay=0.4):
+        """A server that takes `delay` to answer START, then starts recording."""
+        base = scripted([RECORDING], [DONE])
+
+        def answer(command, params):
+            if command == "START":
+                threading.Event().wait(delay)
+            return base(command, params)
+
+        self.serve(answer)
+
+    def test_insert_while_start_is_in_flight_aborts_what_the_server_started(self):
+        self.slow_start_accepted()
+        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT"],
+                         "the server was left recording for no client")
+        self.assertNotIn("RECORDING", self.states())
+        self.assertEqual(self.states()[-1], "IDLE", self.states())
+
+    def test_escape_while_start_is_in_flight_aborts_what_the_server_started(self):
+        self.slow_start_accepted()
+        self.assertEqual(self.run_client(signal_after=0.1, signum=signal.SIGUSR1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT"])
+        self.assertNotIn("RECORDING", self.states())
+
+    def test_a_cancel_whose_abort_fails_is_retried_at_exit(self):
+        base = scripted([RECORDING], [DONE])
+        aborts = []
+
+        def answer(command, params):
+            if command == "START":
+                threading.Event().wait(0.4)
+            if command == "ABORT":
+                aborts.append(True)
+                if len(aborts) == 1:
+                    return {"status": "error", "message": "ABORT: timed out"}
+            return base(command, params)
+
+        self.serve(answer)
+        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT", "ABORT"])
 
     def test_a_server_still_finishing_after_the_wait_is_an_error(self):
         self.serve(lambda command, params: {"status": "error", "busy": "finishing",
@@ -632,6 +667,81 @@ class SessionOwnershipTest(ClientCase):
                                   ["wsi-stream", "--server-mode", "--session-token", "session-B"]):
             self.assertEqual(wsi_stream.main(), 0)
         self.assertEqual(seen, ["session-B"])
+
+
+SHORT_MIC = {"elapsed_seconds": 24.0, "audio_seconds": 0.6}
+
+
+class MicrophoneShortfallTest(ClientCase):
+    """The incident: a 24 s dictation whose Bluetooth microphone delivered 0.55 s of audio
+    showed "No speech detected" for a moment, then the green badge; the dictation was lost
+    and nothing said why. The server reports audio_seconds; a microphone that delivered
+    under half the recording's length is reported, loudly when nothing came of it."""
+
+    def test_the_shortfall_rule(self):
+        shortfall = wsi_stream.microphone_shortfall
+        self.assertIsNone(shortfall({"elapsed_seconds": 24.0}), "an older server says nothing")
+        self.assertIsNone(shortfall({"elapsed_seconds": 24.0, "audio_seconds": 23.9}))
+        self.assertIsNone(shortfall({"elapsed_seconds": 1.5, "audio_seconds": 0.0}),
+                          "too short to judge")
+        self.assertIsNone(shortfall({"elapsed_seconds": 10.0, "audio_seconds": 5.0}))
+        message = shortfall(SHORT_MIC)
+        self.assertIn("0.6 s", message)
+        self.assertIn("24.0 s", message)
+        self.assertIn("microphone", message)
+
+    def test_no_text_from_a_short_microphone_is_an_error_shown_with_notifications_off(self):
+        self.serve(scripted([RECORDING], [dict(DONE, transcription="", **SHORT_MIC)]))
+        rc = self.run_client(signal_after=0.3, auto_paste=True, no_notify=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+        errors = [value for name, value in self.signals if name == "Error"]
+        self.assertTrue(errors and "microphone" in errors[0], self.signals)
+        self.assertEqual(len(self.urgent), 1, self.urgent)
+        self.assertIn("0.6 s", self.urgent[0])
+        self.assertEqual(self.pasted, [])
+
+    def test_no_text_from_a_working_microphone_is_no_speech_in_the_menu_too(self):
+        self.serve(scripted([RECORDING], [dict(DONE, transcription="", elapsed_seconds=10.0,
+                                                audio_seconds=10.0)]))
+        self.assertEqual(self.run_client(signal_after=0.3), 1)
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+        self.assertIn(("Error", "'No speech detected'"), self.signals)
+        self.assertEqual(self.urgent, [])
+
+    def test_text_from_a_short_microphone_is_pasted_with_a_lasting_warning(self):
+        self.serve(scripted([RECORDING], [dict(DONE, **SHORT_MIC)]))
+        rc = self.run_client(signal_after=0.3, auto_paste=True, no_notify=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.pasted, ["Hello there world"])
+        self.assertEqual(self.states()[-1], "SUCCESS")
+        self.assertEqual(len(self.urgent), 1, self.urgent)
+        self.assertIn("may be missing", self.urgent[0])
+
+
+class UrgentNotificationTest(unittest.TestCase):
+    """A notification the user must see is shown even with notifications turned off."""
+
+    def sent(self, no_notify, show):
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            return wsi_stream.subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        with mock.patch.object(wsi_stream.subprocess, "run", run), \
+                mock.patch.object(wsi_stream, "no_notify", no_notify):
+            show("the microphone delivered nothing")
+        return calls
+
+    def test_urgent_ignores_notifications_off_and_stays(self):
+        calls = self.sent(True, wsi_stream.urgent_notification)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("the microphone delivered nothing", calls[0])
+        self.assertEqual(calls[0][-1], "0", "an urgent notification stays until dismissed")
+
+    def test_an_ordinary_notification_respects_notifications_off(self):
+        self.assertEqual(self.sent(True, lambda m: wsi_stream.desktop_notification(m, 0)), [])
 
 
 class SignalSenderTest(unittest.TestCase):

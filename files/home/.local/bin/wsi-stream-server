@@ -642,6 +642,7 @@ class DictationSession:
                 "status": self._status_locked(),
                 "continuous": self._continuous,
                 "elapsed_seconds": round(end - self._started_at, 1) if self._started_at else 0,
+                "audio_seconds": round(self.captured_bytes / (SAMPLE_RATE * 2), 1),
                 "segments_committed": self._transcript.committed_count,
                 "segments_pending": self._pending,
                 "backlog_seconds": round(self._backlog, 1),

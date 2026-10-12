@@ -263,7 +263,8 @@ journalctl --user -u wsi-stream-server-at-login.service -b --no-pager | cat
 
 ### Recording Limits
 
-Each mode stops itself; the panel shows the elapsed time (`1:42`).
+Each mode stops itself; the panel shows the elapsed time (`1:42`) on a red badge, red
+like the recording microphone (green only ever means a delivered result).
 
 | Mode                                 | Stops at                                                                     |
 | ------------------------------------ | ---------------------------------------------------------------------------- |
@@ -425,20 +426,23 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 
 Every press does something you can see. Ctrl+Insert and Alt+Insert follow the same rules.
 
-| The icon shows                                                 | Insert                                                                | Escape                 |
-| -------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------- |
-| Ready (default colour, or the green/red of the last one)       | Starts a recording (the hourglass shows until the microphone is open) | Nothing                |
-| Hourglass: starting, or waiting for the server                 | Cancels the start                                                     | Nothing                |
-| Orange: preparing                                              | Cancels the start (pre-buffer mode transcribes what it already heard) | Nothing                |
-| Red: recording                                                 | Stops, after the [stop grace](#stop-grace)                            | Discards the dictation |
-| Orange "…": the stop grace (microphone still open)             | Stops at once                                                         | Discards the dictation |
-| Orange "…" transcribing, or the last result still being pasted | Hourglass: the next recording starts as soon as this one has finished | Nothing                |
-| Hourglass after such a press                                   | Cancels that queued start                                             | Nothing                |
+| The icon shows                                                    | Insert                                                                       | Escape                 |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------- |
+| Ready (default colour, or the green/red of the last one)          | Starts a recording (the purple hourglass shows until the microphone is open) | Nothing                |
+| Purple hourglass: starting, or waiting for the server             | Cancels the start (grey crossed-out microphone until it has stopped)         | Nothing                |
+| Orange microphone: preparing (batch and pre-buffer are capturing) | Stops; what was already heard is transcribed                                 | Nothing                |
+| Red badge with the time: recording                                | Stops, after the [stop grace](#stop-grace)                                   | Discards the dictation |
+| Orange "…": the stop grace (microphone still open)                | Stops at once                                                                | Discards the dictation |
+| Orange "…" transcribing, or orange hourglass: finishing           | Purple hourglass: the next recording starts as soon as this one has finished | Nothing                |
+| Purple hourglass after such a press                               | Cancels that queued start                                                    | Nothing                |
+| Red record dot: a recording the panel did not start               | Stops it (and starts nothing; press again once the icon is ready)            | Nothing                |
 
-If a recorder the panel did not start is still recording when you press Insert (one left
-over from before a logout, for instance), it is stopped, a notification says so, and
-your recording starts once it has finished. In server mode, a press while the server is
-still transcribing the previous dictation waits (hourglass) and records as soon as the
+A recording the panel did not start is one that outlived its panel: GNOME turns
+extensions off while the screen is locked, so a dictation still running when you unlock
+has lost the panel that started it. The panel looks for one when it starts and at each
+press, shows the red record dot instead of the ready icon while it runs, and a press
+stops it, with a notification. In server mode, a press while the server is still
+transcribing the previous dictation waits (purple hourglass) and records as soon as the
 server is free; a start the server refuses for another reason turns the icon red for two
 seconds and the menu shows why (the server's log, `server.log`, names every refusal).
 
@@ -645,15 +649,18 @@ The extension icon indicates current status:
 The panel shows a single microphone icon whose **colour** carries the state (it swaps to
 a loading icon while transcribing):
 
-| Appearance           | Status      | Meaning                                                        |
-| -------------------- | ----------- | -------------------------------------------------------------- |
-| Default colour       | Idle        | Ready: Insert starts a recording                               |
-| Orange hourglass     | Please wait | The press was taken; the recording starts by itself once ready |
-| Orange               | Preparing   | Starting up                                                    |
-| Red                  | Recording   | Listening to your voice (Insert to stop)                       |
-| Orange, loading icon | Processing  | Transcribing audio                                             |
-| Green (2 seconds)    | Success     | Transcription delivered                                        |
-| Red (2 seconds)      | Error       | The panel menu says why; check the debug log                   |
+| Appearance                      | Status      | Meaning                                                          |
+| ------------------------------- | ----------- | ---------------------------------------------------------------- |
+| Default colour                  | Idle        | Ready: Insert starts a recording                                 |
+| Purple hourglass                | Please wait | The press was taken; the recording starts by itself once ready   |
+| Orange hourglass                | Finishing   | The last dictation is still finishing; Insert queues the next    |
+| Grey crossed-out microphone     | Cancelling  | Insert cancelled a start; ready once the recorder has stopped    |
+| Orange                          | Preparing   | Starting up                                                      |
+| Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind      |
+| Red record dot                  | Not ours    | A recording the panel did not start is running (Insert stops it) |
+| Orange, loading icon            | Processing  | Transcribing audio                                               |
+| Green (2 seconds)               | Success     | Transcription delivered (the only green)                         |
+| Red microphone (2 seconds)      | Error       | The panel menu says why; check the debug log                     |
 
 The ready icon is shown only when no recorder the panel started is still running, so a
 press on it always starts a recording. In Claude post-processing modes the panel
@@ -777,6 +784,14 @@ The playbook configures ydotool as a system service with world-writable socket (
 ### No Speech Detected
 
 **Symptom**: "No speech detected" error after recording
+
+In server mode the server counts the audio the microphone actually delivered. When that
+is under half the recording's length (a recording of at least 2 s), the microphone is
+named as the cause instead: with no text, the icon turns red, the menu says how many
+seconds of audio arrived, and a notification stays until dismissed, **even with
+notifications turned off**. With some text, it is pasted and the same lasting
+notification warns that part of the dictation may be missing. A Bluetooth headset that
+stops sending sound is the usual cause.
 
 **Possible causes:**
 
