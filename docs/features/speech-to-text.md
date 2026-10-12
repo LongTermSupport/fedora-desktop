@@ -421,6 +421,27 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 | **Ctrl+Insert** | Record with corporate processing | 🤖 Claude corporate mode    |
 | **Alt+Insert**  | Record with natural processing   | 💬 Claude natural mode      |
 
+### What Insert Does
+
+Every press does something you can see. Ctrl+Insert and Alt+Insert follow the same rules.
+
+| The icon shows                                                 | Insert                                                                | Escape                 |
+| -------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------- |
+| Ready (default colour, or the green/red of the last one)       | Starts a recording (the hourglass shows until the microphone is open) | Nothing                |
+| Hourglass: starting, or waiting for the server                 | Cancels the start                                                     | Nothing                |
+| Orange: preparing                                              | Cancels the start (pre-buffer mode transcribes what it already heard) | Nothing                |
+| Red: recording                                                 | Stops, after the [stop grace](#stop-grace)                            | Discards the dictation |
+| Orange "…": the stop grace (microphone still open)             | Stops at once                                                         | Discards the dictation |
+| Orange "…" transcribing, or the last result still being pasted | Hourglass: the next recording starts as soon as this one has finished | Nothing                |
+| Hourglass after such a press                                   | Cancels that queued start                                             | Nothing                |
+
+If a recorder the panel did not start is still recording when you press Insert (one left
+over from before a logout, for instance), it is stopped, a notification says so, and
+your recording starts once it has finished. In server mode, a press while the server is
+still transcribing the previous dictation waits (hourglass) and records as soon as the
+server is free; a start the server refuses for another reason turns the icon red for two
+seconds and the menu shows why (the server's log, `server.log`, names every refusal).
+
 ### Extension Menu
 
 Click the extension icon in the top bar to access:
@@ -624,20 +645,19 @@ The extension icon indicates current status:
 The panel shows a single microphone icon whose **colour** carries the state (it swaps to
 a loading icon while transcribing):
 
-| Appearance           | Status     | Meaning                                  |
-| -------------------- | ---------- | ---------------------------------------- |
-| Default colour       | Idle       | Ready                                    |
-| Orange               | Preparing  | Starting up                              |
-| Red                  | Recording  | Listening to your voice (Insert to stop) |
-| Orange, loading icon | Processing | Transcribing audio                       |
-| Green (2 seconds)    | Success    | Transcription delivered                  |
-| Red (2 seconds)      | Error      | Check the debug log                      |
+| Appearance           | Status      | Meaning                                                        |
+| -------------------- | ----------- | -------------------------------------------------------------- |
+| Default colour       | Idle        | Ready: Insert starts a recording                               |
+| Orange hourglass     | Please wait | The press was taken; the recording starts by itself once ready |
+| Orange               | Preparing   | Starting up                                                    |
+| Red                  | Recording   | Listening to your voice (Insert to stop)                       |
+| Orange, loading icon | Processing  | Transcribing audio                                             |
+| Green (2 seconds)    | Success     | Transcription delivered                                        |
+| Red (2 seconds)      | Error       | The panel menu says why; check the debug log                   |
 
-In Claude post-processing modes the panel **label** is additionally prefixed with
-`🤖 REC` (corporate) or `💬 REC` (natural).
-| ✅ | Success | Transcription complete |
-| ⚠️ | Error | Something went wrong (check logs) |
-| ⏸️ | Idle | Ready for next recording |
+The ready icon is shown only when no recorder the panel started is still running, so a
+press on it always starts a recording. In Claude post-processing modes the panel
+**label** is additionally prefixed with 🤖 (corporate) or 💬 (natural).
 
 **Desktop notifications** also show:
 

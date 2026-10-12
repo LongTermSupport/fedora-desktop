@@ -346,7 +346,9 @@
         - extension.js
         - focusOutline.js
         - pasteTarget.js
+        - panelSession.js
         - recorderLaunch.js
+        - stt-hourglass-symbolic.svg
         - prefs.js
         - metadata.json
 
