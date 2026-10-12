@@ -4,7 +4,7 @@ Run from the repo root:
 
     python3 -m unittest tests.helpers.pingbus.test_cli
 
-Spec: docs/agent-bus-protocol.md §7 (agent text to humans), §9 (on send; on receive;
+Spec: docs/agent-bus-protocol.md §7 (agent text), §9 (on send; on receive;
 reading the inbox: `recv` and `wait` re-fetch before printing), §10 (the shared send
 bucket, TIMEOUT), §12 (multi-team, the lock), §13 (the commands), §14 (exit codes) and
 §15 (output lines). Plan 00161's DESIGN.md section 12 row U11.

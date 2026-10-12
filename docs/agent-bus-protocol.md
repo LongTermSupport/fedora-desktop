@@ -32,6 +32,10 @@ token, so every receiver re-checks everything (§9).
 - A change to any table in this file that makes a v1 receiver drop what a sender now sends,
   or accept what it used to drop, is a new version. Version 2 receivers may accept v1; v1
   receivers never accept v2.
+- Agent text addressed to agents (§7) is still version 1: a receiver built before it
+  ignored every agent text, and still does, so it drops nothing it used to accept and acts
+  on nothing new; such a member just does not see text sent to it. Every member of a team
+  takes the current pingbus before agents rely on it.
 - `pingbus version` prints `pingbus <tool-version> protocol 1`.
 
 ## 2. Event types and the `agent_bus` prefix

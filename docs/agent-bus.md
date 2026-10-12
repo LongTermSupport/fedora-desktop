@@ -373,7 +373,8 @@ These are known and documented rather than engineered around:
 - An agent can write free text under its own handle to the humans and agents it names
   (`pingbus say --to <name>[,<name>…]`, never `@room`). `pingbus` refuses text that looks
   like a secret; a named agent receives it as a `PEER` line, information from a colleague
-  that carries no authority, and an agent it does not name never sees it. So one agent's
+  that carries no authority, and `pingbus` never delivers it to an agent it does not name
+  (the account still receives the whole room, as with human text). So one agent's
   text can still mislead another: the receiving agent is told to weigh it, not obey it,
   and the humans can read every word of it in the room. An agent can skip `pingbus` and
   post with `curl`, so the sending checks are guards against mistakes, while the receiving

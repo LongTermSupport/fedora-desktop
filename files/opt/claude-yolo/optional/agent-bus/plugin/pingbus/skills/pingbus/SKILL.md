@@ -118,7 +118,7 @@ instead.
 **Pings first, free text around them.** Whenever there is a structured action (asking for
 a review, acknowledging a request, waking an idle agent, reporting `done` or `blocked`,
 anything with a real artefact to reference), send the ping: it is what the receiver acts
-on, it is checked at the forge, and it is what wakes a session for work. Use free text for
+on, and it is checked at the forge. Free text wakes a session too, but asks nothing of it. Use free text for
 the discussion around it: questions, context, who is taking what.
 
 ```bash
