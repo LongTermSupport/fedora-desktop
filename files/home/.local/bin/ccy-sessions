@@ -76,6 +76,8 @@
 # ccy session, on the host otherwise (set_route). A live session whose project has no
 # daemon CLI, or one that cannot run, is a refusal: every such session is named, nothing is
 # signalled, and reboot reboots nothing. Exit 64 for a usage mistake, 1 for a refusal.
+# A ccy session with no container (still at ccy's startup prompts) is not a live session
+# for this purpose: it is named on stderr and left out, never a refusal.
 #
 # The daemon's two warning texts differ in what an agent does next — carry on because it
 # will be restored, or wind down and hand off because it will not — so `going-down` (and
@@ -214,27 +216,6 @@ session_containers() {
     ccy_session_containers "${panes}" "${processes}"
 }
 
-# project_containers — "<dir>\t<engine>\t<container>" for each live project that has a ccy
-# session with a container, the first such session's.
-project_containers() {
-    local listing containers name attached dir engine container
-    local -A dir_of=() taken=()
-    listing="$(ccy_tmux_list)" || return 1
-    while read -r name attached dir; do
-        [[ -n "${name}" && -n "${dir}" ]] && dir_of["${name}"]="${dir}"
-    done <<<"${listing}"
-    if ! containers="$(session_containers)"; then
-        return 1
-    fi
-    while read -r name engine container; do
-        [[ -n "${name}" && "${container}" != "-" && -n "${dir_of[${name}]:-}" ]] || continue
-        dir="${dir_of[${name}]}"
-        [[ -z "${taken[${dir}]:-}" ]] || continue
-        taken["${dir}"]=1
-        printf '%s\t%s\t%s\n' "${dir}" "${engine}" "${container}"
-    done <<<"${containers}"
-}
-
 # A project's daemon is reached where its venv is. For a project with a ccy session that is
 # inside the container: most projects run only ccy, and their daemon has no venv on the
 # host at all. A project with only cc sessions is reached on the host. A signal is a file in
@@ -270,41 +251,58 @@ PROJECTS=()
 # warning) a CLI that cannot run where its session is reached. Every session that cannot be
 # warned is listed, with what to do about it, not just the first one met. Fills PROJECTS and
 # the routes. Reports go to stderr.
+#
+# A ccy session with no container is not a live agent: it is still at ccy's startup prompts
+# (or its container has exited), so there is nothing in it to warn, and its project's daemon
+# is not running anywhere it could be reached. It is named and left out — never a refusal.
 check_projects() {
     local kind="${1}"
-    local listing name attached dir
-    local -a missing=() broken=()
-    local -A sessions_of=() probe_of=()
+    local listing containers name attached dir engine container
+    local -a missing=() broken=() idle=()
+    local -A sessions_of=() probe_of=() engine_of=() container_of=()
     PROJECTS=()
+    ROUTE_ENGINE=()
+    ROUTE_CONTAINER=()
     # Read whole first: a listing that failed inside a process substitution would read as
     # "no sessions", after which a reboot would proceed with every session unwarned.
     if ! listing="$(ccy_tmux_list)"; then
         print_error "the live session list could not be read, so nothing is signalled and nothing may reboot."
         return 1
     fi
+    [[ -n "${listing}" ]] || return 0
+    if ! containers="$(session_containers)"; then
+        print_error "the live sessions could not be matched to their containers, so nothing is signalled and nothing may reboot."
+        return 1
+    fi
+    while read -r name engine container; do
+        [[ -n "${name}" && "${container}" != "-" ]] || continue
+        engine_of["${name}"]="${engine}"
+        container_of["${name}"]="${container}"
+    done <<<"${containers}"
+
     while read -r name attached dir; do
         [[ -n "${name}" && -n "${dir}" ]] || continue
+        if [[ "${name}" == ccy-* && -z "${container_of[${name}]:-}" ]]; then
+            idle+=("  ${name}  in ${dir}")
+            continue
+        fi
         if [[ -z "${sessions_of[${dir}]+set}" ]]; then
             PROJECTS+=("${dir}")
             sessions_of["${dir}"]="${name}"
         else
             sessions_of["${dir}"]+=$'\n'"${name}"
         fi
+        # A project with a ccy session is reached in the first such session's container.
+        if [[ -n "${container_of[${name}]:-}" && -z "${ROUTE_CONTAINER[${dir}]:-}" ]]; then
+            ROUTE_ENGINE["${dir}"]="${engine_of[${name}]}"
+            ROUTE_CONTAINER["${dir}"]="${container_of[${name}]}"
+        fi
     done <<<"${listing}"
-    [[ "${#PROJECTS[@]}" -gt 0 ]] || return 0
-
-    local routes route_dir route_engine route_container
-    if ! routes="$(project_containers)"; then
-        print_error "the live sessions could not be matched to their containers, so nothing is signalled and nothing may reboot."
-        return 1
+    if [[ "${#idle[@]}" -gt 0 ]]; then
+        echo "Left out: these ccy sessions have no container (still at ccy's startup prompts), so there is nothing in them to warn:" >&2
+        printf '%s\n' "${idle[@]}" >&2
     fi
-    ROUTE_ENGINE=()
-    ROUTE_CONTAINER=()
-    while IFS=$'\t' read -r route_dir route_engine route_container; do
-        [[ -n "${route_dir}" ]] || continue
-        ROUTE_ENGINE["${route_dir}"]="${route_engine}"
-        ROUTE_CONTAINER["${route_dir}"]="${route_container}"
-    done <<<"${routes}"
+    [[ "${#PROJECTS[@]}" -gt 0 ]] || return 0
 
     local probe_out
     for dir in "${PROJECTS[@]}"; do
@@ -358,7 +356,7 @@ deliver_signal() {
     local kind="${1}" minutes="${2}" dry_run="${3}" dir failed=false
     local -a cli_args=(signal "${kind}")
     if [[ "${#PROJECTS[@]}" -eq 0 ]]; then
-        echo "No CCY or cc sessions are running; nothing to signal." >&2
+        echo "No CCY or cc sessions need warning; nothing to signal." >&2
         printf '0\n'
         return 0
     fi

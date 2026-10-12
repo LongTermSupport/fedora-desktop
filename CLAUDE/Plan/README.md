@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - In Progress. A ccy session still at its startup prompts (no container) made `shutdown-with-update` refuse before updating. Container-less ccy sessions are now left out of every warning, and on a desktop (the recorded `provisioning_profile`) the update and the power action always happen, bounded and past inhibitors; a server or `--strict-sessions` stays session-strict. Awaiting deploy.
+
 - [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - Not Started. With a Bluetooth headset chosen as GNOME's input, dictation still recorded from the laptop microphone: PipeWire's default source never became the headset, and the headset stayed in A2DP (no microphone). Triage why GNOME and PipeWire disagree, fix it in `play-hd-audio.yml` (dictation keeps following the system input), then measure the headset's level and add gain only if needed.
 
 - [00171-stt-insert-never-ignored-icon-in-sync](00171-stt-insert-never-ignored-icon-in-sync/) - Not Started (owner decisions D1 to D3). Insert was swallowed and the panel showed idle over a live dictation: an old client's untagged IDLE signals and its unconditional PID-file delete hijacked the new client's state. Session-tokened signals, own-PID-only cleanup, a visible rejected START, lifelong liveness reconciliation, a "blocked" icon for presses while finishing.
