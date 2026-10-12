@@ -451,20 +451,20 @@ u23_ping() {
 }
 
 # u23_sample_bus_sockets <port> <file> — every 0.2 s, for at most 400 s (the join, the
-# 180 s wait and the acks fit inside it), this host's TCP sockets towards the bus port with
-# their owning process where ss can name one (a closed, TIME-WAIT socket has none; it is
-# kept for its 60 s, so a short connection is still caught). Ended by u23_vm_check's kill.
+# 180 s wait and the acks fit inside it), both ends of this host's TCP connections on the
+# bus port. A closed connection keeps a TIME-WAIT for 60 s on whichever end closed first,
+# so sampling both ends catches even a short one. Ended by u23_vm_check's kill.
 u23_sample_bus_sockets() {
     local port="$1" out="$2" i
     for ((i = 0; i < 2000; i++)); do
-        ss -tnpH state all "( dport = :${port} )" >>"${out}" || return 1
+        ss -tnH state all "( dport = :${port} or sport = :${port} )" >>"${out}" || return 1
         sleep 0.2
     done
 }
 
 # u23_vm_check — the vm member's join and ping, with the evidence for README.vm's passt
-# route recorded either way: the source address of each connection passt made to the bus
-# port, which must be the bus address. A failed join then says whether the route was why.
+# route recorded either way: the client address of each connection to the bus port, among
+# which the bus address must be (passt's). A failed join then says whether the route was why.
 u23_vm_check() {
     local port sampler status=0 sampled=0 samples="${MEMBER_DIR}/vm/bus-sockets.txt" sources
     port="$("${CHECK[@]}" team-port "${TEAM_FILE}")" || return 1
@@ -480,8 +480,8 @@ u23_vm_check() {
         printf '[FAIL] sampling the sockets towards the bus port failed (%s)\n' "${sampled}" >&2
         return 1
     fi
-    printf '==> the vm member'\''s connections to port %s, as this host saw them (state, source):\n' "${port}"
-    if ! sources="$("${CHECK[@]}" passt-sources "${BUS_ADDRESS}" "${samples}")"; then
+    printf '==> connections to port %s while the vm member ran, as this host saw them (state, client):\n' "${port}"
+    if ! sources="$("${CHECK[@]}" passt-sources "${BUS_ADDRESS}" "${port}" "${samples}")"; then
         printf '%s\n' "${sources}"
         return 1
     fi

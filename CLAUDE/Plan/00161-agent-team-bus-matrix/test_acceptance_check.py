@@ -355,60 +355,66 @@ class U23SuggestedArgsTest(unittest.TestCase):
 
 BUS = "203.0.113.9"
 SS_SAMPLES = (
-    # The vm member's passt socket in its connect, then established, then closed (TIME-WAIT
-    # has no owner); a host member's over loopback, owned and closed; another process's.
-    f"SYN-SENT 0 1 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
-    f"ESTAB 0 0 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
-    f"ESTAB 0 0 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
-    f"TIME-WAIT 0 0 {BUS}:51234 {BUS}:45001\n"
-    "ESTAB 0 0 127.0.0.1:40000 127.0.0.1:45001 users:((\"python3\",pid=99,fd=3))\n"
+    # Both ends of the bus port (dport and sport). The guest through passt connects, is
+    # accepted, and the homeserver closes first (its side keeps the TIME-WAIT); the host
+    # member over loopback closes first (its side keeps it); an LXC member's accepted socket.
+    f"SYN-SENT 0 1 {BUS}:51234 {BUS}:45001\n"
+    f"ESTAB 0 0 {BUS}:45001 {BUS}:51234\n"
+    f"TIME-WAIT 0 0 {BUS}:45001 {BUS}:51234\n"
+    f"TIME-WAIT 0 0 {BUS}:45001 {BUS}:51234\n"
     "TIME-WAIT 0 0 127.0.0.1:40000 127.0.0.1:45001\n"
-    f"ESTAB 0 0 {BUS}:40001 {BUS}:45001 users:((\"python3\",pid=99,fd=4))\n"
+    "ESTAB 0 0 127.0.0.1:45001 127.0.0.1:40002\n"
+    f"ESTAB 0 0 {BUS}:45001 198.51.100.57:41000\n"
+    f"LISTEN 0 4096 {BUS}:45001 0.0.0.0:*\n"
 )
 
 
 class U23PasstSourcesTest(unittest.TestCase):
-    def test_each_guest_socket_state_and_source_is_listed_once_in_order(self) -> None:
-        self.assertEqual(ac.passt_sources(SS_SAMPLES), [("SYN-SENT", BUS), ("ESTAB", BUS), ("TIME-WAIT", BUS)])
+    def test_each_client_end_state_and_address_is_listed_once_in_order(self) -> None:
+        self.assertEqual(ac.passt_sources(SS_SAMPLES, 45001),
+                         [("SYN-SENT", BUS), ("ESTAB", BUS), ("TIME-WAIT", BUS), ("ESTAB", "198.51.100.57")])
 
-    def test_a_closed_guest_connection_alone_is_seen(self) -> None:
-        # The run of 2026-10-12: the guest's one connection was only ever sampled closed.
-        text = f"TIME-WAIT 0 0 {BUS}:37494 {BUS}:45001\nTIME-WAIT 0 0 127.0.0.1:40142 127.0.0.1:45001\n"
-        self.assertEqual(ac.passt_sources(text), [("TIME-WAIT", BUS)])
+    def test_a_connection_the_homeserver_closed_is_seen_from_its_end(self) -> None:
+        # The second run of 2026-10-12 sampled only the client end and saw nothing of the guest.
+        text = f"TIME-WAIT 0 0 {BUS}:45001 {BUS}:37494\nTIME-WAIT 0 0 127.0.0.1:39400 127.0.0.1:45001\n"
+        self.assertEqual(ac.passt_sources(text, 45001), [("TIME-WAIT", BUS)])
 
-    def test_a_netid_column_and_an_ipv6_source_are_read(self) -> None:
-        text = 'tcp ESTAB 0 0 [2001:db8::5]:51234 [2001:db8::9]:45001 users:(("passt",pid=1,fd=4))\n'
-        self.assertEqual(ac.passt_sources(text), [("ESTAB", "2001:db8::5")])
+    def test_a_connection_the_guest_closed_is_seen_from_its_end(self) -> None:
+        # The first run of 2026-10-12: passt's end in TIME-WAIT, with no owner.
+        text = f"TIME-WAIT 0 0 {BUS}:37494 {BUS}:45001\n"
+        self.assertEqual(ac.passt_sources(text, 45001), [("TIME-WAIT", BUS)])
 
-    def test_sources_from_the_bus_address_pass(self) -> None:
-        self.assertEqual(ac.passt_problems(ac.passt_sources(SS_SAMPLES), BUS), [])
+    def test_a_netid_column_and_ipv6_are_read(self) -> None:
+        text = "tcp ESTAB 0 0 [2001:db8::9]:45001 [2001:db8::5]:51234\n"
+        self.assertEqual(ac.passt_sources(text, 45001), [("ESTAB", "2001:db8::5")])
 
-    def test_no_guest_socket_is_a_problem_naming_the_route(self) -> None:
-        problems = ac.passt_problems(ac.passt_sources(SS_SAMPLES.split("\n", 4)[4]), BUS)
+    def test_a_connection_from_the_bus_address_passes(self) -> None:
+        self.assertEqual(ac.passt_problems(ac.passt_sources(SS_SAMPLES, 45001), BUS), [])
+
+    def test_no_connection_from_the_bus_address_is_a_problem_naming_what_was_seen(self) -> None:
+        seen = ac.passt_sources("TIME-WAIT 0 0 127.0.0.1:40000 127.0.0.1:45001\n"
+                                f"ESTAB 0 0 {BUS}:45001 198.51.100.57:41000\n", 45001)
+        problems = ac.passt_problems(seen, BUS)
         self.assertEqual(len(problems), 1)
-        self.assertIn("no connection from the guest", problems[0])
-
-    def test_a_source_other_than_the_bus_address_is_named_with_allow_from(self) -> None:
-        text = 'SYN-SENT 0 1 198.51.100.7:51234 203.0.113.9:45001 users:(("passt",pid=1,fd=4))\n'
-        problems = ac.passt_problems(ac.passt_sources(text), BUS)
-        self.assertEqual(len(problems), 1)
-        self.assertIn("198.51.100.7", problems[0])
-        self.assertIn("allow_from", problems[0])
+        self.assertIn(f"no connection from {BUS}", problems[0])
+        self.assertIn("198.51.100.57", problems[0])
 
     def test_a_malformed_line_is_refused(self) -> None:
-        for text in ('ESTAB users:(("passt",pid=1,fd=4))\n', 'ESTAB 0 0 nope 203.0.113.9:1 users:(("passt",pid=1))\n'):
+        for text in ("ESTAB 0 0\n", "ESTAB 0 0 nope 203.0.113.9:1\n", "BOGUS 0 0 1.2.3.4:1 1.2.3.4:2\n"):
             with self.subTest(text=text), self.assertRaises(ValueError):
-                ac.passt_sources(text)
+                ac.passt_sources(text, 45001)
 
     def test_the_command_prints_state_tab_source_and_exits_with_the_verdict(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "bus-sockets.txt"
             path.write_text(SS_SAMPLES, encoding="utf-8")
-            status, out, _ = run_main("passt-sources", BUS, str(path))
-            self.assertEqual((status, out), (0, f"SYN-SENT\t{BUS}\nESTAB\t{BUS}\nTIME-WAIT\t{BUS}\n"))
-            status, out, err = run_main("passt-sources", "198.51.100.1", str(path))
+            status, out, _ = run_main("passt-sources", BUS, "45001", str(path))
+            self.assertEqual((status, out),
+                             (0, f"SYN-SENT\t{BUS}\nESTAB\t{BUS}\nTIME-WAIT\t{BUS}\nESTAB\t198.51.100.57\n"))
+            status, out, err = run_main("passt-sources", "198.51.100.1", "45001", str(path))
             self.assertEqual(status, 1)
-            self.assertIn("allow_from", err)
+            self.assertIn("no connection from 198.51.100.1", err)
+            self.assertEqual(run_main("passt-sources", BUS, "port", str(path))[0], 1)
 
     def test_team_port_prints_the_team_file_port(self) -> None:
         team = ac.team_file(TEAM, 45001, BUS, "tester", "example-org/project", "main",

@@ -29,8 +29,8 @@ payload; every reason goes to stderr):
   allow-from TEAM_FILE CIDR...       (U23) add each CIDR to the team file's allow_from, in place
   suggested-args OUT TYPE            (U23) `pingbus suggest-handle`'s line in OUT, one argument
                                      per line, when it names TYPE
-  passt-sources BUS_IP SS_FILE       (U23) "<state>\\t<source>" per passt socket in SS_FILE (ss
-                                     samples towards the bus port); FAIL unless each is BUS_IP
+  passt-sources BUS_IP PORT SS_FILE  (U23) "<state>\\t<client>" per non-loopback connection to PORT
+                                     in SS_FILE (ss samples of both ends); FAIL unless BUS_IP is one
   team-port TEAM_FILE                (U23) the team file's port
 
 REF and RE are "-" when absent, as on the wire (§15); FORGE_API "-" is pingbus's GitHub API. Exit codes: 0 ok; 1 an expectation
@@ -284,20 +284,25 @@ def with_allow_from(team: dict, cidrs: Sequence[str]) -> dict:
     return {**team, "allow_from": wanted}
 
 
-_PASST_PROCESS_RE = re.compile(r'users:\(\("passt[^"]*"')
-_OWNER_RE = re.compile(r"users:\(\(")
 _SS_STATES = frozenset({"ESTAB", "SYN-SENT", "SYN-RECV", "FIN-WAIT-1", "FIN-WAIT-2", "TIME-WAIT",
                         "CLOSE-WAIT", "LAST-ACK", "CLOSING", "CLOSED", "UNCONN", "LISTEN"})
 
 
-def passt_sources(text: str) -> list[tuple[str, str]]:
-    """Each (state, source address) of a socket that carried the guest towards the bus port,
-    once each, in the order first seen. `text` is samples of `ss -tnpH state all '( dport =
-    :<port> )'` taken while the vm member joined and pinged: passt carries the guest's
-    connections out through such sockets, so their local address is the source the
-    homeserver saw. A closed socket (TIME-WAIT) has no owner for ss to name, so a socket is
-    the guest's when passt owns it or nothing does; a loopback source is a host member's,
-    and a socket another process owns is skipped."""
+def _ss_endpoint(text: str, raw: str) -> tuple[str, int]:
+    host, _, port = text.rpartition(":")
+    if not port.isdigit():
+        raise ValueError(f"not an address:port in an ss line: {raw!r}")
+    return str(ipaddress.ip_address(host.removeprefix("[").removesuffix("]"))), int(port)
+
+
+def passt_sources(text: str, port: int) -> list[tuple[str, str]]:
+    """Each (state, client address) of a connection to the bus port, once each, in the order
+    first seen, loopback (the host member) left out. `text` is samples of `ss -tnH state all
+    '( dport = :<port> or sport = :<port> )'` taken while the vm member joined and pinged.
+    Both ends are sampled because a closed connection leaves its TIME-WAIT only on the end
+    that closed first: the homeserver's end (its peer is the client) or the client's (its
+    local address is). passt carries the guest out of this host's own namespace, so the
+    guest's client address is the source the homeserver saw."""
     seen: list[tuple[str, str]] = []
     for raw in text.splitlines():
         fields = raw.split()
@@ -305,29 +310,30 @@ def passt_sources(text: str) -> list[tuple[str, str]]:
             fields = fields[1:]
         if len(fields) < 5 or fields[0] not in _SS_STATES:
             raise ValueError(f"not an ss line of state, queues, local and peer: {raw!r}")
-        if _OWNER_RE.search(raw) and not _PASST_PROCESS_RE.search(raw):
+        if fields[0] == "LISTEN":
             continue
-        host = fields[3].rpartition(":")[0].removeprefix("[").removesuffix("]")
-        address = ipaddress.ip_address(host)
-        if address.is_loopback:
+        local, local_port = _ss_endpoint(fields[3], raw)
+        peer, _ = _ss_endpoint(fields[4], raw)
+        client = peer if local_port == port else local
+        if ipaddress.ip_address(client).is_loopback:
             continue
-        if (fields[0], str(address)) not in seen:
-            seen.append((fields[0], str(address)))
+        if (fields[0], client) not in seen:
+            seen.append((fields[0], client))
     return seen
 
 
 def passt_problems(seen: Sequence[tuple[str, str]], bus_address: str) -> list[str]:
-    """What the samples say against README.vm's passt route: the guest's connections leave
-    from the host itself, so the homeserver sees `bus_address`, a listen address it admits."""
-    if not seen:
-        return ["no connection from the guest to the bus port was seen on this host (none owned by passt or "
-                "closed, from outside loopback): it never reached it (its route out through passt, or "
-                "passt's SELinux policy)"]
+    """What the samples say against README.vm's passt route: the guest's connections reach
+    the homeserver from `bus_address`, a listen address it admits, so nothing joins
+    allow_from for it. Other members' addresses may be among them; they are listed, not
+    judged."""
     bus = str(ipaddress.ip_address(bus_address))
-    return [f"the passt guest's connection ({state}) left from {source}, not {bus}: the homeserver admits "
-            f"only loopback, its listen addresses and allow_from, so a passt guest would need {source}'s "
-            "network in allow_from, and README.vm's passt route is wrong"
-            for state, source in seen if source != bus]
+    if any(source == bus for _, source in seen):
+        return []
+    others = ", ".join(sorted({source for _, source in seen})) or "none"
+    return [f"no connection from {bus} to the bus port was seen on this host (other client addresses: "
+            f"{others}): the guest's route out through passt did not leave from the bus address, "
+            "or it never reached it"]
 
 
 def team_port(team: object) -> int:
@@ -411,13 +417,15 @@ COMMANDS = {
     "send-outcome": (2, lambda a: send_outcome(int(a[0]), _read(a[1]))),
     "host-subnet": (1, lambda a: print("\t".join(host_subnet(_json_stdin(), a[0])))),
     "suggested-args": (2, lambda a: print("\n".join(suggested_args(_read(a[0]), a[1])))),
-    "passt-sources": (2, lambda a: _passt_sources(a[0], a[1])),
+    "passt-sources": (3, lambda a: _passt_sources(a[0], a[1], a[2])),
     "team-port": (1, lambda a: print(team_port(json.loads(_read(a[0]))))),
 }
 
 
-def _passt_sources(bus_address: str, path: str) -> int:
-    seen = passt_sources(_read(path))
+def _passt_sources(bus_address: str, port: str, path: str) -> int:
+    if not port.isdigit():
+        raise ValueError(f"not a port: {port!r}")
+    seen = passt_sources(_read(path), int(port))
     for state, source in seen:
         print(f"{state}\t{source}")
     return _verdict(passt_problems(seen, bus_address))
