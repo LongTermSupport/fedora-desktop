@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.93.3"  # Token usage report and import cleanup, with the unmarked-packet GitHub probe (IPQoS=none). See docs/ccy-changelog.md.
+CCY_VERSION="3.94.0"  # A running session's restore mark can be changed (ccy-teams Ctrl-R). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

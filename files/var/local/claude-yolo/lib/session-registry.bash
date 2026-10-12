@@ -476,6 +476,46 @@ ccy_registry_record_compose() {
         "$outcome" "$name" >&2
 }
 
+# ccy_registry_set_restore <name> <yes|no> — whether session <name> is started again after a
+# reboot: the record's restore mark, what `--no-restore` sets at launch, changed while the
+# session runs (ccy-teams' Ctrl-R). Everything else in the record is kept. A session with no
+# record (one ccy did not start under tmux, or one that has ended) is a failure: there is
+# nothing to restore or keep out. A record that is gone by the time it would be rewritten
+# belongs to a session that ended meanwhile, and is not written back. The rewrite goes
+# through ccy_registry_write.
+ccy_registry_set_restore() {
+    local name="${1:?ccy_registry_set_restore requires a session name}"
+    local restore="${2:?ccy_registry_set_restore requires yes or no}"
+    local regdir file
+    case "$restore" in
+    yes | no) ;;
+    *)
+        print_error "restore must be yes or no, not '$restore'; session $name's record is unchanged."
+        return 1
+        ;;
+    esac
+    regdir=$(ccy_registry_dir) || return 1
+    file="$regdir/$name"
+    if [[ ! -e "$file" ]]; then
+        print_error "session $name has no record in $regdir: it has ended, or ccy did not start it under tmux, so there is no restore to change."
+        return 1
+    fi
+    if ! ccy_registry_read "$file"; then
+        print_error "the restore record of session $name could not be read, so whether it is restored cannot be changed."
+        return 1
+    fi
+    [[ -e "$file" ]] || {
+        print_error "session $name ended while its record was being changed; nothing was written."
+        return 1
+    }
+    ccy_registry_write --compose "$REC_COMPOSE" "$REC_NAME" "$REC_DIR" "$REC_LAUNCHER" "$REC_PREFIX" "$restore" "${REC_ARGS[@]}" || return 1
+    if [[ "$restore" == yes ]]; then
+        printf 'Session %s will be started again after a reboot.\n' "$name" >&2
+    else
+        printf 'Session %s will not be started again after a reboot.\n' "$name" >&2
+    fi
+}
+
 # ccy_registry_remove <name> — delete a session's record. An absent record is not an error:
 # the session may have been started before the registry existed.
 ccy_registry_remove() {

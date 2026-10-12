@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.94.0 — container 2.51
+
+- **A running session's restore mark can be changed.** `ccy_registry_set_restore` in
+  `lib/session-registry.bash` sets whether a session is started again after a reboot, the
+  mark `--no-restore` sets at launch, and keeps the rest of its record. `ccy-teams` uses it
+  for Ctrl-R. No rebuild.
+
 ## 3.93.3 — container 2.51
 
 - **3.93.2 and 3.91.3 in one launcher.** The token usage report and import cleanup, with
