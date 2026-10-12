@@ -409,28 +409,71 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
         self.assertIn("no DKMS subsystem", result.coverage.sentence())
         self.assertNotIn("compared", result.coverage.sentence())
 
-    def test_the_real_manifest_on_a_server_is_silent_and_says_nothing_applies(self) -> None:
+    def test_the_real_manifest_on_a_server_is_silent(self) -> None:
         """The host this plan's own Task 3.2 route built, which the fourth VM run of
         `server-host-health-kernel-change` caught speaking at a clean login. Driven by
-        the REAL manifest, because the state is a property of what it happens to track:
-        every tracked pin is DKMS-resolved."""
+        the REAL manifest and the REAL playbook text, because the state is a property
+        of what the repo happens to track, and a stand-in playbook reports "no var"
+        for every non-DKMS pin — a finding no real host produces.
+
+        The server is the stock one: no DKMS subsystem, no optional play in its ledger,
+        and none of the software an optional play installs. Every DKMS-resolved pin is
+        NOT APPLICABLE; every other tracked pin resolves ABSENT on a host that never ran
+        its play, which is silent. Fails the moment any tracked pin would speak there.
+        """
         pins = check_pins.declared_pins(REPO_ROOT)
         tracked = [candidate for candidate in pins if candidate.is_tracked]
         self.assertTrue(tracked, "the manifest tracks no pin, so this proves nothing")
-        self.assertTrue(
-            all(candidate.installed is not None
-                and candidate.installed.kind == manifest.DKMS
-                for candidate in tracked),
-            "a non-DKMS tracked pin would be compared here, so this host is no longer "
-            "one where nothing applies and this test asserts the wrong thing",
-        )
+        dkms_resolved = [candidate for candidate in tracked
+                         if candidate.installed.kind == manifest.DKMS]
+
+        def real_playbook(relative: str) -> str:
+            with open(os.path.join(REPO_ROOT, relative), encoding="utf-8") as handle:
+                return handle.read()
 
         result = check_pins.check_with_coverage(
-            pins=pins, playbook_text=lambda _: PLAYBOOK,
-            dkms_status=not_installed, registry=self.NO_SUBSYSTEM, ran_plays=set())
+            pins=pins, playbook_text=real_playbook,
+            dkms_status=not_installed, rpm_version=lambda _: None,
+            command_version=lambda _: None,
+            registry=self.NO_SUBSYSTEM, ran_plays=set())
         self.assertEqual(result.findings, [])
-        self.assertEqual(result.coverage.tracked, 0)
-        self.assertEqual(result.coverage.not_applicable, len(tracked))
+        self.assertEqual(result.coverage.not_applicable, len(dkms_resolved))
+        self.assertEqual(result.coverage.tracked, len(tracked) - len(dkms_resolved))
+        self.assertEqual(result.coverage.compared, result.coverage.tracked)
+        self.assertIsNone(check_pins.coverage_gap(result.coverage))
+
+    def test_an_absent_command_pin_on_a_server_that_never_ran_its_play_is_silent(
+            self) -> None:
+        """A `command`-kind pin beside a DKMS one, on the stock server. The command is
+        absent and its play is not in the ledger, so ABSENT is expected and silent —
+        but unlike the DKMS pin it was resolved, so it is COMPARED, not excluded, and
+        the coverage statement says both."""
+        command_pin = pin(playbook="playbooks/imports/optional/common/play-network-tools.yml",
+                          var="displaylink_version",
+                          installed={"kind": "command", "name": "speedtest"})
+        result = check_pins.check_with_coverage(
+            pins=[pin(), command_pin], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=not_installed, command_version=lambda _: None,
+            registry=self.NO_SUBSYSTEM, ran_plays=set())
+        self.assertEqual(result.findings, [])
+        self.assertEqual(
+            (result.coverage.tracked, result.coverage.compared,
+             result.coverage.not_applicable),
+            (1, 1, 1))
+        self.assertIsNone(check_pins.coverage_gap(result.coverage))
+
+    def test_an_absent_command_pin_on_a_host_that_ran_its_play_is_a_fault(self) -> None:
+        """The same absence after the play ran is software the repo installed and the
+        host lost — the ledger, not the pin's kind, decides."""
+        playbook = "playbooks/imports/optional/common/play-network-tools.yml"
+        command_pin = pin(playbook=playbook, var="displaylink_version",
+                          installed={"kind": "command", "name": "speedtest"})
+        findings = check_pins.check(
+            pins=[command_pin], playbook_text=lambda _: PLAYBOOK,
+            dkms_status=not_installed, command_version=lambda _: None,
+            registry=self.NO_SUBSYSTEM, ran_plays={playbook})
+        self.assertEqual(len(findings), 1)
+        self.assertIn("nothing installed", findings[0].text)
 
     def test_a_pin_that_does_apply_is_still_held_on_a_host_without_dkms(self) -> None:
         """Only the DKMS-resolved pin leaves the population. The rpm pin beside it is
@@ -593,6 +636,44 @@ class TestWhatThisHostKnowsAboutItself(unittest.TestCase):
             dkms_status=lambda: "", ran_plays=set(), registry=self.NO_SUBSYSTEM)
         self.assertEqual(len(findings), 1)
         self.assertIn("0 of 9", findings[0].text)
+
+
+#: `<command> --version` as measured from the pinned release, for every tracked
+#: `command`-kind pin. Measured, never typed from memory: the point is what the binary
+#: really prints, build number and all.
+RECORDED_COMMAND_OUTPUT: dict[str, str] = {}
+
+
+class TestTrackedCommandPinsMatchOnAHostThatHasThem(unittest.TestCase):
+    """A `command` resolver reads the first dotted number in `--version`. A tool whose
+    output carries more than its pin — Ookla's `speedtest` prints `1.2.0.84` for the
+    `1.2.0` release — classifies AHEAD on every host that installed exactly the pinned
+    release: a permanent false finding, which is what the manifest's header warns a
+    guessed resolver becomes. So a tracked command pin needs its real output recorded
+    above, and must MATCH its own pin against it."""
+
+    def test_every_tracked_command_pin_matches_its_recorded_output(self) -> None:
+        pins = check_pins.declared_pins(REPO_ROOT)
+        for candidate in pins:
+            if not candidate.is_tracked or candidate.installed.kind != manifest.COMMAND:
+                continue
+            with self.subTest(pin=candidate.var):
+                name = candidate.installed.name
+                self.assertIn(name, RECORDED_COMMAND_OUTPUT,
+                              f"record the measured `{name} --version` output first")
+                with open(os.path.join(REPO_ROOT, candidate.playbook),
+                          encoding="utf-8") as handle:
+                    pinned = check_pins.pinned_value(handle.read(), candidate.var)
+                verdict = check_pins.compare.classify(
+                    pinned=pinned, installed=RECORDED_COMMAND_OUTPUT[name])
+                self.assertTrue(verdict.is_clean, verdict.detail)
+
+    def test_a_build_number_beyond_the_pin_is_ahead(self) -> None:
+        """Why the speedtest pin is untracked, as measured from the 1.2.0 tarball."""
+        verdict = check_pins.compare.classify(
+            pinned="1.2.0",
+            installed="Speedtest by Ookla 1.2.0.84 (ea6b6773cf) Linux/x86_64-linux-musl")
+        self.assertEqual(verdict.state, check_pins.compare.AHEAD)
 
 
 class TestTheRealResolvers(unittest.TestCase):

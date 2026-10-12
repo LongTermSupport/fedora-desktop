@@ -80,8 +80,12 @@ version_pins:
       Ookla publishes the CLI as a tarball at install.speedtest.net, not on GitHub; check
       https://www.speedtest.net/apps/cli for a newer version and update the sha256 with it.
     installed:
-      kind: command
-      name: speedtest
+      kind: untracked
+      why: >-
+        `speedtest --version` prints a build number beyond the pin (`Speedtest by Ookla
+        1.2.0.84` for the 1.2.0 tarball, measured), so a command resolver classifies the
+        exact pinned release as AHEAD on every host that ran the play: a permanent false
+        finding. The play itself asserts the pin appears in that output at install time.
 
   - playbook: playbooks/imports/optional/common/play-photography.yml
     var: rapidraw_version
