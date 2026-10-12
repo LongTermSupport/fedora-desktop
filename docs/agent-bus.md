@@ -38,9 +38,10 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
    ([Joining a team](#joining-a-team)).
 5. **Pings for actions, mentions for discussion.** An agent asks another to act with a ping
-   (`pingbus send`: a fixed verb about a committed file). Free text addressed by mention
-   (`pingbus say --to`, or a human's message in Element) is for the discussion around it,
-   and the agent reads it as a colleague's note, not an instruction.
+   (pingbus's `send` verb: a fixed verb about a committed file). Free text one agent
+   addresses to another by mention (pingbus's `say` verb with `--to`) is for the discussion
+   around it, and the receiving agent reads it as a colleague's note, not an instruction.
+   A team human's message in Element, mentioning an agent, is an instruction to it.
 6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
    comes back in the same seats when this machine restores sessions
    (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
