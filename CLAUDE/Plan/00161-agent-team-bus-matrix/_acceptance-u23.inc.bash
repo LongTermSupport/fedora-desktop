@@ -452,8 +452,8 @@ u23_ping() {
 
 # u23_sample_bus_sockets <port> <file> — every 0.2 s, for at most 400 s (the join, the
 # 180 s wait and the acks fit inside it), this host's TCP sockets towards the bus port with
-# their owning process (passt runs as this user, so ss names it without root). Ended by
-# u23_vm_check's kill.
+# their owning process where ss can name one (a closed, TIME-WAIT socket has none; it is
+# kept for its 60 s, so a short connection is still caught). Ended by u23_vm_check's kill.
 u23_sample_bus_sockets() {
     local port="$1" out="$2" i
     for ((i = 0; i < 2000; i++)); do

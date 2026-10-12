@@ -274,7 +274,12 @@ repository; opt-in per machine and per team.
     ACCEPTED (exit 0). The passt route is expected, not yet measured: U23.vm samples the
     host's sockets towards the bus port and FAILS unless every passt connection left from
     `<bus_ip>` (`members/vm/bus-sockets.txt`). README.vm, `docs/agent-bus.md` and DESIGN.md
-    3.3 say "expected" until this passes; then drop that wording.
+    3.3 say "expected" until this passes; then drop that wording. Host run of 26-10-12
+    (second): every other check PASS, and the VM member joined and exchanged its review and
+    ack, but U23.vm FAILED on its evidence check. It counted only sockets ss named as
+    passt's, and the guest's one connection was only ever sampled closed (TIME-WAIT, no
+    owner) from `<bus_ip>`. The check now counts sockets passt owns or nothing owns, minus
+    loopback (the host member); replayed on that run's samples it passes. Needs a re-run.
   - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
     `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
     bridged lab guest) or narrow README.vm to the passt route.

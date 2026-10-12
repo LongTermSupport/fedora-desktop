@@ -355,18 +355,26 @@ class U23SuggestedArgsTest(unittest.TestCase):
 
 BUS = "203.0.113.9"
 SS_SAMPLES = (
-    # The vm member's passt socket in its connect, then established, then a host member's.
+    # The vm member's passt socket in its connect, then established, then closed (TIME-WAIT
+    # has no owner); a host member's over loopback, owned and closed; another process's.
     f"SYN-SENT 0 1 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
     f"ESTAB 0 0 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
     f"ESTAB 0 0 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
-    f"ESTAB 0 0 {BUS}:40000 {BUS}:45001 users:((\"python3\",pid=99,fd=3))\n"
-    f"ESTAB 0 0 {BUS}:40001 {BUS}:45001\n"
+    f"TIME-WAIT 0 0 {BUS}:51234 {BUS}:45001\n"
+    "ESTAB 0 0 127.0.0.1:40000 127.0.0.1:45001 users:((\"python3\",pid=99,fd=3))\n"
+    "TIME-WAIT 0 0 127.0.0.1:40000 127.0.0.1:45001\n"
+    f"ESTAB 0 0 {BUS}:40001 {BUS}:45001 users:((\"python3\",pid=99,fd=4))\n"
 )
 
 
 class U23PasstSourcesTest(unittest.TestCase):
-    def test_each_passt_socket_state_and_source_is_listed_once_in_order(self) -> None:
-        self.assertEqual(ac.passt_sources(SS_SAMPLES), [("SYN-SENT", BUS), ("ESTAB", BUS)])
+    def test_each_guest_socket_state_and_source_is_listed_once_in_order(self) -> None:
+        self.assertEqual(ac.passt_sources(SS_SAMPLES), [("SYN-SENT", BUS), ("ESTAB", BUS), ("TIME-WAIT", BUS)])
+
+    def test_a_closed_guest_connection_alone_is_seen(self) -> None:
+        # The run of 2026-10-12: the guest's one connection was only ever sampled closed.
+        text = f"TIME-WAIT 0 0 {BUS}:37494 {BUS}:45001\nTIME-WAIT 0 0 127.0.0.1:40142 127.0.0.1:45001\n"
+        self.assertEqual(ac.passt_sources(text), [("TIME-WAIT", BUS)])
 
     def test_a_netid_column_and_an_ipv6_source_are_read(self) -> None:
         text = 'tcp ESTAB 0 0 [2001:db8::5]:51234 [2001:db8::9]:45001 users:(("passt",pid=1,fd=4))\n'
@@ -375,10 +383,10 @@ class U23PasstSourcesTest(unittest.TestCase):
     def test_sources_from_the_bus_address_pass(self) -> None:
         self.assertEqual(ac.passt_problems(ac.passt_sources(SS_SAMPLES), BUS), [])
 
-    def test_no_passt_socket_is_a_problem_naming_the_route(self) -> None:
-        problems = ac.passt_problems(ac.passt_sources(SS_SAMPLES.split("\n", 3)[3]), BUS)
+    def test_no_guest_socket_is_a_problem_naming_the_route(self) -> None:
+        problems = ac.passt_problems(ac.passt_sources(SS_SAMPLES.split("\n", 4)[4]), BUS)
         self.assertEqual(len(problems), 1)
-        self.assertIn("no connection from a passt process", problems[0])
+        self.assertIn("no connection from the guest", problems[0])
 
     def test_a_source_other_than_the_bus_address_is_named_with_allow_from(self) -> None:
         text = 'SYN-SENT 0 1 198.51.100.7:51234 203.0.113.9:45001 users:(("passt",pid=1,fd=4))\n'
@@ -397,7 +405,7 @@ class U23PasstSourcesTest(unittest.TestCase):
             path = pathlib.Path(tmp) / "bus-sockets.txt"
             path.write_text(SS_SAMPLES, encoding="utf-8")
             status, out, _ = run_main("passt-sources", BUS, str(path))
-            self.assertEqual((status, out), (0, f"SYN-SENT\t{BUS}\nESTAB\t{BUS}\n"))
+            self.assertEqual((status, out), (0, f"SYN-SENT\t{BUS}\nESTAB\t{BUS}\nTIME-WAIT\t{BUS}\n"))
             status, out, err = run_main("passt-sources", "198.51.100.1", str(path))
             self.assertEqual(status, 1)
             self.assertIn("allow_from", err)
