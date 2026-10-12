@@ -278,8 +278,11 @@ repository; opt-in per machine and per team.
     (second): every other check PASS, and the VM member joined and exchanged its review and
     ack, but U23.vm FAILED on its evidence check. It counted only sockets ss named as
     passt's, and the guest's one connection was only ever sampled closed (TIME-WAIT, no
-    owner) from `<bus_ip>`. The check now counts sockets passt owns or nothing owns, minus
-    loopback (the host member); replayed on that run's samples it passes. Needs a re-run.
+    owner) from `<bus_ip>`. Third run (same day): the same, but no client-end socket from
+    `<bus_ip>` at all; the homeserver had closed first, so the TIME-WAIT was on its end, which
+    was not sampled. The sampler now takes both ends of the bus port and the check needs a
+    connection whose client address is `<bus_ip>` (loopback left out, other members' listed).
+    Needs a re-run.
   - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
     `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
     bridged lab guest) or narrow README.vm to the passt route.
