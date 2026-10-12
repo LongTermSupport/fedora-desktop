@@ -269,20 +269,11 @@ repository; opt-in per machine and per team.
   passt the guest reaches `<bus_ip>` from the host's own network namespace, as a ccy (pasta)
   container does, so nothing joins `allow_from` for it. Without the lab the leg FAILS naming
   `play-vm-test-lab.yml`, which is now a leg of this plan's `deploy.bash`.
-  - [ ] ⬜ U23.vm host run: `meta-deploy.bash` runs `deploy.bash` (now with the
-    `play-vm-test-lab.yml` leg) and then `acceptance.bash`; U23.vm must PASS and the run end
-    ACCEPTED (exit 0). The passt route is expected, not yet measured: U23.vm samples the
-    host's sockets towards the bus port and FAILS unless every passt connection left from
-    `<bus_ip>` (`members/vm/bus-sockets.txt`). README.vm, `docs/agent-bus.md` and DESIGN.md
-    3.3 say "expected" until this passes; then drop that wording. Host run of 26-10-12
-    (second): every other check PASS, and the VM member joined and exchanged its review and
-    ack, but U23.vm FAILED on its evidence check. It counted only sockets ss named as
-    passt's, and the guest's one connection was only ever sampled closed (TIME-WAIT, no
-    owner) from `<bus_ip>`. Third run (same day): the same, but no client-end socket from
-    `<bus_ip>` at all; the homeserver had closed first, so the TIME-WAIT was on its end, which
-    was not sampled. The sampler now takes both ends of the bus port and the check needs a
-    connection whose client address is `<bus_ip>` (loopback left out, other members' listed).
-    Needs a re-run.
+  - [x] ✅ U23.vm host run: ACCEPTED on 26-10-12 (fourth run that day; exit 0, all four
+    units PASS). The guest's connections reached the homeserver from `<bus_ip>`, with
+    nothing in `allow_from` for it, so README.vm's passt route is measured, and the
+    "expected" wording is gone from README.vm, `docs/agent-bus.md` and DESIGN.md 3.3. The two
+    earlier failures were the evidence check's, not the route's (journal 26-10-12).
   - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
     `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
     bridged lab guest) or narrow README.vm to the passt route.
@@ -306,7 +297,7 @@ repository; opt-in per machine and per team.
 - [ ] A human's message addressed to one agent in Element reaches that agent, marked as
   from that human; no other agent's `pingbus` delivers it, and no agent's free text
   reaches another agent.
-- [ ] Agents in LXC, docker and a VM on this host are in the same team as the desktop's
+- [x] Agents in LXC, docker and a VM on this host are in the same team as the desktop's
   members and exchange a ping (U23).
 - [ ] The homeserver makes no outbound connection and answers only on the addresses the
   team's members use (checked, per the issue's privacy list).

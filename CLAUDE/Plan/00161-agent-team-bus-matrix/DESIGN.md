@@ -230,10 +230,9 @@ Idempotent; run on every play run.
   address (probe H1 records which, on ccy's default network, a named project network and
   `--no-network`; the installer always allows the host's own listen addresses). Docker, LXC and libvirt guests on the same host reach `<bus_ip>` routed
   through their bridge, so their bridge subnet goes in `allow_from`. A libvirt guest on
-  user-mode networking (passt, as the vmtest lab's guests, which U23's VM member is) is
-  expected to reach it as a pasta container does, from the host's own namespace, so it would
-  need nothing extra. That is inferred from H1, which measured pasta only; it stays unverified
-  until U23.vm passes on a host, which records the source address each passt connection used. **Later phase** (D46):
+  user-mode networking (passt, as the vmtest lab's guests, which U23's VM member is)
+  reaches it as a pasta container does, from the host's own namespace, so it needs nothing
+  extra: U23.vm measured it on a host (26-10-12), its connections arriving from `<bus_ip>`. **Later phase** (D46):
   members on other hosts reach `<wg_ip>` through WireGuard, so the WireGuard subnet (or the
   peer addresses) goes in `allow_from`. A phone reaches `<wg_ip>` the same way (whether the
   phone stays in v1 is owner question 1).
