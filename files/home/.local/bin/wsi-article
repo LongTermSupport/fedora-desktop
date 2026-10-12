@@ -27,7 +27,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-SCRIPT_VERSION = "2.0.0"
+SCRIPT_VERSION = "2.1.0"
 
 
 def load_sibling(name):
@@ -132,7 +132,8 @@ def flush_chunk(phrases):
 
 
 def remove_marker_files():
-    for path in (PID_FILE, ARTICLE_BUFFER_FILE, ARTICLE_RECORDING_ACTIVE_FILE):
+    stream.remove_own_pid_file(PID_FILE)
+    for path in (ARTICLE_BUFFER_FILE, ARTICLE_RECORDING_ACTIVE_FILE):
         path.unlink(missing_ok=True)
 
 
@@ -165,6 +166,7 @@ def run_article_mode(args):
     debug_mode = args.debug
     stream.debug_mode = args.debug
     stream.no_notify = args.no_notify
+    stream.session_token = args.session_token  # every signal carries the panel's token
     stop_requested = False
     print(f"wsi-article v{SCRIPT_VERSION} starting (pid={os.getpid()})", file=sys.stderr)
 
@@ -191,7 +193,7 @@ def run_article_mode(args):
     try:
         language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
         if not stream.is_server_running():
-            stream.notify("PREPARING", "Starting server...")
+            stream.notify("WAITING", "Starting server...")
             try:
                 started = stream.start_server(language)
             except Exception as e:
@@ -206,15 +208,16 @@ def run_article_mode(args):
         ARTICLE_BUFFER_FILE.write_text("")
         ARTICLE_TRIGGER_FILE.unlink(missing_ok=True)
 
-        signal.signal(signal.SIGINT, request_stop)
-        signal.signal(signal.SIGTERM, request_stop)
-
-        response = stream.send_server_command("START", {
+        # Waits while the server finishes the last dictation; a stop meanwhile cancels
+        # the start (abort_startup is still the handler)
+        response = stream.start_recording_on_server({
             "continuous": True, "max_seconds": max_seconds, "silence_seconds": silence_seconds})
         if response.get("status") != "recording":
             fail(f"Failed to start the dictation: {response.get('message', response)}")
             return 1
         recording_active = True
+        signal.signal(signal.SIGINT, request_stop)
+        signal.signal(signal.SIGTERM, request_stop)
         session_dir = response.get("session_dir")
         journal = Path(session_dir) / "journal.jsonl"
         ARTICLE_RECORDING_ACTIVE_FILE.write_text(str(os.getpid()))
@@ -336,8 +339,8 @@ def run_article_mode(args):
             log(f"Cleanup: STOP answered {reply}", "ERROR" if reply.get("status") == "error"
                 else "INFO")
         remove_marker_files()
-        stream.emit_dbus_signal("StateChanged", "IDLE")
-        log("Marker files removed, IDLE signal sent")
+        stream.signal_end_of_client()  # IDLE, unless ERROR already ended the session
+        log("Marker files removed")
 
 
 def main():
@@ -346,6 +349,8 @@ def main():
     parser.add_argument("-d", "--debug", action="store_true")
     parser.add_argument("-l", "--language", type=str, default=None)
     parser.add_argument("--no-notify", action="store_true")
+    parser.add_argument("--session-token", type=str, default="",
+                        help="The panel's name for this recording, sent with every D-Bus signal")
 
     args = parser.parse_args()
 

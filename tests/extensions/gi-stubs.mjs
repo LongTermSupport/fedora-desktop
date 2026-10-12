@@ -438,45 +438,70 @@ const SESSION_BUS = {
     },
 };
 
+/** The PID every stub process reports (`get_identifier`). */
+export const STUB_PID = '4242';
+
+/** A started process, recorded in `SPAWNS`, that ends as `SPAWN_OUTCOME` says. */
+function stubSubprocess(argv, flags, env = null) {
+    SPAWNS.push(env === null ? {argv, flags} : {argv, flags, env});
+    if (SPAWN_FAILURE.message !== null) {
+        throw new Error(SPAWN_FAILURE.message);
+    }
+    return {
+        communicate_utf8_async(input, cancellable, callback) {
+            callback(this, {});
+        },
+        /** A stream that was not piped comes back null, as in GLib, so a
+         * caller that forgot the flag gets no stderr to report. */
+        communicate_utf8_finish() {
+            const piped = pipe => (flags & pipe) !== 0;
+            return [
+                true,
+                piped(SUBPROCESS_FLAGS.STDOUT_PIPE) ? SPAWN_OUTCOME.stdout : null,
+                piped(SUBPROCESS_FLAGS.STDERR_PIPE) ? SPAWN_OUTCOME.stderr : null,
+            ];
+        },
+        wait_async(cancellable, callback) {
+            callback(this, {});
+        },
+        wait_finish() {
+            return true;
+        },
+        get_identifier: () => STUB_PID,
+        /** termSig set: the process was killed by that signal, as
+         * g_subprocess_get_if_signaled reports. */
+        get_if_exited: () => SPAWN_OUTCOME.termSig === null,
+        get_term_sig: () => SPAWN_OUTCOME.termSig,
+        get_successful: () => SPAWN_OUTCOME.successful,
+        get_exit_status: () => SPAWN_OUTCOME.exitStatus,
+    };
+}
+
 export const Gio = {
     DBus: {session: SESSION_BUS},
     DBusSignalFlags: DBUS_SIGNAL_FLAGS,
     IOErrorEnum: IO_ERROR_ENUM,
     SubprocessFlags: SUBPROCESS_FLAGS,
     FileQueryInfoFlags: {NONE: 0},
+    /** `spawnv` records the environment it was given with the argv, so a test can see a
+     * variable reach the child without a shell in between. */
+    SubprocessLauncher: class StubSubprocessLauncher {
+        constructor({flags = SUBPROCESS_FLAGS.NONE} = {}) {
+            this._flags = flags;
+            this._env = {};
+        }
+
+        setenv(name, value, _overwrite) {
+            this._env[name] = value;
+        }
+
+        spawnv(argv) {
+            return stubSubprocess(argv, this._flags, {...this._env});
+        }
+    },
     Subprocess: {
         new(argv, flags) {
-            SPAWNS.push({argv, flags});
-            if (SPAWN_FAILURE.message !== null) {
-                throw new Error(SPAWN_FAILURE.message);
-            }
-            return {
-                communicate_utf8_async(input, cancellable, callback) {
-                    callback(this, {});
-                },
-                /** A stream that was not piped comes back null, as in GLib, so a
-                 * caller that forgot the flag gets no stderr to report. */
-                communicate_utf8_finish() {
-                    const piped = pipe => (flags & pipe) !== 0;
-                    return [
-                        true,
-                        piped(SUBPROCESS_FLAGS.STDOUT_PIPE) ? SPAWN_OUTCOME.stdout : null,
-                        piped(SUBPROCESS_FLAGS.STDERR_PIPE) ? SPAWN_OUTCOME.stderr : null,
-                    ];
-                },
-                wait_async(cancellable, callback) {
-                    callback(this, {});
-                },
-                wait_finish() {
-                    return true;
-                },
-                /** termSig set: the process was killed by that signal, as
-                 * g_subprocess_get_if_signaled reports. */
-                get_if_exited: () => SPAWN_OUTCOME.termSig === null,
-                get_term_sig: () => SPAWN_OUTCOME.termSig,
-                get_successful: () => SPAWN_OUTCOME.successful,
-                get_exit_status: () => SPAWN_OUTCOME.exitStatus,
-            };
+            return stubSubprocess(argv, flags);
         },
     },
     Cancellable: class StubCancellable {
