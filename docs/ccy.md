@@ -196,6 +196,11 @@ works from a project folder (a git repository) and simply runs `ccy` the normal 
 every check and prompt it always has. It is how you get back to work after a crash without
 remembering which projects were open.
 
+`ccy-teams` is the same picker for agent teams: each team on this machine, its members,
+and the `ccy --teams` sessions in its seats, with keys to attach, start a session in a
+seat, keep a session out of the reboot restore, and open the team in Element. See
+[agent-bus.md, Getting started](agent-bus.md#getting-started).
+
 The host `cc` wrapper does all of the same: its sessions are `cc-<project>` on the same
 server, `cc` in a project directory offers a detached one back, and `ccy-sessions` lists
 both kinds. From the keyboard the two feel identical; only the container differs.
@@ -377,7 +382,8 @@ twice running. It also stops when the time runs out.
 | Server's SSH passphrase file is unusable  | Starts nothing: every `ccy` session would stop at its passphrase prompt; the unit ends `failed`                                   |
 | Machine not opted in                      | Nothing runs. Records are still written and removed as sessions end; one left by a killed session stays until that name is reused |
 
-`ccy --no-restore` marks a one-off session as not worth bringing back. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
+`ccy --no-restore` marks a one-off session as not worth bringing back; for a session in an
+agent team, `ccy-teams` (Ctrl-R) turns that mark off or on while it runs. `ccy-sessions restore --dry-run` prints what a restore would start and starts nothing.
 
 ### Warning sessions before a reboot
 
