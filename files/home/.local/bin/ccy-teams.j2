@@ -1,0 +1,637 @@
+#!/usr/bin/env bash
+# ccy-teams — see the agent teams on this machine and look after them: each team's
+# homeserver, its members, and the ccy sessions in its seats. It is to teams what
+# ccy-sessions is to sessions (Plan 00161; docs/agent-bus.md, "Getting started").
+#
+# A team is declared in the untracked host_vars localhost.yml (agent_bus_teams) and made by
+# play-agent-bus.yml. A ccy session joins one with `ccy --teams <seat>@<team>`, an LXC
+# container's agent through agent_bus_lxc_members. ccy-teams holds no team logic of its own:
+# it acts through agent-bus, agent-bus-install, ccy and the session registry, and it edits
+# the host_vars only to add a team (create).
+#
+# Each team is a row (its homeserver up or down, and its port), followed by its members:
+#   ccy                    a seat of a ccy checkout, with the ccy session holding it and
+#                          whether that session is started again after a reboot
+#   lxc, host, docker, vm  a member of that type; a ccy member whose checkout is not
+#                          known here (no session or registry record names it) is "ccy"
+#                          with no checkout
+#   human                  a human of the team, and whether the account is in the room
+# Arrow keys move; Enter attaches to the seat's session (as ccy-sessions does); Ctrl-N
+# starts a new ccy session in a free or new seat of the row's team, in the current project,
+# by running ccy --teams; Ctrl-R turns the restore of the seat's session after a reboot off
+# or on; Ctrl-X removes a seat (agent-bus seat remove) or parks a member (agent-bus
+# park-member) after a yes/no; Ctrl-E opens the team in Element, offering a new password
+# first to a human with no session yet; Esc or q leaves. Nothing needs Enter after it.
+#
+# The members come from `sudo agent-bus list`, so the picker asks for sudo first. --list
+# uses only sudo's cached credential: without one it leaves the members out and says why.
+#
+# Usage:
+#   ccy-teams                        the picker (needs a terminal)
+#   ccy-teams -l|--list              print the same table, with a heading, and exit
+#   ccy-teams create [--team T] [--human NAME]... [--repo OWNER/REPO=BRANCH[,BRANCH]]...
+#                    [--allow-from CIDR]... [--yes]
+#                                    add a team to agent_bus_teams in the host_vars,
+#                                    asking for what the flags leave out; the port is
+#                                    chosen for you; the team is made only when
+#                                    play-agent-bus.yml runs
+#   ccy-teams backup <team>          back the team's homeserver up now
+#   ccy-teams restore <team> [<n>] [--yes]
+#                                    restore backup <n> after a yes/no (--yes: none);
+#                                    without <n>, choose one from the list
+#   ccy-teams -h|--help              this text
+#
+# Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").
+# Exit 64 for a usage mistake, 1 for a refusal or a failure.
+#
+# Runs on the HOST, as the desktop user.
+set -euo pipefail
+
+# The fedora-desktop checkout this was deployed from (play-claude-yolo.yml): create's
+# helper and the host_vars are there.
+ROOT_DIR="{{ root_dir }}"
+CCY_LIB="${CCY_LIB:-/var/local/claude-yolo/lib}"
+# The test points these at stand-ins; nothing else should set them.
+HOST_VARS="${CCY_TEAMS_HOST_VARS:-${ROOT_DIR}/environment/localhost/host_vars/localhost.yml}"
+CCY_LAUNCHER="${CCY_TEAMS_LAUNCHER:-/var/local/claude-yolo/claude-yolo}"
+# Root's commands are named by path: sudo's secure_path need not hold /usr/local.
+SUDO_AGENT_BUS=/usr/local/bin/agent-bus
+SUDO_INSTALLER=/usr/local/sbin/agent-bus-install
+MAX_TRIES=3
+
+usage() {
+    awk 'NR == 1 { next } /^#/ { print substr($0, 3); next } { exit }' "${BASH_SOURCE[0]}"
+}
+
+usage_error() {
+    echo "ccy-teams: $1 See ccy-teams --help." >&2
+    exit 64
+}
+
+subcommand="${1:-}"
+case "${subcommand}" in
+"" | create | backup | restore) ;;
+-l | --list)
+    if [[ $# -gt 1 ]]; then
+        usage_error "'${subcommand}' takes no further arguments."
+    fi
+    ;;
+-h | --help)
+    usage
+    exit 0
+    ;;
+*)
+    usage_error "unknown option '${subcommand}'."
+    ;;
+esac
+if [[ -n "${subcommand}" ]]; then
+    shift
+fi
+
+if [[ ! -f "${CCY_LIB}/tmux-session.bash" ]]; then
+    if [[ -d /workspace ]]; then
+        echo "ccy-teams runs on the host, not inside a CCY container." >&2
+    else
+        echo "CCY is not installed here (${CCY_LIB}/tmux-session.bash missing). Run playbooks/imports/play-claude-yolo.yml." >&2
+    fi
+    exit 1
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../../var/local/claude-yolo/lib/common-pure.bash
+source "${CCY_LIB}/common-pure.bash"
+# shellcheck source=../../../var/local/claude-yolo/lib/session-registry.bash
+source "${CCY_LIB}/session-registry.bash"
+# shellcheck source=../../../var/local/claude-yolo/lib/tmux-session.bash
+source "${CCY_LIB}/tmux-session.bash"
+
+need_checkout() {
+    if [[ ! -f "${ROOT_DIR}/helpers/agent_bus/declare.py" ]]; then
+        print_error "the fedora-desktop checkout ccy-teams was deployed from (${ROOT_DIR}) has gone; re-run playbooks/imports/play-claude-yolo.yml from where it is now."
+        exit 1
+    fi
+}
+
+# declare_helper <args...> — helpers/agent_bus/declare.py from the checkout.
+declare_helper() {
+    PYTHONPATH="${ROOT_DIR}" python3 -P -m helpers.agent_bus.declare "$@"
+}
+
+# ── create, backup, restore: thin wrappers ───────────────────────────────────────────────
+
+cmd_create() {
+    need_checkout
+    if [[ ! -t 0 && " $* " != *" --yes "* ]]; then
+        usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
+    fi
+    declare_helper create --file "${HOST_VARS}" "$@"
+}
+
+cmd_backup() {
+    [[ $# -eq 1 ]] || usage_error "'backup' takes one team."
+    sudo "${SUDO_INSTALLER}" backup-now --team "$1"
+}
+
+# pick_backup <team> <listing> — choose one of the team's backups in the picker; prints its
+# number, or returns 1 when none was chosen.
+pick_backup() {
+    local team="$1" listing="$2" rows="" id when picked
+    while IFS=$'\t' read -r _ id when; do
+        rows+="$(printf 'Backup %-6s %s' "${id}" "${when}")"$'\n'
+    done <<<"${listing}"
+    picked="$(ccy_tmux_pick "Restore ${team}" "$(ccy_tmux_header "Enter choose   Esc or q exit" \
+        "The homeserver is stopped, the backup's database and state put back, and it is started again.")" \
+        "" <<<"${rows%$'\n'}")" || return 1
+    picked="${picked#*$'\n'}"
+    picked="${picked#Backup }"
+    printf '%s\n' "${picked%% *}"
+}
+
+cmd_restore() {
+    local team="" id="" yes=false listing
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --yes) yes=true ;;
+        -*) usage_error "unknown restore option '$1'." ;;
+        *)
+            if [[ -z "${team}" ]]; then
+                team="$1"
+            elif [[ -z "${id}" ]]; then
+                id="$1"
+            else
+                usage_error "unexpected argument '$1'."
+            fi
+            ;;
+        esac
+        shift
+    done
+    [[ -n "${team}" ]] || usage_error "'restore' needs a team."
+    if [[ -n "${id}" && ! "${id}" =~ ^[1-9][0-9]*$ ]]; then
+        usage_error "a backup is named by its number; got '${id}'."
+    fi
+    if [[ -z "${id}" ]]; then
+        listing="$(sudo "${SUDO_INSTALLER}" backups --team "${team}")"
+        if [[ -z "${listing}" ]]; then
+            print_error "team ${team} has no backup to restore."
+            return 1
+        fi
+        if [[ ! -t 0 || ! -t 1 ]]; then
+            printf '%s\n' "${listing}"
+            usage_error "name the backup to restore: ccy-teams restore ${team} <n> --yes."
+        fi
+        id="$(pick_backup "${team}" "${listing}")" || {
+            echo "Nothing restored." >&2
+            return 0
+        }
+    fi
+    if [[ "${yes}" == false ]]; then
+        if [[ ! -t 0 || ! -t 1 ]]; then
+            usage_error "a restore replaces the team's database and state: confirm it with --yes when there is no terminal."
+        fi
+        if ! ccy_tmux_confirm "Restore ${team}" \
+            "Restore backup ${id} of ${team}? Its homeserver stops, and every message and change since that backup is lost." \
+            "restore backup ${id}"; then
+            echo "Nothing restored." >&2
+            return 0
+        fi
+    fi
+    sudo "${SUDO_INSTALLER}" restore --team "${team}" --backup "${id}"
+}
+
+case "${subcommand}" in
+create)
+    cmd_create "$@"
+    exit
+    ;;
+backup)
+    cmd_backup "$@"
+    exit
+    ;;
+restore)
+    cmd_restore "$@"
+    exit
+    ;;
+esac
+
+# ── the table ────────────────────────────────────────────────────────────────────────────
+#
+# One pass gathers everything into the R_* arrays, one entry per row, in the shell itself
+# (not a subshell), so a key pressed on a row finds what the row stands for by its index.
+
+_row() {
+    printf '%-24s  %-36s  %-6s  %-9s  %-26s  %-7s  %s' "$@"
+}
+row_heading() {
+    _row TEAM MEMBER KIND STATE SESSION RESTORE WHERE
+}
+
+R_TEXT=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
+# add_row <team> <member> <kind> <state> <session> <restore> <where> <handle> <dir>
+add_row() {
+    R_TEXT+=("$(_row "$1" "$2" "$3" "$4" "$5" "$6" "$7")")
+    R_TEAM+=("$1")
+    R_NAME+=("$2")
+    R_KIND+=("$3")
+    R_SESSION+=("$5")
+    R_HANDLE+=("$8")
+    R_DIR+=("$9")
+}
+
+# The teams of this machine: those declared present, then any homeserver unit loaded here
+# that is not (one declared absent but still installed, or made by hand).
+TEAMS=()
+declare -A PORT_OF=()
+collect_teams() {
+    local declared units team port state unit
+    declare -A seen=()
+    need_checkout
+    declared="$(declare_helper declared --file "${HOST_VARS}")" || {
+        print_error "the teams declared in ${HOST_VARS} could not be read (the reason is above)."
+        return 1
+    }
+    while IFS=$'\t' read -r _ team port state; do
+        [[ -n "${team}" && "${state}" == present ]] || continue
+        TEAMS+=("${team}")
+        PORT_OF["${team}"]="${port}"
+        seen["${team}"]=1
+    done <<<"${declared}"
+    units="$(systemctl list-units --all --plain --no-legend --type=service 'agent-bus-hs@*')" || {
+        print_error "systemctl could not list the agent-bus homeserver units."
+        return 1
+    }
+    while read -r unit _; do
+        [[ "${unit}" == agent-bus-hs@*.service ]] || continue
+        team="${unit#agent-bus-hs@}"
+        team="${team%.service}"
+        [[ -z "${seen[${team}]:-}" ]] || continue
+        TEAMS+=("${team}")
+        seen["${team}"]=1
+    done <<<"${units}"
+}
+
+# homeserver_state <team> — up, or down with systemd's word for it.
+homeserver_state() {
+    local state rc=0
+    state="$(systemctl is-active "agent-bus-hs@$1.service")" || rc=$?
+    if [[ "${rc}" -eq 0 && "${state}" == active ]]; then
+        printf 'up\n'
+    else
+        printf 'down:%s\n' "${state:-unknown}"
+    fi
+}
+
+# The ccy sessions with a registry record: per "<dir>|<seat>@<team>", the session holding it
+# and whether it is restored; and every live session's attached count.
+declare -A SEAT_SESSION=() SEAT_RESTORE=() LIVE=()
+CHECKOUTS=()
+declare -A CHECKOUT_SEEN=()
+add_checkout() {
+    [[ -n "$1" && -z "${CHECKOUT_SEEN[$1]:-}" ]] || return 0
+    CHECKOUT_SEEN["$1"]=1
+    CHECKOUTS+=("$1")
+}
+collect_sessions() {
+    local listing name attached dir regdir file i list ref
+    listing="$(ccy_tmux_list)" || return 1
+    while read -r name attached dir; do
+        [[ -n "${name}" ]] || continue
+        LIVE["${name}"]="${attached}"
+        [[ "${name}" != ccy-* ]] || add_checkout "${dir}"
+    done <<<"${listing}"
+    regdir="$(ccy_registry_dir)" || return 1
+    for file in "${regdir}"/*; do
+        [[ -e "${file}" && "${file}" != *.tmp.* ]] || continue
+        if ! ccy_registry_read "${file}"; then
+            print_error "the session record ${file} could not be read; its seats show no session."
+            continue
+        fi
+        [[ "${REC_PREFIX}" == ccy ]] || continue
+        add_checkout "${REC_DIR}"
+        list=""
+        for i in "${!REC_ARGS[@]}"; do
+            case "${REC_ARGS[i]}" in
+            --) break ;;
+            --teams) list="${REC_ARGS[i + 1]:-}" ;;
+            --teams=*) list="${REC_ARGS[i]#--teams=}" ;;
+            esac
+        done
+        [[ -n "${list}" ]] || continue
+        while read -r -d , ref; do
+            SEAT_SESSION["${REC_DIR}|${ref}"]="${REC_NAME}"
+            SEAT_RESTORE["${REC_DIR}|${ref}"]="${REC_RESTORE}"
+        done <<<"${list},"
+    done
+    if project_here; then
+        add_checkout "$(git rev-parse --show-toplevel)"
+    fi
+}
+
+# seat_lines <dir> — `agent-bus seat list` in a checkout that has seats; nothing otherwise.
+seat_lines() {
+    [[ -d "$1/.claude/ccy/pingbus/seats" ]] || return 0
+    (cd "$1" && agent-bus seat list)
+}
+
+# The member lines of each team, from sudo agent-bus list with sudo's cached credential
+# (the picker asks for one first); a team whose members could not be read is in
+# MEMBERS_UNKNOWN, with the reason on stderr.
+declare -A MEMBERS_OF=() MEMBERS_UNKNOWN=()
+collect_members() {
+    local team="$1" out
+    if ! out="$(sudo -n "${SUDO_AGENT_BUS}" list "${team}")"; then
+        echo "The members of ${team} are left out: sudo agent-bus list ${team} failed (above). Run sudo -v first for --list." >&2
+        MEMBERS_UNKNOWN["${team}"]=1
+        return 0
+    fi
+    MEMBERS_OF["${team}"]="${out}"
+}
+
+collect() {
+    local team state port dir seats kind name membership role activity handle seat seat_state
+    local key session restore where
+    local -a seat_dirs=() seat_rows=()
+    local -A activity_of=() shown=()
+    R_TEXT=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
+    TEAMS=() PORT_OF=() SEAT_SESSION=() SEAT_RESTORE=() LIVE=() CHECKOUTS=() CHECKOUT_SEEN=()
+    MEMBERS_OF=() MEMBERS_UNKNOWN=()
+    collect_teams || return 1
+    [[ -n "${TEAMS[*]:-}" ]] || return 0
+    collect_sessions || return 1
+    for dir in "${CHECKOUTS[@]}"; do
+        seats="$(seat_lines "${dir}")" || {
+            print_error "agent-bus seat list failed in ${dir}; its seats are left out."
+            continue
+        }
+        while IFS= read -r seat; do
+            [[ -n "${seat}" ]] || continue
+            seat_dirs+=("${dir}")
+            seat_rows+=("${seat}")
+        done <<<"${seats}"
+    done
+    for team in "${TEAMS[@]}"; do
+        state="$(homeserver_state "${team}")"
+        port="${PORT_OF[${team}]:-}"
+        where="port ${port:-unknown (not declared)}"
+        if [[ "${state}" == up ]]; then
+            collect_members "${team}"
+        else
+            MEMBERS_UNKNOWN["${team}"]=1
+        fi
+        [[ -z "${MEMBERS_UNKNOWN[${team}]:-}" ]] || where+=", members unknown"
+        add_row "${team}" - team "${state}" - - "${where}" - -
+        activity_of=()
+        shown=()
+        while IFS=$'\t' read -r kind name role membership activity; do
+            [[ "${kind}" == MEMBER ]] || continue
+            activity_of["${name}"]="${activity}"
+        done <<<"${MEMBERS_OF[${team}]:-}"
+        for key in "${!seat_rows[@]}"; do
+            IFS=$'\t' read -r _ name seat seat_state _ handle <<<"${seat_rows[key]}"
+            [[ "${name}" == "${team}" ]] || continue
+            dir="${seat_dirs[key]}"
+            shown["${handle}"]=1
+            session="${SEAT_SESSION[${dir}|${seat}@${team}]:-}"
+            restore="${SEAT_RESTORE[${dir}|${seat}@${team}]:--}"
+            if [[ -z "${session}" ]]; then
+                session="${seat_state}"
+                restore=-
+            elif [[ -z "${LIVE[${session}]+set}" ]]; then
+                session+="(stopped)"
+            fi
+            add_row "${team}" "${seat}" ccy "${activity_of[${handle}]:-unknown}" "${session}" \
+                "${restore}" "${dir/#${HOME}/\~}" "${handle}" "${dir}"
+        done
+        while IFS=$'\t' read -r kind name role membership activity; do
+            [[ "${kind}" == MEMBER && -z "${shown[${name}]:-}" ]] || continue
+            kind="${name##*.}"
+            [[ "${kind}" != podman ]] || kind=ccy
+            add_row "${team}" "${name}" "${kind}" "${activity}" - - "${role}" "${name}" -
+        done <<<"${MEMBERS_OF[${team}]:-}"
+        while IFS=$'\t' read -r kind name membership; do
+            [[ "${kind}" == HUMAN ]] || continue
+            add_row "${team}" "${name}" human "${membership}" - - - - -
+        done <<<"${MEMBERS_OF[${team}]:-}"
+    done
+}
+
+project_here() {
+    local probe
+    probe="$(git rev-parse --is-inside-work-tree 2>&1)" && [[ "${probe}" == "true" ]]
+}
+
+if [[ "${subcommand}" == -l || "${subcommand}" == --list ]]; then
+    collect || exit 1
+    if [[ -z "${R_TEXT[*]:-}" ]]; then
+        echo "No agent teams on this machine. ccy-teams create declares one." >&2
+        exit 0
+    fi
+    row_heading
+    printf '\n'
+    printf '%s\n' "${R_TEXT[@]}"
+    exit 0
+fi
+
+# ── the picker ───────────────────────────────────────────────────────────────────────────
+if [[ ! -t 0 || ! -t 1 ]]; then
+    echo "ccy-teams needs a terminal: it attaches sessions to the one you are in. ccy-teams --list prints the table instead." >&2
+    exit 1
+fi
+echo "ccy-teams reads each team's members with sudo agent-bus list." >&2
+if ! sudo -v; then
+    print_error "sudo refused, so the members cannot be read. ccy-teams --list shows the rest."
+    exit 1
+fi
+
+here="${PWD/#${HOME}/\~}"
+
+# row_index <row> — the index of the picked row, printed.
+row_index() {
+    local i
+    for i in "${!R_TEXT[@]}"; do
+        if [[ "${R_TEXT[i]}" == "$1" ]]; then
+            printf '%s\n' "${i}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# attach_seat <i> — Enter on a seat: attach its live session here, as ccy-sessions does.
+attach_seat() {
+    local i="$1" session="${R_SESSION[$1]}" rc=0
+    if [[ "${R_KIND[i]}" != ccy || -z "${LIVE[${session}]+set}" ]]; then
+        echo "Enter attaches to a ccy seat's running session, and this row has none. Ctrl-N starts one." >&2
+        return 0
+    fi
+    if [[ "${LIVE[${session}]}" != 0 ]]; then
+        echo "'${session}' is open in another terminal. ccy-sessions takes it over (Ctrl-T)." >&2
+        return 0
+    fi
+    ccy_tmux_attach "${session}" || rc=$?
+    case "${rc}" in
+    0) exit 0 ;;
+    3) ;;
+    *) echo "'${session}' was taken or ended just now — the list has been refreshed." >&2 ;;
+    esac
+}
+
+# new_session <team> — Ctrl-N: ccy --teams in a free seat of this checkout, or a new one
+# numbered after every numbered seat the team and this checkout already have.
+new_session() {
+    local team="$1" top seats line seat seat_state handle next=1 rows="" picked
+    if ! project_here; then
+        echo "${here} is not a project folder (no git repository), so ccy cannot be started here." >&2
+        return 0
+    fi
+    if [[ "$(homeserver_state "${team}")" != up ]]; then
+        echo "${team}'s homeserver is down, so no session can join it." >&2
+        return 0
+    fi
+    top="$(git rev-parse --show-toplevel)"
+    seats="$(seat_lines "${top}")" || return 1
+    while IFS=$'\t' read -r _ line seat seat_state _ handle; do
+        [[ "${line}" == "${team}" ]] || continue
+        [[ ! "${seat}" =~ ^[0-9]+$ ]] || ((seat < next)) || next=$((seat + 1))
+        [[ "${seat_state}" != free ]] || rows+="Seat ${seat}@${team}   free"$'\n'
+    done <<<"${seats}"
+    while IFS=$'\t' read -r line handle _; do
+        [[ "${line}" == MEMBER && "${handle}" =~ \.([0-9]+)\+[^+]*\.podman$ ]] || continue
+        ((BASH_REMATCH[1] < next)) || next=$((BASH_REMATCH[1] + 1))
+    done <<<"${MEMBERS_OF[${team}]:-}"
+    rows+="Seat ${next}@${team}   new"
+    picked="$(ccy_tmux_pick "New ccy session in ${team}" "$(ccy_tmux_header "Enter start   Esc or q back" \
+        "Runs ccy --teams <seat>@${team} in ${here}; a new seat is created by that launch (sudo).")" "" \
+        <<<"${rows}")" || return 0
+    picked="${picked#*$'\n'}"
+    picked="${picked#Seat }"
+    picked="${picked%% *}"
+    echo "Starting ccy --teams ${picked} in ${here}." >&2
+    exec "${CCY_LAUNCHER}" --teams "${picked}"
+}
+
+# toggle_restore <i> — Ctrl-R on a seat whose session has a record.
+toggle_restore() {
+    local i="$1" session="${R_SESSION[$1]%(stopped)}" key want
+    key="${R_DIR[i]}|${R_NAME[i]}@${R_TEAM[i]}"
+    if [[ "${R_KIND[i]}" != ccy || -z "${SEAT_RESTORE[${key}]:-}" ]]; then
+        echo "Ctrl-R changes whether a seat's ccy session comes back after a reboot, and this row has no session." >&2
+        return 0
+    fi
+    want=no
+    [[ "${SEAT_RESTORE[${key}]}" == yes ]] || want=yes
+    ccy_registry_set_restore "${session}" "${want}" || return 0
+}
+
+# remove_or_park <i> — Ctrl-X: a seat is removed with agent-bus seat remove in its checkout;
+# any other member is parked.
+remove_or_park() {
+    local i="$1" team="${R_TEAM[$1]}" name="${R_NAME[$1]}" handle="${R_HANDLE[$1]}"
+    case "${R_KIND[i]}" in
+    team)
+        echo "A team is removed by setting state: absent on its agent_bus_teams entry and running play-agent-bus.yml." >&2
+        ;;
+    human)
+        echo "A team's humans are its agent_bus_teams entry's humans: change them there and run play-agent-bus.yml." >&2
+        ;;
+    ccy)
+        if [[ "${R_DIR[i]}" != - ]]; then
+            if ccy_tmux_confirm "Remove seat ${name}@${team}?" \
+                "${handle} is parked (its token revoked; its history kept) and the seat's directory in ${R_DIR[i]/#${HOME}/\~} deleted. Launching into ${name}@${team} again brings it back." \
+                "remove ${name}@${team}"; then
+                if ! (cd "${R_DIR[i]}" && agent-bus seat remove "${name}@${team}"); then
+                    echo "The seat was not removed, for the reason above." >&2
+                fi
+            fi
+            return 0
+        fi
+        ;&
+    *)
+        if ccy_tmux_confirm "Park ${handle}?" \
+            "Its token is revoked; its account, role and room are kept. add-member --seat returns it, and an agent_bus_lxc_members entry is returned by the next play run unless set absent." \
+            "park ${handle}"; then
+            if ! sudo -n "${SUDO_AGENT_BUS}" park-member "${team}" "${handle}"; then
+                echo "${handle} was not parked, for the reason above." >&2
+            fi
+        fi
+        ;;
+    esac
+}
+
+# open_element <team> — Ctrl-E: the team's Element profile, through the launcher
+# play-agent-bus-element.yml writes. A human of the team with no session on the homeserver
+# has not logged in, and is offered a new password first.
+open_element() {
+    local team="$1" launcher i name devices
+    launcher="${HOME}/.local/share/applications/agent-bus-${team}-element.desktop"
+    if [[ ! -f "${launcher}" ]]; then
+        echo "${team} has no Element profile on this desktop: add it to agent_bus_element_teams in the host_vars and run playbooks/imports/optional/common/play-agent-bus-element.yml." >&2
+        return 0
+    fi
+    for i in "${!R_TEXT[@]}"; do
+        [[ "${R_TEAM[i]}" == "${team}" && "${R_KIND[i]}" == human ]] || continue
+        name="${R_NAME[i]}"
+        devices="$(sudo -n "${SUDO_AGENT_BUS}" human devices "${team}" "${name}")" || return 0
+        [[ -z "${devices}" ]] || continue
+        if ccy_tmux_confirm "Password for ${name}" \
+            "${name} has no session on ${team}'s homeserver. Set a new password? It is printed once, here, and stored nowhere." \
+            "set a password for ${name}"; then
+            sudo -n "${SUDO_AGENT_BUS}" human password "${team}" "${name}" || return 0
+            echo "Copy it now. Press Enter to open Element." >&2
+            if ! read -r _ </dev/tty; then
+                echo >&2
+            fi
+        fi
+    done
+    echo "Opening ${team} in Element." >&2
+    gio launch "${launcher}"
+    exit 0
+}
+
+restore_word="off"
+if [[ -e "${HOME}/.config/systemd/user/default.target.wants/ccy-sessions-restore.service" ]]; then
+    restore_word="on"
+fi
+if project_here; then
+    new_line="Ctrl-N starts ccy --teams <seat>@<the row's team> in ${here}"
+else
+    new_line="Ctrl-N unavailable: ${here} is not a project folder (no git repository)"
+fi
+HEADER="$(ccy_tmux_header "Enter attach   Ctrl-N new   Ctrl-R restore on/off   Ctrl-X remove/park   Ctrl-E Element   Esc or q quit" \
+    "${new_line}" \
+    "RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is ${restore_word} (ccy_restore_sessions)" \
+    "$(row_heading)")"
+
+attempt=1
+while :; do
+    collect || exit 1
+    if [[ -z "${R_TEXT[*]:-}" ]]; then
+        echo "No agent teams on this machine. ccy-teams create declares one." >&2
+        exit 0
+    fi
+    if ! picked="$(printf '%s\n' "${R_TEXT[@]}" | ccy_tmux_pick "Agent teams" "${HEADER}" "ctrl-n,ctrl-r,ctrl-x,ctrl-e")"; then
+        exit 0 # Esc or q
+    fi
+    key="${picked%%$'\n'*}"
+    row="${picked#*$'\n'}"
+    if ! index="$(row_index "${row}")"; then
+        echo "That row has changed; the list has been refreshed." >&2
+        continue
+    fi
+    case "${key}" in
+    ctrl-n) new_session "${R_TEAM[index]}" ;;
+    ctrl-r)
+        toggle_restore "${index}"
+        continue
+        ;;
+    ctrl-x)
+        remove_or_park "${index}"
+        continue
+        ;;
+    ctrl-e) open_element "${R_TEAM[index]}" ;;
+    *) attach_seat "${index}" ;;
+    esac
+    attempt=$((attempt + 1))
+    if [[ "${attempt}" -gt "${MAX_TRIES}" ]]; then
+        echo "Nothing attached or started after ${MAX_TRIES} tries." >&2
+        exit 1
+    fi
+done

@@ -18,7 +18,8 @@ address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's
         TEAM<TAB><team><TAB><port or -><TAB><present|absent> per entry
     python3 -m helpers.agent_bus.declare create --file <localhost.yml> [--team T]
             [--human NAME]... [--repo OWNER/REPO=BRANCH[,BRANCH]]... [--allow-from CIDR]... [--yes]
-        prompts for what the flags leave out, then CHANGED<TAB>team <team>, port <port>, in <file>
+        prompts for what the flags leave out, then CHANGED<TAB>team <team>, port <port>, in <file>;
+        with --yes it asks nothing more, and allow_from is empty unless --allow-from names one
 
 Exit 0 done, 1 cancelled (nothing written), 64 usage, 78 refused.
 """
@@ -253,7 +254,12 @@ def choose_port(used: set[int]) -> int:
 
 
 def _ss() -> str:
-    return subprocess.run(["ss", "-Hltn"], check=True, capture_output=True, text=True).stdout
+    try:
+        return subprocess.run(["ss", "-Hltn"], check=True, capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        raise DeclareError("ss (iproute) is not installed, so the free ports are unknown") from None
+    except subprocess.CalledProcessError as exc:
+        raise DeclareError(f"ss -Hltn failed ({exc.stderr.strip()}), so the free ports are unknown") from None
 
 
 # ---------------------------------------------------------------- the entry
@@ -452,6 +458,8 @@ def create(args: argparse.Namespace, ask: Ask, ss_output: Callable[[], str], out
             lambda v: field_error("humans", _split(v))))
         repos = repos or _ask_repos(ask, err)
         allow_from = args.allow_from
+        if allow_from is None and args.yes:
+            allow_from = []
         if allow_from is None:
             allow_from = _split(_prompt(
                 ask, err, "Subnets that may connect besides this machine, CIDR, comma-separated "
