@@ -1,7 +1,7 @@
 # Plan 00155: Headset button toggles speech-to-text
 
-**Status**: In Progress (D2 answered; Phase 1 triage, now covering A2DP and HFP, runs
-before D1, D3 and D4)
+**Status**: On Hold (parked by the owner with the design chosen: see Technical Decisions.
+Start-only was rejected; the next step is capturing a double press in both modes)
 **Created**: 2026-10-04
 **Owner**: joseph
 **Priority**: Medium
@@ -248,7 +248,28 @@ a play installs it.
 
 ## Technical Decisions
 
-D1 to D4 are open; see Phase 2. Each answer is recorded here as it is given.
+### The owner's design (supersedes the evdev listener and D4's options)
+
+Evidence is in the JOURNAL day-file. In A2DP a press is AVRCP `PLAY` (`KEY_PLAYCD`). In
+HFP it is only `AT+CHUP`, which PipeWire consumes. Disabling the dummy call kills this
+headset's microphone, so it is rejected.
+
+- **Start-only is rejected.** "Adding the button for start and not for stop seems
+  pointless."
+- **Read the raw Bluetooth traffic, read-only, as root, tightly constrained.** A script
+  under `/usr/local/sbin/` (root-owned, read-only to the user) watches the HCI monitor
+  channel, as `btmon` does. It reports button events only for devices in the
+  dictation-device profile (D2): AVRCP passthrough and the HFP AT commands. A sudoers
+  drop-in grants the desktop user passwordless `sudo` for exactly that one command
+  invocation and nothing else. The user-side listener starts it through that alias
+  and turns its events into the speech-to-text toggle. It observes and never injects,
+  so every other device and every other key keeps working untouched.
+- **Gesture (D3): a single press stays play/pause; a double press is dictation.** This
+  depends on what the OpenRun Pro sends for a double press in A2DP and in HFP. That
+  has not been captured yet and is the next task when the plan resumes.
+- **D1 (grab) no longer applies.** An HCI observer cannot grab, so a single press
+  keeps reaching media players. The open risk is that a double press may also reach
+  the media player as two play/pause events or a next-track; the capture decides.
 
 ## Success Criteria
 
