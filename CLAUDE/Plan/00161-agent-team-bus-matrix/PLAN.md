@@ -277,6 +277,12 @@ repository; opt-in per machine and per team.
   - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
     `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
     bridged lab guest) or narrow README.vm to the passt route.
+  - [ ] 🔄 U22.lxc: the owner's existing LXC containers join a team by IaC (owner,
+    2026-10-12). Built: `agent_bus_lxc_members` (`localhost.yml.dist`), applied by
+    `play-agent-bus.yml` through `helpers/agent_bus_lxc/members.py` (README.lxc's steps;
+    absent entries before teams are removed, present ones after they are installed),
+    `test_members.py`; README.lxc and `docs/agent-bus.md` point at it. Pending: a host run
+    with a real container declared (journal 26-10-12).
 - [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it). Wave 7: U25 (`element.py`, `play-agent-bus-element.yml`,
   `agent_bus_element_teams` in `localhost.yml.dist`) built, reviewed and fixed. Its host

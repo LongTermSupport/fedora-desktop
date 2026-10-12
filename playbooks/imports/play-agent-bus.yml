@@ -15,12 +15,19 @@
 #   3. `team --team-file` for each entry with state present (the default), from a team
 #      file rendered into a root-only temporary directory that is deleted afterwards.
 #
-# Each step reports changed only when the installer prints a CHANGED line, so a run with
-# nothing new is all ok. The installer has no dry run, so --check skips the three steps.
+# agent_bus_lxc_members joins existing LXC containers to those teams by README.lxc's steps
+# (helpers/agent_bus_lxc/members.py): its absent entries before step 2, so a team still
+# runs while its member is parked; its present entries after step 3, so the team exists.
+# The member steps live here, not in a play of their own, because each needs this play's
+# teams applied in the same run, and the LXC play runs earlier in playbook-main.yml.
+#
+# Each step reports changed only when the installer or the helper prints a CHANGED line,
+# so a run with nothing new is all ok. Neither has a dry run, so --check skips them.
 #
 # Teams live in the untracked host_vars localhost.yml (see localhost.yml.dist): each entry
 # is the team file of DESIGN.md section 3.4, validated by the installer, and an absent
-# entry needs only `team`, `state: absent` and optionally `purge: true`.
+# entry needs only `team`, `state: absent` and optionally `purge: true`. The LXC members
+# are declared there too.
 - hosts: desktop
   name: Agent team bus homeserver (agent-bus-install)
   become: true
@@ -32,8 +39,15 @@
     agent_bus_present: "{{ agent_bus_team_list | rejectattr('state', 'defined') | list
       + agent_bus_team_list | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | list }}"
     agent_bus_absent: "{{ agent_bus_team_list | selectattr('state', 'defined') | selectattr('state', 'eq', 'absent') | list }}"
-    # Matches the installer's CHANGED<TAB><what> marker lines.
+    # Matches the installer's and the helper's CHANGED<TAB><what> marker lines.
     agent_bus_changed_re: "^CHANGED\t"
+    agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) }}"
+    # The helper's arguments but --phase; it validates every entry on each call.
+    agent_bus_lxc_args:
+      - --members
+      - "{{ agent_bus_lxc_member_list | to_json }}"
+      - --teams-present
+      - "{{ agent_bus_present | map(attribute='team') | list | to_json }}"
   tasks:
     # Only the shape this play itself relies on; the installer validates each team file.
     - name: Check agent_bus_teams declares each team once, with a known state
@@ -60,6 +74,15 @@
              + (['--bus-address', agent_bus_address] if (agent_bus_address | default('') | length > 0) else []) }}
       register: agent_bus_software
       changed_when: agent_bus_software.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      tags: [agent-bus]
+
+    - name: Take the LXC members declared absent off their teams
+      ansible.builtin.command:
+        argv: "{{ ['python3', '-m', 'helpers.agent_bus_lxc.members', '--phase', 'absent'] + agent_bus_lxc_args }}"
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: agent_bus_lxc_absent
+      changed_when: agent_bus_lxc_absent.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      when: agent_bus_lxc_member_list | length > 0 and not ansible_check_mode
       tags: [agent-bus]
 
     - name: Remove the agent-bus teams declared absent
@@ -119,3 +142,13 @@
             state: absent
           when: agent_bus_team_dir.path is defined
           changed_when: false
+
+    # README.lxc's steps for each present entry; a member already joined is left alone.
+    - name: Join the LXC members declared present to their teams
+      ansible.builtin.command:
+        argv: "{{ ['python3', '-m', 'helpers.agent_bus_lxc.members', '--phase', 'present'] + agent_bus_lxc_args }}"
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: agent_bus_lxc_present
+      changed_when: agent_bus_lxc_present.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      when: agent_bus_lxc_member_list | length > 0 and not ansible_check_mode
+      tags: [agent-bus]
