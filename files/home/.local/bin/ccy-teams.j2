@@ -569,12 +569,18 @@ open_element() {
     for i in "${!R_TEXT[@]}"; do
         [[ "${R_TEAM[i]}" == "${team}" && "${R_KIND[i]}" == human ]] || continue
         name="${R_NAME[i]}"
-        devices="$(sudo -n "${SUDO_AGENT_BUS}" human devices "${team}" "${name}")" || return 0
+        if ! devices="$(sudo -n "${SUDO_AGENT_BUS}" human devices "${team}" "${name}")"; then
+            echo "Whether ${name} has a session could not be asked (above), so Element was not opened." >&2
+            return 0
+        fi
         [[ -z "${devices}" ]] || continue
         if ccy_tmux_confirm "Password for ${name}" \
             "${name} has no session on ${team}'s homeserver. Set a new password? It is printed once, here, and stored nowhere." \
             "set a password for ${name}"; then
-            sudo -n "${SUDO_AGENT_BUS}" human password "${team}" "${name}" || return 0
+            if ! sudo -n "${SUDO_AGENT_BUS}" human password "${team}" "${name}"; then
+                echo "No password was set for ${name} (above), so Element was not opened." >&2
+                return 0
+            fi
             echo "Copy it now. Press Enter to open Element." >&2
             if ! read -r _ </dev/tty; then
                 echo >&2
