@@ -37,7 +37,7 @@ COUNT_RE = r"(?:\d+|-)"
 LINE_RES = {
     "TEAM": re.compile(
         rf"TEAM\t{TEAM_RE}\t{protocol.HANDLE_PATTERN}\ttrust=(?:trusted|untrusted)"
-        rf"\twake=(?:watcher|waiter|none)\tpending={COUNT_RE}\thumans={COUNT_RE}\tpings={COUNT_RE}"
+        rf"\twake=(?:watcher|waiter|none)\tpending={COUNT_RE}\thumans={COUNT_RE}\tpeers={COUNT_RE}\tpings={COUNT_RE}"
         rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}"),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
     "MEMBER": re.compile(
@@ -45,7 +45,7 @@ LINE_RES = {
     "UNEXPECTED": re.compile(rf"UNEXPECTED\t{TEAM_RE}\t{USER_RE}\t(?:join|invite)"),
     "PENDING": re.compile(
         rf"PENDING\t{TEAM_RE}\t{protocol.EVENT_ID_PATTERN}\t{LOCALPART_RE}\t\d+"
-        rf"\t(?:human|{'|'.join(protocol.VERBS)})"),
+        rf"\t(?:human|peer|{'|'.join(protocol.VERBS)})"),
     "SEAT": re.compile(
         rf"SEAT\t{TEAM_RE}\t(?:{protocol.HANDLE_SEAT_PATTERN})\t(?:held|free)\t(?:self|-)"
         rf"\t{protocol.HANDLE_PATTERN}"),
@@ -122,7 +122,21 @@ class StatusTest(StatusCase):
         self.joined()
         self.a.state.commit_batch([self.stored_human(bus.UNKNOWN_EVENT, MARKER)], self.a.state.sync_token())
         team = self.team_line(self.report()[1])
-        self.assertEqual((team["pending"], team["humans"], team["pings"]), ("1", "1", "0"))
+        self.assertEqual((team["pending"], team["humans"], team["peers"], team["pings"]),
+                         ("1", "1", "0", "0"))
+
+    def test_peer_text_is_counted_and_listed_as_peer_without_text(self):
+        self.joined()
+        peer = {"type": "m.room.message", "event_id": bus.UNKNOWN_EVENT, "sender": self.a.peer,
+                "origin_server_ts": int(bus.T0 * 1000),
+                "content": protocol.build_text([self.a.me], MARKER)}
+        self.a.state.commit_batch([peer], self.a.state.sync_token())
+        team = self.team_line(self.report()[1])
+        self.assertEqual((team["pending"], team["humans"], team["peers"], team["pings"]),
+                         ("1", "0", "1", "0"))
+        code, rows, err = self.report("inbox")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([(r[0], r[3], r[5]) for r in rows], [("PENDING", bus.PEER_LP, "peer")])
 
     def test_member_status_listening_then_stale(self):
         self.joined()

@@ -36,7 +36,7 @@ SHA = bus.SHA
 PATH_REF = bus.PATH_REF
 DAY_S = 86400
 HISTORY_RE = re.compile(
-    rf"HISTORY\t1\t(?:in|out)\t\d+\t(?:PING|HUMAN|SENT)\t[a-z][a-z0-9-]{{0,23}}"
+    rf"HISTORY\t1\t(?:in|out)\t\d+\t(?:PING|HUMAN|PEER|SENT)\t[a-z][a-z0-9-]{{0,23}}"
     rf"\t{protocol.EVENT_ID_PATTERN}(?:\t[^\t\n]+)*")
 
 
@@ -85,6 +85,12 @@ class HistoryLineTest(unittest.TestCase):
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, human=human))
         self.assertEqual(line, f'HISTORY\t1\tin\t9\tHUMAN\t{self.TEAM}\t{self.EVENT}\talice\t9'
                                '\t"two\\tfields\\nno"')
+
+    def test_a_peer_text_is_escaped_as_its_peer_line(self) -> None:
+        peer = protocol.PeerText(self.EVENT, self.ORCH, 9, "two\tfields\nno")
+        line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, peer=peer))
+        self.assertEqual(line, f'HISTORY\t1\tin\t9\tPEER\t{self.TEAM}\t{self.EVENT}'
+                               '\torch.1+workstation.podman\t9\t"two\\tfields\\nno"')
 
     def test_an_agent_text_sent_is_its_sent_line_without_the_text(self) -> None:
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("out", 3, sent_event_id=self.EVENT))
@@ -146,6 +152,23 @@ class HistoryTest(HistoryCase):
         code, rows, _ = self.history()
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(rows, [["HISTORY", "1", "out", str(int(bus.T0 * 1000)), "SENT", bus.TEAM_A, said]])
+
+    def test_agent_text_in_and_out(self) -> None:
+        """Peer text naming this seat is listed with its text; text for others is not; text
+        this seat sent is its `SENT` line."""
+        self.joined()
+        heard = self.a.send(self.a.orch, protocol.build_text([self.a.me], "the docs are next"))
+        self.a.send(self.a.orch, protocol.build_text([self.a.peer], "not for this seat"))
+        self.now += 1
+        code, out, err = self.run_cli("say", "--to", bus.ORCH_LP, stdin="taking the docs")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        said = out.split("\t")[3].strip()
+        code, rows, err = self.history()
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual([(r[2], r[4], r[6]) for r in rows], [("out", "SENT", said), ("in", "PEER", heard)])
+        self.assertEqual(rows[1][7:], ["orch.1+workstation.podman", str(int(bus.T0 * 1000)),
+                                       '"the docs are next"'])
+        self.assertNotIn("DROPPED", err)
 
     def test_an_item_older_than_any_receive_limit_is_still_listed(self) -> None:
         self.joined()

@@ -28,7 +28,7 @@ TOKEN_ENV = "CLAUDE_CODE_MESSAGING_TOKEN"
 
 #: Spec §15, word for word (`test_notify` holds the document to it).
 NOTICE_TEMPLATE = (
-    "agent-bus: {total} pending ({humans} from humans, {pings} pings), notice {number}. "
+    "agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings), notice {number}. "
     "Run `pingbus recv`."
 )
 #: How long one connection may take, from connect to the socket's close.
@@ -48,13 +48,13 @@ def _count(value: object) -> int:
     return value
 
 
-def notice_text(total: int, humans: int, pings: int, number: int) -> str:
+def notice_text(total: int, humans: int, peers: int, pings: int, number: int) -> str:
     """The one notification text: counts and the notice number, nothing else."""
-    if _count(humans) + _count(pings) != _count(total) or total == 0:
-        raise ValueError("total must be humans plus pings, and more than none")
+    if _count(humans) + _count(peers) + _count(pings) != _count(total) or total == 0:
+        raise ValueError("total must be humans plus peers plus pings, and more than none")
     if _count(number) < 1:
         raise ValueError("a notice number starts at 1")
-    return NOTICE_TEMPLATE.format(total=total, humans=humans, pings=pings, number=number)
+    return NOTICE_TEMPLATE.format(total=total, humans=humans, peers=peers, pings=pings, number=number)
 
 
 def session_socket(environ: Mapping[str, str]) -> tuple[str, str] | None:
@@ -125,11 +125,11 @@ class Notifier:
         self.number = first_number
         self._last_ids: frozenset[str] = frozenset()
         self._last_sent: float | None = None
-        self._owed: tuple[int, int, int] | None = None
+        self._owed: tuple[int, int, int, int] | None = None
 
-    def observe(self, counts: tuple[int, int, int], ids: Iterable[str]) -> bool:
-        """Take the current (total, humans, pings) and the pending event IDs; True when a
-        notice was sent."""
+    def observe(self, counts: tuple[int, int, int, int], ids: Iterable[str]) -> bool:
+        """Take the current (total, humans, peers, pings) and the pending event IDs; True
+        when a notice was sent."""
         current = frozenset(ids)
         total = counts[0]
         if total > 0 and not current <= self._last_ids:
@@ -146,8 +146,7 @@ class Notifier:
         now = self._clock()
         if self._last_sent is not None and now - self._last_sent < self._interval:
             return False
-        total, humans, pings = self._owed
-        self._send(notice_text(total, humans, pings, self.number))
+        self._send(notice_text(*self._owed, self.number))
         self.number += 1
         self._owed = None
         self._last_sent = now

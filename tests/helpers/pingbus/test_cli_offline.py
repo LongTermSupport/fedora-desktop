@@ -413,15 +413,24 @@ class TestValidateEvent(TempCase):
         path.write_text(event if isinstance(event, str) else json.dumps(event), encoding="utf-8")
         return run(["validate", "--event", str(path)], env)
 
-    def test_agent_text_is_ignored_never_dropped(self) -> None:
+    def test_agent_text_for_others_is_ignored_never_dropped(self) -> None:
         env = self.active(record())
-        for to in ([HUMAN], [SELF], ["@nobody:elsewhere"]):
+        for to in ([HUMAN], ["@nobody:elsewhere"]):
             with self.subTest(to=to):
                 content = p.build_text([HUMAN], "the review is done")
                 content[p.TEXT_KEY]["to"] = to
                 code, out, err = self.check(message_event(ORCH, content), env)
                 self.assertEqual((code, out), (0, f"ignore {p.IGNORE_AGENT_TEXT}\n"), err)
                 self.assertNotIn("DROP", out + err)
+
+    def test_agent_text_naming_self_is_checked(self) -> None:
+        env = self.active(record())
+        code, out, err = self.check(message_event(ORCH, p.build_text([HUMAN, SELF], "the review is done")), env)
+        self.assertEqual((code, out), (0, "OK\n"), err)
+        content = p.build_text([HUMAN], "the review is done")
+        content[p.TEXT_KEY]["to"] = [SELF]
+        code, out, err = self.check(message_event(ORCH, content), env)
+        self.assertEqual((code, out), (4, "schema\n"), err)
 
     def test_ping_to_self_ok(self) -> None:
         env = self.active(record())

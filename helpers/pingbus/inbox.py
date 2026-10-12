@@ -134,10 +134,11 @@ class Pending:
     items: tuple[Item, ...]
     rejected: int
 
-    def counts(self) -> tuple[int, int, int]:
-        """(total, from humans, pings), for the hooks' and the watcher's templates."""
+    def counts(self) -> tuple[int, int, int, int]:
+        """(total, from humans, from agents, pings), for the hooks' and the watcher's templates."""
         humans = sum(1 for item in self.items if item.outcome.human is not None)
-        return len(self.items), humans, len(self.items) - humans
+        peers = sum(1 for item in self.items if item.outcome.peer is not None)
+        return len(self.items), humans, peers, len(self.items) - humans - peers
 
 
 @dataclasses.dataclass(frozen=True)
@@ -368,7 +369,7 @@ class TeamState:
             if outcome.kind != protocol.ACCEPT:
                 rejected += 1
                 continue
-            item_ts = (outcome.ping or outcome.human).origin_server_ts
+            item_ts = outcome.item.origin_server_ts
             items.append(Item(name[: -len(".json")], item_ts, outcome))
         items.sort(key=lambda item: (item.origin_server_ts, item.event_id))
         return Pending(tuple(items), rejected)

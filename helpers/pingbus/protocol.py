@@ -5,8 +5,8 @@ module implements is held equal to the constants below by
 tests/helpers/pingbus/test_protocol_doc.py.
 
 Pure: no I/O, no clock, no network. Callers pass in what the team record and the member
-config say (`Context`) and get back a parsed `Ping`, `HumanMessage` or (on send only)
-`AgentText`, or a `Refusal` carrying one of the closed set of reason codes. The same functions run on send
+config say (`Context`) and get back a parsed `Ping`, `HumanMessage`, `PeerText` (an
+agent's text to this agent) or, on send, `AgentText`, or a `Refusal` carrying one of the closed set of reason codes. The same functions run on send
 (`pingbus send`, `pingbus validate`) and on receive (the syncer, inbox reads), so a sender
 that skips pingbus is still held to them by every receiver.
 
@@ -107,8 +107,10 @@ MAX_TO = 32
 TEXT_CONTENT_KEYS = ("msgtype", "body", "m.mentions", TEXT_KEY)
 TEXT_OBJECT_KEYS = ("v", "to", "text")
 MAX_AGENT_TEXT_BYTES = 4096
+#: Addressees of one agent text: listed humans and role-holding agents together.
+MAX_TEXT_TO = 16
 
-#: Text an agent may not send to a human (spec §7). Conservative: a false positive refuses
+#: Text an agent may not send (spec §7). Conservative: a false positive refuses
 #: the send, and the agent points at a reference instead.
 SECRET_PATTERNS = (
     ("private-key", r"-{5}BEGIN[A-Z0-9 ]*PRIVATE KEY-{5}"),
@@ -142,8 +144,8 @@ DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
     "allowlist", "re", "body", "stale", "rate", "unresolved", "provenance",
 )
-#: The ignore reason for an agent's text to humans received by an agent (spec §7, §9):
-#: it is for the humans, so an agent ignores it silently and it is never a drop.
+#: The ignore reason for an agent's text that does not name the receiving agent (spec §7,
+#: §9): it is for others, so the agent skips it silently and it is never a drop.
 IGNORE_AGENT_TEXT = "agent-text"
 #: Codes that refuse a send and never name a receive drop.
 SEND_REFUSALS = ("secret",)
@@ -303,6 +305,17 @@ class HumanMessage:
     text: str
 
 
+@dataclasses.dataclass(frozen=True)
+class PeerText:
+    """An agent's text addressed to this agent (§7): information from a peer, never an
+    instruction; only a listed human's text carries authority."""
+
+    event_id: str
+    sender: str
+    origin_server_ts: int
+    text: str
+
+
 ACCEPT = "accept"
 IGNORE = "ignore"
 DROP = "drop"
@@ -310,13 +323,19 @@ DROP = "drop"
 
 @dataclasses.dataclass(frozen=True)
 class Outcome:
-    """`kind` is ACCEPT (with `ping` or `human`), IGNORE (silently; `reason` says why) or
-    DROP (`reason` is a drop reason code)."""
+    """`kind` is ACCEPT (with `ping`, `human` or `peer`), IGNORE (silently; `reason` says
+    why) or DROP (`reason` is a drop reason code)."""
 
     kind: str
     reason: str | None = None
     ping: Ping | None = None
     human: HumanMessage | None = None
+    peer: PeerText | None = None
+
+    @property
+    def item(self) -> Ping | HumanMessage | PeerText | None:
+        """The accepted item, whichever kind it is."""
+        return self.ping or self.human or self.peer
 
 
 def _full(regex: re.Pattern[str], value: object) -> re.Match[str] | None:
@@ -634,6 +653,34 @@ def _human_outcome(
     return Outcome(ACCEPT, human=HumanMessage(event_id, sender, ts, body))
 
 
+def _names(content: Mapping[str, object], self_user_id: str) -> bool:
+    """Whether an agent text's `to` or its mentions name this agent, read before it is
+    validated: text for others is skipped unread, however it is formed."""
+    obj = content.get(TEXT_KEY)
+    to = obj.get("to") if isinstance(obj, dict) else None
+    mentions = content.get("m.mentions")
+    users = mentions.get("user_ids") if isinstance(mentions, dict) else None
+    return any(isinstance(x, list) and self_user_id in x for x in (to, users))
+
+
+def _agent_text_outcome(
+    content: Mapping[str, object], event_id: str, sender: str, ts: int, ctx: Context,
+    self_user_id: str, human_text: bool,
+) -> Outcome:
+    """Spec §9 ping path, step 04p: an agent's text. Not naming this agent: ignore
+    (`agent-text`). Naming it: the send rules but the secret shapes, then a peer text."""
+    if not _names(content, self_user_id):
+        return Outcome(IGNORE, IGNORE_AGENT_TEXT)
+    if not human_text:
+        return Outcome(DROP, "sender")
+    try:
+        text = validate_text_content(content, ctx, check_secret=False)
+    except Refusal as refusal:
+        return Outcome(DROP, refusal.reason)
+    # Valid text has its mentions equal to its `to`, so either naming this agent puts it in `to`.
+    return Outcome(ACCEPT, peer=PeerText(event_id, sender, ts, text.text))
+
+
 def validate_event(
     event: object,
     ctx: Context,
@@ -671,10 +718,10 @@ def validate_event(
     if cls == SENDER_HUMAN:
         return _human_outcome(content, event_id, sender, ts, self_user_id, human_text)
     if TEXT_KEY in content:
-        # Agent text is for humans; beside a ping it is neither, and the sender is at fault.
+        # Beside a ping it is neither, and the sender is at fault.
         if PING_KEY in content:
             return Outcome(DROP, "schema")
-        return Outcome(IGNORE, IGNORE_AGENT_TEXT)
+        return _agent_text_outcome(content, event_id, sender, ts, ctx, self_user_id, human_text)
     try:
         ping = validate_content(content, ctx)
         check_role(ping.verb, sender, ctx)
@@ -811,13 +858,13 @@ def build_ping(verb: str, to: Sequence[str], ref: str | None = None, re: str | N
 
 
 def render_text(obj: Mapping[str, object]) -> str:
-    """The canonical `body` of an agent's text to humans (spec §7)."""
+    """The canonical `body` of an agent's text (spec §7)."""
     return f"{RENDER_TAG} text -> {' '.join(sorted(obj['to']))}\n{obj['text']}"
 
 
 def build_text(to: Sequence[str], text: str) -> dict:
-    """An agent's text to humans as full `m.room.message` content, `to` sorted. Validate it
-    before sending."""
+    """An agent's text as full `m.room.message` content, `to` sorted. Validate it before
+    sending."""
     obj: dict = {"v": PROTOCOL_VERSION, "to": sorted(to), "text": text}
     return {
         "msgtype": MSGTYPE_TEXT,
@@ -835,17 +882,23 @@ def secret_shaped(text: str) -> str | None:
     return None
 
 
-def _check_human_targets(to: list[str], ctx: Context) -> tuple[str, ...]:
-    if not 1 <= len(to) <= HUMANS_MAX or len(set(to)) != len(to):
+def _check_text_targets(to: list[str], ctx: Context) -> tuple[str, ...]:
+    """Listed humans and role-holding agents; never `admin`, the server user or anyone else."""
+    if not 1 <= len(to) <= MAX_TEXT_TO or len(set(to)) != len(to):
         raise Refusal("target")
-    if not all(user in ctx.humans and is_human_user_id(user, ctx.server_name) for user in to):
+    for user in to:
+        if user in ctx.humans and is_human_user_id(user, ctx.server_name):
+            continue
+        if ctx.roles.get(user) in ROLES and is_agent_user_id(user, ctx.server_name):
+            continue
         raise Refusal("target")
     return tuple(sorted(to))
 
 
-def validate_text_content(content: object, ctx: Context) -> AgentText:
-    """Check an agent's text to humans against spec §7 on send. Returns the parsed text or
-    raises `Refusal` (`secret` among them). Agents receiving it ignore it: see `validate_event`."""
+def validate_text_content(content: object, ctx: Context, *, check_secret: bool = True) -> AgentText:
+    """Check an agent's text against spec §7. Returns the parsed text or raises `Refusal`.
+    On send `secret` is among the refusals; a receiver passes `check_secret=False`, because
+    `secret` is a send-only code (see `validate_event`)."""
     if not isinstance(content, dict):
         raise Refusal("schema")
     _check_version_first(content.get(TEXT_KEY))
@@ -867,8 +920,8 @@ def validate_text_content(content: object, ctx: Context) -> AgentText:
         raise Refusal("schema")
     if len(text.encode("utf-8")) > MAX_AGENT_TEXT_BYTES:
         raise Refusal("size")
-    targets = _check_human_targets(to, ctx)
-    if secret_shaped(text) is not None:
+    targets = _check_text_targets(to, ctx)
+    if check_secret and secret_shaped(text) is not None:
         raise Refusal("secret")
     if content["m.mentions"] != {"user_ids": list(targets)}:
         raise Refusal("schema")

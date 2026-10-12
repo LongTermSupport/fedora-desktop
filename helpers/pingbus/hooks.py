@@ -53,7 +53,7 @@ FAILURE_EVERY_S = 600
 INPUT_MAX_BYTES = 1 << 20
 
 #: The only fields a template may carry: counts, and names that passed their grammar.
-COUNT_FIELDS = ("total", "humans", "pings", "held", "teams", "free")
+COUNT_FIELDS = ("total", "humans", "peers", "pings", "held", "teams", "free")
 LOCK_STATES = ("held", "free")
 NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "seat": protocol.is_seat_name,
@@ -62,8 +62,8 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "lock": lambda value: value in LOCK_STATES,
 }
 TEMPLATES = {
-    "pending": "agent-bus: {total} pending ({humans} from humans, {pings} pings). Run `pingbus recv`.",
-    "stop_pending": ("agent-bus: {total} pending ({humans} from humans, {pings} pings). "
+    "pending": "agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings). Run `pingbus recv`.",
+    "stop_pending": ("agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings). "
                      "Run `pingbus recv` before stopping."),
     "no_waker": ("agent-bus: {free} of {teams} active teams have no watcher or waiter, so nothing "
                  "will wake this session. Run `pingbus wait` with run_in_background."),
@@ -95,8 +95,8 @@ class _Failure(Exception):
         self.cls = cls
 
 
-def pending_text(total: int, humans: int, pings: int) -> str:
-    return TEMPLATES["pending"].format(total=total, humans=humans, pings=pings)
+def pending_text(total: int, humans: int, peers: int, pings: int) -> str:
+    return TEMPLATES["pending"].format(total=total, humans=humans, peers=peers, pings=pings)
 
 
 def fill(name: str, **fields: object) -> str:
@@ -147,13 +147,13 @@ class TeamView:
 class Survey:
     teams: tuple[TeamView, ...]
 
-    def counts(self) -> tuple[int, int, int]:
-        total = humans = pings = 0
+    def counts(self) -> tuple[int, int, int, int]:
+        """(total, from humans, from agents, pings) pending over every surveyed team."""
+        sums = [0, 0, 0, 0]
         for view in self.teams:
             if view.pending is not None:
-                t, h, p = view.pending.counts()
-                total, humans, pings = total + t, humans + h, pings + p
-        return total, humans, pings
+                sums = [a + b for a, b in zip(sums, view.pending.counts(), strict=True)]
+        return sums[0], sums[1], sums[2], sums[3]
 
     def failure(self) -> str | None:
         found = {view.failure for view in self.teams if view.failure is not None}
@@ -358,9 +358,9 @@ class _Hook:
 
     def _pending_and_failure(self, surveyed: Survey, extra_failure: str | None = None) -> list[str]:
         lines = []
-        total, humans, pings = surveyed.counts()
+        total, humans, peers, pings = surveyed.counts()
         if total:
-            lines.append(pending_text(total, humans, pings))
+            lines.append(pending_text(total, humans, peers, pings))
         found = {surveyed.failure(), extra_failure}
         failure = next((cls for cls in FAILURE_CLASSES if cls in found), None)
         if failure is not None:
@@ -375,14 +375,15 @@ class _Hook:
             surveyed = survey(self.environ)
         except _Failure as failure:
             return self.stop_failure(failure.cls, guard)
-        total, humans, pings = surveyed.counts()
+        total, humans, peers, pings = surveyed.counts()
         if total:
             digest = surveyed.digest()
             if guard.values["pending"] != digest:
                 guard.values["pending"] = digest
                 if not guard.save():
                     return {}
-                return _block(TEMPLATES["stop_pending"].format(total=total, humans=humans, pings=pings))
+                return _block(TEMPLATES["stop_pending"].format(total=total, humans=humans,
+                                                               peers=peers, pings=pings))
         elif guard.values["pending"] is not None:
             guard.values["pending"] = None
             if not guard.save():

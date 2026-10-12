@@ -402,6 +402,18 @@ class HumanPipelineTest(TeamCase):
         self.assertEqual(batch.accepted, ())
         self.assertEqual(dict(batch.drops), {"stale": 1})
 
+    def test_peer_text_is_stored_and_ages_as_human_text_does(self):
+        s = self.ready()
+        fresh = self.send(self.peer, protocol.build_text([self.me], "fresh"))
+        batch = s.sync_once()
+        self.assertEqual(batch.accepted, (fresh,))
+        self.assertEqual([item.outcome.peer.text for item in self.pending().items], ["fresh"])
+        self.send(self.peer, protocol.build_text([self.me], "old"))
+        self.now += self.member_limits.human_max_age_s + 1
+        batch = s.sync_once()
+        self.assertEqual(batch.accepted, ())
+        self.assertEqual(dict(batch.drops), {"stale": 1})
+
     def test_non_team_and_admin_senders_dropped(self):
         s = self.ready()
         self.call(self.admin, "POST", f"/_matrix/client/v3/rooms/{q(self.room)}/invite", {"user_id": self.outsider})
@@ -423,6 +435,15 @@ class HumanTextOffTest(TeamCase):
         self.assertEqual(dict(batch.drops), {"sender": 1})
         self.assertEqual(self.drop_log()[0][1:4], [event, self.alice, "sender"])
 
+    def test_peer_text_naming_this_member_dropped_as_sender(self):
+        s = self.ready()
+        event = self.send(self.peer, protocol.build_text([self.me], "free text, pings only here"))
+        self.send(self.peer, protocol.build_text([self.alice], "for the human"))
+        batch = s.sync_once()
+        self.assertEqual(batch.accepted, ())
+        self.assertEqual(dict(batch.drops), {"sender": 1})
+        self.assertEqual(self.drop_log()[0][1:4], [event, self.peer, "sender"])
+
 
 class FloodTest(TeamCase):
     member_limits = limits.Limits(recv_per_sender_minute=10)
@@ -431,6 +452,14 @@ class FloodTest(TeamCase):
         s = self.ready()
         for n in range(12):
             self.human(f"message {n}")
+        batch = s.sync_once()
+        self.assertEqual(len(batch.accepted), 10)
+        self.assertEqual(dict(batch.drops), {"rate": 2})
+
+    def test_peer_text_counts_against_the_flood_limit(self):
+        s = self.ready()
+        for n in range(12):
+            self.send(self.peer, protocol.build_text([self.me], f"note {n}"))
         batch = s.sync_once()
         self.assertEqual(len(batch.accepted), 10)
         self.assertEqual(dict(batch.drops), {"rate": 2})
