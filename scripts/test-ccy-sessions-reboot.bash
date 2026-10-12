@@ -227,9 +227,11 @@ fi
 if [ -n "${TEST_CLI_FAIL_MATCH_2:-}" ] && [[ "$*" == *"$TEST_CLI_FAIL_MATCH_2"* ]]; then
     exit 1
 fi
-# TEST_CLI_HANG_MATCH: a call that does not come back (short, so a leaked one ends soon).
+# TEST_CLI_HANG_MATCH: a call that hangs far past any bound a test sets, and fails if it is
+# ever let finish — so only a caller that cuts it off reports success in good time.
 if [ -n "${TEST_CLI_HANG_MATCH:-}" ] && [[ "$*" == *"$TEST_CLI_HANG_MATCH"* ]]; then
-    exec sleep 3
+    sleep 30
+    exit 1
 fi
 EOF
         chmod 755 "$dir/.claude/hooks-daemon/bin/hooks-daemon"
@@ -801,10 +803,15 @@ TEST_CLI_FAIL_MATCH="--minutes 1 " with_update shutdown-with-update "$HOME_OFF" 
 check "a warning that fails: still shuts down" "0:1" "$rc:$(calls | grep -c '^shutdown -h now$')"
 check "  and withdraws nothing" "0" "$(calls | grep -c 'reboot-cancelled')"
 
+hang_started=$SECONDS
 TEST_CLI_HANG_MATCH="signal shutdown-warning --minutes 1 " TEST_SESSIONS_TIMEOUT=1 \
     with_update shutdown-with-update "$HOME_OFF" "" --in 1
+hang_took=$((SECONDS - hang_started))
 check "a warning that hangs is cut off at its bound: still shuts down" "0:1" \
     "$rc:$(calls | grep -c '^shutdown -h now$')"
+check "  well before the hang would have ended (30 s)" "yes" "$([ "$hang_took" -lt 20 ] && echo yes || echo "no: ${hang_took}s")"
+check "  saying the warning failed and it is going ahead" "yes" \
+    "$([[ "$out" == *"could not all be warned"*"Going ahead"* ]] && echo yes || echo no)"
 
 TEST_SHUTDOWN_RC=1 with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "an inhibited shutdown with nobody to answer: forced, not asked" "0:1" \
