@@ -80,8 +80,11 @@ version_pins:
       Ookla publishes the CLI as a tarball at install.speedtest.net, not on GitHub; check
       https://www.speedtest.net/apps/cli for a newer version and update the sha256 with it.
     installed:
-      kind: command
-      name: speedtest
+      kind: untracked
+      why: >-
+        The play asserts `speedtest --version` matches the pin on every run, so drift
+        surfaces there; a host-side command resolver would also make this the first
+        non-DKMS tracked pin, which the login-time check is not yet built to scope.
 
   - playbook: playbooks/imports/optional/common/play-photography.yml
     var: rapidraw_version
