@@ -67,9 +67,9 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
 
 ### Phase 2: Deploy and accept
 
-- [ ] ⬜ **Task 2.1**: Run this plan's `deploy.bash` on the host, through meta-deploy:
+- [x] ✅ **Task 2.1**: This plan's `deploy.bash` ran on the host through meta-deploy:
   `play-basic-configs.yml` (the script and the profile file) and `play-claude-yolo.yml`
-  (`ccy-sessions`).
+  (`ccy-sessions`), both failed=0.
 - [ ] ⬜ **Task 2.2**: Owner runs `shutdown-with-update` in an evening with a ccy session
   left at its startup prompt; the machine updates and powers off.
 - [x] ✅ **Task 2.3**: qa-reviewer pass on the branch; its findings fixed in f1ac2371.
