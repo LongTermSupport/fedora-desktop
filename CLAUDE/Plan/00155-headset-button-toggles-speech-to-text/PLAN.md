@@ -265,6 +265,8 @@ headset's microphone, so it is rejected.
   is no D-Bus Toggle and no coupling to Plan 00171). The mapping lives in host_vars
   (D2's device list grows a per-device gesture→key map) and is deployed by Ansible
   into a root-owned config file.
+- **Written in Rust (owner),** as the first crate in `tooling-rust/` with `rust-qa-ci`.
+  That layout is Plan 00174, which this plan depends on.
 - **Active only while a dictation device is connected (owner).** It is a root
   *system* service, started by a udev rule when the device's `(AVRCP)` input node
   appears (name match per D2, `SYSTEMD_WANTS`), and stopped when the node goes
