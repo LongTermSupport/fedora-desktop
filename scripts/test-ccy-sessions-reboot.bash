@@ -166,6 +166,10 @@ if [ -n "${TEST_SYSTEMCTL_TERM_CALLER:-}" ] && [[ "$*" == reboot* || "$*" == pow
     kill -TERM "$PPID"
     sleep 0.2
 fi
+# TEST_SYSTEMCTL_REFUSE_UNFORCED=1: an inhibitor refuses any power action not given -i.
+if [ -n "${TEST_SYSTEMCTL_REFUSE_UNFORCED:-}" ] && [[ "$*" != *" -i"* ]]; then
+    exit 1
+fi
 exit "${TEST_SYSTEMCTL_RC:-0}"
 EOF
 # pgrep: shutdown-with-update's akmods probe is `pgrep -f "[a]kmods"`, which matches any
@@ -222,6 +226,10 @@ if [ -n "${TEST_CLI_FAIL_MATCH:-}" ] && [[ "$*" == *"$TEST_CLI_FAIL_MATCH"* ]]; 
 fi
 if [ -n "${TEST_CLI_FAIL_MATCH_2:-}" ] && [[ "$*" == *"$TEST_CLI_FAIL_MATCH_2"* ]]; then
     exit 1
+fi
+# TEST_CLI_HANG_MATCH: a call that does not come back (short, so a leaked one ends soon).
+if [ -n "${TEST_CLI_HANG_MATCH:-}" ] && [[ "$*" == *"$TEST_CLI_HANG_MATCH"* ]]; then
+    exec sleep 3
 fi
 EOF
         chmod 755 "$dir/.claude/hooks-daemon/bin/hooks-daemon"
@@ -326,7 +334,7 @@ echo "=== notify: every live project, exactly once ==="
 # Two sessions in project a (a second terminal, a second session), one in project b:
 # two projects, so two signals. The sessions are "<name> <attached> <dir>" as tmux
 # prints them.
-printf '%s\n' "ccy-a 1 $A" "ccy-a-2 0 $A" "cc-b 0 $B" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-a-2 0 $A" "cc-b 0 $B" >"$SESSIONS"
 run notify reboot-warning --minutes 5
 check "notify succeeds" "0" "$rc"
 check "each project signalled exactly once" "2" "$(calls | grep -c '^cli.* signal reboot-warning')"
@@ -360,7 +368,7 @@ echo "=== notify going-down: the kind follows the restore opt-in, not the power 
 # The daemon's two warning texts differ on one thing an agent acts on: reboot-warning
 # says a session restore will follow, shutdown-warning says none will and asks for a
 # handoff. So the truthful kind is decided by whether restore is enabled here.
-printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
 TEST_HOME="$HOME_ON" run notify going-down --minutes 5
 check "restore on: going-down succeeds" "0" "$rc"
 check "restore on: each project is told reboot-warning (a restore follows)" "2" \
@@ -385,7 +393,7 @@ check "an explicit shutdown-warning is still delivered" "2" \
 
 echo ""
 echo "=== notify: a project with no daemon CLI is a refusal, not a skip ==="
-printf '%s\n' "ccy-a 1 $A" "ccy-x 0 $NOCLI" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-x 0 $NOCLI" >"$SESSIONS"
 run notify reboot-warning --minutes 5
 check "exit is non-zero" "1" "$rc"
 check "the project is named" "yes" "$([[ "$out" == *"$NOCLI"* ]] && echo yes || echo no)"
@@ -397,7 +405,7 @@ check "and NO project was signalled, not even the one with a CLI" "0" \
 
 echo ""
 echo "=== reboot --in N: warn, count down, warn at one minute, reboot ==="
-printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
 run reboot --in 3
 check "reboot succeeds" "0" "$rc"
 check "the first warning carries the full minutes" "2" "$(calls | grep -c 'signal reboot-warning --minutes 3 ')"
@@ -431,7 +439,7 @@ run reboot --in 0
 check "--in 0 is refused" "64" "$rc"
 check "and nothing rebooted" "0" "$(calls | grep -c '^systemctl')"
 
-printf '%s\n' "ccy-a 1 $A" "ccy-x 0 $NOCLI" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-x 0 $NOCLI" >"$SESSIONS"
 run reboot --in 2
 check "a missing daemon CLI refuses the reboot" "1" "$rc"
 check "and REBOOTS NOTHING" "0" "$(calls | grep -c '^systemctl')"
@@ -439,7 +447,7 @@ check "and signals nothing" "0" "$(calls | grep -c '^cli.* signal [a-z-]*\(warni
 
 # The CLI is there but cannot run (on the host, a project whose daemon has no venv). Found
 # only when signalling, the first project had already been warned; it must refuse first.
-printf '%s\n' "ccy-a 1 $A" "ccy-y 0 $BROKEN" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-y 0 $BROKEN" >"$SESSIONS"
 run reboot --in 2
 check "a daemon CLI that cannot run refuses the reboot" "1" "$rc"
 check "  and REBOOTS NOTHING" "0" "$(calls | grep -c '^systemctl')"
@@ -461,7 +469,7 @@ mkdir -p "$CT"
 CCYONLY="$SCRATCH/project-ccy-only"
 project "$CCYONLY" broken-cli
 IN_CT="/workspace/.claude/hooks-daemon/bin/hooks-daemon"
-printf '%s\n' "ccy-a 1 $A" "ccy-c 0 $CCYONLY" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "ccy-c 0 $CCYONLY" >"$SESSIONS"
 printf '%s\n' "ccy-c 500" >"$CT/panes"
 printf '%s\n' "500 1 bash" "600 500 podman run --rm --name c_yolo claude-yolo:latest" >"$CT/ps"
 TEST_PANES="$CT/panes" TEST_PS="$CT/ps" run reboot --in 2
@@ -504,7 +512,7 @@ echo ""
 echo "=== a reboot that stops after warning anyone withdraws the warning ==="
 # Projects are signalled in listing order, so project a is warned before project b's
 # warning fails. Project a must not be left expecting a reboot that is not coming.
-printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
 TEST_CLI_FAIL_MATCH="signal reboot-warning --minutes 3 --all-sessions --project-root $B" run reboot --in 3
 check "a first warning that fails part-way refuses the reboot" "1" "$rc"
 check "and reboots nothing" "0" "$(calls | grep -c '^systemctl')"
@@ -536,7 +544,7 @@ echo "=== reboot: everything that would stop it is found before anyone is warned
 # From a login with no terminal polkit refuses `systemctl reboot` ("interactive
 # authentication required"), which used to surface only after both warnings and the
 # countdown, and was then reported to every session as a cancellation.
-printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
 run reboot --in 2
 check "logind is asked whether this account may reboot, once" "1" "$(calls | grep -c '^busctl .*CanReboot$')"
 check "  before the first warning" "busctl" "$(calls | awk 'NR == 1 { print $1 }')"
@@ -565,26 +573,26 @@ check "an answer that is not yes is a refusal" "1:0" "$rc:$(calls | grep -c '^sy
 # alongside a permission refusal rather than one problem per attempt.
 NOCLI2="$SCRATCH/second-project-without-daemon"
 project "$NOCLI2" without-cli
-printf '%s\n' "ccy-a 1 $A" "ccy-x 0 $NOCLI" "ccy-x-2 0 $NOCLI" "ccy-z 0 $NOCLI2" "ccy-y 0 $BROKEN" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-x 0 $NOCLI" "cc-x-2 0 $NOCLI" "cc-z 0 $NOCLI2" "cc-y 0 $BROKEN" >"$SESSIONS"
 TEST_CAN_REBOOT=challenge run reboot --in 2
 check "sessions that cannot be warned, and no permission: refused" "1" "$rc"
-for session in ccy-x ccy-x-2 ccy-z; do
+for session in cc-x cc-x-2 cc-z; do
     check "  $session (its project has no daemon CLI) is named" "1" "$(grep -c "^  $session  in " <<<"$out")"
 done
-check "  with its project" "yes" "$([[ "$out" == *"ccy-z  in $NOCLI2"* ]] && echo yes || echo no)"
-check "  the session whose daemon cannot run is named too" "1" "$(grep -c '^  ccy-y  in ' <<<"$out")"
+check "  with its project" "yes" "$([[ "$out" == *"cc-z  in $NOCLI2"* ]] && echo yes || echo no)"
+check "  the session whose daemon cannot run is named too" "1" "$(grep -c '^  cc-y  in ' <<<"$out")"
 check "  the options: end the session, or install the daemon" "yes" \
     "$([[ "$out" == *"Ctrl-X"* && "$out" == *"'install'"* ]] && echo yes || echo no)"
 check "  and the permission problem in the same run" "yes" "$([[ "$out" == *"CanReboot: challenge"* ]] && echo yes || echo no)"
 check "  and no project is warned or told anything" "0" "$(calls | grep -c '^cli.* signal [a-z-]*\(warning\|cancelled\)')"
-check "  a session in a project that can be warned is not listed" "0" "$(grep -c '^  ccy-a ' <<<"$out")"
+check "  a session in a project that can be warned is not listed" "0" "$(grep -c '^  cc-a ' <<<"$out")"
 
 echo ""
 echo "=== a session list that cannot be read is not an empty one ==="
 # The failure case prints the same "nothing to signal" as the empty case if the listing's
 # exit status is dropped on the way — and then the machine reboots with every agent
 # unwarned, exit 0. The fake tmux fails outright here.
-printf '%s\n' "ccy-a 1 $A" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" >"$SESSIONS"
 : >"$LOG"
 out="$(HOME="$HOME_ON" PATH="$BIN:$PATH" TEST_TMUX_BROKEN=1 CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" "$TOOL" reboot --in 1 </dev/null 2>&1)"
 rc=$?
@@ -604,7 +612,7 @@ check "and so does the dry run" "1" "$rc"
 
 echo ""
 echo "=== Ctrl-C during the countdown tells the sessions the reboot is off ==="
-printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
 : >"$LOG"
 # A real minute here, so the countdown is in progress when the interrupt arrives.
 HOME="$HOME_ON" PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=60 CCY_STATE_DIR="$SCRATCH/state" \
@@ -677,19 +685,23 @@ EOF
 chmod 755 "$BIN/sudo" "$BIN/getent" "$BIN/fwupdmgr" "$BIN/dnf" "$BIN/flatpak" \
     "$BIN/shutdown" "$BIN/systemd-inhibit"
 
-# with_update <name> <home> <stdin-text-or-empty> <args...> — status in $rc.
+# with_update <name> <home> <stdin-text-or-empty> <args...> — status in $rc. The recorded
+# provisioning profile is TEST_PROFILE (default desktop), or the file TEST_PROFILE_FILE names.
 with_update() {
     local name="$1" home="$2" answer="$3"
     shift 3
     : >"$LOG"
+    printf '%s\n' "${TEST_PROFILE:-desktop}" >"$WU_DIR/profile"
     out="$(printf '%s' "$answer" | SUDO_USER="${TEST_SUDO_USER:-tester}" TEST_USER_HOME="$home" \
         PATH="$BIN:$PATH" CCY_LIB="$LIB_DIR" CCY_SESSIONS_MINUTE_SECONDS=0 \
         WITH_UPDATE_MINUTE_SECONDS=0 CCY_STATE_DIR="$SCRATCH/state" \
+        WITH_UPDATE_PROFILE_FILE="${TEST_PROFILE_FILE:-$WU_DIR/profile}" \
+        WITH_UPDATE_SESSIONS_TIMEOUT_SECONDS="${TEST_SESSIONS_TIMEOUT:-120}" \
         bash "$WU_DIR/$name" "$@" 2>&1)"
     rc=$?
 }
 
-printf '%s\n' "ccy-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
 TEST_SHUTDOWN_RC=0 with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "shutdown, restore off: succeeds" "0" "$rc"
 check "the rehearsal signals nothing and names the real kind" "yes" \
@@ -702,6 +714,9 @@ TEST_SHUTDOWN_RC=0 with_update shutdown-with-update "$HOME_ON" "" --in 1
 check "shutdown, restore on: the sessions are told reboot-warning (a restore follows)" "2" \
     "$(calls | grep -c 'signal reboot-warning --minutes 1 ')"
 
+echo ""
+echo "=== session-strict (server profile): anything the sessions refuse keeps the machine up ==="
+export TEST_PROFILE=server
 TEST_SHUTDOWN_RC=1 with_update shutdown-with-update "$HOME_OFF" "n" --in 1
 check "shutdown refused, answer N: exits non-zero" "1" "$rc"
 check "and every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
@@ -747,6 +762,67 @@ check "and the sessions are not told the reboot is off" "0" "$(calls | grep -c '
 TEST_SHUTDOWN_RC=1 TEST_SYSTEMCTL_TERM_CALLER=1 with_update shutdown-with-update "$HOME_OFF" "y" --in 1
 check "TERM while a forced poweroff is under way: exits 0" "0" "$rc"
 check "TERM while a forced poweroff is under way: not treated as a cancel" "0" "$(calls | grep -c 'reboot-cancelled')"
+
+# The rehearsal refuses before anything is updated: a session whose project has no CLI.
+printf '%s\n' "cc-a 1 $A" "cc-x 0 $NOCLI" >"$SESSIONS"
+with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "server: a session that cannot be warned refuses" "1" "$rc"
+check "  before anything is updated" "0" "$(calls | grep -c '^dnf')"
+check "  and nothing shuts down" "0" "$(calls | grep -c '^shutdown')"
+unset TEST_PROFILE
+TEST_PROFILE=desktop with_update shutdown-with-update "$HOME_OFF" "" --in 1 --strict-sessions
+check "desktop with --strict-sessions refuses the same way" "1:0:0" \
+    "$rc:$(calls | grep -c '^dnf'):$(calls | grep -c '^shutdown')"
+
+echo ""
+echo "=== desktop: the update and the power action always happen (Plan 00173) ==="
+# The reported case: a ccy session still at its startup prompts has no container, and its
+# project's daemon has no venv on the host. It must not be asked anything, or block anything.
+printf '%s\n' "cc-a 1 $A" "ccy-s 0 $BROKEN" >"$SESSIONS"
+with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "a ccy session with no container does not stop it" "0" "$rc"
+check "  it is named as left out" "yes" \
+    "$([[ "$out" == *"Left out"* && "$out" == *"ccy-s  in $BROKEN"* ]] && echo yes || echo no)"
+check "  its project's CLI is never asked anything" "0" "$(calls | grep -cF "cli[$BROKEN]")"
+check "  the live session is still warned" "1" "$(calls | grep -c "signal shutdown-warning --minutes 1 ")"
+check "  the updates ran" "1" "$(calls | grep -c '^dnf -y upgrade$')"
+check "  and the machine shuts down" "1" "$(calls | grep -c '^shutdown -h now$')"
+TEST_PROFILE=server with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "  a server leaves it out too: it is not a live session" "0:1" "$rc:$(calls | grep -c '^shutdown -h now$')"
+
+printf '%s\n' "cc-a 1 $A" "cc-x 0 $NOCLI" >"$SESSIONS"
+with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "a live session that cannot be warned: still updates and shuts down" "0:1:1" \
+    "$rc:$(calls | grep -c '^dnf -y upgrade$'):$(calls | grep -c '^shutdown -h now$')"
+check "  and says it is going ahead" "yes" "$([[ "$out" == *"Going ahead"* ]] && echo yes || echo no)"
+
+printf '%s\n' "cc-a 1 $A" "cc-b 0 $B" >"$SESSIONS"
+TEST_CLI_FAIL_MATCH="--minutes 1 " with_update shutdown-with-update "$HOME_OFF" "" --in 2
+check "a warning that fails: still shuts down" "0:1" "$rc:$(calls | grep -c '^shutdown -h now$')"
+check "  and withdraws nothing" "0" "$(calls | grep -c 'reboot-cancelled')"
+
+TEST_CLI_HANG_MATCH="signal shutdown-warning --minutes 1 " TEST_SESSIONS_TIMEOUT=1 \
+    with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "a warning that hangs is cut off at its bound: still shuts down" "0:1" \
+    "$rc:$(calls | grep -c '^shutdown -h now$')"
+
+TEST_SHUTDOWN_RC=1 with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "an inhibited shutdown with nobody to answer: forced, not asked" "0:1" \
+    "$rc:$(calls | grep -c '^systemctl poweroff -i$')"
+check "  and withdraws nothing" "0" "$(calls | grep -c 'reboot-cancelled')"
+
+TEST_SYSTEMCTL_REFUSE_UNFORCED=1 with_update reboot-with-update "$HOME_OFF" "" --in 1
+check "an inhibited reboot: forced past the inhibitors" "0:1" \
+    "$rc:$(calls | grep -c '^systemctl reboot -i$')"
+TEST_SYSTEMCTL_RC=1 with_update reboot-with-update "$HOME_OFF" "" --in 1
+check "a reboot that fails even when forced: exits non-zero and withdraws" "yes:2" \
+    "$([ "$rc" -ne 0 ] && echo yes || echo no):$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+
+TEST_PROFILE_FILE="$WU_DIR/no-such-profile" with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "no recorded profile: refused before anything is updated" "1:0" "$rc:$(calls | grep -c '^dnf')"
+check "  naming the play that records it" "yes" "$([[ "$out" == *"play-basic-configs.yml"* ]] && echo yes || echo no)"
+TEST_PROFILE=laptop with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "an unknown profile: refused" "1:0" "$rc:$(calls | grep -c '^dnf')"
 
 TEST_SUDO_USER=root with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "run from a root shell (SUDO_USER=root): refused" "1" "$rc"

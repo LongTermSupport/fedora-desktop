@@ -408,6 +408,8 @@ reports all of it at once (since CCY 3.82.0):
 - **Every live session that cannot be warned**: its project has no daemon CLI, or the CLI
   cannot run (each is asked for `signal --help` first). Each such session is named with its
   project. End it (`ccy-sessions`, then Ctrl-X) or install the daemon there, then try again.
+  A `ccy` session with no container (still at ccy's startup prompts) is not checked: there
+  is nothing in it to warn, so it is named as left out and never stops anything.
 
 Either is a refusal: nothing is signalled and nothing reboots. `--dry-run` makes the same
 checks, prints what would be signalled, and reboots nothing.
@@ -438,11 +440,20 @@ after one; the sessions simply were not told.
 patch-cycle versions: the firmware, dnf, Flatpak, pipx and Rust updates, then the warning
 and countdown above (N defaults to 2), then the reboot or the shutdown — as root, since
 either over SSH is refused to a plain user. The warning is `going-down`, so its kind
-follows the restore opt-in as above. Both rehearse the warning with `--dry-run`
-**before** updating, so a session that cannot be warned stops them before twenty minutes
-of `dnf`, not after. If the machine then does not go down — the shutdown is blocked and
-you answer N, there is no terminal to ask on, or the forced poweroff fails — the
-sessions are sent `reboot-cancelled`. Run them through `sudo` from your desktop user:
+follows the restore opt-in as above. How much the sessions can hold the machine up
+follows the provisioning profile, recorded in `/etc/fedora-desktop/provisioning-profile`:
+
+- **Desktop** (default): the update and the shutdown or reboot always happen. A session
+  that cannot be warned, a warning that fails, or one that has not answered in two
+  minutes is reported and gone past; a blocked shutdown or reboot is forced past its
+  inhibitors (`-i`).
+- **Server**, or `--strict-sessions` on a desktop: session-strict. The warning is
+  rehearsed with `--dry-run` **before** updating, so a session that cannot be warned
+  stops it before twenty minutes of `dnf`. A blocked shutdown asks whether to force it.
+
+If the machine then does not go down (the shutdown is blocked and you answer N, there is
+no terminal to ask on, or the forced power action fails), the sessions are sent
+`reboot-cancelled`. Run them through `sudo` from your desktop user:
 from a root shell there is no ccy-sessions to warn with, and they refuse. One script
 under two names, deployed by `play-basic-configs.yml`.
 

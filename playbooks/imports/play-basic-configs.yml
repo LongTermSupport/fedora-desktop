@@ -314,6 +314,24 @@
         - /root/.bashrc
         - /home/{{ user_login }}/.bashrc
 
+    # shutdown-with-update reads the profile at run time: a desktop always updates and goes
+    # down, a server lets a session that cannot be warned keep it up (Plan 00173).
+    - name: Create the fedora-desktop Configuration Directory
+      ansible.builtin.file:
+        path: /etc/fedora-desktop
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Record the Provisioning Profile for shutdown-with-update
+      ansible.builtin.copy:
+        content: "{{ provisioning_profile }}\n"
+        dest: /etc/fedora-desktop/provisioning-profile
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Deploy shutdown-with-update script
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/usr/local/bin/shutdown-with-update"

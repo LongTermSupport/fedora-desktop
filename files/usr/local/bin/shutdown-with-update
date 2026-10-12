@@ -6,12 +6,22 @@
 # session through `ccy-sessions notify going-down`, count down N minutes (default 2,
 # `--in N`), warn again at one minute, and only then bring the machine down. The name
 # decides only the last step:
-#   shutdown-with-update [--in N]   shutdown -h now, with the inhibitor prompt below
+#   shutdown-with-update [--in N]   shutdown -h now
 #   reboot-with-update [--in N]     systemctl reboot
 # The warning kind is NOT the name's: ccy-sessions picks it by whether the user's session
 # restore is enabled, because that is what decides whether an agent should hand off.
 # Both run as root via sudo from the desktop user and need SUDO_USER: the sessions belong
 # to that user and are found through that user's tmux server.
+#
+# How much the sessions may hold the machine up follows the provisioning profile, which
+# play-basic-configs.yml records in PROFILE_FILE:
+#   desktop  whoever ran it said go down, so it goes down. Sessions are warned and given the
+#            countdown, but a session that cannot be warned, a warning that fails or hangs,
+#            and an inhibitor are all reported and then gone past (inhibitors with
+#            `-i`). Nothing waits without a bound.
+#   server   session-strict: any of those stops it and leaves the machine up, and a
+#            refused shutdown asks whether to force it. `--strict-sessions` asks for this on
+#            a desktop too.
 set -euo pipefail
 
 MODE="shutdown"
@@ -52,16 +62,38 @@ withdraw_unless_down() {
     local status=$?
     if [ "$status" -ne 0 ] && [ "$SESSIONS_WARNED" = true ]; then
         echo "The machine is staying up; telling the sessions the $MODE is off." >&2
-        if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify reboot-cancelled; then
+        if ! sessions notify reboot-cancelled; then
             echo "Error: the sessions could not be told; they still expect the $MODE." >&2
         fi
     fi
     exit "$status"
 }
 
-# A minute, in seconds. Overridable so the countdown can be driven by a test; nothing else
-# should ever set it.
+# A minute, in seconds; the bound on any one ccy-sessions call; and where the profile is
+# recorded. Overridable so a test can drive them; nothing else should ever set them.
 MINUTE_SECONDS="${WITH_UPDATE_MINUTE_SECONDS:-60}"
+SESSIONS_TIMEOUT_SECONDS="${WITH_UPDATE_SESSIONS_TIMEOUT_SECONDS:-120}"
+PROFILE_FILE="${WITH_UPDATE_PROFILE_FILE:-/etc/fedora-desktop/provisioning-profile}"
+
+# ccy-sessions as the user whose sessions they are, and never for longer than the bound: a
+# daemon CLI that hangs inside a container must not hold the machine up all night.
+sessions() {
+    timeout --kill-after=10 "$SESSIONS_TIMEOUT_SECONDS" sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" "$@"
+}
+
+# warn_sessions <minutes> — tell the sessions the machine goes down in <minutes>. A failure
+# stops a strict run (the EXIT trap withdraws whatever was reached) and is reported and gone
+# past on a desktop.
+warn_sessions() {
+    if sessions notify going-down --minutes "$1"; then
+        return 0
+    fi
+    if [ "$STRICT_SESSIONS" = true ]; then
+        echo "Error: the sessions could not all be warned (see above), so the machine stays up." >&2
+        exit 1
+    fi
+    echo "Warning: the sessions could not all be warned (see above). Going ahead: on a desktop the $MODE always happens." >&2
+}
 
 # A sleep the trap can interrupt: bash runs a handler only after the foreground command
 # finishes, so a plain `sleep 60` would honour Ctrl-C a minute late — after the reboot.
@@ -73,10 +105,11 @@ countdown() {
 }
 
 REBOOT_MINUTES=2
+STRICT_FLAG=false
 while [ $# -gt 0 ]; do
     case "$1" in
     -h | --help)
-        echo "Usage: $(basename "$0") [--in MINUTES]"
+        echo "Usage: $(basename "$0") [--in MINUTES] [--strict-sessions]"
         echo "Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain, then"
         echo "warns every running ccy/cc session (default 2 minutes, again at 1) and"
         if [ "$MODE" = reboot ]; then
@@ -84,7 +117,17 @@ while [ $# -gt 0 ]; do
         else
             echo "shuts the machine down."
         fi
+        echo ""
+        echo "On a desktop nothing a session does stops it: a session that cannot be warned"
+        echo "is reported and the $MODE goes ahead, past any inhibitor. ccy sessions with no"
+        echo "container (still at ccy's startup prompts) are left out altogether."
+        echo "On a server, or with --strict-sessions, a session that cannot be warned stops it"
+        echo "before anything is updated, and a refused shutdown asks before forcing."
         exit 0
+        ;;
+    --strict-sessions)
+        STRICT_FLAG=true
+        shift
         ;;
     --in)
         if ! [[ "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
@@ -101,11 +144,30 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [ ! -r "$PROFILE_FILE" ]; then
+    echo "Error: $PROFILE_FILE is missing, so it is not known whether this is a desktop or a server; playbooks/imports/play-basic-configs.yml deploys it" >&2
+    exit 1
+fi
+PROFILE="$(<"$PROFILE_FILE")"
+case "$PROFILE" in
+desktop) STRICT_SESSIONS="$STRICT_FLAG" ;;
+server) STRICT_SESSIONS=true ;;
+*)
+    echo "Error: $PROFILE_FILE says '$PROFILE'; expected desktop or server. Re-run playbooks/imports/play-basic-configs.yml" >&2
+    exit 1
+    ;;
+esac
+if [ "$STRICT_SESSIONS" = true ]; then
+    echo "Session-strict ($PROFILE profile, --strict-sessions $STRICT_FLAG): a session that cannot be warned keeps the machine up." >&2
+else
+    echo "Desktop: the update and the $MODE always happen; sessions are warned, not waited for." >&2
+fi
+
 # The warnings run as the invoking user, whose ccy-sessions is the one that can see that
-# user's tmux server. Checked here, and rehearsed with --dry-run, BEFORE the updates: a live
-# session whose project has no daemon CLI is a refusal, and finding that out after twenty
-# minutes of dnf would be the wrong order. The rehearsal is the same notify with --dry-run:
-# it signals nothing, and prints the kind the sessions will actually be sent.
+# user's tmux server. Checked here, and rehearsed with --dry-run, BEFORE the updates: in a
+# strict run a live session whose project has no daemon CLI is a refusal, and finding that
+# out after twenty minutes of dnf would be the wrong order. The rehearsal is the same notify
+# with --dry-run: it signals nothing, and prints the kind the sessions will actually be sent.
 if [ -z "${SUDO_USER:-}" ]; then
     echo "Error: $(basename "$0") must be run through sudo from the user whose sessions are to be warned" >&2
     exit 1
@@ -129,9 +191,12 @@ if [ ! -x "$CCY_SESSIONS" ]; then
     exit 1
 fi
 echo "Checking that every running ccy/cc session can be warned..."
-if ! sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes "$REBOOT_MINUTES" --dry-run; then
-    echo "Error: not every session can be warned (see above). Nothing was updated and the machine stays up." >&2
-    exit 1
+if ! sessions notify going-down --minutes "$REBOOT_MINUTES" --dry-run; then
+    if [ "$STRICT_SESSIONS" = true ]; then
+        echo "Error: not every session can be warned (see above). Nothing was updated and the machine stays up." >&2
+        exit 1
+    fi
+    echo "Warning: not every session can be warned (see above). Going ahead: on a desktop the update and the $MODE always happen (--strict-sessions refuses instead)." >&2
 fi
 
 echo "Starting firmware updates..."
@@ -253,10 +318,10 @@ echo "Warning running ccy/cc sessions: $MODE in $REBOOT_MINUTES minute(s)..."
 # Set BEFORE the notify: one that fails part-way has already reached some projects.
 SESSIONS_WARNED=true
 trap withdraw_unless_down EXIT
-sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes "$REBOOT_MINUTES"
+warn_sessions "$REBOOT_MINUTES"
 if [ "$REBOOT_MINUTES" -gt 1 ]; then
     countdown $(((REBOOT_MINUTES - 1) * MINUTE_SECONDS))
-    sudo -u "$SUDO_USER" -H "$CCY_SESSIONS" notify going-down --minutes 1
+    warn_sessions 1
     echo "${MODE^} in 1 minute..."
 fi
 countdown "$MINUTE_SECONDS"
@@ -267,19 +332,34 @@ trap '' INT TERM
 
 if [ "$MODE" = "reboot" ]; then
     echo "Rebooting..."
-    systemctl reboot
+    if systemctl reboot; then
+        exit 0
+    fi
+    if [ "$STRICT_SESSIONS" = true ]; then
+        exit 1
+    fi
+    echo "Reboot refused (see above); forcing it past inhibitors, as a desktop always reboots..." >&2
+    systemctl reboot -i
     exit 0
 fi
 
 echo "Attempting shutdown..."
 if ! shutdown -h now 2>&1; then
-    # Nothing is going down now, so the force prompt is interruptible again.
-    trap 'exit 130' INT TERM
     echo ""
     echo "Shutdown blocked by inhibitors or logged-in users."
     echo "Current inhibitors:"
-    systemd-inhibit --list --no-pager | awk '!/^WHO/'
+    # Listing them is for the reader; a failed listing must not stop the forced shutdown.
+    if ! systemd-inhibit --list --no-pager | awk '!/^WHO/'; then
+        echo "(the inhibitors could not be listed)" >&2
+    fi
     echo ""
+    if [ "$STRICT_SESSIONS" = false ]; then
+        echo "Forcing shutdown past them, as a desktop always shuts down..." >&2
+        systemctl poweroff -i
+        exit 0
+    fi
+    # Nothing is going down now, so the force prompt is interruptible again.
+    trap 'exit 130' INT TERM
     read -p "Force shutdown anyway? (y/N): " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
