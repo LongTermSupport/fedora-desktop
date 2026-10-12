@@ -203,10 +203,19 @@ PATH="$stubs:$PATH" VMTEST_HOME="$lab" bash -c '
     main member-up m6 server-fast
 ' _ "$VMTEST" >"$work/out" 2>"$work/err" &
 upPid=$!
+upWaiting=yes
 for ((i = 0; i < 100; i++)); do
-    if [ -e "$lab/members/m6/ssh-port" ]; then break; fi
+    if [ -e "$lab/members/m6/ssh-port" ]; then
+        upWaiting=no
+        break
+    fi
+    if ! kill -0 "$upPid" 2>/dev/null; then
+        upWaiting=exited
+        break
+    fi
     sleep 0.1
 done
+check "member-up reached its SSH wait before the signal" "no" "$upWaiting"
 kill -TERM "$upPid"
 upRc=0
 wait "$upPid" || upRc=$?
