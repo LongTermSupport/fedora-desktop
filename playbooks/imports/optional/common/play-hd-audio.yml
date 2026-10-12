@@ -18,6 +18,17 @@
         name: pipewire-codec-aptx
         state: present
 
+    # GNOME Settings → Sound loses Bluetooth headset inputs (WirePlumber's loopback
+    # source has no card port), so keep tools that show every node: pavucontrol for
+    # devices, profiles and per-app routing, Helvum for the link graph.
+    - name: Install the audio mixer and patchbay
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - pavucontrol
+          - helvum
+        state: present
+
     # /etc/security/limits.d/25-pw-rlimits.conf (shipped by pipewire) grants @pipewire
     # realtime priority. Outside the group PipeWire falls back to RTKit, which caps its
     # audio threads at priority 20. Takes effect at the next login.
