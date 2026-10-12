@@ -34,12 +34,16 @@
 #      rebuilds the image with the pingbus zipapp, the agent-bus kit and the entrypoint's
 #      seat claim (CCY 3.86.2, container 2.48: also --no-supervise over the project's wrapper,
 #      and every PINGBUS_* refused from ccy.env).
+#  12. U23.vm: play-vm-test-lab.yml (Plan 00110's rootless libvirt/QEMU lab and its `vmtest`
+#      CLI, whose member-up/member-ssh/member-down give acceptance.bash its throwaway VM
+#      member). The acceptance builds or refreshes the lab's base itself (vmtest ensure-base).
 #
 # WHAT STAYS, deliberately (every desktop carries the homeserver software): the packages of
 # DESIGN.md section 3.2, the agent-bus user, /var/lib/agent-bus{,-install}, the pinned
 # Tuwunel, the zipapps, /usr/local/bin/agent-bus and pingbus, /usr/local/sbin/agent-bus-install,
 # the member kit, the three template units (no instance enabled), and the NetworkManager dummy
-# connection agentbus0 holding <ip>, across reboots; and the busybox image in docker. Nothing of zz-deploy-check stays. The
+# connection agentbus0 holding <ip>, across reboots; the busybox image in docker; and the
+# vmtest lab (its packages, ~/.local/share/vmtest, its bridge units and nightly timer). Nothing of zz-deploy-check stays. The
 # log, the team file, the play vars and each installer and play run's stdout stay in the
 # untracked run directory.
 #
@@ -80,7 +84,8 @@ PLAN_USAGE="usage: deploy.bash [--bus-address=<ip>] [-h|--help]
 Units U16 and U22's host run for Plan 00161 (agent team bus): installs the agent-bus
 homeserver software and the agentbus0 bus address (both stay), installs, re-runs, checks and
 removes a throwaway team, does the same through play-agent-bus.yml, then runs triage.bash's
-H1 and H2 against the bus address, and rebuilds the ccy image (play-claude-yolo.yml).
+H1 and H2 against the bus address, rebuilds the ccy image (play-claude-yolo.yml), and
+deploys the vmtest lab the acceptance's VM member is booted from (play-vm-test-lab.yml).
   --bus-address=<ip>   the address for agentbus0; without it, ${BUS_ADDRESS_VAR} from the
                        host_vars localhost.yml
 Prompts for sudo once, before the run log opens."
@@ -142,6 +147,8 @@ plan_deploy_leg "triage H1 and H2 against ${BUS_ADDRESS}" \
     "${PLAN_SCRIPT_DIR}/triage.bash" --reach-only "--bus-address=${BUS_ADDRESS}"
 plan_deploy_leg "play-claude-yolo.yml (U19, U31: ccy --teams and the pingbus kit in the image)" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
+plan_deploy_leg "play-vm-test-lab.yml (U23.vm: the vmtest lab and its member verbs)" \
+    plan_ansible_playbook playbooks/imports/optional/common/play-vm-test-lab.yml
 # STANDARD-EXCEPTION(R9): no acceptance.bash leg here, where R9 puts it. meta-deploy.bash
 # runs acceptance.bash after this script and the second triage, so a leg here would run it twice.
 printf '==> the homeserver software and agentbus0 (%s) stay installed; %s is gone\n' "${BUS_ADDRESS}" "${TEAM}"

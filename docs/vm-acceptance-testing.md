@@ -84,6 +84,23 @@ vmtest run server-full-provision  # the same checks on the Anaconda-installed ba
 vmtest run server-fast-provision --commit <40-hex>   # a specific pushed commit
 ```
 
+### Members: a guest another script drives
+
+`run` destroys its guest when the scenario ends. A **member** is a guest from a
+server base that stays up for another script to drive, then is removed by it
+(Plan 00161's acceptance uses one as its `vm` agent-bus member):
+
+```bash
+vmtest ensure-base server-fast          # build if absent, rebuild if the freshness gate refuses it; else nothing
+vmtest member-up <name> server-fast     # gate, overlay under members/<name>/, boot on passt, wait for SSH
+vmtest member-ssh <name> '<command>'    # as the cloud user (passwordless sudo), lab key, stdin passed through
+vmtest member-down <name>               # destroy, undefine, remove members/<name>/; nothing there is no error
+```
+
+A failed `member-up` removes its guest and overlay and keeps `console.log` until
+`member-down`. Members are never swept: the script that made one removes it,
+on its own way out and first if an interrupted run left it.
+
 A `full` base is installed by `fedora-install/ks-vm-server.cfg`, a VM-only,
 non-interactive Fedora Server kickstart: Anaconda runs in cmdline mode on the
 serial console from the one install tree the manifest names, creates the lab's
