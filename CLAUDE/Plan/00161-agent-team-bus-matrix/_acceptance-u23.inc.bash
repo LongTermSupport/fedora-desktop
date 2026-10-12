@@ -33,11 +33,12 @@
 # ALLOW_FROM is discovered, never written down: for lxc and docker, the source address each
 # member's kernel would use towards <bus_ip>, the host network holding it (which must be a
 # bridge, the READMEs' route), added to the team file before agent-bus-install applies the
-# team again. The vm member adds nothing: passt carries its connection out through a socket in
-# the host's own network namespace, as pasta does for a ccy container, and probe H1 measured
-# that the homeserver then sees <bus_ip> itself, a listen address the installer always admits
-# (DESIGN.md section 3.3). The unit filter admits only loopback, the listen addresses and
-# allow_from, so the vm member's join passing proves its traffic arrived as one of those.
+# team again. The vm member adds nothing, EXPECTED BUT NOT YET MEASURED: passt carries its
+# connections out through sockets in the host's own network namespace, as pasta does for a
+# ccy container, and probe H1 measured (for pasta only) that the homeserver then sees <bus_ip>
+# itself, a listen address the installer always admits (DESIGN.md section 3.3). u23_vm_check
+# records it: it samples this host's sockets towards the bus port during the vm member's join
+# and ping, and FAILS unless every one passt held left from <bus_ip>, naming the source if not.
 #
 # Reads acceptance.bash's and _acceptance-steps.inc.bash's globals and functions: TEAM,
 # BUS_ADDRESS, TEAM_FILE, MEMBER_DIR, CHECK, AGENT_BUS, PINGBUS, OWNER_NEEDS, A_HANDLE,
@@ -365,7 +366,7 @@ u23_prepare() {
         return 0
     fi
     if [[ "${kind}" == "vm" ]]; then
-        printf '==> the vm member is on passt: it reaches %s from this host'\''s own network namespace, so nothing joins allow_from for it\n' "${BUS_ADDRESS}"
+        printf '==> the vm member is on passt: expected to reach %s from this host'\''s own network namespace, so nothing joins allow_from for it (U23.vm records the source it really uses)\n' "${BUS_ADDRESS}"
         return 0
     fi
     u23_bridge "${kind}"
@@ -449,6 +450,48 @@ u23_ping() {
     evidence "U23 ${kind}: ack ${ackId} from the ${kind} member received by a's recv: members/${kind}/send-ack.out, members/a/recv-ack-${kind}.out"
 }
 
+# u23_sample_bus_sockets <port> <file> — every 0.2 s, for at most 400 s (the join, the
+# 180 s wait and the acks fit inside it), this host's TCP sockets towards the bus port with
+# their owning process (passt runs as this user, so ss names it without root). Ended by
+# u23_vm_check's kill.
+u23_sample_bus_sockets() {
+    local port="$1" out="$2" i
+    for ((i = 0; i < 2000; i++)); do
+        ss -tnpH state all "( dport = :${port} )" >>"${out}" || return 1
+        sleep 0.2
+    done
+}
+
+# u23_vm_check — the vm member's join and ping, with the evidence for README.vm's passt
+# route recorded either way: the source address of each connection passt made to the bus
+# port, which must be the bus address. A failed join then says whether the route was why.
+u23_vm_check() {
+    local port sampler status=0 sampled=0 samples="${MEMBER_DIR}/vm/bus-sockets.txt" sources
+    port="$("${CHECK[@]}" team-port "${TEAM_FILE}")" || return 1
+    mkdir -p -- "${MEMBER_DIR}/vm" || return 1
+    : >"${samples}" || return 1
+    u23_sample_bus_sockets "${port}" "${samples}" &
+    sampler=$!
+    { u23_join vm && u23_ping vm; } || status=$?
+    kill "${sampler}" || sampled=$?
+    wait "${sampler}" || sampled=$?
+    # 143 is the sampler ended by that kill; anything else is ss failing, or it ran out.
+    if [[ "${sampled}" -ne 0 && "${sampled}" -ne 143 ]]; then
+        printf '[FAIL] sampling the sockets towards the bus port failed (%s)\n' "${sampled}" >&2
+        return 1
+    fi
+    printf '==> the vm member'\''s connections to port %s, as this host saw them (state, source):\n' "${port}"
+    if ! sources="$("${CHECK[@]}" passt-sources "${BUS_ADDRESS}" "${samples}")"; then
+        printf '%s\n' "${sources}"
+        return 1
+    fi
+    printf '%s\n' "${sources}"
+    if [[ "${status}" -eq 0 ]]; then
+        evidence "U23 vm: on passt the guest's connections reached the homeserver from ${BUS_ADDRESS} (nothing in allow_from for it): members/vm/bus-sockets.txt"
+    fi
+    return "${status}"
+}
+
 # u23_check <kind> — one encapsulation's check: SKIPPED-NEEDS-OWNER without its engine (lxc,
 # docker), else the member joins by its README and exchanges a review and an ack with a.
 u23_check() {
@@ -456,6 +499,10 @@ u23_check() {
     if [[ -n "${U23_SKIP[${kind}]:-}" ]]; then
         needs_owner "U23 ${kind} member: ${U23_SKIP[${kind}]}"
         return 3
+    fi
+    if [[ "${kind}" == "vm" ]]; then
+        u23_vm_check
+        return $?
     fi
     u23_join "${kind}" || return 1
     u23_ping "${kind}"

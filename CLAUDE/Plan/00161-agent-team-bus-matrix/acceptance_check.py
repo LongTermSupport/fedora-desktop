@@ -29,6 +29,9 @@ payload; every reason goes to stderr):
   allow-from TEAM_FILE CIDR...       (U23) add each CIDR to the team file's allow_from, in place
   suggested-args OUT TYPE            (U23) `pingbus suggest-handle`'s line in OUT, one argument
                                      per line, when it names TYPE
+  passt-sources BUS_IP SS_FILE       (U23) "<state>\\t<source>" per passt socket in SS_FILE (ss
+                                     samples towards the bus port); FAIL unless each is BUS_IP
+  team-port TEAM_FILE                (U23) the team file's port
 
 REF and RE are "-" when absent, as on the wire (§15); FORGE_API "-" is pingbus's GitHub API. Exit codes: 0 ok; 1 an expectation
 failed or input was malformed; 2 (send-outcome only) could not be established; 64 usage.
@@ -281,6 +284,54 @@ def with_allow_from(team: dict, cidrs: Sequence[str]) -> dict:
     return {**team, "allow_from": wanted}
 
 
+_PASST_PROCESS_RE = re.compile(r'users:\(\("passt[^"]*"')
+_SS_STATES = frozenset({"ESTAB", "SYN-SENT", "SYN-RECV", "FIN-WAIT-1", "FIN-WAIT-2", "TIME-WAIT",
+                        "CLOSE-WAIT", "LAST-ACK", "CLOSING", "CLOSED", "UNCONN", "LISTEN"})
+
+
+def passt_sources(text: str) -> list[tuple[str, str]]:
+    """Each (state, source address) of a socket a passt process held towards the bus port,
+    once each, in the order first seen. `text` is samples of `ss -tnpH state all '( dport =
+    :<port> )'` taken while the vm member joined and pinged: passt carries the guest's
+    connections out through such sockets, so their local address is the source the
+    homeserver saw. Sockets of any other process (the host members) are skipped."""
+    seen: list[tuple[str, str]] = []
+    for raw in text.splitlines():
+        if not _PASST_PROCESS_RE.search(raw):
+            continue
+        fields = raw.split()
+        if fields and fields[0] in ("tcp", "tcp6"):
+            fields = fields[1:]
+        if len(fields) < 6 or fields[0] not in _SS_STATES:
+            raise ValueError(f"not an ss line of state, queues, local, peer and process: {raw!r}")
+        host = fields[3].rpartition(":")[0].removeprefix("[").removesuffix("]")
+        source = str(ipaddress.ip_address(host))
+        if (fields[0], source) not in seen:
+            seen.append((fields[0], source))
+    return seen
+
+
+def passt_problems(seen: Sequence[tuple[str, str]], bus_address: str) -> list[str]:
+    """What the samples say against README.vm's passt route: the guest's connections leave
+    from the host itself, so the homeserver sees `bus_address`, a listen address it admits."""
+    if not seen:
+        return ["no connection from a passt process to the bus port was seen on this host: the guest "
+                "never reached it (its route out through passt, or passt's SELinux policy)"]
+    bus = str(ipaddress.ip_address(bus_address))
+    return [f"the passt guest's connection ({state}) left from {source}, not {bus}: the homeserver admits "
+            f"only loopback, its listen addresses and allow_from, so a passt guest would need {source}'s "
+            "network in allow_from, and README.vm's passt route is wrong"
+            for state, source in seen if source != bus]
+
+
+def team_port(team: object) -> int:
+    """The team file's port (an int, as the validator requires)."""
+    port = team.get("port") if isinstance(team, dict) else None
+    if not isinstance(port, int) or isinstance(port, bool):
+        raise ValueError("the team file has no integer port")
+    return port
+
+
 _SUGGESTED_RE = re.compile(r"--repo=(?P<repo>\S+) --host=(?P<host>\S+) --type=(?P<type>\S+)\n")
 
 
@@ -354,7 +405,16 @@ COMMANDS = {
     "send-outcome": (2, lambda a: send_outcome(int(a[0]), _read(a[1]))),
     "host-subnet": (1, lambda a: print("\t".join(host_subnet(_json_stdin(), a[0])))),
     "suggested-args": (2, lambda a: print("\n".join(suggested_args(_read(a[0]), a[1])))),
+    "passt-sources": (2, lambda a: _passt_sources(a[0], a[1])),
+    "team-port": (1, lambda a: print(team_port(json.loads(_read(a[0]))))),
 }
+
+
+def _passt_sources(bus_address: str, path: str) -> int:
+    seen = passt_sources(_read(path))
+    for state, source in seen:
+        print(f"{state}\t{source}")
+    return _verdict(passt_problems(seen, bus_address))
 
 
 def _allow_from(path: str, cidrs: Sequence[str]) -> int:
