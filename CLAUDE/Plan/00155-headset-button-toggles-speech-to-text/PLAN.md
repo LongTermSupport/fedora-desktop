@@ -1,7 +1,7 @@
 # Plan 00155: Headset button toggles speech-to-text
 
-**Status**: Not Started (decision gate: the Phase 2 owner decisions D1 to D4; Phase 1
-triage runs first)
+**Status**: In Progress (D2 answered; Phase 1 triage, now covering A2DP and HFP, runs
+before D1, D3 and D4)
 **Created**: 2026-10-04
 **Owner**: joseph
 **Priority**: Medium
@@ -42,11 +42,6 @@ deployed by `play-speech-to-text.yml`.
 
 ## Non-Goals
 
-- **The headset button while the headset is in HFP.** If the headset microphone became
-  the recording source, the headset would switch from A2DP to HFP, and button presses
-  would then arrive as HFP AT commands, not AVRCP key events. This plan does not handle
-  that path: it is a documented limitation (F5).
-- Recording from the headset microphone. wsi keeps recording from the default source.
 - Changing wsi or wsi-stream's recording behaviour, or the Insert shortcut.
 - Wired headsets, USB HID headsets, and other media keys (next/previous/volume) as
   speech-to-text controls.
@@ -69,6 +64,15 @@ Phase 1's `triage.bash` re-captures each of these so they rest on a re-runnable 
 | F7  | `play-speech-to-text.yml` already deploys one systemd user service, `wsi-stream-server-at-login.service`, from `files/home/.config/systemd/user/`; it is the pattern to follow (see the research doc).    | repository                  |
 | F8  | wsi has **no toggle of its own**. A second `wsi` started while one records refuses with exit 1 (the EXT-03 PID-file guard); it does not stop the first.                                                   | `files/home/.local/bin/wsi` |
 | F9  | The toggle is the extension's `_launchWSI()` in `extensions/speech-to-text@fedora-desktop/extension.js`, the callback of the `toggle-recording` keybinding. It is not reachable from outside GNOME Shell. | `extension.js`              |
+
+**F4 is superseded (Plan 00172).** The owner now dictates through the headset: its
+`bluez_input` node is the default source, and WirePlumber switches the headset to
+`headset-head-unit` (HFP) while a recording runs. So the press that **starts** a
+dictation comes in A2DP (AVRCP, F1), and the press that **stops** it comes in HFP
+(F5). HFP is now in scope: the button must toggle in both modes. Phase 1 has to
+capture what a press in HFP actually produces. Candidates: an AT command such as
+`AT+CHUP`/`ATA` seen by PipeWire's native HFP backend, a key on the AVRCP node if
+AVRCP stays connected, or nothing at all.
 
 How `_launchWSI()` toggles, why the extension exports no D-Bus method (so D4 is
 needed), and the exact user-unit and helper-deploy steps to copy are in
@@ -108,7 +112,11 @@ needed), and the exact user-unit and helper-deploy steps to copy are in
     with timestamps, and for the double press the inter-press interval (release to
     press and press to press) over several repetitions, so the double-press window
     default rests on measured timing. It must show whether a double press arrives as two
-    play/pause events or as one `KEY_NEXTSONG` (H2). Uses stdlib `python3` and `struct`, so no new tool; if `evtest` is
+    play/pause events or as one `KEY_NEXTSONG` (H2). A second capture runs **while the
+    headset is in HFP** (a recording from its `bluez_input` node is held open for the
+    window). It records the AVRCP node's events, if the node still exists, and
+    PipeWire/WirePlumber's bluez5 log at a debug level that shows the HFP AT commands,
+    for the same three gestures. Uses stdlib `python3` and `struct`, so no new tool; if `evtest` is
     wanted instead it is declared in the play first, never installed by hand. Fails,
     rather than writing an empty section, when no `(AVRCP)` device is present.
   - [ ] ⬜ A `READ THIS FOR:` pointer at the capture section; run QA on the script.
@@ -128,8 +136,11 @@ Task 1.3 has recorded what the headset actually sends.
   to be re-emitted through uinput (which needs its own access rule for `/dev/uinput`).
   A non-grabbing listener means a press both toggles wsi and plays/pauses media. D3's
   leading candidate (branch A) requires the grab, so answering D3 with it answers D1.
-- [ ] ⬜ **Task 2.2 — D2: Which headsets.** Any `(AVRCP)` device, or only a configured
-  device-name match (a variable in `host_vars`, defaulting to empty or to all).
+- [x] ✅ **Task 2.2 — D2: Which headsets.** **Answered: only the Shokz** ("SPECIFICALLY on
+  the shokz"). A configured device-name match (a `host_vars` variable; empty means
+  none), not every `(AVRCP)` device. The owner also said the button "normally sends
+  start stop playing music" and should map to the Insert press. D3 is still settled
+  against the Task 1.3 capture.
 - [ ] ⬜ **Task 2.3 — D3: Which key gesture.** A single play/pause press, or something
   else such as a double-press or a long-press. Needs the Task 1.3 probe of which key
   codes the real headset sends (`KEY_PLAYCD`, `KEY_PAUSECD`, `KEY_PLAYPAUSE`, or
@@ -260,7 +271,7 @@ D1 to D4 are open; see Phase 2. Each answer is recorded here as it is given.
 | A udev rule matching too widely grants access to other input devices         | H      | L           | Match on `Bus=0005` and the `(AVRCP)` name; acceptance checks no other node |
 | Under D3 branch A, every single press reaches media late by the window       | M      | H           | Window configurable (300 to 400 ms), default settled on the real headset    |
 | The headset turns a double press into `KEY_NEXTSONG` itself (H2)             | M      | M           | Triage first; D3 branch B keys off that code instead of timing              |
-| Selecting the headset microphone switches to HFP and the button goes silent  | L      | M           | Documented limitation (F5); out of scope                                    |
+| In HFP (headset mic recording) the stop press is not visible to Linux        | H      | M           | HFP capture in Task 1.1 first; if silent, D3 and D4 are re-asked with that  |
 
 ## Delivery & Milestones
 
