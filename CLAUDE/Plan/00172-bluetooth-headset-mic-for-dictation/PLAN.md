@@ -1,6 +1,6 @@
 # Plan 00172: Bluetooth headset microphone for dictation
 
-**Status**: Not Started
+**Status**: In Progress (interactive triage done: the headset mic works once it is the default source, at a normal level; see JOURNAL)
 **Created**: 2026-10-12
 **Owner**: joseph
 **Priority**: Medium
