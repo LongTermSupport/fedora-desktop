@@ -649,7 +649,7 @@ fi
 start_wsi 2 --session-token tok-173
 prepared=no
 for _ in $(seq 1 100); do
-    if [ "$(cat "$pid_file" 2>/dev/null)" = "$WSI_PID" ]; then prepared=yes; break; fi
+    if [ -s "$pid_file" ] && [ "$(cat "$pid_file")" = "$WSI_PID" ]; then prepared=yes; break; fi
     kill -0 "$WSI_PID" 2>/dev/null || break
     sleep 0.01
 done
