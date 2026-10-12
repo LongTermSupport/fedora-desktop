@@ -277,6 +277,14 @@ repository; opt-in per machine and per team.
   - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
     `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
     bridged lab guest) or narrow README.vm to the passt route.
+  - [ ] 🔄 `ccy-teams` (owner, 2026-10-12; journal 26-10-12, the revised request): the
+    team manager beside `ccy-sessions`. Built: `files/home/.local/bin/ccy-teams.j2` (picker,
+    `--list`, `create`, `backup`, `restore`; deployed by `play-claude-yolo.yml`),
+    `helpers/agent_bus/declare.py` (reads and adds `agent_bus_teams` entries),
+    `ccy_registry_set_restore` (Ctrl-R; CCY 3.94.0), `agent-bus-install backups`;
+    `scripts/test-ccy-teams-command.bash`, `test_declare.py`; "Getting started" in
+    `docs/agent-bus.md`. Host run pending: `play-claude-yolo.yml` (the command and the
+    library) and `play-agent-bus.yml` (the installer), then `ccy-teams` on a real team.
   - [ ] 🔄 U22.lxc: the owner's existing LXC containers join a team by IaC (owner,
     2026-10-12). Built: `agent_bus_lxc_members` (`localhost.yml.dist`), applied by
     `play-agent-bus.yml` through `helpers/agent_bus_lxc/members.py` (README.lxc's steps;

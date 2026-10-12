@@ -821,6 +821,21 @@
         - scripts
         - launchers
 
+    # ccy-sessions' counterpart for agent teams (Plan 00161): the teams on this host, their
+    # members and the ccy sessions in their seats. A template only for the checkout path,
+    # where its host_vars helper (helpers/agent_bus/declare.py) lives; it calls agent-bus,
+    # which play-agent-bus.yml installs.
+    - name: Deploy the ccy-teams Command
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/.local/bin/ccy-teams.j2"
+        dest: "/home/{{ user_login }}/.local/bin/ccy-teams"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags:
+        - scripts
+        - launchers
+
     # =========================================================================
     # Restore ccy sessions after a reboot — OPT-IN (Plan 00135, issue #44)
     # =========================================================================

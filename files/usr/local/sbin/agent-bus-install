@@ -13,7 +13,8 @@
 #
 # Non-interactive, idempotent, fails fast. stdout carries only marker lines:
 # `CHANGED<TAB><what>` when something on the host changed (the play's changed_when), and
-# for `check` one `CHECK<TAB><fact><TAB>ok|FAIL|info<TAB><value>` line per fact.
+# for `check` one `CHECK<TAB><fact><TAB>ok|FAIL|info<TAB><value>` line per fact, for `backups`
+# one `BACKUP<TAB><id><TAB><time>` line per usable backup.
 # Diagnostics go to stderr. No secret is ever printed or passed in argv.
 #
 # Exit codes: 0 done; 1 a step failed; 64 usage; 77 not root; 78 configuration (not
@@ -119,6 +120,8 @@ Commands:
       Back the homeserver up now (what the daily timer runs).
   restore --team TEAM --backup ID
       Restore the database and state from backup ID.
+  backups --team TEAM
+      Read-only: one BACKUP<TAB>ID<TAB>TIME line per backup that restore can use.
   check --team TEAM
       Read-only: print the construction facts the privacy checks rely on.
 
@@ -979,6 +982,31 @@ cmd_backup_now() {
     changed "backup $latest of team $team"
 }
 
+# Every backup restore accepts: a database backup with its state tar beside it, oldest first,
+# with the time the state tar was written (UTC).
+cmd_backups() {
+    parse_options "team:value" "$@"
+    team_option backups
+    require_root
+    local team=${OPT[team]}
+    require_team_dir "$team"
+    local meta=$STATE_ROOT/$team/backups/meta tars path id when
+    tars=$(state_tar_dir "$team")
+    local -a ids=()
+    for path in "$meta"/*; do
+        id=${path##*/}
+        if [[ $id =~ ^[1-9][0-9]*$ && -f $tars/agent-bus-state-$id.tar ]]; then
+            ids+=("$id")
+        fi
+    done
+    ((${#ids[@]})) || return 0
+    mapfile -t ids < <(printf '%s\n' "${ids[@]}" | sort -n)
+    for id in "${ids[@]}"; do
+        when=$(date -u -r "$tars/agent-bus-state-$id.tar" '+%Y-%m-%d %H:%M UTC')
+        printf 'BACKUP\t%s\t%s\n' "$id" "$when"
+    done
+}
+
 cmd_restore() {
     parse_options "team:value backup:value" "$@"
     team_option restore
@@ -1118,6 +1146,7 @@ main() {
         remove) cmd_remove "$@" ;;
         backup-now) cmd_backup_now "$@" ;;
         restore) cmd_restore "$@" ;;
+        backups) cmd_backups "$@" ;;
         check) cmd_check "$@" ;;
         *) die "$EXIT_USAGE" "unknown command '$command' (see --help)" ;;
     esac

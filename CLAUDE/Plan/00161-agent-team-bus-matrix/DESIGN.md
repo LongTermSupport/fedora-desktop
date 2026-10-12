@@ -137,7 +137,7 @@ are distinct members and can ping each other (sections 5.5, 5.6).
 
 | Entry point                                                                    | Who runs it                            | What it does                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `files/usr/local/sbin/agent-bus-install` (Bash, as root)                       | any Fedora desktop or server's own IaC | `software`, `team`, `remove`, `backup-now`, `restore`, `check` (below). Non-interactive: arguments only, fails fast, idempotent, marker lines on stdout, diagnostics on stderr.                                                                                                                 |
+| `files/usr/local/sbin/agent-bus-install` (Bash, as root)                       | any Fedora desktop or server's own IaC | `software`, `team`, `remove`, `backup-now`, `restore`, `backups`, `check` (below). Non-interactive: arguments only, fails fast, idempotent, marker lines on stdout, diagnostics on stderr.                                                                                                      |
 | `playbooks/imports/play-agent-bus.yml` (core, imported by `playbook-main.yml`) | this repository, every desktop         | runs `agent-bus-install software --source <repo> [--bus-address]` (which installs the dnf dependencies and the installer itself), then `remove` for each `agent_bus_teams` entry with `state: absent`, then `team` for each present one; `remove` comes first so a removed team's port is free. |
 
 The installer is the single source of truth for what a homeserver host looks like; the play
@@ -396,7 +396,9 @@ stays at its default.
   compromised homeserver could swap would plant files with owners and modes of its choosing. A backup holds the team's root of trust (the shared secret and the admin token):
   whoever holds one can instruct every agent in the team, so `docs/agent-bus.md` says so,
   and copying backups off the host is the owner's decision and is not built.
-  `agent-bus-install backup-now --team <team>` runs the same once.
+  `agent-bus-install backup-now --team <team>` runs the same once, and
+  `agent-bus-install backups --team <team>` lists, read-only, each backup that has both its
+  parts (`BACKUP<TAB><id><TAB><time>`), which `ccy-teams restore` offers.
 - **Restore:** `agent-bus-install restore --team <team> --backup <id>` stops the unit,
   restores the tar (refused unless it holds only those members as plain files and directories with no
   setuid, setgid or sticky bit; extracted without its owners and modes, then given to `agent-bus`),

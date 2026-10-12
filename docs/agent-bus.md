@@ -15,7 +15,47 @@ This guide is for the people who set up teams and join agents to them. The wire 
 the verbs, the validation rules, the limits and every `pingbus` command are in the
 protocol spec, [agent-bus-protocol.md](agent-bus-protocol.md).
 
-Three commands do the work:
+## Getting started
+
+On a desktop built from this repository, `ccy-teams` is where you look after teams: it is
+to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own; what it
+shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
+
+1. **Create a team.** `ccy-teams create` asks for the team's name, its humans, and the
+   repositories and branches its pings may name. It adds the entry to `agent_bus_teams` in
+   your host_vars `localhost.yml`, backing the file up first. The port is chosen for you,
+   the team listens on the bus address (`agent_bus_address`, which must be set), and
+   `allow_from` is empty unless you name a subnet. The team exists once
+   `play-agent-bus.yml` has run.
+2. **Watch it in Element.** Add `{team: <team>, base_url: http://<bus_ip>:<port>}` to
+   `agent_bus_element_teams` and run `play-agent-bus-element.yml`. Ctrl-E on the team in
+   `ccy-teams` opens it, and first offers a new password to a human with no session yet
+   (printed once; [The human's account](#the-humans-account)).
+3. **Add ccy sessions.** `ccy --teams <seat>@<team>` launches a session into a seat,
+   creating the seat the first time (with sudo). Ctrl-N in `ccy-teams` does this in the
+   current project, in a free seat or a new one ([seats](#a-ccy-session-seats)).
+4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
+   `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
+   ([Joining a team](#joining-a-team)).
+5. **Pings for actions, mentions for discussion.** An agent asks another to act with a ping
+   (`pingbus send`: a fixed verb about a committed file). Free text addressed by mention
+   (`pingbus say --to`, or a human's message in Element) is for the discussion around it,
+   and the agent reads it as a colleague's note, not an instruction.
+6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
+   comes back in the same seats when this machine restores sessions
+   (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
+   it back. Other members keep their bundles, and their sessions are started as before.
+7. **Back up and restore.** Each team is backed up daily on this machine.
+   `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
+   after a yes/no ([Backups](#backups-are-the-root-of-trust)).
+
+`ccy-teams` lists each team (its homeserver up or down, and its port), then its members:
+ccy seats with the session holding each and whether it is restored after a reboot, LXC
+and other members, active or parked, and the humans. Enter attaches a seat's session,
+Ctrl-N starts one, Ctrl-R toggles its restore, Ctrl-X removes a seat or parks a member
+(after a yes/no), and Ctrl-E opens Element. `ccy-teams --list` prints the same table.
+
+Underneath, three commands do the work, and `ccy-teams` calls them:
 
 | Command             | Where it runs                               | What it does                                                           |
 | ------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
@@ -325,6 +365,9 @@ archive, and starts it again:
 ```bash
 sudo agent-bus-install restore --team <team> --backup <n>
 ```
+
+`sudo agent-bus-install backups --team <team>` lists the numbers a restore accepts, with
+the time of each. `ccy-teams backup` and `ccy-teams restore` run these for you.
 
 ## The human's account
 

@@ -877,6 +877,20 @@ fi
 sessions_take_over_summary=$(qa_gate_case_count "$sessions_take_over_out")
 qa_pass_line ccy-sessions-take-over "$sessions_take_over_summary"
 
+# The ccy-teams command (Plan 00161): the template renders with no Jinja left and its
+# rendering is lint-clean; the REAL --list and picker under fakes for tmux, fzf, systemctl, sudo,
+# agent-bus and agent-bus-install show each team, seat, member and human as those sources
+# say, and every key (Enter, Ctrl-N, Ctrl-R, Ctrl-X, Ctrl-E) reaches the right command with
+# the right row; a no changes nothing; create, backup and restore wrap their commands.
+teams_command_out=""
+if ! teams_command_out="$(bash "$SCRIPT_DIR/test-ccy-teams-command.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-teams-command \
+        "ccy-teams command unit tests failed" \
+        "$teams_command_out"
+fi
+teams_command_summary=$(qa_gate_case_count "$teams_command_out")
+qa_pass_line ccy-teams-command "$teams_command_summary"
+
 # The restore-only SSH_ASKPASS (Plan 00135 Task 6.2), with the REAL ssh-keygen, ssh-agent and
 # ssh-add: a server's restored session unlocks its key unattended on the host and in the
 # container's entrypoint, an ordinary launch never uses askpass, the passphrase reaches no

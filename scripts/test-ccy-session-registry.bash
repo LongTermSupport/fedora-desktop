@@ -624,6 +624,32 @@ check "  which hands it to ccy_registry_record_compose for this session" "1" \
     "$(grep -c -F "ccy_registry_record_compose \"\$name\" \"\$CCY_COMPOSE_OUTCOME\"" "$LIB_DIR/network-management.bash")"
 
 echo ""
+echo "=== whether a running session is restored, changed after launch (ccy-teams Ctrl-R) ==="
+# The same mark --no-restore sets at launch, turned off and on while the session runs. The
+# rest of the record must survive the rewrite, or the restore would start something else.
+rm -rf "$CCY_STATE_DIR"
+ccy_registry_write --compose started sr_rec "$SCRATCH/proj" /launch/ccy ccy yes --teams 1@alpha -- --model opus
+ccy_registry_set_restore sr_rec no 2>"$SCRATCH/sr.err"
+check "turning restore off: status" "0" "$?"
+ccy_registry_read "$CCY_STATE_DIR/sessions/sr_rec"
+check "  the record says no, everything else kept" \
+    "no|started|$SCRATCH/proj|/launch/ccy|ccy|$(printf '%q ' --teams 1@alpha -- --model opus)" \
+    "$REC_RESTORE|$REC_COMPOSE|$REC_DIR|$REC_LAUNCHER|$REC_PREFIX|$(printf '%q ' "${REC_ARGS[@]}")"
+check "  and says so on stderr" "yes" "$(grep -qF 'sr_rec will not be started again' "$SCRATCH/sr.err" && echo yes || echo no)"
+ccy_registry_set_restore sr_rec yes 2>"$SCRATCH/sr.err"
+ccy_registry_read "$CCY_STATE_DIR/sessions/sr_rec"
+check "turning it back on" "yes|$(printf '%q ' --teams 1@alpha -- --model opus)" \
+    "$REC_RESTORE|$(printf '%q ' "${REC_ARGS[@]}")"
+check "a value that is not yes or no is refused, the record unchanged" "1:yes" \
+    "$(ccy_registry_set_restore sr_rec maybe 2>"$SCRATCH/sr.err"; echo "$?:$(grep '^restore=' "$CCY_STATE_DIR/sessions/sr_rec" | cut -d= -f2)")"
+check "a session with no record is a failure, and no record is made" "1:absent" \
+    "$(ccy_registry_set_restore sr_gone no 2>"$SCRATCH/sr.err"; echo "$?:$([ -e "$CCY_STATE_DIR/sessions/sr_gone" ] && echo present || echo absent)")"
+printf 'not a record\n' >"$CCY_STATE_DIR/sessions/sr_broken"
+check "a record that cannot be read is a failure" "1" \
+    "$(ccy_registry_set_restore sr_broken no 2>"$SCRATCH/sr.err"; echo $?)"
+rm -rf "$CCY_STATE_DIR"
+
+echo ""
 echo "=== restore: records and live sessions in, decisions out ==="
 # The executor asks two questions of the outside world — which sessions are live, and how to
 # start one — and both are stubbed here, so what runs is every decision and nothing else.

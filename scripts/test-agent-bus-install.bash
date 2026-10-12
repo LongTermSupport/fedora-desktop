@@ -755,6 +755,18 @@ check "it holds the shared secret" "1" "$(tar -tf "$TAR" | grep -cx 'secrets/reg
 check "it holds team.json" "1" "$(tar -tf "$TAR" | grep -cx 'team.json')"
 check "it says which backup" "yes" "$(says $'^CHANGED\tbackup 1 of team alpha' "$OUT")"
 
+echo "== backups"
+run backups --team alpha
+check "backups succeeds" "0" "$RC"
+check "it lists backup 1, with its time" "yes" "$(says $'^BACKUP\t1\t[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC$' "$OUT")"
+check "  and nothing else" "1" "$(wc -l <"$OUT")"
+touch "$ROOT/var/lib/agent-bus/alpha/backups/meta/2"
+run backups --team alpha
+check "a database backup with no state tar is not listed (restore refuses it)" "1" "$(wc -l <"$OUT")"
+rm -f "$ROOT/var/lib/agent-bus/alpha/backups/meta/2"
+run backups --team nosuch
+check "a team not installed here is refused (78)" "78" "$RC"
+
 echo "== restore"
 run restore --team alpha --backup 7
 check "an unknown backup id is refused (78)" "78" "$RC"
