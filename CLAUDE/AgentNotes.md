@@ -285,6 +285,17 @@ SHA-blind cherry-picks) on a prior plan branch.
 - If you catch yourself about to "manually squash" by re-committing everything as
   one commit, stop — that recreates the exact failure mode.
 
+### Worker PRs are merged from the owner's desktop session, never by the worker
+
+A PR opened by the automation account (the unattended worker) is merged only from the
+owner's own session, once CI is green and the diff and comments have been read. It is
+never merged by the worker itself. Merge it locally, so the merge commit is signed with
+the owner's key: `git merge --no-ff origin/<branch>` on an up-to-date F44, then push
+F44. GitHub marks the PR merged when its head reaches the base. **Why:** unattended
+machines update themselves only to commits signed by a trusted key. A merge made on
+GitHub, by the merge button or by `gh pr merge` alike, is signed by GitHub, not by
+such a key, so those machines hold it back until an owner-signed commit lands on top.
+
 ### A confirmed "no reboot-free fix exists" finding must be reported, never routed around
 
 When research concludes a problem genuinely has no non-disruptive fix (e.g. no
