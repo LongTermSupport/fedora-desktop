@@ -36,7 +36,6 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
 
 ## Non-Goals
 
-- Changing what a failed `dnf upgrade` does: it still stops the run (fail fast).
 - Changing `ccy-sessions reboot`, beyond leaving container-less ccy sessions out.
 
 ## Tasks
@@ -52,6 +51,9 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
   strict; every `ccy-sessions` call is bounded by `timeout`.
 - [x] ✅ **Task 1.4**: `scripts/test-ccy-sessions-reboot.bash` covers the reported case,
   the desktop paths and the strict paths; `docs/ccy.md` updated.
+- [x] ✅ **Task 1.5**: A desktop goes on past a failed update step, `dnf` included,
+  journalling each failure and a summary before the power action; a strict run still
+  stops on a failed `dnf` (Technical Decisions).
 
 ### Phase 2: Deploy and accept
 
@@ -62,11 +64,17 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
   left at its startup prompt; the machine updates and powers off.
 - [x] ✅ **Task 2.3**: qa-reviewer pass on the branch; its findings fixed in f1ac2371.
 
-## Open Question for the Owner
+## Technical Decisions
 
-- When `dnf upgrade` fails on a desktop (a mirror or network failure), should
-  `shutdown-with-update` still power off, not updated, or stay up (the current fail-fast
-  behaviour) so the failure is seen?
+- **A failed update step does not keep a desktop up.** The owner: "shutdown with update by
+  default should ALWAYS do a shutdown — it can wait a grace period or whatever, but it
+  MUST do the update and shutdown ... desktop mode should do what I tell it to do." So on
+  a desktop a failed `dnf upgrade` (like every other update step) is printed, recorded in
+  the journal (`journalctl -t shutdown-with-update`) and gone past, and a summary of the
+  failed steps is printed and journalled just before the power action. A strict run
+  (server, or `--strict-sessions`) still stops on a failed `dnf`. The startup refusals
+  (no `SUDO_USER`, a root shell, no profile file, no `ccy-sessions`) stay fail-fast: they
+  happen while the person who ran it is watching.
 
 ## Success Criteria
 

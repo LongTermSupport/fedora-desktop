@@ -18,9 +18,10 @@
 #   desktop  whoever ran it said go down, so it goes down. Sessions are warned and given the
 #            countdown, but a session that cannot be warned, a warning that fails or hangs,
 #            and an inhibitor are all reported and then gone past (inhibitors with
-#            `-i`). Nothing waits without a bound.
-#   server   session-strict: any of those stops it and leaves the machine up, and a
-#            refused shutdown asks whether to force it. `--strict-sessions` asks for this on
+#            `-i`). Nothing waits without a bound. A failed update step, dnf included,
+#            is journalled (journalctl -t shutdown-with-update) and the run goes on.
+#   server   session-strict: any of those stops it and leaves the machine up, as does a
+#            failed dnf, and a refused shutdown asks whether to force it. `--strict-sessions` asks for this on
 #            a desktop too.
 set -euo pipefail
 
@@ -95,6 +96,35 @@ warn_sessions() {
     echo "Warning: the sessions could not all be warned (see above). Going ahead: on a desktop the $MODE always happens." >&2
 }
 
+# journal <text> — record a failure where it is seen after the next boot:
+# `journalctl -t shutdown-with-update`. A journal that cannot be written is said on stderr
+# and does not stop the run; the text has already been printed.
+journal() {
+    if ! logger -t shutdown-with-update -p user.err -- "$1"; then
+        echo "Warning: could not record this in the system journal: $1" >&2
+    fi
+}
+
+# step_failed <step> — an update step that failed: said, journalled, and listed in the
+# summary printed before the power action. Every update step goes on past a failure; only a
+# strict run stops on a failed dnf.
+FAILED_STEPS=()
+step_failed() {
+    FAILED_STEPS+=("$1")
+    echo "Warning: $1 failed, continuing..." >&2
+    journal "$1 failed"
+}
+
+# A firmware step exits 2 when there is nothing to do, which is not a failure.
+firmware_step() {
+    local step="$1" status=0
+    shift
+    fwupdmgr "$@" || status=$?
+    if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+        step_failed "$step"
+    fi
+}
+
 # A sleep the trap can interrupt: bash runs a handler only after the foreground command
 # finishes, so a plain `sleep 60` would honour Ctrl-C a minute late — after the reboot.
 countdown() {
@@ -120,9 +150,12 @@ while [ $# -gt 0 ]; do
         echo ""
         echo "On a desktop nothing a session does stops it: a session that cannot be warned"
         echo "is reported and the $MODE goes ahead, past any inhibitor. ccy sessions with no"
-        echo "container (still at ccy's startup prompts) are left out altogether."
+        echo "container (still at ccy's startup prompts) are left out altogether. A failed"
+        echo "update step, dnf included, is logged (journalctl -t shutdown-with-update) and"
+        echo "the $MODE still happens."
         echo "On a server, or with --strict-sessions, a session that cannot be warned stops it"
-        echo "before anything is updated, and a refused shutdown asks before forcing."
+        echo "before anything is updated, a failed dnf stops it, and a refused shutdown asks"
+        echo "before forcing."
         exit 0
         ;;
     --strict-sessions)
@@ -200,18 +233,18 @@ if ! sessions notify going-down --minutes "$REBOOT_MINUTES" --dry-run; then
 fi
 
 echo "Starting firmware updates..."
-if ! fwupdmgr refresh --force; then
-    echo "Warning: Firmware refresh failed, continuing..."
-fi
+firmware_step "firmware refresh" refresh --force
+firmware_step "firmware update" update -y
 
-if ! fwupdmgr update -y; then
-    echo "Warning: Firmware update failed or no updates available, continuing..."
-fi
-
+# A desktop powers off even when dnf fails: whoever ran this asked for the machine to go
+# down, and the failure is journalled for the next boot. A strict run stops, machine up.
 echo "Starting system package updates..."
 if ! dnf -y upgrade; then
-    echo "Error: Package updates failed"
-    exit 1
+    if [ "$STRICT_SESSIONS" = true ]; then
+        echo "Error: Package updates failed. The machine stays up." >&2
+        exit 1
+    fi
+    step_failed "dnf upgrade"
 fi
 
 # Flatpak apps (Slack, videography tools) are installed system-wide by the
@@ -221,7 +254,7 @@ fi
 echo "Starting Flatpak updates..."
 if command -v flatpak >/dev/null; then
     if ! flatpak update --system -y; then
-        echo "Warning: system Flatpak update failed, continuing..."
+        step_failed "system Flatpak update"
     fi
     # Prune runtimes no installed app still needs. Updating alone never removes
     # the version it superseded, so every driver bump leaves its old GL runtime
@@ -236,15 +269,15 @@ if command -v flatpak >/dev/null; then
     # app using a runtime and the next run reclaims it too, so reinstalling
     # that app later re-downloads its runtime.
     if ! flatpak uninstall --system --unused -y; then
-        echo "Warning: system Flatpak cleanup failed, continuing..."
+        step_failed "system Flatpak cleanup"
     fi
     # Also update any per-user Flatpaks, as the invoking user rather than root.
     if [ -n "${SUDO_USER:-}" ]; then
         if ! sudo -u "$SUDO_USER" -H flatpak update --user -y; then
-            echo "Warning: user Flatpak update failed, continuing..."
+            step_failed "user Flatpak update"
         fi
         if ! sudo -u "$SUDO_USER" -H flatpak uninstall --user --unused -y; then
-            echo "Warning: user Flatpak cleanup failed, continuing..."
+            step_failed "user Flatpak cleanup"
         fi
     fi
 else
@@ -259,7 +292,7 @@ echo "Starting pipx tool updates..."
 update_user="${SUDO_USER:-$USER}"
 if sudo -u "$update_user" -H bash -lc 'command -v pipx >/dev/null'; then
     if ! sudo -u "$update_user" -H bash -lc 'pipx upgrade-all'; then
-        echo "Warning: pipx upgrade-all failed, continuing..."
+        step_failed "pipx upgrade-all"
     fi
 else
     echo "pipx not installed for $update_user, skipping."
@@ -271,7 +304,7 @@ fi
 echo "Starting Rust toolchain updates..."
 if sudo -u "$update_user" -H bash -lc 'command -v rustup >/dev/null'; then
     if ! sudo -u "$update_user" -H bash -lc 'rustup update'; then
-        echo "Warning: rustup update failed, continuing..."
+        step_failed "rustup update"
     fi
 else
     echo "rustup not installed for $update_user, skipping."
@@ -325,6 +358,16 @@ if [ "$REBOOT_MINUTES" -gt 1 ]; then
     echo "${MODE^} in 1 minute..."
 fi
 countdown "$MINUTE_SECONDS"
+
+if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+    failed_list="$(printf '%s, ' "${FAILED_STEPS[@]}")"
+    summary="update steps that failed before the $MODE: ${failed_list%, }"
+    echo "Warning: $summary (journalctl -t shutdown-with-update)" >&2
+    journal "$summary"
+else
+    echo "Every update step succeeded."
+fi
+
 # The Ctrl-C window is over. While a power action runs, a TERM is the shutdown reaching this
 # process, not a cancellation, so it is ignored; letting it exit would withdraw the warning
 # from sessions that are about to go down. A refused action still exits non-zero.
