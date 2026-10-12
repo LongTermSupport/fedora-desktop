@@ -1,18 +1,21 @@
-"""The incident replayed, judged from the panel's debug log: <debug.log> <offset> <report.md>.
+"""The owner's Insert rules replayed, judged from the panel's debug log: <debug.log> <offset> <report.md>.
 
-Plan 00171 acceptance. The owner dictates once (A), presses Insert while A is still
-finishing (transcribing, or the instant its result lands), and presses Insert again once
-the new dictation (B) is recording. The panel's own [EXT] lines, written from byte
-<offset> of <debug.log> on, are read for the latest such replay, and say whether:
+Plan 00171 acceptance (Task 5.11). The owner dictates once (A) and presses Insert to stop
+it, presses Insert again during the stop grace, and again while A is transcribing or the
+instant its result lands. Once the icon is ready the owner presses Insert to start a new
+dictation (B), speaks, and presses Insert to stop it. The panel's own [EXT] lines, written
+from byte <offset> of <debug.log> on, are read for the latest such replay, and say whether:
 
-  1. the press while A was finishing was queued, and B started only after A had exited;
-  2. B reached RECORDING and the second press stopped B (TERM to B's PID);
-  3. nothing showed the ready icon while B recorded: no IDLE taken, no `Display: IDLE`
+  1. A was stopped once: no press after the first sent A a second stop;
+  2. a press during A's grace did nothing, and the icon flashed BLOCKED;
+  3. a press while A was transcribing or pasting did nothing, and the icon flashed BLOCKED;
+  4. nothing started by itself: B was started by a press made after the last blocked one;
+  5. B reached RECORDING and the next press stopped it (TERM to B's PID);
+  6. nothing showed the ready icon while B recorded: no IDLE taken, no `Display: IDLE`
      (the icon itself), none of B's own signals dropped.
 
-Signals from A that arrived after B started are counted: each is one the old panel would
-have taken as B's. Exit 0 when all three hold; 1 when one fails; 2 when the sequence was
-not played at all, so there is no evidence either way (the report says what to press).
+Exit 0 when all hold; 1 when one fails; 2 when nothing failed but part of the sequence was
+not played, so there is no evidence either way (the report says what to press).
 """
 
 from __future__ import annotations
@@ -24,14 +27,18 @@ import sys
 
 EXT_LINE = re.compile(r"^\[(\S+)\] \[EXT\] (.*)$")
 STARTED = re.compile(r"^Started (\w+) recorder (\d+) \(session (\S+)\)$")
-QUEUED = re.compile(r"^Insert while (\w+) and (\d+) is still finishing")
-RAN_QUEUED = "The recorder has finished: running the queued start"
-STOPPED = re.compile(r"^Insert while (RECORDING|STOPPING): stop \(TERM to (\d+)\)$")
+STOPPED = re.compile(r"^Insert while RECORDING: stop after the grace \(TERM to (\d+)\)$")
+# panelSession.js _block: "<state>: <pid> is stopping…" or "<state> and <pid> has exited…"
+BLOCKED = re.compile(r"^Insert does nothing while (\w+)(?::| and) (\d+) ")
+ANY_BLOCKED = "Insert does nothing while "
 DROPPED = re.compile(r"^Dropped (.+?) from session (\S+):")
 STATE = re.compile(r"^State: (\w+)$")
 DISPLAY = re.compile(r"^Display: (\w+)$")  # what the icon showed (panelSession.js)
 PRESS = "INSERT KEY PRESSED"
-INCIDENT_SECONDS = 0.5  # the incident's press came 376 ms after SUCCESS
+# A press before the recorder has said STOPPING is a press in the grace too
+GRACE_STATES = ("RECORDING", "STOPPING")
+# A press's own icon change is logged in the same call; the flash lasts 0.7 s
+PRESS_RENDER_SECONDS = 0.2
 
 
 def events(log: pathlib.Path, offset: int) -> list[tuple[datetime.datetime, str]]:
@@ -48,78 +55,106 @@ def events(log: pathlib.Path, offset: int) -> list[tuple[datetime.datetime, str]
     return found
 
 
+def verdict(ok: bool | None) -> str:
+    return {True: "PASS", False: "FAIL", None: "NOT ESTABLISHED"}[ok]
+
+
 def judge(lines: list[tuple[datetime.datetime, str]]) -> tuple[list[str], int]:
-    """(report lines, exit status: 0 all three held, 1 one failed, 2 not played)."""
+    """(report lines, exit status: 0 all held, 1 one failed, 2 part not played)."""
+    messages = [m for _, m in lines]
+    # The latest replay: the latest stopped dictation a press was blocked on afterwards
+    replay = None
+    for i in range(len(messages) - 1, -1, -1):
+        stopped = STOPPED.match(messages[i])
+        if not stopped:
+            continue
+        pid_a = stopped.group(1)
+        blocks = [(j, BLOCKED.match(messages[j]).group(1)) for j in range(i + 1, len(messages))
+                  if BLOCKED.match(messages[j]) and BLOCKED.match(messages[j]).group(2) == pid_a]
+        if blocks:
+            replay = (i, pid_a, blocks)
+            break
+    if replay is None:
+        return ["NOT PLAYED: no Insert was blocked behind a dictation it had stopped. Dictate, "
+                "press Insert, press it again during the grace and again while the icon shows "
+                "the orange dots, then run this again."], 2
+    stop_at, pid_a, blocks = replay
     report: list[str] = []
-    # The latest replay: an earlier one may predate a fix being judged
-    queued_at = next((i for i in range(len(lines) - 1, -1, -1) if QUEUED.match(lines[i][1])), None)
-    if queued_at is None:
-        report.append("NOT PLAYED: no Insert was queued behind a finishing dictation. Press "
-                      "Insert while the icon shows the orange dots (transcribing) or the "
-                      "instant it turns green, then run this again.")
-        return report, 2
-    queued = QUEUED.match(lines[queued_at][1])
-    pid_a = queued.group(2)
-    last_end = next((t for t, m in reversed(lines[:queued_at])
-                     if STATE.match(m) and STATE.match(m).group(1) in ("SUCCESS", "ERROR")), None)
-    press_at = next((t for t, m in reversed(lines[:queued_at]) if PRESS in m), None)
-    if last_end and press_at and press_at >= last_end:
-        delay = (press_at - last_end).total_seconds()
-        timing = "the incident's timing" if delay <= INCIDENT_SECONDS else "later than the incident"
-        report.append(f"The press came {delay:.3f} s after A's result ({timing}; the incident: 0.376 s)")
-    else:
-        report.append(f"The press came while A was {queued.group(1)} (before its result)")
+    results: list[bool | None] = []
 
-    b_start = None
-    ran = False
-    for i in range(queued_at + 1, len(lines)):
-        if lines[i][1] == RAN_QUEUED:
-            ran = True
-        started = STARTED.match(lines[i][1])
-        if started:
-            b_start = (i, started.group(2), started.group(3))
-            break
-    ok1 = b_start is not None and ran
-    report.append(f"{'PASS' if ok1 else 'FAIL'}: the press while A ({pid_a}) was finishing was "
-                  "queued, and B started only once A had exited"
-                  + ("" if ok1 else " (no queued start ran)"))
-    if b_start is None:
-        return report, 1
-    b_index, pid_b, token_b = b_start
+    def record(ok: bool | None, text: str) -> None:
+        results.append(ok)
+        report.append(f"{verdict(ok)}: {text}")
 
-    recording_at = stop_at = None
-    for i in range(b_index + 1, len(lines)):
-        message = lines[i][1]
-        state = STATE.match(message)
+    stops_of_a = [m for m in messages[stop_at:] if STOPPED.match(m) and STOPPED.match(m).group(1) == pid_a]
+    record(len(stops_of_a) == 1, f"A ({pid_a}) was asked to stop once (stops sent: {len(stops_of_a)})")
+
+    def flashed(index: int) -> bool:
+        """The icon showed BLOCKED just after the press. The press's own Display line comes
+        at once; a press during the flash keeps it on and logs none, and the flash's end
+        comes BLOCKED_FLASH_MS later, so a later Display line is not the press's."""
+        after = index + 1
+        if (after < len(lines) and DISPLAY.match(messages[after])
+                and (lines[after][0] - lines[index][0]).total_seconds() < PRESS_RENDER_SECONDS):
+            return DISPLAY.match(messages[after]).group(1) == "BLOCKED"
+        shown = [DISPLAY.match(m).group(1) for m in messages[:index] if DISPLAY.match(m)]
+        return bool(shown) and shown[-1] == "BLOCKED"
+
+    grace = [j for j, state in blocks if state in GRACE_STATES]
+    rendering = [j for j, state in blocks if state not in GRACE_STATES]
+    for label, found in (("during A's grace", grace), ("while A was transcribing or pasting", rendering)):
+        if not found:
+            record(None, f"a press {label} did nothing (no such press: press Insert then)")
+        else:
+            shown = all(flashed(j) for j in found)
+            record(shown, f"a press {label} did nothing ({len(found)} press(es); "
+                          f"BLOCKED shown for each: {shown})")
+
+    last_block = blocks[-1][0]
+    b_index = next((j for j in range(last_block + 1, len(messages)) if STARTED.match(messages[j])), None)
+    if b_index is None:
+        record(None, "B was started by a fresh press (no recorder started after the blocked "
+                     "presses: press Insert once the icon is ready)")
+        return report, 1 if False in results else 2
+    press_at = next((j for j in range(b_index - 1, last_block, -1) if PRESS in messages[j]), None)
+    fresh = press_at is not None and not any(ANY_BLOCKED in m for m in messages[press_at:b_index])
+    record(fresh, "nothing started by itself: B was started by a press made after the last blocked one")
+
+    started = STARTED.match(messages[b_index])
+    pid_b, token_b = started.group(2), started.group(3)
+    recording_at = stop_b = None
+    for j in range(b_index + 1, len(messages)):
+        state = STATE.match(messages[j])
         if recording_at is None and state and state.group(1) == "RECORDING":
-            recording_at = i
-        stopped = STOPPED.match(message)
-        if recording_at is not None and stopped and stopped.group(2) == pid_b:
-            stop_at = i
+            recording_at = j
+        stopped = STOPPED.match(messages[j])
+        if recording_at is not None and stopped and stopped.group(1) == pid_b:
+            stop_b = j
             break
-    ok2 = recording_at is not None and stop_at is not None
-    report.append(f"{'PASS' if ok2 else 'FAIL'}: B ({pid_b}) reached RECORDING and the next "
-                  "press stopped it"
-                  + ("" if ok2 else f" (RECORDING seen: {recording_at is not None}; "
-                                    f"stop of {pid_b} seen: {stop_at is not None})"))
+    if recording_at is None or stop_b is None:
+        record(None if recording_at is not None else False,
+               f"B ({pid_b}) reached RECORDING and the next press stopped it "
+               f"(RECORDING seen: {recording_at is not None}; stop of {pid_b} seen: {stop_b is not None})")
+    else:
+        record(True, f"B ({pid_b}) reached RECORDING and the next press stopped it")
 
-    window = lines[b_index:stop_at if stop_at is not None else len(lines)]
-    idle_taken = [m for _, m in window if STATE.match(m) and STATE.match(m).group(1) == "IDLE"]
-    shown = [DISPLAY.match(m).group(1) for _, m in window if DISPLAY.match(m)]
-    own_dropped = [m for _, m in window if DROPPED.match(m) and DROPPED.match(m).group(2) == token_b]
-    # No Display: line at all is a panel too old to log it, not proof the icon was right
-    sees_icon = "RECORDING" in shown
-    ok3 = sees_icon and not idle_taken and "IDLE" not in shown and not own_dropped
-    report.append(f"{'PASS' if ok3 else 'FAIL'}: nothing showed the ready icon while B recorded "
-                  f"(IDLE taken: {len(idle_taken)}; Display: IDLE: {shown.count('IDLE')}; "
-                  f"B's own signals dropped: {len(own_dropped)})"
-                  + ("" if sees_icon else "; NOT ESTABLISHED: no 'Display: RECORDING' line, "
-                     "so the running panel predates Task 5.8 (log out and back in)"))
+    window = messages[b_index:stop_b if stop_b is not None else len(messages)]
+    idle_taken = [m for m in window if STATE.match(m) and STATE.match(m).group(1) == "IDLE"]
+    shown = [DISPLAY.match(m).group(1) for m in window if DISPLAY.match(m)]
+    own_dropped = [m for m in window if DROPPED.match(m) and DROPPED.match(m).group(2) == token_b]
+    ok = not idle_taken and "IDLE" not in shown and not own_dropped
+    record(ok if "RECORDING" in shown else None,
+           f"nothing showed the ready icon while B recorded (IDLE taken: {len(idle_taken)}; "
+           f"Display: IDLE: {shown.count('IDLE')}; B's own signals dropped: {len(own_dropped)})"
+           + ("" if "RECORDING" in shown else "; no 'Display: RECORDING' line, so the running "
+              "panel predates Task 5.8 (log out and back in)"))
 
-    stale = [m for _, m in lines[b_index:] if DROPPED.match(m) and DROPPED.match(m).group(2) != token_b]
+    stale = [m for m in messages[b_index:] if DROPPED.match(m) and DROPPED.match(m).group(2) != token_b]
     report.append(f"Signals from an earlier recorder dropped after B started: {len(stale)}"
                   + (f" ({'; '.join(stale[:3])})" if stale else ""))
-    return report, 0 if ok1 and ok2 and ok3 else 1
+    if False in results:
+        return report, 1
+    return report, 2 if None in results else 0
 
 
 def main(argv: list[str]) -> int:
@@ -132,7 +167,7 @@ def main(argv: list[str]) -> int:
         return 1
     report, status = judge(events(log, offset))
     with report_path.open("a", encoding="utf-8") as f:
-        f.write("## The incident replayed\n\n" + "".join(f"- {line}\n" for line in report) + "\n")
+        f.write("## The Insert rules replayed\n\n" + "".join(f"- {line}\n" for line in report) + "\n")
     for line in report:
         print(f"  {line}")
     return status

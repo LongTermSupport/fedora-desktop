@@ -4,8 +4,9 @@
  *     node --test tests/extensions/test-stt-panel-look.mjs
  *
  * The owner's rules: green only ever means SUCCESS, so the recording badge is red like
- * the recording mic; a start queued behind a finishing recorder looks different from the
- * recorder finishing; a press that cancels a start shows that it was taken.
+ * the recording mic; a start you asked for looks different from the recorder finishing;
+ * a press that cancels a start shows that it was taken, and one that does nothing flashes
+ * BLOCKED.
  */
 
 import assert from 'node:assert/strict';
@@ -14,7 +15,7 @@ import test from 'node:test';
 const {lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/panelLook.js', import.meta.url).href);
 
-const STATES = ['IDLE', 'LAUNCHING', 'WAITING', 'QUEUED', 'FINISHING', 'CANCELLING', 'UNOWNED',
+const STATES = ['IDLE', 'LAUNCHING', 'WAITING', 'FINISHING', 'BLOCKED', 'CANCELLING', 'UNOWNED',
     'PREPARING', 'RECORDING', 'STOPPING', 'TRANSCRIBING', 'SUCCESS', 'ERROR'];
 
 test('every state has a look', () => {
@@ -50,20 +51,24 @@ test('the recording badge turns amber when transcription falls behind or the lim
     assert.equal(recordingBadgeColor({behind: false, secondsLeft: 11}), COLOURS.red);
 });
 
-test('a queued start looks different from the recorder finishing', () => {
-    assert.equal(lookFor('QUEUED').icon, 'hourglass');
+test('a start the owner asked for looks different from the recorder finishing', () => {
+    assert.equal(lookFor('WAITING').icon, 'hourglass');
     assert.equal(lookFor('FINISHING').icon, 'hourglass');
-    assert.notEqual(lookFor('QUEUED').colour, lookFor('FINISHING').colour);
+    assert.notEqual(lookFor('WAITING').colour, lookFor('FINISHING').colour);
 });
 
 test('every wait for a recording the owner asked for looks the same', () => {
-    for (const state of ['LAUNCHING', 'WAITING'])
-        assert.deepEqual(lookFor(state), lookFor('QUEUED'), state);
+    assert.deepEqual(lookFor('LAUNCHING'), lookFor('WAITING'));
 });
 
 test('a cancelled start looks different from every wait', () => {
-    for (const state of ['LAUNCHING', 'WAITING', 'QUEUED', 'FINISHING', 'IDLE'])
+    for (const state of ['LAUNCHING', 'WAITING', 'FINISHING', 'IDLE'])
         assert.notDeepEqual(lookFor('CANCELLING'), lookFor(state), state);
+});
+
+test('a press that does nothing looks like no other state', () => {
+    for (const state of STATES.filter(s => s !== 'BLOCKED'))
+        assert.notEqual(lookFor('BLOCKED').icon, lookFor(state).icon, state);
 });
 
 test('a recorder the panel did not start never looks ready', () => {

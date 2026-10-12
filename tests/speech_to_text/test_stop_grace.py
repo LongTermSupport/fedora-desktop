@@ -128,6 +128,15 @@ class PendingStopAnnouncementTest(unittest.TestCase):
         self.assertEqual(self.signals, [("StateChanged", "STOPPING")])
         self.assertEqual(len(self.notices), 1)
 
+    def test_the_grace_notice_does_not_promise_insert_stops_now(self):
+        # The owner's rule: Insert in the grace does nothing (the panel flashes BLOCKED)
+        stop = wsi_stream.GracefulStop(3, clock=FakeClock())
+        stop.request()
+        wsi_stream.announce_pending_stop(stop)
+        message = self.notices[0][0]
+        self.assertNotIn("stop now", message)
+        self.assertIn("Escape: discard", message)
+
     def test_no_request_tells_the_panel_nothing(self):
         stop = wsi_stream.GracefulStop(3, clock=FakeClock())
         wsi_stream.announce_pending_stop(stop)

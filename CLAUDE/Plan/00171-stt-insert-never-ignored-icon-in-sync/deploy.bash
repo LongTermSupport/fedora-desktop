@@ -10,10 +10,11 @@
 #   in flight; the server reports how much audio the microphone delivered, and a dictation
 #   whose microphone fell short says so (always shown, even with notifications off); and
 #   the panel extension (extension.js, the new panelSession.js, panelLook.js and the
-#   bundled hourglass icon), which follows one recorder by its token, queues a press made
-#   while the last dictation is still finishing, never shows ready over a live recorder,
-#   starts recorders in their own process group, and shows the recording badge red. A
-#   changed wsi-stream restarts the warm speech server (the play's handler).
+#   bundled hourglass icon), which follows one recorder by its token, keeps one recording
+#   at a time (a press in the stop grace or while the text renders does nothing but flash
+#   a no-entry sign; nothing is queued), never shows ready over a live recorder, starts
+#   recorders in their own process group, and shows the recording badge red. A changed
+#   wsi-stream restarts the warm speech server (the play's handler).
 #
 # The extension changed, so a LOGOUT is needed before its code runs (Wayland). This script
 # therefore does not end with acceptance.bash (R9): log out and back in, play the sequence
@@ -75,9 +76,10 @@ else
     printf 'Next:\n'
     printf '  1. Log out and back in.\n'
     printf '  2. Turn on Debug Logging (panel menu), then play the sequence:\n'
-    printf '     dictate a sentence, press Insert to stop, and press Insert AGAIN while the\n'
-    printf '     icon shows the orange dots or the instant it turns green (you should see the\n'
-    printf '     hourglass, then the red recording icon); speak, then press Insert once more.\n'
+    printf '     dictate a sentence, press Insert to stop, press Insert AGAIN during the grace\n'
+    printf '     and AGAIN while it transcribes or the instant it turns green (each should\n'
+    printf '     flash a red no-entry sign and start nothing); once the icon is ready press\n'
+    printf '     Insert, speak, then press Insert once more.\n'
     printf '  3. Run %s/acceptance.bash (meta-deploy round 2).\n' "${PLAN_SCRIPT_DIR}"
 fi
 

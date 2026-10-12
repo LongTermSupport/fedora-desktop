@@ -21,9 +21,10 @@ The owner's requirements:
 
 - **Insert is never ignored.** Every press has a visible effect.
 - **Blue (idle) icon + Insert → a recording starts.** Always.
-- **Insert while not yet ready to record → an hourglass ("please wait"), then the
-  recording starts once ready.** An Insert is an intention to record. A stop sign would
-  say the press was ignored, so there is none (owner's decision, D1 to D3).
+- **There is only ever one recording** (Decision 8, which replaces D1 and D2). Insert
+  while recording stops it (the 3 s grace, then rendering and pasting). Insert in the
+  grace or while rendering is a no-op with a blocked icon: nothing is queued, and nothing
+  starts by itself after the paste.
 - **If the icon says ready, the system is ready.** A press on a ready icon starts a
   recording.
 - **The icon always matches what is actually happening.** An icon showing "not
@@ -51,10 +52,10 @@ The owner's requirements:
 ### Phase 1: Owner decisions (decision gate)
 
 - [x] ✅ **Task 1.1 — D1: Insert in the grace period.** STOPPING (mic still open) keeps
-  Insert = stop now (Plan 00148 Task 0.6). The hourglass applies only where the mic is
-  closed and the system is not yet ready to record.
+  Insert = stop now (Plan 00148 Task 0.6). Superseded by Decision 8: a no-op.
 - [x] ✅ **Task 1.2 — D2: A press while not ready is queued.** The hourglass shows, and the
-  recording starts by itself as soon as the system is ready.
+  recording starts by itself as soon as the system is ready. Superseded by Decision 8:
+  nothing is queued.
 - [x] ✅ **Task 1.3 — D3: The icon is an hourglass**, not a stop sign. No installed theme
   ships one, so the extension bundles its own symbolic SVG.
 - [x] ✅ **Task 1.4**: Answers recorded under Technical Decisions.
@@ -104,8 +105,8 @@ The owner's requirements:
   the client has exited, a cold server start): show the bundled hourglass and queue the
   start (Decision 1). The queued start runs when the owned client has exited and the
   server answers ready. A second Insert while queued cancels it. Tests for each.
-  Done: the panel queues behind its own recorder; the server-mode client waits for a
-  server still finishing (Decision 5).
+  Done: the panel queued behind its own recorder (removed by Task 5.11, Decision 8); the
+  server-mode client waits for a server still finishing (Decision 5).
 - [x] ✅ **Task 3.3**: Reconciliation. The extension watches the current client's exit for
   its whole life, not only while the launch is pending. A client that exits without a
   terminal state resets the panel and logs why. A live recorder process at Insert that
@@ -123,8 +124,9 @@ The owner's requirements:
   needs eyes on the panel is NOT ESTABLISHABLE and is listed for the owner. Add the
   plan to `meta-deploy.bash`; an extension change needs a logout, so it runs in two
   rounds. Written: `deploy.bash`, `acceptance.bash` and `probe-insert-sequence.py`, which
-  judges the latest replay in the panel's debug log (a press while the old recorder
-  finishes must be queued, the new dictation must record, the next press must stop it).
+  judges the latest replay in the panel's debug log (since Task 5.11: a press in the grace
+  and one while rendering must do nothing but flash BLOCKED, nothing may start by itself,
+  and the next dictation must start at a fresh press and stop at the one after).
   Open: the `meta-deploy.bash` rounds (round 1 `deploy.bash`, logout, the replay, round 2
   `acceptance.bash`) and the host run.
 - [x] ✅ **Task 4.2**: Docs: the Insert table in `docs/features/speech-to-text.md`.
@@ -187,14 +189,18 @@ The owner's requirements:
   nothing but show WAITING, so a second stop never cuts its grace or drain short, and STOP
   is not sent to a server session already stopping or draining. Tests in
   `test_server_client.py` (`SessionOwnershipTest`).
-- [ ] **Task 5.11 — Owner's rule vs D1/D2 in the panel.** The owner has since stated that
-  Insert in the grace or while rendering is a no-op with a blocked icon. The panel still
-  follows D1 (STOPPING: TERM again stops now) and D2 (a press while finishing queues a
-  start). Needs an owner decision before the panel changes.
+- [x] ✅ **Task 5.11 — The owner's Insert rules in the panel (Decision 8).** A press once a
+  stop has been asked for (the grace, transcribing, the paste, a result before the exit,
+  a cancel under way) does nothing but flash BLOCKED (a red no-entry sign, 0.7 s); the
+  queue is gone. A recorder the panel did not start gets TERM (the graced stop), once,
+  and none at all while it names itself in `/dev/shm/stt-stopping-$USER.pid`. The grace
+  notification no longer offers "Insert: stop now". Tests in `test-stt-panel-session.mjs`,
+  `test-stt-panel-look.mjs`, `test_stop_grace.py`; `probe-insert-sequence.py` and
+  `acceptance.bash` judge the new replay.
 
 ## Technical Decisions
 
-### Decision 1: An hourglass and a queued start, never a stop sign
+### Decision 1: An hourglass and a queued start, never a stop sign (superseded by Decision 8)
 
 **Context**: What an Insert press should do when the system cannot record yet (the
 previous dictation is transcribing, pasting or finishing, or the server is starting).
@@ -238,14 +244,13 @@ each have kept a part of the problem.
 ### Decision 5: Who waits for what
 
 **Context**: A press while not ready must start a recording once ready (Decision 1).
-**Decision**: The panel queues behind its own recorder (TRANSCRIBING, the paste, a result
-not yet followed by the exit) and starts once the recorder has exited. The server-mode
+**Decision**: The panel queued behind its own recorder; since Decision 8 it does not (a
+press there does nothing), and the rest of this decision is unchanged. The server-mode
 client waits by itself for a server still transcribing an earlier dictation: the server
 now says `busy: "finishing"`, the client shows WAITING (the hourglass) and starts as
 soon as the server is free, up to 300 s. A server that is recording someone else's
 dictation (`busy: "recording"`) is an ERROR at once. A live recorder the panel did not
-start is stopped with SIGINT (it keeps its text) and reported; a queued start waits for
-it, a fresh press starts nothing (Decision 7). An article's
+start is stopped and reported, and the press starts nothing (Decision 7). An article's
 session ends at its own last signal, since its window stays open for polishing.
 **Date**: 2026-10-12
 
@@ -264,15 +269,28 @@ hidden by the default setting (notifications off) would not be seen.
 
 **Context**: After a screen lock the panel is new and the recorder is not its own.
 **Decision**: The panel shows that recorder (UNOWNED) instead of the ready icon, and a
-press stops it (SIGINT, which keeps its text) and starts nothing: the owner who pressed
-Insert over a recording meant "stop". A start already queued behind the panel's own
-recorder still stops such a recorder and waits for it.
+press stops it and starts nothing: the owner who pressed Insert over a recording meant
+"stop". Since Decision 8 the stop is SIGTERM (the graced stop), sent once, and never to a
+recorder whose stop has begun.
+**Date**: 2026-10-12
+
+### Decision 8: One recording; Insert in the grace or while rendering does nothing
+
+**Context**: The owner stated the Insert rules outright, replacing D1 and D2.
+**Decision** (owner): there is only ever one recording, and a second can never start while
+one runs. Insert while recording means stop: the normal 3 s grace, then rendering and
+pasting; once that has finished, the next Insert starts a new recording. Insert during the
+grace or during rendering/transcribing is a no-op with a blocked icon. Nothing is queued
+and nothing starts by itself after the paste. The extension had no blocked look, so
+BLOCKED is new: the theme's `action-unavailable-symbolic` in red, flashed for 0.7 s over
+the state the panel stays in.
 **Date**: 2026-10-12
 
 ## Success Criteria
 
-- [ ] The incident's sequence (Insert just after SUCCESS, then Insert again) starts and
-  then stops a dictation, proven by a test and by acceptance on the host.
+- [ ] The owner's Insert rules (Decision 8): Insert in the grace or just after SUCCESS
+  does nothing, nothing starts by itself, and the next press once ready starts and the
+  one after stops a dictation, proven by a test and by acceptance on the host.
 - [ ] No test or host run shows the idle icon while a recorder is alive.
 - [ ] Every Insert press has a visible effect in every state, per the documented table.
 - [ ] `./scripts/qa-all.bash` and ESLint pass; `qa-reviewer` reports nothing unresolved.

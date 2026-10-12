@@ -3,19 +3,20 @@
 # always in sync", judged from the HOST's own evidence. Read-only.
 #
 # Run on the HOST, as the desktop user, AFTER deploy.bash, a logout/login, and the owner
-# playing the incident with Debug Logging on:
+# playing the Insert rules with Debug Logging on:
 #
-#   dictate a sentence, press Insert to stop, press Insert AGAIN while the icon shows the
-#   orange dots or the instant it turns green, speak, then press Insert once more.
+#   dictate a sentence, press Insert to stop, press Insert AGAIN during the grace (orange
+#   dots, microphone still open), and AGAIN while it transcribes or the instant it turns
+#   green; once the icon is ready press Insert, speak, then press Insert once more.
 #
 # It checks: every recorder, the server and the extension files are deployed and identical
 # to the checkout's; the panel running in the Shell is the new one (its debug log names a
 # session token per recorder, which only the new panel writes, so it also proves the
-# logout); and, from the panel's debug log, the replay itself: the press made while the old
-# recorder was finishing was queued and started a new dictation only after the old one had
-# exited, that dictation reached RECORDING, the next press stopped it, and nothing showed the
-# ready icon while it recorded (probe-insert-sequence.py). It prints COVERAGE: n of m and
-# names what it CANNOT establish.
+# logout); and, from the panel's debug log, the replay itself (probe-insert-sequence.py):
+# the first dictation was stopped once, the presses in its grace and while it rendered did
+# nothing but flash BLOCKED, nothing started by itself, the press once ready started a new
+# dictation, the next press stopped it, and nothing showed the ready icon while it recorded.
+# It prints COVERAGE: n of m and names what it CANNOT establish.
 #
 # Usage: ./acceptance.bash [-h|--help]
 #
@@ -143,14 +144,15 @@ else
     check "the panel's log names a session token per recorder (none yet: log out and back in, then dictate)" unset
 fi
 
-printf '=== the incident replayed (probe-insert-sequence.py) ===\n'
+printf '=== the Insert rules replayed (probe-insert-sequence.py) ===\n'
 if [[ "${debugMode}" == "true" && -f "${debugLog}" ]]; then
     probeStatus=0
     python3 "${PLAN_SCRIPT_DIR}/probe-insert-sequence.py" "${debugLog}" 0 "${REPORT}" || probeStatus=$?
+    rulesLabel="Insert stopped a dictation once, did nothing in its grace or while it rendered, started nothing by itself, then started and stopped the next one"
     case "${probeStatus}" in
-        0) check "Insert while the last dictation finished was queued, started after it, and the next Insert stopped it" yes ;;
-        2) check "the replay was played (see above for what to press)" unset ;;
-        *) check "Insert while the last dictation finished was queued, started after it, and the next Insert stopped it (exit ${probeStatus})" no ;;
+        0) check "${rulesLabel}" yes ;;
+        2) check "the whole replay was played (see above for what to press)" unset ;;
+        *) check "${rulesLabel} (exit ${probeStatus})" no ;;
     esac
 else
     check "the replay can be judged (needs Debug Logging on and its log)" unset
@@ -160,7 +162,8 @@ printf '\nCOVERAGE: %d of %d checks passed' "${passed}" "${total}"
 printf ' (%d failed, %d not established)\n' "${failed}" "${unset_checks}"
 printf 'report: %s\n' "${REPORT}"
 printf '\nNOT ESTABLISHABLE by this script (a person must look):\n'
-printf '  - the hourglass icon itself: it shows at the press, and the red icon follows by itself\n'
+printf '  - the red no-entry flash itself on the icon (the log only says it was drawn)\n'
+printf '  - the grace notification no longer offering "Insert: stop now"\n'
 printf '  - a START the server refuses: the icon red for two seconds and the reason in the menu\n'
 printf '  - Ctrl+Insert / Alt+Insert and Create Article following the same rules\n'
 printf '  - Escape during recording or the grace discarding the dictation\n'

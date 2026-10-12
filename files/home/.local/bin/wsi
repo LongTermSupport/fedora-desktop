@@ -472,7 +472,7 @@ on_term() {
     # STOPPING, not RECORDING: the panel shows the press was taken while the microphone
     # stays open for the grace.
     emit_state "STOPPING"
-    notify_desktop "Stopping in ${STOP_GRACE_SECONDS}s - finish your sentence.\nInsert: stop now. Escape: discard." \
+    notify_desktop "Stopping in ${STOP_GRACE_SECONDS}s - finish your sentence.\nEscape: discard. Insert waits until the text is pasted." \
         "audio-input-microphone" "$((STOP_GRACE_SECONDS * 1000))"
 }
 

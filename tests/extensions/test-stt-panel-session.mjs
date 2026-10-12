@@ -10,28 +10,30 @@
  * was recording. Every press after that spawned a recorder the server refused, and the
  * refusal was wiped from the icon within 15 ms.
  *
- * The owner's rules, each with a test below: every press does something visible; a
- * press on the ready icon starts a recording; a press while not ready shows the
- * hourglass and starts the recording once ready, and a second press cancels that; in
- * the stop grace Insert still means "stop now"; the icon never shows idle while the
- * panel's recorder is alive. Driven against the shipped panelSession.js with the
- * spawn, the signals, the PID file and the timers handed in.
+ * The owner's rules, each with a test below: there is only ever one recording; a press
+ * on the ready icon starts one; a press while recording stops it (the graced stop); a
+ * press in the stop grace, while transcribing or pasting is a no-op that flashes
+ * BLOCKED, queues nothing, and nothing starts by itself afterwards; the icon never shows
+ * idle while the panel's recorder is alive. Driven against the shipped panelSession.js
+ * with the spawn, the signals, the PID files and the timers handed in.
  */
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const {PanelSession, LAUNCH_SAFETY_MS, ENDING_DISPLAY_MS, UNOWNED_POLL_MS, EXIT_SETTLE_MS} = await import(
+const {PanelSession, LAUNCH_SAFETY_MS, ENDING_DISPLAY_MS, BLOCKED_FLASH_MS, UNOWNED_POLL_MS,
+    EXIT_SETTLE_MS} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/panelSession.js', import.meta.url).href);
 
 const DICTATION = {kind: 'dictation', target: 'window-1'};
 
-/** A panel whose recorders, PID file, timers and screen the test controls. */
+/** A panel whose recorders, PID files, timers and screen the test controls. */
 function harness({pidFile = null, alive = []} = {}) {
-    // pidFile and alive: what the panel finds when it is created (the extension enabled again)
+    // pidFile and alive: what the panel finds when it is created (the extension enabled again);
+    // stoppingFile: the PID a recorder whose stop has begun writes (wsi-stream mark_stopping)
     const h = {
         spawned: [], kills: [], aborts: [], shown: [], logs: [], errors: [], notes: [],
-        timers: new Map(), alive: new Set(alive), pidFile, spawnError: null,
+        timers: new Map(), alive: new Set(alive), pidFile, stoppingFile: null, spawnError: null,
     };
     let nextTimer = 1;
     let tokens = 0;
@@ -53,6 +55,7 @@ function harness({pidFile = null, alive = []} = {}) {
         kill: (pid, signal) => h.kills.push([pid, signal]),
         abort: pid => h.aborts.push(pid),
         readRecorderPid: () => (h.pidFile !== null && h.alive.has(h.pidFile) ? h.pidFile : null),
+        readStoppingPid: () => (h.stoppingFile !== null && h.alive.has(h.stoppingFile) ? h.stoppingFile : null),
         isAlive: pid => h.alive.has(pid),
         newToken: () => `token-${++tokens}`,
         show: (state, launch) => h.shown.push({state, kind: launch?.kind ?? null}),
@@ -78,6 +81,19 @@ function harness({pidFile = null, alive = []} = {}) {
         }
     };
     h.shows = () => h.panel.display;
+    /** A press that must do nothing: no signal, no recorder, and the BLOCKED flash, after
+     * which the icon is back to what it showed. */
+    h.pressBlocked = (launch = DICTATION) => {
+        const before = h.shows();
+        const kills = h.kills.length;
+        const spawned = h.spawned.length;
+        h.panel.insert(launch);
+        assert.equal(h.kills.length, kills, 'a press that should do nothing signalled a recorder');
+        assert.equal(h.spawned.length, spawned, 'a press that should do nothing started a recorder');
+        assert.equal(h.shows(), 'BLOCKED', 'the press that did nothing was not shown');
+        h.fire(BLOCKED_FLASH_MS);
+        assert.equal(h.shows(), before, 'the flash did not give the icon back');
+    };
     h.recorder = (n = h.spawned.length - 1) => h.spawned[n];
     /** The recorder `n` (the latest by default) reports `state`. */
     h.report = (state, n = h.spawned.length - 1) => h.panel.onState(state, h.spawned[n].token);
@@ -100,7 +116,7 @@ function recording() {
 
 // ── The incident ────────────────────────────────────────────────────────────────────
 
-test('the incident: Insert just after SUCCESS starts a dictation, and the next Insert stops it', () => {
+test('the incident: Insert just after SUCCESS does nothing; once A has gone, Insert starts and then stops B', () => {
     const h = recording();
     const a = h.recorder();
     h.panel.insert(DICTATION);                      // graced stop
@@ -111,12 +127,12 @@ test('the incident: Insert just after SUCCESS starts a dictation, and the next I
     h.noLie();
     assert.equal(h.shows(), 'SUCCESS');
 
-    h.panel.insert(DICTATION);                      // 376 ms after SUCCESS, A still alive
-    assert.equal(h.spawned.length, 1, 'a second recorder was started beside one still alive');
-    assert.equal(h.shows(), 'QUEUED', 'the press was not shown');
+    h.pressBlocked();                               // 376 ms after SUCCESS, A still alive
     h.noLie();
 
-    a.exit();                                       // A exits: the queued start runs
+    a.exit();                                       // A exits: nothing starts by itself
+    assert.equal(h.spawned.length, 1, 'a press made while A finished started a recording afterwards');
+    h.panel.insert(DICTATION);                      // the next press, once ready, starts B
     assert.equal(h.spawned.length, 2);
     const b = h.recorder();
     assert.notEqual(b.token, a.token);
@@ -215,36 +231,53 @@ for (const [key, launch] of KEYS) {
             assert.equal(h.shows(), 'IDLE');
             assert.deepEqual(h.errors, [], 'a start the owner cancelled was reported as a failure');
         });
+
+        test(`${state}: a second ${key} while the start is being cancelled does nothing`, () => {
+            const h = reported(launch, ...(state === 'LAUNCHING' ? [] : [state]));
+            h.panel.insert(launch);
+            h.pressBlocked(launch);
+            assert.equal(h.kills.length, 1);
+        });
     }
 
-    test(`RECORDING: ${key} asks for the graced stop`, () => {
+    test(`RECORDING: ${key} asks for the graced stop, once`, () => {
         const h = reported(launch, 'RECORDING');
         h.panel.insert(launch);
         assert.deepEqual(h.kills, [[h.recorder().pid, 'TERM']]);
         assert.equal(h.spawned.length, 1);
+        h.pressBlocked(launch);                     // before the recorder has said STOPPING
+        assert.deepEqual(h.kills, [[h.recorder().pid, 'TERM']], 'a second stop would cut the grace short');
     });
 
-    test(`STOPPING (the grace, mic still open): ${key} means stop now`, () => {
-        const h = reported(launch, 'RECORDING', 'STOPPING');
+    test(`STOPPING (the grace, mic still open): ${key} does nothing, and Escape still discards`, () => {
+        const h = reported(launch, 'RECORDING');
         h.panel.insert(launch);
-        assert.deepEqual(h.kills, [[h.recorder().pid, 'TERM']]);
-        assert.notEqual(h.shows(), 'QUEUED', 'the grace is a stop, not a queued start');
+        h.report('STOPPING');
+        h.pressBlocked(launch);
+        assert.deepEqual(h.kills, [[h.recorder().pid, 'TERM']], 'Insert in the grace stopped at once');
+        h.panel.escape();
+        assert.deepEqual(h.aborts, [h.recorder().pid]);
+    });
+
+    test(`STOPPING by itself (no-speech stop or the limit): ${key} does nothing`, () => {
+        const h = reported(launch, 'RECORDING', 'STOPPING');
+        h.pressBlocked(launch);
     });
 
     for (const ended of ['TRANSCRIBING', 'SUCCESS', 'ERROR', 'IDLE']) {
-        test(`${ended} with the recorder still alive: ${key} shows the hourglass and queues the start`, () => {
+        test(`${ended} with the recorder still alive: ${key} does nothing, and nothing starts afterwards`, () => {
             const h = reported(launch, 'RECORDING', ended);
-            h.panel.insert(launch);
-            assert.equal(h.shows(), 'QUEUED');
+            h.pressBlocked(launch);
+            h.pressBlocked(launch);                 // every press, not only the first
             assert.deepEqual(h.kills, [], 'the recorder finishing the last dictation was signalled');
-            assert.equal(h.spawned.length, 1);
             if (ended === 'TRANSCRIBING')
                 h.report('SUCCESS');
-            assert.equal(h.shows(), 'QUEUED', 'the hourglass stays until the start runs');
             h.recorder().exit();
-            assert.equal(h.spawned.length, 2);
-            assert.deepEqual(h.recorder().launch, launch, 'the queued start lost its key');
-            assert.equal(h.shows(), 'LAUNCHING');
+            if (ended !== 'IDLE')
+                h.fire(ENDING_DISPLAY_MS);
+            assert.equal(h.shows(), 'IDLE');
+            assert.equal(h.spawned.length, 1, 'a press made while it finished started a recording');
+            assert.equal(h.timers.size, 0, 'something is still waiting to start');
         });
 
         test(`${ended} after the recorder exited: ${key} starts at once`, () => {
@@ -258,17 +291,35 @@ for (const [key, launch] of KEYS) {
         });
     }
 
-    test(`QUEUED: a second ${key} cancels the queued start`, () => {
-        const h = reported(launch, 'RECORDING', 'TRANSCRIBING');
-        h.panel.insert(launch);
-        h.panel.insert(launch);
-        assert.equal(h.shows(), 'TRANSCRIBING', 'the icon went back to what the recorder is doing');
-        h.report('SUCCESS');
-        h.recorder().exit();
-        assert.equal(h.spawned.length, 1, 'a cancelled start still ran');
-        assert.match(h.logs.join('\n'), /cancelled/);
-    });
 }
+
+// ── The BLOCKED flash ───────────────────────────────────────────────────────────────
+
+test('a new state during the BLOCKED flash ends the flash and is shown at once', () => {
+    const h = reported(DICTATION, 'RECORDING', 'TRANSCRIBING');
+    h.panel.insert(DICTATION);
+    assert.equal(h.shows(), 'BLOCKED');
+    h.report('SUCCESS');
+    assert.equal(h.shows(), 'SUCCESS');
+    assert.ok(![...h.timers.values()].some(t => t.ms === BLOCKED_FLASH_MS), 'the flash timer outlived the flash');
+});
+
+test('each press while blocked flashes again for the whole flash time', () => {
+    const h = reported(DICTATION, 'RECORDING', 'TRANSCRIBING');
+    h.panel.insert(DICTATION);
+    h.panel.insert(DICTATION);
+    assert.equal([...h.timers.values()].filter(t => t.ms === BLOCKED_FLASH_MS).length, 1);
+    h.fire(BLOCKED_FLASH_MS);
+    assert.equal(h.shows(), 'TRANSCRIBING');
+    assert.equal(h.logs.filter(l => l.startsWith('Insert does nothing while')).length, 2);
+});
+
+test('the BLOCKED flash is logged as a display change', () => {
+    const h = reported(DICTATION, 'RECORDING', 'TRANSCRIBING');
+    h.pressBlocked();
+    const shown = h.logs.filter(l => l.startsWith('Display: ')).slice(-2);
+    assert.deepEqual(shown, ['Display: BLOCKED', 'Display: TRANSCRIBING']);
+});
 
 test('a recorder that ended with IDLE but is still exiting shows the hourglass, not ready', () => {
     const h = recording();
@@ -347,11 +398,11 @@ for (const state of ['LAUNCHING', 'RECORDING']) {
         if (state !== 'LAUNCHING')
             h.report(state);
         h.recorder().exit('exit status 1', true);
-        h.panel.insert(DICTATION);
+        h.pressBlocked();
         assert.deepEqual(h.kills, [], 'a PID that is gone, and may be reused, was signalled');
-        assert.equal(h.shows(), 'QUEUED');
         h.fire(EXIT_SETTLE_MS);
-        assert.equal(h.spawned.length, 2, 'the queued start did not run once the recorder was judged');
+        assert.equal(h.spawned.length, 1, 'a press made before the recorder was judged started one');
+        assert.equal(h.shows(), 'IDLE');
     });
 }
 
@@ -424,7 +475,7 @@ test('idle: Escape does nothing', () => {
 // ── The Claude keys ─────────────────────────────────────────────────────────────────
 
 for (const style of ['corporate', 'natural']) {
-    test(`Claude (${style}): the same rules, and a queued start keeps its style`, () => {
+    test(`Claude (${style}): the same rules, and the next start after it has its own key`, () => {
         const claude = {kind: 'claude', style, target: 'window-2'};
         const h = harness();
         h.panel.insert(claude);
@@ -433,23 +484,14 @@ for (const style of ['corporate', 'natural']) {
         h.panel.insert(claude);
         assert.deepEqual(h.kills, [[h.recorder().pid, 'TERM']]);
         h.report('TRANSCRIBING');
-        h.panel.insert(claude);
-        assert.equal(h.shows(), 'QUEUED');
+        h.pressBlocked(claude);
         h.report('SUCCESS');
         h.recorder().exit();
-        assert.deepEqual(h.recorder().launch, claude);
+        assert.equal(h.spawned.length, 1);
+        h.panel.insert(DICTATION);
+        assert.deepEqual(h.recorder().launch, DICTATION);
     });
 }
-
-test('a start queued by Insert during a Claude dictation is a plain dictation', () => {
-    const h = harness();
-    h.panel.insert({kind: 'claude', style: 'corporate', target: 'w'});
-    h.report('TRANSCRIBING');
-    h.panel.insert(DICTATION);
-    h.report('SUCCESS');
-    h.recorder().exit();
-    assert.deepEqual(h.recorder().launch, DICTATION);
-});
 
 // ── A recorder the panel did not start ──────────────────────────────────────────────
 
@@ -467,10 +509,10 @@ test('a live recorder found when the panel starts (screen unlocked): never shown
     assert.equal(h.timers.size, 0);
 });
 
-test('Insert on a recorder the panel did not start only stops it', () => {
+test('Insert on a recorder the panel did not start asks for its graced stop, and starts nothing', () => {
     const h = harness({pidFile: '4242', alive: ['4242']});
     h.panel.insert(DICTATION);
-    assert.deepEqual(h.kills, [['4242', 'INT']]);
+    assert.deepEqual(h.kills, [['4242', 'TERM']], 'not the graced stop (TERM)');
     assert.equal(h.notes.length, 1);
     assert.match(h.notes[0], /4242/);
     assert.equal(h.shows(), 'UNOWNED');
@@ -481,38 +523,61 @@ test('Insert on a recorder the panel did not start only stops it', () => {
     assert.equal(h.spawned.length, 0, 'a press that stopped a recording also started one');
 });
 
-test('idle, then a recorder the panel did not start turns up: Insert only stops it', () => {
+test('idle, then a recorder the panel did not start turns up: Insert stops it once, then does nothing', () => {
     const h = harness();
     h.alive.add('4242');
     h.pidFile = '4242';
     h.panel.insert(DICTATION);
-    assert.deepEqual(h.kills, [['4242', 'INT']]);
+    assert.deepEqual(h.kills, [['4242', 'TERM']]);
     assert.equal(h.shows(), 'UNOWNED');
-    h.panel.insert(DICTATION);
-    assert.deepEqual(h.kills, [['4242', 'INT'], ['4242', 'INT']], 'the second press did nothing');
+    h.pressBlocked();
+    assert.deepEqual(h.kills, [['4242', 'TERM']], 'a second stop would cut its grace short');
     assert.equal(h.spawned.length, 0);
 });
 
-test('a start queued behind the panel\'s recorder still waits for one it did not start', () => {
-    const h = recording();
-    h.report('TRANSCRIBING');
-    h.panel.insert(DICTATION);
-    h.alive.add('4242');
-    h.pidFile = '4242';
-    h.report('SUCCESS');
-    h.recorder().exit();
-    assert.deepEqual(h.kills.at(-1), ['4242', 'INT']);
-    assert.equal(h.shows(), 'QUEUED');
-    assert.equal(h.spawned.length, 1);
+test('a recorder the panel did not start whose stop has begun is never signalled', () => {
+    // wsi-stream names itself in the stopping file from the start of its grace to its exit
+    const h = harness({pidFile: '4242', alive: ['4242']});
+    h.stoppingFile = '4242';
+    h.pressBlocked();
+    assert.deepEqual(h.kills, []);
+    assert.equal(h.shows(), 'UNOWNED');
     h.alive.delete('4242');
     h.fire(UNOWNED_POLL_MS);
-    assert.equal(h.spawned.length, 2);
+    assert.equal(h.shows(), 'IDLE');
+    assert.equal(h.spawned.length, 0);
+});
+
+test('a stopping recorder no PID file names still blocks the start, and is shown', () => {
+    const h = harness();
+    h.alive.add('4343');
+    h.stoppingFile = '4343';
+    h.panel.insert(DICTATION);
+    assert.equal(h.shows(), 'BLOCKED');
+    assert.deepEqual([h.kills, h.spawned.length], [[], 0]);
+    h.fire(BLOCKED_FLASH_MS);
+    assert.equal(h.shows(), 'UNOWNED', 'the icon said ready while a recorder was finishing');
+    h.alive.delete('4343');
+    h.fire(UNOWNED_POLL_MS);
+    h.panel.insert(DICTATION);
+    assert.equal(h.spawned.length, 1);
 });
 
 test('article: refused while a recorder the panel did not start is alive', () => {
     const h = harness({pidFile: '4242', alive: ['4242']});
     h.panel.article({kind: 'article'});
     assert.equal(h.spawned.length, 0);
+    assert.equal(h.notes.length, 1);
+});
+
+test('article: a recorder the panel did not start turning up is refused and shown, never stopped', () => {
+    const h = harness();
+    h.alive.add('4242');
+    h.pidFile = '4242';
+    h.panel.article({kind: 'article'});
+    assert.equal(h.spawned.length, 0);
+    assert.deepEqual(h.kills, []);
+    assert.equal(h.shows(), 'UNOWNED');
     assert.equal(h.notes.length, 1);
 });
 
@@ -668,6 +733,11 @@ test('destroy removes every timer it holds', () => {
     g.recorder().exit('exit status 1', true);  // the ERROR display timer
     g.panel.destroy();
     assert.equal(g.timers.size, 0);
+
+    const b = reported(DICTATION, 'RECORDING', 'TRANSCRIBING');
+    b.panel.insert(DICTATION);                 // the BLOCKED flash
+    b.panel.destroy();
+    assert.equal(b.timers.size, 0);
 });
 
 test('a recorder that exits after the panel was destroyed touches nothing', () => {

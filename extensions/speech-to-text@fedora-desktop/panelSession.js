@@ -8,15 +8,18 @@
  * IDLE once overwrote the next recorder's RECORDING, and the panel then believed it was
  * idle while a microphone was recording (RESEARCH-race.md).
  *
- * The panel is ready (the plain mic icon) only when no recorder it started is alive, so
- * a press on the ready icon always starts a recording. A press while not ready is never
- * ignored: in the stop grace it stops at once, before the microphone is open it cancels
- * the start, and once the microphone has closed it shows the hourglass and queues a
- * start that runs when the recorder has exited (a second press cancels that).
+ * There is only ever one recording. The panel is ready (the plain mic icon) only when
+ * no recorder it started is alive, so a press on the ready icon always starts one. While
+ * recording, a press stops it (the graced stop: TERM). Before the microphone is open a
+ * press cancels the start. Once the stop has been asked for (the grace, transcribing, the
+ * paste, a result before the exit) a press does nothing but flash BLOCKED: nothing is
+ * queued, and nothing starts by itself afterwards (the owner's rule).
  *
  * A live recorder the panel did not start (one recording across a screen lock, which
  * disables and re-enables the extension) is looked for when the panel is created and at
- * each press. While it lives the icon is UNOWNED, never ready; a press only stops it.
+ * each press. While it lives the icon is UNOWNED, never ready; a press asks it for its
+ * graced stop, unless its stop has begun (it names itself in the stopping file), and
+ * starts nothing.
  *
  * A recorder's exit and its last signal can reach the panel in either order, so an exit
  * with no ending state yet is judged only after EXIT_SETTLE_MS.
@@ -29,7 +32,9 @@
 export const LAUNCH_SAFETY_MS = 10000;
 /** How long SUCCESS and ERROR stay on the icon. */
 export const ENDING_DISPLAY_MS = 2000;
-/** How often a start waiting for a recorder the panel did not start looks again. */
+/** How long the BLOCKED flash of a press that does nothing stays on the icon. */
+export const BLOCKED_FLASH_MS = 700;
+/** How often the panel looks whether a recorder it did not start is still alive. */
 export const UNOWNED_POLL_MS = 250;
 /** How long after a recorder's exit its last signal may still arrive. */
 export const EXIT_SETTLE_MS = 500;
@@ -40,16 +45,17 @@ const ENDING = ['SUCCESS', 'ERROR', 'IDLE'];
 const STARTING = ['LAUNCHING', 'WAITING', 'PREPARING'];
 /** Starting states in which batch and pre-buffer recorders already capture: a press stops. */
 const CAPTURING = ['PREPARING'];
-/** States in which the microphone is open: a press stops (graced, then at once). */
+/** States in which the microphone is open: Escape discards. */
 const MIC_OPEN = ['RECORDING', 'STOPPING'];
 
 export class PanelSession {
-    constructor({spawn, kill, abort, readRecorderPid, isAlive, newToken, show, log,
-        reportError, notify, addTimeout, removeTimeout}) {
+    constructor({spawn, kill, abort, readRecorderPid, readStoppingPid, isAlive, newToken,
+        show, log, reportError, notify, addTimeout, removeTimeout}) {
         this._spawn = spawn;
         this._kill = kill;
         this._abort = abort;
         this._readRecorderPid = readRecorderPid;
+        this._readStoppingPid = readStoppingPid;
         this._isAlive = isAlive;
         this._newToken = newToken;
         this._show = show;
@@ -60,10 +66,10 @@ export class PanelSession {
         this._removeTimeout = removeTimeout;
 
         this._session = null;   // the recorder the panel follows, until it has finished
-        this._queued = null;    // a start waiting for a recorder to exit
         this._unowned = null;   // a live recorder the panel did not start, while it lives
         this._ending = null;    // SUCCESS or ERROR while it is on display
         this._displayTimer = null;
+        this._blocked = null;   // the BLOCKED flash: its timer, and the state under it
         this._shown = null;
         this._destroyed = false;
         const stranger = this._readRecorderPid();
@@ -75,8 +81,8 @@ export class PanelSession {
         this._render();
     }
 
-    /** What the icon shows: IDLE (ready), LAUNCHING, QUEUED or FINISHING (the
-     * hourglass), or the state the recorder reported. */
+    /** What the icon shows: IDLE (ready), LAUNCHING or FINISHING (the hourglass),
+     * BLOCKED (a press that did nothing), or the state the recorder reported. */
     get display() {
         return this._shown;
     }
@@ -89,44 +95,56 @@ export class PanelSession {
     /** Insert (a plain dictation) or Ctrl/Alt+Insert (Claude): `launch` says which, and
      * which window the text goes to. */
     insert(launch) {
-        if (this._queued) {
-            this._cancelQueued('a second press');
-            return;
-        }
         const session = this._session;
         if (!session) {
-            const stranger = this._readRecorderPid();
-            if (stranger !== null)
-                this._stopUnowned(stranger);
-            else
-                this._start(launch);
+            this._insertWithoutSession(launch);
             return;
         }
         if (session.launch.kind === 'article' && !session.ended) {
             this._stopArticle(session);
             return;
         }
-        // An exited recorder (waiting for its last signal) is never signalled: its PID is
-        // free for reuse. The press is queued until the panel has finished with it.
-        const state = session.ended ? 'ENDED' : session.state;
+        const state = session.ended ?? session.state;
         if (session.exited) {
-            this._log(`Insert while ${session.ended ?? state} and ${session.pid} has exited: ` +
-                'the start is queued until its last signal is in');
-            this._queue({launch, waitFor: 'owned'});
+            // Never signalled: its PID is free for reuse
+            this._block(`${state} and ${session.pid} has exited (its last signal is not in yet)`);
         } else if (STARTING.includes(state)) {
+            if (session.cancelled) {
+                this._block(`${state}: the start is already being cancelled`);
+                return;
+            }
             session.cancelled = true;
             session.pressedAs = CAPTURING.includes(state) ? 'STOPPING' : 'CANCELLING';
             this._log(`Insert while ${state}: cancelling the start (TERM to ${session.pid})`);
             this._kill(session.pid, 'TERM');
             this._render();
-        } else if (MIC_OPEN.includes(state)) {
-            this._log(`Insert while ${state}: stop (TERM to ${session.pid})`);
+        } else if (state === 'RECORDING' && !session.stopAsked) {
+            session.stopAsked = true;
+            this._log(`Insert while RECORDING: stop after the grace (TERM to ${session.pid})`);
             this._kill(session.pid, 'TERM');
         } else {
-            this._log(`Insert while ${state === 'ENDED' ? session.ended : state} and ${session.pid} ` +
-                'is still finishing: the start is queued until it exits');
-            this._queue({launch, waitFor: 'owned'});
+            this._block(`${state}: ${session.pid} is stopping or finishing the dictation`);
         }
+    }
+
+    /** A press with no recorder of the panel's own: start, unless a recorder it did not
+     * start is alive. That one is asked for its graced stop, once; a press while its stop
+     * runs does nothing. */
+    _insertWithoutSession(launch) {
+        const stopping = this._readStoppingPid();
+        if (stopping !== null) {
+            if (this._unowned?.pid !== stopping)
+                this._watchUnowned(stopping);
+            this._block(`recorder ${stopping} is stopping`);
+            return;
+        }
+        const stranger = this._readRecorderPid();
+        if (stranger === null)
+            this._start(launch);
+        else if (this._unowned?.pid === stranger && this._unowned.stopAsked)
+            this._block(`recorder ${stranger}, which the panel did not start, is stopping`);
+        else
+            this._stopUnowned(stranger);
     }
 
     /** Escape: discard the dictation, only while the microphone is open. */
@@ -145,12 +163,18 @@ export class PanelSession {
 
     /** The menu's Create Article: only while the panel is ready. */
     article(launch) {
-        if (this._session || this._queued || this._unowned) {
-            this._log(`Create Article refused: the panel is busy (${this._shown})`);
+        const stranger = this._session || this._unowned
+            ? null : this._readStoppingPid() ?? this._readRecorderPid();
+        if (stranger !== null)
+            this._watchUnowned(stranger);
+        if (this._session || this._unowned) {
+            this._log(`Create Article refused: the panel is busy (${this._unowned
+                ? `recorder ${this._unowned.pid}, which the panel did not start` : this._shown})`);
             this._notify('Finish the current dictation before starting an article');
+            this._render();
             return;
         }
-        this._startWhenReady(launch);
+        this._start(launch);
     }
 
     /** A StateChanged signal. True if it was the current recorder's and was taken. */
@@ -194,8 +218,7 @@ export class PanelSession {
         this._clearExitSettle(this._session);
         this._clearUnownedPoll();
         this._unowned = null;
-        this._clearQueuedPoll();
-        this._queued = null;
+        this._clearBlocked();
         this._clearEndingDisplay();
         this._session = null;
         this._destroyed = true;
@@ -220,28 +243,13 @@ export class PanelSession {
         return session;
     }
 
-    /** Start now, unless a recorder the panel did not start is alive: that is stopped,
-     * reported, and the start waits for it. */
-    _startWhenReady(launch) {
-        const stranger = this._readRecorderPid();
-        if (stranger === null) {
-            this._start(launch);
-            return;
-        }
-        const message = `A recording the panel did not start was still running (PID ${stranger}). ` +
-            'It was stopped; yours starts once it has finished.';
-        this._log(message);
-        this._notify(message);
-        this._kill(stranger, 'INT');
-        this._queue({launch, waitFor: stranger});
-    }
-
     _start(launch) {
         this._clearEndingDisplay();
         const token = this._newToken();
         const session = {
             token, launch, pid: null, state: 'LAUNCHING', ended: null, pressedAs: null,
-            exited: false, cancelled: false, aborted: false, safetyTimer: null, settleTimer: null,
+            exited: false, cancelled: false, stopAsked: false, aborted: false,
+            safetyTimer: null, settleTimer: null,
         };
         this._session = session;
         try {
@@ -329,19 +337,12 @@ export class PanelSession {
         }
     }
 
-    /** The session is over: the panel is ready, and a start queued behind it runs. */
+    /** The session is over: the panel is ready. Nothing starts by itself. */
     _finish(session) {
         this._settleLaunch(session);
         this._clearExitSettle(session);
         if (this._session === session)
             this._session = null;
-        const queued = this._queued;
-        if (queued?.waitFor === 'owned') {
-            this._queued = null;
-            this._log('The recorder has finished: running the queued start');
-            this._startWhenReady(queued.launch);
-            return;
-        }
         this._render();
     }
 
@@ -360,22 +361,23 @@ export class PanelSession {
         this._kill(pid, 'TERM');
     }
 
-    /** A press on a recorder the panel did not start: stop it (INT keeps its text) and
-     * follow it until it exits. The press starts nothing. */
+    /** A press on a recorder the panel did not start: ask for its graced stop (TERM: its
+     * text is still pasted) and follow it until it exits. The press starts nothing. */
     _stopUnowned(pid) {
         const message = `A recording the panel did not start was running (PID ${pid}). ` +
-            'It was stopped; press Insert again to record once the icon is ready.';
+            'It is stopping; press Insert again to record once the icon is ready.';
         this._log(message);
         this._notify(message);
-        this._kill(pid, 'INT');
+        this._kill(pid, 'TERM');
         if (this._unowned?.pid !== pid)
             this._watchUnowned(pid);
+        this._unowned.stopAsked = true;
         this._render();
     }
 
     _watchUnowned(pid) {
         this._clearUnownedPoll();
-        this._unowned = {pid, pollTimer: null};
+        this._unowned = {pid, pollTimer: null, stopAsked: false};
         this._pollUnowned();
     }
 
@@ -403,42 +405,27 @@ export class PanelSession {
         }
     }
 
-    _queue(queued) {
-        this._queued = queued;
-        if (queued.waitFor !== 'owned')
-            this._pollStranger();
-        this._render();
-    }
-
-    _pollStranger() {
-        this._queued.pollTimer = this._addTimeout(UNOWNED_POLL_MS, () => {
-            const queued = this._queued;
-            if (!queued || queued.waitFor === 'owned')
-                return false;
-            queued.pollTimer = null;
-            if (this._isAlive(queued.waitFor)) {
-                this._pollStranger();
-                return false;
+    /** A press that does nothing: say why in the log and flash BLOCKED on the icon. */
+    _block(why) {
+        this._log(`Insert does nothing while ${why}`);
+        this._clearBlocked();
+        const blocked = {under: this._underlying().display, timer: null};
+        blocked.timer = this._addTimeout(BLOCKED_FLASH_MS, () => {
+            blocked.timer = null;
+            if (this._blocked === blocked) {
+                this._blocked = null;
+                this._render();
             }
-            this._log(`Recorder ${queued.waitFor} has exited: running the queued start`);
-            this._queued = null;
-            this._startWhenReady(queued.launch);
             return false;
         });
-    }
-
-    _clearQueuedPoll() {
-        if (this._queued?.pollTimer) {
-            this._removeTimeout(this._queued.pollTimer);
-            this._queued.pollTimer = null;
-        }
-    }
-
-    _cancelQueued(why) {
-        this._log(`Queued start cancelled by ${why}`);
-        this._clearQueuedPoll();
-        this._queued = null;
+        this._blocked = blocked;
         this._render();
+    }
+
+    _clearBlocked() {
+        if (this._blocked?.timer)
+            this._removeTimeout(this._blocked.timer);
+        this._blocked = null;
     }
 
     _startEndingDisplay(state) {
@@ -460,26 +447,25 @@ export class PanelSession {
         this._ending = null;
     }
 
+    /** What the icon shows apart from a BLOCKED flash, and the recorder's launch. */
+    _underlying() {
+        const session = this._session;
+        if (session && !session.ended)
+            return {display: session.pressedAs ?? session.state, launch: session.launch};
+        if (session)   // ended, but the recorder is still exiting: never the ready icon
+            return {display: this._ending ?? 'FINISHING', launch: session.launch};
+        return {display: this._unowned ? 'UNOWNED' : this._ending ?? 'IDLE', launch: null};
+    }
+
     _render() {
         if (this._destroyed)
             return;
-        let display;
-        let launch = null;
-        const session = this._session;
-        if (this._queued) {
-            display = 'QUEUED';
-        } else if (session && !session.ended) {
-            display = session.pressedAs ?? session.state;
-            launch = session.launch;
-        } else if (session) {
-            // Ended, but the recorder is still exiting: never the ready icon
-            display = this._ending ?? 'FINISHING';
-            launch = session.launch;
-        } else if (this._unowned) {
-            display = 'UNOWNED';
-        } else {
-            display = this._ending ?? 'IDLE';
-        }
+        const {display: under, launch} = this._underlying();
+        // The flash lasts only while what is under it stays the same: a new state is shown
+        const flashing = this._blocked?.under === under;
+        if (!flashing)
+            this._clearBlocked();
+        const display = flashing ? 'BLOCKED' : under;
         if (display === this._shown && launch?.kind === this._shownKind)
             return;
         this._shown = display;

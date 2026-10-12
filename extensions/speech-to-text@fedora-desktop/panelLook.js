@@ -2,10 +2,11 @@
  * What the panel icon looks like in each state panelSession.js shows (Plan 00171).
  *
  * Green only ever means SUCCESS: the recording badge is red like the recording mic. The
- * hourglass in purple says a recording you asked for is coming (starting, waiting for the
- * server, or queued behind the last dictation); in orange it says the last dictation is
- * still finishing. No GNOME imports, so tests/extensions/test-stt-panel-look.mjs runs it
- * under Node.
+ * hourglass in purple says a recording you asked for is coming (starting, or waiting for
+ * the server); in orange it says the last dictation is still finishing. BLOCKED, a red
+ * no-entry sign, flashes when a press does nothing (the stop grace, transcribing, the
+ * paste). No GNOME imports, so tests/extensions/test-stt-panel-look.mjs runs it under
+ * Node.
  */
 
 export const COLOURS = {
@@ -26,8 +27,8 @@ const LOOKS = {
     IDLE: {icon: MIC, colour: ''},
     LAUNCHING: COMING,
     WAITING: COMING,
-    QUEUED: COMING,
     FINISHING: {icon: 'hourglass', colour: COLOURS.amber},
+    BLOCKED: {icon: 'action-unavailable-symbolic', colour: COLOURS.red},
     CANCELLING: {icon: 'microphone-disabled-symbolic', colour: COLOURS.grey},
     UNOWNED: {icon: 'media-record-symbolic', colour: COLOURS.red},
     PREPARING: {icon: MIC, colour: COLOURS.amber},

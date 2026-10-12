@@ -52,6 +52,8 @@ const COUNTDOWN_LAST_SECONDS = 60;
 
 // The recorders' shared PID file, for finding a recorder the panel did not start
 const RECORDER_PID_FILE = `/dev/shm/stt-recording-${GLib.get_user_name()}.pid`;
+// wsi-stream names itself here from the start of its stop until it exits
+const STOPPING_PID_FILE = `/dev/shm/stt-stopping-${GLib.get_user_name()}.pid`;
 // A PID file naming a process that is not one of the recorders is stale (a reused PID)
 const RECORDER_CMDLINE = /\/wsi(-stream|-article)?(\0|$)/;
 
@@ -78,6 +80,8 @@ export default class SpeechToTextExtension extends Extension {
         // The one recorder the panel follows, and what each key does (panelSession.js)
         this._panel = null;
         this._hourglassIcon = null;
+        this._iconState = null;           // the state the icon shows
+        this._stateUnderBlocked = null;   // the state a BLOCKED flash is shown over
         this._articleSpinner = false;
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._settingsChangedId = null;
@@ -646,11 +650,21 @@ export default class SpeechToTextExtension extends Extension {
 
     /**
      * Show `state`, as panelSession.js derives it (the only caller): IDLE is ready; the
-     * hourglass states say the press was taken and to wait; the rest are the state the
-     * recorder reported. `launch` is the recorder's, or null with none.
+     * hourglass states say the press was taken and to wait; BLOCKED flashes for a press
+     * that did nothing; the rest are the state the recorder reported. `launch` is the
+     * recorder's, or null with none.
      */
     _updateIconState(state, launch = null) {
         if (!this._icon) return;
+        // BLOCKED flashes over the state the panel stays in, and that state comes back
+        // when it ends: only the icon changes, never the countdown, Escape or the outline
+        const underBlocked = state === 'BLOCKED' || state === this._stateUnderBlocked;
+        this._stateUnderBlocked = state === 'BLOCKED' ? this._iconState : null;
+        this._iconState = state;
+        if (underBlocked) {
+            this._showLook(state);
+            return;
+        }
         this._isArticleMode = launch?.kind === 'article';
 
         // Outline the window the text will be pasted into, for as long as a paste can come;
@@ -672,15 +686,7 @@ export default class SpeechToTextExtension extends Extension {
             return;
         }
 
-        // The icon and its colour for every state are panelLook.js's
-        if (!isKnownState(state))
-            this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
-        const look = lookFor(state);
-        if (look.icon === 'hourglass')
-            this._icon.gicon = this._hourglassIcon;
-        else
-            this._icon.icon_name = look.icon;
-        this._icon.style = look.colour ? `color: ${look.colour};` : '';
+        this._showLook(state);
 
         switch (state) {
             case 'RECORDING':
@@ -689,8 +695,8 @@ export default class SpeechToTextExtension extends Extension {
                 break;
             case 'STOPPING':
                 // Insert was pressed: the microphone stays open for the stop grace, but
-                // the icon already shows the press was taken. Escape still discards and
-                // Insert again stops at once.
+                // the icon already shows the press was taken. Escape still discards;
+                // Insert does nothing until the text is pasted.
                 this._stopCountdown();
                 break;
             case 'SUCCESS':
@@ -715,6 +721,18 @@ export default class SpeechToTextExtension extends Extension {
                 this._removeAbortKeybinding();
                 break;
         }
+    }
+
+    /** The icon and its colour for `state`, which are panelLook.js's. */
+    _showLook(state) {
+        if (!isKnownState(state))
+            this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
+        const look = lookFor(state);
+        if (look.icon === 'hourglass')
+            this._icon.gicon = this._hourglassIcon;
+        else
+            this._icon.icon_name = look.icon;
+        this._icon.style = look.colour ? `color: ${look.colour};` : '';
     }
 
     /** m:ss */
@@ -909,8 +927,7 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     /** What a press asks for, fixed at the press: the kind of recording, the window the
-     * text goes to, and the recorder the settings chose. A start queued behind a recorder
-     * that is still finishing runs with these. */
+     * text goes to, and the recorder the settings chose. */
     _launchFor(kind, style = null) {
         return {
             kind,
@@ -926,7 +943,8 @@ export default class SpeechToTextExtension extends Extension {
             spawn: (launch, token, onExit) => this._spawnRecorder(launch, token, onExit),
             kill: (pid, signalName) => this._signalProcess(pid, signalName),
             abort: (pid, launch) => this._discardRecording(pid, launch),
-            readRecorderPid: () => this._readLiveRecorderPid(),
+            readRecorderPid: () => this._readLiveRecorderPid(RECORDER_PID_FILE),
+            readStoppingPid: () => this._readLiveRecorderPid(STOPPING_PID_FILE),
             isAlive: pid => Gio.File.new_for_path(`/proc/${pid}`).query_exists(null),
             newToken: () => GLib.uuid_string_random(),
             show: (state, launch) => this._updateIconState(state, launch),
@@ -946,12 +964,6 @@ export default class SpeechToTextExtension extends Extension {
     _spawnRecorder(launch, token, onExit) {
         this._isClaudeMode = launch.kind === 'claude';
         this._claudeStyle = launch.style;
-        // A start queued behind a finishing recorder may run after its window was closed
-        // (an unmanaged window has no actor): then the window focused now is the target
-        if (launch.kind !== 'article' && launch.target && !launch.target.get_compositor_private()) {
-            this._log('The window focused at the press has closed; pasting where the focus is now');
-            launch.target = global.display.focus_window;
-        }
         if (launch.kind !== 'article')
             this._pasteTarget.pin(launch.target);
         const {argv, env} = this._recorderCommand(launch, token);
@@ -1113,18 +1125,18 @@ export default class SpeechToTextExtension extends Extension {
         if (launch.serverMode)
             return;
         // A killed recorder cannot remove its own PID file
-        if (this._readPidFile() === String(pid)) {
+        if (this._readPidFile(RECORDER_PID_FILE) === String(pid)) {
             Gio.File.new_for_path(RECORDER_PID_FILE).delete(null);
             this._log(`Removed the PID file of the discarded recorder ${pid}`);
         }
     }
 
-    /** The PID the recorders' PID file holds, or null with no file. */
-    _readPidFile() {
+    /** The PID the file at `path` holds, or null with no file. */
+    _readPidFile(path) {
         // One read, no exists-then-read: a recorder can remove the file in between
         let contents;
         try {
-            [, contents] = Gio.File.new_for_path(RECORDER_PID_FILE).load_contents(null);
+            [, contents] = Gio.File.new_for_path(path).load_contents(null);
         } catch (e) {
             if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
                 return null;  // no file is the answer "no recorder"
@@ -1133,14 +1145,14 @@ export default class SpeechToTextExtension extends Extension {
         return new TextDecoder().decode(contents).trim();
     }
 
-    /** The PID of a live recorder the PID file names, or null: a missing file, or one
-     * naming a process that is gone or is not a recorder (a reused PID), is no recorder. */
-    _readLiveRecorderPid() {
-        const pid = this._readPidFile();
+    /** The PID of a live recorder the file at `path` names, or null: a missing file, or
+     * one naming a process that is gone or is not a recorder (a reused PID), is none. */
+    _readLiveRecorderPid(path) {
+        const pid = this._readPidFile(path);
         if (pid === null)
             return null;
         if (!/^[0-9]+$/.test(pid)) {
-            this._log(`PID file holds a non-numeric value: "${pid}"`);
+            this._log(`${path} holds a non-numeric value: "${pid}"`);
             return null;
         }
         let contents;
@@ -1148,11 +1160,11 @@ export default class SpeechToTextExtension extends Extension {
             [, contents] = Gio.File.new_for_path(`/proc/${pid}/cmdline`).load_contents(null);
         } catch (e) {
             // FAIL-FAST-OK: no /proc entry is the answer "not running", not a failure
-            this._log(`PID file is stale (PID ${pid} not running: ${e.message})`);
+            this._log(`${path} is stale (PID ${pid} not running: ${e.message})`);
             return null;
         }
         if (!RECORDER_CMDLINE.test(new TextDecoder().decode(contents))) {
-            this._log(`PID file is stale (PID ${pid} is not a recorder)`);
+            this._log(`${path} is stale (PID ${pid} is not a recorder)`);
             return null;
         }
         return pid;

@@ -362,8 +362,8 @@ jq -r .text "$XDG_RUNTIME_DIR"/wsi-dictation/session-*/journal.jsonl | cat
 
 After the first stop press, every recorder (batch, and streaming in standard,
 pre-buffer and server mode) keeps recording for `stop-grace-seconds` (default 3,
-range 0-30), then stops. A second press during the grace stops at once, Escape
-discards at once, and 0 turns the grace off. In pre-buffer mode a stop pressed while
+range 0-30), then stops. A second press during the grace does nothing (the icon
+flashes a red no-entry sign), Escape discards at once, and 0 turns the grace off. In pre-buffer mode a stop pressed while
 the model is still loading closes the microphone on the same schedule; what was
 recorded is transcribed once the model has loaded. There is no Settings control yet; set
 it with `gsettings` (takes effect on the next recording, no logout):
@@ -402,7 +402,7 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
      recording carries on for a short grace (3 seconds by default) so the words you
      were still saying are kept; a notification says "Stopping in 3s" (only when
      notifications are on)
-   - Press **Insert** once more to stop at once; **Escape** still discards at once
+   - **Insert** does nothing until the text is pasted; **Escape** still discards at once
    - The icon stays "…" while the text is transcribed
    - Desktop notification: "Transcribing..."
 
@@ -424,7 +424,9 @@ were lost, per mode: `CLAUDE/Plan/00148-stt-unlimited-dictation-loop-and-buffer/
 
 ### What Insert Does
 
-Every press does something you can see. Ctrl+Insert and Alt+Insert follow the same rules.
+There is only ever one recording. Every press does something you can see: a press that
+cannot do anything flashes a red no-entry sign, and nothing is queued, so nothing starts
+by itself afterwards. Ctrl+Insert and Alt+Insert follow the same rules.
 
 | The icon shows                                                    | Insert                                                                       | Escape                 |
 | ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------- |
@@ -432,16 +434,16 @@ Every press does something you can see. Ctrl+Insert and Alt+Insert follow the sa
 | Purple hourglass: starting, or waiting for the server             | Cancels the start (grey crossed-out microphone until it has stopped)         | Nothing                |
 | Orange microphone: preparing (batch and pre-buffer are capturing) | Stops; what was already heard is transcribed                                 | Nothing                |
 | Red badge with the time: recording                                | Stops, after the [stop grace](#stop-grace)                                   | Discards the dictation |
-| Orange "…": the stop grace (microphone still open)                | Stops at once                                                                | Discards the dictation |
-| Orange "…" transcribing, or orange hourglass: finishing           | Purple hourglass: the next recording starts as soon as this one has finished | Nothing                |
-| Purple hourglass after such a press                               | Cancels that queued start                                                    | Nothing                |
-| Red record dot: a recording the panel did not start               | Stops it (and starts nothing; press again once the icon is ready)            | Nothing                |
+| Orange "…": the stop grace (microphone still open)                | Nothing (no-entry flash)                                                     | Discards the dictation |
+| Orange "…" transcribing, or orange hourglass: finishing           | Nothing (no-entry flash); press again once the icon is ready                 | Nothing                |
+| Red record dot: a recording the panel did not start               | Stops it after the grace, once (starts nothing; press again once ready)      | Nothing                |
 
 A recording the panel did not start is one that outlived its panel: GNOME turns
 extensions off while the screen is locked, so a dictation still running when you unlock
 has lost the panel that started it. The panel looks for one when it starts and at each
 press, shows the red record dot instead of the ready icon while it runs, and a press
-stops it, with a notification. In server mode, a press while the server is still
+stops it, with a notification; once its stop has begun, a press does nothing. In server
+mode, a press while the server is still
 transcribing the previous dictation waits (purple hourglass) and records as soon as the
 server is free; a start the server refuses for another reason turns the icon red for two
 seconds and the menu shows why (the server's log, `server.log`, names every refusal).
@@ -652,8 +654,9 @@ a loading icon while transcribing):
 | Appearance                      | Status      | Meaning                                                          |
 | ------------------------------- | ----------- | ---------------------------------------------------------------- |
 | Default colour                  | Idle        | Ready: Insert starts a recording                                 |
-| Purple hourglass                | Please wait | The press was taken; the recording starts by itself once ready   |
-| Orange hourglass                | Finishing   | The last dictation is still finishing; Insert queues the next    |
+| Purple hourglass                | Please wait | The press was taken; the recording is starting                   |
+| Orange hourglass                | Finishing   | The last dictation is still finishing; Insert does nothing       |
+| Red no-entry sign (a moment)    | Blocked     | Insert did nothing: the last dictation is not finished yet       |
 | Grey crossed-out microphone     | Cancelling  | Insert cancelled a start; ready once the recorder has stopped    |
 | Orange                          | Preparing   | Starting up                                                      |
 | Red badge with the elapsed time | Recording   | Listening to your voice (Insert to stop); amber when behind      |

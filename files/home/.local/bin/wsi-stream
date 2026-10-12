@@ -264,7 +264,7 @@ def announce_pending_stop(stop):
         emit_dbus_signal("StateChanged", "STOPPING")
         desktop_notification(
             f"Stopping in {stop.grace_seconds}s - finish your sentence.\n"
-            "Insert: stop now. Escape: discard.",
+            "Escape: discard. Insert waits until the text is pasted.",
             stop.grace_seconds * 1000,
         )
 
