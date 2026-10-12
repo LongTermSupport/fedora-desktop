@@ -165,7 +165,10 @@ cat >"$BIN/agent-bus" <<'EOF'
 set -euo pipefail
 printf 'agent-bus %s (in %s)\n' "$*" "$(basename "$PWD")" >>"$TEST_LOG"
 case "$1 ${2:-}" in
-"seat list") cat "$TEST_STATE/seats/$(basename "$PWD")" ;;
+"seat list")
+    # A seat whose bundle cannot be read: the others print, and the command exits 78.
+    cat "$TEST_STATE/seats/$(basename "$PWD")"
+    if [ -e "$TEST_STATE/seats/$(basename "$PWD").unreadable" ]; then exit 78; fi ;;
 "seat remove") ;;
 "list "*) cat "$TEST_STATE/members/$2" ;;
 "park-member "*) ;;
@@ -200,7 +203,7 @@ printf 'gio %s\n' "$*" >>"$TEST_LOG"
 EOF
 cat >"$BIN/launcher" <<'EOF'
 #!/usr/bin/env bash
-printf 'launcher %s\n' "$*" >>"$TEST_LOG"
+printf 'launcher %s (in %s)\n' "$*" "$(basename "$PWD")" >>"$TEST_LOG"
 EOF
 chmod 755 "$BIN"/*
 
@@ -250,7 +253,7 @@ reset() {
     printf '0\n' >"$STATE/fzf-calls"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
-    rm -f "$STATE/active/"* "$STATE/devices/"*
+    rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/seats/"*.unreadable
     touch "$STATE/active/agent-bus-hs@alpha.service"
     printf 'HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tworker\tjoin\tactive\nMEMBER\tproj.2+local.podman\tworker\tjoin\tparked\nMEMBER\tproj.box+role.lxc\tworker\tjoin\tactive\n' \
         >"$STATE/members/alpha"
@@ -350,6 +353,20 @@ printf 'agent_bus_teams: []\n' >"$SCRATCH/bad.yml"
 (cd "$OUTSIDE" && CCY_TEAMS_HOST_VARS="$SCRATCH/bad.yml" "$TOOL" --list >"$SCRATCH/out" 2>"$SCRATCH/err")
 check "a host_vars shape the helper refuses is a failure" "1" "$?"
 
+reset
+touch "$STATE/seats/proj.unreadable"
+out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
+check "a seat that cannot be read: the checkout's other seats are still listed" "1" \
+    "$(grep -cE '^alpha +1 +ccy' <<<"$out")"
+check_has "  and every team row says something is unreadable" "a seat is unreadable" \
+    "$(grep -E '^alpha +- +team' <<<"$out")"
+out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|ABORT")"
+check "  so Ctrl-X parks no ccy member whose checkout is unknown" "no" "$(logged 'park-member')"
+check_has "  saying why" "could not be read" "$out"
+out="$(run_picker "$CHECKOUT" "ctrl-n|port 6167" "|ABORT")"
+check "  and Ctrl-N in that checkout offers no seat" "no" "$(logged 'launcher')"
+check_has "  saying why" "Not every seat" "$out"
+
 # ── the picker ───────────────────────────────────────────────────────────────────────────
 echo "== the picker"
 reset
@@ -422,6 +439,11 @@ check "  or in the free one, from any row of the team" "yes" "$(logged 'launcher
 reset
 out="$(run_picker "$CHECKOUT" "ctrl-n|extra" "|ABORT")"
 check_has "Ctrl-N on a team whose homeserver is down says so" "homeserver is down" "$out"
+reset
+mkdir -p "$CHECKOUT/sub/dir"
+out="$(run_picker "$CHECKOUT/sub/dir" "ctrl-n|port 6167" "|new")"
+check "Ctrl-N from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
+    "$(logged 'launcher --teams 3@alpha (in proj)')"
 
 reset
 out="$(run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"

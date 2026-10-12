@@ -111,15 +111,15 @@ def _scalar(rest: str, where: str) -> str:
 
 
 def _address(lines: Sequence[str]) -> str | None:
-    for line in lines:
-        m = _ADDRESS_RE.fullmatch(line.rstrip("\r\n"))
-        if m:
-            try:
-                value = _scalar(m["rest"], ADDRESS_KEY)
-                return str(ipaddress.ip_address(value))
-            except (DeclareError, ValueError):
-                return None
-    return None
+    found = [m for m in (_ADDRESS_RE.fullmatch(line.rstrip("\r\n")) for line in lines) if m]
+    if len(found) > 1:
+        raise DeclareError(f"{ADDRESS_KEY} is set more than once")
+    if not found:
+        return None
+    try:
+        return str(ipaddress.ip_address(_scalar(found[0]["rest"], ADDRESS_KEY)))
+    except (DeclareError, ValueError):
+        return None
 
 
 def parse(text: str) -> HostVars:

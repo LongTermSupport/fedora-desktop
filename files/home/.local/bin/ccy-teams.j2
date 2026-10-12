@@ -127,7 +127,7 @@ cmd_create() {
 }
 
 cmd_backup() {
-    [[ $# -eq 1 ]] || usage_error "'backup' takes one team."
+    [[ $# -eq 1 && "$1" != -* ]] || usage_error "'backup' takes one team."
     sudo "${SUDO_INSTALLER}" backup-now --team "$1"
 }
 
@@ -302,6 +302,7 @@ collect_sessions() {
         [[ -e "${file}" && "${file}" != *.tmp.* ]] || continue
         if ! ccy_registry_read "${file}"; then
             print_error "the session record ${file} could not be read; its seats show no session."
+            INCOMPLETE="a session record is unreadable"
             continue
         fi
         [[ "${REC_PREFIX}" == ccy ]] || continue
@@ -325,7 +326,12 @@ collect_sessions() {
     fi
 }
 
+# Set when a seat or a session record could not be read: every team row then says so, and
+# Ctrl-X parks no ccy member whose checkout is unknown, since it may be one of those seats.
+INCOMPLETE=""
+
 # seat_lines <dir> — `agent-bus seat list` in a checkout that has seats; nothing otherwise.
+# A seat whose bundle cannot be read fails the command, but the others are still printed.
 seat_lines() {
     [[ -d "$1/.claude/ccy/pingbus/seats" ]] || return 0
     (cd "$1" && agent-bus seat list)
@@ -351,16 +357,17 @@ collect() {
     local -a seat_dirs=() seat_rows=()
     local -A activity_of=() shown=()
     R_TEXT=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
+    INCOMPLETE=""
     TEAMS=() PORT_OF=() SEAT_SESSION=() SEAT_RESTORE=() LIVE=() CHECKOUTS=() CHECKOUT_SEEN=()
     MEMBERS_OF=() MEMBERS_UNKNOWN=()
     collect_teams || return 1
     [[ -n "${TEAMS[*]:-}" ]] || return 0
     collect_sessions || return 1
     for dir in "${CHECKOUTS[@]}"; do
-        seats="$(seat_lines "${dir}")" || {
-            print_error "agent-bus seat list failed in ${dir}; its seats are left out."
-            continue
-        }
+        if ! seats="$(seat_lines "${dir}")"; then
+            print_error "agent-bus seat list could not read every seat in ${dir} (above); those are left out."
+            INCOMPLETE="a seat is unreadable"
+        fi
         while IFS= read -r seat; do
             [[ -n "${seat}" ]] || continue
             seat_dirs+=("${dir}")
@@ -377,6 +384,7 @@ collect() {
             MEMBERS_UNKNOWN["${team}"]=1
         fi
         [[ -z "${MEMBERS_UNKNOWN[${team}]:-}" ]] || where+=", members unknown"
+        [[ -z "${INCOMPLETE}" ]] || where+=", ${INCOMPLETE} (above)"
         add_row "${team}" - team "${state}" - - "${where}" - -
         activity_of=()
         shown=()
@@ -436,10 +444,6 @@ if [[ ! -t 0 || ! -t 1 ]]; then
     exit 1
 fi
 echo "ccy-teams reads each team's members with sudo agent-bus list." >&2
-if ! sudo -v; then
-    print_error "sudo refused, so the members cannot be read. ccy-teams --list shows the rest."
-    exit 1
-fi
 
 here="${PWD/#${HOME}/\~}"
 
@@ -486,8 +490,13 @@ new_session() {
         echo "${team}'s homeserver is down, so no session can join it." >&2
         return 0
     fi
+    # The seats are the checkout's, and ccy mounts the directory it starts in, so it is
+    # started at the checkout's top whatever subdirectory this is.
     top="$(git rev-parse --show-toplevel)"
-    seats="$(seat_lines "${top}")" || return 1
+    if ! seats="$(seat_lines "${top}")"; then
+        echo "Not every seat of this checkout could be read (above), so no seat is offered: one of them may be the seat a new session would take." >&2
+        return 0
+    fi
     while IFS=$'\t' read -r _ line seat seat_state _ handle; do
         [[ "${line}" == "${team}" ]] || continue
         [[ ! "${seat}" =~ ^[0-9]+$ ]] || ((seat < next)) || next=$((seat + 1))
@@ -499,12 +508,13 @@ new_session() {
     done <<<"${MEMBERS_OF[${team}]:-}"
     rows+="Seat ${next}@${team}   new"
     picked="$(ccy_tmux_pick "New ccy session in ${team}" "$(ccy_tmux_header "Enter start   Esc or q back" \
-        "Runs ccy --teams <seat>@${team} in ${here}; a new seat is created by that launch (sudo).")" "" \
+        "Runs ccy --teams <seat>@${team} in ${top/#${HOME}/\~}; a new seat is created by that launch (sudo).")" "" \
         <<<"${rows}")" || return 0
     picked="${picked#*$'\n'}"
     picked="${picked#Seat }"
     picked="${picked%% *}"
-    echo "Starting ccy --teams ${picked} in ${here}." >&2
+    echo "Starting ccy --teams ${picked} in ${top/#${HOME}/\~}." >&2
+    cd "${top}"
     exec "${CCY_LAUNCHER}" --teams "${picked}"
 }
 
@@ -541,6 +551,10 @@ remove_or_park() {
                     echo "The seat was not removed, for the reason above." >&2
                 fi
             fi
+            return 0
+        fi
+        if [[ -n "${INCOMPLETE}" ]]; then
+            echo "${handle} may be one of the seats that could not be read (above), so it is not parked here: remove it with agent-bus seat remove in its checkout." >&2
             return 0
         fi
         ;&
@@ -608,6 +622,12 @@ HEADER="$(ccy_tmux_header "Enter attach   Ctrl-N new   Ctrl-R restore on/off   C
 
 attempt=1
 while :; do
+    # Refreshed each pass: every later sudo is -n, and the picker may sit idle past the
+    # credential's timeout.
+    if ! sudo -v; then
+        print_error "sudo refused, so the members cannot be read. ccy-teams --list shows the rest."
+        exit 1
+    fi
     collect || exit 1
     if [[ -z "${R_TEXT[*]:-}" ]]; then
         echo "No agent teams on this machine. ccy-teams create declares one." >&2

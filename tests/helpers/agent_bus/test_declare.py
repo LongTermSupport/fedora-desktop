@@ -98,6 +98,7 @@ class ParseTest(unittest.TestCase):
             "a team twice": "agent_bus_teams:\n  - team: a\n  - team: a\n",
             "an item indented differently": "agent_bus_teams:\n  - team: a\n    - team: b\n",
             "a scalar list item": "agent_bus_teams:\n  - alpha\n",
+            "the address twice": "agent_bus_address: 192.0.2.10\nagent_bus_address: 192.0.2.11\n",
         }
         for name, text in cases.items():
             with self.subTest(name), self.assertRaises(declare.DeclareError):
