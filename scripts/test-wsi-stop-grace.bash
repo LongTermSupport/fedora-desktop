@@ -642,6 +642,32 @@ else
     kill -KILL "$WSI_PID" 2>/dev/null
 fi
 
+# Insert while PREPARING (pw-record already capturing, 0.3 s before RECORDING): the
+# graced stop's STOPPING must not be followed by RECORDING, which showed a red countdown
+# for a stop already pending. The TERM is sent as soon as wsi has written its PID file,
+# inside that 0.3 s.
+start_wsi 2 --session-token tok-173
+prepared=no
+for _ in $(seq 1 100); do
+    if [ "$(cat "$pid_file" 2>/dev/null)" = "$WSI_PID" ]; then prepared=yes; break; fi
+    kill -0 "$WSI_PID" 2>/dev/null || break
+    sleep 0.01
+done
+if [ "$prepared" = yes ]; then
+    kill -TERM "$WSI_PID"
+    wait "$WSI_PID"; rc=$?
+    check_wsi_exit "$rc"
+    check "Insert while PREPARING: STOPPING is shown" "1" \
+        "$(grep -c 'StateChanged STOPPING' "$events/gdbus.log")"
+    check "…and RECORDING never follows it" "0" \
+        "$(grep -c 'StateChanged RECORDING' "$events/gdbus.log")"
+else
+    failed=$((failed + 1))
+    echo "  FAIL: wsi never wrote its PID file; stderr:"
+    cat "$work/wsi.err"
+    kill -KILL "$WSI_PID" 2>/dev/null
+fi
+
 # No desktop to paste into: the text goes to stdout and no state ends the session, so
 # the exit sends the one IDLE
 start_wsi 0 --session-token tok-172

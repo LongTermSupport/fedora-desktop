@@ -982,8 +982,16 @@ log_debug "PID file written: $PID_FILE ($$)"
 sleep 0.3
 log_debug "Audio pipeline ready, starting recording indicator"
 
-# Now signal that we're actually recording (red icon + elapsed timer)
-notify_state "RECORDING" "Recording... (Insert to stop)"
+# Now signal that we're actually recording (red icon + elapsed timer), unless Insert came
+# during the delay: the panel already shows STOPPING (or the recorder has stopped), and a
+# RECORDING now would show a red countdown for a stop already under way
+if [ "$STOP_PENDING" = true ]; then
+    log_debug "Stop requested while preparing: the grace runs, RECORDING is not sent"
+elif ! kill -0 "$REC_PID" 2>/dev/null; then
+    log_debug "The recorder stopped while preparing: RECORDING is not sent"
+else
+    notify_state "RECORDING" "Recording... (Insert to stop)"
+fi
 
 # Start the recording-limit timer in background
 (

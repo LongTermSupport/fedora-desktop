@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const {lookFor, recordingBadgeColor, articleBadgeColor, COLOURS} = await import(
+const {lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/panelLook.js', import.meta.url).href);
 
 const STATES = ['IDLE', 'LAUNCHING', 'WAITING', 'QUEUED', 'FINISHING', 'CANCELLING', 'UNOWNED',
@@ -25,8 +25,12 @@ test('every state has a look', () => {
     }
 });
 
-test('an unknown state looks ready, never like a recording', () => {
-    assert.deepEqual(lookFor('SOMETHING-NEW'), lookFor('IDLE'));
+test('an unknown state never looks ready (Decision 2): it is the please-wait hourglass', () => {
+    assert.notDeepEqual(lookFor('SOMETHING-NEW'), lookFor('IDLE'));
+    assert.deepEqual(lookFor('SOMETHING-NEW'), lookFor('FINISHING'));
+    assert.equal(isKnownState('SOMETHING-NEW'), false);
+    for (const state of STATES)
+        assert.equal(isKnownState(state), true, state);
 });
 
 test('green is SUCCESS and nothing else', () => {

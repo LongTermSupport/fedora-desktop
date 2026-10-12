@@ -23,7 +23,7 @@ register(new URL('./gjs-loader.mjs', import.meta.url).href);
 const {spawnWatched, killArgv, discardSignal, SETSID} = await import(
     new URL('../../extensions/speech-to-text@fedora-desktop/recorderLaunch.js', import.meta.url).href);
 const {SPAWNS, SPAWN_OUTCOME, STUB_PID} = await import('./gi-stubs.mjs');
-const {execFileSync} = await import('node:child_process');
+const {spawnSync} = await import('node:child_process');
 
 const ARGV = ['/stub/home/.local/bin/wsi-stream', '--server-mode', '--session-token', 'token-1'];
 const SPAWNED = [SETSID, ...ARGV];
@@ -52,10 +52,12 @@ test('the Whisper Model reaches the recorder as WHISPER_MODEL in its environment
 test('setsid, started by a process that is not a group leader, execs: the PID is the recorder\'s and it leads its own group', () => {
     // What the panel relies on: GNOME Shell's children are not group leaders, so setsid
     // does not fork, and the recorder's PID is the panel's handle and its group's ID
-    const out = execFileSync(SETSID, ['sh', '-c', 'echo "$$ $(ps -o pgid= -p $$)"'], {encoding: 'utf8'});
-    const [pid, pgid] = out.trim().split(/\s+/);
-    assert.equal(pid, pgid, `the recorder is not its group's leader: ${out}`);
-    assert.notEqual(pgid, String(process.pid));
+    const child = spawnSync(SETSID, ['sh', '-c', 'echo "$$ $(ps -o pgid= -p $$)"'], {encoding: 'utf8'});
+    assert.equal(child.status, 0, child.stderr);
+    const [pid, pgid] = child.stdout.trim().split(/\s+/);
+    assert.equal(pid, String(child.pid), `setsid forked: the panel would hold ${child.pid}, ` +
+        `the recorder is ${pid}`);
+    assert.equal(pgid, pid, `the recorder is not its group's leader: ${child.stdout}`);
 });
 
 test('a signal to the whole group names the negative PID', () => {

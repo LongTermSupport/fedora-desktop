@@ -24,7 +24,7 @@ import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
 import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
-import { lookFor, recordingBadgeColor, articleBadgeColor, COLOURS } from './panelLook.js';
+import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS } from './panelLook.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -673,6 +673,8 @@ export default class SpeechToTextExtension extends Extension {
         }
 
         // The icon and its colour for every state are panelLook.js's
+        if (!isKnownState(state))
+            this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
         const look = lookFor(state);
         if (look.icon === 'hourglass')
             this._icon.gicon = this._hourglassIcon;
@@ -1119,10 +1121,15 @@ export default class SpeechToTextExtension extends Extension {
 
     /** The PID the recorders' PID file holds, or null with no file. */
     _readPidFile() {
-        const file = Gio.File.new_for_path(RECORDER_PID_FILE);
-        if (!file.query_exists(null))
-            return null;
-        const [, contents] = file.load_contents(null);
+        // One read, no exists-then-read: a recorder can remove the file in between
+        let contents;
+        try {
+            [, contents] = Gio.File.new_for_path(RECORDER_PID_FILE).load_contents(null);
+        } catch (e) {
+            if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                return null;  // no file is the answer "no recorder"
+            throw e;
+        }
         return new TextDecoder().decode(contents).trim();
     }
 

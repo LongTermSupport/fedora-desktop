@@ -170,7 +170,15 @@ The owner's requirements:
   (which execs, so the PID is still the recorder's) and Escape kills the group, taking a
   batch recorder's pw-record with it; the global `pkill -f pw-record` is gone.
 - [x] ✅ **Task 5.8 — The icon is in the log.** Every change logs `Display: <state>`, and
-  `probe-insert-sequence.py` fails on a `Display: IDLE` while dictation B records.
+  `probe-insert-sequence.py` fails on a `Display: IDLE` while dictation B records, and
+  reports NOT ESTABLISHED when no `Display: RECORDING` line shows it can see the icon.
+- [x] ✅ **Task 5.9 — The second review's findings.** Only an article launch that exits 0
+  before its first report is a hand-off; a press never signals a recorder that has exited
+  (it is queued until the panel has finished with it). Batch `wsi` sends no RECORDING when
+  Insert came while it was preparing. `acceptance.bash` checks every tracked extension
+  file, not a hand-kept list. The setsid test compares the spawned PID with the
+  recorder's own. An unknown state shows the please-wait hourglass, never ready. The PID
+  file is read in one call (no exists-then-read race).
 
 ## Technical Decisions
 

@@ -106,8 +106,14 @@ export class PanelSession {
             this._stopArticle(session);
             return;
         }
+        // An exited recorder (waiting for its last signal) is never signalled: its PID is
+        // free for reuse. The press is queued until the panel has finished with it.
         const state = session.ended ? 'ENDED' : session.state;
-        if (STARTING.includes(state)) {
+        if (session.exited) {
+            this._log(`Insert while ${session.ended ?? state} and ${session.pid} has exited: ` +
+                'the start is queued until its last signal is in');
+            this._queue({launch, waitFor: 'owned'});
+        } else if (STARTING.includes(state)) {
             session.cancelled = true;
             session.pressedAs = CAPTURING.includes(state) ? 'STOPPING' : 'CANCELLING';
             this._log(`Insert while ${state}: cancelling the start (TERM to ${session.pid})`);
@@ -287,7 +293,8 @@ export class PanelSession {
             this._finish(session);
             return;
         }
-        if (session.state === 'LAUNCHING' && !failed && !session.cancelled) {
+        if (session.launch.kind === 'article' && session.state === 'LAUNCHING' && !failed &&
+            !session.cancelled) {
             // wsi-article-window hands a second launch to the window already open
             this._log(`Launched process ended (${how}) before a report; waiting for the ` +
                 'recorder it handed to');

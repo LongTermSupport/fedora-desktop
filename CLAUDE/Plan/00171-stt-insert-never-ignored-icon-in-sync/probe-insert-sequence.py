@@ -30,7 +30,6 @@ STOPPED = re.compile(r"^Insert while (RECORDING|STOPPING): stop \(TERM to (\d+)\
 DROPPED = re.compile(r"^Dropped (.+?) from session (\S+):")
 STATE = re.compile(r"^State: (\w+)$")
 DISPLAY = re.compile(r"^Display: (\w+)$")  # what the icon showed (panelSession.js)
-DISPLAY = re.compile(r"^Display: (\w+)$")  # what the icon showed (panelSession.js)
 PRESS = "INSERT KEY PRESSED"
 INCIDENT_SECONDS = 0.5  # the incident's press came 376 ms after SUCCESS
 
@@ -106,12 +105,16 @@ def judge(lines: list[tuple[datetime.datetime, str]]) -> tuple[list[str], int]:
 
     window = lines[b_index:stop_at if stop_at is not None else len(lines)]
     idle_taken = [m for _, m in window if STATE.match(m) and STATE.match(m).group(1) == "IDLE"]
-    idle_shown = [m for _, m in window if DISPLAY.match(m) and DISPLAY.match(m).group(1) == "IDLE"]
+    shown = [DISPLAY.match(m).group(1) for _, m in window if DISPLAY.match(m)]
     own_dropped = [m for _, m in window if DROPPED.match(m) and DROPPED.match(m).group(2) == token_b]
-    ok3 = not idle_taken and not idle_shown and not own_dropped
+    # No Display: line at all is a panel too old to log it, not proof the icon was right
+    sees_icon = "RECORDING" in shown
+    ok3 = sees_icon and not idle_taken and "IDLE" not in shown and not own_dropped
     report.append(f"{'PASS' if ok3 else 'FAIL'}: nothing showed the ready icon while B recorded "
-                  f"(IDLE taken: {len(idle_taken)}; Display: IDLE: {len(idle_shown)}; "
-                  f"B's own signals dropped: {len(own_dropped)})")
+                  f"(IDLE taken: {len(idle_taken)}; Display: IDLE: {shown.count('IDLE')}; "
+                  f"B's own signals dropped: {len(own_dropped)})"
+                  + ("" if sees_icon else "; NOT ESTABLISHED: no 'Display: RECORDING' line, "
+                     "so the running panel predates Task 5.8 (log out and back in)"))
 
     stale = [m for _, m in lines[b_index:] if DROPPED.match(m) and DROPPED.match(m).group(2) != token_b]
     report.append(f"Signals from an earlier recorder dropped after B started: {len(stale)}"

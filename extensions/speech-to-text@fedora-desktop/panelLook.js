@@ -38,9 +38,15 @@ const LOOKS = {
     ERROR: {icon: MIC, colour: COLOURS.red},
 };
 
-/** The look of `state`; an unknown state looks ready. */
+/** Whether `state` has a look of its own. */
+export function isKnownState(state) {
+    return Object.hasOwn(LOOKS, state);
+}
+
+/** The look of `state`. An unknown state is never shown as ready (the icon must not
+ * claim ready when it does not know): it gets the please-wait hourglass. */
 export function lookFor(state) {
-    return LOOKS[state] ?? LOOKS.IDLE;
+    return isKnownState(state) ? LOOKS[state] : LOOKS.FINISHING;
 }
 
 /** The elapsed-time badge while recording: amber when transcription is falling behind

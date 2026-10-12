@@ -330,6 +330,31 @@ test('a launcher that hands off and exits cleanly leaves the wait to the report'
     assert.equal(h.shows(), 'PREPARING');
 });
 
+test('a dictation recorder that exits cleanly before any report is no hand-off: judged after the settle', () => {
+    const h = harness();
+    h.panel.insert(DICTATION);
+    h.recorder().exit('exit status 0', false);
+    h.fire(EXIT_SETTLE_MS);
+    assert.equal(h.shows(), 'IDLE');
+    assert.equal(h.errors.length, 1);
+    assert.match(h.errors[0], /before it started/);
+});
+
+for (const state of ['LAUNCHING', 'RECORDING']) {
+    test(`Insert during the exit settle (${state}) never signals the exited recorder's PID`, () => {
+        const h = harness();
+        h.panel.insert(DICTATION);
+        if (state !== 'LAUNCHING')
+            h.report(state);
+        h.recorder().exit('exit status 1', true);
+        h.panel.insert(DICTATION);
+        assert.deepEqual(h.kills, [], 'a PID that is gone, and may be reused, was signalled');
+        assert.equal(h.shows(), 'QUEUED');
+        h.fire(EXIT_SETTLE_MS);
+        assert.equal(h.spawned.length, 2, 'the queued start did not run once the recorder was judged');
+    });
+}
+
 test('the safety timer: a live recorder that has not reported is still waited for', () => {
     const h = harness();
     h.panel.insert(DICTATION);

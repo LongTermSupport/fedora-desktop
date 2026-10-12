@@ -108,8 +108,18 @@ for script in wsi wsi-stream wsi-stream-server wsi-article wsi-article-window; d
 done
 
 printf '=== extension files deployed and identical ===\n'
-for file in extension.js panelSession.js recorderLaunch.js stt-hourglass-symbolic.svg \
-    pasteTarget.js focusOutline.js metadata.json; do
+# Every tracked file of the extension but its schemas (compiled on the host, not copied),
+# so a file added to the extension cannot be left out of this check
+extFiles=()
+while IFS= read -r tracked; do
+    extFiles+=("${tracked#extensions/"${extUuid}"/}")
+done < <(git -C "${repoRoot}" ls-files -- "extensions/${extUuid}/" ":(exclude)extensions/${extUuid}/schemas/")
+if [[ "${#extFiles[@]}" -eq 0 ]]; then
+    printf '[FATAL] git ls-files found no files under extensions/%s\n' "${extUuid}" >&2
+    exit 1
+fi
+printf 'Checking %d extension files\n' "${#extFiles[@]}"
+for file in "${extFiles[@]}"; do
     if [[ ! -f "${extDeployed}/${file}" ]]; then
         check "${file} is deployed" no
     elif cmp -s "${extSource}/${file}" "${extDeployed}/${file}"; then
