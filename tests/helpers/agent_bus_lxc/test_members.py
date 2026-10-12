@@ -26,6 +26,7 @@ import tarfile
 import tempfile
 import unittest
 from collections.abc import Sequence
+from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
@@ -49,7 +50,8 @@ IP_JSON = json.dumps([
 SUGGEST = "--repo=proj --host=box --type=lxc"
 HANDLE = "proj.devbox+box.lxc"
 CHECKOUT = "/srv/proj"
-CHECKOUT = "/srv/proj"
+AGENT_SCRIPTS = (members.OBSERVE_PY, members.PLACE_PY, members.REMOVE_PY, members.WRITE_ENV_PY)
+ROOT_SCRIPTS = (members.KIT_SYNC_PY, members.SOURCE_PY)
 
 
 def entry(**overrides: object) -> dict:
@@ -122,6 +124,7 @@ class FakeGuest:
         self.dir = root
         self.kit_parent = str(root / "share" / "agent-bus")
         self.bin_dir = str(root / "bin")
+        self.kit_owner = os.getuid()
         (root / "bin").mkdir(parents=True, exist_ok=True)
         self.source, self.suggest, self.users, self.config_ok = source, suggest, users, config_ok
         self.agent_runs: list[tuple[str, str, tuple[str, ...]]] = []
@@ -134,10 +137,13 @@ class FakeGuest:
         return str(home)
 
     def root(self, argv: Sequence[str], what: str, stdin: bytes = b"") -> bytes:
+        # Root never writes or reads in the agent's home: those scripts run as the agent.
+        assert argv[3:4] not in ([s] for s in AGENT_SCRIPTS), f"{what} ran as root"
         return self._run(argv, what, stdin, ())
 
     def agent(self, user: str, home: str, cwd: str, argv: Sequence[str], what: str,
               stdin: bytes = b"", env: Sequence[str] = ()) -> bytes:
+        assert argv[3:4] not in ([s] for s in ROOT_SCRIPTS), f"{what} ran as the agent"
         self.agent_runs.append((user, cwd, tuple(env)))
         return self._run(argv, what, stdin, env)
 
@@ -175,6 +181,7 @@ class Fixture(unittest.TestCase):
         self.guest = FakeGuest(self.tmp / "guest")
         self.bus = FakeBus()
         self.state: str | None = "RUNNING"
+        self.states: dict[str, str | None] = {}
         self.allow_from: Sequence[str] = (BRIDGE_CIDR,)
         self.bridge = True
         self.active = {TEAM, OTHER_TEAM}
@@ -185,7 +192,7 @@ class Fixture(unittest.TestCase):
 
     def host(self) -> members.Host:
         return members.Host(
-            container_state=lambda name: self.state,
+            container_state=lambda name: self.states.get(name, self.state),
             agent_bus=self.bus,
             ip_json=lambda: IP_JSON,
             is_bridge=lambda dev: self.bridge and dev == "lxcbr0",
@@ -249,6 +256,7 @@ class ParseMembersTest(unittest.TestCase):
             "present without checkout": [entry(checkout=None)],
             "relative checkout": [entry(checkout="proj")],
             "seat a container name cannot give": [entry(container="1box")],
+            "a number is never a default seat": [entry(container="42")],
             "declared twice": [entry(), entry(seat="other")],
             "one user, two hosts": [entry(), entry(team=OTHER_TEAM, host="other")],
             "one seat, two containers": [entry(seat="dev"), entry(container="box2", seat="dev")],
@@ -305,6 +313,19 @@ class PresentPlanTest(unittest.TestCase):
     def test_a_bundle_for_another_handle_is_refused(self) -> None:
         with self.assertRaisesRegex(members.MemberError, r"proj\.dev\+box\.lxc"):
             self.plan(self.found(handle="proj.dev+box.lxc"), ("worker", False))
+
+    def test_a_bundle_joined_by_hand_names_its_seat(self) -> None:
+        with self.assertRaisesRegex(members.MemberError, "set seat: 3 on the entry"):
+            self.plan(self.found(handle="proj.3+box.lxc"), ("worker", False))
+
+    def test_an_active_numbered_handle_without_a_bundle_is_not_parked(self) -> None:
+        (numbered,) = members.parse_members([entry(seat=1)])
+        handle = "proj.1+box.lxc"
+        with self.assertRaisesRegex(members.MemberError, "another container's"):
+            members.present_plan(handle, self.BASE, numbered, members.Found(False, None, False),
+                                 ("worker", False))
+        self.assertEqual(members.present_plan(handle, self.BASE, numbered, members.Found(False, None, False),
+                                              ("worker", True)), members.Plan(add=True))
 
 
 class AbsentPlanTest(unittest.TestCase):
@@ -454,6 +475,13 @@ class PresentPhaseTest(Fixture):
                     self.run_phase("present", [entry()])
                 self.assertEqual(self.bus.calls, [])
 
+    def test_a_later_container_refused_before_any_change(self) -> None:
+        self.states = {"box2": "STOPPED"}
+        with self.assertRaisesRegex(members.MemberError, "box2 is STOPPED"):
+            self.run_phase("present", [entry(), entry(container="box2")])
+        self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
+        self.assertEqual(self.bus.calls, [])
+
     def test_team_must_be_declared_present(self) -> None:
         with self.assertRaisesRegex(members.MemberError, "agent_bus_teams"):
             self.run_phase("present", [entry()], teams_present=())
@@ -521,7 +549,19 @@ class AbsentPhaseTest(Fixture):
 class KitSyncTest(Fixture):
     def sync(self) -> bytes:
         return self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
-                                self.guest.bin_dir], "kit", members.kit_tar(self.kit_parent))
+                                self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
+                               members.kit_tar(self.kit_parent))
+
+    def test_a_kit_directory_others_can_write_is_refused(self) -> None:
+        self.sync()
+        plugin = pathlib.Path(self.guest.kit_parent) / "kit" / "plugin"
+        plugin.chmod(0o777)
+        with self.assertRaisesRegex(members.MemberError, "writable by others"):
+            self.sync()
+        plugin.chmod(0o755)
+        self.guest.kit_owner = os.getuid() + 1
+        with self.assertRaisesRegex(members.MemberError, "not owned by uid"):
+            self.sync()
 
     def test_updates_only_what_differs_and_removes_strays(self) -> None:
         first = self.sync().decode().splitlines()
@@ -541,6 +581,50 @@ class KitSyncTest(Fixture):
         (self.kit_parent / "kit" / "link").symlink_to("pingbus")
         with self.assertRaises(members.MemberError):
             members.kit_tar(self.kit_parent)
+
+
+class LxcGuestTest(unittest.TestCase):
+    """The real container commands: root through lxc-attach with a cleared environment, the
+    agent through runuser inside it, the bundle on stdin and never in argv."""
+
+    def setUp(self) -> None:
+        self.calls: list[tuple[list[str], bytes]] = []
+        self.answer = (0, b"", b"")
+        patcher = mock.patch.object(members, "_run", side_effect=self.fake_run)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.guest = members.LxcGuest("devbox")
+
+    def fake_run(self, argv: Sequence[str], stdin: bytes = b"") -> tuple[int, bytes, bytes]:
+        self.calls.append((list(argv), stdin))
+        return self.answer
+
+    PREFIX = ["lxc-attach", "-n", "devbox", "--clear-env", "--", "env", "-i",
+              f"PATH={members.GUEST_PATH}", "HOME=/root"]
+
+    def test_root(self) -> None:
+        self.guest.root(["getent", "group", "x"], "what")
+        self.assertEqual(self.calls, [(self.PREFIX + ["getent", "group", "x"], b"")])
+
+    def test_agent_runs_as_the_user_in_its_directory(self) -> None:
+        self.guest.agent("agent", "/home/<user>", CHECKOUT, ["python3", "-I", "-c", "S", "a"], "what",
+                         stdin=b"bundle-tar", env=["K=v"])
+        argv, stdin = self.calls[0]
+        self.assertEqual(argv, self.PREFIX + ["runuser", "-u", "agent", "--", "env", "-i", "-C", CHECKOUT,
+                                              f"PATH={members.GUEST_PATH}", "HOME=/home/<user>", "K=v",
+                                              "python3", "-I", "-c", "S", "a"])
+        self.assertEqual(stdin, b"bundle-tar")
+
+    def test_a_failure_raises_with_its_stderr(self) -> None:
+        self.answer = (1, b"", b"boom")
+        with self.assertRaisesRegex(members.MemberError, "what failed \\(exit 1\\): boom"):
+            self.guest.root(["false"], "what")
+
+    def test_home(self) -> None:
+        self.answer = (0, b"agent:x:1000:1000::/home/<user>:/bin/bash\n", b"")
+        self.assertEqual(self.guest.home("agent"), "/home/<user>")
+        self.answer = (2, b"", b"")
+        self.assertIsNone(self.guest.home("agent"))
 
 
 class MainTest(unittest.TestCase):

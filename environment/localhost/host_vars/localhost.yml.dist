@@ -119,7 +119,8 @@ user_email: "yourname@example.com"
 #   user       the agent user inside it
 #   host       its HOOKS_DAEMON_HOSTNAME, the handle's <host>: a role, never a hostname
 #   checkout   the agent's checkout inside the container, where suggest-handle runs
-#   seat       optional; the handle's <seat>, by default the container's name
+#   seat       optional; the handle's <seat>, by default the container's name (letters
+#              first); a member joined by hand keeps its number: seat: <n>
 #   role       optional; worker (the default) or orchestrator
 #   human_text optional; false makes a member that takes pings only
 #   repo       optional; needed only to park the handle of a container already destroyed

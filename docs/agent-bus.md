@@ -171,7 +171,11 @@ commented example in `localhost.yml.dist` names every key) and run
 the container must be running, and the team must be declared present in `agent_bus_teams`.
 The team's `allow_from` must cover the LXC bridge's subnet; if it does not, the play stops
 and names the subnet to add. The handle takes a fixed seat (`seat`, by default the
-container's name), so a member that has joined keeps its token from run to run. A lost
+container's name), so a member that has joined keeps its token from run to run. A member
+joined by hand holds a numbered seat, so declare it with `seat: <n>` (the play's refusal
+names the number). The play never parks an active numbered handle that the container
+holds no bundle for, since it may belong to another container. The container needs
+`runuser` and GNU `env` (coreutils 8.28 or later). A lost
 bundle is replaced with a new token, and `state: absent` parks the handle, deletes the
 bundle and takes the team out of the env file. To change `seat` or `host`, set the entry
 absent and run the play first, since both are part of the handle.

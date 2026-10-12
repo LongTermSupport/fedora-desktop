@@ -86,8 +86,13 @@ KIT_SYNC_PY = r'''
 import os, stat, sys, tarfile
 if sys.version_info < (3, 11):
     sys.exit("pingbus needs Python 3.11 or later; this container has " + sys.version.split()[0])
-parent, bindir = sys.argv[1], sys.argv[2]
+parent, bindir, owner = sys.argv[1], sys.argv[2], int(sys.argv[3])
 kit = os.path.join(parent, "kit")
+def guarded(path, st):
+    # Root replaces files in these directories, so nobody else may change what they hold.
+    if st.st_uid != owner or stat.S_IMODE(st.st_mode) & 0o022:
+        sys.exit(path + " is not owned by uid " + str(owner) + " or is writable by others: a kit "
+                 "copied by hand must go before the play installs it (remove " + parent + ")")
 want = {}
 with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
     for m in tar:
@@ -102,6 +107,7 @@ with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
             sys.exit("the kit tar holds " + repr(m.name) + ", not a file or directory")
 changed = []
 os.makedirs(parent, mode=0o755, exist_ok=True)
+guarded(parent, os.lstat(parent))
 for name in sorted(want):
     path = os.path.join(parent, name)
     try:
@@ -115,6 +121,8 @@ for name in sorted(want):
             changed.append(name)
         elif not stat.S_ISDIR(st.st_mode):
             sys.exit(path + " is not a directory")
+        else:
+            guarded(path, st)
         continue
     data, mode = want[name]
     if st is not None and not stat.S_ISREG(st.st_mode):
@@ -271,9 +279,11 @@ class Member:
 
 
 def default_seat(container: str) -> str | None:
-    """The container's name as a seat: lower case, letters and digits, at most 12."""
+    """The container's name as a seat: lower case, letters and digits, at most 12. Only a
+    named seat (a letter first): a number is the registry counter's, which a member joined
+    by hand may hold."""
     seat = re.sub(r"[^a-z0-9]", "", container.lower())[:12]
-    return seat if protocol.is_seat_name(seat) else None
+    return seat if seat[:1].isalpha() and protocol.is_seat_name(seat) else None
 
 
 def _parse_entry(position: int, entry: object) -> Member:
@@ -395,11 +405,21 @@ def present_plan(handle: str, url: str, member: Member, found: Found,
     if found.member is not None:
         held = bundle_handle(found.member)
         if held != handle:
+            parsed = protocol.parse_handle(held) if held else None
+            hint = (f"set seat: {parsed.seat} on the entry to keep that member"
+                    if parsed is not None and registry.prefix_of(held) == registry.prefix_of(handle)
+                    else "put back the seat or host that made it")
             raise MemberError(
                 f"{member.label}: its bundle for team {member.team} names {held or 'no handle'}, not "
-                f"{handle}: put back the seat or host that made it, or set state: absent and run the "
-                "play before declaring the member again")
+                f"{handle}: {hint}, or set state: absent and run the play before declaring the "
+                "member again")
     active = registered is not None and not registered[1]
+    if active and found.member is None and protocol.parse_handle(handle).n is not None:
+        raise MemberError(
+            f"{handle} is an active member of team {member.team}, and {member.label} holds no bundle "
+            f"for it: a numbered seat may be another container's, joined by hand, so it is not "
+            "parked here. If it is this container's, set the entry's state: absent and run the play "
+            "(which parks it), then declare it present again; otherwise set another seat")
     role_differs = registered is not None and registered[0] != member.role
     current = (found.member is not None and found.token and active
                and found.member.get("base_url") == url
@@ -597,7 +617,7 @@ def _check_teams(members: Sequence[Member], teams_present: Sequence[str], host: 
 
 
 def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None]) -> None:
-    out = guest.root(_python(KIT_SYNC_PY, guest.kit_parent, guest.bin_dir),
+    out = guest.root(_python(KIT_SYNC_PY, guest.kit_parent, guest.bin_dir, str(guest.kit_owner)),
                      f"container {container}: the member kit (README.lxc step 1)", stdin=host.kit_tar())
     for line in out.decode().splitlines():
         emit(f"container {container}: kit {line}")
@@ -657,17 +677,22 @@ def _groups(members: Sequence[Member]) -> dict[tuple[str, str], list[Member]]:
 
 def run_present(members: Sequence[Member], teams_present: Sequence[str], host: Host,
                 emit: Callable[[str], None], say: Callable[[str], None]) -> None:
+    # Everything that can be checked without the kit, for every container, before any change:
+    # suggest-handle needs the kit's pingbus, so its --type check comes after the kit sync.
     _check_teams(members, teams_present, host)
     bus = host.bus_address()
-    synced: set[str] = set()
+    ready = []
     for (container, user), group in _groups(members).items():
         guest = _guest_running(host, container)
+        home = _home(guest, group[0])
+        _check_route(host, guest, group, bus)
+        ready.append((container, user, group, guest, home))
+    synced: set[str] = set()
+    for container, user, group, guest, home in ready:
         first = group[0]
-        home = _home(guest, first)
         if container not in synced:
             _sync_kit(host, guest, container, emit)
             synced.add(container)
-        _check_route(host, guest, group, bus)
         for member in group:
             say(f"{member.label}: team {member.team}")
             _join(host, guest, member, home, bus, emit)
@@ -761,6 +786,8 @@ class LxcGuest:
     container: str
     kit_parent: str = KIT_PARENT
     bin_dir: str = GUEST_BIN
+    #: Who must own the kit's directories in the container: its root.
+    kit_owner: int = 0
 
     def _attach(self, inner: Sequence[str], stdin: bytes) -> tuple[int, bytes, bytes]:
         return _run(["lxc-attach", "-n", self.container, "--clear-env", "--", "env", "-i",
