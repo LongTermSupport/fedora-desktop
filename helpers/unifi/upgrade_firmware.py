@@ -18,7 +18,7 @@ Marker lines on stdout, for the play's changed_when:
   FIRMWARE-CURRENT                            (nothing to upgrade)
 
 Usage: python3 -m helpers.unifi.upgrade_firmware (--check | --apply)
-           [--order NAME,NAME,...] [--timeout SECONDS] [--interval SECONDS]
+           [--order NAME,NAME,...] [--kinds uap,usw] [--timeout SECONDS] [--interval SECONDS]
            [--url URL] [--user NAME]
 """
 
@@ -46,13 +46,16 @@ class Upgrade:
     target: str
 
 
-def plan_upgrades(devices, order=()):
+def plan_upgrades(devices, order=(), kinds=()):
     """The devices to upgrade, in the order to upgrade them.
 
     Devices named in `order` come first, in that order (put the least-used first, so a
     bad release shows there and stops the run); the rest follow, access points before
-    switches, each kind by name.
+    switches, each kind by name. `kinds` (e.g. ("uap",)) leaves out every other type, so
+    a switch can be left for a quiet moment.
     """
+    if kinds:
+        devices = [dev for dev in devices if dev.get("type") in kinds]
     known = {dev.get("name") or dev["mac"] for dev in devices}
     for name in order:
         if name not in known:
@@ -98,6 +101,8 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient, clock=time):
     parser.add_argument("--interval", type=float, default=15, help="seconds between polls")
     parser.add_argument("--order", default="",
                         help="comma-separated device names to upgrade first, in order")
+    parser.add_argument("--kinds", default="",
+                        help="comma-separated device types to include (uap, usw); default all")
     parser.add_argument("--url", default=DEFAULT_URL)
     parser.add_argument("--user", default=DEFAULT_USER)
     args = parser.parse_args(argv)
@@ -112,7 +117,8 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient, clock=time):
     client.login()
     try:
         order = [name.strip() for name in args.order.split(",") if name.strip()]
-        upgrades = plan_upgrades(client.get("stat/device"), order)
+        kinds = tuple(kind.strip() for kind in args.kinds.split(",") if kind.strip())
+        upgrades = plan_upgrades(client.get("stat/device"), order, kinds)
     except ValueError as error:
         print(f"refusing to upgrade: {error}", file=stderr)
         return 1

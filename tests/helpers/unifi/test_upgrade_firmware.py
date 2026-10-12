@@ -88,6 +88,14 @@ class PlanUpgradesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "AP is not connected"):
             plan_upgrades([device("AP", "a1", state=0)])
 
+    def test_kinds_limits_the_plan_to_those_device_types(self):
+        devices = [device("Switch", "s1", kind="usw"), device("AP", "a1")]
+        self.assertEqual([u.name for u in plan_upgrades(devices, kinds=("uap",))], ["AP"])
+
+    def test_a_disconnected_device_of_another_kind_does_not_block(self):
+        devices = [device("Switch", "s1", kind="usw", state=0), device("AP", "a1")]
+        self.assertEqual([u.name for u in plan_upgrades(devices, kinds=("uap",))], ["AP"])
+
     def test_the_plan_carries_from_and_to_versions(self):
         upgrade = plan_upgrades([device("AP", "a1", version="8.4.6", target="8.7.11")])[0]
         self.assertEqual((upgrade.mac, upgrade.current, upgrade.target), ("a1", "8.4.6", "8.7.11"))
@@ -163,6 +171,14 @@ class MainTest(unittest.TestCase):
         code, out, _, client = self.run_main(["--check", "--order", "AP2,AP1"], [before, done])
         self.assertEqual(code, 0)
         self.assertLess(out.index("FIRMWARE-UPGRADE AP2"), out.index("FIRMWARE-UPGRADE AP1"))
+
+    def test_the_kinds_option_leaves_the_switch_alone(self):
+        before = [device("Switch", "s1", kind="usw"), device("AP", "a1")]
+        code, out, _, _ = self.run_main(["--check", "--kinds", "uap"], [before])
+        self.assertEqual(code, 0)
+        self.assertIn("FIRMWARE-UPGRADE AP", out)
+        self.assertNotIn("Switch", out)
+        self.assertIn("FIRMWARE-PENDING 1", out)
 
     def test_a_device_that_does_not_come_back_stops_the_run(self):
         before = [device("AP1", "a1"), device("AP2", "a2")]

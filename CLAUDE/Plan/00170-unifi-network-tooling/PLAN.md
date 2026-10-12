@@ -77,15 +77,18 @@ tooling deployed by the UniFi play.
   points first and switches last, each device back on its target version before the
   next; a device that does not come back stops the run. Prompted by every device
   running months-old firmware with about six months' uptime, and two access points
-  with load averages flat at 2 and 3 on ~1% CPU (stuck tasks).
+  with load averages flat at 2 and 3 on ~1% CPU (stuck tasks). `unifi_firmware_kinds`
+  (`--kinds`) limits a run to device types, so the access points go by day and the
+  switch, whose reboot drops everything wired through it, at a quiet moment.
 
-- [ ] ⬜ **Task 1.11**: A stable controller address. The controller re-points every
+- [x] ✅ **Task 1.11**: A stable controller address. The controller re-points every
   device's inform URL at the laptop's current address, and the laptop's address differs
   per network (per-network MAC) and will differ again on the wired adapter. Moving
   networks left every device stuck re-adopting (state 7, dropping to 0) until the
-  controller was stopped. Options for the owner: a fixed secondary address on every
-  connection on that LAN plus the controller's inform-host override, or one MAC (and
-  so one DHCP lease) for all of them. Devices then need set-inform once.
+  controller was stopped. Done (owner's choice): `unifi_controller_address`, a fixed
+  extra address reserved on the router, added to each connection in
+  `unifi_controller_connections` by play-unifi-controller.yml, and the inform host
+  pinned to it (`helpers/unifi/inform_host.py`) by play-unifi-firmware.yml.
 
 - [ ] ⬜ **Task 1.12** (owner: nightly; skipped when the laptop is off): a user timer that
   runs `play-unifi-firmware.yml` with apply each night, with no catch-up for missed

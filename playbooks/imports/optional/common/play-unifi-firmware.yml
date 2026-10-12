@@ -14,6 +14,8 @@
 #
 # `unifi_firmware_order` (host_vars or -e: a list of device names) upgrades those first,
 # in that order; list the least-used access point first, so a bad release shows there.
+# `unifi_firmware_kinds` (e.g. [uap]) limits the run to those device types: access
+# points by day, the switch (whose reboot drops everything wired through it) later.
 #
 # The controller is on demand: started here only if it is stopped, and stopped again.
 - hosts: desktop
@@ -105,6 +107,8 @@
               - "{{ unifi_firmware_mode }}"
               - --order
               - "{{ unifi_firmware_order | default([]) | join(',') }}"
+              - --kinds
+              - "{{ unifi_firmware_kinds | default([]) | join(',') }}"
             chdir: "{{ root_dir }}"
           environment:
             UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
