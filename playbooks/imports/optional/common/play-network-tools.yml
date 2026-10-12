@@ -3,13 +3,21 @@
 # Network discovery and diagnostics tools
 #
 # Installs nmap, arp-scan, and custom lan-scan script for finding
-# devices on the local network (QNAP NAS servers, etc.)
+# devices on the local network (QNAP NAS servers, etc.), and Ookla's Speedtest CLI
+# with the speedtest-isp wrapper (host_vars `speedtest_isp` names the ISP).
 - hosts: desktop
   name: Network Discovery Tools
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # Ookla's Speedtest CLI is not packaged; the tarball is pinned by version and checksum.
+    # Update deliberately; vars/version-pins.yml names this var.
+    # @see https://www.speedtest.net/apps/cli
+    ooklaSpeedtestVersion: "1.2.0"
+    ooklaSpeedtestSha256: "5690596c54ff9bed63fa3732f818a05dbc2db19ad36ed68f21ca5f64d5cfeeb7"
+    ooklaSpeedtestDir: "/opt/ookla-speedtest-{{ ooklaSpeedtestVersion }}"
+    ooklaSpeedtestUrl: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ ooklaSpeedtestVersion }}-linux-x86_64.tgz"
   tasks:
     # ── Packages ───────────────────────────────────────────────────────────────
 
@@ -22,7 +30,73 @@
           - nss-mdns            # mDNS hostname resolution (.local domains)
           - net-tools           # ifconfig, netstat, arp (legacy but useful)
           - bind-utils          # dig, nslookup, host
+          - jq                  # speedtest-isp reads Ookla's server list
         state: present
+
+    # ── Ookla Speedtest CLI ────────────────────────────────────────────────────
+    # Public test-file servers cap one client far below a multi-gigabit line; Ookla
+    # measures against servers inside ISPs with many connections, as speedtest.net does.
+
+    - name: Create the versioned Ookla Speedtest directory
+      ansible.builtin.file:
+        path: "{{ ooklaSpeedtestDir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download the Ookla Speedtest CLI (checksum-verified)
+      ansible.builtin.get_url:
+        url: "{{ ooklaSpeedtestUrl }}"
+        dest: "{{ ooklaSpeedtestDir }}/ookla-speedtest.tgz"
+        checksum: "sha256:{{ ooklaSpeedtestSha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Unpack the Ookla Speedtest CLI
+      ansible.builtin.unarchive:
+        src: "{{ ooklaSpeedtestDir }}/ookla-speedtest.tgz"
+        dest: "{{ ooklaSpeedtestDir }}"
+        remote_src: true
+        creates: "{{ ooklaSpeedtestDir }}/speedtest"
+        owner: root
+        group: root
+
+    - name: Link speedtest into /usr/local/bin
+      ansible.builtin.file:
+        src: "{{ ooklaSpeedtestDir }}/speedtest"
+        dest: /usr/local/bin/speedtest
+        state: link
+        force: true
+
+    - name: Read the installed Ookla Speedtest version
+      ansible.builtin.command: /usr/local/bin/speedtest --version
+      register: ookla_speedtest_version
+      changed_when: false
+
+    - name: Assert the Ookla Speedtest version matches the pin
+      ansible.builtin.assert:
+        that:
+          - ooklaSpeedtestVersion in ookla_speedtest_version.stdout
+        fail_msg: "speedtest reports '{{ ookla_speedtest_version.stdout_lines | first }}', expected {{ ooklaSpeedtestVersion }}"
+
+    - name: Create the fedora-desktop user config directory
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.config/fedora-desktop
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    # Empty when speedtest_isp is unset: speedtest-isp then lets Ookla pick the server.
+    - name: Record the ISP whose speed-test server speedtest-isp prefers
+      ansible.builtin.copy:
+        content: "{{ speedtest_isp | default('') }}"
+        dest: /home/{{ user_login }}/.config/fedora-desktop/speedtest-isp
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
 
     # ── Custom Scripts ─────────────────────────────────────────────────────────
 
@@ -36,6 +110,7 @@
       loop:
         - lan-scan
         - qnap-finder
+        - speedtest-isp
 
     # ── Post-Install Info ──────────────────────────────────────────────────────
 
@@ -59,6 +134,9 @@
           - ""
           - "  Live ARP monitor:"
           - "    lan-scan watch"
+          - ""
+          - "  Internet speed (your ISP's Ookla server when one is near):"
+          - "    speedtest-isp"
           - ""
           - "  Other tools installed:"
           - "    nmap, arp-scan, avahi-browse, dig, nslookup"

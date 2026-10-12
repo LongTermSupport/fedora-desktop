@@ -1195,6 +1195,9 @@ Install lightweight IDEs:
 Network discovery tools:
 
 - Installs nmap, arp-scan, and other network diagnostic utilities
+- Installs Ookla's Speedtest CLI (`speedtest`, pinned and checksum-verified) and
+  `speedtest-isp`, which tests against your ISP's own Ookla server when
+  `speedtest_isp` is set in host_vars, else the nearest server
 
 #### play-nordvpn-openvpn.yml
 

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# speedtest-isp — an Ookla speed test against your own ISP's server when one is near.
+#
+# The ISP's name comes from ~/.config/fedora-desktop/speedtest-isp, which
+# play-network-tools.yml writes from the host_vars `speedtest_isp` (empty when unset).
+# The nearest Ookla server whose name contains it (any case) is used; with no name set,
+# or none of that ISP's servers among the nearest, Ookla picks the nearest server and
+# this says so on stderr. An ISP's own server measures the line itself, not a transit
+# link beyond it.
+#
+# Extra arguments go to speedtest, e.g. `speedtest-isp -f json`. The result is stdout;
+# the server choice is stderr. Running the CLI needs Ookla's licence and GDPR notice
+# accepted, which this does on every run (see `speedtest --help`).
+#
+# Usage: speedtest-isp [speedtest-args...]
+set -euo pipefail
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/fedora-desktop/speedtest-isp"
+ookla=(speedtest --accept-license --accept-gdpr)
+
+if [[ ! -f "$config" ]]; then
+    echo "speedtest-isp: $config is missing; run play-network-tools.yml" >&2
+    exit 1
+fi
+isp="$(<"$config")"
+
+server_args=()
+if [[ -z "$isp" ]]; then
+    echo "No ISP set (speedtest_isp in host_vars): Ookla picks the nearest server." >&2
+else
+    servers="$("${ookla[@]}" --servers --format=json)"
+    server="$(jq -r --arg isp "$isp" '
+        [.servers[] | select(.name | ascii_downcase | contains($isp | ascii_downcase))][0]
+        | if . == null then "" else "\(.id)\t\(.name), \(.location)" end' <<<"$servers")"
+    if [[ -n "$server" ]]; then
+        echo "Testing against ${server#*$'\t'} (server ${server%%$'\t'*})." >&2
+        server_args=(--server-id="${server%%$'\t'*}")
+    else
+        echo "No '$isp' server among the nearest Ookla servers: Ookla picks the nearest." >&2
+    fi
+fi
+
+exec "${ookla[@]}" "${server_args[@]}" "$@"
