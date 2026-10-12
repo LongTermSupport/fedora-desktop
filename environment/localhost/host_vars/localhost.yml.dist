@@ -61,6 +61,11 @@ user_email: "yourname@example.com"
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 
+# Optional: your ISP's name as it appears in Ookla's server list (`speedtest -L`), so
+# speedtest-isp (play-network-tools.yml) tests against the ISP's own server. Unset, Ookla
+# picks the nearest server.
+# speedtest_isp: "ExampleISP"
+
 # Optional: the UniFi controller's web login password (play-unifi-controller.yml, login
 # name unifi-admin). Undeclared, the play generates one and vaults it here. Read it with
 # ./vault.bash get unifi_admin_password. See docs/UnifiSetupGuide.md.
