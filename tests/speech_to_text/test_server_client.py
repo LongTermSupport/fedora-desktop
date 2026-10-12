@@ -99,6 +99,7 @@ class ClientCase(unittest.TestCase):
         # end); only the gdbus call under it is replaced
         patches = mock.patch.multiple(
             wsi_stream, SERVER_SOCKET=self.socket_path, PID_FILE=tmp / "recording.pid",
+            STOPPING_FILE=tmp / "stopping.pid",
             CACHE_DIR=tmp / "cache", TRANSCRIPTION_FILE=tmp / "cache" / "last.txt",
             KEEPALIVE_INTERVAL=0.2, PROGRESS_INTERVAL=0.1, DRAIN_POLL_INTERVAL=0.05,
             START_RETRY_SECONDS=0.05,
@@ -544,14 +545,121 @@ class SessionOwnershipTest(ClientCase):
         self.assertIn("RECORDING", self.states())
 
     def test_a_refused_start_is_shown_and_nothing_wipes_it(self):
-        self.serve(lambda command, params: {"status": "error", "busy": "recording",
-                                            "message": "Recording already active"})
+        self.serve(lambda command, params: {"status": "error", "message": "Model not loaded"})
         self.assertEqual(self.run_client(auto_paste=True), 1)
         self.assertNotIn("RECORDING", self.states(), "RECORDING was shown for a refused START")
         self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
         errors = [value for name, value in self.signals if name == "Error"]
-        self.assertTrue(errors and "already" in errors[0], self.signals)
+        self.assertTrue(errors and "Model not loaded" in errors[0], self.signals)
         self.assertEqual(self.server.commands(), ["START"], "a refused START is not retried")
+
+    def test_insert_while_a_recorder_owns_the_pid_file_stops_that_recorder(self):
+        # The stuck state: the panel lost track of a recording client, so Insert started
+        # another, which was refused while the first kept the microphone open
+        wsi_stream.PID_FILE.write_text(FOREIGN_PID)
+        self.serve(scripted([RECORDING], [DONE]))
+        killed = []
+        with mock.patch.object(wsi_stream, "recorder_alive", lambda pid: pid == int(FOREIGN_PID)), \
+                mock.patch.object(wsi_stream.os, "kill", lambda pid, signum: killed.append((pid, signum))):
+            self.assertEqual(self.run_client(), 0)
+        self.assertEqual(killed, [(int(FOREIGN_PID), signal.SIGTERM)])
+        self.assertEqual(self.server.commands(), [], "no second dictation was started")
+        self.assertEqual(wsi_stream.PID_FILE.read_text(), FOREIGN_PID)
+        self.assertNotIn("ERROR", self.states())
+
+    def test_a_dead_recorders_pid_file_is_taken_over(self):
+        wsi_stream.PID_FILE.write_text(FOREIGN_PID)
+        self.serve(scripted([RECORDING], [DONE]))
+        with mock.patch.object(wsi_stream, "recorder_alive", lambda pid: False):
+            self.assertEqual(self.run_client(signal_after=0.3), 0)
+        self.assertEqual(self.server.commands()[0], "START")
+
+    def serve_busy(self, progress_status):
+        """A server refusing START for a dictation whose PROGRESS is `progress_status`."""
+        def answer(command, params):
+            if command == "START":
+                return {"status": "error", "busy": "recording",
+                        "message": "Recording already active"}
+            if command == "PROGRESS":
+                return {"status": progress_status}
+            if command == "STOP":
+                return {"status": "draining", "drain_seconds_left": 5}
+            return {"status": "error", "message": f"unexpected {command}"}
+
+        self.serve(answer)
+
+    def test_a_start_refused_because_a_recording_runs_stops_that_recording(self):
+        # A recording no live client is known to own: Insert stops it at the server, and
+        # the text reaches the owner if it is still following, or the next START
+        self.serve_busy("recording")
+        self.assertEqual(self.run_client(), 0)
+        self.assertEqual(self.server.commands(), ["START", "PROGRESS", "STOP"])
+        self.assertNotIn("ERROR", self.states())
+        self.assertNotIn("RECORDING", self.states())
+
+    def assert_refused_start_leaves_the_dictation(self, status):
+        self.serve_busy(status)
+        self.assertEqual(self.run_client(), 0)
+        self.assertEqual(self.server.commands(), ["START", "PROGRESS"], "STOP sent again")
+        self.assertEqual(self.states(), ["WAITING", "IDLE"])
+
+    def test_a_start_refused_while_the_servers_dictation_stops_sends_no_stop(self):
+        self.assert_refused_start_leaves_the_dictation("stopping")
+
+    def test_a_start_refused_while_the_servers_dictation_drains_sends_no_stop(self):
+        self.assert_refused_start_leaves_the_dictation("draining")
+
+    def stopping_marker_seen_by_the_server(self, after_stop):
+        """Run a client stopped with a 1 s grace; the STOPPING_FILE contents at each
+        PROGRESS, as (stopped, contents)."""
+        seen = []
+        base = scripted([RECORDING], after_stop)
+        stopped = []
+
+        def answer(command, params):
+            if command == "STOP":
+                stopped.append(True)
+            if command == "PROGRESS":
+                marker = wsi_stream.STOPPING_FILE
+                seen.append((bool(stopped), marker.read_text() if marker.exists() else None))
+            return base(command, params)
+
+        self.serve(answer)
+        with mock.patch.object(wsi_stream, "read_stop_grace", lambda: 1):
+            self.assertEqual(self.run_client(signal_after=0.3), 0)
+        self.assertFalse(wsi_stream.STOPPING_FILE.exists(), "the marker outlived the client")
+        return seen
+
+    def assert_insert_is_a_no_op(self):
+        """A second client, with the marker naming a live client, touches nothing."""
+        self.signals.clear()
+        self.registered.clear()
+        wsi_stream.ended_with = None
+        wsi_stream.PID_FILE.write_text(FOREIGN_PID)
+        wsi_stream.STOPPING_FILE.write_text(FOREIGN_PID)
+        commands = len(self.server.commands())
+        killed = []
+        with mock.patch.object(wsi_stream, "recorder_alive", lambda pid: pid == int(FOREIGN_PID)), \
+                mock.patch.object(wsi_stream.os, "kill", lambda pid, signum: killed.append((pid, signum))):
+            self.assertEqual(self.run_client(), 0)
+        self.assertEqual(killed, [], "the stopping client was signalled again")
+        self.assertEqual(len(self.server.commands()), commands, "the server was sent a command")
+        self.assertEqual(wsi_stream.PID_FILE.read_text(), FOREIGN_PID)
+        self.assertEqual(wsi_stream.STOPPING_FILE.read_text(), FOREIGN_PID)
+        self.assertEqual(self.states(), ["WAITING", "IDLE"])
+
+    def test_insert_during_the_grace_is_a_no_op(self):
+        seen = self.stopping_marker_seen_by_the_server([DONE])
+        own = str(os.getpid())
+        self.assertIn((False, own), seen, "no marker while recording on in the grace")
+        self.assertEqual(seen[0], (False, None), "marked before any stop")
+        self.assert_insert_is_a_no_op()
+
+    def test_insert_during_the_drain_is_a_no_op(self):
+        draining = {"status": "draining", "drain_seconds_left": 5, "segments_pending": 1}
+        seen = self.stopping_marker_seen_by_the_server([draining, draining, DONE])
+        self.assertIn((True, str(os.getpid())), seen, "no marker while draining")
+        self.assert_insert_is_a_no_op()
 
     def test_a_start_refused_while_the_last_dictation_finishes_waits_then_records(self):
         starts = []

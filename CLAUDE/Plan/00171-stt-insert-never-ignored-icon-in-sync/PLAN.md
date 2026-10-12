@@ -179,6 +179,18 @@ The owner's requirements:
   file, not a hand-kept list. The setsid test compares the spawned PID with the
   recorder's own. An unknown state shows the please-wait hourglass, never ready. The PID
   file is read in one call (no exists-then-read race).
+- [x] ✅ **Task 5.10 — Insert while stuck stops the running recording.** A client started
+  while another still records (the panel lost it) no longer clobbers the PID file and
+  starts nothing: it SIGTERMs that recorder (its graceful stop, so the text is pasted). A
+  START refused with `busy: recording` sends STOP to the server. A client whose stop has
+  begun names itself in `/dev/shm/stt-stopping-$USER.pid` until it exits; Insert then does
+  nothing but show WAITING, so a second stop never cuts its grace or drain short, and STOP
+  is not sent to a server session already stopping or draining. Tests in
+  `test_server_client.py` (`SessionOwnershipTest`).
+- [ ] **Task 5.11 — Owner's rule vs D1/D2 in the panel.** The owner has since stated that
+  Insert in the grace or while rendering is a no-op with a blocked icon. The panel still
+  follows D1 (STOPPING: TERM again stops now) and D2 (a press while finishing queues a
+  start). Needs an owner decision before the panel changes.
 
 ## Technical Decisions
 

@@ -40,6 +40,8 @@ TRANSCRIPTION_FILE = CACHE_DIR / "last-transcription.txt"
 BUFFER_FILE = CACHE_DIR / "streaming-buffer.txt"
 # Use same PID file as wsi so extension can stop us
 PID_FILE = Path("/dev/shm") / f"stt-recording-{os.getenv('USER')}.pid"
+# The PID of a client whose stop has begun (grace, drain, paste): Insert leaves it alone
+STOPPING_FILE = Path("/dev/shm") / f"stt-stopping-{os.getenv('USER')}.pid"
 
 # Server mode constants
 SERVER_SOCKET = Path(f"/run/user/{os.getuid()}/wsi-stream.socket")
@@ -391,6 +393,27 @@ def signal_end_of_client():
     """At exit: IDLE, unless a state already ended the session (then nothing)."""
     if ended_with is None:
         emit_dbus_signal("StateChanged", "IDLE")
+
+
+def recorder_alive(pid):
+    """True while `pid` is a running recording client (this script, not the server)."""
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    args = cmdline.split(b"\0")
+    return any(Path(arg.decode(errors="replace")).name == "wsi-stream" for arg in args)
+
+
+def live_recorder(pid_file):
+    """The PID of another live recording client named in `pid_file`, else None."""
+    try:
+        held = pid_file.read_text().strip()
+    except FileNotFoundError:
+        return None
+    if not held.isdigit() or int(held) == os.getpid():
+        return None
+    return int(held) if recorder_alive(int(held)) else None
 
 
 def remove_own_pid_file(pid_file):
@@ -1327,6 +1350,43 @@ def report_refused_start(response):
     notify("ERROR", f"Not recording: {reason}")
 
 
+def mark_stopping():
+    """Name this client in STOPPING_FILE: its stop has begun, and Insert must not touch it."""
+    if STOPPING_FILE.exists() and STOPPING_FILE.read_text().strip() == str(os.getpid()):
+        return
+    STOPPING_FILE.write_text(str(os.getpid()))
+    log(f"Stop begun; {STOPPING_FILE} names this client")
+
+
+def leave_finishing_dictation(why):
+    """Insert while a dictation is stopping (grace, drain, paste) does nothing: one
+    dictation at a time, and a second stop would cut its grace short."""
+    log(f"Insert ignored: {why}")
+    emit_dbus_signal("StateChanged", "WAITING")
+    desktop_notification("A dictation is still finishing; Insert starts a new one once "
+                         "its text is pasted", NOTIFY_MS)
+    return 0
+
+
+def stop_unowned_recording():
+    """START found the server busy for a client no PID file names: Insert stops it,
+    unless it is already stopping.
+
+    The text goes to that client if it is still following the session, otherwise the
+    server keeps it and hands it over at the next START (report_undelivered_dictation).
+    """
+    progress = send_server_command("PROGRESS")
+    if progress.get("status") in ("stopping", "draining"):
+        return leave_finishing_dictation(f"the server's dictation is {progress['status']}")
+    log("The server is recording for a client the panel lost; Insert stops it", "WARN")
+    reply = send_server_command("STOP")
+    if reply.get("status") == "error":
+        report_refused_start(reply)
+        return 1
+    notify("TRANSCRIBING", "Stopped the dictation that was already running")
+    return 0
+
+
 def run_server_mode(args):
     """Run in server mode - use persistent server for instant startup."""
     global debug_mode, no_notify
@@ -1390,6 +1450,7 @@ def run_server_mode(args):
             log(f"Cleanup: {command} answered {reply}", level)
 
         remove_own_pid_file(PID_FILE)
+        remove_own_pid_file(STOPPING_FILE)
         signal_end_of_client()
 
     # Register cleanup function to run on ANY exit (normal or abnormal)
@@ -1397,6 +1458,23 @@ def run_server_mode(args):
 
     # The model is resolved only if the server has to be started
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
+
+    # One dictation at a time, whatever the panel believed. A client already stopping is
+    # left alone; one still recording is stopped (its graceful stop, so its text is still
+    # pasted). Either way nothing is started.
+    finishing = live_recorder(STOPPING_FILE)
+    if finishing is not None:
+        return leave_finishing_dictation(f"recording client {finishing} is stopping")
+    owner = live_recorder(PID_FILE)
+    if owner is not None:
+        log(f"Recording client {owner} is still running; Insert stops it")
+        try:
+            os.kill(owner, signal.SIGTERM)
+        except ProcessLookupError:
+            log(f"Recording client {owner} exited before the stop; starting a new dictation")
+        else:
+            notify("TRANSCRIBING", "Stopping the dictation already running")
+            return 0
 
     # Write the PID file before a cold server start (20-30s), for the panel's check at
     # Insert for a recorder it did not start
@@ -1447,6 +1525,8 @@ def run_server_mode(args):
         cancel)
     if cancel.signum is not None:
         return cancel_start(response)
+    if response.get("busy") == "recording":
+        return stop_unowned_recording()
     if response.get("status") != "recording":
         report_refused_start(response)
         return 1
@@ -1474,6 +1554,8 @@ def run_server_mode(args):
     last_keepalive = last_progress = last_chunk = time.monotonic()
     while not stop.due() and progress.get("status") == "recording":
         announce_pending_stop(stop)
+        if stop.requested:
+            mark_stopping()  # the grace has begun
         now = time.monotonic()
         if now - last_keepalive >= KEEPALIVE_INTERVAL:
             reply = send_server_command("KEEPALIVE")
@@ -1504,6 +1586,7 @@ def run_server_mode(args):
 
     # INSTANT VISUAL FEEDBACK: Change to spinner IMMEDIATELY
     # This happens BEFORE server cleanup, so user sees instant response to Insert key
+    mark_stopping()  # until the text is pasted
     emit_dbus_signal("StateChanged", "TRANSCRIBING")
 
     # STOP closes the microphone (or, if the server stopped on its own, just reports);
