@@ -37,9 +37,6 @@ suits Rust.
 
 ## Non-Goals
 
-- Moving the existing Python under `helpers/` into `tooling-python/` or onto `py-qa-ci`.
-  That is a separate migration and the owner's decision, made when this plan has a
-  working Rust example. Recorded as an open question below.
 - `tooling-go/` or any other language before something needs it (YAGNI).
 
 ## Tasks
@@ -73,10 +70,20 @@ suits Rust.
 - [ ] ⬜ **Task 3.2**: `./scripts/qa-all.bash` and the `qa-reviewer` agent over the plan's
   diff.
 
-## Open Questions (owner)
+### Phase 4: Migrate historic tooling (owner: yes; not urgent, but to be done)
 
-- Should `helpers/` (stdlib Python, its own test runner) move to `tooling-python/` on
-  `py-qa-ci`, and when?
+The owner's order: new tooling goes under `tooling-*/` from now on. Historic tooling
+moves once the concept is proven by the first new crate or package.
+
+- [ ] ⬜ **Task 4.1**: Inventory what moves: `helpers/` (stdlib Python, its own runner,
+  invoked by plays through `command:` + `argv:`), the Python under `files/` that is
+  tooling rather than a user-facing script, and the tests under `tests/helpers/`.
+  Record each with its callers (plays, scripts, the hooks daemon's paths) in
+  `RESEARCH-migration.md`.
+- [ ] ⬜ **Task 4.2**: Move `helpers/` into `tooling-python/` on `py-qa-ci`, updating every
+  caller in the same commit. `qa-all.bash` stays green before and after.
+- [ ] ⬜ **Task 4.3**: Update `helpers/CLAUDE.md`, `.claude/rules/python-helpers.md`,
+  `playbooks/CLAUDE.md` and the AnsibleStyle references that name `helpers/`.
 
 ## Dependencies
 
