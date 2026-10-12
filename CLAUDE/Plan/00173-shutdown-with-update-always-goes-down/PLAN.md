@@ -60,7 +60,7 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
   (`ccy-sessions`).
 - [ ] ⬜ **Task 2.2**: Owner runs `shutdown-with-update` in an evening with a ccy session
   left at its startup prompt; the machine updates and powers off.
-- [ ] ⬜ **Task 2.3**: qa-reviewer pass on the branch.
+- [x] ✅ **Task 2.3**: qa-reviewer pass on the branch; its findings fixed in f1ac2371.
 
 ## Open Question for the Owner
 
@@ -80,4 +80,4 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00173-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Fix and tests on the plan branch, awaiting deploy.
+- Fix, tests and review fixes on F44 (beada13c, f1ac2371), awaiting the host deploy.
