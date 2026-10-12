@@ -271,12 +271,22 @@ repository; opt-in per machine and per team.
   `play-vm-test-lab.yml`, which is now a leg of this plan's `deploy.bash`.
   - [ ] ⬜ U23.vm host run: `meta-deploy.bash` runs `deploy.bash` (now with the
     `play-vm-test-lab.yml` leg) and then `acceptance.bash`; U23.vm must PASS and the run end
-    ACCEPTED (exit 0).
+    ACCEPTED (exit 0). The passt route is expected, not yet measured: U23.vm samples the
+    host's sockets towards the bus port and FAILS unless every passt connection left from
+    `<bus_ip>` (`members/vm/bus-sockets.txt`). README.vm, `docs/agent-bus.md` and DESIGN.md
+    3.3 say "expected" until this passes; then drop that wording.
+  - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
+    `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
+    bridged lab guest) or narrow README.vm to the passt route.
 - [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it). Wave 7: U25 (`element.py`, `play-agent-bus-element.yml`,
   `agent_bus_element_teams` in `localhost.yml.dist`) built, reviewed and fixed. Its host
   run is pending: the owner sets `agent_bus_element_teams`, then U27's `meta-deploy.bash`
   entry runs the play and the H6 checks.
+  - [ ] ⬜ P2's VM leg (DESIGN.md section 10): needs a guest whose source address is outside
+    `allow_from`, so a bridged guest (a passt guest's traffic leaves from the host itself).
+    To be designed, provisioned by IaC like U23's member (owner, 2026-10-12): never an owner
+    step, never SKIPPED-NEEDS-OWNER.
 
 ## Success Criteria
 

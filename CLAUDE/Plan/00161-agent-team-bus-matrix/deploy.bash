@@ -43,8 +43,8 @@
 # Tuwunel, the zipapps, /usr/local/bin/agent-bus and pingbus, /usr/local/sbin/agent-bus-install,
 # the member kit, the three template units (no instance enabled), and the NetworkManager dummy
 # connection agentbus0 holding <ip>, across reboots; the busybox image in docker; and the
-# vmtest lab (its packages, ~/.local/share/vmtest, its bridge units and nightly timer). Nothing of zz-deploy-check stays. The
-# log, the team file, the play vars and each installer and play run's stdout stay in the
+# vmtest lab (its packages, ~/.local/share/vmtest, its bridge units and nightly timer).
+# Nothing of zz-deploy-check stays. The log, the team file, the play vars and each installer and play run's stdout stay in the
 # untracked run directory.
 #
 # EXIT CODES: 0 every step succeeded; 1 a step failed (it names itself); 64 usage (an unknown

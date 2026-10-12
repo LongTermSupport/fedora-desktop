@@ -31,7 +31,9 @@
 #                                            drive (freshness gate, overlay, boot, SSH answered); prints
 #                                            VMTEST-MEMBER-UP. A failed boot removes the guest and its overlay
 #   vmtest member-ssh <name> <command>       run <command> in the member as the cloud user (passwordless sudo),
-#                                            stdin passed through; exits with the command's status
+#                                            stdin passed through; exits with the command's status.
+#                                            Bounded: SSH keepalives, and VMTEST_MEMBER_SSH_TIMEOUT
+#                                            seconds (default 1800; exit 124 when it is hit)
 #   vmtest member-down <name>                remove the member's guest and directory; nothing there is no error
 #   vmtest help
 #
@@ -73,6 +75,9 @@ readonly BUILD_DISK_SIZE="20G"
 # reinstalls every base (§4.4) while an unrelated edit to this CLI does not.
 readonly BUILD_RECIPE_VERSION=1
 readonly SSH_WAIT_SECONDS=600
+# One member-ssh command's ceiling, overridable per call: a dnf install fits well inside it,
+# and a guest that hangs with qemu still up must not hold its caller for ever.
+readonly MEMBER_SSH_TIMEOUT_SECONDS="${VMTEST_MEMBER_SSH_TIMEOUT:-1800}"
 readonly SHUTDOWN_WAIT_SECONDS=300
 # An Anaconda install from the network tree, in minutes; virt-install waits this long
 # for the installer to power off before the build is declared failed.
@@ -478,10 +483,10 @@ free_port() {
 # IdentitiesOnly: without it ssh offers every key in the user's agent before the lab
 # key, and sshd's MaxAuthTries locks the session out with "Too many authentication
 # failures" — measured on the first build.
+readonly GUEST_SSH_OPTS=(-o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no
+    -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
 guest_ssh() {
-    ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 \
-        -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" "$@"
+    ssh "${GUEST_SSH_OPTS[@]}" -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" "$@"
 }
 
 guest_scp() {
@@ -1490,6 +1495,8 @@ cmd_ensure_base() {
     base_facts "${key}"
     local base_dir="${BASES_DIR}/${BASE_NAME}"
     if [[ -r "${base_dir}/base.qcow2" && -r "${base_dir}/base.json" ]]; then
+        # Armed before the probe file exists; cmd_build_base replaces it with its own teardown.
+        trap 'rm -f "${PROBE_FILE:-}"' EXIT
         probe_upstream
         freshness_verdict "${base_dir}/base.json" "${base_dir}/base.qcow2"
         rm -f "${PROBE_FILE}"
@@ -1539,14 +1546,20 @@ member_domain_remove() {
 }
 
 MEMBER_UP=0
-# A member-up that did not finish leaves no guest and no overlay; the directory stays with
-# its console log for diagnosis, until member-down removes it.
+# A member-up that did not finish leaves no guest, no overlay and no SSH port (which another
+# process may since have taken); the directory stays with its console log for diagnosis,
+# until member-down removes it. Armed before the probe file exists, so it removes that too.
+# teardown_member [status] — the status is given for a signal: there `$?` is the last
+# command's, often 0, and a member-up killed in its SSH wait must not exit as if it had run.
 teardown_member() {
     local rc=$?
+    if [[ $# -gt 0 ]]; then
+        rc="$1"
+    fi
     trap - EXIT INT TERM HUP
     if [[ "${MEMBER_UP}" -ne 1 && -n "${RUN_DIR}" ]]; then
         member_domain_remove "${DOMAIN}"
-        rm -f "${RUN_DIR}/overlay.qcow2"
+        rm -f "${RUN_DIR}/overlay.qcow2" "${RUN_DIR}/ssh-port"
         log "member not started; its console log is kept in ${RUN_DIR} until: vmtest member-down $(basename "${RUN_DIR}")"
     fi
     rm -f "${PROBE_FILE:-}"
@@ -1567,11 +1580,14 @@ cmd_member_up() {
     if [[ -e "${dir}" ]] || member_domain_exists "${DOMAIN}"; then
         die "member ${name} already exists (${dir} or guest ${DOMAIN}); remove it with: vmtest member-down ${name}"
     fi
+    trap teardown_member EXIT
+    trap 'teardown_member 130' INT
+    trap 'teardown_member 143' TERM
+    trap 'teardown_member 129' HUP
     probe_upstream
     freshness_verdict "${base_dir}/base.json" "${base_dir}/base.qcow2"
     if [[ "${GATE_RC}" -ne 0 ]]; then
         printf '%s\n' "${GATE_LINE}" >&2
-        rm -f "${PROBE_FILE}"
         die "base ${BASE_NAME} may not be used (freshness: ${GATE_DECISION}); refresh it with: vmtest ensure-base ${key}"
     fi
     mkdir -p "${MEMBERS_DIR}"
@@ -1580,7 +1596,6 @@ cmd_member_up() {
 
     RUN_DIR="${dir}"
     mkdir -p "${RUN_DIR}"
-    trap teardown_member EXIT INT TERM HUP
     qemu-img create -q -f qcow2 -F qcow2 -b "${base_dir}/base.qcow2" "${RUN_DIR}/overlay.qcow2"
     GUEST_PORT="$(free_port)"
     log "member ${name}: booting ${DOMAIN} on ${BASE_NAME} (SSH forwarded to 127.0.0.1:${GUEST_PORT})"
@@ -1608,7 +1623,19 @@ cmd_member_ssh() {
     GUEST_PORT="$(<"${port_file}")"
     [[ "${GUEST_PORT}" =~ ^[0-9]+$ ]] || die "${port_file} does not hold a port"
     [[ -r "${SSH_KEY}" ]] || die "no lab SSH key at ${SSH_KEY}; deploy the lab first"
-    guest_ssh "$@"
+    [[ "${MEMBER_SSH_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] ||
+        die "VMTEST_MEMBER_SSH_TIMEOUT must be a positive number of seconds, got '${MEMBER_SSH_TIMEOUT_SECONDS}'"
+    # Bounded twice: keepalives end a session whose guest stopped answering, and the
+    # timeout ends one whose command never finishes.
+    local rc=0
+    timeout --kill-after=10 "${MEMBER_SSH_TIMEOUT_SECONDS}" ssh "${GUEST_SSH_OPTS[@]}" \
+        -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+        -i "${SSH_KEY}" -p "${GUEST_PORT}" "${CLOUD_USER}@127.0.0.1" "$@" || rc=$?
+    if [[ "${rc}" -eq 124 ]]; then
+        printf 'ERROR: member-ssh %s: the command did not finish within %ss (VMTEST_MEMBER_SSH_TIMEOUT)\n' \
+            "${name}" "${MEMBER_SSH_TIMEOUT_SECONDS}" >&2
+    fi
+    return "${rc}"
 }
 
 cmd_member_down() {

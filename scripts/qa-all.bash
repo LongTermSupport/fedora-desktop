@@ -942,9 +942,10 @@ fi
 build_dir_summary=$(qa_gate_case_count "$build_dir_out")
 qa_pass_line vmtest-build-dir-cleanup "$build_dir_summary"
 
-# vmtest's members (Plan 00161 U23.vm): guests that outlive the vmtest process. A failed
-# member-up leaves no guest, member-down is a no-op on nothing, a name is validated before
-# it reaches a path or a domain, and member-ssh returns the remote status unchanged.
+# vmtest's members (Plan 00161 U23.vm): guests that outlive the vmtest process. A failed or
+# interrupted member-up leaves no guest and no SSH port, member-down is a no-op on nothing,
+# a name is validated first, member-ssh is bounded and returns the remote status, and
+# ensure-base rebuilds only an absent or refused base.
 member_out=""
 if ! member_out="$(bash "$SCRIPT_DIR/test-vmtest-member.bash" 2>&1)"; then
     qa_hard_gate_failed vmtest-member \

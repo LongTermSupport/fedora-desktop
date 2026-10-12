@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit-test vmtest's member verbs: member-up, member-ssh and member-down.
+# Unit-test vmtest's member verbs (member-up, member-ssh, member-down) and ensure-base.
 #
 # WHY THIS EXISTS. A member is a lab guest that outlives the vmtest process: another script
 # (Plan 00161's acceptance, its U23.vm leg) boots it, drives it over SSH, and removes it. So
@@ -74,6 +74,7 @@ EOF
 cat >"$stubs/ssh" <<'EOF'
 #!/usr/bin/env bash
 printf 'ssh %s\n' "$*" >>"$STUB_STATE/calls"
+if [ -e "$STUB_STATE/ssh-hangs" ]; then exec sleep 60; fi
 exit "$(cat "$STUB_STATE/ssh-rc")"
 EOF
 chmod +x "$stubs"/*
@@ -105,6 +106,7 @@ vmtest_do() {
         probe_upstream() { PROBE_FILE="$(mktemp)"; }
         freshness_verdict() { GATE_RC="${GATE_STUB_RC}"; GATE_DECISION=stub; GATE_BASE_SIZE=0; GATE_LINE=stub; }
         helper() { return 0; }
+        cmd_build_base() { printf "BUILD %s\n" "$1" >>"$STUB_STATE/calls"; }
         main "$@"
     ' _ "$VMTEST" "$@" >"$work/out" 2>"$work/err"
 }
@@ -176,6 +178,10 @@ vmtest_do 0 member-up m3 server-fast
 check "a guest that stops before SSH: fails" "1" "$?"
 check "a guest that stops before SSH: undefined" "1" "$(calls 'undefine --nvram vmtest-member-m3')"
 check "a guest that stops before SSH: its overlay removed" "no" "$(exists "$lab/members/m3/overlay.qcow2")"
+check "a guest that stops before SSH: its SSH port removed" "no" "$(exists "$lab/members/m3/ssh-port")"
+vmtest_do 0 member-ssh m3 true
+check "a member that never came up: member-ssh refused" "1" "$?"
+check "a member that never came up: no ssh" "0" "$(calls '^ssh .* true$')"
 check "a guest that stops before SSH: its directory kept for the console log" "yes" "$(exists "$lab/members/m3")"
 
 reset_state
@@ -183,6 +189,49 @@ reset_state
 vmtest_do 0 member-up m4 server-fast
 check "virt-install fails: fails" "1" "$?"
 check "virt-install fails: its overlay removed" "no" "$(exists "$lab/members/m4/overlay.qcow2")"
+
+echo "member-up interrupted"
+reset_state
+echo 255 >"$state/ssh-rc" # SSH never answers, so member-up sits in its wait
+PATH="$stubs:$PATH" VMTEST_HOME="$lab" bash -c '
+    . "$1"
+    load_lab() { mkdir -p "${IMAGES_DIR}" "${BASES_DIR}"; }
+    base_facts() { BASE_NAME="$1-44"; BASE_KIND=fast; BASE_PROFILE=server; BASE_VCPUS=2; BASE_RAM_MIB=4096; }
+    probe_upstream() { PROBE_FILE="$(mktemp)"; }
+    freshness_verdict() { GATE_RC=0; GATE_DECISION=stub; GATE_BASE_SIZE=0; GATE_LINE=stub; }
+    helper() { return 0; }
+    main member-up m6 server-fast
+' _ "$VMTEST" >"$work/out" 2>"$work/err" &
+upPid=$!
+for ((i = 0; i < 100; i++)); do
+    if [ -e "$lab/members/m6/ssh-port" ]; then break; fi
+    sleep 0.1
+done
+kill -TERM "$upPid"
+upRc=0
+wait "$upPid" || upRc=$?
+check "SIGTERM during member-up: exits 143, never 0" "143" "$upRc"
+check "SIGTERM during member-up: the guest destroyed" "1" "$(calls 'destroy vmtest-member-m6')"
+check "SIGTERM during member-up: the guest undefined" "1" "$(calls 'undefine --nvram vmtest-member-m6')"
+check "SIGTERM during member-up: overlay and SSH port removed" "no no" \
+    "$(exists "$lab/members/m6/overlay.qcow2") $(exists "$lab/members/m6/ssh-port")"
+
+echo "ensure-base"
+reset_state
+vmtest_do 0 ensure-base server-fast
+check "a usable base: exits 0" "0" "$?"
+check "a usable base: not rebuilt" "0" "$(calls '^BUILD')"
+check "a usable base: reported current" "VMTEST-BASE-CURRENT server-fast-44 decision=stub" "$(cat "$work/out")"
+
+reset_state
+vmtest_do 1 ensure-base server-fast
+check "a base the gate refuses: exits 0" "0" "$?"
+check "a base the gate refuses: rebuilt" "1" "$(calls '^BUILD server-fast$')"
+
+reset_state
+vmtest_do 0 ensure-base server-other
+check "an absent base: exits 0" "0" "$?"
+check "an absent base: built" "1" "$(calls '^BUILD server-other$')"
 
 echo "member-ssh"
 reset_state
@@ -197,6 +246,15 @@ echo 7 >"$state/ssh-rc"
 vmtest_do 0 member-ssh m5 'sudo -n true'
 check "the remote command's status is returned" "7" "$?"
 check "on the member's port, as the cloud user, with the lab key" "1" "$(calls "-i $lab/ssh/lab-key -p 40123 fedora@127[.]0[.]0[.]1 sudo -n true$")"
+check "with SSH keepalives" "1" "$(calls 'ServerAliveInterval=15 -o ServerAliveCountMax=4')"
+
+: >"$state/ssh-hangs"
+VMTEST_MEMBER_SSH_TIMEOUT=1 vmtest_do 0 member-ssh m5 'dnf -y install git-core'
+check "a command that never finishes: ended by the timeout (124)" "124" "$?"
+check "a command that never finishes: says so" "1" "$(grep -c 'did not finish within 1s' "$work/err")"
+
+VMTEST_MEMBER_SSH_TIMEOUT=soon vmtest_do 0 member-ssh m5 true
+check "a malformed timeout: refused" "1" "$?"
 
 if [ "$failed" -ne 0 ]; then
     echo "  last stderr:"

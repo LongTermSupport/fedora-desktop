@@ -12,12 +12,14 @@ team grants and its limits, is docs/agent-bus.md in the fedora-desktop repositor
 
 2. The network. A guest on the homeserver's own machine reaches the bus address,
    `<bus_ip>`. On a libvirt bridge (qemu:///system's default network) it is routed through
-   the bridge, so the team file's `allow_from` must list that network's subnet. On
-   user-mode networking (passt, as rootless qemu:///session guests and the vmtest lab use)
-   its connections leave from the host itself, as a ccy session's do, and the homeserver
-   sees `<bus_ip>`, which it always allows: nothing is added. A guest elsewhere reaches the
-   team's WireGuard address, `<wg_ip>`, and `allow_from` lists the WireGuard subnet or the
-   guest's peer address.
+   the bridge, so the team file's `allow_from` must list that network's subnet (not yet
+   exercised by any acceptance run). On user-mode networking (passt, as rootless
+   qemu:///session guests and the vmtest lab use) its connections are expected to leave
+   from the host itself, as a ccy session's do, so that the homeserver sees `<bus_ip>`,
+   which it always allows, and nothing is added (expected, not yet confirmed on a host;
+   the member's first `pingbus recv` joining the team confirms it for your guest). A guest
+   elsewhere reaches the team's WireGuard address, `<wg_ip>`, and `allow_from` lists the
+   WireGuard subnet or the guest's peer address.
 
 3. The member's arguments. Inside the guest, as the agent user, in its checkout:
 
