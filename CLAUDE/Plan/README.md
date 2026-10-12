@@ -34,6 +34,10 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - Not Started. With a Bluetooth headset chosen as GNOME's input, dictation still recorded from the laptop microphone: PipeWire's default source never became the headset, and the headset stayed in A2DP (no microphone). Triage why GNOME and PipeWire disagree, fix it in `play-hd-audio.yml` (dictation keeps following the system input), then measure the headset's level and add gain only if needed.
+
+- [00171-stt-insert-never-ignored-icon-in-sync](00171-stt-insert-never-ignored-icon-in-sync/) - Not Started (owner decisions D1 to D3). Insert was swallowed and the panel showed idle over a live dictation: an old client's untagged IDLE signals and its unconditional PID-file delete hijacked the new client's state. Session-tokened signals, own-PID-only cleanup, a visible rejected START, lifelong liveness reconciliation, a "blocked" icon for presses while finishing.
+
 - [00170-unifi-network-tooling](00170-unifi-network-tooling/) - In Progress. Tooling for the on-demand UniFi controller: the admin login is vaulted and applied by the play, a read-only API client logs in with it, and a probe shows which DSCP markings the Wi-Fi drops. Built in the plan folder first, then moved to durable tooling under `files/`.
 
 - [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - In Progress. The ccy image's git (2.39, Debian bookworm) could not read a repo the host's git had written, and nothing noticed. ccy now refuses to start when the container's git cannot read the repo (CCY 3.91.0, accepted on the host); still to come: tool-version floors at build time; a Fedora base at the host's release, built weekly by GitHub Actions; Node through nvm; a major ccy version.
