@@ -53,18 +53,6 @@ _PREVIOUS_BOOT_PID1 = [
     "journalctl", "-b", "-1", "_PID=1", "-n", "1", "-o", "cat", "--no-pager", "-q",
 ]
 
-#: Error-priority lines shutdown-with-update journalled in the previous boot, message text
-#: only. `-q` drops journalctl's own notes, which are not the script's.
-_PREVIOUS_SHUTDOWN_ERRORS = [
-    "journalctl", "-b", "-1", "-t", "shutdown-with-update", "-p", "err",
-    "-o", "cat", "--no-pager", "-q",
-]
-#: The previous boot's newest line from PID 1: present in every boot's system journal, so
-#: an empty answer means this user cannot read that journal.
-_PREVIOUS_BOOT_PID1 = [
-    "journalctl", "-b", "-1", "_PID=1", "-n", "1", "-o", "cat", "--no-pager", "-q",
-]
-
 #: How long a login is willing to wait for one probe. `systemctl` against an
 #: unreachable bus can otherwise hang, and a health check that stalls the session
 #: gets removed from the session.
