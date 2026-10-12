@@ -285,29 +285,34 @@ def with_allow_from(team: dict, cidrs: Sequence[str]) -> dict:
 
 
 _PASST_PROCESS_RE = re.compile(r'users:\(\("passt[^"]*"')
+_OWNER_RE = re.compile(r"users:\(\(")
 _SS_STATES = frozenset({"ESTAB", "SYN-SENT", "SYN-RECV", "FIN-WAIT-1", "FIN-WAIT-2", "TIME-WAIT",
                         "CLOSE-WAIT", "LAST-ACK", "CLOSING", "CLOSED", "UNCONN", "LISTEN"})
 
 
 def passt_sources(text: str) -> list[tuple[str, str]]:
-    """Each (state, source address) of a socket a passt process held towards the bus port,
+    """Each (state, source address) of a socket that carried the guest towards the bus port,
     once each, in the order first seen. `text` is samples of `ss -tnpH state all '( dport =
     :<port> )'` taken while the vm member joined and pinged: passt carries the guest's
     connections out through such sockets, so their local address is the source the
-    homeserver saw. Sockets of any other process (the host members) are skipped."""
+    homeserver saw. A closed socket (TIME-WAIT) has no owner for ss to name, so a socket is
+    the guest's when passt owns it or nothing does; a loopback source is a host member's,
+    and a socket another process owns is skipped."""
     seen: list[tuple[str, str]] = []
     for raw in text.splitlines():
-        if not _PASST_PROCESS_RE.search(raw):
-            continue
         fields = raw.split()
         if fields and fields[0] in ("tcp", "tcp6"):
             fields = fields[1:]
-        if len(fields) < 6 or fields[0] not in _SS_STATES:
-            raise ValueError(f"not an ss line of state, queues, local, peer and process: {raw!r}")
+        if len(fields) < 5 or fields[0] not in _SS_STATES:
+            raise ValueError(f"not an ss line of state, queues, local and peer: {raw!r}")
+        if _OWNER_RE.search(raw) and not _PASST_PROCESS_RE.search(raw):
+            continue
         host = fields[3].rpartition(":")[0].removeprefix("[").removesuffix("]")
-        source = str(ipaddress.ip_address(host))
-        if (fields[0], source) not in seen:
-            seen.append((fields[0], source))
+        address = ipaddress.ip_address(host)
+        if address.is_loopback:
+            continue
+        if (fields[0], str(address)) not in seen:
+            seen.append((fields[0], str(address)))
     return seen
 
 
@@ -315,8 +320,9 @@ def passt_problems(seen: Sequence[tuple[str, str]], bus_address: str) -> list[st
     """What the samples say against README.vm's passt route: the guest's connections leave
     from the host itself, so the homeserver sees `bus_address`, a listen address it admits."""
     if not seen:
-        return ["no connection from a passt process to the bus port was seen on this host: the guest "
-                "never reached it (its route out through passt, or passt's SELinux policy)"]
+        return ["no connection from the guest to the bus port was seen on this host (none owned by passt or "
+                "closed, from outside loopback): it never reached it (its route out through passt, or "
+                "passt's SELinux policy)"]
     bus = str(ipaddress.ip_address(bus_address))
     return [f"the passt guest's connection ({state}) left from {source}, not {bus}: the homeserver admits "
             f"only loopback, its listen addresses and allow_from, so a passt guest would need {source}'s "
