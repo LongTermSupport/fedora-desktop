@@ -30,6 +30,13 @@ Owner's answers:
 - `~/.config/fedora-desktop/speech-to-text/vocabulary.txt` (one word or phrase per line)
   primes every recorder; `replacements.txt` (`heard => meant`, whole-phrase,
   case-insensitive) corrects the final text.
+- **British English (owner).** Whisper has no en-GB setting, only `en`. The prime
+  carries British spelling and usage (colour, organise; "zed", not "zee"), so the
+  output follows them. In server mode the continuous session already passes the
+  previous transcript as `initial_prompt` (`wsi-stream-server`, `_transcript.prompt`),
+  so the vocabulary prime must be combined with it, not replace it. Starter
+  replacements from real misses: `ZI`/`Z-I` ⇒ `CI`, `open shocks` ⇒ `OpenRun Shokz`,
+  `rust QA ZI` ⇒ `rust-qa-ci`, `PY-QA-C-I` ⇒ `py-qa-ci`.
 - Settings has a row for each that opens it in the editor.
 - `~/.config/fedora-desktop/` is a checkout of the private config repo, managed by a play,
   never overwriting local edits. Without a config repo it is a plain folder and every
