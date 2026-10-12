@@ -31,13 +31,18 @@ from helpers.host_health import probe, probe_results
 RUNNING_KERNEL = "7.2.4-200.fc44.x86_64"
 DKMS_HEALTHY = f"evdi/1.15.0, {RUNNING_KERNEL}, x86_64: installed"
 DKMS_STALE_ONLY = "evdi/1.15.0, 7.1.9-200.fc44.x86_64, x86_64: installed"
+PID1_PROBE = "_PID=1"
+PID1_LINE = "Reached target shutdown.target"
+SHUTDOWN_PROBE = "-t shutdown-with-update"
 
 
 class FakeRunner:
     """Stands in for the subprocess call, recording the argv it was handed."""
 
     def __init__(self, answers: dict[str, tuple[bool, str, str]]) -> None:
-        self.answers = answers
+        # A readable system journal unless a test says otherwise: an empty answer to the
+        # PID 1 probe is itself a finding (the journal could not be read).
+        self.answers = {PID1_PROBE: (True, PID1_LINE, ""), **answers}
         self.calls: list[list[str]] = []
 
     def __call__(self, argv: list[str]) -> probe.probe_results.ProbeOutcome:
@@ -93,10 +98,24 @@ class TestRunProbe(unittest.TestCase):
 
 
 class TestProbesRunAsArgv(unittest.TestCase):
-    def test_three_probes_are_run(self) -> None:
+    def test_five_probes_are_run(self) -> None:
         runner = healthy()
         probe.collect(running_kernel=RUNNING_KERNEL, runner=runner)
-        self.assertEqual(len(runner.calls), 3)
+        self.assertEqual(len(runner.calls), 5)
+
+    def test_the_shutdown_probes_read_the_PREVIOUS_boot_only(self) -> None:
+        """Scoped to the boot before this one, so a failure shows for one boot and
+        never again; error priority, so a clean run's lines never count."""
+        runner = healthy()
+        probe.collect(running_kernel=RUNNING_KERNEL, runner=runner)
+        journal = [c for c in runner.calls if c[0] == "journalctl"]
+        self.assertEqual(len(journal), 2)
+        for call in journal:
+            self.assertEqual(call[call.index("-b") + 1], "-1")
+            self.assertIn("--no-pager", call)
+        tagged = [c for c in journal if "shutdown-with-update" in c]
+        self.assertEqual(len(tagged), 1)
+        self.assertEqual(tagged[0][tagged[0].index("-p") + 1], "err")
 
     def test_every_probe_is_an_argv_list_not_a_shell_string(self) -> None:
         runner = healthy()
@@ -146,6 +165,20 @@ class TestCollect(unittest.TestCase):
         })
         report = probe.collect(running_kernel=RUNNING_KERNEL, runner=runner)
         self.assertFalse(report.clean)
+
+    def test_a_failed_shutdown_with_update_in_the_previous_boot_is_a_finding(self) -> None:
+        runner = FakeRunner({
+            "dkms": (True, DKMS_HEALTHY, ""),
+            SHUTDOWN_PROBE: (True, "dnf upgrade failed\n", ""),
+        })
+        report = probe.collect(running_kernel=RUNNING_KERNEL, runner=runner)
+        self.assertEqual(len(report.findings), 1)
+        self.assertIn("dnf upgrade failed", report.texts[0])
+
+    def test_an_unreadable_system_journal_is_a_finding(self) -> None:
+        runner = FakeRunner({"dkms": (True, DKMS_HEALTHY, ""), PID1_PROBE: (True, "", "")})
+        report = probe.collect(running_kernel=RUNNING_KERNEL, runner=runner)
+        self.assertEqual([f.checked for f in report.findings], [False])
 
     def test_it_reports_on_the_host_only(self) -> None:
         """Phase 2's findings do not come through here. They merge in
@@ -221,7 +254,8 @@ class TestRunningKernel(unittest.TestCase):
             runner=lambda argv: probe_results.ProbeOutcome(
                 ok=False, text="", error="dkms: command not found", missing=True)
             if argv[0] == "dkms"
-            else probe_results.ProbeOutcome(ok=True, text="", error=""),
+            else probe_results.ProbeOutcome(
+                ok=True, text=PID1_LINE if PID1_PROBE in argv else "", error=""),
             registry=probe_results.DkmsRegistry(present=False),
         )
         self.assertTrue(report.clean)

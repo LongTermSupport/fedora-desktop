@@ -20,6 +20,9 @@
 #            and an inhibitor are all reported and then gone past (inhibitors with
 #            `-i`). Nothing waits without a bound. A failed update step, dnf included,
 #            is journalled (journalctl -t shutdown-with-update) and the run goes on.
+# On either profile every refusal that leaves the machine up is journalled the same way, and
+# the next boot's host-health report shows the previous boot's lines in the fedora-desktop
+# panel (helpers/host_health/probe_results.py).
 #   server   session-strict: any of those stops it and leaves the machine up, as does a
 #            failed dnf, and a refused shutdown asks whether to force it. `--strict-sessions` asks for this on
 #            a desktop too.
@@ -54,21 +57,47 @@ cancel() {
 }
 trap cancel INT TERM
 
-# Armed just BEFORE the first warning goes out, so every exit from then on that is not the
-# machine going down withdraws it: a warning that failed part-way (some projects already
-# signalled), a failed one-minute warning, Ctrl-C in the countdown, a shutdown refused and
-# not forced, no terminal to ask on, a power action that fails. A successful power action
-# never returns here, or returns 0.
-withdraw_unless_down() {
+# journal <text> — record a problem where the next boot reads it: host-health's post-boot
+# probe reports every user.err line under this tag from the previous boot in the
+# fedora-desktop panel. A journal that cannot be written is said on stderr and does not
+# stop the run; the text has already been printed.
+journal() {
+    if ! logger -t shutdown-with-update -p user.err -- "$1"; then
+        echo "Warning: could not record this in the system journal: $1" >&2
+    fi
+}
+
+# refuse <text> — stop with the machine left up: said, journalled, exit 1.
+EXIT_JOURNALLED=false
+refuse() {
+    echo "Error: $1" >&2
+    journal "$1"
+    EXIT_JOURNALLED=true
+    exit 1
+}
+
+# Every exit that leaves the machine up is journalled for the next boot, except a usage
+# error (64: nothing ran) and a cancel (130: the person chose it). One that `refuse` did not
+# journal (a power action that failed under set -e) is journalled here by its status.
+# Once the sessions have been warned, such an exit also withdraws the warning: a warning
+# that failed part-way, a failed one-minute warning, Ctrl-C in the countdown, a shutdown
+# refused and not forced, no terminal to ask on, a power action that fails. A successful
+# power action never returns here, or returns 0.
+on_exit() {
     local status=$?
+    if [ "$status" -ne 0 ] && [ "$status" -ne 64 ] && [ "$status" -ne 130 ] && [ "$EXIT_JOURNALLED" = false ]; then
+        journal "$(basename "$0") stopped with exit status $status before the $MODE, so the machine stayed up; the reason was printed where it ran"
+    fi
     if [ "$status" -ne 0 ] && [ "$SESSIONS_WARNED" = true ]; then
         echo "The machine is staying up; telling the sessions the $MODE is off." >&2
         if ! sessions notify reboot-cancelled; then
             echo "Error: the sessions could not be told; they still expect the $MODE." >&2
+            journal "the sessions could not be told the $MODE was off; they still expected it"
         fi
     fi
     exit "$status"
 }
+trap on_exit EXIT
 
 # A minute, in seconds; the bound on any one ccy-sessions call; and where the profile is
 # recorded. Overridable so a test can drive them; nothing else should ever set them.
@@ -90,19 +119,9 @@ warn_sessions() {
         return 0
     fi
     if [ "$STRICT_SESSIONS" = true ]; then
-        echo "Error: the sessions could not all be warned (see above), so the machine stays up." >&2
-        exit 1
+        refuse "the sessions could not all be warned of the $MODE (see above), so the machine stays up."
     fi
     echo "Warning: the sessions could not all be warned (see above). Going ahead: on a desktop the $MODE always happens." >&2
-}
-
-# journal <text> — record a failure where it is seen after the next boot:
-# `journalctl -t shutdown-with-update`. A journal that cannot be written is said on stderr
-# and does not stop the run; the text has already been printed.
-journal() {
-    if ! logger -t shutdown-with-update -p user.err -- "$1"; then
-        echo "Warning: could not record this in the system journal: $1" >&2
-    fi
 }
 
 # step_failed <step> — an update step that failed: said, journalled, and listed in the
@@ -178,16 +197,14 @@ while [ $# -gt 0 ]; do
 done
 
 if [ ! -r "$PROFILE_FILE" ]; then
-    echo "Error: $PROFILE_FILE is missing, so it is not known whether this is a desktop or a server; playbooks/imports/play-basic-configs.yml deploys it" >&2
-    exit 1
+    refuse "$PROFILE_FILE is missing, so it is not known whether this is a desktop or a server; playbooks/imports/play-basic-configs.yml deploys it"
 fi
 PROFILE="$(<"$PROFILE_FILE")"
 case "$PROFILE" in
 desktop) STRICT_SESSIONS="$STRICT_FLAG" ;;
 server) STRICT_SESSIONS=true ;;
 *)
-    echo "Error: $PROFILE_FILE says '$PROFILE'; expected desktop or server. Re-run playbooks/imports/play-basic-configs.yml" >&2
-    exit 1
+    refuse "$PROFILE_FILE says '$PROFILE'; expected desktop or server. Re-run playbooks/imports/play-basic-configs.yml"
     ;;
 esac
 if [ "$STRICT_SESSIONS" = true ]; then
@@ -202,32 +219,27 @@ fi
 # out after twenty minutes of dnf would be the wrong order. The rehearsal is the same notify
 # with --dry-run: it signals nothing, and prints the kind the sessions will actually be sent.
 if [ -z "${SUDO_USER:-}" ]; then
-    echo "Error: $(basename "$0") must be run through sudo from the user whose sessions are to be warned" >&2
-    exit 1
+    refuse "$(basename "$0") must be run through sudo from the user whose sessions are to be warned"
 fi
 # From a root shell sudo reports SUDO_USER=root, and root has no ccy-sessions: the ccy
 # sessions are the desktop user's. Refused rather than run unwarned — an agent killed
 # mid-step by an unannounced power-off is what the warning exists to prevent.
 if [ "$SUDO_USER" = root ]; then
-    echo "Error: run $(basename "$0") through sudo from the desktop user whose ccy/cc sessions are to be warned, not from a root shell" >&2
-    exit 1
+    refuse "run $(basename "$0") through sudo from the desktop user whose ccy/cc sessions are to be warned, not from a root shell"
 fi
 # Status captured explicitly: under strict mode a failed getent would otherwise abort
 # with no message at all, two lines before the one that names the problem.
 if ! user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)" || [ -z "$user_home" ]; then
-    echo "Error: could not resolve a home directory for $SUDO_USER (getent passwd), so ccy-sessions cannot be found" >&2
-    exit 1
+    refuse "could not resolve a home directory for $SUDO_USER (getent passwd), so ccy-sessions cannot be found"
 fi
 CCY_SESSIONS="$user_home/.local/bin/ccy-sessions"
 if [ ! -x "$CCY_SESSIONS" ]; then
-    echo "Error: $CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it" >&2
-    exit 1
+    refuse "$CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it"
 fi
 echo "Checking that every running ccy/cc session can be warned..."
 if ! sessions notify going-down --minutes "$REBOOT_MINUTES" --dry-run; then
     if [ "$STRICT_SESSIONS" = true ]; then
-        echo "Error: not every session can be warned (see above). Nothing was updated and the machine stays up." >&2
-        exit 1
+        refuse "not every session can be warned of the $MODE (see above). Nothing was updated and the machine stays up."
     fi
     echo "Warning: not every session can be warned (see above). Going ahead: on a desktop the update and the $MODE always happen (--strict-sessions refuses instead)." >&2
 fi
@@ -241,8 +253,7 @@ firmware_step "firmware update" update -y
 echo "Starting system package updates..."
 if ! dnf -y upgrade; then
     if [ "$STRICT_SESSIONS" = true ]; then
-        echo "Error: Package updates failed. The machine stays up." >&2
-        exit 1
+        refuse "dnf upgrade failed, so the $MODE is off and the machine stays up."
     fi
     step_failed "dnf upgrade"
 fi
@@ -350,7 +361,6 @@ fi
 echo "Warning running ccy/cc sessions: $MODE in $REBOOT_MINUTES minute(s)..."
 # Set BEFORE the notify: one that fails part-way has already reached some projects.
 SESSIONS_WARNED=true
-trap withdraw_unless_down EXIT
 warn_sessions "$REBOOT_MINUTES"
 if [ "$REBOOT_MINUTES" -gt 1 ]; then
     countdown $(((REBOOT_MINUTES - 1) * MINUTE_SECONDS))
@@ -379,7 +389,7 @@ if [ "$MODE" = "reboot" ]; then
         exit 0
     fi
     if [ "$STRICT_SESSIONS" = true ]; then
-        exit 1
+        refuse "the reboot was refused (see above) and a session-strict run does not force it, so the machine stays up."
     fi
     echo "Reboot refused (see above); forcing it past inhibitors, as a desktop always reboots..." >&2
     systemctl reboot -i
@@ -410,7 +420,6 @@ if ! shutdown -h now 2>&1; then
         trap '' INT TERM
         systemctl poweroff -i
     else
-        echo "Shutdown cancelled. The machine stays up." >&2
-        exit 1
+        refuse "Shutdown cancelled: it was blocked by inhibitors or logged-in users and not forced, so the machine stays up."
     fi
 fi

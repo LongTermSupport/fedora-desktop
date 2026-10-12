@@ -450,7 +450,9 @@ such file, or an unknown value in it, both commands refuse before updating.
   minutes is reported and gone past; a blocked shutdown or reboot is forced past its
   inhibitors (`-i`). An update step that fails, `dnf` included, does not stop it either:
   each failure, and a summary just before the power action, is recorded in
-  `journalctl -t shutdown-with-update` to read after the next boot.
+  `journalctl -t shutdown-with-update` to read after the next boot. So is every refusal
+  that leaves the machine up, on either profile (not a usage error, not Ctrl-C). The next
+  boot's host-health report shows the previous boot's lines in the fedora-desktop panel.
 - **Server**, or `--strict-sessions` on a desktop: session-strict. The warning is
   rehearsed with `--dry-run` **before** updating, so a session that cannot be warned
   stops it before twenty minutes of `dnf`. A failed `dnf` stops it with the machine up.

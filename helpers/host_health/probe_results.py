@@ -187,6 +187,49 @@ def _unit_outcome_findings(outcome: ProbeOutcome, *, scope: str) -> list[Finding
     return [broken(text) for text in failed_unit_findings(outcome.text, scope=scope)]
 
 
+#: Where a reader of a shutdown-with-update finding looks for the full record.
+SHUTDOWN_JOURNAL_COMMAND = "journalctl -t shutdown-with-update -b -1 --no-pager"
+
+
+def previous_shutdown_findings(
+    *, messages: ProbeOutcome, system_journal: ProbeOutcome
+) -> list[Finding]:
+    """What shutdown-with-update / reboot-with-update journalled as errors in the boot
+    before this one: failed update steps, their summary, and every refusal that left
+    the machine up. One finding for the lot, because they are one run's story.
+
+    Scoped to the previous boot, so a failure is reported for the boot after it and
+    never again. A clean run journals nothing at error priority, so it says nothing.
+
+    **No lines is only clean when the system journal was readable.** A user outside
+    the groups that may read it gets the user's own journal and exit 0 — the very shape
+    of a clean run. `system_journal` is the previous boot's newest line from PID 1,
+    which every boot has, so its absence means this user cannot see the system journal
+    and the silence is unchecked, not clean.
+    """
+    if not messages.ok:
+        return [unchecked(
+            "whether shutdown-with-update reported a problem in the previous boot could "
+            f"not be checked: {messages.error}"
+        )]
+    lines = [line.strip() for line in messages.text.splitlines() if line.strip()]
+    if lines:
+        return [broken(
+            "shutdown-with-update reported in the previous boot: "
+            f"{'; '.join(lines)} ({SHUTDOWN_JOURNAL_COMMAND})"
+        )]
+    if not system_journal.ok or not system_journal.text.strip():
+        reason = system_journal.error if not system_journal.ok else (
+            "no line from systemd itself was visible, so this user cannot read the "
+            "system journal (the wheel, adm and systemd-journal groups may)"
+        )
+        return [unchecked(
+            "whether shutdown-with-update reported a problem in the previous boot could "
+            f"not be checked: {reason}"
+        )]
+    return []
+
+
 def build_report(
     *,
     dkms: ProbeOutcome,

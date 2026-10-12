@@ -327,6 +327,61 @@ class TestFindingsSayWhetherTheCheckLooked(unittest.TestCase):
         self.assertEqual(probe_results.broken("x").text, "x")
 
 
+class TestPreviousShutdownFindings(unittest.TestCase):
+    """What shutdown-with-update journalled as errors in the boot before this one."""
+
+    READABLE = probe_results.ProbeOutcome(ok=True, text="Reached target shutdown.target\n", error="")
+    NOTHING = probe_results.ProbeOutcome(ok=True, text="", error="")
+
+    def test_a_clean_run_says_nothing(self) -> None:
+        self.assertEqual(
+            probe_results.previous_shutdown_findings(
+                messages=self.NOTHING, system_journal=self.READABLE),
+            [])
+
+    def test_failed_steps_are_ONE_fault_naming_each_and_where_to_look(self) -> None:
+        messages = probe_results.ProbeOutcome(
+            ok=True,
+            text="dnf upgrade failed\nupdate steps that failed before the shutdown: dnf upgrade\n",
+            error="")
+        findings = probe_results.previous_shutdown_findings(
+            messages=messages, system_journal=self.READABLE)
+        self.assertEqual(len(findings), 1)
+        self.assertTrue(findings[0].checked)
+        self.assertIn("dnf upgrade failed; update steps that failed", findings[0].text)
+        self.assertIn("journalctl -t shutdown-with-update -b -1 --no-pager", findings[0].text)
+        self.assertNotIn("\n", findings[0].text)
+
+    def test_lines_are_reported_even_if_the_readability_probe_failed(self) -> None:
+        """The lines themselves prove the journal was read."""
+        messages = probe_results.ProbeOutcome(ok=True, text="refused\n", error="")
+        findings = probe_results.previous_shutdown_findings(
+            messages=messages,
+            system_journal=probe_results.ProbeOutcome(ok=False, text="", error="x"))
+        self.assertEqual([f.checked for f in findings], [True])
+
+    def test_silence_from_an_UNREADABLE_system_journal_is_unchecked_not_clean(self) -> None:
+        """A user outside the journal's groups gets their own journal and exit 0: the
+        same empty answer as a clean run."""
+        findings = probe_results.previous_shutdown_findings(
+            messages=self.NOTHING, system_journal=self.NOTHING)
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].checked)
+        self.assertIn("cannot read the system journal", findings[0].text)
+
+    def test_a_journalctl_that_failed_is_unchecked_with_its_error(self) -> None:
+        """No previous boot recorded, for one: that is not a clean previous shutdown."""
+        failed = probe_results.ProbeOutcome(
+            ok=False, text="", error="journalctl: Data from the specified boot (-1) is not available")
+        for findings in (
+            probe_results.previous_shutdown_findings(messages=failed, system_journal=self.READABLE),
+            probe_results.previous_shutdown_findings(messages=self.NOTHING, system_journal=failed),
+        ):
+            self.assertEqual(len(findings), 1)
+            self.assertFalse(findings[0].checked)
+            self.assertIn("specified boot", findings[0].text)
+
+
 class TestReport(unittest.TestCase):
     def test_a_healthy_host_produces_NO_findings(self) -> None:
         report = probe_results.build_report(

@@ -54,6 +54,16 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
 - [x] ✅ **Task 1.5**: A desktop goes on past a failed update step, `dnf` included,
   journalling each failure and a summary before the power action; a strict run still
   stops on a failed `dnf` (Technical Decisions).
+- [x] ✅ **Task 1.6**: Owner: "ensure any shutdown-with-update related issues do get
+  reported in the extension on next boot". Every refusal that leaves the machine up is
+  journalled too (a `refuse` helper, and the EXIT trap for one that did not go through it;
+  not a usage error or Ctrl-C). The host-health post-boot probe
+  (`helpers/host_health/probe.py`) reads the previous boot's error lines under the tag and
+  reports them as one finding in the panel's post-boot-health section, with
+  `journalctl -t shutdown-with-update -b -1 --no-pager` to read. Previous boot only, so it
+  shows for one boot; an empty answer from a system journal this user cannot read is
+  unchecked, not clean. Deployed by `play-basic-configs.yml` (the script); the collector
+  runs from the checkout (`host-health.service`), so it needs no play.
 
 ### Phase 2: Deploy and accept
 
