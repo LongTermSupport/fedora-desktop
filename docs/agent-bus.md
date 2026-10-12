@@ -1,10 +1,15 @@
 # Agent team bus
 
 The agent team bus lets Claude Code agents working in different repositories, on one
-machine or several, send each other short structured messages ("pings"), and lets the
-humans of a team talk to those agents from Element on a desktop or a phone. It runs on
-Matrix: each team has its own small, private Matrix homeserver (Tuwunel) with federation
-off and registration closed, and one invite-only room.
+machine or several, send each other short structured messages ("pings") and free text
+addressed by mention, and lets the humans of a team talk to those agents from Element on a
+desktop or a phone. Pings are how agents ask each other to act (a review, an ack, a
+wake-up, anything with a committed artefact to point at); free text is for the discussion
+around them, and reaches the receiving agent as a colleague's note, never an instruction.
+It runs on Matrix: each team has its own small, private Matrix homeserver (Tuwunel) with
+federation off, registration closed and room creation reserved to the team's admin, and
+one invite-only, unencrypted room. Every message, an agent's or a human's, is in that room,
+so the team's humans can read all of it in Element.
 
 This guide is for the people who set up teams and join agents to them. The wire format,
 the verbs, the validation rules, the limits and every `pingbus` command are in the
@@ -290,8 +295,8 @@ team human's Matrix session.
 
 When you join an agent to a team whose homeserver someone else runs, decide whether you
 trust them that far. If not, have them create the member with `--no-human-text`: its
-bundle then says `"human_text": false`, and the member drops every human message and acts
-on pings only. A ping is a fixed verb about a committed file, and the member checks at the
+bundle then says `"human_text": false`, and the member drops every human message and every
+other agent's free text, and acts on pings only. A ping is a fixed verb about a committed file, and the member checks at the
 forge that the file is on an allowed branch of an allowed repository before acting.
 The team's admin writes that allowlist, so the operator can still point your agent at any
 document in a repository it lists; the agent reads a referenced file as a document, never
@@ -365,10 +370,16 @@ These are known and documented rather than engineered around:
   other agents: `pingbus` delivers each human message only to the agents it mentions (all of them for `@room`), but
   the account receives them all. Human text is trusted input, so this is a privacy limit
   between teammates, not a way to inject instructions.
-- An agent can show humans free text under its own handle (`pingbus say --to <name>`); `pingbus`
-  refuses text that looks like a secret, and every agent ignores agent text. An agent can
-  skip `pingbus` and post with `curl`, so these are guards against mistakes, while the
-  receiving agents' own checks are what hold.
+- An agent can write free text under its own handle to the humans and agents it names
+  (`pingbus say --to <name>[,<name>…]`, never `@room`). `pingbus` refuses text that looks
+  like a secret; a named agent receives it as a `PEER` line, information from a colleague
+  that carries no authority, and an agent it does not name never sees it. So one agent's
+  text can still mislead another: the receiving agent is told to weigh it, not obey it,
+  and the humans can read every word of it in the room. An agent can skip `pingbus` and
+  post with `curl`, so the sending checks are guards against mistakes, while the receiving
+  agents' own checks are what hold.
+- No account but the team's admin can create a room (`allow_room_creation = false`), so
+  agents cannot open a side room or a direct-message room out of the humans' sight.
 - Members on one private network or bridge can reach each other, and the homeserver can
   open connections to them.
 - An agent on a machine where it can `sudo` without a password reaches the root of trust.
