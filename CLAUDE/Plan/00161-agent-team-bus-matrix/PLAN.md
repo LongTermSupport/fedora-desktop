@@ -250,7 +250,9 @@ repository; opt-in per machine and per team.
   (settled by H1's dummy leg, M2). No host run of its own.
   U23 built; its first host run (26-10-09) started the LXC member and stopped because
   `lxc-attach` re-owns the files it is given as stdio, so the run could not read its own
-  output; the LXC steps now hand it pipes. Host run pending: `acceptance.bash` slice (`_acceptance-u23.inc.bash`), after
+  output; the LXC steps now hand it pipes. Host run of 26-10-12: U23.lxc and U23.docker
+  PASS; U23.vm SKIPPED-NEEDS-OWNER (no guest named), so the acceptance ended NOT ACCEPTED
+  (exit 3) and waits on the owner's guest. The slice (`_acceptance-u23.inc.bash`) runs after
   M1 in the same acceptance team. A throwaway LXC container (Fedora from the download
   template) and a throwaway docker container (a digest-pinned python image) each join by
   their README's steps (the kit, `suggest-handle`, `add-member`, the bundle, `config check`),
