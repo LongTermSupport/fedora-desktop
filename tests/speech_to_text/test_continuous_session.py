@@ -499,6 +499,39 @@ class CommandTest(SessionCase):
         for command in ("STOP", "KEEPALIVE", "PROGRESS"):
             self.assertEqual(self.send(command)["status"], "error", command)
 
+    def logged(self):
+        """What the server logs from here on, as (level, message)."""
+        lines = []
+        patcher = mock.patch.object(server, "log",
+                                    lambda message, level="INFO": lines.append((level, message)))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return lines
+
+    def test_every_refused_command_is_logged_with_its_reason(self):
+        # Plan 00171: a START the server refused left no trace in server.log, so a
+        # dictation that never started could not be told from one that was never asked for
+        lines = self.logged()
+        self.send("START", {"continuous": True})
+        self.send("STOP")
+        self.send("NONSENSE")
+        refused = [message for level, message in lines
+                   if level == "WARN" and message.startswith("Refused ")]
+        self.assertEqual(len(refused), 3, lines)
+        self.assertIn("START", refused[0])
+        self.assertIn("max_seconds", refused[0])
+        self.assertIn("STOP: No active recording", refused[1])
+        self.assertIn("NONSENSE", refused[2])
+
+    def test_a_start_refused_while_recording_says_so_and_is_logged(self):
+        lines = self.logged()
+        self.send("START", {"max_seconds": 60})
+        reply = self.send("START", {"max_seconds": 60})
+        self.assertEqual(reply["status"], "error")
+        self.assertEqual(reply["busy"], "recording")
+        self.assertTrue(any(level == "WARN" and "Refused START: Recording already active" in m
+                            for level, m in lines), lines)
+
     def wait_for_state(self, state):
         # session.progress() directly: a PROGRESS command would deliver the text
         self.assertTrue(self.wait_until(lambda: server.session.progress()["status"] == state),
@@ -578,6 +611,8 @@ class CommandTest(SessionCase):
             reply = self.send("START", {"max_seconds": 60})
             self.assertEqual(reply["status"], "error")
             self.assertIn("still", reply["message"])
+            self.assertEqual(reply["busy"], "finishing",
+                             "the client waits for a finishing dictation, not for a recording one")
             block.set()
             self.assertTrue(self.wait_until(lambda: not server.is_busy()))
 

@@ -146,9 +146,21 @@ log_debug() {
     fi
 }
 
+# log_problem <text> — a failure that does not end the dictation (the paste still goes
+# ahead): logged, and shown in the panel's menu, but no ERROR state, which would end the
+# panel's session while this client is still at work
+log_problem() {
+    echo "[ERROR] $*" >&2
+    log_to_file "[ERROR] $*"
+    emit_error "$*"
+}
+
+# log_error <text> — a failure that ends the dictation: the caller exits next
 log_error() {
     echo "[ERROR] $*" >&2
     log_to_file "[ERROR] $*"
+    # The text before the state: nothing is sent after ERROR
+    emit_error "$*"
 
     # Flush buffered logs on error
     if [ "$DEBUG" = false ]; then
@@ -172,12 +184,6 @@ log_error() {
         # Debug mode - logs already written, just notify
         notify_state "ERROR" "$*"
     fi
-
-    # Send error signal for extension
-    gdbus emit --session \
-        --object-path "$DBUS_PATH" \
-        --signal "${DBUS_INTERFACE}.Error" \
-        "$*" 2>/dev/null &
 }
 
 #============================================================================
@@ -186,20 +192,49 @@ log_error() {
 
 NOTIFICATION_ID=0
 
+# The panel's name for this recording (--session-token), sent with every signal: the
+# panel follows only the client it started last (Plan 00171)
+SESSION_TOKEN=""
+# The state that ended the session (SUCCESS, ERROR or IDLE); nothing is signalled after
+# it, since a signal after it is what overwrote the next dictation's RECORDING
+ENDED_WITH=""
+
+# gvariant_string <text> — <text> as a GVariant string literal, so gdbus never reads it
+# as a number or fails to parse it
+gvariant_string() {
+    local text="${1//\\/\\\\}"
+    printf "'%s'" "${text//\'/\\\'}"
+}
+
+# emit_signal <name> <gvariant value> — one signal to the panel, then the session token.
+# In the foreground, so the panel receives this client's signals in the order sent.
+emit_signal() {
+    if [ -n "$ENDED_WITH" ]; then
+        log_debug "Not sent, the session ended with $ENDED_WITH: $1 $2"
+        return 0
+    fi
+    if [ "$1" = StateChanged ]; then
+        case "$2" in
+            SUCCESS | ERROR | IDLE) ENDED_WITH="$2" ;;
+        esac
+    fi
+    local gdbus_err
+    if ! gdbus_err=$(gdbus emit --session \
+        --object-path "$DBUS_PATH" \
+        --signal "${DBUS_INTERFACE}.$1" \
+        "$2" "$(gvariant_string "$SESSION_TOKEN")" 2>&1); then
+        echo "[WSI] D-Bus signal $1 $2 not sent: $gdbus_err" >&2
+    fi
+}
+
 # emit_state <state> — tell the panel extension, which sets its icon from it.
 emit_state() {
-    gdbus emit --session \
-        --object-path "$DBUS_PATH" \
-        --signal "${DBUS_INTERFACE}.StateChanged" \
-        "$1" 2>/dev/null &
+    emit_signal StateChanged "$1"
 }
 
 # emit_error <text> — the panel shows it beside the error state (its first 30 chars)
 emit_error() {
-    gdbus emit --session \
-        --object-path "$DBUS_PATH" \
-        --signal "${DBUS_INTERFACE}.Error" \
-        "'$1'" 2>/dev/null &
+    emit_signal Error "$(gvariant_string "$1")"
 }
 
 notify_state() {
@@ -359,8 +394,6 @@ paste_target_why() {
 # CLEANUP AND SIGNAL HANDLING
 #============================================================================
 
-STOP_REQUESTED=false
-
 # signal_if_alive <signal> <pid> — signal a background process that may exit at any
 # moment. A `kill -0` probe followed by `kill` is a race: the process can be reaped
 # between the two, the kill then fails, and under `set -e` that ended the script (exit 1,
@@ -372,8 +405,18 @@ signal_if_alive() {
 
 cleanup() {
     log_debug "Cleanup triggered"
-    # Remove PID file
-    rm -f "$PID_FILE"
+    # Remove the PID file only while it names this client: a newer one may have written
+    # its own there, and removing that lost the panel the newer recorder (Plan 00171)
+    local held_pid=""
+    if [ -f "$PID_FILE" ] && ! held_pid=$(cat "$PID_FILE"); then
+        echo "[WSI] cannot read $PID_FILE; left in place" >&2
+        held_pid=""
+    fi
+    if [ "$held_pid" = "$$" ]; then
+        rm -f "$PID_FILE"
+    elif [ -n "$held_pid" ]; then
+        log_debug "PID file names $held_pid, not this client ($$); left in place"
+    fi
 
     # Kill timer if still running (prevents orphaned background process)
     if [ -n "$TIMER_PID" ] && kill -0 "$TIMER_PID" 2>/dev/null; then
@@ -382,13 +425,9 @@ cleanup() {
     fi
     cancel_grace_timer
 
-    # Signal idle state only if we're actually exiting (not just stopping recording)
-    if [ "$STOP_REQUESTED" = false ]; then
-        gdbus emit --session \
-            --object-path "$DBUS_PATH" \
-            --signal "${DBUS_INTERFACE}.StateChanged" \
-            "IDLE" 2>/dev/null &
-    fi
+    # IDLE only when nothing else ended the session (emit_signal drops it after
+    # SUCCESS or ERROR)
+    emit_state "IDLE"
 }
 
 #----------------------------------------------------------------------------
@@ -439,7 +478,6 @@ on_term() {
 
 stop_recording() {
     log_debug "Stop requested - sending SIGINT to rec process"
-    STOP_REQUESTED=true
     cancel_grace_timer
     # Send SIGINT (like Ctrl+C) so rec flushes audio buffers before exiting
     if [ -n "$REC_PID" ] && kill -0 "$REC_PID" 2>/dev/null; then
@@ -603,6 +641,7 @@ Options:
   --no-notify         Suppress desktop notifications
   --claude-process    Post-process transcription through Claude Code
   --claude-model M    Claude model for processing (sonnet/opus/haiku)
+  --session-token T   The panel's name for this recording, sent with every D-Bus signal
   -d, --debug         Enable debug mode (verbose output + dependency checks)
   -v, --verbose       Enable verbose output only
   -h, --help          Show this help message
@@ -673,6 +712,11 @@ while [ $# -gt 0 ]; do
             CLAUDE_PROCESS=true
             log_debug "Claude Code post-processing enabled"
             shift
+            ;;
+        --session-token)
+            SESSION_TOKEN="$2"
+            log_debug "Session token: $SESSION_TOKEN"
+            shift 2
             ;;
         --claude-model)
             CLAUDE_MODEL="$2"
@@ -1017,8 +1061,8 @@ audio_duration=""
 if soxi_out=$(soxi -D "$ramf" 2>&1); then
     audio_duration="${soxi_out%%.*}"
 else
-    log_error "Could not read the audio duration (soxi): $soxi_out"
-    log_error "  Skipping the minimum-length pad; transcription may reject short audio."
+    log_problem "Could not read the audio duration (soxi): $soxi_out"
+    log_problem "  Skipping the minimum-length pad; transcription may reject short audio."
 fi
 log_debug "Audio duration: ${audio_duration}s"
 
@@ -1141,16 +1185,13 @@ if [ "$CLAUDE_PROCESS" = true ]; then
         else
             claude_reason="${claude_reason#wsi-claude-process: }"
             claude_reason="${claude_reason:-exit $claude_exit, no output}"
-            log_error "Claude post-processing failed: $claude_reason"
+            log_error "Claude: $claude_reason"
             echo -n "$str" | wl-copy
-            emit_error "Claude: ${claude_reason//\'/}"
-            emit_state "ERROR"
             notify_desktop "Claude post-processing failed: $claude_reason. Nothing was pasted. The raw transcript is on the clipboard: Ctrl+V." "dialog-error" 0
             exit 1
         fi
     else
         log_error "wsi-claude-process not found (re-run play-speech-to-text.yml)"
-        emit_state "ERROR"
         exit 1
     fi
 fi
@@ -1309,7 +1350,7 @@ if [ "$AUTO_PASTE" = true ]; then
         # Key code: 28 = Enter/Return
         if ! YDOTOOL_SOCKET="$YDOTOOL_SOCKET_PATH" ydotool key 28:1 28:0; then
             exit_code=$?
-            log_error "ydotool Enter key simulation failed (exit code: $exit_code)"
+            log_problem "ydotool Enter key simulation failed (exit code: $exit_code)"
             # Don't exit - paste already succeeded
         else
             log_debug "Enter key simulated successfully"
@@ -1325,7 +1366,7 @@ if [ "$AUTO_PASTE" = true ]; then
         if YDOTOOL_SOCKET="$YDOTOOL_SOCKET_PATH" ydotool key 29:1 31:1 31:0 29:0; then
             log "Save simulated via Ctrl+S"
         else
-            log_error "The text was pasted but the save (Ctrl+S) failed (exit code: $?)"
+            log_problem "The text was pasted but the save (Ctrl+S) failed (exit code: $?)"
         fi
     fi
 
@@ -1355,7 +1396,7 @@ else
             fi
             ;;
         *)
-            log_error "Unknown window manager: $wm"
+            log_problem "Unknown window manager: $wm"
             echo "$str"
             ;;
     esac
@@ -1371,11 +1412,7 @@ else
     fi
 fi
 
-# Signal idle state after brief delay
-(sleep 2 && gdbus emit --session \
-    --object-path "$DBUS_PATH" \
-    --signal "${DBUS_INTERFACE}.StateChanged" \
-    "IDLE" 2>/dev/null) &
+# Nothing after SUCCESS: the panel returns to idle by itself once this client exits
 
 # Cleanup temporary files
 rm -f "$ramf" "${ramf}.resampled.wav" "${ramf}.padded"
