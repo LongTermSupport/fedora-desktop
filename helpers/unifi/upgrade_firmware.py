@@ -18,7 +18,8 @@ Marker lines on stdout, for the play's changed_when:
   FIRMWARE-CURRENT                            (nothing to upgrade)
 
 Usage: python3 -m helpers.unifi.upgrade_firmware (--check | --apply)
-           [--timeout SECONDS] [--interval SECONDS] [--url URL] [--user NAME]
+           [--order NAME,NAME,...] [--timeout SECONDS] [--interval SECONDS]
+           [--url URL] [--user NAME]
 """
 
 import argparse
@@ -45,8 +46,18 @@ class Upgrade:
     target: str
 
 
-def plan_upgrades(devices):
-    """The devices to upgrade, in the order to upgrade them."""
+def plan_upgrades(devices, order=()):
+    """The devices to upgrade, in the order to upgrade them.
+
+    Devices named in `order` come first, in that order (put the least-used first, so a
+    bad release shows there and stops the run); the rest follow, access points before
+    switches, each kind by name.
+    """
+    known = {dev.get("name") or dev["mac"] for dev in devices}
+    for name in order:
+        if name not in known:
+            raise ValueError(f"order names '{name}', which the controller does not list")
+    rank = {name: position for position, name in enumerate(order)}
     planned = []
     for dev in devices:
         if not dev.get("upgradable"):
@@ -55,10 +66,10 @@ def plan_upgrades(devices):
         if dev.get("state") != CONNECTED:
             raise ValueError(f"{name} is not connected (state {dev.get('state')}); "
                              "its upgrade could not be watched")
-        planned.append((_KIND_ORDER.get(dev.get("type"), 2), name,
-                        Upgrade(name, dev["mac"], dev.get("version"),
-                                dev.get("upgrade_to_firmware"))))
-    return [upgrade for _, _, upgrade in sorted(planned, key=lambda p: (p[0], p[1]))]
+        key = (rank.get(name, len(order)), _KIND_ORDER.get(dev.get("type"), 2), name)
+        planned.append((key, Upgrade(name, dev["mac"], dev.get("version"),
+                                     dev.get("upgrade_to_firmware"))))
+    return [upgrade for _, upgrade in sorted(planned, key=lambda p: p[0])]
 
 
 def upgrade_done(dev, target):
@@ -85,6 +96,8 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient, clock=time):
     parser.add_argument("--timeout", type=float, default=900,
                         help="seconds to wait for each device to come back")
     parser.add_argument("--interval", type=float, default=15, help="seconds between polls")
+    parser.add_argument("--order", default="",
+                        help="comma-separated device names to upgrade first, in order")
     parser.add_argument("--url", default=DEFAULT_URL)
     parser.add_argument("--user", default=DEFAULT_USER)
     args = parser.parse_args(argv)
@@ -98,7 +111,8 @@ def main(argv, stdout, stderr, environ, client_factory=UnifiClient, clock=time):
     client = client_factory(args.url, args.user, password)
     client.login()
     try:
-        upgrades = plan_upgrades(client.get("stat/device"))
+        order = [name.strip() for name in args.order.split(",") if name.strip()]
+        upgrades = plan_upgrades(client.get("stat/device"), order)
     except ValueError as error:
         print(f"refusing to upgrade: {error}", file=stderr)
         return 1

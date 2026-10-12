@@ -12,6 +12,9 @@
 #   ./playbooks/imports/optional/common/play-unifi-firmware.yml
 #   ./playbooks/imports/optional/common/play-unifi-firmware.yml -e unifi_firmware_apply=true
 #
+# `unifi_firmware_order` (host_vars or -e: a list of device names) upgrades those first,
+# in that order; list the least-used access point first, so a bad release shows there.
+#
 # The controller is on demand: started here only if it is stopped, and stopped again.
 - hosts: desktop
   name: UniFi firmware - check or upgrade devices one at a time
@@ -63,7 +66,13 @@
 
         - name: Check (or upgrade) device firmware
           ansible.builtin.command:
-            argv: [python3, -m, helpers.unifi.upgrade_firmware, "{{ unifi_firmware_mode }}"]
+            argv:
+              - python3
+              - -m
+              - helpers.unifi.upgrade_firmware
+              - "{{ unifi_firmware_mode }}"
+              - --order
+              - "{{ unifi_firmware_order | default([]) | join(',') }}"
             chdir: "{{ root_dir }}"
           environment:
             UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"

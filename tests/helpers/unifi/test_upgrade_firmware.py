@@ -66,6 +66,20 @@ class PlanUpgradesTest(unittest.TestCase):
         names = [u.name for u in plan_upgrades(devices)]
         self.assertEqual(names, ["Kitchen", "Upstairs", "Switch"])
 
+    def test_an_explicit_order_comes_first_and_the_rest_follow_by_kind_and_name(self):
+        devices = [
+            device("Switch", "s1", kind="usw"),
+            device("Upstairs", "a3"),
+            device("Living room", "a1"),
+            device("Kitchen", "a2"),
+        ]
+        names = [u.name for u in plan_upgrades(devices, order=["Living room", "Kitchen"])]
+        self.assertEqual(names, ["Living room", "Kitchen", "Upstairs", "Switch"])
+
+    def test_an_order_naming_an_unknown_device_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "order names 'Garage'"):
+            plan_upgrades([device("AP", "a1")], order=["Garage"])
+
     def test_current_devices_are_left_out(self):
         devices = [device("AP", "a1"), device("Flex", "s1", kind="usw", upgradable=False)]
         self.assertEqual([u.name for u in plan_upgrades(devices)], ["AP"])
@@ -139,6 +153,16 @@ class MainTest(unittest.TestCase):
         )
         self.assertLess(out.index("FIRMWARE-UPGRADED AP1 2.0"), out.index("FIRMWARE-STARTED AP2"))
         self.assertIn("FIRMWARE-CHANGED", out)
+
+    def test_the_order_option_sets_the_sequence(self):
+        before = [device("AP1", "a1"), device("AP2", "a2")]
+        done = [
+            device("AP1", "a1", version="2.0", upgradable=False),
+            device("AP2", "a2", version="2.0", upgradable=False),
+        ]
+        code, out, _, client = self.run_main(["--check", "--order", "AP2,AP1"], [before, done])
+        self.assertEqual(code, 0)
+        self.assertLess(out.index("FIRMWARE-UPGRADE AP2"), out.index("FIRMWARE-UPGRADE AP1"))
 
     def test_a_device_that_does_not_come_back_stops_the_run(self):
         before = [device("AP1", "a1"), device("AP2", "a2")]
