@@ -226,6 +226,8 @@ class ArticleWindow(Gtk.ApplicationWindow):
             cmd.extend(["--language", self.args.language])
         if self.args.no_notify:
             cmd.append("--no-notify")
+        if self.args.session_token:
+            cmd.extend(["--session-token", self.args.session_token])
         try:
             self.article_proc = subprocess.Popen(cmd, env=_RECORDER_ENV)
             self._set_status("Loading model… (first start may take a few seconds)")
@@ -311,17 +313,20 @@ class ArticleWindow(Gtk.ApplicationWindow):
 
     def _on_process_stopped(self, exit_code=0):
         """Called when wsi-article exits. Resets panel indicator and polishes."""
-        # Emit IDLE so the extension panel resets even if wsi-article was
-        # force-killed and its atexit handler never ran.
+        # IDLE, with this window's session token, so the panel resets even if wsi-article
+        # was force-killed and never said so. A panel that already saw this session end,
+        # or has started another since, ignores it.
+        token = "'" + self.args.session_token.replace("\\", "\\\\").replace("'", "\\'") + "'"
         try:
             subprocess.run([
                 "gdbus", "emit", "--session",
                 "--object-path", "/org/fedoradesktop/SpeechToText",
                 "--signal", "org.fedoradesktop.SpeechToText.StateChanged",
-                "IDLE",
-            ], capture_output=True, timeout=1)
-        except Exception:
-            pass
+                "IDLE", token,
+            ], capture_output=True, timeout=1, check=False)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            print(f"wsi-article-window: could not tell the panel the recording ended: {e}",
+                  file=sys.stderr)
         combined = self._read_all_raw()
         if combined.strip():
             self._set_raw_text(combined)
@@ -492,19 +497,25 @@ def main():
     parser.add_argument("--no-notify", action="store_true")
     parser.add_argument("--model", type=str, default="sonnet",
                         choices=["sonnet", "opus", "haiku"])
-    args = parser.parse_args()
+    parser.add_argument("--session-token", type=str, default="",
+                        help="The panel's name for this recording, handed to wsi-article")
+    parser.parse_args()  # a bad command line fails here, in the process that was given it
 
+    # One process holds every article window. A second launch hands its command line to
+    # that process, which opens the window with THAT launch's arguments: with the first
+    # launch's, the new recording carried the old session token and the panel ignored it.
     app = Gtk.Application(
         application_id="org.fedoradesktop.ArticleMode",
-        flags=Gio.ApplicationFlags.FLAGS_NONE
+        flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE
     )
 
-    def on_activate(application):
-        win = ArticleWindow(application, args)
-        win.present()
+    def on_command_line(application, command_line):
+        window_args = parser.parse_args(command_line.get_arguments()[1:])
+        ArticleWindow(application, window_args).present()
+        return 0
 
-    app.connect("activate", on_activate)
-    return app.run([sys.argv[0]])
+    app.connect("command-line", on_command_line)
+    return app.run(sys.argv)
 
 
 if __name__ == "__main__":

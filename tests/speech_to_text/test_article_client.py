@@ -97,8 +97,14 @@ class ArticleCase(unittest.TestCase):
         self.journal = self.session_dir / "journal.jsonl"
         self.settings = dict(CONTINUOUS)
         self.signals = []
+        self.tokens = []
         self.notes = []
         self.seen_while_recording = {}
+
+        def sent(name, value, token):
+            self.signals.append((name, value))
+            self.tokens.append(token)
+
         patch_article = mock.patch.multiple(
             wsi_article, CACHE_DIR=self.cache,
             ARTICLE_RAW_FILE=self.cache / "article-raw.txt",
@@ -111,8 +117,9 @@ class ArticleCase(unittest.TestCase):
         patch_stream = mock.patch.multiple(
             stream, SERVER_SOCKET=tmp / "wsi-stream.socket", KEEPALIVE_INTERVAL=0.2,
             PROGRESS_INTERVAL=0.1, DRAIN_POLL_INTERVAL=0.05,
+            START_RETRY_SECONDS=0.05,
             read_setting=lambda key: self.settings[key], is_server_running=lambda: True,
-            emit_dbus_signal=lambda name, value: self.signals.append((name, value)),
+            session_token="", ended_with=None, send_dbus_signal=sent,
             desktop_notification=lambda message, ms: self.notes.append(message))
         patch_stream.start()
         self.addCleanup(patch_stream.stop)
@@ -159,17 +166,20 @@ class ArticleCase(unittest.TestCase):
             if command == "STOP":
                 stopped.append(True)
                 return {"status": "draining", "drain_seconds_left": 5, "segments_pending": 1}
+            if command == "ABORT":
+                return {"status": "aborted"}
             return {"status": "error", "message": f"unexpected {command}"}
 
         self.server = StubServer(stream.SERVER_SOCKET, answer)
         self.addCleanup(self.server.close)
 
-    def run_client(self, signal_after=None, signum=signal.SIGTERM):
+    def run_client(self, signal_after=None, signum=signal.SIGTERM, session_token="article-A"):
         if signal_after is not None:
             timer = threading.Timer(signal_after, os.kill, args=(os.getpid(), signum))
             timer.start()
             self.addCleanup(timer.cancel)
-        args = argparse.Namespace(debug=False, language="en", no_notify=True)
+        args = argparse.Namespace(debug=False, language="en", no_notify=True,
+                                  session_token=session_token)
         return wsi_article.run_article_mode(args)
 
     def states(self):
@@ -341,6 +351,59 @@ class ArticleClientTest(ArticleCase):
         self.assertEqual(rc, 1)
         self.assertIn("ERROR", self.states())
         self.assertEqual(self.marker_files_left(), [])
+
+
+class ArticleSessionTest(ArticleCase):
+    """Plan 00171: the article recorder follows the same ownership rules as Insert's."""
+
+    def test_every_signal_carries_the_token_the_window_was_given(self):
+        self.scripted([(RECORDING, [segment(0, "alpha")])], [(done("alpha"), ())])
+        self.assertEqual(self.run_client(signal_after=0.4, session_token="article-B"), 0)
+        self.assertTrue(self.tokens)
+        self.assertEqual(set(self.tokens), {"article-B"})
+
+    def test_nothing_follows_an_error(self):
+        failed = {"status": "failed", "transcription": "", "error": "CUDA out of memory",
+                  "session_dir": str(self.session_dir)}
+        self.scripted([(RECORDING, ()), (failed, ())])
+        self.assertEqual(self.run_client(), 1)
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+
+    def test_a_start_refused_while_the_last_dictation_finishes_waits_then_records(self):
+        starts = []
+
+        def on_start():
+            starts.append(True)
+            if len(starts) < 3:
+                return {"status": "error", "busy": "finishing", "message": "still finishing"}
+            return {"status": "recording", "session_dir": str(self.session_dir)}
+
+        self.scripted([(RECORDING, [segment(0, "alpha")])], [(done("alpha"), ())], on_start=on_start)
+        self.assertEqual(self.run_client(signal_after=0.6), 0)
+        self.assertEqual(len(starts), 3)
+        self.assertIn("WAITING", self.states())
+        self.assertEqual(self.raw(), "Alpha\n\n")
+
+    def test_a_stop_while_start_is_in_flight_aborts_what_the_server_started(self):
+        def on_start():
+            threading.Event().wait(0.4)
+            return {"status": "recording", "session_dir": str(self.session_dir)}
+
+        self.scripted([(RECORDING, ())], on_start=on_start)
+        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT"],
+                         "the server was left recording for no client")
+        self.assertNotIn("PREPARING", self.states())
+        self.assertEqual(self.marker_files_left(), [])
+
+    def test_another_clients_pid_file_is_left_in_place(self):
+        def on_start():
+            wsi_article.PID_FILE.write_text("4194301")
+            return {"status": "error", "message": "Model not loaded"}
+
+        self.scripted([(RECORDING, ())], on_start=on_start)
+        self.assertEqual(self.run_client(), 1)
+        self.assertEqual(wsi_article.PID_FILE.read_text(), "4194301")
 
 
 if __name__ == "__main__":

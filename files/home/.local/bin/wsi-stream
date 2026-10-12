@@ -90,6 +90,10 @@ DRAIN_GRACE_SECONDS = 10  # beyond the server's own drain deadline
 MIC_CLOSE_SECONDS = 5  # the server's longest wait for pw-record to close (3 s TERM + 2 s KILL)
 NOTIFY_MS = 2000  # a routine notification's lifetime
 SERVER_REPLY_TIMEOUT = 10  # STOP closes the microphone before it replies (up to ~5 s)
+# A START refused while the server finishes the last dictation is retried this often,
+# for up to this long: the server's own drain deadline for a long dictation is minutes
+START_RETRY_SECONDS = 0.5
+START_WAIT_SECONDS = 300
 
 # Global state
 debug_mode = False
@@ -98,6 +102,9 @@ stop_requested = False
 recorder = None
 current_text = ""
 realtime_updates = 0  # Realtime passes reported, empty ones included
+session_token = ""  # --session-token: the panel's name for this client, on every signal
+ended_with = None  # the state that ended the session; nothing is signalled after it
+ENDING_STATES = ("SUCCESS", "ERROR", "IDLE")
 
 
 class GracefulStop:
@@ -303,23 +310,15 @@ def read_remaining_audio(proc, chunk_size, feed):
 
 
 def cleanup_on_exit():
-    """Ensure IDLE signal is sent and mic is released on any exit."""
+    """On any exit: release the mic, remove our PID file, and IDLE if nothing ended the session."""
     global recorder
-    try:
-        emit_dbus_signal("StateChanged", "IDLE")
-    except Exception:
-        pass
+    signal_end_of_client()
     if recorder:
         try:
             recorder.shutdown()
-        except Exception:
-            pass
-    # Clean up PID file
-    if PID_FILE.exists():
-        try:
-            PID_FILE.unlink()
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"Recorder shutdown at exit failed: {e}", "WARN")
+    remove_own_pid_file(PID_FILE)
 
 
 def log(message, level="INFO"):
@@ -351,17 +350,63 @@ def start_log_session():
         f.write("\n")
 
 
-def emit_dbus_signal(signal_name, value):
-    """Emit DBus signal for extension communication."""
+def send_dbus_signal(signal_name, value, token):
+    """One gdbus emit: `value` (gdbus text), then the session token.
+
+    The state comes first, so a panel that reads only the first argument still works. The
+    token is quoted so gdbus never reads one made of digits as a number.
+    """
+    quoted_token = "'" + token.replace("\\", "\\\\").replace("'", "\\'") + "'"
     try:
-        subprocess.run([
+        result = subprocess.run([
             "gdbus", "emit", "--session",
             "--object-path", DBUS_PATH,
             "--signal", f"{DBUS_INTERFACE}.{signal_name}",
-            value
-        ], capture_output=True, timeout=1)
-    except Exception as e:
-        log(f"DBus signal failed: {e}", "WARN")
+            value, quoted_token,
+        ], capture_output=True, timeout=1, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"DBus signal {signal_name} {value} failed: {e}", "WARN")
+        return
+    if result.returncode != 0:
+        log(f"DBus signal {signal_name} {value} failed: {result.stderr.decode().strip()}", "WARN")
+
+
+def emit_dbus_signal(signal_name, value):
+    """Tell the panel `value`, tagged with this client's session token.
+
+    The panel follows only the client it started last, by its token (Plan 00171). Nothing
+    is sent once a state has ended the session (SUCCESS, ERROR, or IDLE): a signal after
+    that is what overwrote the next dictation's RECORDING.
+    """
+    global ended_with
+    if ended_with is not None:
+        log(f"Not sent, the session ended with {ended_with}: {signal_name} {value}")
+        return
+    if signal_name == "StateChanged" and value in ENDING_STATES:
+        ended_with = value
+    send_dbus_signal(signal_name, value, session_token)
+
+
+def signal_end_of_client():
+    """At exit: IDLE, unless a state already ended the session (then nothing)."""
+    if ended_with is None:
+        emit_dbus_signal("StateChanged", "IDLE")
+
+
+def remove_own_pid_file(pid_file):
+    """Remove `pid_file` only while it names this process.
+
+    Another client started after this one writes its own PID there; removing that is what
+    left the panel unable to find the newer client (Plan 00171).
+    """
+    try:
+        held = pid_file.read_text().strip()
+    except FileNotFoundError:
+        return
+    if held != str(os.getpid()):
+        log(f"PID file names {held}, not this client ({os.getpid()}); left in place")
+        return
+    pid_file.unlink(missing_ok=True)
 
 
 def emit_dbus_text(signal_name, text):
@@ -381,7 +426,16 @@ def desktop_notification(message, expire_ms):
     """Desktop notification with no state change (unless --no-notify was passed)."""
     if no_notify:
         return
+    show_notification(message, expire_ms)
 
+
+def urgent_notification(message):
+    """A notification that stays until dismissed and is shown even with notifications
+    turned off (--no-notify): for a dictation lost or cut short, which the user must see."""
+    show_notification(message, 0)
+
+
+def show_notification(message, expire_ms):
     try:
         subprocess.run([
             "gdbus", "call", "--session",
@@ -1116,6 +1170,18 @@ def relay_progress(progress):
         f"backlog={progress.get('backlog_seconds', 0):.0f} behind={behind}"))
 
 
+def microphone_shortfall(progress):
+    """What to tell the user when the microphone delivered under half the recording's
+    length (a Bluetooth headset that dropped out, say), or None. None too when the server
+    does not report audio_seconds, or the recording is under 2 s and too short to judge."""
+    elapsed = progress.get("elapsed_seconds") or 0
+    audio = progress.get("audio_seconds")
+    if audio is None or elapsed < 2 or audio >= elapsed / 2:
+        return None
+    return (f"The microphone delivered {audio:.1f} s of audio in {elapsed:.1f} s of recording. "
+            "Check the microphone (a Bluetooth headset can stop sending sound).")
+
+
 def report_preview_fallback(preview):
     """Standard streaming without a final transcription: the preview goes to the clipboard only.
 
@@ -1198,6 +1264,69 @@ def report_undelivered_dictation(handed):
     desktop_notification(message, 0)  # 0: stays until dismissed
 
 
+class StartCancel:
+    """Insert (TERM), Escape (USR1) or INT before the recording started cancels the start.
+
+    While no START can be in flight (the server still loading) the handler exits at once.
+    Once START may be in flight (`deferring`) it only records the signal: exiting then
+    would lose the reply, and a START the server had accepted would leave it recording
+    for no client. The caller checks `signum` once the reply is in, and ABORTs a START
+    the server accepted.
+    """
+
+    def __init__(self):
+        self.signum = None
+        self.deferring = False
+
+    def handler(self, signum, frame):
+        self.signum = signum
+        if not self.deferring:
+            raise SystemExit(1)  # runs atexit cleanup: our PID file removed, IDLE emitted
+
+    def install(self, signums=(signal.SIGINT, signal.SIGTERM, signal.SIGUSR1)):
+        for signum in signums:
+            signal.signal(signum, self.handler)
+
+
+def start_recording_on_server(params, cancel):
+    """START, waiting while the server finishes the previous dictation; the last reply.
+
+    A server still transcribing the last dictation refuses START with busy "finishing".
+    An Insert is an intention to record, so the client waits (WAITING: the panel's
+    hourglass) and starts as soon as the server is free, up to START_WAIT_SECONDS. Any
+    other refusal is returned at once, and so is any reply once `cancel` has a signal.
+    """
+    give_up_at = time.monotonic() + START_WAIT_SECONDS
+    waiting = False
+    while True:
+        response = send_server_command("START", params)
+        if (cancel.signum is not None or response.get("busy") != "finishing"
+                or time.monotonic() >= give_up_at):
+            return response
+        if not waiting:
+            waiting = True
+            log(f"The server is finishing the previous dictation; waiting up to "
+                f"{START_WAIT_SECONDS} s to start ({response.get('message')})")
+            emit_dbus_signal("StateChanged", "WAITING")
+        retry_at = time.monotonic() + START_RETRY_SECONDS
+        while cancel.signum is None and time.monotonic() < retry_at:
+            time.sleep(0.02)
+        if cancel.signum is not None:
+            return response
+
+
+def report_refused_start(response):
+    """The server refused START: ERROR, with the reason in the panel's menu and a
+    notification. Nothing follows it, so the panel shows it for its whole display time."""
+    reason = response.get("message") or str(response)
+    if response.get("busy") == "finishing":
+        reason = f"the server was still finishing the previous dictation after {START_WAIT_SECONDS} s"
+    log(f"Server START refused: {response}", "ERROR")
+    print(f"wsi-stream: the server refused to start recording: {reason}", file=sys.stderr)
+    emit_dbus_text("Error", f"Not recording: {reason}")
+    notify("ERROR", f"Not recording: {reason}")
+
+
 def run_server_mode(args):
     """Run in server mode - use persistent server for instant startup."""
     global debug_mode, no_notify
@@ -1260,18 +1389,8 @@ def run_server_mode(args):
             level = "ERROR" if reply.get("status") == "error" else "INFO"
             log(f"Cleanup: {command} answered {reply}", level)
 
-        # Clean up PID file
-        if PID_FILE.exists():
-            try:
-                PID_FILE.unlink()
-            except Exception:
-                pass
-
-        # Send IDLE signal to extension
-        try:
-            emit_dbus_signal("StateChanged", "IDLE")
-        except Exception:
-            pass
+        remove_own_pid_file(PID_FILE)
+        signal_end_of_client()
 
     # Register cleanup function to run on ANY exit (normal or abnormal)
     atexit.register(ensure_stop_sent)
@@ -1279,23 +1398,33 @@ def run_server_mode(args):
     # The model is resolved only if the server has to be started
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
 
-    # Write the PID file before a cold server start (20-30s). Without it, an Insert press
-    # during PREPARING falls through to the extension's pkill fallback, and the default
-    # SIGTERM disposition kills this process without atexit — no IDLE is ever emitted,
-    # leaving the extension wedged in PREPARING until logout.
+    # Write the PID file before a cold server start (20-30s), for the panel's check at
+    # Insert for a recorder it did not start
     PID_FILE.write_text(str(os.getpid()))
 
-    def abort_startup(signum, frame):
-        log(f"Signal {signum} received during server startup, aborting")
-        raise SystemExit(1)  # runs atexit cleanup: PID file removed, IDLE emitted
+    cancel = StartCancel()
+    cancel.install()
 
-    signal.signal(signal.SIGINT, abort_startup)
-    signal.signal(signal.SIGTERM, abort_startup)
-    signal.signal(signal.SIGUSR1, abort_startup)
+    def cancel_start(response):
+        """A signal arrived before the recording started: ABORT what the server started."""
+        nonlocal recording_active
+        log(f"Signal {cancel.signum} received before recording started, cancelling the start")
+        if response.get("status") != "recording":
+            return 1
+        reply = send_server_command("ABORT")
+        failed = reply.get("status") == "error"
+        # Still recording if the ABORT failed: the exit handler then sends ABORT again
+        recording_active, stop.discard = failed, True
+        if failed:
+            log(f"ABORT of the cancelled start failed ({reply}); retrying at exit", "ERROR")
+        else:
+            log(f"The server had started recording; aborted: {reply}")
+        return 1
 
-    # Start server if not running (detached: it keeps loading if we are aborted)
+    # Start server if not running (detached: it keeps loading if we are aborted). WAITING:
+    # the panel shows the hourglass, the recording starts by itself once the server is up.
     if not is_server_running():
-        notify("PREPARING", "Starting server...")
+        notify("WAITING", "Starting server...")
         try:
             started = start_server(language)
         except ModelNotDownloaded as e:
@@ -1312,28 +1441,30 @@ def run_server_mode(args):
 
     log("Server ready - instant recording startup!")
 
+    cancel.deferring = True
+    response = start_recording_on_server({
+        "continuous": continuous, "max_seconds": max_seconds, "silence_seconds": silence_seconds},
+        cancel)
+    if cancel.signum is not None:
+        return cancel_start(response)
+    if response.get("status") != "recording":
+        report_refused_start(response)
+        return 1
+    recording_active = True  # START accepted: every exit now sends STOP or ABORT
+
     # From here a stop is a graceful request: the loop below sends STOP once it is due
     # (SIGTERM after the grace). SIGUSR1 is the extension's abort (Escape): ABORT the
     # session at once so the server releases the mic and discards the text. SIGKILLing
     # this client instead would leave the server recording until the KEEPALIVEs are
     # missed, refusing every START in the meantime.
     install_stop_handlers(stop, abort_on_usr1=True)
+    if cancel.signum is not None:  # arrived after the check above, before these handlers
+        return cancel_start(response)
 
-    # Start recording via server
+    # Only now, with the microphone open: a RECORDING sent before START was the red icon
+    # the panel showed for a START the server then refused
     notify("RECORDING", "Recording... (server mode)")
-
-    response = send_server_command("START", {
-        "continuous": continuous, "max_seconds": max_seconds, "silence_seconds": silence_seconds})
-
-    if response.get("status") != "recording":
-        log(f"Server START failed: {response}", "ERROR")
-        notify("ERROR", f"Failed to start recording: {response.get('message', response)}")
-        if PID_FILE.exists():
-            PID_FILE.unlink()
-        return 1
-
     log(f"Recording active (server mode); journal in {response.get('session_dir')}")
-    recording_active = True  # Mark as active for cleanup
     if response.get("undelivered"):
         report_undelivered_dictation(response["undelivered"])
 
@@ -1435,10 +1566,25 @@ def run_server_mode(args):
         log(note, "WARN")
         desktop_notification(note, expiry)
 
+    shortfall = microphone_shortfall(progress)
+    if not text and shortfall:
+        message = f"Nothing was transcribed. {shortfall}"
+        log(message, "ERROR")
+        print(f"wsi-stream: {message}", file=sys.stderr)
+        emit_dbus_text("Error", f"Nothing transcribed: the microphone delivered "
+                                f"{progress['audio_seconds']:.1f} s of audio in "
+                                f"{progress['elapsed_seconds']:.1f} s")
+        emit_dbus_signal("StateChanged", "ERROR")
+        urgent_notification(message)
+        return 1
     if not text:
         log("No speech detected", "WARN")
+        emit_dbus_text("Error", "No speech detected")
         notify("ERROR", "No speech detected")
         return 1
+    if shortfall:
+        log(f"Part of the dictation may be missing. {shortfall}", "WARN")
+        urgent_notification(f"Part of this dictation may be missing. {shortfall}")
 
     # Chunks already pasted: what is left goes out at stop (the server's text, before the
     # capitalisation and marker below, which the first chunk carried)
@@ -1489,10 +1635,7 @@ def run_server_mode(args):
             notify("ERROR", "Clipboard copy failed")
             return 1
 
-    # Send IDLE to clear the spinner and return to normal state
-    time.sleep(1)
-    emit_dbus_signal("StateChanged", "IDLE")
-
+    # Nothing after SUCCESS: the panel returns to idle by itself once this client exits
     log("Server mode recording complete!")
     return 0
 
@@ -1671,8 +1814,7 @@ def run_standard_streaming(args, stop):
         notify("ERROR", f"Recording failed: {e}")
         return 1
     finally:
-        if PID_FILE.exists():
-            PID_FILE.unlink()
+        remove_own_pid_file(PID_FILE)
         # Ensure recorder is fully cleaned up - RealtimeSTT can leak audio resources
         if recorder:
             try:
@@ -1693,9 +1835,10 @@ def run_standard_streaming(args, stop):
             import gc
             gc.collect()
             log("Recorder cleanup complete")
-        # Always send IDLE signal on cleanup so extension resets
-        emit_dbus_signal("StateChanged", "IDLE")
-        log("Sent IDLE signal")
+        # The microphone is closed, the paste is still to come: never IDLE here, which
+        # showed the ready icon while this client was still at work. Dropped after an
+        # ERROR above (nothing follows the state that ends a session).
+        emit_dbus_signal("StateChanged", "TRANSCRIBING")
 
     # The pasted text is the main model's final transcription. If it never came, the
     # live preview (the realtime model's, lower quality) is NOT pasted in its place: it
@@ -1762,9 +1905,6 @@ def run_standard_streaming(args, stop):
         else:
             notify("ERROR", "Clipboard copy failed")
             return 1
-
-    time.sleep(1)
-    emit_dbus_signal("StateChanged", "IDLE")
 
     log("Streaming complete - paste was instant!")
     return 0
@@ -1966,8 +2106,7 @@ def run_prebuffered_streaming(args, stop):
             final_text = current_text
 
         # Cleanup
-        if PID_FILE.exists():
-            PID_FILE.unlink()
+        remove_own_pid_file(PID_FILE)
 
         recorder.shutdown()
         recorder = None
@@ -2031,9 +2170,6 @@ def run_prebuffered_streaming(args, stop):
                 notify("ERROR", "Clipboard copy failed")
                 return 1
 
-        time.sleep(1)
-        emit_dbus_signal("StateChanged", "IDLE")
-
         log("Pre-buffered streaming complete!")
         return 0
 
@@ -2047,20 +2183,17 @@ def run_prebuffered_streaming(args, stop):
                 audio_process.kill()
             except Exception:
                 pass
-        if PID_FILE.exists():
-            PID_FILE.unlink()
+        remove_own_pid_file(PID_FILE)
         if recorder:
             try:
                 recorder.shutdown()
             except Exception:
                 pass
-
-        emit_dbus_signal("StateChanged", "IDLE")
         return 1
 
 
 def main():
-    global debug_mode
+    global debug_mode, session_token
     parser = argparse.ArgumentParser(
         description="Streaming speech-to-text with real-time transcription"
     )
@@ -2097,8 +2230,12 @@ def main():
     parser.add_argument("--server-at-login", action="store_true",
                         help="Become the persistent server if Settings ask for it at login "
                              "(run by wsi-stream-server-at-login.service; records nothing)")
+    parser.add_argument("--session-token", type=str, default="",
+                        help="The panel's name for this recording, sent with every D-Bus "
+                             "signal so the panel follows only the client it started last")
 
     args = parser.parse_args()
+    session_token = args.session_token
 
     # Before atexit: this path records nothing, and the recorder's exit cleanup would
     # remove the PID file of a recording in progress

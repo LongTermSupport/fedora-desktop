@@ -22,7 +22,9 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { FocusOutline } from './focusOutline.js';
 import { PasteTargetPin } from './pasteTarget.js';
-import { RecorderLaunch } from './recorderLaunch.js';
+import { PanelSession } from './panelSession.js';
+import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
+import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS } from './panelLook.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -48,6 +50,11 @@ const PANEL_DBUS_XML = `
 // Continuous dictation: count down only in the last minute of its maximum length
 const COUNTDOWN_LAST_SECONDS = 60;
 
+// The recorders' shared PID file, for finding a recorder the panel did not start
+const RECORDER_PID_FILE = `/dev/shm/stt-recording-${GLib.get_user_name()}.pid`;
+// A PID file naming a process that is not one of the recorders is stale (a reused PID)
+const RECORDER_CMDLINE = /\/wsi(-stream|-article)?(\0|$)/;
+
 export default class SpeechToTextExtension extends Extension {
     constructor(metadata) {
         super(metadata);
@@ -68,18 +75,15 @@ export default class SpeechToTextExtension extends Extension {
         this._whisperModel = 'auto';  // Whisper model: 'auto', 'tiny', 'base', 'small', 'medium', 'large-v3'
         this._claudeEnabled = false;  // Enable Claude Code post-processing
         this._claudeModel = 'sonnet';  // Claude model: 'sonnet', 'opus', 'haiku'
-        this._currentState = 'IDLE';
-        // Debounce: a recorder has been spawned but has not yet reported via DBus
-        this._recorderLaunch = new RecorderLaunch({
-            log: message => this._log(message),
-            onExitBeforeReport: how => this._recorderFailedBeforeReport(how),
-        });
+        // The one recorder the panel follows, and what each key does (panelSession.js)
+        this._panel = null;
+        this._hourglassIcon = null;
+        this._articleSpinner = false;
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._settingsChangedId = null;
         this._lastError = null;
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
         this._logFile = this._logDir + '/debug.log';
-        this._iconResetTimeoutId = null;
 
         // Server status indicator
         this._serverStatusDot = null;
@@ -181,7 +185,7 @@ export default class SpeechToTextExtension extends Extension {
                     Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
                     () => {
                         this._log('INSERT KEY PRESSED - callback fired!');
-                        this._launchWSI();
+                        this._onRecordKey('dictation');
                     }
                 );
                 this._log(`Keybinding registration result: ${bindingAdded}`);
@@ -194,7 +198,7 @@ export default class SpeechToTextExtension extends Extension {
                     Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
                     () => {
                         this._log('CTRL+INSERT PRESSED - Claude processing (corporate)!');
-                        this._launchWSIClaude('corporate');
+                        this._onRecordKey('claude', 'corporate');
                     }
                 );
                 this._log(`Claude keybinding registration result: ${claudeBindingAdded}`);
@@ -207,7 +211,7 @@ export default class SpeechToTextExtension extends Extension {
                     Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
                     () => {
                         this._log('ALT+INSERT PRESSED - Claude processing (natural)!');
-                        this._launchWSIClaude('natural');
+                        this._onRecordKey('claude', 'natural');
                     }
                 );
                 this._log(`Claude natural keybinding registration result: ${claudeNaturalBindingAdded}`);
@@ -234,6 +238,11 @@ export default class SpeechToTextExtension extends Extension {
         this._exportPanelDBus();
         this._focusOutline = new FocusOutline();
         this._pasteTarget = new PasteTargetPin();
+
+        // No installed icon theme has an hourglass, so the extension ships its own
+        this._hourglassIcon = Gio.FileIcon.new(
+            Gio.File.new_for_path(`${this.path}/stt-hourglass-symbolic.svg`));
+        this._panel = this._createPanelSession();
 
         // Ensure log directory exists
         this._ensureLogDirectory();
@@ -280,10 +289,11 @@ export default class SpeechToTextExtension extends Extension {
             logError(e, 'STT: removing keybindings in disable()');
         }
 
-        // Cancel pending icon reset timeout
-        if (this._iconResetTimeoutId) {
-            GLib.Source.remove(this._iconResetTimeoutId);
-            this._iconResetTimeoutId = null;
+        // The panel's timers end with it; a recorder still running runs on, and a panel
+        // enabled later finds it at the next press (a recorder it did not start)
+        if (this._panel) {
+            this._panel.destroy();
+            this._panel = null;
         }
 
         // Cancel recording timer
@@ -297,9 +307,6 @@ export default class SpeechToTextExtension extends Extension {
             GLib.Source.remove(this._flashTimer);
             this._flashTimer = null;
         }
-
-        // Cancel pending launch-debounce timeout
-        this._recorderLaunch.settle();
 
         // Stop server status polling
         this._stopServerStatusPolling();
@@ -399,7 +406,7 @@ export default class SpeechToTextExtension extends Extension {
         menu.addMenuItem(viewLogItem);
 
         const articleItem = new PopupMenu.PopupMenuItem('Create Article...');
-        articleItem.connect('activate', () => { this._launchArticleMode(); });
+        articleItem.connect('activate', () => { this._onArticleItem(); });
         menu.addMenuItem(articleItem);
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -473,8 +480,15 @@ export default class SpeechToTextExtension extends Extension {
         });
     }
 
+    /** The session token a recorder sends after the value; '' from one that sends none. */
+    _signalToken(params) {
+        return params.n_children() > 1 ? params.get_child_value(1).get_string()[0] : '';
+    }
+
     _subscribeToDBus() {
-        // Listen for StateChanged signals from wsi script
+        // StateChanged from the recorders: (state, session token). Any sender may emit it
+        // (each signal is a throwaway gdbus process), so the token is what says whose it
+        // is, and panelSession.js takes it only from the recorder it follows.
         this._dbusSubscriptionId = Gio.DBus.session.signal_subscribe(
             null,                    // sender (any)
             DBUS_INTERFACE,          // interface
@@ -484,9 +498,8 @@ export default class SpeechToTextExtension extends Extension {
             Gio.DBusSignalFlags.NONE,
             (connection, sender, path, iface, signal, params) => {
                 const state = params.get_child_value(0).get_string()[0];
-                this._currentState = state;
-                this._recorderLaunch.settle();  // the spawned recorder has now reported
-                this._updateIconState(state);
+                if (!this._panel?.onState(state, this._signalToken(params)))
+                    return;
                 this._log(`State: ${state}`);
 
                 // Clear error on success or new recording
@@ -506,6 +519,8 @@ export default class SpeechToTextExtension extends Extension {
             Gio.DBusSignalFlags.NONE,
             (connection, sender, path, iface, signal, params) => {
                 const errorMsg = params.get_child_value(0).get_string()[0];
+                if (!this._panel?.onError(errorMsg, this._signalToken(params)))
+                    return;
                 this._lastError = errorMsg;
                 this._log(`Error: ${errorMsg}`);
             }
@@ -521,6 +536,8 @@ export default class SpeechToTextExtension extends Extension {
             null,
             Gio.DBusSignalFlags.NONE,
             (connection, sender, path, iface, signal, params) => {
+                if (!this._panel?.acceptsProgress(this._signalToken(params)))
+                    return;
                 const fields = {};
                 for (const pair of params.get_child_value(0).get_string()[0].split(' ')) {
                     const [name, value] = pair.split('=');
@@ -627,14 +644,14 @@ export default class SpeechToTextExtension extends Extension {
         this._serverIsHot = false;
     }
 
-    _updateIconState(state) {
+    /**
+     * Show `state`, as panelSession.js derives it (the only caller): IDLE is ready; the
+     * hourglass states say the press was taken and to wait; the rest are the state the
+     * recorder reported. `launch` is the recorder's, or null with none.
+     */
+    _updateIconState(state, launch = null) {
         if (!this._icon) return;
-
-        // Cancel any pending icon reset
-        if (this._iconResetTimeoutId) {
-            GLib.Source.remove(this._iconResetTimeoutId);
-            this._iconResetTimeoutId = null;
-        }
+        this._isArticleMode = launch?.kind === 'article';
 
         // Outline the window the text will be pasted into, for as long as a paste can come;
         // the pin taken at Insert lasts until the dictation has ended
@@ -646,18 +663,28 @@ export default class SpeechToTextExtension extends Extension {
         if (['IDLE', 'SUCCESS', 'ERROR'].includes(state))
             this._pasteTarget?.release();
 
+        // An article shows its ART spinner from launch to end; it has no countdown and
+        // no Escape (its window has the stop button)
+        if (this._isArticleMode) {
+            this._removeAbortKeybinding();
+            if (!this._articleSpinner)
+                this._startElapsedTimer();
+            return;
+        }
+
+        // The icon and its colour for every state are panelLook.js's
+        if (!isKnownState(state))
+            this._log(`Unknown state "${state}": shown as please-wait, never as ready`);
+        const look = lookFor(state);
+        if (look.icon === 'hourglass')
+            this._icon.gicon = this._hourglassIcon;
+        else
+            this._icon.icon_name = look.icon;
+        this._icon.style = look.colour ? `color: ${look.colour};` : '';
+
         switch (state) {
-            case 'PREPARING':
-                if (!this._isArticleMode) {
-                    // Orange icon while audio pipeline initializes
-                    this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
-                }
-                break;
             case 'RECORDING':
-                if (!this._isArticleMode) {
-                    this._icon.style = 'color: #ff4444;';  // Red
-                    this._startCountdown();
-                }
+                this._startCountdown();
                 this._addAbortKeybinding();  // Enable Escape key during recording
                 break;
             case 'STOPPING':
@@ -665,27 +692,10 @@ export default class SpeechToTextExtension extends Extension {
                 // the icon already shows the press was taken. Escape still discards and
                 // Insert again stops at once.
                 this._stopCountdown();
-                this._icon.icon_name = 'content-loading-symbolic';
-                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
-                break;
-            case 'TRANSCRIBING':
-                this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key when transcribing
-                // Change icon to spinner/hourglass for transcribing
-                this._icon.icon_name = 'content-loading-symbolic';
-                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
                 break;
             case 'SUCCESS':
                 this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key when done
-                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
-                this._icon.style = 'color: #44ff44;';  // Green
-                // Reset to normal after 2 seconds
-                this._iconResetTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
-                    if (this._icon) this._icon.style = '';
-                    this._iconResetTimeoutId = null;
-                    return GLib.SOURCE_REMOVE;
-                });
+                this._removeAbortKeybinding();
                 // When auto-paste is OFF the transcript only lands in the PRIMARY
                 // selection — there is no visible feedback that it's ready. Show
                 // a one-shot notification so the user knows to middle-click.
@@ -694,26 +704,15 @@ export default class SpeechToTextExtension extends Extension {
                     Main.notify('Speech to Text', 'Transcribed — middle-click to paste');
                 }
                 break;
-            case 'ERROR':
-                this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key on error
-                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
-                this._icon.style = 'color: #ff4444;';  // Red
-                // Reset to normal after 2 seconds
-                this._iconResetTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
-                    if (this._icon) this._icon.style = '';
-                    this._iconResetTimeoutId = null;
-                    return GLib.SOURCE_REMOVE;
-                });
-                break;
             case 'IDLE':
-            default:
                 this._stopCountdown();
-                this._removeAbortKeybinding();  // Disable Escape key when idle
-                this._isArticleMode = false;
+                this._removeAbortKeybinding();
                 this._elapsedSeconds = 0;
-                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
-                this._icon.style = '';  // Default
+                break;
+            default:
+                // Every other state: no microphone the panel can discard, no countdown
+                this._stopCountdown();
+                this._removeAbortKeybinding();
                 break;
         }
     }
@@ -758,9 +757,10 @@ export default class SpeechToTextExtension extends Extension {
             return;
         }
         this._stopFlashing();
-        // Amber: transcription is falling behind, or the last 10 s of the maximum length
-        const amber = this._dictationBehind || (left !== null && left <= 10);
-        this._countdownLabel.style = `color: white; font-weight: bold; font-size: 13px; background-color: ${amber ? '#ffaa00' : '#44ff44'}; padding: 2px 4px; border-radius: 3px;`;
+        // Red like the recording mic; amber when transcription is falling behind or in the
+        // last 10 s of the maximum length. Never green: green means SUCCESS.
+        const colour = recordingBadgeColor({behind: this._dictationBehind, secondsLeft: left});
+        this._countdownLabel.style = `color: white; font-weight: bold; font-size: 13px; background-color: ${colour}; padding: 2px 4px; border-radius: 3px;`;
     }
 
     /** Continuous dictation: streaming, server startup mode, and the setting on. */
@@ -828,10 +828,10 @@ export default class SpeechToTextExtension extends Extension {
 
             if (this._flashState) {
                 // Red background, white text
-                this._countdownLabel.style = 'color: white; font-weight: bold; font-size: 13px; background-color: #ff4444; padding: 2px 4px; border-radius: 3px;';
+                this._countdownLabel.style = `color: white; font-weight: bold; font-size: 13px; background-color: ${COLOURS.red}; padding: 2px 4px; border-radius: 3px;`;
             } else {
                 // White background, red text
-                this._countdownLabel.style = 'color: #ff4444; font-weight: bold; font-size: 13px; background-color: white; padding: 2px 4px; border-radius: 3px;';
+                this._countdownLabel.style = `color: ${COLOURS.red}; font-weight: bold; font-size: 13px; background-color: white; padding: 2px 4px; border-radius: 3px;`;
             }
 
             return GLib.SOURCE_CONTINUE;
@@ -856,6 +856,7 @@ export default class SpeechToTextExtension extends Extension {
 
         // Stop flashing
         this._stopFlashing();
+        this._articleSpinner = false;
 
         // Early exit if indicator already destroyed (extension disabled)
         if (!this._indicator) {
@@ -877,229 +878,128 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _validateShellArg(value, allowedValues) {
-        // Only allow known-safe values to prevent shell injection
-        if (allowedValues && !allowedValues.includes(value)) {
-            this._log(`Invalid argument value: ${value}`);
-            return allowedValues[0]; // Return safe default
-        }
-        // Additional safety: strip any shell metacharacters
-        return value.replace(/[;&|`$(){}'"\\!#~<>]/g, '');
+    /** `value` if it is one of `allowedValues`, else the first of them (logged). */
+    _knownOr(value, allowedValues) {
+        if (allowedValues.includes(value))
+            return value;
+        this._log(`Unknown setting value "${value}"; using "${allowedValues[0]}"`);
+        return allowedValues[0];
     }
 
-    // A launched recorder failed before its first StateChanged. Its own error went to
-    // the session journal (the recorder's stderr), so the notice says where to look.
-    _recorderFailedBeforeReport(how) {
-        const message = `The recorder ended (${how}) before it started; its error is in the session journal`;
-        this._lastError = message;
-        this._isArticleMode = false;
-        this._log(message);
-        Main.notify('STT Error', message);
-        this._resetToIdle();
-    }
-
-    _launchWSI() {
+    /** Insert (dictation) or Ctrl/Alt+Insert (claude): what the press means is
+     * panelSession.js's decision. */
+    _onRecordKey(kind, style = null) {
         try {
-            // Debounce: ignore a repeat press while a spawned recorder has not yet reported
-            if (this._recorderLaunch.pending) {
-                this._log('Launch already in progress; ignoring repeat press');
-                return;
-            }
-            // If currently in any active state, stop it instead of starting new
-            if (this._currentState === 'RECORDING' ||
-                this._currentState === 'STOPPING' ||
-                this._currentState === 'PREPARING' ||
-                this._currentState === 'TRANSCRIBING') {
-                this._stopRecording();
-                return;
-            }
-
-            // Track that this is regular mode (not Claude)
-            this._isClaudeMode = false;
-            this._claudeStyle = null;
-            this._pasteTarget.pin(global.display.focus_window);
-
-            // Pass debug, auto-paste, and wrap-marker flags if enabled
-            // Note: auto-enter is ON by default in auto-paste mode, so we pass --no-auto-enter to disable
-            const debugFlag = this._debugEnabled ? ' --debug' : '';
-            const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
-            const noAutoEnterFlag = (this._autoPaste && !this._autoEnter) ? ' --no-auto-enter' : '';
-            const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
-            const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
-            const pasteWithShiftFlag = this._autoPaste ? ` --paste-with-shift ${this._getPasteWithShift()}` : '';
-
-            // Use wsi-stream for streaming mode, otherwise use batch wsi
-            const script = this._streamingMode ? 'wsi-stream' : 'wsi';
-            // Strip shell metacharacters: language is a free-form GSettings string and
-            // is interpolated into a double-quoted `bash -c` command in the non-auto path.
-            const langFlag = ` --language ${this._validateShellArg(this._getWhisperLanguage())}`;
-
-            // Add startup mode flags for streaming mode
-            let startupModeFlag = '';
-            if (this._streamingMode) {
-                if (this._streamingStartupMode === 'pre-buffer') {
-                    startupModeFlag = ' --pre-buffer';
-                } else if (this._streamingStartupMode === 'server') {
-                    startupModeFlag = ' --server-mode';
-                }
-                // 'standard' mode has no flag
-            }
-
-            const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
-            const scriptArgs = debugFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag + pasteWithShiftFlag;
-
-            // Build command - wrap in bash if we need to set environment variables
-            let command;
-            if (this._whisperModel !== 'auto') {
-                // Validate model name against known values before shell interpolation
-                const safeModel = this._validateShellArg(
-                    this._whisperModel,
-                    this._whisperModels.map(m => m[0])
-                );
-                // Need to set WHISPER_MODEL env var - use bash -c
-                command = `/bin/bash -c "WHISPER_MODEL=${safeModel} ${scriptPath}${scriptArgs}"`;
-            } else {
-                // Auto mode uses script defaults - no env var needed
-                command = scriptPath + scriptArgs;
-            }
-
-            this._log(`Launching: ${command}`);
-            this._recorderLaunch.begin(command);
+            this._panel.insert(this._launchFor(kind, style));
         } catch (e) {
             this._lastError = e.message;
-            this._log(`Launch error: ${e.message}`);
+            this._log(`Insert failed: ${e.message}`);
             Main.notify('STT Error', e.message);
         }
     }
 
-    _launchWSIClaude(style = 'corporate') {
+    _onArticleItem() {
         try {
-            // Debounce: ignore a repeat press while a spawned recorder has not yet reported
-            if (this._recorderLaunch.pending) {
-                this._log('Launch already in progress; ignoring repeat press');
-                return;
-            }
-            // If currently in any active state, stop it instead of starting new
-            if (this._currentState === 'RECORDING' ||
-                this._currentState === 'STOPPING' ||
-                this._currentState === 'PREPARING' ||
-                this._currentState === 'TRANSCRIBING') {
-                this._stopRecording();
-                return;
-            }
-
-            // Track that this is Claude mode with specific style
-            this._isClaudeMode = true;
-            this._claudeStyle = style;
-            this._pasteTarget.pin(global.display.focus_window);
-
-            // Build flags similar to _launchWSI
-            const debugFlag = this._debugEnabled ? ' --debug' : '';
-            const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
-            // FORCE no-auto-enter for Claude modes - transcription needs review before sending
-            const noAutoEnterFlag = this._autoPaste ? ' --no-auto-enter' : '';
-            const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
-            const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
-            const pasteWithShiftFlag = this._autoPaste ? ` --paste-with-shift ${this._getPasteWithShift()}` : '';
-
-            // Use wsi-stream for streaming mode, otherwise use batch wsi
-            const script = this._streamingMode ? 'wsi-stream' : 'wsi';
-            // Strip shell metacharacters: language is a free-form GSettings string and
-            // is interpolated into a double-quoted `bash -c` command in the non-auto path.
-            const langFlag = ` --language ${this._validateShellArg(this._getWhisperLanguage())}`;
-
-            // Add startup mode flags for streaming mode
-            let startupModeFlag = '';
-            if (this._streamingMode) {
-                if (this._streamingStartupMode === 'pre-buffer') {
-                    startupModeFlag = ' --pre-buffer';
-                } else if (this._streamingStartupMode === 'server') {
-                    startupModeFlag = ' --server-mode';
-                }
-                // 'standard' mode has no flag
-            }
-
-            // Claude-specific flags with style parameter - validate before interpolation
-            const safeClaudeModel = this._validateShellArg(
-                this._claudeModel,
-                this._claudeModels.map(m => m[0])
-            );
-            const claudeProcessFlag = ' --claude-process';
-            const claudeModelFlag = ` --claude-model ${safeClaudeModel}`;
-            const claudeStyleFlag = ` --claude-style ${style}`;
-
-            const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
-            const scriptArgs = debugFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag + pasteWithShiftFlag + claudeProcessFlag + claudeModelFlag + claudeStyleFlag;
-
-            // Build command - wrap in bash if we need to set environment variables
-            let command;
-            if (this._whisperModel !== 'auto') {
-                // Validate model name against known values before shell interpolation
-                const safeModel = this._validateShellArg(
-                    this._whisperModel,
-                    this._whisperModels.map(m => m[0])
-                );
-                // Need to set WHISPER_MODEL env var - use bash -c
-                command = `/bin/bash -c "WHISPER_MODEL=${safeModel} ${scriptPath}${scriptArgs}"`;
-            } else {
-                // Auto mode uses script defaults - no env var needed
-                command = scriptPath + scriptArgs;
-            }
-
-            this._log(`Launching with Claude processing: ${command}`);
-            this._recorderLaunch.begin(command);
+            this._panel.article(this._launchFor('article'));
         } catch (e) {
             this._lastError = e.message;
-            this._log(`Launch error: ${e.message}`);
+            this._log(`Article mode failed: ${e.message}`);
             Main.notify('STT Error', e.message);
         }
     }
 
-    _launchArticleMode() {
-        try {
-            // Debounce: ignore a repeat press while a spawned recorder has not yet reported
-            if (this._recorderLaunch.pending) {
-                this._log('Article mode: launch already in progress; ignoring repeat press');
-                return;
-            }
-            // Don't allow opening article mode while another recording is active
-            if (this._currentState === 'RECORDING' ||
-                this._currentState === 'STOPPING' ||
-                this._currentState === 'PREPARING' ||
-                this._currentState === 'TRANSCRIBING') {
-                this._log('Article mode: another recording is already active');
-                return;
-            }
+    /** What a press asks for, fixed at the press: the kind of recording, the window the
+     * text goes to, and the recorder the settings chose. A start queued behind a recorder
+     * that is still finishing runs with these. */
+    _launchFor(kind, style = null) {
+        return {
+            kind,
+            style,
+            target: global.display.focus_window,
+            script: this._streamingMode ? 'wsi-stream' : 'wsi',
+            serverMode: this._streamingMode && this._streamingStartupMode === 'server',
+        };
+    }
 
-            this._isArticleMode = true;
-            this._isClaudeMode = false;
-            this._claudeStyle = null;
+    _createPanelSession() {
+        return new PanelSession({
+            spawn: (launch, token, onExit) => this._spawnRecorder(launch, token, onExit),
+            kill: (pid, signalName) => this._signalProcess(pid, signalName),
+            abort: (pid, launch) => this._discardRecording(pid, launch),
+            readRecorderPid: () => this._readLiveRecorderPid(),
+            isAlive: pid => Gio.File.new_for_path(`/proc/${pid}`).query_exists(null),
+            newToken: () => GLib.uuid_string_random(),
+            show: (state, launch) => this._updateIconState(state, launch),
+            log: message => this._log(message),
+            reportError: message => {
+                this._lastError = message;
+                this._log(message);
+                Main.notify('STT Error', message);
+            },
+            notify: message => Main.notify('Speech to Text', message),
+            addTimeout: (ms, handler) => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, handler),
+            removeTimeout: id => GLib.Source.remove(id),
+        });
+    }
 
-            const debugFlag = this._debugEnabled ? ' --debug' : '';
-            const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
-            // Strip shell metacharacters: language is a free-form GSettings string and
-            // is interpolated into a double-quoted `bash -c` command in the non-auto path.
-            const langFlag = ` --language ${this._validateShellArg(this._getWhisperLanguage())}`;
-            const safeClaudeModel = this._validateShellArg(
-                this._claudeModel,
-                this._claudeModels.map(m => m[0])
-            );
-            const modelFlag = ` --model ${safeClaudeModel}`;
-
-            const scriptPath = GLib.get_home_dir() + '/.local/bin/wsi-article-window';
-            const command = scriptPath + debugFlag + noNotifyFlag + langFlag + modelFlag;
-
-            this._log(`Launching article mode: ${command}`);
-            this._recorderLaunch.begin(command);
-
-            // Start elapsed timer immediately for visual feedback
-            this._startElapsedTimer();
-        } catch (e) {
-            this._isArticleMode = false;
-            this._lastError = e.message;
-            this._log(`Article mode launch error: ${e.message}`);
-            Main.notify('STT Error', e.message);
+    /** Start the recorder for `launch`, telling it `token`; returns its PID. */
+    _spawnRecorder(launch, token, onExit) {
+        this._isClaudeMode = launch.kind === 'claude';
+        this._claudeStyle = launch.style;
+        // A start queued behind a finishing recorder may run after its window was closed
+        // (an unmanaged window has no actor): then the window focused now is the target
+        if (launch.kind !== 'article' && launch.target && !launch.target.get_compositor_private()) {
+            this._log('The window focused at the press has closed; pasting where the focus is now');
+            launch.target = global.display.focus_window;
         }
+        if (launch.kind !== 'article')
+            this._pasteTarget.pin(launch.target);
+        const {argv, env} = this._recorderCommand(launch, token);
+        const model = env.WHISPER_MODEL ? ` (WHISPER_MODEL=${env.WHISPER_MODEL})` : '';
+        this._log(`Launching ${launch.kind} (session ${token}): ${argv.join(' ')}${model}`);
+        return spawnWatched(argv, env, onExit);
+    }
+
+    /** The recorder's argv and the environment it needs. No shell is involved, so no
+     * argument can be read as shell syntax, and the PID is the recorder's own. */
+    _recorderCommand(launch, token) {
+        const bin = GLib.get_home_dir() + '/.local/bin/';
+        const claudeModel = this._knownOr(this._claudeModel, this._claudeModels.map(m => m[0]));
+        const argv = [];
+        if (launch.kind === 'article') {
+            argv.push(bin + 'wsi-article-window');
+            if (this._debugEnabled) argv.push('--debug');
+            if (!this._showNotifications) argv.push('--no-notify');
+            argv.push('--language', this._getWhisperLanguage(), '--model', claudeModel,
+                '--session-token', token);
+            return {argv, env: {}};
+        }
+
+        const claude = launch.kind === 'claude';
+        argv.push(bin + launch.script);
+        if (this._debugEnabled) argv.push('--debug');
+        if (this._autoPaste) argv.push('--auto-paste');
+        // Claude's text is reviewed before it is sent, so never an Enter after it
+        if (this._autoPaste && (claude || !this._autoEnter)) argv.push('--no-auto-enter');
+        if (this._wrapWithMarker) argv.push('--wrap-marker');
+        if (!this._showNotifications) argv.push('--no-notify');
+        argv.push('--language', this._getWhisperLanguage());
+        if (launch.script === 'wsi-stream' && this._streamingStartupMode === 'pre-buffer')
+            argv.push('--pre-buffer');
+        if (launch.serverMode)
+            argv.push('--server-mode');
+        // The key for the window pinned at the press; the recorder asks again (PasteKey)
+        // at each paste, and this is its answer if the panel cannot say
+        if (this._autoPaste)
+            argv.push('--paste-with-shift', this._pasteTargetFor(launch.target).withShift ? '1' : '0');
+        if (claude)
+            argv.push('--claude-process', '--claude-model', claudeModel, '--claude-style', launch.style);
+        argv.push('--session-token', token);
+
+        const env = {};
+        if (this._whisperModel !== 'auto')
+            env.WHISPER_MODEL = this._knownOr(this._whisperModel, this._whisperModels.map(m => m[0]));
+        return {argv, env};
     }
 
     _startElapsedTimer() {
@@ -1119,25 +1019,20 @@ export default class SpeechToTextExtension extends Extension {
         this._countdownLabel = new St.Label({
             text: `ART ${spinnerChars[0]}`,
             y_align: 2,  // Clutter.ActorAlign.CENTER
-            style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
+            style: `color: white; font-weight: bold; font-size: 13px; background-color: ${articleBadgeColor()}; padding: 2px 4px; border-radius: 3px;`
         });
         this._indicator.add_child(this._countdownLabel);
 
         this._log('Article mode spinner started');
 
         // Advance spinner every 600ms — clearly signals indefinite recording
+        this._articleSpinner = true;
         this._recordingTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
             spinnerIdx = (spinnerIdx + 1) % spinnerChars.length;
             if (this._countdownLabel)
                 this._countdownLabel.text = `ART ${spinnerChars[spinnerIdx]}`;
             return GLib.SOURCE_CONTINUE;
         });
-    }
-
-    _getPasteWithShift() {
-        // 1 (Ctrl+Shift+V) or 0 (Ctrl+V) for the window focused at Insert. The recorder
-        // asks again (PasteKey) at each paste; this is its answer if the panel cannot.
-        return this._pasteTargetFor(global.display.focus_window).withShift ? 1 : 0;
     }
 
     /**
@@ -1204,102 +1099,73 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _killRecorders(signalName) {
-        // `wsi-stream( |$)` is anchored so it never matches the warm wsi-stream-server:
-        // killing that throws away the loaded model and forces a cold start next time.
-        const binDir = GLib.get_home_dir() + '/.local/bin';
-        GLib.spawn_command_line_async(`pkill --signal ${signalName} -f "pw-record.*wfile"`);
-        GLib.spawn_command_line_async(`pkill --signal ${signalName} -f "${binDir}/wsi-stream( |$)"`);
-        GLib.spawn_command_line_async(`pkill --signal ${signalName} -f "${binDir}/wsi --"`);
+    /** Send `signalName` to recorder `pid`, or to its whole process group with `group`. */
+    _signalProcess(pid, signalName, group = false) {
+        const argv = killArgv(pid, signalName, group);
+        this._log(argv.join(' '));
+        GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
     }
 
-    _resetToIdle() {
-        this._currentState = 'IDLE';
-        this._recorderLaunch.settle();
-        this._stopCountdown();
-        this._updateIconState('IDLE');
-    }
-
-    _readLiveRecorderPid(pidFile) {
-        // Returns the recorder PID if the PID file names a live process, else null
-        const file = Gio.File.new_for_path(pidFile);
-        if (!file.query_exists(null)) {
-            return null;
+    /** Escape: throw the dictation away (recorderLaunch.js discardSignal says how). */
+    _discardRecording(pid, launch) {
+        const {signal, group} = discardSignal(launch);
+        this._signalProcess(pid, signal, group);
+        if (launch.serverMode)
+            return;
+        // A killed recorder cannot remove its own PID file
+        if (this._readPidFile() === String(pid)) {
+            Gio.File.new_for_path(RECORDER_PID_FILE).delete(null);
+            this._log(`Removed the PID file of the discarded recorder ${pid}`);
         }
-        const [, contents] = file.load_contents(null);
-        const pid = new TextDecoder().decode(contents).trim();
+    }
+
+    /** The PID the recorders' PID file holds, or null with no file. */
+    _readPidFile() {
+        // One read, no exists-then-read: a recorder can remove the file in between
+        let contents;
+        try {
+            [, contents] = Gio.File.new_for_path(RECORDER_PID_FILE).load_contents(null);
+        } catch (e) {
+            if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                return null;  // no file is the answer "no recorder"
+            throw e;
+        }
+        return new TextDecoder().decode(contents).trim();
+    }
+
+    /** The PID of a live recorder the PID file names, or null: a missing file, or one
+     * naming a process that is gone or is not a recorder (a reused PID), is no recorder. */
+    _readLiveRecorderPid() {
+        const pid = this._readPidFile();
+        if (pid === null)
+            return null;
         if (!/^[0-9]+$/.test(pid)) {
             this._log(`PID file holds a non-numeric value: "${pid}"`);
             return null;
         }
-        if (!Gio.File.new_for_path(`/proc/${pid}`).query_exists(null)) {
-            this._log(`PID file is stale (PID ${pid} not running)`);
+        let contents;
+        try {
+            [, contents] = Gio.File.new_for_path(`/proc/${pid}/cmdline`).load_contents(null);
+        } catch (e) {
+            // FAIL-FAST-OK: no /proc entry is the answer "not running", not a failure
+            this._log(`PID file is stale (PID ${pid} not running: ${e.message})`);
+            return null;
+        }
+        if (!RECORDER_CMDLINE.test(new TextDecoder().decode(contents))) {
+            this._log(`PID file is stale (PID ${pid} is not a recorder)`);
             return null;
         }
         return pid;
     }
 
-    _stopRecording() {
-        const pidFile = '/dev/shm/stt-recording-' + GLib.get_user_name() + '.pid';
-        this._log(`Stopping recording via PID file: ${pidFile}`);
-
-        let pid = null;
-        try {
-            pid = this._readLiveRecorderPid(pidFile);
-        } catch (e) {
-            this._log(`Stop error reading PID file: ${e.message}`);
-        }
-
-        if (pid) {
-            this._log(`Killing PID: ${pid}`);
-            GLib.spawn_command_line_async(`kill ${pid}`);
-            return;
-        }
-
-        // No live recorder owns the state, so no process will ever emit IDLE for it.
-        // Sweep any stragglers and reset here, otherwise the indicator stays wedged
-        // and every later Insert press lands back in this branch.
-        this._log('No live recorder PID; pkill fallback and reset to IDLE');
-        this._killRecorders('TERM');
-        this._resetToIdle();
-    }
-
     _abortRecording() {
-        // Only abort while the microphone is open: recording, or in the stop grace
-        if (this._currentState !== 'RECORDING' && this._currentState !== 'STOPPING') {
-            this._log('Abort ignored - not recording');
-            return;
-        }
-
-        this._log('Aborting recording (Escape pressed)');
-
-        const pidFile = '/dev/shm/stt-recording-' + GLib.get_user_name() + '.pid';
         try {
-            // Server mode: the audio lives in the warm server, so the client must send it
-            // STOP. SIGUSR1 asks the client to do that and discard the text.
-            const pid = this._readLiveRecorderPid(pidFile);
-            if (pid && this._streamingMode && this._streamingStartupMode === 'server') {
-                this._log(`Discarding server-mode recording: SIGUSR1 to ${pid}`);
-                GLib.spawn_command_line_async(`kill -USR1 ${pid}`);
-                this._resetToIdle();
-                return;
-            }
-
-            // Other modes own their audio: SIGKILL the process tree to prevent transcription
-            this._killRecorders('KILL');
-
-            // Clean up PID file
-            const file = Gio.File.new_for_path(pidFile);
-            if (file.query_exists(null)) {
-                file.delete(null);
-            }
+            this._panel?.escape();
         } catch (e) {
-            this._log(`Abort cleanup error: ${e.message}`);
+            this._lastError = e.message;
+            this._log(`Escape failed: ${e.message}`);
+            Main.notify('STT Error', `Escape failed: ${e.message}`);
         }
-
-        // Reset UI immediately
-        this._resetToIdle();
-        this._log('Recording aborted');
     }
 
     _ensureLogDirectory() {
@@ -1497,7 +1363,8 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     _updateStatusLabel() {
-        let statusText = `Status: ${this._currentState}`;
+        const state = this._panel?.display ?? 'IDLE';
+        let statusText = `Status: ${state}`;
 
         // Add server status if in server mode
         if (this._streamingMode && this._streamingStartupMode === 'server') {
@@ -1510,24 +1377,9 @@ export default class SpeechToTextExtension extends Extension {
         }
         this._statusLabel.label.text = statusText;
 
-        // Color-code based on state
-        switch (this._currentState) {
-            case 'RECORDING':
-                this._statusLabel.label.style = 'font-weight: bold; color: #ff4444;';
-                break;
-            case 'STOPPING':
-            case 'TRANSCRIBING':
-                this._statusLabel.label.style = 'font-weight: bold; color: #ffaa00;';
-                break;
-            case 'SUCCESS':
-                this._statusLabel.label.style = 'font-weight: bold; color: #44ff44;';
-                break;
-            case 'ERROR':
-                this._statusLabel.label.style = 'font-weight: bold; color: #ff4444;';
-                break;
-            default:
-                this._statusLabel.label.style = 'font-weight: bold;';
-        }
+        // The colour the icon has in this state
+        const {colour} = lookFor(state);
+        this._statusLabel.label.style = `font-weight: bold;${colour ? ` color: ${colour};` : ''}`;
     }
 
     _openLogViewer() {

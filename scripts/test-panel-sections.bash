@@ -40,6 +40,8 @@ TEST_FILES=(
     tests/extensions/test-stt-focus-outline.mjs
     tests/extensions/test-stt-paste-target.mjs
     tests/extensions/test-stt-recorder-launch.mjs
+    tests/extensions/test-stt-panel-session.mjs
+    tests/extensions/test-stt-panel-look.mjs
 )
 
 if ! command -v node >/dev/null; then
