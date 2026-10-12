@@ -441,9 +441,11 @@ patch-cycle versions: the firmware, dnf, Flatpak, pipx and Rust updates, then th
 and countdown above (N defaults to 2), then the reboot or the shutdown — as root, since
 either over SSH is refused to a plain user. The warning is `going-down`, so its kind
 follows the restore opt-in as above. How much the sessions can hold the machine up
-follows the provisioning profile, recorded in `/etc/fedora-desktop/provisioning-profile`:
+follows the provisioning profile (auto-detected: desktop on a graphical machine), which
+`play-basic-configs.yml` records in `/etc/fedora-desktop/provisioning-profile`. With no
+such file, or an unknown value in it, both commands refuse before updating.
 
-- **Desktop** (default): the update and the shutdown or reboot always happen. A session
+- **Desktop**: the update and the shutdown or reboot always happen. A session
   that cannot be warned, a warning that fails, or one that has not answered in two
   minutes is reported and gone past; a blocked shutdown or reboot is forced past its
   inhibitors (`-i`).

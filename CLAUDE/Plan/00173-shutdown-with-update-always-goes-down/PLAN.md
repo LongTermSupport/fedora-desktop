@@ -13,7 +13,8 @@ prompts has a tmux session but no container. `ccy-sessions notify going-down --d
 which the command runs before updating, counted that session as live, found no container
 to reach its project's hooks-daemon through, fell back to the host CLI (which has no venv
 for a ccy-only project) and refused. The command then exited before `dnf`, leaving the
-machine up and not updated.
+machine up and not updated. This cause is inferred from the code and reproduced under
+fakes; no host capture was taken, so Task 2.2 confirms it.
 
 Two faults, two fixes. `ccy-sessions` treats a `ccy` session with no container as not a
 live session: there is nothing in it to warn, so it is named as left out and never
@@ -35,8 +36,7 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
 
 ## Non-Goals
 
-- Changing what a failed `dnf upgrade` does: it still stops the run (fail fast). Owner
-  to confirm whether a desktop should power off anyway after a failed `dnf`.
+- Changing what a failed `dnf upgrade` does: it still stops the run (fail fast).
 - Changing `ccy-sessions reboot`, beyond leaving container-less ccy sessions out.
 
 ## Tasks
@@ -55,11 +55,18 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
 
 ### Phase 2: Deploy and accept
 
-- [ ] ⬜ **Task 2.1**: Run `play-basic-configs.yml` (the script and the profile file) and
-  `play-claude-yolo.yml` (`ccy-sessions`) on the host, through meta-deploy.
+- [ ] ⬜ **Task 2.1**: Run this plan's `deploy.bash` on the host, through meta-deploy:
+  `play-basic-configs.yml` (the script and the profile file) and `play-claude-yolo.yml`
+  (`ccy-sessions`).
 - [ ] ⬜ **Task 2.2**: Owner runs `shutdown-with-update` in an evening with a ccy session
   left at its startup prompt; the machine updates and powers off.
 - [ ] ⬜ **Task 2.3**: qa-reviewer pass on the branch.
+
+## Open Question for the Owner
+
+- When `dnf upgrade` fails on a desktop (a mirror or network failure), should
+  `shutdown-with-update` still power off, not updated, or stay up (the current fail-fast
+  behaviour) so the failure is seen?
 
 ## Success Criteria
 

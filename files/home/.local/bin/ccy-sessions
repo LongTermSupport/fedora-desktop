@@ -76,8 +76,8 @@
 # ccy session, on the host otherwise (set_route). A live session whose project has no
 # daemon CLI, or one that cannot run, is a refusal: every such session is named, nothing is
 # signalled, and reboot reboots nothing. Exit 64 for a usage mistake, 1 for a refusal.
-# A ccy session with no container (still at ccy's startup prompts) is not a live session
-# for this purpose: it is named on stderr and left out, never a refusal.
+# A ccy session with no container found in its process tree (at ccy's startup prompts, or
+# its container has exited) has no agent to warn: it is named on stderr and left out.
 #
 # The daemon's two warning texts differ in what an agent does next — carry on because it
 # will be restored, or wind down and hand off because it will not — so `going-down` (and
@@ -252,9 +252,10 @@ PROJECTS=()
 # warned is listed, with what to do about it, not just the first one met. Fills PROJECTS and
 # the routes. Reports go to stderr.
 #
-# A ccy session with no container is not a live agent: it is still at ccy's startup prompts
-# (or its container has exited), so there is nothing in it to warn, and its project's daemon
-# is not running anywhere it could be reached. It is named and left out — never a refusal.
+# A ccy session with no container found in its process tree (session_containers) has no
+# agent to warn: it is at ccy's startup prompts, or its container has exited, and its
+# project's daemon is not running anywhere it could be reached. It is named and left out,
+# never a refusal.
 check_projects() {
     local kind="${1}"
     local listing containers name attached dir engine container
@@ -299,7 +300,7 @@ check_projects() {
         fi
     done <<<"${listing}"
     if [[ "${#idle[@]}" -gt 0 ]]; then
-        echo "Left out: these ccy sessions have no container (still at ccy's startup prompts), so there is nothing in them to warn:" >&2
+        echo "Left out: no container was found in these ccy sessions' process trees (still at ccy's startup prompts, or the container has exited), so there is no agent in them to warn:" >&2
         printf '%s\n' "${idle[@]}" >&2
     fi
     [[ "${#PROJECTS[@]}" -gt 0 ]] || return 0

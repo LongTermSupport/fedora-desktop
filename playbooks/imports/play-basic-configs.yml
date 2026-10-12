@@ -324,6 +324,15 @@
         group: root
         mode: "0755"
 
+    - name: Assert the Provisioning Profile Is desktop or server
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: >-
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Expected desktop or server (auto-detected in
+          environment/localhost/group_vars/desktop.yml, or -e provisioning_profile=desktop|server).
+
     - name: Record the Provisioning Profile for shutdown-with-update
       ansible.builtin.copy:
         content: "{{ provisioning_profile }}\n"
