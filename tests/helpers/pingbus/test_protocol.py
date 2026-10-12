@@ -1071,8 +1071,8 @@ SECRET_EXAMPLES = {
 
 
 class TestAgentText(unittest.TestCase):
-    """§7: an agent's free text to the team's humans, refused on send unless well formed and
-    clean, and dropped by every agent on receive."""
+    """§7: an agent's free text to the team's humans and agents, refused on send unless well
+    formed and clean, delivered as peer text only to the agents it names."""
 
     def assertRefused(self, reason: str, body: object, ctx: p.Context | None = None) -> None:
         with self.assertRaises(p.Refusal) as caught:
@@ -1089,6 +1089,7 @@ class TestAgentText(unittest.TestCase):
         self.assertEqual(p.TEXT_OBJECT_KEYS, ("v", "to", "text"))
         self.assertEqual(p.MSGTYPE_TEXT, "m.notice")
         self.assertEqual(p.MAX_AGENT_TEXT_BYTES, 4096)
+        self.assertEqual(p.MAX_TEXT_TO, 16)
 
     def test_build_and_render(self) -> None:
         body = self.good()
@@ -1105,10 +1106,18 @@ class TestAgentText(unittest.TestCase):
         one = p.validate_text_content(p.build_text([HUMAN], "x" * p.MAX_AGENT_TEXT_BYTES), make_ctx())
         self.assertEqual(one.to, (HUMAN,))
 
-    def test_addressed_to_humans_only(self) -> None:
+    def test_addressed_to_humans_and_agents_holding_a_role(self) -> None:
+        ctx = make_ctx()
         for label, to in (
+            ("a human", [HUMAN]),
             ("an agent", [WORKER]),
             ("a human and an agent", [HUMAN, ORCH]),
+        ):
+            with self.subTest(case=label):
+                self.assertEqual(p.validate_text_content(p.build_text(to, "hello"), ctx).to, tuple(sorted(to)))
+        for label, to in (
+            ("an agent with no role", [NO_ROLE]),
+            ("a foreign agent", [FOREIGN]),
             ("unlisted human", ["@human9:server.test"]),
             ("foreign human", [FOREIGN_HUMAN]),
             ("admin", [ADMIN]),
@@ -1119,9 +1128,9 @@ class TestAgentText(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 self.assertRefused("target", p.build_text(to, "hello"))
-        humans = [f"@h{i}:server.test" for i in range(p.HUMANS_MAX + 1)]
+        humans = [f"@h{i}:server.test" for i in range(p.MAX_TEXT_TO + 1)]
         ctx = make_ctx(humans=frozenset(humans))
-        p.validate_text_content(p.build_text(humans[:p.HUMANS_MAX], "hi"), ctx)
+        p.validate_text_content(p.build_text(humans[:p.MAX_TEXT_TO], "hi"), ctx)
         self.assertRefused("target", p.build_text(humans, "hi"), ctx)
 
     def test_size(self) -> None:
@@ -1187,23 +1196,70 @@ class TestAgentText(unittest.TestCase):
                 p.check_text_sender(sender, ctx)
             self.assertEqual(caught.exception.reason, "role")
 
-    def test_every_agent_ignores_agent_text_whatever_its_addressing(self) -> None:
-        """Agent text is for humans: an agent receiving it ignores it silently. It is not a
-        drop, so it reaches no `dropped.log`, no `DROPPED` count and no exit status."""
+    def test_an_agent_not_in_to_ignores_agent_text(self) -> None:
+        """Text not addressed to this agent is skipped silently: no `dropped.log`, no
+        `DROPPED` count, no exit status, however it is formed. An agent's `@room` addresses
+        no agent: agent text names each agent it is for."""
         good = self.good()
         cases = [
             ("to humans", good),
-            ("mentions me", dict(good, **{"m.mentions": {"user_ids": [WORKER]}})),
+            ("to another agent", p.build_text([WORKER2], "hello")),
             ("room mention", dict(good, **{"m.mentions": {"room": True}})),
             ("malformed object", dict(good, **{p.TEXT_KEY: "x"})),
             ("as m.text", dict(good, msgtype="m.text")),
         ]
         for label, body in cases:
-            for sender, me in ((ORCH, WORKER), (ORCH, WORKER2), (WORKER, ORCH)):
+            for sender, me in ((ORCH, WORKER), (WORKER2, ORCH)):
                 with self.subTest(case=label, sender=sender, me=me):
                     out = p.validate_event(event(sender, body), make_ctx(), me)
                     self.assertEqual((out.kind, out.reason), (p.IGNORE, "agent-text"))
                     self.assertIsNone(out.ping)
+                    self.assertIsNone(out.peer)
+
+    def test_an_agent_in_to_receives_peer_text(self) -> None:
+        body = p.build_text([HUMAN, WORKER], "the build is green on my side\nlooking at the docs next")
+        out = p.validate_event(event(ORCH, body), make_ctx(), WORKER)
+        self.assertEqual(out.kind, p.ACCEPT)
+        self.assertIsNone(out.human)
+        self.assertIsNone(out.ping)
+        self.assertEqual(out.peer, p.PeerText(EVENT_ID, ORCH, 1_700_000_000_000,
+                                              "the build is green on my side\nlooking at the docs next"))
+
+    def test_peer_text_is_checked_like_a_send(self) -> None:
+        """Addressed text a sender built without pingbus is held to every send rule but the
+        secret shapes: what fails is dropped and counted, as a malformed ping is."""
+        good = p.build_text([WORKER], "hello")
+        obj = good[p.TEXT_KEY]
+        cases = [
+            ("mentions only", dict(self.good(), **{"m.mentions": {"user_ids": [WORKER]}}), "schema"),
+            ("body differs", dict(good, body=good["body"] + " also"), "body"),
+            ("an unlisted agent too", p.build_text([NO_ROLE, WORKER], "hello"), "target"),
+            ("too long", p.build_text([WORKER], "x" * (p.MAX_AGENT_TEXT_BYTES + 1)), "size"),
+            ("edit", dict(good, **{"m.relates_to": {"rel_type": "m.replace"}}), "edit"),
+            ("v two", dict(good, **{p.TEXT_KEY: dict(obj, v=2)}), "version"),
+        ]
+        for label, body, reason in cases:
+            with self.subTest(case=label):
+                out = p.validate_event(event(ORCH, body), make_ctx(), WORKER)
+                self.assertEqual((out.kind, out.reason), (p.DROP, reason))
+                self.assertIsNone(out.peer)
+
+    def test_secret_shapes_are_a_send_check_only(self) -> None:
+        """`secret` refuses a send and never names a receive drop: text in the room is already
+        in every member account's view, so a receiver delivers it as it is."""
+        text = SECRET_EXAMPLES["github-token"]
+        out = p.validate_event(event(ORCH, p.build_text([WORKER], text)), make_ctx(), WORKER)
+        self.assertEqual(out.kind, p.ACCEPT)
+        self.assertEqual(out.peer.text, text)
+
+    def test_a_member_without_human_text_drops_addressed_peer_text(self) -> None:
+        """`human_text: false` narrows a member to pings: free text from anyone is `sender`."""
+        out = p.validate_event(event(ORCH, p.build_text([WORKER], "hello")), make_ctx(), WORKER,
+                               human_text=False)
+        self.assertEqual((out.kind, out.reason), (p.DROP, "sender"))
+        out = p.validate_event(event(ORCH, p.build_text([WORKER2], "hello")), make_ctx(), WORKER,
+                               human_text=False)
+        self.assertEqual((out.kind, out.reason), (p.IGNORE, "agent-text"))
 
     def test_text_beside_a_ping_is_a_schema_drop(self) -> None:
         """One event carrying both a ping and agent text is neither: a sender that mixes them

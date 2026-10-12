@@ -18,7 +18,10 @@
 #   M1.2 the human, by curl, posts an m.text mentioning a only: a's `recv` prints exactly
 #        that HUMAN line, b's prints nothing of it;
 #   M1.3 a sends `review` (a commit reference) to b, who never answers: a's `wait` prints one
-#        TIMEOUT, for it, after a's 60 s ack deadline, and none for the review b acked.
+#        TIMEOUT, for it, after a's 60 s ack deadline, and none for the review b acked;
+#   M1.4 a says one text to b and one to the human only: b's `recv` prints exactly one PEER
+#        line, the text that names it (DESIGN.md D63). It runs before M1.3, whose unanswered
+#        review would otherwise still be pending in b's inbox.
 #
 # M2 CHECKS, U20's row (_acceptance-u20.inc.bash): real ccy sessions in THIS checkout, run
 # headless with stream-json input so each sits idle between turns, each launched with
@@ -244,6 +247,8 @@ plan_deploy_leg "agent-bus add-member: a (orchestrator) and b (worker)" add_memb
 plan_deploy_leg "members take their bundles, pass config check and join the team room" place_members
 check_leg "M1.1 review sent, received by wait, acked" check_review_ack
 check_leg "M1.2 a human message reaches only the member it mentions" check_human_addressed
+# M1.4 runs before M1.3: M1.3 leaves an unanswered review pending in b's inbox.
+check_leg "M1.4 an agent text reaches the member it names as PEER, not one it does not" check_peer_text
 check_leg "M1.3 TIMEOUT for an unanswered review, none for the acked one" check_timeout
 plan_deploy_leg "U20: record this checkout and the ${TEAM} members before M2.0" u20_record
 plan_deploy_leg "U20: ccy --teams acca@${TEAM}, accb@${TEAM}, accc@${TEAM} launched in turn; acca made orchestrator" u20_launch_seats

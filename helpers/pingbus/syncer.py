@@ -83,13 +83,15 @@ class Batch:
 @dataclasses.dataclass(frozen=True)
 class HistoryItem:
     """One item of a seat's history (§13 `history`): a ping received (`in`, `ping`) or
-    sent (`out`, `ping`), a human message received (`in`, `human`), or an agent text this
-    member sent (`out`, `sent_event_id`; its text is never kept)."""
+    sent (`out`, `ping`), a human message received (`in`, `human`), an agent text naming
+    this member (`in`, `peer`), or an agent text this member sent (`out`, `sent_event_id`;
+    its text is never kept)."""
 
     direction: str
     origin_server_ts: int
     ping: protocol.Ping | None = None
     human: protocol.HumanMessage | None = None
+    peer: protocol.PeerText | None = None
     sent_event_id: str | None = None
 
 
@@ -459,8 +461,9 @@ class Syncer:
         if sent by the ping's deadline (§9 08p, §10), so it faces the other steps; any other
         stale item stops there, spending no flood budget and no forge call."""
         lim = self.member.limits
-        if outcome.human is not None:
-            message = outcome.human
+        if outcome.ping is None:
+            # Free text, a human's or a peer's: one age limit and the flood limit.
+            message = outcome.item
             if limits.human_stale(message.origin_server_ts, now, lim):
                 return True, None
             return False, None if self._flood.admit(message.sender, now) else "rate"
@@ -537,6 +540,8 @@ class Syncer:
             return None, outcome.reason
         if outcome.human is not None:
             return HistoryItem(HISTORY_IN, outcome.human.origin_server_ts, human=outcome.human), None
+        if outcome.peer is not None:
+            return HistoryItem(HISTORY_IN, outcome.peer.origin_server_ts, peer=outcome.peer), None
         reason = self._forge_check(outcome.ping, record)
         if reason is not None:
             return None, reason

@@ -34,6 +34,8 @@ readonly MEMBER_HOST="acceptance"
 #: Member a's ack deadline, the lowest pingbus accepts (§10), so TIMEOUT falls due in a minute.
 readonly ACK_TIMEOUT_S=60
 readonly HUMAN_TEXT="M1 acceptance: a message addressed to one member only"
+readonly PEER_TEXT="M1 acceptance: a note from member a to member b"
+readonly PEER_HUMAN_TEXT="M1 acceptance: a note from member a to the human only"
 MEMBERS_PRESENT=0
 B_WAIT_PID=""
 
@@ -377,4 +379,32 @@ check_timeout() {
     "${CHECK[@]}" expect-timeout "${MEMBER_DIR}/a/wait-timeout.out" "${TEAM}" "${pingId}" \
         "${B_HANDLE}" review "${REF_COMMIT}" || return 1
     evidence "TIMEOUT for ${pingId} (b silent), none for the acked review: members/a/wait-timeout.out"
+}
+
+# say_text <member> <label> <text> <to> — `pingbus say --to <to>` as the member, the text on
+# stdin; SENT_ID is the event ID.
+say_text() {
+    local member="$1" label="$2" input="${MEMBER_DIR}/$1/$2.in" status=0
+    printf '%s\n' "$3" >"${input}" || return 1
+    member_run "${member}" "${label}" "${input}" "${PINGBUS}" say --to "$4" || status=$?
+    show "${member}" "${label}"
+    expect_status "${member}" "${label}" "${status}" 0 || return 1
+    SENT_ID="$("${CHECK[@]}" sent-event "${MEMBER_DIR}/${member}/${label}.out" "${TEAM}")"
+}
+
+# check_peer_text — a says one text to b and one to the human only. b's recv prints exactly
+# one PEER line, the text that names it, from a; the text b is not named in reaches it not
+# at all (DESIGN.md D63).
+check_peer_text() {
+    local status=0 peerId humanOnlyId
+    say_text a say-peer "${PEER_TEXT}" "${B_HANDLE}" || return 1
+    peerId="${SENT_ID}"
+    say_text a say-human "${PEER_HUMAN_TEXT}" "${HUMAN}" || return 1
+    humanOnlyId="${SENT_ID}"
+    member_run b recv-peer /dev/null "${PINGBUS}" recv || status=$?
+    show b recv-peer
+    expect_status b recv-peer "${status}" 0 || return 1
+    "${CHECK[@]}" expect-peer "${MEMBER_DIR}/b/recv-peer.out" "${TEAM}" "${peerId}" "${A_HANDLE}" \
+        "${PEER_TEXT}" || return 1
+    evidence "agent text ${peerId} from a delivered to b as PEER; ${humanOnlyId}, to the human only, not delivered to b: members/a/say-peer.out, members/a/say-human.out, members/b/recv-peer.out"
 }

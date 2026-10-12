@@ -107,16 +107,19 @@ STOP_LINE = "STOPPING BECAUSE: waiting on the agent team bus"
 SESSION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def _template_re(template: str, fields: Sequence[str]) -> re.Pattern[str]:
-    """A fixed hook template with each named field captured as digits."""
+def _template_re(template: str, fields: Sequence[str], skipped: Sequence[str] = ()) -> re.Pattern[str]:
+    """A fixed hook template with each named field captured as digits, and each skipped
+    field matched as digits without a capture."""
     pattern = re.escape(template)
     for field in fields:
         pattern = pattern.replace(re.escape("{" + field + "}"), r"(\d+)")
+    for field in skipped:
+        pattern = pattern.replace(re.escape("{" + field + "}"), r"\d+")
     return re.compile(pattern)
 
 
-#: notify.NOTICE_TEMPLATE, with each count captured.
-NOTICE_RE = _template_re(notify.NOTICE_TEMPLATE, ("total", "humans", "pings", "number"))
+#: notify.NOTICE_TEMPLATE, with each count M2 judges captured (M2 sends no agent text).
+NOTICE_RE = _template_re(notify.NOTICE_TEMPLATE, ("total", "humans", "pings", "number"), ("peers",))
 #: The Stop guard's block when an active team has neither a watcher nor a waiter.
 NO_WAKER_RE = _template_re(hooks.TEMPLATES["no_waker"], ("free", "teams"))
 

@@ -73,6 +73,7 @@ EXPECTED_TOML = {
     "federate_admin_room": False,
     "admin_escape_commands": False,
     "allow_encryption": False,
+    "allow_room_creation": False,
     "auto_accept_invites": False,
     "new_user_displayname_suffix": "",
     "client_sync_timeout_min": 0,
@@ -99,6 +100,12 @@ class TomlTest(unittest.TestCase):
         self.assertEqual(documented, sorted(set(documented)), EXAMPLE_CONFIG_SOURCE)
         self.assertTrue(all(re.fullmatch(r"[a-z0-9_]+", key) for key in documented))
         self.assertEqual(set(render.TOML_KEYS) - set(documented), set(), EXAMPLE_CONFIG_SHA256)
+
+    def test_only_the_admin_creates_rooms(self) -> None:
+        # The team room is the one room on the instance (DESIGN.md section 3.6, D63): every
+        # agent and human message stays in it, auditable by the team's humans.
+        parsed = tomllib.loads(render.render_toml(team()))
+        self.assertIs(parsed["allow_room_creation"], False)
 
     def test_no_listen_means_loopback_only(self) -> None:
         parsed = tomllib.loads(render.render_toml(team(listen=[])))

@@ -33,7 +33,7 @@ TOML_KEYS = (
     "database_backups_to_keep", "allow_registration", "allow_guest_registration",
     "registration_shared_secret_file", "grant_admin_to_first_user", "login_via_token",
     "login_via_existing_session", "allow_federation", "trusted_servers", "federate_admin_room",
-    "admin_escape_commands", "allow_encryption", "auto_accept_invites",
+    "admin_escape_commands", "allow_encryption", "allow_room_creation", "auto_accept_invites",
     "new_user_displayname_suffix", "client_sync_timeout_min", "default_room_version", "sentry",
     "log", "admin_signal_execute", "error_on_unknown_config_opts", "rocksdb_allow_fallocate",
 )
@@ -71,6 +71,7 @@ def toml_values(tf: teamfile.TeamFile) -> dict[str, object]:
         "federate_admin_room": False,
         "admin_escape_commands": False,
         "allow_encryption": False,
+        "allow_room_creation": False,
         "auto_accept_invites": False,
         "new_user_displayname_suffix": "",
         "client_sync_timeout_min": 0,

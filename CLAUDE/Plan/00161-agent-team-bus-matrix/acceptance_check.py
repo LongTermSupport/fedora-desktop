@@ -21,8 +21,9 @@ payload; every reason goes to stderr):
   sent-event OUT TEAM                the event ID of the one SENT line in OUT
   expect-ping OUT TEAM EVENT SENDER VERB REF RE     OUT is exactly that PING line
   expect-human OUT TEAM EVENT SENDER TEXT           OUT is exactly that HUMAN line
+  expect-peer OUT TEAM EVENT SENDER TEXT            OUT is exactly that PEER line
   expect-timeout OUT TEAM EVENT TARGET VERB REF     OUT is exactly that TIMEOUT line
-  expect-absent OUT EVENT            no line in OUT names EVENT, and none is HUMAN
+  expect-absent OUT EVENT            no line in OUT names EVENT, and none is HUMAN or PEER
   send-outcome STATUS ERR            a `pingbus send`'s verdict from its status and stderr
   host-subnet SOURCE                 (U23) "<ifname>\\t<cidr>": the host network holding a
                                      member's SOURCE address; `ip -j -4 addr show` on stdin
@@ -201,20 +202,29 @@ def expect_ping(text: str, team: str, event: str, sender: str, verb: str, ref: s
     return _compare("PING", fields, (team, event, sender, verb, ref or cli.ABSENT, re_ or cli.ABSENT))
 
 
-def expect_human(text: str, team: str, event: str, sender: str, body: str) -> list[str]:
-    fields, problems = _only(text, "HUMAN")
+def _expect_text(kind: str, text: str, team: str, event: str, sender: str, body: str) -> list[str]:
+    """OUT is exactly one `kind` line (`HUMAN` or `PEER`) carrying `body`."""
+    fields, problems = _only(text, kind)
     if fields is None:
         return problems
-    problems = _compare("HUMAN", fields, (team, event, sender, None, None))
+    problems = _compare(kind, fields, (team, event, sender, None, None))
     if not fields[3].isdigit():
-        problems.append(f"HUMAN origin_server_ts {fields[3]!r} is not a non-negative integer")
+        problems.append(f"{kind} origin_server_ts {fields[3]!r} is not a non-negative integer")
     try:
         delivered = json.loads(fields[4])
     except ValueError:
         delivered = None
     if not isinstance(delivered, str) or delivered != body:
-        problems.append(f"HUMAN text {fields[4]!r} is not the message sent ({body!r})")
+        problems.append(f"{kind} text {fields[4]!r} is not the message sent ({body!r})")
     return problems
+
+
+def expect_human(text: str, team: str, event: str, sender: str, body: str) -> list[str]:
+    return _expect_text("HUMAN", text, team, event, sender, body)
+
+
+def expect_peer(text: str, team: str, event: str, sender: str, body: str) -> list[str]:
+    return _expect_text("PEER", text, team, event, sender, body)
 
 
 def expect_timeout(text: str, team: str, event: str, target: str, verb: str, ref: str) -> list[str]:
@@ -230,7 +240,7 @@ def expect_absent(text: str, event: str) -> list[str]:
     except ValueError as exc:
         return [str(exc)]
     return [f"a {kind} line was delivered here: {fields}" for kind, fields in lines
-            if kind == "HUMAN" or event in fields]
+            if kind in ("HUMAN", "PEER") or event in fields]
 
 
 def send_outcome(status: int, stderr: str) -> int:
@@ -412,6 +422,7 @@ COMMANDS = {
     "expect-ping": (7, lambda a: _verdict(expect_ping(_read(a[0]), a[1], a[2], a[3], a[4],
                                                       _absent(a[5]), _absent(a[6])))),
     "expect-human": (5, lambda a: _verdict(expect_human(_read(a[0]), *a[1:]))),
+    "expect-peer": (5, lambda a: _verdict(expect_peer(_read(a[0]), *a[1:]))),
     "expect-timeout": (6, lambda a: _verdict(expect_timeout(_read(a[0]), *a[1:]))),
     "expect-absent": (2, lambda a: _verdict(expect_absent(_read(a[0]), a[1]))),
     "send-outcome": (2, lambda a: send_outcome(int(a[0]), _read(a[1]))),

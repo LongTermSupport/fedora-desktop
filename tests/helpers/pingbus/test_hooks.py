@@ -208,8 +208,8 @@ class TemplateTest(unittest.TestCase):
         self.assertIn("another process of this seat", hooks.TEMPLATES["seat_held"])
 
     def test_pending_template_matches_the_socket_notice_counts(self):
-        self.assertEqual(hooks.pending_text(3, 1, 2),
-                         "agent-bus: 3 pending (1 from humans, 2 pings). Run `pingbus recv`.")
+        self.assertEqual(hooks.pending_text(4, 1, 1, 2),
+                         "agent-bus: 4 pending (1 from humans, 1 from agents, 2 pings). Run `pingbus recv`.")
 
 
 # ── UserPromptSubmit ───────────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ class PromptTest(HookCase):
         self.plant_ping(2)
         result = self.hook("prompt", {"hook_event_name": "UserPromptSubmit", "prompt": "hi"})
         self.assertEqual(result["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit")
-        self.assertEqual(self.context(result), hooks.pending_text(2, 1, 1))
+        self.assertEqual(self.context(result), hooks.pending_text(2, 1, 0, 1))
 
     def test_nothing_pending_adds_nothing(self):
         self.assertEqual(self.hook("prompt", {"prompt": "hi"}), {})
@@ -239,7 +239,7 @@ class PromptTest(HookCase):
         state_b = self.bundle(TEAM_B, SN_B)
         self.plant_human(1)
         self.plant_human(2, state_b, SN_B)
-        self.assertEqual(self.context(self.hook("prompt", {})), hooks.pending_text(2, 2, 0))
+        self.assertEqual(self.context(self.hook("prompt", {})), hooks.pending_text(2, 2, 0, 0))
 
     def test_a_broken_bundle_names_its_class(self):
         (self.home / TEAM / "token").chmod(0o644)
@@ -287,7 +287,7 @@ class SessionStartTest(HookCase):
 
     def test_pending_items_are_counted(self):
         self.plant_human(1)
-        self.assertIn(hooks.pending_text(1, 1, 0), self.context(self.start()))
+        self.assertIn(hooks.pending_text(1, 1, 0, 0), self.context(self.start()))
 
     def test_a_missing_bundle_is_reported(self):
         env = dict(self.env, PINGBUS_TEAMS="other")
@@ -396,7 +396,7 @@ class StopTest(HookCase):
         self.plant_human(1)
         result = self.stop()
         self.assertTrue(self.blocked(result))
-        self.assertEqual(result["reason"], hooks.TEMPLATES["stop_pending"].format(total=1, humans=1, pings=0))
+        self.assertEqual(result["reason"], hooks.TEMPLATES["stop_pending"].format(total=1, humans=1, peers=0, pings=0))
         self.assertFalse(self.blocked(self.stop()), "the same pending set blocks once")
 
     def test_a_new_item_blocks_again(self):
@@ -454,7 +454,7 @@ class NoWakerTest(HookCase):
     def test_pending_comes_before_no_waker(self):
         self.plant_ping(1)
         result = self.stop()
-        self.assertEqual(result["reason"], hooks.TEMPLATES["stop_pending"].format(total=1, humans=0, pings=1))
+        self.assertEqual(result["reason"], hooks.TEMPLATES["stop_pending"].format(total=1, humans=0, peers=0, pings=1))
 
     def test_a_planted_guard_file_is_replaced_not_obeyed_forever(self):
         guard = self.home / hooks.GUARD_FILE

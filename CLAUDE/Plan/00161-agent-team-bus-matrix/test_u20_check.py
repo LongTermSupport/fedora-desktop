@@ -59,7 +59,7 @@ def run_main(*argv: str, stdin: str = "") -> tuple[int, str, str]:
 
 
 def notice(total: int, humans: int, pings: int, number: int) -> str:
-    return (f"agent-bus: {total} pending ({humans} from humans, {pings} pings), notice {number}. "
+    return (f"agent-bus: {total} pending ({humans} from humans, 0 from agents, {pings} pings), notice {number}. "
             "Run `pingbus recv`.")
 
 
@@ -237,7 +237,7 @@ class StreamTest(unittest.TestCase):
 
 class StatusTest(unittest.TestCase):
     STATUS = "\t".join(["TEAM", TEAM, A_HANDLE, "trust=trusted", "wake=watcher",
-                        "pending=1", "humans=0", "pings=1", "overdue=0", "dropped=0", "unexpected=0"]) + "\n" + \
+                        "pending=1", "humans=0", "peers=0", "pings=1", "overdue=0", "dropped=0", "unexpected=0"]) + "\n" + \
         "\t".join(["MEMBER", TEAM, "tester", "human", "-"]) + "\n"
 
     def test_reads_one_field_of_the_team_line(self) -> None:

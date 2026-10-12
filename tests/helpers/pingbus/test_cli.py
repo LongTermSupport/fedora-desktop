@@ -4,7 +4,7 @@ Run from the repo root:
 
     python3 -m unittest tests.helpers.pingbus.test_cli
 
-Spec: docs/agent-bus-protocol.md §7 (agent text to humans), §9 (on send; on receive;
+Spec: docs/agent-bus-protocol.md §7 (agent text), §9 (on send; on receive;
 reading the inbox: `recv` and `wait` re-fetch before printing), §10 (the shared send
 bucket, TIMEOUT), §12 (multi-team, the lock), §13 (the commands), §14 (exit codes) and
 §15 (output lines). Plan 00161's DESIGN.md section 12 row U11.
@@ -42,7 +42,7 @@ PEER_LP = "peer.1+workstation.podman"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 PATH_REF = f"path:example-org/myrepo@{SHA}:docs/plan.md"
 T0 = 1_791_000_000.0
-STDOUT_KINDS = ("PING", "HUMAN", "TIMEOUT", "SENT")
+STDOUT_KINDS = ("PING", "HUMAN", "PEER", "TIMEOUT", "SENT")
 #: Long enough that the fake's long-poll is really held, short enough to end with a test.
 LONG_POLL_MS = 400
 UNKNOWN_EVENT = "$" + "Q" * 43
@@ -429,13 +429,18 @@ class SayTest(BusCase):
         (content,) = self.a.messages_from_me()
         self.assertEqual(content, protocol.build_text([self.a.alice], "the build is green\nsee the plan"))
 
-    def test_say_takes_humans_only(self):
+    def test_say_takes_humans_and_agents_with_a_role(self):
         self.joined()
-        for to in (ORCH_LP, self.a.orch, "nobody"):
+        code, out, err = self.run_cli("say", "--to", f"alice,{ORCH_LP}", stdin="moving to the docs")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        (content,) = self.a.messages_from_me()
+        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch], "moving to the docs"))
+        self.assertEqual(content["m.mentions"], {"user_ids": sorted([self.a.alice, self.a.orch])})
+        for to in ("nobody", "admin", "nobody.1+workstation.podman"):
             code, out, err = self.run_cli("say", "--to", to, stdin="hello")
             self.assertEqual((code, out), (cli.EXIT_REFUSED, ""), to)
             self.assertIn("target", err)
-        self.assertEqual(self.a.messages_from_me(), [])
+        self.assertEqual(len(self.a.messages_from_me()), 1)
 
     def test_say_refuses_secret_shaped_text(self):
         self.joined()
@@ -524,15 +529,33 @@ class RecvTest(BusCase):
         self.assertIn("schema=1", err)
         self.assertEqual(self.run_cli("recv")[0], cli.EXIT_NOTHING, "the item was consumed")
 
-    def test_a_received_agent_text_is_ignored_not_dropped(self):
+    def test_agent_text_for_others_is_ignored_not_dropped(self):
         self.joined()
         self.a.send(self.a.peer, protocol.build_text([self.a.alice], "status for the owner"))
-        self.a.send(self.a.peer, protocol.build_text([self.a.alice], "addressed oddly") | {
-            "m.mentions": {"user_ids": [self.a.me]}})
+        self.a.send(self.a.peer, protocol.build_text([self.a.orch], "for the orchestrator"))
         code, out, err = self.run_cli("recv")
         self.assertEqual((code, out), (cli.EXIT_NOTHING, ""))
         self.assertNotIn("DROPPED", err)
         self.assertEqual(self.a.drop_log(), [])
+
+    def test_agent_text_naming_this_agent_is_a_peer_line(self):
+        self.joined()
+        event_id = self.a.send(self.a.peer, protocol.build_text([self.a.alice, self.a.me],
+                                                                "the tests pass here\ntab\there"))
+        code, out, err = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        (line,) = self.lines(out, "PEER")
+        self.assertEqual(line[2:5], [TEAM_A, event_id, PEER_LP])
+        self.assertEqual(json.loads(line[6]), "the tests pass here\ntab\there")
+        self.assertEqual(self.lines(out, "HUMAN"), [])
+
+    def test_malformed_agent_text_naming_this_agent_is_dropped(self):
+        self.joined()
+        self.a.send(self.a.peer, protocol.build_text([self.a.alice], "addressed oddly") | {
+            "m.mentions": {"user_ids": [self.a.me]}})
+        code, out, err = self.run_cli("recv")
+        self.assertEqual((code, out), (cli.EXIT_DROPPED, ""))
+        self.assertIn("DROPPED\t1\t1\tschema=1", err)
 
     def test_drops_are_aggregated_on_stderr_beside_printed_lines(self):
         self.joined()

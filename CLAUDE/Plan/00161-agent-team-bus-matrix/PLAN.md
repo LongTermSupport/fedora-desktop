@@ -292,6 +292,12 @@ repository; opt-in per machine and per team.
     `allow_from`, so a bridged guest (a passt guest's traffic leaves from the host itself).
     To be designed, provisioned by IaC like U23's member (owner, 2026-10-12): never an owner
     step, never SKIPPED-NEEDS-OWNER.
+  - [ ] 🔄 Agent-to-agent free text (owner, 2026-10-12; DESIGN.md D63, reverses D13):
+    `pingbus say --to` takes agent handles, a named agent gets a `PEER` line (a peer's
+    information, no authority), pings unchanged; `allow_room_creation = false` keeps the
+    team room the only one. Built; acceptance M1.4 added. Host run pending: `deploy.bash`
+    (installer, play, ccy image), then `acceptance.bash`; installed teams take the new
+    `tuwunel.toml` when `play-agent-bus.yml` next runs.
 
 ## Success Criteria
 
@@ -301,8 +307,9 @@ repository; opt-in per machine and per team.
   hold one seat, and one launch cannot take two seats of one team; a plain `ccy` in the
   same checkout is on no team (owner, 2026-10-07: DESIGN.md D34, D40, D44, D48).
 - [ ] A human's message addressed to one agent in Element reaches that agent, marked as
-  from that human; no other agent's `pingbus` delivers it, and no agent's free text
-  reaches another agent.
+  from that human; no other agent's `pingbus` delivers it; an agent's free text reaches
+  only the agents it names, as a peer's `PEER` line, and every message is in the one team
+  room (D63).
 - [x] Agents in LXC, docker and a VM on this host are in the same team as the desktop's
   members and exchange a ping (U23).
 - [ ] The homeserver makes no outbound connection and answers only on the addresses the

@@ -34,7 +34,7 @@ from tests.helpers.pingbus import test_cli as bus
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
 NOTICE_RE = re.compile(
-    r"agent-bus: (\d+) pending \((\d+) from humans, (\d+) pings\), notice (\d+)\. "
+    r"agent-bus: (\d+) pending \((\d+) from humans, (?:\d+) from agents, (\d+) pings\), notice (\d+)\. "
     r"Run `pingbus recv`\."
 )
 
@@ -103,17 +103,19 @@ class SocketCase(unittest.TestCase):
 class TemplateTest(unittest.TestCase):
     def test_the_template_is_the_spec_text(self):
         self.assertEqual(
-            notify.notice_text(3, 1, 2, 7),
-            "agent-bus: 3 pending (1 from humans, 2 pings), notice 7. Run `pingbus recv`.")
+            notify.notice_text(4, 1, 1, 2, 7),
+            "agent-bus: 4 pending (1 from humans, 1 from agents, 2 pings), notice 7. Run `pingbus recv`.")
 
     def test_the_spec_carries_the_same_template(self):
         doc = (pathlib.Path(__file__).resolve().parents[3] / "docs" / "agent-bus-protocol.md").read_text(
             encoding="utf-8")
-        self.assertIn(notify.NOTICE_TEMPLATE.format(total="<N>", humans="<H>", pings="<P>", number="<S>"),
+        self.assertIn(notify.NOTICE_TEMPLATE.format(total="<N>", humans="<H>", peers="<A>", pings="<P>",
+                                                    number="<S>"),
                       doc)
 
     def test_counts_only(self):
-        for bad in ((1, 1, 1, 1), (-1, 0, -1, 1), (1, 0, 1, 0), ("1", 0, 1, 1), (True, 0, 1, 1)):
+        for bad in ((1, 1, 0, 1, 1), (1, 0, 1, 1, 1), (-1, 0, 0, -1, 1), (1, 0, 0, 1, 0),
+                    ("1", 0, 0, 1, 1), (True, 0, 0, 1, 1)):
             with self.assertRaises(ValueError, msg=bad):
                 notify.notice_text(*bad)
 
@@ -185,70 +187,70 @@ class NotifierTest(unittest.TestCase):
         return [int(NOTICE_RE.fullmatch(text)[4]) for text in self.sent]
 
     def test_only_a_new_item_notifies(self):
-        self.n.observe((1, 0, 1), {"$a"})
+        self.n.observe((1, 0, 0, 1), {"$a"})
         self.clock[0] += 5
-        self.n.observe((1, 0, 1), {"$a"})
-        self.n.observe((1, 0, 1), {"$a"})
+        self.n.observe((1, 0, 0, 1), {"$a"})
+        self.n.observe((1, 0, 0, 1), {"$a"})
         self.assertEqual(len(self.sent), 1)
-        self.n.observe((0, 0, 0), set())
+        self.n.observe((0, 0, 0, 0), set())
         self.clock[0] += 5
-        self.n.observe((1, 1, 0), {"$b"})
+        self.n.observe((1, 1, 0, 0), {"$b"})
         self.assertEqual(len(self.sent), 2, "1 pending, recv, 1 pending again: a second notice")
         self.clock[0] += 5
-        self.n.observe((3, 1, 2), {"$b", "$c", "$d"})
+        self.n.observe((3, 1, 0, 2), {"$b", "$c", "$d"})
         self.assertEqual(len(self.sent), 3)
 
     def test_nothing_pending_never_notifies(self):
-        self.n.observe((0, 0, 0), set())
+        self.n.observe((0, 0, 0, 0), set())
         self.assertEqual(self.sent, [])
 
     def test_the_notice_number_rises_with_every_notice(self):
         for n, total in enumerate((1, 0, 1, 0, 1)):
             self.clock[0] += 5
-            self.n.observe((total, 0, total), {f"${n}"} if total else set())
+            self.n.observe((total, 0, 0, total), {f"${n}"} if total else set())
         self.assertEqual(self.numbers(), [41, 42, 43])
         self.assertEqual(len(set(self.sent)), 3, "no two notices are identical")
 
     def test_a_new_item_within_the_interval_is_sent_once_the_interval_passes(self):
-        self.n.observe((1, 0, 1), {"$a"})
+        self.n.observe((1, 0, 0, 1), {"$a"})
         self.clock[0] += 0.5
-        self.n.observe((2, 0, 2), {"$a", "$b"})
+        self.n.observe((2, 0, 0, 2), {"$a", "$b"})
         self.assertEqual(len(self.sent), 1)
         self.clock[0] += 1.0
-        self.n.observe((3, 0, 3), {"$a", "$b", "$c"})
+        self.n.observe((3, 0, 0, 3), {"$a", "$b", "$c"})
         self.assertEqual(len(self.sent), 1)
         self.clock[0] += 1.0
         self.assertTrue(self.n.flush())
-        self.assertEqual(self.sent[-1], notify.notice_text(3, 0, 3, 42), "the latest counts")
+        self.assertEqual(self.sent[-1], notify.notice_text(3, 0, 0, 3, 42), "the latest counts")
 
     def test_an_owed_notice_is_forgotten_once_nothing_is_pending(self):
-        self.n.observe((1, 0, 1), {"$a"})
-        self.n.observe((2, 0, 2), {"$a", "$b"})
-        self.n.observe((0, 0, 0), set())
+        self.n.observe((1, 0, 0, 1), {"$a"})
+        self.n.observe((2, 0, 0, 2), {"$a", "$b"})
+        self.n.observe((0, 0, 0, 0), set())
         self.clock[0] += 5
         self.assertFalse(self.n.flush())
         self.assertEqual(len(self.sent), 1)
 
     def test_an_owed_notice_carries_the_counts_of_its_send(self):
-        self.n.observe((1, 0, 1), {"$a"})
-        self.n.observe((3, 1, 2), {"$a", "$b", "$c"})
-        self.n.observe((2, 1, 1), {"$b", "$c"})
+        self.n.observe((1, 0, 0, 1), {"$a"})
+        self.n.observe((3, 1, 0, 2), {"$a", "$b", "$c"})
+        self.n.observe((2, 1, 0, 1), {"$b", "$c"})
         self.clock[0] += 5
         self.n.flush()
-        self.assertEqual(self.sent[-1], notify.notice_text(2, 1, 1, 42))
+        self.assertEqual(self.sent[-1], notify.notice_text(2, 1, 0, 1, 42))
 
     def test_a_new_item_at_the_same_count_notifies(self):
         """recv empties the inbox (1 to 0) and a new item lands before the next look: the
         total reads 1 then 1, but the item is new, so it gets a notice."""
-        self.n.observe((1, 0, 1), {"$a"})
+        self.n.observe((1, 0, 0, 1), {"$a"})
         self.clock[0] += 5
-        self.n.observe((1, 0, 1), {"$b"})
+        self.n.observe((1, 0, 0, 1), {"$b"})
         self.assertEqual(self.numbers(), [41, 42])
 
     def test_an_item_already_seen_never_notifies_again(self):
-        self.n.observe((2, 0, 2), {"$a", "$b"})
+        self.n.observe((2, 0, 0, 2), {"$a", "$b"})
         self.clock[0] += 5
-        self.n.observe((1, 0, 1), {"$b"})
+        self.n.observe((1, 0, 0, 1), {"$b"})
         self.assertEqual(len(self.sent), 1, "a falling set is no news")
 
     def test_first_number_must_be_positive(self):

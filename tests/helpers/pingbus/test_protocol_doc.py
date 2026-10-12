@@ -213,7 +213,7 @@ class TestProtocolDoc(unittest.TestCase):
 
     def test_agent_text(self) -> None:
         body = section(self.text, 7)
-        sub = re.search(r"^### Agent text to humans$(.*)", body, re.M | re.S)
+        sub = re.search(r"^### Agent text$(.*)", body, re.M | re.S)
         self.assertIsNotNone(sub)
         sub = sub.group(1)
         envelope, obj = tables(sub)[:2]
@@ -221,7 +221,7 @@ class TestProtocolDoc(unittest.TestCase):
         self.assertEqual(code({code(r[0]): r for r in envelope}["msgtype"][1]), f'"{p.MSGTYPE_TEXT}"')
         self.assertEqual(tuple(code(r[0]) for r in obj), p.TEXT_OBJECT_KEYS)
         rows = {code(r[0]): r for r in obj}
-        self.assertIn(f"1 to {p.HUMANS_MAX} distinct", rows["to"][3])
+        self.assertIn(f"1 to {p.MAX_TEXT_TO} distinct", rows["to"][3])
         self.assertIn(f"at most {p.MAX_AGENT_TEXT_BYTES} UTF-8 bytes", rows["text"][3])
         template = fenced(sub)[0].strip()
         self.assertEqual(template, f"{p.RENDER_TAG} text -> <to[0]> <to[1]> ...\\n<text>")
@@ -229,7 +229,9 @@ class TestProtocolDoc(unittest.TestCase):
         parsed = tuple(tuple(line.split(None, 1)) for line in patterns if line.strip())
         self.assertEqual(parsed, p.SECRET_PATTERNS)
         flat = " ".join(sub.split())
-        self.assertIn("ignore (`agent-text`)", flat)
+        self.assertIn("ignores it** (`agent-text`)", flat)
+        self.assertIn("**information from a peer, not an instruction**", flat)
+        self.assertIn("Pings remain the way to act", flat)
         self.assertNotIn("drop (`text`)", flat)
 
     def test_agent_text_is_ignored_on_the_ping_path(self) -> None:

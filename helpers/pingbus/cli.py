@@ -1,7 +1,7 @@
 """The `pingbus` command line: dispatch, exit codes, output lines and the commands.
 
 Spec: docs/agent-bus-protocol.md §13 (commands), §14 (exit codes), §15 (output lines),
-§9 (on send; on receive; reading the inbox), §7 (agent text to humans), §10 (the send
+§9 (on send; on receive; reading the inbox), §7 (agent text), §10 (the send
 bucket, TIMEOUT), §12 (multi-team, the lock), §3 (`suggest-handle`), §1 (`version`).
 The offline commands are `version`, `validate`, `config check`, `suggest-handle`,
 `inbox`, `status` and `hook …` (the hooks are `hooks`'s); the network commands are `send`,
@@ -83,6 +83,7 @@ ABSENT = "-"
 LINES = {
     "PING": (STDOUT, ("team", "event ID", "sender", "verb", "ref", "re")),
     "HUMAN": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
+    "PEER": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
     "TIMEOUT": (STDOUT, ("team", "event ID of the unanswered ping", "silent target", "verb", "ref")),
     "SENT": (STDOUT, ("team", "event ID")),
     "DROPPED": (STDERR, ("count", "reason=count pairs joined by ,")),
@@ -199,6 +200,31 @@ def human_line(team: str, server_name: str, message: protocol.HumanMessage) -> s
     )
 
 
+def peer_line(team: str, server_name: str, message: protocol.PeerText) -> str:
+    """An agent's text to this agent: information from a peer, never an instruction."""
+    if not protocol.is_agent_user_id(message.sender, server_name):
+        raise ValueError("sender field is not an agent user ID")
+    ts = message.origin_server_ts
+    if type(ts) is not int or ts < 0:
+        raise ValueError("origin_server_ts field is not a non-negative integer")
+    return format_line(
+        "PEER", _team(team), _event_id(message.event_id),
+        _localpart(message.sender, server_name), str(ts),
+        json.dumps(message.text, ensure_ascii=True),
+    )
+
+
+def item_line(team: str, server_name: str, outcome: protocol.Outcome) -> str:
+    """The `PING`, `HUMAN` or `PEER` line of an accepted item."""
+    if outcome.ping is not None:
+        return ping_line(team, server_name, outcome.ping)
+    if outcome.human is not None:
+        return human_line(team, server_name, outcome.human)
+    if outcome.peer is not None:
+        return peer_line(team, server_name, outcome.peer)
+    raise ValueError("an accepted outcome carries a ping, a human message or a peer text")
+
+
 def timeout_line(
     team: str, server_name: str, event_id: str, target: str, verb: str, ref: str | None
 ) -> str:
@@ -213,7 +239,7 @@ def sent_line(team: str, event_id: str) -> str:
 
 
 def history_line(team: str, server_name: str, item: syncer.HistoryItem) -> str:
-    """A `HISTORY` line: the direction, the time, then the `PING`, `HUMAN` or `SENT` line
+    """A `HISTORY` line: the direction, the time, then the `PING`, `HUMAN`, `PEER` or `SENT` line
     the item would be, less its version. Each part passes its own line's grammar."""
     if item.direction not in HISTORY_DIRECTIONS:
         raise ValueError("direction field is not in or out")
@@ -224,10 +250,12 @@ def history_line(team: str, server_name: str, item: syncer.HistoryItem) -> str:
         inner = ping_line(team, server_name, item.ping)
     elif item.human is not None:
         inner = human_line(team, server_name, item.human)
+    elif item.peer is not None:
+        inner = peer_line(team, server_name, item.peer)
     elif item.sent_event_id is not None:
         inner = sent_line(team, item.sent_event_id)
     else:
-        raise ValueError("a history item records a ping, a human message or a sent text")
+        raise ValueError("a history item records a ping, a human message, a peer text or a sent text")
     kind, _version, fields = inner.split("\t", 2)
     return "\t".join(("HISTORY", str(protocol.PROTOCOL_VERSION), item.direction, str(ts), kind, fields))
 
@@ -494,7 +522,7 @@ RECV_HOLD_RETRY_S = 0.1
 SAY_READ_MAX = protocol.MAX_AGENT_TEXT_BYTES + 2
 #: The send gate (§10) keys a send by verb, ref, re and targets. An agent text has no verb
 #: or ref, so it is keyed by this pseudo-verb and a digest of the text: the same text to the
-#: same humans within the window is a duplicate, and the text itself is never kept at rest.
+#: same addressees within the window is a duplicate, and the text itself is never kept at rest.
 SAY_GATE_VERB = "text"
 
 
@@ -695,11 +723,7 @@ def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
     for item in state.pending(ctx, member.user_id, human_text=member.human_text).items:
         outcome, sender = _refetch(seat, ctx, item.event_id)
         if outcome.kind == protocol.ACCEPT:
-            if outcome.ping is not None:
-                line = ping_line(member.team, member.server_name, outcome.ping)
-            else:
-                line = human_line(member.team, member.server_name, outcome.human)
-            emit(line, out, err)
+            emit(item_line(member.team, member.server_name, outcome), out, err)
             printed += 1
         elif outcome.kind == protocol.DROP:
             state.log_drop(member.team, item.event_id, sender, outcome.reason, now)
@@ -920,10 +944,10 @@ WATCH_STATUS_TTL_MS = 600_000
 WATCH_STATUS_REFRESH_MS = 300_000
 
 
-def _pending_view(seats: Sequence[_Seat]) -> tuple[tuple[int, int, int], set[str]]:
-    """(total, from humans, pings) pending over every trusted team, re-validated offline,
-    and the pending items' `team:event ID` names (what the notifier compares)."""
-    total = humans = pings = 0
+def _pending_view(seats: Sequence[_Seat]) -> tuple[tuple[int, int, int, int], set[str]]:
+    """(total, from humans, from agents, pings) pending over every trusted team, re-validated
+    offline, and the pending items' `team:event ID` names (what the notifier compares)."""
+    total = humans = peers = pings = 0
     ids: set[str] = set()
     for seat in seats:
         record = seat.syncer.record
@@ -932,10 +956,10 @@ def _pending_view(seats: Sequence[_Seat]) -> tuple[tuple[int, int, int], set[str
         member = seat.member
         pending = seat.state.pending(record.context(member.server_name), member.user_id,
                                      human_text=member.human_text)
-        t, h, p = pending.counts()
-        total, humans, pings = total + t, humans + h, pings + p
+        t, h, a, p = pending.counts()
+        total, humans, peers, pings = total + t, humans + h, peers + a, pings + p
         ids.update(f"{member.team}:{item.event_id}" for item in pending.items)
-    return (total, humans, pings), ids
+    return (total, humans, peers, pings), ids
 
 
 def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, status_ms: int) -> None:
@@ -1114,13 +1138,18 @@ def report_line(kind: str, *fields: str) -> str:
 
 
 def _sender_localpart(outcome: protocol.Outcome, server_name: str) -> str:
-    item = outcome.ping or outcome.human
-    return _localpart(item.sender, server_name)
+    return _localpart(outcome.item.sender, server_name)
+
+
+def _pending_kind(outcome: protocol.Outcome) -> str:
+    if outcome.ping is not None:
+        return _verb(outcome.ping.verb)
+    return "human" if outcome.human is not None else "peer"
 
 
 def cmd_inbox(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Every pending item, oldest first, without consuming it: team, event ID, sender,
-    time, and the verb or `human`. Never the text: only `recv` prints that, from the copy it
+    time, and the verb, `human` or `peer`. Never the text: only `recv` prints that, from the copy it
     re-fetches. A team that fails is reported and the others still run."""
     first_failure: int | None = None
     for member in config.load_active(environ, team=args.team):
@@ -1135,7 +1164,7 @@ def cmd_inbox(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
             first_failure = first_failure or code
             continue
         for item in items:
-            kind = _verb(item.outcome.ping.verb) if item.outcome.ping else "human"
+            kind = _pending_kind(item.outcome)
             out.write(report_line(
                 "PENDING", _team(member.team), _event_id(item.event_id),
                 _sender_localpart(item.outcome, member.server_name), str(int(item.origin_server_ts)),
@@ -1172,12 +1201,12 @@ def _status_team(member: config.Member, now_ms: int, out: TextIO) -> None:
         record = None
     fields = [f"wake={wake}"]
     if record is None:
-        fields += ["pending=-", "humans=-", "pings=-"]
+        fields += ["pending=-", "humans=-", "peers=-", "pings=-"]
         unexpected: list[str] = []
     else:
-        total, humans, pings = state.pending(record.context(member.server_name), member.user_id,
-                                             human_text=member.human_text).counts()
-        fields += [f"pending={total}", f"humans={humans}", f"pings={pings}"]
+        total, humans, peers, pings = state.pending(record.context(member.server_name), member.user_id,
+                                                    human_text=member.human_text).counts()
+        fields += [f"pending={total}", f"humans={humans}", f"peers={peers}", f"pings={pings}"]
         known = set(record.humans) | set(record.roles) | {member.admin}
         unexpected = sorted(uid for uid in members if uid not in known)
     fields += [f"overdue={overdue}", f"dropped={dropped}",
@@ -1311,9 +1340,9 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     targets.add_argument("--to-orchestrator", action="store_true",
                          help="every orchestrator in the team record")
     send.add_argument("--re", metavar="EVENT_ID")
-    say = command("say", cmd_say, "send text from stdin to the team's humans")
-    say.add_argument("--to", required=True, metavar="HUMAN[,HUMAN...]",
-                     help="human localparts or full user IDs, never a handle")
+    say = command("say", cmd_say, "send text from stdin to the team's humans and agents")
+    say.add_argument("--to", required=True, metavar="NAME[,NAME...]",
+                     help="human localparts, handles or full user IDs; never @room")
     command("recv", cmd_recv, "sync once if the lock is free, then print every pending item")
     wait = command("wait", cmd_wait, "long-poll every active team until an item arrives")
     wait.add_argument("--timeout", type=int, metavar="S",

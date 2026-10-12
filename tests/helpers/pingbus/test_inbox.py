@@ -257,7 +257,7 @@ class InboxReadTest(StateCase):
         self.assertEqual([i.event_id for i in items], [event_id(3), event_id(2), event_id(1)])
         self.assertEqual(items[0].outcome.ping.verb, "review")
         self.assertEqual(items[2].outcome.human.text, "please look")
-        self.assertEqual(self.pending().counts(), (3, 1, 2))
+        self.assertEqual(self.pending().counts(), (3, 1, 0, 2))
 
     def test_revalidated_on_read_with_the_current_team_record(self):
         self.state.commit_batch([ping_event(1)], "s1")

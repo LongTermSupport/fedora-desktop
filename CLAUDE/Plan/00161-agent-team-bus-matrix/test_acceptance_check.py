@@ -195,6 +195,16 @@ class LinesTest(unittest.TestCase):
             with self.subTest(ts=ts, body=body):
                 self.assertTrue(ac.expect_human(text, TEAM, EV1, "tester", "hi"))
 
+    def test_the_expected_peer_line_passes_with_its_text_decoded(self) -> None:
+        text = line("PEER", "1", TEAM, EV1, A, "1791234567890", json.dumps("hi\tthere")) + "\n"
+        self.assertEqual(ac.expect_peer(text, TEAM, EV1, A, "hi\tthere"), [])
+        self.assertTrue(ac.expect_peer(text, TEAM, EV1, A, "hi there"))
+        self.assertTrue(ac.expect_peer(text, TEAM, EV1, B, "hi\tthere"))
+        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi\tthere")) + "\n"
+        self.assertTrue(ac.expect_peer(human, TEAM, EV1, "tester", "hi\tthere"))
+        other = line("PEER", "1", TEAM, EV2, A, "1", json.dumps("x")) + "\n"
+        self.assertTrue(ac.expect_peer(text + other, TEAM, EV1, A, "hi\tthere"))
+
     def test_the_expected_timeout_alone_passes(self) -> None:
         text = line("TIMEOUT", "1", TEAM, EV2, B, "review", REF) + "\n"
         self.assertEqual(ac.expect_timeout(text, TEAM, EV2, B, "review", REF), [])
@@ -208,6 +218,8 @@ class LinesTest(unittest.TestCase):
         self.assertTrue(ac.expect_absent(line("PING", "1", TEAM, EV2, A, "ack", "-", EV1) + "\n", EV1))
         human = line("HUMAN", "1", TEAM, EV2, "tester", "1", json.dumps("x")) + "\n"
         self.assertTrue(ac.expect_absent(human, EV1))
+        peer = line("PEER", "1", TEAM, EV2, A, "1", json.dumps("x")) + "\n"
+        self.assertTrue(ac.expect_absent(peer, EV1))
 
 
 class SendOutcomeTest(unittest.TestCase):
