@@ -83,20 +83,32 @@ class ClientCase(unittest.TestCase):
         self.socket_path = tmp / "wsi-stream.socket"
         self.settings = {"continuous-dictation": "false"}
         self.signals = []
+        self.tokens = []
         self.notes = []
         self.note_expiry = []
+        self.urgent = []
         self.clipboard = []
         self.pasted = []
         self.registered = []
+
+        def sent(name, value, token):
+            self.signals.append((name, value))
+            self.tokens.append(token)
+
+        # The real emit_dbus_signal runs (the token, and nothing after the session's
+        # end); only the gdbus call under it is replaced
         patches = mock.patch.multiple(
             wsi_stream, SERVER_SOCKET=self.socket_path, PID_FILE=tmp / "recording.pid",
             CACHE_DIR=tmp / "cache", TRANSCRIPTION_FILE=tmp / "cache" / "last.txt",
             KEEPALIVE_INTERVAL=0.2, PROGRESS_INTERVAL=0.1, DRAIN_POLL_INTERVAL=0.05,
+            START_RETRY_SECONDS=0.05,
             read_stop_grace=lambda: 0, read_setting=lambda key: self.settings[key],
             is_server_running=lambda: True,
-            emit_dbus_signal=lambda name, value: self.signals.append((name, value)),
+            session_token="session-A", ended_with=None,
+            send_dbus_signal=sent,
             desktop_notification=lambda message, ms: (self.notes.append(message),
                                                       self.note_expiry.append((message, ms))),
+            urgent_notification=self.urgent.append,
             copy_to_clipboard=lambda text, use_clipboard=False: self.clipboard.append(text) or True,
             auto_paste=lambda text, **kw: self.pasted.append(text) or True)
         patches.start()
@@ -112,13 +124,13 @@ class ClientCase(unittest.TestCase):
         self.addCleanup(self.server.close)
 
     def run_client(self, signal_after=None, signum=signal.SIGTERM, auto_paste=False, timeout=120,
-                   wrap_marker=False):
+                   wrap_marker=False, no_notify=False):
         if signal_after is not None:
             timer = threading.Timer(signal_after, os.kill, args=(os.getpid(), signum))
             timer.start()
             self.addCleanup(timer.cancel)
         args = argparse.Namespace(
-            debug=False, no_notify=False, language="en", timeout=timeout, claude_process=False,
+            debug=False, no_notify=no_notify, language="en", timeout=timeout, claude_process=False,
             wrap_marker=wrap_marker, auto_paste=auto_paste, no_auto_enter=True, paste_with_shift=1,
             clipboard=True)
         rc = wsi_stream.run_server_mode(args)
@@ -473,6 +485,279 @@ class UndeliveredAfterChunksTest(ClientCase):
         self.assertTrue(loud, self.note_expiry)
         self.assertIn("already pasted", loud[0])
         self.assertIn("never pasted", loud[0])
+
+
+FOREIGN_PID = "4194301"  # a PID no test process has: another client's PID file
+
+
+class SessionOwnershipTest(ClientCase):
+    """Plan 00171: the panel follows one client at a time.
+
+    The incident: Insert 376 ms after a dictation's SUCCESS started a new client, then the
+    old client's IDLEs (one a second after SUCCESS, two more at exit) overwrote the new
+    one's RECORDING, and its exit deleted the PID file the new client had just written.
+    Every signal now carries the session token the panel gave the client, nothing is sent
+    after the state that ended the session, and a client removes the PID file only while
+    it names this client.
+    """
+
+    def test_every_signal_carries_the_session_token(self):
+        self.settings = dict(CONTINUOUS, **{"dictation-paste-interval-seconds": "0"})
+        self.serve(scripted([RECORDING], [{"status": "draining", "drain_seconds_left": 5}, DONE]))
+        self.assertEqual(self.run_client(signal_after=1.5, auto_paste=True), 0)
+        names = {name for name, _ in self.signals}
+        self.assertTrue({"StateChanged", "Progress"} <= names, self.signals)
+        self.assertEqual(set(self.tokens), {"session-A"})
+
+    def test_nothing_follows_success(self):
+        self.serve(scripted([RECORDING], [{"status": "draining", "drain_seconds_left": 5}, DONE]))
+        self.assertEqual(self.run_client(signal_after=0.3, auto_paste=True), 0)
+        self.assertEqual(self.states()[-1], "SUCCESS", self.states())
+        self.assertEqual(self.signals[-1], ("StateChanged", "SUCCESS"),
+                         "a signal followed SUCCESS (the exit handlers ran too)")
+        self.assertNotIn("IDLE", self.states())
+
+    def test_nothing_follows_an_error(self):
+        self.serve(scripted([RECORDING, {"status": "failed", "transcription": "",
+                                         "error": "CUDA out of memory"}]))
+        self.assertEqual(self.run_client(auto_paste=True), 1)
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+
+    def test_a_dictation_ended_without_a_result_sends_one_idle_at_exit(self):
+        self.serve(scripted([RECORDING]))
+        self.assertEqual(self.run_client(signal_after=0.3, signum=signal.SIGUSR1), 0)
+        self.assertEqual(self.states().count("IDLE"), 1, self.states())
+        self.assertEqual(self.states()[-1], "IDLE")
+
+    def test_recording_is_announced_only_once_the_server_has_accepted_start(self):
+        seen_at_start = []
+        base = scripted([RECORDING], [DONE])
+
+        def answer(command, params):
+            if command == "START":
+                seen_at_start.extend(self.states())
+            return base(command, params)
+
+        self.serve(answer)
+        self.assertEqual(self.run_client(signal_after=0.3), 0)
+        self.assertNotIn("RECORDING", seen_at_start)
+        self.assertIn("RECORDING", self.states())
+
+    def test_a_refused_start_is_shown_and_nothing_wipes_it(self):
+        self.serve(lambda command, params: {"status": "error", "busy": "recording",
+                                            "message": "Recording already active"})
+        self.assertEqual(self.run_client(auto_paste=True), 1)
+        self.assertNotIn("RECORDING", self.states(), "RECORDING was shown for a refused START")
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+        errors = [value for name, value in self.signals if name == "Error"]
+        self.assertTrue(errors and "already" in errors[0], self.signals)
+        self.assertEqual(self.server.commands(), ["START"], "a refused START is not retried")
+
+    def test_a_start_refused_while_the_last_dictation_finishes_waits_then_records(self):
+        starts = []
+        base = scripted([RECORDING], [DONE])
+
+        def answer(command, params):
+            if command == "START":
+                starts.append(True)
+                if len(starts) < 3:
+                    return {"status": "error", "busy": "finishing",
+                            "message": "The previous dictation (draining) is still finishing"}
+            return base(command, params)
+
+        self.serve(answer)
+        self.assertEqual(self.run_client(signal_after=0.6), 0)
+        self.assertEqual(len(starts), 3)
+        states = self.states()
+        self.assertIn("WAITING", states)
+        self.assertLess(states.index("WAITING"), states.index("RECORDING"))
+        self.assertNotIn("ERROR", states)
+
+    def test_insert_while_waiting_for_the_server_cancels_the_start(self):
+        self.serve(lambda command, params: {"status": "error", "busy": "finishing",
+                                            "message": "still finishing"})
+        self.assertEqual(self.run_client(signal_after=0.3), 1)
+        self.assertNotIn("RECORDING", self.states())
+        self.assertEqual(self.states()[-1], "IDLE", self.states())
+        self.assertNotIn("STOP", self.server.commands(), "nothing was recording to stop")
+        self.assertNotIn("ABORT", self.server.commands(), "nothing was recording to abort")
+
+    def slow_start_accepted(self, delay=0.4):
+        """A server that takes `delay` to answer START, then starts recording."""
+        base = scripted([RECORDING], [DONE])
+
+        def answer(command, params):
+            if command == "START":
+                threading.Event().wait(delay)
+            return base(command, params)
+
+        self.serve(answer)
+
+    def test_insert_while_start_is_in_flight_aborts_what_the_server_started(self):
+        self.slow_start_accepted()
+        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT"],
+                         "the server was left recording for no client")
+        self.assertNotIn("RECORDING", self.states())
+        self.assertEqual(self.states()[-1], "IDLE", self.states())
+
+    def test_escape_while_start_is_in_flight_aborts_what_the_server_started(self):
+        self.slow_start_accepted()
+        self.assertEqual(self.run_client(signal_after=0.1, signum=signal.SIGUSR1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT"])
+        self.assertNotIn("RECORDING", self.states())
+
+    def test_a_cancel_whose_abort_fails_is_retried_at_exit(self):
+        base = scripted([RECORDING], [DONE])
+        aborts = []
+
+        def answer(command, params):
+            if command == "START":
+                threading.Event().wait(0.4)
+            if command == "ABORT":
+                aborts.append(True)
+                if len(aborts) == 1:
+                    return {"status": "error", "message": "ABORT: timed out"}
+            return base(command, params)
+
+        self.serve(answer)
+        self.assertEqual(self.run_client(signal_after=0.1), 1)
+        self.assertEqual(self.server.commands(), ["START", "ABORT", "ABORT"])
+
+    def test_a_server_still_finishing_after_the_wait_is_an_error(self):
+        self.serve(lambda command, params: {"status": "error", "busy": "finishing",
+                                            "message": "still finishing"})
+        with mock.patch.object(wsi_stream, "START_WAIT_SECONDS", 0.3):
+            self.assertEqual(self.run_client(), 1)
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+        self.assertNotIn("RECORDING", self.states())
+
+    def test_the_pid_file_is_left_alone_once_another_client_has_written_it(self):
+        base = scripted([RECORDING], [DONE])
+
+        def answer(command, params):
+            if command == "STOP":
+                # a newer client started meanwhile and wrote its own PID
+                wsi_stream.PID_FILE.write_text(FOREIGN_PID)
+            return base(command, params)
+
+        self.serve(answer)
+        self.assertEqual(self.run_client(signal_after=0.3), 0)
+        self.assertEqual(wsi_stream.PID_FILE.read_text(), FOREIGN_PID)
+
+    def test_the_pid_file_is_removed_by_the_client_it_names(self):
+        self.serve(scripted([RECORDING], [DONE]))
+        self.assertEqual(self.run_client(signal_after=0.3), 0)
+        self.assertFalse(wsi_stream.PID_FILE.exists())
+
+    def test_a_refused_start_leaves_another_clients_pid_file(self):
+        def answer(command, params):
+            wsi_stream.PID_FILE.write_text(FOREIGN_PID)
+            return {"status": "error", "message": "Model not loaded"}
+
+        self.serve(answer)
+        self.assertEqual(self.run_client(), 1)
+        self.assertEqual(wsi_stream.PID_FILE.read_text(), FOREIGN_PID)
+
+    def test_the_token_comes_from_the_command_line(self):
+        seen = []
+        with mock.patch.object(wsi_stream, "run_server_mode",
+                               lambda args: seen.append(wsi_stream.session_token) or 0), \
+                mock.patch.object(wsi_stream.sys, "argv",
+                                  ["wsi-stream", "--server-mode", "--session-token", "session-B"]):
+            self.assertEqual(wsi_stream.main(), 0)
+        self.assertEqual(seen, ["session-B"])
+
+
+SHORT_MIC = {"elapsed_seconds": 24.0, "audio_seconds": 0.6}
+
+
+class MicrophoneShortfallTest(ClientCase):
+    """The incident: a 24 s dictation whose Bluetooth microphone delivered 0.55 s of audio
+    showed "No speech detected" for a moment, then the green badge; the dictation was lost
+    and nothing said why. The server reports audio_seconds; a microphone that delivered
+    under half the recording's length is reported, loudly when nothing came of it."""
+
+    def test_the_shortfall_rule(self):
+        shortfall = wsi_stream.microphone_shortfall
+        self.assertIsNone(shortfall({"elapsed_seconds": 24.0}), "an older server says nothing")
+        self.assertIsNone(shortfall({"elapsed_seconds": 24.0, "audio_seconds": 23.9}))
+        self.assertIsNone(shortfall({"elapsed_seconds": 1.5, "audio_seconds": 0.0}),
+                          "too short to judge")
+        self.assertIsNone(shortfall({"elapsed_seconds": 10.0, "audio_seconds": 5.0}))
+        message = shortfall(SHORT_MIC)
+        self.assertIn("0.6 s", message)
+        self.assertIn("24.0 s", message)
+        self.assertIn("microphone", message)
+
+    def test_no_text_from_a_short_microphone_is_an_error_shown_with_notifications_off(self):
+        self.serve(scripted([RECORDING], [dict(DONE, transcription="", **SHORT_MIC)]))
+        rc = self.run_client(signal_after=0.3, auto_paste=True, no_notify=True)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+        errors = [value for name, value in self.signals if name == "Error"]
+        self.assertTrue(errors and "microphone" in errors[0], self.signals)
+        self.assertEqual(len(self.urgent), 1, self.urgent)
+        self.assertIn("0.6 s", self.urgent[0])
+        self.assertEqual(self.pasted, [])
+
+    def test_no_text_from_a_working_microphone_is_no_speech_in_the_menu_too(self):
+        self.serve(scripted([RECORDING], [dict(DONE, transcription="", elapsed_seconds=10.0,
+                                                audio_seconds=10.0)]))
+        self.assertEqual(self.run_client(signal_after=0.3), 1)
+        self.assertEqual(self.signals[-1], ("StateChanged", "ERROR"), self.signals)
+        self.assertIn(("Error", "'No speech detected'"), self.signals)
+        self.assertEqual(self.urgent, [])
+
+    def test_text_from_a_short_microphone_is_pasted_with_a_lasting_warning(self):
+        self.serve(scripted([RECORDING], [dict(DONE, **SHORT_MIC)]))
+        rc = self.run_client(signal_after=0.3, auto_paste=True, no_notify=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.pasted, ["Hello there world"])
+        self.assertEqual(self.states()[-1], "SUCCESS")
+        self.assertEqual(len(self.urgent), 1, self.urgent)
+        self.assertIn("may be missing", self.urgent[0])
+
+
+class UrgentNotificationTest(unittest.TestCase):
+    """A notification the user must see is shown even with notifications turned off."""
+
+    def sent(self, no_notify, show):
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            return wsi_stream.subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        with mock.patch.object(wsi_stream.subprocess, "run", run), \
+                mock.patch.object(wsi_stream, "no_notify", no_notify):
+            show("the microphone delivered nothing")
+        return calls
+
+    def test_urgent_ignores_notifications_off_and_stays(self):
+        calls = self.sent(True, wsi_stream.urgent_notification)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("the microphone delivered nothing", calls[0])
+        self.assertEqual(calls[0][-1], "0", "an urgent notification stays until dismissed")
+
+    def test_an_ordinary_notification_respects_notifications_off(self):
+        self.assertEqual(self.sent(True, lambda m: wsi_stream.desktop_notification(m, 0)), [])
+
+
+class SignalSenderTest(unittest.TestCase):
+    """The gdbus call itself: the state first (a panel that reads only the first argument
+    still works), then the token, quoted so a token of digits is not read as a number."""
+
+    def test_the_gdbus_arguments(self):
+        calls = []
+        def run(argv, **kw):
+            calls.append(argv)
+            return wsi_stream.subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        with mock.patch.object(wsi_stream.subprocess, "run", run):
+            wsi_stream.send_dbus_signal("StateChanged", "RECORDING", "12345")
+        self.assertEqual(calls[0][-2:], ["RECORDING", "'12345'"])
+        self.assertIn("org.fedoradesktop.SpeechToText.StateChanged", calls[0])
 
 
 class PreviewFallbackTest(ClientCase):

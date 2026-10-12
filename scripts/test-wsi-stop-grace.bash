@@ -610,6 +610,84 @@ check "…and the log says so" "1" \
     "$(grep -c 'did not say how to paste' "$work/wsi.err")"
 
 #----------------------------------------------------------------------------
+echo "=== wsi: the panel follows one client (Plan 00171) ==="
+#----------------------------------------------------------------------------
+# The incident: a finished client's late IDLEs overwrote the next client's RECORDING, and
+# its exit deleted the PID file the next client had written. Every signal now carries the
+# token the panel gave this client, nothing follows the state that ended the session, and
+# the PID file is removed only by the client it names.
+pid_file="/dev/shm/stt-recording-$test_user.pid"
+last_signal() {
+    grep '^emit ' "$events/gdbus.log" | awk 'END { print $(NF - 1) }'
+}
+STUB_PASTE_KEY="('kitty', true, false, true, false)" STUB_SESSION_TYPE=wayland \
+    STUB_WAYLAND_DISPLAY=wayland-stub start_wsi 0 -a --paste-with-shift 1 --session-token tok-171
+if wait_for_recording_state; then
+    printf '4194301\n' > "$pid_file"  # a newer client has started and written its PID
+    kill -TERM "$WSI_PID"
+    wait "$WSI_PID"; rc=$?
+    check_wsi_exit "$rc"
+    sleep 2.5  # the old wsi's delayed IDLE came 2 s after SUCCESS
+    emits=$(grep -c '^emit ' "$events/gdbus.log")
+    check "every signal carries the session token ($emits signals)" "$emits" \
+        "$(grep -c "^emit .* 'tok-171'\$" "$events/gdbus.log")"
+    check "…and there were signals" "yes" "$([ "$emits" -gt 2 ] && echo yes || echo no)"
+    check "SUCCESS is the last signal: no IDLE follows it" "SUCCESS" "$(last_signal)"
+    check "another client's PID file is left in place" "4194301" "$(cat "$pid_file")"
+    rm -f "$pid_file"
+else
+    failed=$((failed + 1))
+    echo "  FAIL: wsi never reached RECORDING; stderr:"
+    cat "$work/wsi.err"
+    kill -KILL "$WSI_PID" 2>/dev/null
+fi
+
+# Insert while PREPARING (pw-record already capturing, 0.3 s before RECORDING): the
+# graced stop's STOPPING must not be followed by RECORDING, which showed a red countdown
+# for a stop already pending. The TERM is sent as soon as wsi has written its PID file,
+# inside that 0.3 s.
+start_wsi 2 --session-token tok-173
+prepared=no
+for _ in $(seq 1 100); do
+    if [ -s "$pid_file" ] && [ "$(cat "$pid_file")" = "$WSI_PID" ]; then prepared=yes; break; fi
+    kill -0 "$WSI_PID" 2>/dev/null || break
+    sleep 0.01
+done
+if [ "$prepared" = yes ]; then
+    kill -TERM "$WSI_PID"
+    wait "$WSI_PID"; rc=$?
+    check_wsi_exit "$rc"
+    check "Insert while PREPARING: STOPPING is shown" "1" \
+        "$(grep -c 'StateChanged STOPPING' "$events/gdbus.log")"
+    check "…and RECORDING never follows it" "0" \
+        "$(grep -c 'StateChanged RECORDING' "$events/gdbus.log")"
+else
+    failed=$((failed + 1))
+    echo "  FAIL: wsi never wrote its PID file; stderr:"
+    cat "$work/wsi.err"
+    kill -KILL "$WSI_PID" 2>/dev/null
+fi
+
+# No desktop to paste into: the text goes to stdout and no state ends the session, so
+# the exit sends the one IDLE
+start_wsi 0 --session-token tok-172
+if wait_for_recording_state; then
+    kill -TERM "$WSI_PID"
+    wait "$WSI_PID"; rc=$?
+    check_wsi_exit "$rc"
+    check "a client that ended without a result sends one IDLE" "1" \
+        "$(grep -c 'StateChanged IDLE' "$events/gdbus.log")"
+    check "…as its last signal" "IDLE" "$(last_signal)"
+    check "…and removes the PID file that names it" "absent" \
+        "$([ -e "$pid_file" ] && echo present || echo absent)"
+else
+    failed=$((failed + 1))
+    echo "  FAIL: wsi never reached RECORDING; stderr:"
+    cat "$work/wsi.err"
+    kill -KILL "$WSI_PID" 2>/dev/null
+fi
+
+#----------------------------------------------------------------------------
 echo "=== qa-stt-limits.bash: a limit planted back in is caught ==="
 #----------------------------------------------------------------------------
 limits_root="$work/limits"

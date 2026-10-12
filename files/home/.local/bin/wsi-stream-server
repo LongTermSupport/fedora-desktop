@@ -642,6 +642,7 @@ class DictationSession:
                 "status": self._status_locked(),
                 "continuous": self._continuous,
                 "elapsed_seconds": round(end - self._started_at, 1) if self._started_at else 0,
+                "audio_seconds": round(self.captured_bytes / (SAMPLE_RATE * 2), 1),
                 "segments_committed": self._transcript.committed_count,
                 "segments_pending": self._pending,
                 "backlog_seconds": round(self._backlog, 1),
@@ -1019,20 +1020,23 @@ def handle_start_command(client_socket, params):
 
     update_activity()
     if is_busy():
+        # busy says which: a client waits for a dictation that is finishing, and
+        # reports one that is still recording (another client owns the microphone)
         if session.state in DictationSession.ACTIVE:
-            message = "Recording already active"
+            refuse(client_socket, "START", "Recording already active", busy="recording")
         else:
-            message = (f"The previous dictation ({session.state}) is still finishing a "
-                       "transcription; the model is in use. Try again in a moment.")
-        send_response(client_socket, {"status": "error", "message": message})
+            refuse(client_socket, "START",
+                   f"The previous dictation ({session.state}) is still finishing a "
+                   "transcription; the model is in use. Try again in a moment.",
+                   busy="finishing")
         return
     if transcriber is None:
-        send_response(client_socket, {"status": "error", "message": "Model not loaded"})
+        refuse(client_socket, "START", "Model not loaded")
         return
     try:
         limits = start_limits(params)
     except ValueError as e:
-        send_response(client_socket, {"status": "error", "message": str(e)})
+        refuse(client_socket, "START", str(e))
         return
 
     vad = None
@@ -1041,8 +1045,7 @@ def handle_start_command(client_socket, params):
             vad = make_vad()
         except Exception as e:
             log(f"Continuous dictation unavailable: the VAD did not load: {e}", "ERROR")
-            send_response(client_socket, {"status": "error", "message":
-                                          f"Continuous dictation unavailable: {e}"})
+            refuse(client_socket, "START", f"Continuous dictation unavailable: {e}")
             return
     new_session = DictationSession(transcribe=transcriber, vad=vad, runtime_dir=DICTATION_DIR,
                                    capture_cmd=CAPTURE_CMD, heartbeat_seconds=HEARTBEAT_SECONDS,
@@ -1051,13 +1054,10 @@ def handle_start_command(client_socket, params):
     try:
         new_session.start()
     except FileNotFoundError:
-        log("pw-record not found - PipeWire not installed", "ERROR")
-        send_response(client_socket, {"status": "error",
-                                      "message": "pw-record not found (PipeWire required)"})
+        refuse(client_socket, "START", "pw-record not found (PipeWire required)")
         return
     except Exception as e:
-        log(f"Audio capture failed: {e}", "ERROR")
-        send_response(client_socket, {"status": "error", "message": f"Audio capture failed: {e}"})
+        refuse(client_socket, "START", f"Audio capture failed: {e}")
         return
     previous, session = session, new_session
     reply = {"status": "recording", "message": "Recording started",
@@ -1070,8 +1070,15 @@ def handle_start_command(client_socket, params):
     send_response(client_socket, reply)
 
 
-def no_session(client_socket):
-    send_response(client_socket, {"status": "error", "message": "No active recording"})
+def refuse(client_socket, command, message, **extra):
+    """Answer `command` with an error, and log why it was refused: a refusal the log does
+    not show cannot be told from a command that never arrived."""
+    log(f"Refused {command}: {message}", "WARN")
+    send_response(client_socket, {"status": "error", "message": message, **extra})
+
+
+def no_session(client_socket, command):
+    refuse(client_socket, command, "No active recording")
 
 
 def send_progress(client_socket, with_text=False):
@@ -1089,7 +1096,7 @@ def handle_stop_command(client_socket, params):
     """STOP: close the microphone and drain; the reply is the session's progress."""
     update_activity()
     if session is None:
-        no_session(client_socket)
+        no_session(client_socket, "STOP")
         return
     session.stop("stop requested")
     send_progress(client_socket)
@@ -1099,7 +1106,7 @@ def handle_keepalive_command(client_socket, params):
     """KEEPALIVE: the client is still there; without one for 15 s the recording stops."""
     update_activity()
     if session is None:
-        no_session(client_socket)
+        no_session(client_socket, "KEEPALIVE")
         return
     session.keepalive()
     send_response(client_socket, {"status": session.status()})
@@ -1110,12 +1117,11 @@ def handle_progress_command(client_socket, params):
     committed text so far when `with_text` is true."""
     update_activity()
     if session is None:
-        no_session(client_socket)
+        no_session(client_socket, "PROGRESS")
         return
     with_text = params.get("with_text", False)
     if not isinstance(with_text, bool):
-        send_response(client_socket, {"status": "error",
-                                      "message": f"with_text must be true or false (got {with_text!r})"})
+        refuse(client_socket, "PROGRESS", f"with_text must be true or false (got {with_text!r})")
         return
     send_progress(client_socket, with_text=with_text)
 
@@ -1125,12 +1131,12 @@ def handle_pasted_command(client_socket, params):
     so a dictation it never collects is handed over owing only the rest."""
     update_activity()
     if session is None:
-        no_session(client_socket)
+        no_session(client_socket, "PASTED")
         return
     try:
         session.mark_pasted(params.get("chars"))
     except ValueError as e:
-        send_response(client_socket, {"status": "error", "message": str(e)})
+        refuse(client_socket, "PASTED", str(e))
         return
     send_response(client_socket, {"status": "ok"})
 
@@ -1139,7 +1145,7 @@ def handle_abort_command(client_socket, params):
     """ABORT (Escape): close the microphone and discard the dictation."""
     update_activity()
     if session is None:
-        no_session(client_socket)
+        no_session(client_socket, "ABORT")
         return
     session.abort()
     send_response(client_socket, {"status": session.state})
@@ -1213,7 +1219,7 @@ def handle_client(client_socket):
         try:
             command = json.loads(data)
         except json.JSONDecodeError as e:
-            send_response(client_socket, {"status": "error", "message": f"Invalid JSON: {e}"})
+            refuse(client_socket, "a request", f"Invalid JSON: {e}")
             return
 
         cmd_type = command.get("command")
@@ -1223,8 +1229,7 @@ def handle_client(client_socket):
 
         handler = COMMANDS.get(cmd_type)
         if handler is None:
-            send_response(client_socket, {"status": "error",
-                                          "message": f"Unknown command: {cmd_type}"})
+            refuse(client_socket, str(cmd_type), f"Unknown command: {cmd_type}")
             return
         handler(client_socket, params)
 
