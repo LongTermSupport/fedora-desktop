@@ -72,6 +72,25 @@ tooling deployed by the UniFi play.
   `--settled` exits 0 once every listed device is adopted, connected and running each
   fixed channel (`radio_table_stats`), else 3 with the gaps, for the play to retry
 
+- [x] ✅ **Task 1.10**: Firmware: `helpers/unifi/upgrade_firmware.py` (tested) and
+  `play-unifi-firmware.yml`, check by default. Apply upgrades **in series**, access
+  points first and switches last, each device back on its target version before the
+  next; a device that does not come back stops the run. Prompted by every device
+  running months-old firmware with about six months' uptime, and two access points
+  with load averages flat at 2 and 3 on ~1% CPU (stuck tasks).
+
+- [ ] ⬜ **Task 1.11**: A stable controller address. The controller re-points every
+  device's inform URL at the laptop's current address, and the laptop's address differs
+  per network (per-network MAC) and will differ again on the wired adapter. Moving
+  networks left every device stuck re-adopting (state 7, dropping to 0) until the
+  controller was stopped. Options for the owner: a fixed secondary address on every
+  connection on that LAN plus the controller's inform-host override, or one MAC (and
+  so one DHCP lease) for all of them. Devices then need set-inform once.
+
+- [ ] ⬜ **Task 1.12** (owner: nightly; skipped when the laptop is off): a user timer that
+  runs `play-unifi-firmware.yml` with apply each night, with no catch-up for missed
+  nights. Needs Task 1.11 first, else a night on a different network strands the devices.
+
 ### Phase 2: Durable tooling
 
 - [ ] ⬜ **Task 2.1**: Move both scripts to `files/home/.local/bin/`, deployed by

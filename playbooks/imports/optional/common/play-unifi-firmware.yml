@@ -1,0 +1,91 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# UniFi device firmware: check, or upgrade one device at a time, through the local
+# controller deployed by play-unifi-controller.yml (helpers.unifi.upgrade_firmware).
+#
+# CHECK BY DEFAULT: a plain run lists what the controller offers and changes nothing.
+# Applying upgrades access points first and switches last, waiting until each device
+# is back on its new firmware before the next, so at most one is down at a time; an
+# access point's clients move to the others meanwhile. A device that does not come back
+# stops the run.
+#
+#   ./playbooks/imports/optional/common/play-unifi-firmware.yml
+#   ./playbooks/imports/optional/common/play-unifi-firmware.yml -e unifi_firmware_apply=true
+#
+# `unifi_firmware_order` (host_vars or -e: a list of device names) upgrades those first,
+# in that order; list the least-used access point first, so a bad release shows there.
+#
+# The controller is on demand: started here only if it is stopped, and stopped again.
+- hosts: desktop
+  name: UniFi firmware - check or upgrade devices one at a time
+  become: false
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    unifi_compose_file: "/home/{{ user_login }}/.local/share/unifi/docker-compose.yml"
+    unifi_firmware_mode: "{{ '--apply' if (unifi_firmware_apply | default(false) | bool) else '--check' }}"
+  tasks:
+    - name: Assert the vaulted UniFi admin password is present
+      ansible.builtin.assert:
+        that: unifi_admin_password is defined
+        fail_msg: >-
+          unifi_admin_password is not in localhost.yml. Run play-unifi-controller.yml
+          first; it generates, vaults and applies it.
+        quiet: true
+
+    - name: Probe whether the UniFi controller is running
+      ansible.builtin.command: podman container inspect --format '{{ '{{' }}.State.Running{{ '}}' }}' unifi-network-controller
+      register: unifi_running_before
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: a missing container is the "not running" answer; used by the when clauses below
+
+    - name: Check or upgrade with the controller up
+      block:
+        - name: Start the UniFi controller on demand
+          ansible.builtin.command:
+            argv: [podman, compose, -f, "{{ unifi_compose_file }}", up, -d]
+          changed_when: true
+          when: unifi_running_before.stdout != 'true'
+
+        - name: Wait for the UniFi controller API
+          ansible.builtin.uri:
+            url: https://localhost:8443/status
+            validate_certs: false
+            return_content: true
+          register: unifi_status
+          until: unifi_status.status == 200 and (unifi_status.json.meta.up | default(false))
+          retries: 45
+          delay: 2
+
+        # Devices report in only after their next inform once the controller is up, so
+        # the device list is given time to fill before the plan is made.
+        - name: Let the devices report in
+          ansible.builtin.wait_for:
+            timeout: 30
+          when: unifi_running_before.stdout != 'true'
+
+        - name: Check (or upgrade) device firmware
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.unifi.upgrade_firmware
+              - "{{ unifi_firmware_mode }}"
+              - --order
+              - "{{ unifi_firmware_order | default([]) | join(',') }}"
+            chdir: "{{ root_dir }}"
+          environment:
+            UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
+          register: unifi_firmware_result
+          changed_when: "'FIRMWARE-STARTED' in unifi_firmware_result.stdout"
+
+        - name: Show the firmware result
+          ansible.builtin.debug:
+            var: unifi_firmware_result.stdout_lines
+
+      always:
+        - name: Stop the UniFi controller if this play started it
+          ansible.builtin.command:
+            argv: [podman, compose, -f, "{{ unifi_compose_file }}", down]
+          changed_when: true
+          when: unifi_running_before.stdout != 'true'
