@@ -252,20 +252,41 @@ repository; opt-in per machine and per team.
   `lxc-attach` re-owns the files it is given as stdio, so the run could not read its own
   output; the LXC steps now hand it pipes. Host run of 26-10-12: U23.lxc and U23.docker
   PASS; U23.vm SKIPPED-NEEDS-OWNER (no guest named), so the acceptance ended NOT ACCEPTED
-  (exit 3) and waits on the owner's guest. The slice (`_acceptance-u23.inc.bash`) runs after
+  (exit 3). The owner then ruled a hand-built guest unacceptable (IaC only), so the VM member
+  is now a vmtest lab guest (below). The slice (`_acceptance-u23.inc.bash`) runs after
   M1 in the same acceptance team. A throwaway LXC container (Fedora from the download
   template) and a throwaway docker container (a digest-pinned python image) each join by
   their README's steps (the kit, `suggest-handle`, `add-member`, the bundle, `config check`),
   their bridge networks added to `allow_from` as found at run time, and exchange a review and
-  an ack with M1's member a. The VM member is a libvirt guest the owner names
-  (`--vm-ssh=` or `agent_bus_acceptance_vm` in the untracked host_vars); without LXC,
-  rootful Docker or that guest, the leg reports SKIPPED-NEEDS-OWNER and the run exits 3,
-  NOT ACCEPTED, naming what the owner must provide.
+  an ack with M1's member a. Without LXC or rootful Docker, that leg reports
+  SKIPPED-NEEDS-OWNER and the run exits 3, NOT ACCEPTED, naming what the owner must provide.
+  The VM member needs nothing from the owner: it is a throwaway guest of Plan 00110's vmtest
+  lab, which gained `ensure-base`, `member-up`, `member-ssh` and `member-down`
+  (`scripts/test-vmtest-member.bash`). The acceptance runs `vmtest ensure-base server-fast`
+  (the checksum-verified Fedora Cloud base, rebuilt only when its freshness gate refuses it),
+  boots `agent-bus-acceptance-u23` from it (rootless, qemu:///session, passt), drives it with
+  the lab key, and removes it on the way out and first if an interrupted run left it. On
+  passt the guest reaches `<bus_ip>` from the host's own network namespace, as a ccy (pasta)
+  container does, so nothing joins `allow_from` for it. Without the lab the leg FAILS naming
+  `play-vm-test-lab.yml`, which is now a leg of this plan's `deploy.bash`.
+  - [ ] ⬜ U23.vm host run: `meta-deploy.bash` runs `deploy.bash` (now with the
+    `play-vm-test-lab.yml` leg) and then `acceptance.bash`; U23.vm must PASS and the run end
+    ACCEPTED (exit 0). The passt route is expected, not yet measured: U23.vm samples the
+    host's sockets towards the bus port and FAILS unless every passt connection left from
+    `<bus_ip>` (`members/vm/bus-sockets.txt`). README.vm, `docs/agent-bus.md` and DESIGN.md
+    3.3 say "expected" until this passes; then drop that wording.
+  - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
+    `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
+    bridged lab guest) or narrow README.vm to the passt route.
 - [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1–P8)**: U25–U28 (U26, TLS,
   only if probe H7 needs it). Wave 7: U25 (`element.py`, `play-agent-bus-element.yml`,
   `agent_bus_element_teams` in `localhost.yml.dist`) built, reviewed and fixed. Its host
   run is pending: the owner sets `agent_bus_element_teams`, then U27's `meta-deploy.bash`
   entry runs the play and the H6 checks.
+  - [ ] ⬜ P2's VM leg (DESIGN.md section 10): needs a guest whose source address is outside
+    `allow_from`, so a bridged guest (a passt guest's traffic leaves from the host itself).
+    To be designed, provisioned by IaC like U23's member (owner, 2026-10-12): never an owner
+    step, never SKIPPED-NEEDS-OWNER.
 
 ## Success Criteria
 

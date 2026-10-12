@@ -942,6 +942,19 @@ fi
 build_dir_summary=$(qa_gate_case_count "$build_dir_out")
 qa_pass_line vmtest-build-dir-cleanup "$build_dir_summary"
 
+# vmtest's members (Plan 00161 U23.vm): guests that outlive the vmtest process. A failed or
+# interrupted member-up leaves no guest and no SSH port, member-down is a no-op on nothing,
+# a name is validated first, member-ssh is bounded and returns the remote status, and
+# ensure-base rebuilds only an absent or refused base.
+member_out=""
+if ! member_out="$(bash "$SCRIPT_DIR/test-vmtest-member.bash" 2>&1)"; then
+    qa_hard_gate_failed vmtest-member \
+        "vmtest member lifecycle tests failed" \
+        "$member_out"
+fi
+member_summary=$(qa_gate_case_count "$member_out")
+qa_pass_line vmtest-member "$member_summary"
+
 # The fixture→checker record contract (Plan 00109). One scenario's fixture writes a file
 # the checker sources, and that seam is invisible to every other gate: a value carrying a
 # shell metacharacter aborts the source and unsets every key after it, while the file

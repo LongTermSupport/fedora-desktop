@@ -353,6 +353,66 @@ class U23SuggestedArgsTest(unittest.TestCase):
             self.assertEqual(run_main("suggested-args", str(path), "lxc")[0], 1)
 
 
+BUS = "203.0.113.9"
+SS_SAMPLES = (
+    # The vm member's passt socket in its connect, then established, then a host member's.
+    f"SYN-SENT 0 1 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
+    f"ESTAB 0 0 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
+    f"ESTAB 0 0 {BUS}:51234 {BUS}:45001 users:((\"passt.avx2\",pid=4242,fd=33))\n"
+    f"ESTAB 0 0 {BUS}:40000 {BUS}:45001 users:((\"python3\",pid=99,fd=3))\n"
+    f"ESTAB 0 0 {BUS}:40001 {BUS}:45001\n"
+)
+
+
+class U23PasstSourcesTest(unittest.TestCase):
+    def test_each_passt_socket_state_and_source_is_listed_once_in_order(self) -> None:
+        self.assertEqual(ac.passt_sources(SS_SAMPLES), [("SYN-SENT", BUS), ("ESTAB", BUS)])
+
+    def test_a_netid_column_and_an_ipv6_source_are_read(self) -> None:
+        text = 'tcp ESTAB 0 0 [2001:db8::5]:51234 [2001:db8::9]:45001 users:(("passt",pid=1,fd=4))\n'
+        self.assertEqual(ac.passt_sources(text), [("ESTAB", "2001:db8::5")])
+
+    def test_sources_from_the_bus_address_pass(self) -> None:
+        self.assertEqual(ac.passt_problems(ac.passt_sources(SS_SAMPLES), BUS), [])
+
+    def test_no_passt_socket_is_a_problem_naming_the_route(self) -> None:
+        problems = ac.passt_problems(ac.passt_sources(SS_SAMPLES.split("\n", 3)[3]), BUS)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("no connection from a passt process", problems[0])
+
+    def test_a_source_other_than_the_bus_address_is_named_with_allow_from(self) -> None:
+        text = 'SYN-SENT 0 1 198.51.100.7:51234 203.0.113.9:45001 users:(("passt",pid=1,fd=4))\n'
+        problems = ac.passt_problems(ac.passt_sources(text), BUS)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("198.51.100.7", problems[0])
+        self.assertIn("allow_from", problems[0])
+
+    def test_a_malformed_line_is_refused(self) -> None:
+        for text in ('ESTAB users:(("passt",pid=1,fd=4))\n', 'ESTAB 0 0 nope 203.0.113.9:1 users:(("passt",pid=1))\n'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                ac.passt_sources(text)
+
+    def test_the_command_prints_state_tab_source_and_exits_with_the_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "bus-sockets.txt"
+            path.write_text(SS_SAMPLES, encoding="utf-8")
+            status, out, _ = run_main("passt-sources", BUS, str(path))
+            self.assertEqual((status, out), (0, f"SYN-SENT\t{BUS}\nESTAB\t{BUS}\n"))
+            status, out, err = run_main("passt-sources", "198.51.100.1", str(path))
+            self.assertEqual(status, 1)
+            self.assertIn("allow_from", err)
+
+    def test_team_port_prints_the_team_file_port(self) -> None:
+        team = ac.team_file(TEAM, 45001, BUS, "tester", "example-org/project", "main",
+                            "CLAUDE/Plan/", "https://api.github.com")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "team.json"
+            path.write_text(json.dumps(team), encoding="utf-8")
+            self.assertEqual(run_main("team-port", str(path))[:2], (0, "45001\n"))
+            path.write_text(json.dumps({**team, "port": "45001"}), encoding="utf-8")
+            self.assertEqual(run_main("team-port", str(path))[0], 1)
+
+
 class MainTest(unittest.TestCase):
     def test_login_body_reads_the_password_from_stdin_only(self) -> None:
         status, out, err = run_main("login-body", "tester", stdin="pw-from-stdin\n")

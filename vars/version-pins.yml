@@ -82,9 +82,10 @@ version_pins:
     installed:
       kind: untracked
       why: >-
-        The play asserts `speedtest --version` matches the pin on every run, so drift
-        surfaces there; a host-side command resolver would also make this the first
-        non-DKMS tracked pin, which the login-time check is not yet built to scope.
+        `speedtest --version` prints a build number beyond the pin (`Speedtest by Ookla
+        1.2.0.84` for the 1.2.0 tarball, measured), so a command resolver classifies the
+        exact pinned release as AHEAD on every host that ran the play: a permanent false
+        finding. The play itself asserts the pin appears in that output at install time.
 
   - playbook: playbooks/imports/optional/common/play-photography.yml
     var: rapidraw_version

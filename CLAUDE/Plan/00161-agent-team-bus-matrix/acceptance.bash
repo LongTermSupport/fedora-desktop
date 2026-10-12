@@ -56,10 +56,12 @@
 # sends each a `review`, its `wait` prints exactly that PING, its `ack` reaches a's `recv`.
 #   U23.lxc     a throwaway LXC container (Fedora, downloaded by lxc-create's template)
 #   U23.docker  a throwaway container of a digest-pinned python image (pulled here)
-#   U23.vm      a libvirt guest the owner names: --vm-ssh=<user>@<address>, or
-#               agent_bus_acceptance_vm in the untracked host_vars
-# Without LXC, rootful Docker or that guest, the leg reports SKIPPED-NEEDS-OWNER: the run goes
-# on, but ends NOT ACCEPTED (exit 3) naming what the owner must provide; the plan cannot close.
+#   U23.vm      a throwaway guest of the vmtest lab (vmtest member-up, rootless, on passt),
+#               booted from the lab's Fedora Cloud base, removed by vmtest member-down
+# Without LXC or rootful Docker, that leg reports SKIPPED-NEEDS-OWNER: the run goes on, but
+# ends NOT ACCEPTED (exit 3) naming what the owner must provide; the plan cannot close. The VM
+# leg needs nothing from the owner: without the vmtest lab (play-vm-test-lab.yml, which
+# deploy.bash runs) it FAILS, naming the play.
 #
 # WHAT IT CREATES is removed on the way out however the run ends, and first if an interrupted
 # run left it: the team `acceptance` (section 10's reserved name; `agent-bus-install team` and
@@ -111,7 +113,7 @@ readonly HUMAN="tester"
 # shellcheck source=_bus-address.inc.bash
 source "${PLAN_SCRIPT_DIR}/_bus-address.inc.bash"
 
-PLAN_USAGE="usage: acceptance.bash [--bus-address=<ip>] [--vm-ssh=<user>@<address>] [-h|--help]
+PLAN_USAGE="usage: acceptance.bash [--bus-address=<ip>] [-h|--help]
 
 Plan 00161's acceptance, slice M1 (unit U17): creates the acceptance team with
 agent-bus-install, two host members as transient systemd DynamicUser services, and a human
@@ -125,8 +127,6 @@ Then slice U23: an LXC, a docker and a VM member join the same team and exchange
 and an ack with the desktop's member. Then removes all of it.
   --bus-address=<ip>   the team's listen address; without it, ${BUS_ADDRESS_VAR} from the
                        host_vars localhost.yml (as deploy.bash)
-  --vm-ssh=<dest>      U23's VM member: an SSH destination for a libvirt guest on a bridge of
-                       this host; without it, agent_bus_acceptance_vm from the same host_vars
 Exit 0 ACCEPTED, 1 REJECTED, 2 COULD NOT ESTABLISH (GitHub did not answer),
 3 NOT ACCEPTED (SKIPPED-NEEDS-OWNER: a leg needs the owner), 64 usage.
 Prompts for sudo once, before the run log opens."
@@ -135,11 +135,9 @@ plan_mode deploy
 plan_parse_common_flags "$@"
 
 BUS_ADDRESS=""
-VM_SSH=""
 for arg in "${PLAN_REMAINING_ARGS[@]+"${PLAN_REMAINING_ARGS[@]}"}"; do
     case "${arg}" in
         --bus-address=?*) BUS_ADDRESS="${arg#--bus-address=}" ;;
-        --vm-ssh=?*) VM_SSH="${arg#--vm-ssh=}" ;;
         *)
             printf '[FATAL] unknown argument: %s\n%s\n' "${arg}" "${PLAN_USAGE}" >&2
             exit 64
@@ -266,7 +264,7 @@ plan_deploy_leg "U20: agent-bus seat remove ${U20_SEAT_LIST}; the evidence scrub
 check_leg "M2.10 the checkout is as it was before M2.0" u20_check_checkout_unchanged
 plan_deploy_leg "U23: an LXC member's throwaway container" u23_prepare lxc
 plan_deploy_leg "U23: a docker member's throwaway container" u23_prepare docker
-plan_deploy_leg "U23: a VM member's guest, as the owner gave it" u23_prepare vm
+plan_deploy_leg "U23: a VM member's throwaway guest (vmtest ensure-base, member-up)" u23_prepare vm
 plan_deploy_leg "U23: the members' bridge networks join allow_from; agent-bus-install team ${TEAM}" u23_widen_team
 check_leg "U23.lxc an LXC member joins by README.lxc and exchanges a review and an ack" u23_check lxc
 check_leg "U23.docker a docker member joins by README.docker and exchanges a review and an ack" u23_check docker

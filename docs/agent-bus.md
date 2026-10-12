@@ -151,13 +151,13 @@ has a README in the member kit, `/usr/local/share/agent-bus/kit/` on every host 
 `agent-bus-install software` has run (in this repository, under
 `files/opt/claude-yolo/optional/agent-bus/`):
 
-| Type     | The agent runs                              | Bundle at                                             | The team file's `allow_from` needs | Steps           |
-| -------- | ------------------------------------------- | ----------------------------------------------------- | ---------------------------------- | --------------- |
-| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/` | nothing extra                      | `README.podman` |
-| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/`               | nothing extra                      | `README.host`   |
-| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`          | the LXC bridge's subnet            | `README.lxc`    |
-| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                     | the docker network's subnet        | `README.docker` |
-| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`          | the libvirt network's subnet       | `README.vm`     |
+| Type     | The agent runs                              | Bundle at                                             | The team file's `allow_from` needs                                                                             | Steps           |
+| -------- | ------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | --------------- |
+| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/` | nothing extra                                                                                                  | `README.podman` |
+| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/`               | nothing extra                                                                                                  | `README.host`   |
+| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`          | the LXC bridge's subnet                                                                                        | `README.lxc`    |
+| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                     | the docker network's subnet                                                                                    | `README.docker` |
+| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`          | the libvirt bridge's subnet; nothing on passt (user-mode) networking, expected but not yet confirmed on a host | `README.vm`     |
 
 A member on another machine reaches the homeserver over WireGuard, so `allow_from` lists
 the WireGuard subnet or the peer's address, and `--address` is the homeserver's WireGuard
