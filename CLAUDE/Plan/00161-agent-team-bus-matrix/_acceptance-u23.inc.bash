@@ -20,20 +20,27 @@
 # template (Fedora, this host's release: an image download), python3 and git-core installed by
 # dnf inside it. docker: a throwaway container of the same name from python:3.13-bookworm
 # (pinned by digest, pulled here; it has git, which suggest-handle needs) on docker's default
-# bridge; only rootful Docker counts, not the podman-docker shim. vm: a libvirt guest the owner
-# provides (--vm-ssh=<user>@<address> or agent_bus_acceptance_vm in the untracked host_vars):
-# nothing in this repository boots a guest on a host bridge with a shell an acceptance can
-# drive (the vmtest lab runs scenarios, on passt). With an engine or the guest missing, that
-# member's check is SKIPPED-NEEDS-OWNER. The agent is the user agent-bus-u23, made and removed
-# here; in the owner's guest a marker beside the kit means only what this run made is removed,
-# and a guest that already has an agent-bus kit or that user is refused.
+# bridge; only rootful Docker counts, not the podman-docker shim. With LXC or rootful Docker
+# missing, that member's check is SKIPPED-NEEDS-OWNER. vm: a throwaway guest of the vmtest lab
+# (Plan 00110, play-vm-test-lab.yml): `vmtest ensure-base server-fast` (the Fedora Cloud base,
+# its published image verified by checksum and kept fresh by the lab's gate), then `vmtest
+# member-up agent-bus-acceptance-u23 server-fast`, a rootless qemu:///session guest on passt
+# driven by `vmtest member-ssh` with the lab's own key, git-core installed by dnf inside it;
+# `vmtest member-down` removes guest, overlay and directory. No owner step: without the lab
+# deployed the VM leg FAILS, naming the play (this plan's deploy.bash runs it). The agent is
+# the user agent-bus-u23, made here, gone with its container or guest.
 #
-# ALLOW_FROM is discovered, never written down: the source address each member's kernel would
-# use towards <bus_ip>, the host network holding it (which must be a bridge, the READMEs'
-# route), added to the team file before agent-bus-install applies the team again.
+# ALLOW_FROM is discovered, never written down: for lxc and docker, the source address each
+# member's kernel would use towards <bus_ip>, the host network holding it (which must be a
+# bridge, the READMEs' route), added to the team file before agent-bus-install applies the
+# team again. The vm member adds nothing: passt carries its connection out through a socket in
+# the host's own network namespace, as pasta does for a ccy container, and probe H1 measured
+# that the homeserver then sees <bus_ip> itself, a listen address the installer always admits
+# (DESIGN.md section 3.3). The unit filter admits only loopback, the listen addresses and
+# allow_from, so the vm member's join passing proves its traffic arrived as one of those.
 #
 # Reads acceptance.bash's and _acceptance-steps.inc.bash's globals and functions: TEAM,
-# BUS_ADDRESS, TEAM_FILE, MEMBER_DIR, CHECK, AGENT_BUS, PINGBUS, VM_SSH, OWNER_NEEDS, A_HANDLE,
+# BUS_ADDRESS, TEAM_FILE, MEMBER_DIR, CHECK, AGENT_BUS, PINGBUS, OWNER_NEEDS, A_HANDLE,
 # REF_PATH, SENT_ID, member_run, send_ping, show, expect_status, evidence, install_team, and the
 # plan library's PLAN_RUN_DIR and PLAN_REPO_ROOT. Defines needs_owner for every slice.
 
@@ -45,15 +52,17 @@ readonly U23_CHECKOUT="${U23_HOME}/acceptance"
 #: HOOKS_DAEMON_HOSTNAME, the handle's <host>, as M1's members.
 readonly U23_ROLE="acceptance"
 readonly U23_KIT_PARENT="/usr/local/share/agent-bus"
-readonly U23_MARKER="${U23_KIT_PARENT}/.acceptance-u23"
 #: python 3.13 on Debian bookworm (it has git and useradd), its multi-arch index digest.
 readonly U23_DOCKER_IMAGE="docker.io/library/python@sha256:073ffebb96ae4d0ed73ccad59f08c47bd84af8a79f5258130f8458ac50ad9ff4"
 readonly U23_DOCKER_PINGBUS_HOME="${U23_HOME}/pingbus"
 readonly U23_GUEST_PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
-readonly U23_VM_VAR="agent_bus_acceptance_vm"
-readonly U23_SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15)
 readonly U23_KINDS=(lxc docker vm)
-readonly U23_VM_OWNER_STEP="a libvirt guest on this host's system network (a bridge, such as libvirt's default network under qemu:///system) with python3 3.12 or later, git, systemd, sudo and sshd; this desktop user must reach its login user by SSH key with no prompt (its host key already known) and that user must have passwordless sudo; then set ${U23_VM_VAR}: <user>@<guest-address> in environment/localhost/host_vars/localhost.yml, or pass --vm-ssh=<user>@<guest-address>"
+#: The vmtest lab's CLI and state, as play-vm-test-lab.yml deploys them for the desktop user.
+readonly U23_VMTEST="${HOME}/.local/bin/vmtest"
+readonly U23_VMTEST_LAB_ENV="${HOME}/.local/share/vmtest/lab.env"
+#: The lab's Fedora Cloud server base (vars/vm-test-scenarios.yml).
+readonly U23_VM_BASE="server-fast"
+readonly U23_VM_PLAY="playbooks/imports/optional/common/play-vm-test-lab.yml"
 
 # The agent user's commands source its env file once it exists (README step 5), as
 # agent-bus-claude does; before that (suggest-handle) the role is passed inline (step 3).
@@ -65,12 +74,12 @@ EOF
 readonly U23_AGENT_ENV
 
 # Run as root in a guest: refuse what is not this acceptance's, then make the agent user and
-# its checkout, unpack the kit (stdin, a tar of kit/) beside the marker, and link its commands
-# into /usr/local/bin (README step 1). Arguments: agent, home, checkout, kit parent, marker.
+# its checkout, unpack the kit (stdin, a tar of kit/), and link its commands into
+# /usr/local/bin (README step 1). Arguments: agent, home, checkout, kit parent.
 U23_GUEST_PREPARE="$(
     cat <<'EOF'
 set -eu
-agent=$1 home=$2 checkout=$3 parent=$4 marker=$5
+agent=$1 home=$2 checkout=$3 parent=$4
 for path in "$parent" /usr/local/bin/pingbus /usr/local/bin/agent-bus-claude "$home"; do
     if [ -e "$path" ] || [ -L "$path" ]; then
         echo "$path already exists in this guest and is not this acceptance's: use a guest without an agent-bus kit" >&2
@@ -84,7 +93,6 @@ fi
 useradd -m -d "$home" -U "$agent"
 install -d -o "$agent" -g "$agent" -m 0700 "$checkout"
 mkdir -p "$parent"
-: >"$marker"
 python3 -I -c 'import sys, tarfile; tarfile.open(fileobj=sys.stdin.buffer, mode="r|").extractall(sys.argv[1], filter="data")' "$parent"
 ln -s "$parent/kit/pingbus" /usr/local/bin/pingbus
 ln -s "$parent/kit/agent-bus-claude" /usr/local/bin/agent-bus-claude
@@ -92,34 +100,6 @@ echo "agent user $agent, the kit at $parent/kit and its two links are in place" 
 EOF
 )"
 readonly U23_GUEST_PREPARE
-
-# Run as root in the owner's guest: remove the agent user (its processes first) and, only
-# where the marker says this acceptance made them, the kit and its links. Arguments: agent,
-# kit parent, marker.
-U23_GUEST_REMOVE="$(
-    cat <<'EOF'
-set -eu
-agent=$1 parent=$2 marker=$3
-if getent passwd "$agent" >/dev/null; then
-    if pgrep -u "$agent" >/dev/null; then
-        pkill -KILL -u "$agent"
-        sleep 1
-    fi
-    userdel -r "$agent"
-    echo "removed user $agent" >&2
-fi
-if [ -e "$marker" ]; then
-    for link in /usr/local/bin/pingbus /usr/local/bin/agent-bus-claude; do
-        if [ -L "$link" ]; then
-            rm -f "$link"
-        fi
-    done
-    rm -rf "$parent"
-    echo "removed $parent and its links" >&2
-fi
-EOF
-)"
-readonly U23_GUEST_REMOVE
 
 #: The member's own source address towards the bus address (no packet is sent).
 readonly U23_SOURCE_PY='import socket, sys; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect((sys.argv[1], 9)); print(s.getsockname()[0])'
@@ -140,15 +120,15 @@ declare -A U23_SKIP=()    # kind -> what the owner must provide
 declare -A U23_PRESENT=() # kind -> 1 once this run may have made something of it
 declare -A U23_SUBNET=()  # kind -> the bridge network its member reaches the bus through
 declare -A U23_HANDLE=()  # kind -> its member's handle
-U23_VM_RESOLVED=0
 
 # ── running commands inside a member ────────────────────────────────────────────────────
 
-# u23_ssh <argv...> — argv on the owner's guest, quoted for its login shell (bash on Fedora).
-u23_ssh() {
+# u23_vm_ssh <argv...> — argv in the vm member as its cloud user, quoted for that user's
+# login shell (bash on Fedora); stdin passed through; returns argv's status.
+u23_vm_ssh() {
     local quoted
     printf -v quoted '%q ' "$@"
-    "${U23_SSH[@]}" -- "${VM_SSH}" "${quoted}"
+    "${U23_VMTEST}" member-ssh "${U23_NAME}" "${quoted}"
 }
 
 # u23_lxc_attach <argv...> — argv in the LXC member, its stdin, stdout and stderr all pipes.
@@ -191,7 +171,7 @@ u23_exec() {
         lxc/*)
             u23_lxc_attach "${inner[@]}" "$@" ;;
         vm/*)
-            u23_ssh sudo -n "${inner[@]}" "$@" ;;
+            u23_vm_ssh sudo -n "${inner[@]}" "$@" ;;
         *)
             printf '[FAIL] u23_exec: no member kind %s\n' "${kind}" >&2
             return 1
@@ -209,37 +189,10 @@ u23_step() {
     expect_status "${kind}" "${label}" "${status}" "${want}"
 }
 
-# ── resolving the VM, and removing what a run made ───────────────────────────────────────
+# ── removing what a run made ─────────────────────────────────────────────────────────────
 
-# u23_resolve_vm — VM_SSH as given, else the untracked host_vars' agent_bus_acceptance_vm;
-# with neither, the VM leg needs the owner. Once per run.
-u23_resolve_vm() {
-    local inventory
-    if [[ "${U23_VM_RESOLVED}" -eq 1 ]]; then
-        return 0
-    fi
-    if [[ -z "${VM_SSH}" ]]; then
-        inventory="$(cd "${PLAN_REPO_ROOT}" && ansible-inventory --host localhost </dev/null)" || return 1
-        VM_SSH="$(python3 -I -c '
-import json, sys
-value = json.load(sys.stdin).get(sys.argv[1], "")
-print(value if isinstance(value, str) else "")
-' "${U23_VM_VAR}" <<<"${inventory}")" || return 1
-    fi
-    U23_VM_RESOLVED=1
-    if [[ -z "${VM_SSH}" ]]; then
-        U23_SKIP[vm]="${U23_VM_OWNER_STEP}"
-        return 0
-    fi
-    if [[ ! "${VM_SSH}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.@:-]*$ ]]; then
-        printf '[FAIL] the VM guest %q is not an SSH destination of the form <user>@<address>\n' "${VM_SSH}" >&2
-        return 1
-    fi
-    printf '==> VM member: the guest at %s\n' "${VM_SSH}"
-}
-
-# u23_remove <kind> — remove the member's container, or what this acceptance made in the
-# owner's guest, and the run directory's bundle copies. Nothing there is not an error.
+# u23_remove <kind> — remove the member's container or guest, and the run directory's bundle
+# copies. Nothing there is not an error.
 u23_remove() {
     local kind="$1" names
     case "${kind}" in
@@ -262,8 +215,9 @@ u23_remove() {
             fi
             ;;
         vm)
-            if [[ -n "${VM_SSH}" ]]; then
-                u23_ssh sudo -n sh -c "${U23_GUEST_REMOVE}" sh "${U23_AGENT}" "${U23_KIT_PARENT}" "${U23_MARKER}" || return 1
+            # Without the lab's CLI no member can have been made.
+            if [[ -x "${U23_VMTEST}" ]]; then
+                "${U23_VMTEST}" member-down "${U23_NAME}" || return 1
             fi
             ;;
     esac
@@ -274,7 +228,6 @@ u23_remove() {
 # u23_teardown <label> — every U23 member, whatever state a run left it in.
 u23_teardown() {
     local kind
-    u23_resolve_vm || return 1
     for kind in "${U23_KINDS[@]}"; do
         u23_remove "${kind}" || return 1
     done
@@ -311,7 +264,7 @@ u23_kit_tar() {
 u23_guest_prepare() {
     u23_kit_tar || return 1
     u23_step "$1" root prepare "${PLAN_RUN_DIR}/u23-kit.tar" 0 sh -c "${U23_GUEST_PREPARE}" sh \
-        "${U23_AGENT}" "${U23_HOME}" "${U23_CHECKOUT}" "${U23_KIT_PARENT}" "${U23_MARKER}"
+        "${U23_AGENT}" "${U23_HOME}" "${U23_CHECKOUT}" "${U23_KIT_PARENT}"
 }
 
 # u23_bridge <kind> — the network the member reaches <bus_ip> through: its source address,
@@ -385,26 +338,34 @@ u23_prepare_docker() {
     u23_guest_prepare docker
 }
 
+# u23_prepare_vm — the lab's base made usable (built or refreshed only when its gate says so),
+# a throwaway guest booted from it, git-core installed. Without the lab deployed this FAILS,
+# naming the play: the guest is IaC, never something the owner hands over.
 u23_prepare_vm() {
-    u23_resolve_vm || return 1
-    if [[ -n "${U23_SKIP[vm]:-}" ]]; then
-        return 0
-    fi
-    U23_PRESENT[vm]=1
-    if ! u23_ssh sudo -n true; then
-        printf '[FAIL] %s did not answer sudo -n true over SSH with no prompt; it needs to be %s\n' "${VM_SSH}" "${U23_VM_OWNER_STEP}" >&2
+    if [[ ! -x "${U23_VMTEST}" ]] || [[ ! -r "${U23_VMTEST_LAB_ENV}" ]]; then
+        printf '[FAIL] the vm member is a vmtest lab guest, and the lab is not deployed (no %s or %s): run %s (this plan'\''s deploy.bash runs it)\n' \
+            "${U23_VMTEST}" "${U23_VMTEST_LAB_ENV}" "${U23_VM_PLAY}" >&2
         return 1
     fi
+    "${U23_VMTEST}" ensure-base "${U23_VM_BASE}" || return 1
+    U23_PRESENT[vm]=1 # before the attempt: a guest that failed part-way still needs removing
+    "${U23_VMTEST}" member-up "${U23_NAME}" "${U23_VM_BASE}" || return 1
+    u23_step vm root dnf-install /dev/null 0 dnf -y --setopt=install_weak_deps=False install git-core || return 1
     u23_guest_prepare vm
 }
 
 # u23_prepare <kind> — the member's container or guest, ready for its README's steps, and its
-# bridge; or, with its engine or guest missing, the owner step its check will report.
+# bridge; or, with its engine missing, the owner step its check will report. The vm member
+# is on passt and adds nothing to allow_from (the header says why).
 u23_prepare() {
     local kind="$1"
     "u23_prepare_${kind}" || return 1
     if [[ -n "${U23_SKIP[${kind}]:-}" ]]; then
         printf '==> no %s member on this host: its check will report SKIPPED-NEEDS-OWNER\n' "${kind}"
+        return 0
+    fi
+    if [[ "${kind}" == "vm" ]]; then
+        printf '==> the vm member is on passt: it reaches %s from this host'\''s own network namespace, so nothing joins allow_from for it\n' "${BUS_ADDRESS}"
         return 0
     fi
     u23_bridge "${kind}"
@@ -488,8 +449,8 @@ u23_ping() {
     evidence "U23 ${kind}: ack ${ackId} from the ${kind} member received by a's recv: members/${kind}/send-ack.out, members/a/recv-ack-${kind}.out"
 }
 
-# u23_check <kind> — one encapsulation's check: SKIPPED-NEEDS-OWNER without its engine or
-# guest, else the member joins by its README and exchanges a review and an ack with a.
+# u23_check <kind> — one encapsulation's check: SKIPPED-NEEDS-OWNER without its engine (lxc,
+# docker), else the member joins by its README and exchanges a review and an ack with a.
 u23_check() {
     local kind="$1"
     if [[ -n "${U23_SKIP[${kind}]:-}" ]]; then

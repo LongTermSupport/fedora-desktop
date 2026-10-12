@@ -25,6 +25,14 @@
 #                                            --deep re-hashes every base disk against its record
 #   vmtest sweep                             apply the retention policy (runs, failed builds, spool); logs every eviction
 #   vmtest nightly                           freshness-status --deep, then sweep — what the nightly timer runs
+#   vmtest ensure-base <base-key>            build the base if it is absent, or rebuild it if the freshness
+#                                            gate refuses it; otherwise change nothing
+#   vmtest member-up <name> <base-key>       boot a server base as a guest that STAYS UP for another script to
+#                                            drive (freshness gate, overlay, boot, SSH answered); prints
+#                                            VMTEST-MEMBER-UP. A failed boot removes the guest and its overlay
+#   vmtest member-ssh <name> <command>       run <command> in the member as the cloud user (passwordless sudo),
+#                                            stdin passed through; exits with the command's status
+#   vmtest member-down <name>                remove the member's guest and directory; nothing there is no error
 #   vmtest help
 #
 # `run` provisions from a PUSHED commit of the public repo (the branch tip on the
@@ -54,6 +62,7 @@ readonly HOST_ONLY_LIST="${VMTEST_HOME}/scenarios.host-only"
 readonly RUNS_DIR="${VMTEST_HOME}/runs"
 readonly IMAGES_DIR="${VMTEST_HOME}/images"
 readonly BASES_DIR="${VMTEST_HOME}/bases"
+readonly MEMBERS_DIR="${VMTEST_HOME}/members"
 readonly GPG_KEYDIR="/usr/share/distribution-gpg-keys/fedora"
 readonly ARCH="x86_64"
 readonly CLOUD_USER="fedora"
@@ -502,7 +511,7 @@ wait_for_ssh() {
         sleep 5
         waited=$((waited + 5))
         if [[ "${waited}" -ge "${SSH_WAIT_SECONDS}" ]]; then
-            die "guest did not answer SSH within ${SSH_WAIT_SECONDS}s; see ${BUILD_DIR}/console.log"
+            die "guest did not answer SSH within ${SSH_WAIT_SECONDS}s; see ${RUN_DIR:-${BUILD_DIR}}/console.log"
         fi
     done
     log "guest answered SSH after ~${waited}s"
@@ -1473,6 +1482,147 @@ cmd_nightly() {
     return "${rc}"
 }
 
+# cmd_ensure_base <base-key> — the base, usable: built when absent, rebuilt when the
+# freshness gate refuses it, untouched otherwise. What a caller runs before member-up.
+cmd_ensure_base() {
+    local key="${1:?usage: vmtest ensure-base <base-key>}"
+    load_lab
+    base_facts "${key}"
+    local base_dir="${BASES_DIR}/${BASE_NAME}"
+    if [[ -r "${base_dir}/base.qcow2" && -r "${base_dir}/base.json" ]]; then
+        probe_upstream
+        freshness_verdict "${base_dir}/base.json" "${base_dir}/base.qcow2"
+        rm -f "${PROBE_FILE}"
+        if [[ "${GATE_RC}" -eq 0 ]]; then
+            log "base ${BASE_NAME} is usable (freshness: ${GATE_DECISION})"
+            printf 'VMTEST-BASE-CURRENT %s decision=%s\n' "${BASE_NAME}" "${GATE_DECISION}"
+            return 0
+        fi
+        log "base ${BASE_NAME} may not be used (freshness: ${GATE_DECISION}): rebuilding it"
+    else
+        log "base ${BASE_NAME} is absent: building it"
+    fi
+    cmd_build_base "${key}"
+}
+
+# ── members: a guest that stays up for another script to drive ───────────────────────────
+# A member is booted from a server base on an overlay under members/<name>/, on the same
+# passt networking as a run, and left running when member-up exits; member-ssh drives it
+# with the lab key and member-down removes it. The caller owns its lifetime, so a member is
+# never swept: the caller removes it on its own way out, and first if an interrupted run
+# left one. Its guest reaches host addresses through passt, from the host's own network
+# namespace, as a rootless (pasta) container does.
+
+member_name_ok() {
+    [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]{0,39}$ ]] ||
+        die "a member name is 1 to 40 of a-z, 0-9 and '-', not starting with '-'; got '${1:-}'"
+}
+
+# member_domain_exists <domain> — libvirt's own answer; an unreachable daemon dies, never "absent".
+member_domain_exists() {
+    local domains
+    domains="$(virsh -c "${LIBVIRT_URI}" list --all --name)" || die "virsh -c ${LIBVIRT_URI} list failed"
+    grep -Fxq -- "${1}" <<<"${domains}"
+}
+
+# member_domain_remove <domain> — destroy it if it runs, then undefine it; absent is no error.
+member_domain_remove() {
+    local domain="${1}" domain_state
+    if member_domain_exists "${domain}"; then
+        domain_state="$(virsh -c "${LIBVIRT_URI}" domstate "${domain}")" || die "cannot read the state of ${domain}"
+        if [[ "${domain_state}" != "shut off" ]]; then
+            virsh -c "${LIBVIRT_URI}" destroy "${domain}" >&2
+        fi
+        virsh -c "${LIBVIRT_URI}" undefine --nvram "${domain}" >&2
+        log "removed guest ${domain}"
+    fi
+}
+
+MEMBER_UP=0
+# A member-up that did not finish leaves no guest and no overlay; the directory stays with
+# its console log for diagnosis, until member-down removes it.
+teardown_member() {
+    local rc=$?
+    trap - EXIT INT TERM HUP
+    if [[ "${MEMBER_UP}" -ne 1 && -n "${RUN_DIR}" ]]; then
+        member_domain_remove "${DOMAIN}"
+        rm -f "${RUN_DIR}/overlay.qcow2"
+        log "member not started; its console log is kept in ${RUN_DIR} until: vmtest member-down $(basename "${RUN_DIR}")"
+    fi
+    rm -f "${PROBE_FILE:-}"
+    exit "${rc}"
+}
+
+cmd_member_up() {
+    [[ $# -eq 2 ]] || die "usage: vmtest member-up <name> <base-key>"
+    local name="${1}" key="${2}"
+    member_name_ok "${name}"
+    load_lab
+    base_facts "${key}"
+    [[ "${BASE_PROFILE}" == "server" ]] || die "a member boots a server base; ${BASE_NAME} is ${BASE_PROFILE}"
+    local base_dir="${BASES_DIR}/${BASE_NAME}" dir="${MEMBERS_DIR}/${name}"
+    [[ -r "${base_dir}/base.qcow2" && -r "${base_dir}/base.json" ]] ||
+        die "base ${BASE_NAME} is absent; build it with: vmtest ensure-base ${key}"
+    DOMAIN="vmtest-member-${name}"
+    if [[ -e "${dir}" ]] || member_domain_exists "${DOMAIN}"; then
+        die "member ${name} already exists (${dir} or guest ${DOMAIN}); remove it with: vmtest member-down ${name}"
+    fi
+    probe_upstream
+    freshness_verdict "${base_dir}/base.json" "${base_dir}/base.qcow2"
+    if [[ "${GATE_RC}" -ne 0 ]]; then
+        printf '%s\n' "${GATE_LINE}" >&2
+        rm -f "${PROBE_FILE}"
+        die "base ${BASE_NAME} may not be used (freshness: ${GATE_DECISION}); refresh it with: vmtest ensure-base ${key}"
+    fi
+    mkdir -p "${MEMBERS_DIR}"
+    helper retention floor --path "${MEMBERS_DIR}" --base-size "${GATE_BASE_SIZE}" --step run --guest-mib "${BASE_RAM_MIB}" >&2 ||
+        die "the host cannot carry a member on ${BASE_NAME}; see the VMTEST-DISK/VMTEST-RAM lines above"
+
+    RUN_DIR="${dir}"
+    mkdir -p "${RUN_DIR}"
+    trap teardown_member EXIT INT TERM HUP
+    qemu-img create -q -f qcow2 -F qcow2 -b "${base_dir}/base.qcow2" "${RUN_DIR}/overlay.qcow2"
+    GUEST_PORT="$(free_port)"
+    log "member ${name}: booting ${DOMAIN} on ${BASE_NAME} (SSH forwarded to 127.0.0.1:${GUEST_PORT})"
+    virt-install --connect "${LIBVIRT_URI}" --name "${DOMAIN}" \
+        --memory "${BASE_RAM_MIB}" --vcpus "${BASE_VCPUS}" --cpu host-passthrough \
+        --import --disk "path=${RUN_DIR}/overlay.qcow2,format=qcow2,bus=virtio,discard=unmap,cache=unsafe" \
+        --osinfo fedora-unknown --boot uefi --memballoon virtio \
+        --network "type=user,backend.type=passt,portForward0.proto=tcp,portForward0.range0.start=${GUEST_PORT},portForward0.range0.to=22" \
+        --graphics none --serial "file,path=${RUN_DIR}/console.log" --noautoconsole >&2
+    printf '%s\n' "${GUEST_PORT}" >"${RUN_DIR}/ssh-port"
+    wait_for_ssh
+    MEMBER_UP=1
+    trap - EXIT INT TERM HUP
+    rm -f "${PROBE_FILE}"
+    printf 'VMTEST-MEMBER-UP %s domain=%s\n' "${name}" "${DOMAIN}"
+}
+
+cmd_member_ssh() {
+    [[ $# -ge 2 ]] || die "usage: vmtest member-ssh <name> <command>"
+    local name="${1}" port_file
+    shift
+    member_name_ok "${name}"
+    port_file="${MEMBERS_DIR}/${name}/ssh-port"
+    [[ -r "${port_file}" ]] || die "no member ${name} is up (no ${port_file}); start one with: vmtest member-up ${name} <base-key>"
+    GUEST_PORT="$(<"${port_file}")"
+    [[ "${GUEST_PORT}" =~ ^[0-9]+$ ]] || die "${port_file} does not hold a port"
+    [[ -r "${SSH_KEY}" ]] || die "no lab SSH key at ${SSH_KEY}; deploy the lab first"
+    guest_ssh "$@"
+}
+
+cmd_member_down() {
+    [[ $# -eq 1 ]] || die "usage: vmtest member-down <name>"
+    local name="${1}"
+    member_name_ok "${name}"
+    member_domain_remove "vmtest-member-${name}"
+    if [[ -e "${MEMBERS_DIR}/${name}" ]]; then
+        rm -rf -- "${MEMBERS_DIR:?}/${name}"
+        log "removed ${MEMBERS_DIR}/${name}"
+    fi
+    printf 'VMTEST-MEMBER-DOWN %s\n' "${name}"
+}
+
 # ── dispatch ──────────────────────────────────────────────────────────────────────────────
 
 main() {
@@ -1489,6 +1639,10 @@ main() {
         freshness-status) cmd_freshness_status "$@" ;;
         sweep) cmd_sweep "$@" ;;
         nightly) cmd_nightly "$@" ;;
+        ensure-base) cmd_ensure_base "$@" ;;
+        member-up) cmd_member_up "$@" ;;
+        member-ssh) cmd_member_ssh "$@" ;;
+        member-down) cmd_member_down "$@" ;;
         help | -h | --help) usage ;;
         *)
             usage >&2
