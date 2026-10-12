@@ -673,8 +673,18 @@ for stub in fwupdmgr dnf flatpak; do
     cat >"$BIN/$stub" <<'EOF'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"$TEST_LOG"
+# TEST_DNF_RC: dnf fails with this status (a mirror or network failure).
+if [ "$(basename "$0")" = dnf ] && [ -n "${TEST_DNF_RC:-}" ]; then
+    exit "$TEST_DNF_RC"
+fi
 EOF
 done
+# logger: records what would reach the system journal.
+cat >"$BIN/logger" <<'EOF'
+#!/usr/bin/env bash
+printf 'logger %s\n' "$*" >>"$TEST_LOG"
+EOF
+chmod 755 "$BIN/logger"
 cat >"$BIN/shutdown" <<'EOF'
 #!/usr/bin/env bash
 printf 'shutdown %s\n' "$*" >>"$TEST_LOG"
@@ -824,6 +834,23 @@ check "an inhibited reboot: forced past the inhibitors" "0:1" \
 TEST_SYSTEMCTL_RC=1 with_update reboot-with-update "$HOME_OFF" "" --in 1
 check "a reboot that fails even when forced: exits non-zero and withdraws" "yes:2" \
     "$([ "$rc" -ne 0 ] && echo yes || echo no):$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+
+TEST_DNF_RC=1 with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "a failed dnf on a desktop: still warns both projects and shuts down" "0:2:1" \
+    "$rc:$(calls | grep -c 'signal shutdown-warning --minutes 1 '):$(calls | grep -c '^shutdown -h now$')"
+check "  the failure is journalled under shutdown-with-update" "1" \
+    "$(calls | grep -c '^logger -t shutdown-with-update -p user.err -- dnf upgrade failed$')"
+check "  and summarised (printed and journalled) before the power action" "yes:1" \
+    "$([[ "$out" == *"update steps that failed before the shutdown: dnf upgrade"* ]] && echo yes || echo no):$(calls | grep -c '^logger .*update steps that failed before the shutdown: dnf upgrade$')"
+check "  the summary comes before the shutdown" "shutdown -h now" "$(calls | awk 'END{print}')"
+with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "no failed step: nothing journalled" "0" "$(calls | grep -c '^logger')"
+TEST_DNF_RC=1 TEST_PROFILE=server with_update shutdown-with-update "$HOME_OFF" "" --in 1
+check "a failed dnf on a server: exits 1, warns nobody, nothing goes down" "1:0:0" \
+    "$rc:$(calls | grep -c 'signal shutdown-warning'):$(calls | grep -c '^shutdown\|^systemctl')"
+TEST_DNF_RC=1 with_update reboot-with-update "$HOME_OFF" "" --in 1 --strict-sessions
+check "a failed dnf with --strict-sessions: exits 1, no reboot" "1:0" \
+    "$rc:$(calls | grep -c '^systemctl reboot')"
 
 TEST_PROFILE_FILE="$WU_DIR/no-such-profile" with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "no recorded profile: refused before anything is updated" "1:0" "$rc:$(calls | grep -c '^dnf')"

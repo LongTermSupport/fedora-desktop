@@ -448,10 +448,13 @@ such file, or an unknown value in it, both commands refuse before updating.
 - **Desktop**: the update and the shutdown or reboot always happen. A session
   that cannot be warned, a warning that fails, or one that has not answered in two
   minutes is reported and gone past; a blocked shutdown or reboot is forced past its
-  inhibitors (`-i`).
+  inhibitors (`-i`). An update step that fails, `dnf` included, does not stop it either:
+  each failure, and a summary just before the power action, is recorded in
+  `journalctl -t shutdown-with-update` to read after the next boot.
 - **Server**, or `--strict-sessions` on a desktop: session-strict. The warning is
   rehearsed with `--dry-run` **before** updating, so a session that cannot be warned
-  stops it before twenty minutes of `dnf`. A blocked shutdown asks whether to force it.
+  stops it before twenty minutes of `dnf`. A failed `dnf` stops it with the machine up.
+  A blocked shutdown asks whether to force it.
 
 If the machine then does not go down (the shutdown is blocked and you answer N, there is
 no terminal to ask on, or the forced power action fails), the sessions are sent
