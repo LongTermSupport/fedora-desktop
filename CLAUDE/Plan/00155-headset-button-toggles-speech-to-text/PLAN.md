@@ -1,7 +1,8 @@
 # Plan 00155: Headset button toggles speech-to-text
 
-**Status**: On Hold (parked by the owner with the design chosen: see Technical Decisions.
-Start-only was rejected; the next step is capturing a double press in both modes)
+**Status**: In Progress (owner's design settled: a generic gesture→key mapper, active
+only while a dictation device is connected; see Technical Decisions. Phases 3-6 below
+predate it and are re-planned at build start; first task: the gesture capture)
 **Created**: 2026-10-04
 **Owner**: joseph
 **Priority**: Medium
@@ -256,20 +257,33 @@ headset's microphone, so it is rejected.
 
 - **Start-only is rejected.** "Adding the button for start and not for stop seems
   pointless."
-- **Read the raw Bluetooth traffic, read-only, as root, tightly constrained.** A script
-  under `/usr/local/sbin/` (root-owned, read-only to the user) watches the HCI monitor
-  channel, as `btmon` does. It reports button events only for devices in the
-  dictation-device profile (D2): AVRCP passthrough and the HFP AT commands. A sudoers
-  drop-in grants the desktop user passwordless `sudo` for exactly that one command
-  invocation and nothing else. The user-side listener starts it through that alias
-  and turns its events into the speech-to-text toggle. It observes and never injects,
-  so every other device and every other key keeps working untouched.
-- **Gesture (D3): a single press stays play/pause; a double press is dictation.** This
-  depends on what the OpenRun Pro sends for a double press in A2DP and in HFP. That
-  has not been captured yet and is the next task when the plan resumes.
-- **D1 (grab) no longer applies.** An HCI observer cannot grab, so a single press
-  keeps reaching media players. The open risk is that a double press may also reach
-  the media player as two play/pause events or a next-track; the capture decides.
+- **A generic headset key mapper, not a dictation special case (owner).** Per
+  dictation device, gestures map to key presses. For example, a double press sends
+  Insert and a long press sends Escape, and more gestures can be added later. The
+  mapped key is emitted through a uinput virtual keyboard, so the speech-to-text
+  extension sees an ordinary Insert and needs **no change** (this replaces D4; there
+  is no D-Bus Toggle and no coupling to Plan 00171). The mapping lives in host_vars
+  (D2's device list grows a per-device gesture→key map) and is deployed by Ansible
+  into a root-owned config file.
+- **Active only while a dictation device is connected (owner).** It is a root
+  *system* service, started by a udev rule when the device's `(AVRCP)` input node
+  appears (name match per D2, `SYSTEMD_WANTS`), and stopped when the node goes
+  (`BindsTo=` the device unit). It needs no sudoers entry: nothing on the user's side
+  runs a privileged command. This refines the owner's first idea (a `/usr/local/sbin/`
+  script behind a passwordless sudo alias) to the same constraint with less surface.
+  The code is root-owned under `/usr/local/`, and its logic is a TDD'd stdlib helper.
+- **Two inputs, because the button travels two ways.** In A2DP it reads the
+  `(AVRCP)` evdev node and takes it with `EVIOCGRAB`, so GNOME does not see a double
+  press as play-pause. A lone single press is re-emitted as play/pause after the
+  double-press window. In HFP it reads the HCI monitor channel (as `btmon` does) for
+  that device's RFCOMM AT commands (`AT+CHUP` and whatever the capture shows). It
+  never injects into the Bluetooth stack.
+- **Gesture (D3): a single press stays play/pause; a double press and a long press
+  map as configured.** The first build task is one capture of single, double and long
+  presses in A2DP and in HFP with the owner. It settles timing windows and which
+  codes each gesture sends (two `PLAY`s, `KEY_NEXTSONG`, `AT+BLDN`, `AT+BVRA`, or
+  nothing). A long press may be swallowed by the headset itself (power-off or voice
+  assistant), so a gesture the capture shows unusable is reported, not guessed.
 
 ## Success Criteria
 
