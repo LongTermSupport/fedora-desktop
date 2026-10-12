@@ -1,6 +1,6 @@
 # Plan 00173: shutdown with update always goes down
 
-**Status**: In Progress
+**Status**: Blocked
 **Created**: 2026-10-12
 **Owner**: joseph
 **Priority**: High

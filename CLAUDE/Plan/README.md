@@ -34,7 +34,7 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - In Progress. A ccy session still at its startup prompts (no container) made `shutdown-with-update` refuse before updating. Container-less ccy sessions are now left out of every warning, and on a desktop (the recorded `provisioning_profile`) the update and the power action always happen, bounded and past inhibitors; a server or `--strict-sessions` stays session-strict. Awaiting deploy.
+- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (host deploy, evening test, failed-dnf question). On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
 
 - [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - Not Started. With a Bluetooth headset chosen as GNOME's input, dictation still recorded from the laptop microphone: PipeWire's default source never became the headset, and the headset stayed in A2DP (no microphone). Triage why GNOME and PipeWire disagree, fix it in `play-hd-audio.yml` (dictation keeps following the system input), then measure the headset's level and add gain only if needed.
 
