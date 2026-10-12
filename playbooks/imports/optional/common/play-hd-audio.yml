@@ -323,6 +323,7 @@
         - pipewire
         - pipewire-pulse
         - wireplumber
+      notify: reconnect-bluetooth-audio
 
     - name: wm-restart
       become: true
@@ -331,9 +332,70 @@
         name: wireplumber
         state: restarted
         scope: user
+      notify: reconnect-bluetooth-audio
 
     - name: restart-bt
       become: true
       ansible.builtin.systemd:
         name: bluetooth
         state: restarted
+
+    # Restarting PipeWire or WirePlumber under a connected Bluetooth headset leaves its
+    # mic starved (a fraction of the expected samples, no error). Disconnecting the
+    # headset is not enough: the controller can keep a link the kernel has forgotten
+    # ("ACL packet for unknown connection handle"), and then nothing connects. Cycling
+    # the adapter clears that, so every audio restart with a Bluetooth audio device
+    # connected cycles it and reconnects every device that was connected.
+    - name: List connected Bluetooth devices
+      listen: reconnect-bluetooth-audio
+      ansible.builtin.command:
+        argv: [bluetoothctl, devices, Connected]
+      register: bt_connected
+      changed_when: false
+
+    - name: Read each connected Bluetooth device
+      listen: reconnect-bluetooth-audio
+      ansible.builtin.command:
+        argv: [bluetoothctl, info, "{{ item }}"]
+      loop: "{{ bt_connected.stdout_lines | select('match', '^Device ') | map('split') | map(attribute=1) | list }}"
+      register: bt_info
+      changed_when: false
+
+    - name: Note whether a Bluetooth audio device is connected
+      listen: reconnect-bluetooth-audio
+      ansible.builtin.set_fact:
+        bt_audio_connected: "{{ bt_info.results | selectattr('stdout', 'search', 'Icon: audio-') | list | length > 0 }}"
+
+    - name: Power the Bluetooth adapter off
+      listen: reconnect-bluetooth-audio
+      ansible.builtin.command:
+        argv: [bluetoothctl, power, "off"]
+      when: bt_audio_connected
+
+    # PAUSE-OK: a fixed timer, never a prompt, so an unattended run does not stop here
+    - name: Let the controller settle
+      listen: reconnect-bluetooth-audio
+      ansible.builtin.pause:
+        seconds: 3
+      when: bt_audio_connected
+
+    - name: Power the Bluetooth adapter on
+      listen: reconnect-bluetooth-audio
+      ansible.builtin.command:
+        argv: [bluetoothctl, power, "on"]
+      when: bt_audio_connected
+
+    - name: Reconnect every device that was connected
+      listen: reconnect-bluetooth-audio
+      ansible.builtin.command:
+        argv: [timeout, "30", bluetoothctl, connect, "{{ item.item }}"]
+      loop: "{{ bt_info.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      register: bt_reconnect
+      # A device may reconnect by itself first; that is the outcome we want.
+      failed_when: bt_reconnect.rc != 0 and 'AlreadyConnected' not in bt_reconnect.stdout
+      until: bt_reconnect.rc == 0 or 'AlreadyConnected' in bt_reconnect.stdout
+      retries: 3
+      delay: 5
+      when: bt_audio_connected

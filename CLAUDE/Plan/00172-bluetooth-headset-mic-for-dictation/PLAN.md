@@ -105,6 +105,15 @@ selection, why did it not become PipeWire's default?
   headset's capture in `play-hd-audio.yml`, scoped to Bluetooth inputs, then measure
   again. Owner decision first on the target level.
 
+### Phase 3b: Audio restarts must not strand the headset
+
+- [x] ✅ **Task 3.3** (owner): an audio restart by `play-hd-audio.yml` left a connected
+  headset's mic starved, and a plain Bluetooth disconnect then left the controller
+  holding a link the kernel had forgotten, so nothing could connect. The play's
+  restart handlers now cycle the Bluetooth adapter and reconnect every device that was
+  connected, whenever a Bluetooth audio device was connected. Proven on the host: a
+  forced restart, then the headset back and the mic delivering full audio.
+
 ### Phase 4: Close
 
 - [ ] ⬜ **Task 4.1**: Docs: a Bluetooth headset note in `docs/features/speech-to-text.md`
