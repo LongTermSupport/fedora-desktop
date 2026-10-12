@@ -734,6 +734,8 @@ check "shutdown refused, answer N: exits non-zero" "1" "$rc"
 check "and every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
 check "and nothing is forced" "0" "$(calls | grep -c '^systemctl poweroff')"
 check "and it says so" "yes" "$([[ "$out" == *"Shutdown cancelled"* ]] && echo yes || echo no)"
+check "and the refusal is journalled for the next boot's report" "1" \
+    "$(calls | grep -c '^logger -t shutdown-with-update -p user.err -- Shutdown cancelled: .*machine stays up')"
 
 TEST_SHUTDOWN_RC=1 with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "shutdown refused, no answer possible (no tty): exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
@@ -750,10 +752,14 @@ check "and reboots" "1" "$(calls | grep -c '^systemctl reboot$')"
 
 TEST_SYSTEMCTL_RC=1 with_update reboot-with-update "$HOME_OFF" "" --in 1
 check "a failed reboot request: exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check "  journalled once, by refuse, not again by the exit trap" "1:0" \
+    "$(calls | grep -c '^logger .* -- the reboot was refused'):$(calls | grep -c '^logger .*stopped with exit status')"
 check "and every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
 
 TEST_SHUTDOWN_RC=1 TEST_SYSTEMCTL_RC=1 with_update shutdown-with-update "$HOME_OFF" "y" --in 1
 check "a failed forced poweroff: exits non-zero" "yes" "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+check "  journalled by the exit trap, which names the status" "1" \
+    "$(calls | grep -c '^logger -t shutdown-with-update -p user.err -- shutdown-with-update stopped with exit status [1-9][0-9]* before the shutdown')"
 check "and every warned project is told reboot-cancelled" "2" "$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
 
 TEST_CLI_FAIL_MATCH="--minutes 1 " with_update reboot-with-update "$HOME_OFF" "" --in 2
@@ -834,6 +840,8 @@ check "an inhibited reboot: forced past the inhibitors" "0:1" \
 TEST_SYSTEMCTL_RC=1 with_update reboot-with-update "$HOME_OFF" "" --in 1
 check "a reboot that fails even when forced: exits non-zero and withdraws" "yes:2" \
     "$([ "$rc" -ne 0 ] && echo yes || echo no):$(calls | grep -c 'signal reboot-cancelled --all-sessions')"
+check "  and is journalled for the next boot's report" "1" \
+    "$(calls | grep -c '^logger .*reboot-with-update stopped with exit status [1-9][0-9]* before the reboot')"
 
 TEST_DNF_RC=1 with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "a failed dnf on a desktop: still warns both projects and shuts down" "0:2:1" \
@@ -848,6 +856,7 @@ check "no failed step: nothing journalled" "0" "$(calls | grep -c '^logger')"
 TEST_DNF_RC=1 TEST_PROFILE=server with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "a failed dnf on a server: exits 1, warns nobody, nothing goes down" "1:0:0" \
     "$rc:$(calls | grep -c 'signal shutdown-warning'):$(calls | grep -c '^shutdown\|^systemctl')"
+check "  and the refusal is journalled" "1" "$(calls | grep -c '^logger .* -- dnf upgrade failed, so the shutdown is off')"
 TEST_DNF_RC=1 with_update reboot-with-update "$HOME_OFF" "" --in 1 --strict-sessions
 check "a failed dnf with --strict-sessions: exits 1, no reboot" "1:0" \
     "$rc:$(calls | grep -c '^systemctl reboot')"
@@ -855,6 +864,7 @@ check "a failed dnf with --strict-sessions: exits 1, no reboot" "1:0" \
 TEST_PROFILE_FILE="$WU_DIR/no-such-profile" with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "no recorded profile: refused before anything is updated" "1:0" "$rc:$(calls | grep -c '^dnf')"
 check "  naming the play that records it" "yes" "$([[ "$out" == *"play-basic-configs.yml"* ]] && echo yes || echo no)"
+check "  and journalled with the same text" "1" "$(calls | grep -c '^logger .*no-such-profile is missing.*play-basic-configs.yml')"
 TEST_PROFILE=laptop with_update shutdown-with-update "$HOME_OFF" "" --in 1
 check "an unknown profile: refused" "1:0" "$rc:$(calls | grep -c '^dnf')"
 
@@ -863,6 +873,9 @@ check "run from a root shell (SUDO_USER=root): refused" "1" "$rc"
 check "and says to run it through sudo as the desktop user" "yes" \
     "$([[ "$out" == *"not from a root shell"* ]] && echo yes || echo no)"
 check "and nothing was updated" "0" "$(calls | grep -c '^dnf')"
+check "and the refusal is journalled" "1" "$(calls | grep -c '^logger .*not from a root shell')"
+with_update shutdown-with-update "$HOME_OFF" "" --bogus
+check "a usage error: exits 64 and journals nothing (nothing ran)" "64:0" "$rc:$(calls | grep -c '^logger')"
 
 echo ""
 echo "=== restore is reachable as a subcommand ==="

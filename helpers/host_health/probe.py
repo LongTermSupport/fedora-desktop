@@ -41,6 +41,30 @@ EXIT_FINDINGS = 3
 #: `--no-pager` keeps this from blocking on a pager at login.
 _FAILED_UNITS = ["systemctl", "--failed", "--no-legend", "--no-pager", "--plain"]
 
+#: Error-priority lines shutdown-with-update journalled in the previous boot, message text
+#: only. `-q` drops journalctl's own notes, which are not the script's.
+_PREVIOUS_SHUTDOWN_ERRORS = [
+    "journalctl", "-b", "-1", "-t", "shutdown-with-update", "-p", "err",
+    "-o", "cat", "--no-pager", "-q",
+]
+#: The previous boot's newest line from PID 1: present in every boot's system journal, so
+#: an empty answer means this user cannot read that journal.
+_PREVIOUS_BOOT_PID1 = [
+    "journalctl", "-b", "-1", "_PID=1", "-n", "1", "-o", "cat", "--no-pager", "-q",
+]
+
+#: Error-priority lines shutdown-with-update journalled in the previous boot, message text
+#: only. `-q` drops journalctl's own notes, which are not the script's.
+_PREVIOUS_SHUTDOWN_ERRORS = [
+    "journalctl", "-b", "-1", "-t", "shutdown-with-update", "-p", "err",
+    "-o", "cat", "--no-pager", "-q",
+]
+#: The previous boot's newest line from PID 1: present in every boot's system journal, so
+#: an empty answer means this user cannot read that journal.
+_PREVIOUS_BOOT_PID1 = [
+    "journalctl", "-b", "-1", "_PID=1", "-n", "1", "-o", "cat", "--no-pager", "-q",
+]
+
 #: How long a login is willing to wait for one probe. `systemctl` against an
 #: unreachable bus can otherwise hang, and a health check that stalls the session
 #: gets removed from the session.
@@ -146,7 +170,8 @@ def collect(
     runner: Runner | None = None,
     registry: probe_results.DkmsRegistry | None = None,
 ) -> probe_results.Report:
-    """Run all three probes and classify what they returned.
+    """Run every host probe and classify what they returned: dkms, failed units in both
+    scopes, and what shutdown-with-update journalled as errors in the previous boot.
 
     `runner` is the seam the tests drive; unsupplied, the real one is used. So is
     `registry` — it is discovered here rather than in `build_report` because the
@@ -156,13 +181,18 @@ def collect(
     which is where each check can be guarded on its own — see `build_report`.
     """
     run = runner or run_probe
-    return probe_results.build_report(
+    report = probe_results.build_report(
         dkms=run(["dkms", "status"]),
         failed_system=run(list(_FAILED_UNITS)),
         failed_user=run([_FAILED_UNITS[0], "--user", *_FAILED_UNITS[1:]]),
         running_kernel=running_kernel,
         registry=registry if registry is not None else dkms_registry(),
     )
+    shutdown = probe_results.previous_shutdown_findings(
+        messages=run(list(_PREVIOUS_SHUTDOWN_ERRORS)),
+        system_journal=run(list(_PREVIOUS_BOOT_PID1)),
+    )
+    return probe_results.Report(report.findings + tuple(shutdown))
 
 
 def main(

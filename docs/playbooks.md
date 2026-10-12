@@ -908,7 +908,11 @@ below):
 - The desktop notification only counts the findings and says where to read them — the
   panel or `fedora-desktop-health`; it never carries the findings themselves
 - Merges four checks into **one** message: DKMS modules missing a build for the
-  **running** kernel and failed system and user units, whether the play ledger is there
+  **running** kernel, failed system and user units, and anything `shutdown-with-update`
+  or `reboot-with-update` journalled as an error in the **previous** boot (a failed update
+  step, or a refusal that left the machine up; one boot only, so it does not linger;
+  silence from a system journal this user cannot read is reported as unchecked), whether
+  the play ledger is there
   to read at all, plays that have changed since they were last run here, and repo pins
   that differ from what is installed. Where `play-self-update.yml` is enabled, also the
   unattended cycle's last result (below)
