@@ -11,7 +11,8 @@ This is the general plan for speech-to-text improvements; the owner uses dictati
 and wants it as good as it can be. New speech-to-text work is added here as a phase rather
 than as a new plan. Current scope: the delayed stop (Phase 0), unlimited dictation (Phases
 1-6), a review of newer speech models (Phase 7), keeping the server warm (Phase 8), and
-the grace ending on silence (Phase 10).
+the grace ending on silence (Phase 10), one recording mode (Phase 11) and a thin
+extension over a reloadable service (Phase 12).
 
 Streaming dictation stops at 120 seconds. Nothing was measured to arrive at that number: it
 was set to four times the earlier 30 s cap "since transcription is real-time", and a 125 s
@@ -350,6 +351,56 @@ arrive while dictating, and to see which window it will go into.
   Editor with chunks on, then with them off; switch windows mid-dictation and see the
   outline and the next chunk stay on the pinned window (Task 9.10); close it and see the
   text on the clipboard.
+
+**Order of Phases 11, 12 and 10 (proposed to the owner):** one mode first (less to
+move), then the thin extension, then the silence stop (by then a service-only change,
+tried without a logout).
+
+### Phase 11: One recording mode (owner's idea; decision pending)
+
+Owner: "supporting lots of various configuration options is just increasing the
+complexity... have one single mode that works well." Four recorders exist: batch `wsi`
+(its own 1,430-line script), streaming "standard" and "pre-buffer" (both need
+RealtimeSTT), and server mode, which the owner uses with continuous dictation and which
+article mode already rides on (`wsi-article` loads `wsi-stream`). Every stop-path fix is
+made more than once (the grace lives in both `wsi` and `wsi-stream`; Plan 00171 had a
+separate batch-path fix).
+
+- [ ] ⬜ **Task 11.1**: Owner: confirm server-mode continuous dictation as the only mode,
+  given the downsides: no fallback recorder if the server breaks; the warm server holds
+  the model in memory (its idle shutdown stays); the streaming, startup-mode and
+  continuous switches go.
+- [ ] ⬜ **Task 11.2**: Map every caller of the other modes (the extension's launch paths,
+  the Claude shortcuts Ctrl+Insert and Alt+Insert, `wsi-article`, the play's RealtimeSTT
+  pin and installs, docs, tests, QA gates) in the journal.
+- [ ] ⬜ **Task 11.3**: Remove them test-first, keeping the suites green: `wsi` batch,
+  standard and pre-buffer streaming, the fixed streaming limit, RealtimeSTT and its
+  pin, and the settings that chose between them (GSettings keys retired cleanly).
+
+### Phase 12: The extension becomes a thin layer over a reloadable service (owner's idea)
+
+Owner: a change to the panel's logic should not need a logout. GNOME Shell loads
+extension code only at login, and about 2,000 lines run inside it today, including
+the recording state machine (`panelSession.js`) and most of `extension.js`.
+
+- [ ] ⬜ **Task 12.1**: Design, in a research note: a user systemd service owning the state
+  machine (Insert/Escape per state, queued start, cancel), recorder launch, mic-health
+  reporting and notifications, publishing its state on D-Bus; the extension keeps only
+  what needs the Shell (key grabs forwarded to the service, icon and menu drawn from the
+  published state, paste target, focus outline, window activation). The service is the
+  single owner of state, so the icon shows only what it reports, and "service down" is a
+  state of its own, never "ready". **Language (owner asked; recommended, awaiting
+  confirmation): the service in Rust**, since it is new code either way (the logic moves
+  out of JavaScript) and a long-running state machine with D-Bus and process supervision
+  suits it. `wsi-stream-server` stays Python: faster-whisper and Silero are Python and its
+  time is spent in the model. The client `wsi-stream` is not rewritten in the same step;
+  its duties can move into the service later. Depends on Plan 00174 (`tooling-rust/`,
+  `rust-qa-ci`), whose first crate (Plan 00155's key mapper) proves the Rust build and
+  deploy first.
+- [ ] ⬜ **Task 12.2**: Build test-first; move the state-machine tests to the service; the
+  extension's own tests shrink to rendering and key forwarding.
+- [ ] ⬜ **Task 12.3**: Deploy (one logout to switch over); then prove a logic change ships
+  with a play run and a service restart, no logout.
 
 ### Phase 10: The stop grace ends on silence
 
