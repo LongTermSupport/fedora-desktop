@@ -1,6 +1,6 @@
 # Plan 00171: Speech-to-text: Insert is never ignored, the icon is always in sync
 
-**Status**: Not Started (decision gate: Phase 1, owner decisions D1 to D3)
+**Status**: In Progress (owner decisions D1 to D3 made; build from Phase 2)
 **Created**: 2026-10-12
 **Owner**: joseph
 **Priority**: High
@@ -21,10 +21,14 @@ The owner's requirements:
 
 - **Insert is never ignored.** Every press has a visible effect.
 - **Blue (idle) icon + Insert → a recording starts.** Always.
-- **Orange dots (finishing) + Insert → the icon changes to a "blocked" sign.** The press
-  is acknowledged, not swallowed.
-- **The icon always matches what is actually happening.** It must never be the
-  idle mic while a microphone is recording, or red while nothing is recording.
+- **Insert while not yet ready to record → an hourglass ("please wait"), then the
+  recording starts once ready.** An Insert is an intention to record. A stop sign would
+  say the press was ignored, so there is none (owner's decision, D1 to D3).
+- **If the icon says ready, the system is ready.** A press on a ready icon starts a
+  recording.
+- **The icon always matches what is actually happening.** An icon showing "not
+  recording" while a mic is recording is a defect that the design must make
+  impossible, not merely unlikely.
 
 ## Goals
 
@@ -46,23 +50,14 @@ The owner's requirements:
 
 ### Phase 1: Owner decisions (decision gate)
 
-- [ ] ⬜ **Task 1.1 — D1: Insert in the orange STOPPING state.** Today the orange dots mean
-  two different things. STOPPING is the grace period: the mic is still open, and Insert
-  means "stop now" (Plan 00148 Task 0.6, the owner's earlier request). TRANSCRIBING
-  means the mic is closed and the text is being finished; there, Insert does nothing
-  visible. Options: (a) the blocked sign in TRANSCRIBING only, with STOPPING keeping
-  stop-now; (b) the blocked sign in both, dropping stop-now. Recommended: (a). The
-  blocked sign then means "the mic is closed, wait".
-- [ ] ⬜ **Task 1.2 — D2: What a blocked press leads to.** (a) The blocked sign only: the
-  press is shown, and the owner presses again once the icon is blue. (b) The blocked
-  sign, and a recording starts by itself the moment the previous paste is done
-  (queued). Option (b) is closer to "never ignored", but the new recording would start
-  with its window pinned at the press, not at the start.
-- [ ] ⬜ **Task 1.3 — D3: The blocked icon.** Candidates that ship in Adwaita:
-  `action-unavailable-symbolic` (a no-entry circle, the closest to a traffic "no entry"
-  sign) or `process-stop-symbolic`. Shown how long: about 1.5 s, then back to the
-  state's own icon.
-- [ ] ⬜ **Task 1.4**: Record the answers under Technical Decisions.
+- [x] ✅ **Task 1.1 — D1: Insert in the grace period.** STOPPING (mic still open) keeps
+  Insert = stop now (Plan 00148 Task 0.6). The hourglass applies only where the mic is
+  closed and the system is not yet ready to record.
+- [x] ✅ **Task 1.2 — D2: A press while not ready is queued.** The hourglass shows, and the
+  recording starts by itself as soon as the system is ready.
+- [x] ✅ **Task 1.3 — D3: The icon is an hourglass**, not a stop sign. No installed theme
+  ships one, so the extension bundles its own symbolic SVG.
+- [x] ✅ **Task 1.4**: Answers recorded under Technical Decisions.
 
 ### Phase 2: One owner for the panel (tests first)
 
@@ -94,8 +89,12 @@ The owner's requirements:
 - [ ] ⬜ **Task 3.1**: Idle (blue) + Insert always starts a recording. If the server is
   still finishing the previous dictation, the D2 behaviour applies. A START the server
   rejects shows the error (icon and an `Error` signal, so the menu shows it too) for
-  its full display time. The client sends RECORDING only after START is accepted.
-- [ ] ⬜ **Task 3.2**: Orange + Insert as D1 and D3 decided (the blocked sign).
+  its full display time. The ready (blue) icon is shown only when no owned client is
+  alive, so a press on it can always start. The client sends RECORDING only after START is accepted.
+- [ ] ⬜ **Task 3.2**: Insert while not ready (TRANSCRIBING, the paste, SUCCESS/ERROR before
+  the client has exited, a cold server start): show the bundled hourglass and queue the
+  start (Decision 1). The queued start runs when the owned client has exited and the
+  server answers ready. A second Insert while queued cancels it. Tests for each.
 - [ ] ⬜ **Task 3.3**: Reconciliation. The extension watches the current client's exit for
   its whole life, not only while the launch is pending. A client that exits without a
   terminal state resets the panel and logs why. A live recorder process at Insert that
@@ -117,7 +116,28 @@ The owner's requirements:
 
 ## Technical Decisions
 
-Pending Phase 1.
+### Decision 1: An hourglass and a queued start, never a stop sign
+
+**Context**: What an Insert press should do when the system cannot record yet (the
+previous dictation is transcribing, pasting or finishing, or the server is starting).
+**Options considered**: a stop sign, with the owner pressing again later; or an
+hourglass, with the recording starting when ready.
+**Decision**: the hourglass and the queued start. The owner's reasoning: "If we show the
+stop sign, it means that the press has been ignored … an insert press clearly indicates
+an intention to start recording. So if we're not ready to record, display the
+hourglass." The grace period (mic still open) keeps Insert = stop now. A second Insert
+while a start is queued cancels the queued start, so the press still does something.
+**Date**: 2026-10-12
+
+### Decision 2: An icon that lies is a defect to make impossible
+
+**Context**: The owner's rule: "if the extension says that we're ready to record, then
+we have to be ready to record. And if the icon is showing that we're not recording but
+we are recording, then something is definitely wrong … make that impossible."
+**Decision**: The icon is derived from the state of one owned client (session token,
+Phase 2), corrected by liveness reconciliation (Task 3.3). It is never set from an
+unidentified signal. Each of these invariants has a test.
+**Date**: 2026-10-12
 
 ## Success Criteria
 
