@@ -248,6 +248,58 @@
         executable: /bin/bash
       changed_when: true
 
+    # ── Fixed Controller Address ────────────────────────────────────────────────
+    # The controller re-points every device's inform URL at the host's current address,
+    # and a laptop's address differs per connection (per-network MAC, so per-network
+    # DHCP lease): changing connection strands every device in re-adoption. With
+    # `unifi_controller_address` (e.g. 192.0.2.254/24; reserve it on the router so DHCP
+    # never hands it out) and `unifi_controller_connections` (the NetworkManager profiles
+    # used on that LAN, Wi-Fi and wired), each profile carries that address too, and the
+    # controller's inform-host override names it. Two profiles up at once both hold it:
+    # both are this host, so duplicate-address detection is turned off on them.
+
+    - name: Read each controller connection's addresses and device
+      ansible.builtin.command:
+        argv: [nmcli, -g, "ipv4.addresses,ipv4.dad-timeout,GENERAL.DEVICES", connection, show, "{{ item }}"]
+      loop: "{{ unifi_controller_connections | default([]) }}"
+      register: unifi_conn_state
+      changed_when: false
+      when: unifi_controller_address is defined
+
+    - name: Give each controller connection the fixed controller address
+      ansible.builtin.command:
+        argv:
+          - nmcli
+          - connection
+          - modify
+          - "{{ item.item }}"
+          - +ipv4.addresses
+          - "{{ unifi_controller_address }}"
+          - ipv4.dad-timeout
+          - "0"
+      loop: "{{ unifi_conn_state.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when:
+        - unifi_controller_address is defined
+        - unifi_controller_address not in item.stdout_lines[0]
+      register: unifi_conn_modified
+      changed_when: true
+
+    # reapply changes a live connection in place: Wi-Fi is not dropped.
+    - name: Apply the address to connections that are up now
+      ansible.builtin.command:
+        argv: [nmcli, device, reapply, "{{ item.item.stdout_lines[2] }}"]
+      loop: "{{ unifi_conn_modified.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item | default('') }}"
+      when:
+        - unifi_controller_address is defined
+        - item.changed | default(false)
+        - item.item.stdout_lines | length > 2
+        - item.item.stdout_lines[2] | length > 0
+      changed_when: true
+
     # ── Launch Script ─────────────────────────────────────────────────────────
     # On-demand launcher: starts the stack, opens the web UI, waits for stop
 

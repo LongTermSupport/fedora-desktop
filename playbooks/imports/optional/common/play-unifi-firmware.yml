@@ -64,6 +64,38 @@
             timeout: 30
           when: unifi_running_before.stdout != 'true'
 
+        # Devices must inform to an address that does not change with the host's
+        # connection (play-unifi-controller.yml gives the host unifi_controller_address).
+        - name: Pin the address devices inform to
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.unifi.inform_host
+              - --apply
+              - --host
+              - "{{ unifi_controller_address.split('/') | first }}"
+            chdir: "{{ root_dir }}"
+          environment:
+            UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
+          register: unifi_inform_host
+          changed_when: "'INFORM-HOST-CHANGED' in unifi_inform_host.stdout"
+          when: unifi_controller_address is defined
+
+        # The upgrade refuses a device that is not connected, so wait for all of them:
+        # after a pin or a controller start they re-provision and reconnect.
+        - name: Wait until every device is connected
+          ansible.builtin.command:
+            argv: [python3, -m, helpers.unifi.upgrade_firmware, --check]
+            chdir: "{{ root_dir }}"
+          environment:
+            UNIFI_ADMIN_PASSWORD: "{{ unifi_admin_password }}"
+          register: unifi_devices_ready
+          changed_when: false
+          until: unifi_devices_ready.rc == 0
+          retries: 40
+          delay: 15
+
         - name: Check (or upgrade) device firmware
           ansible.builtin.command:
             argv:
