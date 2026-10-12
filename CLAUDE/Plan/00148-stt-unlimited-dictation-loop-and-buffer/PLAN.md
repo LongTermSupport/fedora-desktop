@@ -10,7 +10,8 @@
 This is the general plan for speech-to-text improvements; the owner uses dictation heavily
 and wants it as good as it can be. New speech-to-text work is added here as a phase rather
 than as a new plan. Current scope: the delayed stop (Phase 0), unlimited dictation (Phases
-1-6), a review of newer speech models (Phase 7), and keeping the server warm (Phase 8).
+1-6), a review of newer speech models (Phase 7), keeping the server warm (Phase 8), and
+the grace ending on silence (Phase 10).
 
 Streaming dictation stops at 120 seconds. Nothing was measured to arrive at that number: it
 was set to four times the earlier 30 s cap "since transcription is real-time", and a 125 s
@@ -350,10 +351,37 @@ arrive while dictating, and to see which window it will go into.
   outline and the next chunk stay on the pinned window (Task 9.10); close it and see the
   text on the clipboard.
 
+### Phase 10: The stop grace ends on silence
+
+Owner's idea: the fixed grace (Phase 0, 3 s) is the main lag on a short dictation,
+because the owner has usually stopped speaking before pressing Insert. During the grace,
+stop at the first short run of non-speech; the grace stays as the cap. Owner: build it
+if it is easy enough, and dogfood it. Built after Plan 00171, which changes the same stop
+path. The server already runs Silero VAD on 32 ms frames (batches of 256 ms), but only
+for continuous dictation, and the grace is a client-side timer (`GracefulStop` in
+`wsi-stream`, a `sleep` subshell in `wsi`) that the VAD never sees.
+
+- [ ] ⬜ **Task 10.1**: Map the stop path (extension, `GracefulStop`, the server's STOP and
+  drain, `wsi`'s grace) and decide where "silence or cap" lives (the server has the VAD)
+  and the protocol change. Note in the journal.
+- [ ] ⬜ **Task 10.2**: Measure the VAD on the tails of real dictations, laptop microphone
+  and Shokz OpenRun Pro (bone conduction may judge differently): how soon after the last
+  word frames turn non-speech, and how long natural mid-sentence pauses are. Propose the
+  default silence length (starting point 0.5 to 0.7 s), a setting next to the grace.
+- [ ] ⬜ **Task 10.3**: Tests first, then build: the server runs the VAD during the grace in
+  every mode and ends on silence or the cap (unit tests with injected probabilities and a
+  fake clock); the client, setting and notification text; the icon stays in step (Plan
+  00171's rule). Owner question folded in: whether `wsi` (batch) gets it too or keeps the
+  fixed grace.
+- [ ] ⬜ **Task 10.4**: Deploy; owner dogfoods short and long dictations on both
+  microphones; docs; `qa-reviewer`.
+
 ## Success Criteria
 
 - [ ] Pressing Insert on the last word keeps that word, in every mode; a second Insert
   during the grace stops at once; Escape still aborts at once.
+- [ ] Finishing speaking, then pressing Insert, ends the recording within the silence
+  length plus one VAD batch (measured), with no last word lost on either microphone.
 - [ ] A dictation of several minutes pastes complete, ordered text once at stop.
 - [ ] A forced segment failure stops the session, copies the text so far, keeps the audio,
   and says so.
