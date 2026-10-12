@@ -100,7 +100,9 @@ remove_team() {
 # write_play_vars — two extra-vars files for the play from the team file: the team present,
 # and the team absent with purge. Extra vars override the host_vars agent_bus_teams, so a
 # run declares only the throwaway team; the play removes only teams declared absent, so an
-# owner-declared team is left alone.
+# owner-declared team is left alone. agent_bus_lxc_members is emptied too: the owner's
+# members name the owner's teams, which these runs do not declare, and the play would refuse
+# them.
 write_play_vars() {
     python3 -I -c '
 import json, sys
@@ -109,7 +111,8 @@ with open(team_file, encoding="utf-8") as handle:
     team = json.load(handle)
 for path, teams in ((present_out, [team]), (absent_out, [{"team": team["team"], "state": "absent", "purge": True}])):
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump({"agent_bus_address": bus_address, "agent_bus_teams": teams}, handle, indent=1)
+        json.dump({"agent_bus_address": bus_address, "agent_bus_teams": teams,
+                   "agent_bus_lxc_members": []}, handle, indent=1)
 ' "${TEAM_FILE}" "${BUS_ADDRESS}" "${PLAY_VARS_PRESENT}" "${PLAY_VARS_ABSENT}" || return 1
     printf '==> play vars %s and %s written\n' "${PLAY_VARS_PRESENT}" "${PLAY_VARS_ABSENT}"
 }
