@@ -48,6 +48,20 @@ Commit `29cd4478`.
 here either. Re-running `acceptance.bash` on the host prints the new per-press state
 list, which answers whether those presses hit TRANSCRIBING.
 
+## 2. Review (qa-reviewer over Plan 00171, F44 merged in)
+
+Visible behaviour: commit 29cd4478 touches only the plan's probe and its test. The "grace shows
+the orange dots too" is the probe's wording, not an extension change. No extension file changed,
+so no sign-off and no logout are needed.
+
+| Finding                                                                                                        | Class            | Outcome                                                                             |
+| -------------------------------------------------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------- |
+| Gap to B anchored on the latest SUCCESS, ERROR or IDLE, labelled "paste"                                       | ADVISE           | Fixed test-first: SUCCESS only (two new tests; 8 pass, ruff clean)                  |
+| A press right after SUCCESS but before A exits is blocked, so the probe may report a later press with "no"     | ADVISE           | Draft comment below covers that outcome                                             |
+| PLAN.md and JOURNAL/ not moved with the probe (task 4.1 still says 0.5 s, 4.4 does not record the gap measure) | FIX-BEFORE-MERGE | NOT fixed here: this closeout may not edit PLAN.md or JOURNAL/; the plan owner must |
+| Report skipped section 2                                                                                       | FIX-BEFORE-MERGE | Fixed: this section                                                                 |
+| Owner login name in the plan template's Owner line (159 plans)                                                 | ADVISE           | Pre-existing, repo-wide; not from this diff                                         |
+
 ## 3. Issue #96 (Insert within 1 s of a paste)
 
 The current evidence cannot answer it: the 18:53 report does not give the time of B's press
@@ -67,4 +81,6 @@ draft comment for #96 is:
 > stale-IDLE case is also covered by `tests/extensions/test-stt-panel-session.mjs`. This
 > looks fixed; leaving it open for the owner to close.
 
-If the gap is 1 s or more, the replay needs one more press made straight after the paste.
+If the gap is 1 s or more, the replay needs one more press made straight after the paste. A
+press between SUCCESS and A's exit is blocked (it does nothing), so a "no" can also mean the
+early press was ignored; the per-press list shows which.
