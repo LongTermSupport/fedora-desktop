@@ -201,7 +201,7 @@ works from a project folder (a git repository) and simply runs `ccy` the normal 
 every check and prompt it always has. It is how you get back to work after a crash without
 remembering which projects were open.
 
-`ccy-teams` is the same picker for agent teams: each team on this machine, its members,
+`ccy-teams` (a Go binary built from `src-go/cmd/ccy-teams` by `play-claude-yolo.yml`) is the same picker for agent teams: each team on this machine, its members,
 and the `ccy --teams` sessions in its seats, with keys to attach, start a session in a
 seat, keep a session out of the reboot restore, and open the team in Element. See
 [agent-bus.md, Getting started](agent-bus.md#getting-started).

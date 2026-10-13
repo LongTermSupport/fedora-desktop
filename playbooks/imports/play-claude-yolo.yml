@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# ccy-teams is a Go binary built here, so the Go toolchain is installed first.
+# play-golang.yml stays its one source of truth.
+- import_playbook: optional/common/play-golang.yml
+
 - hosts: desktop
   # One play for both launchers. cc (host Claude Code) runs on ccy's lib, so the two cannot
   # be deployed apart: when they were separate plays, deploying only this one left an old
@@ -841,12 +845,46 @@
         - launchers
 
     # ccy-sessions' counterpart for agent teams (Plan 00161): the teams on this host, their
-    # members and the ccy sessions in their seats. A template only for the checkout path,
-    # where its host_vars helper (helpers/agent_bus/declare.py) lives; it calls agent-bus,
-    # which play-agent-bus.yml installs.
+    # members and the ccy sessions in their seats. A Go binary (src-go/cmd/ccy-teams, Plan
+    # 00191) built from this checkout, which is baked in with -X main.RootDir because its
+    # host_vars helper (helpers/agent_bus/declare.py) lives there; it calls agent-bus,
+    # which play-agent-bus.yml installs. Built to a scratch path and installed with `copy`,
+    # which compares checksums, so an unchanged source reports ok rather than changed
+    # (-trimpath keeps the build byte-for-byte reproducible). A failed build stops the play
+    # before anything is installed.
+    - name: Ensure the ccy-teams Build Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.cache/ccy-teams-build"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags:
+        - scripts
+        - launchers
+
+    - name: Build the ccy-teams Command
+      ansible.builtin.command:
+        cmd: >-
+          go build -trimpath
+          -ldflags "-X main.RootDir={{ root_dir }}"
+          -o /home/{{ user_login }}/.cache/ccy-teams-build/ccy-teams
+          ./cmd/ccy-teams
+        chdir: "{{ root_dir }}/src-go"
+      environment:
+        HOME: "/home/{{ user_login }}"
+        GOTOOLCHAIN: local
+        GOFLAGS: -mod=readonly
+        GOCACHE: "/home/{{ user_login }}/.cache/go-build"
+      changed_when: false # a build into the scratch path changes nothing installed; the copy below reports the change
+      tags:
+        - scripts
+        - launchers
+
     - name: Deploy the ccy-teams Command
-      ansible.builtin.template:
-        src: "{{ root_dir }}/files/home/.local/bin/ccy-teams.j2"
+      ansible.builtin.copy:
+        src: "/home/{{ user_login }}/.cache/ccy-teams-build/ccy-teams"
+        remote_src: true
         dest: "/home/{{ user_login }}/.local/bin/ccy-teams"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
