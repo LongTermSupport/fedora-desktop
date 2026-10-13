@@ -95,9 +95,11 @@ for tool in podman docker tmux; do
 done
 chmod 755 "$STUB_BIN"/*
 
-NEXT_YEAR="$(date -d '+365 days' +%Y-%m-%d)"
-LATER="$(date -d '+500 days' +%Y-%m-%d)"
-YESTERDAY="$(date -d '-1 day' +%Y-%m-%d)"
+# The command runs under TZ=UTC (below), so its "today" is UTC's: the fixture dates must be
+# too, or in the hour around local midnight "yesterday" is the command's today.
+NEXT_YEAR="$(TZ=UTC date -d '+365 days' +%Y-%m-%d)"
+LATER="$(TZ=UTC date -d '+500 days' +%Y-%m-%d)"
+YESTERDAY="$(TZ=UTC date -d '-1 day' +%Y-%m-%d)"
 
 # new_home <name> <file=placeholder>... — a scratch home whose token store holds those files.
 new_home() {

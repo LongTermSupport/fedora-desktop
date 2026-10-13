@@ -83,9 +83,11 @@ trap cleanup EXIT INT TERM
 mkdir -p "$WORK/empty-pool" "$WORK/expired-only" "$WORK/has-valid"
 : >"$BANNERS"
 
-YESTERDAY="$(date -d '-1 day' +%Y-%m-%d)"
+# Relative dates count from noon today: "+N days" from just after midnight lands on the day
+# before when the span crosses the clocks going back (a 25-hour day).
 TODAY="$(date +%Y-%m-%d)"
-NEXT_YEAR="$(date -d '+365 days' +%Y-%m-%d)"
+YESTERDAY="$(date -d "$TODAY 12:00 1 day ago" +%Y-%m-%d)"
+NEXT_YEAR="$(date -d "$TODAY 12:00 365 days" +%Y-%m-%d)"
 printf 'placeholder-not-a-real-token\n' >"$WORK/expired-only/stale.$YESTERDAY.token"
 printf 'placeholder-not-a-real-token\n' >"$WORK/has-valid/fresh.$NEXT_YEAR.token"
 
@@ -249,8 +251,8 @@ expiry_case() {
         FAILED=$((FAILED + 1))
     fi
 }
-IN_14="$(date -d '+14 days' +%Y-%m-%d)"
-IN_15="$(date -d '+15 days' +%Y-%m-%d)"
+IN_14="$(date -d "$TODAY 12:00 14 days" +%Y-%m-%d)"
+IN_15="$(date -d "$TODAY 12:00 15 days" +%Y-%m-%d)"
 expiry_case "expired is red" "$(colorize_expiry "$YESTERDAY")" "${RED}${YESTERDAY}${RESET}"
 expiry_case "expiring today is red (already refused)" "$(colorize_expiry "$TODAY")" "${RED}${TODAY}${RESET}"
 expiry_case "14 days left is yellow" "$(colorize_expiry "$IN_14")" "${YELLOW}${IN_14}${RESET}"
