@@ -153,7 +153,8 @@ class TestProtocolDoc(unittest.TestCase):
     def test_rendering_template_and_example(self) -> None:
         body = section(self.text, 4)
         template = fenced(body)[0].strip()
-        self.assertEqual(template, f'{p.RENDER_TAG} <verb> <ref or "-"> -> <to[0]> <to[1]> ...[ re <re>]')
+        self.assertEqual(template,
+                         f'{p.RENDER_TAG} <verb> <ref or "-">[ on <branch>] -> <to[0]> <to[1]> ...[ re <re>]')
         example = re.search(r"Example: `([^`]*)`", body).group(1)
         to = "@myrepo.2+workstation.podman:<sn>"
         ref = "pr:example-org/myrepo#12@0123456789abcdef0123456789abcdef01234567"
@@ -162,6 +163,9 @@ class TestProtocolDoc(unittest.TestCase):
     def test_verbs_table(self) -> None:
         rows = tables(section(self.text, 5))[0]
         self.assertEqual([code(r[0]) for r in rows], list(p.VERBS))
+        for row in rows:
+            with self.subTest(verb=code(row[0]), column="External `ref`"):
+                self.assertEqual(row[6], "yes" if p.VERBS[code(row[0])].external else "no")
         for row in rows:
             verb = code(row[0])
             rule = p.VERBS[verb]
@@ -255,6 +259,8 @@ class TestProtocolDoc(unittest.TestCase):
         rows = tables(body)[0]
         self.assertEqual(tuple(code(r[0]) for r in rows), p.TEAM_KEYS)
         by_key = {code(r[0]): r[2] for r in rows}
+        self.assertEqual(tuple(k for k, rule in by_key.items() if rule.startswith("optional")),
+                         p.TEAM_OPTIONAL_KEYS)
         self.assertIn(f"1 to {p.HUMANS_MAX} user IDs", by_key["humans"])
         self.assertIn(f"0 to {p.ROLES_MAX} entries", by_key["roles"])
         self.assertIn(f"serialised at most {p.MAX_STATUS_BYTES} bytes", body)
@@ -282,7 +288,7 @@ class TestProtocolDoc(unittest.TestCase):
     def test_allowlists(self) -> None:
         body = section(self.text, 11)
         self.assertIn(f"`{p.BRANCH_PATTERN}`", body)
-        self.assertIn(f"1 to {p.REPOS_MAX} objects", body)
+        self.assertIn(f"{p.REPOS_MIN} to {p.REPOS_MAX} objects", body)
         self.assertIn(f"1 to {p.BRANCHES_MAX} names", body)
         self.assertIn(f"1 to {p.PATH_PREFIXES_MAX} entries", body)
 

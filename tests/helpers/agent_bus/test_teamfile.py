@@ -139,7 +139,10 @@ class RefusedTeamFileTest(unittest.TestCase):
         "missing team": (_without("team"), "team"),
         "missing port": (_without("port"), "port"),
         "missing humans": (_without("humans"), "humans"),
-        "missing repos": (_without("repos"), "repos"),
+        "neither org nor repos": (_without("repos"), "org"),
+        "org upper case": (_with(org="Example-Org"), "org"),
+        "org with a slash": (_with(org="example-org/repo"), "org"),
+        "org empty": (_with(org=""), "org"),
         "missing path_prefixes": (_without("path_prefixes"), "path_prefixes"),
         "missing forge_api": (_without("forge_api"), "forge_api"),
         "missing listen": (_without("listen"), "listen"),
@@ -182,7 +185,7 @@ class RefusedTeamFileTest(unittest.TestCase):
         "human with plus": (_with(humans=["al+ice"]), "humans"),
         "human upper case": (_with(humans=["Alice"]), "humans"),
         "human duplicate": (_with(humans=["alice", "alice"]), "humans"),
-        "repos empty": (_with(repos=[]), "repos"),
+        "repos empty and no org": (_with(repos=[]), "org"),
         "repos too many": (
             _with(repos=[{"repo": f"o/r{i}", "branches": ["main"]} for i in range(33)]),
             "repos",
@@ -223,6 +226,44 @@ class RefusedTeamFileTest(unittest.TestCase):
 
     def test_refusal_is_a_value_error(self) -> None:
         self.assertTrue(issubclass(teamfile.TeamFileError, ValueError))
+
+
+class OrgTest(unittest.TestCase):
+    """D64: a team trusts its org; `repos` is then optional."""
+
+    def test_org_alone(self) -> None:
+        tf = teamfile.parse_team_file(dict(_without("repos"), org="example-org"))
+        self.assertEqual((tf.org, tf.repos), ("example-org", ()))
+        self.assertEqual(teamfile.parse_team_file(json.loads(teamfile.dump_team_file(tf))), tf)
+
+    def test_org_and_repos(self) -> None:
+        tf = teamfile.parse_team_file(_with(org="example-org"))
+        self.assertEqual(tf.repos, (teamfile.RepoEntry("example-org/myrepo", ("main",)),))
+        self.assertIsNone(teamfile.parse_team_file(VALID).org)
+
+
+class StampTest(unittest.TestCase):
+    """D65: the applied stamp's digests, shared by the installer and ccy-teams."""
+
+    def test_config_digest_follows_the_canonical_file(self) -> None:
+        tf = teamfile.parse_team_file(VALID)
+        self.assertEqual(teamfile.config_digest(tf), teamfile.config_digest(teamfile.parse_team_file(dict(VALID))))
+        self.assertNotEqual(teamfile.config_digest(tf), teamfile.config_digest(teamfile.parse_team_file(_with(port=7000))))
+
+    def test_software_digest(self) -> None:
+        one = teamfile.software_digest(b"zip", "v1.9.3")
+        self.assertEqual(one, teamfile.software_digest(b"zip", "1.9.3"))
+        self.assertNotEqual(one, teamfile.software_digest(b"zap", "1.9.3"))
+        self.assertNotEqual(one, teamfile.software_digest(b"zip", "1.9.4"))
+        with self.assertRaises(ValueError):
+            teamfile.software_digest(b"zip", "latest")
+
+    def test_stamp_round_trip_and_refusals(self) -> None:
+        stamp = teamfile.stamp(teamfile.parse_team_file(VALID), "a" * 64)
+        self.assertEqual(teamfile.parse_stamp(json.dumps(stamp)), stamp)
+        for bad in ({**stamp, "extra": 1}, {**stamp, "v": 2}, {**stamp, "config": "x"}, {**stamp, "team": "A"}, []):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                teamfile.parse_stamp(json.dumps(bad))
 
 
 class LoadAndRoundTripTest(unittest.TestCase):

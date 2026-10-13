@@ -491,6 +491,7 @@ def _team_record(team: Team, reg: registry.Registry) -> dict:
         "team": tf.team,
         "humans": team.humans(),
         "roles": {team.user_id(handle): role for handle, role in sorted(reg.members.items())},
+        **({} if tf.org is None else {"org": tf.org}),
         "repos": [{"repo": r.repo, "branches": list(r.branches)} for r in tf.repos],
         "path_prefixes": list(tf.path_prefixes),
         "forge_api": tf.forge_api,

@@ -75,10 +75,11 @@ class HistoryLineTest(unittest.TestCase):
 
     def test_a_ping_received(self) -> None:
         ping = protocol.Ping("review", (self.ME,), protocol.parse_ref(PATH_REF), None,
-                             sender=self.ORCH, event_id=self.EVENT, origin_server_ts=7)
+                             sender=self.ORCH, event_id=self.EVENT, origin_server_ts=7,
+                             trust=protocol.TRUST_TRUSTED)
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 7, ping=ping))
         self.assertEqual(line, f"HISTORY\t1\tin\t7\tPING\t{self.TEAM}\t{self.EVENT}"
-                               f"\torch.1+workstation.podman\treview\t{PATH_REF}\t-")
+                               f"\torch.1+workstation.podman\treview\t{PATH_REF}\t-\ttrusted\t-")
 
     def test_a_human_message_is_escaped_as_its_human_line(self) -> None:
         human = protocol.HumanMessage(self.EVENT, f"@alice:{self.SN}", 9, "two\tfields\nno")
@@ -127,9 +128,9 @@ class HistoryTest(HistoryCase):
         self.assertEqual(code, cli.EXIT_OK, err)
         self.assertEqual(self.ids(rows), [ack, human, ping])
         self.assertEqual([(r[2], r[4]) for r in rows], [("out", "PING"), ("in", "HUMAN"), ("in", "PING")])
-        self.assertEqual(rows[0][7:], ["myrepo.1+workstation.podman", "ack", "-", ping])
+        self.assertEqual(rows[0][7:], ["myrepo.1+workstation.podman", "ack", "-", ping, "-", "-"])
         self.assertEqual(rows[1][7:], ["alice", str(int((bus.T0 + 1) * 1000)), '"please look"'])
-        self.assertEqual(rows[2][7:], ["orch.1+workstation.podman", "review", PATH_REF, "-"])
+        self.assertEqual(rows[2][7:], ["orch.1+workstation.podman", "review", PATH_REF, "-", "trusted", "-"])
         self.assertEqual([int(r[3]) for r in rows], sorted((int(r[3]) for r in rows), reverse=True))
 
     def test_only_items_naming_or_sent_by_this_seat(self) -> None:

@@ -6,7 +6,9 @@ Plan 00161's DESIGN.md D20 places it: on send and before the inbox write, never 
 
 A reference reaching this module has already passed `protocol` (grammar and allowlists);
 this module asks the forge (GitHub's REST API at the team record's `forge_api`) whether it
-names real content on a trusted branch. Every HTTP exchange goes through an opener with
+names real content: on a listed branch of a listed repository, on the default branch of a
+repository the team's org owns (not a fork), or, for an external reference (spec §11), in
+any public repository, which proves only that the content exists, never that it is trusted. Every HTTP exchange goes through an opener with
 `open(request, timeout=)`, injected in tests; the default one refuses a redirect to another
 origin and the token travels only as an unredirected `Authorization` header.
 
@@ -232,6 +234,9 @@ class Forge:
         self._sleep = sleep
         self._clock = clock
         self._cache = cache
+        #: `GET /repos/OWNER/REPO` answers, per process: the default branch, fork and
+        #: visibility are read once per repository, never written to the cache file.
+        self._repos: dict[str, dict] = {}
 
     @classmethod
     def for_record(cls, record: protocol.TeamRecord, credential: Credential, **kwargs: object) -> Forge:
@@ -253,6 +258,97 @@ class Forge:
             self._issue(ref)
         else:
             raise ValueError(f"unknown reference form: {ref.form!r}")
+
+    def check_org(self, ref: protocol.Ref, org: str, branch: str | None = None) -> None:
+        """Resolve `ref` in a repository of the team's `org` (§6, §11): it must be the
+        org's own repository, not a fork, and the commit must be in the history of `branch`,
+        a branch of that repository itself, or of its default branch when none is named.
+        That the API returns the commit is never enough: a fork's commits are served
+        through its parent's API too."""
+        meta = self._repo(ref)
+        owner = meta.get("owner")
+        login = owner.get("login") if isinstance(owner, dict) else None
+        if not isinstance(login, str) or login.lower() != org:
+            raise ForgeError("provenance", f"{ref.text}: {ref.repo_full} is not a repository of {org}")
+        if meta.get("fork") is not False:
+            raise ForgeError("provenance", f"{ref.text}: {ref.repo_full} is a fork, which is never trusted")
+        if branch is None:
+            branch = meta.get("default_branch")
+            if not protocol.is_branch_name(branch):
+                raise ForgeError("provenance", f"{ref.text}: {ref.repo_full} has no valid default branch")
+        else:
+            self._branch(ref, branch)
+        self.check(ref, (branch,))
+
+    def check_external(self, ref: protocol.Ref, branch: str | None = None) -> None:
+        """Resolve an external `ref` (§6, §11): a public repository's real content, at no
+        branch in particular unless the ping names one, which must then hold it. A private
+        repository outside the team is refused: the team never sends an agent into one."""
+        meta = self._repo(ref)
+        if meta.get("private") is not False:
+            raise ForgeError("provenance", f"{ref.text}: {ref.repo_full} is not public, and is not the team's")
+        if branch is not None:
+            self._branch(ref, branch)
+            self.check(ref, (branch,))
+        elif ref.form == "path":
+            self._commit(ref)
+            self._file(ref)
+        elif ref.form == "commit":
+            self._commit(ref)
+        elif ref.form == "pr":
+            self._external_pull(ref)
+        elif ref.form == "issue":
+            self._issue(ref)
+        else:
+            raise ValueError(f"unknown reference form: {ref.form!r}")
+
+    def _repo(self, ref: protocol.Ref) -> dict:
+        meta = self._repos.get(ref.repo_full)
+        if meta is None:
+            code, data = self._get(f"/repos/{ref.repo_full}", allow=(404,))
+            if code == 404 or not isinstance(data, dict):
+                raise ForgeError("not-found", f"{ref.text}: no repository {ref.repo_full}")
+            meta = self._repos[ref.repo_full] = data
+        return meta
+
+    def _branch(self, ref: protocol.Ref, branch: str) -> None:
+        """`branch` is a branch of the reference's repository itself (`GET .../branches/B`),
+        not a ref the fork network lends it; else `provenance`."""
+        key = self._key("branch", ref.repo_full, branch)
+        if self._cached(key):
+            return
+        name = urllib.parse.quote(branch, safe="")
+        code, _ = self._get(f"/repos/{ref.repo_full}/branches/{name}", allow=(404,))
+        if code != 200:
+            raise ForgeError("provenance", f"{ref.text}: {ref.repo_full} has no branch {branch}")
+        self._remember(key, REACH_TTL_S)
+
+    def _commit(self, ref: protocol.Ref) -> None:
+        key = self._key("commit", ref.repo_full, ref.sha)
+        if self._cached(key):
+            return
+        code, _ = self._get(f"/repos/{ref.repo_full}/commits/{ref.sha}", allow=(404, 422))
+        if code != 200:
+            raise ForgeError("not-found", f"{ref.text}: the commit is not in {ref.repo_full}")
+        self._remember(key, CONTENT_TTL_S)
+
+    def _external_pull(self, ref: protocol.Ref) -> None:
+        """A pull request of a repository outside the team: it exists and SHA is at or
+        behind its head, wherever the head lives; its author is not judged (§6)."""
+        key = self._key("external-pr", ref.repo_full, ref.num, ref.sha)
+        if self._cached(key):
+            return
+        code, data = self._get(f"/repos/{ref.repo_full}/pulls/{ref.num}", allow=(404, 410))
+        if code != 200:
+            raise ForgeError("not-found", f"{ref.text}: no such pull request")
+        head = data.get("head") if isinstance(data, dict) else None
+        head_sha = head.get("sha") if isinstance(head, dict) else None
+        if not isinstance(head_sha, str) or re.fullmatch(protocol.SHA_PATTERN, head_sha) is None:
+            raise ForgeError("not-found", f"{ref.text}: the pull request has no head commit")
+        code, data = self._compare(ref, head_sha)
+        if code != 200 or not isinstance(data, dict) or data.get("status") not in REACHED:
+            raise ForgeError("not-found", f"{ref.text}: the commit is not at the pull request's head")
+        self._remember(key, REACH_TTL_S)
 
     def _key(self, *parts: object) -> str:
         return "|".join((self.api, *(str(p) for p in parts)))
@@ -406,12 +502,23 @@ def _retry_wait(hdrs: object, body: bytes | None, now: float) -> float:
 
 def check_ping(ping: protocol.Ping, record: protocol.TeamRecord, client: Forge) -> None:
     """The forge check for a validated ping (§9 send step 6, receive step 10p): nothing for
-    a ping with no `ref`, else its reference against the record's trusted branches."""
+    a ping with no `ref`; a listed repository's reference against its listed branches, an
+    org repository's against its default branch, any other's as external content (§11)."""
     if ping.ref is None:
         return
     if client.api != record.forge_api:
         raise ValueError("the forge client is not the team record's forge_api")
-    branches = record.repos.get(ping.ref.repo_full)
-    if branches is None:
-        raise ValueError("the reference's repository is not in the team record (validate first)")
-    client.check(ping.ref, branches)
+    source = protocol.ref_source(ping.ref, record.org, record.repos)
+    expected = protocol.TRUST_EXTERNAL if source == protocol.SOURCE_EXTERNAL else protocol.TRUST_TRUSTED
+    if ping.trust != expected:
+        raise ValueError("the ping was not validated against this team record (validate first)")
+    if source == protocol.SOURCE_LISTED:
+        listed = record.repos[ping.ref.repo_full]
+        if ping.branch is not None and ping.branch not in listed:
+            raise ForgeError("provenance", f"{ping.ref.text}: {ping.branch} is not a trusted branch of "
+                                           f"{ping.ref.repo_full}")
+        client.check(ping.ref, listed if ping.branch is None else (ping.branch,))
+    elif source == protocol.SOURCE_ORG:
+        client.check_org(ping.ref, record.org, ping.branch)
+    else:
+        client.check_external(ping.ref, ping.branch)

@@ -10,6 +10,7 @@ touches the network; the clock and the sleep are injected too.
 
 from __future__ import annotations
 
+import dataclasses
 import email.message
 import http.client
 import io
@@ -758,35 +759,163 @@ class TestCredential(unittest.TestCase):
         self.assertNotIn(TOKEN, str(credential))
 
 
+ORG = "example-org"
+ORG_REPO = f"{ORG}/other"
+EXT_REPO = "someone/project"
+
+
+def repo_meta(full: str, *, fork: bool = False, private: bool = False, branch: str = "trunk") -> FakeResponse:
+    """`GET /repos/OWNER/REPO` as GitHub answers it, cut to what the forge check reads."""
+    owner = full.partition("/")[0]
+    return ok({"full_name": full, "owner": {"login": owner.title()}, "fork": fork,
+               "private": private, "default_branch": branch})
+
+
+def url(path: str) -> str:
+    return f"{API}{path}"
+
+
+def trusted(verb: str, the_ref: protocol.Ref | None) -> protocol.Ping:
+    return protocol.Ping(verb, ("@x:y",), the_ref, None, trust=None if the_ref is None else protocol.TRUST_TRUSTED)
+
+
+def external(verb: str, the_ref: protocol.Ref) -> protocol.Ping:
+    return protocol.Ping(verb, ("@x:y",), the_ref, None, trust=protocol.TRUST_EXTERNAL)
+
+
 class TestCheckPing(ForgeCase):
     RECORD = protocol.TeamRecord(
         team="team-a", humans=frozenset(), roles={},
-        repos={REPO: ("main", "release")}, path_prefixes=("CLAUDE/Plan/",), forge_api=API,
+        repos={REPO: ("main", "release")}, path_prefixes=("CLAUDE/Plan/",), forge_api=API, org=ORG,
     )
+
+    def refused(self, code: str, ping: protocol.Ping, client: forge.Forge) -> None:
+        with self.assertRaises(forge.ForgeError) as caught:
+            forge.check_ping(ping, self.RECORD, client)
+        self.assertEqual(caught.exception.code, code)
 
     def test_no_ref_asks_nothing(self) -> None:
         client, opener = self.make({})
-        forge.check_ping(protocol.Ping("halt", ("@x:y",), None, None), self.RECORD, client)
+        forge.check_ping(trusted("halt", None), self.RECORD, client)
         self.assertEqual(opener.urls, [])
 
-    def test_ref_checked_against_the_record_branches(self) -> None:
+    def test_listed_ref_checked_against_the_record_branches(self) -> None:
+        """A listed repository, even one of the org, keeps its listed branches: no lookup."""
         client, opener = self.make({
             compare_url("main"): [status("diverged")],
             compare_url("release"): [status("behind")],
         })
-        forge.check_ping(protocol.Ping("fetch", ("@x:y",), COMMIT_REF, None), self.RECORD, client)
+        forge.check_ping(trusted("fetch", COMMIT_REF), self.RECORD, client)
         self.assertEqual(opener.urls, [compare_url("main"), compare_url("release")])
 
-    def test_repo_outside_the_allowlist_is_a_programming_error(self) -> None:
+    def test_org_ref_checked_against_its_default_branch(self) -> None:
+        the_ref = ref(f"commit:{ORG_REPO}@{SHA}")
+        compare = url(f"/repos/{ORG_REPO}/compare/trunk...{SHA}?per_page=1")
+        client, opener = self.make({url(f"/repos/{ORG_REPO}"): [repo_meta(ORG_REPO)], compare: [status("behind")]})
+        forge.check_ping(trusted("sync", the_ref), self.RECORD, client)
+        forge.check_ping(trusted("review", the_ref), self.RECORD, client)
+        # The repository is looked up once per process; the reach is asked again (no cache file).
+        self.assertEqual(opener.urls, [url(f"/repos/{ORG_REPO}"), compare, compare])
+
+    def test_org_ref_on_a_named_branch_of_the_repo_itself(self) -> None:
+        """D64: any branch of an org repository, when it is that repository's own branch
+        (`GET .../branches/B`) and holds the commit; never the API merely returning it."""
+        the_ref = ref(f"commit:{ORG_REPO}@{SHA}")
+        branch_url = url(f"/repos/{ORG_REPO}/branches/feature%2Fx")
+        compare = url(f"/repos/{ORG_REPO}/compare/feature/x...{SHA}?per_page=1")
+        ping = dataclasses.replace(trusted("review", the_ref), branch="feature/x")
+        client, opener = self.make({url(f"/repos/{ORG_REPO}"): [repo_meta(ORG_REPO)],
+                                    branch_url: [ok({"name": "feature/x"})], compare: [status("identical")]})
+        forge.check_ping(ping, self.RECORD, client)
+        self.assertEqual(opener.urls, [url(f"/repos/{ORG_REPO}"), branch_url, compare])
+        # No such branch in the repository itself: refused before any compare.
+        client, opener = self.make({url(f"/repos/{ORG_REPO}"): [repo_meta(ORG_REPO)],
+                                    branch_url: [http_error(branch_url, 404)]})
+        self.refused("provenance", ping, client)
+        self.assertNotIn(compare, opener.urls)
+        # A fork-network commit the parent's API serves, claimed on a branch it is not on.
+        client, _ = self.make({url(f"/repos/{ORG_REPO}"): [repo_meta(ORG_REPO)],
+                               branch_url: [ok({"name": "feature/x"})], compare: [status("diverged")],
+                               url(f"/repos/{ORG_REPO}/commits/{SHA}"): [ok({"sha": SHA})]})
+        self.refused("provenance", ping, client)
+
+    def test_listed_ref_on_a_named_branch(self) -> None:
+        listed = dataclasses.replace(trusted("fetch", COMMIT_REF), branch="release")
+        client, opener = self.make({compare_url("release"): [status("behind")]})
+        forge.check_ping(listed, self.RECORD, client)
+        self.assertEqual(opener.urls, [compare_url("release")])
+        client, opener = self.make({})
+        self.refused("provenance", dataclasses.replace(listed, branch="feature/x"), client)
+        self.assertEqual(opener.urls, [])
+
+    def test_org_fork_or_foreign_owner_is_provenance(self) -> None:
+        the_ref = ref(f"commit:{ORG_REPO}@{SHA}")
+        for label, meta in (("fork", repo_meta(ORG_REPO, fork=True)),
+                            ("moved", repo_meta("elsewhere/other")),
+                            ("no fork flag", ok({"owner": {"login": ORG}, "default_branch": "main"})),
+                            ("bad branch", repo_meta(ORG_REPO, branch="a b"))):
+            with self.subTest(case=label):
+                client, opener = self.make({url(f"/repos/{ORG_REPO}"): [meta]})
+                self.refused("provenance", trusted("review", the_ref), client)
+                self.assertEqual(opener.urls, [url(f"/repos/{ORG_REPO}")])
+
+    def test_org_repo_missing_is_not_found(self) -> None:
+        client, _ = self.make({url(f"/repos/{ORG_REPO}"): [http_error(url(f"/repos/{ORG_REPO}"), 404)]})
+        self.refused("not-found", trusted("review", ref(f"commit:{ORG_REPO}@{SHA}")), client)
+
+    def test_external_commit_and_path_need_only_exist_in_a_public_repo(self) -> None:
+        contents = url(f"/repos/{EXT_REPO}/contents/any/where.md?ref={SHA}")
+        client, opener = self.make({
+            url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO)],
+            url(f"/repos/{EXT_REPO}/commits/{SHA}"): [ok({"sha": SHA})],
+            contents: [ok({"type": "file"})],
+        })
+        forge.check_ping(external("review", ref(f"commit:{EXT_REPO}@{SHA}")), self.RECORD, client)
+        forge.check_ping(external("fetch", ref(f"path:{EXT_REPO}@{SHA}:any/where.md")), self.RECORD, client)
+        self.assertEqual(opener.urls, [url(f"/repos/{EXT_REPO}"), url(f"/repos/{EXT_REPO}/commits/{SHA}"),
+                                       url(f"/repos/{EXT_REPO}/commits/{SHA}"), contents])
+
+    def test_external_private_repo_is_refused(self) -> None:
+        client, opener = self.make({url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO, private=True)]})
+        self.refused("provenance", external("review", ref(f"commit:{EXT_REPO}@{SHA}")), client)
+        self.assertEqual(opener.urls, [url(f"/repos/{EXT_REPO}")])
+
+    def test_external_unknown_commit_is_not_found(self) -> None:
+        commit = url(f"/repos/{EXT_REPO}/commits/{SHA}")
+        client, _ = self.make({url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO)], commit: [http_error(commit, 422)]})
+        self.refused("not-found", external("done", ref(f"commit:{EXT_REPO}@{SHA}")), client)
+
+    def test_external_pull_request_at_its_head_from_anywhere(self) -> None:
+        head = "f" * 40
+        pull = url(f"/repos/{EXT_REPO}/pulls/3")
+        compare = url(f"/repos/{EXT_REPO}/compare/{head}...{SHA}?per_page=1")
+        the_ref = ref(f"pr:{EXT_REPO}#3@{SHA}")
+        body = {"head": {"sha": head, "repo": {"full_name": "a-fork/project"}}, "author_association": "NONE"}
+        client, _ = self.make({url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO)], pull: [ok(body)],
+                               compare: [status("behind")]})
+        forge.check_ping(external("review", the_ref), self.RECORD, client)
+        client, _ = self.make({url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO)], pull: [ok(body)],
+                               compare: [status("ahead")]})
+        self.refused("not-found", external("review", the_ref), client)
+
+    def test_external_issue(self) -> None:
+        issue = url(f"/repos/{EXT_REPO}/issues/4")
+        client, _ = self.make({url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO)], issue: [ok({"number": 4})]})
+        forge.check_ping(external("done", ref(f"issue:{EXT_REPO}#4")), self.RECORD, client)
+
+    def test_trust_must_be_the_records(self) -> None:
+        """A ping validated against another record (or not at all) is a programming error."""
         client, _ = self.make({})
-        stray = ref(f"commit:other/repo@{SHA}")
-        with self.assertRaises(ValueError):
-            forge.check_ping(protocol.Ping("fetch", ("@x:y",), stray, None), self.RECORD, client)
+        for ping in (protocol.Ping("fetch", ("@x:y",), COMMIT_REF, None),
+                     external("fetch", COMMIT_REF),
+                     trusted("fetch", ref(f"commit:{EXT_REPO}@{SHA}"))):
+            with self.subTest(ping=ping), self.assertRaises(ValueError):
+                forge.check_ping(ping, self.RECORD, client)
 
     def test_forge_must_match_the_record(self) -> None:
         client, _ = self.make({}, api=GHE_API)
         with self.assertRaises(ValueError):
-            forge.check_ping(protocol.Ping("fetch", ("@x:y",), COMMIT_REF, None), self.RECORD, client)
+            forge.check_ping(trusted("fetch", COMMIT_REF), self.RECORD, client)
 
     def test_for_record_builds_the_client(self) -> None:
         opener = FakeOpener({compare_url("main"): [status("identical")]})
