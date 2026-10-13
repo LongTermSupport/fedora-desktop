@@ -681,7 +681,11 @@ create_wizard() {
             trusts="everything ${owner} owns: any repository, any branch"
         else
             trusts="$(printf '%s, ' "${repos[@]}")"
-            trusts="${trusts%, }: any branch"
+            if [[ -z "${repos[1]:-}" ]]; then
+                trusts="only ${trusts%, }, on any branch"
+            else
+                trusts="only these repositories, on any branch: ${trusts%, }"
+            fi
         fi
         printf '\n' >&2
         summary_confirm "Team ${team}" "$(printf '%-9s %s\n' \

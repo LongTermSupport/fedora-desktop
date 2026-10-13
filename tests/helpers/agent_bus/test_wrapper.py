@@ -360,7 +360,7 @@ class WrapperTest(unittest.TestCase):
 
     def test_usage_lines_name_the_checkout_seat_commands(self) -> None:
         usage = [line for line in WRAPPER.read_text().splitlines() if line.startswith("#   agent-bus seat ")]
-        self.assertEqual([line.split()[3] for line in usage], ["check", "take", "list", "remove"])
+        self.assertEqual([line.split()[3] for line in usage], ["check", "choose", "take", "list", "remove"])
 
     def test_shellcheck(self) -> None:
         run = subprocess.run(["shellcheck", "-x", str(WRAPPER)], capture_output=True, text=True, check=False)
