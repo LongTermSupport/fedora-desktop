@@ -103,7 +103,9 @@ today; rewriting them is out of scope.
 
 ### Phase 4: ccy-sessions, then ccy
 
-- [ ] ⬜ **Task 4.1**: ccy-sessions in Go on the shared packages, by the same method.
+- [ ] 🔄 **Task 4.1**: ccy-sessions in Go on the shared packages, by the same method. Ported
+  as `cmd/ccy-sessions` plus `internal/sessions`; the four oracle suites gain a Go mode
+  (`CCY_SESSIONS_IMPL=go`). Open: the bash tool's retirement and wiring into the playbook.
 - [ ] ⬜ **Task 4.2**: The ccy launcher: assess and plan (about 4,000 lines and the container
   boundary); decide with the owner.
 
