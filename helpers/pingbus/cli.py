@@ -476,15 +476,16 @@ def checkout_upstream(cwd: str) -> tuple[str, str] | None:
 def _send_branch(args: argparse.Namespace, ref: str | None, record: protocol.TeamRecord,
                  upstream: Callable[[], tuple[str, str] | None]) -> str | None:
     """The ping's `branch`: `--branch` as given; else, for a `path` or `commit` reference
-    into an unlisted repository of the team's org, the branch the checkout tracks when its
-    origin is that repository (DESIGN.md D64); else none (the default branch, or a listed
-    repository's listed branches)."""
+    into a repository whose every branch the team trusts (an unlisted one of its org, or one
+    listed with no `branches`), the branch the checkout tracks when its origin is that
+    repository (DESIGN.md D64); else none (the default branch, or a listed repository's
+    listed branches)."""
     if args.branch is not None:
         return args.branch
     parsed = None if ref is None else protocol.parse_ref(ref)
     if parsed is None or parsed.form not in protocol.BRANCH_REF_FORMS:
         return None
-    if protocol.ref_source(parsed, record.org, record.repos) != protocol.SOURCE_ORG:
+    if not protocol.trusts_any_branch(parsed, record.org, record.repos):
         return None
     found = upstream()
     return found[1] if found is not None and found[0] == parsed.repo_full else None

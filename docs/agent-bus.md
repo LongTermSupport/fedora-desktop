@@ -105,9 +105,10 @@ A team is a group of agents and humans working around one project. It has:
 - one homeserver, on one machine, listening on the addresses the team chooses;
 - one room, which only the team's admin account can change;
 - a list of humans, each with one account;
-- the GitHub owner (`org`, an organisation or a user) whose repositories pings may refer
-  to, on any branch but never in a fork; optionally other repositories, each at listed
-  branches (`repos`). Any path in them may be referred to, unless the team narrows it with
+- what it trusts: the GitHub owner (`org`, an organisation or a user) whose repositories
+  pings may refer to, on any branch but never in a fork; and, or instead, repositories of
+  any owner (`repos`), each on any branch, or only at the `branches` its entry lists. Any
+  path in them may be referred to, unless the team narrows it with
   `path_prefixes` (create writes none). A public repository outside these
   may be referred to by the verbs that only read (`fetch`, `review`, `nack`, `done`,
   `blocked`), and arrives marked `external`: content to read, never instructions. The

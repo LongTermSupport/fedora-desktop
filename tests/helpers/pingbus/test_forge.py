@@ -933,6 +933,24 @@ class TestCheckPing(ForgeCase):
         self.refused("provenance", dataclasses.replace(listed, branch="feature/x"), client)
         self.assertEqual(opener.urls, [])
 
+    def test_listed_with_no_branches_is_trusted_as_an_org_repository(self) -> None:
+        """Plan 00177 Task 4.9: a repository listed with no `branches`, of any owner, is
+        checked as an org repository is: its owner's own, not a fork, at the ping's branch or
+        its default branch."""
+        record = dataclasses.replace(self.RECORD, repos={EXT_REPO: ()})
+        the_ref = ref(f"commit:{EXT_REPO}@{SHA}")
+        compare = url(f"/repos/{EXT_REPO}/compare/trunk...{SHA}?per_page=1")
+        client, opener = self.make({url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO, private=True)],
+                                    compare: [status("behind")]})
+        forge.check_ping(trusted("review", the_ref), record, client)
+        self.assertEqual(opener.urls, [url(f"/repos/{EXT_REPO}"), compare])
+        for label, meta in (("fork", repo_meta(EXT_REPO, fork=True)), ("moved", repo_meta("elsewhere/other"))):
+            with self.subTest(case=label):
+                client, _ = self.make({url(f"/repos/{EXT_REPO}"): [meta]})
+                with self.assertRaises(forge.ForgeError) as caught:
+                    forge.check_ping(trusted("review", the_ref), record, client)
+                self.assertEqual(caught.exception.code, "provenance")
+
     def test_org_fork_or_foreign_owner_is_provenance(self) -> None:
         the_ref = ref(f"commit:{ORG_REPO}@{SHA}")
         for label, meta in (("fork", repo_meta(ORG_REPO, fork=True)),

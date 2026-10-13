@@ -532,6 +532,14 @@ class SendBranchTest(BusCase):
         self.now += 120
         self.assertIsNone(self.sent_branch("review", "commit:example-org/third@" + SHA))
 
+    def test_filled_for_a_repository_listed_with_no_branches(self) -> None:
+        """Plan 00177 Task 4.9: a listed repository with no `branches` trusts any branch, so
+        its reference names the checkout's branch as an org repository's does."""
+        self.a.set_record(dict(self.a.record, org="example-org", repos=[{"repo": "example-org/myrepo"}]))
+        self.joined()
+        self.upstream = ("example-org/myrepo", "feature/x")
+        self.assertEqual(self.sent_branch("review", PATH_REF), "feature/x")
+
     def test_explicit_branch_wins(self) -> None:
         self.joined()
         self.upstream = ("example-org/other", "feature/x")

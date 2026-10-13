@@ -11,8 +11,10 @@ beside itself (`localhost.yml.backup.<time>`, which .gitignore covers) before it
 
 The entry is validated by the team file's own rules (`teamfile.parse_team_file`) before it
 is written. It trusts its `org`, every repository of that GitHub owner on any of its own
-branches (Plan 00161 DESIGN.md D64); a repository outside the org that the team trusts is
-listed under `repos` by hand. The port is chosen, never asked: the first in AUTO_PORT_FIRST..AUTO_PORT_LAST
+branches (Plan 00161 DESIGN.md D64), or the repositories it lists under `repos`, of any
+owners, each on any branch (no `branches`; Plan 00177 Task 4.9). The team's Element profile
+is an `agent_bus_element_teams` entry, added the same way (`element`). The port is chosen,
+never asked: the first in AUTO_PORT_FIRST..AUTO_PORT_LAST
 that no entry declares and nothing listens on (`ss -Hltn`). `listen` is the host's bus
 address (`agent_bus_address`) and `forge_api` the example's. No `path_prefixes` is written: a
 trusted reference may name any path in the team's repositories (a team narrows it by hand).
@@ -21,16 +23,27 @@ trusted reference may name any path in the team's repositories (a team narrows i
         TEAM<TAB><team><TAB><port or -><TAB><present|absent><TAB><server_name><TAB><url or -> per
         entry; the URL is http://<first listen address, or agent_bus_address>:<port>
     python3 -m helpers.agent_bus.declare create --file <localhost.yml> --team T --human NAME...
-            --org ORG [--allow-from CIDR]... [--dry-run]
+            (--org ORG | --repo OWNER/REPO...) [--allow-from CIDR]... [--dry-run]
         CHANGED<TAB>team <team>, port <port>, in <file>, and the next steps on stderr;
         --dry-run prints the entry's lines instead and writes nothing; ccy-teams then installs it
     python3 -m helpers.agent_bus.declare next-steps --file <localhost.yml> --team T
-        what to do once the team is installed (sign in, Element, ccy --teams)
+        what is left once the team is installed (sign in, Element, ccy --teams), in ccy-teams
     python3 -m helpers.agent_bus.declare check --file <localhost.yml> [--team T] [--human NAME]...
-            [--org ORG] [--allow-from CIDR]...
+            [--org ORG] [--repo OWNER/REPO]... [--allow-from CIDR]...
         nothing when every value given is valid; exit 64 naming the first that is not
-    python3 -m helpers.agent_bus.declare suggest-team --file <localhost.yml> --org ORG
-        the org's name as a free team name, or nothing
+    python3 -m helpers.agent_bus.declare suggest-team --file <localhost.yml> --name NAME
+        a GitHub owner's or repository's name as a free team name, or nothing
+    python3 -m helpers.agent_bus.declare element --file <localhost.yml> --team T
+        adds the team's agent_bus_element_teams entry (base_url its homeserver), or brings
+        its base_url up to date: CHANGED<TAB>...; UNCHANGED<TAB><team> when already right
+    python3 -m helpers.agent_bus.declare element-teams --file <localhost.yml>
+        ELEMENT<TAB><team><TAB><base_url> per agent_bus_element_teams entry
+    python3 -m helpers.agent_bus.declare teams-for --file <localhost.yml> --repo OWNER/REPO
+        TEAM<TAB><team> per present team whose org owns the repository, or that lists it
+    python3 -m helpers.agent_bus.declare limited --file <localhost.yml>
+        LIMITED<TAB><team><TAB><prefixes> per present team that sets path_prefixes
+    python3 -m helpers.agent_bus.declare drop-limit --file <localhost.yml> --team T
+        removes the team's path_prefixes, every other line as it was: CHANGED<TAB>...
     python3 -m helpers.agent_bus.declare github-remote --url URL
         the lower-case OWNER/REPO of a GitHub remote, or nothing
     python3 -m helpers.agent_bus.declare status --file <localhost.yml> --source <repo>
@@ -67,6 +80,8 @@ from helpers.agent_bus import teamfile
 from helpers.pingbus import bundle, protocol
 
 TEAMS_KEY = "agent_bus_teams"
+#: The teams this desktop's human watches in Element (play-agent-bus-element.yml).
+ELEMENT_KEY = "agent_bus_element_teams"
 ADDRESS_KEY = "agent_bus_address"
 AUTO_PORT_FIRST = 6167
 AUTO_PORT_LAST = 6266
@@ -78,7 +93,6 @@ EXIT_REFUSED = 78
 EXIT_INTERRUPTED = 130
 
 _KEY_LINE_RE = re.compile(r"(?P<key>[a-z_]+):(?P<rest>(?:\s.*)?)")
-_TOP_KEY_RE = re.compile(rf"{TEAMS_KEY}\s*:(?P<rest>.*)")
 _ADDRESS_RE = re.compile(rf"{ADDRESS_KEY}\s*:(?P<rest>.*)")
 
 # A template team file each field is checked against, one field replaced: the team file's
@@ -146,25 +160,27 @@ def _address(lines: Sequence[str]) -> str | None:
         return None
 
 
-def parse(text: str) -> HostVars:
-    """The declared teams and the bus address; DeclareError for any shape not recognised."""
+def parse(text: str, list_key: str = TEAMS_KEY) -> HostVars:
+    """The entries of one top-level list (the declared teams, by default; or the Element
+    profiles, ELEMENT_KEY) and the bus address; DeclareError for any shape not recognised."""
     lines = tuple(text.splitlines(keepends=True))
+    top_key_re = re.compile(rf"{list_key}\s*:(?P<rest>.*)")
     keys = []
     for index, line in enumerate(lines):
         bare = line.rstrip("\r\n")
-        if TEAMS_KEY in bare and not bare.lstrip().startswith("#"):
-            if not _TOP_KEY_RE.fullmatch(bare):
-                raise DeclareError(f"line {index + 1} names {TEAMS_KEY} in a form ccy-teams does not edit")
+        if list_key in bare and not bare.lstrip().startswith("#"):
+            if not top_key_re.fullmatch(bare):
+                raise DeclareError(f"line {index + 1} names {list_key} in a form ccy-teams does not edit")
             keys.append(index)
     if len(keys) > 1:
-        raise DeclareError(f"{TEAMS_KEY} is set more than once (lines {', '.join(str(k + 1) for k in keys)})")
+        raise DeclareError(f"{list_key} is set more than once (lines {', '.join(str(k + 1) for k in keys)})")
     address = _address(lines)
     if not keys:
         return HostVars(lines, (), address, None, len(lines), DEFAULT_ITEM_INDENT, DEFAULT_ITEM_INDENT + 2)
     key = keys[0]
-    rest = _scalar(_TOP_KEY_RE.fullmatch(lines[key].rstrip("\r\n"))["rest"], TEAMS_KEY)
+    rest = _scalar(top_key_re.fullmatch(lines[key].rstrip("\r\n"))["rest"], list_key)
     if rest:
-        raise DeclareError(f"{TEAMS_KEY} on line {key + 1} is written inline; ccy-teams adds only to a "
+        raise DeclareError(f"{list_key} on line {key + 1} is written inline; ccy-teams adds only to a "
                            "block list (as in localhost.yml.dist)")
     content: list[int] = []
     index = key + 1
@@ -182,11 +198,12 @@ def parse(text: str) -> HostVars:
         break
     if not content:
         return HostVars(lines, (), address, key, key + 1, DEFAULT_ITEM_INDENT, DEFAULT_ITEM_INDENT + 2)
-    teams, item_indent, key_indent = _items(lines, content)
+    teams, item_indent, key_indent = _items(lines, content, list_key)
     return HostVars(lines, teams, address, key, content[-1] + 1, item_indent, key_indent)
 
 
-def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared, ...], int, int]:
+def _items(lines: Sequence[str], content: Sequence[int],
+           list_key: str) -> tuple[tuple[Declared, ...], int, int]:
     first = lines[content[0]].rstrip("\r\n")
     item_indent = len(first) - len(first.lstrip(" "))
     key_indent = -1
@@ -202,7 +219,7 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
             pad = len(after) - len(after.lstrip(" "))
             this_key_indent = item_indent + 2 + pad
             if key_indent not in (-1, this_key_indent):
-                raise DeclareError(f"{where}: the {TEAMS_KEY} items are not indented alike")
+                raise DeclareError(f"{where}: the {list_key} items are not indented alike")
             key_indent = this_key_indent
             items.append({})
             nested.append({})
@@ -215,27 +232,27 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
             nested[-1][list(items[-1])[-1]].append(bare)
             continue
         else:
-            raise DeclareError(f"{where}: not the {TEAMS_KEY} shape ccy-teams edits (a block list of mappings)")
+            raise DeclareError(f"{where}: not the {list_key} shape ccy-teams edits (a block list of mappings)")
         m = _KEY_LINE_RE.fullmatch(body)
         if not m:
-            raise DeclareError(f"{where}: each {TEAMS_KEY} item must be a block mapping of key: value lines")
+            raise DeclareError(f"{where}: each {list_key} item must be a block mapping of key: value lines")
         if m["key"] in items[-1]:
-            raise DeclareError(f"{where}: {m['key']} is set twice in one {TEAMS_KEY} item")
+            raise DeclareError(f"{where}: {m['key']} is set twice in one {list_key} item")
         items[-1][m["key"]] = (m["rest"], index)
         nested[-1][m["key"]] = []
-    return (tuple(_declared(item, more) for item, more in zip(_unique(items), nested, strict=True)),
+    return (tuple(_declared(item, more) for item, more in zip(_unique(items, list_key), nested, strict=True)),
             item_indent, key_indent)
 
 
-def _unique(items: list[dict[str, tuple[str, int]]]) -> list[dict[str, tuple[str, int]]]:
+def _unique(items: list[dict[str, tuple[str, int]]], list_key: str) -> list[dict[str, tuple[str, int]]]:
     seen: set[str] = set()
     for item in items:
         if "team" not in item:
             line = min(index for _, index in item.values()) + 1
-            raise DeclareError(f"the {TEAMS_KEY} item at line {line} has no team")
+            raise DeclareError(f"the {list_key} item at line {line} has no team")
         name = _scalar(item["team"][0], f"the team on line {item['team'][1] + 1}")
         if name in seen:
-            raise DeclareError(f"team {name} is declared twice in {TEAMS_KEY}")
+            raise DeclareError(f"team {name} is declared twice in {list_key}")
         seen.add(name)
     return items
 
@@ -510,16 +527,23 @@ def field_error(key: str, value: object) -> str | None:
     return None
 
 
+def _repos_value(repos: Sequence[str]) -> list[dict]:
+    """Each repository on any of its branches: no `branches` (spec §11, Plan 00177 Task 4.9)."""
+    return [{"repo": repo} for repo in repos]
+
+
 def build_entry(*, team: str, port: int, listen: Sequence[str], allow_from: Sequence[str],
-                humans: Sequence[str], org: str) -> dict:
-    """The new agent_bus_teams entry, checked by the team file's validator."""
+                humans: Sequence[str], org: str | None = None, repos: Sequence[str] = ()) -> dict:
+    """The new agent_bus_teams entry, checked by the team file's validator: it trusts the
+    whole GitHub owner `org`, or the repositories `repos` (any owners), or both."""
     entry = {
         "team": team,
         "port": port,
         "listen": list(listen),
         "allow_from": list(allow_from),
         "humans": list(humans),
-        "org": org,
+        **({"org": org} if org else {}),
+        **({"repos": _repos_value(repos)} if repos else {}),
         "forge_api": DEFAULT_FORGE_API,
     }
     try:
@@ -533,11 +557,24 @@ def render_entry(entry: dict, item_indent: int, key_indent: int) -> list[str]:
     """The entry as YAML lines in the list's indentation; lists in flow (JSON) style."""
     pad, key_pad = " " * item_indent, " " * key_indent
     lines = [f"{pad}- team: {entry['team']}\n", f"{key_pad}port: {entry['port']}\n"]
-    for key in ("listen", "allow_from", "humans"):
-        lines.append(f"{key_pad}{key}: {json.dumps(entry[key])}\n")
-    lines.append(f"{key_pad}org: {json.dumps(entry['org'])}\n")
-    lines.append(f"{key_pad}forge_api: {json.dumps(entry['forge_api'])}\n")
+    for key in ("listen", "allow_from", "humans", "org", "repos", "forge_api"):
+        if key in entry:
+            lines.append(f"{key_pad}{key}: {json.dumps(entry[key])}\n")
     return lines
+
+
+def _append(hv: HostVars, list_key: str, added: list[str]) -> str:
+    """The file's text with an item's lines added at the end of `list_key` (the key made at
+    the end of the file when there is none); the rest of it byte for byte as it was."""
+    lines = list(hv.lines)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    if hv.key_line is None:
+        added = ([] if not lines else ["\n"]) + [f"{list_key}:\n"] + added
+        at = len(lines)
+    else:
+        at = hv.insert_at
+    return "".join(lines[:at] + added + lines[at:])
 
 
 def insert(hv: HostVars, entry: dict) -> str:
@@ -546,16 +583,7 @@ def insert(hv: HostVars, entry: dict) -> str:
         raise DeclareError(f"team {entry['team']} is already declared in {TEAMS_KEY}")
     if any(t.port == entry["port"] for t in hv.teams):
         raise DeclareError(f"port {entry['port']} is already declared in {TEAMS_KEY}")
-    lines = list(hv.lines)
-    if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
-    added = render_entry(entry, hv.item_indent, hv.key_indent)
-    if hv.key_line is None:
-        added = ([] if not lines else ["\n"]) + [f"{TEAMS_KEY}:\n"] + added
-        at = len(lines)
-    else:
-        at = hv.insert_at
-    new = "".join(lines[:at] + added + lines[at:])
+    new = _append(hv, TEAMS_KEY, render_entry(entry, hv.item_indent, hv.key_indent))
     after = parse(new)
     if [t.team for t in after.teams] != [*(t.team for t in hv.teams), entry["team"]]:
         raise DeclareError("the edited file does not read back with the new team last; nothing was written")
@@ -614,7 +642,8 @@ def _check_flags(hv: HostVars, args: argparse.Namespace) -> None:
         if problem:
             raise UsageError(f"--team: {problem}")
     for flag, key, value in (("--human", "humans", args.human), ("--allow-from", "allow_from", args.allow_from),
-                             ("--org", "org", args.org)):
+                             ("--org", "org", args.org),
+                             ("--repo", "repos", _repos_value(args.repo) if args.repo else None)):
         if value:
             problem = field_error(key, value)
             if problem:
@@ -631,14 +660,14 @@ def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, 
     hv = parse(_read(path))
     if hv.address is None:
         raise DeclareError(NO_ADDRESS.format(path=path, key=ADDRESS_KEY))
-    missing = [flag for flag, value in (("--team", args.team), ("--human", args.human), ("--org", args.org))
-               if not value]
+    missing = [flag for flag, value in (("--team", args.team), ("--human", args.human),
+                                        ("--org or --repo", args.org or args.repo)) if not value]
     if missing:
         raise UsageError(f"create needs {', '.join(missing)} (ccy-teams create asks for them on a terminal)")
     _check_flags(hv, args)
     port = choose_port({t.port for t in hv.teams if t.port is not None} | listening_ports(ss_output()))
     entry = build_entry(team=args.team, port=port, listen=[hv.address], allow_from=args.allow_from or [],
-                        humans=args.human, org=args.org)
+                        humans=args.human, org=args.org, repos=args.repo or [])
     new = insert(hv, entry)
     if args.dry_run:
         out.writelines(render_entry(entry, hv.item_indent, hv.key_indent))
@@ -649,29 +678,121 @@ def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, 
     return EXIT_OK
 
 
-def next_steps(hv: HostVars, path: pathlib.Path, name: str) -> str:
-    """What to do once the team is installed: sign in, watch it, bring in agents."""
-    team = next((t for t in hv.teams if t.team == name), None)
+def _present(hv: HostVars, name: str) -> Declared:
+    team = next((t for t in hv.teams if t.team == name and t.state == "present"), None)
     if team is None or team.port is None:
-        raise UsageError(f"--team: team {name} is not declared with a port in {TEAMS_KEY}")
-    host = team.listen or hv.address
-    url = f"http://{_url_host(host)}:{team.port}" if host else "-"
+        raise UsageError(f"--team: team {name} is not declared present, with a port, in {TEAMS_KEY}")
+    return team
+
+
+def _raw_value(team: Declared, key: str) -> object:
+    """One key's value as the play reads it, or None when the entry does not set it; the
+    rest of the entry is not read (a vaulted value elsewhere in it does not matter)."""
+    for raw_key, rest, index, more in team.raw:
+        if raw_key == key:
+            return _value(rest, more, f"{team.team}'s {key} on line {index + 1}")
+    return None
+
+
+def scope_words(team: Declared) -> str:
+    """What the team trusts, as a person would say it."""
+    org = _raw_value(team, "org")
+    repos = [r["repo"] for r in _raw_value(team, "repos") or [] if isinstance(r, dict) and "repo" in r]
+    parts = ([f"any repository of {org}"] if org else []) + repos
+    return " or ".join(parts) if parts else "no repository"
+
+
+def next_steps(hv: HostVars, name: str) -> str:
+    """What is left to do once the team is installed, all of it in ccy-teams or ccy."""
+    team = _present(hv, name)
     return (
-        f"Team {name} is up. Next:\n"
-        "  1. Sign in: in ccy-teams, choose your name under the team and press Enter. It sets a\n"
-        "     new Element password and shows it once, with the homeserver and username.\n"
-        f"  2. Watch it in Element: add {{team: {name}, base_url: \"{url}\"}} under\n"
-        f"     agent_bus_element_teams in {path.name}, then run\n"
-        "     playbooks/imports/optional/common/play-agent-bus-element.yml; Ctrl-E in ccy-teams opens it.\n"
-        f"  3. Bring in agents: in a checkout of any of the org's repositories, run ccy --teams 1@{name}\n"
-        "     (or Ctrl-N on the team in ccy-teams).\n"
+        f"Team {name} is up. Later, in ccy-teams:\n"
+        "  Sign in      Enter on your name under the team sets a new Element password and shows it.\n"
+        "  Element      Ctrl-E on the team opens it in Element.\n"
+        f"  Agents       in a checkout of {scope_words(team)}, run ccy --teams {name}\n"
+        "               (ccy-teams run there offers it; Ctrl-N on the team does it too).\n"
     )
 
 
-def suggest_team(hv: HostVars, org: str) -> str | None:
-    """The GitHub org's name in the team-name grammar (a team works within one org), or
-    None when nothing valid is left of it or a team has the name already."""
-    name = re.sub(r"[^a-z0-9-]+", "-", org.lower())
+def base_url(hv: HostVars, team: Declared) -> str:
+    """How this desktop reaches the team's homeserver: its first listen address, else the
+    bus address, at its port."""
+    host = team.listen or hv.address
+    if host is None:
+        raise DeclareError(f"team {team.team} has no listen address and {ADDRESS_KEY} is not set")
+    return f"http://{_url_host(host)}:{team.port}"
+
+
+def _as_written(hv: HostVars) -> list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]]:
+    """Each entry's keys and values as written, whatever line they are on."""
+    return [(t.team, [(key, rest, more) for key, rest, _, more in t.raw]) for t in hv.teams]
+
+
+def set_element(text: str, name: str) -> str | None:
+    """The file's text with the team's agent_bus_element_teams entry added, or its base_url
+    brought up to date; None when it is already right."""
+    team = _present(parse(text), name)
+    url = base_url(parse(text), team)
+    profiles = parse(text, ELEMENT_KEY)
+    profile = next((p for p in profiles.teams if p.team == name), None)
+    line = f'{" " * profiles.key_indent}base_url: {json.dumps(url)}\n'
+    if profile is None:
+        new = _append(profiles, ELEMENT_KEY, [f"{' ' * profiles.item_indent}- team: {name}\n", line])
+    else:
+        if _raw_value(profile, "base_url") == url:
+            return None
+        found = [(index, more) for key, _, index, more in profile.raw if key == "base_url"]
+        if not found or found[0][1]:
+            raise DeclareError(f"team {name}'s Element entry has no one-line base_url to update")
+        lines = list(profiles.lines)
+        lines[found[0][0]] = line
+        new = "".join(lines)
+    after = next((p for p in parse(new, ELEMENT_KEY).teams if p.team == name), None)
+    if after is None or _raw_value(after, "base_url") != url or _as_written(parse(new)) != _as_written(parse(text)):
+        raise DeclareError("the edited file does not read back with the Element entry; nothing was written")
+    return new
+
+
+def teams_for(hv: HostVars, repo: str) -> list[str]:
+    """The teams declared present whose trust covers the repository: its owner is their
+    org, or they list it."""
+    owner = repo.partition("/")[0]
+    out = []
+    for team in hv.teams:
+        if team.state != "present":
+            continue
+        listed = [r.get("repo") for r in _raw_value(team, "repos") or [] if isinstance(r, dict)]
+        if _raw_value(team, "org") == owner or repo in listed:
+            out.append(team.team)
+    return out
+
+
+def drop_limit(text: str, name: str) -> str:
+    """The file's text with the team's path_prefixes line (and any lines nested under it)
+    removed, every other line as it was; Plan 00177 Task 4.7's follow-up."""
+    team = _present(parse(text), name)
+    found = [(index, more) for key, _, index, more in team.raw if key == "path_prefixes"]
+    if not found:
+        raise UsageError(f"--team: team {name} sets no path_prefixes")
+    index, more = found[0]
+    lines = list(parse(text).lines)
+    end, left = index + 1, len(more)
+    while left:
+        if lines[end].strip() and not lines[end].lstrip().startswith("#"):
+            left -= 1
+        end += 1
+    new = "".join(lines[:index] + lines[end:])
+    after = _present(parse(new), name)
+    if any(key == "path_prefixes" for key, *_ in after.raw) or (
+            {k: v for k, v in entry_of(team).items() if k != "path_prefixes"} != entry_of(after)):
+        raise DeclareError("the edited file does not read back with only path_prefixes gone; nothing was written")
+    return new
+
+
+def suggest_team(hv: HostVars, source: str) -> str | None:
+    """A GitHub owner's or repository's name in the team-name grammar, or None when nothing
+    valid is left of it or a team has the name already."""
+    name = re.sub(r"[^a-z0-9-]+", "-", source.lower())
     name = re.sub(r"-+", "-", name).lstrip("-0123456789")[:24].rstrip("-")
     if not name or field_error("team", name) or any(t.team == name for t in hv.teams):
         return None
@@ -717,6 +838,38 @@ def declared(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
+def _listing_or_edit(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
+    """element, drop-limit (edits, each backed up), element-teams, limited, teams-for."""
+    path = pathlib.Path(args.file)
+    text = _read(path)
+    if args.command == "element-teams":
+        for profile in parse(text, ELEMENT_KEY).teams:
+            out.write(f"ELEMENT\t{profile.team}\t{_raw_value(profile, 'base_url')}\n")
+        return EXIT_OK
+    if args.command == "limited":
+        for team in parse(text).teams:
+            prefixes = _raw_value(team, "path_prefixes") if team.state == "present" else None
+            if prefixes:
+                out.write(f"LIMITED\t{team.team}\t{', '.join(str(p) for p in prefixes)}\n")
+        return EXIT_OK
+    if args.command == "teams-for":
+        out.writelines(f"TEAM\t{name}\n" for name in teams_for(parse(text), args.repo))
+        return EXIT_OK
+    if args.command == "element":
+        new = set_element(text, args.team)
+        if new is None:
+            out.write(f"UNCHANGED\t{args.team}\n")
+            return EXIT_OK
+        said = f"Element profile for {args.team}"
+    else:
+        new = drop_limit(text, args.team)
+        said = f"team {args.team} may name any path"
+    backup = write(path, new)
+    out.write(f"CHANGED\t{said}, in {path}\n")
+    err.write(f"The file as it was is kept at {backup}.\n")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     class Parser(argparse.ArgumentParser):
         def error(self, message: str) -> None:
@@ -732,12 +885,25 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--team")
         sub.add_argument("--human", action="append")
         sub.add_argument("--org", help="the GitHub owner (an org or a user) whose repositories the team trusts")
+        sub.add_argument("--repo", action="append", metavar="OWNER/REPO",
+                         help="a repository the team trusts, on any branch (instead of, or as well as, --org)")
         sub.add_argument("--allow-from", action="append", dest="allow_from", metavar="CIDR")
         if name == "create":
             sub.add_argument("--dry-run", action="store_true", help="print the entry; write nothing")
-    suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub org's")
+    suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub owner's or repo's")
     suggest.add_argument("--file", required=True)
-    suggest.add_argument("--org", required=True)
+    suggest.add_argument("--name", required=True)
+    for name, help_text in (("element", "add or update the team's agent_bus_element_teams entry"),
+                            ("drop-limit", "remove the team's path_prefixes")):
+        sub = commands.add_parser(name, help=help_text)
+        sub.add_argument("--file", required=True)
+        sub.add_argument("--team", required=True)
+    for name, help_text in (("element-teams", "one ELEMENT line per agent_bus_element_teams entry"),
+                            ("limited", "one LIMITED line per present team that sets path_prefixes")):
+        commands.add_parser(name, help=help_text).add_argument("--file", required=True)
+    covering = commands.add_parser("teams-for", help="the present teams a repository belongs to")
+    covering.add_argument("--file", required=True)
+    covering.add_argument("--repo", required=True)
     remote = commands.add_parser("github-remote", help="OWNER/REPO of a GitHub remote URL, or nothing")
     remote.add_argument("--url", required=True)
     states = commands.add_parser("status", help="each team: applied as declared or not (D65)")
@@ -767,14 +933,15 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
         if args.command == "check":
             return check(args)
         if args.command == "suggest-team":
-            name = suggest_team(parse(_read(pathlib.Path(args.file))), args.org)
+            name = suggest_team(parse(_read(pathlib.Path(args.file))), args.name)
             if name:
                 out.write(f"{name}\n")
             return EXIT_OK
         if args.command == "next-steps":
-            path = pathlib.Path(args.file)
-            out.write(next_steps(parse(_read(path)), path, args.team))
+            out.write(next_steps(parse(_read(pathlib.Path(args.file))), args.team))
             return EXIT_OK
+        if args.command in ("element", "drop-limit", "element-teams", "limited", "teams-for"):
+            return _listing_or_edit(args, out, err)
         if args.command == "status":
             return status(args, out)
         if args.command == "remove":

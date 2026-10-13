@@ -50,8 +50,13 @@ class TeamFileError(ValueError):
 
 @dataclass(frozen=True)
 class RepoEntry:
+    """A trusted repository; `branches` () means any of its branches (spec §11)."""
+
     repo: str
     branches: tuple[str, ...]
+
+    def as_dict(self) -> dict:
+        return {"repo": self.repo, **({"branches": list(self.branches)} if self.branches else {})}
 
 
 @dataclass(frozen=True)
@@ -84,7 +89,7 @@ class TeamFile:
             "listen": list(self.listen),
             "allow_from": list(self.allow_from),
             "humans": list(self.humans),
-            "repos": [{"repo": r.repo, "branches": list(r.branches)} for r in self.repos],
+            "repos": [r.as_dict() for r in self.repos],
             **prefixes,
             "forge_api": self.forge_api,
         }
@@ -202,9 +207,12 @@ def _repos(data: Mapping) -> tuple[RepoEntry, ...]:
         raise _fail("repos", f"must be a list of {protocol.REPOS_MIN} to {protocol.REPOS_MAX} objects")
     out: list[RepoEntry] = []
     for entry in value:
-        if not isinstance(entry, dict) or set(entry) != REPO_ENTRY_KEYS:
-            raise _fail("repos", 'each entry must be exactly {"repo": ..., "branches": [...]}')
+        if not isinstance(entry, dict) or "repo" not in entry or not set(entry) <= REPO_ENTRY_KEYS:
+            raise _fail("repos", 'each entry must be {"repo": ...}, optionally with "branches": [...]')
         repo = _owner_repo(entry["repo"])
+        if "branches" not in entry:
+            out.append(RepoEntry(repo, ()))
+            continue
         branches = entry["branches"]
         if (
             not isinstance(branches, list)

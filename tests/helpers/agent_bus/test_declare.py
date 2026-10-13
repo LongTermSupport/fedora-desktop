@@ -246,19 +246,40 @@ class CreateTest(unittest.TestCase):
         self.assertEqual([(t.team, t.port) for t in teams][-1], ("beta", 6169))
         self.assertEqual(self.stdout.getvalue(), f"CHANGED\tteam beta, port 6169, in {self.path}\n")
 
-    def test_the_next_steps_are_numbered_and_name_each_action(self) -> None:
-        """Printed by ccy-teams once the team is installed; never a meta-deploy step (D65)."""
-        self.assertEqual(self.run_create(self.FLAGS), 0, self.stderr.getvalue())
-        self.assertNotIn("meta-deploy", self.stderr.getvalue())
+    def next_steps(self, team: str) -> str:
         self.stdout = io.StringIO()
-        code = declare.main(["next-steps", "--file", str(self.path), "--team", "beta"],
+        code = declare.main(["next-steps", "--file", str(self.path), "--team", team],
                             stdout=self.stdout, stderr=self.stderr)
         self.assertEqual(code, 0, self.stderr.getvalue())
-        said = self.stdout.getvalue()
-        for text in ("1.", "password", "2.", "agent_bus_element_teams", "http://192.0.2.10:6168", "3.",
-                     "ccy --teams 1@beta"):
+        return self.stdout.getvalue()
+
+    def test_the_next_steps_name_each_action_in_ccy_teams(self) -> None:
+        """Printed by ccy-teams once the team is installed; never a meta-deploy step (D65),
+        and never an edit of localhost.yml: create sets Element up itself (Task 4.2)."""
+        self.assertEqual(self.run_create(self.FLAGS), 0, self.stderr.getvalue())
+        self.assertNotIn("meta-deploy", self.stderr.getvalue())
+        said = self.next_steps("beta")
+        for text in ("password", "Element", "Ctrl-E", "ccy --teams beta", "any repository of example-org"):
             self.assertIn(text, said)
-        self.assertNotIn("meta-deploy", said)
+        for text in ("meta-deploy", "localhost.yml", "agent_bus_element_teams", "1@beta"):
+            self.assertNotIn(text, said)
+
+    def test_repositories_instead_of_an_org(self) -> None:
+        """Task 4.9: a team of one or several repositories, of any owners, each on any branch
+        (no `branches`), and no org."""
+        flags = ("--team", "beta", "--human", "owner", "--repo", "example-org/one", "--repo", "other/tool")
+        self.assertEqual(self.run_create(flags), 0, self.stderr.getvalue())
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn('repos: [{"repo": "example-org/one"}, {"repo": "other/tool"}]', text)
+        beta = declare.entry_of(next(t for t in declare.parse(text).teams if t.team == "beta"))
+        self.assertNotIn("org", beta)
+        self.assertEqual([r.branches for r in teamfile.parse_team_file(beta).repos], [(), ()])
+        said = self.next_steps("beta")
+        self.assertIn("example-org/one or other/tool", said)
+
+    def test_org_or_repos_is_required(self) -> None:
+        self.assertEqual(self.run_create(("--team", "beta", "--human", "owner")), 64)
+        self.assertIn("--org or --repo", self.stderr.getvalue())
 
     def test_allow_from(self) -> None:
         code = self.run_create([*self.FLAGS, "--allow-from", "198.51.100.0/24"])
@@ -334,15 +355,24 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.check("--human", "owner", "--human", "second"), (0, ""))
         self.assertEqual(self.check("--allow-from", "198.51.100.0/24"), (0, ""))
         self.assertEqual(self.check("--org", "example-org"), (0, ""))
+        self.assertEqual(self.check("--repo", "example-org/one", "--repo", "other/tool"), (0, ""))
 
     def test_each_bad_value_is_named(self) -> None:
         for flag, value, said in (("--team", "Bad_Name", "--team"), ("--team", "alpha", "already declared"),
                                   ("--human", "Not.Valid", "--human"),
                                   ("--allow-from", "198.51.100.1/24", "--allow-from"),
-                                  ("--org", "-bad", "--org")):
+                                  ("--org", "-bad", "--org"),
+                                  ("--repo", "Example-Org/one", "Example-Org/one"),
+                                  ("--repo", "noslash", "noslash")):
             code, err = self.check(flag, value)
             self.assertEqual(code, 64, value)
             self.assertIn(said, err)
+
+    def test_too_many_repositories(self) -> None:
+        flags = [arg for i in range(declare.protocol.REPOS_MAX + 1) for arg in ("--repo", f"o/r{i}")]
+        code, err = self.check(*flags)
+        self.assertEqual(code, 64)
+        self.assertIn(str(declare.protocol.REPOS_MAX), err)
 
 
 class GithubRemoteTest(unittest.TestCase):
@@ -363,14 +393,14 @@ class GithubRemoteTest(unittest.TestCase):
 
 
 class SuggestTeamTest(unittest.TestCase):
-    """suggest-team: the GitHub owner's name in the team-name grammar, when free."""
+    """suggest-team: a GitHub owner's or repository's name in the team-name grammar, when free."""
 
     def suggest(self, owner: str) -> str:
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "localhost.yml"
             path.write_text(WITH_TEAMS, encoding="utf-8")
             stdout = io.StringIO()
-            code = declare.main(["suggest-team", "--file", str(path), "--org", owner],
+            code = declare.main(["suggest-team", "--file", str(path), "--name", owner],
                                 stdout=stdout, stderr=io.StringIO())
         self.assertEqual(code, 0)
         return stdout.getvalue()
@@ -579,6 +609,95 @@ class RemoveTest(unittest.TestCase):
         self.assertIn("state: absent", out)
         self.assertEqual(self.path.read_text(), STATUS_HV)
         self.assertEqual(self.remove("--team", "nosuch")[0], 64)
+
+
+class CommandCase(unittest.TestCase):
+    TEXT = STATUS_HV
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.path = self.tmp / "localhost.yml"
+        self.path.write_text(self.TEXT, encoding="utf-8")
+
+    def run_cmd(self, *argv: str) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = declare.main([argv[0], "--file", str(self.path), *argv[1:]], stdout=stdout, stderr=stderr)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+
+class ElementTest(CommandCase):
+    """Task 4.2: create declares the team's Element profile itself, in
+    agent_bus_element_teams, so nobody edits localhost.yml for it."""
+
+    def test_added_once_with_the_teams_url(self) -> None:
+        code, out, err = self.run_cmd("element", "--team", "alpha")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tElement profile for alpha, in {self.path}\n")
+        text = self.path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(STATUS_HV))
+        self.assertIn('agent_bus_element_teams:\n  - team: alpha\n    base_url: "http://192.0.2.10:6167"\n', text)
+        self.assertEqual(self.run_cmd("element", "--team", "alpha")[:2], (0, "UNCHANGED\talpha\n"))
+        self.assertEqual(self.run_cmd("element", "--team", "beta")[0], 0)
+        code, out, _ = self.run_cmd("element-teams")
+        self.assertEqual(out, "ELEMENT\talpha\thttp://192.0.2.10:6167\nELEMENT\tbeta\thttp://192.0.2.10:6168\n")
+        # Both read back as two entries of the one list, the teams list untouched.
+        self.assertEqual([t.team for t in declare.parse(self.path.read_text(), declare.ELEMENT_KEY).teams],
+                         ["alpha", "beta"])
+        self.assertEqual(len(declare.parse(self.path.read_text()).teams), 5)
+
+    def test_a_changed_url_is_updated(self) -> None:
+        self.path.write_text(STATUS_HV + "agent_bus_element_teams:\n  - team: alpha\n"
+                             "    base_url: http://192.0.2.99:6000\n  - team: other\n"
+                             "    base_url: http://192.0.2.98:6001\n", encoding="utf-8")
+        code, out, err = self.run_cmd("element", "--team", "alpha")
+        self.assertEqual(code, 0, err)
+        self.assertIn("CHANGED", out)
+        text = self.path.read_text()
+        self.assertIn('  - team: alpha\n    base_url: "http://192.0.2.10:6167"\n  - team: other\n', text)
+
+    def test_a_team_not_declared_present_is_refused(self) -> None:
+        self.assertEqual(self.run_cmd("element", "--team", "nosuch")[0], 64)
+        self.assertEqual(self.run_cmd("element", "--team", "gamma")[0], 64)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+
+
+class TeamsForTest(CommandCase):
+    """Task 4.4: the teams a checkout's repository belongs to (its owner's org, or listed)."""
+
+    def test_by_org_and_by_listing(self) -> None:
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/two")[1],
+                         "TEAM\talpha\nTEAM\tdelta\nTEAM\tvaulted\n")
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/one")[1],
+                         "TEAM\talpha\nTEAM\tbeta\nTEAM\tdelta\nTEAM\tvaulted\n")
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "other/tool")[1], "")
+
+
+class PathLimitTest(CommandCase):
+    """Task 4.7's follow-up: an entry written with the old path_prefixes default is offered
+    its removal, which ccy-teams applies through drop-limit."""
+
+    def test_listed(self) -> None:
+        code, out, _ = self.run_cmd("limited")
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "LIMITED\talpha\tCLAUDE/Plan/, docs/\nLIMITED\tbeta\tdocs/\n"
+                              "LIMITED\tdelta\tdocs/\nLIMITED\tvaulted\tdocs/\n")
+
+    def test_dropped_and_nothing_else_changed(self) -> None:
+        before = declare.entry_of(declare.parse(STATUS_HV).teams[0])
+        code, out, err = self.run_cmd("drop-limit", "--team", "alpha")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tteam alpha may name any path, in {self.path}\n")
+        text = self.path.read_text()
+        self.assertEqual(text, STATUS_HV.replace('    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n', "", 1))
+        after = declare.entry_of(declare.parse(text).teams[0])
+        self.assertEqual(after, {k: v for k, v in before.items() if k != "path_prefixes"})
+        self.assertEqual(self.run_cmd("drop-limit", "--team", "alpha")[0], 64)
+
+    def test_a_block_list_is_dropped_whole(self) -> None:
+        self.path.write_text(STATUS_HV.replace('    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n',
+                                               "    path_prefixes:\n      - CLAUDE/Plan/\n      - docs/\n", 1))
+        self.assertEqual(self.run_cmd("drop-limit", "--team", "alpha")[0], 0)
+        self.assertEqual(self.path.read_text(), STATUS_HV.replace('    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n', "", 1))
 
 
 if __name__ == "__main__":
