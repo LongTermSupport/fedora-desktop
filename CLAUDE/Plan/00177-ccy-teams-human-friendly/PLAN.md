@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: Blocked on the owner (the meta-deploy run carrying Plan 00161 D64/D65, then the first real `ccy-teams` use)
+**Status**: In Progress (Phase 4: the owner's first-use findings)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -57,11 +57,29 @@ offer to create a team when there is none; think about the UX; do a full critica
 
 ### Phase 3: Host
 
-- [ ] 🔄 **Task 3.1**: Host run through meta-deploy (`play-claude-yolo.yml` for gum, CCY
+- [x] ✅ **Task 3.1**: Host run through meta-deploy (`play-claude-yolo.yml` for gum, CCY
   3.94.2 and ccy-teams; `play-agent-bus.yml` for the sudoers rule
   `/etc/sudoers.d/agent-bus-read-only`), then the owner's first real `ccy-teams` use. Host
-  run passed 26-10-13 (both plays), and again with Plan 00161's D64/D65 (org-wide trust,
-  create applies the team; the repo step is gone). Pending: the owner's use.
+  run passed 26-10-13 (both plays), and again with Plan 00161's D64/D65. The owner created
+  a real team with `ccy-teams create`; their findings are Phase 4.
+
+### Phase 4: The owner's first-use findings
+
+- [x] ✅ **Task 4.1**: The create wizard was a wall of text. It now shows numbered steps
+  (`1/4  GitHub owner`), a one-line hint each, a ✓ per answer and a short summary without
+  `forge_api` or `path_prefixes`. gum's grey key-help line is hidden (gum 0.17 cannot
+  recolour it).
+- [ ] **Task 4.2**: Create sets up Element itself (the `agent_bus_element_teams` entry
+  and its play) and offers to open it. No message tells the owner to edit `localhost.yml`.
+- [ ] **Task 4.3**: Offer sign-in straight after create.
+- [ ] **Task 4.4**: Run from a repository root, `ccy-teams` offers to start a ccy session
+  there as a team member.
+- [ ] **Task 4.5**: Seats default to the next free number, and members are always shown as
+  `<repo>.<N>`, counting from 1.
+- [ ] **Task 4.6**: ccy's offer to re-attach to a detached session keeps `--teams`: it
+  attaches only to a session holding the requested seats, and otherwise says why it
+  starts a new one (CCY version bump).
+- [ ] **Task 4.7**: `path_prefixes` no longer limits paths in an org-wide team.
 
 ## Success Criteria
 

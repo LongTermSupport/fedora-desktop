@@ -170,6 +170,7 @@ C_BOLD=$'\e[1m'
 C_GREEN=$'\e[32m'
 C_YELLOW=$'\e[33m'
 C_RED=$'\e[31m'
+C_PINK=$'\e[38;5;212m'
 
 # word_colour <status word> — the colour a status cell is shown in: green is well, yellow
 # wants a look, red is not working.
@@ -247,19 +248,46 @@ need_gum() {
     export GUM_CONFIRM_PROMPT_FOREGROUND=255 GUM_CONFIRM_SELECTED_FOREGROUND=16 \
         GUM_CONFIRM_SELECTED_BACKGROUND=212 GUM_CONFIRM_UNSELECTED_FOREGROUND=255 \
         GUM_CONFIRM_UNSELECTED_BACKGROUND=24
+    # gum's key-help line is drawn in a fixed dim grey no flag recolours (0.17, measured), so
+    # it is hidden; the questions and the yes/no buttons say what to press.
+    export GUM_INPUT_SHOW_HELP=false GUM_FILTER_SHOW_HELP=false GUM_CONFIRM_SHOW_HELP=false \
+        GUM_CHOOSE_SHOW_HELP=false
     export GUM_SPIN_TITLE_FOREGROUND=255 GUM_SPIN_SPINNER_FOREGROUND=212
     export GUM_CHOOSE_HEADER_FOREGROUND=255 GUM_CHOOSE_ITEM_FOREGROUND=252 \
         GUM_CHOOSE_CURSOR_FOREGROUND=212 GUM_CHOOSE_SELECTED_FOREGROUND=212
 }
 
-# explain <text> — the explanation before a question, wrapped to the terminal (a gum
-# --header is not wrapped, so headers stay one short line), in near-white.
+# explain <text> [indent] — the explanation before a question, wrapped to the terminal (a
+# gum --header is not wrapped, so headers stay one short line), in near-white.
 explain() {
     local cols
     if ! cols="$(tput cols 2>&1)" || [[ ! "${cols}" =~ ^[0-9]+$ ]] || ((cols < 44)); then
         cols=80 # a width is only layout: with none to read, a common one serves
     fi
-    gum style --foreground 252 --width "$((cols - 4))" "$1" >&2
+    gum style --foreground 252 --width "$((cols - 4))" --padding "0 0 0 ${2:-0}" "$1" >&2
+}
+
+# step <title> <hint> — a question's numbered heading and its hint, indented under it.
+# STEP counts up; STEPS is how many questions this run asks.
+STEP=0 STEPS=0
+step() {
+    STEP=$((STEP + 1))
+    printf '\n' >&2
+    if colour_on 2; then
+        printf '%s%s %d/%d  %s%s\n' "${C_BOLD}" "${C_PINK}" "${STEP}" "${STEPS}" "$1" "${C_RESET}" >&2
+    else
+        printf '%d/%d  %s\n' "${STEP}" "${STEPS}" "$1" >&2
+    fi
+    explain "$2" 5
+}
+
+# answered <value> — the answer, kept on screen under its step once gum's prompt has gone.
+answered() {
+    if colour_on 2; then
+        printf '     %s✓%s %s\n' "${C_GREEN}" "${C_RESET}" "$1" >&2
+    else
+        printf '     ✓ %s\n' "$1" >&2
+    fi
 }
 
 # gum_ask <header> <placeholder> <value> — one line of input; prints it. gum 0.17 exits 1 on
@@ -377,7 +405,7 @@ the_remote_repo() {
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
 create_wizard() {
-    local team="" yes=false text owner="" default_team login probe entry name rc
+    local team="" yes=false text owner="" default_team login probe name rc
     local -a humans=() allow_from=() flags=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -403,25 +431,30 @@ create_wizard() {
         need_gum
         [[ -n "${owner}" ]] || need_gh
         gum style --bold --border rounded --padding "0 1" "New agent team" >&2
-        explain "A team is a group of agents (ccy sessions, LXC containers) and people who work together in a private chat room, on a homeserver on this machine; you watch and talk to the agents in Element. A team works within one GitHub organisation or user. This adds the team to ${HOST_VARS/#${HOME}/\~} and installs it (play-agent-bus.yml, which asks for your password). Ctrl-C at any question leaves without changing anything."
-        printf '\n' >&2
+        explain "Agents and people working together in one private room on this machine, which you follow in Element. Ctrl-C leaves at any point; nothing changes until you say yes at the end."
+        [[ -n "${owner}" ]] || STEPS=$((STEPS + 1))
+        [[ -n "${team}" ]] || STEPS=$((STEPS + 1))
+        [[ -n "${humans[*]:-}" ]] || STEPS=$((STEPS + 1))
+        [[ -n "${allow_from[*]:-}" ]] || STEPS=$((STEPS + 1))
     fi
     # The org first: a team is the org's, and its name defaults to the org's.
     if [[ -z "${owner}" && "${yes}" == false ]]; then
         text="$(the_remote_repo)"
-        explain "GitHub owner: the organisation or user whose repositories this team works in. Agents may send each other to any of its repositories, on any branch; a public repository elsewhere reaches them only as outside content. The default is the owner of the repository in this folder."
+        step "GitHub owner" "The organisation or user the team works for. Its agents may point each other at any of its repositories, on any branch."
         rc=0
         owner="$(ask_valid check_owner "GitHub owner (organisation or user)" "e.g. example-org" "${text%%/*}")" || rc=$?
         ask_or_quit "${rc}"
         owner="${owner,,}"
+        answered "${owner}"
     fi
     if [[ -z "${team}" && "${yes}" == false ]]; then
         default_team=""
         [[ -z "${owner}" ]] || default_team="$(declare_helper suggest-team --file "${HOST_VARS}" --org "${owner}")"
-        explain "Team name: a short name for the team, used in its room and in its agents' names. Lower-case letters, digits and -, up to 24. The default is the owner's name."
+        step "Team name" "Used in the room's name and its agents' names: a-z, 0-9 and -, up to 24."
         rc=0
         team="$(ask_valid check_team "Team name" "e.g. example-org" "${default_team}")" || rc=$?
         ask_or_quit "${rc}"
+        answered "${team}"
     fi
     if [[ -z "${humans[*]:-}" && "${yes}" == false ]]; then
         login="$(id -un)"
@@ -429,26 +462,34 @@ create_wizard() {
             echo "Your login name, ${login}, cannot be an account name here (${probe#declare: }), so there is no default." >&2
             login=""
         fi
-        explain "People in the team room: each gets an Element account on the team's homeserver, to read and write there. The installer creates the accounts; nobody needs one yet. You are in by default; add others' names separated by commas."
+        step "People" "Each gets an Element login to the room; the installer creates the accounts. Add others after a comma."
         rc=0
         text="$(ask_valid check_humans "People, comma-separated" "e.g. ${login:-yourname}, colleague" "${login}")" || rc=$?
         ask_or_quit "${rc}"
         mapfile -t humans <<<"$(split_commas "${text}")"
+        answered "${humans[*]}"
     fi
     if [[ -z "${allow_from[*]:-}" && "${yes}" == false ]]; then
-        explain "Other machines: leave this empty unless LXC containers or other machines will run this team's agents. If they will, give the subnet they connect from, in CIDR form; separate several with commas."
+        step "Other machines" "Usually none: ccy sessions are on this machine. Only for LXC containers or other machines running agents, their subnet."
         rc=0
-        text="$(ask_valid check_subnets "Subnets (Enter for none)" "empty: only this machine (e.g. 192.0.2.0/24)" "")" || rc=$?
+        text="$(ask_valid check_subnets "Subnets (Enter for none)" "e.g. 192.0.2.0/24" "")" || rc=$?
         ask_or_quit "${rc}"
         mapfile -t allow_from <<<"$(split_commas "${text}")"
+        answered "${allow_from[*]:-none, this machine only}"
     fi
     [[ -z "${team}" ]] || flags+=(--team "${team}")
     for name in "${humans[@]}"; do [[ -z "${name}" ]] || flags+=(--human "${name}"); done
     [[ -z "${owner}" ]] || flags+=(--org "${owner}")
     for name in "${allow_from[@]}"; do [[ -z "${name}" ]] || flags+=(--allow-from "${name}"); done
     if [[ "${yes}" == false ]]; then
-        entry="$(declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run)" || exit
-        summary_confirm "The entry for ${HOST_VARS/#${HOME}/\~}" "${entry}" "Create team ${team}?"
+        # The dry run checks the whole entry before anything is asked or written.
+        declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run >/dev/null || exit
+        printf '\n' >&2
+        summary_confirm "Team ${team}" "$(printf '%-9s %s\n' \
+            "GitHub" "${owner} (any repository, any branch)" \
+            "People" "${humans[*]}" \
+            "Machines" "${allow_from[*]:-this one only}")" \
+            "Create team ${team}? (saved to ${HOST_VARS/#${HOME}/\~}, then installed: sudo asks for your password)"
     fi
     declare_helper create --file "${HOST_VARS}" "${flags[@]}"
     if ! apply_teams "${team}"; then
@@ -1153,11 +1194,6 @@ offer_create() {
     local rc=0
     need_gum
     say "No agent teams on this machine yet."
-    cat >&2 <<'EOF'
-
-A team is a group of agents (ccy sessions, LXC containers) and people who work together
-in a private chat room on a homeserver on this machine, which you follow in Element.
-EOF
     gum confirm --default=false "Create one now?" || rc=$?
     case "${rc}" in
     0)

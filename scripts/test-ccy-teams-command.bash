@@ -394,7 +394,12 @@ export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_
 export TEST_FZF_RAW="$SCRATCH/fzf-raw"
 unset NO_COLOR WAYLAND_DISPLAY
 export TEST_GUM_ANSWERS="$SCRATCH/gum-answers"
-PATH_WITHOUT_GUM="$BIN:$PATH"
+# The ccy image installs a real gum, so every directory holding one is left out.
+PATH_WITHOUT_GUM="$BIN"
+IFS=: read -ra path_dirs <<<"$PATH"
+for dir in "${path_dirs[@]}"; do
+    [ -x "$dir/gum" ] || PATH_WITHOUT_GUM+=":$dir"
+done
 export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
 export CCY_TEAMS_PLAY="$BIN/play" CCY_TEAMS_APPLIED_DIR="$STATE/applied" TEST_REPO_ROOT="$REPO_ROOT"
@@ -853,7 +858,7 @@ check_has "  each explanation is printed, wrapped, before its question" "install
 check "  and every header is one short line" "0" \
     "$(grep -E 'gum (input|filter)' "$LOG" | grep -cE -- '--header [^-]{70,}')"
 check "  which gh looked up" "yes" "$(logged 'gh api users/example-org')"
-check_has "  the owner explanation says agents may send each other to any of its repositories" "send each other to" \
+check_has "  the owner explanation says agents may point each other at any of its repositories" "point each other at any of its repositories" \
     "$(grep -F 'gum style' "$LOG")"
 check "  no repository is listed or picked" "no" "$(logged 'gh repo list')"
 check_has "  the one question before writing covers installing it" "gum confirm --default=true Create team example-org?" "$(cat "$LOG")"
@@ -862,6 +867,14 @@ check_lacks "  never meta-deploy" "meta-deploy" "$out"
 check_has "  gum's greys are replaced, through its environment" "GUM_INPUT_HEADER_FOREGROUND=255" \
     "$(cat "$STATE/gum-env")"
 check_lacks "  no 240-range grey for anything read" "=24" "$(grep -v 'UNSELECTED_BACKGROUND' "$STATE/gum-env")"
+check_has "  gum's dim key-help line is hidden" "GUM_CONFIRM_SHOW_HELP=false" "$(cat "$STATE/gum-env")"
+check_has "  each question is a numbered step" "1/4  GitHub owner" "$out"
+check_has "    the last of four" "4/4  Other machines" "$out"
+check_has "  each answer stays on screen" "example-org" "$(grep -F '✓' <<<"$out")"
+check_has "  the summary is plain words" "any repository, any branch" "$out"
+check_lacks "    never the file's internals" "forge_api" "$out"
+check_lacks "    nor its path limits" "path_prefixes" "$out"
+check "  the team is explained once, not twice" "1" "$(grep -c 'private room' <<<"$out")"
 
 echo "== applied, apply, remove"
 STATES="$SCRATCH/states.yml"
