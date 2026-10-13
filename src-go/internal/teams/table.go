@@ -15,6 +15,13 @@ const (
 	cRed    = "\x1b[31m"
 )
 
+// The kinds of row: a team, a seat or member run by ccy, a person.
+const (
+	kindTeam  = "team"
+	kindCcy   = "ccy"
+	kindHuman = "human"
+)
+
 const rowFormat = "%-24s  %-36s  %-6s  %-13s  %-18s  %-26s  %-7s  %s"
 
 // Row is one line of the table. Handle and Dir are what a key pressed on the row acts on and
@@ -38,7 +45,7 @@ func (r Row) Text() string {
 // colour codes it is the plain row.
 func (r Row) Painted() string {
 	team := fmt.Sprintf("%-24s", r.Team)
-	if r.Kind == "team" {
+	if r.Kind == kindTeam {
 		team = cBold + team + cReset
 	}
 	return fmt.Sprintf("%s  %-36s  %-6s  %s  %s  %s  %s  %s", team, r.Member, r.Kind,

@@ -385,7 +385,7 @@ func (a *App) addTeamRows(ctx context.Context, s *Snapshot, team string, seats [
 		where += ", entry unreadable: " + s.Status[team].Detail
 	}
 	s.Rows = append(s.Rows, Row{
-		Team: team, Member: "-", Kind: "team", State: state, Applied: s.statusWord(team),
+		Team: team, Member: "-", Kind: kindTeam, State: state, Applied: s.statusWord(team),
 		Session: "-", Restore: "-", Where: where, Handle: "-", Dir: "-",
 	})
 	s.addMemberRows(a, team, seats)
@@ -458,7 +458,7 @@ func (s *Snapshot) addMemberRows(a *App, team string, seats []seatAt) {
 			signed = wordUnknown
 		}
 		s.Rows = append(s.Rows, Row{
-			Team: team, Member: h.Name, Kind: "human", State: roomWord(h.Membership),
+			Team: team, Member: h.Name, Kind: kindHuman, State: roomWord(h.Membership),
 			Applied: signed, Session: "-", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-",
 		})
 	}
@@ -485,7 +485,7 @@ func (a *App) seatRow(s *Snapshot, team string, sa seatAt, activity map[string]s
 		state = unknown
 	}
 	return Row{
-		Team: team, Member: sa.seat.Seat, Kind: "ccy", State: state, Applied: "-", Session: session,
+		Team: team, Member: sa.seat.Seat, Kind: kindCcy, State: state, Applied: "-", Session: session,
 		Restore: restore, Where: term.AbbrevHome(sa.dir, a.Home), Handle: sa.seat.Handle, Dir: sa.dir,
 	}
 }

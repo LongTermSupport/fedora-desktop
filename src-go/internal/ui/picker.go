@@ -29,14 +29,24 @@ type PickSpec struct {
 	Keys       []string
 	Rows       []string
 	CursorLast bool // start on the Exit row: the safe default for a yes/no
+	// Tags, when set, is one hidden tag per row: fzf shows only the row, and hands the tag back
+	// with the choice, so rows that read the same are still told apart.
+	Tags []string
 }
 
 // Picked is the chosen row and the key that chose it ("" for Enter). A row comes back as
-// plain text, without the colour it was shown in.
+// plain text, without the colour it was shown in; Tag is the hidden tag it was given.
 type Picked struct {
 	Key string
 	Row string
+	Tag string
 }
+
+// errTagCount is Tags that do not pair up with Rows.
+var errTagCount = errors.New("picker: tags and rows differ in number")
+
+// tagDelimiter separates a row from its hidden tag.
+const tagDelimiter = "\t"
 
 // Picker runs fzf in the house style shared by ccy, ccy-sessions and ccy-teams.
 type Picker struct {
@@ -60,7 +70,17 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 	if s.CursorLast {
 		args = append(args, "--bind=start:last")
 	}
-	rows := strings.Join(append(append([]string(nil), s.Rows...), ExitRow), "\n") + "\n"
+	shown := append([]string(nil), s.Rows...)
+	if len(s.Tags) > 0 {
+		if len(s.Tags) != len(s.Rows) {
+			return Picked{}, errTagCount
+		}
+		for i, tag := range s.Tags {
+			shown[i] += tagDelimiter + tag
+		}
+		args = append(args, "--delimiter="+tagDelimiter, "--with-nth=1")
+	}
+	rows := strings.Join(append(shown, ExitRow), "\n") + "\n"
 	res, err := p.Runner.Run(ctx, execx.Cmd{
 		Name: "fzf", Args: args, Stdin: strings.NewReader(rows), Stderr: p.Stderr,
 	})
@@ -73,6 +93,11 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 	picked, err := parsePicked(strings.TrimSuffix(string(res.Stdout), "\n"), len(s.Keys) > 0)
 	if err != nil {
 		return Picked{}, err
+	}
+	if len(s.Tags) > 0 {
+		if row, tag, tagged := strings.Cut(picked.Row, tagDelimiter); tagged {
+			picked.Row, picked.Tag = row, tag
+		}
 	}
 	if picked.Row == ExitRow {
 		return Picked{}, ErrLeave

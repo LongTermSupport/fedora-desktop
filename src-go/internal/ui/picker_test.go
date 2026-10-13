@@ -62,6 +62,45 @@ func TestConfirmInPickerDefaultsToExitUnlessAskedForYes(t *testing.T) {
 	}
 }
 
+func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\t1\n")})
+	p := &Picker{Runner: f}
+	got, err := p.Pick(context.Background(), PickSpec{
+		Title: "t", Rows: []string{"alpha   up", "alpha   up"}, Tags: []string{"0", "1"},
+	})
+	if err != nil || got.Row != "alpha   up" || got.Tag != "1" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	c := f.Calls()[0]
+	if !slices.Contains(c.Args, "--delimiter=\t") || !slices.Contains(c.Args, "--with-nth=1") {
+		t.Fatalf("args %v", c.Args)
+	}
+	in, err := io.ReadAll(c.Stdin)
+	if err != nil || string(in) != "alpha   up\t0\nalpha   up\t1\nExit\n" {
+		t.Fatalf("rows fed %q, %v", in, err)
+	}
+
+	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a", "b"}, Tags: []string{"0"}}); err == nil {
+		t.Fatal("tags must match the rows one for one")
+	}
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
+	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a"}, Tags: []string{"0"}}); !errors.Is(err, ErrLeave) {
+		t.Fatalf("the untagged Exit row still leaves, got %v", err)
+	}
+}
+
+func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("r\n")})
+	if _, err := (&Picker{Runner: f}).Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"r"}}); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(f.Calls()[0].Args, "--with-nth=1") {
+		t.Fatalf("args %v", f.Calls()[0].Args)
+	}
+}
+
 func TestHeaderJoinsLegendAndContextDroppingEmpty(t *testing.T) {
 	if got := Header("Enter choose", "", "line two"); got != "↑↓ choose   Enter choose\nline two" {
 		t.Fatalf("got %q", got)

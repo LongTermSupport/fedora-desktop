@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
@@ -19,6 +21,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 //go:embed usage.txt
@@ -48,7 +51,30 @@ type App struct {
 	// Registry finds the session registry, which depends on the environment.
 	Registry func() (*registry.Store, error)
 
+	// Gum asks the questions, Picker is the fzf list every choice is made in.
+	Gum    *ui.Gum
+	Picker *ui.Picker
+	// Ops is the flows the picker calls into; they are written apart from it.
+	Ops teamOperator
+
+	// LookPath finds a tool on PATH. OpenTTY opens the terminal, which a picker reads after
+	// fzf has had the screen. Exec replaces this process with the launcher, in dir.
+	LookPath func(string) (string, error)
+	OpenTTY  func() (io.ReadCloser, error)
+	Exec     func(path string, argv []string, dir string) error
+
 	inContainer func() bool
+}
+
+// teamOperator is the flows the picker hands off to: each takes the arguments the command line
+// would, and answers the exit code that command would. applyTeams brings the named teams to
+// what is declared; runElementPlay installs Element and writes the teams' profiles.
+type teamOperator interface {
+	create(ctx context.Context, args []string) int
+	apply(ctx context.Context, args []string) int
+	remove(ctx context.Context, args []string) int
+	applyTeams(ctx context.Context, teams []string) error
+	runElementPlay(ctx context.Context, teams []string) error
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
@@ -131,6 +157,30 @@ func (a *App) wire() {
 	if a.Registry == nil {
 		a.Registry = func() (*registry.Store, error) { return registry.Locate(a.Getenv) }
 	}
+	a.wireAsking()
+}
+
+// wireAsking builds what the questions and the picker are asked through: gum, fzf, the
+// operator the picker hands flows to, and the seams to the terminal and the launcher.
+func (a *App) wireAsking() {
+	if a.Gum == nil {
+		a.Gum = &ui.Gum{Runner: a.Runner, Stdin: a.Stdin, Stderr: a.Stderr}
+	}
+	if a.Picker == nil {
+		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr}
+	}
+	if a.Ops == nil {
+		a.Ops = stubOps{app: a}
+	}
+	if a.LookPath == nil {
+		a.LookPath = exec.LookPath
+	}
+	if a.OpenTTY == nil {
+		a.OpenTTY = openTerminal
+	}
+	if a.Exec == nil {
+		a.Exec = execLauncher
+	}
 }
 
 // dispatch hands the validated subcommand to the file that implements it.
@@ -193,6 +243,32 @@ func (a *App) needCheckout() error {
 	a.print(a.Stderr, "ERROR: the fedora-desktop checkout ccy-teams was deployed from ("+a.RootDir+
 		") has gone; re-run playbooks/imports/play-claude-yolo.yml from where it is now.\n")
 	return errCheckoutGone
+}
+
+// openTerminal is the controlling terminal, which is read for a keypress after fzf has drawn
+// over the screen; stdin may be a pipe.
+func openTerminal() (io.ReadCloser, error) {
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return nil, fmt.Errorf("open the terminal: %w", err)
+	}
+	return tty, nil
+}
+
+// execLauncher replaces this process with the launcher, started in dir: it does not return
+// unless the launcher cannot be started.
+func execLauncher(path string, argv []string, dir string) error {
+	found, err := exec.LookPath(path)
+	if err != nil {
+		return fmt.Errorf("find the launcher: %w", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		return fmt.Errorf("enter %s: %w", dir, err)
+	}
+	if err := syscall.Exec(found, argv, os.Environ()); err != nil {
+		return fmt.Errorf("start the launcher: %w", err)
+	}
+	return nil
 }
 
 // print writes to a terminal stream; a failed write there has nowhere better to be reported.
