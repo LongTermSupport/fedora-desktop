@@ -1038,5 +1038,106 @@ class TestCheckPing(ForgeCase):
         self.assertEqual(opener.requests[0].unredirected_hdrs["Authorization"], f"Bearer {TOKEN}")
 
 
+class TestRepoAnswerCache(CacheCase):
+    """Plan 00161 D66: each `pingbus` command is a new process, so the repository answer
+    (`GET /repos/O/R`) is kept in the cache file, for REACH_TTL_S like reachability."""
+
+    REPO_URL = url(f"/repos/{ORG_REPO}")
+    ORG_REF = ref(f"commit:{ORG_REPO}@{SHA}")
+    OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98"
+    OTHER_REF = ref(f"commit:{ORG_REPO}@{OTHER_SHA}")
+    RECORD = TestCheckPing.RECORD
+
+    def routes(self, meta: FakeResponse | None = None) -> dict[str, list[object]]:
+        return {
+            self.REPO_URL: [meta or repo_meta(ORG_REPO)],
+            url(f"/repos/{ORG_REPO}/compare/trunk...{SHA}?per_page=1"): [status("behind")],
+            url(f"/repos/{ORG_REPO}/compare/trunk...{self.OTHER_SHA}?per_page=1"): [status("behind")],
+        }
+
+    def ping(self, client: forge.Forge, the_ref: protocol.Ref) -> None:
+        forge.check_ping(trusted("review", the_ref), self.RECORD, client)
+
+    def test_a_second_process_pinging_the_same_repo_asks_for_the_repo_once_in_all(self) -> None:
+        """Calls per ping, one new process each: 2 for a new commit without the file's help
+        (the repository, then the compare), 1 with it (the compare only), 0 for a repeat."""
+        calls = []
+        for cache in (None, None):
+            client, opener = self.make(self.routes(), cache=cache)
+            self.ping(client, self.OTHER_REF)
+            calls.append(len(opener.urls))
+        self.assertEqual(calls, [2, 2])
+        calls = []
+        for the_ref in (self.ORG_REF, self.OTHER_REF, self.OTHER_REF):
+            client, opener = self.make(self.routes(), cache=self.cache())
+            self.ping(client, the_ref)
+            calls.append(len(opener.urls))
+        self.assertEqual(calls, [2, 1, 0])
+
+    def test_the_answer_expires_after_the_hour(self) -> None:
+        client, _ = self.make(self.routes(), cache=self.cache())
+        self.ping(client, self.ORG_REF)
+        self.now += forge.REACH_TTL_S - 1
+        client, opener = self.make(self.routes(), cache=self.cache())
+        self.ping(client, self.OTHER_REF)
+        self.assertNotIn(self.REPO_URL, opener.urls)
+        self.now += 2
+        client, opener = self.make(self.routes(), cache=self.cache())
+        self.ping(client, self.OTHER_REF)
+        self.assertIn(self.REPO_URL, opener.urls)
+
+    def test_a_kept_fork_answer_is_still_refused_and_a_refusal_is_not_kept(self) -> None:
+        client, _ = self.make(self.routes(repo_meta(ORG_REPO, fork=True)), cache=self.cache())
+        with self.assertRaises(forge.ForgeError) as caught:
+            self.ping(client, self.ORG_REF)
+        self.assertEqual(caught.exception.code, "provenance")
+        # The answer was read, so it is kept; the verdict is made from it every time.
+        client, opener = self.make({}, cache=self.cache())
+        with self.assertRaises(forge.ForgeError) as caught:
+            self.ping(client, self.ORG_REF)
+        self.assertEqual((caught.exception.code, opener.urls), ("provenance", []))
+
+    def test_a_missing_repository_is_not_kept(self) -> None:
+        client, _ = self.make({self.REPO_URL: [http_error(self.REPO_URL, 404)]}, cache=self.cache())
+        with self.assertRaises(forge.ForgeError):
+            self.ping(client, self.ORG_REF)
+        client, opener = self.make(self.routes(), cache=self.cache())
+        self.ping(client, self.ORG_REF)
+        self.assertIn(self.REPO_URL, opener.urls)
+
+    def test_the_file_keeps_the_answer_and_still_loads_without_one(self) -> None:
+        client, _ = self.make(self.routes(), cache=self.cache())
+        self.ping(client, self.ORG_REF)
+        data = json.loads(self.path.read_text())
+        self.assertEqual(data["v"], forge.CACHE_VERSION)
+        kept = data["repos"][f"{API}|repo|{ORG_REPO}"]
+        self.assertEqual(kept, {"exp": int(T0) + forge.REACH_TTL_S, "owner": "Example-Org", "private": False,
+                                "fork": False, "default_branch": "trunk"})
+        self.path.write_text(json.dumps({"v": forge.CACHE_VERSION, "entries": {}}))
+        self.cache()
+
+    def test_expired_answers_are_pruned(self) -> None:
+        client, _ = self.make(self.routes(), cache=self.cache())
+        self.ping(client, self.ORG_REF)
+        self.now += forge.REACH_TTL_S + 1
+        client, _ = self.make(self.routes(), cache=self.cache())
+        self.ping(client, self.ORG_REF)
+        self.assertEqual(len(json.loads(self.path.read_text())["repos"]), 1)
+
+    def test_a_malformed_repos_section_is_refused(self) -> None:
+        good = {"exp": 1, "owner": "o", "private": False, "fork": False, "default_branch": "main"}
+        for label, repos in (("not an object", []), ("entry not an object", {"k": 1}),
+                             ("missing field", {"k": {"exp": 1}}),
+                             ("extra field", {"k": dict(good, extra=1)}),
+                             ("bad exp", {"k": dict(good, exp=-1)}),
+                             ("exp bool", {"k": dict(good, exp=True)}),
+                             ("owner not str", {"k": dict(good, owner=3)}),
+                             ("fork not bool", {"k": dict(good, fork="no")})):
+            with self.subTest(case=label):
+                self.path.write_text(json.dumps({"v": forge.CACHE_VERSION, "entries": {}, "repos": repos}))
+                with self.assertRaises(config.ConfigError):
+                    self.cache()
+
+
 if __name__ == "__main__":
     unittest.main()

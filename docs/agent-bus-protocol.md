@@ -208,8 +208,8 @@ the reference's repository stands (§11):
 - **listed** in `repos` with `branches`: the table below, `BRANCH` ranging over its listed
   `branches`, or only the ping's `branch` when it names one, which must be among them (else
   `provenance`);
-- **of the `org`**, or **listed** with no `branches`: first `GET /repos/OWNER/REPO` (read
-  once per process), which must answer 200 with `owner.login` equal to the org (for a listed
+- **of the `org`**, or **listed** with no `branches`: first `GET /repos/OWNER/REPO` (its answer
+  kept for 3600 s, in the cache file below), which must answer 200 with `owner.login` equal to the org (for a listed
   repository, its `OWNER`; case-insensitively) and `fork` `false`, else
   `provenance` (a fork is never trusted); then the table below, `BRANCH` the ping's
   `branch`, or the repository's `default_branch` when it names none. A named branch must be
@@ -242,7 +242,10 @@ it ends in `provenance`, not `not-found`.
 
 Positive results only are cached, in `forge-cache.json` in the member's state directory: a
 file's existence at a SHA for 30 days (content at a SHA is immutable; the expiry only bounds
-the file), reachability and `pr` results for 3600 s. A cache file that is not exactly the
+the file), reachability and `pr` results for 3600 s. Beside them it keeps, under `repos`,
+each repository's `GET /repos/OWNER/REPO` answer (owner, `private`, `fork`, default branch) for 3600 s, so a
+command in a new process does not ask again for a repository it asked about a moment ago; a
+file with no `repos` is read as having none. A cache file that is not exactly the
 expected shape is a config error (exit 78), not silently discarded. A 429, or a 403 with
 `x-ratelimit-remaining: 0`, is retried per §10 and then reported as `forge-rate`. Send-side
 refusals, on stderr: `not-found`, `wrong-kind`, `provenance`, `forge-unreachable`,
