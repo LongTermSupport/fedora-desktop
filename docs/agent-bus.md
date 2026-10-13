@@ -22,31 +22,38 @@ to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own
 shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
 
 1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
-   asks a few questions. A team works within one GitHub owner (an organisation or user),
-   so that comes first: the agents may send each other to any of its repositories, on any
-   branch, and a public repository elsewhere reaches them only as outside content, marked
-   so (never forks, never private repositories elsewhere). Then the team's name, which
-   defaults to the owner's; the people in its room (you, by default; the installer creates
-   the accounts); and subnets of other machines, empty unless LXC containers or other
-   machines will run agents. It shows the entry and asks one question, "Create team
-   <name>?". Yes adds it to `agent_bus_teams` in your host_vars `localhost.yml` (backing
-   the file up first) and installs it at once, running `play-agent-bus.yml` for that team
-   (sudo asks for your password), and says it is done only once the homeserver is up. If
-   the play fails, the entry stays written and `ccy-teams apply <team>` tries again. The
-   port is chosen for you, and the team listens on the bus address (`agent_bus_address`,
-   which must be set). `create` ends with the next steps. The questions need `gum` and a
-   logged-in `gh`; `--org`, `--team`, `--human` and `--yes` ask nothing.
-2. **Watch it in Element.** Add `{team: <team>, base_url: http://<bus_ip>:<port>}` to
-   `agent_bus_element_teams` and run `play-agent-bus-element.yml`. In `ccy-teams`, Enter
-   (or Ctrl-P) on your name under the team sets a new Element password. It shows it once,
-   with the homeserver and username, and offers it to the clipboard; your other Element
-   sessions are signed out ([The human's account](#the-humans-account)). Ctrl-E opens the
-   team in Element.
-3. **Add ccy sessions.** `ccy --teams <team>` shows this checkout's seats in the team and
-   launches a session into the one you choose: the lowest free seat, or a new one. ccy
-   creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat
-   instead. Ctrl-N in `ccy-teams` does this in the current project
-   ([seats](#a-ccy-session-seats)).
+   asks a few questions. First, what the team works on: inside a checkout, **this
+   repository** (the default, pre-filled as `owner/repo`), **everything one GitHub owner
+   owns** (an organisation or user), or **several repositories**, typed as one
+   comma-separated `owner/repo` list (up to 32, of any owners). Agents may send each other
+   to any file of those, on any branch; a public repository elsewhere reaches them only as
+   outside content, marked so (never forks, never private repositories elsewhere). Each
+   repository is checked as you type: its syntax, that it exists, and that your `gh` login
+   can push to it. A failing entry is named with its reason and the list comes back to edit
+   (three tries). Then the team's name (the repository's or owner's, lower-cased); the
+   people in its room (you, by default); and subnets of other machines, empty unless LXC
+   containers or other machines will run agents. The summary says the scope in plain words
+   and asks one question, "Create team <name>?". Yes adds the team to `agent_bus_teams` in
+   your host_vars `localhost.yml` (backing the file up first), declares its Element
+   profile, and installs both at once: `play-agent-bus.yml` for the team, then
+   `play-agent-bus-element.yml` (sudo asks for your password), and says it is done only
+   once the homeserver is up. If a play fails, the entry stays written and
+   `ccy-teams apply <team>` runs both again. Straight after, it offers each person's
+   sign-in (step 2), offers to open Element, and, run inside a checkout the team covers,
+   offers to start a ccy session there (step 3). The questions need `gum` and a logged-in
+   `gh`; `--org`, `--repo`, `--team`, `--human` and `--yes` ask nothing. A team created
+   before this release that still carries the old `path_prefixes` limit
+   (`CLAUDE/Plan/`, `docs/`) is offered its removal, once, the next time `ccy-teams` opens.
+2. **Watch it in Element.** `create` has already set up the team's Element profile. In
+   `ccy-teams`, Enter (or Ctrl-P) on your name under the team sets a new Element password.
+   It shows it once, with the homeserver and username, and offers it to the clipboard; your
+   other Element sessions are signed out ([The human's account](#the-humans-account)).
+   Ctrl-E opens the team in Element.
+3. **Add ccy sessions.** `ccy --teams <team>` (no seat) shows this checkout's seats in the
+   team and launches a session into the one you choose: the lowest free seat, or a new one.
+   ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the
+   seat instead. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
+   covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
    `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
    ([Joining a team](#joining-a-team)).
