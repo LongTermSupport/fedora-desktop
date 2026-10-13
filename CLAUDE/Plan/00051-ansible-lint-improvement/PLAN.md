@@ -1,6 +1,6 @@
 # Plan 00051: Ansible Lint Improvement
 
-**Status**: Not Started
+**Status**: Dormant (2026-10-13: never started, written for Fedora 42; waits on the owner to keep or cancel it)
 **Created**: 2025-12-03
 **Owner**: Agent
 **Priority**: Medium

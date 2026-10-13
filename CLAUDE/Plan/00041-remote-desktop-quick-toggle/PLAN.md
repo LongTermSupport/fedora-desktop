@@ -1,6 +1,6 @@
 # Plan 00041: Remote Desktop Quick Toggle
 
-**Status**: In Progress
+**Status**: Dormant (2026-10-13: scaffold built in May; waits on Phase 2, a HOST deploy and a live test from a second machine)
 **Type**: Feature Implementation
 **Created**: 2026-05-20
 **Owner**: joseph

@@ -1,6 +1,6 @@
 # Plan 023: Hostname-Based Inventory Migration
 
-**Status**: Not Started
+**Status**: Dormant (2026-10-13: never started; waits on the owner deciding whether per-machine inventory is still wanted)
 **Created**: 2026-03-15
 **Owner**: To be assigned
 **Priority**: Medium
@@ -76,9 +76,11 @@ correct per-machine config file.
 ### Vault ID vs Inventory Hostname (Critical Distinction)
 
 The vault ID ("localhost") is embedded in every encrypted string:
+
 ```
 $ANSIBLE_VAULT;1.2;AES256;localhost
 ```
+
 This string is used by Ansible to match the decryption key. `vault_id_match=true`
 in `ansible.cfg` means Ansible will only decrypt strings that were encrypted with
 the "localhost" vault ID.
@@ -168,12 +170,15 @@ When detected, bootstrap must require the user to set a real hostname.
 ### Phase 4: Update run.bash Bootstrap
 
 - [ ] **Task 4.1**: Harden hostname detection — extend generic hostname list:
+
   ```bash
   generic_hostnames=("fedora" "localhost" "localhost.localdomain" "")
   ```
+
   Validate after `hostnamectl set-hostname`; abort if still generic.
 
 - [ ] **Task 4.2**: Generate `hosts.yml` during bootstrap after hostname is confirmed:
+
   ```bash
   cat > "$hosts_yml" <<EOF
   desktop:
@@ -188,12 +193,14 @@ When detected, bootstrap must require the user to set a real hostname.
   ```
 
 - [ ] **Task 4.3**: Replace `localhost_yml` variable with hostname-aware path:
+
   ```bash
   host_vars_dir=~/Projects/fedora-desktop/environment/localhost/host_vars
   machine_config_yml="${host_vars_dir}/${machine_hostname}.yml"
   ```
 
 - [ ] **Task 4.4**: Config repo fetch — try `<hostname>.yml` first, fall back to `localhost.yml`:
+
   ```bash
   if raw=$(gh api "repos/${config_repo}/contents/${machine_hostname}.yml" --jq '.content' 2>/dev/null); then
     info "Found ${machine_hostname}.yml in config repo."
@@ -207,6 +214,7 @@ When detected, bootstrap must require the user to set a real hostname.
 ### Phase 5: Migration Path for Existing Installs
 
 - [ ] **Task 5.1**: Write `playbooks/imports/optional/common/play-migrate-inventory-hostname.yml`
+
   - Reads `ansible_facts['hostname']`
   - If `host_vars/localhost.yml` exists and `host_vars/<hostname>.yml` does not: copy it
   - Regenerates `hosts.yml` with real hostname
@@ -216,6 +224,7 @@ When detected, bootstrap must require the user to set a real hostname.
 - [ ] **Task 5.2**: Document migration procedure in CLAUDE.md / README
 
 - [ ] **Task 5.3**: Add advisory preflight check in `play-AA-preflight-sanity.yml`
+
   - Warn if `host_vars/localhost.yml` still exists after migration (old file not cleaned up)
 
 ### Phase 6: Update Documentation
@@ -288,15 +297,15 @@ the new file then delete the old one manually. Consistent with fail-fast princip
 
 ## Risks and Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| Vault decryption breaks after hostname change | High | Low | Vault ID stays as "localhost"; decryption independent of inventory hostname. Verify in Task 7.5. |
-| Existing installs fail on re-run before migration | High | Medium | Provide migration playbook (Phase 5); document clearly. Old `hosts.yml` with `localhost` keeps working until migrated. |
-| Config repo file not found if user had `localhost.yml` | Medium | High | Fallback to `localhost.yml` with migration warning (Task 4.4). |
-| `hostname -s` returns empty or generic value | High | Low | Validate after set; abort if still generic. |
-| `hosts.yml` accidentally committed with real hostname | Low | Low | `.gitignore` entry for `environment/localhost/hosts.yml`. |
-| `hostvars['localhost']` references in playbooks break | High | Low | Audit all playbooks in Task 1.1; replace with `hostvars[inventory_hostname]`. |
-| Hostname contains characters invalid for YAML keys or filenames | Low | Low | Validate against safe character set (alphanumeric + hyphen) before generating files. |
+| Risk                                                            | Impact | Probability | Mitigation                                                                                                             |
+| --------------------------------------------------------------- | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Vault decryption breaks after hostname change                   | High   | Low         | Vault ID stays as "localhost"; decryption independent of inventory hostname. Verify in Task 7.5.                       |
+| Existing installs fail on re-run before migration               | High   | Medium      | Provide migration playbook (Phase 5); document clearly. Old `hosts.yml` with `localhost` keeps working until migrated. |
+| Config repo file not found if user had `localhost.yml`          | Medium | High        | Fallback to `localhost.yml` with migration warning (Task 4.4).                                                         |
+| `hostname -s` returns empty or generic value                    | High   | Low         | Validate after set; abort if still generic.                                                                            |
+| `hosts.yml` accidentally committed with real hostname           | Low    | Low         | `.gitignore` entry for `environment/localhost/hosts.yml`.                                                              |
+| `hostvars['localhost']` references in playbooks break           | High   | Low         | Audit all playbooks in Task 1.1; replace with `hostvars[inventory_hostname]`.                                          |
+| Hostname contains characters invalid for YAML keys or filenames | Low    | Low         | Validate against safe character set (alphanumeric + hyphen) before generating files.                                   |
 
 ## Notes and Updates
 

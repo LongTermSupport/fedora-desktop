@@ -1,6 +1,6 @@
 # Plan 00089: ssh handling runner token guard
 
-**Status**: In Progress
+**Status**: Dormant (2026-10-13: change made; waits on a HOST image rebuild and a live `--no-ssh` launch with `GH_TOKEN` exported)
 **Created**: 2026-08-25
 **Owner**: joseph
 **Priority**: Medium

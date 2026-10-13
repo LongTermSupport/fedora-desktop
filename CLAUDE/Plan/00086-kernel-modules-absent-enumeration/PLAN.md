@@ -1,6 +1,6 @@
 # Plan 00086: kernel modules absent enumeration
 
-**Status**: In Progress
+**Status**: Dormant (2026-10-13: fix merged; waits on Task 1.9, the downstream infra repo re-pinning to it and re-running its live proof)
 **Created**: 2026-08-24
 **Owner**: joseph
 **Priority**: Medium

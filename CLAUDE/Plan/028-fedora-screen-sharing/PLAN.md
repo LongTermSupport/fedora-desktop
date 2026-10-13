@@ -1,6 +1,6 @@
 ## Plan 028: Fedora 43 GNOME Screen Sharing — Diagnose & Fix Slack/Meet
 
-**Status**: Not Started
+**Status**: Dormant (2026-10-13: never started; written for Fedora 43, and Plan 031 carries the screen-sharing work; waits on the owner to keep or cancel it)
 **Created**: 2026-04-07
 **Owner**: User
 **Priority**: High

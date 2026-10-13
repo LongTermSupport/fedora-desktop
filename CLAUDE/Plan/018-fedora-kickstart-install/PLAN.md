@@ -1,6 +1,6 @@
 # Plan 018: Fedora Kickstart Automated Install
 
-**Status**: In Progress
+**Status**: Dormant (2026-10-13: no task list; `fedora-install/` holds the pipeline and Plan 022 its follow-up fixes; waits on the owner to close it as delivered or retarget it at Fedora 44)
 **Created**: 2026-03-01
 **Owner**: joseph
 **Priority**: Medium

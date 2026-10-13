@@ -1,6 +1,6 @@
 # Plan 00040: `clip-scan` — Raw Clipping Pre-Lightroom Scanner
 
-**Status**: In Progress (implementation, playbook, core unit tests and the Phase 4 to 6 integration tests landed; open: Phase 2 host probes, playbook idempotency check, Phase 8 manual tests and benchmark)
+**Status**: Dormant (2026-10-13: implementation, playbook and tests landed; waits on the owner for the Phase 2 host probes, the playbook idempotency run, and the Phase 8 manual tests and benchmark on real ARW files)
 **Created**: 2026-05-20
 **Owner**: joseph
 **Priority**: Medium

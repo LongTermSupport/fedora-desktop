@@ -1,6 +1,6 @@
 # Plan 034: Track Config GitHub Account in localhost.yml
 
-**Status**: Not Started
+**Status**: Dormant (2026-10-13: never started; `run.bash` now asks which account is primary rather than trusting gh's active one; waits on the owner to keep or cancel it)
 **Created**: 2026-04-23
 **Owner**: joseph
 **Priority**: Medium
