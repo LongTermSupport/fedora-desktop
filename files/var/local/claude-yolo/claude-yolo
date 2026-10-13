@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.95.0"  # --teams <team> chooses a seat; the re-attach offer keeps --teams. See docs/ccy-changelog.md.
+CCY_VERSION="3.95.1"  # The seat chooser's attended check is not a question guard. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -868,10 +868,11 @@ if [ "$NEXT_IS_TEAMS" = true ] || { [ "$TEAMS_GIVEN" = true ] && [ -z "$TEAMS_LI
 fi
 if [ "$TEAMS_GIVEN" = true ]; then
     _ccy_teams_rc=0
-    _ccy_teams_attended=true
-    if ccy_nobody_to_ask || [ ! -t 2 ] || [ -n "${CCY_SESSION_RESTORE:-}" ] || [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
-        _ccy_teams_attended=false
-    fi
+    # Attended only when none of these holds. Not written as `if ccy_nobody_to_ask`: that
+    # shape marks a question's own guard, and this decides between ccy_seats_check's two modes.
+    _ccy_teams_attended=false
+    ccy_nobody_to_ask || [ ! -t 2 ] || [ -n "${CCY_SESSION_RESTORE:-}" ] \
+        || [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] || _ccy_teams_attended=true
     CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST" "$_ccy_teams_attended") || _ccy_teams_rc=$?
     if [ "$_ccy_teams_rc" -ne 0 ]; then
         # An unquoted `--teams a@x, b@y` reaches ccy as `a@x,` and a separate word.

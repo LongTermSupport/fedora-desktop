@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.1 — container 2.51
+
+- **No behaviour change.** The check that decides whether `--teams <team>` can show its
+  seat chooser is no longer written in the shape of a question's own guard, so the test that
+  removes each guard in turn again notices a missing one.
+
 ## 3.95.0 — container 2.51
 
 - **`ccy --teams <team>` asks which seat.** A team named with no seat is the normal form

@@ -565,8 +565,9 @@ check "the chooser runs once, before the rewrite (so the chosen seat is what is 
     "$([ "$(grep -c -F "$resolve_call" "$LAUNCHER")" = 1 ] && [ -n "$rewrite_line" ] \
         && [ "$resolve_line" -lt "$rewrite_line" ] && echo yes || echo no)"
 check "a restore, a restart, headless and no terminal count as nobody to choose" "yes" \
-    "$(grep -A2 '^    _ccy_teams_attended=true' "$LAUNCHER" | grep -F 'ccy_nobody_to_ask' | grep -F 'CCY_SESSION_RESTORE' \
-        | grep -qF 'CCY_RESTART_RELAUNCH_SESSION' && echo yes || echo no)"
+    "$(grep -A2 '^    _ccy_teams_attended=false' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
+        | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION' \
+        | grep -qF '|| _ccy_teams_attended=true' && echo yes || echo no)"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
