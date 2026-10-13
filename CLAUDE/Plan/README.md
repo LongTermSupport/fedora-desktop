@@ -82,7 +82,6 @@ Use these Unicode icons in plan documents:
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 
-- [00164-stt-enter-lost-after-focus-retake](00164-stt-enter-lost-after-focus-retake/) - In Progress (host verification left). Dictation waits for the window to keep focus before the paste and the Enter.
 
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.
 
@@ -246,6 +245,7 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00164-stt-enter-lost-after-focus-retake](Completed/00164-stt-enter-lost-after-focus-retake/) - When a dictation's window lost focus, the text was pasted back into it but the Enter did not send it. Both recorders wait for the window to keep focus before the paste and check it again before the Enter. Deployed; the owner confirmed Enter works.
 - [00166-laptop-panel-stays-on-with-lid-closed-when-docked](Completed/00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - Docked with the lid closed, GNOME kept the laptop panel live because `IgnoreLid=true` hid the lid from UPower. The play sets `IgnoreLid=false` and asserts UPower sees the lid; deployed and accepted. Undocked suspend rows waived by the owner.
 
 - [00163-ccy-one-key-agent-forwarding](Completed/00163-ccy-one-key-agent-forwarding/) - ccy forwards one chosen key from the owner's ssh-agent through a filtering socket, never the whole agent, so a headless launch can use a passphrase-protected key with no prompt. Accepted on the host by Plan 00161: every seat launched headless on a passphrase key, and inside a seat the agent listed one key, refused changes and signed with it.
@@ -304,7 +304,6 @@ Use these Unicode icons in plan documents:
 
 - [00107-server-profile-never-grants-passwordless-sudo](Completed/00107-server-profile-never-grants-passwordless-sudo/) - The server profile declares `play-basic-configs.yml`'s passwordless-sudo block absent instead of granting it; the desktop profile is unchanged. run.bash 1.18.1 passes the become password to headless optional playbooks, a gap the grant had been masking. Proven live on a headless box.
 
-- [00106-run-bash-git-ref-headless](Completed/00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort. run.bash 1.18.0; proven on a real headless box.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

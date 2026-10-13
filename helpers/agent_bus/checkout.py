@@ -1,4 +1,8 @@
-"""A ccy checkout's seats, on the host: `agent-bus seat check|take|list|remove`.
+"""A ccy checkout's seats, on the host: `agent-bus seat check|choose|take|list|remove`.
+
+`choose` (Plan 00177 Task 4.8) gives a chooser the rows for `ccy --teams <team>` with no
+seat: the checkout's seats in the team and the next free number. `take --type=host` makes
+a desktop (`cc --teams`) seat; the type defaults to `podman`, a ccy session's.
 
 Spec: Plan 00161 DESIGN.md section 5.6 ("Seat commands"), with section 5.5's list rules,
 layout and reuse, and section 5.2's `<host>` rule (D49). Run by the checkout's owner as
@@ -38,7 +42,7 @@ import time
 from collections.abc import Callable, Sequence
 
 from helpers.agent_bus import registry
-from helpers.pingbus import config, inbox, seat
+from helpers.pingbus import config, inbox, protocol, seat
 
 ROLE_VAR = "HOOKS_DAEMON_HOSTNAME"
 #: A seat's `<host>` when the checkout assigns no role (D49): names no machine.
@@ -138,16 +142,36 @@ class Observed:
 
 @dataclasses.dataclass(frozen=True)
 class Identity:
-    """What a seat's handle is built from besides its name."""
+    """What a seat's handle is built from besides its name: the type is `podman` for a ccy
+    session and `host` for a desktop one (`cc --teams`)."""
 
     repo: str
     host: str
+    type_: str = MEMBER_TYPE
 
     def handle(self, ref: seat.SeatRef) -> str:
+        return self.handle_of(ref.seat, ref.text)
+
+    def handle_of(self, name: str, what: str) -> str:
         try:
-            return registry.build_handle(self.repo, ref.seat, self.host, MEMBER_TYPE)
+            return registry.build_handle(self.repo, name, self.host, self.type_)
         except registry.HandleError as exc:
-            raise CheckoutError(f"seat {ref.text}: {exc}") from None
+            raise CheckoutError(f"seat {what}: {exc}") from None
+
+
+#: How a member's type reads to the owner: what runs in the seat, then the type itself.
+TYPE_WORDS = {"podman": "ccy (podman)", "host": "desktop (host)"}
+
+
+def handle_type(handle: str) -> str | None:
+    parsed = protocol.parse_handle(handle)
+    return None if parsed is None else parsed.type
+
+
+def type_words(handle: str) -> str:
+    """`ccy (podman)`, `desktop (host)`, or the bare type of any other handle."""
+    type_ = handle_type(handle) or "?"
+    return TYPE_WORDS.get(type_, type_)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -172,19 +196,30 @@ def _refuse_held(observed: Sequence[Observed]) -> None:
             raise seat.SeatHeld(seen.ref)
 
 
-def take_actions(observed: Sequence[Observed],
-                 needs: Callable[[], tuple[Identity, str]]) -> tuple[AddMember, ...]:
-    """One `add-member` per named seat with no directory (a new member, or a parked one
-    returning: the root side tells them apart), none for a seat that exists, and none at
-    all when one is held. `needs` gives the identity and the bus address, asked only when
-    a seat is to be created. Each call asks for the bundle on stdout (`--out=-`), which
-    `take` places itself: root never writes in the checkout (D61)."""
-    _refuse_held(observed)
+def _refuse_unbundled(observed: Sequence[Observed]) -> None:
     for seen in observed:
         if seen.exists and seen.handle is None:
             raise CheckoutError(
                 f"seat {seen.ref.text} has a directory but no bundle (member.json): run "
                 f"`agent-bus seat remove {seen.ref.text}`, then launch again"
+            )
+
+
+def take_actions(observed: Sequence[Observed], needs: Callable[[], tuple[Identity, str]], *,
+                 member_type: str = MEMBER_TYPE) -> tuple[AddMember, ...]:
+    """One `add-member` per named seat with no directory (a new member, or a parked one
+    returning: the root side tells them apart), none for a seat that exists, and none at
+    all when one is held. A seat that exists for another member type (a ccy seat asked for
+    by a desktop session, or the reverse) is refused. `needs` gives the identity and the
+    bus address, asked only when a seat is to be created. Each call asks for the bundle on
+    stdout (`--out=-`), which `take` places itself: root never writes in the checkout (D61)."""
+    _refuse_held(observed)
+    _refuse_unbundled(observed)
+    for seen in observed:
+        if seen.handle is not None and handle_type(seen.handle) != member_type:
+            raise CheckoutError(
+                f"seat {seen.ref.text} is a {type_words(seen.handle)} seat ({seen.handle}), and this "
+                f"launch asks for a {TYPE_WORDS.get(member_type, member_type)} one: choose another seat"
             )
     missing = [seen.ref for seen in observed if not seen.exists]
     if not missing:
@@ -193,10 +228,53 @@ def take_actions(observed: Sequence[Observed],
     return tuple(
         AddMember(ref, identity.handle(ref), (
             "add-member", ref.team, f"--repo={identity.repo}", f"--seat={ref.seat}",
-            f"--host={identity.host}", f"--type={MEMBER_TYPE}", f"--role={MEMBER_ROLE}",
+            f"--host={identity.host}", f"--type={identity.type_}", f"--role={MEMBER_ROLE}",
             f"--address={address}", "--out=-"))
         for ref in missing
     )
+
+
+# ── what a chooser offers for one team (pure) ────────────────────────────────────────────
+
+NEW, ACTIVE = "new", "active"
+
+
+@dataclasses.dataclass(frozen=True)
+class Choice:
+    """One row of the chooser: a seat of the checkout (`free` or `held`), or the `new` one."""
+
+    seat: str
+    state: str
+    handle: str
+
+
+def _seat_order(name: str) -> tuple[int, int, str]:
+    return (0, int(name), "") if name.isdigit() else (1, 0, name)
+
+
+def seat_choices(seats: Sequence[tuple[str, bool, str]], members: Sequence[tuple[str, str]],
+                 identity: Identity) -> tuple[tuple[Choice, ...], str]:
+    """The rows and the default seat for one team. `seats` is the checkout's seats in the
+    team (name, held, its bundle's handle); `members` the team's members (handle,
+    `active`/`parked`). Only seats of the identity's type are offered. The new seat is the
+    lowest number that no seat of the checkout uses and no active member of the same
+    `<repo>+<host>.<type>` holds (a parked one returns). The default is the lowest free
+    offered seat, else the new one."""
+    taken = {int(name) for name, _, _ in seats if name.isdigit()}
+    for handle, state in members:
+        parsed = protocol.parse_handle(handle)
+        if (state == ACTIVE and parsed is not None and parsed.seat.isdigit()
+                and (parsed.repo, parsed.host, parsed.type) == (identity.repo, identity.host, identity.type_)):
+            taken.add(int(parsed.seat))
+    number = 1
+    while number in taken:
+        number += 1
+    rows = [Choice(name, seat.HELD if held else seat.FREE, handle)
+            for name, held, handle in sorted(seats, key=lambda item: _seat_order(item[0]))
+            if handle_type(handle) == identity.type_]
+    new = Choice(str(number), NEW, identity.handle_of(str(number), f"{number} (new)"))
+    default = next((row.seat for row in rows if row.state == seat.FREE), new.seat)
+    return (*rows, new), default
 
 
 # ── placing a bundle, as the user, by open directories (D61) ─────────────────────────────
@@ -411,8 +489,8 @@ def _real_dir(path: pathlib.Path, uid: int, what: str) -> bool:
     return True
 
 
-def find_checkout(system: System) -> pathlib.Path:
-    """The working directory's git top level, owned by the user, with ccy's `.claude/ccy/`."""
+def _git_top(system: System) -> pathlib.Path:
+    """The working directory's git top level, owned by the user."""
     top = _git(system.cwd, "rev-parse", "--show-toplevel")
     if top.returncode != 0:
         raise CheckoutError(
@@ -421,6 +499,12 @@ def find_checkout(system: System) -> pathlib.Path:
         )
     path = pathlib.Path(top.stdout.strip())
     _real_dir(path, system.uid, "the checkout")
+    return path
+
+
+def find_checkout(system: System) -> pathlib.Path:
+    """The working directory's git top level, owned by the user, with ccy's `.claude/ccy/`."""
+    path = _git_top(system)
     if not _real_dir(path / CCY_DIR, system.uid, "ccy's directory"):
         raise CheckoutError(f"{path} has no {CCY_DIR}/: launch ccy in it once, then again with --teams")
     return path
@@ -491,26 +575,36 @@ def _observe(root: pathlib.Path, refs: Sequence[seat.SeatRef], uid: int) -> tupl
     return tuple(found)
 
 
+def _check_team(team: str, system: System) -> None:
+    if not system.team_active(team):
+        raise CheckoutError(
+            f"team `{team}` has no homeserver running on this host ({hs_unit(team)} is "
+            "not active): a launch names only a team hosted here; create it with "
+            "play-agent-bus.yml (agent_bus_teams) or sudo agent-bus-install team --team-file <file>"
+        )
+
+
 def _parse_and_check_teams(text: str, system: System, *, one_per_team: bool = True) -> tuple[seat.SeatRef, ...]:
-    refs = seat.parse_seat_list(text, one_per_team=one_per_team)
+    refs = tuple(ref for ref in seat.parse_seat_list(text, one_per_team=one_per_team)
+                 if isinstance(ref, seat.SeatRef))
     for ref in refs:
-        if not system.team_active(ref.team):
-            raise CheckoutError(
-                f"team `{ref.team}` has no homeserver running on this host ({hs_unit(ref.team)} is "
-                "not active): a launch names only a team hosted here; create it with "
-                "play-agent-bus.yml (agent_bus_teams) or sudo agent-bus-install team --team-file <file>"
-            )
+        _check_team(ref.team, system)
     return refs
 
 
-def check(text: str, system: System) -> str:
-    """`seat check`: the canonical list, when every team runs here. Changes nothing."""
-    return seat.canonical(_parse_and_check_teams(text, system))
+def check(text: str, system: System, *, resolved: bool = True) -> str:
+    """`seat check`: the canonical list, when every team runs here. Changes nothing. Unless
+    `resolved`, an item may be a team alone, kept as it is for the chooser (`seat choose`)."""
+    refs = seat.parse_seat_list(text, allow_bare=not resolved)
+    for ref in refs:
+        _check_team(ref.team, system)
+    return seat.canonical(refs)
 
 
 def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], None],
-         emit: Callable[[str], None]) -> None:
-    """`seat take`: create every named seat that has no directory; refuse a held one."""
+         emit: Callable[[str], None], member_type: str = MEMBER_TYPE) -> None:
+    """`seat take`: create every named seat that has no directory; refuse a held one, and
+    one that exists for another member type."""
     refs = _parse_and_check_teams(text, system)
     top = find_checkout(system)
     _seat_tree(top, system.uid, [ref.team for ref in refs])
@@ -519,9 +613,9 @@ def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], Non
     observed = _observe(root, refs, system.uid)
 
     def needs() -> tuple[Identity, str]:
-        return Identity(_repo(top), checkout_host(top, system.uid)), system.bus_address()
+        return Identity(_repo(top), checkout_host(top, system.uid), member_type), system.bus_address()
 
-    actions = take_actions(observed, needs)
+    actions = take_actions(observed, needs, member_type=member_type)
     for action in actions:
         claim = claim_seat_dir(top, action.ref, system.uid)
         try:
@@ -547,10 +641,65 @@ def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], Non
         emit(f"CHANGED\tseat {action.ref.text} {action.handle}")
 
 
+def _team_members(team: str, system: System) -> tuple[tuple[str, str], ...]:
+    """The team's members as (handle, active|parked), from `sudo -n agent-bus list <team>`,
+    which the read-only sudoers rule lets run without a password."""
+    code, out = system.agent_bus(("list", team), True)
+    if code != 0:
+        raise CheckoutError(
+            f"team {team}'s members could not be read (sudo -n agent-bus list {team} exited {code}, "
+            "for the reason above), so a new seat's number cannot be chosen safely; "
+            "play-agent-bus.yml installs the read-only sudoers rule that lets it run without a password"
+        )
+    members = []
+    for line in out.decode("utf-8", "replace").splitlines():
+        fields = line.split("\t")
+        if fields[0] == "MEMBER" and len(fields) == 5:
+            members.append((fields[1], fields[4]))
+    return tuple(members)
+
+
+def choose(team: str, system: System, *, member_type: str = MEMBER_TYPE) -> list[str]:
+    """`seat choose`: what a chooser offers for `team` in this checkout, as `CHOICE` lines
+    (seat, free|held|new, handle, the type in words) and one `DEFAULT` line. Changes
+    nothing; a checkout ccy has not used yet (no `.claude/ccy/`) simply has no seats."""
+    refs = seat.parse_seat_list(team, allow_bare=True)
+    if len(refs) != 1 or not isinstance(refs[0], seat.TeamRef):
+        raise seat.SeatListError(f"seat choose takes one team alone, not {seat.canonical(refs)}")
+    team = refs[0].team
+    _check_team(team, system)
+    top = _git_top(system)
+    found: list[tuple[str, bool, str]] = []
+    if _real_dir(top / CCY_DIR, system.uid, "ccy's directory"):
+        _seat_tree(top, system.uid, [team])
+        root = seat.checkout_seats_root(top)
+        observed = _observe(root, seat.list_seats(root, team=team), system.uid)
+        _refuse_unbundled(observed)
+        found = [(seen.ref.seat, seen.held, seen.handle or "") for seen in observed]
+    identity = Identity(_repo(top), checkout_host(top, system.uid), member_type)
+    rows, default = seat_choices(found, _team_members(team, system), identity)
+    return [*(f"CHOICE\t{row.seat}\t{row.state}\t{row.handle}\t{type_words(row.handle)}" for row in rows),
+            f"DEFAULT\t{default}"]
+
+
 def seat_list(system: System) -> tuple[list[str], list[str]]:
     """`seat list`: a `SEAT` line per seat of the checkout, and the seats that cannot be read."""
     top = find_checkout(system)
     return seat.seat_lines(seat.checkout_seats_root(top), None)
+
+
+def seat_table(lines: Sequence[str]) -> list[str]:
+    """`SEAT` lines as the owner reads them on a terminal: team, seat, state, the member's
+    full handle and its type in words, in aligned columns under a heading; no seats, no lines."""
+    if not lines:
+        return []
+    rows = [("TEAM", "SEAT", "STATE", "MEMBER", "TYPE")]
+    for line in lines:
+        _, team, name, state, _, handle = line.split("\t")
+        rows.append((team, name, state, handle, type_words(handle)))
+    widths = [max(len(row[column]) for row in rows) for column in range(4)]
+    return ["  ".join(value.ljust(width) for value, width in zip(row[:4], widths, strict=True)) + "  " + row[4]
+            for row in rows]
 
 
 def _prune(tree: Sequence[pathlib.Path]) -> None:

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(~/.var/app/im.riot.Riot/**)",
+      "Edit(~/.var/app/im.riot.Riot/**)",
+      "Read(~/.config/Element/**)",
+      "Edit(~/.config/Element/**)",
+      "Read(~/.config/Element-*/**)",
+      "Edit(~/.config/Element-*/**)"
+    ]
+  }
+}

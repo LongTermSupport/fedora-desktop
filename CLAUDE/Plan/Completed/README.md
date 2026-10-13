@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00106-run-bash-git-ref-headless](00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort. run.bash 1.18.0; proven on a real headless box.
+
 - [00105-tmux-sessions-single-key-menu](00105-tmux-sessions-single-key-menu/) - tmux for detachable long-running dev sessions behind one key: F12 opens a new/rename/switch/detach/kill menu; status bar off. Deployed and verified on a headless box.
 
 - [00103-slack-flatpak-rejects-md-dropped-from-nautilus](00103-slack-flatpak-rejects-md-dropped-from-nautilus/) - Slack Flatpak rejected a `.md` dragged from Nautilus: the sandbox only had `xdg-download`; `play-comms.yml` now grants `home:ro`, deployed and confirmed on the host

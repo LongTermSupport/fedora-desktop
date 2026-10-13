@@ -1309,15 +1309,23 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
 def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Claim every seat of the launch (`PINGBUS_SEATS`), build the session home, check
     every bundle and the forge credential source as `config check` does, then replace this
-    process with the command, which inherits the seat locks (DESIGN.md section 5.5)."""
+    process with the command, which inherits the seat locks (DESIGN.md section 5.5).
+    `--root` and `--home` are for a launch on the host (`cc --teams`), where the checkout
+    is not /workspace and /tmp is shared."""
     rt: Runtime = args.runtime
     command = list(args.command)
     if command[:1] == ["--"]:
         command = command[1:]
     if not command:
         raise config.UsageError(f"{PROG} seat exec: name the command to run")
+    paths = {}
+    for option, given, default in (("--root", args.root, rt.seats_root),
+                                   ("--home", args.home, rt.session_home)):
+        if given is not None and not os.path.isabs(given):
+            raise config.UsageError(f"{PROG} seat exec: {option} must be an absolute path")
+        paths[option] = default if given is None else pathlib.Path(given)
     forge_credential_source(environ)
-    claimed = seating.claim(environ, root=rt.seats_root, home=rt.session_home,
+    claimed = seating.claim(environ, root=paths["--root"], home=paths["--home"],
                             clock_ms=rt.clock_ms, sleep=rt.sleep)
     names = ", ".join(f"{ref.text} ({member.handle})"
                       for ref, member in zip(claimed.refs, claimed.members, strict=True))
@@ -1412,6 +1420,10 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     seat_exec = seat_commands.add_parser(
         "exec", help="claim the seats in PINGBUS_SEATS, then run CMD holding them (ccy's entrypoint)")
     team_option(seat_exec, argparse.SUPPRESS)
+    seat_exec.add_argument("--root", metavar="DIR",
+                           help="the checkout's seats (default: ccy's, under /workspace)")
+    seat_exec.add_argument("--home", metavar="DIR",
+                           help="the session home to make (default: ccy's, under /tmp)")
     seat_exec.add_argument("command", nargs=argparse.REMAINDER, metavar="CMD")
     seat_exec.set_defaults(handler=cmd_seat_exec)
     return parser
