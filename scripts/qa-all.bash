@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The three stage-line readers. Between them they produce the SUMMARY in every stage line
-# below — 36 of them, counted: `qa_gate_case_count` 26, `qa_gate_detail` 9,
+# below — 37 of them, counted: `qa_gate_case_count` 27, `qa_gate_detail` 9,
 # `helper_counts_summary` 1. `qa_pass_line` prints it; only `deployed-drift` composes its own
 # line, because there the line IS the gate's output rather than a summary of it. Sourced
 # rather than inlined so a committed test can drive the real functions — see the library
@@ -1329,6 +1329,17 @@ if ! docs_exit_out="$(bash "$SCRIPT_DIR/test-qa-docs-exit-codes.bash" 2>&1)"; th
 fi
 docs_exit_summary=$(qa_gate_case_count "$docs_exit_out")
 qa_pass_line docs-exit-codes "$docs_exit_summary"
+
+# The diff-scoped QA's file -> check mapping (scripts/qa-changed.bash --plan). A wrong mapping
+# is silent: the iteration loop reports a pass over checks it never selected.
+qa_changed_out=""
+if ! qa_changed_out="$(bash "$SCRIPT_DIR/test-qa-changed.bash" 2>&1)"; then
+    qa_hard_gate_failed qa-changed-mapping \
+        "qa-changed file-to-check mapping tests failed" \
+        "$qa_changed_out"
+fi
+qa_changed_summary=$(qa_gate_case_count "$qa_changed_out")
+qa_pass_line qa-changed-mapping "$qa_changed_summary"
 
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then

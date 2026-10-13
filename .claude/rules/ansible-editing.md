@@ -18,4 +18,4 @@ Every play declares a `scope`, anchors `root_dir` on the config lookup, and open
 - [CLAUDE/ContainerRules.md](../../CLAUDE/ContainerRules.md) — the CCY container boundary
 - [helpers/CLAUDE.md](../../helpers/CLAUDE.md) — complex logic belongs in a TDD'd Python helper, not an inline `shell:`
 - [CLAUDE/AgentNotes.md](../../CLAUDE/AgentNotes.md) — the ansible-core 2.19 parser gotchas in full
-- [CLAUDE/QA.md](../../CLAUDE/QA.md) — `./scripts/qa-all.bash` before every commit
+- [CLAUDE/QA.md](../../CLAUDE/QA.md) — `./scripts/qa-changed.bash` before each commit, `./scripts/qa-all.bash` before every push
