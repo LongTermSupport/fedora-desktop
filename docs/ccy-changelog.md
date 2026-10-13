@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.2 — container 2.52
+
+- **Container 2.52: the image carries the current pingbus and its skill.** Both are built
+  into the image (`optional/agent-bus/`, the pingbus zipapp and the plugin's skill file), and
+  they changed after container 2.51 (seat, config, forge and protocol changes, and the
+  skill's text), so a session started from the old image ran the old ones. The version bump
+  rebuilds the image once. No launcher behaviour change.
+
 ## 3.95.1 — container 2.51
 
 - **No behaviour change.** The check that decides whether `--teams <team>` can show its
