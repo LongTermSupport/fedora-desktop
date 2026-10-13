@@ -630,6 +630,71 @@ class TestElementProfile(BundleCase):
             self.assert_refused(contains="Permission denied")
 
 
+class TestElementAcceptedForADesktopSeat(BundleCase):
+    """Plan 00177 Task 4.10: a `cc --teams` session is a `host` member in a checkout seat,
+    reached through the session home's link, and runs as the desktop's owner. The owner
+    accepts once, at cc's confirm, that it runs beside their Element profile; cc records
+    that as `config.ELEMENT_ACCEPTED_FILE` in the seat. Only that case loads: every other
+    `host` bundle keeps the refusal, the record or not."""
+
+    def host_seat(self) -> pathlib.Path:
+        seat = self.root / "seats" / "team-a" / "3"
+        seat.mkdir(parents=True, mode=0o700)
+        (seat / "member.json").write_text(
+            json.dumps(member_json(user_id=f"@{HOST_HANDLE}:{SN}")), encoding="utf-8")
+        (seat / "token").write_text(TOKEN, encoding="utf-8")
+        (seat / "token").chmod(0o600)
+        self.home.mkdir(mode=0o700)
+        (self.home / "team-a").symlink_to(seat)
+        (self.user_home / ".var/app/im.riot.Riot").mkdir(parents=True)
+        return seat
+
+    def accept(self, directory: pathlib.Path) -> pathlib.Path:
+        record = directory / config.ELEMENT_ACCEPTED_FILE
+        record.write_text("accepted\n", encoding="utf-8")
+        record.chmod(0o600)
+        return record
+
+    def test_a_seat_the_owner_accepted_loads_beside_element(self) -> None:
+        self.accept(self.host_seat())
+        self.assertEqual(self.load().member_type, "host")
+
+    def test_a_seat_not_accepted_is_refused(self) -> None:
+        self.host_seat()
+        self.assert_refused(contains="Element")
+
+    def test_a_plain_host_bundle_is_refused_even_with_the_record(self) -> None:
+        bundle = self.write_bundle(data=member_json(user_id=f"@{HOST_HANDLE}:{SN}"))
+        self.accept(bundle)
+        (self.user_home / ".config" / "Element").mkdir(parents=True)
+        self.assert_refused(contains="Element")
+
+    def test_a_record_that_is_a_symlink_or_a_directory_does_not_count(self) -> None:
+        seat = self.host_seat()
+        real = self.accept(self.root)
+        (seat / config.ELEMENT_ACCEPTED_FILE).symlink_to(real)
+        self.assert_refused(contains="Element")
+        (seat / config.ELEMENT_ACCEPTED_FILE).unlink()
+        (seat / config.ELEMENT_ACCEPTED_FILE).mkdir()
+        self.assert_refused(contains="Element")
+
+    def test_a_record_owned_by_someone_else_does_not_count(self) -> None:
+        seat = self.host_seat()
+        record = self.accept(seat)
+        real_lstat = os.lstat
+
+        def foreign_record(path: object, *args: object, **kwargs: object) -> os.stat_result:
+            info = real_lstat(path, *args, **kwargs)
+            if os.fspath(path) != os.fspath(record):
+                return info
+            fields = list(info)
+            fields[4] = self.uid + 1  # st_uid
+            return os.stat_result(fields)
+
+        with mock.patch.object(config.os, "lstat", side_effect=foreign_record):
+            self.assert_refused(contains="Element")
+
+
 class TestSymlinkedTeamEntry(BundleCase):
     """§12 / DESIGN.md D50: a `PINGBUS_HOME` team entry may be a symlink (a ccy session's
     home links each team to its seat's directory), accepted only onto a real directory,

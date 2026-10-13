@@ -318,6 +318,27 @@ class ClaimTest(SeatCase):
         self.assertEqual(os.readlink(self.session_home / TEAM_A), str(self.dev1))
         self.assertEqual(os.readlink(self.session_home / TEAM_B), str(self.qa2))
 
+    def test_on_the_host_the_seats_root_and_session_home_are_given(self):
+        """`cc --teams` claims a checkout's seat on the host (Plan 00177 Task 4.10): no
+        /workspace there, and a session home of its own in a private directory."""
+        home = self.tmp / "cc-session" / "pingbus-home"
+        home.parent.mkdir(mode=0o700)
+        code, _, err = self.run_cli("seat", "exec", "--root", str(self.root), "--home", str(home),
+                                    "--", "claude")
+        self.assertEqual(code, 0, err)
+        ((_, _, env),) = self.execs
+        self.assertEqual(env["PINGBUS_HOME"], str(home))
+        self.assertEqual(os.readlink(home / TEAM_A), str(self.dev1))
+        self.assertFalse(self.session_home.exists())
+
+    def test_a_relative_seats_root_or_session_home_is_refused_64(self):
+        for option in ("--root", "--home"):
+            with self.subTest(option=option):
+                code, _, err = self.run_cli("seat", "exec", option, "relative/dir", "--", "claude")
+                self.assertEqual(code, EX_USAGE, err)
+                self.assertIn(option, err)
+        self.assertEqual(self.execs, [])
+
     def test_an_existing_session_home_is_refused(self):
         self.session_home.mkdir()
         code, _, err = self.claim()
