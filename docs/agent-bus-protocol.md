@@ -253,7 +253,7 @@ expected shape is a config error (exit 78), not silently discarded. A 429, or a 
 `x-ratelimit-remaining: 0`, is retried per §10 and then reported as `forge-rate`. Send-side
 refusals, on stderr: `not-found`, `wrong-kind`, `provenance`, `forge-unreachable`,
 `forge-auth` (exit 5), `forge-rate` (exit 9). On receive the same failures drop the ping as
-`unresolved` or `provenance`, except `forge-rate`, which drops it as `rate`: the forge
+`unresolved` or `provenance`, except `forge-rate`, which drops it as `forge-rate` (never `rate`, the flood limit): the forge
 declined to answer, which says nothing about the reference.
 
 **Forge credential:** one source, the GitHub CLI's login: `gh auth token --hostname github.com`, run without a shell, with a 15 s timeout, its stdout captured and never logged
@@ -480,7 +480,7 @@ than the verb's ack timeout (§10; `ack_timeout_s` for verbs that expect none): 
 (`stale`); an `ack` or `nack` dropped here is not delivered, but it goes on through 09p
 and 10p and answers its ping (§10) only if neither would drop it. Any other stale ping
 stops here. 09p. Sender over the receive flood limit: drop (`rate`). 10p. Forge check (§6):
-drop (`unresolved` / `provenance`, or `rate` when the forge's rate limit stopped the check). 11p. Write to the inbox.
+drop (`unresolved` / `provenance`, or `forge-rate` when the forge's rate limit stopped the check). 11p. Write to the inbox.
 
 After the batch's inbox writes are durable, the sync token is saved.
 
@@ -493,7 +493,7 @@ server has no copy), logged and consumed. A sync's drops and its re-fetch's drop
 batch: one `DROPPED` line per team per pass (§15).
 
 **Drop reason codes** (closed set): `version`, `schema`, `size`, `edit`, `sender`, `role`,
-`target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `unresolved`,
+`target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `forge-rate`, `unresolved`,
 `provenance`.
 
 **Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop: text

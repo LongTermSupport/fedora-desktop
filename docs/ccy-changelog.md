@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.4 — container 2.54
+
+- **Container 2.54: the image carries the pingbus that logs a ping the forge rate-limited
+  as `forge-rate`, no longer `rate`.** `rate` is the bus's own flood limit, so the log could
+  not tell a spent GitHub quota from a flood. Drop reasons are local log text, never sent to
+  another member, so an older pingbus is unaffected. The version bump rebuilds the image once.
+  No launcher behaviour change.
+
 ## 3.95.3 — container 2.53
 
 - **Container 2.53: the image carries the pingbus that keeps each repository's answer in the
