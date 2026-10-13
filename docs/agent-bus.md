@@ -21,12 +21,19 @@ On a desktop built from this repository, `ccy-teams` is where you look after tea
 to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own; what it
 shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
 
-1. **Create a team.** `ccy-teams create` asks for the team's name, its humans, and the
-   repositories and branches its pings may name. It adds the entry to `agent_bus_teams` in
-   your host_vars `localhost.yml`, backing the file up first. The port is chosen for you,
-   the team listens on the bus address (`agent_bus_address`, which must be set), and
-   `allow_from` is empty unless you name a subnet. The team exists once
-   `play-agent-bus.yml` has run.
+1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
+   asks a few questions. The first is the team's name. Next come the people in its room:
+   you, by default, and the installer creates the accounts. Then it asks for the GitHub
+   owner the team works within, and lets you choose which of its repositories the agents
+   may send each other to. Each repository's default branch comes from GitHub; work on
+   other branches reaches the agents through pull requests, which need no listing. Last,
+   subnets of other machines, empty unless LXC containers or other machines will run
+   agents. It shows the entry and asks before adding it to `agent_bus_teams` in your
+   host_vars `localhost.yml`, backing the file up first. The port is chosen for you, and
+   the team listens on the bus address (`agent_bus_address`, which must be set). The team
+   exists once `play-agent-bus.yml` has run, and `create` ends by listing the next steps.
+   The questions need `gum` and a logged-in `gh`; `--team`, `--human`, `--repo` and
+   `--yes` ask nothing.
 2. **Watch it in Element.** Add `{team: <team>, base_url: http://<bus_ip>:<port>}` to
    `agent_bus_element_teams` and run `play-agent-bus-element.yml`. Ctrl-E on the team in
    `ccy-teams` opens it, and first offers a new password to a human with no session yet

@@ -31,10 +31,18 @@
 #   ccy-teams -l|--list              print the same table, with a heading, and exit
 #   ccy-teams create [--team T] [--human NAME]... [--repo OWNER/REPO=BRANCH[,BRANCH]]...
 #                    [--allow-from CIDR]... [--yes]
-#                                    add a team to agent_bus_teams in the host_vars,
-#                                    asking for what the flags leave out; the port is
-#                                    chosen for you; the team is made only when
-#                                    play-agent-bus.yml runs
+#                                    add a team to agent_bus_teams in the host_vars. On a
+#                                    terminal it asks (with gum) for what the flags leave
+#                                    out: the name; the people in the team room (you, by
+#                                    default); the GitHub owner, then which of its
+#                                    repositories the agents may send each other to,
+#                                    each with its default branch (from gh); other
+#                                    machines' subnets. It shows the entry and asks
+#                                    before writing. --yes asks nothing: give --team,
+#                                    --human and --repo. The port is chosen for you; the
+#                                    team is made only when play-agent-bus.yml runs
+#
+# With no team on this machine, the picker offers to create one.
 #   ccy-teams backup <team>          back the team's homeserver up now
 #   ccy-teams restore <team> [<n>] [--yes]
 #                                    restore backup <n> after a yes/no (--yes: none);
@@ -111,20 +119,317 @@ need_checkout() {
     fi
 }
 
+project_here() {
+    local probe
+    probe="$(git rev-parse --is-inside-work-tree 2>&1)" && [[ "${probe}" == "true" ]]
+}
+
 # declare_helper <args...> — helpers/agent_bus/declare.py from the checkout.
 declare_helper() {
     PYTHONPATH="${ROOT_DIR}" python3 -P -m helpers.agent_bus.declare "$@"
 }
 
-# ── create, backup, restore: thin wrappers ───────────────────────────────────────────────
+# ── create: the questions, asked with gum; declare.py checks and writes ──────────────────
+
+cancelled() {
+    echo "Cancelled; nothing was changed." >&2
+    exit 130
+}
+
+# need_tool <command> <what installs it> — a hard dependency: missing is a failure, never a
+# reason to fall back to something plainer.
+need_tool() {
+    if [[ -z "$(command -v "$1")" ]]; then
+        print_error "$1 is not installed, and ccy-teams needs it here. $2 installs it; run that play and try again."
+        exit 1
+    fi
+}
+
+# gum_ask <header> <placeholder> <value> — one line of input; prints it. Esc or Ctrl-C
+# returns non-zero.
+gum_ask() {
+    gum input --header "$1" --placeholder "$2" --value "$3" --width 0
+}
+
+# ask_valid <checker> <header> <placeholder> <value> — ask until <checker> <answer> accepts
+# it (it prints the problem on stderr when it does not), MAX_TRIES at most. Prints the
+# answer; returns 130 when cancelled, 1 when every try was refused.
+ask_valid() {
+    local checker="$1" header="$2" placeholder="$3" value="$4" answer try
+    for ((try = 1; try <= MAX_TRIES; try++)); do
+        answer="$(gum_ask "${header}" "${placeholder}" "${value}")" || return 130
+        answer="${answer#"${answer%%[![:space:]]*}"}"
+        answer="${answer%"${answer##*[![:space:]]}"}"
+        if "${checker}" "${answer}"; then
+            printf '%s\n' "${answer}"
+            return 0
+        fi
+        value="${answer}"
+    done
+    echo "Giving up after ${MAX_TRIES} tries; nothing was changed." >&2
+    return 1
+}
+
+# ask_or_quit — the status of an ask_valid: 130 cancels, any other failure ends the run.
+ask_or_quit() {
+    case "$1" in
+    0) ;;
+    130) cancelled ;;
+    *) exit 1 ;;
+    esac
+}
+
+# say_problem <declare's message> — a refused value, as a person would say it.
+say_problem() {
+    echo "  ${1#declare: }. Try again." >&2
+}
+
+check_team() {
+    local problem
+    if [[ -z "$1" ]]; then
+        say_problem "the team needs a name"
+        return 1
+    fi
+    problem="$(declare_helper check --file "${HOST_VARS}" --team "$1" 2>&1)" || {
+        say_problem "${problem}"
+        return 1
+    }
+}
+
+# split_commas <text> — one name per line.
+split_commas() {
+    local part
+    while read -r -d , part; do
+        [[ -z "${part// /}" ]] || printf '%s\n' "${part// /}"
+    done <<<"$1,"
+}
+
+check_humans() {
+    local -a flags=()
+    local name problem
+    while read -r name; do
+        [[ -z "${name}" ]] || flags+=(--human "${name}")
+    done <<<"$(split_commas "$1")"
+    if [[ -z "${flags[*]:-}" ]]; then
+        say_problem "name at least one person; your own login name is the usual answer"
+        return 1
+    fi
+    problem="$(declare_helper check --file "${HOST_VARS}" "${flags[@]}" 2>&1)" || {
+        say_problem "${problem}"
+        return 1
+    }
+}
+
+# check_owner <owner> — a GitHub user or organisation that exists (GitHub's names are not
+# case-sensitive, so it is checked lower-cased, as the team file holds it).
+check_owner() {
+    local owner="${1,,}" problem
+    problem="$(declare_helper check --file "${HOST_VARS}" --owner "${owner}" 2>&1)" || {
+        say_problem "${problem}"
+        return 1
+    }
+    if ! gum spin --title "Looking up ${owner} on GitHub…" -- gh api "users/${owner}" --silent; then
+        say_problem "GitHub has no user or organisation called '${owner}' that your gh login can see"
+        return 1
+    fi
+}
+
+check_subnets() {
+    local -a flags=()
+    local cidr problem
+    while read -r cidr; do
+        [[ -z "${cidr}" ]] || flags+=(--allow-from "${cidr}")
+    done <<<"$(split_commas "$1")"
+    [[ -n "${flags[*]:-}" ]] || return 0
+    problem="$(declare_helper check --file "${HOST_VARS}" "${flags[@]}" 2>&1)" || {
+        say_problem "${problem}"
+        return 1
+    }
+}
+
+# the_remote_repo — this checkout's GitHub OWNER/REPO, lower-case; nothing outside one.
+the_remote_repo() {
+    local url
+    project_here || return 0
+    url="$(git remote get-url origin 2>&1)" || return 0
+    declare_helper github-remote --url "${url}"
+}
+
+# pick_repos <owner> <pre-selected> — the owner's repositories in a multi-select; prints
+# "<owner/repo>=<default branch>" per chosen one. Returns 130 when cancelled, 1 on failure.
+pick_repos() {
+    local owner="$1" current="$2" listing errors listing_lines kind name branch count="" picked try
+    local -a names=() empty=() selected=()
+    local -A branch_of=()
+    listing="$(mktemp)"
+    errors="$(mktemp)"
+    if ! gum spin --title "Listing ${owner}'s repositories on GitHub…" -- \
+        bash -c 'gh repo list "$1" --limit 1000 --json name,defaultBranchRef,isArchived >"$2" 2>"$3"' \
+        _ "${owner}" "${listing}" "${errors}"; then
+        print_error "gh repo list ${owner} failed: $(cat "${errors}")"
+        rm -f "${listing}" "${errors}"
+        return 1
+    fi
+    if ! listing_lines="$(declare_helper gh-repos --owner "${owner}" <"${listing}")"; then
+        rm -f "${listing}" "${errors}"
+        return 1
+    fi
+    rm -f "${listing}" "${errors}"
+    while IFS=$'\t' read -r kind name branch; do
+        case "${kind}" in
+        COUNT) count="${name}" ;;
+        REPO)
+            names+=("${name}")
+            branch_of["${name}"]="${branch}"
+            ;;
+        EMPTY) empty+=("${name}") ;;
+        esac
+    done <<<"${listing_lines}"
+    if [[ -z "${names[*]:-}" ]]; then
+        print_error "${owner} has no repository with commits that is not archived, so there is nothing a team could work on."
+        return 1
+    fi
+    if [[ "${count}" -ge 1000 ]]; then
+        echo "GitHub listed 1000 repositories, the most this asks for, so the list may be cut off; give a missing one with ccy-teams create --repo OWNER/REPO=BRANCH." >&2
+    fi
+    if [[ -n "${empty[*]:-}" ]]; then
+        echo "Left out, as they have no commits yet (so no default branch): ${empty[*]}" >&2
+    fi
+    [[ -z "${current}" || -z "${branch_of[${current}]:-}" ]] || selected=(--selected "${current}")
+    for ((try = 1; try <= MAX_TRIES; try++)); do
+        picked="$(printf '%s\n' "${names[@]}" | gum filter --no-limit "${selected[@]}" \
+            --header "Which repositories may this team's agents send each other to (review, read)? List every repository the agents work in; you can add more later. Tab marks one, Enter accepts." \
+            --placeholder "type to filter")" || return 130
+        if [[ -n "${picked}" ]]; then
+            while read -r name; do
+                [[ -z "${name}" ]] || printf '%s=%s\n' "${name}" "${branch_of[${name}]}"
+            done <<<"${picked}"
+            return 0
+        fi
+        echo "  Choose at least one: Tab marks a repository, Enter accepts. Try again." >&2
+    done
+    echo "Giving up after ${MAX_TRIES} tries; nothing was changed." >&2
+    return 1
+}
+
+# create_wizard [flags] — the questions, for what the flags leave out, then a summary and
+# a yes before declare.py writes. Each answer is checked as it is given.
+create_wizard() {
+    local team="" yes=false text current default_team login probe entry picked name rc
+    local -a humans=() repos=() allow_from=() flags=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --yes) yes=true ;;
+        --team | --human | --repo | --allow-from)
+            [[ $# -ge 2 ]] || usage_error "create's $1 needs a value."
+            case "$1" in
+            --team) team="$2" ;;
+            --human) humans+=("$2") ;;
+            --repo) repos+=("$2") ;;
+            --allow-from) allow_from+=("$2") ;;
+            esac
+            shift
+            ;;
+        *) usage_error "unknown create option '$1'." ;;
+        esac
+        shift
+    done
+    if [[ "${yes}" == false ]]; then
+        if [[ ! -t 0 || ! -t 2 ]]; then
+            usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
+        fi
+        need_tool gum playbooks/imports/play-claude-yolo.yml
+        need_tool gh playbooks/imports/play-git-configure-and-tools.yml
+        if [[ -z "${repos[*]:-}" ]] && ! probe="$(gh auth status 2>&1)"; then
+            print_error "gh is not logged in to GitHub, and the team's repositories are listed from there (gh said: ${probe}). Run gh auth login, then ccy-teams create again."
+            exit 1
+        fi
+        gum style --bold --border rounded --padding "0 1" "New agent team" >&2
+        cat >&2 <<EOF
+A team is a group of agents (ccy sessions, LXC containers) and people who work
+together in a private chat room, on a homeserver on this machine; you watch and talk
+to the agents in Element. This adds the team to ${HOST_VARS/#${HOME}/\~}.
+Nothing is installed until play-agent-bus.yml runs: the next steps follow at the end.
+Esc or Ctrl-C at any question leaves without changing anything.
+
+EOF
+        current="$(the_remote_repo)"
+    fi
+    if [[ -z "${team}" && "${yes}" == false ]]; then
+        default_team="${current#*/}"
+        if [[ -n "${default_team}" ]] && ! probe="$(declare_helper check --file "${HOST_VARS}" --team "${default_team}" 2>&1)"; then
+            default_team=""
+        fi
+        rc=0
+        team="$(ask_valid check_team \
+            "Team name: a short name for the team, used in its room and its agents' names. Lower-case letters, digits and -, up to 24." \
+            "e.g. website" "${default_team}")" || rc=$?
+        ask_or_quit "${rc}"
+    fi
+    if [[ -z "${humans[*]:-}" && "${yes}" == false ]]; then
+        login="$(id -un)"
+        if ! probe="$(declare_helper check --file "${HOST_VARS}" --human "${login}" 2>&1)"; then
+            echo "Your login name, ${login}, cannot be an account name here (${probe#declare: }), so there is no default." >&2
+            login=""
+        fi
+        rc=0
+        text="$(ask_valid check_humans \
+            "People in the team room: each gets an Element account on the team's homeserver, to read and write there. The installer creates the accounts; nobody needs one yet. You are in by default; add others' names separated by commas." \
+            "e.g. ${login:-yourname}, colleague" "${login}")" || rc=$?
+        ask_or_quit "${rc}"
+        mapfile -t humans <<<"$(split_commas "${text}")"
+    fi
+    if [[ -z "${repos[*]:-}" && "${yes}" == false ]]; then
+        rc=0
+        text="$(ask_valid check_owner \
+            "GitHub owner: the organisation or user whose repositories this team works in. A team works within one owner." \
+            "e.g. example-org" "${current%%/*}")" || rc=$?
+        ask_or_quit "${rc}"
+        rc=0
+        picked="$(pick_repos "${text,,}" "${current}")" || rc=$?
+        ask_or_quit "${rc}"
+        mapfile -t repos <<<"${picked}"
+    fi
+    if [[ -z "${allow_from[*]:-}" && "${yes}" == false ]]; then
+        rc=0
+        text="$(ask_valid check_subnets \
+            "Other machines: leave this empty unless LXC containers or other machines will run this team's agents. If they will, give the subnet they connect from, in CIDR form; separate several with commas." \
+            "empty: only this machine (e.g. 192.0.2.0/24)" "")" || rc=$?
+        ask_or_quit "${rc}"
+        mapfile -t allow_from <<<"$(split_commas "${text}")"
+    fi
+    [[ -z "${team}" ]] || flags+=(--team "${team}")
+    for name in "${humans[@]}"; do [[ -z "${name}" ]] || flags+=(--human "${name}"); done
+    for name in "${repos[@]}"; do [[ -z "${name}" ]] || flags+=(--repo "${name}"); done
+    for name in "${allow_from[@]}"; do [[ -z "${name}" ]] || flags+=(--allow-from "${name}"); done
+    if [[ "${yes}" == true ]]; then
+        declare_helper create --file "${HOST_VARS}" "${flags[@]}"
+        return
+    fi
+    entry="$(declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run)" || exit
+    gum style --border rounded --padding "0 1" "The entry for ${HOST_VARS/#${HOME}/\~}" "" "${entry}" >&2
+    echo "Each repository is listed with its default branch; work on other branches reaches the agents through pull requests, which need no listing." >&2
+    rc=0
+    # Default yes: the entry is only added (the file is backed up first), and it does
+    # nothing until the play runs.
+    gum confirm --default=true "Add team ${team} to ${HOST_VARS##*/}?" || rc=$?
+    case "${rc}" in
+    0) ;;
+    1)
+        echo "Nothing was added." >&2
+        exit 1
+        ;;
+    *) cancelled ;;
+    esac
+    declare_helper create --file "${HOST_VARS}" "${flags[@]}"
+}
 
 cmd_create() {
     need_checkout
-    if [[ ! -t 0 && " $* " != *" --yes "* ]]; then
-        usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
-    fi
-    declare_helper create --file "${HOST_VARS}" "$@"
+    create_wizard "$@"
 }
+
+# ── backup, restore: thin wrappers ───────────────────────────────────────────────────────
 
 cmd_backup() {
     [[ $# -eq 1 && "$1" != -* ]] || usage_error "'backup' takes one team."
@@ -421,11 +726,6 @@ collect() {
     done
 }
 
-project_here() {
-    local probe
-    probe="$(git rev-parse --is-inside-work-tree 2>&1)" && [[ "${probe}" == "true" ]]
-}
-
 if [[ "${subcommand}" == -l || "${subcommand}" == --list ]]; then
     collect || exit 1
     if [[ -z "${R_TEXT[*]:-}" ]]; then
@@ -442,6 +742,36 @@ fi
 if [[ ! -t 0 || ! -t 1 ]]; then
     echo "ccy-teams needs a terminal: it attaches sessions to the one you are in. ccy-teams --list prints the table instead." >&2
     exit 1
+fi
+
+# offer_create — no team on this machine: say what a team is, and offer to create one now.
+offer_create() {
+    local rc=0
+    need_tool gum playbooks/imports/play-claude-yolo.yml
+    cat >&2 <<'EOF'
+No agent teams on this machine yet.
+
+A team is a group of agents (ccy sessions, LXC containers) and people who work together
+in a private chat room on a homeserver on this machine, which you follow in Element.
+EOF
+    gum confirm --default=false "Create one now?" || rc=$?
+    case "${rc}" in
+    0)
+        cmd_create
+        exit
+        ;;
+    1)
+        echo "Nothing created. ccy-teams create starts one whenever you like." >&2
+        exit 0
+        ;;
+    *) cancelled ;;
+    esac
+}
+
+# The teams are known without sudo: with none there is nothing to read, so nothing is asked.
+collect_teams || exit 1
+if [[ -z "${TEAMS[*]:-}" ]]; then
+    offer_create
 fi
 echo "ccy-teams reads each team's members with sudo agent-bus list." >&2
 

@@ -16,12 +16,21 @@ address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's
 
     python3 -m helpers.agent_bus.declare declared --file <localhost.yml>
         TEAM<TAB><team><TAB><port or -><TAB><present|absent> per entry
-    python3 -m helpers.agent_bus.declare create --file <localhost.yml> [--team T]
-            [--human NAME]... [--repo OWNER/REPO=BRANCH[,BRANCH]]... [--allow-from CIDR]... [--yes]
-        prompts for what the flags leave out, then CHANGED<TAB>team <team>, port <port>, in <file>;
-        with --yes it asks nothing more, and allow_from is empty unless --allow-from names one
+    python3 -m helpers.agent_bus.declare create --file <localhost.yml> --team T --human NAME...
+            --repo OWNER/REPO=BRANCH[,BRANCH]... [--allow-from CIDR]... [--dry-run]
+        CHANGED<TAB>team <team>, port <port>, in <file>, and the next steps on stderr;
+        --dry-run prints the entry's lines instead and writes nothing
+    python3 -m helpers.agent_bus.declare check --file <localhost.yml> [--team T] [--human NAME]...
+            [--repo ...]... [--allow-from CIDR]... [--owner OWNER]
+        nothing when every value given is valid; exit 64 naming the first that is not
+    python3 -m helpers.agent_bus.declare gh-repos --owner OWNER  < gh repo list's JSON
+        COUNT<TAB>n, then REPO<TAB>owner/repo<TAB>branch and EMPTY<TAB>owner/repo lines
+    python3 -m helpers.agent_bus.declare github-remote --url URL
+        the lower-case OWNER/REPO of a GitHub remote, or nothing
 
-Exit 0 done, 1 cancelled (nothing written), 64 usage, 78 refused.
+Nothing here prompts: ccy-teams asks the questions and passes the answers as flags, each
+checked by `check` as it is given. Exit 0 done, 64 usage, 78 refused, 130 Ctrl-C (nothing
+written: the file is replaced whole, after its backup, in one rename).
 """
 
 from __future__ import annotations
@@ -49,12 +58,10 @@ AUTO_PORT_LAST = 6266
 DEFAULT_PATH_PREFIXES = ("CLAUDE/Plan/", "docs/")
 DEFAULT_FORGE_API = "https://api.github.com"
 DEFAULT_ITEM_INDENT = 2
-MAX_TRIES = 3
-
 EXIT_OK = 0
-EXIT_CANCELLED = 1
 EXIT_USAGE = 64
 EXIT_REFUSED = 78
+EXIT_INTERRUPTED = 130
 
 _KEY_LINE_RE = re.compile(r"(?P<key>[a-z_]+):(?P<rest>(?:\s.*)?)")
 _TOP_KEY_RE = re.compile(rf"{TEAMS_KEY}\s*:(?P<rest>.*)")
@@ -359,73 +366,20 @@ def _write_new(path: pathlib.Path, data: bytes, mode: int) -> None:
     os.chmod(path, mode)
 
 
-# ---------------------------------------------------------------- the prompts
+# ---------------------------------------------------------------- the commands
 
 
-Ask = Callable[[str], "str | None"]
-
-
-class Cancelled(Exception):
-    pass
-
-
-def _terminal_ask(prompt: str) -> str | None:
-    sys.stderr.write(prompt)
-    sys.stderr.flush()
-    line = sys.stdin.readline()
-    if not line:
-        sys.stderr.write("\n")
-        return None
-    return line.rstrip("\n")
+NO_ADDRESS = (
+    "{path} sets no {key}. It is the address on this machine that every team's homeserver "
+    "listens on, and it is used for nothing else: an IP of this machine that the team's agents "
+    "and your Element can reach, such as its WireGuard address, or one added for the bus. Set it "
+    "in {path}, for example `{key}: 192.0.2.10` (see localhost.yml.dist), and run "
+    "playbooks/imports/play-agent-bus.yml once to bring it up; then run ccy-teams create again"
+)
 
 
 def _split(text: str) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
-
-
-def _prompt(ask: Ask, err: TextIO, prompt: str, check: Callable[[str], str | None]) -> str:
-    """Ask until check accepts the answer (None), MAX_TRIES at most."""
-    for _ in range(MAX_TRIES):
-        answer = ask(prompt)
-        if answer is None:
-            raise Cancelled("no input")
-        problem = check(answer.strip())
-        if problem is None:
-            return answer.strip()
-        err.write(f"  {problem}. Try again.\n")
-    raise Cancelled(f"giving up after {MAX_TRIES} tries")
-
-
-def _team_check(hv: HostVars) -> Callable[[str], str | None]:
-    def check(value: str) -> str | None:
-        if any(t.team == value for t in hv.teams):
-            return f"team {value} is already declared in {TEAMS_KEY}"
-        return field_error("team", value)
-    return check
-
-
-def _repo_check(value: str) -> str | None:
-    return field_error("repos", [{"repo": value, "branches": ["main"]}])
-
-
-def _ask_repos(ask: Ask, err: TextIO) -> list[tuple[str, list[str]]]:
-    repos: list[tuple[str, list[str]]] = []
-    while len(repos) < protocol.REPOS_MAX:
-        def repo_check(value: str) -> str | None:
-            if not value:
-                return None if repos else "a team needs at least one repository"
-            if any(value == known for known, _ in repos):
-                return f"{value} is listed already"
-            return _repo_check(value)
-        repo = _prompt(ask, err, "Repository the team works on, OWNER/REPO (empty when done): ", repo_check)
-        if not repo:
-            break
-
-        def branches_check(value: str, repo: str = repo) -> str | None:
-            return field_error("repos", [{"repo": repo, "branches": _split(value)}])
-        branches = _prompt(ask, err, f"Branches of {repo} pings may name, comma-separated: ", branches_check)
-        repos.append((repo, _split(branches)))
-    return repos
 
 
 def _parse_repo_flag(value: str) -> tuple[str, list[str]]:
@@ -438,55 +392,111 @@ def _parse_repo_flag(value: str) -> tuple[str, list[str]]:
     return repo, _split(branches)
 
 
-def create(args: argparse.Namespace, ask: Ask, ss_output: Callable[[], str], out: TextIO, err: TextIO) -> int:
+def _check_flags(hv: HostVars, args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    """Every value the flags give, by the team file's rules; UsageError names the first bad one.
+    Returns the repos, parsed."""
+    if args.team is not None:
+        if any(t.team == args.team for t in hv.teams):
+            raise UsageError(f"--team: team {args.team} is already declared in {TEAMS_KEY}")
+        problem = field_error("team", args.team)
+        if problem:
+            raise UsageError(f"--team: {problem}")
+    for flag, key, value in (("--human", "humans", args.human), ("--allow-from", "allow_from", args.allow_from)):
+        if value:
+            problem = field_error(key, value)
+            if problem:
+                raise UsageError(f"{flag}: {problem}")
+    owner = getattr(args, "owner", None)
+    if owner is not None and not protocol.is_owner_repo(f"{owner}/x"):
+        raise UsageError(f"--owner: {owner!r} must be a lower-case GitHub owner (an org or a user)")
+    return [_parse_repo_flag(value) for value in args.repo or []]
+
+
+def check(args: argparse.Namespace) -> int:
+    _check_flags(parse(_read(pathlib.Path(args.file))), args)
+    return EXIT_OK
+
+
+def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, err: TextIO) -> int:
     path = pathlib.Path(args.file)
     hv = parse(_read(path))
     if hv.address is None:
-        raise DeclareError(f"{path} sets no plain {ADDRESS_KEY}, which a team listens on: set it "
-                           "(see localhost.yml.dist) and run play-agent-bus.yml first")
-    for key, value in (("team", args.team), ("humans", args.human or None), ("allow_from", args.allow_from)):
-        if value is not None:
-            problem = _team_check(hv)(value) if key == "team" else field_error(key, value)
-            if problem:
-                raise UsageError(f"--{key.replace('_', '-').rstrip('s')}: {problem}")
-    repos = [_parse_repo_flag(value) for value in args.repo or []]
-    try:
-        team = args.team or _prompt(ask, err, "Team name (lower-case letters, digits and -, up to 24): ",
-                                    _team_check(hv))
-        humans = args.human or _split(_prompt(
-            ask, err, "Humans of the team, comma-separated (their Matrix account names): ",
-            lambda v: field_error("humans", _split(v))))
-        repos = repos or _ask_repos(ask, err)
-        allow_from = args.allow_from
-        if allow_from is None and args.yes:
-            allow_from = []
-        if allow_from is None:
-            allow_from = _split(_prompt(
-                ask, err, "Subnets that may connect besides this machine, CIDR, comma-separated "
-                "(empty for none): ", lambda v: field_error("allow_from", _split(v))))
-        port = choose_port({t.port for t in hv.teams if t.port is not None} | listening_ports(ss_output()))
-        entry = build_entry(team=team, port=port, listen=[hv.address], allow_from=allow_from,
-                            humans=humans, repos=repos)
-        new = insert(hv, entry)
-        err.write(f"\nThe entry for {path}:\n\n")
-        err.writelines(render_entry(entry, hv.item_indent, hv.key_indent))
-        err.write("\n")
-        if not args.yes:
-            answer = ask(f"Add it to {path}? [y/N] ")
-            if answer is None or answer.strip().lower() not in ("y", "yes"):
-                raise Cancelled("not confirmed")
-    except Cancelled as why:
-        err.write(f"Cancelled ({why}). No changes made.\n")
-        return EXIT_CANCELLED
+        raise DeclareError(NO_ADDRESS.format(path=path, key=ADDRESS_KEY))
+    missing = [flag for flag, value in (("--team", args.team), ("--human", args.human), ("--repo", args.repo))
+               if not value]
+    if missing:
+        raise UsageError(f"create needs {', '.join(missing)} (ccy-teams create asks for them on a terminal)")
+    repos = _check_flags(hv, args)
+    port = choose_port({t.port for t in hv.teams if t.port is not None} | listening_ports(ss_output()))
+    entry = build_entry(team=args.team, port=port, listen=[hv.address], allow_from=args.allow_from or [],
+                        humans=args.human, repos=repos)
+    new = insert(hv, entry)
+    if args.dry_run:
+        out.writelines(render_entry(entry, hv.item_indent, hv.key_indent))
+        return EXIT_OK
     backup = write(path, new)
-    out.write(f"CHANGED\tteam {team}, port {port}, in {path}\n")
-    err.write(
-        f"The file as it was is kept at {backup}.\n"
-        "Nothing exists until play-agent-bus.yml applies it: add playbooks/imports/play-agent-bus.yml "
-        "to PLANS in CLAUDE/Plan/meta-deploy.bash and run ./CLAUDE/Plan/meta-deploy.bash.\n"
-        f"To watch it in Element, add {{team: {team}, base_url: http://{_url_host(hv.address)}:{port}}} to "
-        "agent_bus_element_teams and run playbooks/imports/optional/common/play-agent-bus-element.yml.\n")
+    out.write(f"CHANGED\tteam {args.team}, port {port}, in {path}\n")
+    err.write(next_steps(path, backup, args.team, port, hv.address))
     return EXIT_OK
+
+
+def next_steps(path: pathlib.Path, backup: pathlib.Path, team: str, port: int, address: str) -> str:
+    """What happens now, in order: nothing is installed until the play runs."""
+    return (
+        f"\nTeam {team} is declared in {path}, on port {port}.\n"
+        f"The file as it was is kept at {backup}.\n\n"
+        "Next:\n"
+        "  1. Install it. Nothing exists until play-agent-bus.yml runs: add\n"
+        "     playbooks/imports/play-agent-bus.yml to PLANS in CLAUDE/Plan/meta-deploy.bash and run\n"
+        "     ./CLAUDE/Plan/meta-deploy.bash. It creates the homeserver, the room and the humans' accounts.\n"
+        f"  2. Watch it in Element: add this item under agent_bus_element_teams in {path.name},\n"
+        f"     {{team: {team}, base_url: \"http://{_url_host(address)}:{port}\"}}\n"
+        "     and run playbooks/imports/optional/common/play-agent-bus-element.yml.\n"
+        f"  3. Sign in: in ccy-teams, Ctrl-E on {team} offers each human a new Element password,\n"
+        "     shown once.\n"
+        f"  4. Bring in agents: in a checkout of one of the team's repositories, run ccy --teams 1@{team}\n"
+        "     (or Ctrl-N on the team in ccy-teams).\n"
+    )
+
+
+# ---------------------------------------------------------------- GitHub
+
+
+_GITHUB_REMOTE_RE = re.compile(
+    r"(?:git@github\.com[^:/]*:|ssh://git@github\.com[^/]*/|https://github\.com/)"
+    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?")
+
+
+def github_remote(url: str) -> str | None:
+    """The lower-case OWNER/REPO a GitHub remote URL names (an alias host such as
+    github.com-work included), or None."""
+    m = _GITHUB_REMOTE_RE.fullmatch(url.strip())
+    if m is None:
+        return None
+    name = f"{m['owner']}/{m['repo']}".lower()
+    return name if protocol.is_owner_repo(name) else None
+
+
+def gh_repos(owner: str, data: object) -> list[str]:
+    """`gh repo list <owner> --json name,defaultBranchRef,isArchived` as lines: COUNT (every
+    repository gh listed, so a caller can tell a list cut at its limit), then REPO
+    <owner/repo> <default branch> per live repository and EMPTY <owner/repo> per one with no
+    default branch (no commits), each group sorted. Archived repositories are left out."""
+    if not isinstance(data, list) or not all(isinstance(item, dict) and isinstance(item.get("name"), str)
+                                             for item in data):
+        raise DeclareError("gh repo list did not print the expected JSON list of repositories")
+    repos, empty = [], []
+    for item in data:
+        if item.get("isArchived") is True:
+            continue
+        name = f"{owner}/{item['name']}".lower()
+        ref = item.get("defaultBranchRef")
+        branch = ref.get("name") if isinstance(ref, dict) else None
+        if isinstance(branch, str) and protocol.is_branch_name(branch):
+            repos.append(f"REPO\t{name}\t{branch}")
+        else:
+            empty.append(f"EMPTY\t{name}")
+    return [f"COUNT\t{len(data)}", *sorted(repos), *sorted(empty)]
 
 
 def _url_host(address: str) -> str:
@@ -515,25 +525,50 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     listing = commands.add_parser("declared", help="one TEAM line per entry")
     listing.add_argument("--file", required=True)
-    make = commands.add_parser("create", help="add a team's entry")
-    make.add_argument("--file", required=True)
-    make.add_argument("--team")
-    make.add_argument("--human", action="append")
-    make.add_argument("--repo", action="append", metavar="OWNER/REPO=BRANCH[,BRANCH]")
-    make.add_argument("--allow-from", action="append", dest="allow_from", metavar="CIDR")
-    make.add_argument("--yes", action="store_true")
+    for name, help_text in (("create", "add a team's entry"), ("check", "validate the values given")):
+        sub = commands.add_parser(name, help=help_text)
+        sub.add_argument("--file", required=True)
+        sub.add_argument("--team")
+        sub.add_argument("--human", action="append")
+        sub.add_argument("--repo", action="append", metavar="OWNER/REPO=BRANCH[,BRANCH]")
+        sub.add_argument("--allow-from", action="append", dest="allow_from", metavar="CIDR")
+        if name == "create":
+            sub.add_argument("--dry-run", action="store_true", help="print the entry; write nothing")
+        else:
+            sub.add_argument("--owner", help="a GitHub owner (an org or a user)")
+    repos = commands.add_parser("gh-repos", help="gh repo list's JSON (stdin) as REPO lines")
+    repos.add_argument("--owner", required=True)
+    remote = commands.add_parser("github-remote", help="OWNER/REPO of a GitHub remote URL, or nothing")
+    remote.add_argument("--url", required=True)
     return parser
 
 
-def main(argv: Sequence[str] | None = None, *, ask: Ask = _terminal_ask,
-         ss_output: Callable[[], str] = _ss, stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _ss,
+         stdin: TextIO | None = None, stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     try:
         args = build_parser().parse_args(argv)
         if args.command == "declared":
             return declared(args, out)
-        return create(args, ask, ss_output, out, err)
+        if args.command == "check":
+            return check(args)
+        if args.command == "gh-repos":
+            try:
+                data = json.load(sys.stdin if stdin is None else stdin)
+            except json.JSONDecodeError:
+                raise DeclareError("gh repo list did not print JSON") from None
+            out.writelines(f"{line}\n" for line in gh_repos(args.owner, data))
+            return EXIT_OK
+        if args.command == "github-remote":
+            name = github_remote(args.url)
+            if name:
+                out.write(f"{name}\n")
+            return EXIT_OK
+        return create(args, ss_output, out, err)
+    except KeyboardInterrupt:
+        err.write("Cancelled; nothing was changed.\n")
+        return EXIT_INTERRUPTED
     except UsageError as exc:
         err.write(f"declare: {exc}\n")
         return EXIT_USAGE
