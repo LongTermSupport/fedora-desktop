@@ -140,3 +140,7 @@ it lands.
    docs updated?
 5. Subnet default `198.51.100.0/24` and bridge name `virbr-vmtbus`: overridable by a
    variable; fine?
+   Coordinator's note: 198.51.100.0/24 is TEST-NET-2, reserved for documentation (RFC 5737),
+   so it must not be the live network. Make the subnet a required variable with no default
+   in the play, set per install in `localhost.yml`; the documentation range is only the
+   example in `localhost.yml.dist`. The play fails fast when it is unset.

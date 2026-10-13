@@ -75,7 +75,9 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
   host legs 26-10-07.
   - [ ] ⬜ README.vm's bridge route (a qemu:///system guest on a libvirt bridge, its subnet in
     `allow_from`) is documented but no acceptance exercises it. Decide: prove it by IaC (a
-    bridged lab guest) or narrow README.vm to the passt route.
+    bridged lab guest) or narrow README.vm to the passt route. Proposed: one bridged lab guest by IaC
+    serves this and P2's VM leg; [DESIGN-bridged-lab-guest.md](DESIGN-bridged-lab-guest.md),
+    five questions for the owner.
   - [x] ✅ `ccy-teams` (owner, 2026-10-12): built and deployed 26-10-13; the owner created a
     real team with `ccy-teams create` on 26-10-13 and it worked.
   - [ ] 🔄 U22.lxc: the owner's existing LXC containers join a team by IaC (owner,
