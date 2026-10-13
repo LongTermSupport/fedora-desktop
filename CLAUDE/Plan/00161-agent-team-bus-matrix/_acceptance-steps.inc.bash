@@ -446,6 +446,48 @@ check_peer_text() {
     evidence "agent text ${peerId} from a delivered to b as PEER; ${humanOnlyId}, to the human only, not delivered to b: members/a/say-peer.out, members/a/say-human.out, members/b/recv-peer.out"
 }
 
+# check_room_creation — D63: a member, with its own token, asks the homeserver to create a room
+# and is refused, so the team room stays the only one. Tuwunel 1.9.3 answers a non-admin
+# `POST /_matrix/client/v3/createRoom` with 403 M_FORBIDDEN "Room creation has been disabled"
+# when allow_room_creation is false (can_create_room_check, src/api/client/room/create.rs;
+# DESIGN.md section 7). The request runs inside member b's own service, which reads the token
+# the bundle gave it (never in argv or the run directory). Should a room be created, the probe
+# leaves and forgets it at once and the check FAILs; the team's purge removes what is left.
+check_room_creation() {
+    local status=0 refusal
+    member_run b create-room /dev/null python3 -I -c '
+import json, pathlib, sys, urllib.error, urllib.parse, urllib.request
+home, team = pathlib.Path(sys.argv[1]), sys.argv[2]
+base = json.loads((home / team / "member.json").read_text())["base_url"].rstrip("/")
+token = (home / team / "token").read_text().strip()
+def call(path, body):
+    request = urllib.request.Request(base + path, data=json.dumps(body).encode(), method="POST",
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as err:
+        try:
+            return err.code, json.loads(err.read())
+        except ValueError:
+            return err.code, {}
+status, payload = call("/_matrix/client/v3/createRoom", {"name": "acceptance room-creation probe", "preset": "private_chat"})
+room_id = payload.get("room_id") if 200 <= status < 300 else None
+cleanup = []
+if room_id:
+    quoted = urllib.parse.quote(room_id, safe="")
+    cleanup = [call("/_matrix/client/v3/rooms/" + quoted + "/leave", {})[0],
+               call("/_matrix/client/v3/rooms/" + quoted + "/forget", {})[0]]
+print(json.dumps({"status": status, "errcode": payload.get("errcode"), "error": payload.get("error"),
+                  "room_id": room_id, "cleanup": cleanup}))
+' "/var/lib/$(member_name b)" "${TEAM}" || status=$?
+    show b create-room
+    expect_status b create-room "${status}" 0 || return 1
+    refusal="$("${CHECK[@]}" room-refusal "${MEMBER_DIR}/b/create-room.out")" || return 1
+    printf '==> member b createRoom refused: status and errcode %s\n' "${refusal}"
+    evidence "createRoom by b refused (status, errcode: ${refusal//$'\t'/, }): members/b/create-room.out"
+}
+
 # ── the D64 checks: the org's branches, forks, outside repositories ──────────────────────
 # Each is a `done` or `blocked` from a to b: neither needs an ack, so they leave nothing for
 # M1.3's TIMEOUT. A refusal reuses a delivered ref, so it is sent as the other verb: the same

@@ -129,6 +129,29 @@ class TrustMarksTest(unittest.TestCase):
         self.assertTrue(ac.refused_as(5, said, "not-found"))
         self.assertEqual(ac.refused_as(4, "pingbus: refused: allowlist\n", "allowlist"), [])
 
+    def test_room_creation_refused_only_as_403_forbidden(self) -> None:
+        refused = {"status": 403, "errcode": "M_FORBIDDEN", "error": "Room creation has been disabled.",
+                   "room_id": None, "cleanup": []}
+        self.assertEqual(ac.expect_room_refused(refused), [])
+        created = {"status": 200, "errcode": None, "error": None, "room_id": "!r:example.org",
+                   "cleanup": [200, 200]}
+        self.assertIn("NOT refused", ac.expect_room_refused(created)[0])
+        self.assertTrue(ac.expect_room_refused({**refused, "status": 401, "errcode": "M_UNKNOWN_TOKEN"}))
+        self.assertTrue(ac.expect_room_refused({**refused, "errcode": "M_LIMIT_EXCEEDED"}))
+        self.assertTrue(ac.expect_room_refused([]))
+
+    def test_room_refusal_command_prints_status_and_errcode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "create-room.out"
+            path.write_text(json.dumps({"status": 403, "errcode": "M_FORBIDDEN", "room_id": None}))
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(ac.main(["room-refusal", str(path)]), 0)
+            self.assertEqual(out.getvalue(), "403\tM_FORBIDDEN\n")
+            path.write_text(json.dumps({"status": 200, "errcode": None, "room_id": "!r:example.org"}))
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(ac.main(["room-refusal", str(path)]), 1)
+
 
 class MemberTest(unittest.TestCase):
     def test_a_limit_is_added_without_touching_the_rest(self) -> None:
