@@ -186,7 +186,8 @@ def cmd_render_dropin(args: argparse.Namespace, io: _Io) -> int:
 def cmd_render_stamp(args: argparse.Namespace, io: _Io) -> int:
     """The applied stamp of the canonical team.json on stdin, run by the admin zipapp at
     `--zipapp` with Tuwunel `--tuwunel` (DESIGN.md D65)."""
-    software = teamfile.software_digest(pathlib.Path(args.zipapp).read_bytes(), args.tuwunel)
+    software = teamfile.software_digest(pathlib.Path(args.zipapp).read_bytes(), args.tuwunel,
+                                        args.installer_sha256)
     io.stdout.write((json.dumps(teamfile.stamp(_stdin_team_file(io), software), sort_keys=True) + "\n").encode())
     return EXIT_OK
 
@@ -294,6 +295,8 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     stamp = renders.add_parser("stamp", help="the applied stamp: config and software digests")
     stamp.add_argument("--zipapp", required=True, metavar="PYZ", help="the installed agent-bus zipapp")
     stamp.add_argument("--tuwunel", required=True, metavar="VERSION", help="the Tuwunel version running")
+    stamp.add_argument("--installer-sha256", required=True, metavar="HEX",
+                       help="the sha256 of the agent-bus-install that ran")
     stamp.set_defaults(handler=cmd_render_stamp)
     commands.add_parser("version", help="print the versions").set_defaults(handler=cmd_version)
 

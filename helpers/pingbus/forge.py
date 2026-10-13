@@ -6,8 +6,8 @@ Plan 00161's DESIGN.md D20 places it: on send and before the inbox write, never 
 
 A reference reaching this module has already passed `protocol` (grammar and allowlists);
 this module asks the forge (GitHub's REST API at the team record's `forge_api`) whether it
-names real content: on a listed branch of a listed repository, on the default branch of a
-repository the team's org owns (not a fork), or, for an external reference (spec §11), in
+names real content: on a listed branch of a listed repository, on the branch the ping names (else the default
+branch) of a repository the team's org owns (not a fork), or, for an external reference (spec §11), in
 any public repository, which proves only that the content exists, never that it is trusted. Every HTTP exchange goes through an opener with
 `open(request, timeout=)`, injected in tests; the default one refuses a redirect to another
 origin and the token travels only as an unredirected `Authorization` header.
@@ -236,7 +236,7 @@ class Forge:
         self._cache = cache
         #: `GET /repos/OWNER/REPO` answers, per process: the default branch, fork and
         #: visibility are read once per repository, never written to the cache file.
-        self._repos: dict[str, dict] = {}
+        self._repos: dict[str, tuple[float, dict]] = {}
 
     @classmethod
     def for_record(cls, record: protocol.TeamRecord, credential: Credential, **kwargs: object) -> Forge:
@@ -303,13 +303,17 @@ class Forge:
             raise ValueError(f"unknown reference form: {ref.form!r}")
 
     def _repo(self, ref: protocol.Ref) -> dict:
-        meta = self._repos.get(ref.repo_full)
-        if meta is None:
-            code, data = self._get(f"/repos/{ref.repo_full}", allow=(404,))
-            if code == 404 or not isinstance(data, dict):
-                raise ForgeError("not-found", f"{ref.text}: no repository {ref.repo_full}")
-            meta = self._repos[ref.repo_full] = data
-        return meta
+        # Kept REACH_TTL_S, not for the process's life: a watcher runs for hours, and a
+        # repository moved out of the org or turned into a fork must stop being trusted.
+        held = self._repos.get(ref.repo_full)
+        now = self._clock()
+        if held is not None and now - held[0] < REACH_TTL_S:
+            return held[1]
+        code, data = self._get(f"/repos/{ref.repo_full}", allow=(404,))
+        if code == 404 or not isinstance(data, dict):
+            raise ForgeError("not-found", f"{ref.text}: no repository {ref.repo_full}")
+        self._repos[ref.repo_full] = (now, data)
+        return data
 
     def _branch(self, ref: protocol.Ref, branch: str) -> None:
         """`branch` is a branch of the reference's repository itself (`GET .../branches/B`),
@@ -503,7 +507,7 @@ def _retry_wait(hdrs: object, body: bytes | None, now: float) -> float:
 def check_ping(ping: protocol.Ping, record: protocol.TeamRecord, client: Forge) -> None:
     """The forge check for a validated ping (§9 send step 6, receive step 10p): nothing for
     a ping with no `ref`; a listed repository's reference against its listed branches, an
-    org repository's against its default branch, any other's as external content (§11)."""
+    org repository's against the ping's branch or its default branch, any other's as external content (§11)."""
     if ping.ref is None:
         return
     if client.api != record.forge_api:

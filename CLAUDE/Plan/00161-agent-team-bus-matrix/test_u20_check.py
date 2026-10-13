@@ -411,6 +411,16 @@ class RoomTest(unittest.TestCase):
         other = ping_event(EV3, A_UID, "ack", [B_UID], 9500, re_=EV1)
         self.assertTrue(uc.expect_replies(uc.room_pings(messages(self.REVIEW, self.ACK, other)), EV1, B_UID))
 
+    def test_expect_ping_branch(self) -> None:
+        """D64: a ccy session's send names its checkout's upstream branch unasked."""
+        named = ping_event(EV1, A_UID, "review", [B_UID], 9000, ref=REF)
+        named["content"]["agent_bus.ping"]["branch"] = "feature/x"
+        pings = uc.room_pings(messages(named, self.ACK))
+        self.assertEqual(uc.expect_ping_branch(pings, EV1, "feature/x"), [])
+        self.assertTrue(uc.expect_ping_branch(pings, EV1, "main"))
+        self.assertTrue(uc.expect_ping_branch(uc.room_pings(messages(self.REVIEW)), EV1, "feature/x"))
+        self.assertTrue(uc.expect_ping_branch(pings, EV3, "feature/x"))
+
     def test_room_pings_refuse_a_response_without_a_chunk(self) -> None:
         with self.assertRaises(ValueError):
             uc.room_pings({"errcode": "M_FORBIDDEN"})

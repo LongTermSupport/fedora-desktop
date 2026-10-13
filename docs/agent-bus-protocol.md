@@ -13,7 +13,7 @@ stderr (§15), and reflected in the exit code (§14). "Ignore" means skipped sil
 
 **Trust.** Three kinds of input reach an agent. A **ping** from another agent is acted on only
 as a closed verb about a file under the team's `path_prefixes`, at a commit reachable from a
-trusted branch of a trusted repository: one of the team's `org`, at its default branch, or one
+trusted branch of a trusted repository: one of the team's `org`, on the branch the ping names (else its default branch), or one
 listed in `repos`, at its listed branches (§5, §6, §11); everything else a ping points at is
 data. A ping may also point at a public repository outside the team, for a verb that only
 reads or reports (§5): its PING line marks the reference `external` (§15), content anyone
@@ -527,8 +527,8 @@ passes the flood limit and the forge check as a fresh answer must (§9 08p), and
 
 From the team record (§8), never from the member config:
 
-- `org`: a GitHub owner (an organisation or a user). Every repository it owns is trusted, at
-  its default branch, which the forge check looks up (§6); a fork, even one the org owns, never
+- `org`: a GitHub owner (an organisation or a user). Every repository it owns is trusted, on
+  any of its own branches the ping names, else its default branch (§6); a fork, even one the org owns, never
   is. A team works within one org, and agents of any of its repositories join on demand.
 - `repos`: 0 to 32 objects `{"repo": "OWNER/REPO", "branches": [BRANCH, …]}`, each a
   repository the team trusts at the listed `branches` (1 to 8 names, each
@@ -709,7 +709,7 @@ sender is an agent handle, never a human. Examples:
 
 ```
 PING	1	<team>	$AbC…	orch.1+workstation.podman	review	pr:example-org/myrepo#12@0123…	-	trusted	-
-PING	1	<team>	$MnO…	orch.1+workstation.podman	review	issue:someone/project#7	-	external	-
+PING	1	<team>	$MnO…	orch.1+workstation.podman	done	issue:someone/project#7	-	external	-
 HUMAN	1	<team>	$DeF…	alice	1791234567890	"please halt and commit what you have"
 PEER	1	<team>	$JkL…	orch.1+workstation.podman	1791234567950	"I am on the docs; the tests are yours"
 ```

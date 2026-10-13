@@ -493,8 +493,8 @@ d64_branches() {
         esac
     done <"${heads}"
     if [[ -z "${D64_SIDE}" ]]; then
-        printf '[FAIL] no branch of %s but %s holds a commit %s lacks that this checkout has: git fetch origin\n' \
-            "${REF_REPO}" "${D64_DEFAULT}" "${D64_DEFAULT}" >&2
+        printf '[FAIL] no branch of %s but %s holds a commit %s lacks that this checkout has: git fetch origin, or push a branch ahead of %s\n' \
+            "${REF_REPO}" "${D64_DEFAULT}" "${D64_DEFAULT}" "${D64_DEFAULT}" >&2
         return 1
     fi
     printf '==> %s: default branch %s at %s; branch %s at %s, not on %s\n' "${REF_REPO}" "${D64_DEFAULT}" \

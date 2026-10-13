@@ -251,12 +251,16 @@ class StampTest(unittest.TestCase):
         self.assertNotEqual(teamfile.config_digest(tf), teamfile.config_digest(teamfile.parse_team_file(_with(port=7000))))
 
     def test_software_digest(self) -> None:
-        one = teamfile.software_digest(b"zip", "v1.9.3")
-        self.assertEqual(one, teamfile.software_digest(b"zip", "1.9.3"))
-        self.assertNotEqual(one, teamfile.software_digest(b"zap", "1.9.3"))
-        self.assertNotEqual(one, teamfile.software_digest(b"zip", "1.9.4"))
+        one = teamfile.software_digest(b"zip", "v1.9.3", "a" * 64)
+        self.assertEqual(one, teamfile.software_digest(b"zip", "1.9.3", "a" * 64))
+        self.assertNotEqual(one, teamfile.software_digest(b"zap", "1.9.3", "a" * 64))
+        self.assertNotEqual(one, teamfile.software_digest(b"zip", "1.9.4", "a" * 64))
+        # A change to the installer alone (its firewall rules, its unit) is a new version too.
+        self.assertNotEqual(one, teamfile.software_digest(b"zip", "1.9.3", "b" * 64))
         with self.assertRaises(ValueError):
-            teamfile.software_digest(b"zip", "latest")
+            teamfile.software_digest(b"zip", "latest", "a" * 64)
+        with self.assertRaises(ValueError):
+            teamfile.software_digest(b"zip", "1.9.3", "not a digest")
 
     def test_stamp_round_trip_and_refusals(self) -> None:
         stamp = teamfile.stamp(teamfile.parse_team_file(VALID), "a" * 64)

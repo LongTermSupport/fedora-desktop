@@ -504,12 +504,14 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(code, 0, stderr.getvalue())
         return [line.split("\t") for line in stdout.getvalue().splitlines()]
 
-    def test_the_software_digest_is_the_zipapp_and_the_pinned_tuwunel(self) -> None:
+    def test_the_software_digest_is_the_zipapp_the_pinned_tuwunel_and_the_installer(self) -> None:
         zipapp = bundle.build("agent-bus", REPO_ROOT)
         pin = (REPO_ROOT / declare.PIN_FILE).read_text()
         version = next(line.split(":", 1)[1].strip() for line in pin.splitlines()
                        if line.startswith("tuwunel_version:"))
-        want = hashlib.sha256(f"{hashlib.sha256(zipapp).hexdigest()}\n{version.lstrip('v')}\n".encode()).hexdigest()
+        installer = hashlib.sha256((REPO_ROOT / declare.INSTALLER_FILE).read_bytes()).hexdigest()
+        want = hashlib.sha256(
+            f"{hashlib.sha256(zipapp).hexdigest()}\n{version.lstrip('v')}\n{installer}\n".encode()).hexdigest()
         self.assertEqual(self.software, want)
 
     def test_all_states(self) -> None:

@@ -327,13 +327,17 @@ def config_digest(team_file: TeamFile) -> str:
     return hashlib.sha256(dump_team_file(team_file).encode("utf-8")).hexdigest()
 
 
-def software_digest(zipapp: bytes, tuwunel_version: str) -> str:
-    """sha256 of the admin zipapp's sha256 and the Tuwunel version (a leading `v` dropped):
-    any change to the bus code or the pinned homeserver changes it."""
+def software_digest(zipapp: bytes, tuwunel_version: str, installer_sha256: str) -> str:
+    """sha256 of the admin zipapp's sha256, the Tuwunel version (a leading `v` dropped) and
+    agent-bus-install's sha256: any change to the bus code, the pinned homeserver or the
+    installer (its firewall rules, its unit) changes it."""
     version = tuwunel_version.removeprefix("v")
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError(f"not a Tuwunel version: {tuwunel_version!r}")
-    return hashlib.sha256(f"{hashlib.sha256(zipapp).hexdigest()}\n{version}\n".encode()).hexdigest()
+    if not re.fullmatch(r"[0-9a-f]{64}", installer_sha256):
+        raise ValueError(f"not a sha256: {installer_sha256!r}")
+    parts = (hashlib.sha256(zipapp).hexdigest(), version, installer_sha256)
+    return hashlib.sha256("".join(f"{part}\n" for part in parts).encode()).hexdigest()
 
 
 def stamp(team_file: TeamFile, software: str) -> dict:

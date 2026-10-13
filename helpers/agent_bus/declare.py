@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import ipaddress
 import json
 import os
@@ -350,18 +351,22 @@ def entry_of(team: Declared) -> dict:
 # ---------------------------------------------------------------- applied or not (D65)
 
 PIN_FILE = "files/usr/local/share/agent-bus/tuwunel.pin"
+#: The installer the play runs in place, from this checkout.
+INSTALLER_FILE = "files/usr/local/sbin/agent-bus-install"
 CURRENT, OUTDATED, UNBUILT, REMOVED, DECIDE, UNREADABLE = (
     "current", "outdated", "unbuilt", "removed", "decide", "unreadable")
 
 
 def declared_software(source: pathlib.Path) -> str:
     """The software digest the play would stamp now: the admin zipapp built from this
-    checkout (the same reproducible build the installer runs) and the pinned Tuwunel."""
+    checkout (the same reproducible build the installer runs), the pinned Tuwunel and this
+    checkout's installer."""
     versions = [line.partition(":")[2].strip() for line in (source / PIN_FILE).read_text().splitlines()
                 if line.startswith("tuwunel_version:")]
     if len(versions) != 1:
         raise DeclareError(f"{PIN_FILE} names no single tuwunel_version")
-    return teamfile.software_digest(bundle.build("agent-bus", source), versions[0])
+    installer = hashlib.sha256((source / INSTALLER_FILE).read_bytes()).hexdigest()
+    return teamfile.software_digest(bundle.build("agent-bus", source), versions[0], installer)
 
 
 def declared_config(team: Declared) -> str:

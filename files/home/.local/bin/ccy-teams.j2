@@ -575,7 +575,7 @@ apply_teams() {
 # down is ccy-teams remove's, one team at a time.
 cmd_apply() {
     local team
-    local -a targets=() waiting=()
+    local -a targets=() waiting=() broken=()
     need_checkout
     [[ $# -eq 1 ]] || usage_error "'apply' takes one team, or --all."
     refresh || exit 1
@@ -584,8 +584,13 @@ cmd_apply() {
             case "${STATUS_OF[${team}]}" in
             outdated | unbuilt) targets+=("${team}") ;;
             decide) waiting+=("${team} ($(status_word "${team}"))") ;;
+            unreadable) broken+=("${team}: ${DETAIL_OF[${team}]}") ;;
             esac
         done
+        if [[ -n "${broken[*]:-}" ]]; then
+            print_error "these teams' entries cannot be read, so nothing was applied: ${broken[*]}."
+            exit 1
+        fi
         [[ -z "${waiting[*]:-}" ]] ||
             echo "Left alone, as they need your decision (ccy-teams remove <team>, or declare them again): ${waiting[*]}." >&2
         if [[ -z "${targets[*]:-}" ]]; then
@@ -631,7 +636,7 @@ cmd_remove() {
     refresh || exit 1
     state="${STATUS_OF[${team}]:-}"
     case "${state}" in
-    "" | removed) usage_error "team ${team} is not built here; there is nothing to take down." ;;
+    "" | removed | unbuilt) usage_error "team ${team} is not built here; there is nothing to take down." ;;
     unreadable) usage_error "team ${team}'s entry cannot be read: ${DETAIL_OF[${team}]}." ;;
     esac
     gum style --bold --border rounded --padding "0 1" "Take team ${team} down" >&2
@@ -1173,6 +1178,19 @@ if [[ -z "${TEAMS[*]:-}" ]]; then
     offer_create
 fi
 
+# in_picker <command...> — a subcommand run from the picker, in a subshell so its exit
+# ends only it. Ctrl-C (130) ends the picker too; any other failure has said why above,
+# and the picker goes on.
+in_picker() {
+    local rc=0
+    ("$@") || rc=$?
+    case "${rc}" in
+    0) ;;
+    130) exit 130 ;;
+    *) echo "($1 failed, exit ${rc}: see above.)" >&2 ;;
+    esac
+}
+
 # offer_update — a team out of date or not built: offer to update it before the list.
 offer_update() {
     local team
@@ -1187,7 +1205,7 @@ offer_update() {
     need_gum
     say "Not as declared: ${behind[*]}."
     if ask_yes "Update them now (play-agent-bus.yml)?" true; then
-        (cmd_apply --all) || true
+        in_picker cmd_apply --all
         back_to_list
     fi
 }
@@ -1293,7 +1311,7 @@ remove_or_park() {
     local i="$1" team="${R_TEAM[$1]}" name="${R_NAME[$1]}" handle="${R_HANDLE[$1]}"
     case "${R_KIND[i]}" in
     team)
-        (cmd_remove "${team}") || true
+        in_picker cmd_remove "${team}"
         back_to_list
         ;;
     human)
@@ -1421,7 +1439,7 @@ open_element() {
 
 # update_all — Ctrl-U: apply --all, then back to the list.
 update_all() {
-    (cmd_apply --all) || true
+    in_picker cmd_apply --all
     back_to_list
 }
 

@@ -63,9 +63,10 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
 8. **Keep teams up to date.** After you edit a team's entry, or after this repository's
    software changes, its APPLIED column says "out of date". `ccy-teams apply <team>`, or
    `apply --all` (Ctrl-U in the picker, which also offers it when it opens), runs
-   `play-agent-bus.yml` and checks the result. Neither ever takes a team down or deletes
-   data: a team declared `absent`, or running but no longer declared, says "decide" and is
-   left alone.
+   `play-agent-bus.yml` for those teams and checks the result. Neither ever takes a team
+   down or deletes data: a team declared `absent`, or running but no longer declared,
+   says "decide" and is left alone. A full run of `play-agent-bus.yml` (the main playbook)
+   does apply an `absent` entry, as declared.
 9. **Take a team down.** `ccy-teams remove <team>` (or Ctrl-X on the team), on a terminal
    only, one team at a time. It says what is lost, offers a backup first, and by default
    keeps the team's data (its whole room history); deleting the data as well needs the

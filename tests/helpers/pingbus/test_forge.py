@@ -817,6 +817,21 @@ class TestCheckPing(ForgeCase):
         # The repository is looked up once per process; the reach is asked again (no cache file).
         self.assertEqual(opener.urls, [url(f"/repos/{ORG_REPO}"), compare, compare])
 
+    def test_org_repo_answer_expires(self) -> None:
+        """A watcher lives for hours: a repository moved out of the org, or made a fork,
+        stops being trusted once its answer is REACH_TTL_S old."""
+        the_ref = ref(f"commit:{ORG_REPO}@{SHA}")
+        compare = url(f"/repos/{ORG_REPO}/compare/trunk...{SHA}?per_page=1")
+        client, opener = self.make({url(f"/repos/{ORG_REPO}"): [repo_meta(ORG_REPO), repo_meta("elsewhere/other")],
+                                    compare: [status("behind")]})
+        forge.check_ping(trusted("review", the_ref), self.RECORD, client)
+        self.now += forge.REACH_TTL_S - 1
+        forge.check_ping(trusted("review", the_ref), self.RECORD, client)
+        self.assertEqual(opener.urls.count(url(f"/repos/{ORG_REPO}")), 1)
+        self.now += 2
+        self.refused("provenance", trusted("review", the_ref), client)
+        self.assertEqual(opener.urls.count(url(f"/repos/{ORG_REPO}")), 2)
+
     def test_org_ref_on_a_named_branch_of_the_repo_itself(self) -> None:
         """D64: any branch of an org repository, when it is that repository's own branch
         (`GET .../branches/B`) and holds the commit; never the API merely returning it."""

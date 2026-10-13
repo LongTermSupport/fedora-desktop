@@ -278,8 +278,8 @@ class Context:
     """What the validator needs from the member config and the verified team record.
 
     `roles` maps agent user IDs to `orchestrator`/`worker`; `repos` maps `owner/repo` to
-    its trusted branches; `org` is the GitHub owner every repository of which is trusted at
-    its default branch, or None; `humans` are the team's human user IDs.
+    its trusted branches; `org` is the GitHub owner every repository of which is trusted on
+    any of its branches (the ping's, else the default), or None; `humans` are the team's human user IDs.
     """
 
     server_name: str

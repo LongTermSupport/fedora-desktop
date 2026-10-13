@@ -258,8 +258,6 @@ check_leg "M1.1 review sent, received by wait, acked" check_review_ack
 check_leg "M1.2 a human message reaches only the member it mentions" check_human_addressed
 check_leg "M1.5 the org's repository trusted on any branch it names, not on one that lacks the commit; an outside repository marked external" check_org_trust
 check_leg "M1.6 a fork the org owns is refused" check_org_fork
-check_leg "M1.5 the org's repository trusted on any branch it names, not on one that lacks the commit; an outside repository marked external" check_org_trust
-check_leg "M1.6 a fork the org owns is refused" check_org_fork
 # M1.4 runs before M1.3: M1.3 leaves an unanswered review pending in b's inbox.
 check_leg "M1.4 an agent text reaches the member it names as PEER, not one it does not" check_peer_text
 check_leg "M1.3 TIMEOUT for an unanswered review, none for the acked one" check_timeout

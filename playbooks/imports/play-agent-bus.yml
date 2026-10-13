@@ -54,7 +54,9 @@
       else agent_bus_absent | selectattr('team', 'in', agent_bus_only_teams) | list }}"
     # Matches the installer's and the helper's CHANGED<TAB><what> marker lines.
     agent_bus_changed_re: "^CHANGED\t"
-    agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) }}"
+    # Scoped like the teams: with agent_bus_only_teams, only those teams' LXC members.
+    agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) if agent_bus_only_teams is not defined
+      else agent_bus_lxc_members | default([]) | selectattr('team', 'in', agent_bus_only_teams) | list }}"
     # The helper's arguments but --phase; it validates every entry on each call.
     agent_bus_lxc_args:
       - --members

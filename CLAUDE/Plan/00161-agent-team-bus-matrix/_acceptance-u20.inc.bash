@@ -638,6 +638,8 @@ u20_check_review_ack() {
         u20_find_ping found "${U20_UID[acca]}" review "${U20_UID[accb]}" "${REF_PATH}" - || return 1
     U20_REVIEW1="${found%%$'\t'*}"
     REVIEW1_TS="${found#*$'\t'}"
+    # D64: acca's send named no branch; pingbus filled in the one this checkout tracks.
+    "${U20[@]}" expect-ping-branch "${U20_MESSAGES}" "${U20_REVIEW1}" "${REF_BRANCH}" || return 1
     u20_poll "${U20_TURN_S}" "accb's watcher notice reached accb's session" u20_notices_at_least accb 1 || return 1
     u20_poll "${U20_TURN_S}" "accb ran pingbus recv (its inbox empty again)" u20_pending_is accb 0 || return 1
     send_ping a u20-send-review-2 review "${REF_COMMIT}" --branch "${REF_BRANCH}" --to "${U20_HANDLE[accb]}" || status=$?

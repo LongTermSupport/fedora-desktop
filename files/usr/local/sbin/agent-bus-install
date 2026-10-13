@@ -830,10 +830,13 @@ cmd_team() {
     assert_listening "$port" "${listen[@]}"
     admin_tool bootstrap "$team"
     # Last, so a stamp says the team was applied in full: the digests of this team file and
-    # of the software that applied it (the admin zipapp and the Tuwunel it started).
-    local running
+    # of the software that applied it (the admin zipapp, the Tuwunel it started, and this
+    # installer, hashed here: the admin tool need not be able to read it).
+    local running self_sha
     running=$(readlink -- "$LIB_DIR/tuwunel")
+    self_sha=$(sha256sum "${BASH_SOURCE[0]}") || die "$EXIT_FAIL" "cannot read ${BASH_SOURCE[0]} to stamp it"
     admin_tool render stamp --zipapp "$LIB_DIR/agent-bus.pyz" --tuwunel "${running#tuwunel-}" \
+        --installer-sha256 "${self_sha%% *}" \
         <"$WORK_DIR/team.json" >"$WORK_DIR/stamp.json"
     ensure_dir "$APPLIED_ROOT" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
     put_file "team $team applied stamp" "$WORK_DIR/stamp.json" "$APPLIED_ROOT/$team.json" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
