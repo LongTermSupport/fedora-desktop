@@ -315,7 +315,7 @@ repository; opt-in per machine and per team.
     from the checkout's upstream. Built with unit tests; acceptance M1.5 and M1.6 added.
     Deployed 26-10-13; M1.5 and M1.6 pass on the host (second run, after a test fix). That
     run failed at M2.8: GitHub's unauthenticated quota was spent (journal 26-10-13). Pending:
-    D66's host run, then acceptance.bash again. Every member must run the new pingbus
+    acceptance.bash again (D66 deployed 26-10-13); the owner's own testing comes first. Every member must run the new pingbus
     before any team gains `org` (protocol §1).
     - [ ] ⬜ An optional `exclude` list of org repositories in the team file, checked before
       trust (D64: planned, not built).
@@ -324,9 +324,9 @@ repository; opt-in per machine and per team.
       reference costs 4-7 a ping at first (journal 26-10-13). Built (DESIGN.md D66): the
       forge credential is gh's login only, required of every member (fail fast, no
       anonymous mode); the LXC members play checks it; acceptance logs its throwaway members
-      in for the run with the desktop user's own gh login (owner, 2026-10-13). Pending: the host run (`play-claude-yolo.yml` for the image's zipapp,
-      `play-agent-bus.yml` for the kit), then acceptance.bash; and keep the repository
-      answer in the cache file.
+      in for the run with the desktop user's own gh login (owner, 2026-10-13). Deployed 26-10-13 (both plays).
+      Pending: acceptance.bash; a stub gh for the harness's non-ccy members instead of
+      installing gh (review 26-10-13); keep the repository answer in the cache file.
   - [ ] 🔄 Applied state and team changes by the play (coordinator for the owner,
     2026-10-13; DESIGN.md D65): applied stamps, `declare.py status`, `ccy-teams` APPLIED
     column, `apply <team>`/`--all`/Ctrl-U, create installs, removal one team at a time with
