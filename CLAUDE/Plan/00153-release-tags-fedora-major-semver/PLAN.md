@@ -107,6 +107,28 @@ release tag rather than the branch tip.
   then. Agents still tag only when the owner asks ([Release.md](../../Release.md)).
 - [ ] ⬜ **Task 4.2**: `qa-reviewer` over the plan's diff; plan complete.
 
+### Phase 5: Automated release flow (#82)
+
+Addresses #82. The owner wants the release cut end to end by a GitHub Actions workflow, with
+no person typing a command and nothing a server trusts weakened. This replaces the Non-Goal
+"tagging automatically on every merge" and Release.md's "never tag unless the owner asks";
+both change only once Task 5.1 is decided.
+
+- [ ] ⬜ **Task 5.1**: Owner decision gate and design: the semver rule from conventional
+  commits (`fix` patch, `feat` minor, a breaking marker refused on an `F<major>` branch); the
+  dedicated SSH release key that servers list in `self_update_signing_public_keys`; the
+  protected environment with a required reviewer that alone can read it; the tag ruleset
+  that makes release tags immutable and creatable only by the workflow.
+- [ ] ⬜ **Task 5.2**: Tests first: the version computation driven against a fixture history
+  (no releasable commit means no release).
+- [ ] ⬜ **Task 5.3**: The workflow: its own signed release commit (as `release.bash` makes),
+  the signed tag, the GitHub release with generated notes. Actions pinned by SHA, minimum
+  `permissions:` per job, no `pull_request_target`, no untrusted input in a shell step.
+  Fails closed on a missing key, an unapproved run or an existing tag.
+- [ ] ⬜ **Task 5.4**: `docs/releases.md` (including how a server adds the release key),
+  `CLAUDE/Release.md`'s new rule, and the workflow's row in the workflow docs; the
+  `qa-reviewer` agent.
+
 ## Success Criteria
 
 - [ ] `44.0.0` exists on GitHub as a signed tag with a Release and a changelog entry.
