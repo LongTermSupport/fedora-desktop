@@ -128,6 +128,19 @@ RUN wget -qO /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/do
     && rm /tmp/gitleaks.tgz \
     && chmod +x /usr/local/bin/gitleaks
 
+# gum serves ccy-teams (files/home/.local/bin/ccy-teams.j2), whose create flow asks with
+# it, and lets its prompts be tried here against the real tool. Debian 12 has no package,
+# so the upstream binary is pinned to the version Fedora 44 ships, which is what
+# play-claude-yolo.yml installs on the host: the flags tested here are the flags run there.
+# Bump it with the host's version.
+ARG GUM_VERSION=0.17.0
+ARG GUM_SHA256=69ee169bd6387331928864e94d47ed01ef649fbfe875baed1bbf27b5377a6fdb
+RUN wget -qO /tmp/gum.tgz "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_Linux_x86_64.tar.gz" \
+    && echo "${GUM_SHA256}  /tmp/gum.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/gum.tgz -C /usr/local/bin --strip-components=1 "gum_${GUM_VERSION}_Linux_x86_64/gum" \
+    && rm /tmp/gum.tgz \
+    && chmod 755 /usr/local/bin/gum
+
 # Install ImageMagick 7 (Debian 12 ships only IM6).
 # Production target is Fedora 43 which ships IM7 natively; this is for
 # prototyping recipes against the same major version the script will call.
@@ -180,6 +193,7 @@ RUN ansible --version && \
     gh --version && \
     yq --version && \
     gitleaks version && \
+    gum --version && \
     rg --version && \
     gawk --version && \
     magick --version
