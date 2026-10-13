@@ -419,7 +419,9 @@ check_peer_text() {
 }
 
 # ── the D64 checks: the org's branches, forks, outside repositories ──────────────────────
-# Each is a `done` from a to b: it needs no ack, so it leaves nothing for M1.3's TIMEOUT.
+# Each is a `done` or `blocked` from a to b: neither needs an ack, so they leave nothing for
+# M1.3's TIMEOUT. A refusal reuses a delivered ref, so it is sent as the other verb: the same
+# verb, ref and `to` would be refused first by pingbus's duplicate window (exit 9).
 
 #: A public repository outside any team's org, not a fork, whose first commit GitHub has
 #: served unchanged for over a decade: the outside reference.
@@ -510,7 +512,7 @@ check_org_trust() {
     d64_delivered org-branch trusted "${D64_SIDE}" "commit:${REF_REPO}@${D64_SIDE_SHA}" \
         --branch "${D64_SIDE}" || return $?
     d64_delivered org-default trusted - "commit:${REF_REPO}@${D64_DEFAULT_SHA}" || return $?
-    d64_refused org-wrong-branch provenance "done" "commit:${REF_REPO}@${D64_SIDE_SHA}" \
+    d64_refused org-wrong-branch provenance "blocked" "commit:${REF_REPO}@${D64_SIDE_SHA}" \
         --branch "${D64_DEFAULT}" || return $?
     d64_delivered external external - "${EXTERNAL_COMMIT}" || return $?
     d64_refused external-run-qa allowlist run-qa "${EXTERNAL_COMMIT}" || status=$?

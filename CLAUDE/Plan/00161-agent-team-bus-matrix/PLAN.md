@@ -313,8 +313,9 @@ repository; opt-in per machine and per team.
     branch), `repos` optional; public outside repositories arrive marked `external` to the
     reading verbs only; private outside ones are refused. `pingbus send` names the branch
     from the checkout's upstream. Built with unit tests; acceptance M1.5 and M1.6 added.
-    Pending: the host run (`play-agent-bus.yml`, `play-claude-yolo.yml`, then
-    acceptance.bash, through `meta-deploy.bash`). Every member must run the new pingbus
+    Deployed 26-10-13; acceptance failed at M1.5 on a test fault (the wrong-branch send hit
+    pingbus's duplicate window; the trusted sends passed; fixed, journal 26-10-13). Pending:
+    acceptance.bash again, through `meta-deploy.bash`. Every member must run the new pingbus
     before any team gains `org` (protocol §1).
     - [ ] ⬜ An optional `exclude` list of org repositories in the team file, checked before
       trust (D64: planned, not built).
@@ -327,8 +328,8 @@ repository; opt-in per machine and per team.
     column, `apply <team>`/`--all`/Ctrl-U, create installs, removal one team at a time with
     a backup offer and a typed name to delete data; create's repository step and `add-repo`
     removed. Built; `scripts/test-ccy-teams-command.bash` (play stubbed) and
-    `scripts/test-agent-bus-install.bash`. Pending: the same host run; then the owner's
-    first `ccy-teams create` of a real team.
+    `scripts/test-agent-bus-install.bash`. Deployed 26-10-13. Pending: the owner's first
+    `ccy-teams create` of a real team.
 
 ## Success Criteria
 

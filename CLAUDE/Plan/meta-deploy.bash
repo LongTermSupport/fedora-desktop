@@ -52,18 +52,12 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # agent team bus D64/D65 (top priority): deploy (ccy-teams, pingbus, installer), acceptance
-    00161-agent-team-bus-matrix
-    # agent team bus: the owner's declared teams, with the new installer
-    playbooks/imports/play-agent-bus.yml
-    # speech-to-text: play-speech-to-text.yml once (carries 00171, 00164, 00156, 00148); log out after
-    00171-stt-insert-never-ignored-icon-in-sync/deploy.bash
-    # speech-to-text: read-only check that the deployed files match the checkout
-    00148-stt-unlimited-dictation-loop-and-buffer/acceptance.bash
-    # ccy child claude: read-only host triage (H4 checks the image version)
-    00092-ccy-child-claude-spawn-mode/triage.bash
-    # startup-log triage, read-only: the nightly vmtest result and the SELinux relabel
-    00134-startup-log-triage-and-status-panel-unavailable/triage.bash
+    # agent team bus D64 (top priority): acceptance again, M1.5's wrong-branch send fixed
+    00161-agent-team-bus-matrix/acceptance.bash
+    # speech-to-text round 2, after a log out and back in: the insert and the icon
+    00171-stt-insert-never-ignored-icon-in-sync/acceptance.bash
+    # speech-to-text round 2, read-only: Enter after the focus is taken back
+    00164-stt-enter-lost-after-focus-retake/triage.bash
 )
 
 LIST_ONLY=0

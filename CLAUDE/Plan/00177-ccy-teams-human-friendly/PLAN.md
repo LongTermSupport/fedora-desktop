@@ -60,8 +60,8 @@ offer to create a team when there is none; think about the UX; do a full critica
 - [ ] 🔄 **Task 3.1**: Host run through meta-deploy (`play-claude-yolo.yml` for gum, CCY
   3.94.2 and ccy-teams; `play-agent-bus.yml` for the sudoers rule
   `/etc/sudoers.d/agent-bus-read-only`), then the owner's first real `ccy-teams` use. Host
-  run passed 26-10-13 (both plays). Pending: the owner's use. The repo step of `create`
-  goes when Plan 00161's D64 (org-wide trust) lands.
+  run passed 26-10-13 (both plays), and again with Plan 00161's D64/D65 (org-wide trust,
+  create applies the team; the repo step is gone). Pending: the owner's use.
 
 ## Success Criteria
 
