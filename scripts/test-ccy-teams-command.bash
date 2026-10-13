@@ -854,6 +854,21 @@ check "create --repo: a team of repositories of any owners" "0" "$?"
 check_has "  each on any branch, no org" 'repos: [{"repo": "example-org/proj"}, {"repo": "other/tool"}]' \
     "$(cat "$SCRATCH/create.yml")"
 check "  no org line for it" "1" "$(grep -c '^    org:' "$SCRATCH/create.yml")"
+check "  each checked on GitHub for push access, as the questions do" "yes yes" \
+    "$(logged 'gh api repos/example-org/proj --jq .permissions.push') $(logged 'gh api repos/other/tool --jq .permissions.push')"
+reset
+cp "$HOST_VARS" "$SCRATCH/create.yml"
+cp "$SCRATCH/create.yml" "$SCRATCH/create.before"
+CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --human owner \
+    --repo example-org/proj --repo example-org/readonly --repo other/missing --repo bad --yes \
+    </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "create --repo --yes: a read-only, a missing and a malformed repository fail it (1)" "1" "$?"
+check_has "  the read-only one named with its reason" "example-org/readonly: read-only" "$(cat "$SCRATCH/err")"
+check_has "  the missing one named with its reason" "other/missing: not found" "$(cat "$SCRATCH/err")"
+check_has "  the malformed one named with its reason" "bad: not OWNER/REPO" "$(cat "$SCRATCH/err")"
+check_lacks "  the good one is not blamed" "example-org/proj:" "$(cat "$SCRATCH/err")"
+check "  nothing is written" "" "$(diff "$SCRATCH/create.before" "$SCRATCH/create.yml")"
+check "  nothing is installed" "no" "$(logged 'play ')"
 reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
 CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_ELEMENT_FAIL=1 "$TOOL" create --team beta --human owner \
@@ -964,6 +979,26 @@ check "  looked up on GitHub" "yes" "$(logged 'gh api users/example-org')"
 check_has "  the team is named after the owner" "- team: example-org" "$written"
 check_has "  the summary says so in words" "everything example-org owns: any repository, any branch" "$out"
 
+# No bus address declared yet: asked for (a bad one refused, bounded), then declared with the team.
+fresh_no_teams
+printf 'user_login: someone\n' >"$NO_TEAMS"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER ENTER ENTER \
+    '=not-an-ip' '=192.0.2.10' YES NO NO NO)")"
+check "no bus address: asked for, and the team is created" "rc=0" "$(rc_of "$out")"
+check_has "  a bad one is refused with its reason" "not an IP address" "$out"
+written="$(cat "$NO_TEAMS")"
+check_has "  the address is declared by the tool" "agent_bus_address: 192.0.2.10" "$written"
+check_has "  and the team listens on it" 'listen: ["192.0.2.10"]' "$written"
+check_lacks "  the owner is never told to edit a file" "localhost.yml" "$(grep -v 'saved to\|kept at' <<<"$out")"
+fresh_no_teams
+printf 'user_login: someone\n' >"$NO_TEAMS"
+CCY_TEAMS_HOST_VARS="$NO_TEAMS" "$TOOL" create --team beta --human owner --org example-org --yes \
+    </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "no bus address with --yes: refused" "78" "$?"
+check_has "  saying to run create on a terminal" "ccy-teams create" "$(cat "$SCRATCH/err")"
+check_lacks "  and never to edit a file" "localhost.yml" "$(cat "$SCRATCH/err")"
+check "  nothing written" "user_login: someone" "$(cat "$NO_TEAMS")"
+
 # Several repositories, of any owners: failing entries named with why, the list kept as typed.
 fresh_no_teams
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES '=Several repositories' \
@@ -995,7 +1030,9 @@ agent_bus_teams:
 EOF
 printf '|ABORT\n' >"$TEST_ANSWERS"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
-check_has "an old default path limit is offered for removal" "gum confirm --default=true Remove the limit from legacy?" "$(cat "$LOG")"
+check_has "a path limit is offered for removal" "gum confirm --default=true Remove the limit, so any path in its repositories can be named?" "$(cat "$LOG")"
+check_has "  saying what it does" "may only point each other at files under" "$out"
+check_lacks "  and never claiming it was the default" "was the default" "$out"
 check_lacks "  and removed from the entry" "path_prefixes" "$(cat "$NO_TEAMS")"
 check "  then applied" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["legacy"]}')"
 fresh_no_teams
@@ -1017,7 +1054,7 @@ check_has "  declined, the limit stays" "path_prefixes" "$(cat "$NO_TEAMS")"
 printf '|ABORT\n' >"$TEST_ANSWERS"
 : >"$LOG" # not reset: that clears the declined marker too
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' NO)")"
-check "  and not offered again" "no" "$(logged 'Remove the limit from legacy?')"
+check "  and not offered again" "no" "$(logged 'Remove the limit, so any path')"
 
 echo "== applied, apply, remove"
 STATES="$SCRATCH/states.yml"

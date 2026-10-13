@@ -496,6 +496,14 @@ check_owner() {
     fi
 }
 
+check_bus_address() {
+    local problem
+    problem="$(declare_helper check-address --address "$1" 2>&1)" || {
+        say_problem "${problem}"
+        return 1
+    }
+}
+
 check_subnets() {
     local -a flags=()
     local cidr problem
@@ -520,7 +528,8 @@ the_remote_repo() {
 # check_repos <list> — comma-separated OWNER/REPO, each well formed, on GitHub, and one your
 # gh login can push to (GitHub's own answer for that login: the repository's
 # permissions.push). Every entry that fails is named, with why; then the list as a whole is
-# checked against the team file's limits.
+# checked against the team file's limits. A second argument (non-interactive) drops the
+# "Try again." line.
 check_repos() {
     local repo push bad=0 problem
     local -a flags=()
@@ -547,7 +556,7 @@ check_repos() {
         return 1
     fi
     [[ "${bad}" -eq 0 ]] || {
-        echo "  Try again." >&2
+        [[ -n "${2:-}" ]] || echo "  Try again." >&2
         return 1
     }
     problem="$(declare_helper check --file "${HOST_VARS}" "${flags[@]}" 2>&1)" || {
@@ -564,7 +573,7 @@ SCOPE_ONE="One repository" SCOPE_OWNER="Everything one GitHub owner owns" SCOPE_
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
 create_wizard() {
-    local team="" yes=false text owner="" default_team login probe name rc scope="" here trusts
+    local known_address="" team="" yes=false text owner="" default_team login probe name rc scope="" here trusts
     local -a humans=() allow_from=() flags=() repos=() choices=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -598,6 +607,9 @@ create_wizard() {
         [[ -n "${team}" ]] || STEPS=$((STEPS + 1))
         [[ -n "${humans[*]:-}" ]] || STEPS=$((STEPS + 1))
         [[ -n "${allow_from[*]:-}" ]] || STEPS=$((STEPS + 1))
+        # The machine's bus address is a one-off fact only its owner knows: asked once, kept with the first team.
+        known_address="$(declare_helper address --file "${HOST_VARS}")" || exit
+        [[ -n "${known_address}" ]] || STEPS=$((STEPS + 1))
     fi
     # What the team works on first: its name defaults to that.
     if [[ -z "${owner}" && -z "${repos[*]:-}" && "${yes}" == false ]]; then
@@ -668,6 +680,23 @@ create_wizard() {
         ask_or_quit "${rc}"
         mapfile -t allow_from <<<"$(split_commas "${text}")"
         answered "${allow_from[*]:-none, this machine only}"
+    fi
+    if [[ "${yes}" == false && -z "${known_address}" ]]; then
+        step "Bus address" "Every team's room lives at one address of this machine, used for nothing else: an IP its agents and your Element can reach, such as its WireGuard address, or one added for the bus."
+        rc=0
+        text="$(ask_valid check_bus_address "This machine's bus address" "e.g. 192.0.2.10" "")" || rc=$?
+        ask_or_quit "${rc}"
+        flags+=(--address "${text}")
+        answered "${text}"
+    fi
+    if [[ "${yes}" == true && -n "${repos[*]:-}" ]]; then
+        # The same existence and push-access checks the questions make, before anything is written.
+        need_gh
+        text="$(printf '%s,' "${repos[@]}")"
+        check_repos "${text%,}" noninteractive || {
+            print_error "create stopped: fix the repositories above (or drop them); nothing was written."
+            exit 1
+        }
     fi
     [[ -z "${team}" ]] || flags+=(--team "${team}")
     for name in "${humans[@]}"; do [[ -z "${name}" ]] || flags+=(--human "${name}"); done
@@ -1501,8 +1530,8 @@ offer_update() {
         back_to_list
     fi
 }
-# offer_path_limits — a team created before Task 4.7 still names the old default
-# path_prefixes, which limits the paths its agents may point each other at. Offered once per
+# offer_path_limits — a team with path_prefixes (the old default of teams created before
+# Task 4.7, or set on purpose) limits the paths its agents may point each other at. Offered once per
 # team: removed, through declare.py, and applied; or, declined, never asked again.
 offer_path_limits() {
     local lines line team prefixes
@@ -1513,9 +1542,8 @@ offer_path_limits() {
         IFS=$'\t' read -r _ team prefixes <<<"${line}"
         [[ ! -e "${DECLINED_DIR}/path-limit-${team}" ]] || continue
         need_gum
-        say "Team ${team} lets its agents point each other only at files under ${prefixes}"
-        echo "That limit was the default when ${team} was created; new teams have none. Without it, any file in the team's repositories may be named." >&2
-        if ask_yes "Remove the limit from ${team}?" true; then
+        say "Team ${team}: its agents may only point each other at files under ${prefixes}."
+        if ask_yes "Remove the limit, so any path in its repositories can be named?" true; then
             declare_helper drop-limit --file "${HOST_VARS}" --team "${team}" >/dev/null
             in_picker apply_teams "${team}"
         else

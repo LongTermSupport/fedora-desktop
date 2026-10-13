@@ -312,9 +312,10 @@ class CreateTest(unittest.TestCase):
         self.path.write_text("user_login: someone\n", encoding="utf-8")
         self.assertEqual(self.run_create(self.FLAGS), 78)
         said = self.stderr.getvalue()
-        self.assertIn("agent_bus_address", said)
-        self.assertIn("192.0.2.", said)  # an example, from the documentation range
         self.assertIn("listen", said)
+        self.assertIn("ccy-teams create", said)  # which asks for it on a terminal
+        self.assertNotIn("localhost.yml", said)  # the owner is never sent to edit a file
+        self.assertNotIn("Set it in", said)
 
     def test_an_unexpected_shape_is_refused(self) -> None:
         self.path.write_text("agent_bus_address: 192.0.2.10\nagent_bus_teams: []\n", encoding="utf-8")
@@ -698,6 +699,51 @@ class PathLimitTest(CommandCase):
                                                "    path_prefixes:\n      - CLAUDE/Plan/\n      - docs/\n", 1))
         self.assertEqual(self.run_cmd("drop-limit", "--team", "alpha")[0], 0)
         self.assertEqual(self.path.read_text(), STATUS_HV.replace('    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n', "", 1))
+
+
+class AddressTest(CommandCase):
+    """The bus address is a one-off fact about the machine: ccy-teams create asks for it and
+    sets it through declare.py, so nobody edits the host_vars for it."""
+    TEXT = "user_login: someone\n"
+
+    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org")
+
+    def create(self, *extra: str) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = declare.main(["create", "--file", str(self.path), *self.FLAGS, *extra],
+                            ss_output=lambda: "", stdout=stdout, stderr=stderr)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_create_declares_it_with_the_first_team_in_one_write(self) -> None:
+        code, out, err = self.create("--address", "192.0.2.10")
+        self.assertEqual(code, 0, err)
+        text = self.path.read_text()
+        self.assertTrue(text.startswith("user_login: someone\nagent_bus_address: 192.0.2.10\n"), text)
+        hv = declare.parse(text)
+        self.assertEqual((hv.address, [t.team for t in hv.teams]), ("192.0.2.10", ["beta"]))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+        self.assertEqual(self.run_cmd("address")[1], "192.0.2.10\n")
+
+    def test_a_dry_run_writes_nothing(self) -> None:
+        code, out, err = self.create("--address", "192.0.2.10", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn('listen: ["192.0.2.10"]', out)
+        self.assertEqual(self.path.read_text(), self.TEXT)
+
+    def test_no_address_reads_as_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("address"), (0, "", ""))
+
+    def test_a_bad_address_is_a_usage_error_and_nothing_is_written(self) -> None:
+        for bad in ("not-an-ip", "192.0.2.0/24", "", "0.0.0.0", "127.0.0.1"):
+            self.assertEqual(self.create("--address", bad)[0], 64, bad)
+            self.assertEqual(declare.main(["check-address", "--address", bad], stderr=io.StringIO()), 64, bad)
+        self.assertEqual(declare.main(["check-address", "--address", "192.0.2.10"]), 0)
+        self.assertEqual(self.path.read_text(), self.TEXT)
+
+    def test_one_already_set_is_never_replaced(self) -> None:
+        self.path.write_text("agent_bus_address: 192.0.2.10\n")
+        self.assertEqual(self.create("--address", "192.0.2.11")[0], 64)
+        self.assertEqual(self.path.read_text(), "agent_bus_address: 192.0.2.10\n")
 
 
 if __name__ == "__main__":

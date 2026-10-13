@@ -621,12 +621,34 @@ def _write_new(path: pathlib.Path, data: bytes, mode: int) -> None:
 
 
 NO_ADDRESS = (
-    "{path} sets no {key}. It is the address on this machine that every team's homeserver "
+    "this machine has no bus address yet. It is the address that every team's homeserver "
     "listens on, and it is used for nothing else: an IP of this machine that the team's agents "
-    "and your Element can reach, such as its WireGuard address, or one added for the bus. Set it "
-    "in {path}, for example `{key}: 192.0.2.10` (see localhost.yml.dist), and run "
-    "playbooks/imports/play-agent-bus.yml once to bring it up; then run ccy-teams create again"
+    "and your Element can reach, such as its WireGuard address, or one added for the bus. "
+    "ccy-teams create asks for it on a terminal and keeps it; run it there"
 )
+
+
+def bus_address_error(text: str) -> str | None:
+    """Why `text` cannot be the bus address, or None when it can."""
+    try:
+        address = ipaddress.ip_address(text.strip())
+    except ValueError:
+        return f"'{text}' is not an IP address (for example 192.0.2.10)"
+    if address.is_unspecified or address.is_loopback or address.is_multicast:
+        return f"{address} cannot be reached from the team's agents; give an address of this machine on a network"
+    return None
+
+
+def set_address(text: str, address: str) -> str:
+    """The file's text with the bus address added at its end. A file that already has the key
+    (even one declared in a form this tool cannot read) is never changed: DeclareError."""
+    problem = bus_address_error(address)
+    if problem:
+        raise UsageError(f"--address: {problem}")
+    if any(_ADDRESS_RE.fullmatch(line.rstrip("\r\n")) for line in text.splitlines(keepends=True)):
+        raise DeclareError(f"{ADDRESS_KEY} is already set; ccy-teams does not replace it")
+    lead = "" if not text or text.endswith("\n") else "\n"
+    return f"{text}{lead}{ADDRESS_KEY}: {ipaddress.ip_address(address.strip())}\n"
 
 
 def _split(text: str) -> list[str]:
@@ -657,9 +679,15 @@ def check(args: argparse.Namespace) -> int:
 
 def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, err: TextIO) -> int:
     path = pathlib.Path(args.file)
-    hv = parse(_read(path))
+    text = _read(path)
+    hv = parse(text)
     if hv.address is None:
-        raise DeclareError(NO_ADDRESS.format(path=path, key=ADDRESS_KEY))
+        if args.address is None:
+            raise DeclareError(NO_ADDRESS)
+        # The machine's one-off bus address is declared with the first team, in one write.
+        hv = parse(set_address(text, args.address))
+    elif args.address is not None:
+        raise UsageError(f"--address: {ADDRESS_KEY} is already set; ccy-teams does not replace it")
     missing = [flag for flag, value in (("--team", args.team), ("--human", args.human),
                                         ("--org or --repo", args.org or args.repo)) if not value]
     if missing:
@@ -888,6 +916,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--repo", action="append", metavar="OWNER/REPO",
                          help="a repository the team trusts, on any branch (instead of, or as well as, --org)")
         sub.add_argument("--allow-from", action="append", dest="allow_from", metavar="CIDR")
+        sub.add_argument("--address", help="this machine's bus address, declared with the first team")
         if name == "create":
             sub.add_argument("--dry-run", action="store_true", help="print the entry; write nothing")
     suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub owner's or repo's")
@@ -911,6 +940,9 @@ def build_parser() -> argparse.ArgumentParser:
     states.add_argument("--source", required=True, help="this checkout, whose software the play installs")
     states.add_argument("--applied", required=True, help="the installer's applied-stamp directory")
     states.add_argument("--installed", action="append", metavar="TEAM", help="a team whose homeserver exists")
+    commands.add_parser("address", help="the bus address, or nothing").add_argument("--file", required=True)
+    check_address = commands.add_parser("check-address", help="validate a bus address")
+    check_address.add_argument("--address", required=True)
     steps = commands.add_parser("next-steps", help="what to do once a team is installed")
     steps.add_argument("--file", required=True)
     steps.add_argument("--team", required=True)
@@ -936,6 +968,16 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
             name = suggest_team(parse(_read(pathlib.Path(args.file))), args.name)
             if name:
                 out.write(f"{name}\n")
+            return EXIT_OK
+        if args.command == "check-address":
+            problem = bus_address_error(args.address)
+            if problem:
+                raise UsageError(f"--address: {problem}")
+            return EXIT_OK
+        if args.command == "address":
+            found = parse(_read(pathlib.Path(args.file))).address
+            if found:
+                out.write(f"{found}\n")
             return EXIT_OK
         if args.command == "next-steps":
             out.write(next_steps(parse(_read(pathlib.Path(args.file))), args.team))
