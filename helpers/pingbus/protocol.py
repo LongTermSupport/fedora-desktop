@@ -134,7 +134,7 @@ SECRET_PATTERNS = (
 
 TEAM_KEYS = ("v", "team", "humans", "roles", "org", "repos", "path_prefixes", "forge_api")
 #: Keys a team record may leave out (spec §8); every other key is required.
-TEAM_OPTIONAL_KEYS = ("org",)
+TEAM_OPTIONAL_KEYS = ("org", "path_prefixes")
 FORGE_API_PATTERN = r"https://[^\s/]+(/\S*)?"
 HUMANS_MAX = 16
 ROLES_MAX = 64
@@ -580,8 +580,8 @@ def check_ref_form(value: object, rule: VerbRule) -> Ref | None:
 
 
 def _check_ref(value: object, rule: VerbRule, ctx: Context) -> tuple[Ref | None, str | None]:
-    """The reference and its trust (spec §11): a listed or org repository's is trusted and
-    held to `path_prefixes`; any other repository's is external, accepted only for a verb
+    """The reference and its trust (spec §11): a listed or org repository's is trusted and,
+    when the team sets `path_prefixes`, held to them (none set: any path); any other repository's is external, accepted only for a verb
     that allows it, and never held to the prefixes, which name the team's own documents."""
     ref = check_ref_form(value, rule)
     if ref is None:
@@ -590,7 +590,7 @@ def _check_ref(value: object, rule: VerbRule, ctx: Context) -> tuple[Ref | None,
         if not rule.external:
             raise Refusal("allowlist")
         return ref, TRUST_EXTERNAL
-    if ref.form == "path" and not path_allowed(ref.path, ctx.path_prefixes):
+    if ref.form == "path" and ctx.path_prefixes and not path_allowed(ref.path, ctx.path_prefixes):
         raise Refusal("allowlist")
     return ref, TRUST_TRUSTED
 
@@ -837,7 +837,7 @@ def parse_team_record(content: object, server_name: str, team_name: str) -> Team
     for user, role in roles.items():
         if role not in ROLES or not is_agent_user_id(user, server_name):
             raise Untrusted("roles")
-    prefixes = _list_of(content["path_prefixes"], 1, PATH_PREFIXES_MAX)
+    prefixes = _list_of(content["path_prefixes"], 1, PATH_PREFIXES_MAX) if "path_prefixes" in content else []
     if not all(is_path_prefix(x) for x in prefixes):
         raise Untrusted("path_prefixes")
     forge = content["forge_api"]

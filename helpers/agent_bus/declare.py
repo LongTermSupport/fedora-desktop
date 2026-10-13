@@ -14,7 +14,8 @@ is written. It trusts its `org`, every repository of that GitHub owner on any of
 branches (Plan 00161 DESIGN.md D64); a repository outside the org that the team trusts is
 listed under `repos` by hand. The port is chosen, never asked: the first in AUTO_PORT_FIRST..AUTO_PORT_LAST
 that no entry declares and nothing listens on (`ss -Hltn`). `listen` is the host's bus
-address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's.
+address (`agent_bus_address`) and `forge_api` the example's. No `path_prefixes` is written: a
+trusted reference may name any path in the team's repositories (a team narrows it by hand).
 
     python3 -m helpers.agent_bus.declare declared --file <localhost.yml>
         TEAM<TAB><team><TAB><port or -><TAB><present|absent><TAB><server_name><TAB><url or -> per
@@ -69,7 +70,6 @@ TEAMS_KEY = "agent_bus_teams"
 ADDRESS_KEY = "agent_bus_address"
 AUTO_PORT_FIRST = 6167
 AUTO_PORT_LAST = 6266
-DEFAULT_PATH_PREFIXES = ("CLAUDE/Plan/", "docs/")
 DEFAULT_FORGE_API = "https://api.github.com"
 DEFAULT_ITEM_INDENT = 2
 EXIT_OK = 0
@@ -90,7 +90,6 @@ _TEMPLATE = {
     "allow_from": [],
     "humans": ["template"],
     "org": "template",
-    "path_prefixes": list(DEFAULT_PATH_PREFIXES),
     "forge_api": DEFAULT_FORGE_API,
 }
 
@@ -521,7 +520,6 @@ def build_entry(*, team: str, port: int, listen: Sequence[str], allow_from: Sequ
         "allow_from": list(allow_from),
         "humans": list(humans),
         "org": org,
-        "path_prefixes": list(DEFAULT_PATH_PREFIXES),
         "forge_api": DEFAULT_FORGE_API,
     }
     try:
@@ -538,7 +536,6 @@ def render_entry(entry: dict, item_indent: int, key_indent: int) -> list[str]:
     for key in ("listen", "allow_from", "humans"):
         lines.append(f"{key_pad}{key}: {json.dumps(entry[key])}\n")
     lines.append(f"{key_pad}org: {json.dumps(entry['org'])}\n")
-    lines.append(f"{key_pad}path_prefixes: {json.dumps(entry['path_prefixes'])}\n")
     lines.append(f"{key_pad}forge_api: {json.dumps(entry['forge_api'])}\n")
     return lines
 

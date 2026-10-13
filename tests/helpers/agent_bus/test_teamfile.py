@@ -87,6 +87,12 @@ class ValidTeamFileTest(unittest.TestCase):
         tf = teamfile.parse_team_file(_with(path_prefixes=["docs/agent-bus.md"]))
         self.assertEqual(tf.path_prefixes, ("docs/agent-bus.md",))
 
+    def test_no_path_prefixes_means_any_path(self) -> None:
+        tf = teamfile.parse_team_file(_without("path_prefixes"))
+        self.assertEqual(tf.path_prefixes, ())
+        self.assertNotIn("path_prefixes", tf.as_dict())
+        self.assertEqual(teamfile.parse_team_file(tf.as_dict()), tf)
+
     def test_listen_addresses_include_loopback_first(self) -> None:
         tf = teamfile.parse_team_file(VALID)
         self.assertEqual(tf.listen_addresses(), ("127.0.0.1", "192.0.2.10", "198.51.100.1"))
@@ -143,7 +149,6 @@ class RefusedTeamFileTest(unittest.TestCase):
         "org upper case": (_with(org="Example-Org"), "org"),
         "org with a slash": (_with(org="example-org/repo"), "org"),
         "org empty": (_with(org=""), "org"),
-        "missing path_prefixes": (_without("path_prefixes"), "path_prefixes"),
         "missing forge_api": (_without("forge_api"), "forge_api"),
         "missing listen": (_without("listen"), "listen"),
         "missing allow_from": (_without("allow_from"), "allow_from"),

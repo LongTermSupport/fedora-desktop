@@ -12,7 +12,7 @@ ID, reason code, time; nothing else), counted in the batch's aggregate `DROPPED`
 stderr (§15), and reflected in the exit code (§14). "Ignore" means skipped silently.
 
 **Trust.** Three kinds of input reach an agent. A **ping** from another agent is acted on only
-as a closed verb about a file under the team's `path_prefixes`, at a commit reachable from a
+as a closed verb about a file (under the team's `path_prefixes`, when it sets them), at a commit reachable from a
 trusted branch of a trusted repository: one of the team's `org`, on the branch the ping names (else its default branch), or one
 listed in `repos`, at its listed branches (§5, §6, §11); everything else a ping points at is
 data. A ping may also point at a public repository outside the team, for a verb that only
@@ -364,11 +364,11 @@ credential-assignment  (?i)\b(?:password|passwd|pwd|secret|token|access[_-]?toke
 | `roles`         | object           | 0 to 64 entries: agent-handle user ID → `"orchestrator"` or `"worker"` |
 | `org`           | string           | optional; `OWNER` (§6), §11                                            |
 | `repos`         | array of objects | §11                                                                    |
-| `path_prefixes` | array of strings | §11                                                                    |
+| `path_prefixes` | array of strings | optional; §11                                                          |
 | `forge_api`     | string           | `https://[^\s/]+(/\S*)?`                                               |
 
 The team file accepts only `https://api.github.com` for `forge_api`, the one forge a
-member's credential is sent to (§6). Every key but `org` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
+member's credential is sent to (§6). Every key but `org` and `path_prefixes` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
 command that needs it; `status` says why).
 
 A `roles` key names a numbered or a named seat alike, for example
@@ -545,9 +545,10 @@ From the team record (§8), never from the member config:
   for a verb whose "External `ref`" column says `yes` (§5), else `allowlist`; it must be in a
   public repository that is not a fork (§6); it is never held to `path_prefixes`; and its PING line says
   `external` (§15).
-- `path_prefixes`: 1 to 32 entries, each a `PATH` ending in `/` or an exact file `PATH`. A
-  trusted `path:` reference's `PATH` must start with one of them (`allowlist`). `PATH` has no
-  `.` or `..` segments, so a plain prefix test is exact.
+- `path_prefixes`: optional; when present, 1 to 32 entries, each a `PATH` ending in `/` or an
+  exact file `PATH`, and a trusted `path:` reference's `PATH` must start with one of them
+  (`allowlist`). Absent, a trusted reference may name any `PATH`: the org's repositories are
+  trusted whole. `PATH` has no `.` or `..` segments, so a plain prefix test is exact.
 
 ## 12. Member bundle and config
 

@@ -149,7 +149,7 @@ class ValidateTest(unittest.TestCase):
 
     def test_build_entry_is_a_valid_team_file(self) -> None:
         built = entry()
-        self.assertEqual(built["path_prefixes"], ["CLAUDE/Plan/", "docs/"])
+        self.assertNotIn("path_prefixes", built)  # org-wide: any path (Plan 00177 T4.7)
         self.assertEqual(built["forge_api"], "https://api.github.com")
         self.assertEqual(built["org"], "example-org")
         self.assertNotIn("repos", built)
@@ -170,10 +170,9 @@ class InsertTest(unittest.TestCase):
             '    allow_from: []\n'
             '    humans: ["owner"]\n'
             '    org: "example-org"\n'
-            '    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n'
             '    forge_api: "https://api.github.com"\n'
             '\n# trailing comment\n', new)
-        self.assertEqual(len(new.splitlines()), len(WITH_TEAMS.splitlines()) + 8)
+        self.assertEqual(len(new.splitlines()), len(WITH_TEAMS.splitlines()) + 7)
         self.assertTrue(new.startswith(WITH_TEAMS.split("  # a comment")[0]))
         self.assertTrue(new.endswith("\n# trailing comment\n" + VAULTED + "other_key: 1\n"))
         # The new entry comes after the last item's lines, before the trailing comment.
