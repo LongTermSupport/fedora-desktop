@@ -52,12 +52,9 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # agent team bus: a team without path_prefixes (an org-wide team trusts any path)
-    playbooks/imports/play-agent-bus.yml
-    # speech-to-text round 2, after a log out and back in: the insert and the icon
+    # speech-to-text: judges the Insert replay; play it first (dictate; Insert; Insert in
+    # the grace; Insert while the icon shows the orange dots)
     00171-stt-insert-never-ignored-icon-in-sync/acceptance.bash
-    # speech-to-text round 2, read-only: Enter after the focus is taken back
-    00164-stt-enter-lost-after-focus-retake/triage.bash
 )
 
 LIST_ONLY=0
