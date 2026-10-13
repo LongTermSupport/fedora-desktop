@@ -273,7 +273,8 @@ chmod 755 "$BIN"/*
 
 # gum, in a directory of its own so a case can take it off PATH. Answers come from
 # $TEST_GUM_ANSWERS, one line per input, confirm or filter: ENTER (input: its --value;
-# filter: its --selected), =TEXT (input: TEXT), PICK A,B (filter), YES, NO, ESC (exit 1),
+# filter: its --selected), =TEXT (input: TEXT), PICK A,B (filter), ALL or NONE (choose: the
+# first or second option), YES, NO, ESC (exit 1),
 # CTRLC (exit 130). style prints its text; spin runs its command.
 GUMBIN="$SCRATCH/gumbin"
 mkdir -p "$GUMBIN"
@@ -309,7 +310,7 @@ spin) exec "$@" ;;
 filter) cat >"$TEST_STATE/filter-items" ;;
 esac
 case "$sub" in
-input | confirm | filter)
+input | confirm | filter | choose)
     answer="$(next)"
     case "$answer" in
     ENTER)
@@ -322,6 +323,8 @@ input | confirm | filter)
         fi ;;
     =*) printf '%s\n' "${answer#=}" ;;
     "PICK "*) tr ',' '\n' <<<"${answer#PICK }" ;;
+    ALL) printf '%s\n' "${texts[0]}" ;;
+    NONE) printf '%s\n' "${texts[1]}" ;;
     YES) ;;
     NO | ESC) exit 1 ;;
     CTRLC) exit 130 ;;
@@ -734,7 +737,7 @@ check_has "Enter on a team shows the same help" "Colours:" "$out"
 
 reset
 cp "$HOST_VARS" "$SCRATCH/repo.yml"
-printf '%s\n' ENTER 'PICK example-org/other' YES >"$TEST_GUM_ANSWERS"
+printf '%s\n' ENTER ALL 'PICK example-org/other' YES >"$TEST_GUM_ANSWERS"
 printf '0\n' >"$STATE/gum-calls"
 out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/repo.yml" run_picker "$OUTSIDE" "ctrl-a|port 6167" "|ABORT")"
 check_has "Ctrl-A adds a repository to the row's team" 'repo: "example-org/other"' "$(cat "$SCRATCH/repo.yml")"
@@ -820,7 +823,7 @@ check "  asking for no sudo, as there is nothing to read" "no" "$(logged 'sudo')
 check "  asking with gum, default no" "yes" "$(logged 'gum confirm --default=false Create one now?')"
 
 fresh_no_teams
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES)")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ALL ENTER ENTER YES)")"
 check "yes runs create there and then; every default accepted with Enter" "rc=0" "$(rc_of "$out")"
 written="$(cat "$NO_TEAMS")"
 check_has "  the team is named after the GitHub owner, never the repository" "- team: example-org" "$written"
@@ -829,7 +832,7 @@ check_has "  every repository of the owner, all ticked to start with" 'repo: "ex
 check_has "    the other one too" 'repo: "example-org/other"' "$written"
 check_has "  each with its default branch, from gh, never asked" 'branches: ["trunk"]' "$written"
 check_has "  and no other machine" 'allow_from: []' "$written"
-check "  four questions and two yeses: owner, name, people, repositories, subnets" "7" "$(cat "$STATE/gum-calls")"
+check "  owner, name, people, how to start the list, repositories, subnets, and two yeses" "8" "$(cat "$STATE/gum-calls")"
 inputs="$(grep -F 'gum input' "$LOG")"
 check_has "  the owner is asked first" "--header GitHub owner" "$(awk 'NR == 1' <<<"$inputs")"
 check_has "    defaulting to this checkout's remote, lower-cased" "--value example-org" "$(awk 'NR == 1' <<<"$inputs")"
@@ -842,7 +845,10 @@ check "  and every header is one short line" "0" \
 check "  which gh looked up" "yes" "$(logged 'gh api users/example-org')"
 check_has "  the repositories explanation says what the list is for" "send each other to" \
     "$(grep -F 'gum style' "$LOG")"
-check_has "  the list starts all ticked" "--selected *" "$(grep -F 'gum filter' "$LOG")"
+check_has "  the person chooses how the list starts" "All repos ticked (untick the ones you don't want)" \
+    "$(grep -F 'gum choose' "$LOG")"
+check_has "    or" "No repos ticked (tick the ones you want)" "$(grep -F 'gum choose' "$LOG")"
+check_has "  all ticked starts the list all ticked" "--selected *" "$(grep -F 'gum filter' "$LOG")"
 check_has "  its header names the keys" "Tab unticks" "$(grep -F 'gum filter' "$LOG")"
 items="$(cat "$STATE/filter-items")"
 check_has "  the owner's repositories are offered, lower-cased" "example-org/other" "$items"
@@ -866,11 +872,13 @@ fresh_wiz() {
 before="$(cat "$HOST_VARS")"
 fresh_wiz
 out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=nope' '=Example-Org' '=Bad_Name' '=beta' ENTER \
-    'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
+    NONE 'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
 check "a bad name, then a good one; an unknown owner, then a known one" "rc=0" "$(rc_of "$out")"
 check_has "  the bad name is explained, and asked again" "Try again" "$out"
 check_has "  the unknown owner is explained" "no user or organisation called 'nope'" "$out"
 written="$(cat "$WIZ")"
+check_lacks "  none ticked starts the list with nothing ticked" "--selected" "$(grep -F 'gum filter' "$LOG")"
+check_has "    and its header says Tab ticks" "Tab ticks" "$(grep -F 'gum filter' "$LOG")"
 check_has "  both repositories chosen are written, each with its own default branch" \
     'repo: "example-org/other"' "$written"
 check_has "    trunk for the one whose default is trunk" 'branches: ["trunk"]' "$written"
@@ -887,7 +895,7 @@ check "Ctrl-C at a question, the same" "rc=130" "$(rc_of "$out")"
 check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER '=gamma' ENTER ENTER ENTER NO)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER '=gamma' ENTER ALL ENTER ENTER NO)" create)"
 check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"

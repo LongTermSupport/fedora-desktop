@@ -50,7 +50,8 @@
 #                                    name (the owner's, by default); the people in the
 #                                    team room (you, by default); which of the owner's
 #                                    repositories the agents may send each other to (all
-#                                    ticked to start with), each with its default branch
+#                                    or none ticked to start with, as you choose), each
+#                                    with its default branch
 #                                    from gh; other machines' subnets. It shows the entry and asks
 #                                    before writing. --yes asks nothing: give --team,
 #                                    --human and --repo. The port is chosen for you; the
@@ -232,6 +233,8 @@ need_gum() {
         GUM_CONFIRM_SELECTED_BACKGROUND=212 GUM_CONFIRM_UNSELECTED_FOREGROUND=255 \
         GUM_CONFIRM_UNSELECTED_BACKGROUND=24
     export GUM_SPIN_TITLE_FOREGROUND=255 GUM_SPIN_SPINNER_FOREGROUND=212
+    export GUM_CHOOSE_HEADER_FOREGROUND=255 GUM_CHOOSE_ITEM_FOREGROUND=252 \
+        GUM_CHOOSE_CURSOR_FOREGROUND=212 GUM_CHOOSE_SELECTED_FOREGROUND=212
 }
 
 # explain <text> — the explanation before a question, wrapped to the terminal (a gum
@@ -357,11 +360,12 @@ the_remote_repo() {
 }
 
 # pick_repos <owner> [<listed already, one per line>] — the owner's repositories in a
-# multi-select, all ticked to start with, less those listed already; prints
+# multi-select, all or none ticked to start with as the person chooses, less those listed
+# already; prints
 # "<owner/repo>=<default branch>" per chosen one. Returns 130 when cancelled, 1 on failure.
 pick_repos() {
-    local owner="$1" listing errors listing_lines kind name branch count="" picked try
-    local -a names=() empty=()
+    local owner="$1" listing errors listing_lines kind name branch count="" picked try start keys
+    local -a names=() empty=() ticked=()
     local -A branch_of=() listed=()
     while read -r name; do
         [[ -z "${name}" ]] || listed["${name}"]=1
@@ -401,20 +405,29 @@ pick_repos() {
     if [[ -n "${empty[*]:-}" ]]; then
         echo "Left out, as they have no commits yet (so no default branch): ${empty[*]}" >&2
     fi
-    explain "Repositories: which of ${owner}'s repositories may this team's agents send each other to (review, read)? Every one is ticked to start with: untick those the agents do not work in. You can add more later (ccy-teams add-repo)."
+    explain "Repositories: which of ${owner}'s repositories may this team's agents send each other to (review, read)? You can add more later (ccy-teams add-repo)."
+    # Ticked or unticked to start with is the person's choice: untick a few, or tick a few.
+    start="$(gum choose --header "Start the list with:" \
+        "All repos ticked (untick the ones you don't want)" \
+        "No repos ticked (tick the ones you want)")" || return 130
+    if [[ "${start}" == All* ]]; then
+        # "*" ticks every row (measured in gum 0.17); Tab unticks the row under the cursor.
+        ticked=(--selected '*')
+        keys="Tab unticks · Ctrl-A ticks all · Enter accepts · type to filter"
+    else
+        ticked=()
+        keys="Tab ticks · Ctrl-A ticks all · Enter accepts · type to filter"
+    fi
     for ((try = 1; try <= MAX_TRIES; try++)); do
-        # Every repository starts ticked ("*", measured in gum 0.17): Tab unticks the one
-        # under the cursor, Ctrl-A ticks them all again, Enter accepts.
-        picked="$(printf '%s\n' "${names[@]}" | gum filter --no-limit --selected '*' \
-            --header "Tab unticks · Ctrl-A ticks all · Enter accepts · type to filter" \
-            --placeholder "type to filter")" || return 130
+        picked="$(printf '%s\n' "${names[@]}" | gum filter --no-limit "${ticked[@]}" \
+            --header "${keys}" --placeholder "type to filter")" || return 130
         if [[ -n "${picked}" ]]; then
             sort <<<"${picked}" | while read -r name; do
                 [[ -z "${name}" ]] || printf '%s=%s\n' "${name}" "${branch_of[${name}]}"
             done
             return 0
         fi
-        echo "  Choose at least one: Ctrl-A ticks them all, Tab unticks one, Enter accepts. Try again." >&2
+        echo "  Choose at least one: Tab ticks one, Ctrl-A ticks them all, Enter accepts. Try again." >&2
     done
     echo "Giving up after ${MAX_TRIES} tries; nothing was changed." >&2
     return 1

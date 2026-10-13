@@ -25,8 +25,9 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    asks a few questions. A team works within one GitHub owner (an organisation or user),
    so that comes first, then the team's name, which defaults to the owner's. Next come
    the people in its room: you, by default, and the installer creates the accounts. Then
-   it lists the owner's repositories, all ticked, for you to untick the ones the agents
-   do not work in: these are the repositories the agents may send each other to. Each
+   it lists the owner's repositories, starting all ticked (untick the ones you don't want)
+   or none ticked (tick the ones you want), as you choose: these are the repositories the
+   agents may send each other to. Each
    repository's default branch comes from GitHub; work on
    other branches reaches the agents through pull requests, which need no listing. Last,
    subnets of other machines, empty unless LXC containers or other machines will run
