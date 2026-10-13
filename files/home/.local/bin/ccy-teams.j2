@@ -26,13 +26,15 @@
 #            Element password and show the login; on a team: this help
 #   Ctrl-N   start a new ccy session in a free or new seat of the row's team, here
 #   Ctrl-P   a new Element password for the person on the row
-#   Ctrl-E   open the team in Element
+#   Ctrl-E   open the team in Element (setting its profile up first, when it has none)
 #   Ctrl-U   update every team that is out of date or not built (never one to take down)
 #   Ctrl-R   turn the seat's session's restore after a reboot off or on
 #   Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
 #   Esc, q   leave
 # With no team on this machine, the picker offers to create one; with a team out of date, it
-# offers to update it first.
+# offers to update it first; with a team still holding the old default path_prefixes, it
+# offers once to remove them. Run in a checkout of a team's repositories, with no session of
+# that checkout in the team, it offers to start one there (ccy --teams <team>).
 #
 # Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
 # installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
@@ -45,20 +47,28 @@
 #   ccy-teams                        the picker (needs a terminal)
 #   ccy-teams -l|--list              print the same table, with a heading, and exit
 #                                    (colour only on a terminal, and never with NO_COLOR)
-#   ccy-teams create [--org ORG] [--team T] [--human NAME]... [--allow-from CIDR]... [--yes]
-#                                    add a team to agent_bus_teams in the host_vars and
-#                                    install it. On a terminal it asks (with gum) for what
-#                                    the flags leave out: the GitHub org (or user) the team
-#                                    works within, whose every repository its agents may
-#                                    send each other to; the name (the org's, by default);
-#                                    the people in the team room (you, by default); other
-#                                    machines' subnets. It shows the entry and asks once,
-#                                    then writes it and runs play-agent-bus.yml for it,
-#                                    and says it is done only when the team's homeserver
-#                                    is up. --yes asks nothing: give --org, --team and
-#                                    --human. The port is chosen for you
+#   ccy-teams create [--org ORG | --repo OWNER/REPO...] [--team T] [--human NAME]...
+#                    [--allow-from CIDR]... [--yes]
+#                                    add a team to agent_bus_teams in the host_vars, with
+#                                    its Element profile in agent_bus_element_teams, and
+#                                    install both. On a terminal it asks (with gum) for what
+#                                    the flags leave out: what the team works on (one
+#                                    repository, the default in a checkout, which it names;
+#                                    everything one GitHub owner owns; or several
+#                                    repositories of any owners, each one you can push to),
+#                                    all on any branch; the name (the repository's or the
+#                                    owner's, by default); the people in the team room (you,
+#                                    by default); other machines' subnets. It shows a
+#                                    summary and asks once, then writes the entries and runs
+#                                    play-agent-bus.yml and play-agent-bus-element.yml, and
+#                                    says it is done only when both are applied. Then it
+#                                    offers each person's sign-in, opens Element, and, in a
+#                                    checkout of the team's, starts a ccy session there.
+#                                    --yes asks and offers nothing: give --org or --repo,
+#                                    --team and --human. The port is chosen for you
 #   ccy-teams apply <team> | --all   run play-agent-bus.yml for the team (or every team
-#                                    out of date or not built), then check each now
+#                                    out of date or not built), and play-agent-bus-element.yml
+#                                    for those with an Element profile, then check each now
 #                                    matches its declaration. --all never takes a team
 #                                    down: a team declared absent, or built but no longer
 #                                    declared, needs your decision (ccy-teams remove)
