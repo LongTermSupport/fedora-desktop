@@ -27,12 +27,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         xz-utils \
         gawk \
         tmux \
+        gcc \
+        libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # tmux serves scripts/test-ccy-tmux-targets.bash, which checks the session targets ccy and
 # ccy-sessions name against a real tmux server; the other ccy-sessions suites use a fake
 # one. play-claude-yolo.yml installs it on the host. Nothing in the image runs a session
 # under it: ccy starts its tmux sessions on the host.
+
+# gcc and libc6-dev serve `go test -race` on src-go/: the race detector needs cgo.
 
 # gawk serves scripts/test-bash-history-search.bash: the bash-history ranker it tests
 # is gawk, and the base image carries only mawk. play-basic-configs.yml installs it on
@@ -141,6 +145,30 @@ RUN wget -qO /tmp/gum.tgz "https://github.com/charmbracelet/gum/releases/downloa
     && rm /tmp/gum.tgz \
     && chmod 755 /usr/local/bin/gum
 
+# Go builds this repository's CLI tools (src-go/: ccy-teams first). Debian 12's golang is
+# 1.19, so the upstream toolchain is pinned to the version Fedora 44 ships, which is what
+# play-claude-yolo.yml builds the tools with on the host. Bump it with the host's version.
+# golangci-lint is a QA tool, so its version lives in /.qa-versions like the others.
+ARG GO_VERSION=1.26.9
+ARG GO_SHA256=42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d
+RUN wget -qO /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+# GOTOOLCHAIN=local: go.mod's toolchain line must never make go download another one.
+ENV GOTOOLCHAIN=local
+COPY .qa-versions /tmp/.qa-versions
+RUN set -eux; \
+    . /tmp/.qa-versions; \
+    wget -qO /tmp/gl.tgz "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT}/golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz"; \
+    wget -qO /tmp/gl.sums "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT}/golangci-lint-${GOLANGCI_LINT}-checksums.txt"; \
+    cd /tmp && grep " golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz\$" gl.sums | awk '{print $1"  gl.tgz"}' | sha256sum -c -; \
+    tar -xzf /tmp/gl.tgz -C /usr/local/bin --strip-components=1 "golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint"; \
+    rm -f /tmp/gl.tgz /tmp/gl.sums /tmp/.qa-versions; \
+    golangci-lint version
+
 # Install ImageMagick 7 (Debian 12 ships only IM6).
 # Production target is Fedora 43 which ships IM7 natively; this is for
 # prototyping recipes against the same major version the script will call.
@@ -194,6 +222,8 @@ RUN ansible --version && \
     yq --version && \
     gitleaks version && \
     gum --version && \
+    go version && \
+    golangci-lint version && \
     rg --version && \
     gawk --version && \
     magick --version

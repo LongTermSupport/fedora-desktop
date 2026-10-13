@@ -1,0 +1,107 @@
+# golangci-lint v2, strict. The version is pinned in /.qa-versions (GOLANGCI_LINT).
+# Every finding fails the gate; nothing is suppressed in code (nolint is banned by
+# R-QA-SUPPRESSION), so a rule that is wrong for this module is turned off HERE, with why.
+version: "2"
+
+run:
+  go: "1.26"
+  tests: true
+
+linters:
+  default: all
+  disable:
+    # Deprecated in golangci-lint 2.x; default: all still selects them beside their
+    # successors (wsl_v5, gomodguard_v2), which stay enabled.
+    - wsl
+    - gomodguard
+    # Whitespace style (blank lines around returns and statements): layout is gofumpt's,
+    # and these flag idiomatic code, not defects.
+    - wsl_v5
+    - nlreturn
+    # `if err := f(); err != nil` is idiomatic Go that keeps err scoped to its check.
+    - noinlineerr
+    - exhaustruct_v5
+    # Forbids any global, including the sentinel errors and compiled regexps idiomatic Go
+    # keeps at package level.
+    - gochecknoglobals
+    # Demands every struct field be set in a literal: fights the zero-value idiom.
+    - exhaustruct
+    # Forbids non-stdlib imports unless listed; the module's dependencies are reviewed
+    # in go.mod instead.
+    - depguard
+    # Line length is gofumpt's and the reviewer's call, not a count.
+    - lll
+    # Bans the short names (r, w, t, ok) idiomatic Go uses in small scopes.
+    - varnamelen
+    # Requires t.Parallel() everywhere; tests that drive a fake terminal or change the
+    # working directory must not run in parallel.
+    - paralleltest
+    - tparallel
+    # Demands black-box test packages only; white-box tests of unexported logic are wanted.
+    - testpackage
+    # Flags every TODO; the plan tracks work, and none may be committed anyway.
+    - godox
+    # Wants every comment to end in a period, including list items and code references.
+    - godot
+    # Rejects every magic number including exit codes, column widths and retry counts
+    # that read best as literals beside their one use.
+    - mnd
+    # Forbids returning interfaces; the seams (Runner, Prompter) are constructed behind
+    # them on purpose.
+    - ireturn
+    # Bans package-level init and globals the tests never touch; too broad here.
+    - gochecknoinits
+    # Wants wrapped errors from every external package call even when the caller adds the
+    # context itself.
+    - wrapcheck
+    # Prints to stdout/stderr are this module's output, not debugging leftovers.
+    - forbidigo
+    # Prefers err113 sentinel-only errors; fmt.Errorf with %w is the house style.
+    - err113
+    # Not applicable: no HTTP handlers, no SQL, no protobuf.
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - protogetter
+  exclusions:
+    rules:
+      # A test spells out the argv it expects; naming each repeated literal ("gum", "fzf")
+      # as a constant, or flagging a list like "A A B", hides what is asserted.
+      - path: _test\.go
+        linters: [goconst, dupword]
+  settings:
+    cyclop:
+      max-complexity: 15
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 20
+    nestif:
+      min-complexity: 4
+    revive:
+      enable-all-rules: false
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable-all: true
+      disable:
+        # Reordering struct fields for padding costs readability for bytes nobody needs.
+        - fieldalignment
+    gosec:
+      excludes:
+        # G204: launching a command from a variable is this module's purpose (gum, fzf,
+        # sudo agent-bus, plays); every argv is built from validated values, never a shell.
+        - G204
+    exhaustive:
+      default-signifies-exhaustive: true
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

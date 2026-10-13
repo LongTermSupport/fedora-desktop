@@ -58,6 +58,8 @@ Use these Unicode icons in plan documents:
 
 - [00179-stt-recording-batch-and-engine-research](00179-stt-recording-batch-and-engine-research/) - Not Started. Batch transcription of long recordings, and the engine and CPU-path decisions (#98, #11, #9, #84)
 
+- [00191-go-cli-tooling](00191-go-cli-tooling/) - In Progress (high priority). This repo's large interactive tools leave bash for a Go module under `src-go/`: `ccy-teams` first, then `ccy-sessions`, then possibly `ccy`; and a new `go-qa-ci` repository, sibling of rust-qa-ci, that its QA runs
+
 - [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`
 
 - [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - Blocked on the owner (host run, first use). `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
@@ -81,7 +83,6 @@ Use these Unicode icons in plan documents:
 - [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - Not Started. `cc` outside a git working tree offers the checkout or refuses. Issue #90.
 
 - [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
-
 
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.
 
@@ -246,6 +247,7 @@ Use these Unicode icons in plan documents:
 ## Completed Plans
 
 - [00164-stt-enter-lost-after-focus-retake](Completed/00164-stt-enter-lost-after-focus-retake/) - When a dictation's window lost focus, the text was pasted back into it but the Enter did not send it. Both recorders wait for the window to keep focus before the paste and check it again before the Enter. Deployed; the owner confirmed Enter works.
+
 - [00166-laptop-panel-stays-on-with-lid-closed-when-docked](Completed/00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - Docked with the lid closed, GNOME kept the laptop panel live because `IgnoreLid=true` hid the lid from UPower. The play sets `IgnoreLid=false` and asserts UPower sees the lid; deployed and accepted. Undocked suspend rows waived by the owner.
 
 - [00163-ccy-one-key-agent-forwarding](Completed/00163-ccy-one-key-agent-forwarding/) - ccy forwards one chosen key from the owner's ssh-agent through a filtering socket, never the whole agent, so a headless launch can use a passphrase-protected key with no prompt. Accepted on the host by Plan 00161: every seat launched headless on a passphrase key, and inside a seat the agent listed one key, refused changes and signed with it.
@@ -303,7 +305,6 @@ Use these Unicode icons in plan documents:
 - [00108-headless-prompt-colour](Completed/00108-headless-prompt-colour/) - A headless run answered the prompt-colour question with nothing and left `PS1_COLOUR=` on the box; run.bash 1.19.0 takes `RUN_BASH_PS1_COLOUR` and the empty answer takes the default. Proven on a headless box following this branch.
 
 - [00107-server-profile-never-grants-passwordless-sudo](Completed/00107-server-profile-never-grants-passwordless-sudo/) - The server profile declares `play-basic-configs.yml`'s passwordless-sudo block absent instead of granting it; the desktop profile is unchanged. run.bash 1.18.1 passes the become password to headless optional playbooks, a gap the grant had been masking. Proven live on a headless box.
-
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window
