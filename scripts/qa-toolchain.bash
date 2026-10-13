@@ -8,7 +8,8 @@
 # toolchain means each environment is confident and they disagree, with nothing
 # saying so. `.qa-versions` is the single source of truth; this asserts the
 # machine actually matches it. Only tools a gate runs are listed: ruff
-# (qa-python), semgrep (qa-patterns), shellcheck (qa-bash).
+# (qa-python), semgrep (qa-patterns), shellcheck (qa-bash), golangci-lint (qa-go).
+# go itself is a floor taken from src-go/go.mod, not a pin.
 #
 # Exit 1, never 2. Exit 2 means "missing tool, refuse to run" and qa-all turns
 # that into a whole-run abort — which is how a single drifted ruff took 44
@@ -53,6 +54,7 @@ tool_version() {
     case "$tool" in
         shellcheck) shellcheck --version 2>"$TMP_ERR" | awk '/^version:/ {print $2}' ;;
         semgrep) semgrep --version 2>"$TMP_ERR" | awk 'NR==1 {print $1}' ;;
+        golangci-lint) golangci-lint --version 2>"$TMP_ERR" | awk 'NR==1 {print $4}' ;;
         *) "$tool" --version 2>"$TMP_ERR" | awk 'NR==1 {print $2}' ;;
     esac
 }
@@ -91,12 +93,48 @@ assert_tool() {
 assert_tool ruff "$RUFF"
 assert_tool semgrep "$SEMGREP"
 assert_tool shellcheck "$SHELLCHECK"
+assert_tool golangci-lint "$GOLANGCI_LINT"
+
+# assert_go_minimum — go must be present at or above the `go` line of src-go/go.mod. A floor,
+# not a pin: the language version is what go.mod promises, and any newer toolchain builds it.
+assert_go_minimum() {
+    local wanted found
+    CHECKED=$((CHECKED + 1))
+    wanted="$(awk '$1 == "go" {print $2; exit}' "$REPO_ROOT/src-go/go.mod")"
+    if [[ -z "$wanted" ]]; then
+        echo "✗ toolchain: no 'go' line in src-go/go.mod" >&2
+        MISMATCHES=$((MISMATCHES + 1))
+        return 0
+    fi
+    if ! command -v go >/dev/null; then
+        echo "✗ toolchain: go is not installed (need >= $wanted, src-go/go.mod)" >&2
+        MISMATCHES=$((MISMATCHES + 1))
+        return 0
+    fi
+    : >"$TMP_ERR"
+    found="$(go env GOVERSION 2>"$TMP_ERR")"
+    found="${found#go}"
+    if [[ -z "$found" ]]; then
+        echo "✗ toolchain: go is installed but its version could not be read (need >= $wanted)" >&2
+        cat "$TMP_ERR" >&2
+        MISMATCHES=$((MISMATCHES + 1))
+        return 0
+    fi
+    if [[ "$(printf '%s\n%s\n' "$wanted" "$found" | sort -V | head -n 1)" != "$wanted" ]]; then
+        echo "✗ toolchain: go is older than src-go/go.mod requires" >&2
+        echo "    need >= : $wanted  (src-go/go.mod)" >&2
+        echo "    found   : $found  ($(command -v go))" >&2
+        MISMATCHES=$((MISMATCHES + 1))
+    fi
+}
+assert_go_minimum
 
 if [[ $MISMATCHES -gt 0 ]]; then
     echo "" >&2
     echo "  These gates are version-dependent, so this machine would report a" >&2
     echo "  different verdict from the CCY container and from CI. Bring it into line:" >&2
     echo "    host      ./playbooks/imports/play-python.yml" >&2
+    echo "    host (go) ./playbooks/imports/optional/common/play-golang.yml" >&2
     echo "    container ccy --rebuild   (the image bakes .qa-versions at build time)" >&2
     exit 1
 fi

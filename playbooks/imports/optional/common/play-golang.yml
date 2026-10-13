@@ -5,8 +5,62 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # The SAME file play-python.yml, the CCY Dockerfile and CI read, so golangci-lint
+    # is one version everywhere. KEY=VALUE lines, comments skipped.
+    qa_versions: >-
+      {{ dict(lookup('ansible.builtin.file', root_dir ~ '/.qa-versions').splitlines()
+              | select('match', '^[A-Z_]+=')
+              | map('split', '=', 1)) }}
+    golangci_lint_archive: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64.tar.gz"
+    golangci_lint_release: "https://github.com/golangci/golangci-lint/releases/download/v{{ qa_versions.GOLANGCI_LINT }}"
   tasks:
+    # gcc is what `go test -race` links against (cgo); without it the race detector
+    # cannot build and the Go QA gate fails.
     - name: Install Golang
       become: true
       ansible.builtin.dnf:
-        name: golang
+        name:
+          - golang
+          - gcc
+
+    # Probed rather than reinstalled every run, and so that a pin change is applied.
+    - name: Check the installed golangci-lint version
+      ansible.builtin.command:
+        cmd: golangci-lint --version
+      register: golangci_lint_installed
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
+
+    # The checksum is read from the release's own checksums file and verified by get_url,
+    # so a tampered or truncated download fails before anything is unpacked.
+    - name: Download golangci-lint at the pinned version
+      ansible.builtin.get_url:
+        url: "{{ golangci_lint_release }}/{{ golangci_lint_archive }}"
+        dest: "/tmp/{{ golangci_lint_archive }}"
+        checksum: "sha256:{{ golangci_lint_release }}/golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-checksums.txt"
+        mode: "0644"
+      when: >-
+        golangci_lint_installed.rc != 0
+        or ('version ' ~ qa_versions.GOLANGCI_LINT ~ ' ') not in golangci_lint_installed.stdout
+
+    - name: Install golangci-lint at the pinned version
+      become: true
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ golangci_lint_archive }}"
+        remote_src: true
+        dest: /usr/local/bin
+        include:
+          - "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64/golangci-lint"
+        extra_opts:
+          - --strip-components=1
+        owner: root
+        group: root
+        mode: "0755"
+      when: >-
+        golangci_lint_installed.rc != 0
+        or ('version ' ~ qa_versions.GOLANGCI_LINT ~ ' ') not in golangci_lint_installed.stdout
+
+    - name: Remove the golangci-lint download
+      ansible.builtin.file:
+        path: "/tmp/{{ golangci_lint_archive }}"
+        state: absent

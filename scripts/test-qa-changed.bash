@@ -155,6 +155,17 @@ expect_has "--base covers committed changes" "$plan" "check bash-syntax: kept.ba
 expect_has "--base covers committed additions" "$plan" "check ruff: new.py"
 
 echo
+echo "== src-go -> the Go gate =="
+plan="$(plan_for src-go/internal/ui/ui.go src-go/go.mod)"
+expect_has "go: gate planned" "$plan" "check go"
+expect_lacks "go: a Go file is covered" "$plan" "not covered by qa-changed: src-go/internal/ui/ui.go"
+expect_lacks "go: go.mod is covered" "$plan" "not covered by qa-changed: src-go/go.mod"
+expect_lacks "go: qa-go is not also picked as a suite" "$plan" "suite scripts/qa-go.bash"
+
+plan="$(plan_for scripts/qa-bash.bash)"
+expect_lacks "go: untouched when no src-go file changed" "$plan" "check go"
+
+echo
 echo "=============================================================="
 printf 'passed: %d   failed: %d\n' "$PASS" "$FAIL"
 if [[ "$FAIL" -gt 0 ]]; then
