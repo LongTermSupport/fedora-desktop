@@ -46,6 +46,10 @@ func TestDirRefusesRelativeBases(t *testing.T) {
 			t.Fatalf("%v: want error, got %q", c, got)
 		}
 	}
+	_, relBase := Dir(env(map[string]string{"CCY_STATE_DIR": "rel"}))
+	if wantBase := "session registry base 'rel' is not an absolute path."; relBase == nil || relBase.Error() != wantBase {
+		t.Fatalf("got %v", relBase)
+	}
 	_, err := Dir(env(map[string]string{"XDG_STATE_HOME": "rel"}))
 	want := "XDG_STATE_HOME='rel' is not absolute, so the session registry's location would depend on the current directory."
 	if err == nil || err.Error() != want {
@@ -171,6 +175,38 @@ func TestReadRejectsMalformedRecords(t *testing.T) {
 		}
 		if !errors.Is(err, ErrUnreadable) {
 			t.Fatalf("%s: not ErrUnreadable: %v", name, err)
+		}
+	}
+}
+
+func TestReadNamesTheFirstMissingFieldInRecordOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rec")
+	body := "ccy-session-record 1\nprefix=ccy\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 50 {
+		_, err := ReadFile(path)
+		if err == nil || !strings.Contains(err.Error(), "is missing its name field") {
+			t.Fatalf("got %v", err)
+		}
+	}
+	if err := os.WriteFile(path, []byte("ccy-session-record 1\nname=n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 50 {
+		_, err := ReadFile(path)
+		if err == nil || !strings.Contains(err.Error(), "is missing its dir field") {
+			t.Fatalf("got %v", err)
+		}
+	}
+}
+
+func TestValidateNamesTheFirstMissingFieldInOrder(t *testing.T) {
+	for range 50 {
+		err := validate(Record{Name: "n"})
+		if err == nil || !strings.Contains(err.Error(), "needs a directory") {
+			t.Fatalf("got %v", err)
 		}
 	}
 }

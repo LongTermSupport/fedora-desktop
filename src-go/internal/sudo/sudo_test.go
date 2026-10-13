@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -19,7 +20,8 @@ func newSudo(f *execx.Fake, tty bool) *Sudo {
 			IsTerminal: func(any) bool { return tty },
 			Getenv:     func(string) string { return "" },
 		},
-		Stdin: strings.NewReader(""),
+		Stdin:  strings.NewReader(""),
+		Stdout: &bytes.Buffer{},
 	}
 }
 
@@ -152,8 +154,24 @@ func TestRunAfterReadyUsesSudoN(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := f.Calls()[0]
-	if c.Line() != "sudo -n "+InstallTool+" backup" || c.Stdout != s.Term.Err || c.Stderr != s.Term.Err {
+	if c.Line() != "sudo -n "+InstallTool+" backup" || c.Stdout != s.Stdout || c.Stdout == s.Term.Err || c.Stderr != s.Term.Err {
 		t.Errorf("got %+v", c)
+	}
+}
+
+func TestRunStreamsRootStdoutToStdoutNotTheTerminal(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", InstallTool}, execx.Result{Stdout: []byte("CHANGED\tbacked up\n")})
+	s := newSudo(f, true)
+	if err := s.Run(context.Background(), InstallTool, "backup-now"); err != nil {
+		t.Fatal(err)
+	}
+	out, ok := s.Stdout.(*bytes.Buffer)
+	if !ok || out.String() != "CHANGED\tbacked up\n" {
+		t.Errorf("stdout %v", s.Stdout)
+	}
+	if said(s) != "" {
+		t.Errorf("terminal %q", said(s))
 	}
 }
 
@@ -167,7 +185,7 @@ func TestRunFailure(t *testing.T) {
 }
 
 func TestNewWiresRealStreams(t *testing.T) {
-	if s := New(&execx.Fake{}, term.New()); s.Stdin == nil || s.Runner == nil {
+	if s := New(&execx.Fake{}, term.New()); s.Stdin != os.Stdin || s.Stdout != os.Stdout || s.Runner == nil {
 		t.Fatal("New leaves a field unset")
 	}
 }

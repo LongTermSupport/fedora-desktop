@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 type harness struct {
@@ -47,7 +48,7 @@ func mustWrite(t *testing.T, path, body string) {
 func TestHelpPrintsTheUsageToStdout(t *testing.T) {
 	for _, flag := range []string{"-h", "--help"} {
 		h := newHarness(t)
-		if code := h.app.Run([]string{flag}); code != ExitOK {
+		if code := h.app.Run([]string{flag}); code != term.ExitOK {
 			t.Fatalf("%s: exit %d", flag, code)
 		}
 		if !strings.Contains(h.out.String(), "ccy-teams -l|--list") || strings.Contains(h.out.String(), "set -euo") {
@@ -64,7 +65,7 @@ func TestUsageErrors(t *testing.T) {
 	}
 	for want, args := range cases {
 		h := newHarness(t)
-		if code := h.app.Run(args); code != ExitUsage {
+		if code := h.app.Run(args); code != term.ExitUsage {
 			t.Fatalf("%v: exit %d", args, code)
 		}
 		if h.errOut.String() != want {
@@ -76,7 +77,7 @@ func TestUsageErrors(t *testing.T) {
 func TestMissingCcyLibRefuses(t *testing.T) {
 	h := newHarness(t)
 	h.app.CcyLib = filepath.Join(t.TempDir(), "absent")
-	if code := h.app.Run([]string{"--list"}); code != ExitFailure {
+	if code := h.app.Run([]string{"--list"}); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
 	if !strings.Contains(h.errOut.String(), "CCY is not installed here ("+h.app.CcyLib+"/tmux-session.bash missing)") {

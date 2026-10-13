@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# The QA toolchain check below (scripts/qa-toolchain.bash) asserts go and golangci-lint
+# too, so they are installed first. play-golang.yml stays their one source of truth.
+- import_playbook: optional/common/play-golang.yml
+
 # This play installs things you need for Python and AI development
 - hosts: desktop
   vars:

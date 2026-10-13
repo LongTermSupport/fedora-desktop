@@ -140,6 +140,34 @@ func TestLaunchElementFailureReturnsLogTail(t *testing.T) {
 	}
 }
 
+// logSwapper stands in for a launcher that leaves a directory where the log was.
+type logSwapper struct{ log string }
+
+func (s logSwapper) Run(context.Context, execx.Cmd) (execx.Result, error) {
+	if err := os.Remove(s.log); err != nil {
+		return execx.Result{}, err
+	}
+	if err := os.Mkdir(s.log, 0o750); err != nil {
+		return execx.Result{}, err
+	}
+	return execx.Result{}, &execx.ExitError{Code: 1}
+}
+
+func TestLaunchElementUnreadableLogSurfacesTheReason(t *testing.T) {
+	l := launchSpec(t)
+	err := (&Systemd{Runner: logSwapper{log: l.Log}}).LaunchElement(context.Background(), l)
+	var le *LaunchError
+	if !errors.As(err, &le) {
+		t.Fatalf("got %v", err)
+	}
+	if le.Tail != "" || le.TailErr == nil {
+		t.Fatalf("tail %q tailErr %v", le.Tail, le.TailErr)
+	}
+	if !strings.Contains(le.Error(), "could not be read") || !strings.Contains(le.Error(), "directory") {
+		t.Errorf("message %q", le.Error())
+	}
+}
+
 func TestLaunchElementAppendsToExistingLog(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"systemd-run"}, execx.Result{Stdout: []byte("new\n")})

@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
 )
 
 // Exit kinds of declare.py. An *Error matches the kind of its exit code under errors.Is.
@@ -61,12 +63,18 @@ func (e *Error) Unwrap() error { return e.cause }
 
 // Client runs declare.py from the checkout at Root against the host_vars file File. It runs
 // in the caller's working directory: the module is found through PYTHONPATH. Err receives
-// the stderr of a successful run (the note that names the backup of the file); nil drops it.
+// the stderr of a successful run (the note that names the backup of the file); it is never
+// dropped, and defaults to the process's stderr.
 type Client struct {
 	Runner execx.Runner
 	Root   string
 	File   string
 	Err    io.Writer
+}
+
+// NewClient is a Client whose stderr notes go to the process's stderr.
+func NewClient(r execx.Runner, root, file string) *Client {
+	return &Client{Runner: r, Root: root, File: file, Err: os.Stderr}
 }
 
 // Team is a TEAM line of "declare declared".
@@ -137,32 +145,7 @@ func (e Entry) args() []string {
 	return args
 }
 
-// markers returns the tab fields of every line of out that starts with marker, checking the
-// field count; other lines are skipped.
-func markers(out []byte, marker string, want int) ([][]string, error) {
-	var rows [][]string
-	for line := range strings.Lines(string(out)) {
-		text := strings.TrimRight(line, "\r\n")
-		if text != marker && !strings.HasPrefix(text, marker+"\t") {
-			continue
-		}
-		f := strings.Split(text, "\t")
-		if len(f) != want {
-			return nil, fmt.Errorf("%s line has %d fields, want %d: %q", marker, len(f), want, text)
-		}
-		rows = append(rows, f)
-	}
-	return rows, nil
-}
-
-func dashEmpty(s string) string {
-	if s == "-" {
-		return ""
-	}
-	return s
-}
-
-func plain(out []byte) string { return strings.TrimRight(string(out), "\r\n") }
+func plain(out string) string { return strings.TrimRight(out, "\r\n") }
 
 // Declared is the teams of the host_vars, in file order.
 func (c *Client) Declared(ctx context.Context) ([]Team, error) {
@@ -170,13 +153,13 @@ func (c *Client) Declared(ctx context.Context) ([]Team, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := markers(out, "TEAM", 6)
+	rows, err := marker.Fields(out, "TEAM", 6)
 	if err != nil {
 		return nil, fmt.Errorf("declare declared: %w", err)
 	}
 	teams := make([]Team, 0, len(rows))
 	for _, f := range rows {
-		team := Team{Name: f[1], ServerName: f[4], URL: dashEmpty(f[5])}
+		team := Team{Name: f[1], ServerName: f[4], URL: marker.DashEmpty(f[5])}
 		if f[2] != "-" {
 			if team.Port, err = strconv.Atoi(f[2]); err != nil {
 				return nil, fmt.Errorf("declare declared: team %s: port %q is not a number", f[1], f[2])
@@ -207,13 +190,13 @@ func (c *Client) Status(ctx context.Context, source, appliedDir string, installe
 	if err != nil {
 		return nil, err
 	}
-	rows, err := markers(out, "STATUS", 4)
+	rows, err := marker.Fields(out, "STATUS", 4)
 	if err != nil {
 		return nil, fmt.Errorf("declare status: %w", err)
 	}
 	states := make([]Status, 0, len(rows))
 	for _, f := range rows {
-		states = append(states, Status{Team: f[1], State: f[2], Detail: dashEmpty(f[3])})
+		states = append(states, Status{Team: f[1], State: f[2], Detail: marker.DashEmpty(f[3])})
 	}
 	return states, nil
 }
@@ -224,7 +207,7 @@ func (c *Client) Limited(ctx context.Context) ([]Limit, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := markers(out, "LIMITED", 4)
+	rows, err := marker.Fields(out, "LIMITED", 4)
 	if err != nil {
 		return nil, fmt.Errorf("declare limited: %w", err)
 	}
@@ -241,7 +224,7 @@ func (c *Client) ElementTeams(ctx context.Context) ([]Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := markers(out, "ELEMENT", 3)
+	rows, err := marker.Fields(out, "ELEMENT", 3)
 	if err != nil {
 		return nil, fmt.Errorf("declare element-teams: %w", err)
 	}
@@ -258,7 +241,7 @@ func (c *Client) TeamsFor(ctx context.Context, repo string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := markers(out, "TEAM", 2)
+	rows, err := marker.Fields(out, "TEAM", 2)
 	if err != nil {
 		return nil, fmt.Errorf("declare teams-for: %w", err)
 	}
@@ -302,12 +285,12 @@ func (c *Client) SuggestTeam(ctx context.Context, name string) (string, error) {
 // NextSteps is the text saying what is left to do once the team is installed.
 func (c *Client) NextSteps(ctx context.Context, team string) (string, error) {
 	out, err := c.runFile(ctx, "next-steps", "--team", team)
-	return string(out), err
+	return out, err
 }
 
 // change reads the CHANGED or UNCHANGED line of an editing subcommand's output.
-func change(sub string, out []byte) (Change, error) {
-	for line := range strings.Lines(string(out)) {
+func change(sub string, out string) (Change, error) {
+	for line := range strings.Lines(out) {
 		text := strings.TrimRight(line, "\r\n")
 		if rest, ok := strings.CutPrefix(text, "CHANGED\t"); ok {
 			return Change{Changed: true, Text: rest}, nil
@@ -316,7 +299,7 @@ func change(sub string, out []byte) (Change, error) {
 			return Change{Text: rest}, nil
 		}
 	}
-	return Change{}, fmt.Errorf("declare %s printed neither CHANGED nor UNCHANGED: %q", sub, strings.TrimSpace(string(out)))
+	return Change{}, fmt.Errorf("declare %s printed neither CHANGED nor UNCHANGED: %q", sub, strings.TrimSpace(out))
 }
 
 // Create adds the team's entry to the host_vars (a backup of the file is kept beside it).
@@ -327,7 +310,7 @@ func (c *Client) Create(ctx context.Context, e Entry) (Change, error) {
 // CreateDryRun is the entry Create would add, as the lines it would write; nothing is written.
 func (c *Client) CreateDryRun(ctx context.Context, e Entry) (string, error) {
 	out, err := c.runFile(ctx, "create", append(e.args(), "--dry-run")...)
-	return string(out), err
+	return out, err
 }
 
 // Element adds or updates the team's Element profile entry; Changed is false when it was right.
@@ -349,24 +332,33 @@ func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, e
 	return c.edit(ctx, "remove", args...)
 }
 
-func (c *Client) run(ctx context.Context, sub string, args ...string) ([]byte, error) {
+func (c *Client) run(ctx context.Context, sub string, args ...string) (string, error) {
 	argv := slices.Concat([]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)
 	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: argv})
 	if err != nil {
 		if exit, ok := errors.AsType[*execx.ExitError](err); ok {
-			return nil, &Error{Code: exit.Code, Stderr: strings.TrimSpace(exit.Stderr), cause: err}
+			return "", &Error{Code: exit.Code, Stderr: strings.TrimSpace(exit.Stderr), cause: err}
 		}
-		return nil, fmt.Errorf("declare %s: %w", sub, err)
+		return "", fmt.Errorf("declare %s: %w", sub, err)
 	}
-	if c.Err != nil && len(res.Stderr) > 0 {
-		if _, werr := c.Err.Write(res.Stderr); werr != nil {
-			return nil, fmt.Errorf("declare %s stderr: %w", sub, werr)
+	if len(res.Stderr) > 0 {
+		if _, werr := c.stderr().Write(res.Stderr); werr != nil {
+			return "", fmt.Errorf("declare %s stderr: %w", sub, werr)
 		}
 	}
-	return res.Stdout, nil
+	return string(res.Stdout), nil
 }
 
-func (c *Client) runFile(ctx context.Context, sub string, args ...string) ([]byte, error) {
+// stderr is where a successful run's stderr goes: Err, or the process's own stderr when Err
+// is unset, so the note naming the host_vars backup is never dropped.
+func (c *Client) stderr() io.Writer {
+	if c.Err == nil {
+		return os.Stderr
+	}
+	return c.Err
+}
+
+func (c *Client) runFile(ctx context.Context, sub string, args ...string) (string, error) {
 	return c.run(ctx, sub, slices.Concat([]string{"--file", c.File}, args)...)
 }
 

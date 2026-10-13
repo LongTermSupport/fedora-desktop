@@ -10,14 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
-)
-
-// Exit codes, as the bash version and its tests know them.
-const (
-	ExitOK        = 0
-	ExitFailure   = 1
-	ExitUsage     = 64
-	ExitCancelled = 130
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 //go:embed usage.txt
@@ -60,19 +53,19 @@ func (a *App) Run(args []string) int {
 		}
 	case "-h", "--help":
 		a.print(a.Stdout, usage)
-		return ExitOK
+		return term.ExitOK
 	default:
 		return a.usageError(fmt.Sprintf("unknown option '%s'.", sub))
 	}
 	if !a.ccyInstalled() {
-		return ExitFailure
+		return term.ExitFailure
 	}
-	return ExitOK
+	return term.ExitOK
 }
 
 func (a *App) usageError(msg string) int {
 	a.print(a.Stderr, "ccy-teams: "+msg+" See ccy-teams --help.\n")
-	return ExitUsage
+	return term.ExitUsage
 }
 
 // ccyInstalled refuses to go on without the CCY lib, saying why: inside a container ccy-teams

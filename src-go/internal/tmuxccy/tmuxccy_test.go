@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
@@ -18,8 +19,15 @@ var (
 	hookArgs    = []string{"tmux", "-L", "ccy", "set-hook", "-g", "client-attached"}
 )
 
-func newTmux(f *execx.Fake) *tmuxccy.Tmux {
-	return &tmuxccy.Tmux{Runner: f}
+// newTerm is a Term whose lines land in the returned buffer; tty says whether it is a terminal.
+func newTerm(tty bool) (*term.Term, *bytes.Buffer) {
+	buf := &bytes.Buffer{}
+	return &term.Term{Err: buf, IsTerminal: func(any) bool { return tty }, Getenv: func(string) string { return "" }}, buf
+}
+
+func newTmux(f execx.Runner) *tmuxccy.Tmux {
+	tm, _ := newTerm(false)
+	return &tmuxccy.Tmux{Runner: f, Term: tm}
 }
 
 func fail(msg string) execx.Result {
@@ -70,7 +78,7 @@ func TestListRealFailureIsError(t *testing.T) {
 }
 
 func TestListStartFailureIsError(t *testing.T) {
-	tm := &tmuxccy.Tmux{Runner: errRunner{}}
+	tm := newTmux(errRunner{})
 	if sessions, err := tm.List(context.Background()); err == nil || sessions != nil {
 		t.Fatal("want error")
 	}
@@ -194,8 +202,11 @@ func TestAttachDetachedAfterwards(t *testing.T) {
 	f.On(clientsArgs, execx.Result{})
 	f.On(hookArgs, execx.Result{})
 	f.On(attachArgs, execx.Result{})
-	var stderr bytes.Buffer
-	tm := &tmuxccy.Tmux{Runner: f, Stderr: &stderr}
+	tm := newTmux(f)
+	stderr, ok := tm.Term.Err.(*bytes.Buffer)
+	if !ok {
+		t.Fatal("term is not a buffer")
+	}
 	out, err := tm.Attach(context.Background(), "alpha")
 	if err != nil || out != tmuxccy.Detached {
 		t.Fatalf("got %v, %v", out, err)
@@ -213,9 +224,17 @@ func TestAttachRefusesBusyOrGone(t *testing.T) {
 	for _, res := range []execx.Result{{Stdout: []byte("/dev/pts/3 1\n")}, fail("can't find session: alpha")} {
 		f := &execx.Fake{}
 		f.On(clientsArgs, res)
-		out, err := newTmux(f).Attach(context.Background(), "alpha")
+		tm, said := newTerm(false)
+		out, err := (&tmuxccy.Tmux{Runner: f, Term: tm}).Attach(context.Background(), "alpha")
 		if !errors.Is(err, tmuxccy.ErrOpenElsewhere) || out != tmuxccy.Refused {
 			t.Fatalf("err %v", err)
+		}
+		refused, ok := errors.AsType[*tmuxccy.RefusedError](err)
+		if !ok || refused.Message != "'alpha' is open in another terminal, or gone. It can be attached from one terminal only." {
+			t.Fatalf("refusal %v", err)
+		}
+		if said.Len() != 0 {
+			t.Fatalf("Attach printed a refusal the caller will print: %q", said.String())
 		}
 		if f.Called("tmux -L ccy attach-session") || f.Called("tmux -L ccy set-hook") {
 			t.Fatal("must not attach")
@@ -275,8 +294,11 @@ func (s *sequenceRunner) Run(_ context.Context, c execx.Cmd) (execx.Result, erro
 
 func TestAttachEnded(t *testing.T) {
 	r := &sequenceRunner{clients: []execx.Result{{}, fail("can't find session: alpha")}}
-	var stderr bytes.Buffer
-	tm := &tmuxccy.Tmux{Runner: r, Stderr: &stderr}
+	tm := newTmux(r)
+	stderr, ok := tm.Term.Err.(*bytes.Buffer)
+	if !ok {
+		t.Fatal("term is not a buffer")
+	}
 	out, err := tm.Attach(context.Background(), "alpha")
 	if err != nil || out != tmuxccy.Ended {
 		t.Fatalf("got %v, %v", out, err)
@@ -288,20 +310,28 @@ func TestAttachEnded(t *testing.T) {
 
 func TestAttachKickedOnArrival(t *testing.T) {
 	r := &sequenceRunner{clients: []execx.Result{{}, {Stdout: []byte("/dev/pts/9 1\n")}}}
-	var stderr bytes.Buffer
-	tm := &tmuxccy.Tmux{Runner: r, Stderr: &stderr}
-	out, err := tm.Attach(context.Background(), "alpha")
+	tm, stderr := newTerm(false)
+	out, err := (&tmuxccy.Tmux{Runner: r, Term: tm}).Attach(context.Background(), "alpha")
 	if err != nil || out != tmuxccy.Kicked {
 		t.Fatalf("got %v, %v", out, err)
 	}
-	if !strings.Contains(stderr.String(), "so this terminal was not attached to it") {
+	want := "Attaching to 'alpha'.\nERROR: 'alpha' is open in another terminal, so this terminal was not attached to it.\n"
+	if stderr.String() != want {
 		t.Fatalf("stderr %q", stderr.String())
+	}
+	coloured, colouredOut := newTerm(true)
+	r2 := &sequenceRunner{clients: []execx.Result{{}, {Stdout: []byte("/dev/pts/9 1\n")}}}
+	if _, err := (&tmuxccy.Tmux{Runner: r2, Term: coloured}).Attach(context.Background(), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(colouredOut.String(), "\x1b[0;31mERROR:\x1b[0m") {
+		t.Fatalf("no colour on a terminal: %q", colouredOut.String())
 	}
 }
 
 func TestAttachAfterListFails(t *testing.T) {
 	r := &sequenceRunner{clients: []execx.Result{{}, fail("boom")}}
-	tm := &tmuxccy.Tmux{Runner: r}
+	tm := newTmux(r)
 	if out, err := tm.Attach(context.Background(), "alpha"); err == nil || out != tmuxccy.Refused {
 		t.Fatal("want error")
 	}

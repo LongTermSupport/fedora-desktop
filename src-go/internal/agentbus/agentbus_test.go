@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 type rig struct {
@@ -20,11 +23,13 @@ type rig struct {
 func newRig() *rig {
 	f := &execx.Fake{}
 	r := &rig{fake: f, out: &bytes.Buffer{}, errw: &bytes.Buffer{}}
-	asRoot := func(ctx context.Context, argv ...string) ([]byte, error) {
-		res, err := f.Run(ctx, execx.Cmd{Name: "sudo", Args: append([]string{"-n"}, argv...)})
-		return res.Stdout, err
+	root := &sudo.Sudo{
+		Runner: f,
+		Term:   &term.Term{Err: &bytes.Buffer{}, IsTerminal: func(any) bool { return false }, Getenv: func(string) string { return "" }},
+		Stdin:  strings.NewReader(""),
+		Stdout: r.out,
 	}
-	r.c = &Client{Runner: f, AsRoot: asRoot, Out: r.out, Err: r.errw}
+	r.c = &Client{Runner: f, Root: root, Err: r.errw}
 	return r
 }
 
@@ -233,6 +238,28 @@ func TestStartFailureIsNotACommandError(t *testing.T) {
 	}
 	if cmdErr, ok := errors.AsType[*CommandError](err); ok {
 		t.Fatalf("a command that did not run is not a CommandError: %v", cmdErr)
+	}
+}
+
+func TestRootShowStreamsInsteadOfCapturing(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"sudo"}, execx.Result{Stdout: []byte("progress\n")})
+	if err := r.c.BackupNow(context.Background(), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if c := r.last(t); c.Stdout != r.c.Root.Stdout {
+		t.Fatalf("the root command's stdout was captured, not streamed: %v", c.Stdout)
+	}
+}
+
+func TestRootPathsAreSudosOwn(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"sudo"}, execx.Result{})
+	if err := r.c.RemoveTeam(context.Background(), "alpha", false); err != nil {
+		t.Fatal(err)
+	}
+	if c := r.last(t); c.Args[1] != sudo.InstallTool {
+		t.Fatalf("ran %q", c.Line())
 	}
 }
 

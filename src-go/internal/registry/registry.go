@@ -43,6 +43,16 @@ func (e *RelativeStateHomeError) Error() string {
 	return "XDG_STATE_HOME='" + e.Value + "' is not absolute, so the session registry's location would depend on the current directory."
 }
 
+// RelativeBaseError is a relative registry base (CCY_STATE_DIR, or the HOME-derived one). Its
+// text is the bash library's sentence verbatim, trailing period included.
+type RelativeBaseError struct {
+	Value string
+}
+
+func (e *RelativeBaseError) Error() string {
+	return "session registry base '" + e.Value + "' is not an absolute path."
+}
+
 // Record is one session's registry entry. Compose is empty when the record has no answer.
 type Record struct {
 	Name     string
@@ -93,7 +103,7 @@ func Dir(getenv func(string) string) (string, error) {
 		}
 	}
 	if !filepath.IsAbs(base) {
-		return "", fmt.Errorf("session registry base '%s' is not an absolute path", base)
+		return "", &RelativeBaseError{Value: base}
 	}
 	return base + "/sessions", nil
 }
@@ -129,13 +139,16 @@ func validName(name string) error {
 	return nil
 }
 
+// namedValue is a required field and what it holds, so fields are checked in a fixed order.
+type namedValue struct{ field, value string }
+
 func validate(r Record) error {
 	if err := validName(r.Name); err != nil {
 		return err
 	}
-	for field, v := range map[string]string{"directory": r.Dir, keyLauncher: r.Launcher, keyPrefix: r.Prefix} {
-		if v == "" {
-			return fmt.Errorf("session record for '%s' needs a %s", r.Name, field)
+	for _, f := range []namedValue{{"directory", r.Dir}, {keyLauncher, r.Launcher}, {keyPrefix, r.Prefix}} {
+		if f.value == "" {
+			return fmt.Errorf("session record for '%s' needs a %s", r.Name, f.field)
 		}
 	}
 	if r.Compose != "" && !slices.Contains(composeOutcomes, r.Compose) {
@@ -298,9 +311,10 @@ func ReadFile(path string) (Record, error) {
 			return Record{}, unreadable(path, problem)
 		}
 	}
-	for field, v := range map[string]string{"name": rec.Name, "dir": rec.Dir, keyLauncher: rec.Launcher, keyPrefix: rec.Prefix, "restore": restore} {
-		if v == "" {
-			return Record{}, unreadable(path, "is missing its "+field+" field")
+	// The record format's own order, so a record missing several fields always names the same one.
+	for _, f := range []namedValue{{"name", rec.Name}, {"dir", rec.Dir}, {keyLauncher, rec.Launcher}, {keyPrefix, rec.Prefix}, {"restore", restore}} {
+		if f.value == "" {
+			return Record{}, unreadable(path, "is missing its "+f.field+" field")
 		}
 	}
 	if restore != valYes && restore != valNo {

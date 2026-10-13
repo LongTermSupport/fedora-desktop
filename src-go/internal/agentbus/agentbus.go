@@ -8,15 +8,11 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 )
 
-// The two programs sudo is allowed to run for this tool. They are named by absolute path
-// because sudo's secure_path may not contain /usr/local, and the sudoers rule matches the
-// exact argv.
-const (
-	WrapperPath   = "/usr/local/bin/agent-bus"
-	InstallerPath = "/usr/local/sbin/agent-bus-install"
-)
+// Root commands name their program by the absolute paths sudo.AgentBus and sudo.InstallTool:
+// sudo's secure_path may not contain /usr/local, and the sudoers rule matches the exact argv.
 
 const (
 	wrapperName   = "agent-bus"
@@ -91,17 +87,13 @@ func classify(tool string, err error) error {
 	return fmt.Errorf("%s: %w", tool, err)
 }
 
-// AsRoot runs argv (the program by absolute path, then its arguments) as root without a
-// password prompt and returns its stdout. It is supplied by the caller's sudo layer.
-type AsRoot func(ctx context.Context, argv ...string) ([]byte, error)
-
-// Client calls the wrapper and the installer. Out receives what the root commands print for
-// the person (CHANGED lines, the installer's progress); Err receives the stderr of the
-// commands run as the user. Nil discards Out and captures Err into the CommandError.
+// Client calls the wrapper and the installer. Root runs the root commands: what they print
+// for the person (CHANGED lines, the installer's progress) streams live to Root.Stdout, and
+// their stderr to its terminal. Err receives the stderr of the commands run as the user; nil
+// captures it into the CommandError.
 type Client struct {
 	Runner execx.Runner
-	AsRoot AsRoot
-	Out    io.Writer
+	Root   *sudo.Sudo
 	Err    io.Writer
 }
 
@@ -117,7 +109,7 @@ func (c *Client) SeatList(ctx context.Context, dir string) ([]Seat, bool, error)
 		}
 		unreadable = true
 	}
-	seats, err := ParseSeats(res.Stdout)
+	seats, err := ParseSeats(string(res.Stdout))
 	if err != nil {
 		return nil, false, fmt.Errorf("agent-bus seat list: %w", err)
 	}
@@ -132,7 +124,7 @@ func (c *Client) SeatRemove(ctx context.Context, dir, ref string) error {
 
 // List is "agent-bus list <team>" as root: the team's people and agent members.
 func (c *Client) List(ctx context.Context, team string) (Roster, error) {
-	out, err := c.rootRun(ctx, wrapperName, WrapperPath, "list", team)
+	out, err := c.rootRun(ctx, wrapperName, sudo.AgentBus, "list", team)
 	if err != nil {
 		return Roster{}, err
 	}
@@ -143,15 +135,15 @@ func (c *Client) List(ctx context.Context, team string) (Roster, error) {
 	return roster, nil
 }
 
-// ParkMember is "agent-bus park-member <team> <handle>" as root; what it prints goes to Out.
+// ParkMember is "agent-bus park-member <team> <handle>" as root; what it prints streams to Root.Stdout.
 func (c *Client) ParkMember(ctx context.Context, team, handle string) error {
-	return c.rootShow(ctx, wrapperName, WrapperPath, "park-member", team, handle)
+	return c.rootShow(ctx, wrapperName, sudo.AgentBus, "park-member", team, handle)
 }
 
 // HumanDevices is "agent-bus human devices <team> <name>" as root: the person's Element
 // sessions.
 func (c *Client) HumanDevices(ctx context.Context, team, name string) ([]Device, error) {
-	out, err := c.rootRun(ctx, wrapperName, WrapperPath, "human", "devices", team, name)
+	out, err := c.rootRun(ctx, wrapperName, sudo.AgentBus, "human", "devices", team, name)
 	if err != nil {
 		return nil, err
 	}
@@ -165,11 +157,11 @@ func (c *Client) HumanDevices(ctx context.Context, team, name string) ([]Device,
 // HumanPassword is "agent-bus human password <team> <name>" as root: it sets a new Element
 // password and prints it as the one line of output.
 func (c *Client) HumanPassword(ctx context.Context, team, name string) (string, error) {
-	out, err := c.rootRun(ctx, wrapperName, WrapperPath, "human", "password", team, name)
+	out, err := c.rootRun(ctx, wrapperName, sudo.AgentBus, "human", "password", team, name)
 	if err != nil {
 		return "", err
 	}
-	password := strings.TrimRight(strings.SplitN(string(out), "\n", 2)[0], "\r")
+	password := strings.TrimRight(strings.SplitN(out, "\n", 2)[0], "\r")
 	if password == "" {
 		return "", fmt.Errorf("agent-bus human password %s %s printed no password", team, name)
 	}
@@ -178,7 +170,7 @@ func (c *Client) HumanPassword(ctx context.Context, team, name string) (string, 
 
 // Backups is "agent-bus-install backups --team <team>" as root.
 func (c *Client) Backups(ctx context.Context, team string) ([]Backup, error) {
-	out, err := c.rootRun(ctx, installerName, InstallerPath, "backups", "--team", team)
+	out, err := c.rootRun(ctx, installerName, sudo.InstallTool, "backups", "--team", team)
 	if err != nil {
 		return nil, err
 	}
@@ -189,20 +181,20 @@ func (c *Client) Backups(ctx context.Context, team string) ([]Backup, error) {
 	return backups, nil
 }
 
-// BackupNow is "agent-bus-install backup-now --team <team>" as root; its output goes to Out.
+// BackupNow is "agent-bus-install backup-now --team <team>" as root; its output streams to Root.Stdout.
 func (c *Client) BackupNow(ctx context.Context, team string) error {
-	return c.rootShow(ctx, installerName, InstallerPath, "backup-now", "--team", team)
+	return c.rootShow(ctx, installerName, sudo.InstallTool, "backup-now", "--team", team)
 }
 
 // Restore is "agent-bus-install restore --team <team> --backup <id>" as root.
 func (c *Client) Restore(ctx context.Context, team, backup string) error {
-	return c.rootShow(ctx, installerName, InstallerPath, "restore", "--team", team, "--backup", backup)
+	return c.rootShow(ctx, installerName, sudo.InstallTool, "restore", "--team", team, "--backup", backup)
 }
 
 // RemoveTeam is "agent-bus-install remove --team <team> [--purge]" as root: purge also
 // deletes the team's data.
 func (c *Client) RemoveTeam(ctx context.Context, team string, purge bool) error {
-	argv := []string{InstallerPath, "remove", "--team", team}
+	argv := []string{sudo.InstallTool, "remove", "--team", team}
 	if purge {
 		argv = append(argv, "--purge")
 	}
@@ -214,18 +206,12 @@ func (c *Client) userRun(ctx context.Context, dir string, args ...string) (execx
 	return res, classify(wrapperName, err)
 }
 
-func (c *Client) rootRun(ctx context.Context, tool string, argv ...string) ([]byte, error) {
-	out, err := c.AsRoot(ctx, argv...)
+func (c *Client) rootRun(ctx context.Context, tool string, argv ...string) (string, error) {
+	out, err := c.Root.AsRoot(ctx, argv...)
 	return out, classify(tool, err)
 }
 
-// rootShow runs argv as root and writes what it printed to Out.
+// rootShow runs argv as root with its output streaming live, not captured.
 func (c *Client) rootShow(ctx context.Context, tool string, argv ...string) error {
-	out, err := c.rootRun(ctx, tool, argv...)
-	if c.Out != nil {
-		if _, werr := c.Out.Write(out); werr != nil {
-			return fmt.Errorf("%s output: %w", tool, werr)
-		}
-	}
-	return err
+	return classify(tool, c.Root.Run(ctx, argv...))
 }

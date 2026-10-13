@@ -5,9 +5,10 @@
 package agentbus
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
 )
 
 // Seat is one SEAT line of "agent-bus seat list".
@@ -64,32 +65,9 @@ type Backup struct {
 	Time string
 }
 
-// fields splits each line that starts with marker into its tab fields and checks the count.
-func fields(out []byte, marker string, want int) ([][]string, error) {
-	var rows [][]string
-	for line := range bytes.Lines(out) {
-		text := strings.TrimRight(string(line), "\r\n")
-		if text == marker || strings.HasPrefix(text, marker+"\t") {
-			f := strings.Split(text, "\t")
-			if len(f) != want {
-				return nil, fmt.Errorf("%s line has %d fields, want %d: %q", marker, len(f), want, text)
-			}
-			rows = append(rows, f)
-		}
-	}
-	return rows, nil
-}
-
-func dashEmpty(s string) string {
-	if s == "-" {
-		return ""
-	}
-	return s
-}
-
 // ParseSeats reads the SEAT lines of out.
-func ParseSeats(out []byte) ([]Seat, error) {
-	rows, err := fields(out, "SEAT", 6)
+func ParseSeats(out string) ([]Seat, error) {
+	rows, err := marker.Fields(out, "SEAT", 6)
 	if err != nil {
 		return nil, err
 	}
@@ -116,21 +94,21 @@ func ParseSeats(out []byte) ([]Seat, error) {
 }
 
 // ParseRoster reads the HUMAN and MEMBER lines of out.
-func ParseRoster(out []byte) (Roster, error) {
+func ParseRoster(out string) (Roster, error) {
 	var r Roster
-	humans, err := fields(out, "HUMAN", 3)
+	humans, err := marker.Fields(out, "HUMAN", 3)
 	if err != nil {
 		return r, err
 	}
 	for _, f := range humans {
-		r.Humans = append(r.Humans, Human{Name: f[1], Membership: dashEmpty(f[2])})
+		r.Humans = append(r.Humans, Human{Name: f[1], Membership: marker.DashEmpty(f[2])})
 	}
-	members, err := fields(out, "MEMBER", 5)
+	members, err := marker.Fields(out, "MEMBER", 5)
 	if err != nil {
 		return r, err
 	}
 	for _, f := range members {
-		m := Member{Handle: f[1], Role: f[2], Membership: dashEmpty(f[3])}
+		m := Member{Handle: f[1], Role: f[2], Membership: marker.DashEmpty(f[3])}
 		switch f[4] {
 		case "parked":
 			m.Parked = true
@@ -144,21 +122,21 @@ func ParseRoster(out []byte) (Roster, error) {
 }
 
 // ParseDevices reads the DEVICE lines of out.
-func ParseDevices(out []byte) ([]Device, error) {
-	rows, err := fields(out, "DEVICE", 3)
+func ParseDevices(out string) ([]Device, error) {
+	rows, err := marker.Fields(out, "DEVICE", 3)
 	if err != nil {
 		return nil, err
 	}
 	devices := make([]Device, 0, len(rows))
 	for _, f := range rows {
-		devices = append(devices, Device{ID: f[1], LastSeenMs: dashEmpty(f[2])})
+		devices = append(devices, Device{ID: f[1], LastSeenMs: marker.DashEmpty(f[2])})
 	}
 	return devices, nil
 }
 
 // ParseBackups reads the BACKUP lines of out.
-func ParseBackups(out []byte) ([]Backup, error) {
-	rows, err := fields(out, "BACKUP", 3)
+func ParseBackups(out string) ([]Backup, error) {
+	rows, err := marker.Fields(out, "BACKUP", 3)
 	if err != nil {
 		return nil, err
 	}
