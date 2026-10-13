@@ -35,9 +35,10 @@ PORT_MAX = 65535
 LISTEN_MAX = 16
 ALLOW_FROM_MAX = 32
 
-REQUIRED_KEYS = frozenset({"team", "port", "listen", "allow_from", "humans", "path_prefixes", "forge_api"})
+REQUIRED_KEYS = frozenset({"team", "port", "listen", "allow_from", "humans", "forge_api"})
 #: `org` and `repos` are each optional, but a team names at least one of them (spec §11).
-OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "repos"})
+#: `path_prefixes` narrows the paths a trusted reference may name; absent, any path.
+OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "repos", "path_prefixes"})
 REPO_ENTRY_KEYS = frozenset({"repo", "branches"})
 
 _DNS_LABEL_RE = re.compile(DNS_LABEL_PATTERN)
@@ -73,6 +74,7 @@ class TeamFile:
 
     def as_dict(self) -> dict:
         org = {} if self.org is None else {"org": self.org}
+        prefixes = {"path_prefixes": list(self.path_prefixes)} if self.path_prefixes else {}
         return {
             **org,
             "team": self.team,
@@ -83,7 +85,7 @@ class TeamFile:
             "allow_from": list(self.allow_from),
             "humans": list(self.humans),
             "repos": [{"repo": r.repo, "branches": list(r.branches)} for r in self.repos],
-            "path_prefixes": list(self.path_prefixes),
+            **prefixes,
             "forge_api": self.forge_api,
         }
 
@@ -222,6 +224,8 @@ def _repos(data: Mapping) -> tuple[RepoEntry, ...]:
 
 
 def _path_prefixes(data: Mapping) -> tuple[str, ...]:
+    if "path_prefixes" not in data:
+        return ()
     values = _string_list(data, "path_prefixes", 1, protocol.PATH_PREFIXES_MAX)
     for value in values:
         if not protocol.is_path_prefix(value):

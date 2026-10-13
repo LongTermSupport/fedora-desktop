@@ -71,15 +71,26 @@ offer to create a team when there is none; think about the UX; do a full critica
   recolour it).
 - [ ] **Task 4.2**: Create sets up Element itself (the `agent_bus_element_teams` entry
   and its play) and offers to open it. No message tells the owner to edit `localhost.yml`.
-- [ ] **Task 4.3**: Offer sign-in straight after create.
+  Not started.
+- [ ] **Task 4.3**: Offer sign-in straight after create (reuse `set_password`). Not started.
 - [ ] **Task 4.4**: Run from a repository root, `ccy-teams` offers to start a ccy session
-  there as a team member.
+  there as a team member. Not started.
 - [ ] **Task 4.5**: Seats default to the next free number, and members are always shown as
-  `<repo>.<N>`, counting from 1.
+  `<repo>.<N>`, counting from 1. Not started; best done through 4.8's chooser.
 - [ ] **Task 4.6**: ccy's offer to re-attach to a detached session keeps `--teams`: it
   attaches only to a session holding the requested seats, and otherwise says why it
-  starts a new one (CCY version bump).
-- [ ] **Task 4.7**: `path_prefixes` no longer limits paths in an org-wide team.
+  starts a new one (CCY version bump). Not started.
+- [x] ✅ **Task 4.7**: `path_prefixes` no longer limits paths in an org-wide team. It is
+  optional in the team file and the team record (absent: any path); create writes none. An
+  existing entry that names it keeps its limit until the line is removed.
+- [ ] **Task 4.8**: `ccy --teams <team>`, with no seat, is the normal form: on a terminal ccy
+  shows the checkout's seats in that team (full handle, free or held), defaults to the lowest
+  free one or a new number, and says the handle before taking it. Unattended launches carry
+  the canonical `<seat>@<team>`. A mixed-case team name gets a lower-case suggestion.
+  Not started; design in the 26-10-13 journal handoff (`agent-bus seat choose`).
+- [ ] **Task 4.9**: `ccy-teams create` asks the team's scope: the whole GitHub owner, or one
+  repository (the default inside a checkout, named after it). Not started: a repo-only team
+  needs `repos[].branches` to allow "any branch" (today 1 to 8 names), a protocol change.
 
 ## Success Criteria
 

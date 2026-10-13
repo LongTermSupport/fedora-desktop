@@ -639,6 +639,15 @@ class TestAllowlist(RefusalAssertions):
                 else:
                     self.assertEqual(p.validate_content(body, ctx).trust, p.TRUST_TRUSTED)
 
+    def test_no_path_prefixes_allows_any_path_in_a_trusted_repository(self) -> None:
+        """Plan 00177 T4.7: a team that sets no path_prefixes (the org-wide default) trusts
+        every path of its repositories."""
+        ctx = make_ctx(path_prefixes=())
+        for path in ("src/main.py", "docs/other.md", "README.md"):
+            body = content("fetch", ref=f"path:example-org/myrepo@{SHA}:{path}")
+            with self.subTest(path=path):
+                self.assertEqual(p.validate_content(body, ctx).trust, p.TRUST_TRUSTED)
+
     def test_external_refs_are_data_for_reading_verbs_only(self) -> None:
         """D64: a repository neither listed nor the org's is external: accepted only by a verb
         that reads or reports, marked external, and never held to the path prefixes."""
@@ -1357,6 +1366,9 @@ class TestTeamRecord(unittest.TestCase):
         self.assertEqual(rec.repos, {"example-org/myrepo": ("main", "release/1.x")})
         self.assertEqual(rec.path_prefixes, ("CLAUDE/Plan/", "docs/spec.md"))
         self.assertEqual(rec.forge_api, "https://api.github.com")
+        unlimited = self.good()
+        del unlimited["path_prefixes"]
+        self.assertEqual(self.parse(unlimited).path_prefixes, ())
         ctx = rec.context(SN)
         self.assertEqual((ctx.server_name, ctx.humans, ctx.roles), (SN, rec.humans, rec.roles))
         self.assertEqual(ctx.repos, rec.repos)

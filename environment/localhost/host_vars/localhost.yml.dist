@@ -102,7 +102,7 @@ user_email: "yourname@example.com"
 #     repos:                     # optional: a repository outside the org the team trusts
 #       - repo: <owner>/<repo>
 #         branches: ["<branch>"]
-#     path_prefixes: ["CLAUDE/Plan/", "docs/"]
+#     path_prefixes: ["docs/"]   # optional: narrows the paths a ping may name (absent: any)
 #     forge_api: https://api.github.com
 #   - team: <old-team>
 #     state: absent
