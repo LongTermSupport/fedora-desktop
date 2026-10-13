@@ -90,5 +90,20 @@ class TestPressStates(unittest.TestCase):
         self.assertEqual(status, 0)
 
 
+class TestPressAfterThePaste(unittest.TestCase):
+    """Issue #96: a press within 1 s of the paste once started a recording a late IDLE orphaned."""
+
+    def test_the_gap_from_a_result_to_the_press_that_started_b_is_reported(self) -> None:
+        report, _ = probe.judge(replay(*blocked(6.0, f"STOPPING: {A} is stopping or finishing the dictation")))
+        self.assertIn("The press that started B came 5.000 s after A's SUCCESS (within 1 s of the paste: no)", report)
+
+    def test_a_press_within_a_second_of_the_result_is_named(self) -> None:
+        lines = replay(*blocked(6.0, f"STOPPING: {A} is stopping or finishing the dictation"))
+        moved = [(when - datetime.timedelta(seconds=4.4), m) if when >= START + datetime.timedelta(seconds=25) else (when, m)
+                 for when, m in lines]
+        report, _ = probe.judge(moved)
+        self.assertIn("The press that started B came 0.600 s after A's SUCCESS (within 1 s of the paste: yes)", report)
+
+
 if __name__ == "__main__":
     unittest.main()

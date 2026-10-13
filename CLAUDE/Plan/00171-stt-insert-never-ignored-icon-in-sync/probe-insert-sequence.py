@@ -127,6 +127,14 @@ def judge(lines: list[tuple[datetime.datetime, str]]) -> tuple[list[str], int]:
     press_at = next((j for j in range(b_index - 1, last_block, -1) if PRESS in messages[j]), None)
     fresh = press_at is not None and not any(ANY_BLOCKED in m for m in messages[press_at:b_index])
     record(fresh, "nothing started by itself: B was started by a press made after the last blocked one")
+    # Issue #96: a press within 1 s of the paste (A's SUCCESS follows it) once started a
+    # recording that A's late IDLE orphaned
+    a_end = next((j for j in range(b_index - 1, stop_at, -1)
+                  if STATE.match(messages[j]) and STATE.match(messages[j]).group(1) in ("SUCCESS", "ERROR", "IDLE")), None)
+    if press_at is not None and a_end is not None:
+        gap = (lines[press_at][0] - lines[a_end][0]).total_seconds()
+        report.append(f"The press that started B came {gap:.3f} s after A's {STATE.match(messages[a_end]).group(1)} "
+                      f"(within 1 s of the paste: {'yes' if 0 <= gap < 1 else 'no'})")
 
     started = STARTED.match(messages[b_index])
     pid_b, token_b = started.group(2), started.group(3)
