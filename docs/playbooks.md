@@ -1418,7 +1418,7 @@ everything it installed.
   moves a clone back only when it has just made it, and otherwise refuses and says how to
   re-clone). It prints where the clone was anchored. Clearing a dirty clone takes a fresh
   clone: see [configuration.md](configuration.md#unattended-server-self-update).
-- It runs the allowlisted plays that commit affects, warns the ccy/cc sessions, and
+- It runs the allowlisted plays that commit affects, warns the ccy sessions, and
   reboots. The sessions come back through the boot-time restore, and a post-boot unit
   checks they did.
 - A failed play means no reboot. The host-health report (login snippet and

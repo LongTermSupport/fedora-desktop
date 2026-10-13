@@ -4,7 +4,7 @@
 # Brings the deploy-only clone up to the newest signed release tag (<fedora-major>.<minor>.<patch>)
 # of the branch's Fedora major, the commit under it signed by one of the owner's keys. CHANNEL=branch
 # in the config follows the newest signed commit on the branch instead. Then it runs the
-# allowlisted plays whose inputs changed, warns the ccy/cc sessions and reboots so they come back
+# allowlisted plays whose inputs changed, warns the ccy sessions and reboots so they come back
 # through the boot-time restore. After the boot, `verify` checks every restored session came back.
 # Any failure stops the cycle with no reboot. On the tags channel a branch with no release tag, or
 # a newest tag that fails its checks, is refused (exit 20), never answered with an older tag or

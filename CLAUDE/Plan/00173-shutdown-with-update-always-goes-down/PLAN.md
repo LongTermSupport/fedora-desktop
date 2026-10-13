@@ -95,7 +95,9 @@ claimed cc sessions were warned (journal, 26-10-13).
 - [ ] ⬜ **Task 3.3**: Owner decision: whether cc sessions should be shown the warning at all.
   The two routes are running the project supervisor in `cc`, as ccy's entrypoint does, or a
   daemon handler that shows a pending signal on the session's next hook event (upstream,
-  and an idle session never gets it). Either is its own plan.
+  and an idle session never gets it). Either is its own plan. Also the owner's: whether a
+  session-strict run (server, `--strict-sessions`, unattended self-update) should refuse
+  over a cc session. It does not now; the help and docs say so.
 
 ## Technical Decisions
 

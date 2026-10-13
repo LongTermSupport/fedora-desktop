@@ -2,7 +2,7 @@
 # Shutdown with Update - Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain before shutdown
 #
 # Two names, one script. Installed as /usr/local/bin/shutdown-with-update and, by symlink,
-# /usr/local/bin/reboot-with-update. Both run the updates, then warn every running ccy/cc
+# /usr/local/bin/reboot-with-update. Both run the updates, then warn every running ccy
 # session through `ccy-sessions notify going-down`, count down N minutes (default 2,
 # `--in N`), warn again at one minute, and only then bring the machine down. The name
 # decides only the last step:
@@ -162,7 +162,7 @@ while [ $# -gt 0 ]; do
     -h | --help)
         echo "Usage: $(basename "$0") [--in MINUTES] [--strict-sessions]"
         echo "Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain, then"
-        echo "warns every running ccy/cc session (default 2 minutes, again at 1) and"
+        echo "warns every running ccy session (default 2 minutes, again at 1) and"
         if [ "$MODE" = reboot ]; then
             echo "reboots."
         else
@@ -178,7 +178,8 @@ while [ $# -gt 0 ]; do
         echo "the $MODE still happens."
         echo "On a server, or with --strict-sessions, a session that cannot be warned stops it"
         echo "before anything is updated, a failed dnf stops it, and a refused shutdown asks"
-        echo "before forcing."
+        echo "before forcing. A cc session never stops it, on either profile: it is named, not"
+        echo "warned."
         exit 0
         ;;
     --strict-sessions)
@@ -229,7 +230,7 @@ fi
 # sessions are the desktop user's. Refused rather than run unwarned — an agent killed
 # mid-step by an unannounced power-off is what the warning exists to prevent.
 if [ "$SUDO_USER" = root ]; then
-    refuse "run $(basename "$0") through sudo from the desktop user whose ccy/cc sessions are to be warned, not from a root shell"
+    refuse "run $(basename "$0") through sudo from the desktop user whose ccy sessions are to be warned, not from a root shell"
 fi
 # Status captured explicitly: under strict mode a failed getent would otherwise abort
 # with no message at all, two lines before the one that names the problem.
@@ -240,7 +241,7 @@ CCY_SESSIONS="$user_home/.local/bin/ccy-sessions"
 if [ ! -x "$CCY_SESSIONS" ]; then
     refuse "$CCY_SESSIONS is missing; playbooks/imports/play-claude-yolo.yml deploys it"
 fi
-echo "Checking that every running ccy/cc session can be warned..."
+echo "Checking that every running ccy session can be warned..."
 if ! sessions notify going-down --minutes "$REBOOT_MINUTES" --dry-run; then
     if [ "$STRICT_SESSIONS" = true ]; then
         refuse "not every session can be warned of the $MODE (see above). Nothing was updated and the machine stays up."
@@ -362,7 +363,7 @@ fi
 # reach each project's own daemon. The power action itself is root's: `systemctl reboot`
 # as the user is refused by polkit on a session that is not local and active, which an SSH
 # login is not, and this command is as likely to be run over SSH as not.
-echo "Warning running ccy/cc sessions: $MODE in $REBOOT_MINUTES minute(s)..."
+echo "Warning running ccy sessions: $MODE in $REBOOT_MINUTES minute(s)..."
 # Set BEFORE the notify: one that fails part-way has already reached some projects.
 SESSIONS_WARNED=true
 warn_sessions "$REBOOT_MINUTES"
