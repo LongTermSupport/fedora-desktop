@@ -103,8 +103,11 @@ the heaviest change to normal work of the options that actually work.
 
 ## 2. `systemd-run --user` with `InaccessiblePaths=` / `TemporaryFileSystem=`
 
-Source: `man systemd.exec` (not re-read this session; the facts below are from memory of
-that manual and UNVERIFIED on the host until probed). Repo precedent:
+Source: `systemd.exec(5)` (man.archlinux.org, checked 26-10-13). It confirms the central
+claim: in a per-user service, the sandboxing options such as `InaccessiblePaths=` are
+available because they imply `PrivateUsers=`, which needs unprivileged user namespaces.
+That this desktop's user manager actually applies them is still UNVERIFIED until it is
+probed on the host. Repo precedent:
 `files/var/local/claude-yolo/lib/tmux-session.bash` already starts ccy's tmux with
 `systemd-run --user --scope --quiet --collect --unit ...` (repo), so `systemd-run --user`
 is known to work on the owner's desktop.
