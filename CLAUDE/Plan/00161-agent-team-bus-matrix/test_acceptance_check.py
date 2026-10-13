@@ -129,18 +129,6 @@ class TrustMarksTest(unittest.TestCase):
         self.assertTrue(ac.refused_as(5, said, "not-found"))
         self.assertEqual(ac.refused_as(4, "pingbus: refused: allowlist\n", "allowlist"), [])
 
-    def test_symref_head(self) -> None:
-        self.assertEqual(ac.symref_head(f"ref: refs/heads/F44\tHEAD\n{SHA}\tHEAD\n"), "F44")
-        with self.assertRaises(ValueError):
-            ac.symref_head(f"{SHA}\tHEAD\n")
-
-    def test_org_fork(self) -> None:
-        repos = [{"full_name": "Example-Org/zz", "fork": True}, {"full_name": "Example-Org/aa", "fork": False},
-                 {"full_name": "Example-Org/mm", "fork": True}]
-        self.assertEqual(ac.org_fork(repos, "example-org"), "example-org/mm")
-        with self.assertRaises(ValueError):
-            ac.org_fork([{"full_name": "Example-Org/aa", "fork": False}], "example-org")
-
 
 class MemberTest(unittest.TestCase):
     def test_a_limit_is_added_without_touching_the_rest(self) -> None:

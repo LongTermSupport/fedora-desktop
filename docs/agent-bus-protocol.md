@@ -214,9 +214,10 @@ the reference's repository stands (§11):
   `provenance`. Any branch of an org repository is trusted, since pushing one needs write
   access to it; but that the API returns a commit never is: GitHub serves a fork's commits
   through its parent's API, so only a branch of the repository itself vouches for one;
-- **external**: first `GET /repos/OWNER/REPO`, which must answer 200 with `private` `false`,
-  else `provenance` (a private repository outside the team is refused; with no credential
-  GitHub answers 404, `not-found`). With a `branch`, the branch and reachability checks of an
+- **external**: first `GET /repos/OWNER/REPO`, which must answer 200 with `private` `false`
+  and `fork` `false`, else `provenance` (a private repository outside the team is refused,
+  with no credential GitHub answers 404, `not-found`; a fork is refused because its API serves
+  its whole network's commits, so it could pass off anyone's commit under its own name). With a `branch`, the branch and reachability checks of an
   org repository. Without one, only that the content exists, at no branch in particular: `path` and `commit` need `GET /repos/OWNER/REPO/commits/SHA` to answer 200
   (`path` then the contents request below); `pr` needs the pull request (200) and SHA
   `identical` to or `behind` its head commit `head.sha` (`compare/HEADSHA...SHA`), wherever
@@ -538,7 +539,7 @@ From the team record (§8), never from the member config:
   repository, or both.
 - A reference whose repository is neither listed nor the org's is **external**: accepted only
   for a verb whose "External `ref`" column says `yes` (§5), else `allowlist`; it must be in a
-  public repository (§6); it is never held to `path_prefixes`; and its PING line says
+  public repository that is not a fork (§6); it is never held to `path_prefixes`; and its PING line says
   `external` (§15).
 - `path_prefixes`: 1 to 32 entries, each a `PATH` ending in `/` or an exact file `PATH`. A
   trusted `path:` reference's `PATH` must start with one of them (`allowlist`). `PATH` has no

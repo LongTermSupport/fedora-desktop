@@ -106,7 +106,7 @@ the reference at the forge. Any repository of your team's org is trusted, on any
 branches: for a `path` or `commit` reference into your checkout's own repository,
 pingbus names the branch your checkout tracks on `origin`, so a commit on a pushed feature
 branch resolves. For any other repository of the org, give `--branch` when the commit is
-not on its default branch. A public repository outside the team
+not on its default branch. A public repository (never a fork) outside the team
 may be referenced too, as external content, by the verbs above. Examples:
 
 ```bash

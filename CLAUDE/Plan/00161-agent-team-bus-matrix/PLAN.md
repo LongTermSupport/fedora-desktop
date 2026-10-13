@@ -318,6 +318,10 @@ repository; opt-in per machine and per team.
     before any team gains `org` (protocol §1).
     - [ ] ⬜ An optional `exclude` list of org repositories in the team file, checked before
       trust (D64: planned, not built).
+    - [ ] ⬜ Forge rate: no member has a GitHub token today (a ccy session's GH_TOKEN is
+      unset by the entrypoint), so every member on the machine shares 60 calls an hour, and
+      an org reference costs 4-7 a ping at first (journal 26-10-13). Give ccy seats a forge
+      token, and keep the repository answer in the cache file.
   - [ ] 🔄 Applied state and team changes by the play (coordinator for the owner,
     2026-10-13; DESIGN.md D65): applied stamps, `declare.py status`, `ccy-teams` APPLIED
     column, `apply <team>`/`--all`/Ctrl-U, create installs, removal one team at a time with

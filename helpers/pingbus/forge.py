@@ -234,8 +234,9 @@ class Forge:
         self._sleep = sleep
         self._clock = clock
         self._cache = cache
-        #: `GET /repos/OWNER/REPO` answers, per process: the default branch, fork and
-        #: visibility are read once per repository, never written to the cache file.
+        #: `GET /repos/OWNER/REPO` answers, in this process only, each with the time it was
+        #: read (kept REACH_TTL_S): the default branch, fork and visibility, never written
+        #: to the cache file.
         self._repos: dict[str, tuple[float, dict]] = {}
 
     @classmethod
@@ -283,10 +284,14 @@ class Forge:
     def check_external(self, ref: protocol.Ref, branch: str | None = None) -> None:
         """Resolve an external `ref` (§6, §11): a public repository's real content, at no
         branch in particular unless the ping names one, which must then hold it. A private
-        repository outside the team is refused: the team never sends an agent into one."""
+        repository outside the team is refused: the team never sends an agent into one. So
+        is a fork: its API serves its whole network's commits, so it could pass off anyone's
+        commit under its own name."""
         meta = self._repo(ref)
         if meta.get("private") is not False:
             raise ForgeError("provenance", f"{ref.text}: {ref.repo_full} is not public, and is not the team's")
+        if meta.get("fork") is not False:
+            raise ForgeError("provenance", f"{ref.text}: {ref.repo_full} is a fork, which is never referenced")
         if branch is not None:
             self._branch(ref, branch)
             self.check(ref, (branch,))

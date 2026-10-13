@@ -27,10 +27,12 @@
 #        trusted with that branch; the default branch's tip, no branch named, arrives trusted;
 #        the other branch's commit claimed on the default branch is refused (provenance); a
 #        public outside commit (octocat/hello-world) arrives marked external, and run-qa on it
-#        is refused (allowlist). All `done`, which needs no ack. Needs `git fetch origin`.
-#   M1.6 (D64) a public fork the org owns is refused (provenance); SKIPPED-NEEDS-OWNER when
-#        the org owns none. A private repository outside the org needs a credential to name:
-#        its refusal is covered by tests/helpers/pingbus/test_forge.py only.
+#        is refused (allowlist). All `done`, which needs no ack. The other branch is found on
+#        GitHub, not in this checkout: of the branches whose tip the default branch lacks,
+#        the one committed to most recently.
+#   M1.6 (D64) a public fork (octocat/linguist) is refused (provenance). A private
+#        repository outside the org needs a credential to name: its refusal is covered by
+#        tests/helpers/pingbus/test_forge.py only.
 #
 # M2 CHECKS, U20's row (_acceptance-u20.inc.bash): real ccy sessions in THIS checkout, run
 # headless with stream-json input so each sits idle between turns, each launched with
@@ -257,7 +259,7 @@ plan_deploy_leg "members take their bundles, pass config check and join the team
 check_leg "M1.1 review sent, received by wait, acked" check_review_ack
 check_leg "M1.2 a human message reaches only the member it mentions" check_human_addressed
 check_leg "M1.5 the org's repository trusted on any branch it names, not on one that lacks the commit; an outside repository marked external" check_org_trust
-check_leg "M1.6 a fork the org owns is refused" check_org_fork
+check_leg "M1.6 a fork is refused" check_fork
 # M1.4 runs before M1.3: M1.3 leaves an unanswered review pending in b's inbox.
 check_leg "M1.4 an agent text reaches the member it names as PEER, not one it does not" check_peer_text
 check_leg "M1.3 TIMEOUT for an unanswered review, none for the acked one" check_timeout

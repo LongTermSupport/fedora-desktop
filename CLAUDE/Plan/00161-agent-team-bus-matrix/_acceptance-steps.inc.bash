@@ -424,6 +424,9 @@ check_peer_text() {
 #: A public repository outside any team's org, not a fork, whose first commit GitHub has
 #: served unchanged for over a decade: the outside reference.
 readonly EXTERNAL_COMMIT="commit:octocat/hello-world@7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+#: A public fork outside any team's org: GitHub's own demonstration account's fork of
+#: github-linguist/linguist, there since 2016, the kind GitHub's docs point at.
+readonly FORK_REPO="octocat/linguist"
 
 # d64_delivered <label> <trust> <branch|-> <ref> [send flags...] — a sends `done <ref>` to b;
 # b's recv prints exactly that PING, marked <trust>, naming <branch>.
@@ -455,34 +458,29 @@ d64_refused() {
     evidence "${label}: refused, ${code}: members/a/send-${label}.err"
 }
 
-# d64_branches — the reference repository's default branch and its tip on GitHub now
-# (D64_DEFAULT, D64_DEFAULT_SHA), and the first other branch whose tip this checkout holds and
-# the default branch does not contain (D64_SIDE, D64_SIDE_SHA). 2 when GitHub did not answer.
+# d64_branches — on GitHub now, the reference repository's default branch and its tip
+# (D64_DEFAULT, D64_DEFAULT_SHA), and, of the branches whose tip the default branch does not
+# contain, the one committed to most recently (D64_SIDE, D64_SIDE_SHA). Read from a bare,
+# commits-only clone (no trees, no blobs) in the run directory, so neither this checkout's
+# branch nor its last fetch matters. 2 when GitHub did not answer.
 d64_branches() {
-    local head="${PLAN_RUN_DIR}/d64-head.txt" heads="${PLAN_RUN_DIR}/d64-heads.txt" sha ref name status
-    if ! git -C "${PLAN_REPO_ROOT}" ls-remote --symref origin HEAD >"${head}" \
-        || ! git -C "${PLAN_REPO_ROOT}" ls-remote --heads origin >"${heads}"; then
-        printf '[UNKNOWN] git ls-remote origin did not answer: the branches of %s are not known\n' "${REF_REPO}" >&2
+    local scratch="${PLAN_RUN_DIR}/d64-branches.git" refs="${PLAN_RUN_DIR}/d64-branches.txt" url sha name status
+    url="$(git -C "${PLAN_REPO_ROOT}" remote get-url origin)" || return 1
+    if ! git clone --quiet --bare --filter=tree:0 --no-tags "${url}" "${scratch}"; then
+        printf '[UNKNOWN] git clone of %s did not complete: its branches are not known\n' "${REF_REPO}" >&2
         return 2
     fi
-    D64_DEFAULT="$("${CHECK[@]}" symref-head <"${head}")" || return 1
-    D64_DEFAULT_SHA="" D64_SIDE="" D64_SIDE_SHA=""
-    while IFS=$'\t' read -r sha ref; do
-        if [[ "${ref}" == "refs/heads/${D64_DEFAULT}" ]]; then
-            D64_DEFAULT_SHA="${sha}"
-        fi
-    done <"${heads}"
-    if [[ -z "${D64_DEFAULT_SHA}" ]] || ! git -C "${PLAN_REPO_ROOT}" cat-file -e "${D64_DEFAULT_SHA}^{commit}"; then
-        printf '[FAIL] this checkout does not hold the tip of %s on GitHub: git fetch origin\n' "${D64_DEFAULT}" >&2
-        return 1
-    fi
-    while IFS=$'\t' read -r sha ref; do
-        name="${ref#refs/heads/}"
-        if [[ "${name}" == "${D64_DEFAULT}" ]] || ! git -C "${PLAN_REPO_ROOT}" cat-file -e "${sha}^{commit}"; then
+    D64_DEFAULT="$(git -C "${scratch}" symbolic-ref --short HEAD)" || return 1
+    D64_DEFAULT_SHA="$(git -C "${scratch}" rev-parse --verify "refs/heads/${D64_DEFAULT}^{commit}")" || return 1
+    git -C "${scratch}" for-each-ref --sort=-committerdate --format='%(objectname) %(refname:strip=2)' \
+        refs/heads/ >"${refs}" || return 1
+    D64_SIDE="" D64_SIDE_SHA=""
+    while read -r sha name; do
+        if [[ "${name}" == "${D64_DEFAULT}" ]]; then
             continue
         fi
         status=0
-        git -C "${PLAN_REPO_ROOT}" merge-base --is-ancestor "${sha}" "${D64_DEFAULT_SHA}" || status=$?
+        git -C "${scratch}" merge-base --is-ancestor "${sha}" "${D64_DEFAULT_SHA}" || status=$?
         case "${status}" in
             0) continue ;;
             1)
@@ -491,14 +489,14 @@ d64_branches() {
                 ;;
             *) return 1 ;;
         esac
-    done <"${heads}"
+    done <"${refs}"
     if [[ -z "${D64_SIDE}" ]]; then
-        printf '[FAIL] no branch of %s but %s holds a commit %s lacks that this checkout has: git fetch origin, or push a branch ahead of %s\n' \
-            "${REF_REPO}" "${D64_DEFAULT}" "${D64_DEFAULT}" "${D64_DEFAULT}" >&2
+        printf '[FAIL] every branch of %s is contained in %s: M1.5 needs one that is not (%s lists them)\n' \
+            "${REF_REPO}" "${D64_DEFAULT}" "${refs}" >&2
         return 1
     fi
-    printf '==> %s: default branch %s at %s; branch %s at %s, not on %s\n' "${REF_REPO}" "${D64_DEFAULT}" \
-        "${D64_DEFAULT_SHA}" "${D64_SIDE}" "${D64_SIDE_SHA}" "${D64_DEFAULT}"
+    printf '==> %s: default branch %s at %s; branch %s at %s, not contained in %s\n' "${REF_REPO}" \
+        "${D64_DEFAULT}" "${D64_DEFAULT_SHA}" "${D64_SIDE}" "${D64_SIDE_SHA}" "${D64_DEFAULT}"
 }
 
 # check_org_trust — D64 at the forge: an unlisted repository of the org is trusted on any of
@@ -519,22 +517,13 @@ check_org_trust() {
     return "${status}"
 }
 
-# check_org_fork — a fork the org owns is refused, though its owner is the org. SKIPPED-NEEDS-
-# OWNER when the org owns no public fork among its first 100 repositories.
-check_org_fork() {
-    local listing="${PLAN_RUN_DIR}/d64-org-repos.json" fork sha
-    if ! curl --silent --show-error --fail-with-body --max-time 30 -H 'Accept: application/vnd.github+json' \
-        "https://api.github.com/users/${REF_ORG}/repos?type=owner&per_page=100" >"${listing}"; then
-        printf '[UNKNOWN] GitHub did not list the repositories of %s\n' "${REF_ORG}" >&2
+# check_fork — a fork is refused, outside the org as well as in it (D64): its API serves its
+# whole network's commits. The fork is FORK_REPO, at its own tip as GitHub has it now.
+check_fork() {
+    local sha
+    if ! sha="$(git ls-remote "https://github.com/${FORK_REPO}" HEAD)" || [[ -z "${sha}" ]]; then
+        printf '[UNKNOWN] git ls-remote did not answer for %s\n' "${FORK_REPO}" >&2
         return 2
     fi
-    if ! fork="$("${CHECK[@]}" org-fork "${REF_ORG}" <"${listing}")"; then
-        needs_owner "a public fork owned by ${REF_ORG} (fork any public repository into it), to show a fork is refused"
-        return 3
-    fi
-    if ! sha="$(git ls-remote "https://github.com/${fork}" HEAD)" || [[ -z "${sha}" ]]; then
-        printf '[UNKNOWN] git ls-remote did not answer for %s\n' "${fork}" >&2
-        return 2
-    fi
-    d64_refused org-fork provenance "done" "commit:${fork}@${sha%%$'\t'*}"
+    d64_refused fork provenance "done" "commit:${FORK_REPO}@${sha%%$'\t'*}"
 }

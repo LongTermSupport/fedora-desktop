@@ -895,6 +895,16 @@ class TestCheckPing(ForgeCase):
         self.refused("provenance", external("review", ref(f"commit:{EXT_REPO}@{SHA}")), client)
         self.assertEqual(opener.urls, [url(f"/repos/{EXT_REPO}")])
 
+    def test_external_fork_is_refused(self) -> None:
+        """D64: a fork is never referenced, outside the org either. A fork's API serves its
+        whole network's commits, so a fork can pass off anyone's commit under its name."""
+        for label, meta in (("fork", repo_meta(EXT_REPO, fork=True)),
+                            ("no fork flag", ok({"owner": {"login": "someone"}, "private": False}))):
+            with self.subTest(case=label):
+                client, opener = self.make({url(f"/repos/{EXT_REPO}"): [meta]})
+                self.refused("provenance", external("review", ref(f"commit:{EXT_REPO}@{SHA}")), client)
+                self.assertEqual(opener.urls, [url(f"/repos/{EXT_REPO}")])
+
     def test_external_unknown_commit_is_not_found(self) -> None:
         commit = url(f"/repos/{EXT_REPO}/commits/{SHA}")
         client, _ = self.make({url(f"/repos/{EXT_REPO}"): [repo_meta(EXT_REPO)], commit: [http_error(commit, 422)]})
