@@ -39,7 +39,7 @@ func TestPaintedRowTextEqualsThePlainRow(t *testing.T) {
 	rows := []Row{
 		{Team: "alpha", Member: "-", Kind: "team", State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"},
 		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: "~/proj"},
-		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "never signed in", Session: "-", Restore: "-", Where: "Element"},
+		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element"},
 		{Team: "alpha", Member: "1", Kind: "ccy", State: "unknown", Applied: "-", Session: "x(stopped)", Restore: "no", Where: "~/p"},
 	}
 	for _, r := range rows {

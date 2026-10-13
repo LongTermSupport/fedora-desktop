@@ -149,7 +149,7 @@ func (a *App) offerUpdate(ctx context.Context) error {
 	if err != nil || !yes {
 		return err
 	}
-	if err = a.inPicker("ccy-teams apply --all", a.Ops.apply(ctx, []string{"--all"})); err != nil {
+	if err = a.inPicker("ccy-teams apply --all", a.Ops.apply(ctx, []string{flagAll})); err != nil {
 		return err
 	}
 	a.backToList(ctx)
@@ -243,7 +243,7 @@ func (a *App) offerJoin(ctx context.Context, top, team string) error {
 // startCcy replaces this process with the launcher, run in top with the given seat refs.
 func (a *App) startCcy(top, refs string) error {
 	a.tell("Starting ccy --teams " + refs + " in " + a.abbrev(top) + ".")
-	if err := a.Exec(a.Launcher, []string{a.Launcher, "--teams", refs}, top); err != nil {
+	if err := a.Exec(a.Launcher, []string{a.Launcher, flagTeams, refs}, top); err != nil {
 		a.Term.PrintError(err.Error())
 		return leave(term.ExitFailure)
 	}

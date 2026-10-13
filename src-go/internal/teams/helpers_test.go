@@ -7,13 +7,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-func TestNotBuiltSaysSoOnStderr(t *testing.T) {
+func TestFreshTermsAreNotShared(t *testing.T) {
 	h := newHarness(t)
-	if code := h.app.notBuilt("thing"); code != 1 {
-		t.Fatalf("exit %d", code)
-	}
-	if h.errOut.String() != "ccy-teams: thing is not built yet in the Go port.\n" || h.out.String() != "" {
-		t.Fatalf("stdout %q stderr %q", h.out.String(), h.errOut.String())
+	if a, b := h.app.freshTerm(), h.app.freshTerm(); a == b || a.Err != h.errOut {
+		t.Fatal("a fresh Term is its own, over the App's stderr")
 	}
 }
 

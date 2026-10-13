@@ -31,7 +31,7 @@ func (r *pickerRun) act(ctx context.Context, key string, row Row) (result, error
 
 // updateAll brings every team that is out of date or not built up to what is declared.
 func (r *pickerRun) updateAll(ctx context.Context) (result, error) {
-	if err := r.a.inPicker("ccy-teams apply --all", r.a.Ops.apply(ctx, []string{"--all"})); err != nil {
+	if err := r.a.inPicker("ccy-teams apply --all", r.a.Ops.apply(ctx, []string{flagAll})); err != nil {
 		return done, err
 	}
 	r.a.backToList(ctx)

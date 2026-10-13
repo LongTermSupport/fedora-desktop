@@ -1,20 +1,22 @@
 package teams
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
-)
-
-func TestDispatchApplyIsNotBuiltYet(t *testing.T) {
+func TestTheTeamOpsAreBuiltOverTheAppsAdapters(t *testing.T) {
 	h := newHarness(t)
-	if code := h.app.Run([]string{"apply", "alpha"}); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
+	o := h.app.newTeamOps()
+	if o.Declare != h.app.Declare || o.Sudo != h.app.Sudo || o.Bus != h.app.Bus || o.Gum != h.app.Gum ||
+		o.Picker != h.app.Picker || o.Refresh == nil || o.NeedCheckout == nil || o.IsTerminal == nil {
+		t.Fatalf("teamOps %+v", o)
 	}
-	if want := "ccy-teams: apply is not built yet in the Go port.\n"; h.errOut.String() != want {
-		t.Fatalf("stderr %q, want %q", h.errOut.String(), want)
+	if !o.FileExists(h.root) || o.FileExists(h.root+"/nowhere") {
+		t.Fatal("FileExists does not follow the file system")
 	}
-	if h.out.String() != "" {
-		t.Fatalf("stdout %q", h.out.String())
+}
+
+func TestTheTeamOpsRefreshFailsWhenTheTeamsCannotBeRead(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.app.newTeamOps().Refresh(t.Context()); err == nil {
+		t.Fatal("no error from a runner that answers nothing")
 	}
 }

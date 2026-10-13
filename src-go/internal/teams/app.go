@@ -27,6 +27,12 @@ import (
 //go:embed usage.txt
 var usage string
 
+// The two flags of ccy and ccy-teams that several flows spell.
+const (
+	flagTeams = "--teams"
+	flagAll   = "--all"
+)
+
 var errCheckoutGone = errors.New("the fedora-desktop checkout has gone")
 
 // App is one run of ccy-teams. Every external effect goes through Runner, Stdout and Stderr,
@@ -134,7 +140,7 @@ func (a *App) wire() {
 		a.Getenv = os.Getenv
 	}
 	if a.Term == nil {
-		a.Term = &term.Term{Err: a.Stderr, IsTerminal: term.FileIsTerminal, Getenv: a.Getenv}
+		a.Term = a.freshTerm()
 	}
 	if a.Sudo == nil {
 		a.Sudo = &sudo.Sudo{Runner: a.Runner, Term: a.Term, Stdin: a.Stdin, Stdout: a.Stdout}
@@ -170,7 +176,7 @@ func (a *App) wireAsking() {
 		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr}
 	}
 	if a.Ops == nil {
-		a.Ops = stubOps{app: a}
+		a.Ops = liveOps{app: a}
 	}
 	if a.LookPath == nil {
 		a.LookPath = exec.LookPath
@@ -203,10 +209,10 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) int {
 	}
 }
 
-// notBuilt is the answer of a flow the Go port has not reached yet.
-func (a *App) notBuilt(name string) int {
-	a.print(a.Stderr, "ccy-teams: "+name+" is not built yet in the Go port.\n")
-	return term.ExitFailure
+// freshTerm is a Term over the App's streams with no steps counted yet: a flow that numbers
+// its steps has one of its own.
+func (a *App) freshTerm() *term.Term {
+	return &term.Term{Err: a.Stderr, IsTerminal: term.FileIsTerminal, Getenv: a.Getenv}
 }
 
 // reportErr prints why something failed, as the tool that failed said it: a "declare: ..."

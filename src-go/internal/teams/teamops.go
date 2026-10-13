@@ -220,7 +220,7 @@ func (o *teamOps) apply(ctx context.Context, args []string) int {
 		return term.ExitFailure
 	}
 	var targets []string
-	if args[0] == "--all" {
+	if args[0] == flagAll {
 		all, code, done := o.allTargets(status)
 		if done {
 			return code

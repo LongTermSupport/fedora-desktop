@@ -2,12 +2,12 @@ package teams
 
 import "context"
 
-// backup is ccy-teams backup: not built yet.
-func (a *App) backup(_ context.Context, _ []string) int {
-	return a.notBuilt("backup")
+// backup is ccy-teams backup.
+func (a *App) backup(ctx context.Context, args []string) int {
+	return a.newTeamOps().backup(ctx, args)
 }
 
-// restore is ccy-teams restore: not built yet.
-func (a *App) restore(_ context.Context, _ []string) int {
-	return a.notBuilt("restore")
+// restore is ccy-teams restore.
+func (a *App) restore(ctx context.Context, args []string) int {
+	return a.newTeamOps().restore(ctx, args)
 }

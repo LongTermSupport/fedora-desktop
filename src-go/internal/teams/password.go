@@ -35,6 +35,13 @@ func (r *pickerRun) setPassword(ctx context.Context, team, name string) (bool, e
 		a.tell("No password was set for " + name + ".")
 		return false, nil
 	}
+	return r.issuePassword(ctx, team, name)
+}
+
+// issuePassword sets name's password on team and shows it once, the question having been
+// asked already. It says whether one was set.
+func (r *pickerRun) issuePassword(ctx context.Context, team, name string) (bool, error) {
+	a := r.a
 	if !a.sudoReady(ctx, "A password is set as root, by agent-bus (the team's admin token is root's).") {
 		a.tell("No password was set for " + name + ".")
 		return false, nil

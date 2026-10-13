@@ -48,6 +48,19 @@ func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 	}
 }
 
+func TestIssuePasswordAsksNothingAndShowsTheLogin(t *testing.T) {
+	h := newPickerHarness(t)
+	h.passwordable()
+	r := h.pass(t)
+	set, err := r.issuePassword(context.Background(), "alpha", "owner")
+	if err != nil || !set {
+		t.Fatalf("%v %v", set, err)
+	}
+	if !strings.Contains(h.errOut.String(), "Password    a-new-password\n") || len(h.script.fzfArgs) != 0 {
+		t.Fatalf("stderr %q, fzf asked %d times", h.errOut.String(), len(h.script.fzfArgs))
+	}
+}
+
 func TestPasswordLoginOfATeamWithNoAddressSaysSo(t *testing.T) {
 	h := newPickerHarness(t)
 	r := h.pass(t)

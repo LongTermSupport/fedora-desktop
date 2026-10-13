@@ -274,9 +274,9 @@ func TestCollectBuildsTheRows(t *testing.T) {
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
 		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-"},
 		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-"},
-		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "never signed in", Session: "-", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "guest", Kind: "human", State: "invited", Applied: "2 signed in", Session: "-", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "ghost", Kind: "human", State: "not in room", Applied: "1 signed in", Session: "-", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
+		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
+		{Team: "alpha", Member: "guest", Kind: "human", State: "invited", Applied: "-", Session: "2 signed in", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
+		{Team: "alpha", Member: "ghost", Kind: "human", State: "not in room", Applied: "-", Session: "1 signed in", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
 	}
 	if !reflect.DeepEqual(s.Rows, want) {
 		for i := range s.Rows {
