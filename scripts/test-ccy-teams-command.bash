@@ -64,9 +64,16 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/ccy-teams-command-test.XXXXXX
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
+TOOL="$SCRATCH/ccy-teams"
+# CCY_TEAMS_IMPL=go drives the same cases against the Go port (Plan 00191), built with the
+# checkout injected where the template's {{ root_dir }} would be.
+if [[ "${CCY_TEAMS_IMPL:-bash}" == go ]]; then
+    echo "== the Go binary"
+    check "the Go binary builds" "" \
+        "$(cd "$REPO_ROOT/src-go" && go build -ldflags "-X main.RootDir=$REPO_ROOT" -o "$TOOL" ./cmd/ccy-teams 2>&1)"
+else
 # ── the template renders to a script ─────────────────────────────────────────────────────
 echo "== the template"
-TOOL="$SCRATCH/ccy-teams"
 python3 - "$TEMPLATE" "$REPO_ROOT" "$TOOL" <<'PYEOF'
 import sys
 
@@ -83,6 +90,7 @@ check "the template holds no Jinja syntax but {{ root_dir }}" "0" \
     "$(grep -v -F '{{ root_dir }}' "$TEMPLATE" | grep -cE '\{\{|\{%|\{#|\}\}|%\}|#\}')"
 check "the rendered script passes shellcheck" "" \
     "$(shellcheck -S warning -s bash "$TOOL" 2>&1)"
+fi
 
 # ── the fakes ────────────────────────────────────────────────────────────────────────────
 BIN="$SCRATCH/bin"
