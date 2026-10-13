@@ -283,6 +283,7 @@ set -euo pipefail
 sub="$1"
 shift
 printf 'gum %s %s\n' "$sub" "$*" >>"$TEST_LOG"
+env | awk '/^GUM_/' | sort >"$TEST_STATE/gum-env"
 next() {
     local n
     n=$(($(cat "$TEST_STATE/gum-calls") + 1))
@@ -312,7 +313,13 @@ input | confirm | filter)
     answer="$(next)"
     case "$answer" in
     ENTER)
-        if [ "$sub" = filter ]; then printf '%s\n' "$selected"; else printf '%s\n' "$value"; fi ;;
+        if [ "$sub" != filter ]; then
+            printf '%s\n' "$value"
+        elif [ "$selected" = "*" ]; then
+            cat "$TEST_STATE/filter-items"
+        else
+            printf '%s\n' "$selected"
+        fi ;;
     =*) printf '%s\n' "${answer#=}" ;;
     "PICK "*) tr ',' '\n' <<<"${answer#PICK }" ;;
     YES) ;;
@@ -816,29 +823,38 @@ fresh_no_teams
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES)")"
 check "yes runs create there and then; every default accepted with Enter" "rc=0" "$(rc_of "$out")"
 written="$(cat "$NO_TEAMS")"
-check_has "  the team is named after this checkout's repository" "- team: proj" "$written"
+check_has "  the team is named after the GitHub owner, never the repository" "- team: example-org" "$written"
 check_has "  you are its human: your login name" 'humans: ["owner"]' "$written"
-check_has "  this checkout's repository, pre-selected" 'repo: "example-org/proj"' "$written"
-check_has "  with its default branch, from gh, never asked" 'branches: ["main"]' "$written"
+check_has "  every repository of the owner, all ticked to start with" 'repo: "example-org/proj"' "$written"
+check_has "    the other one too" 'repo: "example-org/other"' "$written"
+check_has "  each with its default branch, from gh, never asked" 'branches: ["trunk"]' "$written"
 check_has "  and no other machine" 'allow_from: []' "$written"
-check "  four questions and two yeses: name, people, owner, repositories, subnets" "7" "$(cat "$STATE/gum-calls")"
-check "  the login name is offered as the default" "yes" "$(logged 'gum input --header People in the team room')"
-check_has "    as the value Enter accepts" "--value owner" "$(grep -F 'gum input --header People' "$LOG")"
-check_has "  the people prompt says the installer creates the accounts" "installer creates the accounts" \
-    "$(grep -F 'gum input --header People' "$LOG")"
-check_has "  the owner defaults to this checkout's remote, lower-cased" "--value example-org" \
-    "$(grep -F 'gum input --header GitHub owner' "$LOG")"
+check "  four questions and two yeses: owner, name, people, repositories, subnets" "7" "$(cat "$STATE/gum-calls")"
+inputs="$(grep -F 'gum input' "$LOG")"
+check_has "  the owner is asked first" "--header GitHub owner" "$(awk 'NR == 1' <<<"$inputs")"
+check_has "    defaulting to this checkout's remote, lower-cased" "--value example-org" "$(awk 'NR == 1' <<<"$inputs")"
+check_has "  then the name, defaulting to the owner's" "--value example-org" "$(grep -F -- '--header Team name' <<<"$inputs")"
+check_has "  the login name is offered as the people's default" "--value owner" "$(grep -F -- '--header People' <<<"$inputs")"
+check_has "  each explanation is printed, wrapped, before its question" "installer creates the accounts" \
+    "$(grep -F 'gum style --foreground 252 --width' "$LOG")"
+check "  and every header is one short line" "0" \
+    "$(grep -E 'gum (input|filter)' "$LOG" | grep -cE -- '--header [^-]{70,}')"
 check "  which gh looked up" "yes" "$(logged 'gh api users/example-org')"
-check_has "  the repositories question says what the list is for" "send each other to" \
-    "$(grep -F 'gum filter' "$LOG")"
+check_has "  the repositories explanation says what the list is for" "send each other to" \
+    "$(grep -F 'gum style' "$LOG")"
+check_has "  the list starts all ticked" "--selected *" "$(grep -F 'gum filter' "$LOG")"
+check_has "  its header names the keys" "Tab unticks" "$(grep -F 'gum filter' "$LOG")"
 items="$(cat "$STATE/filter-items")"
 check_has "  the owner's repositories are offered, lower-cased" "example-org/other" "$items"
 check_lacks "  but not an archived one" "example-org/old" "$items"
 check_lacks "  nor one with no commits" "example-org/fresh" "$items"
 check_has "  which is named as left out" "example-org/fresh" "$out"
 check_has "  the summary says other branches travel by pull request" "pull requests" "$out"
-check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams 1@proj" "$out"
+check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams 1@example-org" "$out"
 check_has "  and name the play that installs it" "play-agent-bus.yml" "$out"
+check_has "  gum's greys are replaced, through its environment" "GUM_INPUT_HEADER_FOREGROUND=255" \
+    "$(cat "$STATE/gum-env")"
+check_lacks "  no 240-range grey for anything read" "=24" "$(grep -v 'UNSELECTED_BACKGROUND' "$STATE/gum-env")"
 
 echo "== create, on a terminal"
 # Each case starts from a copy of the host_vars, alpha declared.
@@ -849,8 +865,8 @@ fresh_wiz() {
 }
 before="$(cat "$HOST_VARS")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=Bad_Name' '=beta' ENTER '=nope' \
-    '=Example-Org' 'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=nope' '=Example-Org' '=Bad_Name' '=beta' ENTER \
+    'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
 check "a bad name, then a good one; an unknown owner, then a known one" "rc=0" "$(rc_of "$out")"
 check_has "  the bad name is explained, and asked again" "Try again" "$out"
 check_has "  the unknown owner is explained" "no user or organisation called 'nope'" "$out"
@@ -871,7 +887,7 @@ check "Ctrl-C at a question, the same" "rc=130" "$(rc_of "$out")"
 check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=gamma' ENTER ENTER ENTER ENTER NO)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER '=gamma' ENTER ENTER ENTER NO)" create)"
 check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"

@@ -31,6 +31,8 @@ address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's
         appends to the team's block list of repos, in its own indentation; CHANGED<TAB>...
     python3 -m helpers.agent_bus.declare gh-repos --owner OWNER  < gh repo list's JSON
         COUNT<TAB>n, then REPO<TAB>owner/repo<TAB>branch and EMPTY<TAB>owner/repo lines
+    python3 -m helpers.agent_bus.declare suggest-team --file <localhost.yml> --owner OWNER
+        the owner's name as a free team name, or nothing
     python3 -m helpers.agent_bus.declare github-remote --url URL
         the lower-case OWNER/REPO of a GitHub remote, or nothing
 
@@ -606,6 +608,16 @@ def add_repo(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     return EXIT_OK
 
 
+def suggest_team(hv: HostVars, owner: str) -> str | None:
+    """The GitHub owner's name in the team-name grammar (a team works within one owner), or
+    None when nothing valid is left of it or a team has the name already."""
+    name = re.sub(r"[^a-z0-9-]+", "-", owner.lower())
+    name = re.sub(r"-+", "-", name).lstrip("-0123456789")[:24].rstrip("-")
+    if not name or field_error("team", name) or any(t.team == name for t in hv.teams):
+        return None
+    return name
+
+
 # ---------------------------------------------------------------- GitHub
 
 
@@ -697,6 +709,9 @@ def build_parser() -> argparse.ArgumentParser:
     more.add_argument("--dry-run", action="store_true", help="print the lines; write nothing")
     repos = commands.add_parser("gh-repos", help="gh repo list's JSON (stdin) as REPO lines")
     repos.add_argument("--owner", required=True)
+    suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub owner's")
+    suggest.add_argument("--file", required=True)
+    suggest.add_argument("--owner", required=True)
     remote = commands.add_parser("github-remote", help="OWNER/REPO of a GitHub remote URL, or nothing")
     remote.add_argument("--url", required=True)
     return parser
@@ -722,6 +737,11 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
             except json.JSONDecodeError:
                 raise DeclareError("gh repo list did not print JSON") from None
             out.writelines(f"{line}\n" for line in gh_repos(args.owner, data))
+            return EXIT_OK
+        if args.command == "suggest-team":
+            name = suggest_team(parse(_read(pathlib.Path(args.file))), args.owner)
+            if name:
+                out.write(f"{name}\n")
             return EXIT_OK
         if args.command == "github-remote":
             name = github_remote(args.url)

@@ -46,11 +46,12 @@
 #                    [--allow-from CIDR]... [--yes]
 #                                    add a team to agent_bus_teams in the host_vars. On a
 #                                    terminal it asks (with gum) for what the flags leave
-#                                    out: the name; the people in the team room (you, by
-#                                    default); the GitHub owner, then which of its
-#                                    repositories the agents may send each other to,
-#                                    each with its default branch (from gh); other
-#                                    machines' subnets. It shows the entry and asks
+#                                    out: the GitHub owner the team works within; the
+#                                    name (the owner's, by default); the people in the
+#                                    team room (you, by default); which of the owner's
+#                                    repositories the agents may send each other to (all
+#                                    ticked to start with), each with its default branch
+#                                    from gh; other machines' subnets. It shows the entry and asks
 #                                    before writing. --yes asks nothing: give --team,
 #                                    --human and --repo. The port is chosen for you; the
 #                                    team is made only when play-agent-bus.yml runs
@@ -214,6 +215,35 @@ need_tool() {
     fi
 }
 
+# need_gum — gum, a hard dependency, in high-contrast colours. gum's defaults draw headers,
+# placeholders and prompts in 240-range greys that are barely legible on a black terminal,
+# so every element a person reads is set here, once, through gum's own environment
+# variables: near-white text, and a bright pink (212) or blue (39) for what is active.
+need_gum() {
+    need_tool gum playbooks/imports/play-claude-yolo.yml
+    export GUM_INPUT_HEADER_FOREGROUND=255 GUM_INPUT_PROMPT_FOREGROUND=39 \
+        GUM_INPUT_PLACEHOLDER_FOREGROUND=250 GUM_INPUT_CURSOR_FOREGROUND=212
+    export GUM_FILTER_HEADER_FOREGROUND=255 GUM_FILTER_PROMPT_FOREGROUND=39 \
+        GUM_FILTER_PLACEHOLDER_FOREGROUND=250 GUM_FILTER_TEXT_FOREGROUND=252 \
+        GUM_FILTER_CURSOR_TEXT_FOREGROUND=255 GUM_FILTER_INDICATOR_FOREGROUND=212 \
+        GUM_FILTER_SELECTED_PREFIX_FOREGROUND=212 GUM_FILTER_UNSELECTED_PREFIX_FOREGROUND=252 \
+        GUM_FILTER_MATCH_FOREGROUND=39
+    export GUM_CONFIRM_PROMPT_FOREGROUND=255 GUM_CONFIRM_SELECTED_FOREGROUND=16 \
+        GUM_CONFIRM_SELECTED_BACKGROUND=212 GUM_CONFIRM_UNSELECTED_FOREGROUND=255 \
+        GUM_CONFIRM_UNSELECTED_BACKGROUND=24
+    export GUM_SPIN_TITLE_FOREGROUND=255 GUM_SPIN_SPINNER_FOREGROUND=212
+}
+
+# explain <text> — the explanation before a question, wrapped to the terminal (a gum
+# --header is not wrapped, so headers stay one short line), in near-white.
+explain() {
+    local cols
+    if ! cols="$(tput cols 2>&1)" || [[ ! "${cols}" =~ ^[0-9]+$ ]] || ((cols < 44)); then
+        cols=80 # a width is only layout: with none to read, a common one serves
+    fi
+    gum style --foreground 252 --width "$((cols - 4))" "$1" >&2
+}
+
 # gum_ask <header> <placeholder> <value> — one line of input; prints it. gum 0.17 exits 1 on
 # Esc and 130 on Ctrl-C (measured); both are a cancel here. In gum filter Esc does not leave
 # (measured), and Ctrl-C exits 130; in gum confirm Esc is a no (1).
@@ -230,7 +260,8 @@ ask_valid() {
         answer="$(gum_ask "${header}" "${placeholder}" "${value}")" || return 130
         answer="${answer#"${answer%%[![:space:]]*}"}"
         answer="${answer%"${answer##*[![:space:]]}"}"
-        if "${checker}" "${answer}"; then
+        # The checker's output is for the person, never part of the answer.
+        if "${checker}" "${answer}" >&2; then
             printf '%s\n' "${answer}"
             return 0
         fi
@@ -325,16 +356,16 @@ the_remote_repo() {
     declare_helper github-remote --url "${url}"
 }
 
-# pick_repos <owner> <pre-selected> [<listed already, one per line>] — the owner's
-# repositories in a multi-select, less those listed already; prints
+# pick_repos <owner> [<listed already, one per line>] — the owner's repositories in a
+# multi-select, all ticked to start with, less those listed already; prints
 # "<owner/repo>=<default branch>" per chosen one. Returns 130 when cancelled, 1 on failure.
 pick_repos() {
-    local owner="$1" current="$2" listing errors listing_lines kind name branch count="" picked try
-    local -a names=() empty=() selected=()
+    local owner="$1" listing errors listing_lines kind name branch count="" picked try
+    local -a names=() empty=()
     local -A branch_of=() listed=()
     while read -r name; do
         [[ -z "${name}" ]] || listed["${name}"]=1
-    done <<<"${3:-}"
+    done <<<"${2:-}"
     listing="$(mktemp)"
     errors="$(mktemp)"
     if ! gum spin --title "Listing ${owner}'s repositories on GitHub…" -- \
@@ -370,18 +401,20 @@ pick_repos() {
     if [[ -n "${empty[*]:-}" ]]; then
         echo "Left out, as they have no commits yet (so no default branch): ${empty[*]}" >&2
     fi
-    [[ -z "${current}" || -z "${branch_of[${current}]:-}" ]] || selected=(--selected "${current}")
+    explain "Repositories: which of ${owner}'s repositories may this team's agents send each other to (review, read)? Every one is ticked to start with: untick those the agents do not work in. You can add more later (ccy-teams add-repo)."
     for ((try = 1; try <= MAX_TRIES; try++)); do
-        picked="$(printf '%s\n' "${names[@]}" | gum filter --no-limit "${selected[@]}" \
-            --header "Which repositories may this team's agents send each other to (review, read)? List every repository the agents work in; you can add more later. Tab marks one, Enter accepts." \
+        # Every repository starts ticked ("*", measured in gum 0.17): Tab unticks the one
+        # under the cursor, Ctrl-A ticks them all again, Enter accepts.
+        picked="$(printf '%s\n' "${names[@]}" | gum filter --no-limit --selected '*' \
+            --header "Tab unticks · Ctrl-A ticks all · Enter accepts · type to filter" \
             --placeholder "type to filter")" || return 130
         if [[ -n "${picked}" ]]; then
-            while read -r name; do
+            sort <<<"${picked}" | while read -r name; do
                 [[ -z "${name}" ]] || printf '%s=%s\n' "${name}" "${branch_of[${name}]}"
-            done <<<"${picked}"
+            done
             return 0
         fi
-        echo "  Choose at least one: Tab marks a repository, Enter accepts. Try again." >&2
+        echo "  Choose at least one: Ctrl-A ticks them all, Tab unticks one, Enter accepts. Try again." >&2
     done
     echo "Giving up after ${MAX_TRIES} tries; nothing was changed." >&2
     return 1
@@ -390,7 +423,7 @@ pick_repos() {
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
 create_wizard() {
-    local team="" yes=false text current default_team login probe entry picked name rc
+    local team="" yes=false text owner="" default_team login probe entry picked="" name rc
     local -a humans=() repos=() allow_from=() flags=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -413,28 +446,29 @@ create_wizard() {
         if [[ ! -t 0 || ! -t 2 ]]; then
             usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
         fi
-        need_tool gum playbooks/imports/play-claude-yolo.yml
+        need_gum
         [[ -n "${repos[*]:-}" ]] || need_gh
         gum style --bold --border rounded --padding "0 1" "New agent team" >&2
-        cat >&2 <<EOF
-A team is a group of agents (ccy sessions, LXC containers) and people who work
-together in a private chat room, on a homeserver on this machine; you watch and talk
-to the agents in Element. This adds the team to ${HOST_VARS/#${HOME}/\~}.
-Nothing is installed until play-agent-bus.yml runs: the next steps follow at the end.
-Ctrl-C at any question leaves without changing anything.
-
-EOF
-        current="$(the_remote_repo)"
+        explain "A team is a group of agents (ccy sessions, LXC containers) and people who work together in a private chat room, on a homeserver on this machine; you watch and talk to the agents in Element. A team works within one GitHub organisation or user. This adds the team to ${HOST_VARS/#${HOME}/\~}; nothing is installed until play-agent-bus.yml runs (the next steps follow at the end). Ctrl-C at any question leaves without changing anything."
+        printf '\n' >&2
+    fi
+    # The owner first: a team is the owner's, and its name defaults to the owner's.
+    if [[ -z "${repos[*]:-}" && "${yes}" == false ]]; then
+        text="$(the_remote_repo)"
+        explain "GitHub owner: the organisation or user whose repositories this team works in. The default is the owner of the repository in this folder."
+        rc=0
+        owner="$(ask_valid check_owner "GitHub owner (organisation or user)" "e.g. example-org" "${text%%/*}")" || rc=$?
+        ask_or_quit "${rc}"
+        owner="${owner,,}"
+    elif [[ -n "${repos[*]:-}" ]]; then
+        owner="${repos[0]%%/*}"
     fi
     if [[ -z "${team}" && "${yes}" == false ]]; then
-        default_team="${current#*/}"
-        if [[ -n "${default_team}" ]] && ! probe="$(declare_helper check --file "${HOST_VARS}" --team "${default_team}" 2>&1)"; then
-            default_team=""
-        fi
+        default_team=""
+        [[ -z "${owner}" ]] || default_team="$(declare_helper suggest-team --file "${HOST_VARS}" --owner "${owner}")"
+        explain "Team name: a short name for the team, used in its room and in its agents' names. Lower-case letters, digits and -, up to 24. The default is the owner's name."
         rc=0
-        team="$(ask_valid check_team \
-            "Team name: a short name for the team, used in its room and its agents' names. Lower-case letters, digits and -, up to 24." \
-            "e.g. website" "${default_team}")" || rc=$?
+        team="$(ask_valid check_team "Team name" "e.g. example-org" "${default_team}")" || rc=$?
         ask_or_quit "${rc}"
     fi
     if [[ -z "${humans[*]:-}" && "${yes}" == false ]]; then
@@ -443,29 +477,22 @@ EOF
             echo "Your login name, ${login}, cannot be an account name here (${probe#declare: }), so there is no default." >&2
             login=""
         fi
+        explain "People in the team room: each gets an Element account on the team's homeserver, to read and write there. The installer creates the accounts; nobody needs one yet. You are in by default; add others' names separated by commas."
         rc=0
-        text="$(ask_valid check_humans \
-            "People in the team room: each gets an Element account on the team's homeserver, to read and write there. The installer creates the accounts; nobody needs one yet. You are in by default; add others' names separated by commas." \
-            "e.g. ${login:-yourname}, colleague" "${login}")" || rc=$?
+        text="$(ask_valid check_humans "People, comma-separated" "e.g. ${login:-yourname}, colleague" "${login}")" || rc=$?
         ask_or_quit "${rc}"
         mapfile -t humans <<<"$(split_commas "${text}")"
     fi
     if [[ -z "${repos[*]:-}" && "${yes}" == false ]]; then
         rc=0
-        text="$(ask_valid check_owner \
-            "GitHub owner: the organisation or user whose repositories this team works in. A team works within one owner." \
-            "e.g. example-org" "${current%%/*}")" || rc=$?
-        ask_or_quit "${rc}"
-        rc=0
-        picked="$(pick_repos "${text,,}" "${current}")" || rc=$?
+        picked="$(pick_repos "${owner}")" || rc=$?
         ask_or_quit "${rc}"
         mapfile -t repos <<<"${picked}"
     fi
     if [[ -z "${allow_from[*]:-}" && "${yes}" == false ]]; then
+        explain "Other machines: leave this empty unless LXC containers or other machines will run this team's agents. If they will, give the subnet they connect from, in CIDR form; separate several with commas."
         rc=0
-        text="$(ask_valid check_subnets \
-            "Other machines: leave this empty unless LXC containers or other machines will run this team's agents. If they will, give the subnet they connect from, in CIDR form; separate several with commas." \
-            "empty: only this machine (e.g. 192.0.2.0/24)" "")" || rc=$?
+        text="$(ask_valid check_subnets "Subnets (Enter for none)" "empty: only this machine (e.g. 192.0.2.0/24)" "")" || rc=$?
         ask_or_quit "${rc}"
         mapfile -t allow_from <<<"$(split_commas "${text}")"
     fi
@@ -551,19 +578,18 @@ cmd_add_repo() {
         if [[ ! -t 0 || ! -t 2 ]]; then
             usage_error "'add-repo' asks on a terminal; without one give --repo OWNER/REPO=BRANCH, and --yes."
         fi
-        need_tool gum playbooks/imports/play-claude-yolo.yml
+        need_gum
         if [[ -z "${repos[*]:-}" ]]; then
             need_gh
             gum style --bold --border rounded --padding "0 1" "More repositories for ${team}" >&2
-            echo "Listed now: ${known[*]:-none}. Ctrl-C leaves without changing anything." >&2
+            explain "Listed now: ${known[*]:-none}. Ctrl-C leaves without changing anything."
+            explain "GitHub owner: the organisation or user whose repositories this team works in; the default is the owner of those listed now."
             owner="${known[0]:-}"
             rc=0
-            text="$(ask_valid check_owner \
-                "GitHub owner: the organisation or user whose repositories this team works in." \
-                "e.g. example-org" "${owner%%/*}")" || rc=$?
+            text="$(ask_valid check_owner "GitHub owner (organisation or user)" "e.g. example-org" "${owner%%/*}")" || rc=$?
             ask_or_quit "${rc}"
             rc=0
-            picked="$(pick_repos "${text,,}" "" "$(printf '%s\n' "${known[@]}")")" || rc=$?
+            picked="$(pick_repos "${text,,}" "$(printf '%s\n' "${known[@]}")")" || rc=$?
             ask_or_quit "${rc}"
             mapfile -t repos <<<"${picked}"
         fi
@@ -1016,7 +1042,7 @@ trap cancelled INT
 # offer_create — no team on this machine: say what a team is, and offer to create one now.
 offer_create() {
     local rc=0
-    need_tool gum playbooks/imports/play-claude-yolo.yml
+    need_gum
     say "No agent teams on this machine yet."
     cat >&2 <<'EOF'
 

@@ -444,6 +444,30 @@ class AddRepoTest(unittest.TestCase):
         self.assertEqual(self.path.read_text(encoding="utf-8"), inline)
 
 
+class SuggestTeamTest(unittest.TestCase):
+    """suggest-team: the GitHub owner's name in the team-name grammar, when free."""
+
+    def suggest(self, owner: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "localhost.yml"
+            path.write_text(WITH_TEAMS, encoding="utf-8")
+            stdout = io.StringIO()
+            code = declare.main(["suggest-team", "--file", str(path), "--owner", owner],
+                                stdout=stdout, stderr=io.StringIO())
+        self.assertEqual(code, 0)
+        return stdout.getvalue()
+
+    def test_normalised(self) -> None:
+        self.assertEqual(self.suggest("example-org"), "example-org\n")
+        self.assertEqual(self.suggest("Example_Org.io"), "example-org-io\n")
+        self.assertEqual(self.suggest("42-Widgets"), "widgets\n")
+        self.assertEqual(self.suggest("a-very-long-organisation-name-indeed"), "a-very-long-organisation\n")
+
+    def test_nothing_when_taken_or_empty(self) -> None:
+        self.assertEqual(self.suggest("alpha"), "")
+        self.assertEqual(self.suggest("123"), "")
+
+
 class DeclaredTest(unittest.TestCase):
     def test_one_line_per_entry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

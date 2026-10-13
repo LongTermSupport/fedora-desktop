@@ -22,10 +22,12 @@ to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own
 shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
 
 1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
-   asks a few questions. The first is the team's name. Next come the people in its room:
-   you, by default, and the installer creates the accounts. Then it asks for the GitHub
-   owner the team works within, and lets you choose which of its repositories the agents
-   may send each other to. Each repository's default branch comes from GitHub; work on
+   asks a few questions. A team works within one GitHub owner (an organisation or user),
+   so that comes first, then the team's name, which defaults to the owner's. Next come
+   the people in its room: you, by default, and the installer creates the accounts. Then
+   it lists the owner's repositories, all ticked, for you to untick the ones the agents
+   do not work in: these are the repositories the agents may send each other to. Each
+   repository's default branch comes from GitHub; work on
    other branches reaches the agents through pull requests, which need no listing. Last,
    subnets of other machines, empty unless LXC containers or other machines will run
    agents. It shows the entry and asks before adding it to `agent_bus_teams` in your
