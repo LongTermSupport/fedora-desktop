@@ -47,16 +47,19 @@ offer to create a team when there is none; think about the UX; do a full critica
 
 ### Phase 2: Build
 
-- [ ] 🔄 **Task 2.1**: Fix every finding from Task 1.1, with tests in
+- [x] ✅ **Task 2.1**: Fix every finding from Task 1.1, with tests in
   `scripts/test-ccy-teams-command.bash`. Update `docs/agent-bus.md` "Getting started" where
-  the flow changes. Owner's order: the no-teams offer and the new create flow first (F3-F6,
-  F9, F15, F21-F23: done); then sudo, the humans and their passwords, colour and the rest.
+  the flow changes. The no-teams offer and the new create flow came first, by the owner's
+  order. Then sudo (a scoped read-only sudoers rule in play-agent-bus.yml), the people and
+  their passwords, add-repo, colour (CCY 3.94.2: the shared picker passes `--ansi`) and
+  help. UX-REVIEW.md's deferred D1 and D2 stay open.
 - [ ] ⬜ **Task 2.2**: The `qa-reviewer` agent on the branch; fix its findings.
 
 ### Phase 3: Host
 
-- [ ] ⬜ **Task 3.1**: Host run through meta-deploy (`play-claude-yolo.yml`, plus whatever
-  installs a sudoers rule if one is chosen), then the owner's first real `ccy-teams` use.
+- [ ] ⬜ **Task 3.1**: Host run through meta-deploy (`play-claude-yolo.yml` for gum, CCY
+  3.94.2 and ccy-teams; `play-agent-bus.yml` for the sudoers rule
+  `/etc/sudoers.d/agent-bus-read-only`), then the owner's first real `ccy-teams` use.
 
 ## Success Criteria
 

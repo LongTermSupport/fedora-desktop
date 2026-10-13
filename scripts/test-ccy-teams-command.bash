@@ -104,10 +104,16 @@ EOF
 
 # fzf: answers from $TEST_ANSWERS, one line per call, "<key>|<choice>": <choice> is text the
 # chosen row contains (the first such row), YES, EXIT or ABORT. Every call's rows are kept.
+# With --ansi, as the real fzf does, the rows' colour is shown (kept in $TEST_FZF_RAW) and the
+# chosen row handed back without it.
 cat >"$BIN/fzf" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 rows="$(cat -)"
+printf '%s\n%s\n' "$*" "$rows" >>"$TEST_FZF_RAW"
+if [[ " $* " == *" --ansi "* ]]; then
+    rows="$(awk '{ gsub(/\033\[[0-9;]*m/, ""); print }' <<<"$rows")"
+fi
 printf '%s\n' "$rows" >>"$TEST_FZF_ROWS"
 n=$(($(cat "$TEST_STATE/fzf-calls") + 1))
 printf '%s\n' "$n" >"$TEST_STATE/fzf-calls"
@@ -141,18 +147,41 @@ is-active)
 esac
 EOF
 
-# sudo: -v succeeds; otherwise runs the named command's fake by its basename. TEST_SUDO_FAIL
-# makes every sudo fail as one with no cached credential does.
+# sudo: a credential is cached while $STATE/sudo-cached exists (reset makes it). Without one,
+# `sudo -n` refuses as the real one does, except for the two read-only commands when
+# TEST_SUDO_RULE stands for the sudoers rule; `sudo -v` takes the password and caches it,
+# unless TEST_SUDO_REFUSE stands for three wrong passwords or a Ctrl-C. Then it runs the
+# named command's fake by its basename.
 cat >"$BIN/sudo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'sudo %s\n' "$*" >>"$TEST_LOG"
-if [ -n "${TEST_SUDO_FAIL:-}" ]; then
-    echo "sudo: a password is required" >&2
+refuse() {
+    echo "sudo: $1" >&2
     exit 1
+}
+cached=no
+[ ! -e "$TEST_STATE/sudo-cached" ] || cached=yes
+if [ "$1" = "-v" ]; then
+    [ -z "${TEST_SUDO_REFUSE:-}" ] || refuse "3 incorrect password attempts"
+    touch "$TEST_STATE/sudo-cached"
+    exit 0
 fi
-[ "$1" = "-v" ] && exit 0
-[ "$1" = "-n" ] && shift
+if [ "$1" = "-n" ]; then
+    shift
+    if [ "$1" = "-v" ]; then
+        [ "$cached" = yes ] || refuse "a password is required"
+        exit 0
+    fi
+    if [ "$cached" = no ]; then
+        case "$2 ${3:-}" in
+        "list "* | "human devices") [ -n "${TEST_SUDO_RULE:-}" ] || refuse "a password is required" ;;
+        *) refuse "a password is required" ;;
+        esac
+    fi
+elif [ "$cached" = no ] && [ -n "${TEST_SUDO_REFUSE:-}" ]; then
+    refuse "3 incorrect password attempts"
+fi
 cmd="$(basename "$1")"
 shift
 exec "$cmd" "$@"
@@ -200,6 +229,11 @@ EOF
 cat >"$BIN/gio" <<'EOF'
 #!/usr/bin/env bash
 printf 'gio %s\n' "$*" >>"$TEST_LOG"
+EOF
+cat >"$BIN/wl-copy" <<'EOF'
+#!/usr/bin/env bash
+printf 'wl-copy %s\n' "$*" >>"$TEST_LOG"
+cat >"$TEST_STATE/clipboard"
 EOF
 cat >"$BIN/launcher" <<'EOF'
 #!/usr/bin/env bash
@@ -318,6 +352,8 @@ OUTSIDE="$SCRATCH/not-a-project"
 mkdir -p "$OUTSIDE"
 
 export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_FZF_ROWS="$SCRATCH/fzf-rows"
+export TEST_FZF_RAW="$SCRATCH/fzf-raw"
+unset NO_COLOR WAYLAND_DISPLAY
 export TEST_GUM_ANSWERS="$SCRATCH/gum-answers"
 PATH_WITHOUT_GUM="$BIN:$PATH"
 export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
@@ -334,7 +370,10 @@ source "$LIB_DIR/session-registry.bash"
 reset() {
     : >"$LOG"
     : >"$TEST_FZF_ROWS"
+    : >"$TEST_FZF_RAW"
     printf '0\n' >"$STATE/fzf-calls"
+    touch "$STATE/sudo-cached"
+    rm -f "$STATE/clipboard"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
     rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/seats/"*.unreadable
@@ -403,20 +442,54 @@ check_has "a ccy member whose checkout is not known is listed by handle, parked"
     "$(grep -E '^alpha +proj\.2\+local\.podman +ccy' <<<"$out")"
 check "  and seat 1's handle is not listed twice" "0" "$(grep -c 'proj\.1+local\.podman' <<<"$out")"
 check_has "the LXC member" "active" "$(grep -E '^alpha +proj\.box\+role\.lxc +lxc' <<<"$out")"
-check_has "the human" "join" "$(grep -E '^alpha +owner +human' <<<"$out")"
+human="$(grep -E '^alpha +owner +human' <<<"$out")"
+check_has "the person, in the room in words" "in room" "$human"
+check_has "  never signed in to Element (no device)" "never signed in" "$human"
+check_has "  and the key that gives them a password" "Enter: new password" "$human"
 extra="$(grep -E '^extra +- +team' <<<"$out")"
-check_has "a loaded homeserver not declared is listed, down" "down:inactive" "$extra"
-check_has "  with no port and no members" "port unknown (not declared), members unknown" "$extra"
+check_has "a loaded homeserver not declared is listed, down" "down (inactive)" "$extra"
+check_has "  with no port, and why there are no members" "port unknown (not declared), members: homeserver down" "$extra"
 check "a team declared absent is not listed" "0" "$(grep -c '^gone ' <<<"$out")"
-check "the members are read with sudo's cached credential only" "yes" \
+check "the members are read with sudo -n only" "yes" \
     "$(logged 'sudo -n /usr/local/bin/agent-bus list alpha')"
 check "  and never for a homeserver that is down" "no" "$(logged 'agent-bus list extra')"
+check "  --list never asks for a password" "no" "$(logged 'sudo -v')"
+check "piped, --list is plain text" "0" "$(grep -c $'\e' <<<"$out")"
 
 reset
-out="$(cd "$OUTSIDE" && TEST_SUDO_FAIL=1 "$TOOL" --list 2>"$SCRATCH/err")"
-check "--list with no cached sudo still exits 0" "0" "$?"
-check_has "  says why the members are left out" "members of alpha are left out" "$(cat "$SCRATCH/err")"
-check_has "  and the seat's state is unknown" "unknown" "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+printf 'DEVICE\tABC\t1\nDEVICE\tDEF\t2\n' >"$STATE/devices/owner"
+out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
+check_has "a person signed in on two devices says so" "2 signed in" "$(grep -E '^alpha +owner +human' <<<"$out")"
+
+reset
+printf 'agent-bus-hs@extra.service loaded inactive dead x\n' >"$STATE/units"
+out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
+alpha="$(grep -E '^alpha +- +team' <<<"$out")"
+check_has "a team declared but with no homeserver unit is not installed" "not installed" "$alpha"
+check_has "  and the row says what installs it" "play-agent-bus.yml" "$alpha"
+check "  no members are asked for" "no" "$(logged 'agent-bus list alpha')"
+
+reset
+out="$(cd "$OUTSIDE" && script -qec "$(printf '%q ' "$TOOL" --list)" /dev/null </dev/null 2>&1 | tr -d '\r')"
+check_has "on a terminal, --list is in colour" $'\e[32m' "$out"
+out="$(cd "$OUTSIDE" && NO_COLOR=1 script -qec "$(printf '%q ' "$TOOL" --list)" /dev/null </dev/null 2>&1 | tr -d '\r')"
+check "  but not with NO_COLOR" "0" "$(grep -c $'\e' <<<"$out")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
+check "--list with no sudo credential still exits 0" "0" "$?"
+check_has "  says why the members are not shown" "members of alpha are not shown" "$(cat "$SCRATCH/err")"
+check_has "  and the two ways to show them" "play-agent-bus.yml" "$(cat "$SCRATCH/err")"
+check_has "  the seat's state is need sudo" "need sudo" "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+check_has "  and so is the team row's" "members: need sudo" "$(grep -E '^alpha +- +team' <<<"$out")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(cd "$OUTSIDE" && TEST_SUDO_RULE=1 "$TOOL" --list 2>"$SCRATCH/err")"
+check_has "with the sudoers rule and no credential, the members are read" "active" \
+    "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+check_lacks "  with nothing said about sudo" "sudo" "$(cat "$SCRATCH/err")"
 
 reset
 printf 'SEAT\talpha\t3\tfree\t-\tproj.3+local.podman\n' >"$STATE/seats/proj"
@@ -461,7 +534,36 @@ check_has "  and points at --list" "--list" "$(cat "$SCRATCH/err")"
 reset
 out="$(run_picker "$OUTSIDE" "|ABORT")"
 check "Esc leaves, exit 0" "rc=0" "$(rc_of "$out")"
-check "it asks for sudo first" "yes" "$(logged 'sudo -v')"
+check "with a cached credential it asks no password" "no" "$(logged 'sudo -v')"
+check_has "the rows carry colour, through fzf --ansi" $'\e[32m' "$(cat "$TEST_FZF_RAW")"
+reset
+out="$(NO_COLOR=1 run_picker "$OUTSIDE" "|ABORT")"
+check "  but not with NO_COLOR" "0" "$(grep -c $'\e' "$TEST_FZF_RAW")"
+
+echo "== sudo"
+reset
+rm -f "$STATE/sudo-cached"
+out="$(run_picker "$OUTSIDE" "|ABORT")"
+check "no credential: sudo asks, once the reason is given" "yes" "$(logged 'sudo -v')"
+check_has "  the reason comes first" "done as root" "$out"
+check_has "  with what installs the rule that removes the need" "play-agent-bus.yml" "$out"
+check "  and with the password, the picker shows the members" "rc=0" "$(rc_of "$out")"
+check_has "    seat 1 active" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|ABORT")"
+check "sudo refused (three wrong passwords, or Ctrl-C): exit non-zero" "rc=1" "$(rc_of "$out")"
+check_has "  saying sudo was not given the password" "sudo was not given your password" "$out"
+check_has "  and what that costs" "members cannot be shown" "$out"
+check_lacks "  never 'no teams'" "No agent teams" "$out"
+check "  and no picker is shown" "0" "$(cat "$STATE/fzf-calls")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(TEST_SUDO_RULE=1 run_picker "$OUTSIDE" "|ABORT")"
+check "the sudoers rule installed: no password is asked" "no" "$(logged 'sudo -v')"
+check_has "  and the members are shown" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
 
 reset
 out="$(run_picker "$OUTSIDE" "|ccy-proj")"
@@ -550,6 +652,62 @@ element_profile
 out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|YES")"
 check "  yes sets one, through sudo agent-bus" "yes" "$(logged 'sudo -n /usr/local/bin/agent-bus human password alpha owner')"
 check_has "  printed once, here" "a-new-password" "$out"
+
+echo "== a person's password"
+reset
+out="$(run_picker "$OUTSIDE" "|owner" "|YES" "|ABORT")"
+check "Enter on a person sets a new Element password, after a yes" "yes" \
+    "$(logged 'agent-bus human password alpha owner')"
+check_has "  the yes says their other sessions are signed out" "other Element sessions are signed out" \
+    "$(cat "$TEST_FZF_RAW")"
+check_has "  the login shows the homeserver" "http://192.0.2.10:6167" "$out"
+check_has "  the username" "Username" "$out"
+check_has "  the Matrix ID" "@owner:alpha.agent-bus.internal" "$out"
+check_has "  and the password" "a-new-password" "$out"
+check "  then back to the list" "rc=0" "$(rc_of "$out")"
+reset
+out="$(run_picker "$OUTSIDE" "|owner" "|EXIT" "|ABORT")"
+check "  no sets none" "no" "$(logged 'human password')"
+reset
+out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|YES" "|ABORT")"
+check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
+    "$(cat "$STATE/clipboard" 2>&1)"
+check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
+reset
+rm -f "$STATE/sudo-cached"
+out="$(TEST_SUDO_RULE=1 TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|owner" "|YES" "|ABORT")"
+check "a password needs sudo; refused, none is set" "no" "$(logged 'agent-bus human password')"
+check_has "  saying so" "No password was set for owner." "$out"
+reset
+out="$(run_picker "$OUTSIDE" "ctrl-p|ccy-proj" "|ABORT")"
+check_has "Ctrl-P on another row says where the people are" "KIND human" "$out"
+
+echo "== help and repositories"
+reset
+out="$(run_picker "$OUTSIDE" "?|port 6167" "|ABORT")"
+check_has "? shows every key, explained" "Ctrl-A" "$out"
+check_has "  and the status words" "need sudo" "$out"
+reset
+out="$(run_picker "$OUTSIDE" "|port 6167" "|ABORT")"
+check_has "Enter on a team shows the same help" "Colours:" "$out"
+
+reset
+cp "$HOST_VARS" "$SCRATCH/repo.yml"
+printf '%s\n' ENTER 'PICK example-org/other' YES >"$TEST_GUM_ANSWERS"
+printf '0\n' >"$STATE/gum-calls"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/repo.yml" run_picker "$OUTSIDE" "ctrl-a|port 6167" "|ABORT")"
+check_has "Ctrl-A adds a repository to the row's team" 'repo: "example-org/other"' "$(cat "$SCRATCH/repo.yml")"
+check_has "  with its default branch" 'branches: ["trunk"]' "$(cat "$SCRATCH/repo.yml")"
+check_lacks "  not offering one listed already" "example-org/proj" "$(cat "$STATE/filter-items")"
+check_has "  and says what installs it" "meta-deploy" "$out"
+reset
+cp "$HOST_VARS" "$SCRATCH/repo.yml"
+CCY_TEAMS_HOST_VARS="$SCRATCH/repo.yml" "$TOOL" add-repo alpha --repo example-org/two=main --yes \
+    >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "add-repo with --repo and --yes asks nothing" "0" "$?"
+check_has "  and adds it" 'repo: "example-org/two"' "$(cat "$SCRATCH/repo.yml")"
+"$TOOL" add-repo </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "add-repo needs a team" "64" "$?"
 
 # ── backup, restore, create ──────────────────────────────────────────────────────────────
 echo "== backup and restore"

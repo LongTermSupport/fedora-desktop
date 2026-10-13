@@ -1,34 +1,46 @@
 #!/usr/bin/env bash
 # ccy-teams — see the agent teams on this machine and look after them: each team's
-# homeserver, its members, and the ccy sessions in its seats. It is to teams what
-# ccy-sessions is to sessions (Plan 00161; docs/agent-bus.md, "Getting started").
+# homeserver, its members, the people in its room, and the ccy sessions in its seats. It is
+# to teams what ccy-sessions is to sessions (Plan 00161, Plan 00177; docs/agent-bus.md,
+# "Getting started").
 #
 # A team is declared in the untracked host_vars localhost.yml (agent_bus_teams) and made by
 # play-agent-bus.yml. A ccy session joins one with `ccy --teams <seat>@<team>`, an LXC
 # container's agent through agent_bus_lxc_members. ccy-teams holds no team logic of its own:
 # it acts through agent-bus, agent-bus-install, ccy and the session registry, and it edits
-# the host_vars only to add a team (create).
+# the host_vars only to add a team (create) or a team's repositories (add-repo).
 #
-# Each team is a row (its homeserver up or down, and its port), followed by its members:
+# Each team is a row (its homeserver up, down or not installed yet, and its port),
+# followed by its members:
 #   ccy                    a seat of a ccy checkout, with the ccy session holding it and
 #                          whether that session is started again after a reboot
 #   lxc, host, docker, vm  a member of that type; a ccy member whose checkout is not
 #                          known here (no session or registry record names it) is "ccy"
 #                          with no checkout
-#   human                  a human of the team, and whether the account is in the room
-# Arrow keys move; Enter attaches to the seat's session (as ccy-sessions does); Ctrl-N
-# starts a new ccy session in a free or new seat of the row's team, in the current project,
-# by running ccy --teams; Ctrl-R turns the restore of the seat's session after a reboot off
-# or on; Ctrl-X removes a seat (agent-bus seat remove) or parks a member (agent-bus
-# park-member) after a yes/no; Ctrl-E opens the team in Element, offering a new password
-# first to a human with no session yet; Esc or q leaves. Nothing needs Enter after it.
+#   human                  a person in the team room: in it or not, and how many Element
+#                          sessions they are signed in with
+# Keys, shown in the picker's header too (? there shows them all, explained):
+#   Enter    on a seat: attach its session (as ccy-sessions does); on a person: set a new
+#            Element password and show the login; on a team: this help
+#   Ctrl-N   start a new ccy session in a free or new seat of the row's team, here
+#   Ctrl-P   a new Element password for the person on the row
+#   Ctrl-E   open the team in Element
+#   Ctrl-A   add repositories to the row's team
+#   Ctrl-R   turn the seat's session's restore after a reboot off or on
+#   Ctrl-X   remove a seat, or park a member, after a yes/no
+#   Esc, q   leave
+# With no team on this machine, the picker offers to create one.
 #
-# The members come from `sudo agent-bus list`, so the picker asks for sudo first. --list
-# uses only sudo's cached credential: without one it leaves the members out and says why.
+# Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
+# installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
+# devices` without a password; where that rule is not installed yet and sudo needs a
+# password, the picker says why before sudo asks, and stops, saying so, when sudo is
+# refused. --list never asks: without sudo it shows the members as "need sudo".
 #
 # Usage:
 #   ccy-teams                        the picker (needs a terminal)
 #   ccy-teams -l|--list              print the same table, with a heading, and exit
+#                                    (colour only on a terminal, and never with NO_COLOR)
 #   ccy-teams create [--team T] [--human NAME]... [--repo OWNER/REPO=BRANCH[,BRANCH]]...
 #                    [--allow-from CIDR]... [--yes]
 #                                    add a team to agent_bus_teams in the host_vars. On a
@@ -41,8 +53,9 @@
 #                                    before writing. --yes asks nothing: give --team,
 #                                    --human and --repo. The port is chosen for you; the
 #                                    team is made only when play-agent-bus.yml runs
-#
-# With no team on this machine, the picker offers to create one.
+#   ccy-teams add-repo <team> [--repo OWNER/REPO=BRANCH[,BRANCH]]... [--yes]
+#                                    add repositories to a team; on a terminal, chosen
+#                                    from its GitHub owner's, as create does
 #   ccy-teams backup <team>          back the team's homeserver up now
 #   ccy-teams restore <team> [<n>] [--yes]
 #                                    restore backup <n> after a yes/no (--yes: none);
@@ -50,7 +63,7 @@
 #   ccy-teams -h|--help              this text
 #
 # Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").
-# Exit 64 for a usage mistake, 1 for a refusal or a failure.
+# Exit 64 for a usage mistake, 130 when cancelled, 1 for a refusal or a failure.
 #
 # Runs on the HOST, as the desktop user.
 set -euo pipefail
@@ -78,7 +91,7 @@ usage_error() {
 
 subcommand="${1:-}"
 case "${subcommand}" in
-"" | create | backup | restore) ;;
+"" | create | add-repo | backup | restore) ;;
 -l | --list)
     if [[ $# -gt 1 ]]; then
         usage_error "'${subcommand}' takes no further arguments."
@@ -127,6 +140,61 @@ project_here() {
 # declare_helper <args...> — helpers/agent_bus/declare.py from the checkout.
 declare_helper() {
     PYTHONPATH="${ROOT_DIR}" python3 -P -m helpers.agent_bus.declare "$@"
+}
+
+# ── colour and sudo ──────────────────────────────────────────────────────────────────────
+
+# colour_on <fd> — colour is for a terminal, and never with NO_COLOR (no-color.org): piped
+# output stays plain text, column for column.
+colour_on() {
+    [[ -t "$1" && -z "${NO_COLOR:-}" ]]
+}
+C_RESET=$'\e[0m'
+C_BOLD=$'\e[1m'
+C_GREEN=$'\e[32m'
+C_YELLOW=$'\e[33m'
+C_RED=$'\e[31m'
+
+# word_colour <status word> — the colour a status cell is shown in: green is well, yellow
+# wants a look, red is not working.
+word_colour() {
+    case "$1" in
+    free | invited | no | parked | "never signed in" | *"(stopped)") printf '%s' "${C_YELLOW}" ;;
+    up | active | held | "in room" | yes | *" signed in") printf '%s' "${C_GREEN}" ;;
+    down* | "not installed" | "not in room" | unknown | "need sudo") printf '%s' "${C_RED}" ;;
+    esac
+}
+
+# say <text> — a heading line on stderr, bold on a terminal.
+say() {
+    if colour_on 2; then
+        printf '%s%s%s\n' "${C_BOLD}" "$1" "${C_RESET}" >&2
+    else
+        printf '%s\n' "$1" >&2
+    fi
+}
+
+# sudo_ready <why> — sudo's credential for the root commands that follow. Passwordless or
+# cached sudo asks nothing. Otherwise <why> is said first, then sudo asks for your login
+# password. Returns 1, saying so, when sudo is not given it (three wrong passwords, Ctrl-C)
+# or there is no terminal to ask on: the caller then says what could not be done, and
+# never carries on as if the root command had answered.
+sudo_ready() {
+    local probe
+    if probe="$(sudo -n -v 2>&1)"; then
+        return 0
+    fi
+    if [[ ! -t 0 || ! -t 2 ]]; then
+        print_error "$1 That needs sudo, and with no terminal there is nowhere to ask for your password (sudo said: ${probe}). Run sudo -v first."
+        return 1
+    fi
+    printf '\n' >&2
+    say "$1"
+    echo "sudo asks for your login password." >&2
+    if ! sudo -v; then
+        print_error "sudo was not given your password (three wrong tries, or cancelled)."
+        return 1
+    fi
 }
 
 # ── create: the questions, asked with gum; declare.py checks and writes ──────────────────
@@ -255,12 +323,16 @@ the_remote_repo() {
     declare_helper github-remote --url "${url}"
 }
 
-# pick_repos <owner> <pre-selected> — the owner's repositories in a multi-select; prints
+# pick_repos <owner> <pre-selected> [<listed already, one per line>] — the owner's
+# repositories in a multi-select, less those listed already; prints
 # "<owner/repo>=<default branch>" per chosen one. Returns 130 when cancelled, 1 on failure.
 pick_repos() {
     local owner="$1" current="$2" listing errors listing_lines kind name branch count="" picked try
     local -a names=() empty=() selected=()
-    local -A branch_of=()
+    local -A branch_of=() listed=()
+    while read -r name; do
+        [[ -z "${name}" ]] || listed["${name}"]=1
+    done <<<"${3:-}"
     listing="$(mktemp)"
     errors="$(mktemp)"
     if ! gum spin --title "Listing ${owner}'s repositories on GitHub…" -- \
@@ -279,6 +351,7 @@ pick_repos() {
         case "${kind}" in
         COUNT) count="${name}" ;;
         REPO)
+            [[ -z "${listed[${name}]:-}" ]] || continue
             names+=("${name}")
             branch_of["${name}"]="${branch}"
             ;;
@@ -286,11 +359,11 @@ pick_repos() {
         esac
     done <<<"${listing_lines}"
     if [[ -z "${names[*]:-}" ]]; then
-        print_error "${owner} has no repository with commits that is not archived, so there is nothing a team could work on."
+        print_error "${owner} has no repository to offer: none that has commits, is not archived and is not listed already."
         return 1
     fi
     if [[ "${count}" -ge 1000 ]]; then
-        echo "GitHub listed 1000 repositories, the most this asks for, so the list may be cut off; give a missing one with ccy-teams create --repo OWNER/REPO=BRANCH." >&2
+        echo "GitHub listed 1000 repositories, the most this asks for, so the list may be cut off; give a missing one with --repo OWNER/REPO=BRANCH." >&2
     fi
     if [[ -n "${empty[*]:-}" ]]; then
         echo "Left out, as they have no commits yet (so no default branch): ${empty[*]}" >&2
@@ -339,11 +412,7 @@ create_wizard() {
             usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
         fi
         need_tool gum playbooks/imports/play-claude-yolo.yml
-        need_tool gh playbooks/imports/play-git-configure-and-tools.yml
-        if [[ -z "${repos[*]:-}" ]] && ! probe="$(gh auth status 2>&1)"; then
-            print_error "gh is not logged in to GitHub, and the team's repositories are listed from there (gh said: ${probe}). Run gh auth login, then ccy-teams create again."
-            exit 1
-        fi
+        [[ -n "${repos[*]:-}" ]] || need_gh
         gum style --bold --border rounded --padding "0 1" "New agent team" >&2
         cat >&2 <<EOF
 A team is a group of agents (ccy sessions, LXC containers) and people who work
@@ -407,12 +476,28 @@ EOF
         return
     fi
     entry="$(declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run)" || exit
-    gum style --border rounded --padding "0 1" "The entry for ${HOST_VARS/#${HOME}/\~}" "" "${entry}" >&2
+    summary_confirm "The entry for ${HOST_VARS/#${HOME}/\~}" "${entry}" "Add team ${team} to ${HOST_VARS##*/}?"
+    declare_helper create --file "${HOST_VARS}" "${flags[@]}"
+}
+
+# need_gh — gh installed and logged in: the repositories are listed from GitHub.
+need_gh() {
+    local probe
+    need_tool gh playbooks/imports/play-git-configure-and-tools.yml
+    if ! probe="$(gh auth status 2>&1)"; then
+        print_error "gh is not logged in to GitHub, and the repositories are listed from there (gh said: ${probe}). Run gh auth login, then try again."
+        exit 1
+    fi
+}
+
+# summary_confirm <title> <lines to add> <question> — what will be written, in a box, then a
+# yes. Default yes: lines are only added (the file is backed up first), and they do nothing
+# until the play runs. No exits 1, Esc or Ctrl-C 130, both having changed nothing.
+summary_confirm() {
+    local rc=0
+    gum style --border rounded --padding "0 1" "$1" "" "$2" >&2
     echo "Each repository is listed with its default branch; work on other branches reaches the agents through pull requests, which need no listing." >&2
-    rc=0
-    # Default yes: the entry is only added (the file is backed up first), and it does
-    # nothing until the play runs.
-    gum confirm --default=true "Add team ${team} to ${HOST_VARS##*/}?" || rc=$?
+    gum confirm --default=true "$3" || rc=$?
     case "${rc}" in
     0) ;;
     1)
@@ -421,7 +506,6 @@ EOF
         ;;
     *) cancelled ;;
     esac
-    declare_helper create --file "${HOST_VARS}" "${flags[@]}"
 }
 
 cmd_create() {
@@ -429,10 +513,69 @@ cmd_create() {
     create_wizard "$@"
 }
 
+# cmd_add_repo <team> [--repo OWNER/REPO=BRANCH[,BRANCH]]... [--yes] — more repositories for
+# a declared team: the flags' with --yes; otherwise chosen from the GitHub owner's, as in
+# create, less those listed already.
+cmd_add_repo() {
+    local team="" yes=false listing owner text picked entry name rc
+    local -a known=() repos=() flags=()
+    need_checkout
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --yes) yes=true ;;
+        --repo)
+            [[ $# -ge 2 ]] || usage_error "add-repo's --repo needs a value."
+            repos+=("$2")
+            shift
+            ;;
+        -*) usage_error "unknown add-repo option '$1'." ;;
+        *)
+            [[ -z "${team}" ]] || usage_error "unexpected argument '$1'."
+            team="$1"
+            ;;
+        esac
+        shift
+    done
+    [[ -n "${team}" ]] || usage_error "'add-repo' needs a team."
+    listing="$(declare_helper repos --file "${HOST_VARS}" --team "${team}")" || exit
+    while IFS=$'\t' read -r _ name _; do
+        [[ -z "${name}" ]] || known+=("${name}")
+    done <<<"${listing}"
+    if [[ "${yes}" == false ]]; then
+        if [[ ! -t 0 || ! -t 2 ]]; then
+            usage_error "'add-repo' asks on a terminal; without one give --repo OWNER/REPO=BRANCH, and --yes."
+        fi
+        need_tool gum playbooks/imports/play-claude-yolo.yml
+        if [[ -z "${repos[*]:-}" ]]; then
+            need_gh
+            gum style --bold --border rounded --padding "0 1" "More repositories for ${team}" >&2
+            echo "Listed now: ${known[*]:-none}. Esc or Ctrl-C leaves without changing anything." >&2
+            owner="${known[0]:-}"
+            rc=0
+            text="$(ask_valid check_owner \
+                "GitHub owner: the organisation or user whose repositories this team works in." \
+                "e.g. example-org" "${owner%%/*}")" || rc=$?
+            ask_or_quit "${rc}"
+            rc=0
+            picked="$(pick_repos "${text,,}" "" "$(printf '%s\n' "${known[@]}")")" || rc=$?
+            ask_or_quit "${rc}"
+            mapfile -t repos <<<"${picked}"
+        fi
+    fi
+    for name in "${repos[@]}"; do [[ -z "${name}" ]] || flags+=(--repo "${name}"); done
+    if [[ "${yes}" == false ]]; then
+        entry="$(declare_helper add-repo --file "${HOST_VARS}" --team "${team}" "${flags[@]}" --dry-run)" || exit
+        summary_confirm "Added to ${team}'s repos in ${HOST_VARS/#${HOME}/\~}" "${entry}" \
+            "Add them to ${team} in ${HOST_VARS##*/}?"
+    fi
+    declare_helper add-repo --file "${HOST_VARS}" --team "${team}" "${flags[@]}"
+}
+
 # ── backup, restore: thin wrappers ───────────────────────────────────────────────────────
 
 cmd_backup() {
     [[ $# -eq 1 && "$1" != -* ]] || usage_error "'backup' takes one team."
+    sudo_ready "A backup is taken as root, by agent-bus-install." || exit 1
     sudo "${SUDO_INSTALLER}" backup-now --team "$1"
 }
 
@@ -473,6 +616,7 @@ cmd_restore() {
     if [[ -n "${id}" && ! "${id}" =~ ^[1-9][0-9]*$ ]]; then
         usage_error "a backup is named by its number; got '${id}'."
     fi
+    sudo_ready "The backups are listed and restored as root, by agent-bus-install." || exit 1
     if [[ -z "${id}" ]]; then
         listing="$(sudo "${SUDO_INSTALLER}" backups --team "${team}")"
         if [[ -z "${listing}" ]]; then
@@ -507,6 +651,10 @@ create)
     cmd_create "$@"
     exit
     ;;
+add-repo)
+    cmd_add_repo "$@"
+    exit
+    ;;
 backup)
     cmd_backup "$@"
     exit
@@ -521,18 +669,41 @@ esac
 #
 # One pass gathers everything into the R_* arrays, one entry per row, in the shell itself
 # (not a subshell), so a key pressed on a row finds what the row stands for by its index.
+# R_TEXT is the row as plain text, which fzf hands back and --list prints when piped;
+# R_SHOWN is the same row with its status words in colour.
 
 _row() {
-    printf '%-24s  %-36s  %-6s  %-9s  %-26s  %-7s  %s' "$@"
+    printf '%-24s  %-36s  %-6s  %-13s  %-26s  %-7s  %s' "$@"
 }
 row_heading() {
     _row TEAM MEMBER KIND STATE SESSION RESTORE WHERE
 }
 
-R_TEXT=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
+# _paint <width> <word> — the word padded to width, in its status colour.
+_paint() {
+    local colour
+    colour="$(word_colour "$2")"
+    if [[ -n "${colour}" ]]; then
+        printf '%s%-*s%s' "${colour}" "$1" "$2" "${C_RESET}"
+    else
+        printf '%-*s' "$1" "$2"
+    fi
+}
+
+# _painted_row — _row's columns, the team's own row in bold and each status word coloured.
+_painted_row() {
+    local team
+    team="$(printf '%-24s' "$1")"
+    [[ "$3" != team ]] || team="${C_BOLD}${team}${C_RESET}"
+    printf '%s  %-36s  %-6s  %s  %s  %s  %s' "${team}" "$2" "$3" "$(_paint 13 "$4")" \
+        "$(_paint 26 "$5")" "$(_paint 7 "$6")" "$7"
+}
+
+R_TEXT=() R_SHOWN=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
 # add_row <team> <member> <kind> <state> <session> <restore> <where> <handle> <dir>
 add_row() {
     R_TEXT+=("$(_row "$1" "$2" "$3" "$4" "$5" "$6" "$7")")
+    R_SHOWN+=("$(_painted_row "$1" "$2" "$3" "$4" "$5" "$6" "$7")")
     R_TEAM+=("$1")
     R_NAME+=("$2")
     R_KIND+=("$3")
@@ -542,21 +713,24 @@ add_row() {
 }
 
 # The teams of this machine: those declared present, then any homeserver unit loaded here
-# that is not (one declared absent but still installed, or made by hand).
+# that is not (one declared absent but still installed, or made by hand). LOADED holds
+# the teams with a homeserver unit: a declared team without one is not installed yet.
 TEAMS=()
-declare -A PORT_OF=()
+declare -A PORT_OF=() URL_OF=() SERVER_OF=() LOADED=()
 collect_teams() {
-    local declared units team port state unit
+    local declared units team port state server url unit
     declare -A seen=()
     need_checkout
     declared="$(declare_helper declared --file "${HOST_VARS}")" || {
         print_error "the teams declared in ${HOST_VARS} could not be read (the reason is above)."
         return 1
     }
-    while IFS=$'\t' read -r _ team port state; do
+    while IFS=$'\t' read -r _ team port state server url; do
         [[ -n "${team}" && "${state}" == present ]] || continue
         TEAMS+=("${team}")
         PORT_OF["${team}"]="${port}"
+        SERVER_OF["${team}"]="${server}"
+        [[ "${url}" == - ]] || URL_OF["${team}"]="${url}"
         seen["${team}"]=1
     done <<<"${declared}"
     units="$(systemctl list-units --all --plain --no-legend --type=service 'agent-bus-hs@*')" || {
@@ -567,6 +741,7 @@ collect_teams() {
         [[ "${unit}" == agent-bus-hs@*.service ]] || continue
         team="${unit#agent-bus-hs@}"
         team="${team%.service}"
+        LOADED["${team}"]=1
         [[ -z "${seen[${team}]:-}" ]] || continue
         TEAMS+=("${team}")
         seen["${team}"]=1
@@ -580,7 +755,7 @@ homeserver_state() {
     if [[ "${rc}" -eq 0 && "${state}" == active ]]; then
         printf 'up\n'
     else
-        printf 'down:%s\n' "${state:-unknown}"
+        printf 'down (%s)\n' "${state:-unknown}"
     fi
 }
 
@@ -642,29 +817,86 @@ seat_lines() {
     (cd "$1" && agent-bus seat list)
 }
 
-# The member lines of each team, from sudo agent-bus list with sudo's cached credential
-# (the picker asks for one first); a team whose members could not be read is in
-# MEMBERS_UNKNOWN, with the reason on stderr.
-declare -A MEMBERS_OF=() MEMBERS_UNKNOWN=()
-collect_members() {
-    local team="$1" out
-    if ! out="$(sudo -n "${SUDO_AGENT_BUS}" list "${team}")"; then
-        echo "The members of ${team} are left out: sudo agent-bus list ${team} failed (above). Run sudo -v first for --list." >&2
-        MEMBERS_UNKNOWN["${team}"]=1
-        return 0
+# as_root <command> [args...] — a root command through `sudo -n`, never prompting; its
+# stdout in ROOT_OUT. Returns 0 when it ran; 2 when sudo wants a password first (sudo's own
+# words, nothing else, so nothing is printed); 1 when the command failed, its error printed.
+ROOT_OUT=""
+as_root() {
+    local errors rc=0
+    errors="$(mktemp)"
+    ROOT_OUT="$(sudo -n "$@" 2>"${errors}")" || rc=$?
+    if [[ "${rc}" -eq 1 && "$(<"${errors}")" == "sudo: "* ]]; then
+        rc=2
+    elif [[ "${rc}" -ne 0 ]]; then
+        cat "${errors}" >&2
+        rc=1
     fi
-    MEMBERS_OF["${team}"]="${out}"
+    rm -f "${errors}"
+    return "${rc}"
+}
+
+# The member lines of each team, from agent-bus list; a team whose members could not be
+# read has its reason in MEMBERS_UNKNOWN. NEED_SUDO is set when sudo wanted a password for
+# them: the picker then asks, saying why, and --list says how to give it.
+declare -A MEMBERS_OF=() MEMBERS_UNKNOWN=() SIGNED_IN=()
+NEED_SUDO=""
+collect_members() {
+    local team="$1" rc=0 kind name devices
+    as_root "${SUDO_AGENT_BUS}" list "${team}" || rc=$?
+    case "${rc}" in
+    0) MEMBERS_OF["${team}"]="${ROOT_OUT}" ;;
+    2)
+        MEMBERS_UNKNOWN["${team}"]="need sudo"
+        NEED_SUDO+=" ${team}"
+        return 0
+        ;;
+    *)
+        MEMBERS_UNKNOWN["${team}"]="read failed (above)"
+        return 0
+        ;;
+    esac
+    # Each person's Element sessions: read-only, and covered by the same sudoers rule.
+    while IFS=$'\t' read -r kind name _; do
+        [[ "${kind}" == HUMAN ]] || continue
+        rc=0
+        as_root "${SUDO_AGENT_BUS}" human devices "${team}" "${name}" || rc=$?
+        case "${rc}" in
+        0)
+            devices="$(grep -c '^DEVICE' <<<"${ROOT_OUT}")" || devices=0
+            if [[ "${devices}" -eq 0 ]]; then
+                SIGNED_IN["${team}|${name}"]="never signed in"
+            else
+                SIGNED_IN["${team}|${name}"]="${devices} signed in"
+            fi
+            ;;
+        2)
+            SIGNED_IN["${team}|${name}"]="need sudo"
+            NEED_SUDO+=" ${team}"
+            ;;
+        *) SIGNED_IN["${team}|${name}"]=unknown ;;
+        esac
+    done <<<"${ROOT_OUT}"
+}
+
+# room_word <Matrix membership> — whether the person is in the team's room, in words.
+room_word() {
+    case "$1" in
+    join) printf 'in room' ;;
+    invite) printf 'invited' ;;
+    *) printf 'not in room' ;;
+    esac
 }
 
 collect() {
     local team state port dir seats kind name membership role activity handle seat seat_state
-    local key session restore where
+    local key session restore where seat_activity
     local -a seat_dirs=() seat_rows=()
     local -A activity_of=() shown=()
-    R_TEXT=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
-    INCOMPLETE=""
-    TEAMS=() PORT_OF=() SEAT_SESSION=() SEAT_RESTORE=() LIVE=() CHECKOUTS=() CHECKOUT_SEEN=()
-    MEMBERS_OF=() MEMBERS_UNKNOWN=()
+    R_TEXT=() R_SHOWN=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
+    INCOMPLETE="" NEED_SUDO=""
+    TEAMS=() PORT_OF=() URL_OF=() SERVER_OF=() LOADED=()
+    SEAT_SESSION=() SEAT_RESTORE=() LIVE=() CHECKOUTS=() CHECKOUT_SEEN=()
+    MEMBERS_OF=() MEMBERS_UNKNOWN=() SIGNED_IN=()
     collect_teams || return 1
     [[ -n "${TEAMS[*]:-}" ]] || return 0
     collect_sessions || return 1
@@ -680,15 +912,21 @@ collect() {
         done <<<"${seats}"
     done
     for team in "${TEAMS[@]}"; do
-        state="$(homeserver_state "${team}")"
         port="${PORT_OF[${team}]:-}"
         where="port ${port:-unknown (not declared)}"
-        if [[ "${state}" == up ]]; then
-            collect_members "${team}"
+        if [[ -z "${LOADED[${team}]:-}" ]]; then
+            state="not installed"
+            MEMBERS_UNKNOWN["${team}"]="not installed"
+            where+=", install it: run play-agent-bus.yml (meta-deploy)"
         else
-            MEMBERS_UNKNOWN["${team}"]=1
+            state="$(homeserver_state "${team}")"
+            if [[ "${state}" == up ]]; then
+                collect_members "${team}"
+            else
+                MEMBERS_UNKNOWN["${team}"]="homeserver down"
+            fi
+            [[ -z "${MEMBERS_UNKNOWN[${team}]:-}" ]] || where+=", members: ${MEMBERS_UNKNOWN[${team}]}"
         fi
-        [[ -z "${MEMBERS_UNKNOWN[${team}]:-}" ]] || where+=", members unknown"
         [[ -z "${INCOMPLETE}" ]] || where+=", ${INCOMPLETE} (above)"
         add_row "${team}" - team "${state}" - - "${where}" - -
         activity_of=()
@@ -697,6 +935,8 @@ collect() {
             [[ "${kind}" == MEMBER ]] || continue
             activity_of["${name}"]="${activity}"
         done <<<"${MEMBERS_OF[${team}]:-}"
+        activity="unknown"
+        [[ "${MEMBERS_UNKNOWN[${team}]:-}" != "need sudo" ]] || activity="need sudo"
         for key in "${!seat_rows[@]}"; do
             IFS=$'\t' read -r _ name seat seat_state _ handle <<<"${seat_rows[key]}"
             [[ "${name}" == "${team}" ]] || continue
@@ -710,7 +950,9 @@ collect() {
             elif [[ -z "${LIVE[${session}]+set}" ]]; then
                 session+="(stopped)"
             fi
-            add_row "${team}" "${seat}" ccy "${activity_of[${handle}]:-unknown}" "${session}" \
+            seat_activity="${activity_of[${handle}]:-}"
+            [[ -n "${seat_activity}" ]] || seat_activity="${activity}"
+            add_row "${team}" "${seat}" ccy "${seat_activity}" "${session}" \
                 "${restore}" "${dir/#${HOME}/\~}" "${handle}" "${dir}"
         done
         while IFS=$'\t' read -r kind name role membership activity; do
@@ -721,20 +963,32 @@ collect() {
         done <<<"${MEMBERS_OF[${team}]:-}"
         while IFS=$'\t' read -r kind name membership; do
             [[ "${kind}" == HUMAN ]] || continue
-            add_row "${team}" "${name}" human "${membership}" - - - - -
+            add_row "${team}" "${name}" human "$(room_word "${membership}")" \
+                "${SIGNED_IN[${team}|${name}]:-unknown}" - "Element; Enter: new password" - -
         done <<<"${MEMBERS_OF[${team}]:-}"
     done
+}
+
+# need_sudo_note — for --list: which teams' members wait on sudo, and the two ways to give it.
+need_sudo_note() {
+    echo "The members of${NEED_SUDO} are not shown: reading them needs root. Run sudo -v first, or run play-agent-bus.yml once, which installs a rule that lets ccy-teams read them without a password." >&2
 }
 
 if [[ "${subcommand}" == -l || "${subcommand}" == --list ]]; then
     collect || exit 1
     if [[ -z "${R_TEXT[*]:-}" ]]; then
-        echo "No agent teams on this machine. ccy-teams create declares one." >&2
+        echo "No agent teams on this machine yet. ccy-teams create starts one." >&2
         exit 0
     fi
-    row_heading
-    printf '\n'
-    printf '%s\n' "${R_TEXT[@]}"
+    [[ -z "${NEED_SUDO}" ]] || need_sudo_note
+    if colour_on 1; then
+        printf '%s%s%s\n' "${C_BOLD}" "$(row_heading)" "${C_RESET}"
+        printf '%s\n' "${R_SHOWN[@]}"
+    else
+        row_heading
+        printf '\n'
+        printf '%s\n' "${R_TEXT[@]}"
+    fi
     exit 0
 fi
 
@@ -743,13 +997,14 @@ if [[ ! -t 0 || ! -t 1 ]]; then
     echo "ccy-teams needs a terminal: it attaches sessions to the one you are in. ccy-teams --list prints the table instead." >&2
     exit 1
 fi
+trap cancelled INT
 
 # offer_create — no team on this machine: say what a team is, and offer to create one now.
 offer_create() {
     local rc=0
     need_tool gum playbooks/imports/play-claude-yolo.yml
+    say "No agent teams on this machine yet."
     cat >&2 <<'EOF'
-No agent teams on this machine yet.
 
 A team is a group of agents (ccy sessions, LXC containers) and people who work together
 in a private chat room on a homeserver on this machine, which you follow in Element.
@@ -773,11 +1028,10 @@ collect_teams || exit 1
 if [[ -z "${TEAMS[*]:-}" ]]; then
     offer_create
 fi
-echo "ccy-teams reads each team's members with sudo agent-bus list." >&2
 
 here="${PWD/#${HOME}/\~}"
 
-# row_index <row> — the index of the picked row, printed.
+# row_index <row> — the index of the picked row (fzf hands back the plain text), printed.
 row_index() {
     local i
     for i in "${!R_TEXT[@]}"; do
@@ -789,11 +1043,19 @@ row_index() {
     return 1
 }
 
+# back_to_list — wait for Enter before the list is drawn over what was just said.
+back_to_list() {
+    echo "Press Enter to go back to the list." >&2
+    if ! read -r _ </dev/tty; then
+        echo >&2
+    fi
+}
+
 # attach_seat <i> — Enter on a seat: attach its live session here, as ccy-sessions does.
 attach_seat() {
     local i="$1" session="${R_SESSION[$1]}" rc=0
-    if [[ "${R_KIND[i]}" != ccy || -z "${LIVE[${session}]+set}" ]]; then
-        echo "Enter attaches to a ccy seat's running session, and this row has none. Ctrl-N starts one." >&2
+    if [[ -z "${LIVE[${session}]+set}" ]]; then
+        echo "Seat ${R_NAME[i]}@${R_TEAM[i]} has no running session to attach. Ctrl-N starts one." >&2
         return 0
     fi
     if [[ "${LIVE[${session}]}" != 0 ]]; then
@@ -870,7 +1132,7 @@ remove_or_park() {
         echo "A team is removed by setting state: absent on its agent_bus_teams entry and running play-agent-bus.yml." >&2
         ;;
     human)
-        echo "A team's humans are its agent_bus_teams entry's humans: change them there and run play-agent-bus.yml." >&2
+        echo "A team's people are its agent_bus_teams entry's humans: change them there and run play-agent-bus.yml." >&2
         ;;
     ccy)
         if [[ "${R_DIR[i]}" != - ]]; then
@@ -892,7 +1154,9 @@ remove_or_park() {
         if ccy_tmux_confirm "Park ${handle}?" \
             "Its token is revoked; its account, role and room are kept. add-member --seat returns it, and an agent_bus_lxc_members entry is returned by the next play run unless set absent." \
             "park ${handle}"; then
-            if ! sudo -n "${SUDO_AGENT_BUS}" park-member "${team}" "${handle}"; then
+            if ! sudo_ready "A member is parked as root, by agent-bus."; then
+                echo "${handle} was not parked." >&2
+            elif ! sudo -n "${SUDO_AGENT_BUS}" park-member "${team}" "${handle}"; then
                 echo "${handle} was not parked, for the reason above." >&2
             fi
         fi
@@ -900,31 +1164,76 @@ remove_or_park() {
     esac
 }
 
+# show_login <team> <name> <password> — everything needed to sign in to Element, once; then
+# a copy to the clipboard, offered when wl-copy can reach this desktop's clipboard.
+show_login() {
+    local team="$1" name="$2" password="$3"
+    printf '\n' >&2
+    say "Element sign-in for ${name}, team ${team}"
+    printf '  %-11s %s\n' "Homeserver" "${URL_OF[${team}]:-unknown (not declared)}" "Username" "${name}" \
+        "Matrix ID" "@${name}:${SERVER_OF[${team}]:-${team}.agent-bus.internal}" >&2
+    if colour_on 2; then
+        printf '  %-11s %s%s%s\n' "Password" "${C_BOLD}" "${password}" "${C_RESET}" >&2
+    else
+        printf '  %-11s %s\n' "Password" "${password}" >&2
+    fi
+    echo "Shown this once and stored nowhere. The team's Element profile (Ctrl-E) has the homeserver set already." >&2
+    if [[ -n "$(command -v wl-copy)" && -n "${WAYLAND_DISPLAY:-}" ]] &&
+        ccy_tmux_confirm "Copy the password?" \
+            "Put ${name}'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy." \
+            "copy the password"; then
+        printf '%s' "${password}" | wl-copy
+        echo "The password is on the clipboard." >&2
+    fi
+}
+
+# set_password <team> <name> — a new Element password for a person of the team, after a yes
+# that says what it does. Returns 1 when none was set.
+set_password() {
+    local team="$1" name="$2" password
+    if ! ccy_tmux_confirm "New Element password for ${name}?" \
+        "Sets a new password for ${name} on ${team}'s homeserver and shows it here, once: it is stored nowhere. ${name}'s other Element sessions are signed out." \
+        "set a new password for ${name}"; then
+        echo "No password was set for ${name}." >&2
+        return 1
+    fi
+    if ! sudo_ready "A password is set as root, by agent-bus (the team's admin token is root's)."; then
+        echo "No password was set for ${name}." >&2
+        return 1
+    fi
+    if ! password="$(sudo -n "${SUDO_AGENT_BUS}" human password "${team}" "${name}")"; then
+        echo "No password was set for ${name}, for the reason above." >&2
+        return 1
+    fi
+    show_login "${team}" "${name}" "${password}"
+}
+
+# password_row <i> — Enter or Ctrl-P on a row: a person's password; on any other row, say
+# where the people are.
+password_row() {
+    if [[ "${R_KIND[$1]}" != human ]]; then
+        echo "Ctrl-P sets a person's Element password: choose one of the team's people (KIND human)." >&2
+        return 0
+    fi
+    set_password "${R_TEAM[$1]}" "${R_NAME[$1]}" || true
+    back_to_list
+}
+
 # open_element <team> — Ctrl-E: the team's Element profile, through the launcher
-# play-agent-bus-element.yml writes. A human of the team with no session on the homeserver
-# has not logged in, and is offered a new password first.
+# play-agent-bus-element.yml writes. A person of the team who has never signed in is
+# offered a new password first.
 open_element() {
-    local team="$1" launcher i name devices
+    local team="$1" launcher i
     launcher="${HOME}/.local/share/applications/agent-bus-${team}-element.desktop"
     if [[ ! -f "${launcher}" ]]; then
         echo "${team} has no Element profile on this desktop: add it to agent_bus_element_teams in the host_vars and run playbooks/imports/optional/common/play-agent-bus-element.yml." >&2
         return 0
     fi
     for i in "${!R_TEXT[@]}"; do
-        [[ "${R_TEAM[i]}" == "${team}" && "${R_KIND[i]}" == human ]] || continue
-        name="${R_NAME[i]}"
-        if ! devices="$(sudo -n "${SUDO_AGENT_BUS}" human devices "${team}" "${name}")"; then
-            echo "Whether ${name} has a session could not be asked (above), so Element was not opened." >&2
-            return 0
-        fi
-        [[ -z "${devices}" ]] || continue
-        if ccy_tmux_confirm "Password for ${name}" \
-            "${name} has no session on ${team}'s homeserver. Set a new password? It is printed once, here, and stored nowhere." \
-            "set a password for ${name}"; then
-            if ! sudo -n "${SUDO_AGENT_BUS}" human password "${team}" "${name}"; then
-                echo "No password was set for ${name} (above), so Element was not opened." >&2
-                return 0
-            fi
+        [[ "${R_TEAM[i]}" == "${team}" && "${R_KIND[i]}" == human && "${R_SESSION[i]}" == "never signed in" ]] ||
+            continue
+        echo "${R_NAME[i]} has never signed in to ${team}." >&2
+        if set_password "${team}" "${R_NAME[i]}"; then
             echo "Copy it now. Press Enter to open Element." >&2
             if ! read -r _ </dev/tty; then
                 echo >&2
@@ -936,6 +1245,49 @@ open_element() {
     exit 0
 }
 
+# add_repos <team> — Ctrl-A: add-repo's questions, then back to the list.
+add_repos() {
+    local rc=0
+    if [[ -z "${PORT_OF[${R_TEAM[$1]}]+set}" ]]; then
+        echo "${R_TEAM[$1]} is not declared in the host_vars, so its repositories are not kept there." >&2
+        return 0
+    fi
+    (cmd_add_repo "${R_TEAM[$1]}") || rc=$?
+    [[ "${rc}" -ne 130 ]] || echo "Back to the list." >&2
+    back_to_list
+}
+
+# show_help — every key and every status word, explained.
+show_help() {
+    printf '\n' >&2
+    say "ccy-teams: the agent teams on this machine"
+    cat >&2 <<'EOF'
+Each team is a bold row: its homeserver (up, down, or not installed yet: run
+play-agent-bus.yml) and its port. Under it, its members and people:
+  ccy      a seat of a ccy checkout: the session in it, and RESTORE, whether that
+           session is started again after a reboot (yes or no)
+  lxc ...  another member: active, or parked (its token revoked)
+  human    a person in the team room: in room, invited or not in room, and how
+           many Element sessions they are signed in with
+
+Keys:
+  Enter    a seat: attach its session; a person: a new Element password; a team: this
+  Ctrl-N   start a ccy session in a free or new seat of the team, in this folder
+  Ctrl-P   a new Element password for the person on the row (shown once; their other
+           Element sessions are signed out)
+  Ctrl-E   open the team in Element
+  Ctrl-A   add repositories the team's agents may send each other to
+  Ctrl-R   restore after a reboot, on or off, for the seat's session
+  Ctrl-X   remove a seat, or park a member (after a yes/no)
+  ?        this help          Esc or q   leave
+
+Colours: green is working, yellow wants a look, red is not working.
+"need sudo": reading the members needs root; play-agent-bus.yml installs a rule that
+lets ccy-teams read them without a password.
+EOF
+    back_to_list
+}
+
 restore_word="off"
 if [[ -e "${HOME}/.config/systemd/user/default.target.wants/ccy-sessions-restore.service" ]]; then
     restore_word="on"
@@ -945,25 +1297,39 @@ if project_here; then
 else
     new_line="Ctrl-N unavailable: ${here} is not a project folder (no git repository)"
 fi
-HEADER="$(ccy_tmux_header "Enter attach   Ctrl-N new   Ctrl-R restore on/off   Ctrl-X remove/park   Ctrl-E Element   Esc or q quit" \
+heading="$(row_heading)"
+! colour_on 1 || heading="${C_BOLD}${heading}${C_RESET}"
+HEADER="$(ccy_tmux_header "Enter attach a seat / password for a person   Ctrl-P password   Ctrl-E Element   ? help   Esc or q quit" \
+    "Ctrl-N new session   Ctrl-A add repositories   Ctrl-R restore on/off   Ctrl-X remove/park" \
     "${new_line}" \
     "RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is ${restore_word} (ccy_restore_sessions)" \
-    "$(row_heading)")"
+    "${heading}")"
+
+READ_WHY="Reading who is in each team, and whether its people are signed in, is done as root: the team's admin token is root's. Once play-agent-bus.yml has run, a sudoers rule lets ccy-teams read this without a password; until then, sudo asks."
 
 attempt=1
 while :; do
-    # Refreshed each pass: every later sudo is -n, and the picker may sit idle past the
-    # credential's timeout.
-    if ! sudo -v; then
-        print_error "sudo refused, so the members cannot be read. ccy-teams --list shows the rest."
-        exit 1
-    fi
     collect || exit 1
-    if [[ -z "${R_TEXT[*]:-}" ]]; then
-        echo "No agent teams on this machine. ccy-teams create declares one." >&2
-        exit 0
+    if [[ -n "${NEED_SUDO}" ]]; then
+        if ! sudo_ready "${READ_WHY}"; then
+            print_error "so the teams' members cannot be shown, and nothing was changed. ccy-teams --list shows the teams without them."
+            exit 1
+        fi
+        collect || exit 1
+        if [[ -n "${NEED_SUDO}" ]]; then
+            print_error "sudo took your password but still refuses agent-bus list, so the members cannot be shown."
+            exit 1
+        fi
     fi
-    if ! picked="$(printf '%s\n' "${R_TEXT[@]}" | ccy_tmux_pick "Agent teams" "${HEADER}" "ctrl-n,ctrl-r,ctrl-x,ctrl-e")"; then
+    if [[ -z "${R_TEXT[*]:-}" ]]; then
+        offer_create
+    fi
+    if colour_on 1; then
+        rows="$(printf '%s\n' "${R_SHOWN[@]}")"
+    else
+        rows="$(printf '%s\n' "${R_TEXT[@]}")"
+    fi
+    if ! picked="$(ccy_tmux_pick "Agent teams" "${HEADER}" "ctrl-n,ctrl-r,ctrl-x,ctrl-e,ctrl-p,ctrl-a,?" <<<"${rows}")"; then
         exit 0 # Esc or q
     fi
     key="${picked%%$'\n'*}"
@@ -972,18 +1338,34 @@ while :; do
         echo "That row has changed; the list has been refreshed." >&2
         continue
     fi
-    case "${key}" in
-    ctrl-n) new_session "${R_TEAM[index]}" ;;
-    ctrl-r)
+    case "${key}:${R_KIND[index]}" in
+    ctrl-n:*) new_session "${R_TEAM[index]}" ;;
+    ctrl-r:*)
         toggle_restore "${index}"
         continue
         ;;
-    ctrl-x)
+    ctrl-x:*)
         remove_or_park "${index}"
         continue
         ;;
-    ctrl-e) open_element "${R_TEAM[index]}" ;;
-    *) attach_seat "${index}" ;;
+    ctrl-e:*) open_element "${R_TEAM[index]}" ;;
+    ctrl-p:* | :human)
+        password_row "${index}"
+        continue
+        ;;
+    ctrl-a:*)
+        add_repos "${index}"
+        continue
+        ;;
+    "?:"* | :team)
+        show_help
+        continue
+        ;;
+    :ccy) attach_seat "${index}" ;;
+    *)
+        echo "Enter on ${R_NAME[index]} does nothing: Ctrl-X parks a member. ? shows every key." >&2
+        continue
+        ;;
     esac
     attempt=$((attempt + 1))
     if [[ "${attempt}" -gt "${MAX_TRIES}" ]]; then

@@ -384,6 +384,66 @@ class GithubRemoteTest(unittest.TestCase):
             self.assertEqual(self.remote(url), "", url)
 
 
+class AddRepoTest(unittest.TestCase):
+    """add-repo adds repositories to a declared team's repos, in that list's own layout."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = pathlib.Path(self.tmp.name) / "localhost.yml"
+        self.path.write_text(WITH_TEAMS, encoding="utf-8")
+        self.stdout = io.StringIO()
+        self.stderr = io.StringIO()
+
+    def call(self, *argv: str) -> int:
+        return declare.main([argv[0], "--file", str(self.path), *argv[1:]], stdout=self.stdout, stderr=self.stderr)
+
+    def test_repos_lists_a_teams_repositories(self) -> None:
+        self.assertEqual(self.call("repos", "--team", "alpha"), 0, self.stderr.getvalue())
+        self.assertEqual(self.stdout.getvalue(), "REPO\texample-org/one\tmain\n")
+
+    def test_added_after_the_teams_last_repository_and_nothing_else_changes(self) -> None:
+        code = self.call("add-repo", "--team", "alpha", "--repo", "example-org/two=main,dev",
+                        "--repo", "example-org/three=trunk")
+        self.assertEqual(code, 0, self.stderr.getvalue())
+        want = WITH_TEAMS.replace(
+            '        branches: ["main"]\n',
+            '        branches: ["main"]\n'
+            '      - repo: "example-org/two"\n'
+            '        branches: ["main", "dev"]\n'
+            '      - repo: "example-org/three"\n'
+            '        branches: ["trunk"]\n', 1)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), want)
+        self.assertEqual(self.stdout.getvalue(),
+                         f"CHANGED\tteam alpha: example-org/two, example-org/three added, in {self.path}\n")
+        self.assertIn("play-agent-bus.yml", self.stderr.getvalue())
+        self.stdout = io.StringIO()
+        self.call("repos", "--team", "alpha")
+        self.assertEqual(self.stdout.getvalue().count("REPO\t"), 3)
+
+    def test_dry_run_prints_the_lines_and_writes_nothing(self) -> None:
+        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/two=main", "--dry-run"), 0)
+        self.assertEqual(self.stdout.getvalue(), '      - repo: "example-org/two"\n        branches: ["main"]\n')
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+
+    def test_refusals_write_nothing(self) -> None:
+        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/one=main"), 64)
+        self.assertIn("already", self.stderr.getvalue())
+        self.assertEqual(self.call("add-repo", "--team", "nosuch", "--repo", "example-org/two=main"), 64)
+        self.assertEqual(self.call("add-repo", "--team", "alpha"), 64)
+        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/two"), 64)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+
+    def test_an_inline_repos_list_is_refused(self) -> None:
+        inline = WITH_TEAMS.replace(
+            '    repos:\n      - repo: example-org/one\n        branches: ["main"]\n',
+            '    repos: [{repo: example-org/one, branches: [main]}]\n')
+        self.path.write_text(inline, encoding="utf-8")
+        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/two=main"), 78)
+        self.assertIn("inline", self.stderr.getvalue())
+        self.assertEqual(self.path.read_text(encoding="utf-8"), inline)
+
+
 class DeclaredTest(unittest.TestCase):
     def test_one_line_per_entry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -392,7 +452,9 @@ class DeclaredTest(unittest.TestCase):
             stdout, stderr = io.StringIO(), io.StringIO()
             code = declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=stderr)
         self.assertEqual(code, 0)
-        self.assertEqual(stdout.getvalue(), "TEAM\talpha\t6167\tpresent\nTEAM\told\t-\tabsent\n")
+        self.assertEqual(stdout.getvalue(),
+                         "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\n"
+                         "TEAM\told\t-\tabsent\told.agent-bus.internal\t-\n")
 
     def test_a_missing_file_is_refused(self) -> None:
         stdout, stderr = io.StringIO(), io.StringIO()

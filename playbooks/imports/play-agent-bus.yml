@@ -76,6 +76,19 @@
       changed_when: agent_bus_software.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
       tags: [agent-bus]
 
+    # ccy-teams lists a team's members and its people's Element sessions through these two
+    # read-only commands; with this rule it needs no password to show them. Nothing else is
+    # granted: the rule pins each command's arguments (see the file for why that is safe).
+    - name: Let the desktop user read team members without a password (a scoped sudoers rule)
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/sudoers.d/agent-bus-read-only.j2"
+        dest: /etc/sudoers.d/agent-bus-read-only
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+      tags: [agent-bus]
+
     - name: Take the LXC members declared absent off their teams
       ansible.builtin.command:
         argv: "{{ ['python3', '-m', 'helpers.agent_bus_lxc.members', '--phase', 'absent'] + agent_bus_lxc_args }}"
