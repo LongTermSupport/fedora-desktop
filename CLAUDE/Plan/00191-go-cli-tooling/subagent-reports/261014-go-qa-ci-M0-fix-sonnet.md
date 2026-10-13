@@ -1,6 +1,12 @@
-# go-qa-ci M0 fix
+# go-qa-ci M0 fix report
 
-Fixed in public-safety-scan.sh: (1) grep status >1 now exits 2 naming the denylist line; (2) tree mode keeps contents, locations and paths in parallel files, path matches print "tracked path #N", and a content hit in a file whose name matches also uses the index; (3) denylist dir resolved with pwd -P; PR template item reworded to existing gates.
-Tests added: invalid pattern, path-name leak, symlink bypass, git-config route, --staged, --stdin, --history (author identity, tag message, ref name). All assert no term in output.
-Gates: gofmt, go vet, go test -race, golangci-lint 0 issues.
-Open owner action (problem 6): set repository secret GQACI_DENYLIST; the workflow fails loudly without it until then.
+Fixed verifier problems 1-11 in scripts/public-safety-scan.sh, tests/scripts/public_safety_test.go,
+tests/scripts/secret_scan_test.go and README.md.
+
+- Tree scan reads git blobs (ls-files -s + cat-file): binary files and symlink target strings are scanned, nothing outside the repo is read. One locations file; a failed lookup exits 2.
+- Denylist: CR and surrounding whitespace stripped, one predicate for comment/blank, all patterns validated up front (exit 2 naming the line), file itself realpath-resolved for the outside-repo check.
+- Path-leak guard tests the file name against every pattern. grep -a everywhere; --history uses --text -m; --staged uses --text.
+- Tests added: multi-file location (non-last file, beyond last file's line count, middle), cross-line path leak, binary tree/history, symlink target, symlink to outside file not read, NUL stdin, CRLF denylist, symlinked denylist file, tab/indented-comment lines; secret-scan tests with a stub gitleaks (missing tool exit 2, suppression-file refusal, modes and flags, default mode, findings propagate, unknown mode).
+- README: dropped the claim of a gap record; none exists yet. No conformance claimed.
+- Owner action outstanding: set repository secret GQACI_DENYLIST. The workflow fails loudly without it, so the "green with the secret set" acceptance clause cannot be proven until then.
+- Deviation: --tree scans the index (what git publishes), so unstaged working edits are not scanned; --staged covers pre-commit.
