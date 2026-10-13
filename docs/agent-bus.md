@@ -33,7 +33,8 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    the team listens on the bus address (`agent_bus_address`, which must be set). The team
    exists once `play-agent-bus.yml` has run, and `create` ends by listing the next steps.
    The questions need `gum` and a logged-in `gh`; `--team`, `--human`, `--repo` and
-   `--yes` ask nothing.
+   `--yes` ask nothing. `ccy-teams add-repo <team>` (or Ctrl-A on the team) adds
+   repositories later in the same way, and `play-agent-bus.yml` applies them.
 2. **Watch it in Element.** Add `{team: <team>, base_url: http://<bus_ip>:<port>}` to
    `agent_bus_element_teams` and run `play-agent-bus-element.yml`. In `ccy-teams`, Enter
    (or Ctrl-P) on your name under the team sets a new Element password. It shows it once,

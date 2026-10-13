@@ -174,10 +174,14 @@ if [ "$1" = "-n" ]; then
         exit 0
     fi
     if [ "$cached" = no ]; then
-        case "$2 ${3:-}" in
-        "list "* | "human devices") [ -n "${TEST_SUDO_RULE:-}" ] || refuse "a password is required" ;;
-        *) refuse "a password is required" ;;
-        esac
+        # The rule: the rendered sudoers template's own command paths and anchored regexes.
+        allowed=no
+        if [ -n "${TEST_SUDO_RULE:-}" ]; then
+            while IFS=$'\t' read -r path regex; do
+                if [ "$1" = "$path" ] && [[ "${*:2}" =~ $regex ]]; then allowed=yes; fi
+            done <"$TEST_STATE/sudo-rules"
+        fi
+        [ "$allowed" = yes ] || refuse "a password is required"
     fi
 elif [ "$cached" = no ] && [ -n "${TEST_SUDO_REFUSE:-}" ]; then
     refuse "3 incorrect password attempts"
@@ -233,6 +237,10 @@ EOF
 cat >"$BIN/wl-copy" <<'EOF'
 #!/usr/bin/env bash
 printf 'wl-copy %s\n' "$*" >>"$TEST_LOG"
+if [ -n "${TEST_WLCOPY_FAIL:-}" ]; then
+    echo "wl-copy: failed to connect to a Wayland server" >&2
+    exit 1
+fi
 cat >"$TEST_STATE/clipboard"
 EOF
 cat >"$BIN/launcher" <<'EOF'
@@ -315,6 +323,24 @@ input | confirm | filter)
 esac
 EOF
 chmod 755 "$GUMBIN/gum"
+
+# The sudoers rule play-agent-bus.yml installs, as "<command path><TAB><regex>" lines: the
+# fake sudo grants exactly these when TEST_SUDO_RULE is set, so the rule and the calls
+# ccy-teams makes cannot drift apart unnoticed.
+SUDOERS_TEMPLATE="$REPO_ROOT/files/etc/sudoers.d/agent-bus-read-only.j2"
+python3 - "$SUDOERS_TEMPLATE" "$STATE/sudo-rules" <<'PYEOF'
+import re
+import sys
+
+source, dest = sys.argv[1:3]
+text = open(source, encoding="utf-8").read().replace("\\\n", " ")
+rules = re.findall(r"(/\S+) (\^[^$]*\$)", text.split("NOPASSWD:", 1)[1])
+with open(dest, "w", encoding="utf-8") as handle:
+    handle.writelines(f"{path}\t{regex}\n" for path, regex in rules)
+PYEOF
+check "the sudoers template grants exactly two read-only commands" \
+    $'/usr/local/bin/agent-bus\t^list [a-z][a-z0-9-]*$\n/usr/local/bin/agent-bus\t^human devices [a-z][a-z0-9-]* [a-z][a-z0-9_-]*$' \
+    "$(cat "$STATE/sudo-rules")"
 
 # ── the machine: a host_vars file, one checkout with seats and a session ─────────────────
 HOME_DIR="$SCRATCH/home"
@@ -478,7 +504,7 @@ check "  but not with NO_COLOR" "0" "$(grep -c $'\e' <<<"$out")"
 reset
 rm -f "$STATE/sudo-cached"
 out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
-check "--list with no sudo credential still exits 0" "0" "$?"
+check "--list with no sudo credential prints the table, but exits 1: part of it is unread" "1" "$?"
 check_has "  says why the members are not shown" "members of alpha are not shown" "$(cat "$SCRATCH/err")"
 check_has "  and the two ways to show them" "play-agent-bus.yml" "$(cat "$SCRATCH/err")"
 check_has "  the seat's state is need sudo" "need sudo" "$(grep -E '^alpha +1 +ccy' <<<"$out")"
@@ -564,6 +590,10 @@ rm -f "$STATE/sudo-cached"
 out="$(TEST_SUDO_RULE=1 run_picker "$OUTSIDE" "|ABORT")"
 check "the sudoers rule installed: no password is asked" "no" "$(logged 'sudo -v')"
 check_has "  and the members are shown" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
+check_has "  and whether the person is signed in, through the rule's second command" "never signed in" \
+    "$(grep -E '^alpha +owner +human' "$TEST_FZF_ROWS")"
+check "  which ccy-teams called as the rule names it" "yes" \
+    "$(logged 'sudo -n /usr/local/bin/agent-bus human devices alpha owner')"
 
 reset
 out="$(run_picker "$OUTSIDE" "|ccy-proj")"
@@ -673,6 +703,10 @@ out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" 
 check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
     "$(cat "$STATE/clipboard" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
+reset
+out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|YES" "|ABORT")"
+check_has "a failed wl-copy says the password is not on the clipboard" "not on the clipboard" "$out"
+check_lacks "  and never that it is" "The password is on the clipboard." "$out"
 reset
 rm -f "$STATE/sudo-cached"
 out="$(TEST_SUDO_RULE=1 TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|owner" "|YES" "|ABORT")"

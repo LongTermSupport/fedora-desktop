@@ -35,7 +35,8 @@
 # installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
 # devices` without a password; where that rule is not installed yet and sudo needs a
 # password, the picker says why before sudo asks, and stops, saying so, when sudo is
-# refused. --list never asks: without sudo it shows the members as "need sudo".
+# refused. --list never asks: without sudo it shows the members as "need sudo", and, as with
+# any part of the table it could not read, it still prints the rest but exits 1.
 #
 # Usage:
 #   ccy-teams                        the picker (needs a terminal)
@@ -213,8 +214,9 @@ need_tool() {
     fi
 }
 
-# gum_ask <header> <placeholder> <value> — one line of input; prints it. Esc or Ctrl-C
-# returns non-zero.
+# gum_ask <header> <placeholder> <value> — one line of input; prints it. gum 0.17 exits 1 on
+# Esc and 130 on Ctrl-C (measured); both are a cancel here. In gum filter Esc does not leave
+# (measured), and Ctrl-C exits 130; in gum confirm Esc is a no (1).
 gum_ask() {
     gum input --header "$1" --placeholder "$2" --value "$3" --width 0
 }
@@ -419,7 +421,7 @@ A team is a group of agents (ccy sessions, LXC containers) and people who work
 together in a private chat room, on a homeserver on this machine; you watch and talk
 to the agents in Element. This adds the team to ${HOST_VARS/#${HOME}/\~}.
 Nothing is installed until play-agent-bus.yml runs: the next steps follow at the end.
-Esc or Ctrl-C at any question leaves without changing anything.
+Ctrl-C at any question leaves without changing anything.
 
 EOF
         current="$(the_remote_repo)"
@@ -476,7 +478,8 @@ EOF
         return
     fi
     entry="$(declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run)" || exit
-    summary_confirm "The entry for ${HOST_VARS/#${HOME}/\~}" "${entry}" "Add team ${team} to ${HOST_VARS##*/}?"
+    summary_confirm "The entry for ${HOST_VARS/#${HOME}/\~}" "${entry}" "Add team ${team} to ${HOST_VARS##*/}?" \
+        "${picked:+gh}"
     declare_helper create --file "${HOST_VARS}" "${flags[@]}"
 }
 
@@ -490,13 +493,16 @@ need_gh() {
     fi
 }
 
-# summary_confirm <title> <lines to add> <question> — what will be written, in a box, then a
-# yes. Default yes: lines are only added (the file is backed up first), and they do nothing
-# until the play runs. No exits 1, Esc or Ctrl-C 130, both having changed nothing.
+# summary_confirm <title> <lines to add> <question> [gh] — what will be written, in a box,
+# then a yes; with "gh", a line on why each repository lists only its default branch.
+# Default yes: lines are only added (the file is backed up first), and they do nothing
+# until the play runs. No (or Esc) exits 1, Ctrl-C 130, both having changed nothing.
 summary_confirm() {
     local rc=0
     gum style --border rounded --padding "0 1" "$1" "" "$2" >&2
-    echo "Each repository is listed with its default branch; work on other branches reaches the agents through pull requests, which need no listing." >&2
+    if [[ "${4:-}" == gh ]]; then
+        echo "Each repository is listed with its default branch; work on other branches reaches the agents through pull requests, which need no listing." >&2
+    fi
     gum confirm --default=true "$3" || rc=$?
     case "${rc}" in
     0) ;;
@@ -549,7 +555,7 @@ cmd_add_repo() {
         if [[ -z "${repos[*]:-}" ]]; then
             need_gh
             gum style --bold --border rounded --padding "0 1" "More repositories for ${team}" >&2
-            echo "Listed now: ${known[*]:-none}. Esc or Ctrl-C leaves without changing anything." >&2
+            echo "Listed now: ${known[*]:-none}. Ctrl-C leaves without changing anything." >&2
             owner="${known[0]:-}"
             rc=0
             text="$(ask_valid check_owner \
@@ -566,7 +572,7 @@ cmd_add_repo() {
     if [[ "${yes}" == false ]]; then
         entry="$(declare_helper add-repo --file "${HOST_VARS}" --team "${team}" "${flags[@]}" --dry-run)" || exit
         summary_confirm "Added to ${team}'s repos in ${HOST_VARS/#${HOME}/\~}" "${entry}" \
-            "Add them to ${team} in ${HOST_VARS##*/}?"
+            "Add them to ${team} in ${HOST_VARS##*/}?" "${picked:+gh}"
     fi
     declare_helper add-repo --file "${HOST_VARS}" --team "${team}" "${flags[@]}"
 }
@@ -989,6 +995,14 @@ if [[ "${subcommand}" == -l || "${subcommand}" == --list ]]; then
         printf '\n'
         printf '%s\n' "${R_TEXT[@]}"
     fi
+    # A table with a part that could not be read is printed, but is not a success: a
+    # homeserver that is down or not installed is a state, a read that failed is not.
+    for team in "${!MEMBERS_UNKNOWN[@]}"; do
+        case "${MEMBERS_UNKNOWN[${team}]}" in
+        "need sudo" | "read failed"*) exit 1 ;;
+        esac
+    done
+    [[ -z "${INCOMPLETE}" && -z "${NEED_SUDO}" ]] || exit 1
     exit 0
 fi
 
@@ -1164,8 +1178,10 @@ remove_or_park() {
     esac
 }
 
-# show_login <team> <name> <password> — everything needed to sign in to Element, once; then
-# a copy to the clipboard, offered when wl-copy can reach this desktop's clipboard.
+# show_login <team> <name> <password> — everything needed to sign in to Element, once; then,
+# in a Wayland session, a copy to the clipboard. wl-copy is a dependency there
+# (play-claude-yolo.yml installs it); with no Wayland session there is no clipboard to offer.
+# Callers run this as a condition, where set -e does not reach, so each failure is checked.
 show_login() {
     local team="$1" name="$2" password="$3"
     printf '\n' >&2
@@ -1178,12 +1194,19 @@ show_login() {
         printf '  %-11s %s\n' "Password" "${password}" >&2
     fi
     echo "Shown this once and stored nowhere. The team's Element profile (Ctrl-E) has the homeserver set already." >&2
-    if [[ -n "$(command -v wl-copy)" && -n "${WAYLAND_DISPLAY:-}" ]] &&
-        ccy_tmux_confirm "Copy the password?" \
-            "Put ${name}'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy." \
-            "copy the password"; then
-        printf '%s' "${password}" | wl-copy
-        echo "The password is on the clipboard." >&2
+    [[ -n "${WAYLAND_DISPLAY:-}" ]] || return 0
+    if [[ -z "$(command -v wl-copy)" ]]; then
+        print_error "wl-copy is not installed, so the password cannot be put on the clipboard; copy it from above. playbooks/imports/play-claude-yolo.yml installs wl-clipboard."
+        return 0
+    fi
+    if ccy_tmux_confirm "Copy the password?" \
+        "Put ${name}'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy." \
+        "copy the password"; then
+        if printf '%s' "${password}" | wl-copy; then
+            echo "The password is on the clipboard." >&2
+        else
+            print_error "wl-copy failed (above), so the password is not on the clipboard; copy it from above."
+        fi
     fi
 }
 

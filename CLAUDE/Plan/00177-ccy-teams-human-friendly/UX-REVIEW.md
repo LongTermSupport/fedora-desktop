@@ -84,9 +84,10 @@ regular expressions (sudo 1.9.10 and later):
 - `/usr/local/bin/agent-bus list <team>`
 - `/usr/local/bin/agent-bus human devices <team> <human>`
 
-The team and human patterns are the protocol's own (`[a-z][a-z0-9-]{0,23}`,
-`[a-z][a-z0-9_-]{0,31}`). Neither can start with `-`, so no option can be smuggled in, and
-the anchors refuse any extra argument.
+The team and human patterns use the protocol's character classes without its length bounds
+(`[a-z][a-z0-9-]*`, `[a-z][a-z0-9_-]*`). A bound such as `{0,23}` would need its comma
+escaped in sudoers, and `agent-bus` refuses an over-long name itself. Neither pattern can
+start with `-`, so no option can be smuggled in, and the anchors refuse any extra argument.
 
 **Why it is safe enough.** Both commands are read-only by construction (`cli.py`:
 `list` is "members, roles and room membership; no tokens"; `human devices` prints device

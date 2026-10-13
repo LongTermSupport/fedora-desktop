@@ -53,7 +53,7 @@ offer to create a team when there is none; think about the UX; do a full critica
   order. Then sudo (a scoped read-only sudoers rule in play-agent-bus.yml), the people and
   their passwords, add-repo, colour (CCY 3.94.2: the shared picker passes `--ansi`) and
   help. UX-REVIEW.md's deferred D1 and D2 stay open.
-- [ ] ⬜ **Task 2.2**: The `qa-reviewer` agent on the branch; fix its findings.
+- [x] ✅ **Task 2.2**: The `qa-reviewer` agent on the branch; fix its findings.
 
 ### Phase 3: Host
 

@@ -15,6 +15,10 @@
 #   3. `team --team-file` for each entry with state present (the default), from a team
 #      file rendered into a root-only temporary directory that is deleted afterwards.
 #
+# Before step 2 it installs /etc/sudoers.d/agent-bus-read-only (Plan 00177): the desktop
+# user may run exactly `agent-bus list <team>` and `agent-bus human devices <team> <name>`
+# without a password, so ccy-teams shows a team's members without asking.
+#
 # agent_bus_lxc_members joins existing LXC containers to those teams by README.lxc's steps
 # (helpers/agent_bus_lxc/members.py): its absent entries before step 2, so a team still
 # runs while its member is parked; its present entries after step 3, so the team exists.
