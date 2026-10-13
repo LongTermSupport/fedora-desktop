@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00176-dash-to-dock-stays-up-over-windows-again](00176-dash-to-dock-stays-up-over-windows-again/) - Blocked on the owner (five observations at the screen). Dash to Dock stays up over Ptyxis again. Plan 00102's `ALL_WINDOWS` fix is intact and cannot explain it, so the cause is an urgent reveal, hover, or a stale monitor index after DisplayLink re-layouts; the answers decide which, then the fix goes in `play-gnome-shell-extensions.yml`.
+
 - [00174-polyglot-tooling-folders-with-qa-ci](00174-polyglot-tooling-folders-with-qa-ci/) - Not Started. Tooling is not bound to Python: one folder per language (`tooling-rust/`, `tooling-python/`, ...), each with its first-party QA pipeline (LongTermSupport `rust-qa-ci`, `py-qa-ci`), wired into `qa-all.bash` and deployed by Ansible. First consumer: Plan 00155's Rust key mapper.
 
 - [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (host deploy, evening test, failed-dnf question). On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
