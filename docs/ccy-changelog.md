@@ -17,6 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.0 — container 2.51
+
+- **`ccy --teams <team>` asks which seat.** A team named with no seat is the normal form
+  (`ccy --teams long-term-support`). On a terminal, ccy shows this checkout's seats in the
+  team in a gum chooser: each one's full handle (`<repo>.<N>+<host>.podman`), what runs in it
+  (`ccy (podman)`) and whether it is free or held by a running session. The default is the
+  lowest free seat, else the next free number. ccy names the handle before taking it, and
+  writes the chosen `<seat>@<team>` into the launch's arguments, so a restart or a restore
+  comes back in the same seat. A launch with nobody to answer (headless, no terminal, a
+  restore, a restart) must name the seat. A team name with capitals is answered with its
+  lower-case spellings (`longtermsupport`, `long-term-support`). Needs the matching
+  agent-bus (`agent-bus seat choose`, `seat check --resolved`; play-agent-bus.yml).
+- **The re-attach offer keeps `--teams`.** With `--teams`, ccy offers only the detached
+  sessions that hold one of the requested seats, and shows each one's seats. When none
+  does, it says so in one line and starts a new session. Before, Enter attached to any
+  detached session and silently dropped `--teams`. Without `--teams` nothing changes.
+
 ## 3.94.2 — container 2.51
 
 - **The shared picker shows colour.** `ccy_tmux_pick` runs fzf with `--ansi`, so a row or

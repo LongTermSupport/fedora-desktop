@@ -255,17 +255,75 @@ ccy_tmux_take_over() {
     ccy_tmux_attach "$name"
 }
 
-# ccy_tmux_offer <project> — when the project has detached sessions, ask what to do. Prints
-# exactly one line on stdout: "attach <name>", "create", or "quit". Prompts go to stderr.
-# It is the same picker as ccy-sessions — one look for the whole human layer — shown only
-# when there is something to offer. Esc is "quit" (InteractiveScripts rule 3).
+# ccy_tmux_teams_arg [args...] — the value of the launcher's --teams (`--teams <list>` or
+# `--teams=<list>`, before any `--`), printed; nothing when there is none. PURE.
+ccy_tmux_teams_arg() {
+    local arg next=false
+    for arg in "$@"; do
+        if [[ "$next" == true ]]; then
+            printf '%s\n' "$arg"
+            return 0
+        fi
+        case "$arg" in
+        --) return 0 ;;
+        --teams) next=true ;;
+        --teams=*)
+            printf '%s\n' "${arg#--teams=}"
+            return 0
+            ;;
+        esac
+    done
+}
+
+# ccy_tmux_seats_shared <wanted> <held> — true when the two canonical lists
+# (`<seat>@<team>,...`) name a seat in common. PURE.
+ccy_tmux_seats_shared() {
+    local item
+    local -a wanted=()
+    IFS=, read -r -a wanted <<<"$1"
+    for item in "${wanted[@]}"; do
+        [[ ",$2," == *",$item,"* ]] && return 0
+    done
+    return 1
+}
+
+# ccy_tmux_session_seats <name> — the --teams list a session was started with, read from its
+# registry record; nothing for a session with no record or no --teams. A record that cannot
+# be read is an error (said, return 1), never "no seats".
+ccy_tmux_session_seats() {
+    local regdir
+    regdir=$(ccy_registry_dir) || return 1
+    [[ -e "$regdir/$1" ]] || return 0
+    (
+        ccy_registry_read "$regdir/$1" || exit 1
+        ccy_tmux_teams_arg "${REC_ARGS[@]}"
+    )
+}
+
+# ccy_tmux_offer <project> [seats] — when the project has detached sessions, ask what to do.
+# Prints exactly one line on stdout: "attach <name>", "create", or "quit". Prompts go to
+# stderr. It is the same picker as ccy-sessions — one look for the whole human layer — shown
+# only when there is something to offer. Esc is "quit" (InteractiveScripts rule 3).
+#
+# [seats] is the launch's canonical --teams list (Plan 00177 Task 4.6). With it, only the
+# sessions that hold one of those seats are offered, each with the seats it holds, so Enter
+# never drops --teams into a session that is in other seats or none; when there are detached
+# sessions but none holds them, one line says a new session is starting and why.
 ccy_tmux_offer() {
-    local project="$1" listing name attached dir rows="" in_use=""
+    local project="$1" want="${2:-}" listing name attached dir rows="" in_use="" seats skipped=0
     listing=$(ccy_tmux_project_sessions "$project") || return 1
     while read -r name attached dir; do
         [[ -n "$name" ]] || continue
+        seats=""
+        if [[ -n "$want" ]]; then
+            seats=$(ccy_tmux_session_seats "$name") || return 1
+            if ! ccy_tmux_seats_shared "$want" "$seats"; then
+                [[ "$attached" == "0" ]] && skipped=$((skipped + 1))
+                continue
+            fi
+        fi
         if [[ "$attached" == "0" ]]; then
-            rows+="$(ccy_tmux_row "$name" "$attached" "$dir")"$'\n'
+            rows+="$(ccy_tmux_row "$name" "$attached" "$dir" ${seats:+"seats $seats"})"$'\n'
         else
             in_use+="${in_use:+, }$name"
         fi
@@ -274,6 +332,8 @@ ccy_tmux_offer() {
     if [[ -z "$rows" ]]; then
         if [[ -n "$in_use" ]]; then
             echo "Open in other terminals: ${in_use} (ccy-sessions, Ctrl-T, takes one over). Starting a new session." >&2
+        elif [[ "$skipped" -gt 0 ]]; then
+            echo "No detached session here holds ${want} (${skipped} detached in other seats or none), so a new session is starting in it." >&2
         fi
         printf 'create\n'
         return 0
@@ -281,7 +341,7 @@ ccy_tmux_offer() {
 
     local header picked key row
     header="$(ccy_tmux_header "Enter attach   Ctrl-N new session   Esc or q quit" \
-        "Detached sessions started from ${PWD/#${HOME}/\~}" \
+        "Detached sessions started from ${PWD/#${HOME}/\~}${want:+ that hold a seat of ${want}}" \
         "${in_use:+Open in other terminals: ${in_use} — ccy-sessions, Ctrl-T, takes one over}")"
     if ! picked="$(ccy_tmux_pick "${CCY_TMUX_SESSION_PREFIX}: a session is detached here" "$header" "ctrl-n" <<<"${rows%$'\n'}")"; then
         echo "Nothing started." >&2
@@ -836,8 +896,11 @@ ccy_tmux_insulate() {
         fi
     done
 
-    local decision action name
-    decision=$(ccy_tmux_offer "$project") || return 1
+    # A launch with --teams is offered only the sessions in its seats (ccy_tmux_offer). By here
+    # the launcher has replaced the list with its canonical form, every seat named.
+    local decision action name teams
+    teams=$(ccy_tmux_teams_arg "${@:2}")
+    decision=$(ccy_tmux_offer "$project" "$teams") || return 1
     read -r action name <<<"$decision"
     case "$action" in
     quit)
