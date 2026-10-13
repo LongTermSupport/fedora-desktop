@@ -76,8 +76,8 @@ def judge(lines: list[tuple[datetime.datetime, str]]) -> tuple[list[str], int]:
             break
     if replay is None:
         return ["NOT PLAYED: no Insert was blocked behind a dictation it had stopped. Dictate, "
-                "press Insert, press it again during the grace and again while the icon shows "
-                "the orange dots, then run this again."], 2
+                "press Insert, press it again during the grace and again after it, until the text "
+                "is pasted (the grace shows the orange dots too), then run this again."], 2
     stop_at, pid_a, blocks = replay
     report: list[str] = []
     results: list[bool | None] = []
@@ -102,13 +102,21 @@ def judge(lines: list[tuple[datetime.datetime, str]]) -> tuple[list[str], int]:
 
     grace = [j for j, state in blocks if state in GRACE_STATES]
     rendering = [j for j, state in blocks if state not in GRACE_STATES]
+    # The icon shows the same orange dots in STOPPING and TRANSCRIBING (panelLook.js)
+    missing_hint = {
+        "during A's grace": "press Insert again within the stop grace",
+        "while A was transcribing or pasting": "the grace shows the orange dots too; after "
+                                               "the grace keep pressing Insert until the text is pasted",
+    }
     for label, found in (("during A's grace", grace), ("while A was transcribing or pasting", rendering)):
         if not found:
-            record(None, f"a press {label} did nothing (no such press: press Insert then)")
+            record(None, f"a press {label} did nothing (no such press: {missing_hint[label]})")
         else:
             shown = all(flashed(j) for j in found)
             record(shown, f"a press {label} did nothing ({len(found)} press(es); "
                           f"BLOCKED shown for each: {shown})")
+    report.append("Presses that did nothing behind A (time UTC, state): "
+                  + ", ".join(f"{lines[j][0]:%H:%M:%S.%f}"[:-3] + f" {state}" for j, state in blocks))
 
     last_block = blocks[-1][0]
     b_index = next((j for j in range(last_block + 1, len(messages)) if STARTED.match(messages[j])), None)
