@@ -265,6 +265,11 @@ case "$1 ${2:-}" in
 "auth status")
     if [ -n "${TEST_GH_NOAUTH:-}" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi ;;
 "api users/example-org") ;;
+# A repository's permissions.push for the login: example-org/readonly is read-only.
+"api repos/example-org/proj" | "api repos/example-org/alpha" | "api repos/other/tool")
+    [ "$3 $4" = "--jq .permissions.push" ] || { echo "fake gh: unexpected call: $*" >&2; exit 97; }
+    echo true ;;
+"api repos/example-org/readonly") echo false ;;
 "api "*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
 *) echo "fake gh: unexpected call: $*" >&2; exit 97 ;;
 esac
@@ -279,6 +284,19 @@ printf 'play %s\n' "$*" >>"$TEST_LOG"
 [ "$1" = -e ] || { echo "fake play: expected -e JSON" >&2; exit 97; }
 if [ -n "${TEST_PLAY_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
 cd "$TEST_REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play "$2" "$CCY_TEAMS_HOST_VARS" "$TEST_STATE/applied"
+EOF
+# play-agent-bus-element.yml: logs its run; unless TEST_ELEMENT_FAIL, writes a launcher for
+# every agent_bus_element_teams entry, as the real play's helper does.
+cat >"$BIN/element-play" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'element-profiles %s\n' "$*" >>"$TEST_LOG"
+if [ -n "${TEST_ELEMENT_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
+lines="$(cd "$TEST_REPO_ROOT" && python3 -m helpers.agent_bus.declare element-teams --file "$CCY_TEAMS_HOST_VARS")"
+mkdir -p "$HOME/.local/share/applications"
+while IFS=$'\t' read -r _ team _; do
+    [ -z "$team" ] || : >"$HOME/.local/share/applications/agent-bus-$team-element.desktop"
+done <<<"$lines"
 EOF
 chmod 755 "$BIN"/*
 
@@ -325,7 +343,9 @@ input | confirm | filter | choose)
     answer="$(next)"
     case "$answer" in
     ENTER)
-        if [ "$sub" != filter ]; then
+        if [ "$sub" = choose ]; then
+            printf '%s\n' "$selected"
+        elif [ "$sub" != filter ]; then
             printf '%s\n' "$value"
         elif [ "$selected" = "*" ]; then
             cat "$TEST_STATE/filter-items"
@@ -376,7 +396,6 @@ agent_bus_teams:
     allow_from: []
     humans: ["owner"]
     org: example-org
-    path_prefixes: ["CLAUDE/Plan/", "docs/"]
     forge_api: https://api.github.com
   - team: gone
     state: absent
@@ -392,7 +411,7 @@ mkdir -p "$OUTSIDE"
 
 export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_FZF_ROWS="$SCRATCH/fzf-rows"
 export TEST_FZF_RAW="$SCRATCH/fzf-raw"
-unset NO_COLOR WAYLAND_DISPLAY
+unset NO_COLOR WAYLAND_DISPLAY XDG_STATE_HOME
 export TEST_GUM_ANSWERS="$SCRATCH/gum-answers"
 # The ccy image installs a real gum, so every directory holding one is left out.
 PATH_WITHOUT_GUM="$BIN"
@@ -403,6 +422,7 @@ done
 export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
 export CCY_TEAMS_PLAY="$BIN/play" CCY_TEAMS_APPLIED_DIR="$STATE/applied" TEST_REPO_ROOT="$REPO_ROOT"
+export CCY_TEAMS_ELEMENT_PLAY="$BIN/element-play"
 mkdir -p "$STATE/applied"
 # alpha as built from this host_vars: the stamp the fake play writes, kept for every reset.
 (cd "$REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play '{"agent_bus_only_teams": ["alpha"]}' \
@@ -693,10 +713,32 @@ out="$(run_picker "$CHECKOUT/sub/dir" "ctrl-n|port 6167" "|new")"
 check "Ctrl-N from a subdirectory starts ccy at the checkout's top, where its seats are" "yes" \
     "$(logged 'launcher --teams 3@alpha (in proj)')"
 
+gum_queue() {
+    printf '%s\n' "$@" >"$TEST_GUM_ANSWERS"
+    printf '0\n' >"$STATE/gum-calls"
+}
 reset
-out="$(run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
-check_has "Ctrl-E with no Element profile names the play" "play-agent-bus-element.yml" "$out"
-check "  and opens nothing" "no" "$(logged 'gio')"
+cp "$HOST_VARS" "$SCRATCH/element.yml"
+gum_queue NO
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
+check_has "Ctrl-E with no Element profile says so" "has no Element profile on this desktop yet" "$out"
+check_lacks "  never telling you to edit the host_vars" "agent_bus_element_teams" "$out"
+check "  offering to set it up; no opens nothing" "no" "$(logged 'gio')"
+check "  and changes nothing" "$(cat "$HOST_VARS")" "$(cat "$SCRATCH/element.yml")"
+reset
+printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
+gum_queue YES
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner")"
+check_has "  yes declares the team's Element profile" 'base_url: "http://192.0.2.10:6167"' \
+    "$(cat "$SCRATCH/element.yml")"
+check "  runs play-agent-bus-element.yml" "yes" "$(logged 'element-profiles')"
+check "  then opens it" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
+reset
+cp "$HOST_VARS" "$SCRATCH/element.yml"
+gum_queue YES
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" TEST_ELEMENT_FAIL=1 run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
+check_has "  a failed Element play is said" "play-agent-bus-element.yml failed" "$out"
+check "  and nothing is opened" "no" "$(logged 'gio')"
 reset
 element_profile
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
@@ -797,10 +839,29 @@ out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --hu
 check "create with every value adds the entry" "0" "$?"
 check_has "  saying so on stdout, on a port neither declared nor listening" $'CHANGED\tteam beta, port 6169' "$out"
 check "  and installs it: the play for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
-check_has "  then the next steps" "ccy --teams 1@beta" "$(cat "$SCRATCH/err")"
+check_has "  then the next steps" "ccy --teams beta" "$(cat "$SCRATCH/err")"
 check_lacks "  never meta-deploy" "meta-deploy" "$(cat "$SCRATCH/err")"
+check_lacks "  nor an edit of localhost.yml" "localhost.yml" "$(grep -v 'kept at' "$SCRATCH/err")"
+check_has "  its Element profile declared beside it" $'agent_bus_element_teams:\n  - team: beta' "$(cat "$SCRATCH/create.yml")"
+check "  and written by play-agent-bus-element.yml, after the team's play" "play,element-profiles" \
+    "$(awk '/^play / { printf "play," } /^element-profiles/ { printf "element-profiles" }' "$LOG")"
+check "  --yes offers no sign-in" "no" "$(logged 'human password')"
+reset
+cp "$HOST_VARS" "$SCRATCH/create.yml"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --human owner \
+    --repo example-org/proj --repo other/tool --yes </dev/null 2>"$SCRATCH/err")"
+check "create --repo: a team of repositories of any owners" "0" "$?"
+check_has "  each on any branch, no org" 'repos: [{"repo": "example-org/proj"}, {"repo": "other/tool"}]' \
+    "$(cat "$SCRATCH/create.yml")"
+check "  no org line for it" "1" "$(grep -c '^    org:' "$SCRATCH/create.yml")"
+reset
+cp "$HOST_VARS" "$SCRATCH/create.yml"
+CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_ELEMENT_FAIL=1 "$TOOL" create --team beta --human owner \
+    --org example-org --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "a failed Element play fails create" "1" "$?"
+check_has "  saying the Element profile is not applied, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
 check_has "  the org written, no repository list" 'org: "example-org"' "$(cat "$SCRATCH/create.yml")"
-check "  in the host_vars" "1" "$(grep -c '^  - team: beta$' "$SCRATCH/create.yml")"
+check "  in the host_vars" "1" "$(grep -c 'port: 6169' "$SCRATCH/create.yml")"
 check "  listening on the bus address" "2" "$(grep -c 'listen: \["192.0.2.10"\]' "$SCRATCH/create.yml")"
 reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
@@ -838,43 +899,125 @@ check "  asking for no sudo, as there is nothing to read" "no" "$(logged 'sudo')
 check "  asking with gum, default no" "yes" "$(logged 'gum confirm --default=false Create one now?')"
 
 fresh_no_teams
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER YES)")"
+# Answers: create now; the scope (this repository), the repository, the name, the people and the
+# subnets all by Enter; the summary; no sign-in; no Element; yes to a session here.
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES NO NO YES)")"
 check "yes runs create there and then; every default accepted with Enter" "rc=0" "$(rc_of "$out")"
 written="$(cat "$NO_TEAMS")"
-check_has "  the team is named after the GitHub owner, never the repository" "- team: example-org" "$written"
+check_has "  the team is named after the repository, lower-cased" "- team: proj" "$written"
 check_has "  you are its human: your login name" 'humans: ["owner"]' "$written"
-check_has "  the GitHub owner as its org: every repository of it trusted, none listed" 'org: "example-org"' "$written"
-check_lacks "    no repository step" "repos:" "$written"
+check_has "  this repository, on any branch, is the whole scope" 'repos: [{"repo": "example-org/proj"}]' "$written"
+check_lacks "    no org" "org:" "$written"
 check_has "  and no other machine" 'allow_from: []' "$written"
-check "  owner, name, people, subnets, and two yeses" "6" "$(cat "$STATE/gum-calls")"
-check "  and the team is installed at once" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["example-org"]}')"
+check_has "  its Element profile is declared with it" $'agent_bus_element_teams:\n  - team: proj' "$written"
+check "  the team is installed at once" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["proj"]}')"
+check "  and its Element profile written" "yes" "$(logged 'element-profiles')"
 inputs="$(grep -F 'gum input' "$LOG")"
-check_has "  the owner is asked first" "--header GitHub owner" "$(awk 'NR == 1' <<<"$inputs")"
-check_has "    defaulting to this checkout's remote, lower-cased" "--value example-org" "$(awk 'NR == 1' <<<"$inputs")"
-check_has "  then the name, defaulting to the owner's" "--value example-org" "$(grep -F -- '--header Team name' <<<"$inputs")"
+check_has "  the scope is asked first, this repository selected" "gum choose --header Trust --selected One repository: example-org/proj" \
+    "$(grep -F 'gum choose' "$LOG")"
+check_has "  then the repository, defaulting to this checkout's remote, lower-cased" "--value example-org/proj" \
+    "$(awk 'NR == 1' <<<"$inputs")"
+check "    checked on GitHub for push access" "yes" "$(logged 'gh api repos/example-org/proj --jq .permissions.push')"
+check_has "  then the name, defaulting to the repository's" "--value proj" "$(grep -F -- '--header Team name' <<<"$inputs")"
 check_has "  the login name is offered as the people's default" "--value owner" "$(grep -F -- '--header People' <<<"$inputs")"
 check_has "  each explanation is printed, wrapped, before its question" "installer creates the accounts" \
     "$(grep -F 'gum style --foreground 252 --width' "$LOG")"
 check "  and every header is one short line" "0" \
     "$(grep -E 'gum (input|filter)' "$LOG" | grep -cE -- '--header [^-]{70,}')"
-check "  which gh looked up" "yes" "$(logged 'gh api users/example-org')"
-check_has "  the owner explanation says agents may point each other at any of its repositories" "point each other at any of its repositories" \
-    "$(grep -F 'gum style' "$LOG")"
-check "  no repository is listed or picked" "no" "$(logged 'gh repo list')"
-check_has "  the one question before writing covers installing it" "gum confirm --default=true Create team example-org?" "$(cat "$LOG")"
-check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams 1@example-org" "$out"
+check_has "  the one question before writing covers installing it" "gum confirm --default=true Create team proj?" "$(cat "$LOG")"
+check_has "  the summary states the scope in plain words" "only example-org/proj, on any branch" "$out"
+check_has "  and says Element is set up" "a profile for the team, set up on this desktop" "$out"
+check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams proj" "$out"
 check_lacks "  never meta-deploy" "meta-deploy" "$out"
+check_lacks "  nor an edit of localhost.yml" "localhost.yml" "$(grep -v 'saved to\|kept at' <<<"$out")"
+check_has "  sign-in is offered straight after" "gum confirm --default=true Sign owner in to Element now?" "$(cat "$LOG")"
+check_has "  then Element opened" "gum confirm --default=true Open proj in Element now?" "$(cat "$LOG")"
+check "  declined, no password is set" "no" "$(logged 'human password')"
+check "  in a checkout of the team, a session is offered, and started in it with no seat" "yes" \
+    "$(logged 'launcher --teams proj (in proj)')"
 check_has "  gum's greys are replaced, through its environment" "GUM_INPUT_HEADER_FOREGROUND=255" \
     "$(cat "$STATE/gum-env")"
 check_lacks "  no 240-range grey for anything read" "=24" "$(grep -v 'UNSELECTED_BACKGROUND' "$STATE/gum-env")"
 check_has "  gum's dim key-help line is hidden" "GUM_CONFIRM_SHOW_HELP=false" "$(cat "$STATE/gum-env")"
-check_has "  each question is a numbered step" "1/4  GitHub owner" "$out"
-check_has "    the last of four" "4/4  Other machines" "$out"
-check_has "  each answer stays on screen" "example-org" "$(grep -F '✓' <<<"$out")"
-check_has "  the summary is plain words" "any repository, any branch" "$out"
+check_has "  each question is a numbered step" "1/5  What the team works on" "$out"
+check_has "    the last of five" "5/5  Other machines" "$out"
+check_has "  each answer stays on screen" "example-org/proj" "$(grep -F '✓' <<<"$out")"
 check_lacks "    never the file's internals" "forge_api" "$out"
 check_lacks "    nor its path limits" "path_prefixes" "$out"
 check "  the team is explained once, not twice" "1" "$(grep -c 'private room' <<<"$out")"
+
+# The sign-in is taken up; the session offer is declined.
+fresh_no_teams
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES YES NO NO)")"
+check "a yes to the sign-in sets the password straight after create" "yes" "$(logged 'sudo -n /usr/local/bin/agent-bus human password proj owner')"
+check_has "  and shows the login" "Username" "$out"
+check "  a no to the session starts nothing" "no" "$(logged 'launcher')"
+
+# The whole owner: the second scope.
+fresh_no_teams
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER ENTER ENTER YES NO NO NO)")"
+check "the whole GitHub owner as the scope" "rc=0" "$(rc_of "$out")"
+written="$(cat "$NO_TEAMS")"
+check_has "  is written as the org, no repository list" 'org: "example-org"' "$written"
+check_lacks "    no repos" "repos:" "$written"
+check "  looked up on GitHub" "yes" "$(logged 'gh api users/example-org')"
+check_has "  the team is named after the owner" "- team: example-org" "$written"
+check_has "  the summary says so in words" "everything example-org owns: any repository, any branch" "$out"
+
+# Several repositories, of any owners: failing entries named with why, the list kept as typed.
+fresh_no_teams
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES '=Several repositories' \
+    '=Example-Org/Alpha, example-org/readonly, other/missing, bad' '=example-org/alpha,other/tool' ENTER ENTER ENTER YES NO NO NO)")"
+check "several repositories: a bounded re-prompt, then accepted" "rc=0" "$(rc_of "$out")"
+check_has "  a read-only repository is named with its reason" "example-org/readonly: read-only" "$out"
+check_has "  a missing one is named with its reason" "other/missing: not found" "$out"
+check_has "  a malformed one is named" "bad: not OWNER/REPO" "$out"
+check_has "  the list comes back as typed, to edit" "--value Example-Org/Alpha, example-org/readonly, other/missing, bad" \
+    "$(grep -F 'gum input' "$LOG" | awk 'NR == 2')"
+written="$(cat "$NO_TEAMS")"
+check_has "  the repositories of any owners, on any branch" 'repos: [{"repo": "example-org/alpha"}, {"repo": "other/tool"}]' "$written"
+check_has "  the team is named after the first" "- team: alpha" "$written"
+check_has "  the summary names them" "only these repositories, on any branch: example-org/alpha, other/tool" "$out"
+
+# The old default path limit: offered once, removed through declare.py, and applied.
+fresh_no_teams
+cat >"$NO_TEAMS" <<'EOF'
+agent_bus_address: 192.0.2.10
+agent_bus_teams:
+  - team: legacy
+    port: 6190
+    listen: ["192.0.2.10"]
+    allow_from: []
+    humans: ["owner"]
+    org: example-org
+    forge_api: https://api.github.com
+    path_prefixes: ["CLAUDE/Plan/", "docs/"]
+EOF
+printf '|ABORT\n' >"$TEST_ANSWERS"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
+check_has "an old default path limit is offered for removal" "gum confirm --default=true Remove the limit from legacy?" "$(cat "$LOG")"
+check_lacks "  and removed from the entry" "path_prefixes" "$(cat "$NO_TEAMS")"
+check "  then applied" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["legacy"]}')"
+fresh_no_teams
+cat >"$NO_TEAMS" <<'EOF'
+agent_bus_address: 192.0.2.10
+agent_bus_teams:
+  - team: legacy
+    port: 6190
+    listen: ["192.0.2.10"]
+    allow_from: []
+    humans: ["owner"]
+    org: example-org
+    forge_api: https://api.github.com
+    path_prefixes: ["CLAUDE/Plan/", "docs/"]
+EOF
+printf '|ABORT\n' >"$TEST_ANSWERS"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' NO NO)")"
+check_has "  declined, the limit stays" "path_prefixes" "$(cat "$NO_TEAMS")"
+printf '|ABORT\n' >"$TEST_ANSWERS"
+: >"$LOG" # not reset: that clears the declined marker too
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' NO)")"
+check "  and not offered again" "no" "$(logged 'Remove the limit from legacy?')"
 
 echo "== applied, apply, remove"
 STATES="$SCRATCH/states.yml"
@@ -888,7 +1031,6 @@ fresh_states() {
     allow_from: []
     humans: ["owner"]
     org: example-org
-    path_prefixes: ["docs/"]
     forge_api: https://api.github.com
   - team: delta
     port: 6181
@@ -896,7 +1038,6 @@ fresh_states() {
     allow_from: []
     humans: ["owner"]
     org: example-org
-    path_prefixes: ["docs/"]
     forge_api: https://api.github.com
 EOF
     # beta built from an older declaration; gone declared absent but still built; zeta
@@ -989,8 +1130,8 @@ fresh_wiz() {
 }
 before="$(cat "$HOST_VARS")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=nope' '=Example-Org' '=Bad_Name' '=beta' ENTER \
-    '=198.51.100.0/24' YES)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' NONE '=nope' '=Example-Org' '=Bad_Name' '=beta' ENTER \
+    '=198.51.100.0/24' YES NO NO NO)" create)"
 check "a bad name, then a good one; an unknown owner, then a known one" "rc=0" "$(rc_of "$out")"
 check_has "  the bad name is explained, and asked again" "Try again" "$out"
 check_has "  the unknown owner is explained" "no user or organisation called 'nope'" "$out"
@@ -1009,7 +1150,7 @@ check "Ctrl-C at a question, the same" "rc=130" "$(rc_of "$out")"
 check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER '=gamma' ENTER ENTER NO)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER ENTER '=gamma' ENTER ENTER NO)" create)"
 check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"

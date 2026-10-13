@@ -26,13 +26,15 @@
 #            Element password and show the login; on a team: this help
 #   Ctrl-N   start a new ccy session in a free or new seat of the row's team, here
 #   Ctrl-P   a new Element password for the person on the row
-#   Ctrl-E   open the team in Element
+#   Ctrl-E   open the team in Element (setting its profile up first, when it has none)
 #   Ctrl-U   update every team that is out of date or not built (never one to take down)
 #   Ctrl-R   turn the seat's session's restore after a reboot off or on
 #   Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
 #   Esc, q   leave
 # With no team on this machine, the picker offers to create one; with a team out of date, it
-# offers to update it first.
+# offers to update it first; with a team still holding the old default path_prefixes, it
+# offers once to remove them. Run in a checkout of a team's repositories, with no session of
+# that checkout in the team, it offers to start one there (ccy --teams <team>).
 #
 # Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
 # installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
@@ -45,20 +47,28 @@
 #   ccy-teams                        the picker (needs a terminal)
 #   ccy-teams -l|--list              print the same table, with a heading, and exit
 #                                    (colour only on a terminal, and never with NO_COLOR)
-#   ccy-teams create [--org ORG] [--team T] [--human NAME]... [--allow-from CIDR]... [--yes]
-#                                    add a team to agent_bus_teams in the host_vars and
-#                                    install it. On a terminal it asks (with gum) for what
-#                                    the flags leave out: the GitHub org (or user) the team
-#                                    works within, whose every repository its agents may
-#                                    send each other to; the name (the org's, by default);
-#                                    the people in the team room (you, by default); other
-#                                    machines' subnets. It shows the entry and asks once,
-#                                    then writes it and runs play-agent-bus.yml for it,
-#                                    and says it is done only when the team's homeserver
-#                                    is up. --yes asks nothing: give --org, --team and
-#                                    --human. The port is chosen for you
+#   ccy-teams create [--org ORG | --repo OWNER/REPO...] [--team T] [--human NAME]...
+#                    [--allow-from CIDR]... [--yes]
+#                                    add a team to agent_bus_teams in the host_vars, with
+#                                    its Element profile in agent_bus_element_teams, and
+#                                    install both. On a terminal it asks (with gum) for what
+#                                    the flags leave out: what the team works on (one
+#                                    repository, the default in a checkout, which it names;
+#                                    everything one GitHub owner owns; or several
+#                                    repositories of any owners, each one you can push to),
+#                                    all on any branch; the name (the repository's or the
+#                                    owner's, by default); the people in the team room (you,
+#                                    by default); other machines' subnets. It shows a
+#                                    summary and asks once, then writes the entries and runs
+#                                    play-agent-bus.yml and play-agent-bus-element.yml, and
+#                                    says it is done only when both are applied. Then it
+#                                    offers each person's sign-in, opens Element, and, in a
+#                                    checkout of the team's, starts a ccy session there.
+#                                    --yes asks and offers nothing: give --org or --repo,
+#                                    --team and --human. The port is chosen for you
 #   ccy-teams apply <team> | --all   run play-agent-bus.yml for the team (or every team
-#                                    out of date or not built), then check each now
+#                                    out of date or not built), and play-agent-bus-element.yml
+#                                    for those with an Element profile, then check each now
 #                                    matches its declaration. --all never takes a team
 #                                    down: a team declared absent, or built but no longer
 #                                    declared, needs your decision (ccy-teams remove)
@@ -90,7 +100,10 @@ CCY_LAUNCHER="${CCY_TEAMS_LAUNCHER:-/var/local/claude-yolo/claude-yolo}"
 # The play that applies a team (run by its own shebang), and where agent-bus-install
 # leaves each applied team's stamp.
 PLAY="${CCY_TEAMS_PLAY:-${ROOT_DIR}/playbooks/imports/play-agent-bus.yml}"
+ELEMENT_PLAY="${CCY_TEAMS_ELEMENT_PLAY:-${ROOT_DIR}/playbooks/imports/optional/common/play-agent-bus-element.yml}"
 APPLIED_DIR="${CCY_TEAMS_APPLIED_DIR:-/var/lib/agent-bus-applied}"
+# What ccy-teams has offered once and been told no: it does not ask again.
+DECLINED_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy-teams/declined"
 # Root's commands are named by path: sudo's secure_path need not hold /usr/local.
 SUDO_AGENT_BUS=/usr/local/bin/agent-bus
 SUDO_INSTALLER=/usr/local/sbin/agent-bus-install
@@ -214,6 +227,108 @@ sudo_ready() {
         print_error "sudo was not given your password (three wrong tries, or cancelled)."
         return 1
     fi
+}
+
+# ── a person's sign-in: create offers it, and the picker's Enter and Ctrl-P ─────────────
+
+# show_login <team> <name> <password> — everything needed to sign in to Element, once; then,
+# in a Wayland session, a copy to the clipboard. wl-copy is a dependency there
+# (play-claude-yolo.yml installs it); with no Wayland session there is no clipboard to offer.
+# Callers run this as a condition, where set -e does not reach, so each failure is checked.
+show_login() {
+    local team="$1" name="$2" password="$3"
+    printf '\n' >&2
+    say "Element sign-in for ${name}, team ${team}"
+    printf '  %-11s %s\n' "Homeserver" "${URL_OF[${team}]:-unknown (not declared)}" "Username" "${name}" \
+        "Matrix ID" "@${name}:${SERVER_OF[${team}]:-${team}.agent-bus.internal}" >&2
+    if colour_on 2; then
+        printf '  %-11s %s%s%s\n' "Password" "${C_BOLD}" "${password}" "${C_RESET}" >&2
+    else
+        printf '  %-11s %s\n' "Password" "${password}" >&2
+    fi
+    echo "Shown this once and stored nowhere. The team's Element profile has the homeserver set already." >&2
+    [[ -n "${WAYLAND_DISPLAY:-}" ]] || return 0
+    if [[ -z "$(command -v wl-copy)" ]]; then
+        print_error "wl-copy is not installed, so the password cannot be put on the clipboard; copy it from above. playbooks/imports/play-claude-yolo.yml installs wl-clipboard."
+        return 0
+    fi
+    if ccy_tmux_confirm "Copy the password?" \
+        "Put ${name}'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy." \
+        "copy the password"; then
+        if printf '%s' "${password}" | wl-copy; then
+            echo "The password is on the clipboard." >&2
+        else
+            print_error "wl-copy failed (above), so the password is not on the clipboard; copy it from above."
+        fi
+    fi
+}
+
+# new_password <team> <name> — set a person's Element password and show it (the yes is the
+# caller's). Returns 1 when none was set.
+new_password() {
+    local team="$1" name="$2" password
+    if ! sudo_ready "A password is set as root, by agent-bus (the team's admin token is root's)."; then
+        echo "No password was set for ${name}." >&2
+        return 1
+    fi
+    if ! password="$(sudo -n "${SUDO_AGENT_BUS}" human password "${team}" "${name}")"; then
+        echo "No password was set for ${name}, for the reason above." >&2
+        return 1
+    fi
+    show_login "${team}" "${name}" "${password}"
+}
+
+# set_password <team> <name> — a new Element password for a person of the team, after a yes
+# that says what it does. Returns 1 when none was set.
+set_password() {
+    if ! ccy_tmux_confirm "New Element password for $2?" \
+        "Sets a new password for $2 on $1's homeserver and shows it here, once: it is stored nowhere. $2's other Element sessions are signed out." \
+        "set a new password for $2"; then
+        echo "No password was set for $2." >&2
+        return 1
+    fi
+    new_password "$1" "$2"
+}
+
+# ── Element: the team's profile, declared by declare.py and written by its play ──────────
+
+element_launcher() {
+    printf '%s\n' "${HOME}/.local/share/applications/agent-bus-$1-element.desktop"
+}
+
+# run_element_play — play-agent-bus-element.yml, by its own shebang as run_play does: it
+# installs Element Desktop and writes a profile and launcher for every
+# agent_bus_element_teams entry. Then each named team's launcher must be there.
+run_element_play() {
+    local team
+    say "Running play-agent-bus-element.yml: it installs Element Desktop (sudo) and writes the Element profile for $*."
+    if ! "${ELEMENT_PLAY}"; then
+        print_error "play-agent-bus-element.yml failed (above), so $* has no Element profile yet."
+        return 1
+    fi
+    for team in "$@"; do
+        if [[ ! -f "$(element_launcher "${team}")" ]]; then
+            print_error "play-agent-bus-element.yml finished, but ${team}'s Element launcher is not there."
+            return 1
+        fi
+    done
+}
+
+# element_teams <team>... — those of the named teams that have an Element profile declared.
+element_teams() {
+    local lines team
+    declare -A wanted=()
+    for team in "$@"; do wanted["${team}"]=1; done
+    lines="$(declare_helper element-teams --file "${HOST_VARS}")" || return 1
+    while IFS=$'\t' read -r _ team _; do
+        [[ -z "${team}" || -z "${wanted[${team}]:-}" ]] || printf '%s\n' "${team}"
+    done <<<"${lines}"
+}
+
+# set_up_element <team> — declare the team's Element profile and run its play.
+set_up_element() {
+    declare_helper element --file "${HOST_VARS}" --team "$1" >/dev/null || return 1
+    run_element_play "$1"
 }
 
 # ── create: the questions, asked with gum; declare.py checks and writes ──────────────────
@@ -402,20 +517,65 @@ the_remote_repo() {
     declare_helper github-remote --url "${url}"
 }
 
+# check_repos <list> — comma-separated OWNER/REPO, each well formed, on GitHub, and one your
+# gh login can push to (GitHub's own answer for that login: the repository's
+# permissions.push). Every entry that fails is named, with why; then the list as a whole is
+# checked against the team file's limits.
+check_repos() {
+    local repo push bad=0 problem
+    local -a flags=()
+    while read -r repo; do
+        [[ -n "${repo}" ]] || continue
+        repo="${repo,,}"
+        flags+=(--repo "${repo}")
+        if ! problem="$(declare_helper check --file "${HOST_VARS}" --repo "${repo}" 2>&1)"; then
+            echo "  ${repo}: not OWNER/REPO (lower-case; the name not ., .. or ending .git)." >&2
+            bad=1
+            continue
+        fi
+        echo "  Checking ${repo} on GitHub…" >&2
+        if ! push="$(gh api "repos/${repo}" --jq .permissions.push 2>&1)"; then
+            echo "  ${repo}: not found, or your gh login cannot see it." >&2
+            bad=1
+        elif [[ "${push}" != true ]]; then
+            echo "  ${repo}: read-only for your gh login; a team trusts only repositories you can push to." >&2
+            bad=1
+        fi
+    done <<<"$(split_commas "$1")"
+    if [[ -z "${flags[*]:-}" ]]; then
+        say_problem "name at least one repository, as owner/repo"
+        return 1
+    fi
+    [[ "${bad}" -eq 0 ]] || {
+        echo "  Try again." >&2
+        return 1
+    }
+    problem="$(declare_helper check --file "${HOST_VARS}" "${flags[@]}" 2>&1)" || {
+        say_problem "${problem}"
+        return 1
+    }
+}
+
+# The most repositories a team may list (protocol.py REPOS_MAX; declare.py check enforces it).
+REPOS_MAX=32
+# Create's scope choices, in words.
+SCOPE_ONE="One repository" SCOPE_OWNER="Everything one GitHub owner owns" SCOPE_SEVERAL="Several repositories"
+
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
 create_wizard() {
-    local team="" yes=false text owner="" default_team login probe name rc
-    local -a humans=() allow_from=() flags=()
+    local team="" yes=false text owner="" default_team login probe name rc scope="" here trusts
+    local -a humans=() allow_from=() flags=() repos=() choices=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
         --yes) yes=true ;;
-        --team | --human | --org | --allow-from)
+        --team | --human | --org | --repo | --allow-from)
             [[ $# -ge 2 ]] || usage_error "create's $1 needs a value."
             case "$1" in
             --team) team="$2" ;;
             --human) humans+=("$2") ;;
             --org) owner="${2,,}" ;;
+            --repo) repos+=("${2,,}") ;;
             --allow-from) allow_from+=("$2") ;;
             esac
             shift
@@ -424,32 +584,64 @@ create_wizard() {
         esac
         shift
     done
+    here="$(the_remote_repo)"
     if [[ "${yes}" == false ]]; then
         if [[ ! -t 0 || ! -t 2 ]]; then
             usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
         fi
         need_gum
-        [[ -n "${owner}" ]] || need_gh
+        [[ -n "${owner}" || -n "${repos[*]:-}" ]] || need_gh
         gum style --bold --border rounded --padding "0 1" "New agent team" >&2
         explain "Agents and people working together in one private room on this machine, which you follow in Element. Ctrl-C leaves at any point; nothing changes until you say yes at the end."
-        [[ -n "${owner}" ]] || STEPS=$((STEPS + 1))
+        # What the team trusts is two questions (which kind, then which) unless a flag says.
+        [[ -n "${owner}" || -n "${repos[*]:-}" ]] || STEPS=$((STEPS + 2))
         [[ -n "${team}" ]] || STEPS=$((STEPS + 1))
         [[ -n "${humans[*]:-}" ]] || STEPS=$((STEPS + 1))
         [[ -n "${allow_from[*]:-}" ]] || STEPS=$((STEPS + 1))
     fi
-    # The org first: a team is the org's, and its name defaults to the org's.
-    if [[ -z "${owner}" && "${yes}" == false ]]; then
-        text="$(the_remote_repo)"
-        step "GitHub owner" "The organisation or user the team works for. Its agents may point each other at any of its repositories, on any branch."
+    # What the team works on first: its name defaults to that.
+    if [[ -z "${owner}" && -z "${repos[*]:-}" && "${yes}" == false ]]; then
+        # Inside a checkout the repository is the default; elsewhere the whole owner.
+        if [[ -n "${here}" ]]; then
+            choices=("${SCOPE_ONE}: ${here}" "${SCOPE_OWNER}: ${here%%/*}" "${SCOPE_SEVERAL}")
+        else
+            choices=("${SCOPE_OWNER}" "${SCOPE_ONE}" "${SCOPE_SEVERAL}")
+        fi
+        step "What the team works on" "Its agents may point each other only at these repositories, on any branch. Anything else reaches them as outside content, marked so."
         rc=0
-        owner="$(ask_valid check_owner "GitHub owner (organisation or user)" "e.g. example-org" "${text%%/*}")" || rc=$?
-        ask_or_quit "${rc}"
-        owner="${owner,,}"
-        answered "${owner}"
+        scope="$(gum choose --header "Trust" --selected "${choices[0]}" "${choices[@]}")" || rc=$?
+        [[ "${rc}" -eq 0 && -n "${scope}" ]] || cancelled
+        answered "${scope}"
+        case "${scope}" in
+        "${SCOPE_OWNER}"*)
+            step "GitHub owner" "The organisation or user the team works for: all of its repositories, never forks."
+            rc=0
+            owner="$(ask_valid check_owner "GitHub owner (organisation or user)" "e.g. example-org" "${here%%/*}")" || rc=$?
+            ask_or_quit "${rc}"
+            owner="${owner,,}"
+            answered "${owner}"
+            ;;
+        *)
+            if [[ "${scope}" == "${SCOPE_SEVERAL}" ]]; then
+                step "Repositories" "owner/repo, comma-separated: up to ${REPOS_MAX} of any owners, each one your gh login can push to."
+            else
+                step "Repository" "owner/repo: one your gh login can push to."
+            fi
+            rc=0
+            text="$(ask_valid check_repos "Repositories (owner/repo, comma-separated)" "e.g. example-org/alpha" "${here}")" || rc=$?
+            ask_or_quit "${rc}"
+            mapfile -t repos <<<"$(split_commas "${text,,}")"
+            answered "${repos[*]}"
+            ;;
+        esac
     fi
     if [[ -z "${team}" && "${yes}" == false ]]; then
         default_team=""
-        [[ -z "${owner}" ]] || default_team="$(declare_helper suggest-team --file "${HOST_VARS}" --org "${owner}")"
+        if [[ -n "${owner}" ]]; then
+            default_team="$(declare_helper suggest-team --file "${HOST_VARS}" --name "${owner}")"
+        elif [[ -n "${repos[*]:-}" ]]; then
+            default_team="$(declare_helper suggest-team --file "${HOST_VARS}" --name "${repos[0]#*/}")"
+        fi
         step "Team name" "Used in the room's name and its agents' names: a-z, 0-9 and -, up to 24."
         rc=0
         team="$(ask_valid check_team "Team name" "e.g. example-org" "${default_team}")" || rc=$?
@@ -480,23 +672,80 @@ create_wizard() {
     [[ -z "${team}" ]] || flags+=(--team "${team}")
     for name in "${humans[@]}"; do [[ -z "${name}" ]] || flags+=(--human "${name}"); done
     [[ -z "${owner}" ]] || flags+=(--org "${owner}")
+    for name in "${repos[@]}"; do [[ -z "${name}" ]] || flags+=(--repo "${name}"); done
     for name in "${allow_from[@]}"; do [[ -z "${name}" ]] || flags+=(--allow-from "${name}"); done
     if [[ "${yes}" == false ]]; then
         # The dry run checks the whole entry before anything is asked or written.
         declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run >/dev/null || exit
+        if [[ -n "${owner}" ]]; then
+            trusts="everything ${owner} owns: any repository, any branch"
+        else
+            trusts="$(printf '%s, ' "${repos[@]}")"
+            if [[ -z "${repos[1]:-}" ]]; then
+                trusts="only ${trusts%, }, on any branch"
+            else
+                trusts="only these repositories, on any branch: ${trusts%, }"
+            fi
+        fi
         printf '\n' >&2
         summary_confirm "Team ${team}" "$(printf '%-9s %s\n' \
-            "GitHub" "${owner} (any repository, any branch)" \
+            "Works on" "${trusts}" \
             "People" "${humans[*]}" \
-            "Machines" "${allow_from[*]:-this one only}")" \
+            "Machines" "${allow_from[*]:-this one only}" \
+            "Element" "a profile for the team, set up on this desktop")" \
             "Create team ${team}? (saved to ${HOST_VARS/#${HOME}/\~}, then installed: sudo asks for your password)"
     fi
     declare_helper create --file "${HOST_VARS}" "${flags[@]}"
+    # Element is set up with the team (Task 4.2): its profile is declared beside it, and
+    # apply runs its play.
+    declare_helper element --file "${HOST_VARS}" --team "${team}" >/dev/null
     if ! apply_teams "${team}"; then
         print_error "team ${team} is declared in ${HOST_VARS/#${HOME}/\~} but not installed. Once the cause above is fixed, ccy-teams apply ${team} installs it."
         exit 1
     fi
+    [[ "${yes}" == true ]] || after_create "${team}" "${humans[@]}"
     declare_helper next-steps --file "${HOST_VARS}" --team "${team}" >&2
+    [[ "${yes}" == true ]] || offer_join "${team}"
+}
+
+# after_create <team> <human>... — straight after create, on a terminal: each person's
+# sign-in (Task 4.3), then Element opened (Task 4.2).
+after_create() {
+    local team="$1" name
+    shift
+    for name in "$@"; do
+        [[ -n "${name}" ]] || continue
+        if ask_yes "Sign ${name} in to Element now? A password is set and shown here once." true; then
+            new_password "${team}" "${name}" || true # it has said why; the team is made either way
+        fi
+    done
+    if ask_yes "Open ${team} in Element now?" true; then
+        gio launch "$(element_launcher "${team}")"
+    fi
+}
+
+# join_candidates — the teams this checkout's repository belongs to, by name, each once.
+join_candidates() {
+    local here lines
+    here="$(the_remote_repo)"
+    [[ -n "${here}" ]] || return 0
+    lines="$(declare_helper teams-for --file "${HOST_VARS}" --repo "${here}")" || return 1
+    awk -F '\t' '$1 == "TEAM" { print $2 }' <<<"${lines}"
+}
+
+# offer_join <team> — in a checkout of the team's repositories, offer to start a ccy session
+# here as a member (Task 4.4): ccy --teams <team>, no seat, so ccy chooses one and says it.
+offer_join() {
+    local team="$1" top candidate
+    project_here || return 0
+    candidate="$(join_candidates)" || return 0
+    grep -qxF -- "${team}" <<<"${candidate}" || return 0
+    top="$(git rev-parse --show-toplevel)"
+    if ask_yes "Start a ccy session in ${top/#${HOME}/\~} as a member of ${team}?" true; then
+        echo "Starting ccy --teams ${team} in ${top/#${HOME}/\~}." >&2
+        cd "${top}"
+        exec "${CCY_LAUNCHER}" --teams "${team}"
+    fi
 }
 
 # need_gh — gh installed and logged in: the org is looked up on GitHub.
@@ -594,7 +843,7 @@ run_play() {
 # only when every one is up to date (its homeserver started, its room and people made).
 apply_teams() {
     local team rc=0
-    local -a behind=()
+    local -a behind=() watched=()
     run_play "$@" || rc=$?
     if [[ "${rc}" -ne 0 ]]; then
         print_error "play-agent-bus.yml failed (exit ${rc}, above)."
@@ -606,6 +855,13 @@ apply_teams() {
     done
     if [[ -n "${behind[*]:-}" ]]; then
         print_error "the play finished, but these teams are still not as declared: ${behind[*]}."
+        return 1
+    fi
+    # A team with an Element profile declared has it written by its own play, here too.
+    team="$(element_teams "$@")" || return 1
+    [[ -z "${team}" ]] || mapfile -t watched <<<"${team}"
+    if [[ -n "${watched[*]:-}" ]] && ! run_element_play "${watched[@]}"; then
+        print_error "the homeserver side is applied, but the Element profile is not; once the cause above is fixed, ccy-teams apply $* runs both again."
         return 1
     fi
     say "Applied: $*."
@@ -1245,7 +1501,56 @@ offer_update() {
         back_to_list
     fi
 }
+# offer_path_limits — a team created before Task 4.7 still names the old default
+# path_prefixes, which limits the paths its agents may point each other at. Offered once per
+# team: removed, through declare.py, and applied; or, declined, never asked again.
+offer_path_limits() {
+    local lines line team prefixes
+    local -a limited=()
+    lines="$(declare_helper limited --file "${HOST_VARS}")" || exit 1
+    [[ -z "${lines}" ]] || mapfile -t limited <<<"${lines}"
+    for line in "${limited[@]}"; do
+        IFS=$'\t' read -r _ team prefixes <<<"${line}"
+        [[ ! -e "${DECLINED_DIR}/path-limit-${team}" ]] || continue
+        need_gum
+        say "Team ${team} lets its agents point each other only at files under ${prefixes}"
+        echo "That limit was the default when ${team} was created; new teams have none. Without it, any file in the team's repositories may be named." >&2
+        if ask_yes "Remove the limit from ${team}?" true; then
+            declare_helper drop-limit --file "${HOST_VARS}" --team "${team}" >/dev/null
+            in_picker apply_teams "${team}"
+        else
+            mkdir -p "${DECLINED_DIR}"
+            : >"${DECLINED_DIR}/path-limit-${team}"
+            echo "Kept. ccy-teams will not ask about ${team}'s limit again." >&2
+        fi
+    done
+}
+offer_path_limits
 offer_update
+
+# offer_join_here — run in a checkout of a team's repositories, with no ccy session of this
+# checkout in that team running, offer to start one as a member (Task 4.4). Once per run.
+offer_join_here() {
+    local candidates team top key held
+    local -a teams=()
+    project_here || return 0
+    candidates="$(join_candidates)" || return 0
+    [[ -z "${candidates}" ]] || mapfile -t teams <<<"${candidates}"
+    top="$(git rev-parse --show-toplevel)"
+    for team in "${teams[@]}"; do
+        [[ -n "${LOADED[${team}]:-}" && "$(homeserver_state "${team}")" == up ]] || continue
+        held=""
+        for key in "${!SEAT_SESSION[@]}"; do
+            if [[ "${key}" == "${top}|"*"@${team}" && -n "${LIVE[${SEAT_SESSION[${key}]}]+set}" ]]; then
+                held=yes
+            fi
+        done
+        [[ -z "${held}" ]] || continue
+        need_gum
+        offer_join "${team}"
+    done
+}
+join_offered=""
 
 here="${PWD/#${HOME}/\~}"
 
@@ -1383,59 +1688,6 @@ remove_or_park() {
     esac
 }
 
-# show_login <team> <name> <password> — everything needed to sign in to Element, once; then,
-# in a Wayland session, a copy to the clipboard. wl-copy is a dependency there
-# (play-claude-yolo.yml installs it); with no Wayland session there is no clipboard to offer.
-# Callers run this as a condition, where set -e does not reach, so each failure is checked.
-show_login() {
-    local team="$1" name="$2" password="$3"
-    printf '\n' >&2
-    say "Element sign-in for ${name}, team ${team}"
-    printf '  %-11s %s\n' "Homeserver" "${URL_OF[${team}]:-unknown (not declared)}" "Username" "${name}" \
-        "Matrix ID" "@${name}:${SERVER_OF[${team}]:-${team}.agent-bus.internal}" >&2
-    if colour_on 2; then
-        printf '  %-11s %s%s%s\n' "Password" "${C_BOLD}" "${password}" "${C_RESET}" >&2
-    else
-        printf '  %-11s %s\n' "Password" "${password}" >&2
-    fi
-    echo "Shown this once and stored nowhere. The team's Element profile (Ctrl-E) has the homeserver set already." >&2
-    [[ -n "${WAYLAND_DISPLAY:-}" ]] || return 0
-    if [[ -z "$(command -v wl-copy)" ]]; then
-        print_error "wl-copy is not installed, so the password cannot be put on the clipboard; copy it from above. playbooks/imports/play-claude-yolo.yml installs wl-clipboard."
-        return 0
-    fi
-    if ccy_tmux_confirm "Copy the password?" \
-        "Put ${name}'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy." \
-        "copy the password"; then
-        if printf '%s' "${password}" | wl-copy; then
-            echo "The password is on the clipboard." >&2
-        else
-            print_error "wl-copy failed (above), so the password is not on the clipboard; copy it from above."
-        fi
-    fi
-}
-
-# set_password <team> <name> — a new Element password for a person of the team, after a yes
-# that says what it does. Returns 1 when none was set.
-set_password() {
-    local team="$1" name="$2" password
-    if ! ccy_tmux_confirm "New Element password for ${name}?" \
-        "Sets a new password for ${name} on ${team}'s homeserver and shows it here, once: it is stored nowhere. ${name}'s other Element sessions are signed out." \
-        "set a new password for ${name}"; then
-        echo "No password was set for ${name}." >&2
-        return 1
-    fi
-    if ! sudo_ready "A password is set as root, by agent-bus (the team's admin token is root's)."; then
-        echo "No password was set for ${name}." >&2
-        return 1
-    fi
-    if ! password="$(sudo -n "${SUDO_AGENT_BUS}" human password "${team}" "${name}")"; then
-        echo "No password was set for ${name}, for the reason above." >&2
-        return 1
-    fi
-    show_login "${team}" "${name}" "${password}"
-}
-
 # password_row <i> — Enter or Ctrl-P on a row: a person's password; on any other row, say
 # where the people are.
 password_row() {
@@ -1448,14 +1700,23 @@ password_row() {
 }
 
 # open_element <team> — Ctrl-E: the team's Element profile, through the launcher
-# play-agent-bus-element.yml writes. A person of the team who has never signed in is
-# offered a new password first.
+# play-agent-bus-element.yml writes; with none yet, it offers to set one up first. A person
+# of the team who has never signed in is offered a new password first.
 open_element() {
     local team="$1" launcher i
-    launcher="${HOME}/.local/share/applications/agent-bus-${team}-element.desktop"
+    launcher="$(element_launcher "${team}")"
     if [[ ! -f "${launcher}" ]]; then
-        echo "${team} has no Element profile on this desktop: add it to agent_bus_element_teams in the host_vars and run playbooks/imports/optional/common/play-agent-bus-element.yml." >&2
-        return 0
+        need_gum
+        echo "${team} has no Element profile on this desktop yet." >&2
+        if ! ask_yes "Set one up now? It installs Element Desktop if needed (sudo asks for your password)." true; then
+            echo "Nothing set up. Ctrl-E offers it again." >&2
+            return 0
+        fi
+        if ! set_up_element "${team}"; then
+            echo "${team} was not set up in Element, for the reason above." >&2
+            back_to_list
+            return 0
+        fi
     fi
     for i in "${!R_TEXT[@]}"; do
         [[ "${R_TEAM[i]}" == "${team}" && "${R_KIND[i]}" == human && "${R_SESSION[i]}" == "never signed in" ]] ||
@@ -1554,6 +1815,10 @@ while :; do
     fi
     if [[ -z "${R_TEXT[*]:-}" ]]; then
         offer_create
+    fi
+    if [[ -z "${join_offered}" ]]; then
+        join_offered=yes
+        offer_join_here
     fi
     if colour_on 1; then
         rows="$(printf '%s\n' "${R_SHOWN[@]}")"

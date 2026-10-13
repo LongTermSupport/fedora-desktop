@@ -535,7 +535,9 @@ def _retry_wait(hdrs: object, body: bytes | None, now: float) -> float:
 def check_ping(ping: protocol.Ping, record: protocol.TeamRecord, client: Forge) -> None:
     """The forge check for a validated ping (§9 send step 6, receive step 10p): nothing for
     a ping with no `ref`; a listed repository's reference against its listed branches, an
-    org repository's against the ping's branch or its default branch, any other's as external content (§11)."""
+    org repository's, or a listed one's with no `branches`, against the ping's branch or its
+    default branch (the repository its owner's own, never a fork), any other's as external
+    content (§11)."""
     if ping.ref is None:
         return
     if client.api != record.forge_api:
@@ -544,7 +546,9 @@ def check_ping(ping: protocol.Ping, record: protocol.TeamRecord, client: Forge) 
     expected = protocol.TRUST_EXTERNAL if source == protocol.SOURCE_EXTERNAL else protocol.TRUST_TRUSTED
     if ping.trust != expected:
         raise ValueError("the ping was not validated against this team record (validate first)")
-    if source == protocol.SOURCE_LISTED:
+    if source == protocol.SOURCE_LISTED and not record.repos[ping.ref.repo_full]:
+        client.check_org(ping.ref, ping.ref.owner, ping.branch)
+    elif source == protocol.SOURCE_LISTED:
         listed = record.repos[ping.ref.repo_full]
         if ping.branch is not None and ping.branch not in listed:
             raise ForgeError("provenance", f"{ping.ref.text}: {ping.branch} is not a trusted branch of "

@@ -278,7 +278,7 @@ class Context:
     """What the validator needs from the member config and the verified team record.
 
     `roles` maps agent user IDs to `orchestrator`/`worker`; `repos` maps `owner/repo` to
-    its trusted branches; `org` is the GitHub owner every repository of which is trusted on
+    its trusted branches, () for any branch; `org` is the GitHub owner every repository of which is trusted on
     any of its branches (the ping's, else the default), or None; `humans` are the team's human user IDs.
     """
 
@@ -451,6 +451,14 @@ def ref_source(ref: Ref, org: str | None, repos: Mapping[str, Sequence[str]]) ->
     if org is not None and ref.owner == org:
         return SOURCE_ORG
     return SOURCE_EXTERNAL
+
+
+def trusts_any_branch(ref: Ref, org: str | None, repos: Mapping[str, Sequence[str]]) -> bool:
+    """Whether any branch of the reference's repository is trusted: an org repository not
+    listed, or one listed with no `branches` (spec §11). Such a reference is checked against
+    the ping's branch, else the repository's default branch."""
+    source = ref_source(ref, org, repos)
+    return source == SOURCE_ORG or (source == SOURCE_LISTED and not repos[ref.repo_full])
 
 
 def is_owner_repo(value: object) -> bool:
@@ -805,13 +813,18 @@ def _list_of(value: object, low: int, high: int) -> list:
 
 
 def _parse_repos(value: object) -> dict[str, tuple[str, ...]]:
+    """`repos` as {OWNER/REPO: its branches}; an entry with no `branches` maps to (), any
+    branch (spec §11)."""
     repos: dict[str, tuple[str, ...]] = {}
     for item in _list_of(value, REPOS_MIN, REPOS_MAX):
-        if not isinstance(item, dict) or set(item) != {"repo", "branches"}:
+        if not isinstance(item, dict) or set(item) not in ({"repo"}, {"repo", "branches"}):
             raise Untrusted("repos entry")
         name = item["repo"]
         if not is_owner_repo(name) or name in repos:
             raise Untrusted("repos entry")
+        if "branches" not in item:
+            repos[name] = ()
+            continue
         branches = _list_of(item["branches"], 1, BRANCHES_MAX)
         if not all(is_branch_name(b) for b in branches):
             raise Untrusted("branch name")

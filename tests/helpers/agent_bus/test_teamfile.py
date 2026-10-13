@@ -123,6 +123,20 @@ class SharedWithTheTeamRecordTest(unittest.TestCase):
         parsed = protocol.parse_team_record(record, tf.server_name, tf.team)
         self.assertEqual(parsed.path_prefixes, tf.path_prefixes)
 
+    def test_a_repo_with_no_branches_is_any_branch_in_both(self) -> None:
+        """Plan 00177 Task 4.9: `branches` absent means any branch, in the team file, its
+        canonical dump and the record built from it; repositories of several owners mix."""
+        tf = teamfile.parse_team_file(_with(repos=[{"repo": "example-org/alpha"}, {"repo": "other/tool"}]))
+        self.assertEqual([r.branches for r in tf.repos], [(), ()])
+        self.assertEqual(json.loads(teamfile.dump_team_file(tf))["repos"],
+                         [{"repo": "example-org/alpha"}, {"repo": "other/tool"}])
+        record = {"v": protocol.PROTOCOL_VERSION, "team": tf.team, "humans": [f"@{h}:{tf.server_name}" for h in tf.humans],
+                  "roles": {}, "repos": [r.as_dict() for r in tf.repos], "forge_api": tf.forge_api}
+        parsed = protocol.parse_team_record(record, tf.server_name, tf.team)
+        self.assertEqual(dict(parsed.repos), {"example-org/alpha": (), "other/tool": ()})
+        with self.assertRaises(teamfile.TeamFileError):
+            teamfile.parse_team_file(_with(repos=[{"branches": ["main"]}]))
+
     def test_record_refusals_are_team_file_refusals(self) -> None:
         cases = {
             "team": "a" * 25,

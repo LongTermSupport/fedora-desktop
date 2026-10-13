@@ -99,9 +99,10 @@ user_email: "yourname@example.com"
 #     allow_from: ["<cidr>"]
 #     humans: ["<name>"]
 #     org: <github-owner>        # every repository it owns is trusted, on any of its branches
-#     repos:                     # optional: a repository outside the org the team trusts
-#       - repo: <owner>/<repo>
-#         branches: ["<branch>"]
+#     repos:                     # and, or instead of org: repositories of any owner
+#       - repo: <owner>/<repo>   # on any of its branches
+#       - repo: <owner>/<other>
+#         branches: ["<branch>"] # optional: only these branches
 #     path_prefixes: ["docs/"]   # optional: narrows the paths a ping may name (absent: any)
 #     forge_api: https://api.github.com
 #   - team: <old-team>

@@ -1387,6 +1387,17 @@ class TestTeamRecord(unittest.TestCase):
             with self.subTest(forge=forge):
                 self.assertEqual(self.parse(dict(good, forge_api=forge)).forge_api, forge)
 
+    def test_repo_with_no_branches_trusts_any_branch(self) -> None:
+        """Plan 00177 Task 4.9: an entry with no `branches` maps to (), any branch."""
+        good = self.good()
+        rec = self.parse(dict(good, repos=[{"repo": "other/tool"}, {"repo": "o/r", "branches": ["main"]}]))
+        self.assertEqual(dict(rec.repos), {"other/tool": (), "o/r": ("main",)})
+        any_ref, listed_ref = p.parse_ref(f"commit:other/tool@{'a' * 40}"), p.parse_ref(f"commit:o/r@{'a' * 40}")
+        self.assertTrue(p.trusts_any_branch(any_ref, None, rec.repos))
+        self.assertFalse(p.trusts_any_branch(listed_ref, None, rec.repos))
+        self.assertTrue(p.trusts_any_branch(p.parse_ref(f"commit:org/x@{'a' * 40}"), "org", rec.repos))
+        self.assertFalse(p.trusts_any_branch(p.parse_ref(f"commit:else/x@{'a' * 40}"), "org", rec.repos))
+
     def test_org(self) -> None:
         """D64: an optional `org`; with it `repos` may be empty, without it it may not."""
         good = self.good()

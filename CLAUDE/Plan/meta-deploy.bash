@@ -55,6 +55,9 @@ PLANS=(
     # agent team bus: a team without path_prefixes; agent-bus seat choose, seat check
     # --resolved, seat take --type (Plan 00177)
     playbooks/imports/play-agent-bus.yml
+    # ccy-teams create sets up Element itself; this play installs Element Desktop and writes
+    # the profile of each team declared in agent_bus_element_teams (Plan 00177)
+    playbooks/imports/optional/common/play-agent-bus-element.yml
     # CCY 3.95.0: ccy --teams <team> chooses a seat; the re-attach offer keeps --teams
     playbooks/imports/play-claude-yolo.yml
     # speech-to-text: judges the latest Insert replay
