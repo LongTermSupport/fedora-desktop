@@ -62,8 +62,7 @@ today; rewriting them is out of scope.
   QA-toolchain check, so the one play that installs the QA tools installs these too, with a
   single source of truth. `scripts/qa-toolchain.bash` asserts golangci-lint at the pin and
   `go` at no less than `src-go/go.mod` requires; `.github/workflows/qa.yml` installs both.
-  `play-claude-yolo.yml` does not depend on the Go play yet: that arrives with Task 2.5,
-  which is where it first builds a binary.
+  `play-claude-yolo.yml` imports it too since Task 2.5, where it first builds a binary.
 - [ ] 🔄 **Task 1.3**: `src-go/` skeleton: `go.mod`, `.golangci.yml` (strict), `cmd/`,
   `internal/` (execx runner + recording fake, prompter interface + gum/fzf implementation +
   fake, paths, version), one trivial tool proving build, test and lint.
@@ -83,11 +82,15 @@ today; rewriting them is out of scope.
   `marker`).
 - [x] ✅ **Task 2.3**: Flows: list, picker and keys, create wizard, apply, remove, password,
   Element, new session, attach, restore, park; start-up offers (`internal/teams`).
-- [ ] 🔄 **Task 2.4**: Parity: `scripts/test-ccy-teams-command.bash` runs against the Go
-  binary (`CCY_TEAMS_IMPL=go`) and passes; where a check tests bash internals or a bug the
-  port fixes (the spec's section 8), it is made mode-conditional, said in the journal.
-- [ ] ⬜ **Task 2.5**: Cut-over: `play-claude-yolo.yml` builds and installs the binary; the
-  bash `ccy-teams.j2` is deleted in the same commit; docs updated; CCY version bump.
+- [x] ✅ **Task 2.4**: Parity: `scripts/test-ccy-teams-command.bash` passes against the Go
+  binary, 323/323. One assertion was mode-conditional (the spec's section 8 bug 11: the
+  installer is called with `sudo -n`); the Go behaviour is now the only one.
+- [x] ✅ **Task 2.5**: Cut-over: `play-claude-yolo.yml` imports `play-golang.yml`, builds
+  the binary from the checkout (`-trimpath`, `main.RootDir` injected, installed only when the
+  checksum differs) and installs it at the same path and mode; `ccy-teams.j2` is deleted;
+  the suite builds the Go binary only; `qa-changed.bash` runs it for any `src-go/` file in
+  the binary's build closure; docs updated; CCY 3.95.6. Done pending the owner's host run
+  (`meta-deploy.bash` lists `play-claude-yolo.yml`).
 
 ### Phase 3: go-qa-ci
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit-test the ccy-teams command (files/home/.local/bin/ccy-teams.j2), the manager of the
+# Unit-test the ccy-teams command (the Go binary, src-go/cmd/ccy-teams), the manager of the
 # agent teams on a machine: its table (--list), every picker key, and its create, apply,
 # remove, backup and restore wrappers. (scripts/test-ccy-teams.bash is ccy's own --teams flag.)
 #
@@ -8,8 +8,7 @@
 # must hold is that the rows say what those sources said (a seat with the session holding
 # it and its restore mark, the members that are not seats, the humans, a homeserver that
 # is down), that each key reaches the right command with the right row's values, that a
-# yes/no answered no changes nothing, and that the template renders to a script with no
-# Jinja left in it. None of the real commands can run here, so fakes for tmux, fzf,
+# yes/no answered no changes nothing, and that the binary builds. None of the real commands can run here, so fakes for tmux, fzf,
 # systemctl, sudo, agent-bus, agent-bus-install, gio, the ccy launcher and play-agent-bus.yml
 # keep their state in files and log every call; the declare helper, git and the registry
 # library are real.
@@ -22,10 +21,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEMPLATE="$REPO_ROOT/files/home/.local/bin/ccy-teams.j2"
 LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
 
-for tool in script shellcheck git python3 timeout; do
+for tool in script go git python3 timeout; do
     if [ -z "$(command -v "$tool")" ]; then
         echo "FAIL: $tool is needed by this test" >&2
         exit 1
@@ -65,31 +63,15 @@ cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
 TOOL="$SCRATCH/ccy-teams"
-# CCY_TEAMS_IMPL=go drives the same cases against the Go port (Plan 00191), built with the
-# checkout injected where the template's {{ root_dir }} would be.
-if [[ "${CCY_TEAMS_IMPL:-bash}" == go ]]; then
-    echo "== the Go binary"
-    check "the Go binary builds" "" \
-        "$(cd "$REPO_ROOT/src-go" && go build -ldflags "-X main.RootDir=$REPO_ROOT" -o "$TOOL" ./cmd/ccy-teams 2>&1)"
-else
-# ── the template renders to a script ─────────────────────────────────────────────────────
-echo "== the template"
-python3 - "$TEMPLATE" "$REPO_ROOT" "$TOOL" <<'PYEOF'
-import sys
-
-template, root, dest = sys.argv[1:4]
-with open(template, encoding="utf-8") as handle:
-    text = handle.read()
-with open(dest, "w", encoding="utf-8") as handle:
-    handle.write(text.replace("{{ root_dir }}", root))
-PYEOF
-chmod 0755 "$TOOL"
-# Ansible renders the whole file with Jinja: a bash ${#array[@]} opens a Jinja comment and
-# breaks the deploy, so no Jinja syntax may appear but the one placeholder.
-check "the template holds no Jinja syntax but {{ root_dir }}" "0" \
-    "$(grep -v -F '{{ root_dir }}' "$TEMPLATE" | grep -cE '\{\{|\{%|\{#|\}\}|%\}|#\}')"
-check "the rendered script passes shellcheck" "" \
-    "$(shellcheck -S warning -s bash "$TOOL" 2>&1)"
+# The Go binary is the command (Plan 00191), built with the checkout injected where the
+# deployed build injects the checkout.
+echo "== the Go binary"
+build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -ldflags "-X main.RootDir=$REPO_ROOT" -o "$TOOL" ./cmd/ccy-teams 2>&1)"
+build_rc=$?
+check "the Go binary builds" "0" "$build_rc"
+if [ "$build_rc" -ne 0 ]; then
+    echo "$build_out" >&2
+    exit 1
 fi
 
 # ── the fakes ────────────────────────────────────────────────────────────────────────────
@@ -480,13 +462,9 @@ reset() {
 }
 rc_of() { awk '/^rc=/ { print }' <<<"$1"; }
 logged() { if grep -qF -- "$1" "$LOG"; then echo yes; else echo no; fi; }
-# The installer is called as root after sudo_ready. Spec section 8 bug 11: the bash calls plain
-# `sudo` there, which can stop to prompt on a terminal-less run; the Go port calls `sudo -n`.
-if [[ "${CCY_TEAMS_IMPL:-bash}" == go ]]; then
-    SUDO_INSTALL="sudo -n /usr/local/sbin/agent-bus-install"
-else
-    SUDO_INSTALL="sudo /usr/local/sbin/agent-bus-install"
-fi
+# The installer is called as root after sudo_ready, with `sudo -n` so a terminal-less run
+# fails instead of stopping to prompt (spec section 8 bug 11).
+SUDO_INSTALL="sudo -n /usr/local/sbin/agent-bus-install"
 # run_picker <dir> <answers...> — the real ccy-teams picker in <dir>, under a terminal.
 run_picker() {
     local dir="$1"

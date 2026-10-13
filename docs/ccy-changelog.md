@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.6 — container 2.54
+
+- **`ccy-teams` is now a Go binary.** The command moves from a bash template to
+  `src-go/cmd/ccy-teams` (Plan 00191), built by `play-claude-yolo.yml` from this checkout
+  and installed at the same path with the same mode. Behaviour is the same except that it
+  never stops to prompt for a sudo password when it runs the installer: it calls
+  `sudo -n`, so a refusal is reported at once. The image is unchanged.
+
 ## 3.95.5 — container 2.54
 
 - **The session pickers use the terminal's own colours.** `ccy-sessions` and `ccy-teams`

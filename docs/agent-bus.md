@@ -20,6 +20,9 @@ protocol spec, [agent-bus-protocol.md](agent-bus-protocol.md).
 On a desktop built from this repository, `ccy-teams` is where you look after teams: it is
 to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own; what it
 shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
+It is a Go binary (`src-go/cmd/ccy-teams`), built from this checkout and installed by
+`play-claude-yolo.yml`, so a change to its source reaches the desktop on the next run of
+that play.
 
 1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
    asks a few questions. First, what the team works on: inside a checkout, **this

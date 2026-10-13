@@ -166,6 +166,19 @@ plan="$(plan_for scripts/qa-bash.bash)"
 expect_lacks "go: untouched when no src-go file changed" "$plan" "check go"
 
 echo
+echo "== src-go -> the ccy-teams command suite =="
+plan="$(plan_for src-go/internal/teams/app.go)"
+expect_has "teams: the package picks the suite" "$plan" "suite scripts/test-ccy-teams-command.bash: builds from src-go/internal/teams/app.go"
+plan="$(plan_for src-go/cmd/ccy-teams/main.go)"
+expect_has "teams: the command picks the suite" "$plan" "suite scripts/test-ccy-teams-command.bash"
+plan="$(plan_for src-go/internal/ui/ui.go)"
+expect_has "teams: a shared package it imports picks the suite" "$plan" "suite scripts/test-ccy-teams-command.bash"
+plan="$(plan_for src-go/go.mod)"
+expect_has "teams: go.mod picks the suite" "$plan" "suite scripts/test-ccy-teams-command.bash"
+plan="$(plan_for src-go/internal/transcript/transcript.go)"
+expect_lacks "teams: a package it does not import leaves the suite out" "$plan" "test-ccy-teams-command.bash"
+
+echo
 echo "=============================================================="
 printf 'passed: %d   failed: %d\n' "$PASS" "$FAIL"
 if [[ "$FAIL" -gt 0 ]]; then

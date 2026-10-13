@@ -132,7 +132,7 @@ RUN wget -qO /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/do
     && rm /tmp/gitleaks.tgz \
     && chmod +x /usr/local/bin/gitleaks
 
-# gum serves ccy-teams (files/home/.local/bin/ccy-teams.j2), whose create flow asks with
+# gum serves ccy-teams (src-go/cmd/ccy-teams), whose create flow asks with
 # it, and lets its prompts be tried here against the real tool. Debian 12 has no package,
 # so the upstream binary is pinned to the version Fedora 44 ships, which is what
 # play-claude-yolo.yml installs on the host: the flags tested here are the flags run there.
