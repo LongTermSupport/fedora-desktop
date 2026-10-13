@@ -480,6 +480,13 @@ reset() {
 }
 rc_of() { awk '/^rc=/ { print }' <<<"$1"; }
 logged() { if grep -qF -- "$1" "$LOG"; then echo yes; else echo no; fi; }
+# The installer is called as root after sudo_ready. Spec section 8 bug 11: the bash calls plain
+# `sudo` there, which can stop to prompt on a terminal-less run; the Go port calls `sudo -n`.
+if [[ "${CCY_TEAMS_IMPL:-bash}" == go ]]; then
+    SUDO_INSTALL="sudo -n /usr/local/sbin/agent-bus-install"
+else
+    SUDO_INSTALL="sudo /usr/local/sbin/agent-bus-install"
+fi
 # run_picker <dir> <answers...> — the real ccy-teams picker in <dir>, under a terminal.
 run_picker() {
     local dir="$1"
@@ -841,12 +848,12 @@ check_has "Enter on a team shows the same help" "Colours:" "$out"
 echo "== backup and restore"
 reset
 "$TOOL" backup alpha 2>"$SCRATCH/err"
-check "backup runs backup-now through sudo" "yes" "$(logged 'sudo /usr/local/sbin/agent-bus-install backup-now --team alpha')"
+check "backup runs backup-now through sudo" "yes" "$(logged "$SUDO_INSTALL backup-now --team alpha")"
 "$TOOL" backup 2>"$SCRATCH/err"
 check "  and needs a team" "64" "$?"
 "$TOOL" restore alpha 2 --yes 2>"$SCRATCH/err"
 check "restore <team> <n> --yes restores that backup" "yes" \
-    "$(logged 'sudo /usr/local/sbin/agent-bus-install restore --team alpha --backup 2')"
+    "$(logged "$SUDO_INSTALL restore --team alpha --backup 2")"
 reset
 "$TOOL" restore alpha 2 </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "without a terminal a restore needs --yes" "64" "$?"
@@ -1206,7 +1213,7 @@ check "  and takes no --yes" "64" "$?"
 fresh_states
 out="$(CCY_TEAMS_HOST_VARS="$STATES" run_in "$OUTSIDE" "$(printf '%s\n' ENTER '=Take it down, keep its data')" remove beta)"
 check "remove: a backup first by default, then down with the data kept" "rc=0" "$(rc_of "$out")"
-check "  the backup is taken first" "yes" "$(logged 'sudo /usr/local/sbin/agent-bus-install backup-now --team beta')"
+check "  the backup is taken first" "yes" "$(logged "$SUDO_INSTALL backup-now --team beta")"
 check_has "  the backup is offered, default yes" "gum confirm --default=true Back beta up first?" "$(cat "$LOG")"
 check_has "  beta is declared absent, its data kept" "purge: false" "$(cat "$STATES")"
 check "  the play runs for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
@@ -1225,7 +1232,7 @@ check_has "  declared absent with purge: true" "purge: true" "$(cat "$STATES")"
 fresh_states
 out="$(CCY_TEAMS_HOST_VARS="$STATES" run_in "$OUTSIDE" "$(printf '%s\n' NO '=Take it down, keep its data')" remove zeta)"
 check "a team built but not declared is taken down by the installer, after the same questions" "yes" \
-    "$(logged 'sudo /usr/local/sbin/agent-bus-install remove --team zeta')"
+    "$(logged "$SUDO_INSTALL remove --team zeta")"
 check_lacks "  never with --purge unless chosen" "--purge" "$(grep 'remove --team zeta' "$LOG")"
 
 fresh_states

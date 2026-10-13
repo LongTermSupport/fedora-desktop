@@ -177,7 +177,7 @@ func teamsListOf(args []string) string {
 		switch {
 		case arg == "--":
 			return list
-		case arg == "--teams":
+		case arg == flagTeams:
 			list = ""
 			if i+1 < len(args) {
 				list = args[i+1]
@@ -459,7 +459,7 @@ func (s *Snapshot) addMemberRows(a *App, team string, seats []seatAt) {
 		}
 		s.Rows = append(s.Rows, Row{
 			Team: team, Member: h.Name, Kind: kindHuman, State: roomWord(h.Membership),
-			Applied: signed, Session: "-", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-",
+			Applied: "-", Session: signed, Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-",
 		})
 	}
 }

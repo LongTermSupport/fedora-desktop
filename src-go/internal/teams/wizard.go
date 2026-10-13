@@ -858,7 +858,7 @@ func (c *creator) offerJoin(ctx context.Context, team, here string) error {
 		return err
 	}
 	c.term.Printf("Starting ccy --teams %s in %s.\n", team, shown)
-	if err = c.execLauncher(top, []string{c.launcher, "--teams", team}); err != nil {
+	if err = c.execLauncher(top, []string{c.launcher, flagTeams, team}); err != nil {
 		return fmt.Errorf("start ccy --teams %s: %w", team, err)
 	}
 	return nil

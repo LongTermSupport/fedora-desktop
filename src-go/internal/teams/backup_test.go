@@ -1,19 +1,22 @@
 package teams
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-func TestDispatchBackupAndRestoreAreNotBuiltYet(t *testing.T) {
-	for _, name := range []string{"backup", "restore"} {
-		h := newHarness(t)
-		if code := h.app.Run([]string{name, "alpha"}); code != term.ExitFailure {
-			t.Fatalf("%s: exit %d", name, code)
-		}
-		if want := "ccy-teams: " + name + " is not built yet in the Go port.\n"; h.errOut.String() != want {
-			t.Fatalf("%s: stderr %q, want %q", name, h.errOut.String(), want)
-		}
+func TestBackupAndRestoreAnswerTheirUsageErrors(t *testing.T) {
+	h := newHarness(t)
+	if code := h.app.backup(t.Context(), nil); code != term.ExitUsage {
+		t.Fatalf("backup exit %d", code)
+	}
+	if code := h.app.restore(t.Context(), []string{"--nope"}); code != term.ExitUsage {
+		t.Fatalf("restore exit %d", code)
+	}
+	if !strings.Contains(h.errOut.String(), "'backup' takes one team") ||
+		!strings.Contains(h.errOut.String(), "unknown restore option '--nope'") {
+		t.Fatalf("stderr %q", h.errOut.String())
 	}
 }
