@@ -77,13 +77,15 @@ today; rewriting them is out of scope.
 
 - [x] ✅ **Task 2.1**: The functional spec of the bash ccy-teams:
   [SPEC-ccy-teams.md](SPEC-ccy-teams.md).
-- [ ] 🔄 **Task 2.2**: Domain and adapters: teams/members/seats/humans/statuses; the
-  declare.py, agent-bus, systemd, sessions-registry, Element, gh adapters; each unit tested.
-- [ ] ⬜ **Task 2.3**: Flows: list, picker and keys, create wizard, apply, remove, password,
-  Element, new session, attach, restore, park; start-up offers.
-- [ ] ⬜ **Task 2.4**: Parity: `scripts/test-ccy-teams-command.bash` runs against the Go
-  binary and passes unchanged (where a check tests bash internals, it is rewritten to test
-  behaviour, said in the journal).
+- [x] ✅ **Task 2.2**: Domain and adapters: teams/members/seats/humans/statuses; the
+  declare.py, agent-bus, systemd, sessions-registry, Element, gh adapters; each unit tested
+  (`internal/term`, `sudo`, `systemd`, `tmuxccy`, `gitx`, `registry`, `agentbus`, `declare`,
+  `marker`).
+- [x] ✅ **Task 2.3**: Flows: list, picker and keys, create wizard, apply, remove, password,
+  Element, new session, attach, restore, park; start-up offers (`internal/teams`).
+- [ ] 🔄 **Task 2.4**: Parity: `scripts/test-ccy-teams-command.bash` runs against the Go
+  binary (`CCY_TEAMS_IMPL=go`) and passes; where a check tests bash internals or a bug the
+  port fixes (the spec's section 8), it is made mode-conditional, said in the journal.
 - [ ] ⬜ **Task 2.5**: Cut-over: `play-claude-yolo.yml` builds and installs the binary; the
   bash `ccy-teams.j2` is deleted in the same commit; docs updated; CCY version bump.
 
@@ -103,7 +105,10 @@ today; rewriting them is out of scope.
 
 ### Phase 4: ccy-sessions, then ccy
 
-- [ ] ⬜ **Task 4.1**: ccy-sessions in Go on the shared packages, by the same method.
+- [ ] 🔄 **Task 4.1**: ccy-sessions in Go on the shared packages, by the same method:
+  [SPEC-ccy-sessions.md](SPEC-ccy-sessions.md); the shared adapters (`tmuxccy`, `registry`,
+  `execx` additions; `screen`, `transcript`, `restore`, `sessprobe`) are built; the flows
+  and parity against its suites are in progress.
 - [ ] ⬜ **Task 4.2**: The ccy launcher: assess and plan (about 4,000 lines and the container
   boundary); decide with the owner.
 
