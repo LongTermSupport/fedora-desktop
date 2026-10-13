@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - In Progress. `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
+
 - [00176-dash-to-dock-stays-up-over-windows-again](00176-dash-to-dock-stays-up-over-windows-again/) - Blocked on the owner (five observations at the screen). Dash to Dock stays up over Ptyxis again. Plan 00102's `ALL_WINDOWS` fix is intact and cannot explain it, so the cause is an urgent reveal, hover, or a stale monitor index after DisplayLink re-layouts; the answers decide which, then the fix goes in `play-gnome-shell-extensions.yml`.
 
 - [00174-polyglot-tooling-folders-with-qa-ci](00174-polyglot-tooling-folders-with-qa-ci/) - Not Started. Tooling is not bound to Python: one folder per language (`tooling-rust/`, `tooling-python/`, ...), each with its first-party QA pipeline (LongTermSupport `rust-qa-ci`, `py-qa-ci`), wired into `qa-all.bash` and deployed by Ansible. First consumer: Plan 00155's Rust key mapper.
