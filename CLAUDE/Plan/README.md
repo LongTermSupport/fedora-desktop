@@ -42,7 +42,7 @@ Use these Unicode icons in plan documents:
 
 - [00174-polyglot-tooling-folders-with-qa-ci](00174-polyglot-tooling-folders-with-qa-ci/) - Not Started. Tooling is not bound to Python: one folder per language (`tooling-rust/`, `tooling-python/`, ...), each with its first-party QA pipeline (LongTermSupport `rust-qa-ci`, `py-qa-ci`), wired into `qa-all.bash` and deployed by Ansible. First consumer: Plan 00155's Rust key mapper.
 
-- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (host deploy, evening test, failed-dnf question). On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
+- [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (Phase 3 host deploy; whether cc sessions should be shown the warning). Evening run accepted. On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
 
 - [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - Not Started. With a Bluetooth headset chosen as GNOME's input, dictation still recorded from the laptop microphone: PipeWire's default source never became the headset, and the headset stayed in A2DP (no microphone). Triage why GNOME and PipeWire disagree, fix it in `play-hd-audio.yml` (dictation keeps following the system input), then measure the headset's level and add gain only if needed.
 

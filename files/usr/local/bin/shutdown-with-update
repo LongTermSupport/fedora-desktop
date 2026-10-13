@@ -8,6 +8,8 @@
 # decides only the last step:
 #   shutdown-with-update [--in N]   shutdown -h now
 #   reboot-with-update [--in N]     systemctl reboot
+# A cc session is named but not shown the warning: the ccy supervisor shows it, and cc runs
+# claude without one (ccy-sessions check_projects).
 # The warning kind is NOT the name's: ccy-sessions picks it by whether the user's session
 # restore is enabled, because that is what decides whether an agent should hand off.
 # Both run as root via sudo from the desktop user and need SUDO_USER: the sessions belong
@@ -169,7 +171,9 @@ while [ $# -gt 0 ]; do
         echo ""
         echo "On a desktop nothing a session does stops it: a session that cannot be warned"
         echo "is reported and the $MODE goes ahead, past any inhibitor. ccy sessions with no"
-        echo "container (still at ccy's startup prompts) are left out altogether. A failed"
+        echo "container (still at ccy's startup prompts) are left out altogether. cc sessions"
+        echo "(claude on the host) are named but never shown the warning: only the ccy"
+        echo "supervisor shows it, so finish or hand off in those yourself. A failed"
         echo "update step, dnf included, is logged (journalctl -t shutdown-with-update) and"
         echo "the $MODE still happens."
         echo "On a server, or with --strict-sessions, a session that cannot be warned stops it"

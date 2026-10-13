@@ -26,6 +26,10 @@ power action always happen: a session that cannot be warned, a warning that fail
 hangs (each `ccy-sessions` call is bounded by `timeout`), and inhibitors are reported and
 gone past. On a server, or with `--strict-sessions`, the session-strict behaviour stays.
 
+Where it stands: deployed, and the owner's evening run updated and powered off (Task 2.2).
+The failed-`dnf` question is settled (Technical Decisions). Open: merge and deploy Phase 3,
+the owner's choice in Task 3.3, and confirming the success criterion's container-less case.
+
 ## Goals
 
 - A desktop `shutdown-with-update` always updates and shuts down, and nothing in it waits
@@ -70,9 +74,28 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
 - [x] ✅ **Task 2.1**: This plan's `deploy.bash` ran on the host through meta-deploy:
   `play-basic-configs.yml` (the script and the profile file) and `play-claude-yolo.yml`
   (`ccy-sessions`), both failed=0.
-- [ ] ⬜ **Task 2.2**: Owner runs `shutdown-with-update` in an evening with a ccy session
-  left at its startup prompt; the machine updates and powers off.
+- [x] ✅ **Task 2.2**: Owner runs `shutdown-with-update` in an evening with a ccy session
+  left at its startup prompt; the machine updates and powers off. The owner ran it in full
+  and rebooted next morning: "all worked fine". The report does not say whether a ccy
+  session was at its startup prompt (Success Criteria).
 - [x] ✅ **Task 2.3**: qa-reviewer pass on the branch; its findings fixed in f1ac2371.
+
+### Phase 3: cc sessions are not shown the warning
+
+The owner saw no warning in a `cc` session in this repo during the Task 2.2 run. By design
+nothing on the host shows one: the daemon's `signal` writes a per-session file, and only
+the ccy supervisor reads it; `cc` runs `claude` with no supervisor. The code and docs
+claimed cc sessions were warned (journal, 26-10-13).
+
+- [x] ✅ **Task 3.1**: Every warning from `ccy-sessions` names each cc session on stderr as
+  not shown the warning; comments, `shutdown-with-update --help` and `docs/ccy.md` say what
+  really happens; `scripts/test-ccy-sessions-reboot.bash` covers it.
+- [ ] ⬜ **Task 3.2**: This plan's `deploy.bash` runs on the host through meta-deploy
+  (`play-claude-yolo.yml` for `ccy-sessions`, `play-basic-configs.yml` for the help text).
+- [ ] ⬜ **Task 3.3**: Owner decision: whether cc sessions should be shown the warning at all.
+  The two routes are running the project supervisor in `cc`, as ccy's entrypoint does, or a
+  daemon handler that shows a pending signal on the session's next hook event (upstream,
+  and an idle session never gets it). Either is its own plan.
 
 ## Technical Decisions
 
@@ -89,8 +112,11 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
 ## Success Criteria
 
 - [ ] With a container-less ccy session open, `shutdown-with-update` on the desktop
-  updates and powers off without asking anything.
+  updates and powers off without asking anything. The Task 2.2 run updated and powered
+  off; whether such a session was open is the owner's to confirm.
 - [x] The test suite proves the desktop and strict paths under fakes.
+- [ ] Whoever runs `shutdown-with-update` is told which sessions will not see the warning
+  (proved under fakes; Task 3.2 deploys it).
 
 ## Delivery & Milestones
 
@@ -98,4 +124,7 @@ gone past. On a server, or with `--strict-sessions`, the session-strict behaviou
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00173-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Fix, tests and review fixes on F44 (beada13c, f1ac2371), awaiting the host deploy.
+- Fix, tests and review fixes on F44 (beada13c, f1ac2371); deployed and accepted by the
+  owner's evening run (Task 2.2).
+- Phase 3 (cc sessions named as not shown the warning) on a work branch, awaiting merge
+  and the host deploy.

@@ -6,7 +6,8 @@
 #   /etc/fedora-desktop/provisioning-profile and deploys shutdown-with-update (and its
 #   reboot-with-update link): on a desktop the update and the power action always happen.
 #   play-claude-yolo.yml — deploys ccy-sessions, which leaves a ccy session with no
-#   container out of every warning instead of refusing over it.
+#   container out of every warning instead of refusing over it, and names each cc session
+#   as one the warning is not shown in.
 #
 # Usage: ./deploy.bash [--check] [-y|--yes] [-h|--help]
 set -euo pipefail
@@ -31,8 +32,7 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: deploy.bash [--check] [-y|--yes] [-h|--help]
 
-Runs play-basic-configs.yml and play-claude-yolo.yml on the HOST. Then, some evening, leave
-a ccy session at its startup prompt and run shutdown-with-update (Task 2.2)."
+Runs play-basic-configs.yml and play-claude-yolo.yml on the HOST."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -56,7 +56,7 @@ plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
 
 printf '\n'
-printf 'Deploy done. Next (Task 2.2): some evening, leave a ccy session at its startup prompt\n'
-printf 'and run shutdown-with-update; the machine should update and power off unasked.\n'
+printf 'Deploy done. The next shutdown-with-update names any cc session as "not shown" the\n'
+printf 'warning, so it can be finished or handed off by hand before the countdown ends.\n'
 
 plan_finish

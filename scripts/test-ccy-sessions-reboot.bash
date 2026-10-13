@@ -394,6 +394,32 @@ check "an explicit shutdown-warning is still delivered" "2" \
     "$(calls | grep -c 'signal shutdown-warning --minutes 4 --all-sessions')"
 
 echo ""
+echo "=== notify: a cc session is named as not shown the warning (no supervisor on the host) ==="
+# Only the ccy supervisor reads the signal file and shows the warning; cc runs claude bare.
+NS="$SCRATCH/not-shown"
+mkdir -p "$NS"
+printf '%s\n' "cc-a 1 $A" "ccy-b 0 $B" >"$SESSIONS"
+printf '%s\n' "ccy-b 700" >"$NS/panes"
+printf '%s\n' "700 1 bash" "710 700 podman run --rm --name b_yolo claude-yolo:latest" >"$NS/ps"
+TEST_PANES="$NS/panes" TEST_PS="$NS/ps" run notify going-down --minutes 3
+check "a warning with a cc session open still succeeds" "0" "$rc"
+check "  the cc session is named as not shown the warning" "yes" \
+    "$([[ "$out" == *"Not shown the warning"* && "$out" == *"cc-a  in $A"* ]] && echo yes || echo no)"
+check "  the ccy session with a container is not named" "0" "$(grep -c '^  ccy-b  in ' <<<"$out")"
+check "  and the cc session's project is still signalled" "1" \
+    "$(calls | grep -cF "cli[$A] signal reboot-warning --minutes 3 --all-sessions --project-root $A")"
+TEST_PANES="$NS/panes" TEST_PS="$NS/ps" run notify going-down --minutes 3 --dry-run
+check "  the dry run (shutdown-with-update's rehearsal) names it too" "yes" \
+    "$([[ "$out" == *"Not shown the warning"* && "$out" == *"cc-a  in $A"* ]] && echo yes || echo no)"
+TEST_PANES="$NS/panes" TEST_PS="$NS/ps" run notify reboot-cancelled
+check "  a withdrawal does not name it (there was nothing to show)" "no" \
+    "$([[ "$out" == *"Not shown the warning"* ]] && echo yes || echo no)"
+printf '%s\n' "ccy-b 0 $B" >"$SESSIONS"
+TEST_PANES="$NS/panes" TEST_PS="$NS/ps" run notify going-down --minutes 3
+check "  with no cc session, nothing is named" "no" \
+    "$([[ "$out" == *"Not shown the warning"* ]] && echo yes || echo no)"
+
+echo ""
 echo "=== notify: a project with no daemon CLI is a refusal, not a skip ==="
 printf '%s\n' "cc-a 1 $A" "cc-x 0 $NOCLI" >"$SESSIONS"
 run notify reboot-warning --minutes 5
@@ -803,6 +829,8 @@ check "  it is named as left out" "yes" \
     "$([[ "$out" == *"Left out"* && "$out" == *"ccy-s  in $BROKEN"* ]] && echo yes || echo no)"
 check "  its project's CLI is never asked anything" "0" "$(calls | grep -cF "cli[$BROKEN]")"
 check "  the live session is still warned" "1" "$(calls | grep -c "signal shutdown-warning --minutes 1 ")"
+check "  the cc session is named where the person running it sees it" "yes" \
+    "$([[ "$out" == *"Not shown the warning"* && "$out" == *"cc-a  in $A"* ]] && echo yes || echo no)"
 check "  the updates ran" "1" "$(calls | grep -c '^dnf -y upgrade$')"
 check "  and the machine shuts down" "1" "$(calls | grep -c '^shutdown -h now$')"
 TEST_PROFILE=server with_update shutdown-with-update "$HOME_OFF" "" --in 1

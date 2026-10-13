@@ -400,7 +400,13 @@ The CLI is run where the project's daemon has its venv. For a project with a ccy
 that is inside the session's container (`podman exec`, against `/workspace`): most projects
 run only ccy, and their daemon has no venv on the host. A project with only `cc` sessions
 is reached on the host. The signal is a file in the project's own tree, so one delivery
-reaches every session of that project.
+reaches every `ccy` session of that project.
+
+**A `cc` session is never shown the warning.** The ccy supervisor is what reads the signal
+and puts the text in front of the agent, and `cc` runs `claude` on the host with no
+supervisor; a `claude` started outside `cc` is not on CCY's tmux server at all. Every
+warning names each `cc` session on stderr as one it is not shown in, so finish or hand
+off in those yourself before the countdown ends.
 
 Before it warns anyone, the helper checks everything that would stop the reboot, and
 reports all of it at once (since CCY 3.82.0):

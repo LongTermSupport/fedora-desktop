@@ -78,6 +78,8 @@
 # signalled, and reboot reboots nothing. Exit 64 for a usage mistake, 1 for a refusal.
 # A ccy session with no container found in its process tree (at ccy's startup prompts, or
 # its container has exited) has no agent to warn: it is named on stderr and left out.
+# A cc session is named on stderr too, as one the warning is not shown in: the ccy
+# supervisor shows it, and cc runs claude without one.
 #
 # The daemon's two warning texts differ in what an agent does next — carry on because it
 # will be restored, or wind down and hand off because it will not — so `going-down` (and
@@ -220,7 +222,9 @@ session_containers() {
 # inside the container: most projects run only ccy, and their daemon has no venv on the
 # host at all. A project with only cc sessions is reached on the host. A signal is a file in
 # the project's own tree, which the container and the host share, so one delivery per
-# project reaches every session in it, ccy and cc alike.
+# project reaches every ccy session in it. Only the ccy supervisor reads that file and shows
+# the warning; cc runs claude with no supervisor, so a cc session is never shown it, and a
+# warning names every cc session as such (check_projects).
 #
 # set_route <dir> — sets ROUTE_CMD (the daemon CLI command), ROUTE_ROOT (its project root)
 # and ROUTE_VIA (text naming the container, or empty), from ROUTE_ENGINE / ROUTE_CONTAINER.
@@ -259,7 +263,7 @@ PROJECTS=()
 check_projects() {
     local kind="${1}"
     local listing containers name attached dir engine container
-    local -a missing=() broken=() idle=()
+    local -a missing=() broken=() idle=() unshown=()
     local -A sessions_of=() probe_of=() engine_of=() container_of=()
     PROJECTS=()
     ROUTE_ENGINE=()
@@ -287,6 +291,9 @@ check_projects() {
             idle+=("  ${name}  in ${dir}")
             continue
         fi
+        if [[ "${name}" == cc-* ]]; then
+            unshown+=("  not shown: ${name}  in ${dir}")
+        fi
         if [[ -z "${sessions_of[${dir}]+set}" ]]; then
             PROJECTS+=("${dir}")
             sessions_of["${dir}"]="${name}"
@@ -302,6 +309,10 @@ check_projects() {
     if [[ "${#idle[@]}" -gt 0 ]]; then
         echo "Left out: no container was found in these ccy sessions' process trees (still at ccy's startup prompts, or the container has exited), so there is no agent in them to warn:" >&2
         printf '%s\n' "${idle[@]}" >&2
+    fi
+    if [[ "${kind}" != reboot-cancelled && "${#unshown[@]}" -gt 0 ]]; then
+        echo "Not shown the warning: these cc sessions run claude on the host with no ccy supervisor, and the supervisor is what puts the warning in front of an agent. Their project is still signalled (any ccy session in it is told); finish or hand off in these yourself:" >&2
+        printf '%s\n' "${unshown[@]}" >&2
     fi
     [[ "${#PROJECTS[@]}" -gt 0 ]] || return 0
 
