@@ -1,6 +1,6 @@
 # Plan 00171: Speech-to-text: Insert is never ignored, the icon is always in sync
 
-**Status**: In Progress (Phases 2, 3 and 5 built and tested; deploy and host acceptance pending)
+**Status**: In Progress (all built and reviewed; the owner played the replay, 15 of 16 checks passed. Remaining: the next meta-deploy run of `acceptance.bash`, which names the state of each ignored press (settling the orange-dots check) and gives the #96 gap; its evidence then goes on #96 for the owner to close)
 **Created**: 2026-10-12
 **Owner**: joseph
 **Priority**: High
@@ -119,19 +119,29 @@ The owner's requirements:
 ### Phase 4: Deploy and verify
 
 - [ ] 🔄 **Task 4.1**: `deploy.bash` (`play-speech-to-text.yml`) and `acceptance.bash`. The
-  acceptance replays the incident: Insert within 0.5 s of SUCCESS, then Insert again;
-  the second press must stop the new dictation. Debug-log lines are the evidence. What
+  acceptance replays the incident: Insert right after SUCCESS, then Insert again; the
+  probe judges the press that started B by its gap from A's SUCCESS (within 1 s of the
+  paste or not, Task 4.4), not by a fixed 0.5 s; the second press must stop the new
+  dictation. Debug-log lines are the evidence. What
   needs eyes on the panel is NOT ESTABLISHABLE and is listed for the owner. Add the
   plan to `meta-deploy.bash`; an extension change needs a logout, so it runs in two
   rounds. Written: `deploy.bash`, `acceptance.bash` and `probe-insert-sequence.py`, which
   judges the latest replay in the panel's debug log (since Task 5.11: a press in the grace
   and one while rendering must do nothing but flash BLOCKED, nothing may start by itself,
   and the next dictation must start at a fresh press and stop at the one after).
-  Open: the `meta-deploy.bash` rounds (round 1 `deploy.bash`, logout, the replay, round 2
-  `acceptance.bash`) and the host run.
+  Done on 26-10-13: the owner logged out and played the replay; 15 of 16 checks passed, and
+  the owner confirmed the stop icon and their orange-dots presses work. The one NOT
+  ESTABLISHED check ("a press while A was transcribing or pasting did nothing") came from an
+  ambiguous instruction: STOPPING and TRANSCRIBING share the orange-dots look, so those
+  presses landed in the grace. The probe now lists each ignored press with its state
+  (`29cd4478`) and its instruction says the grace shows orange dots too.
+  Open: the next `meta-deploy.bash` run of `acceptance.bash`, which names each press's
+  state and gives the #96 gap. The red recording timer stays (owner's decision).
 - [x] ✅ **Task 4.2**: Docs: the Insert table in `docs/features/speech-to-text.md`.
-- [ ] 🔄 **Task 4.3**: `./scripts/qa-all.bash`, ESLint for the extension, then the
-  `qa-reviewer` agent over the plan's diff. Targeted gates pass (`test-panel-sections.bash`,
+- [x] ✅ **Task 4.3**: `./scripts/qa-all.bash`, ESLint for the extension, then the
+  `qa-reviewer` agent over the plan's diff. The closeout pass is done
+  ([report](subagent-reports/261013-closeout-probe-gap-review-96.md)); its FIX-BEFORE-MERGE
+  items are fixed (the report's section 2, the SUCCESS-only gap measure, this catch-up). Targeted gates pass (`test-panel-sections.bash`,
   `test-wsi-stop-grace.bash`, ESLint, `qa-bash`, `qa-python`, `qa-js`, `qa-patterns`,
   `qa-docs`, the speech-to-text rule gates, `--syntax-check` of the play); the full
   `qa-all.bash` is the coordinator's.
@@ -140,7 +150,11 @@ The owner's requirements:
   orphaned. Built by Tasks 2.1 (token), 2.3 (no IDLE after SUCCESS) and 5.11 (Decision 8),
   and covered by the stale-IDLE case in `test-stt-panel-session.mjs` (Task 2.4). Remaining:
   Task 4.1's host replay must include a press within 1 s of the paste, and its evidence goes
-  on #96 for the owner to close.
+  on #96 for the owner to close. The probe now measures it (`5a8f6d68`, `51c0ea85`): it prints
+  how soon after A's SUCCESS (not IDLE or ERROR) the press that started B came, and whether
+  that was within 1 s of the paste. A "no" can also mean an early press was blocked between
+  SUCCESS and A's exit; the per-press list shows which. The draft comment for #96 is in the
+  [closeout report](subagent-reports/261013-closeout-probe-gap-review-96.md) section 3.
 
 ### Phase 5: The microphone, and the review's fixes (tests first)
 
