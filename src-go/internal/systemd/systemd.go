@@ -1,0 +1,156 @@
+// Package systemd is the tools' view of systemd: the agent-bus homeserver units, and the
+// launch of Element in a scope of its own.
+package systemd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+)
+
+const (
+	unitPrefix = "agent-bus-hs@"
+	unitSuffix = ".service"
+	tailLines  = 5
+)
+
+// Systemd runs systemctl and systemd-run through a Runner.
+type Systemd struct {
+	Runner execx.Runner
+}
+
+// Unit is one line of "systemctl list-units": the unit, its load, active and sub states,
+// and the description (the rest of the line).
+type Unit struct {
+	Name, Team, Load, Active, Sub, Description string
+}
+
+// HomeserverUnits lists every agent-bus-hs@* service unit systemd knows, loaded or not.
+func (s *Systemd) HomeserverUnits(ctx context.Context) ([]Unit, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: "systemctl", Args: []string{
+		"list-units", "--all", "--plain", "--no-legend", "--type=service", unitPrefix + "*",
+	}})
+	if err != nil {
+		return nil, fmt.Errorf("systemctl could not list the agent-bus homeserver units: %w", err)
+	}
+	var units []Unit
+	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || !strings.HasPrefix(fields[0], unitPrefix) || !strings.HasSuffix(fields[0], unitSuffix) {
+			continue
+		}
+		u := Unit{Name: fields[0], Team: strings.TrimSuffix(strings.TrimPrefix(fields[0], unitPrefix), unitSuffix)}
+		rest := []*string{&u.Load, &u.Active, &u.Sub}
+		for i, field := range fields[1:] {
+			if i >= len(rest) {
+				u.Description = strings.Join(fields[1+len(rest):], " ")
+				break
+			}
+			*rest[i] = field
+		}
+		units = append(units, u)
+	}
+	return units, nil
+}
+
+// HomeserverState is "up", or "down (<systemd's word>)". A non-zero is-active exit is the
+// answer, not a failure; only a systemctl that could not run is an error.
+func (s *Systemd) HomeserverState(ctx context.Context, team string) (string, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: "systemctl", Args: []string{"is-active", unitPrefix + team + unitSuffix}})
+	state := strings.TrimSpace(string(res.Stdout))
+	if err != nil {
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr == nil {
+			return "", err
+		}
+	} else if state == "active" {
+		return "up", nil
+	}
+	if state == "" {
+		state = "unknown"
+	}
+	return "down (" + state + ")", nil
+}
+
+// ElementLogPath is where a team's Element messages go: under stateHome (XDG_STATE_HOME)
+// or ~/.local/state when that is empty.
+func ElementLogPath(stateHome, home, team string) string {
+	if stateHome == "" {
+		stateHome = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(stateHome, "ccy-teams", "element-"+team+".log")
+}
+
+// Launch is one start of a team's Element. PID makes the scope's unit name unique per run
+// of the tool.
+type Launch struct {
+	Team    string
+	Desktop string // the team's Element launcher (.desktop file)
+	PID     int
+	Log     string
+}
+
+// LaunchError is a failed Element launch, with the end of the log for the person to see.
+type LaunchError struct {
+	Log  string
+	Tail string
+	Err  error
+}
+
+func (e *LaunchError) Error() string {
+	return fmt.Sprintf("Element did not start; its messages are in %s: %v", e.Log, e.Err)
+}
+
+// Unwrap exposes the underlying failure.
+func (e *LaunchError) Unwrap() error { return e.Err }
+
+// LaunchElement starts Element as the desktop would, independent of this terminal: in its
+// own user scope (closing a terminal tab ends everything in the tab's scope) and its own
+// session (no hangup), with its chatter (Electron logs a great deal) appended to the log
+// file, not among the picker's lines. gio returns once Element is started, so a non-zero
+// exit is a failed launch.
+func (s *Systemd) LaunchElement(ctx context.Context, l Launch) error {
+	if err := os.MkdirAll(filepath.Dir(l.Log), 0o750); err != nil {
+		return fmt.Errorf("create the Element log directory: %w", err)
+	}
+	logFile, err := os.OpenFile(l.Log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open the Element log: %w", err)
+	}
+	_, runErr := s.Runner.Run(ctx, execx.Cmd{
+		Name: "systemd-run",
+		Args: []string{
+			"--user", "--scope", "--quiet", "--collect",
+			"--unit", "ccy-teams-element-" + l.Team + "-" + strconv.Itoa(l.PID),
+			"--description", "Element for agent team " + l.Team, "--",
+			"setsid", "-w", "gio", "launch", l.Desktop,
+		},
+		Stdout: logFile,
+		Stderr: logFile,
+	})
+	if closeErr := logFile.Close(); closeErr != nil {
+		return fmt.Errorf("close the Element log: %w", closeErr)
+	}
+	if runErr == nil {
+		return nil
+	}
+	return &LaunchError{Log: l.Log, Tail: logTail(l.Log), Err: runErr}
+}
+
+// logTail is the last few lines of the log; an unreadable log has no tail to show.
+func logTail(path string) string {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) > tailLines {
+		lines = lines[len(lines)-tailLines:]
+	}
+	return strings.Join(lines, "\n")
+}
