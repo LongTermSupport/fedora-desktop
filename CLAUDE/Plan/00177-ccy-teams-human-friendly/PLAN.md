@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4 built; review fixes, then the owner's host test)
+**Status**: In Progress (Phase 4 built and reviewed; waiting on the owner's host test, Task 5.1)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -113,10 +113,12 @@ offer to create a team when there is none; think about the UX; do a full critica
   per user, asked before the seat is made. [report](subagent-reports/task-4.10-cc-teams.md).
   Not yet run on the host.
 
-- [ ] 🔄 **Task 4.11**: The `qa-reviewer` over Phase 4, and its fixes.
-  [report](subagent-reports/261013-qa-reviewer-phase4.md). Fixed: the guard test (CCY
-  3.95.1) and the meta-deploy list. Open: the acceptance asked before the seat, the
-  write-access check for `create --yes`, and the advisories.
+- [x] ✅ **Task 4.11**: The `qa-reviewer` over Phase 4, and its fixes.
+  [report](subagent-reports/261013-qa-reviewer-phase4.md). All fixed: the guard test, the
+  meta-deploy list, the acceptance asked before the seat, the write-access check for
+  `create --yes`, the bus address asked by create (never "edit localhost.yml"), and the
+  advisories (container 2.52, CCY 3.95.2).
+  [fixes](subagent-reports/261013-p177-fixes-sonnet.md). Full QA passes.
 
 ### Phase 5: Host
 
