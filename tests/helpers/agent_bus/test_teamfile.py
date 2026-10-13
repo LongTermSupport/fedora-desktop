@@ -263,6 +263,52 @@ class OrgTest(unittest.TestCase):
         self.assertIsNone(teamfile.parse_team_file(VALID).org)
 
 
+class ExcludeTest(unittest.TestCase):
+    """D64: an optional `exclude`, repository names of the team's `org` it never trusts."""
+
+    def test_exclude_parses_dumps_and_is_a_valid_record(self) -> None:
+        data = _with(org="example-org", exclude=["hidden", "also.hidden"])
+        tf = teamfile.parse_team_file(data)
+        self.assertEqual(tf.exclude, ("hidden", "also.hidden"))
+        self.assertEqual(json.loads(teamfile.dump_team_file(tf))["exclude"], ["hidden", "also.hidden"])
+        self.assertEqual(teamfile.parse_team_file(json.loads(teamfile.dump_team_file(tf))), tf)
+        record = {"v": protocol.PROTOCOL_VERSION, "team": tf.team, "humans": [f"@{h}:{tf.server_name}" for h in tf.humans],
+                  "roles": {}, "org": tf.org, "exclude": list(tf.exclude),
+                  "repos": [r.as_dict() for r in tf.repos], "forge_api": tf.forge_api}
+        self.assertEqual(protocol.parse_team_record(record, tf.server_name, tf.team).exclude, tf.exclude)
+
+    def test_without_exclude_the_canonical_file_is_unchanged(self) -> None:
+        """An applied stamp's config digest must not move for a team that sets none."""
+        tf = teamfile.parse_team_file(_with(org="example-org"))
+        self.assertEqual(tf.exclude, ())
+        self.assertNotIn("exclude", tf.as_dict())
+
+    def test_the_bound_is_the_repos_bound(self) -> None:
+        self.assertEqual(protocol.EXCLUDE_MAX, protocol.REPOS_MAX)
+        names = [f"r{i}" for i in range(protocol.EXCLUDE_MAX)]
+        teamfile.parse_team_file(_with(org="example-org", exclude=names))
+        with self.assertRaises(teamfile.TeamFileError):
+            teamfile.parse_team_file(_with(org="example-org", exclude=names + ["one-more"]))
+
+    def test_refusals_name_the_key(self) -> None:
+        cases = {
+            "no org": _with(exclude=["hidden"]),
+            "empty": _with(org="example-org", exclude=[]),
+            "duplicate": _with(org="example-org", exclude=["a", "a"]),
+            "upper case": _with(org="example-org", exclude=["Hidden"]),
+            "owner/repo": _with(org="example-org", exclude=["example-org/hidden"]),
+            "dotdot": _with(org="example-org", exclude=[".."]),
+            ".git": _with(org="example-org", exclude=["x.git"]),
+            "not a string": _with(org="example-org", exclude=[5]),
+            "not a list": _with(org="example-org", exclude="hidden"),
+            "also listed": _with(org="example-org", exclude=["myrepo"]),
+        }
+        for name, data in cases.items():
+            with self.subTest(case=name), self.assertRaises(teamfile.TeamFileError) as caught:
+                teamfile.parse_team_file(data)
+            self.assertIn("exclude", str(caught.exception), name)
+
+
 class StampTest(unittest.TestCase):
     """D65: the applied stamp's digests, shared by the installer and ccy-teams."""
 

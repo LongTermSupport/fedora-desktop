@@ -132,14 +132,16 @@ SECRET_PATTERNS = (
      r"|private[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,}"),
 )
 
-TEAM_KEYS = ("v", "team", "humans", "roles", "org", "repos", "path_prefixes", "forge_api")
+TEAM_KEYS = ("v", "team", "humans", "roles", "org", "exclude", "repos", "path_prefixes", "forge_api")
 #: Keys a team record may leave out (spec §8); every other key is required.
-TEAM_OPTIONAL_KEYS = ("org", "path_prefixes")
+TEAM_OPTIONAL_KEYS = ("org", "exclude", "path_prefixes")
 FORGE_API_PATTERN = r"https://[^\s/]+(/\S*)?"
 HUMANS_MAX = 16
 ROLES_MAX = 64
 REPOS_MIN = 0
 REPOS_MAX = 32
+#: The same bound as `repos`: both are lists of the team's repositories (spec §11).
+EXCLUDE_MAX = REPOS_MAX
 BRANCHES_MAX = 8
 PATH_PREFIXES_MAX = 32
 STATUS_KEYS = ("v", "state", "until")
@@ -148,7 +150,7 @@ HUMAN_POWER = 50
 
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
-    "allowlist", "re", "body", "stale", "rate", "unresolved", "provenance",
+    "allowlist", "excluded", "re", "body", "stale", "rate", "unresolved", "provenance",
 )
 #: The ignore reason for an agent's text that does not name the receiving agent (spec §7,
 #: §9): it is for others, so the agent skips it silently and it is never a drop.
@@ -218,6 +220,7 @@ _BRANCH_RE = re.compile(BRANCH_PATTERN)
 _PATH = rf"{SEG_PATTERN}(?:/{SEG_PATTERN}){{0,{PATH_MAX_SEGMENTS - 1}}}"
 _PATH_RE = re.compile(_PATH)
 _OWNER_RE = re.compile(OWNER_PATTERN)
+_REPO_NAME_RE = re.compile(REPO_PATTERN)
 _OWNER_REPO = rf"(?P<owner>{OWNER_PATTERN})/(?P<repo>{REPO_PATTERN})"
 _OWNER_REPO_RE = re.compile(_OWNER_REPO)
 _REF_RES = {
@@ -279,7 +282,8 @@ class Context:
 
     `roles` maps agent user IDs to `orchestrator`/`worker`; `repos` maps `owner/repo` to
     its trusted branches, () for any branch; `org` is the GitHub owner every repository of which is trusted on
-    any of its branches (the ping's, else the default), or None; `humans` are the team's human user IDs.
+    any of its branches (the ping's, else the default), or None; `exclude` names repositories of
+    that org the team never trusts or lets a ping name (spec §11); `humans` are the team's human user IDs.
     """
 
     server_name: str
@@ -288,6 +292,7 @@ class Context:
     repos: Mapping[str, Sequence[str]]
     path_prefixes: Sequence[str]
     org: str | None = None
+    exclude: Sequence[str] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -299,9 +304,11 @@ class TeamRecord:
     path_prefixes: tuple[str, ...]
     forge_api: str
     org: str | None = None
+    exclude: tuple[str, ...] = ()
 
     def context(self, server_name: str) -> Context:
-        return Context(server_name, self.humans, self.roles, self.repos, self.path_prefixes, self.org)
+        return Context(server_name, self.humans, self.roles, self.repos, self.path_prefixes, self.org,
+                       self.exclude)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -440,6 +447,11 @@ def _repo_name_ok(repo: str) -> bool:
 def is_owner(value: object) -> bool:
     """A lowercase GitHub owner, as a team's `org` names it (spec §8, §11)."""
     return _full(_OWNER_RE, value) is not None
+
+
+def is_excluded(ref: Ref, org: str | None, exclude: Sequence[str]) -> bool:
+    """Whether the reference names a repository of the org that the team excludes (spec §11)."""
+    return org is not None and ref.owner == org and ref.repo in exclude
 
 
 def ref_source(ref: Ref, org: str | None, repos: Mapping[str, Sequence[str]]) -> str:
@@ -594,6 +606,8 @@ def _check_ref(value: object, rule: VerbRule, ctx: Context) -> tuple[Ref | None,
     ref = check_ref_form(value, rule)
     if ref is None:
         return None, None
+    if is_excluded(ref, ctx.org, ctx.exclude):
+        raise Refusal("excluded")
     if ref_source(ref, ctx.org, ctx.repos) == SOURCE_EXTERNAL:
         if not rule.external:
             raise Refusal("allowlist")
@@ -832,6 +846,23 @@ def _parse_repos(value: object) -> dict[str, tuple[str, ...]]:
     return repos
 
 
+def is_repo_name(value: object) -> bool:
+    """A lowercase repository name without its owner, as a team's `exclude` names one."""
+    m = _full(_REPO_NAME_RE, value)
+    return m is not None and _repo_name_ok(value)
+
+
+def _parse_exclude(value: object, org: str | None, repos: Mapping[str, Sequence[str]]) -> tuple[str, ...]:
+    """`exclude` as the org's repository names (spec §11): needs an `org`, 1 to EXCLUDE_MAX
+    distinct names, none also listed in `repos`, which would trust and refuse it at once."""
+    names = _list_of(value, 1, EXCLUDE_MAX)
+    if org is None or not all(is_repo_name(n) for n in names):
+        raise Untrusted("exclude")
+    if any(f"{org}/{n}" in repos for n in names):
+        raise Untrusted("exclude repository is also listed")
+    return tuple(names)
+
+
 def parse_team_record(content: object, server_name: str, team_name: str) -> TeamRecord:
     """`agent_bus.team` content (spec §8); raises `Untrusted` on any deviation."""
     required = set(TEAM_KEYS) - set(TEAM_OPTIONAL_KEYS)
@@ -862,8 +893,9 @@ def parse_team_record(content: object, server_name: str, team_name: str) -> Team
     repos = _parse_repos(content["repos"])
     if org is None and not repos:
         raise Untrusted("neither an org nor a repository is trusted")
+    exclude = _parse_exclude(content["exclude"], org, repos) if "exclude" in content else ()
     return TeamRecord(
-        content["team"], frozenset(humans), dict(roles), repos, tuple(prefixes), forge, org,
+        content["team"], frozenset(humans), dict(roles), repos, tuple(prefixes), forge, org, exclude,
     )
 
 

@@ -508,6 +508,19 @@ class EntryTest(unittest.TestCase):
         rendered = teamfile.parse_team_file(dict(declare.entry_of(alpha), state="present"))
         self.assertEqual(declare.declared_config(alpha), teamfile.config_digest(rendered))
 
+    def test_a_hand_written_exclude_is_read_and_changes_the_digest(self) -> None:
+        """D64: `exclude` is written into the entry by hand (create has no flag for it); the
+        status still reads it, so a team whose entry gains one shows as out of date."""
+        hv = STATUS_HV.replace('    org: "example-org"\n', '    org: "example-org"\n    exclude: ["hidden"]\n', 1)
+        self.assertNotEqual(hv, STATUS_HV)
+        before = next(t for t in declare.parse(STATUS_HV).teams if t.team == "alpha")
+        after = next(t for t in declare.parse(hv).teams if t.team == "alpha")
+        self.assertEqual(declare.entry_of(after)["exclude"], ["hidden"])
+        self.assertNotEqual(declare.declared_config(before), declare.declared_config(after))
+        with self.assertRaises(declare.DeclareError):
+            declare.declared_config(next(t for t in declare.parse(
+                hv.replace('    org: "example-org"\n', "", 1)).teams if t.team == "alpha"))
+
 
 class StatusTest(unittest.TestCase):
     """Every state ccy-teams shows (D65): current, outdated, unbuilt, removed, decide."""

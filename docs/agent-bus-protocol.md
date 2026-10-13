@@ -45,6 +45,9 @@ token, so every receiver re-checks everything (§9).
   `branch` (`schema`), and so acts on nothing new; but it reads a team record carrying `org`
   as untrusted (an unknown key, §8), so every member of a team takes the current pingbus
   before the team's file names an `org`.
+- `exclude` (§8, §11) is the same: a receiver built before it reads a team record carrying
+  `exclude` as untrusted (an unknown key), so every member of a team takes the current
+  pingbus before the team's file names an `exclude`.
 - `pingbus version` prints `pingbus <tool-version> protocol 1`.
 
 ## 2. Event types and the `agent_bus` prefix
@@ -370,12 +373,13 @@ credential-assignment  (?i)\b(?:password|passwd|pwd|secret|token|access[_-]?toke
 | `humans`        | array of strings | 1 to 16 user IDs of human localparts                                   |
 | `roles`         | object           | 0 to 64 entries: agent-handle user ID → `"orchestrator"` or `"worker"` |
 | `org`           | string           | optional; `OWNER` (§6), §11                                            |
+| `exclude`       | array of strings | optional; needs `org`; §11                                             |
 | `repos`         | array of objects | §11                                                                    |
 | `path_prefixes` | array of strings | optional; §11                                                          |
 | `forge_api`     | string           | `https://[^\s/]+(/\S*)?`                                               |
 
 The team file accepts only `https://api.github.com` for `forge_api`, the one forge a
-member's credential is sent to (§6). Every key but `org` and `path_prefixes` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
+member's credential is sent to (§6). Every key but `org`, `exclude` and `path_prefixes` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
 command that needs it; `status` says why).
 
 A `roles` key names a numbered or a named seat alike, for example
@@ -489,7 +493,7 @@ server has no copy), logged and consumed. A sync's drops and its re-fetch's drop
 batch: one `DROPPED` line per team per pass (§15).
 
 **Drop reason codes** (closed set): `version`, `schema`, `size`, `edit`, `sender`, `role`,
-`target`, `verb`, `ref`, `allowlist`, `re`, `body`, `stale`, `rate`, `unresolved`,
+`target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `unresolved`,
 `provenance`.
 
 **Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop: text
@@ -549,6 +553,12 @@ From the team record (§8), never from the member config:
   repository is: on any of its own branches the ping names, else its default branch, and
   only while it is its owner's own and not a fork (§6). A fork is never listed. A record
   names an `org`, at least one repository, or both.
+- `exclude`: optional; needs an `org`; 1 to 32 distinct repository names (`REPO`, no owner,
+  each `[a-z0-9._-]{1,100}`, not `.`, `..` or ending `.git`) of that org, and none may also
+  be listed in `repos`. It is checked before trust: a reference to an excluded repository, of
+  any form, for any verb, is refused (`excluded`, offline, on send and on receive), so it is
+  neither trusted nor external. Every member takes the current pingbus before the team's file
+  names an `exclude` (§1).
 - A reference whose repository is neither listed nor the org's is **external**: accepted only
   for a verb whose "External `ref`" column says `yes` (§5), else `allowlist`; it must be in a
   public repository that is not a fork (§6); it is never held to `path_prefixes`; and its PING line says

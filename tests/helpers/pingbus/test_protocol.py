@@ -145,7 +145,7 @@ class TestConstants(unittest.TestCase):
             p.DROP_REASONS,
             (
                 "version", "schema", "size", "edit", "sender", "role", "target", "verb",
-                "ref", "allowlist", "re", "body", "stale", "rate", "unresolved",
+                "ref", "allowlist", "excluded", "re", "body", "stale", "rate", "unresolved",
                 "provenance",
             ),
         )
@@ -676,6 +676,35 @@ class TestAllowlist(RefusalAssertions):
         self.assertRefused("allowlist", p.validate_content,
                            content("sync", ref=f"commit:other-org/other@{SHA}"), ctx)
 
+    def test_an_excluded_org_repository_is_refused_before_trust(self) -> None:
+        """D64: `exclude` names repositories of the org the team never trusts. A reference
+        into one is `excluded`, whatever the verb, form or trust it would have had: not trusted,
+        and not external either (a public excluded repository is not readable as data)."""
+        ctx = make_ctx(org="example-org", repos={}, exclude=("hidden", "also.hidden"))
+        for verb in ("sync", "fetch", "review", "done"):
+            for ref in (f"path:example-org/hidden@{SHA}:CLAUDE/Plan/x.md", f"commit:example-org/hidden@{SHA}",
+                        f"pr:example-org/also.hidden#3@{SHA}", "issue:example-org/hidden#3"):
+                rule = p.VERBS[verb]
+                form = p.parse_ref(ref).form
+                if form not in rule.ref_forms:
+                    continue
+                body = content(verb, ref=ref, **({"re": EVENT_ID} if rule.re == p.REQUIRED else {}))
+                with self.subTest(verb=verb, ref=ref):
+                    self.assertRefused("excluded", p.validate_content, body, ctx)
+        self.assertEqual(
+            p.validate_content(content("sync", ref=f"commit:example-org/other@{SHA}"), ctx).trust,
+            p.TRUST_TRUSTED)
+        # The name is the org's repository only: the same name under another owner is external.
+        self.assertEqual(
+            p.validate_content(content("fetch", ref=f"commit:someone/hidden@{SHA}"), ctx).trust,
+            p.TRUST_EXTERNAL)
+        # No org, no exclusion to apply.
+        self.assertEqual(
+            p.validate_content(content("fetch", ref=f"commit:example-org/hidden@{SHA}"),
+                               make_ctx(exclude=("hidden",))).trust, p.TRUST_EXTERNAL)
+        self.assertTrue(p.is_excluded(p.parse_ref(f"commit:example-org/hidden@{SHA}"), "example-org", ("hidden",)))
+        self.assertFalse(p.is_excluded(p.parse_ref(f"commit:example-org/hidden@{SHA}"), "example-org", ()))
+
     def test_branch(self) -> None:
         """D64: a ping may name the branch holding a `path` or `commit` reference's commit;
         the body shows it, and nothing else may carry one."""
@@ -986,6 +1015,8 @@ class TestPingEvent(unittest.TestCase):
             "ref": (event(ORCH, wrap(dict(ok, ref=REFS["issue"]))), make_ctx()),
             "allowlist": (event(ORCH, wrap(dict(ok, verb="sync", ref=f"commit:example-org/other@{SHA}"))),
                           make_ctx()),
+            "excluded": (event(ORCH, wrap(dict(ok, ref=f"path:example-org/hidden@{SHA}:docs/spec.md"))),
+                         make_ctx(org="example-org", exclude=("hidden",))),
             "re": (event(ORCH, wrap(dict(ok, re=EVENT_ID_2))), make_ctx()),
             "body": (event(ORCH, dict(wrap(ok), body="[agent-bus] fetch")), make_ctx()),
         }
@@ -1411,6 +1442,34 @@ class TestTeamRecord(unittest.TestCase):
                            ("null", None), ("leading dash", "-org")):
             with self.subTest(org=label), self.assertRaises(p.Untrusted):
                 self.parse(dict(good, org=org))
+
+    def test_exclude(self) -> None:
+        """D64: an optional `exclude`, repository names of the team's `org`, never trusted."""
+        good = dict(self.good(), org="example-org")
+        self.assertEqual(self.parse(good).exclude, ())
+        rec = self.parse(dict(good, exclude=["hidden", "also.hidden"]))
+        self.assertEqual(rec.exclude, ("hidden", "also.hidden"))
+        self.assertEqual(rec.context(SN).exclude, ("hidden", "also.hidden"))
+        self.parse(dict(good, exclude=[f"r{i}" for i in range(p.EXCLUDE_MAX)]))
+        self.assertEqual(p.EXCLUDE_MAX, p.REPOS_MAX)
+        listed = [{"repo": "example-org/myrepo"}]
+        for label, body in (
+            ("no org", dict(self.good(), exclude=["hidden"])),
+            ("empty", dict(good, exclude=[])),
+            ("too many", dict(good, exclude=[f"r{i}" for i in range(p.EXCLUDE_MAX + 1)])),
+            ("duplicate", dict(good, exclude=["a", "a"])),
+            ("upper case", dict(good, exclude=["Hidden"])),
+            ("owner/repo form", dict(good, exclude=["example-org/hidden"])),
+            ("dot", dict(good, exclude=["."])),
+            ("dotdot", dict(good, exclude=[".."])),
+            (".git", dict(good, exclude=["hidden.git"])),
+            ("not a string", dict(good, exclude=[5])),
+            ("not a list", dict(good, exclude="hidden")),
+            ("also listed in repos", dict(good, repos=listed, exclude=["myrepo"])),
+        ):
+            with self.subTest(case=label), self.assertRaises(p.Untrusted):
+                self.parse(body)
+        self.parse(dict(good, repos=listed, exclude=["hidden"]))
 
     def test_refusals(self) -> None:
         good = self.good()

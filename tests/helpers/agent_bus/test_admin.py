@@ -222,6 +222,19 @@ class BootstrapTest(AdminTestCase):
         self.assertEqual(name, {"name": "team-a"})
         self.assertTrue(protocol.is_room_id(self.room()))
 
+    def test_the_record_carries_exclude_and_a_change_to_it_is_applied(self) -> None:
+        """D64: `exclude` reaches the written team record, and a later change replaces it."""
+        self.write_team(team_data(org="example-org", exclude=["hidden"]))
+        self.bootstrap()
+        _, record_event = self.state(protocol.EVENT_TEAM, event=True)
+        self.assertEqual(record_event["content"]["exclude"], ["hidden"])
+        record = protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
+        self.assertEqual((record.org, record.exclude), ("example-org", ("hidden",)))
+        self.write_team(team_data(org="example-org"))
+        self.assertTrue(self.bootstrap())
+        _, record_event = self.state(protocol.EVENT_TEAM, event=True)
+        self.assertNotIn("exclude", record_event["content"])
+
     def test_human_account_has_no_admin_key_and_a_discarded_password(self) -> None:
         self.bootstrap()
         puts = [c for c in self.transport.calls
