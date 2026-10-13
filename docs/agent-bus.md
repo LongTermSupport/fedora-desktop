@@ -42,9 +42,11 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    with the homeserver and username, and offers it to the clipboard; your other Element
    sessions are signed out ([The human's account](#the-humans-account)). Ctrl-E opens the
    team in Element.
-3. **Add ccy sessions.** `ccy --teams <seat>@<team>` launches a session into a seat,
-   creating the seat the first time (with sudo). Ctrl-N in `ccy-teams` does this in the
-   current project, in a free seat or a new one ([seats](#a-ccy-session-seats)).
+3. **Add ccy sessions.** `ccy --teams <team>` shows this checkout's seats in the team and
+   launches a session into the one you choose: the lowest free seat, or a new one. ccy
+   creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat
+   instead. Ctrl-N in `ccy-teams` does this in the current project
+   ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
    `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
    ([Joining a team](#joining-a-team)).
@@ -285,8 +287,21 @@ plugin and settings. Its arguments are passed on to `claude`. An agent driven by
 A ccy session is in a team only when it is launched with it, and in no team otherwise:
 
 ```bash
-ccy --teams <seat>@<team>[,<seat>@<team>...]
+ccy --teams <team>                              # choose the seat
+ccy --teams <seat>@<team>[,<seat>@<team>...]    # name it
 ```
+
+With a team alone, ccy shows this checkout's seats in it, each with its member's full handle
+(`<repo>.<N>+<host>.podman`), what runs in it (`ccy (podman)`) and whether it is free or
+held by a running session. The default is the lowest free seat. If no seat is free, it is a
+new seat, numbered with the lowest number no seat or active member of the same
+`<repo>+<host>.podman` uses. ccy says the handle before taking the seat. It writes the
+chosen `<seat>@<team>` into the launch's arguments, so a restart or a restore comes back in
+the same seat. Choosing a held seat leads to the re-attach offer for the session that holds
+it ([ccy.md](ccy.md#sessions-survive-the-terminal)). A launch with nobody to answer
+(headless, no terminal, a restore, a restart) must name the seat. Team names are
+lower-case. `--teams LongTermSupport` is answered with `longtermsupport` and
+`long-term-support`.
 
 One seat per team per session; a session may be in several teams. A plain `ccy` is in no
 team, whatever seats the checkout has, and nothing in the checkout opts it in: nothing
@@ -317,15 +332,19 @@ agent-bus seat list
 agent-bus seat remove <seat>@<team>
 ```
 
-`seat list` prints one `SEAT` line per seat: team, seat, `held` or `free`, `self` or `-`,
-and the handle. `seat remove` takes one seat or a comma-separated list, several of one
+On a terminal, `seat list` prints a table of the seats: team, seat, `held` or `free`, the
+member's full handle and its type (`ccy (podman)`, `desktop (host)`). When its output goes
+to a program, it prints one `SEAT` line per seat instead: team, seat, `held` or `free`,
+`self` or `-`, and the handle. `seat remove` takes one seat or a comma-separated list, several of one
 team included. Refused while a named seat is held, it parks each handle (token
 revoked; account, role and room membership kept), deletes each seat's directory, and
 deletes `.claude/ccy/pingbus/` once nothing is left in it. Launching into the same
 `<seat>@<team>` again returns the seat with a new token, history included. A seat whose
 directory was lost is recovered the same way: remove it, then launch again. ccy itself
-runs `agent-bus seat check <list>` and `agent-bus seat take <list>` for a launch with
-`--teams <list>`. A
+runs `agent-bus seat check <list>` (with `--resolved` when nobody can choose), `agent-bus seat choose <team>` for a team named alone, and `agent-bus seat take <list>` for a launch
+with `--teams <list>`. `choose` reads the team's members with `sudo -n agent-bus list <team>`, which the read-only sudoers rule from `play-agent-bus.yml` allows. `choose` and
+`take` take `--type=host` for a desktop (`cc`) seat; a seat of the other type is never
+offered, and `take` refuses it. A
 seat's role is changed with `set-role`, the handle read from `agent-bus seat list`.
 
 **Running the team.** On the homeserver host:
