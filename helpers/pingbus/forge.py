@@ -93,7 +93,10 @@ class ForgeError(Exception):
 
     @property
     def drop_reason(self) -> str:
-        """The receive-side drop code (§9 step 10p)."""
+        """The receive-side drop code (§9 step 10p). A rate refusal is `rate`: the forge
+        declined to answer, which says nothing about the reference."""
+        if self.code == RATE_REFUSAL:
+            return "rate"
         return "provenance" if self.code == "provenance" else "unresolved"
 
 
