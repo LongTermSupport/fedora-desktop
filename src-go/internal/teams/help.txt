@@ -1,0 +1,31 @@
+Each team is a bold row: its homeserver (up, down, or not installed yet), its port, and
+APPLIED, whether it runs what the host_vars declare:
+  up to date          as declared
+  out of date: ...    the declaration (config), the bus software, or both changed since;
+                      Ctrl-U (or ccy-teams apply) brings it up to date
+  not built           declared, never installed: Ctrl-U builds it
+  decide: absent      declared absent but still running; decide: undeclared, running but
+                      no longer declared. Never updated in bulk: Ctrl-X on the team takes
+                      it down (its data kept unless you delete it)
+Under it, its members and people:
+  ccy      a seat of a ccy checkout: the session in it, and RESTORE, whether that
+           session is started again after a reboot (yes or no)
+  lxc ...  another member: active, or parked (its token revoked)
+  human    a person in the team room: in room, invited or not in room, and how
+           many Element sessions they are signed in with
+
+Keys:
+  Enter    a seat: attach its session; a person: a new Element password; a team: this
+  Ctrl-N   start a ccy session in a free or new seat of the team, in this folder
+  Ctrl-P   a new Element password for the person on the row (shown once; their other
+           Element sessions are signed out)
+  Ctrl-E   open the team in Element
+  Ctrl-U   update every team out of date or not built (never takes one down)
+  Ctrl-R   restore after a reboot, on or off, for the seat's session
+  Ctrl-X   remove a seat, park a member, or take a team down (after a yes/no; a
+           backup first, and the data kept unless you type the team's name)
+  ?        this help          Esc or q   leave
+
+Colours: green is working, yellow wants a look, red is not working.
+"need sudo": reading the members needs root; play-agent-bus.yml installs a rule that
+lets ccy-teams read them without a password.
