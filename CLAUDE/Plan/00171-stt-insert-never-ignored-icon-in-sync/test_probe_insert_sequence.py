@@ -104,6 +104,18 @@ class TestPressAfterThePaste(unittest.TestCase):
         report, _ = probe.judge(moved)
         self.assertIn("The press that started B came 0.600 s after A's SUCCESS (within 1 s of the paste: yes)", report)
 
+    def test_a_later_idle_does_not_replace_the_result_as_the_start_of_the_gap(self) -> None:
+        lines = replay(*blocked(6.0, f"STOPPING: {A} is stopping or finishing the dictation"))
+        with_idle = [*lines[:-5], (START + datetime.timedelta(seconds=22.0), "State: IDLE"), *lines[-5:]]
+        report, _ = probe.judge(with_idle)
+        self.assertIn("The press that started B came 5.000 s after A's SUCCESS (within 1 s of the paste: no)", report)
+
+    def test_a_dictation_that_ended_in_error_has_no_paste_to_measure_from(self) -> None:
+        lines = replay(*blocked(6.0, f"STOPPING: {A} is stopping or finishing the dictation"))
+        errored = [(when, "State: ERROR" if m == "State: SUCCESS" else m) for when, m in lines]
+        report, _ = probe.judge(errored)
+        self.assertFalse(any(line.startswith("The press that started B came") for line in report))
+
 
 if __name__ == "__main__":
     unittest.main()

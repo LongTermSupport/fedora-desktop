@@ -130,7 +130,7 @@ def judge(lines: list[tuple[datetime.datetime, str]]) -> tuple[list[str], int]:
     # Issue #96: a press within 1 s of the paste (A's SUCCESS follows it) once started a
     # recording that A's late IDLE orphaned
     a_end = next((j for j in range(b_index - 1, stop_at, -1)
-                  if STATE.match(messages[j]) and STATE.match(messages[j]).group(1) in ("SUCCESS", "ERROR", "IDLE")), None)
+                  if STATE.match(messages[j]) and STATE.match(messages[j]).group(1) == "SUCCESS"), None)
     if press_at is not None and a_end is not None:
         gap = (lines[press_at][0] - lines[a_end][0]).total_seconds()
         report.append(f"The press that started B came {gap:.3f} s after A's {STATE.match(messages[a_end]).group(1)} "
