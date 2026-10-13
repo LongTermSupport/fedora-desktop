@@ -23,6 +23,7 @@ type Cmd struct {
 	Name   string
 	Args   []string
 	Env    []string // KEY=VALUE added to the parent's environment
+	Unset  []string // variable names removed from the child's environment
 	Dir    string
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -73,8 +74,8 @@ type OS struct{}
 func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 {
-		cmd.Env = append(os.Environ(), c.Env...)
+	if len(c.Env) > 0 || len(c.Unset) > 0 {
+		cmd.Env = ChildEnv(os.Environ(), c.Env, c.Unset)
 	}
 	cmd.Stdin = c.Stdin
 	var out, errBuf bytes.Buffer
@@ -89,6 +90,8 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
 		return res, &ExitError{Name: c.Name, Code: res.ExitCode, Stderr: errBuf.String()}
+	case errors.Is(err, exec.ErrNotFound):
+		return res, &NotInstalledError{Name: c.Name}
 	default:
 		return res, fmt.Errorf("run %s: %w", c.Name, err)
 	}
@@ -108,13 +111,16 @@ var ErrUnexpected = errors.New("execx.Fake: unscripted command")
 type rule struct {
 	prefix []string
 	result Result
+	err    error // when set, the command fails to start with this error
 }
 
 // Fake is a scripted, recording Runner for tests. Safe for concurrent use.
 type Fake struct {
-	mu    sync.Mutex
-	rules []rule
-	calls []Cmd
+	mu      sync.Mutex
+	rules   []rule
+	calls   []Cmd
+	execs   []Cmd
+	execErr error
 }
 
 // On answers every command whose argv starts with prefix. Later rules win over earlier
@@ -135,10 +141,18 @@ func (f *Fake) Run(_ context.Context, c Cmd) (Result, error) {
 		if !hasPrefix(argv, r.prefix) {
 			continue
 		}
+		if r.err != nil {
+			return Result{}, r.err
+		}
 		res := r.result
 		if c.Stdout != nil {
 			if _, err := c.Stdout.Write(res.Stdout); err != nil {
 				return res, fmt.Errorf("fake stdout: %w", err)
+			}
+		}
+		if c.Stderr != nil {
+			if _, err := c.Stderr.Write(res.Stderr); err != nil {
+				return res, fmt.Errorf("fake stderr: %w", err)
 			}
 		}
 		if res.ExitCode != 0 {
