@@ -81,6 +81,11 @@ _ERROR_TEXT_MAX = 200
 #: The member kit `agent-bus-install software` installs; it holds a README per member type.
 KIT_DIR = "/usr/local/share/agent-bus/kit"
 
+#: Member types whose bundle also lands in a checkout a session reads (a ccy or cc seat): their
+#: README ends with the steps and nothing more, since the kit's guides are for whoever sets
+#: up a host (Plan 00177 Task 4.10).
+CHECKOUT_SEAT_TYPES = ("podman", "host")
+
 #: What a member does with its bundle, per type (DESIGN.md section 5.2).
 NEXT_STEPS = {
     "podman": "A ccy (podman) seat: `agent-bus seat take <seat>@{team}`, run by `ccy --teams`, wrote\n"
@@ -637,11 +642,13 @@ def _bundle(team: Team, room: str, handle: str, type_: str, token: str, address:
 
 def bundle_readme(handle: str, team: str, type_: str) -> str:
     """The bundle's README: the member type's next steps and where its full guide is."""
-    return (f"Agent team bus bundle: member {handle} of team {team}.\n\n"
+    text = (f"Agent team bus bundle: member {handle} of team {team}.\n\n"
             f"{NEXT_STEPS[type_].format(team=team)}\n\n"
             "Then run `pingbus config check`. `token` is this member's credential: keep it\n"
-            "mode 0600, never commit it, and ask the team's admin for `rotate-token` if it leaks.\n\n"
-            f"The full steps for this type are in {KIT_DIR}/README.{type_} on any host where\n"
+            "mode 0600, never commit it, and ask the team's admin for `rotate-token` if it leaks.\n")
+    if type_ in CHECKOUT_SEAT_TYPES:
+        return text
+    return (f"{text}\nThe full steps for this type are in {KIT_DIR}/README.{type_} on any host where\n"
             "agent-bus-install software has run, and in fedora-desktop's docs/agent-bus.md.\n")
 
 

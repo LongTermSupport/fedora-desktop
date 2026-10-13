@@ -6,7 +6,8 @@
       "Read(~/.config/Element/**)",
       "Edit(~/.config/Element/**)",
       "Read(~/.config/Element-*/**)",
-      "Edit(~/.config/Element-*/**)"
+      "Edit(~/.config/Element-*/**)",
+      "Edit(~/.config/pingbus/**)"
     ]
   }
 }

@@ -170,9 +170,19 @@ class BundleReadmeTest(unittest.TestCase):
             handle = f"myrepo.1+workstation.{member_type}"
             text = admin.bundle_readme(handle, "team-a", member_type)
             self.assertIn(f"member {handle} of team team-a", text)
-            self.assertIn(f"/usr/local/share/agent-bus/kit/README.{member_type}", text)
             self.assertIn("pingbus config check", text)
             self.assertNotIn("{team}", text)
+            pointer = f"/usr/local/share/agent-bus/kit/README.{member_type}"
+            if member_type in admin.CHECKOUT_SEAT_TYPES:
+                self.assertNotIn(pointer, text, member_type)
+            else:
+                self.assertIn(pointer, text, member_type)
+
+    def test_a_checkout_seats_readme_says_nothing_of_the_owners_session(self) -> None:
+        # A ccy or cc session reads this file from its checkout.
+        for member_type in admin.CHECKOUT_SEAT_TYPES:
+            text = admin.bundle_readme(f"myrepo.1+workstation.{member_type}", "team-a", member_type)
+            self.assertNotRegex(text, r"(?i)element|matrix session|sign-?in|human|README\.host", member_type)
 
     def test_a_bundle_carries_the_readme(self) -> None:
         # The tar add-member writes holds exactly what bundle_readme renders.

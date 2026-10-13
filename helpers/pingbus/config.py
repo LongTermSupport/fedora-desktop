@@ -62,7 +62,9 @@ COMMANDS_WITHOUT_CONFIG = frozenset({"version", "validate", "suggest-handle"})
 ELEMENT_FLATPAK_DIR = ".var/app/im.riot.Riot"
 ELEMENT_NATIVE_PARENT = ".config"
 ELEMENT_NATIVE_NAME = "Element"
-#: In a `host` seat's directory: its owner accepted it beside Element (`_element_accepted`).
+#: The user's own record, under their home, that they accept a cc `host` seat beside
+#: Element (`_element_accepted`): once per user, not once per seat.
+ELEMENT_ACCEPTED_DIR = ".config/pingbus"
 ELEMENT_ACCEPTED_FILE = "element-accepted"
 
 _DNS_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
@@ -189,23 +191,33 @@ def load_bundle(
         _check_linked_bundle(team, bundle_dir, owner)
     member = read_member(team, bundle_dir)
     read_token(member, uid=owner)
-    if member.member_type == "host" and not (linked and _element_accepted(bundle_dir, owner)):
-        _refuse_beside_element(team, _home_of(owner) if user_home is None else user_home)
+    if member.member_type == "host":
+        where = _home_of(owner) if user_home is None else user_home
+        if not (linked and _element_accepted(where, owner)):
+            _refuse_beside_element(team, where)
     return member
 
 
-def _element_accepted(link: pathlib.Path, owner: int) -> bool:
+def _element_accepted(user_home: pathlib.Path, owner: int) -> bool:
     """Plan 00177 Task 4.10: a `host` seat reached through a session home's link (a `cc
-    --teams` session, which runs as the desktop's owner) whose owner accepted, at cc's
-    confirm, that it runs beside their Element profile. The record is a regular file in the
-    seat, owned by `owner`; anything else there does not count. A plain bundle directory
-    (a dedicated agent user's) is never asked."""
-    record = link.parent / os.readlink(link) / ELEMENT_ACCEPTED_FILE
+    --teams` session, which runs as the desktop's owner) runs beside Element only when its
+    owner accepted that once, at cc's confirm. The record is a regular file of `owner`'s,
+    readable by no one else, in a real directory of `owner`'s under their home; anything
+    else there does not count. A plain bundle directory (a dedicated agent user's) is never
+    asked."""
+    directory = user_home / ELEMENT_ACCEPTED_DIR
     try:
-        info = os.lstat(record)
+        dir_info = os.lstat(directory)
+        info = os.lstat(directory / ELEMENT_ACCEPTED_FILE)
     except OSError:
         return False
-    return stat.S_ISREG(info.st_mode) and info.st_uid == owner
+    return (
+        stat.S_ISDIR(dir_info.st_mode)
+        and dir_info.st_uid == owner
+        and stat.S_ISREG(info.st_mode)
+        and info.st_uid == owner
+        and stat.S_IMODE(info.st_mode) & 0o077 == 0
+    )
 
 
 def read_member(team: str, bundle_dir: pathlib.Path) -> Member:

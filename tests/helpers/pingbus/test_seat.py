@@ -541,7 +541,7 @@ class ProtocolDocTest(unittest.TestCase):
 
     def test_section_13_names_seat_exec_and_the_seat_line(self):
         body = self.section(13)
-        self.assertIn("`seat exec [--] CMD…`", body)
+        self.assertIn("`seat exec [--root DIR] [--home DIR] [--] CMD…`", body)
         self.assertIn("`SEAT` (team, seat, `held` or `free`, `self` or `-`, handle)", body)
 
     def test_section_14_gives_75_to_a_held_seat(self):

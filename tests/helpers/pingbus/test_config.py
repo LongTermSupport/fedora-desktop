@@ -633,54 +633,89 @@ class TestElementProfile(BundleCase):
 class TestElementAcceptedForADesktopSeat(BundleCase):
     """Plan 00177 Task 4.10: a `cc --teams` session is a `host` member in a checkout seat,
     reached through the session home's link, and runs as the desktop's owner. The owner
-    accepts once, at cc's confirm, that it runs beside their Element profile; cc records
-    that as `config.ELEMENT_ACCEPTED_FILE` in the seat. Only that case loads: every other
-    `host` bundle keeps the refusal, the record or not."""
+    accepts once per USER, at cc's confirm, that it runs beside their Element profile; cc
+    records that as `config.ELEMENT_ACCEPTED_FILE` under `config.ELEMENT_ACCEPTED_DIR` in
+    their home. Only that case loads: every other `host` bundle keeps the refusal, the
+    record or not."""
 
-    def host_seat(self) -> pathlib.Path:
-        seat = self.root / "seats" / "team-a" / "3"
+    def host_seat(self, name: str = "3") -> pathlib.Path:
+        seat = self.root / "seats" / "team-a" / name
         seat.mkdir(parents=True, mode=0o700)
         (seat / "member.json").write_text(
             json.dumps(member_json(user_id=f"@{HOST_HANDLE}:{SN}")), encoding="utf-8")
         (seat / "token").write_text(TOKEN, encoding="utf-8")
         (seat / "token").chmod(0o600)
-        self.home.mkdir(mode=0o700)
-        (self.home / "team-a").symlink_to(seat)
-        (self.user_home / ".var/app/im.riot.Riot").mkdir(parents=True)
+        self.home.mkdir(mode=0o700, exist_ok=True)
+        link = self.home / "team-a"
+        if link.is_symlink():
+            link.unlink()
+        link.symlink_to(seat)
+        (self.user_home / ".var/app/im.riot.Riot").mkdir(parents=True, exist_ok=True)
         return seat
 
-    def accept(self, directory: pathlib.Path) -> pathlib.Path:
+    def accept(self, mode: int = 0o600) -> pathlib.Path:
+        directory = self.user_home / config.ELEMENT_ACCEPTED_DIR
+        directory.mkdir(parents=True, exist_ok=True)
         record = directory / config.ELEMENT_ACCEPTED_FILE
         record.write_text("accepted\n", encoding="utf-8")
-        record.chmod(0o600)
+        record.chmod(mode)
         return record
 
-    def test_a_seat_the_owner_accepted_loads_beside_element(self) -> None:
-        self.accept(self.host_seat())
+    def test_a_user_who_accepted_loads_a_seat_beside_element(self) -> None:
+        self.host_seat()
+        self.accept()
         self.assertEqual(self.load().member_type, "host")
 
-    def test_a_seat_not_accepted_is_refused(self) -> None:
+    def test_one_acceptance_covers_every_seat(self) -> None:
+        self.accept()
+        for name in ("3", "4"):
+            self.host_seat(name)
+            self.assertEqual(self.load().member_type, "host")
+
+    def test_no_record_is_refused(self) -> None:
         self.host_seat()
         self.assert_refused(contains="Element")
 
+    def test_a_record_inside_the_seat_does_not_count(self) -> None:
+        seat = self.host_seat()
+        (seat / config.ELEMENT_ACCEPTED_FILE).write_text("accepted\n", encoding="utf-8")
+        self.assert_refused(contains="Element")
+
     def test_a_plain_host_bundle_is_refused_even_with_the_record(self) -> None:
-        bundle = self.write_bundle(data=member_json(user_id=f"@{HOST_HANDLE}:{SN}"))
-        self.accept(bundle)
+        self.write_bundle(data=member_json(user_id=f"@{HOST_HANDLE}:{SN}"))
+        self.accept()
         (self.user_home / ".config" / "Element").mkdir(parents=True)
         self.assert_refused(contains="Element")
 
     def test_a_record_that_is_a_symlink_or_a_directory_does_not_count(self) -> None:
-        seat = self.host_seat()
-        real = self.accept(self.root)
-        (seat / config.ELEMENT_ACCEPTED_FILE).symlink_to(real)
+        self.host_seat()
+        record = self.accept()
+        moved = self.root / "real-record"
+        record.rename(moved)
+        record.symlink_to(moved)
         self.assert_refused(contains="Element")
-        (seat / config.ELEMENT_ACCEPTED_FILE).unlink()
-        (seat / config.ELEMENT_ACCEPTED_FILE).mkdir()
+        record.unlink()
+        record.mkdir()
         self.assert_refused(contains="Element")
 
+    def test_a_directory_that_is_a_symlink_does_not_count(self) -> None:
+        self.host_seat()
+        self.accept()
+        directory = self.user_home / config.ELEMENT_ACCEPTED_DIR
+        moved = self.root / "real-dir"
+        directory.rename(moved)
+        directory.symlink_to(moved)
+        self.assert_refused(contains="Element")
+
+    def test_a_record_others_can_read_or_write_does_not_count(self) -> None:
+        self.host_seat()
+        for mode in (0o640, 0o604, 0o660, 0o666):
+            self.accept(mode)
+            self.assert_refused(contains="Element")
+
     def test_a_record_owned_by_someone_else_does_not_count(self) -> None:
-        seat = self.host_seat()
-        record = self.accept(seat)
+        self.host_seat()
+        record = self.accept()
         real_lstat = os.lstat
 
         def foreign_record(path: object, *args: object, **kwargs: object) -> os.stat_result:

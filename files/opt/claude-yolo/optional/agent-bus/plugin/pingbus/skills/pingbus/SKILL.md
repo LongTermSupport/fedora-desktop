@@ -120,7 +120,7 @@ pingbus send done commit:example-org/myrepo@0123456789abcdef0123456789abcdef0123
 ## Writing free text
 
 `pingbus say --to NAME[,NAME...]` sends the text on stdin to the named team humans and
-agents (human localparts or agent handles); the humans read it in Element, and each agent
+agents (human localparts or agent handles); the humans read it in the room, and each agent
 named gets it as a `PEER` line. Name every recipient: there is no `@room` for agents, and an
 agent you do not name never sees the text. Every message is in the team room for the
 humans to read, so write as if your human is reading. pingbus refuses text that looks like
