@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4: the owner's first-use findings)
+**Status**: In Progress (Phase 4 built; review fixes, then the owner's host test)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -69,12 +69,13 @@ offer to create a team when there is none; think about the UX; do a full critica
   (`1/4  GitHub owner`), a one-line hint each, a ✓ per answer and a short summary without
   `forge_api` or `path_prefixes`. gum's grey key-help line is hidden (gum 0.17 cannot
   recolour it).
-- [ ] **Task 4.2**: Create sets up Element itself (the `agent_bus_element_teams` entry
+- [x] ✅ **Task 4.2**: Create sets up Element itself (the `agent_bus_element_teams` entry
   and its play) and offers to open it. No message tells the owner to edit `localhost.yml`.
-  Not started.
-- [ ] **Task 4.3**: Offer sign-in straight after create (reuse `set_password`). Not started.
-- [ ] **Task 4.4**: Run from a repository root, `ccy-teams` offers to start a ccy session
-  there as a team member. Not started.
+  Create declares the Element profile through `declare.py` and runs
+  `play-agent-bus-element.yml` after `play-agent-bus.yml`.
+- [x] ✅ **Task 4.3**: Offer sign-in straight after create (reuse `set_password`).
+- [x] ✅ **Task 4.4**: Run from a repository root, `ccy-teams` offers to start a ccy session
+  there as a team member, with `ccy --teams <team>` and no seat.
 - [x] ✅ **Task 4.5**: Seats default to the next free number, and members are always shown as
   `<repo>.<N>`, counting from 1. Through 4.8's chooser; `agent-bus seat list` on a terminal
   shows the full handle and the type in words.
@@ -90,10 +91,13 @@ offer to create a team when there is none; think about the UX; do a full critica
   the canonical `<seat>@<team>`. A mixed-case team name gets a lower-case suggestion.
   Built: `agent-bus seat choose` and a gum chooser in the launcher (CCY 3.95.0); headless,
   restore and restart are refused a bare team (`seat check --resolved`).
-- [ ] **Task 4.9**: `ccy-teams create` asks the team's scope: the whole GitHub owner, or one
-  repository (the default inside a checkout, named after it). Not started: a repo-only team
-  needs `repos[].branches` to allow "any branch" (today 1 to 8 names), a protocol change.
-  Decided: an absent `branches` means any branch, the same as an org-wide team.
+- [x] ✅ **Task 4.9**: `ccy-teams create` asks the team's scope: this repository (the
+  default inside a checkout, named after it), the whole GitHub owner, or several
+  repositories of any owners (one comma-separated input). Each repository is checked for
+  syntax, existence and the gh login's push access, in a re-prompt loop. An absent
+  `branches` means any branch, the same as an org-wide team (a protocol change).
+  The 4.7 follow-up offers once to remove an old `path_prefixes` limit.
+  [report](subagent-reports/261013-p177-create-sonnet.md)
 - [x] ✅ **Task 4.10**: `cc --teams <team>`: a desktop Claude Code session, running as the
   owner, joins as a `host` member with its own Matrix account. The owner accepts that it
   sits beside their Element session (a misbehaving agent could use it). pingbus's refusal
@@ -106,7 +110,19 @@ offer to create a team when there is none; think about the UX; do a full critica
   session folders. Claude Code's sandbox is left out for now: it would also restrict
   network access; a real boundary is investigated in issue #101. Asked for by the owner
   26-10-13. Built and tested (`scripts/test-cc-teams.bash`); the acceptance of Element is
-  per seat. [report](subagent-reports/task-4.10-cc-teams.md). Not yet run on the host.
+  per user, asked before the seat is made. [report](subagent-reports/task-4.10-cc-teams.md).
+  Not yet run on the host.
+
+- [ ] 🔄 **Task 4.11**: The `qa-reviewer` over Phase 4, and its fixes.
+  [report](subagent-reports/261013-qa-reviewer-phase4.md). Fixed: the guard test (CCY
+  3.95.1) and the meta-deploy list. Open: the acceptance asked before the seat, the
+  write-access check for `create --yes`, and the advisories.
+
+### Phase 5: Host
+
+- [ ] **Task 5.1**: meta-deploy (`play-agent-bus.yml`, `play-claude-yolo.yml`), then the
+  owner's own test: `ccy-teams create` from a repository (scope, Element, sign-in, the
+  offer to start a session), `ccy --teams <team>` choosing a seat, and `cc --teams <team>`.
 
 ## Success Criteria
 
