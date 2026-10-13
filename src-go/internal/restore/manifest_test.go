@@ -388,6 +388,29 @@ func TestSetGoingLock(t *testing.T) {
 	}
 }
 
+func TestSetGoingLockCreatesTheStateDirectoryAThisBootWithNoRestoreLacks(t *testing.T) {
+	s := &Store{Path: filepath.Join(t.TempDir(), "state", "last-restore")}
+	release, err := s.LockSetGoing(0)
+	if err != nil {
+		t.Fatalf("a missing directory is not a reason to fail the lock: %v", err)
+	}
+	if err = release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetGoingLockCannotCreateItsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "state")
+	if err := os.WriteFile(blocker, []byte("a file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{Path: filepath.Join(blocker, "last-restore")}
+	if _, err := s.LockSetGoing(0); err == nil || !strings.Contains(err.Error(), "could not create the directory for the restore manifest") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestSetGoingLockCannotOpen(t *testing.T) {
 	s := newStore(t)
 	if err := os.MkdirAll(s.Path+".set-going.lock", 0o700); err != nil {

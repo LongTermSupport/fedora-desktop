@@ -128,6 +128,35 @@ func TestFakeOnErrorAnswersWithTheError(t *testing.T) {
 	}
 }
 
+func TestFakeOnFuncAnswersFromTheCommandAndSeesEachCall(t *testing.T) {
+	f := &Fake{}
+	n := 0
+	f.OnFunc([]string{"tmux", "list-clients"}, func(Cmd) (Result, error) {
+		n++
+		if n == 1 {
+			return Result{Stdout: []byte("/dev/pts/3 100\n")}, nil
+		}
+		return Result{}, nil
+	})
+	f.OnFunc([]string{"boom"}, func(Cmd) (Result, error) { return Result{}, errors.New("cannot start") })
+	var out strings.Builder
+	res, err := f.Run(context.Background(), Cmd{Name: "tmux", Args: []string{"list-clients", "-t", "=a"}, Stdout: &out})
+	if err != nil || string(res.Stdout) != "/dev/pts/3 100\n" || out.String() != "/dev/pts/3 100\n" {
+		t.Fatalf("first call: %q %q %v", res.Stdout, out.String(), err)
+	}
+	if res, err = f.Run(context.Background(), Cmd{Name: "tmux", Args: []string{"list-clients"}}); err != nil || len(res.Stdout) != 0 {
+		t.Fatalf("second call: %q %v", res.Stdout, err)
+	}
+	if _, err = f.Run(context.Background(), Cmd{Name: "boom"}); err == nil || err.Error() != "cannot start" {
+		t.Fatalf("a function error is the command failing to start, got %v", err)
+	}
+	f.OnFunc([]string{"fail"}, func(Cmd) (Result, error) { return Result{ExitCode: 3, Stderr: []byte("no\n")}, nil })
+	_, err = f.Run(context.Background(), Cmd{Name: "fail"})
+	if exit, ok := errors.AsType[*ExitError](err); !ok || exit.Code != 3 || exit.Stderr != "no\n" {
+		t.Fatalf("a non-zero result is an ExitError, got %v", err)
+	}
+}
+
 func TestFakeExecRecordsAndAnswers(t *testing.T) {
 	f := &Fake{}
 	if err := f.Exec(Cmd{Name: "/launcher", Args: []string{"a"}}); err != nil {

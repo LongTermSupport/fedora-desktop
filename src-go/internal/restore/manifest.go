@@ -324,6 +324,9 @@ func (s *Store) Locked(fn func() error) error {
 // LockSetGoing takes set-going's own lock, waiting up to wait, and returns the function that
 // releases it. A wait of 0 still tries once.
 func (s *Store) LockSetGoing(wait time.Duration) (func() error, error) {
+	if err := os.MkdirAll(filepath.Dir(s.Path), dirMode); err != nil {
+		return nil, fmt.Errorf("could not create the directory for the restore manifest %s: %w", s.Path, err)
+	}
 	lock := s.Path + ".set-going.lock"
 	return acquire(lock, wait,
 		"could not open set-going's lock "+lock,
