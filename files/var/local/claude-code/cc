@@ -75,6 +75,13 @@ set -- "${CC_ARGS[@]}"
 # restore.
 unset CCY_SESSION_RESTORE
 
+# `--teams <team>` is cc's own and never reaches claude: the session joins the team as a
+# `host` member in a seat of this checkout (cc-teams.bash, Plan 00177 Task 4.10).
+# shellcheck source=cc-teams.bash
+source "/var/local/claude-code/cc-teams.bash"
+cc_teams_split_args "$@" || exit $?
+set -- "${CC_TEAMS_REST[@]}"
+
 # Stale-credential shadow-proofing (full rationale in the named-token branch
 # below). claude reads .credentials.json even when CLAUDE_CODE_OAUTH_TOKEN is
 # exported; an expired entry there 401s the session. Named-token mode parks
@@ -160,6 +167,30 @@ if [ "$CRED_BAK" != "$CRED_BAK_DEFAULT" ] && [ -f "$CRED_BAK_DEFAULT" ]; then
         echo "  rm -i '$CRED_BAK_DEFAULT'"
     } >&2
     exit 1
+fi
+
+# One cleanup for everything cc must undo when it ends: the parked Desktop credential
+# (named-token branch below) and the private directory of a --teams session.
+CC_CRED_PARKED=false
+CC_TEAMS_TMP=""
+cc_cleanup() {
+    if [ "$CC_CRED_PARKED" = true ] && [ -f "$CRED_BAK" ]; then
+        mv -f "$CRED_BAK" "$CRED_FILE"
+    fi
+    if [ -n "$CC_TEAMS_TMP" ]; then
+        rm -rf -- "$CC_TEAMS_TMP"
+    fi
+}
+trap cc_cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# The team's seat is taken before the token chooser, so a launch that cannot be seated
+# stops before anything else is asked. The private directory holds the session's settings
+# file and its pingbus home, and goes when cc exits.
+if [ -n "$CC_TEAM" ]; then
+    CC_TEAMS_TMP=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/cc-teams.XXXXXX")
+    cc_teams_prepare "$CC_TEAMS_TMP" "$@" || exit $?
 fi
 
 # Surface the active token in the status line, matching ccy. The hooks-daemon
@@ -329,10 +360,10 @@ if [ -n "$SELECTED_TOKEN" ]; then
             exit 1
         fi
 
-        # Restore on any exit. NOTE: the launch below must NOT use `exec` — exec
-        # would replace this shell and the trap would never fire, permanently
-        # parking the Desktop credential.
-        trap 'if [ -f "$CRED_BAK" ]; then mv -f "$CRED_BAK" "$CRED_FILE"; fi' EXIT INT TERM
+        # Restore on any exit (cc_cleanup). NOTE: the launch below must NOT use
+        # `exec` — exec would replace this shell and the trap would never fire,
+        # permanently parking the Desktop credential.
+        CC_CRED_PARKED=true
     fi
 else
     echo "Token: Desktop (host ~/.claude/)"
@@ -343,4 +374,9 @@ fi
 # after the session to restore the Desktop credential. A lingering parent shell
 # is a negligible cost for guaranteed cleanup. `set -e` still propagates claude's
 # exit status (the trap's mv does not overwrite it).
-claude "$@"
+if [ -n "$CC_TEAM" ]; then
+    # pingbus claims the seat and becomes claude; the hooks run the kit's pingbus.
+    PATH="$CC_TEAMS_KIT:$PATH" "${CC_TEAMS_CMD[@]}"
+else
+    claude "$@"
+fi
