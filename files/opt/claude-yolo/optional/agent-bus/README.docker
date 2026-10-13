@@ -5,6 +5,12 @@ A `docker` member is a Claude Code agent running inside a docker container. This
 the short version; the full guide, including what joining a team grants and its limits,
 is docs/agent-bus.md in the fedora-desktop repository.
 
+REQUIRED: gh in the image, logged in to github.com as the user the agent runs as (or
+`GH_TOKEN` in the container environment, which gh honours). pingbus checks every reference
+at GitHub with gh's login and nothing else; without it `pingbus config check` and
+`agent-bus-claude` refuse (exit 78): "gh is required and must be logged in: install gh and
+run `gh auth login --hostname github.com`". Setting this up is yours; nothing here does it.
+
 1. The kit inside the container. Copy this kit, /usr/local/share/agent-bus/kit/, into the
    image, or mount it read-only at the same path, and put its `pingbus` and
    `agent-bus-claude` on PATH. The image needs Python 3.11 or later; `pingbus` refuses an

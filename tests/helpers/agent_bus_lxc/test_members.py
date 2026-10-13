@@ -127,6 +127,8 @@ class FakeGuest:
         self.kit_owner = os.getuid()
         (root / "bin").mkdir(parents=True, exist_ok=True)
         self.source, self.suggest, self.users, self.config_ok = source, suggest, users, config_ok
+        self.gh_ok = True
+        self.gh_checks: list[tuple[str, str]] = []
         self.agent_runs: list[tuple[str, str, tuple[str, ...]]] = []
 
     def home(self, user: str) -> str | None:
@@ -144,6 +146,11 @@ class FakeGuest:
     def agent(self, user: str, home: str, cwd: str, argv: Sequence[str], what: str,
               stdin: bytes = b"", env: Sequence[str] = ()) -> bytes:
         assert argv[3:4] not in ([s] for s in ROOT_SCRIPTS), f"{what} ran as the agent"
+        if list(argv) == ["sh", "-c", members.GH_CHECK_SH]:
+            self.gh_checks.append((user, argv[2]))
+            if not self.gh_ok:
+                raise members.MemberError(f"{what} failed (exit 1): no oauth token found for github.com")
+            return b""
         self.agent_runs.append((user, cwd, tuple(env)))
         return self._run(argv, what, stdin, env)
 
@@ -504,6 +511,22 @@ class PresentPhaseTest(Fixture):
         self.guest.config_ok = False
         with self.assertRaisesRegex(members.MemberError, "bundle unreadable"):
             self.run_phase("present", [entry()])
+
+    def test_gh_is_checked_as_the_agent_user_before_any_change(self) -> None:
+        """README.lxc: gh is required and logged in. The play checks it, never provides it."""
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.guest.gh_checks, [("agent", members.GH_CHECK_SH)])
+
+    def test_gh_missing_or_logged_out_refused_naming_the_container(self) -> None:
+        self.guest.gh_ok = False
+        with self.assertRaises(members.MemberError) as caught:
+            self.run_phase("present", [entry()])
+        message = str(caught.exception)
+        self.assertIn("LXC container devbox", message)
+        self.assertIn("gh auth login --hostname github.com", message)
+        self.assertIn("no oauth token", message)
+        self.assertFalse(pathlib.Path(self.guest.kit_parent).exists())
+        self.assertEqual(self.bus.calls, [])
 
 
 class AbsentPhaseTest(Fixture):

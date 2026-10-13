@@ -15,17 +15,19 @@ import email.message
 import http.client
 import io
 import json
-import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from helpers.pingbus import config, forge, limits, protocol
+from tests.helpers.pingbus import fake_gh
 
 API = "https://api.github.com"
 GHE_API = "https://forge.example.com/api/v3"
@@ -161,7 +163,7 @@ class ForgeCase(unittest.TestCase):
         self.now = T0
         self.slept: list[float] = []
 
-    def make(self, routes: dict[str, list[object]], *, token: str | None = None,
+    def make(self, routes: dict[str, list[object]], *, token: str = TOKEN,
              api: str = API, cache: forge.ForgeCache | None = None) -> tuple[forge.Forge, FakeOpener]:
         opener = FakeOpener(routes)
         client = forge.Forge(
@@ -213,12 +215,13 @@ class TestRequests(ForgeCase):
         self.assertEqual(request.get_method(), "GET")
         self.assertEqual(opener.timeouts[0], forge.TIMEOUT_S)
 
-    def test_no_token_no_authorization_header(self) -> None:
-        client, opener = self.make({compare_url("main"): [status("identical")]})
-        client.check(COMMIT_REF, BRANCHES)
-        request = opener.requests[0]
-        self.assertFalse(request.has_header("Authorization"))
-        self.assertNotIn("Authorization", request.unredirected_hdrs)
+    def test_there_is_no_anonymous_client(self) -> None:
+        """D66: every forge call carries gh's token; a client without one cannot be built."""
+        for token in (None, ""):
+            with self.subTest(token=token), self.assertRaises(ValueError):
+                forge.Forge(API, token=token, opener=FakeOpener({}))
+        with self.assertRaises(TypeError):
+            forge.Forge(API, opener=FakeOpener({}))
 
     def test_github_accept_header(self) -> None:
         client, opener = self.make({compare_url("main"): [status("identical")]})
@@ -232,7 +235,7 @@ class TestRequests(ForgeCase):
 
     def test_api_must_be_https(self) -> None:
         with self.assertRaises(ValueError):
-            forge.Forge("http://api.github.com", opener=FakeOpener({}))
+            forge.Forge("http://api.github.com", token=TOKEN, opener=FakeOpener({}))
 
     def test_branch_with_slash_is_kept_as_a_path(self) -> None:
         client, opener = self.make({compare_url("release/44"): [status("identical")]})
@@ -679,84 +682,151 @@ class TestRedirects(unittest.TestCase):
 
 
 class TestCredential(unittest.TestCase):
+    """§6: the forge credential's one source is `gh auth token --hostname github.com`. The
+    subprocess is stubbed here; TestCredentialThroughAnExecutable runs a stand-in `gh`."""
+
+    ENV = {"PATH": "/usr/bin:/bin", "HOME": "/home/<user>"}
+
+    def stub(self, *, stdout: str = TOKEN + "\n", error: BaseException | None = None) -> mock.MagicMock:
+        patcher = mock.patch.object(forge.subprocess, "run")
+        run = patcher.start()
+        self.addCleanup(patcher.stop)
+        if error is not None:
+            run.side_effect = error
+        else:
+            run.return_value = subprocess.CompletedProcess(list(forge.GH_ARGV), 0, stdout, "")
+        return run
+
+    def failed(self, code: int, stderr: str, stdout: str = "") -> subprocess.CalledProcessError:
+        return subprocess.CalledProcessError(code, list(forge.GH_ARGV), stdout, stderr)
+
+    def refusal(self, environ: dict[str, str] | None = None, api: str = API) -> str:
+        with self.assertRaises(config.ConfigError) as caught:
+            forge.resolve_credential(self.ENV if environ is None else environ, api)
+        return str(caught.exception)
+
+    def test_gh_is_asked_for_its_github_login(self) -> None:
+        run = self.stub()
+        credential = forge.resolve_credential(self.ENV, API)
+        self.assertEqual(credential, forge.Credential("gh", TOKEN))
+        run.assert_called_once()
+        args, kwargs = run.call_args
+        self.assertEqual(args, (["gh", "auth", "token", "--hostname", "github.com"],))
+        self.assertIs(kwargs["check"], True)
+        self.assertIs(kwargs["capture_output"], True)
+        self.assertIs(kwargs["text"], True)
+        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(kwargs["timeout"], forge.GH_TIMEOUT_S)
+        self.assertNotIn("shell", kwargs)
+        self.assertEqual(kwargs["env"]["HOME"], "/home/<user>")
+        self.assertEqual(kwargs["env"]["GH_PROMPT_DISABLED"], "1")
+
+    def test_gh_token_variables_reach_gh_and_are_not_read_by_pingbus(self) -> None:
+        """GH_TOKEN and GITHUB_TOKEN work only through gh, which honours them itself."""
+        run = self.stub()
+        environ = dict(self.ENV, GH_TOKEN="from-the-environment", GITHUB_TOKEN="another")
+        self.assertEqual(forge.resolve_credential(environ, API).token, TOKEN)
+        self.assertEqual(run.call_args.kwargs["env"]["GH_TOKEN"], "from-the-environment")
+
+    def test_former_pingbus_variables_are_not_a_source(self) -> None:
+        run = self.stub(error=FileNotFoundError("gh"))
+        environ = dict(self.ENV, PINGBUS_FORGE_TOKEN="t0123", PINGBUS_FORGE_TOKEN_FILE="/x/forge-token")
+        self.refusal(environ)
+        run.assert_called_once()
+
+    def test_gh_missing_names_the_install_and_the_login(self) -> None:
+        self.stub(error=FileNotFoundError("gh"))
+        message = self.refusal()
+        self.assertIn("install gh", message)
+        self.assertIn("gh auth login --hostname github.com", message)
+
+    def test_gh_not_logged_in_names_the_login(self) -> None:
+        for stderr in ("no oauth token found for github.com\n", "no oauth token\n"):
+            with self.subTest(stderr=stderr):
+                self.stub(error=self.failed(1, stderr))
+                message = self.refusal()
+                self.assertIn("not logged in", message)
+                self.assertIn("gh auth login --hostname github.com", message)
+
+    def test_any_other_gh_failure_is_its_own_refusal(self) -> None:
+        self.stub(error=self.failed(4, "failed to read configuration: permission denied\n", TOKEN))
+        message = self.refusal()
+        self.assertIn("exit 4", message)
+        self.assertIn("permission denied", message)
+        self.assertNotIn("not logged in", message)
+        self.assertNotIn(TOKEN, message)
+
+    def test_gh_that_never_answers_is_refused(self) -> None:
+        self.stub(error=subprocess.TimeoutExpired(list(forge.GH_ARGV), forge.GH_TIMEOUT_S, output=TOKEN))
+        message = self.refusal()
+        self.assertIn(f"{forge.GH_TIMEOUT_S} s", message)
+        self.assertNotIn(TOKEN, message)
+
+    def test_gh_that_cannot_be_started_is_refused(self) -> None:
+        self.stub(error=PermissionError(13, "Permission denied"))
+        self.assertIn("PermissionError", self.refusal())
+
+    def test_an_answer_that_is_not_one_token_is_refused_unquoted(self) -> None:
+        for stdout in ("", "\n", "has space\n", "two\nlines\n", "x" * 5000):
+            with self.subTest(stdout=stdout[:20]):
+                self.stub(stdout=stdout)
+                message = self.refusal()
+                self.assertNotIn("has space", message)
+                self.assertNotIn("lines", message)
+
+    def test_a_forge_other_than_github_never_consults_gh(self) -> None:
+        for api in (GHE_API, "https://api.github.com/", "https://api.github.com.example.com"):
+            with self.subTest(api=api):
+                run = self.stub()
+                message = self.refusal(api=api)
+                self.assertIn(forge.GITHUB_API, message)
+                run.assert_not_called()
+
+    def test_credential_repr_hides_the_token(self) -> None:
+        self.stub()
+        credential = forge.resolve_credential(self.ENV, API)
+        self.assertNotIn(TOKEN, repr(credential))
+        self.assertNotIn(TOKEN, str(credential))
+
+
+class TestCredentialThroughAnExecutable(unittest.TestCase):
+    """The real subprocess, with a stand-in `gh` first on the PATH pingbus is given."""
+
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.dir = pathlib.Path(tmp.name)
-        self.file = self.dir / "forge-token"
-        self.file.write_text("file-token")
-        self.file.chmod(0o600)
 
-    def resolve(self, environ: dict[str, str], api: str = API) -> forge.Credential:
-        return forge.resolve_credential(environ, api)
+    def environ(self, answer: str) -> dict[str, str]:
+        return {"PATH": fake_gh.path_with(fake_gh.fake_gh_dir(self.dir, answer)), "HOME": str(self.dir)}
 
-    def test_precedence(self) -> None:
-        full = {"PINGBUS_FORGE_TOKEN_FILE": str(self.file), "PINGBUS_FORGE_TOKEN": "env-token",
-                "GH_TOKEN": "gh-token", "GITHUB_TOKEN": "github-token"}
-        expected = [
-            ("PINGBUS_FORGE_TOKEN_FILE", "file-token"),
-            ("PINGBUS_FORGE_TOKEN", "env-token"),
-            ("GH_TOKEN", "gh-token"),
-            ("GITHUB_TOKEN", "github-token"),
-            ("none", None),
-        ]
-        environ = dict(full)
-        for source, token in expected:
-            self.assertEqual(self.resolve(environ), forge.Credential(source, token))
-            if environ:
-                environ.pop(next(iter(environ)))
+    def test_logged_in(self) -> None:
+        credential = forge.resolve_credential(self.environ("token"), API)
+        self.assertEqual(credential, forge.Credential("gh", fake_gh.FAKE_GH_TOKEN))
 
-    def test_empty_values_are_unset(self) -> None:
-        environ = {"PINGBUS_FORGE_TOKEN_FILE": "", "PINGBUS_FORGE_TOKEN": "", "GH_TOKEN": "",
-                   "GITHUB_TOKEN": "github-token"}
-        self.assertEqual(self.resolve(environ).source, "GITHUB_TOKEN")
-
-    def test_gh_tokens_only_for_exactly_github(self) -> None:
-        environ = {"GH_TOKEN": "gh-token", "GITHUB_TOKEN": "github-token"}
-        for api in (GHE_API, "https://api.github.com/", "https://api.github.com.example.com"):
-            self.assertEqual(self.resolve(environ, api), forge.Credential("none", None), api)
-        self.assertEqual(self.resolve({"PINGBUS_FORGE_TOKEN": "t0123"}, GHE_API).token, "t0123")
-
-    def test_token_file_mode_must_be_0600_or_stricter(self) -> None:
-        self.file.chmod(0o400)
-        self.assertEqual(self.resolve({"PINGBUS_FORGE_TOKEN_FILE": str(self.file)}).token, "file-token")
-        for mode in (0o640, 0o644, 0o604):
-            self.file.chmod(mode)
-            with self.assertRaises(config.ConfigError, msg=oct(mode)):
-                self.resolve({"PINGBUS_FORGE_TOKEN_FILE": str(self.file)})
-
-    def test_token_file_refusals(self) -> None:
-        link = self.dir / "link"
-        link.symlink_to(self.file)
-        cases = {
-            "missing": str(self.dir / "absent"),
-            "relative": "forge-token",
-            "symlink": str(link),
-            "directory": str(self.dir),
-        }
-        for name, value in cases.items():
-            with self.assertRaises(config.ConfigError, msg=name) as caught:
-                self.resolve({"PINGBUS_FORGE_TOKEN_FILE": value})
-            self.assertNotIn("file-token", str(caught.exception))
-
-    def test_token_file_owner_is_checked(self) -> None:
-        with self.assertRaises(config.ConfigError):
-            forge.resolve_credential({"PINGBUS_FORGE_TOKEN_FILE": str(self.file)}, API, uid=os.getuid() + 1)
-
-    def test_token_shape_is_checked_and_never_quoted(self) -> None:
-        bad = "has space\n"
-        self.file.write_text(bad)
+    def test_logged_out(self) -> None:
         with self.assertRaises(config.ConfigError) as caught:
-            self.resolve({"PINGBUS_FORGE_TOKEN_FILE": str(self.file)})
-        self.assertNotIn("has space", str(caught.exception))
-        with self.assertRaises(config.ConfigError) as caught:
-            self.resolve({"PINGBUS_FORGE_TOKEN": bad})
-        self.assertNotIn("has space", str(caught.exception))
+            forge.resolve_credential(self.environ("logged-out"), API)
+        self.assertIn("gh auth login", str(caught.exception))
 
-    def test_credential_repr_hides_the_token(self) -> None:
-        credential = self.resolve({"PINGBUS_FORGE_TOKEN": TOKEN})
-        self.assertNotIn(TOKEN, repr(credential))
-        self.assertNotIn(TOKEN, str(credential))
+    def test_broken(self) -> None:
+        with self.assertRaises(config.ConfigError) as caught:
+            forge.resolve_credential(self.environ("broken"), API)
+        self.assertIn("exit 1", str(caught.exception))
+
+    def test_not_installed(self) -> None:
+        empty = self.dir / "empty"
+        empty.mkdir()
+        with self.assertRaises(config.ConfigError) as caught:
+            forge.resolve_credential({"PATH": str(empty), "HOME": str(self.dir)}, API)
+        self.assertIn("install gh", str(caught.exception))
+
+    def test_the_client_sends_it_only_as_an_unredirected_header(self) -> None:
+        credential = forge.resolve_credential(self.environ("token"), API)
+        client = forge.Forge(API, token=credential.token, opener=FakeOpener({}))
+        request = client._request("/repos/x/y")
+        self.assertEqual(request.unredirected_hdrs["Authorization"], f"Bearer {fake_gh.FAKE_GH_TOKEN}")
+        self.assertNotIn("Authorization", request.headers)
 
 
 ORG = "example-org"
@@ -944,8 +1014,10 @@ class TestCheckPing(ForgeCase):
 
     def test_for_record_builds_the_client(self) -> None:
         opener = FakeOpener({compare_url("main"): [status("identical")]})
-        client = forge.Forge.for_record(self.RECORD, forge.Credential("none", None), opener=opener)
+        client = forge.Forge.for_record(self.RECORD, forge.Credential("gh", TOKEN), opener=opener)
         self.assertEqual(client.api, API)
+        client.check(COMMIT_REF, ("main",))
+        self.assertEqual(opener.requests[0].unredirected_hdrs["Authorization"], f"Bearer {TOKEN}")
 
 
 if __name__ == "__main__":

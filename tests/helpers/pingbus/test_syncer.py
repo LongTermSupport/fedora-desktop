@@ -25,7 +25,7 @@ import urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
 from helpers.pingbus import config, forge, inbox, limits, matrix, protocol, syncer
-from tests.helpers.pingbus import fake_client_api
+from tests.helpers.pingbus import fake_client_api, fake_gh
 
 SN = "team-a.agent-bus.internal"
 TEAM = "team-a"
@@ -657,12 +657,23 @@ class GapFillTest(TeamCase):
 class WiringTest(TeamCase):
     def test_forge_factory_uses_the_records_forge_and_the_members_cache(self):
         record = protocol.parse_team_record(self.record, SN, TEAM)
-        made = syncer.forge_factory(self.member(), {})(record)
+        environ = {"PATH": fake_gh.path_with(fake_gh.fake_gh_dir(self.gh_parent()))}
+        made = syncer.forge_factory(self.member(), environ)(record)
         self.assertIsInstance(made, forge.Forge)
         self.assertEqual(made.api, record.forge_api)
         (self.state.path / forge.CACHE_FILE).write_text("not json", encoding="utf-8")
         with self.assertRaises(config.ConfigError):
-            syncer.forge_factory(self.member(), {})(record)
+            syncer.forge_factory(self.member(), environ)(record)
+
+    def test_forge_factory_fails_fast_without_a_gh_login(self):
+        record = protocol.parse_team_record(self.record, SN, TEAM)
+        environ = {"PATH": fake_gh.path_with(fake_gh.fake_gh_dir(self.gh_parent(), "logged-out"))}
+        with self.assertRaises(config.ConfigError) as caught:
+            syncer.forge_factory(self.member(), environ)(record)
+        self.assertIn("gh auth login", str(caught.exception))
+
+    def gh_parent(self) -> pathlib.Path:
+        return pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
 
     def test_a_sync_answer_without_next_batch_is_unreachable(self):
         s = self.ready()

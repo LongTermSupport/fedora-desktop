@@ -9,8 +9,11 @@
 #   ./CLAUDE/Plan/00161-agent-team-bus-matrix/acceptance.bash [--bus-address=<ip>]
 # The bus address comes from where deploy.bash reads it (_bus-address.inc.bash). The one
 # prompt is sudo's, before the log opens (R3); every root step after it uses `sudo -n`.
-# GitHub's API must answer, with no credential: every ping's reference is checked there
-# (protocol §6), at this checkout's upstream branch as last fetched.
+# GitHub's API must answer: every ping's reference is checked there (protocol §6), at this
+# checkout's upstream branch as last fetched, with gh's login, pingbus's one forge credential
+# (DESIGN.md D66). The desktop user's gh must be logged in to github.com: the run lends that
+# login to each member it makes (M1's two, U23's three) through the member's own
+# `gh auth login --with-token` on stdin, and it goes with the member at teardown.
 #
 # M1 CHECKS, in DESIGN.md section 12's U17 row (each step in _acceptance-steps.inc.bash):
 #   M1.1 a (orchestrator) sends `review` (a path reference) to b (worker); b's `wait` prints
@@ -252,6 +255,7 @@ plan_deploy_leg "remove acceptance members and a ${TEAM} team left by an interru
 plan_deploy_leg "remove U23 members left by an interrupted run" u23_teardown leftover
 plan_deploy_leg "U20: ccy, its image and this checkout's saved launch choices for the M2 sessions; no acceptance seat or its container left by an interrupted run" u20_prerequisites
 plan_deploy_leg "the references the pings carry" resolve_reference
+plan_deploy_leg "the desktop user's gh login for github.com, lent to the members for the run" read_gh_login
 plan_deploy_leg "write the ${TEAM} team file" write_acceptance_team_file
 plan_deploy_leg "agent-bus-install team ${TEAM}" install_team team
 plan_deploy_leg "agent-bus add-member: a (orchestrator) and b (worker)" add_members

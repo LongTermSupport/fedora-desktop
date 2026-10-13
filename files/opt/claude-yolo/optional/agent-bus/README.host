@@ -10,6 +10,11 @@ This kit, /usr/local/share/agent-bus/kit/, holds what the member needs: `pingbus
 Claude Code plugin (plugin/pingbus/), settings.json, and the `agent-bus-claude` launcher,
 linked as /usr/local/bin/agent-bus-claude.
 
+REQUIRED: gh, logged in to github.com as the agent user. pingbus checks every reference at
+GitHub with gh's login and nothing else; without it `pingbus config check` and
+`agent-bus-claude` refuse (exit 78): "gh is required and must be logged in: install gh and
+run `gh auth login --hostname github.com`". Setting this up is yours; nothing here does it.
+
 1. The agent user. The agent runs as its own dedicated user, never as a user that holds a
    human's Matrix session (Element on the desktop, or a browser logged in to the team):
    anything running as that user could post as that human. `agent-bus-claude` and

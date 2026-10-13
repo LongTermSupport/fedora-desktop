@@ -41,8 +41,32 @@ B_WAIT_PID=""
 
 member_name() { printf '%s-%s' "${UNIT_PREFIX}" "$1"; }
 
+# read_gh_login — the desktop user's gh token for github.com, which every member of this run
+# needs (DESIGN.md D66: gh is pingbus's one forge credential). The harness sets its throwaway
+# members up, so it logs each one in with this token for the run (gh_login_member): held in
+# this shell only, never exported, never in an argv, a log or a run-directory file. Each
+# member's gh keeps it in its own home, which goes with the member.
+GH_LOGIN_TOKEN=""
+read_gh_login() {
+    if ! command -v gh >/dev/null; then
+        printf '[FAIL] gh is required and must be logged in: install gh and run gh auth login --hostname github.com as %s\n' "${USER}" >&2
+        return 1
+    fi
+    if ! GH_LOGIN_TOKEN="$(gh auth token --hostname github.com)" || [[ -z "${GH_LOGIN_TOKEN}" ]]; then
+        printf '[FAIL] gh is required and must be logged in: run gh auth login --hostname github.com as %s\n' "${USER}" >&2
+        return 1
+    fi
+    printf '==> the desktop user'\''s gh login for github.com is lent to the acceptance members for this run\n'
+}
+
+# gh_token_pipe — the token on a pipe, for a login's stdin (printf is a builtin: no argv).
+gh_token_pipe() {
+    printf '%s\n' "${GH_LOGIN_TOKEN}"
+}
+
 # member_run <member> <label> <stdin-file> <argv...> — run argv as the member's transient
-# user, with its PINGBUS_HOME and the acceptance team active. Its stdout and stderr are kept
+# user, with its PINGBUS_HOME (also its HOME, where its gh login is kept) and the acceptance
+# team active. Its stdout and stderr are kept
 # as <label>.out and <label>.err in the member's run directory. Returns the command's status
 # (systemd-run --wait passes it through).
 member_run() {
@@ -56,7 +80,7 @@ member_run() {
     {
         sudo -n systemd-run --quiet --pipe --wait --collect --service-type=exec --expand-environment=no \
             "--unit=${name}-${label}" --property=DynamicUser=yes "--property=User=${name}" \
-            "--property=StateDirectory=${name}" \
+            "--property=StateDirectory=${name}" "--setenv=HOME=/var/lib/${name}" \
             "--setenv=PINGBUS_HOME=/var/lib/${name}" "--setenv=PINGBUS_TEAMS=${TEAM}" -- "$@"
     } <"${input}" >"${MEMBER_DIR}/${member}/${label}.out" 2>"${MEMBER_DIR}/${member}/${label}.err"
 }
@@ -188,6 +212,10 @@ with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as bundle:
     rm -f -- "${dir}/bundle.tar" "${dir}/${TEAM}/token" || return 1
     show "${member}" place
     expect_status "${member}" place "${status}" 0 || return 1
+    status=0
+    member_run "${member}" gh-login <(gh_token_pipe) gh auth login --with-token --hostname github.com || status=$?
+    show "${member}" gh-login
+    expect_status "${member}" gh-login "${status}" 0 || return 1
     status=0
     member_run "${member}" config-check /dev/null "${PINGBUS}" config check || status=$?
     show "${member}" config-check

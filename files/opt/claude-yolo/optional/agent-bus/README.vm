@@ -5,6 +5,11 @@ A `vm` member is a Claude Code agent running inside a virtual machine (a libvirt
 for example). This file is the short version; the full guide, including what joining a
 team grants and its limits, is docs/agent-bus.md in the fedora-desktop repository.
 
+REQUIRED: gh in the guest, logged in to github.com as the agent user. pingbus checks every
+reference at GitHub with gh's login and nothing else; without it `pingbus config check` and
+`agent-bus-claude` refuse (exit 78): "gh is required and must be logged in: install gh and
+run `gh auth login --hostname github.com`". Setting this up is yours; nothing here does it.
+
 1. The kit inside the guest. Copy this kit, /usr/local/share/agent-bus/kit/, to the same
    path inside the guest and link its `pingbus` and `agent-bus-claude` into
    /usr/local/bin. The guest needs Python 3.11 or later; `pingbus` refuses an older one

@@ -241,8 +241,9 @@ check "PINGBUS_TEAMS set by the tracked ccy.env" "rc=1" \
 check "PINGBUS_HOME set by ccy.env.local" "rc=1" \
     "$(step_with '' 'export PINGBUS_HOME=/workspace/elsewhere' PINGBUS_SEATS=dev1@team-a)"
 check "a refused launch links nothing" "no" "$(yes_no test -L "$bin/pingbus")"
-# Every PINGBUS_* variable, not only the three the entrypoint reads (D62): a forge
-# credential is pingbus's too, and the checkout carries nothing about the bus.
+# Every PINGBUS_* variable, not only the three the entrypoint reads (D62): the names below
+# are arbitrary PINGBUS_ names (pingbus reads no forge credential variable, D66), and the
+# checkout carries nothing about the bus.
 check "PINGBUS_FORGE_TOKEN set by ccy.env.local" "rc=1" \
     "$(step_with '' 'export PINGBUS_FORGE_TOKEN=x' PINGBUS_SEATS=dev1@team-a)"
 check "that refusal names the variable" "yes" "$(err_has "PINGBUS_FORGE_TOKEN")"
@@ -293,6 +294,14 @@ printf '%s=%s;home=%s;teams=%s\n' "${0##*/}" "$*" "$PINGBUS_HOME" "$PINGBUS_TEAM
 STAND_IN
     chmod 755 "$bin/$stand_in"
 done
+# seat exec asks gh for its github.com login (D66); this stand-in answers as a logged-in gh
+# with a token that is not one, so the run never reads the real login of whoever runs it.
+cat >"$bin/gh" <<'STAND_IN'
+#!/bin/bash
+[ "$*" = "auth token --hostname github.com" ] || { echo "stand-in gh: unexpected: $*" >&2; exit 2; }
+echo gho_notarealtoken_standin
+STAND_IN
+chmod 755 "$bin/gh"
 # replay: run the argv the step last printed through the real zipapp; its output, or rc=<n>.
 replay() {
     rm -rf "$work/session-home"

@@ -52,6 +52,10 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
+    # agent team bus (top priority): pingbus asks gh for GitHub access; the host kit
+    playbooks/imports/play-agent-bus.yml
+    # agent team bus: the ccy image with the new pingbus
+    playbooks/imports/play-claude-yolo.yml
     # speech-to-text round 2, after a log out and back in: the insert and the icon
     00171-stt-insert-never-ignored-icon-in-sync/acceptance.bash
     # speech-to-text round 2, read-only: Enter after the focus is taken back
