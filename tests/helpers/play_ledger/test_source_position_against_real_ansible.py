@@ -34,7 +34,7 @@ from helpers.play_ledger import plugin_support
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-#: Any tracked playbook with a top-level `- hosts:` will do; the assertion is that the
+#: Any tracked playbook with a `- hosts:` play will do; the assertion is that the
 #: helper names THIS file, so the choice only has to be stable.
 PLAYBOOK = os.path.join(REPO_ROOT, "playbooks", "imports", "play-claude-yolo.yml")
 
@@ -60,7 +60,9 @@ PROBE = textwrap.dedent(
     inventory = InventoryManager(loader=loader, sources=[])
     variables = VariableManager(loader=loader, inventory=inventory)
     data = loader.load_from_file({playbook!r})
-    play = Play.load(data[0], variable_manager=variables, loader=loader)
+    # The first play, not the first entry: a playbook may start with an import_playbook.
+    first_play = next(entry for entry in data if "hosts" in entry)
+    play = Play.load(first_play, variable_manager=variables, loader=loader)
 
     # The object a callback is handed is a COPY, not the parsed play
     # (executor/task_queue_manager.py). Assert against both, because a mechanism that
