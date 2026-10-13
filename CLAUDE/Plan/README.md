@@ -60,7 +60,7 @@ Use these Unicode icons in plan documents:
 
 - [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`
 
-- [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - In Progress. `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
+- [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - Blocked on the owner (host run, first use). `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
 
 - [00176-dash-to-dock-stays-up-over-windows-again](00176-dash-to-dock-stays-up-over-windows-again/) - Blocked on the owner (five observations at the screen). Dash to Dock stays up over Ptyxis again; the answers decide the fix.
 

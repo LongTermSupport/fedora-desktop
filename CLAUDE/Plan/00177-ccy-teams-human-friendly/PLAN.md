@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress
+**Status**: Blocked on the owner (the meta-deploy run carrying Plan 00161 D64/D65, then the first real `ccy-teams` use)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
