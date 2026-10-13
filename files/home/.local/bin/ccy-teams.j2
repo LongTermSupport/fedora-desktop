@@ -546,12 +546,13 @@ check_repos() {
     }
 }
 
-# Create's scope choices, in words. SCOPE_HERE is this checkout's OWNER/REPO, when it has one.
+# The most repositories a team may list (protocol.py REPOS_MAX; declare.py check enforces it).
+REPOS_MAX=32
+# Create's scope choices, in words.
 SCOPE_ONE="One repository" SCOPE_OWNER="Everything one GitHub owner owns" SCOPE_SEVERAL="Several repositories"
 
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
-CREATED_TEAM=""
 create_wizard() {
     local team="" yes=false text owner="" default_team login probe name rc scope="" here trusts
     local -a humans=() allow_from=() flags=() repos=() choices=()
@@ -579,7 +580,7 @@ create_wizard() {
             usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
         fi
         need_gum
-        [[ -n "${owner}" && -n "${repos[*]:-}" ]] || need_gh
+        [[ -n "${owner}" || -n "${repos[*]:-}" ]] || need_gh
         gum style --bold --border rounded --padding "0 1" "New agent team" >&2
         explain "Agents and people working together in one private room on this machine, which you follow in Element. Ctrl-C leaves at any point; nothing changes until you say yes at the end."
         # What the team trusts is two questions (which kind, then which) unless a flag says.
@@ -661,23 +662,76 @@ create_wizard() {
     [[ -z "${team}" ]] || flags+=(--team "${team}")
     for name in "${humans[@]}"; do [[ -z "${name}" ]] || flags+=(--human "${name}"); done
     [[ -z "${owner}" ]] || flags+=(--org "${owner}")
+    for name in "${repos[@]}"; do [[ -z "${name}" ]] || flags+=(--repo "${name}"); done
     for name in "${allow_from[@]}"; do [[ -z "${name}" ]] || flags+=(--allow-from "${name}"); done
     if [[ "${yes}" == false ]]; then
         # The dry run checks the whole entry before anything is asked or written.
         declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run >/dev/null || exit
+        if [[ -n "${owner}" ]]; then
+            trusts="everything ${owner} owns: any repository, any branch"
+        else
+            trusts="$(printf '%s, ' "${repos[@]}")"
+            trusts="${trusts%, }: any branch"
+        fi
         printf '\n' >&2
         summary_confirm "Team ${team}" "$(printf '%-9s %s\n' \
-            "GitHub" "${owner} (any repository, any branch)" \
+            "Works on" "${trusts}" \
             "People" "${humans[*]}" \
-            "Machines" "${allow_from[*]:-this one only}")" \
+            "Machines" "${allow_from[*]:-this one only}" \
+            "Element" "a profile for the team, set up on this desktop")" \
             "Create team ${team}? (saved to ${HOST_VARS/#${HOME}/\~}, then installed: sudo asks for your password)"
     fi
     declare_helper create --file "${HOST_VARS}" "${flags[@]}"
+    # Element is set up with the team (Task 4.2): its profile is declared beside it, and
+    # apply runs its play.
+    declare_helper element --file "${HOST_VARS}" --team "${team}" >/dev/null
     if ! apply_teams "${team}"; then
         print_error "team ${team} is declared in ${HOST_VARS/#${HOME}/\~} but not installed. Once the cause above is fixed, ccy-teams apply ${team} installs it."
         exit 1
     fi
+    [[ "${yes}" == true ]] || after_create "${team}" "${humans[@]}"
     declare_helper next-steps --file "${HOST_VARS}" --team "${team}" >&2
+    [[ "${yes}" == true ]] || offer_join "${team}"
+}
+
+# after_create <team> <human>... — straight after create, on a terminal: each person's
+# sign-in (Task 4.3), then Element opened (Task 4.2).
+after_create() {
+    local team="$1" name
+    shift
+    for name in "$@"; do
+        [[ -n "${name}" ]] || continue
+        if ask_yes "Sign ${name} in to Element now? A password is set and shown here once." true; then
+            new_password "${team}" "${name}" || true # it has said why; the team is made either way
+        fi
+    done
+    if ask_yes "Open ${team} in Element now?" true; then
+        gio launch "$(element_launcher "${team}")"
+    fi
+}
+
+# join_candidates — the teams this checkout's repository belongs to, by name, each once.
+join_candidates() {
+    local here lines
+    here="$(the_remote_repo)"
+    [[ -n "${here}" ]] || return 0
+    lines="$(declare_helper teams-for --file "${HOST_VARS}" --repo "${here}")" || return 1
+    awk -F '\t' '$1 == "TEAM" { print $2 }' <<<"${lines}"
+}
+
+# offer_join <team> — in a checkout of the team's repositories, offer to start a ccy session
+# here as a member (Task 4.4): ccy --teams <team>, no seat, so ccy chooses one and says it.
+offer_join() {
+    local team="$1" top candidate
+    project_here || return 0
+    candidate="$(join_candidates)" || return 0
+    grep -qxF -- "${team}" <<<"${candidate}" || return 0
+    top="$(git rev-parse --show-toplevel)"
+    if ask_yes "Start a ccy session in ${top/#${HOME}/\~} as a member of ${team}?" true; then
+        echo "Starting ccy --teams ${team} in ${top/#${HOME}/\~}." >&2
+        cd "${top}"
+        exec "${CCY_LAUNCHER}" --teams "${team}"
+    fi
 }
 
 # need_gh — gh installed and logged in: the org is looked up on GitHub.
@@ -775,7 +829,7 @@ run_play() {
 # only when every one is up to date (its homeserver started, its room and people made).
 apply_teams() {
     local team rc=0
-    local -a behind=()
+    local -a behind=() watched=()
     run_play "$@" || rc=$?
     if [[ "${rc}" -ne 0 ]]; then
         print_error "play-agent-bus.yml failed (exit ${rc}, above)."
@@ -787,6 +841,13 @@ apply_teams() {
     done
     if [[ -n "${behind[*]:-}" ]]; then
         print_error "the play finished, but these teams are still not as declared: ${behind[*]}."
+        return 1
+    fi
+    # A team with an Element profile declared has it written by its own play, here too.
+    team="$(element_teams "$@")" || return 1
+    [[ -z "${team}" ]] || mapfile -t watched <<<"${team}"
+    if [[ -n "${watched[*]:-}" ]] && ! run_element_play "${watched[@]}"; then
+        print_error "the homeserver side is applied, but the Element profile is not; once the cause above is fixed, ccy-teams apply $* runs both again."
         return 1
     fi
     say "Applied: $*."
@@ -1426,7 +1487,56 @@ offer_update() {
         back_to_list
     fi
 }
+# offer_path_limits — a team created before Task 4.7 still names the old default
+# path_prefixes, which limits the paths its agents may point each other at. Offered once per
+# team: removed, through declare.py, and applied; or, declined, never asked again.
+offer_path_limits() {
+    local lines line team prefixes
+    local -a limited=()
+    lines="$(declare_helper limited --file "${HOST_VARS}")" || exit 1
+    [[ -z "${lines}" ]] || mapfile -t limited <<<"${lines}"
+    for line in "${limited[@]}"; do
+        IFS=$'\t' read -r _ team prefixes <<<"${line}"
+        [[ ! -e "${DECLINED_DIR}/path-limit-${team}" ]] || continue
+        need_gum
+        say "Team ${team} lets its agents point each other only at files under ${prefixes}"
+        echo "That limit was the default when ${team} was created; new teams have none. Without it, any file in the team's repositories may be named." >&2
+        if ask_yes "Remove the limit from ${team}?" true; then
+            declare_helper drop-limit --file "${HOST_VARS}" --team "${team}" >/dev/null
+            in_picker apply_teams "${team}"
+        else
+            mkdir -p "${DECLINED_DIR}"
+            : >"${DECLINED_DIR}/path-limit-${team}"
+            echo "Kept. ccy-teams will not ask about ${team}'s limit again." >&2
+        fi
+    done
+}
+offer_path_limits
 offer_update
+
+# offer_join_here — run in a checkout of a team's repositories, with no ccy session of this
+# checkout in that team running, offer to start one as a member (Task 4.4). Once per run.
+offer_join_here() {
+    local candidates team top key held
+    local -a teams=()
+    project_here || return 0
+    candidates="$(join_candidates)" || return 0
+    [[ -z "${candidates}" ]] || mapfile -t teams <<<"${candidates}"
+    top="$(git rev-parse --show-toplevel)"
+    for team in "${teams[@]}"; do
+        [[ -n "${LOADED[${team}]:-}" && "$(homeserver_state "${team}")" == up ]] || continue
+        held=""
+        for key in "${!SEAT_SESSION[@]}"; do
+            if [[ "${key}" == "${top}|"*"@${team}" && -n "${LIVE[${SEAT_SESSION[${key}]}]+set}" ]]; then
+                held=yes
+            fi
+        done
+        [[ -z "${held}" ]] || continue
+        need_gum
+        offer_join "${team}"
+    done
+}
+join_offered=""
 
 here="${PWD/#${HOME}/\~}"
 
@@ -1576,14 +1686,23 @@ password_row() {
 }
 
 # open_element <team> — Ctrl-E: the team's Element profile, through the launcher
-# play-agent-bus-element.yml writes. A person of the team who has never signed in is
-# offered a new password first.
+# play-agent-bus-element.yml writes; with none yet, it offers to set one up first. A person
+# of the team who has never signed in is offered a new password first.
 open_element() {
     local team="$1" launcher i
-    launcher="${HOME}/.local/share/applications/agent-bus-${team}-element.desktop"
+    launcher="$(element_launcher "${team}")"
     if [[ ! -f "${launcher}" ]]; then
-        echo "${team} has no Element profile on this desktop: add it to agent_bus_element_teams in the host_vars and run playbooks/imports/optional/common/play-agent-bus-element.yml." >&2
-        return 0
+        need_gum
+        echo "${team} has no Element profile on this desktop yet." >&2
+        if ! ask_yes "Set one up now? It installs Element Desktop if needed (sudo asks for your password)." true; then
+            echo "Nothing set up. Ctrl-E offers it again." >&2
+            return 0
+        fi
+        if ! set_up_element "${team}"; then
+            echo "${team} was not set up in Element, for the reason above." >&2
+            back_to_list
+            return 0
+        fi
     fi
     for i in "${!R_TEXT[@]}"; do
         [[ "${R_TEAM[i]}" == "${team}" && "${R_KIND[i]}" == human && "${R_SESSION[i]}" == "never signed in" ]] ||
@@ -1682,6 +1801,10 @@ while :; do
     fi
     if [[ -z "${R_TEXT[*]:-}" ]]; then
         offer_create
+    fi
+    if [[ -z "${join_offered}" ]]; then
+        join_offered=yes
+        offer_join_here
     fi
     if colour_on 1; then
         rows="$(printf '%s\n' "${R_SHOWN[@]}")"
