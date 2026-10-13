@@ -1,6 +1,6 @@
 # Plan 014: Whisper Model Manager
 
-**Status**: In Progress (research and planning)
+**Status**: Dormant (2026-10-13: `wsi-model-manager` is in the repo; waits on the owner's tests at the desktop, or folding into Plan 00148's model review)
 **Created**: 2026-02-18
 **Owner**: Claude Sonnet 4.6
 **Priority**: Medium
@@ -76,15 +76,19 @@ Models live at: `~/.cache/huggingface/hub/models--Systran--faster-whisper-{name}
 ### Current Install UX (extension.js:1324-1354)
 
 Clicking an uninstalled model runs:
+
 ```javascript
 GLib.spawn_command_line_async(
     `gnome-terminal --title="Install Whisper Model" -- bash -c "${bashCmd}"`
 );
 ```
+
 Where `bashCmd` is:
+
 ```bash
 python3 -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en', device='cpu')"
 ```
+
 This gives zero progress feedback and no ability to cancel.
 
 ### Research Findings
@@ -93,16 +97,19 @@ This gives zero progress feedback and no ability to cancel.
    was found. All GUI tools are heavy (PySide6, Electron) and desktop-focused.
 
 2. **`huggingface_hub`** (already installed as a dependency of faster-whisper) provides:
+
    - `scan_cache_dir()` — enumerate locally cached repos with sizes
    - `snapshot_download()` — download a full model repo with progress callbacks
    - `hf_hub_download()` — download individual files
 
 3. **Python Textual** is the best TUI framework for this purpose:
+
    - Already used in the Python ecosystem on Fedora
    - Supports progress bars, tables, filtering, keyboard navigation
    - Runs inside gnome-terminal without issues
 
 4. **Model catalogue** for faster-whisper on HuggingFace (Systran org):
+
    - `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`
    - `medium`, `medium.en`, `large-v2`, `large-v3`, `large-v3-turbo`
    - (distil variants are separate repos — out of scope for v1)
@@ -141,6 +148,7 @@ Extension dropdown (extension.js)
 A Python script at `~/.local/bin/wsi-model-manager` implementing a Textual TUI:
 
 **Screen layout:**
+
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Whisper Model Manager              [q]uit  [d]ownload │
@@ -168,6 +176,7 @@ A Python script at `~/.local/bin/wsi-model-manager` implementing a Textual TUI:
 ```
 
 **Features:**
+
 - Arrow keys to navigate model list
 - Filter box to search by name
 - Show filter: All / Installed / Not Downloaded
@@ -253,6 +262,7 @@ A Python script at `~/.local/bin/wsi-model-manager` implementing a Textual TUI:
 **Context**: Need a terminal UI for model browsing and downloading.
 
 **Options Considered**:
+
 1. **Textual** (Python) — Rich interactive TUI, tables, progress bars, keyboard nav
 2. **Rich** (Python, no interaction) — Display only, no interactive selection
 3. **Dialog/whiptail** (shell) — Very basic, no progress bars, limited layout
@@ -272,6 +282,7 @@ install.
 ### Decision 2: How to List Available Models
 
 **Options Considered**:
+
 1. **Hardcoded catalogue** — Fixed list matching current extension, easy to maintain
 2. **Live HuggingFace API** — `list_models(author="Systran")` queries Hub at runtime
 3. **Hybrid** — Hardcoded with "refresh from Hub" button for discovery
@@ -279,6 +290,7 @@ install.
 **Decision**: Hardcoded catalogue (Option 1) for v1.
 
 **Rationale**:
+
 - The set of faster-whisper models changes slowly (a few per year)
 - API calls require network, add latency, and can fail
 - Keeps the manager working offline (once models are downloaded)
@@ -292,6 +304,7 @@ install.
 ### Decision 3: Download Implementation
 
 **Options Considered**:
+
 1. **`WhisperModel(name, device='cpu')`** — Triggers download as side effect of model load
 2. **`snapshot_download(f"Systran/faster-whisper-{name}")`** — Explicit, progress-aware
 3. **`hf_hub_download()`** — Per-file, too granular
@@ -299,6 +312,7 @@ install.
 **Decision**: `snapshot_download()` (Option 2).
 
 **Rationale**:
+
 - Download without loading the model into RAM (Option 1 allocates ~2-8GB RAM just to cache)
 - `snapshot_download()` supports `tqdm` callbacks for progress reporting
 - Clean separation of download vs. use
@@ -311,6 +325,7 @@ install.
 ### Decision 4: Terminal Launcher from Extension
 
 **Options Considered**:
+
 1. **`gnome-terminal`** — Default terminal, already used for model install currently
 2. **`xterm`** — Universal fallback but ugly
 3. **`$TERM` env var** — More portable but complex to implement in GJS
@@ -330,6 +345,7 @@ GNOME. The fallback ensures it works on minimal installs.
 **Context**: After downloading a model, the extension dropdown needs to reflect the new model.
 
 **Options Considered**:
+
 1. **Re-check on every menu open** — Simple, no IPC needed
 2. **DBus signal from manager** — Instant update but requires manager to emit signal
 3. **Inotify watch on cache dir** — Reactive but complex in GJS
@@ -338,6 +354,7 @@ GNOME. The fallback ensures it works on minimal installs.
 **Decision**: Re-check on every menu open (Option 1).
 
 **Rationale**:
+
 - The `open-state-changed` signal already fires when the menu opens (extension.js:606)
 - `_checkModelInstalled()` is a fast filesystem stat — no meaningful overhead
 - No IPC complexity
@@ -376,14 +393,14 @@ GNOME. The fallback ensures it works on minimal installs.
 
 ## Risks & Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| `textual` not available as RPM/pip on Fedora 42 | High | Low | Install via pip in playbook (already using pip for other deps) |
-| `snapshot_download()` API changes in `huggingface_hub` | Medium | Low | Pin compatible version or use fallback to `WhisperModel()` |
-| Extension menu rebuild on open causes visual glitch | Low | Medium | Only update label text and visibility, don't rebuild whole menu |
-| User has models in non-standard cache location | Low | Low | Document the default cache path; out of scope for v1 |
-| `gnome-terminal` not available (e.g., KDE) | Low | Very Low | Fallback to `xterm` in `_openModelManager()` |
-| `large-v3-turbo` not in Systran repo under expected name | Medium | Low | Verify repo name before adding to catalogue; skip if absent |
+| Risk                                                     | Impact | Probability | Mitigation                                                      |
+| -------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------- |
+| `textual` not available as RPM/pip on Fedora 42          | High   | Low         | Install via pip in playbook (already using pip for other deps)  |
+| `snapshot_download()` API changes in `huggingface_hub`   | Medium | Low         | Pin compatible version or use fallback to `WhisperModel()`      |
+| Extension menu rebuild on open causes visual glitch      | Low    | Medium      | Only update label text and visibility, don't rebuild whole menu |
+| User has models in non-standard cache location           | Low    | Low         | Document the default cache path; out of scope for v1            |
+| `gnome-terminal` not available (e.g., KDE)               | Low    | Very Low    | Fallback to `xterm` in `_openModelManager()`                    |
+| `large-v3-turbo` not in Systran repo under expected name | Medium | Low         | Verify repo name before adding to catalogue; skip if absent     |
 
 ---
 
@@ -394,6 +411,7 @@ GNOME. The fallback ensures it works on minimal installs.
 All code written and QA/ESLint passing. Awaiting host deployment and testing.
 
 **Files changed:**
+
 - `files/home/.local/bin/wsi-model-manager` — new Python Textual TUI script
 - `extensions/speech-to-text@fedora-desktop/extension.js` — dropdown now shows only
   installed models; `_refreshModelSection()` and `_openModelManager()` added; dead
@@ -402,10 +420,13 @@ All code written and QA/ESLint passing. Awaiting host deployment and testing.
   and `wsi-model-manager` deploy task
 
 **Next step (on host):**
+
 ```bash
 ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
 ```
+
 Then log out and back in for extension JS changes to take effect, and test:
+
 1. Dropdown shows only installed models
 2. "Download more models..." launches `wsi-model-manager` in terminal
 3. After downloading a model, it appears in dropdown on next menu open
@@ -413,6 +434,7 @@ Then log out and back in for extension JS changes to take effect, and test:
 ### 2026-02-18 — Plan Created
 
 **Research phase complete.** Key findings:
+
 - No suitable existing TUI tool found — need to build `wsi-model-manager`
 - Python Textual is the right framework (async-capable, runs in gnome-terminal)
 - `snapshot_download()` from `huggingface_hub` is the correct download API
@@ -421,19 +443,19 @@ Then log out and back in for extension JS changes to take effect, and test:
 
 **Model Catalogue for `wsi-model-manager` v1:**
 
-| Name | HF Repo | Size | English Only |
-|------|---------|------|--------------|
-| tiny | Systran/faster-whisper-tiny | ~75MB | No |
-| base | Systran/faster-whisper-base | ~142MB | No |
-| small | Systran/faster-whisper-small | ~466MB | No |
-| medium | Systran/faster-whisper-medium | ~1.5GB | No |
-| large-v2 | Systran/faster-whisper-large-v2 | ~3.0GB | No |
-| large-v3 | Systran/faster-whisper-large-v3 | ~3.0GB | No |
-| large-v3-turbo | Systran/faster-whisper-large-v3-turbo | ~1.6GB | No |
-| tiny.en | Systran/faster-whisper-tiny.en | ~41MB | Yes |
-| base.en | Systran/faster-whisper-base.en | ~77MB | Yes |
-| small.en | Systran/faster-whisper-small.en | ~252MB | Yes |
-| medium.en | Systran/faster-whisper-medium.en | ~789MB | Yes |
+| Name           | HF Repo                               | Size   | English Only |
+| -------------- | ------------------------------------- | ------ | ------------ |
+| tiny           | Systran/faster-whisper-tiny           | ~75MB  | No           |
+| base           | Systran/faster-whisper-base           | ~142MB | No           |
+| small          | Systran/faster-whisper-small          | ~466MB | No           |
+| medium         | Systran/faster-whisper-medium         | ~1.5GB | No           |
+| large-v2       | Systran/faster-whisper-large-v2       | ~3.0GB | No           |
+| large-v3       | Systran/faster-whisper-large-v3       | ~3.0GB | No           |
+| large-v3-turbo | Systran/faster-whisper-large-v3-turbo | ~1.6GB | No           |
+| tiny.en        | Systran/faster-whisper-tiny.en        | ~41MB  | Yes          |
+| base.en        | Systran/faster-whisper-base.en        | ~77MB  | Yes          |
+| small.en       | Systran/faster-whisper-small.en       | ~252MB | Yes          |
+| medium.en      | Systran/faster-whisper-medium.en      | ~789MB | Yes          |
 
 **Note**: `large-v3-turbo` repo name on HuggingFace needs verification before adding to
 catalogue — confirm as `Systran/faster-whisper-large-v3-turbo` or similar.

@@ -1,6 +1,6 @@
 # Plan 004: Comprehensive Feature Documentation
 
-**Status**: Not Started
+**Status**: Dormant (2026-10-13: never started; waits on the owner to keep or cancel it)
 **Created**: 2026-02-06
 **Owner**: Claude Sonnet 4.5
 **Priority**: High
@@ -15,6 +15,7 @@
 Use the Explore subagent to conduct a comprehensive scan of the entire codebase to identify ALL features worthy of documentation. The initial list of 7 features is based on a quick scan and may be incomplete.
 
 **Action Required**:
+
 1. Launch Explore subagent with "very thorough" mode
 2. Search for: custom scripts, playbooks, extensions, tools, and utilities
 3. Identify any features not in the current list
@@ -30,6 +31,7 @@ Use the Explore subagent to conduct a comprehensive scan of the entire codebase 
 The fedora-desktop project has evolved several powerful, production-ready features that deserve comprehensive documentation. Currently, these features exist with minimal documentation, making them difficult for users to discover and use effectively. This plan will create professional-grade documentation for each feature, ensuring users can easily understand, install, configure, and troubleshoot these tools.
 
 The features identified for documentation are:
+
 1. **CCY (Claude Code YOLO)** - Containerised Claude Code with automatic token management
 2. **CCB (Claude Code Browser)** - CCY with Playwright MCP for browser automation
 3. **Nord** - NordVPN OpenVPN connection manager with interactive chooser
@@ -70,11 +72,13 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 1: Documentation Structure & Standards
 
 - [ ] ⬜ **Create documentation directory structure**
+
   - [ ] ⬜ Create `docs/features/` directory
   - [ ] ⬜ Create template for feature documentation
   - [ ] ⬜ Define documentation standards (sections, style, formatting)
 
 - [ ] ⬜ **Establish documentation conventions**
+
   - [ ] ⬜ Define standard sections (Overview, Installation, Configuration, Usage, Troubleshooting, Architecture)
   - [ ] ⬜ Create markdown style guide
   - [ ] ⬜ Establish screenshot/diagram naming conventions
@@ -82,6 +86,7 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 2: CCY Documentation
 
 - [ ] ⬜ **Research CCY architecture and features**
+
   - [ ] ⬜ Read and analyse `files/var/local/claude-yolo/claude-yolo`
   - [ ] ⬜ Understand token management system
   - [ ] ⬜ Document custom Dockerfile support
@@ -89,6 +94,7 @@ These features are production-ready but under-documented. Users currently must r
   - [ ] ⬜ Map out SSH key handling
 
 - [ ] ⬜ **Write CCY documentation**
+
   - [ ] ⬜ Create `docs/features/ccy.md`
   - [ ] ⬜ Write overview and key features section
   - [ ] ⬜ Document installation via playbook
@@ -101,12 +107,14 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 3: CCB Documentation
 
 - [ ] ⬜ **Research CCB-specific features**
+
   - [ ] ⬜ Read and analyse `files/var/local/claude-yolo/claude-browser`
   - [ ] ⬜ Understand differences from CCY
   - [ ] ⬜ Document Playwright MCP integration
   - [ ] ⬜ Document X11/GUI support
 
 - [ ] ⬜ **Write CCB documentation**
+
   - [ ] ⬜ Create `docs/features/ccb.md`
   - [ ] ⬜ Write overview highlighting browser automation capabilities
   - [ ] ⬜ Document installation and prerequisites
@@ -117,12 +125,14 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 4: Nord VPN Manager Documentation
 
 - [ ] ⬜ **Document Nord architecture**
+
   - [ ] ⬜ Read `files/home/.local/bin/nord` completely
   - [ ] ⬜ Map out interactive chooser workflow
   - [ ] ⬜ Document NetworkManager integration
   - [ ] ⬜ Understand credentials management
 
 - [ ] ⬜ **Write Nord documentation**
+
   - [ ] ⬜ Create `docs/features/nord.md`
   - [ ] ⬜ Write overview and problem statement
   - [ ] ⬜ Document installation via playbook
@@ -135,6 +145,7 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 5: Speech-to-Text Documentation
 
 - [ ] ⬜ **Research speech-to-text system**
+
   - [ ] ⬜ Read `files/home/.local/bin/wsi-stream` completely
   - [ ] ⬜ Read GNOME extension source
   - [ ] ⬜ Understand streaming vs batch modes
@@ -143,6 +154,7 @@ These features are production-ready but under-documented. Users currently must r
   - [ ] ⬜ Understand Claude Code post-processing option
 
 - [ ] ⬜ **Write speech-to-text documentation**
+
   - [ ] ⬜ Create `docs/features/speech-to-text.md`
   - [ ] ⬜ Write overview of the system architecture
   - [ ] ⬜ Document prerequisites (NVIDIA GPU, drivers, CUDA)
@@ -157,12 +169,14 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 6: GitHub Multi-Account Documentation
 
 - [ ] ⬜ **Research GitHub multi-account system**
+
   - [ ] ⬜ Read playbook `play-github-cli-multi.yml`
   - [ ] ⬜ Understand SSH key generation per account
   - [ ] ⬜ Document bash helper functions
   - [ ] ⬜ Understand account switching mechanism
 
 - [ ] ⬜ **Write GitHub multi-account documentation**
+
   - [ ] ⬜ Create `docs/features/github-multi-account.md`
   - [ ] ⬜ Write overview and use cases
   - [ ] ⬜ Document initial setup process
@@ -174,11 +188,13 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 7: Distrobox Integration Documentation
 
 - [ ] ⬜ **Research distrobox setup**
+
   - [ ] ⬜ Read playbook `play-install-distrobox.yml`
   - [ ] ⬜ Document pre-configured containers
   - [ ] ⬜ Understand container export/import workflow
 
 - [ ] ⬜ **Write distrobox documentation**
+
   - [ ] ⬜ Create `docs/features/distrobox.md`
   - [ ] ⬜ Write overview and benefits
   - [ ] ⬜ Document installation
@@ -189,17 +205,20 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 8: Features Index & Integration
 
 - [ ] ⬜ **Create central features documentation**
+
   - [ ] ⬜ Create `docs/FEATURES.md` as central index
   - [ ] ⬜ Write overview of all documented features
   - [ ] ⬜ Create quick reference table (feature, description, installation command)
   - [ ] ⬜ Link to individual feature docs
 
 - [ ] ⬜ **Update main documentation**
+
   - [ ] ⬜ Update `README.md` to reference features documentation
   - [ ] ⬜ Update `CLAUDE.md` to include features section
   - [ ] ⬜ Add features section to main playbook documentation
 
 - [ ] ⬜ **Create documentation maintenance guide**
+
   - [ ] ⬜ Document process for adding new feature docs
   - [ ] ⬜ Create documentation review checklist
   - [ ] ⬜ Document when features documentation should be updated
@@ -207,6 +226,7 @@ These features are production-ready but under-documented. Users currently must r
 ### Phase 9: Quality Assurance
 
 - [ ] ⬜ **Review all documentation**
+
   - [ ] ⬜ Check for consistency across all feature docs
   - [ ] ⬜ Verify all installation commands are correct
   - [ ] ⬜ Test all documented workflows
@@ -214,6 +234,7 @@ These features are production-ready but under-documented. Users currently must r
   - [ ] ⬜ Verify formatting consistency
 
 - [ ] ⬜ **Get user feedback**
+
   - [ ] ⬜ Share documentation with user for review
   - [ ] ⬜ Make revisions based on feedback
   - [ ] ⬜ Verify documentation clarity and completeness
@@ -229,6 +250,7 @@ These features are production-ready but under-documented. Users currently must r
 **Context**: Need to decide where feature documentation should live in the repository.
 
 **Options Considered**:
+
 1. Add to existing `docs/` directory as separate feature files
 2. Create new `docs/features/` subdirectory for feature documentation
 3. Keep in root as `FEATURES.md` with inline documentation
@@ -236,6 +258,7 @@ These features are production-ready but under-documented. Users currently must r
 **Decision**: Use `docs/features/` subdirectory (Option 2)
 
 **Rationale**:
+
 - Keeps features documentation separate from architecture/development docs
 - Allows for future expansion (one file per feature)
 - Maintains clean organisation as more features are added
@@ -248,6 +271,7 @@ These features are production-ready but under-documented. Users currently must r
 **Context**: Need to establish standard structure for all feature documentation.
 
 **Options Considered**:
+
 1. Free-form documentation (no template)
 2. Strict template with required sections
 3. Flexible template with recommended sections
@@ -255,6 +279,7 @@ These features are production-ready but under-documented. Users currently must r
 **Decision**: Flexible template with recommended sections (Option 3)
 
 **Rationale**:
+
 - Ensures consistency while allowing feature-specific content
 - Required sections: Overview, Installation, Usage, Troubleshooting
 - Optional sections: Architecture, Advanced Configuration, Performance Tuning
@@ -267,6 +292,7 @@ These features are production-ready but under-documented. Users currently must r
 **Context**: Some features would benefit from visual aids (architecture diagrams, workflow illustrations).
 
 **Options Considered**:
+
 1. No diagrams (text only)
 2. ASCII art diagrams in markdown
 3. External diagram files (PNG/SVG) linked from docs
@@ -274,6 +300,7 @@ These features are production-ready but under-documented. Users currently must r
 **Decision**: ASCII art diagrams in markdown (Option 2)
 
 **Rationale**:
+
 - Keeps documentation self-contained in markdown files
 - ASCII diagrams are version-control friendly
 - Easier to maintain (no external tools required)
@@ -294,12 +321,12 @@ These features are production-ready but under-documented. Users currently must r
 
 ## Risks & Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| Documentation becomes outdated as features evolve | Medium | High | Create maintenance guide, document update triggers |
-| Documentation is too technical for average users | Medium | Medium | Include examples, use clear language, get user feedback |
-| Features change during documentation process | Low | Medium | Focus on stable features first, note version numbers |
-| Documentation too verbose/overwhelming | Low | Medium | Use clear sections, include TL;DR summaries, link to details |
+| Risk                                              | Impact | Probability | Mitigation                                                   |
+| ------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------ |
+| Documentation becomes outdated as features evolve | Medium | High        | Create maintenance guide, document update triggers           |
+| Documentation is too technical for average users  | Medium | Medium      | Include examples, use clear language, get user feedback      |
+| Features change during documentation process      | Low    | Medium      | Focus on stable features first, note version numbers         |
+| Documentation too verbose/overwhelming            | Low    | Medium      | Use clear sections, include TL;DR summaries, link to details |
 
 ## Timeline
 
@@ -317,6 +344,7 @@ Target: Complete all phases, with user review approval before marking complete.
 ### 2026-02-06 - Plan Created
 
 Initial plan created after user identified need for feature documentation. Key features identified:
+
 - CCY (2139 lines) - Complex container wrapper with token management
 - CCB (1494 lines) - Browser automation variant
 - Nord (635 lines) - VPN connection manager

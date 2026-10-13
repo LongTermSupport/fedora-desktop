@@ -62,191 +62,187 @@ Use these Unicode icons in plan documents:
 
 - [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - In Progress. `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
 
-- [00176-dash-to-dock-stays-up-over-windows-again](00176-dash-to-dock-stays-up-over-windows-again/) - Blocked on the owner (five observations at the screen). Dash to Dock stays up over Ptyxis again. Plan 00102's `ALL_WINDOWS` fix is intact and cannot explain it, so the cause is an urgent reveal, hover, or a stale monitor index after DisplayLink re-layouts; the answers decide which, then the fix goes in `play-gnome-shell-extensions.yml`.
+- [00176-dash-to-dock-stays-up-over-windows-again](00176-dash-to-dock-stays-up-over-windows-again/) - Blocked on the owner (five observations at the screen). Dash to Dock stays up over Ptyxis again; the answers decide the fix.
 
-- [00174-polyglot-tooling-folders-with-qa-ci](00174-polyglot-tooling-folders-with-qa-ci/) - Not Started. Tooling is not bound to Python: one folder per language (`tooling-rust/`, `tooling-python/`, ...), each with its first-party QA pipeline (LongTermSupport `rust-qa-ci`, `py-qa-ci`), wired into `qa-all.bash` and deployed by Ansible. First consumer: Plan 00155's Rust key mapper.
+- [00174-polyglot-tooling-folders-with-qa-ci](00174-polyglot-tooling-folders-with-qa-ci/) - Not Started. One tooling folder per language, each with its own QA pipeline; first consumer is Plan 00155's Rust mapper.
 
 - [00173-shutdown-with-update-always-goes-down](00173-shutdown-with-update-always-goes-down/) - Blocked on the owner (host deploy, evening test, failed-dnf question). On a desktop, `shutdown-with-update` always updates and powers off; ccy sessions with no container never block it.
 
-- [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - Not Started. With a Bluetooth headset chosen as GNOME's input, dictation still recorded from the laptop microphone: PipeWire's default source never became the headset, and the headset stayed in A2DP (no microphone). Triage why GNOME and PipeWire disagree, fix it in `play-hd-audio.yml` (dictation keeps following the system input), then measure the headset's level and add gain only if needed.
+- [00172-bluetooth-headset-mic-for-dictation](00172-bluetooth-headset-mic-for-dictation/) - In Progress (triage done). A Bluetooth headset chosen as input still left dictation on the laptop mic; fix in `play-hd-audio.yml`.
 
-- [00171-stt-insert-never-ignored-icon-in-sync](00171-stt-insert-never-ignored-icon-in-sync/) - In Progress (built and tested; host deploy and acceptance pending). Insert was swallowed and the panel showed idle over a live dictation: an old client's untagged IDLE signals and its unconditional PID-file delete hijacked the new client's state. Session-tokened signals, own-PID-only cleanup, a visible rejected START, lifelong liveness reconciliation, an hourglass and a queued start for presses while finishing, and a starved microphone reported loudly.
+- [00171-stt-insert-never-ignored-icon-in-sync](00171-stt-insert-never-ignored-icon-in-sync/) - In Progress (built; host deploy and acceptance pending). Insert is never swallowed and the stt icon stays in sync, via session-tokened signals.
 
-- [00170-unifi-network-tooling](00170-unifi-network-tooling/) - In Progress. Tooling for the on-demand UniFi controller: the admin login is vaulted and applied by the play, a read-only API client logs in with it, and a probe shows which DSCP markings the Wi-Fi drops. Built in the plan folder first, then moved to durable tooling under `files/`.
+- [00170-unifi-network-tooling](00170-unifi-network-tooling/) - In Progress. A vaulted UniFi controller login, a read-only API client and a DSCP probe.
 
-- [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - In Progress. The ccy image's git (2.39, Debian bookworm) could not read a repo the host's git had written, and nothing noticed. ccy now refuses to start when the container's git cannot read the repo (CCY 3.91.0, accepted on the host); still to come: tool-version floors at build time; a Fedora base at the host's release, built weekly by GitHub Actions; Node through nvm; a major ccy version.
+- [00169-ccy-image-keeps-its-tools-current](00169-ccy-image-keeps-its-tools-current/) - In Progress (Phase 1 accepted on the host; Phase 3 next). The ccy image keeps its tools current; ccy refuses a git that cannot read the repo.
 
-- [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report files the plays manage that a package update or hand edit has changed since their play ran (as UPower.conf was in Plan 00166). Issue #91.
+- [00168-managed-config-files-changed-out-of-band](00168-managed-config-files-changed-out-of-band/) - Not Started. Report play-managed files changed since their play ran. Issue #91.
 
-- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - `cc` typed outside a git working tree starts a session with no project settings: no hooks daemon, no status line. `cc` will check for a repository before its tmux re-exec and token chooser; in a terminal it offers to switch to the fedora-desktop checkout, and otherwise refuses with a pointer to `cd` or plain `claude`. Subdirectory behaviour to be settled from Claude Code's docs. Issue #90.
+- [00167-cc-refuses-to-start-outside-a-repo](00167-cc-refuses-to-start-outside-a-repo/) - Not Started. `cc` outside a git working tree offers the checkout or refuses. Issue #90.
 
-- [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - ccy sessions showed UTC beside a local desktop clock. The launcher passes the host's IANA zone (timedatectl, else the `/etc/localtime` link) as `TZ` and stops rather than run on UTC; `ccy.env` / `ccy.env.local` can override; the image installs `tzdata` by name. CCY 3.90.0, container 2.49.
+- [00165-ccy-container-uses-host-time-zone](00165-ccy-container-uses-host-time-zone/) - In Progress (owner's clock check left). ccy containers run in the host's time zone through `TZ`.
 
-- [00164-stt-enter-lost-after-focus-retake](00164-stt-enter-lost-after-focus-retake/) - Speech-to-text: after the panel gives the dictation's window focus back, the text was pasted but the Enter did not send it. `wsi` and `wsi-stream` now paste once the window has kept focus for 0.5 s, then wait 1 s and check focus again before the Enter (none, and a lasting notification, if the window is gone); a read-only triage reads the timeline from the debug log.
+- [00164-stt-enter-lost-after-focus-retake](00164-stt-enter-lost-after-focus-retake/) - In Progress (host verification left). Dictation waits for the window to keep focus before the paste and the Enter.
 
 - [00161-agent-team-bus-matrix](00161-agent-team-bus-matrix/) - Implements #59: a private Matrix homeserver per team, the `pingbus` CLI (pings point at committed artefacts, never free text), a warden for human `!` commands, hooks that wake idle sessions, ccy opt-in, Element profiles.
 
-- [00160-ccy-env-local-override](00160-ccy-env-local-override/) - ccy sources an untracked `.claude/ccy/ccy.env.local` after `ccy.env`, so one checkout can override the project's ccy settings without a commit; ccy writes the tracked `ccy.env.local.dist` template and warns when a `ccy.env.local` is based on an older one; `ccy.env.local` is read-only inside the container. CCY 3.84.0, container 2.44.
+- [00160-ccy-env-local-override](00160-ccy-env-local-override/) - In Progress (owner check left). ccy sources an untracked `ccy.env.local` after `ccy.env`, from a tracked `.dist` template.
 
-- [00159-speech-to-text-vocabulary](00159-speech-to-text-vocabulary/) - Feature: a personal vocabulary primes Whisper and a "heard => meant" list corrects the text, both kept in `~/.config/fedora-desktop/`, a checkout of the private config repo
+- [00159-speech-to-text-vocabulary](00159-speech-to-text-vocabulary/) - Not Started. A personal vocabulary primes Whisper and a "heard => meant" list corrects its text.
 
-- [00158-ccy-sessions-take-over](00158-ccy-sessions-take-over/) - `ccy-sessions` Ctrl-T takes over a session open in another terminal (a dropped SSH still holding it): asks first naming that terminal and its idle time, detaches it, attaches here; the session keeps running. CCY 3.79.0, deployed by `play-claude-yolo.yml`.
+- [00158-ccy-sessions-take-over](00158-ccy-sessions-take-over/) - In Progress (two tasks left). `ccy-sessions` Ctrl-T takes over a session open in another terminal.
 
-- [00156-speech-to-text-auto-model-never-downloaded](00156-speech-to-text-auto-model-never-downloaded/) - Regression from Plan 00148: the `auto` model was never downloaded, so the warm server would not start after a reboot. Fixed under Defence Before Fix.
+- [00156-speech-to-text-auto-model-never-downloaded](00156-speech-to-text-auto-model-never-downloaded/) - In Progress (host verification left). The `auto` model was never downloaded, a regression from Plan 00148.
 
-- [00155-headset-button-toggles-speech-to-text](00155-headset-button-toggles-speech-to-text/) - Feature: a Bluetooth headset's multifunction button toggles speech-to-text through a TDD'd evdev listener (user service) and a udev access rule in `play-speech-to-text.yml`. Leading candidate: double press toggles, single press stays media play/pause. Triage first, then owner decisions.
+- [00155-headset-button-toggles-speech-to-text](00155-headset-button-toggles-speech-to-text/) - In Progress (design settled; needs Plan 00174). A headset button toggles speech-to-text through a gesture-to-key mapper.
 
-- [00154-ccy-sessions-freeze-and-thaw](00154-ccy-sessions-freeze-and-thaw/) - Freeze and thaw ccy sessions from the `ccy-sessions` picker through `podfreeze`: a frozen column (`-` for `cc`), one key that toggles the selected session, a refusal to freeze the session you are typing in, and `notify`/`reboot` naming a frozen session instead of hanging on it
+- [00154-ccy-sessions-freeze-and-thaw](00154-ccy-sessions-freeze-and-thaw/) - Not Started. Freeze and thaw ccy sessions from the `ccy-sessions` picker through `podfreeze`.
 
-- [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - Signed release tags `44.MINOR.PATCH` (major tracks Fedora), one release command, and the unattended self-update following the newest tag instead of the branch tip
+- [00153-release-tags-fedora-major-semver](00153-release-tags-fedora-major-semver/) - In Progress (host acceptance, then the first tag). Signed `44.MINOR.PATCH` release tags that the self-update follows.
 
-- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - The general speech-to-text improvements plan: a 3 s delayed stop so the last words are kept, unlimited dictation by loop-and-buffer in the warm server (owner's choice), and a review of newer speech models. Planned, owner decisions open: one recording mode (server-mode continuous dictation only), the panel extension made a thin layer over a reloadable user service (Rust recommended), and the stop grace ending on silence. New speech-to-text work goes here.
+- [00148-stt-unlimited-dictation-loop-and-buffer](00148-stt-unlimited-dictation-loop-and-buffer/) - In Progress (host checks and owner decisions open). Delayed stop, unlimited dictation and a model review; new speech-to-text work goes here.
 
-- [00149-up-arrow-loses-an-interrupted-command](00149-up-arrow-loses-an-interrupted-command/) - Bug: a command stopped with Ctrl+C is not on up-arrow in a local terminal. Dormant: not reproduced in the container or on the host (bash 5.3); reopen with `triage.bash` if it happens again.
+- [00149-up-arrow-loses-an-interrupted-command](00149-up-arrow-loses-an-interrupted-command/) - Dormant (not reproduced). A command stopped with Ctrl+C is missing from up-arrow history.
 
-- [00147-tmux-f12-menu-fedora-desktop-items](00147-tmux-f12-menu-fedora-desktop-items/) - Feature: one "Fedora Desktop" entry in the tmux F12 menu, its submenu built at press time from one-file-per-item drop-ins, so a play adds an item with no `tmux.conf` edit or reload. First item: the ccy token switch (Plan 00146). Waiting on owner decisions.
+- [00147-tmux-f12-menu-fedora-desktop-items](00147-tmux-f12-menu-fedora-desktop-items/) - Not Started (owner decisions). A "Fedora Desktop" entry in the tmux F12 menu, built from drop-ins.
 
-- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Feature: switch a running ccy session to another token without losing the container, by having the supervisor respawn `claude --resume` with the new token. Needs an upstream hooks-daemon feature (request drafted, not filed); the container relaunch is the fallback. Waiting on the owner's decision to file.
+- [00146-ccy-token-switch-through-the-supervisor](00146-ccy-token-switch-through-the-supervisor/) - Not Started (owner decisions). Switch a running ccy session's token through the supervisor.
 
-- [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - Container Watch becomes a section of the one Fedora Desktop panel icon, feeding its alert state, and the old extension is retired by playbook. In Progress: decisions settled; deployed (second run idempotent, acceptance passed), awaiting logout and the visual check.
+- [00144-single-fedora-desktop-panel-icon](00144-single-fedora-desktop-panel-icon/) - In Progress (deployed; logout and visual check left). Container Watch folds into the one Fedora Desktop panel icon.
 
-- [00143-pointer-lag-and-trackpoint-speed](00143-pointer-lag-and-trackpoint-speed/) - Intermittent touchpad lag on the laptop. A live episode ruled out CPU, memory, GPU, display, thermals and touchpad interrupts, so the lagging layer is still unknown and a mid-episode `triage.bash --capture` is next. Separately, the TrackPoint is far too fast because libinput ships no speed quirk for this ThinkPad model; it gets fixed through IaC.
+- [00143-pointer-lag-and-trackpoint-speed](00143-pointer-lag-and-trackpoint-speed/) - In Progress (needs a capture at the laptop). Intermittent touchpad lag and a TrackPoint that is far too fast.
 
-- [00141-run-bash-changed-plays](00141-run-bash-changed-plays/) - `./run.bash --changed` runs, after one confirmation, every play whose inputs changed since it last ran here. The inputs come from Plan 00137's path-to-play mapper, not just each play's own file, so a change to a ccy lib or a template counts. A play whose references cannot be followed is named, never skipped silently.
+- [00141-run-bash-changed-plays](00141-run-bash-changed-plays/) - In Progress (host run left). `./run.bash --changed` runs every play whose inputs changed.
 
-- [00139-commit-signing-everywhere](00139-commit-signing-everywhere/) - Every commit and tag made on the owner's machine is signed by default, on the host, in `cc` sessions and inside ccy, with one passphrase-less SSH signing key per machine, so GitHub marks them Verified and consumers can require it. The owner overruled Plan 00137's "agents must not sign" design; the self-update gate trusts the machine key. Addresses #4.
+- [00139-commit-signing-everywhere](00139-commit-signing-everywhere/) - In Progress (host verification left). Every commit and tag made on the owner's machine is signed. Addresses #4.
 
-- [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - The host health report becomes a terminal-first surface on both profiles: `fedora-desktop-health` prints it on demand, the login snippet speaks in full once a day and otherwise leaves a one-line reminder, and the GNOME panel gains a row that opens the command in a terminal. Nothing re-runs a play; that remains Plan 00109 Task 4.3.
+- [00136-host-health-report-in-a-terminal](00136-host-health-report-in-a-terminal/) - In Progress (host run left). The host health report as a command, a login reminder and a panel row.
 
-- [00137-unattended-server-self-update](00137-unattended-server-self-update/) - On an always-on headless server, a timer fast-forwards the checkout behind a trust gate, maps the changed paths to the plays they affect and runs those plays unattended; only when they all succeed does it warn the ccy/cc sessions and reboot, and a post-boot check verifies the restored sessions resumed. Built, with an optional per-install Slack alert sink; waiting on a host proof (Task 5.3).
+- [00137-unattended-server-self-update](00137-unattended-server-self-update/) - In Progress (server proof left). A headless server updates itself, runs the affected plays and reboots with sessions restored.
 
-- [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - Implements issue #44: a session registry written at start and deleted at clean exit, a `systemd --user` restore service that brings back whatever was still recorded at boot, and `ccy-sessions reboot --in N` warning every live session through the hooks-daemon signal CLI. Restore is opt-in; the default keeps today's behaviour. Phase 5 needs a machine that can be rebooted.
+- [00135-ccy-sessions-survive-a-reboot](00135-ccy-sessions-survive-a-reboot/) - In Progress (reboot test left). ccy sessions are recorded and restored after a reboot. Issue #44.
 
-- [00134-startup-log-triage-and-status-panel-unavailable](00134-startup-log-triage-and-status-panel-unavailable/) - A post-update reboot showed "crash" notifications and the status panel's blue question-mark, yet nothing crashed: the `BROKEN` play ledger comes from any ad-hoc `ansible … -m` run (reproduced), the crash notices are ABRT re-announcing an old backlog, and the logs exposed four more silent repo-owned defects.
+- [00134-startup-log-triage-and-status-panel-unavailable](00134-startup-log-triage-and-status-panel-unavailable/) - In Progress (host checks left). False "crash" notices and the status panel's question mark after a reboot.
 
-- [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - The `|| true` rule is anchored to end-of-line, so `$( cmd || true )` is invisible to it — which is how two instances shipped. Widening it finds 18 live sites in 8 files; four are the git hooks that gate secret scanning for this public repo, where a wrong fix fails open. Carried from Plan 00122 Task 3.7.
+- [00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form](00131-semgrep-or-true-rule-is-blind-to-the-enclosed-form/) - Not Started. The semgrep `|| true` rule misses the `$( cmd || true )` form; 18 live sites.
 
-- [00128-qa-tool-abort-silences-thirty-gates](00128-qa-tool-abort-silences-thirty-gates/) - `qa-all.bash` exits 2 on a fresh clone before roughly thirty gates have run, and reports nothing about any of them, because one gate's dev-only ESLint dependency is absent. Two written-down positions conflict — `CLAUDE.md`'s missing-dependency rule against `qa-js.bash`'s deliberate dev-only comment — so the remedy is an owner decision. Measured and deferred by Plan 00125.
+- [00129-semgrep-per-rule-coverage-is-invisible](00129-semgrep-per-rule-coverage-is-invisible/) - Not Started (one owner decision). The pattern gate's file count hides per-rule coverage gaps.
 
-- [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - **Parked.** Docker inside this host's LXC system containers is not working and Podman inside LXC was never established. Triage against `play-docker-in-lxc-support.yml`, then fix in IaC. Distinct from issue #41, which is engine coexistence on the host.
+- [00128-qa-tool-abort-silences-thirty-gates](00128-qa-tool-abort-silences-thirty-gates/) - In Progress (owner decision on Phase 2). One absent dev-only dependency aborts `qa-all.bash` before about thirty gates run.
 
-- [00121-run-log-secret-scrubber-and-token-scenario](00121-run-log-secret-scrubber-and-token-scenario/) - Secrets are scanned at the git boundary only, so runtime artefacts like VM transcripts go unchecked; builds a fail-closed scrubber and the opt-in `server-github-token` scenario that Plan 00063's Tasks 3.3 and 3.4 need.
+- [00127-docker-and-podman-inside-lxc](00127-docker-and-podman-inside-lxc/) - Dormant (parked by the owner). Docker and Podman inside the LXC system containers.
 
-- [00119-headless-github-ssh-443-input](00119-headless-github-ssh-443-input/) - Headless provisioning had no input for the always-on `ssh.github.com:443` route, so a box whose egress blocks port 22 could upload its GitHub key and then hang on every SSH use of it; `RUN_BASH_GITHUB_SSH_443=1` writes `github_ssh_over_443: true` into the fresh localhost.yml.
+- [00121-run-log-secret-scrubber-and-token-scenario](00121-run-log-secret-scrubber-and-token-scenario/) - Dormant (parked by the owner). A fail-closed run-log secret scrubber and the `server-github-token` scenario.
 
-- [00118-ccy-selinux-enforcing-host](00118-ccy-selinux-enforcing-host/) - On an SELinux-enforcing host a ccy container cannot read the project it was handed (container_t vs user_home_t; desktops only worked because they are not enforcing); relabel the workspace `:z` and stage key files into a `:Z` tmpfs dir, decided from getenforce and the engine report.
+- [00119-headless-github-ssh-443-input](00119-headless-github-ssh-443-input/) - In Progress (a run on a port-22-blocked box left). `RUN_BASH_GITHUB_SSH_443=1` for headless provisioning.
 
-- [00117-vmtest-acceptance-script-version-gate](00117-vmtest-acceptance-script-version-gate/) - An acceptance run copies its guest checker from the host's DEPLOYED copy, so a run certifies one commit with a checker from another: `20260914T100220Z` passed 16/16 with `deployed-extensions-active` expecting 1 of 9. Record the checker's version and fail a mismatch as a harness failure.
+- [00118-ccy-selinux-enforcing-host](00118-ccy-selinux-enforcing-host/) - In Progress (an attended launcher run left). ccy works on an SELinux-enforcing host through relabelled mounts.
 
-- [00116-ccy-deploy-keys-and-forwarded-agent](00116-ccy-deploy-keys-and-forwarded-agent/) - ccy only knows `~/.ssh/github_*` account keys, so a box provisioned with per-repo deploy keys and no GitHub account cannot run it; teach ccy the remote's ssh-config alias (deploy key) and a `--ssh-agent` forwarded from the operator's session.
+- [00117-vmtest-acceptance-script-version-gate](00117-vmtest-acceptance-script-version-gate/) - Not Started. An acceptance run records its guest checker's version and fails a mismatch.
 
-- [00115-playbook-shebang-runs-through-run-bash](00115-playbook-shebang-runs-through-run-bash/) - Every play's shebang hands it to run.bash, so `./playbooks/…/play-x.yml` works on password sudo; run.bash calls ansible-playbook explicitly so it never re-enters itself.
+- [00116-ccy-deploy-keys-and-forwarded-agent](00116-ccy-deploy-keys-and-forwarded-agent/) - In Progress (an attended `--ssh-agent` push left). ccy supports deploy-key remotes and a forwarded agent.
 
-- [00114-run-bash-single-play-mode](00114-run-bash-single-play-mode/) - Running one play by hand dies on password sudo (`sudo: a password is required`) because nothing tells Ansible to prompt; expose run.bash's proven become logic as `./run.bash <playbook>` and make every doc name it.
+- [00115-playbook-shebang-runs-through-run-bash](00115-playbook-shebang-runs-through-run-bash/) - In Progress (a headless proof left). Every play's shebang routes it through run.bash.
 
-- [00113-ccy-ci-runner-implementation](00113-ccy-ci-runner-implementation/) - Build the non-interactive `ccy` Plan 00068 specified: close every prompt site on the CI path, propagate the container's exit status rather than the compose block's, and impose the per-event tool surface with four startup assertions that can each actually fail.
+- [00114-run-bash-single-play-mode](00114-run-bash-single-play-mode/) - In Progress (a run on a password-sudo box left). `./run.bash <playbook>` runs one play with the right become handling.
 
-- [00109-desktop-drift-detection-and-fedora-desktop-panel](00109-desktop-drift-detection-and-fedora-desktop-panel/) - A reboot into kernel 7.2.4 killed both DisplayLink monitors while every QA gate stayed green; add the missing drift axes (repo pin vs installed, play-at-last-run vs play-at-HEAD), surface breakage at login with a Claude Code handoff, and front it all with one `fedora-desktop` GNOME panel
+- [00113-ccy-ci-runner-implementation](00113-ccy-ci-runner-implementation/) - Not Started. Build the non-interactive ccy CI runner that Plan 00068 specified.
 
-- [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Unplugging the dock aborts s2idle and nothing re-suspends, so the closed laptop runs hot in a bag; make the suspend request durable (udev wakeup policy, a re-suspend hook, battery idle-suspend as backstop)
+- [00109-desktop-drift-detection-and-fedora-desktop-panel](00109-desktop-drift-detection-and-fedora-desktop-panel/) - In Progress (host tasks left). Desktop drift detection surfaced at login and in one `fedora-desktop` panel.
 
-- [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - The pre-commit CCY bump gate misses `entrypoint.sh`, the Dockerfile and all of `files/opt/claude-yolo/`; widen it and test it
+- [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Blocked (needs the laptop and dock). Unplugging the dock aborts suspend and nothing re-suspends.
 
-- [00092-ccy-child-claude-spawn-mode](00092-ccy-child-claude-spawn-mode/) - Opt-in `ccy.env` mode letting a CCY session spawn authenticated child `claude` processes, with no new token exposure
+- [00098-encrypted-claude-transcripts-at-rest](00098-encrypted-claude-transcripts-at-rest/) - In Progress. Reduce the exposure of plaintext Claude Code transcripts.
 
-- [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Documentation for all major features (CCY, CCB, Nord, Speech-to-Text, etc.)
+- [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - Not Started. The CCY version gate covers two of eight files; widen and test it.
 
-- [007-speech-to-text-resource-leak-fixes](007-speech-to-text-resource-leak-fixes/) - Fix microphone resource leak, transcription truncation, and browser paste failures
+- [00092-ccy-child-claude-spawn-mode](00092-ccy-child-claude-spawn-mode/) - Blocked (host deploy and `ccy --rebuild`). Opt-in mode for a ccy session to spawn authenticated child `claude` processes.
 
-- [009-claude-devtools](009-claude-devtools/) - Install and integrate claude-devtools session visualiser (implementation committed, pending host deployment and testing)
+- [00089-ssh-handling-runner-token-guard](00089-ssh-handling-runner-token-guard/) - Dormant (host image rebuild and live launch). An exported `GH_TOKEN` is used explicitly by a `--no-ssh` runner.
 
-- [011-claude-devtools](011-claude-devtools/) - claude-devtools (ccdt) installation plan (supersedes 009)
+- [00088-claude-code-state-dir-stale-home-fact](00088-claude-code-state-dir-stale-home-fact/) - Dormant (downstream live re-proof). `claude_state_dir` comes from `user_login`, not a poisoned `HOME`.
 
-- [013-claude-devtools](013-claude-devtools/) - claude-devtools (ccdt) installation plan (latest iteration)
+- [00086-kernel-modules-absent-enumeration](00086-kernel-modules-absent-enumeration/) - Dormant (downstream live re-proof). A guest without `kernel-modules` no longer fails the kernel enumeration.
 
-- [014-whisper-model-manager](014-whisper-model-manager/) - Replace cluttered model dropdown with a dedicated Textual TUI (`wsi-model-manager`) for browsing and downloading Whisper models
+- [00080-ccy-session-network-isolation](00080-ccy-session-network-isolation/) - Dormant (until the owner schedules Phase 3). A network per ccy session.
 
-- [018-fedora-kickstart-install](018-fedora-kickstart-install/) - Fully automated Fedora install pipeline: GRUB netinstall boot entry, a `%pre` TUI collecting WiFi/LUKS/user info upfront, and a LUKS2 + Btrfs single encrypted volume
+- [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - Blocked (host Task 3.3). run.bash's grub cgroup check aborts on a proven failure.
 
-- [022-install-security-and-resilience](022-install-security-and-resilience/) - Fixes found during real-hardware kickstart testing (FDINST partition wiped by `clearpart --all` on reinstall; install security + resilience hardening)
+- [00073-headless-sudo-password-file](00073-headless-sudo-password-file/) - Dormant (host verification). `RUN_BASH_SUDO_PASSWORD_FILE` for headless runs with password sudo.
 
-- [023-hostname-based-inventory](023-hostname-based-inventory/) - Migrate Ansible inventory from hardcoded `localhost` to machine hostname, supporting per-machine host_vars and multiple laptops
+- [00072-ccy-assert-rootless-engine](00072-ccy-assert-rootless-engine/) - Dormant (host desktop check). ccy refuses a container engine that is not rootless.
 
-- [026-repo-spring-cleaning](026-repo-spring-cleaning/) - Repository-wide spring cleaning (non-CCY): remove tracked backups, fix bash scripts (set -e, shellcheck), fix Ansible playbooks (duplicate shebangs, curl-to-bash, state:latest)
+- [00069-plan-md-edited-in-place](00069-plan-md-edited-in-place/) - Not Started. State that `PLAN.md` is edited in place and narration goes to `JOURNAL/`.
 
-- [028-fedora-screen-sharing](028-fedora-screen-sharing/) - Diagnose and fix unstable screen sharing on Fedora 43 GNOME (Slack desktop broken by `app.asar` hardcode; Meet freezes traced to mutter ScreenCast bugs fixed in 49.3/49.5)
+- [00065-headless-server-cloud-base-blocker-fixes](00065-headless-server-cloud-base-blocker-fixes/) - Dormant (a fresh Cloud Base run). Fixes from the first headless run on Fedora Cloud Base.
 
-- [029-rapid-raw-cloud-ai](029-rapid-raw-cloud-ai/) - Evaluate cloud GPU paths for RapidRAW Tier 2 generative AI: free local-first verification (dGPU + Tier 1), local SD 1.5 prototype, vast.ai $10-credit prototype with SDXL/Flux Fill, then evidence-based decision gate before any productionisation
+- [00064-open-command-universal-file-opener](00064-open-command-universal-file-opener/) - Dormant (host deploy and live checks). `open`, one command for any file, directory or URL.
 
-- [030-phpantom-lsp](030-phpantom-lsp/) - 💤 Dormant — Research PHPantom (Rust-based PHP LSP) as replacement for Intelephense; awaiting decision-gate go/no-go before implementation
+- [00063-headless-run-bash-server-cloud-provisioning](00063-headless-run-bash-server-cloud-provisioning/) - In Progress (in production use; token and SSH paths await a host run). Unattended headless `run.bash` provisioning.
 
-- [031-reliable-screen-sharing](031-reliable-screen-sharing/) - 💤 Dormant — Reliable screen-sharing alternatives for WFH devs on Fedora 43 Wayland (complements Plan 028); Phase 2 complete, blocked awaiting user go-ahead for Phase 3
+- [00062-disk-reclaim-tui](00062-disk-reclaim-tui/) - Blocked (host tasks). `reclaim`, a confirm-first disk reclamation TUI.
 
-- [032-compression-helpers](032-compression-helpers/) - `compress` / `uncompress` CLI wrappers around `ouch`: xz by default, `--zip` flag, auto-detect on decompress, always-extract-into-folder (tarbomb protection)
+- [00061-headless-server-provisioning](00061-headless-server-provisioning/) - Dormant (host acceptance run). Headless Fedora Server provisioning with a per-play scope gate.
 
-- [034-localhost-config-account](034-localhost-config-account/) - Track config-owning GitHub account in `localhost.yml` instead of relying on volatile `gh api user` (config repo lookup was driven by active gh default)
+- [00058-github-version-pin-updates](00058-github-version-pin-updates/) - Dormant (darktable bump and a host run). Bump every upstream version pin that is behind.
 
-- [00035-gh-multi-account-hardening](00035-gh-multi-account-hardening/) - 💤 Dormant — Harden fresh-install flow (gh multi-account first, then SSH keys); fix SSH probe fallback bug in playbook and ccy; replace manual paste with `gh ssh-key add`; research signed commits
+- [00056-displaylink-dock-hotplug-recovery](00056-displaylink-dock-hotplug-recovery/) - Dormant (needs a DisplayLink dock). Recover from a dock replug without logging out.
 
-- [00037-image-watermarking-toolkit](00037-image-watermarking-toolkit/) - Composable `watermark` CLI primitive: ImageMagick two-layer visible mark (corner + faint diagonal tile) plus full EXIF/IPTC/XMP licence metadata; idempotent via filename suffix and XMP sentinel; delivered via optional Ansible playbook; wrappable by client projects via config precedence chain and named profiles
+- [00055-container-process-watchdog](00055-container-process-watchdog/) - Dormant (host deploy and verify). A reporting-only watchdog for long-running container processes.
 
-- [00038-musiccast-controller](00038-musiccast-controller/) - MusicCast controller for Linux desktop with full UX (now-playing + Qobuz browse/search/play); 5 parallel research tracks complete (YXC API surface, OSS landscape, HA integration, Qobuz architecture, stack options); live-confirmed Qobuz is native on the WXA-50 via YXC; decision gate recommends Python + Textual + `aiomusiccast` with parallel KsanStone-fork experiment
+- [00054-github-ssh-443-host-level](00054-github-ssh-443-host-level/) - Dormant (host deploy and live test). One `GITHUB_SSH_443` signal across the host and ccy.
 
-- [00039-ftp-camera-viewer-tui](00039-ftp-camera-viewer-tui/) - Extend `ftp-camera` with orthogonal `--view` / `--view-jpg` modifier flags that compose with any FTP-server mode (default / `--async` / `--async-copy`); class-filtered live single-window preview via geeqie's implicit single-instance; pre-warm only in sort modes; two-step `gum choose` TUI for argument-free invocation; structured startup confirmation banner; code shipped, Dormant pending the HOST manual test matrix
+- [00053-fedora-44-fresh-install-audit](00053-fedora-44-fresh-install-audit/) - Dormant (needs a fresh Fedora 44 install). The first fresh-install host audit.
 
-- [00040-raw-clipping-scanner](00040-raw-clipping-scanner/) - Standalone `clip-scan` CLI: flags Sony ARW files whose highlights or shadows clip, by weighted per-side score, renaming them `.wclip` / `.bclip` before Lightroom import. Tool, playbook and core tests shipped; host probes and integration tests open.
+- [00051-ansible-lint-improvement](00051-ansible-lint-improvement/) - Dormant (owner to keep or cancel). ansible-lint compliance and FQCN across the playbooks.
 
-- [00041-remote-desktop-quick-toggle](00041-remote-desktop-quick-toggle/) - One-click GNOME quick-settings toggle for `gnome-remote-desktop` on Wayland: `rdt` CLI plus extension, LAN-scoped non-persistent firewalld rule, off by default and after reboot.
+- [00049-full-repo-audit](00049-full-repo-audit/) - In Progress (two deferred items and owner calls left). A full repository audit across ten dimensions.
 
-- [00045-project-personas-multi-tool-accounts](00045-project-personas-multi-tool-accounts/) - Generalise the per-alias `github_accounts` pattern into a top-level `project_personas` map in `localhost.yml` driving multiple tools (gh today, wrangler next). Awaiting Phase 1 decision gate.
+- [00048-cc-token-source-parity](00048-cc-token-source-parity/) - In Progress (Phase 4 host deploy). Host `cc` gets ccy's named-token chooser.
 
-- [00046-localhost-yml-leak-guard](00046-localhost-yml-leak-guard/) - Project-level hooks-daemon handler blocking `gh issue/pr/gist` and HTTP-POST commands whose body carries a token derived from `localhost.yml` — the surface git hooks do not cover.
+- [00046-localhost-yml-leak-guard](00046-localhost-yml-leak-guard/) - In Progress (research done). A handler that blocks `gh` posts carrying `localhost.yml` values.
 
-- [00048-cc-token-source-parity](00048-cc-token-source-parity/) - Supersedes cancelled Plan 00036: give host `cc` ccy's named-token chooser over the shared pool, with a "Desktop" pseudo-option meaning today's `~/.claude/` OAuth behaviour.
+- [00045-project-personas-multi-tool-accounts](00045-project-personas-multi-tool-accounts/) - Dormant (owner's Phase 1 decision gate). A `project_personas` map driving several tools' accounts.
 
-- [00049-full-repo-audit](00049-full-repo-audit/) - Full repository audit via dynamic multi-agent workflow: 10 audit dimensions (security, fail-fast, Ansible, bash, CCY, extensions, performance, docs drift, opportunities, QA gaps) with adversarial verification of critical/high findings; research docs + triage.md + final action plan in the plan folder
+- [00041-remote-desktop-quick-toggle](00041-remote-desktop-quick-toggle/) - Dormant (host deploy and a test from a second machine). A quick-settings toggle for GNOME Remote Desktop.
 
-- [00051-ansible-lint-improvement](00051-ansible-lint-improvement/) - Systematic ansible-lint compliance improvement: `scripts/lint` tooling, FQCN enforcement, and per-rule violation fixes across all 37 playbooks
+- [00040-raw-clipping-scanner](00040-raw-clipping-scanner/) - Dormant (host probes and manual tests). `clip-scan` flags clipped Sony ARW files before import.
 
-- [00053-fedora-44-fresh-install-audit](00053-fedora-44-fresh-install-audit/) - First fresh-F44 host audit using the new diagnostics collector, splitting findings into generic, hardware-specific, and defects in the collector itself. Records F44's TuneD + tuned-ppd as the supported Power Mode backend.
+- [00039-ftp-camera-viewer-tui](00039-ftp-camera-viewer-tui/) - Dormant (host test matrix). Live preview modes for `ftp-camera`.
 
-- [00054-github-ssh-443-host-level](00054-github-ssh-443-host-level/) - Unify GitHub SSH-over-443 behind one runtime signal (`GITHUB_SSH_443`) across host and CCY, adding the temporary host toggle that previously needed a full Ansible run.
+- [00038-musiccast-controller](00038-musiccast-controller/) - Blocked (owner reads `DECISION.md`). A MusicCast controller with Qobuz browse and play.
 
-- [00055-container-process-watchdog](00055-container-process-watchdog/) - Reporting-only host watchdog: a user timer attributes every long-running CPU-pinned process to its container and surfaces it via GNOME panel and CLI. CPU caps explicitly rejected as symptom-hiding.
+- [00037-image-watermarking-toolkit](00037-image-watermarking-toolkit/) - Dormant (owner to resume). A `watermark` CLI with visible marks and licence metadata.
 
-- [00056-displaylink-dock-hotplug-recovery](00056-displaylink-dock-hotplug-recovery/) - Resurrects issue #28 (closed as a hardware fault, left reopenable): the DisplayLink dock unplug/replug wedges GNOME/mutter on Wayland. Research into whether recovery is possible without a logout.
+- [00035-gh-multi-account-hardening](00035-gh-multi-account-hardening/) - Dormant (owner decision). Harden the fresh-install flow around gh accounts and SSH keys.
 
-- [00058-github-version-pin-updates](00058-github-version-pin-updates/) - Bumps every hardcoded upstream version pin the pinned-version checker found behind (nvm, markless, rescrobbled, ouch, RapidRAW, ART, DisplayLink/evdi), one commit per pin, with a plan-local `deploy.bash`.
+- [034-localhost-config-account](034-localhost-config-account/) - Dormant (owner to keep or cancel). Declare the config repo's GitHub account in `localhost.yml`.
 
-- [00061-headless-server-provisioning](00061-headless-server-provisioning/) - Provision a headless Fedora Server from the same source tree as the desktop: a per-play `scope` taxonomy, a server entry point, and a QA gate that fails on any play mis-declaring its scope.
+- [032-compression-helpers](032-compression-helpers/) - In Progress (host re-run of acceptance left). `compress` / `uncompress` wrappers around `ouch`.
 
-- [00062-disk-reclaim-tui](00062-disk-reclaim-tui/) - General-purpose disk-reclamation tooling: `reclaim` (deployed by `play-cli-tools.yml`, tag `disk-reclaim`), a pure-bash confirm-first TUI for targeted cleanup. QA green; HOST deploy and live test pending.
+- [031-reliable-screen-sharing](031-reliable-screen-sharing/) - Dormant (owner go-ahead for Phase 3). Reliable screen-sharing alternatives on Wayland. Issue #17.
 
-- [00063-headless-run-bash-server-cloud-provisioning](00063-headless-run-bash-server-cloud-provisioning/) - Make `run.bash` provision a headless Fedora Server or Cloud box unattended, driven entirely by `RUN_BASH_*` env vars and failing fast by name when one is missing with no TTY. Depends on Plan 00061.
+- [030-phpantom-lsp](030-phpantom-lsp/) - Dormant (owner go/no-go). PHPantom as the PHP language server instead of Intelephense.
 
-- [00064-open-command-universal-file-opener](00064-open-command-universal-file-opener/) - Adds `open` — one command for any file, directory or URL, supplying the two behaviours `xdg-open` and `mimeopen` lack: session awareness and a chooser when there is no default. HOST deploy pending.
+- [029-rapid-raw-cloud-ai](029-rapid-raw-cloud-ai/) - Dormant (owner to schedule or cancel). RapidRAW generative AI on rented cloud GPUs.
 
-- [00065-headless-server-cloud-base-blocker-fixes](00065-headless-server-cloud-base-blocker-fixes/) - Fixes what a first live headless run hit on minimal Fedora Cloud Base: three core plays abort the whole run and two leave a container host silently wrong. Declares the missing deps in IaC. HOST test pending.
+- [028-fedora-screen-sharing](028-fedora-screen-sharing/) - Dormant (owner to keep or cancel). Fedora 43 Slack and Meet screen-sharing fixes.
 
-- [00098-encrypted-claude-transcripts-at-rest](00098-encrypted-claude-transcripts-at-rest/) - Claude Code writes plaintext transcripts at well-known paths — inside the repo working tree for CCY. Research inverted the design: blast-radius reduction first (permissions, retention, backup exclusion), live-state encryption gated on evidence that did not arrive.
+- [026-repo-spring-cleaning](026-repo-spring-cleaning/) - In Progress (unscheduled since April). Repository cleanup outside ccy: status scripts and playbook hygiene.
 
-- [00129-semgrep-per-rule-coverage-is-invisible](00129-semgrep-per-rule-coverage-is-invisible/) - The pattern gate's `N files OK` is the union of every rule's target set and reads as per-rule coverage; one rule is blind to 67 of 157 files. Carried out of Plan 00076, which met all twelve of its own criteria without it. One owner decision left: ~4.9× scan time for measured numbers, or model the globs in-gate.
+- [023-hostname-based-inventory](023-hostname-based-inventory/) - Dormant (owner to keep or cancel). Ansible inventory keyed by machine hostname.
 
-- [00080-ccy-session-network-isolation](00080-ccy-session-network-isolation/) - Every CCY session launched without `--network` joins the same Podman bridge. Research-gated into whether that matters, with five hypotheses of which H4 (can a per-session network be cleaned up after SIGKILL?) decides feasibility. 💤 Dormant — decided on a network per session (named `ccy-isolate-…`, and ignored by `podfreeze`); Low priority, parked until the owner schedules Phase 3.
+- [022-install-security-and-resilience](022-install-security-and-resilience/) - In Progress (blocked tasks). Install fixes from real-hardware kickstart testing.
 
-- [00086-kernel-modules-absent-enumeration](00086-kernel-modules-absent-enumeration/) - A downstream live proof of `play-AB-dnf-upgrade.yml` on a guest lacking the `kernel-modules` package (present only `kernel-core`/`kernel-modules-core`) found the half-installed-kernel enumeration hard-failed instead of treating "not installed" as zero versions. Fixed with a probe-then-fail `assert`, not a blanket `failed_when: false`.
+- [018-fedora-kickstart-install](018-fedora-kickstart-install/) - Dormant (owner to close or retarget). The automated Fedora kickstart install pipeline.
 
-- [00088-claude-code-state-dir-stale-home-fact](00088-claude-code-state-dir-stale-home-fact/) - `claude_state_dir` trusted a `HOME` fact that an early `become: true` play poisons to `/root`; now derived from `user_login` like the rest of the file
+- [014-whisper-model-manager](014-whisper-model-manager/) - Dormant (desktop tests). `wsi-model-manager`, a TUI for Whisper models.
 
-- [00089-ssh-handling-runner-token-guard](00089-ssh-handling-runner-token-guard/) - A carve-out from Plan 00068 (unmerged). Not a bug fix — `gh` already gives an exported `GH_TOKEN` precedence — but it makes that explicit and drops the `gh auth token` dependency for a runner authenticating purely by token via `--no-ssh`.
+- [009-claude-devtools](009-claude-devtools/) - Dormant (host run and a live check). `ccdt`, the claude-devtools session viewer.
 
-- [00069-plan-md-edited-in-place](00069-plan-md-edited-in-place/) - State in `PlanWorkflow.md` that `PLAN.md` is edited in place with git as its history, and narration belongs in `JOURNAL/`
+- [007-speech-to-text-resource-leak-fixes](007-speech-to-text-resource-leak-fixes/) - Dormant (laptop tests, or cancel). Speech-to-text mic leak, truncation and paste fixes.
 
-- [00072-ccy-assert-rootless-engine](00072-ccy-assert-rootless-engine/) - `ccy` now asks the container engine whether it is rootless and refuses when the answer is no or unreadable; Dormant pending a HOST desktop check
-
-- [00073-headless-sudo-password-file](00073-headless-sudo-password-file/) - Adds `RUN_BASH_SUDO_PASSWORD_FILE` as a second credential so headless `run.bash` works with ordinary password sudo; Dormant pending HOST verification
-
-- [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
+- [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Dormant (owner to keep or cancel). User documentation for the major features.
 
 ## Completed Plans
 
@@ -315,6 +311,10 @@ Use these Unicode icons in plan documents:
 keeps this index readable; the archive keeps the record whole.
 
 ## Cancelled Plans
+
+- [013-claude-devtools](Cancelled/013-claude-devtools/) - Cancelled. A byte-identical copy of Plan 011; superseded by Plan 009.
+
+- [011-claude-devtools](Cancelled/011-claude-devtools/) - Cancelled. A renumbered, never-started copy of Plan 009; superseded by Plan 009.
 
 - [00066-ftp-camera-airbnb-wifi-and-hotspot-triage](Cancelled/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/) - Two `ftp-camera` failures on untrusted WiFi: `--async-copy` stalling after the first frame, and a `--hotspot` IaC gap. CANCELLED by the owner with its HOST triage never run. The hotspot profile, `triage.bash` and `--debug-ftp` shipped. The retry loop has no confirmed cause.
 

@@ -38,6 +38,8 @@ CHECK_CATALOGUE=(
     "8|PATH resolves compress to /usr/local/bin, not a shadowing /usr/bin copy"
     "9|compress --gz and --7z produce their declared extensions"
     "10|compress with two algorithm flags exits 2 and names both (fail fast)"
+    "11|uncompress .tar.gz, .7z and .tar.zst each land in their own folder, flooding nothing"
+    "12|--force replaces: compress rewrites the archive, uncompress replaces the folder"
 )
 
 EXPECTED_CHECKS=()
@@ -61,8 +63,9 @@ EOF
             cat << 'EOF'
 
 Checks 2-7 are PLAN.md Phase 4's six "user testing" items, as assertions. They
-need no human judgement and never did. Checks 9-10 cover the remaining Success
-Criteria about the other algorithm flags and the conflicting-flag hard error.
+need no human judgement and never did. Checks 9-12 cover the remaining Success
+Criteria: the other algorithm flags, the conflicting-flag hard error, extraction
+of every other named format, and what --force does.
 
 NOT covered here: playbook idempotency. deploy.bash runs the play twice for
 that, because a second converge is a state change and belongs in the deploy
@@ -232,7 +235,7 @@ done
 if [ "$wrappers_ok" -ne 1 ]; then
     echo
     echo "==============================================================" >&2
-    echo "REJECTED — the deployed wrappers are missing or drifted, so checks 2-10" >&2
+    echo "REJECTED — the deployed wrappers are missing or drifted, so checks 2-12" >&2
     echo "  were NOT ATTEMPTED. They would each have failed for this one reason." >&2
     echo "COVERAGE: ${#RAN_CHECKS[@]} of ${#EXPECTED_CHECKS[@]} checks executed" >&2
     echo "  Run deploy.bash, then re-run this gate." >&2
@@ -490,6 +493,74 @@ elif [ -e "$WORK/conflict.tar.xz" ] || [ -e "$WORK/conflict.zip" ]; then
         "$(find "$WORK" -maxdepth 1 -name 'conflict.*' -printf '%f ')"
 else
     ok "compress --xz --zip exited 2, named both flags, and wrote nothing"
+fi
+echo
+
+# ── 11. the other formats extract ─────────────────────────────────────────────────────────
+check 11 "uncompress .tar.gz, .7z and .tar.zst each land in their own folder"
+# The .tar.gz and .7z are the archives check 9 built; the .tar.zst is built here. Each is
+# extracted in a directory of its own, so "exactly one new entry" is about this archive alone.
+make_fixture_dir "$WORK/alttarzst"
+if ! run_in "$WORK" "$DEP_COMPRESS" --zst alttarzst; then
+    bad "compress --zst alttarzst exited non-zero, so there is no .tar.zst to extract" "$RUN_OUT"
+fi
+for archive in alttargz.tar.gz alt7z.7z alttarzst.tar.zst; do
+    stem="${archive%%.*}"
+    xdir="$WORK/x11-$stem"
+    mkdir -p "$xdir"
+    if [ ! -s "$WORK/$archive" ]; then
+        bad "no $archive to extract" "the compress step that builds it failed above"
+        continue
+    fi
+    cp "$WORK/$archive" "$xdir/"
+    before11="$(find "$xdir" -mindepth 1 -maxdepth 1 | wc -l)"
+    if run_in "$xdir" "$DEP_UNCOMPRESS" "$archive"; then
+        after11="$(find "$xdir" -mindepth 1 -maxdepth 1 | wc -l)"
+        if [ ! -d "$xdir/$stem" ]; then
+            bad "uncompress $archive exited 0 but ./$stem/ was not created" "$RUN_OUT"
+        elif [ "$after11" -ne $((before11 + 1)) ]; then
+            bad "uncompress $archive added $((after11 - before11)) entries, expected 1" \
+                "$(find "$xdir" -mindepth 1 -maxdepth 1 -printf '%f ')"
+        else
+            found_one="$(find "$xdir/$stem" -name one.txt -type f -print -quit)"
+            if [ -z "$found_one" ] || [ "$(cat "$found_one")" != "alpha" ]; then
+                bad "./$stem/ was created but does not hold what went in" \
+                    "$(find "$xdir/$stem" -printf '%P ')"
+            else
+                ok "$archive extracted to ./$stem/ with its contents, adding exactly one entry"
+            fi
+        fi
+    else
+        bad "uncompress $archive exited non-zero" "$RUN_OUT"
+    fi
+done
+echo
+
+# ── 12. --force replaces ──────────────────────────────────────────────────────────────────
+check 12 "--force: compress rewrites the archive, uncompress replaces the folder"
+# The source changes before the forced compress, so the new archive is told apart from the
+# old by its content, not its bytes. The forced uncompress then lands over a folder holding
+# a sentinel: the sentinel gone and the new content present proves both wrappers replaced.
+printf 'gamma\n' > "$WORK/proj/one.txt"
+if run_in "$WORK" "$DEP_COMPRESS" --force proj; then
+    cp "$WORK/proj.tar.xz" "$WORK/x5/proj.tar.xz"
+    printf 'left over\n' > "$WORK/x5/proj/sentinel.txt"
+    if run_in "$WORK/x5" "$DEP_UNCOMPRESS" --force proj.tar.xz; then
+        found_one="$(find "$WORK/x5/proj" -name one.txt -type f -print -quit)"
+        if [ -e "$WORK/x5/proj/sentinel.txt" ]; then
+            bad "uncompress --force exited 0 but the old folder's sentinel is still there" \
+                "$(find "$WORK/x5/proj" -printf '%P ')"
+        elif [ -z "$found_one" ] || [ "$(cat "$found_one")" != "gamma" ]; then
+            bad "the replaced folder does not hold the re-compressed content" \
+                "compress --force did not rewrite the archive, or uncompress extracted the old one"
+        else
+            ok "compress --force rewrote proj.tar.xz and uncompress --force replaced ./proj/"
+        fi
+    else
+        bad "uncompress --force proj.tar.xz exited non-zero" "$RUN_OUT"
+    fi
+else
+    bad "compress --force proj exited non-zero over an existing archive" "$RUN_OUT"
 fi
 echo
 

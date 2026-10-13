@@ -136,10 +136,11 @@ plan closes on a run rather than on somebody being at a keyboard.
   - [x] ✅ uncompress .tar.xz lands in its own folder *(check 5)*
   - [x] ✅ uncompress .zip lands in its own folder — tarbomb protection *(check 6)*
   - [x] ✅ overwrite refusal, both wrappers, destroying nothing *(check 7)*
-- [ ] ⬜ **Task 4.2**: cover the two success criteria acceptance does not reach. Uncompress
+- [ ] 🔄 **Task 4.2**: cover the two success criteria acceptance does not reach. Uncompress
   the `.tar.gz` and `.7z` that check 9 already builds, plus a `.tar.zst`, each adding exactly
   one entry to the cwd. Run `--force` on both wrappers against an existing target and assert
-  it is replaced. Then one HOST re-run of `acceptance.bash`.
+  it is replaced. Then one HOST re-run of `acceptance.bash`. Checks 11 and 12 written
+  (2026-10-13; shellcheck clean, not runnable in the container); the HOST re-run remains.
 
 ## Technical Decisions
 

@@ -1,6 +1,6 @@
 # Plan 029: RapidRAW Cloud AI Integration
 
-**Status**: Not Started
+**Status**: Dormant (2026-10-13: never started; Phase 1 needs the owner at the laptop running RapidRAW; waits on the owner to schedule or cancel it)
 **Created**: 2026-04-07
 **Type**: Research → Prototype → Decision → Productionise
 **Priority**: Medium
@@ -33,13 +33,13 @@ The plan deliberately starts with a **free local-first phase** because the lapto
 
 ### What RapidRAW's AI actually does
 
-| Tier | Feature | Runtime | VRAM | In-scope here? |
-|---|---|---|---|---|
-| 1 | Subject / sky / foreground masking | Local (wgpu / Vulkan) | Any GPU | Phase 1 only (verify it works) |
-| 1 | CLIP auto-tagging | Local | Any GPU | Phase 1 only |
-| 1 | Lightweight inpainting | CPU | None | Phase 1 only |
-| 2 | Generative inpaint via ComfyUI | Remote HTTP to ComfyUI | 4–24 GB depending on model | **Yes — entire reason this plan exists** |
-| 3 | Cloud subscription | RapidRAW-managed | n/a | No — not released |
+| Tier | Feature                            | Runtime                | VRAM                       | In-scope here?                           |
+| ---- | ---------------------------------- | ---------------------- | -------------------------- | ---------------------------------------- |
+| 1    | Subject / sky / foreground masking | Local (wgpu / Vulkan)  | Any GPU                    | Phase 1 only (verify it works)           |
+| 1    | CLIP auto-tagging                  | Local                  | Any GPU                    | Phase 1 only                             |
+| 1    | Lightweight inpainting             | CPU                    | None                       | Phase 1 only                             |
+| 2    | Generative inpaint via ComfyUI     | Remote HTTP to ComfyUI | 4–24 GB depending on model | **Yes — entire reason this plan exists** |
+| 3    | Cloud subscription                 | RapidRAW-managed       | n/a                        | No — not released                        |
 
 ### How the connector works
 
@@ -61,14 +61,14 @@ From `./scripts/nvidia-status.bash` on the F43 laptop:
 
 ### Cost research summary
 
-| Provider | Pricing model | 2-hr session active cost | Idle cost | Cold start |
-|---|---|---|---|---|
-| vast.ai 3090 (24 GB) | Persistent | ~£0.30 | £5–12/mo storage | 1–3 min from stopped |
-| vast.ai 3090 (24 GB) | Destroy-after-session + template | ~£0.30 + 15-min boot | £0 | 10–20 min |
-| vast.ai 4090 (24 GB) | Persistent | ~£0.70 | £5–12/mo storage | 1–3 min |
-| RunPod Serverless | Per-second | ~£0.50–1.50 | £0 | 10–30 s |
-| Modal.com | Per-second | ~£0.60–1.20 | £0 | 10–20 s |
-| Lambda Labs A10 | On-demand | ~£1.10 | n/a | instant |
+| Provider             | Pricing model                    | 2-hr session active cost | Idle cost        | Cold start           |
+| -------------------- | -------------------------------- | ------------------------ | ---------------- | -------------------- |
+| vast.ai 3090 (24 GB) | Persistent                       | ~£0.30                   | £5–12/mo storage | 1–3 min from stopped |
+| vast.ai 3090 (24 GB) | Destroy-after-session + template | ~£0.30 + 15-min boot     | £0               | 10–20 min            |
+| vast.ai 4090 (24 GB) | Persistent                       | ~£0.70                   | £5–12/mo storage | 1–3 min              |
+| RunPod Serverless    | Per-second                       | ~£0.50–1.50              | £0               | 10–30 s              |
+| Modal.com            | Per-second                       | ~£0.60–1.20              | £0               | 10–20 s              |
+| Lambda Labs A10      | On-demand                        | ~£1.10                   | n/a              | instant              |
 
 Sources: [vast.ai live pricing](https://vast.ai/pricing), [computeprices.com — vast.ai](https://computeprices.com/providers/vast).
 
@@ -198,36 +198,44 @@ Skip entirely for outcomes (A) or (E). For (B), (C), (D), or (F):
 ## Technical Decisions
 
 ### Decision 1: Local-first before remote
+
 **Context**: User has a working laptop dGPU and vast.ai credit. Either could be the right answer.
 **Options**:
+
 1. Go straight to vast.ai (fast, costs credit, may discover dGPU was already enough).
 2. Verify the laptop is fully utilised first (free, slower start, may make Phases 2–5 unnecessary).
-**Decision**: Option 2 — Phase 1 is free and eliminates the easy answer first.
-**Date**: 2026-04-07
+   **Decision**: Option 2 — Phase 1 is free and eliminates the easy answer first.
+   **Date**: 2026-04-07
 
 ### Decision 2: SD 1.5 local prototype before remote
+
 **Context**: Phase 2 prototypes the integration on a model that fits in 4 GB VRAM, before paying for a 24 GB GPU.
 **Options**:
+
 1. Skip Phase 2, prototype directly on vast.ai.
 2. Local SD 1.5 prototype first, then remote.
-**Decision**: Option 2 — separates "is the integration broken?" from "is the model too small?". Remote debugging is much harder than local debugging, and the maintainer of RapidRAW-AI-Connector has acknowledged the integration is fragile ([discussion #292](https://github.com/CyberTimon/RapidRAW/discussions/292)).
-**Date**: 2026-04-07
+   **Decision**: Option 2 — separates "is the integration broken?" from "is the model too small?". Remote debugging is much harder than local debugging, and the maintainer of RapidRAW-AI-Connector has acknowledged the integration is fragile ([discussion #292](https://github.com/CyberTimon/RapidRAW/discussions/292)).
+   **Date**: 2026-04-07
 
 ### Decision 3: Existing $10 credit is the experimental budget
+
 **Context**: User has $10 sunk cost already on vast.ai. Don't spend new money until that's burned.
 **Decision**: Phase 3 hard-stops when credit ≤ $1. Phase 4 (decision gate) happens with real measured numbers, not predictions. No top-ups during Phases 1–4.
 **Date**: 2026-04-07
 
 ### Decision 4: SSH tunnel rather than VPN/Tailscale for Phase 3
+
 **Context**: ComfyUI and the connector both have no authentication. Remote access must be authenticated.
 **Options**:
+
 1. SSH tunnel (zero new infra, vast.ai instances all have SSH).
 2. Tailscale (requires installing Tailscale on the rented instance, needs user account binding).
 3. Public ComfyUI behind a reverse proxy (insecure — rejected immediately).
-**Decision**: SSH tunnel for Phase 3 prototype. Tailscale only if Phase 4 picks outcome (F) and a permanent home-GPU host exists.
-**Date**: 2026-04-07
+   **Decision**: SSH tunnel for Phase 3 prototype. Tailscale only if Phase 4 picks outcome (F) and a permanent home-GPU host exists.
+   **Date**: 2026-04-07
 
 ### Decision 5: RTX 3090 over 4090 for Phase 3
+
 **Context**: Both have 24 GB. 4090 is faster but ~2.5× the price.
 **Decision**: 3090. Phase 3 is about validating the workflow, not benchmarking peak quality. The £-per-hour difference matters when the budget is $10.
 **Date**: 2026-04-07
@@ -242,17 +250,17 @@ Skip entirely for outcomes (A) or (E). For (B), (C), (D), or (F):
 
 ## Risks & Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-|---|---|---|---|
-| Phase 1 reveals the dGPU is already in use and Tier 1 is enough → entire plan unnecessary | None (good outcome) | Medium | Phase 1 is cheap; this is a feature, not a bug |
-| RapidRAW connector integration is too immature/buggy to work reliably ([maintainer admits dissatisfaction](https://github.com/CyberTimon/RapidRAW/discussions/292)) | High | Medium | Phase 2 surfaces this locally before paying for remote |
-| vast.ai host evicts the persistent instance, losing the configured ComfyUI setup | Medium | Medium | Save instance config as a template after first successful setup; favour destroy-after-session strategy |
-| Cold-start latency makes the workflow unusable for short edits | Medium | High | Phase 4 may pick serverless instead — that is exactly what the decision gate is for |
-| RAW upload bandwidth makes first-request latency unacceptable on slow internet | Medium | Medium | Connector caches after first send; measure first-vs-warm in Phase 3 Task 3.6 |
-| Credit burns down before all Phase 3 tasks are tested | Low | High | Tasks 3.1–3.7 are prioritised over 3.8; Task 3.8 (template re-provision) can be skipped if credit runs low |
-| User exposes ComfyUI publicly by mistake | High | Low | All tasks specify SSH tunnel; no task tells the user to bind ComfyUI to `0.0.0.0` |
-| Plan gets parked half-way through and forgotten | Low | Medium | Phase 1 is short and gives an immediate yes/no signal — clear continue-or-stop point |
-| Sensitive endpoint info accidentally committed to public repo | High | Low | All endpoints in vault per project SecurityRules; pre-commit hooks already enforce this |
+| Risk                                                                                                                                                                | Impact              | Probability | Mitigation                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------- | ---------------------------------------------------------------------------------------------------------- |
+| Phase 1 reveals the dGPU is already in use and Tier 1 is enough → entire plan unnecessary                                                                           | None (good outcome) | Medium      | Phase 1 is cheap; this is a feature, not a bug                                                             |
+| RapidRAW connector integration is too immature/buggy to work reliably ([maintainer admits dissatisfaction](https://github.com/CyberTimon/RapidRAW/discussions/292)) | High                | Medium      | Phase 2 surfaces this locally before paying for remote                                                     |
+| vast.ai host evicts the persistent instance, losing the configured ComfyUI setup                                                                                    | Medium              | Medium      | Save instance config as a template after first successful setup; favour destroy-after-session strategy     |
+| Cold-start latency makes the workflow unusable for short edits                                                                                                      | Medium              | High        | Phase 4 may pick serverless instead — that is exactly what the decision gate is for                        |
+| RAW upload bandwidth makes first-request latency unacceptable on slow internet                                                                                      | Medium              | Medium      | Connector caches after first send; measure first-vs-warm in Phase 3 Task 3.6                               |
+| Credit burns down before all Phase 3 tasks are tested                                                                                                               | Low                 | High        | Tasks 3.1–3.7 are prioritised over 3.8; Task 3.8 (template re-provision) can be skipped if credit runs low |
+| User exposes ComfyUI publicly by mistake                                                                                                                            | High                | Low         | All tasks specify SSH tunnel; no task tells the user to bind ComfyUI to `0.0.0.0`                          |
+| Plan gets parked half-way through and forgotten                                                                                                                     | Low                 | Medium      | Phase 1 is short and gives an immediate yes/no signal — clear continue-or-stop point                       |
+| Sensitive endpoint info accidentally committed to public repo                                                                                                       | High                | Low         | All endpoints in vault per project SecurityRules; pre-commit hooks already enforce this                    |
 
 ## Timeline
 
@@ -269,6 +277,7 @@ Each phase is gated; later phases can be cancelled cleanly without orphaned work
 ## Notes & Updates
 
 ### 2026-04-07
+
 - Plan created from research conversation. Full research notes and source URLs in `research.md` (sibling file).
 - Diagnostic baseline established via `./scripts/nvidia-status.bash`: NVIDIA RTX 500 Ada Generation Laptop GPU, 4094 MiB VRAM, drivers 580.126.18 loaded and signed, both GPUs in Vulkan, Intel Arc is current OpenGL default (hybrid graphics).
 - **Side issue discovered (out of scope for this plan)**: `play-nvidia.yml` line 38 lists `nvidia-vaapi-driver` as a required package, but `nvidia-status.bash` Section 7 reports it is **not installed** on the F43 laptop. The playbook should be erroring on this — it is not. This is a fail-fast violation that warrants its own plan or direct fix. Flagged here so it does not get lost; deliberately not folded into Plan 029's scope to keep the plan focused.

@@ -1,6 +1,6 @@
 # Plan 00088: claude code state dir stale home fact
 
-**Status**: In Progress
+**Status**: Dormant (2026-10-13: fix merged; waits on Task 1.6, the downstream infra repo re-pinning to it and re-running its live proof)
 **Created**: 2026-08-24
 **Owner**: joseph
 **Priority**: Medium

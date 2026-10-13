@@ -1,6 +1,6 @@
 # Plan 00037: Image Watermarking Toolkit
 
-**Status**: In Progress
+**Status**: Dormant (2026-10-13: CLI and playbook written, no work since April; waits on the owner to resume it, then a HOST deploy and smoke test)
 **Created**: 2026-04-28
 **Owner**: joseph
 **Priority**: Medium
