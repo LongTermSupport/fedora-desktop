@@ -29,6 +29,8 @@ payload; every reason goes to stderr):
   expect-peer OUT TEAM EVENT SENDER TEXT            OUT is exactly that PEER line
   expect-timeout OUT TEAM EVENT TARGET VERB REF     OUT is exactly that TIMEOUT line
   expect-absent OUT EVENT            no line in OUT names EVENT, and none is HUMAN or PEER
+  room-refusal OUT                   OUT, a member's createRoom probe (JSON), is 403 M_FORBIDDEN;
+                                     prints "<status>\\t<errcode>"
   send-outcome STATUS ERR            a `pingbus send`'s verdict from its status and stderr
   host-subnet SOURCE                 (U23) "<ifname>\\t<cidr>": the host network holding a
                                      member's SOURCE address; `ip -j -4 addr show` on stdin
@@ -278,6 +280,24 @@ def expect_absent(text: str, event: str) -> list[str]:
             if kind in ("HUMAN", "PEER") or event in fields]
 
 
+def expect_room_refused(result: object) -> list[str]:
+    """A member's `POST /createRoom` was refused as Tuwunel 1.9.3 refuses it with
+    `allow_room_creation = false` (D63): 403 `M_FORBIDDEN` ("Room creation has been disabled",
+    `can_create_room_check` in src/api/client/room/create.rs). `result` is the probe's one JSON
+    object: status, errcode, error, room_id (set when a room was created) and cleanup (the
+    statuses of the leave and forget the probe then made). Any other answer is not proof."""
+    if not isinstance(result, dict):
+        return ["the room-creation probe printed no JSON object"]
+    status, errcode, room_id = result.get("status"), result.get("errcode"), result.get("room_id")
+    if room_id is not None:
+        return [f"room creation was NOT refused: status {status} created {room_id}; the probe then "
+                f"left and forgot it (statuses {result.get('cleanup')})"]
+    if status != 403 or errcode != "M_FORBIDDEN":
+        return [f"createRoom answered status {status!r}, errcode {errcode!r}; "
+                "want 403 M_FORBIDDEN (a refusal for another reason does not show the setting works)"]
+    return []
+
+
 def send_outcome(status: int, stderr: str) -> int:
     """0 sent; 2 when the forge did not answer (a fact about GitHub, not the bus); 1 else."""
     if status == 0:
@@ -435,6 +455,15 @@ def _set_limit(path: str, key: str, value: str) -> int:
     return EXIT_OK
 
 
+def _room_refusal(path: str) -> int:
+    result = json.loads(_read(path))
+    problems = expect_room_refused(result)
+    if problems:
+        return _verdict(problems)
+    print(f"{result['status']}\t{result['errcode']}")
+    return EXIT_OK
+
+
 def _field(path: str, key: str) -> str:
     value = json.loads(_read(path)).get(key)
     if not isinstance(value, str):
@@ -462,6 +491,7 @@ COMMANDS = {
     "expect-peer": (5, lambda a: _verdict(expect_peer(_read(a[0]), *a[1:]))),
     "expect-timeout": (6, lambda a: _verdict(expect_timeout(_read(a[0]), *a[1:]))),
     "expect-absent": (2, lambda a: _verdict(expect_absent(_read(a[0]), a[1]))),
+    "room-refusal": (1, lambda a: _room_refusal(a[0])),
     "send-outcome": (2, lambda a: send_outcome(int(a[0]), _read(a[1]))),
     "host-subnet": (1, lambda a: print("\t".join(host_subnet(_json_stdin(), a[0])))),
     "suggested-args": (2, lambda a: print("\n".join(suggested_args(_read(a[0]), a[1])))),

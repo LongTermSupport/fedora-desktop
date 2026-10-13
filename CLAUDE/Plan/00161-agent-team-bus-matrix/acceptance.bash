@@ -36,6 +36,9 @@
 #   M1.6 (D64) a public fork (octocat/linguist) is refused (provenance). A private
 #        repository outside the org needs a credential to name: its refusal is covered by
 #        tests/helpers/pingbus/test_forge.py only.
+#   M1.7 (D63) member b, with its own token, asks the homeserver for a new room (`POST
+#        /createRoom`): refused with 403 M_FORBIDDEN, status and errcode recorded; a room
+#        created is a FAIL, and the probe leaves and forgets it.
 #
 # M2 CHECKS, U20's row (_acceptance-u20.inc.bash): real ccy sessions in THIS checkout, run
 # headless with stream-json input so each sits idle between turns, each launched with
@@ -264,6 +267,7 @@ check_leg "M1.1 review sent, received by wait, acked" check_review_ack
 check_leg "M1.2 a human message reaches only the member it mentions" check_human_addressed
 check_leg "M1.5 the org's repository trusted on any branch it names, not on one that lacks the commit; an outside repository marked external" check_org_trust
 check_leg "M1.6 a fork is refused" check_fork
+check_leg "M1.7 a member's createRoom is refused (403 M_FORBIDDEN): the team room stays the only one" check_room_creation
 # M1.4 runs before M1.3: M1.3 leaves an unanswered review pending in b's inbox.
 check_leg "M1.4 an agent text reaches the member it names as PEER, not one it does not" check_peer_text
 check_leg "M1.3 TIMEOUT for an unanswered review, none for the acked one" check_timeout
