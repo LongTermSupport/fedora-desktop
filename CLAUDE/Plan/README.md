@@ -34,6 +34,30 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
+
+- [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - Not Started. The ouch tarball is checked against a pinned sha256 (#63)
+
+- [00188-run-bash-rerun-noise](00188-run-bash-rerun-noise/) - Not Started. A `run.bash` re-run injects only missing pipx packages, with no warnings (#54)
+
+- [00187-stt-panel-robot-face](00187-stt-panel-robot-face/) - Not Started. The speech-to-text panel shows 🤖 or 💬 while Claude post-processes (#100)
+
+- [00186-lxc-claude-session-reboot-warning](00186-lxc-claude-session-reboot-warning/) - Not Started (low priority). Claude sessions inside LXC containers get the reboot warning and restore (#55)
+
+- [00185-terminal-emoji-glyphs](00185-terminal-emoji-glyphs/) - Not Started. Triage why the terminal draws the wrong emoji, then defend in a play (#60)
+
+- [00184-deployed-tools-menu](00184-deployed-tools-menu/) - Not Started (low priority). One launcher and panel item for the deployed user tools (#81)
+
+- [00183-prompt-shows-stale-tracking-ref](00183-prompt-shows-stale-tracking-ref/) - Not Started. The git prompt never shows up-to-date against a stale tracking ref (#52)
+
+- [00182-run-bash-private-plays-and-config-clone](00182-run-bash-private-plays-and-config-clone/) - Not Started. `run.bash` runs private plays from a local clone of the config repo (#49, #97)
+
+- [00181-ccy-session-limits](00181-ccy-session-limits/) - Not Started. ccy memory limits and admission by free RAM (#67), and #61's remaining host checks
+
+- [00180-desktop-only-pr-merge-gate](00180-desktop-only-pr-merge-gate/) - Not Started. A written, scope-picked QA gate for PRs merged from a desktop (#94)
+
+- [00179-stt-recording-batch-and-engine-research](00179-stt-recording-batch-and-engine-research/) - Not Started. Batch transcription of long recordings, and the engine and CPU-path decisions (#98, #11, #9, #84)
+
 - [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`
 
 - [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - In Progress. `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
