@@ -129,6 +129,44 @@ class ListRulesTest(unittest.TestCase):
         self.assertNotIn("\x1b", message)
         self.assertNotIn("\x00", message)
 
+    def test_a_mixed_case_team_gets_a_lower_case_suggestion(self):
+        message = self.refused("dev1@LongTermSupport", "team names are lower-case")
+        self.assertIn("`longtermsupport`", message)
+        self.assertIn("`long-term-support`", message)
+        message = self.refused("dev1@Alpha", "team names are lower-case")
+        self.assertIn("did you mean `alpha`?", message)
+
+
+class BareTeamTest(unittest.TestCase):
+    """A team alone (`allow_bare`): its seat is chosen later, on a terminal (Task 4.8)."""
+
+    def test_a_bare_team_is_a_team_ref(self):
+        refs = seat.parse_seat_list(" alpha ,dev1@team-b", allow_bare=True)
+        self.assertEqual(refs, (seat.TeamRef("alpha"), seat.SeatRef("dev1", "team-b")))
+        self.assertEqual(seat.canonical(refs), "alpha,dev1@team-b")
+
+    def test_without_allow_bare_it_is_refused_naming_the_way(self):
+        with self.assertRaises(seat.SeatListError) as caught:
+            seat.parse_seat_list("alpha")
+        self.assertIn("exactly one @", str(caught.exception))
+        self.assertIn("ccy --teams alpha", str(caught.exception))
+
+    def test_a_bare_team_beside_a_seat_of_it_is_one_team_twice(self):
+        with self.assertRaises(seat.SeatListError) as caught:
+            seat.parse_seat_list("alpha,dev1@alpha", allow_bare=True)
+        self.assertIn("both name team `alpha`", str(caught.exception))
+
+    def test_a_bare_mixed_case_team_gets_the_suggestion(self):
+        with self.assertRaises(seat.SeatListError) as caught:
+            seat.parse_seat_list("LongTermSupport", allow_bare=True)
+        self.assertIn("team names are lower-case", str(caught.exception))
+        self.assertIn("`long-term-support`", str(caught.exception))
+
+    def test_a_bare_word_that_is_no_team_is_refused(self):
+        for bad in ("1team", "team_a", "t" * 25):
+            with self.subTest(bad=bad), self.assertRaises(seat.SeatListError):
+                seat.parse_seat_list(bad, allow_bare=True)
+
 
 # ── a checkout's seats ───────────────────────────────────────────────────────────────────
 
