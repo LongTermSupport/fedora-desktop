@@ -7,11 +7,13 @@
 # A team is declared in the untracked host_vars localhost.yml (agent_bus_teams) and made by
 # play-agent-bus.yml. A ccy session joins one with `ccy --teams <seat>@<team>`, an LXC
 # container's agent through agent_bus_lxc_members. ccy-teams holds no team logic of its own:
-# it acts through agent-bus, agent-bus-install, ccy and the session registry, and it edits
-# the host_vars only to add a team (create) or a team's repositories (add-repo).
+# it acts through agent-bus, agent-bus-install, ccy and the session registry. It edits the
+# host_vars only to add a team (create) or to declare one absent (remove), and every such
+# change is applied at once: it runs play-agent-bus.yml for that team alone (its own
+# shebang, through run.bash's single-play mode), so no team is left declared but not built.
 #
-# Each team is a row (its homeserver up, down or not installed yet, and its port),
-# followed by its members:
+# Each team is a row (its homeserver up, down or not installed yet, its port, and APPLIED:
+# whether what runs is what the host_vars declare, DESIGN.md D65), followed by its members:
 #   ccy                    a seat of a ccy checkout, with the ccy session holding it and
 #                          whether that session is started again after a reboot
 #   lxc, host, docker, vm  a member of that type; a ccy member whose checkout is not
@@ -25,11 +27,12 @@
 #   Ctrl-N   start a new ccy session in a free or new seat of the row's team, here
 #   Ctrl-P   a new Element password for the person on the row
 #   Ctrl-E   open the team in Element
-#   Ctrl-A   add repositories to the row's team
+#   Ctrl-U   update every team that is out of date or not built (never one to take down)
 #   Ctrl-R   turn the seat's session's restore after a reboot off or on
-#   Ctrl-X   remove a seat, or park a member, after a yes/no
+#   Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
 #   Esc, q   leave
-# With no team on this machine, the picker offers to create one.
+# With no team on this machine, the picker offers to create one; with a team out of date, it
+# offers to update it first.
 #
 # Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
 # installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
@@ -42,23 +45,26 @@
 #   ccy-teams                        the picker (needs a terminal)
 #   ccy-teams -l|--list              print the same table, with a heading, and exit
 #                                    (colour only on a terminal, and never with NO_COLOR)
-#   ccy-teams create [--team T] [--human NAME]... [--repo OWNER/REPO=BRANCH[,BRANCH]]...
-#                    [--allow-from CIDR]... [--yes]
-#                                    add a team to agent_bus_teams in the host_vars. On a
-#                                    terminal it asks (with gum) for what the flags leave
-#                                    out: the GitHub owner the team works within; the
-#                                    name (the owner's, by default); the people in the
-#                                    team room (you, by default); which of the owner's
-#                                    repositories the agents may send each other to (all
-#                                    or none ticked to start with, as you choose), each
-#                                    with its default branch
-#                                    from gh; other machines' subnets. It shows the entry and asks
-#                                    before writing. --yes asks nothing: give --team,
-#                                    --human and --repo. The port is chosen for you; the
-#                                    team is made only when play-agent-bus.yml runs
-#   ccy-teams add-repo <team> [--repo OWNER/REPO=BRANCH[,BRANCH]]... [--yes]
-#                                    add repositories to a team; on a terminal, chosen
-#                                    from its GitHub owner's, as create does
+#   ccy-teams create [--org ORG] [--team T] [--human NAME]... [--allow-from CIDR]... [--yes]
+#                                    add a team to agent_bus_teams in the host_vars and
+#                                    install it. On a terminal it asks (with gum) for what
+#                                    the flags leave out: the GitHub org (or user) the team
+#                                    works within, whose every repository its agents may
+#                                    send each other to; the name (the org's, by default);
+#                                    the people in the team room (you, by default); other
+#                                    machines' subnets. It shows the entry and asks once,
+#                                    then writes it and runs play-agent-bus.yml for it,
+#                                    and says it is done only when the team's homeserver
+#                                    is up. --yes asks nothing: give --org, --team and
+#                                    --human. The port is chosen for you
+#   ccy-teams apply <team> | --all   run play-agent-bus.yml for the team (or every team
+#                                    out of date or not built), then check each now
+#                                    matches its declaration. --all never takes a team
+#                                    down: a team declared absent, or built but no longer
+#                                    declared, needs your decision (ccy-teams remove)
+#   ccy-teams remove <team>          take a team down, on a terminal only: it says what is
+#                                    lost, offers a backup first, and keeps the team's data
+#                                    unless you choose to delete it and type its name
 #   ccy-teams backup <team>          back the team's homeserver up now
 #   ccy-teams restore <team> [<n>] [--yes]
 #                                    restore backup <n> after a yes/no (--yes: none);
@@ -66,6 +72,9 @@
 #   ccy-teams -h|--help              this text
 #
 # Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").
+# The APPLIED column, from `declare.py status` against the installer's stamps (readable
+# without sudo): up to date, out of date (config, software or both), not built, removed,
+# or needs your decision (declared absent but still built, or built but not declared).
 # Exit 64 for a usage mistake, 130 when cancelled, 1 for a refusal or a failure.
 #
 # Runs on the HOST, as the desktop user.
@@ -78,6 +87,10 @@ CCY_LIB="${CCY_LIB:-/var/local/claude-yolo/lib}"
 # The test points these at stand-ins; nothing else should set them.
 HOST_VARS="${CCY_TEAMS_HOST_VARS:-${ROOT_DIR}/environment/localhost/host_vars/localhost.yml}"
 CCY_LAUNCHER="${CCY_TEAMS_LAUNCHER:-/var/local/claude-yolo/claude-yolo}"
+# The play that applies a team (run by its own shebang), and where agent-bus-install
+# leaves each applied team's stamp.
+PLAY="${CCY_TEAMS_PLAY:-${ROOT_DIR}/playbooks/imports/play-agent-bus.yml}"
+APPLIED_DIR="${CCY_TEAMS_APPLIED_DIR:-/var/lib/agent-bus-applied}"
 # Root's commands are named by path: sudo's secure_path need not hold /usr/local.
 SUDO_AGENT_BUS=/usr/local/bin/agent-bus
 SUDO_INSTALLER=/usr/local/sbin/agent-bus-install
@@ -94,7 +107,7 @@ usage_error() {
 
 subcommand="${1:-}"
 case "${subcommand}" in
-"" | create | add-repo | backup | restore) ;;
+"" | create | apply | remove | backup | restore) ;;
 -l | --list)
     if [[ $# -gt 1 ]]; then
         usage_error "'${subcommand}' takes no further arguments."
@@ -164,7 +177,9 @@ word_colour() {
     case "$1" in
     free | invited | no | parked | "never signed in" | *"(stopped)") printf '%s' "${C_YELLOW}" ;;
     up | active | held | "in room" | yes | *" signed in") printf '%s' "${C_GREEN}" ;;
-    down* | "not installed" | "not in room" | unknown | "need sudo") printf '%s' "${C_RED}" ;;
+    "out of date"* | "not built") printf '%s' "${C_YELLOW}" ;;
+    "up to date") printf '%s' "${C_GREEN}" ;;
+    down* | "not installed" | "not in room" | unknown | "need sudo" | "decide:"* | unreadable) printf '%s' "${C_RED}" ;;
     esac
 }
 
@@ -328,7 +343,7 @@ check_humans() {
 # case-sensitive, so it is checked lower-cased, as the team file holds it).
 check_owner() {
     local owner="${1,,}" problem
-    problem="$(declare_helper check --file "${HOST_VARS}" --owner "${owner}" 2>&1)" || {
+    problem="$(declare_helper check --file "${HOST_VARS}" --org "${owner}" 2>&1)" || {
         say_problem "${problem}"
         return 1
     }
@@ -359,94 +374,20 @@ the_remote_repo() {
     declare_helper github-remote --url "${url}"
 }
 
-# pick_repos <owner> [<listed already, one per line>] — the owner's repositories in a
-# multi-select, all or none ticked to start with as the person chooses, less those listed
-# already; prints
-# "<owner/repo>=<default branch>" per chosen one. Returns 130 when cancelled, 1 on failure.
-pick_repos() {
-    local owner="$1" listing errors listing_lines kind name branch count="" picked try start keys
-    local -a names=() empty=() ticked=()
-    local -A branch_of=() listed=()
-    while read -r name; do
-        [[ -z "${name}" ]] || listed["${name}"]=1
-    done <<<"${2:-}"
-    listing="$(mktemp)"
-    errors="$(mktemp)"
-    if ! gum spin --title "Listing ${owner}'s repositories on GitHub…" -- \
-        bash -c 'gh repo list "$1" --limit 1000 --json name,defaultBranchRef,isArchived >"$2" 2>"$3"' \
-        _ "${owner}" "${listing}" "${errors}"; then
-        print_error "gh repo list ${owner} failed: $(cat "${errors}")"
-        rm -f "${listing}" "${errors}"
-        return 1
-    fi
-    if ! listing_lines="$(declare_helper gh-repos --owner "${owner}" <"${listing}")"; then
-        rm -f "${listing}" "${errors}"
-        return 1
-    fi
-    rm -f "${listing}" "${errors}"
-    while IFS=$'\t' read -r kind name branch; do
-        case "${kind}" in
-        COUNT) count="${name}" ;;
-        REPO)
-            [[ -z "${listed[${name}]:-}" ]] || continue
-            names+=("${name}")
-            branch_of["${name}"]="${branch}"
-            ;;
-        EMPTY) empty+=("${name}") ;;
-        esac
-    done <<<"${listing_lines}"
-    if [[ -z "${names[*]:-}" ]]; then
-        print_error "${owner} has no repository to offer: none that has commits, is not archived and is not listed already."
-        return 1
-    fi
-    if [[ "${count}" -ge 1000 ]]; then
-        echo "GitHub listed 1000 repositories, the most this asks for, so the list may be cut off; give a missing one with --repo OWNER/REPO=BRANCH." >&2
-    fi
-    if [[ -n "${empty[*]:-}" ]]; then
-        echo "Left out, as they have no commits yet (so no default branch): ${empty[*]}" >&2
-    fi
-    explain "Repositories: which of ${owner}'s repositories may this team's agents send each other to (review, read)? You can add more later (ccy-teams add-repo)."
-    # Ticked or unticked to start with is the person's choice: untick a few, or tick a few.
-    start="$(gum choose --header "Start the list with:" \
-        "All repos ticked (untick the ones you don't want)" \
-        "No repos ticked (tick the ones you want)")" || return 130
-    if [[ "${start}" == All* ]]; then
-        # "*" ticks every row (measured in gum 0.17); Tab unticks the row under the cursor.
-        ticked=(--selected '*')
-        keys="Tab unticks · Ctrl-A ticks all · Enter accepts · type to filter"
-    else
-        ticked=()
-        keys="Tab ticks · Ctrl-A ticks all · Enter accepts · type to filter"
-    fi
-    for ((try = 1; try <= MAX_TRIES; try++)); do
-        picked="$(printf '%s\n' "${names[@]}" | gum filter --no-limit "${ticked[@]}" \
-            --header "${keys}" --placeholder "type to filter")" || return 130
-        if [[ -n "${picked}" ]]; then
-            sort <<<"${picked}" | while read -r name; do
-                [[ -z "${name}" ]] || printf '%s=%s\n' "${name}" "${branch_of[${name}]}"
-            done
-            return 0
-        fi
-        echo "  Choose at least one: Tab ticks one, Ctrl-A ticks them all, Enter accepts. Try again." >&2
-    done
-    echo "Giving up after ${MAX_TRIES} tries; nothing was changed." >&2
-    return 1
-}
-
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
 create_wizard() {
-    local team="" yes=false text owner="" default_team login probe entry picked="" name rc
-    local -a humans=() repos=() allow_from=() flags=()
+    local team="" yes=false text owner="" default_team login probe entry name rc
+    local -a humans=() allow_from=() flags=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
         --yes) yes=true ;;
-        --team | --human | --repo | --allow-from)
+        --team | --human | --org | --allow-from)
             [[ $# -ge 2 ]] || usage_error "create's $1 needs a value."
             case "$1" in
             --team) team="$2" ;;
             --human) humans+=("$2") ;;
-            --repo) repos+=("$2") ;;
+            --org) owner="${2,,}" ;;
             --allow-from) allow_from+=("$2") ;;
             esac
             shift
@@ -460,25 +401,23 @@ create_wizard() {
             usage_error "'create' asks its questions on a terminal; without one give every value as a flag, and --yes."
         fi
         need_gum
-        [[ -n "${repos[*]:-}" ]] || need_gh
+        [[ -n "${owner}" ]] || need_gh
         gum style --bold --border rounded --padding "0 1" "New agent team" >&2
-        explain "A team is a group of agents (ccy sessions, LXC containers) and people who work together in a private chat room, on a homeserver on this machine; you watch and talk to the agents in Element. A team works within one GitHub organisation or user. This adds the team to ${HOST_VARS/#${HOME}/\~}; nothing is installed until play-agent-bus.yml runs (the next steps follow at the end). Ctrl-C at any question leaves without changing anything."
+        explain "A team is a group of agents (ccy sessions, LXC containers) and people who work together in a private chat room, on a homeserver on this machine; you watch and talk to the agents in Element. A team works within one GitHub organisation or user. This adds the team to ${HOST_VARS/#${HOME}/\~} and installs it (play-agent-bus.yml, which asks for your password). Ctrl-C at any question leaves without changing anything."
         printf '\n' >&2
     fi
-    # The owner first: a team is the owner's, and its name defaults to the owner's.
-    if [[ -z "${repos[*]:-}" && "${yes}" == false ]]; then
+    # The org first: a team is the org's, and its name defaults to the org's.
+    if [[ -z "${owner}" && "${yes}" == false ]]; then
         text="$(the_remote_repo)"
-        explain "GitHub owner: the organisation or user whose repositories this team works in. The default is the owner of the repository in this folder."
+        explain "GitHub owner: the organisation or user whose repositories this team works in. Agents may send each other to any of its repositories, on any branch; a public repository elsewhere reaches them only as outside content. The default is the owner of the repository in this folder."
         rc=0
         owner="$(ask_valid check_owner "GitHub owner (organisation or user)" "e.g. example-org" "${text%%/*}")" || rc=$?
         ask_or_quit "${rc}"
         owner="${owner,,}"
-    elif [[ -n "${repos[*]:-}" ]]; then
-        owner="${repos[0]%%/*}"
     fi
     if [[ -z "${team}" && "${yes}" == false ]]; then
         default_team=""
-        [[ -z "${owner}" ]] || default_team="$(declare_helper suggest-team --file "${HOST_VARS}" --owner "${owner}")"
+        [[ -z "${owner}" ]] || default_team="$(declare_helper suggest-team --file "${HOST_VARS}" --org "${owner}")"
         explain "Team name: a short name for the team, used in its room and in its agents' names. Lower-case letters, digits and -, up to 24. The default is the owner's name."
         rc=0
         team="$(ask_valid check_team "Team name" "e.g. example-org" "${default_team}")" || rc=$?
@@ -496,12 +435,6 @@ create_wizard() {
         ask_or_quit "${rc}"
         mapfile -t humans <<<"$(split_commas "${text}")"
     fi
-    if [[ -z "${repos[*]:-}" && "${yes}" == false ]]; then
-        rc=0
-        picked="$(pick_repos "${owner}")" || rc=$?
-        ask_or_quit "${rc}"
-        mapfile -t repos <<<"${picked}"
-    fi
     if [[ -z "${allow_from[*]:-}" && "${yes}" == false ]]; then
         explain "Other machines: leave this empty unless LXC containers or other machines will run this team's agents. If they will, give the subnet they connect from, in CIDR form; separate several with commas."
         rc=0
@@ -511,38 +444,36 @@ create_wizard() {
     fi
     [[ -z "${team}" ]] || flags+=(--team "${team}")
     for name in "${humans[@]}"; do [[ -z "${name}" ]] || flags+=(--human "${name}"); done
-    for name in "${repos[@]}"; do [[ -z "${name}" ]] || flags+=(--repo "${name}"); done
+    [[ -z "${owner}" ]] || flags+=(--org "${owner}")
     for name in "${allow_from[@]}"; do [[ -z "${name}" ]] || flags+=(--allow-from "${name}"); done
-    if [[ "${yes}" == true ]]; then
-        declare_helper create --file "${HOST_VARS}" "${flags[@]}"
-        return
+    if [[ "${yes}" == false ]]; then
+        entry="$(declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run)" || exit
+        summary_confirm "The entry for ${HOST_VARS/#${HOME}/\~}" "${entry}" "Create team ${team}?"
     fi
-    entry="$(declare_helper create --file "${HOST_VARS}" "${flags[@]}" --dry-run)" || exit
-    summary_confirm "The entry for ${HOST_VARS/#${HOME}/\~}" "${entry}" "Add team ${team} to ${HOST_VARS##*/}?" \
-        "${picked:+gh}"
     declare_helper create --file "${HOST_VARS}" "${flags[@]}"
+    if ! apply_teams "${team}"; then
+        print_error "team ${team} is declared in ${HOST_VARS/#${HOME}/\~} but not installed. Once the cause above is fixed, ccy-teams apply ${team} installs it."
+        exit 1
+    fi
+    declare_helper next-steps --file "${HOST_VARS}" --team "${team}" >&2
 }
 
-# need_gh — gh installed and logged in: the repositories are listed from GitHub.
+# need_gh — gh installed and logged in: the org is looked up on GitHub.
 need_gh() {
     local probe
     need_tool gh playbooks/imports/play-git-configure-and-tools.yml
     if ! probe="$(gh auth status 2>&1)"; then
-        print_error "gh is not logged in to GitHub, and the repositories are listed from there (gh said: ${probe}). Run gh auth login, then try again."
+        print_error "gh is not logged in to GitHub, and the org is looked up there (gh said: ${probe}). Run gh auth login, then try again."
         exit 1
     fi
 }
 
-# summary_confirm <title> <lines to add> <question> [gh] — what will be written, in a box,
-# then a yes; with "gh", a line on why each repository lists only its default branch.
-# Default yes: lines are only added (the file is backed up first), and they do nothing
-# until the play runs. No (or Esc) exits 1, Ctrl-C 130, both having changed nothing.
+# summary_confirm <title> <lines to add> <question> — what will be written, in a box, then a
+# yes, which covers writing the entry and installing the team. Default yes: the file is backed
+# up first. No (or Esc) exits 1, Ctrl-C 130, both having changed nothing.
 summary_confirm() {
     local rc=0
     gum style --border rounded --padding "0 1" "$1" "" "$2" >&2
-    if [[ "${4:-}" == gh ]]; then
-        echo "Each repository is listed with its default branch; work on other branches reaches the agents through pull requests, which need no listing." >&2
-    fi
     gum confirm --default=true "$3" || rc=$?
     case "${rc}" in
     0) ;;
@@ -559,61 +490,201 @@ cmd_create() {
     create_wizard "$@"
 }
 
-# cmd_add_repo <team> [--repo OWNER/REPO=BRANCH[,BRANCH]]... [--yes] — more repositories for
-# a declared team: the flags' with --yes; otherwise chosen from the GitHub owner's, as in
-# create, less those listed already.
-cmd_add_repo() {
-    local team="" yes=false listing owner text picked entry name rc
-    local -a known=() repos=() flags=()
-    need_checkout
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-        --yes) yes=true ;;
-        --repo)
-            [[ $# -ge 2 ]] || usage_error "add-repo's --repo needs a value."
-            repos+=("$2")
-            shift
-            ;;
-        -*) usage_error "unknown add-repo option '$1'." ;;
-        *)
-            [[ -z "${team}" ]] || usage_error "unexpected argument '$1'."
-            team="$1"
-            ;;
+# ── apply and remove: the play for named teams, then the stamps read back (D65) ──────────
+
+# The applied state of every team declared or built, from declare.py status: STATUS_OF is
+# current, outdated, unbuilt, removed, decide or unreadable; DETAIL_OF says what differs, or
+# why. LOADED (collect_teams) names the teams whose homeserver exists.
+declare -A STATUS_OF=() DETAIL_OF=()
+read_status() {
+    local lines team state detail
+    local -a installed=()
+    for team in "${!LOADED[@]}"; do installed+=(--installed "${team}"); done
+    lines="$(declare_helper status --file "${HOST_VARS}" --source "${ROOT_DIR}" --applied "${APPLIED_DIR}" \
+        "${installed[@]}")" || {
+        print_error "whether each team is applied as declared could not be read (the reason is above)."
+        return 1
+    }
+    STATUS_OF=() DETAIL_OF=()
+    while IFS=$'\t' read -r _ team state detail; do
+        [[ -n "${team}" ]] || continue
+        STATUS_OF["${team}"]="${state}"
+        DETAIL_OF["${team}"]="${detail}"
+    done <<<"${lines}"
+}
+
+# status_word <team> — the APPLIED column, in words.
+status_word() {
+    local detail="${DETAIL_OF[$1]:-}"
+    case "${STATUS_OF[$1]:-}" in
+    current) printf 'up to date' ;;
+    outdated)
+        case "${detail}" in
+        unstamped) printf 'out of date' ;;
+        config,software) printf 'out of date: both' ;;
+        *) printf 'out of date: %s' "${detail}" ;;
         esac
-        shift
+        ;;
+    unbuilt) printf 'not built' ;;
+    removed) printf 'removed' ;;
+    decide) [[ "${detail}" == absent ]] && printf 'decide: absent' || printf 'decide: undeclared' ;;
+    unreadable) printf 'unreadable' ;;
+    *) printf 'unknown' ;;
+    esac
+}
+
+# refresh — the teams and their applied state, read again.
+refresh() {
+    TEAMS=() PORT_OF=() URL_OF=() SERVER_OF=() LOADED=()
+    collect_teams && read_status
+}
+
+# run_play <team>... — play-agent-bus.yml for those teams alone (agent_bus_only_teams), run
+# by the play's own shebang, which is run.bash's single-play mode: it knows how this machine
+# gives Ansible its sudo password. Its output is streamed.
+run_play() {
+    local json
+    json="$(python3 -c 'import json, sys; print(json.dumps({"agent_bus_only_teams": sys.argv[1:]}))' "$@")"
+    say "Running play-agent-bus.yml for $*: it starts each team's homeserver, and creates its room and its people's accounts."
+    "${PLAY}" -e "${json}"
+}
+
+# apply_teams <team>... — the play for those teams, then each one's stamp read back: done
+# only when every one is up to date (its homeserver started, its room and people made).
+apply_teams() {
+    local team rc=0
+    local -a behind=()
+    run_play "$@" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        print_error "play-agent-bus.yml failed (exit ${rc}, above)."
+        return 1
+    fi
+    refresh || return 1
+    for team in "$@"; do
+        [[ "${STATUS_OF[${team}]:-}" == current ]] || behind+=("${team} ($(status_word "${team}"))")
     done
-    [[ -n "${team}" ]] || usage_error "'add-repo' needs a team."
-    listing="$(declare_helper repos --file "${HOST_VARS}" --team "${team}")" || exit
-    while IFS=$'\t' read -r _ name _; do
-        [[ -z "${name}" ]] || known+=("${name}")
-    done <<<"${listing}"
-    if [[ "${yes}" == false ]]; then
-        if [[ ! -t 0 || ! -t 2 ]]; then
-            usage_error "'add-repo' asks on a terminal; without one give --repo OWNER/REPO=BRANCH, and --yes."
+    if [[ -n "${behind[*]:-}" ]]; then
+        print_error "the play finished, but these teams are still not as declared: ${behind[*]}."
+        return 1
+    fi
+    say "Applied: $*."
+}
+
+# cmd_apply <team> | --all — bring a team, or every team out of date or not built, to what
+# the host_vars declare. Never a team declared absent or no longer declared: taking a team
+# down is ccy-teams remove's, one team at a time.
+cmd_apply() {
+    local team
+    local -a targets=() waiting=()
+    need_checkout
+    [[ $# -eq 1 ]] || usage_error "'apply' takes one team, or --all."
+    refresh || exit 1
+    if [[ "$1" == --all ]]; then
+        for team in "${!STATUS_OF[@]}"; do
+            case "${STATUS_OF[${team}]}" in
+            outdated | unbuilt) targets+=("${team}") ;;
+            decide) waiting+=("${team} ($(status_word "${team}"))") ;;
+            esac
+        done
+        [[ -z "${waiting[*]:-}" ]] ||
+            echo "Left alone, as they need your decision (ccy-teams remove <team>, or declare them again): ${waiting[*]}." >&2
+        if [[ -z "${targets[*]:-}" ]]; then
+            echo "No team is out of date or waiting to be built." >&2
+            return 0
         fi
-        need_gum
-        if [[ -z "${repos[*]:-}" ]]; then
-            need_gh
-            gum style --bold --border rounded --padding "0 1" "More repositories for ${team}" >&2
-            explain "Listed now: ${known[*]:-none}. Ctrl-C leaves without changing anything."
-            explain "GitHub owner: the organisation or user whose repositories this team works in; the default is the owner of those listed now."
-            owner="${known[0]:-}"
-            rc=0
-            text="$(ask_valid check_owner "GitHub owner (organisation or user)" "e.g. example-org" "${owner%%/*}")" || rc=$?
-            ask_or_quit "${rc}"
-            rc=0
-            picked="$(pick_repos "${text,,}" "$(printf '%s\n' "${known[@]}")")" || rc=$?
-            ask_or_quit "${rc}"
-            mapfile -t repos <<<"${picked}"
+        mapfile -t targets < <(printf '%s\n' "${targets[@]}" | sort)
+    else
+        team="$1"
+        case "${STATUS_OF[${team}]:-}" in
+        outdated | unbuilt | current) targets=("${team}") ;;
+        decide | removed) usage_error "team ${team} is not declared present; ccy-teams remove ${team} takes a team down." ;;
+        unreadable) usage_error "team ${team}'s entry cannot be read: ${DETAIL_OF[${team}]}." ;;
+        *) usage_error "team ${team} is not declared in ${HOST_VARS/#${HOME}/\~}." ;;
+        esac
+    fi
+    if ! apply_teams "${targets[@]}"; then
+        print_error "not applied: ${targets[*]}. Their entries stay as declared; once the cause above is fixed, ccy-teams apply runs the play again."
+        exit 1
+    fi
+}
+
+# ask_yes <question> <default> — gum confirm: 0 yes, 1 no, Ctrl-C cancels the run.
+ask_yes() {
+    local rc=0
+    gum confirm --default="$2" "$1" || rc=$?
+    case "${rc}" in
+    0 | 1) return "${rc}" ;;
+    *) cancelled ;;
+    esac
+}
+
+# cmd_remove <team> — take one team down, on a terminal, after saying what is lost: a backup
+# first (yes by default), then down with its data kept, unless the human chooses to delete
+# it and types the team's name. Never with --yes, never in bulk (owner, 2026-10-13).
+cmd_remove() {
+    local team="${1:-}" state choice typed purge=false
+    local -a purge_flag=()
+    need_checkout
+    [[ $# -eq 1 && "${team}" != -* ]] || usage_error "'remove' takes one team (and no --yes: it always asks)."
+    [[ -t 0 && -t 2 ]] || usage_error "'remove' asks on a terminal, always: taking a team down is a human's decision."
+    need_gum
+    refresh || exit 1
+    state="${STATUS_OF[${team}]:-}"
+    case "${state}" in
+    "" | removed) usage_error "team ${team} is not built here; there is nothing to take down." ;;
+    unreadable) usage_error "team ${team}'s entry cannot be read: ${DETAIL_OF[${team}]}." ;;
+    esac
+    gum style --bold --border rounded --padding "0 1" "Take team ${team} down" >&2
+    explain "Its homeserver and its backup timer stop: its agents and people can no longer reach it. Its data (the room's whole history, the accounts, the backups) stays on this machine unless you choose to delete it, which cannot be undone. There may be history in it worth keeping."
+    if ask_yes "Back ${team} up first?" true; then
+        sudo_ready "A backup is taken as root, by agent-bus-install." || exit 1
+        if ! sudo "${SUDO_INSTALLER}" backup-now --team "${team}"; then
+            print_error "the backup failed (above), so ${team} was not taken down."
+            exit 1
         fi
     fi
-    for name in "${repos[@]}"; do [[ -z "${name}" ]] || flags+=(--repo "${name}"); done
-    if [[ "${yes}" == false ]]; then
-        entry="$(declare_helper add-repo --file "${HOST_VARS}" --team "${team}" "${flags[@]}" --dry-run)" || exit
-        summary_confirm "Added to ${team}'s repos in ${HOST_VARS/#${HOME}/\~}" "${entry}" \
-            "Add them to ${team} in ${HOST_VARS##*/}?" "${picked:+gh}"
+    choice="$(gum choose --header "What happens to ${team}?" "Take it down, keep its data" \
+        "Take it down and delete its data" "Leave it running")" || cancelled
+    case "${choice}" in
+    "Take it down, keep its data") ;;
+    "Take it down and delete its data")
+        typed="$(gum_ask "Type ${team} to delete its data for good" "the team's name" "")" || cancelled
+        if [[ "${typed}" != "${team}" ]]; then
+            echo "That is not the team's name; nothing was changed." >&2
+            exit 1
+        fi
+        purge=true
+        purge_flag=(--purge)
+        ;;
+    *)
+        echo "Nothing was changed." >&2
+        exit 1
+        ;;
+    esac
+    if [[ "${DETAIL_OF[${team}]:-}" == undeclared ]]; then
+        # Not in the host_vars, so the play cannot take it: the installer does, as the play would.
+        sudo_ready "A team that is not declared is taken down as root, by agent-bus-install." || exit 1
+        sudo "${SUDO_INSTALLER}" remove --team "${team}" "${purge_flag[@]}" || {
+            print_error "${team} was not taken down (above)."
+            exit 1
+        }
+    else
+        declare_helper remove --file "${HOST_VARS}" --team "${team}" "${purge_flag[@]}"
+        if ! run_play "${team}"; then
+            print_error "${team} is declared absent in ${HOST_VARS/#${HOME}/\~} but is still running; once the cause above is fixed, ccy-teams remove ${team} runs the play again."
+            exit 1
+        fi
     fi
-    declare_helper add-repo --file "${HOST_VARS}" --team "${team}" "${flags[@]}"
+    refresh || exit 1
+    if [[ "${STATUS_OF[${team}]:-}" != removed && -n "${STATUS_OF[${team}]:-}" ]]; then
+        print_error "${team} is still $(status_word "${team}") after the play."
+        exit 1
+    fi
+    if [[ "${purge}" == true ]]; then
+        say "Team ${team} is down and its data deleted."
+    else
+        say "Team ${team} is down; its data is kept in /var/lib/agent-bus/${team}."
+    fi
 }
 
 # ── backup, restore: thin wrappers ───────────────────────────────────────────────────────
@@ -691,24 +762,6 @@ cmd_restore() {
     sudo "${SUDO_INSTALLER}" restore --team "${team}" --backup "${id}"
 }
 
-case "${subcommand}" in
-create)
-    cmd_create "$@"
-    exit
-    ;;
-add-repo)
-    cmd_add_repo "$@"
-    exit
-    ;;
-backup)
-    cmd_backup "$@"
-    exit
-    ;;
-restore)
-    cmd_restore "$@"
-    exit
-    ;;
-esac
 
 # ── the table ────────────────────────────────────────────────────────────────────────────
 #
@@ -718,10 +771,10 @@ esac
 # R_SHOWN is the same row with its status words in colour.
 
 _row() {
-    printf '%-24s  %-36s  %-6s  %-13s  %-26s  %-7s  %s' "$@"
+    printf '%-24s  %-36s  %-6s  %-13s  %-18s  %-26s  %-7s  %s' "$@"
 }
 row_heading() {
-    _row TEAM MEMBER KIND STATE SESSION RESTORE WHERE
+    _row TEAM MEMBER KIND STATE APPLIED SESSION RESTORE WHERE
 }
 
 # _paint <width> <word> — the word padded to width, in its status colour.
@@ -740,15 +793,15 @@ _painted_row() {
     local team
     team="$(printf '%-24s' "$1")"
     [[ "$3" != team ]] || team="${C_BOLD}${team}${C_RESET}"
-    printf '%s  %-36s  %-6s  %s  %s  %s  %s' "${team}" "$2" "$3" "$(_paint 13 "$4")" \
-        "$(_paint 26 "$5")" "$(_paint 7 "$6")" "$7"
+    printf '%s  %-36s  %-6s  %s  %s  %s  %s  %s' "${team}" "$2" "$3" "$(_paint 13 "$4")" \
+        "$(_paint 18 "$5")" "$(_paint 26 "$6")" "$(_paint 7 "$7")" "$8"
 }
 
 R_TEXT=() R_SHOWN=() R_TEAM=() R_KIND=() R_NAME=() R_HANDLE=() R_DIR=() R_SESSION=()
-# add_row <team> <member> <kind> <state> <session> <restore> <where> <handle> <dir>
+# add_row <team> <member> <kind> <state> <session> <restore> <where> <handle> <dir> [applied]
 add_row() {
-    R_TEXT+=("$(_row "$1" "$2" "$3" "$4" "$5" "$6" "$7")")
-    R_SHOWN+=("$(_painted_row "$1" "$2" "$3" "$4" "$5" "$6" "$7")")
+    R_TEXT+=("$(_row "$1" "$2" "$3" "$4" "${10:--}" "$5" "$6" "$7")")
+    R_SHOWN+=("$(_painted_row "$1" "$2" "$3" "$4" "${10:--}" "$5" "$6" "$7")")
     R_TEAM+=("$1")
     R_NAME+=("$2")
     R_KIND+=("$3")
@@ -791,7 +844,39 @@ collect_teams() {
         TEAMS+=("${team}")
         seen["${team}"]=1
     done <<<"${units}"
+    # A team whose stamp says it is built, though not declared present: it needs a decision.
+    for unit in "${APPLIED_DIR}"/*.json; do
+        [[ -e "${unit}" ]] || continue
+        team="${unit##*/}"
+        team="${team%.json}"
+        [[ -n "${seen[${team}]:-}" ]] || TEAMS+=("${team}")
+        seen["${team}"]=1
+    done
 }
+
+# The subcommands, now that every function they use is defined.
+case "${subcommand}" in
+create)
+    cmd_create "$@"
+    exit
+    ;;
+apply)
+    cmd_apply "$@"
+    exit
+    ;;
+remove)
+    cmd_remove "$@"
+    exit
+    ;;
+backup)
+    cmd_backup "$@"
+    exit
+    ;;
+restore)
+    cmd_restore "$@"
+    exit
+    ;;
+esac
 
 # homeserver_state <team> — up, or down with systemd's word for it.
 homeserver_state() {
@@ -944,6 +1029,7 @@ collect() {
     MEMBERS_OF=() MEMBERS_UNKNOWN=() SIGNED_IN=()
     collect_teams || return 1
     [[ -n "${TEAMS[*]:-}" ]] || return 0
+    read_status || return 1
     collect_sessions || return 1
     for dir in "${CHECKOUTS[@]}"; do
         if ! seats="$(seat_lines "${dir}")"; then
@@ -962,7 +1048,11 @@ collect() {
         if [[ -z "${LOADED[${team}]:-}" ]]; then
             state="not installed"
             MEMBERS_UNKNOWN["${team}"]="not installed"
-            where+=", install it: run play-agent-bus.yml (meta-deploy)"
+            if [[ "${STATUS_OF[${team}]:-}" == decide ]]; then
+                where+=", not declared present: ccy-teams remove ${team} takes it down"
+            else
+                where+=", install it: ccy-teams apply ${team}"
+            fi
         else
             state="$(homeserver_state "${team}")"
             if [[ "${state}" == up ]]; then
@@ -973,7 +1063,8 @@ collect() {
             [[ -z "${MEMBERS_UNKNOWN[${team}]:-}" ]] || where+=", members: ${MEMBERS_UNKNOWN[${team}]}"
         fi
         [[ -z "${INCOMPLETE}" ]] || where+=", ${INCOMPLETE} (above)"
-        add_row "${team}" - team "${state}" - - "${where}" - -
+        [[ "${STATUS_OF[${team}]:-}" != unreadable ]] || where+=", entry unreadable: ${DETAIL_OF[${team}]}"
+        add_row "${team}" - team "${state}" - - "${where}" - - "$(status_word "${team}")"
         activity_of=()
         shown=()
         while IFS=$'\t' read -r kind name role membership activity; do
@@ -1082,6 +1173,26 @@ if [[ -z "${TEAMS[*]:-}" ]]; then
     offer_create
 fi
 
+# offer_update — a team out of date or not built: offer to update it before the list.
+offer_update() {
+    local team
+    local -a behind=()
+    read_status || exit 1
+    for team in "${!STATUS_OF[@]}"; do
+        case "${STATUS_OF[${team}]}" in
+        outdated | unbuilt) behind+=("${team} ($(status_word "${team}"))") ;;
+        esac
+    done
+    [[ -n "${behind[*]:-}" ]] || return 0
+    need_gum
+    say "Not as declared: ${behind[*]}."
+    if ask_yes "Update them now (play-agent-bus.yml)?" true; then
+        (cmd_apply --all) || true
+        back_to_list
+    fi
+}
+offer_update
+
 here="${PWD/#${HOME}/\~}"
 
 # row_index <row> — the index of the picked row (fzf hands back the plain text), printed.
@@ -1182,10 +1293,11 @@ remove_or_park() {
     local i="$1" team="${R_TEAM[$1]}" name="${R_NAME[$1]}" handle="${R_HANDLE[$1]}"
     case "${R_KIND[i]}" in
     team)
-        echo "A team is removed by setting state: absent on its agent_bus_teams entry and running play-agent-bus.yml." >&2
+        (cmd_remove "${team}") || true
+        back_to_list
         ;;
     human)
-        echo "A team's people are its agent_bus_teams entry's humans: change them there and run play-agent-bus.yml." >&2
+        echo "A team's people are its agent_bus_teams entry's humans: change them there, then ccy-teams apply ${team}." >&2
         ;;
     ccy)
         if [[ "${R_DIR[i]}" != - ]]; then
@@ -1307,15 +1419,9 @@ open_element() {
     exit 0
 }
 
-# add_repos <team> — Ctrl-A: add-repo's questions, then back to the list.
-add_repos() {
-    local rc=0
-    if [[ -z "${PORT_OF[${R_TEAM[$1]}]+set}" ]]; then
-        echo "${R_TEAM[$1]} is not declared in the host_vars, so its repositories are not kept there." >&2
-        return 0
-    fi
-    (cmd_add_repo "${R_TEAM[$1]}") || rc=$?
-    [[ "${rc}" -ne 130 ]] || echo "Back to the list." >&2
+# update_all — Ctrl-U: apply --all, then back to the list.
+update_all() {
+    (cmd_apply --all) || true
     back_to_list
 }
 
@@ -1324,8 +1430,16 @@ show_help() {
     printf '\n' >&2
     say "ccy-teams: the agent teams on this machine"
     cat >&2 <<'EOF'
-Each team is a bold row: its homeserver (up, down, or not installed yet: run
-play-agent-bus.yml) and its port. Under it, its members and people:
+Each team is a bold row: its homeserver (up, down, or not installed yet), its port, and
+APPLIED, whether it runs what the host_vars declare:
+  up to date          as declared
+  out of date: ...    the declaration (config), the bus software, or both changed since;
+                      Ctrl-U (or ccy-teams apply) brings it up to date
+  not built           declared, never installed: Ctrl-U builds it
+  decide: absent      declared absent but still running; decide: undeclared, running but
+                      no longer declared. Never updated in bulk: Ctrl-X on the team takes
+                      it down (its data kept unless you delete it)
+Under it, its members and people:
   ccy      a seat of a ccy checkout: the session in it, and RESTORE, whether that
            session is started again after a reboot (yes or no)
   lxc ...  another member: active, or parked (its token revoked)
@@ -1338,9 +1452,10 @@ Keys:
   Ctrl-P   a new Element password for the person on the row (shown once; their other
            Element sessions are signed out)
   Ctrl-E   open the team in Element
-  Ctrl-A   add repositories the team's agents may send each other to
+  Ctrl-U   update every team out of date or not built (never takes one down)
   Ctrl-R   restore after a reboot, on or off, for the seat's session
-  Ctrl-X   remove a seat, or park a member (after a yes/no)
+  Ctrl-X   remove a seat, park a member, or take a team down (after a yes/no; a
+           backup first, and the data kept unless you type the team's name)
   ?        this help          Esc or q   leave
 
 Colours: green is working, yellow wants a look, red is not working.
@@ -1362,7 +1477,7 @@ fi
 heading="$(row_heading)"
 ! colour_on 1 || heading="${C_BOLD}${heading}${C_RESET}"
 HEADER="$(ccy_tmux_header "Enter attach a seat / password for a person   Ctrl-P password   Ctrl-E Element   ? help   Esc or q quit" \
-    "Ctrl-N new session   Ctrl-A add repositories   Ctrl-R restore on/off   Ctrl-X remove/park" \
+    "Ctrl-N new session   Ctrl-U update out-of-date teams   Ctrl-R restore on/off   Ctrl-X remove/park/take down" \
     "${new_line}" \
     "RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is ${restore_word} (ccy_restore_sessions)" \
     "${heading}")"
@@ -1391,7 +1506,7 @@ while :; do
     else
         rows="$(printf '%s\n' "${R_TEXT[@]}")"
     fi
-    if ! picked="$(ccy_tmux_pick "Agent teams" "${HEADER}" "ctrl-n,ctrl-r,ctrl-x,ctrl-e,ctrl-p,ctrl-a,?" <<<"${rows}")"; then
+    if ! picked="$(ccy_tmux_pick "Agent teams" "${HEADER}" "ctrl-n,ctrl-r,ctrl-x,ctrl-e,ctrl-p,ctrl-u,?" <<<"${rows}")"; then
         exit 0 # Esc or q
     fi
     key="${picked%%$'\n'*}"
@@ -1415,8 +1530,8 @@ while :; do
         password_row "${index}"
         continue
         ;;
-    ctrl-a:*)
-        add_repos "${index}"
+    ctrl-u:*)
+        update_all
         continue
         ;;
     "?:"* | :team)

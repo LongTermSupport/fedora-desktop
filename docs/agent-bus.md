@@ -23,21 +23,19 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
 
 1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
    asks a few questions. A team works within one GitHub owner (an organisation or user),
-   so that comes first, then the team's name, which defaults to the owner's. Next come
-   the people in its room: you, by default, and the installer creates the accounts. Then
-   it lists the owner's repositories, starting all ticked (untick the ones you don't want)
-   or none ticked (tick the ones you want), as you choose: these are the repositories the
-   agents may send each other to. Each
-   repository's default branch comes from GitHub; work on
-   other branches reaches the agents through pull requests, which need no listing. Last,
-   subnets of other machines, empty unless LXC containers or other machines will run
-   agents. It shows the entry and asks before adding it to `agent_bus_teams` in your
-   host_vars `localhost.yml`, backing the file up first. The port is chosen for you, and
-   the team listens on the bus address (`agent_bus_address`, which must be set). The team
-   exists once `play-agent-bus.yml` has run, and `create` ends by listing the next steps.
-   The questions need `gum` and a logged-in `gh`; `--team`, `--human`, `--repo` and
-   `--yes` ask nothing. `ccy-teams add-repo <team>` (or Ctrl-A on the team) adds
-   repositories later in the same way, and `play-agent-bus.yml` applies them.
+   so that comes first: the agents may send each other to any of its repositories, on any
+   branch, and a public repository elsewhere reaches them only as outside content, marked
+   so (never forks, never private repositories elsewhere). Then the team's name, which
+   defaults to the owner's; the people in its room (you, by default; the installer creates
+   the accounts); and subnets of other machines, empty unless LXC containers or other
+   machines will run agents. It shows the entry and asks one question, "Create team
+   <name>?". Yes adds it to `agent_bus_teams` in your host_vars `localhost.yml` (backing
+   the file up first) and installs it at once, running `play-agent-bus.yml` for that team
+   (sudo asks for your password), and says it is done only once the homeserver is up. If
+   the play fails, the entry stays written and `ccy-teams apply <team>` tries again. The
+   port is chosen for you, and the team listens on the bus address (`agent_bus_address`,
+   which must be set). `create` ends with the next steps. The questions need `gum` and a
+   logged-in `gh`; `--org`, `--team`, `--human` and `--yes` ask nothing.
 2. **Watch it in Element.** Add `{team: <team>, base_url: http://<bus_ip>:<port>}` to
    `agent_bus_element_teams` and run `play-agent-bus-element.yml`. In `ccy-teams`, Enter
    (or Ctrl-P) on your name under the team sets a new Element password. It shows it once,
@@ -62,13 +60,24 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
 7. **Back up and restore.** Each team is backed up daily on this machine.
    `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
    after a yes/no ([Backups](#backups-are-the-root-of-trust)).
+8. **Keep teams up to date.** After you edit a team's entry, or after this repository's
+   software changes, its APPLIED column says "out of date". `ccy-teams apply <team>`, or
+   `apply --all` (Ctrl-U in the picker, which also offers it when it opens), runs
+   `play-agent-bus.yml` and checks the result. Neither ever takes a team down or deletes
+   data: a team declared `absent`, or running but no longer declared, says "decide" and is
+   left alone.
+9. **Take a team down.** `ccy-teams remove <team>` (or Ctrl-X on the team), on a terminal
+   only, one team at a time. It says what is lost, offers a backup first, and by default
+   keeps the team's data (its whole room history); deleting the data as well needs the
+   team's name typed.
 
-`ccy-teams` lists each team (its homeserver up, down or not installed yet, and its port),
-then its members. They are ccy seats, each with the session holding it and whether it is
+`ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
+APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
 restored after a reboot; LXC and other members, active or parked; and the people, in the
 room or not and how many Element sessions they are signed in with. Enter attaches a seat's
-session, or sets a person's password. Ctrl-N starts a session, Ctrl-A adds repositories,
-Ctrl-R toggles a restore, Ctrl-X removes a seat or parks a member (after a yes/no), Ctrl-E
+session, or sets a person's password. Ctrl-N starts a session, Ctrl-U applies every team
+out of date, Ctrl-R toggles a restore, Ctrl-X removes a seat, parks a member (after a
+yes/no) or takes a team down (as `remove`), Ctrl-E
 opens Element, and `?` explains every key. Status words are in colour on a terminal, but
 not with `NO_COLOR`. `ccy-teams --list` prints the same table, plain when piped. Reading
 the members needs root: `play-agent-bus.yml` installs a sudoers rule for exactly the two
@@ -95,8 +104,12 @@ A team is a group of agents and humans working around one project. It has:
 - one homeserver, on one machine, listening on the addresses the team chooses;
 - one room, which only the team's admin account can change;
 - a list of humans, each with one account;
-- the repositories and branches that pings may refer to, and the path prefixes within
-  them.
+- the GitHub owner (`org`, an organisation or a user) whose repositories pings may refer
+  to, on any branch but never in a fork; optionally other repositories, each at listed
+  branches (`repos`); and the path prefixes within them. A public repository outside these
+  may be referred to by the verbs that only read (`fetch`, `review`, `nack`, `done`,
+  `blocked`), and arrives marked `external`: content to read, never instructions. The
+  protocol spec's §6 has the checks.
 
 Each agent in a team is a **member**: one agent seat, named by a handle such as
 `myrepo.1+workstation.host` (repository, a number, the install's role and where the agent
@@ -116,7 +129,7 @@ own IaC.
  "listen": ["<bus_ip>"],
  "allow_from": ["<cidr>"],
  "humans": ["<name>"],
- "repos": [{"repo": "<owner>/<repo>", "branches": ["<default-branch>"]}],
+ "org": "<github-owner>",
  "path_prefixes": ["CLAUDE/Plan/", "docs/"],
  "forge_api": "https://api.github.com"}
 ```
@@ -357,9 +370,10 @@ When you join an agent to a team whose homeserver someone else runs, decide whet
 trust them that far. If not, have them create the member with `--no-human-text`: its
 bundle then says `"human_text": false`, and the member drops every human message and every
 other agent's free text, and acts on pings only. A ping is a fixed verb about a committed file, and the member checks at the
-forge that the file is on an allowed branch of an allowed repository before acting.
-The team's admin writes that allowlist, so the operator can still point your agent at any
-document in a repository it lists; the agent reads a referenced file as a document, never
+forge that the file is on a branch of a repository the team trusts before acting.
+The team's admin writes the team's org and repository list, so the operator can still point
+your agent at any document in a repository the team trusts, and at public outside content
+marked `external`; the agent reads a referenced file as a document, never
 as instructions. The switch can only narrow what a member accepts, so an agent that can
 write its own bundle cannot widen it.
 
