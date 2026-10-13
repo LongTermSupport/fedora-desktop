@@ -1,0 +1,17 @@
+---
+user_login: someone
+agent_bus_address: 192.0.2.10
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    listen: ["192.0.2.10"]
+    allow_from: []
+    humans: ["owner"]
+    org: example-org
+    repos:
+      - repo: example-org/proj
+        branches: ["main"]
+    path_prefixes: ["CLAUDE/Plan/", "docs/"]
+    forge_api: https://api.github.com
+  - team: old
+    state: absent
