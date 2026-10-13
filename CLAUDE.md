@@ -73,7 +73,7 @@ The host's tool inventory is owned by Ansible. A missing tool is an IaC gap, not
 
 ### QA Mandatory Before Commits
 
-Run `./scripts/qa-all.bash` before every commit touching Bash or Python files. Run ESLint for extension JavaScript.
+While iterating, run `./scripts/qa-changed.bash` before each commit (only the checks the diff needs, ESLint for extension JavaScript included). `./scripts/qa-all.bash` must pass before every push; a burst of commits may share one full run.
 
 **`qa-all.bash` is mechanical and passes green on work that is structurally wrong.** Run the **`qa-reviewer` agent** as the required final step of every plan, and to review any PR or branch diff — it catches misplaced work in the IaC graph, a new playbook that should have been an edit, jargon naming, missing version bumps, plan/docs drift, and verification that does not exercise the code path it vouches for.
 
@@ -81,7 +81,7 @@ Run `./scripts/qa-all.bash` before every commit touching Bash or Python files. R
 
 ### Always Push — GitHub Is the Backup
 
-**Push after every commit.** The GitHub remote is this repository's backup; a commit that exists only in a local checkout is not saved. A lost disk, a discarded container, or a deleted worktree takes unpushed commits with it. Never end a session with a branch ahead of its remote, and never hold commits back to batch them. This is standing authorisation: no need to ask before a plain `git push` of the current branch. Force-pushes remain the user's call.
+**Push after every commit.** The GitHub remote is this repository's backup; a commit that exists only in a local checkout is not saved. A lost disk, a discarded container, or a deleted worktree takes unpushed commits with it. Never end a session with a branch ahead of its remote, and never hold commits back to batch them. The push gate is `./scripts/qa-all.bash`: push as soon as it passes, and a burst of commits may share one full run. This is standing authorisation: no need to ask before a plain `git push` of the current branch. Force-pushes remain the user's call.
 
 ### Debug Commands: Always Non-Interactive
 

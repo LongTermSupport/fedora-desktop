@@ -17,5 +17,5 @@ stdout is the captured payload and every error is surfaced, never hidden. Strict
 - [CLAUDE/StderrHygiene.md](../../CLAUDE/StderrHygiene.md) — stdout is the captured payload; all chatter goes to stderr
 - [CLAUDE/InteractiveScripts.md](../../CLAUDE/InteractiveScripts.md) — human-prompting scripts validate strictly and re-prompt on a typo
 - [CLAUDE/SecurityRules.md](../../CLAUDE/SecurityRules.md) — secrets are never passed in `argv`
-- [CLAUDE/QA.md](../../CLAUDE/QA.md) — `./scripts/qa-all.bash` before every commit; suppression directives are banned
+- [CLAUDE/QA.md](../../CLAUDE/QA.md) — `./scripts/qa-changed.bash` before each commit, `./scripts/qa-all.bash` before every push; suppression directives are banned
 - [CLAUDE/DebugCommands.md](../../CLAUDE/DebugCommands.md) — diagnostic commands you hand the user must be non-interactive

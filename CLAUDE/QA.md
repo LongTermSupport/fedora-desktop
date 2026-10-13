@@ -2,15 +2,18 @@
 
 ## Primary Rule
 
-**ALWAYS run QA before committing changes to Bash, Python, or Ansible files.**
-
-**ALWAYS and ONLY use this single command:**
+**Two commands, two moments:**
 
 ```bash
-./scripts/qa-all.bash
+./scripts/qa-changed.bash   # while iterating: before each commit — only the checks the diff needs
+./scripts/qa-all.bash       # before every push — all gates, all suites; must pass
 ```
 
-**NEVER use individual scripts directly** (`qa-bash.bash`, `qa-python.bash`, `qa-patterns.bash`) — always use `qa-all.bash`.
+Push as soon as `qa-all.bash` passes; a burst of commits may share one full run.
+`qa-changed.bash` is a fast pre-commit check, not a substitute: it cannot see a gate that
+no changed file names. See [qa-changed.bash](#qa-changedbash--diff-scoped-qa-while-iterating).
+
+**NEVER use the individual gate scripts directly** (`qa-bash.bash`, `qa-python.bash`, `qa-patterns.bash`) — use `qa-changed.bash` or `qa-all.bash`.
 
 ---
 
@@ -130,6 +133,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-fedora-desktop-health.bash`           | the on-demand report command: a sentence on a clean host, `--hold` released by Enter or EOF, a missing checkout named without a traceback (Plan 00136)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `test-qa-helper-summary.bash`               | the three readers in `lib/qa-helper-summary.bash` that produce every stage line below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `test-qa-changed.bash`                      | `qa-changed.bash`'s file-to-check mapping through its `--plan` mode, and its git collection (modified, untracked, ignored, deleted, `--base`) in a scratch repository                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `test-qa-docs-exit-codes.bash`              | `qa-docs.bash`'s three exit codes, driven against fixture trees — a crash must never read as clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `helpers.gnome.check_panel_contract`        | the panel's constants, document keys and section ids agree with the producer (Plan 00109)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -1021,13 +1025,43 @@ nothing version-coupled left to gate — see
 
 ---
 
+## `qa-changed.bash` — diff-scoped QA while iterating
+
+`./scripts/qa-changed.bash` runs only the checks the changed files need, so the slow
+`qa-all.bash` is needed once before a push rather than before every commit. Changed files
+are `git diff --name-only HEAD` plus untracked, not-ignored files, deleted files dropped;
+`--base <ref>` (e.g. `origin/F44`) diffs against a ref so a burst of local commits is
+covered, `--plan` prints the chosen checks without running them, `--files F...` names the
+files explicitly. Exit `0` pass or nothing changed, `1` a check failed, `2` a needed tool is
+missing. Every selected check runs (as in `qa-all.bash`), so one run names everything broken.
+
+| Changed file                  | Checks                                                                                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shell (`.sh`/`.bash`/shebang) | the toolchain pin, `bash -n`, shellcheck (`error`/`warning` gate, as in `qa-bash.bash`), the semgrep bash rules via the same temp-mirror idea              |
+| Python                        | the toolchain pin, ruff, and the mirrored `tests/helpers/x/test_y.py` for `helpers/x/y.py` (a changed test runs itself)                                    |
+| Playbook yml                  | `ansible-playbook --syntax-check` on it, `qa-ansible.bash` and `qa-docs.bash` whole                                                                        |
+| Task / vars yml               | `--syntax-check` on every playbook naming the file by basename (one level), `qa-ansible.bash` whole                                                        |
+| Markdown                      | `qa-docs.bash` whole                                                                                                                                       |
+| `.js`/`.mjs`                  | `node --check`; under `extensions/`, the project's eslint on those files                                                                                   |
+| Any non-markdown file         | each `test-*.bash` suite and hard gate script that `qa-all.bash` runs and whose text names the file by path or basename, and any suite that itself changed |
+
+The file classification is `qa-discovery.bash`'s, shared with the gates. The gate scripts take
+no file list, so the same tools are invoked on the changed files; the gates that are cheap
+(`qa-ansible.bash`, `qa-docs.bash`) run whole. A changed file that maps to no check — a
+workflow, a `.j2` no suite names — is listed as `not covered by qa-changed`, never skipped
+silently. Left to `qa-all.bash`: the Python-template compile, semgrep parse-coverage
+assertions, helper-test counts, extension-compat, panel-contract, deployed-drift, and every
+suite no changed file is named in. `test-qa-changed.bash` pins the mapping.
+
+---
+
 ## When to Run What
 
-| Changed files        | QA command                                                                  |
-| -------------------- | --------------------------------------------------------------------------- |
-| Bash or Python files | `./scripts/qa-all.bash`                                                     |
-| Extension JavaScript | `cd extensions && node_modules/.bin/eslint <file>`                          |
-| Ansible playbooks    | `./scripts/qa-all.bash` (runs `qa-ansible.bash` + `qa-ansible-syntax.bash`) |
+| Changed files        | While iterating (before each commit)                           | Before every push       |
+| -------------------- | -------------------------------------------------------------- | ----------------------- |
+| Bash or Python files | `./scripts/qa-changed.bash`                                    | `./scripts/qa-all.bash` |
+| Extension JavaScript | `./scripts/qa-changed.bash` (runs eslint on the changed files) | `./scripts/qa-all.bash` |
+| Ansible playbooks    | `./scripts/qa-changed.bash` (syntax of the affected playbooks) | `./scripts/qa-all.bash` |
 
 ---
 
@@ -1097,22 +1131,23 @@ vim files/home/.local/bin/wsi-stream
 ./playbooks/imports/optional/common/play-speech-to-text.yml
 ~/.local/bin/wsi-stream --help  # Verify it imports/runs
 
-# 3. Run QA — now the repo and the host agree
-./scripts/qa-all.bash
+# 3. Run the diff-scoped QA — now the repo and the host agree
+./scripts/qa-changed.bash
 
-# 4. Only then commit
+# 4. Commit, then run the full gate and push once it passes
 git add files/home/.local/bin/wsi-stream
 git commit -m "fix: update wsi-stream"
+./scripts/qa-all.bash && git push
 ```
 
 For changes that deploy nothing to `~/.local/bin/` (playbooks, `scripts/`,
 `helpers/`, extension JS), the order does not matter — run QA whenever, as long
-as it passes before the commit.
+as `qa-changed.bash` passes before the commit and `qa-all.bash` before the push.
 
 ## Rules Summary
 
-1. **Run `./scripts/qa-all.bash` before EVERY commit** that touches Bash or Python files
-2. **Run ESLint before EVERY commit** that touches extension JavaScript
+1. **Run `./scripts/qa-changed.bash` before EVERY commit** that touches Bash, Python, Ansible or extension JavaScript
+2. **Run `./scripts/qa-all.bash` before EVERY push** and push as soon as it passes; a burst of commits may share one full run
 3. **Fix all errors** before committing — QA failures indicate broken code
 4. **Do not skip QA** — even for "small" changes
 5. **Never add a suppression directive** (`# shellcheck disable`, `# noqa`, `# type: ignore`) — fix the code, or exempt in config with a stated reason

@@ -311,18 +311,14 @@ ansible desktop -m setup --tree /tmp/facts
 
 ### Run QA Before Committing
 
-**Required before every commit** that touches Bash, Python, or Ansible files:
+**Required before every commit** that touches Bash, Python, Ansible or extension JavaScript:
 
 ```bash
-./scripts/qa-all.bash
+./scripts/qa-changed.bash
 ```
 
-For GNOME Shell extension JavaScript, run ESLint directly. Paths are relative to the repo root,
-so this works wherever you cloned it:
-
-```bash
-cd extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
-```
+It checks only what the diff touches (`--base origin/F44` covers a burst of local commits).
+`./scripts/qa-all.bash` runs every gate and must pass before every push.
 
 See `CLAUDE/QA.md` for full details on what each check covers.
 
