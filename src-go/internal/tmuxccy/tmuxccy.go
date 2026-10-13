@@ -10,6 +10,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -17,6 +18,8 @@ import (
 
 // Socket is the tmux server name every call uses.
 const Socket = "ccy"
+
+const tmuxBinary = "tmux"
 
 // ErrSessionGone is the session (or the whole server) not existing.
 var ErrSessionGone = errors.New("tmux session is gone")
@@ -74,11 +77,20 @@ type Tmux struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+
+	// Socket is the tmux server name; empty means the CCY server (Socket). A test points it at a
+	// private server.
+	Socket string
+	// Now, Sleep and LookPath are seams for take-over's waits and start-up's tool checks; nil
+	// means the real clock, time.Sleep and exec.LookPath.
+	Now      func() time.Time
+	Sleep    func(time.Duration)
+	LookPath func(string) (string, error)
 }
 
-// Run is tmux -L ccy <args>.
+// Run is tmux -L <socket> <args>, the socket being ccy unless the Tmux was given another.
 func (t *Tmux) Run(ctx context.Context, args ...string) (execx.Result, error) {
-	res, err := t.Runner.Run(ctx, execx.Cmd{Name: "tmux", Args: append([]string{"-L", Socket}, args...)})
+	res, err := t.Runner.Run(ctx, execx.Cmd{Name: tmuxBinary, Args: append([]string{"-L", t.socket()}, args...)})
 	if err != nil {
 		return res, fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
 	}
@@ -177,12 +189,17 @@ func (t *Tmux) IsDetached(ctx context.Context, name string) (bool, error) {
 // SingleAttachHook is the tmux hook command that enforces one terminal per session: when
 // the session then has more than one client, the one that just arrived is detached.
 func SingleAttachHook() string {
-	return "if-shell 'test $(tmux -L " + Socket + ` list-clients -t "#{session_name}" | wc -l) -gt 1' 'detach-client'`
+	return SingleAttachHookFor(Socket)
+}
+
+// SingleAttachHookFor is SingleAttachHook on the server of another socket name.
+func SingleAttachHookFor(socket string) string {
+	return "if-shell 'test $(tmux -L " + socket + ` list-clients -t "#{session_name}" | wc -l) -gt 1' 'detach-client'`
 }
 
 // InstallHook sets the single-attach hook on the server.
 func (t *Tmux) InstallHook(ctx context.Context) error {
-	_, err := t.Run(ctx, "set-hook", "-g", "client-attached", SingleAttachHook())
+	_, err := t.Run(ctx, "set-hook", "-g", "client-attached", SingleAttachHookFor(t.socket()))
 	return err
 }
 
@@ -209,7 +226,7 @@ func (t *Tmux) Attach(ctx context.Context, name string) (Outcome, error) {
 	}
 	t.Term.Printf("Attaching to '%s'.\n", name)
 	_, err = t.Runner.Run(ctx, execx.Cmd{
-		Name: "tmux", Args: []string{"-L", Socket, "attach-session", "-t", "=" + name},
+		Name: tmuxBinary, Args: []string{"-L", t.socket(), "attach-session", "-t", "=" + name},
 		Stdin: t.Stdin, Stdout: t.Stdout, Stderr: t.Stderr,
 	})
 	if err != nil {
