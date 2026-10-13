@@ -93,7 +93,10 @@ class ForgeError(Exception):
 
     @property
     def drop_reason(self) -> str:
-        """The receive-side drop code (§9 step 10p)."""
+        """The receive-side drop code (§9 step 10p). A rate refusal is `rate`: the forge
+        declined to answer, which says nothing about the reference."""
+        if self.code == RATE_REFUSAL:
+            return "rate"
         return "provenance" if self.code == "provenance" else "unresolved"
 
 
@@ -173,15 +176,35 @@ def default_opener(api: str) -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(SameOriginRedirect(api))
 
 
+#: What the cache file keeps of a `GET /repos/OWNER/REPO` answer, and each field's type.
+REPO_FIELDS = {"owner": str, "private": bool, "fork": bool, "default_branch": str}
+
+
+def _repo_entry_ok(entry: object) -> bool:
+    return (
+        isinstance(entry, dict)
+        and set(entry) == {"exp", *REPO_FIELDS}
+        and type(entry["exp"]) is int
+        and entry["exp"] >= 0
+        and all(entry[name] is None or type(entry[name]) is kind for name, kind in REPO_FIELDS.items())
+    )
+
+
 class ForgeCache:
-    """`forge-cache.json`: positive results only, each key with an expiry (Unix seconds).
+    """`forge-cache.json`: positive results only, each key with an expiry (Unix seconds),
+    and, under `repos`, each repository's metadata answer (owner, visibility, fork flag and
+    default branch) with its own expiry, so a command that is a new process does not ask
+    again for a repository it asked about a moment ago.
 
     Keys carry the forge API, so a team record naming another forge shares nothing. A
-    file that is not exactly this shape is refused, not ignored."""
+    file that is not exactly this shape is refused, not ignored; one with no `repos` is
+    read as having none."""
 
-    def __init__(self, path: pathlib.Path, entries: dict[str, int]) -> None:
+    def __init__(self, path: pathlib.Path, entries: dict[str, int],
+                 repos: dict[str, dict] | None = None) -> None:
         self.path = path
         self._entries = entries
+        self._repos = repos if repos is not None else {}
 
     @classmethod
     def load(cls, path: pathlib.Path) -> ForgeCache:
@@ -200,16 +223,19 @@ class ForgeCache:
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise config.ConfigError(f"{path}: not JSON; remove it to start an empty cache") from None
         entries = data.get("entries") if isinstance(data, dict) else None
+        repos = data.get("repos", {}) if isinstance(data, dict) else None
         if (
             not isinstance(data, dict)
-            or set(data) != {"v", "entries"}
+            or not {"v", "entries"} <= set(data) <= {"v", "entries", "repos"}
             or type(data["v"]) is not int
             or data["v"] != CACHE_VERSION
             or not isinstance(entries, dict)
             or not all(type(v) is int and v >= 0 for v in entries.values())
+            or not isinstance(repos, dict)
+            or not all(_repo_entry_ok(v) for v in repos.values())
         ):
             raise config.ConfigError(f"{path}: not a forge cache; remove it to start an empty cache")
-        return cls(path, dict(entries))
+        return cls(path, dict(entries), dict(repos))
 
     def fresh(self, key: str, now: float) -> bool:
         expiry = self._entries.get(key)
@@ -217,11 +243,37 @@ class ForgeCache:
 
     def put(self, key: str, now: float, ttl_s: int) -> None:
         self._entries[key] = int(now) + ttl_s
-        self._entries = {k: v for k, v in self._entries.items() if now < v}
+        self._prune(now)
         self._save()
 
+    def repo(self, key: str, now: float) -> dict | None:
+        """The kept answer for `key`, in the shape `GET /repos/O/R` has, or None."""
+        entry = self._repos.get(key)
+        if entry is None or now >= entry["exp"]:
+            return None
+        meta: dict = {name: entry[name] for name in REPO_FIELDS if name != "owner" and entry[name] is not None}
+        if entry["owner"] is not None:
+            meta["owner"] = {"login": entry["owner"]}
+        return meta
+
+    def put_repo(self, key: str, now: float, meta: Mapping[str, object]) -> None:
+        owner = meta.get("owner")
+        found = {"owner": owner.get("login") if isinstance(owner, dict) else None,
+                 **{name: meta.get(name) for name in REPO_FIELDS if name != "owner"}}
+        self._repos[key] = {
+            "exp": int(now) + REACH_TTL_S,
+            **{name: value if type(value) is REPO_FIELDS[name] else None for name, value in found.items()},
+        }
+        self._prune(now)
+        self._save()
+
+    def _prune(self, now: float) -> None:
+        self._entries = {k: v for k, v in self._entries.items() if now < v}
+        self._repos = {k: v for k, v in self._repos.items() if now < v["exp"]}
+
     def _save(self) -> None:
-        payload = json.dumps({"v": CACHE_VERSION, "entries": self._entries}, sort_keys=True)
+        payload = json.dumps({"v": CACHE_VERSION, "entries": self._entries, "repos": self._repos},
+                             sort_keys=True)
         fd, tmp = tempfile.mkstemp(prefix=f".{CACHE_FILE}.", dir=self.path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -258,9 +310,9 @@ class Forge:
         self._sleep = sleep
         self._clock = clock
         self._cache = cache
-        #: `GET /repos/OWNER/REPO` answers, in this process only, each with the time it was
-        #: read (kept REACH_TTL_S): the default branch, fork and visibility, never written
-        #: to the cache file.
+        #: `GET /repos/OWNER/REPO` answers, each with the time it was read (kept
+        #: REACH_TTL_S): the default branch, fork and visibility. Also kept in the cache
+        #: file, when there is one, for the commands that run as other processes.
         self._repos: dict[str, tuple[float, dict]] = {}
 
     @classmethod
@@ -338,10 +390,17 @@ class Forge:
         now = self._clock()
         if held is not None and now - held[0] < REACH_TTL_S:
             return held[1]
+        key = self._key("repo", ref.repo_full)
+        kept = self._cache.repo(key, now) if self._cache is not None else None
+        if kept is not None:
+            self._repos[ref.repo_full] = (now, kept)
+            return kept
         code, data = self._get(f"/repos/{ref.repo_full}", allow=(404,))
         if code == 404 or not isinstance(data, dict):
             raise ForgeError("not-found", f"{ref.text}: no repository {ref.repo_full}")
         self._repos[ref.repo_full] = (now, data)
+        if self._cache is not None:
+            self._cache.put_repo(key, now, data)
         return data
 
     def _branch(self, ref: protocol.Ref, branch: str) -> None:

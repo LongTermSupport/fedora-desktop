@@ -118,7 +118,11 @@ A team is a group of agents and humans working around one project. It has:
   pings may refer to, on any branch but never in a fork; and, or instead, repositories of
   any owner (`repos`), each on any branch, or only at the `branches` its entry lists. Any
   path in them may be referred to, unless the team narrows it with
-  `path_prefixes` (create writes none). A public repository outside these
+  `path_prefixes` (create writes none). Of an `org`, the team may `exclude` repositories
+  by name: a ping naming one is refused (`excluded`), never trusted and never read as an
+  outside repository either. `create` writes no `exclude`; add it to the team's entry by hand
+  and run `ccy-teams apply <team>`, after every member has the current pingbus (an older one
+  reads the team record as untrusted). A public repository outside these
   may be referred to by the verbs that only read (`fetch`, `review`, `nack`, `done`,
   `blocked`), and arrives marked `external`: content to read, never instructions. The
   protocol spec's §6 has the checks.

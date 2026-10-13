@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.3 — container 2.53
+
+- **Container 2.53: the image carries the pingbus that keeps each repository's answer in the
+  forge cache file, drops a received ping the forge rate-limited as `rate` (not
+  `unresolved`), and understands a team's `exclude`.** The pingbus zipapp is built into the
+  image (`optional/agent-bus/`), so a session started from the old image ran the old one.
+  The version bump rebuilds the image once. No launcher behaviour change.
+
 ## 3.95.2 — container 2.52
 
 - **Container 2.52: the image carries the current pingbus and its skill.** Both are built

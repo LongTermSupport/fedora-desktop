@@ -99,6 +99,8 @@ user_email: "yourname@example.com"
 #     allow_from: ["<cidr>"]
 #     humans: ["<name>"]
 #     org: <github-owner>        # every repository it owns is trusted, on any of its branches
+#     exclude: ["<repo>"]        # optional, needs org: repositories of it never trusted or referenced
+#                                # (every member must run the current pingbus before this is set)
 #     repos:                     # and, or instead of org: repositories of any owner
 #       - repo: <owner>/<repo>   # on any of its branches
 #       - repo: <owner>/<other>

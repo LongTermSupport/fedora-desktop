@@ -38,7 +38,8 @@ ALLOW_FROM_MAX = 32
 REQUIRED_KEYS = frozenset({"team", "port", "listen", "allow_from", "humans", "forge_api"})
 #: `org` and `repos` are each optional, but a team names at least one of them (spec §11).
 #: `path_prefixes` narrows the paths a trusted reference may name; absent, any path.
-OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "repos", "path_prefixes"})
+#: `exclude` names repositories of the `org` the team never trusts (spec §11).
+OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "exclude", "repos", "path_prefixes"})
 REPO_ENTRY_KEYS = frozenset({"repo", "branches"})
 
 _DNS_LABEL_RE = re.compile(DNS_LABEL_PATTERN)
@@ -72,6 +73,7 @@ class TeamFile:
     repos: tuple[RepoEntry, ...]
     path_prefixes: tuple[str, ...]
     forge_api: str
+    exclude: tuple[str, ...] = ()
 
     def listen_addresses(self) -> tuple[str, ...]:
         """Every address the homeserver binds: loopback always, then `listen`."""
@@ -79,9 +81,11 @@ class TeamFile:
 
     def as_dict(self) -> dict:
         org = {} if self.org is None else {"org": self.org}
+        exclude = {"exclude": list(self.exclude)} if self.exclude else {}
         prefixes = {"path_prefixes": list(self.path_prefixes)} if self.path_prefixes else {}
         return {
             **org,
+            **exclude,
             "team": self.team,
             "state": self.state,
             "server_name": self.server_name,
@@ -201,6 +205,21 @@ def _org(data: Mapping) -> str | None:
     return data["org"]
 
 
+def _exclude(data: Mapping, org: str | None, repos: tuple[RepoEntry, ...]) -> tuple[str, ...]:
+    if "exclude" not in data:
+        return ()
+    if org is None:
+        raise _fail("exclude", "needs an org: it names repositories of the org the team trusts")
+    names = _string_list(data, "exclude", 1, protocol.EXCLUDE_MAX)
+    for name in names:
+        if not protocol.is_repo_name(name):
+            raise _fail("exclude", f"{name!r} must be a lower-case repository name of the org (no owner), "
+                                   f"matching {protocol.REPO_PATTERN}, not '.', '..' or *.git")
+        if f"{org}/{name}" in {r.repo for r in repos}:
+            raise _fail("exclude", f"{name!r} is also listed in repos: it cannot be trusted and excluded")
+    return tuple(names)
+
+
 def _repos(data: Mapping) -> tuple[RepoEntry, ...]:
     value = data.get("repos", [])
     if not isinstance(value, list) or not protocol.REPOS_MIN <= len(value) <= protocol.REPOS_MAX:
@@ -290,6 +309,7 @@ def parse_team_file(data: object) -> TeamFile:
         repos=repos,
         path_prefixes=_path_prefixes(data),
         forge_api=_forge_api(data["forge_api"]),
+        exclude=_exclude(data, org, repos),
     )
 
 

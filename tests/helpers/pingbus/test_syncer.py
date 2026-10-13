@@ -510,6 +510,14 @@ class PingPipelineTest(TeamCase):
         self.assertEqual(batch.accepted, ())
         self.assertEqual(dict(batch.drops), {"provenance": 1, "unresolved": 1})
 
+    def test_a_forge_rate_refusal_drops_as_rate_not_unresolved(self):
+        s = self.ready()
+        self.forge.fail = {PATH_REF: "forge-rate", COMMIT_REF: "forge-unreachable"}
+        self.ping(self.orch, "review", ref=PATH_REF)
+        self.ping(self.orch, "run-qa", ref=COMMIT_REF)
+        batch = s.sync_once()
+        self.assertEqual((batch.accepted, dict(batch.drops)), ((), {"rate": 1, "unresolved": 1}))
+
     def test_ping_to_another_agent_ignored_and_not_forge_checked(self):
         s = self.ready()
         self.ping(self.orch, "review", to=[self.peer], ref=PATH_REF)

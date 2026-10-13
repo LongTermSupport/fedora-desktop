@@ -500,6 +500,7 @@ def _team_record(team: Team, reg: registry.Registry) -> dict:
         "humans": team.humans(),
         "roles": {team.user_id(handle): role for handle, role in sorted(reg.members.items())},
         **({} if tf.org is None else {"org": tf.org}),
+        **({"exclude": list(tf.exclude)} if tf.exclude else {}),
         "repos": [r.as_dict() for r in tf.repos],
         **({"path_prefixes": list(tf.path_prefixes)} if tf.path_prefixes else {}),
         "forge_api": tf.forge_api,

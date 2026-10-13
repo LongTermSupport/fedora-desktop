@@ -45,6 +45,9 @@ token, so every receiver re-checks everything (§9).
   `branch` (`schema`), and so acts on nothing new; but it reads a team record carrying `org`
   as untrusted (an unknown key, §8), so every member of a team takes the current pingbus
   before the team's file names an `org`.
+- `exclude` (§8, §11) is the same: a receiver built before it reads a team record carrying
+  `exclude` as untrusted (an unknown key), so every member of a team takes the current
+  pingbus before the team's file names an `exclude`.
 - `pingbus version` prints `pingbus <tool-version> protocol 1`.
 
 ## 2. Event types and the `agent_bus` prefix
@@ -208,8 +211,8 @@ the reference's repository stands (§11):
 - **listed** in `repos` with `branches`: the table below, `BRANCH` ranging over its listed
   `branches`, or only the ping's `branch` when it names one, which must be among them (else
   `provenance`);
-- **of the `org`**, or **listed** with no `branches`: first `GET /repos/OWNER/REPO` (read
-  once per process), which must answer 200 with `owner.login` equal to the org (for a listed
+- **of the `org`**, or **listed** with no `branches`: first `GET /repos/OWNER/REPO` (its answer
+  kept for 3600 s, in the cache file below), which must answer 200 with `owner.login` equal to the org (for a listed
   repository, its `OWNER`; case-insensitively) and `fork` `false`, else
   `provenance` (a fork is never trusted); then the table below, `BRANCH` the ping's
   `branch`, or the repository's `default_branch` when it names none. A named branch must be
@@ -242,12 +245,16 @@ it ends in `provenance`, not `not-found`.
 
 Positive results only are cached, in `forge-cache.json` in the member's state directory: a
 file's existence at a SHA for 30 days (content at a SHA is immutable; the expiry only bounds
-the file), reachability and `pr` results for 3600 s. A cache file that is not exactly the
+the file), reachability and `pr` results for 3600 s. Beside them it keeps, under `repos`,
+each repository's `GET /repos/OWNER/REPO` answer (owner, `private`, `fork`, default branch) for 3600 s, so a
+command in a new process does not ask again for a repository it asked about a moment ago; a
+file with no `repos` is read as having none. A cache file that is not exactly the
 expected shape is a config error (exit 78), not silently discarded. A 429, or a 403 with
 `x-ratelimit-remaining: 0`, is retried per §10 and then reported as `forge-rate`. Send-side
 refusals, on stderr: `not-found`, `wrong-kind`, `provenance`, `forge-unreachable`,
 `forge-auth` (exit 5), `forge-rate` (exit 9). On receive the same failures drop the ping as
-`unresolved` or `provenance`.
+`unresolved` or `provenance`, except `forge-rate`, which drops it as `rate`: the forge
+declined to answer, which says nothing about the reference.
 
 **Forge credential:** one source, the GitHub CLI's login: `gh auth token --hostname github.com`, run without a shell, with a 15 s timeout, its stdout captured and never logged
 (gh itself answers with `GH_TOKEN` or `GITHUB_TOKEN` when one is set). Only for `forge_api`
@@ -366,12 +373,13 @@ credential-assignment  (?i)\b(?:password|passwd|pwd|secret|token|access[_-]?toke
 | `humans`        | array of strings | 1 to 16 user IDs of human localparts                                   |
 | `roles`         | object           | 0 to 64 entries: agent-handle user ID → `"orchestrator"` or `"worker"` |
 | `org`           | string           | optional; `OWNER` (§6), §11                                            |
+| `exclude`       | array of strings | optional; needs `org`; §11                                             |
 | `repos`         | array of objects | §11                                                                    |
 | `path_prefixes` | array of strings | optional; §11                                                          |
 | `forge_api`     | string           | `https://[^\s/]+(/\S*)?`                                               |
 
 The team file accepts only `https://api.github.com` for `forge_api`, the one forge a
-member's credential is sent to (§6). Every key but `org` and `path_prefixes` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
+member's credential is sent to (§6). Every key but `org`, `exclude` and `path_prefixes` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
 command that needs it; `status` says why).
 
 A `roles` key names a numbered or a named seat alike, for example
@@ -472,7 +480,7 @@ than the verb's ack timeout (§10; `ack_timeout_s` for verbs that expect none): 
 (`stale`); an `ack` or `nack` dropped here is not delivered, but it goes on through 09p
 and 10p and answers its ping (§10) only if neither would drop it. Any other stale ping
 stops here. 09p. Sender over the receive flood limit: drop (`rate`). 10p. Forge check (§6):
-drop (`unresolved` / `provenance`). 11p. Write to the inbox.
+drop (`unresolved` / `provenance`, or `rate` when the forge's rate limit stopped the check). 11p. Write to the inbox.
 
 After the batch's inbox writes are durable, the sync token is saved.
 
@@ -485,7 +493,7 @@ server has no copy), logged and consumed. A sync's drops and its re-fetch's drop
 batch: one `DROPPED` line per team per pass (§15).
 
 **Drop reason codes** (closed set): `version`, `schema`, `size`, `edit`, `sender`, `role`,
-`target`, `verb`, `ref`, `allowlist`, `re`, `body`, `stale`, `rate`, `unresolved`,
+`target`, `verb`, `ref`, `allowlist`, `excluded`, `re`, `body`, `stale`, `rate`, `unresolved`,
 `provenance`.
 
 **Send-only refusals**: `secret` (§7). It refuses a send and never names a receive drop: text
@@ -545,6 +553,12 @@ From the team record (§8), never from the member config:
   repository is: on any of its own branches the ping names, else its default branch, and
   only while it is its owner's own and not a fork (§6). A fork is never listed. A record
   names an `org`, at least one repository, or both.
+- `exclude`: optional; needs an `org`; 1 to 32 distinct repository names (`REPO`, no owner,
+  each `[a-z0-9._-]{1,100}`, not `.`, `..` or ending `.git`) of that org, and none may also
+  be listed in `repos`. It is checked before trust: a reference to an excluded repository, of
+  any form, for any verb, is refused (`excluded`, offline, on send and on receive), so it is
+  neither trusted nor external. Every member takes the current pingbus before the team's file
+  names an `exclude` (§1).
 - A reference whose repository is neither listed nor the org's is **external**: accepted only
   for a verb whose "External `ref`" column says `yes` (§5), else `allowlist`; it must be in a
   public repository that is not a fork (§6); it is never held to `path_prefixes`; and its PING line says
