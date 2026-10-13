@@ -313,9 +313,9 @@ repository; opt-in per machine and per team.
     branch), `repos` optional; public outside repositories arrive marked `external` to the
     reading verbs only; private outside ones are refused. `pingbus send` names the branch
     from the checkout's upstream. Built with unit tests; acceptance M1.5 and M1.6 added.
-    Deployed 26-10-13; acceptance failed at M1.5 on a test fault (the wrong-branch send hit
-    pingbus's duplicate window; the trusted sends passed; fixed, journal 26-10-13). Pending:
-    acceptance.bash again, through `meta-deploy.bash`. Every member must run the new pingbus
+    Deployed 26-10-13; M1.5 and M1.6 pass on the host (second run, after a test fix). That
+    run failed at M2.8: GitHub's unauthenticated quota was spent (journal 26-10-13). Pending:
+    D66 merged, then acceptance.bash again, through `meta-deploy.bash`. Every member must run the new pingbus
     before any team gains `org` (protocol §1).
     - [ ] ⬜ An optional `exclude` list of org repositories in the team file, checked before
       trust (D64: planned, not built).
