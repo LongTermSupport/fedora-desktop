@@ -1526,6 +1526,15 @@ in_picker() {
     esac
 }
 
+# back_to_list — wait for Enter before the list is drawn over what was just said. Defined
+# before the start-up offers below, which use it.
+back_to_list() {
+    echo "Press Enter to go back to the list." >&2
+    if ! read -r _ </dev/tty; then
+        echo >&2
+    fi
+}
+
 # offer_update — a team out of date or not built: offer to update it before the list.
 offer_update() {
     local team
@@ -1630,14 +1639,6 @@ row_index() {
         fi
     done
     return 1
-}
-
-# back_to_list — wait for Enter before the list is drawn over what was just said.
-back_to_list() {
-    echo "Press Enter to go back to the list." >&2
-    if ! read -r _ </dev/tty; then
-        echo >&2
-    fi
 }
 
 # attach_seat <i> — Enter on a seat: attach its live session here, as ccy-sessions does.

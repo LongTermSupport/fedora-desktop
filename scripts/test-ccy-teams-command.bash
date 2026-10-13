@@ -1115,6 +1115,16 @@ printf '|ABORT\n' >"$TEST_ANSWERS"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "")"
 check_lacks "outside a checkout, nothing is said about one" "this checkout" "$out"
 
+echo "== the start-up update offer"
+printf '|ABORT\n' >"$TEST_ANSWERS"
+: >"$LOG"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
+check "a team not built is offered its update at start-up; yes applies it" "yes" \
+    "$(logged 'play -e {"agent_bus_only_teams": ["elsewhere"]}')"
+check_has "  then waits before the list is drawn" "Press Enter to go back to the list." "$out"
+check_lacks "  every step it takes is defined by then" "command not found" "$out"
+check "  and the picker opens" "rc=0" "$(rc_of "$out")"
+
 echo "== applied, apply, remove"
 STATES="$SCRATCH/states.yml"
 fresh_states() {
