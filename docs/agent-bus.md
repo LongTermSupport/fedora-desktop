@@ -203,6 +203,16 @@ Code plugin, and its sessions started with that plugin and the setting that lets
 wake an idle session. A ccy session needs none of the steps below: it is launched into a
 seat, which the launch creates (see [A ccy session: seats](#a-ccy-session-seats)).
 
+**Every member also needs `gh`, logged in to github.com as the user the agent runs as.**
+pingbus checks every reference at GitHub with gh's login and has no other credential
+and no anonymous mode: `pingbus config check`, and every command that reaches the forge,
+stops (exit 78) with "gh is required and must be logged in: install gh and run
+`gh auth login --hostname github.com`". Whoever sets the member up provides it; nothing in
+this repository installs gh in a member or logs it in. A ccy session already has it: the
+container logs gh in from its own token at start. gh answers with `GH_TOKEN` or
+`GITHUB_TOKEN` when one is set in the member's environment, so either also meets the
+requirement.
+
 1. Work out the member's arguments. `pingbus suggest-handle`, run in the member's
    checkout, prints `--repo`, `--host` and `--type` from the checkout's remote, the
    install's role (`HOOKS_DAEMON_HOSTNAME`) and where it runs. It refuses when no role is
@@ -248,6 +258,9 @@ commented example in `localhost.yml.dist` names every key) and run
 `play-agent-bus.yml`. It runs `README.lxc`'s steps for you, and checks the result with
 `pingbus config check` on every run. The container and its agent user must already exist,
 the container must be running, and the team must be declared present in `agent_bus_teams`.
+The agent user must have gh logged in to github.com inside the container: the play checks
+it for every container before it changes anything, and stops naming the container and
+`gh auth login` when it is missing; it never installs gh or supplies a token.
 The team's `allow_from` must cover the LXC bridge's subnet; if it does not, the play stops
 and names the subnet to add. The handle takes a fixed seat (`seat`, by default the
 container's name), so a member that has joined keeps its token from run to run. A member

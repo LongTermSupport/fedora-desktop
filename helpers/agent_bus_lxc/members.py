@@ -4,7 +4,8 @@ Plan 00161. play-agent-bus.yml runs this on the homeserver host, as root: `--pha
 before any team is removed, `--phase present` after the teams are installed. Each entry is
 one agent user in one existing LXC container (never made here), in one team hosted on this
 host. A present entry gets README.lxc's steps (files/opt/claude-yolo/optional/agent-bus/),
-in its order:
+in its order, after README.lxc's requirement is checked for every container before any change
+(gh installed and logged in to github.com for the agent user; never provided here):
 
   1. the kit, /usr/local/share/agent-bus/kit, copied into the container (only what differs
      is written) and its `pingbus` and `agent-bus-claude` linked into /usr/local/bin;
@@ -244,6 +245,9 @@ os.replace(tmp, path)
 
 #: As the agent: README.lxc step 6, with the env file read as agent-bus-claude reads it.
 CONFIG_CHECK_SH = f'set -a; . "$HOME/{PINGBUS_DIR}/env"; set +a; exec pingbus config check'
+#: As the agent, before any change: README.lxc's requirement, gh logged in to github.com
+#: (pingbus's one forge credential, DESIGN.md D66). The token stays inside the container.
+GH_CHECK_SH = "gh auth token --hostname github.com >/dev/null"
 
 
 class MemberError(Exception):
@@ -616,6 +620,15 @@ def _check_teams(members: Sequence[Member], teams_present: Sequence[str], host: 
                               "active; run play-agent-bus.yml with the team declared present")
 
 
+def _check_gh(guest, member: Member, home: str) -> None:
+    """README.lxc's requirement, met by whoever set the container up and never by this play:
+    gh installed and logged in to github.com for the agent user."""
+    guest.agent(member.user, home, home, ["sh", "-c", GH_CHECK_SH],
+                f"LXC container {member.container}: gh is required and must be logged in for "
+                f"{member.user}: install gh in the container and run `gh auth login --hostname "
+                f"github.com` as {member.user}. The check `{GH_CHECK_SH}`")
+
+
 def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None]) -> None:
     out = guest.root(_python(KIT_SYNC_PY, guest.kit_parent, guest.bin_dir, str(guest.kit_owner)),
                      f"container {container}: the member kit (README.lxc step 1)", stdin=host.kit_tar())
@@ -685,6 +698,7 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
     for (container, user), group in _groups(members).items():
         guest = _guest_running(host, container)
         home = _home(guest, group[0])
+        _check_gh(guest, group[0], home)
         _check_route(host, guest, group, bus)
         ready.append((container, user, group, guest, home))
     synced: set[str] = set()

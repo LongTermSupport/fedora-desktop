@@ -1073,7 +1073,8 @@ launcher's forwarded environment is already in place.
 A session is in an agent team bus team only when its launch names it, with one seat in
 each team; a plain `ccy` is in none. Nothing in `ccy.env` or `ccy.env.local` chooses a team:
 the container refuses to start when either sets, changes or unsets any `PINGBUS_*`
-variable (the forge credential variables included), naming each one.
+variable, naming each one. pingbus checks references at GitHub with the session's own gh
+login, which the container sets up at start; it reads no credential variable.
 
 ```bash
 ccy --teams dev1@dev-team,qa2@other-team    # quote a list written with spaces

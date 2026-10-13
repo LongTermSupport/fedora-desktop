@@ -99,12 +99,6 @@ TEAM_RECORD_MAX_BYTES = inbox.TEAM_RECORD_MAX_BYTES
 #: Matrix's own limit on a whole event; nothing larger can have come from a homeserver.
 EVENT_FILE_MAX_BYTES = 65536
 
-#: Spec §6, in precedence order. `GH_TOKEN`/`GITHUB_TOKEN` apply only when the team
-#: record's `forge_api` is exactly https://api.github.com; the forge client decides that.
-FORGE_TOKEN_FILE_VAR = "PINGBUS_FORGE_TOKEN_FILE"
-FORGE_TOKEN_VARS = ("PINGBUS_FORGE_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
-FORGE_NONE = "none"
-
 ROLE_VAR = "HOOKS_DAEMON_HOSTNAME"
 #: Values of the `container` variable podman, docker and LXC set, taken as the type.
 CONTAINER_ENV_TYPES = ("podman", "docker", "lxc")
@@ -399,27 +393,11 @@ def cmd_validate(args: argparse.Namespace, environ: Mapping[str, str], out: Text
 # ---------------------------------------------------------------- config check
 
 
-def _check_forge_token_file(path: str) -> None:
-    where = f"{FORGE_TOKEN_FILE_VAR} ({path})"
-    if not os.path.isabs(path):
-        raise config.ConfigError(f"{where} must be an absolute path")
-    with config.open_private_file(path, where) as handle:
-        size = os.fstat(handle.fileno()).st_size
-    if size == 0:
-        raise config.ConfigError(f"{where}: empty")
-
-
 def forge_credential_source(environ: Mapping[str, str]) -> str:
-    """The name of the variable the forge credential would come from (§6), never its
-    value; `none` for public repositories only. A named token file must be usable."""
-    path = environ.get(FORGE_TOKEN_FILE_VAR, "")
-    if path:
-        _check_forge_token_file(path)
-        return FORGE_TOKEN_FILE_VAR
-    for name in FORGE_TOKEN_VARS:
-        if environ.get(name, ""):
-            return name
-    return FORGE_NONE
+    """The forge credential's source (§6), never its value: `gh`, once gh has answered with
+    a token. gh missing or not logged in is a `config.ConfigError` naming the fix."""
+    forge.gh_token(environ)
+    return forge.GH_SOURCE
 
 
 def cmd_config_check(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:

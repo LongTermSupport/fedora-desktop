@@ -7,7 +7,9 @@ including what joining a team grants and its limits, is docs/agent-bus.md in the
 fedora-desktop repository.
 
 A ccy session does not use this kit: `pingbus`, the plugin and the settings come from the
-ccy image, and ccy's entrypoint adds them only to a session launched with `--teams`.
+ccy image, and ccy's entrypoint adds them only to a session launched with `--teams`. The
+gh login pingbus requires for its forge checks (every member needs one) is the session's
+own: the entrypoint logs gh in at start.
 
 1. Launching into a team. A ccy session is in a team only when it is launched with it:
 

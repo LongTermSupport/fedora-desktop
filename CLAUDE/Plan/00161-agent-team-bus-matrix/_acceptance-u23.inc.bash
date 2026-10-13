@@ -15,6 +15,10 @@
 # extracted by the agent user (so it owns the 0700 directory and 0600 files), the run
 # directory's token removed; (5) the env file, or for docker the container environment;
 # (6) `pingbus config check`. Starting Claude through agent-bus-claude is U20's to prove.
+# Each README's requirement, gh logged in as the agent user, is met by this harness, which sets
+# the member up: gh installed (dnf, or apt for docker), then `gh auth login --with-token` with
+# the desktop user's token on stdin (read_gh_login), kept in the agent's home in the member
+# and gone with it at teardown.
 #
 # THE MEMBERS. lxc: a throwaway container, agent-bus-acceptance-u23, from lxc-create's download
 # template (Fedora, this host's release: an image download), python3 and git-core installed by
@@ -321,7 +325,7 @@ u23_prepare_lxc() {
     fi
     printf '==> LXC container %s (Fedora %s) is running at %s\n' "${U23_NAME}" "${version}" "${address}"
     u23_step lxc root dnf-install /dev/null 0 dnf -y --setopt=install_weak_deps=False install \
-        python3 git-core util-linux-core shadow-utils systemd || return 1
+        python3 git-core util-linux-core shadow-utils systemd gh || return 1
     u23_guest_prepare lxc
 }
 
@@ -336,6 +340,7 @@ u23_prepare_docker() {
     docker run -d --name "${U23_NAME}" --network bridge -e "PINGBUS_TEAMS=${TEAM}" \
         -e "PINGBUS_HOME=${U23_DOCKER_PINGBUS_HOME}" -e "HOOKS_DAEMON_HOSTNAME=${U23_ROLE}" \
         "${U23_DOCKER_IMAGE}" sleep infinity || return 1
+    u23_step docker root apt-install /dev/null 0 sh -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends gh' || return 1
     u23_guest_prepare docker
 }
 
@@ -351,7 +356,7 @@ u23_prepare_vm() {
     "${U23_VMTEST}" ensure-base "${U23_VM_BASE}" || return 1
     U23_PRESENT[vm]=1 # before the attempt: a guest that failed part-way still needs removing
     "${U23_VMTEST}" member-up "${U23_NAME}" "${U23_VM_BASE}" || return 1
-    u23_step vm root dnf-install /dev/null 0 dnf -y --setopt=install_weak_deps=False install git-core || return 1
+    u23_step vm root dnf-install /dev/null 0 dnf -y --setopt=install_weak_deps=False install git-core gh || return 1
     u23_guest_prepare vm
 }
 
@@ -420,6 +425,9 @@ u23_join() {
         printf 'PINGBUS_TEAMS=%s\nHOOKS_DAEMON_HOSTNAME=%s\n' "${TEAM}" "${U23_ROLE}" >"${dir}/env" || return 1
         u23_step "${kind}" agent env-file "${dir}/env" 0 python3 -I -c "${U23_ENV_PY}" "${home}/env" || return 1
     fi
+    # README's requirement, met here by the harness that set the member up: its gh logged in
+    # with the desktop user's token, on stdin (read_gh_login), gone with the member.
+    u23_step "${kind}" agent gh-login <(gh_token_pipe) 0 gh auth login --with-token --hostname github.com || return 1
     u23_step "${kind}" agent config-check /dev/null 0 pingbus config check || return 1
     u23_step "${kind}" agent join /dev/null 3 pingbus recv
 }

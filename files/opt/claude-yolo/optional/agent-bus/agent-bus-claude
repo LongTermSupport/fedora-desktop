@@ -13,7 +13,8 @@
 #      Every assignment in it is exported. It is this user's own file, so sourcing it
 #      gives nothing to anyone who could not already run code as this user.
 #   3. Puts the kit's own pingbus first on PATH (the hooks run `pingbus`), then runs
-#      `pingbus config check`, whose refusal ends the launch with its exit code.
+#      `pingbus config check`, whose refusal ends the launch with its exit code: it also
+#      requires gh logged in to github.com, the forge credential's one source (D66).
 #   4. Execs `claude --plugin-dir <kit>/plugin/pingbus --settings <kit>/settings.json "$@"`.
 #      The settings carry crossSessionInbound: accept, without which a bypass-mode session
 #      holds the watcher's wake notice instead of starting a turn.

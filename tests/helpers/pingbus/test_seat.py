@@ -29,6 +29,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from helpers.pingbus import cli, config, inbox, protocol, seat
+from tests.helpers.pingbus import fake_gh
 
 TEAM_A, SN_A = "team-a", "team-a.agent-bus.internal"
 TEAM_B, SN_B = "team-b", "team-b.agent-bus.internal"
@@ -140,7 +141,7 @@ class SeatCase(unittest.TestCase):
         self.session_home = self.tmp / "session" / "pingbus-home"
         self.session_home.parent.mkdir()
         self.execs: list[tuple[str, list[str], dict[str, str]]] = []
-        self.env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
+        self.env = {"PATH": fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp)), "HOME": str(self.tmp)}
 
     def make_seat(self, name: str, team: str = TEAM_A, *, member: bool = True) -> pathlib.Path:
         sn = SN_A if team == TEAM_A else SN_B
@@ -376,12 +377,13 @@ class ClaimTest(SeatCase):
         self.assertEqual(code, EX_CONFIG)
         self.assertIn("ccy --teams qa2@team-b", err)
 
-    def test_a_forge_token_file_that_fails_config_check_is_refused_78(self):
-        env = dict(self.env, PINGBUS_FORGE_TOKEN_FILE="relative/path")
+    def test_gh_not_logged_in_is_refused_78_before_any_claim(self):
+        env = dict(self.env, PATH=fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp, "logged-out")))
         code, _, err = self.claim(env=env)
         self.assertEqual(code, EX_CONFIG)
-        self.assertIn("PINGBUS_FORGE_TOKEN_FILE", err)
+        self.assertIn("gh auth login --hostname github.com", err)
         self.assertEqual(self.execs, [])
+        self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
 
     def test_no_command_is_a_usage_error(self):
         code, _, err = self.run_cli("seat", "exec")
@@ -410,7 +412,7 @@ class RealExecTest(SeatCase):
         """)
 
     def start(self, seats: str, *command: str) -> subprocess.Popen:
-        env = dict(os.environ, **{seat.SEATS_VAR: seats})
+        env = dict(os.environ, PATH=self.env["PATH"], **{seat.SEATS_VAR: seats})
         child = subprocess.Popen([sys.executable, "-c", self.driver(*command)], cwd=REPO_ROOT,
                                  env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True)

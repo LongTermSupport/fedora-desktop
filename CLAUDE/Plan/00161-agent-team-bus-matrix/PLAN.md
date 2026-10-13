@@ -151,8 +151,8 @@ repository; opt-in per machine and per team.
   `test_cli.py` against the fake homeserver) built, reviewed and fixed. Wave 7: U17
   (`acceptance.bash`, M1.1–M1.3, its checks in `acceptance_check.py`, the bus address
   shared with `deploy.bash` through `_bus-address.inc.bash`) built, reviewed and fixed.
-  `meta-deploy.bash` runs it after `deploy.bash`; it needs GitHub's API reachable without a
-  credential and a fetched upstream branch. First host run (26-10-07) stopped at the
+  `meta-deploy.bash` runs it after `deploy.bash`; it needs GitHub's API reachable, the
+  desktop user's gh logged in to github.com (D66) and a fetched upstream branch. First host run (26-10-07) stopped at the
   members' bundle extraction (`tar` under the members' seccomp filter); they now extract
   with Python's `tarfile`. The next run joined both members and carried the first real
   ping (a's `review` to b's `wait`), then lost the ack's event ID to `systemd-run`'s `$`
@@ -318,10 +318,14 @@ repository; opt-in per machine and per team.
     before any team gains `org` (protocol §1).
     - [ ] ⬜ An optional `exclude` list of org repositories in the team file, checked before
       trust (D64: planned, not built).
-    - [ ] ⬜ Forge rate: no member has a GitHub token today (a ccy session's GH_TOKEN is
-      unset by the entrypoint), so every member on the machine shares 60 calls an hour, and
-      an org reference costs 4-7 a ping at first (journal 26-10-13). Give ccy seats a forge
-      token, and keep the repository answer in the cache file.
+    - [ ] 🔄 Forge rate: no member had a GitHub token (a ccy session's GH_TOKEN is unset by
+      the entrypoint), so every member on the machine shared 60 calls an hour, and an org
+      reference costs 4-7 a ping at first (journal 26-10-13). Built (DESIGN.md D66): the
+      forge credential is gh's login only, required of every member (fail fast, no
+      anonymous mode); the LXC members play checks it; acceptance logs its throwaway members
+      in for the run. Pending: the host run (`play-claude-yolo.yml` for the image's zipapp,
+      `play-agent-bus.yml` for the kit), then acceptance.bash; and keep the repository
+      answer in the cache file.
   - [ ] 🔄 Applied state and team changes by the play (coordinator for the owner,
     2026-10-13; DESIGN.md D65): applied stamps, `declare.py status`, `ccy-teams` APPLIED
     column, `apply <team>`/`--all`/Ctrl-U, create installs, removal one team at a time with

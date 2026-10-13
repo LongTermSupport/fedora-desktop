@@ -28,6 +28,7 @@ import os
 import pathlib
 import re
 import stat
+import subprocess
 import tempfile
 import time
 import urllib.error
@@ -64,10 +65,15 @@ REACH_TTL_S = 3600
 #: Content at a SHA never changes; the expiry only bounds the file's growth.
 CONTENT_TTL_S = 30 * 86400
 
-CREDENTIAL_SOURCES = ("PINGBUS_FORGE_TOKEN_FILE", "PINGBUS_FORGE_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
-#: Read only when `forge_api` is exactly GITHUB_API: a GitHub token is never sent elsewhere.
-GITHUB_ONLY_SOURCES = ("GH_TOKEN", "GITHUB_TOKEN")
-NO_CREDENTIAL = "none"
+#: The forge credential's one source (§6, DESIGN.md D66): the GitHub CLI's login for
+#: github.com. gh answers with GH_TOKEN or GITHUB_TOKEN itself when either is set.
+GH_SOURCE = "gh"
+GH_HOSTNAME = "github.com"
+GH_ARGV = ("gh", "auth", "token", "--hostname", GH_HOSTNAME)
+GH_TIMEOUT_S = 15
+#: How `gh auth token` begins its stderr for a host it holds no login for.
+GH_NOT_LOGGED_IN = "no oauth token"
+GH_REQUIRED = f"gh is required and must be logged in: install gh and run `gh auth login --hostname {GH_HOSTNAME}` as this user"
 
 _FORGE_API_RE = re.compile(protocol.FORGE_API_PATTERN)
 
@@ -96,27 +102,43 @@ class Credential:
     """Where the forge token came from (`config check` prints `source`) and the token."""
 
     source: str
-    token: str | None = dataclasses.field(default=None, repr=False)
+    token: str = dataclasses.field(repr=False)
 
 
-def resolve_credential(
-    environ: Mapping[str, str], forge_api: str, *, uid: int | None = None
-) -> Credential:
-    """The first source set (non-empty) in `CREDENTIAL_SOURCES` order; the GitHub ones only
-    for exactly `GITHUB_API`. None set: no token (public repositories only)."""
-    for source in CREDENTIAL_SOURCES:
-        value = environ.get(source, "")
-        if not value or (source in GITHUB_ONLY_SOURCES and forge_api != GITHUB_API):
-            continue
-        if source == "PINGBUS_FORGE_TOKEN_FILE":
-            where = f"PINGBUS_FORGE_TOKEN_FILE={value}"
-            if not os.path.isabs(value):
-                raise config.ConfigError(f"{where}: must be an absolute path")
-            return Credential(source, config.read_token_file(value, where, uid=uid))
-        if not config.is_printable_token(value) or len(value) > config.TOKEN_MAX_BYTES:
-            raise config.ConfigError(f"{source}: the forge token must be one line of printable ASCII")
-        return Credential(source, value)
-    return Credential(NO_CREDENTIAL)
+def gh_token(environ: Mapping[str, str]) -> str:
+    """The token of gh's login for github.com: `gh auth token --hostname github.com` run in
+    `environ`, its stdout captured and never logged. gh missing, not logged in, or failing
+    any other way is a `config.ConfigError` naming the fix; nothing falls back."""
+    env = {**environ, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "NO_COLOR": "1"}
+    try:
+        done = subprocess.run(list(GH_ARGV), env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, timeout=GH_TIMEOUT_S, check=True)
+    except FileNotFoundError:
+        raise config.ConfigError(f"no gh on PATH. {GH_REQUIRED}") from None
+    except subprocess.CalledProcessError as exc:
+        said = (exc.stderr or "").strip()
+        if said.startswith(GH_NOT_LOGGED_IN):
+            raise config.ConfigError(f"gh is not logged in to {GH_HOSTNAME}. {GH_REQUIRED}") from None
+        first = said.splitlines()[0][:200] if said else "nothing on stderr"
+        raise config.ConfigError(
+            f"`{' '.join(GH_ARGV)}` failed (exit {exc.returncode}: {first}). {GH_REQUIRED}") from None
+    except subprocess.TimeoutExpired:
+        raise config.ConfigError(f"`{' '.join(GH_ARGV)}` gave no answer within {GH_TIMEOUT_S} s") from None
+    except OSError as exc:
+        raise config.ConfigError(f"gh could not be run ({type(exc).__name__}). {GH_REQUIRED}") from None
+    token = done.stdout.strip()
+    if not token or not config.is_printable_token(token) or len(token) > config.TOKEN_MAX_BYTES:
+        raise config.ConfigError(f"`{' '.join(GH_ARGV)}` did not print one token of printable ASCII")
+    return token
+
+
+def resolve_credential(environ: Mapping[str, str], forge_api: str) -> Credential:
+    """The forge credential (§6): gh's login, for exactly `GITHUB_API`. Any other forge is
+    refused before gh is asked, so a GitHub token is never sent elsewhere."""
+    if forge_api != GITHUB_API:
+        raise config.ConfigError(
+            f"forge_api {forge_api}: pingbus checks references only at {GITHUB_API}, as gh's login")
+    return Credential(GH_SOURCE, gh_token(environ))
 
 
 def _open_regular(fd: int, where: str) -> io.BufferedReader:

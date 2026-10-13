@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from helpers.pingbus import cli, config
 from helpers.pingbus import protocol as p
+from tests.helpers.pingbus import fake_gh
 
 DOC = REPO_ROOT / "docs" / "agent-bus-protocol.md"
 SN = "team-a.agent-bus.internal"
@@ -91,8 +92,9 @@ def run(argv: list[str], environ: dict[str, str]) -> tuple[int, str, str]:
 
 
 def base_env(tmp: pathlib.Path) -> dict[str, str]:
+    """The test's own `gh` (logged in) first on PATH: never the real login of the runner."""
     return {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "PATH": fake_gh.path_with(fake_gh.fake_gh_dir(tmp)),
         "HOME": str(tmp / "home"),
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -502,7 +504,8 @@ class TestConfigCheck(TempCase):
         env = self.active(None)
         code, out, err = run(["config", "check"], env)
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, f"OK\t{TEAM}\t{SELF_HANDLE}\thuman_text=true\nFORGE\tnone\n")
+        self.assertEqual(out, f"OK\t{TEAM}\t{SELF_HANDLE}\thuman_text=true\nFORGE\tgh\n")
+        self.assertNotIn(fake_gh.FAKE_GH_TOKEN, out + err)
 
     def test_bad_bundle_is_78(self) -> None:
         env = self.active(None)
@@ -511,38 +514,29 @@ class TestConfigCheck(TempCase):
         self.assertEqual((code, out), (78, ""))
         self.assertIn(TEAM, err)
 
-    def test_forge_sources_in_order(self) -> None:
-        env = self.active(None)
-        token_file = self.tmp / "forge-token"
-        token_file.write_text("ghp_" + "x" * 36, encoding="utf-8")
-        token_file.chmod(0o600)
-        cases = [
-            ({"PINGBUS_FORGE_TOKEN_FILE": str(token_file), "PINGBUS_FORGE_TOKEN": "a", "GH_TOKEN": "b"},
-             "PINGBUS_FORGE_TOKEN_FILE"),
-            ({"PINGBUS_FORGE_TOKEN": "a", "GH_TOKEN": "b"}, "PINGBUS_FORGE_TOKEN"),
-            ({"GH_TOKEN": "b", "GITHUB_TOKEN": "c"}, "GH_TOKEN"),
-            ({"GITHUB_TOKEN": "c"}, "GITHUB_TOKEN"),
-            ({"GH_TOKEN": ""}, "none"),
-        ]
-        for extra, source in cases:
-            with self.subTest(source=source):
-                code, out, err = run(["config", "check"], dict(env, **extra))
-                self.assertEqual(code, 0, err)
-                self.assertTrue(out.endswith(f"FORGE\t{source}\n"), out)
-                self.assertNotIn("x" * 36, out + err)
+    def test_gh_is_the_one_source_whatever_else_is_set(self) -> None:
+        env = dict(self.active(None), PINGBUS_FORGE_TOKEN="a", PINGBUS_FORGE_TOKEN_FILE="relative/path",
+                   GH_TOKEN="b", GITHUB_TOKEN="c")
+        code, out, err = run(["config", "check"], env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.endswith("FORGE\tgh\n"), out)
 
-    def test_forge_token_file_refused(self) -> None:
+    def test_gh_required_and_logged_in(self) -> None:
+        """Fail fast, naming the fix: never a fallback to anonymous calls (DESIGN.md D66)."""
         env = self.active(None)
-        loose = self.tmp / "loose"
-        loose.write_text("abc", encoding="utf-8")
-        loose.chmod(0o644)
-        link = self.tmp / "link"
-        link.symlink_to(loose)
-        for path in (loose, link, self.tmp / "absent", "relative/path"):
-            with self.subTest(path=path):
-                code, out, err = run(["config", "check"], dict(env, PINGBUS_FORGE_TOKEN_FILE=str(path)))
+        empty = self.tmp / "no-gh"
+        empty.mkdir()
+        cases = {
+            "missing": (str(empty), "install gh"),
+            "logged-out": (fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp, "logged-out")), "not logged in"),
+            "broken": (fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp, "broken")), "exit 1"),
+        }
+        for name, (path, says) in cases.items():
+            with self.subTest(name):
+                code, out, err = run(["config", "check"], dict(env, PATH=path))
                 self.assertEqual((code, out), (78, ""))
-                self.assertIn("PINGBUS_FORGE_TOKEN_FILE", err)
+                self.assertIn(says, err)
+                self.assertIn("gh auth login --hostname github.com", err)
 
 
 class TestSuggestHandle(TempCase):
