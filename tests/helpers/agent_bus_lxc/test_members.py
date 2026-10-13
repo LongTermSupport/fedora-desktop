@@ -64,7 +64,7 @@ def entry(**overrides: object) -> dict:
 def team_file(allow_from: Sequence[str] = (BRIDGE_CIDR,), team: str = TEAM) -> teamfile.TeamFile:
     return teamfile.TeamFile(team=team, state="present", server_name=f"{team}.agent-bus.internal",
                              port=PORT, listen=(BUS_IP,), allow_from=tuple(allow_from), humans=("alice",),
-                             repos=(), path_prefixes=(), forge_api="https://api.github.com")
+                             org="example-org", repos=(), path_prefixes=(), forge_api="https://api.github.com")
 
 
 def tar_of(files: dict[str, bytes]) -> bytes:
