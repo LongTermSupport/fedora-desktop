@@ -193,6 +193,22 @@ is read where nobody can answer it.
   it `OK`, its stack up. A session started on an older ccy has no recorded answer and still
   asks once.
 
+### Phase 10: fedora-desktop#86, verify-restore reports a session at the conversation picker
+
+Addresses #86. After a restart, `verify-restore` printed `OK` for a session sitting at Claude
+Code's conversation picker. A person had relaunched it with `ccy --resume`, ccy rewrote its
+record with `--resume`, and the next restore opened the picker with nobody there to answer.
+The process runs and sits at a prompt, so `ccy_restore_verdict` sees nothing wrong.
+
+- [ ] ⬜ **Task 10.1**: Tests first: `ccy_restore_verdict` reports a pane at the conversation
+  picker as `WAITING-AT-PROMPT thread-picker` (an entry in `ccy_known_prompts`), and
+  `fedora-desktop-self-update verify` treats it as not restored.
+- [ ] ⬜ **Task 10.2**: Owner decision, then build: should a restore record ever keep
+  `--resume`? A restore with nobody attached cannot answer a picker. The candidate is to
+  record `--continue` in its place.
+- [ ] ⬜ **Task 10.3**: Changelog, CCY version bump, and a host check through
+  `meta-deploy.bash`.
+
 ## Dependencies
 
 - `claude-code-hooks-daemon` ≥ 3.65.0 for `hooks-daemon signal` (their #39, closed).

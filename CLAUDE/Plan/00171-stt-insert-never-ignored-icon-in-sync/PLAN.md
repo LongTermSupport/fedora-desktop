@@ -135,6 +135,12 @@ The owner's requirements:
   `test-wsi-stop-grace.bash`, ESLint, `qa-bash`, `qa-python`, `qa-js`, `qa-patterns`,
   `qa-docs`, the speech-to-text rule gates, `--syntax-check` of the play); the full
   `qa-all.bash` is the coordinator's.
+- [ ] ⬜ **Task 4.4 — Insert within 1 s of a paste (#96).** Addresses #96: a second Insert in
+  the second after a paste started a recording that a late IDLE from the previous run
+  orphaned. Built by Tasks 2.1 (token), 2.3 (no IDLE after SUCCESS) and 5.11 (Decision 8),
+  and covered by the stale-IDLE case in `test-stt-panel-session.mjs` (Task 2.4). Remaining:
+  Task 4.1's host replay must include a press within 1 s of the paste, and its evidence goes
+  on #96 for the owner to close.
 
 ### Phase 5: The microphone, and the review's fixes (tests first)
 

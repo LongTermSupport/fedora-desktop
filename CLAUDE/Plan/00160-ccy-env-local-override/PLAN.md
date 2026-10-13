@@ -93,6 +93,23 @@ the daemon or an agent.
   3.84.0. Read-only paths in general, listed in `ccy.env`/`ccy.env.local`, are a separate
   issue (the owner's suggestion).
 
+### Phase 4: Declared read-only paths in general (#83)
+
+Addresses #83. The owner asked for the `ccy.env.local` read-only bind to grow into a declared
+list of files and folders that ccy mounts read-only over the writable workspace. Mounts are
+decided on the host before the container exists, so the list must be read on the host. This
+reverses this plan's Non-Goal on host-read settings, at the owner's request.
+
+- [ ] ⬜ **Task 4.1**: Owner decisions: where the list lives (`ccy.env`/`ccy.env.local` read
+  on the host, or the tracked `.claude/ccy/mounts` that `load_project_mounts` already reads
+  and validates); who can loosen it (a tracked list is editable by the agent it protects);
+  and what a missing path does (error, warning, or another protection).
+- [ ] ⬜ **Task 4.2**: Tests first, then the list: each path stays inside the workspace (no
+  `..`, no symlink out), gets the same SELinux relabel as the workspace mount, and is bound
+  read-only, generalising `ccy_env_local_mount_args`.
+- [ ] ⬜ **Task 4.3**: `docs/ccy.md`, changelog, CCY version bump; `deploy.bash` and an entry
+  in `meta-deploy.bash`; the `qa-reviewer` agent.
+
 ## Success Criteria
 
 - [ ] A session in a project with `.claude/ccy/ccy.env.local` prints that it sourced it,
