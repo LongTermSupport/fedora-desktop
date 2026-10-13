@@ -200,7 +200,7 @@ class TestForgeError(unittest.TestCase):
     def test_receive_drop_reasons_are_protocol_codes(self) -> None:
         for code in forge.REFUSALS:
             reason = forge.ForgeError(code, "x").drop_reason
-            expected = {"provenance": "provenance", "forge-rate": "rate"}.get(code, "unresolved")
+            expected = {"provenance": "provenance", "forge-rate": "forge-rate"}.get(code, "unresolved")
             self.assertEqual(reason, expected, code)
             self.assertIn(reason, protocol.REASONS_DECIDED_ELSEWHERE)
 

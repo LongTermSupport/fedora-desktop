@@ -10,7 +10,7 @@ agent's text to this agent) or, on send, `AgentText`, or a `Refusal` carrying on
 (`pingbus send`, `pingbus validate`) and on receive (the syncer, inbox reads), so a sender
 that skips pingbus is still held to them by every receiver.
 
-What is not decided here: `stale` and `rate` (limits), `unresolved` and `provenance` (the
+What is not decided here: `stale` and `rate` (limits), `forge-rate`, `unresolved` and `provenance` (the
 forge check), and whether the member answering an `ack`/`nack` was addressed by the ping
 it answers (the outbox). Room trust beyond the team record and the power levels (the
 create event, invites) is the syncer's.
@@ -150,15 +150,15 @@ HUMAN_POWER = 50
 
 DROP_REASONS = (
     "version", "schema", "size", "edit", "sender", "role", "target", "verb", "ref",
-    "allowlist", "excluded", "re", "body", "stale", "rate", "unresolved", "provenance",
+    "allowlist", "excluded", "re", "body", "stale", "rate", "forge-rate", "unresolved", "provenance",
 )
 #: The ignore reason for an agent's text that does not name the receiving agent (spec §7,
 #: §9): it is for others, so the agent skips it silently and it is never a drop.
 IGNORE_AGENT_TEXT = "agent-text"
 #: Codes that refuse a send and never name a receive drop.
 SEND_REFUSALS = ("secret",)
-#: Codes this module never produces: limits (`stale`, `rate`) and the forge check.
-REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "unresolved", "provenance"})
+#: Codes this module never produces: limits (`stale`, `rate`) and the forge check (`forge-rate`, `unresolved`, `provenance`).
+REASONS_DECIDED_ELSEWHERE = frozenset({"stale", "rate", "forge-rate", "unresolved", "provenance"})
 
 REQUIRED = "required"
 OPTIONAL = "optional"
