@@ -163,7 +163,7 @@ class ForgeCase(unittest.TestCase):
         self.now = T0
         self.slept: list[float] = []
 
-    def make(self, routes: dict[str, list[object]], *, token: str | None = None,
+    def make(self, routes: dict[str, list[object]], *, token: str = TOKEN,
              api: str = API, cache: forge.ForgeCache | None = None) -> tuple[forge.Forge, FakeOpener]:
         opener = FakeOpener(routes)
         client = forge.Forge(
@@ -215,12 +215,13 @@ class TestRequests(ForgeCase):
         self.assertEqual(request.get_method(), "GET")
         self.assertEqual(opener.timeouts[0], forge.TIMEOUT_S)
 
-    def test_no_token_no_authorization_header(self) -> None:
-        client, opener = self.make({compare_url("main"): [status("identical")]})
-        client.check(COMMIT_REF, BRANCHES)
-        request = opener.requests[0]
-        self.assertFalse(request.has_header("Authorization"))
-        self.assertNotIn("Authorization", request.unredirected_hdrs)
+    def test_there_is_no_anonymous_client(self) -> None:
+        """D66: every forge call carries gh's token; a client without one cannot be built."""
+        for token in (None, ""):
+            with self.subTest(token=token), self.assertRaises(ValueError):
+                forge.Forge(API, token=token, opener=FakeOpener({}))
+        with self.assertRaises(TypeError):
+            forge.Forge(API, opener=FakeOpener({}))
 
     def test_github_accept_header(self) -> None:
         client, opener = self.make({compare_url("main"): [status("identical")]})
@@ -234,7 +235,7 @@ class TestRequests(ForgeCase):
 
     def test_api_must_be_https(self) -> None:
         with self.assertRaises(ValueError):
-            forge.Forge("http://api.github.com", opener=FakeOpener({}))
+            forge.Forge("http://api.github.com", token=TOKEN, opener=FakeOpener({}))
 
     def test_branch_with_slash_is_kept_as_a_path(self) -> None:
         client, opener = self.make({compare_url("release/44"): [status("identical")]})

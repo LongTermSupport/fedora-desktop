@@ -21,7 +21,7 @@ import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from helpers.pingbus import protocol
+from helpers.pingbus import forge, protocol
 
 DNS_LABEL_PATTERN = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 
@@ -246,6 +246,9 @@ def _forge_api(value: object) -> str:
         or parts.path.endswith("/")
     ):
         raise _fail("forge_api", "must be an https:// URL with no credentials, query, fragment or trailing /")
+    if value != forge.GITHUB_API:
+        # D66: members authenticate only as gh's github.com login, sent only to GitHub's API.
+        raise _fail("forge_api", f"must be {forge.GITHUB_API}: members check references only as gh's login")
     return value
 
 

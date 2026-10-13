@@ -208,7 +208,8 @@ pingbus checks every reference at GitHub with gh's login and has no other creden
 and no anonymous mode: `pingbus config check`, and every command that reaches the forge,
 stops (exit 78) with "gh is required and must be logged in: install gh and run
 `gh auth login --hostname github.com`". Whoever sets the member up provides it; nothing in
-this repository installs gh in a member or logs it in. A ccy session already has it: the
+this repository installs gh in a member or logs it in (only Plan 00161's acceptance run
+does, for the throwaway members it makes and removes). A ccy session already has it: the
 container logs gh in from its own token at start. gh answers with `GH_TOKEN` or
 `GITHUB_TOKEN` when one is set in the member's environment, so either also meets the
 requirement.

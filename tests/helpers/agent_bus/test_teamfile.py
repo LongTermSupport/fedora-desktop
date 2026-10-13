@@ -216,6 +216,8 @@ class RefusedTeamFileTest(unittest.TestCase):
         "forge_api with query": (_with(forge_api="https://api.github.com?x=1"), "forge_api"),
         "forge_api with fragment": (_with(forge_api="https://api.github.com#f"), "forge_api"),
         "forge_api trailing slash": (_with(forge_api="https://api.github.com/"), "forge_api"),
+        # D66: gh's github.com login is the one forge credential, so no other forge works.
+        "forge_api not GitHub": (_with(forge_api="https://forge.example.com/api/v3"), "api.github.com"),
     }
 
     def test_each_rule_refuses(self) -> None:

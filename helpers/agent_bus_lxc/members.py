@@ -246,8 +246,10 @@ os.replace(tmp, path)
 #: As the agent: README.lxc step 6, with the env file read as agent-bus-claude reads it.
 CONFIG_CHECK_SH = f'set -a; . "$HOME/{PINGBUS_DIR}/env"; set +a; exec pingbus config check'
 #: As the agent, before any change: README.lxc's requirement, gh logged in to github.com
-#: (pingbus's one forge credential, DESIGN.md D66). The token stays inside the container.
-GH_CHECK_SH = "gh auth token --hostname github.com >/dev/null"
+#: (pingbus's one forge credential, DESIGN.md D66), with the env file read when there is one,
+#: as config check reads it (a GH_TOKEN there counts). The token stays inside the container.
+GH_CHECK_SH = (f'if [ -f "$HOME/{PINGBUS_DIR}/env" ]; then set -a; . "$HOME/{PINGBUS_DIR}/env"; set +a; fi; '
+               "gh auth token --hostname github.com >/dev/null")
 
 
 class MemberError(Exception):
@@ -626,7 +628,7 @@ def _check_gh(guest, member: Member, home: str) -> None:
     guest.agent(member.user, home, home, ["sh", "-c", GH_CHECK_SH],
                 f"LXC container {member.container}: gh is required and must be logged in for "
                 f"{member.user}: install gh in the container and run `gh auth login --hostname "
-                f"github.com` as {member.user}. The check `{GH_CHECK_SH}`")
+                f"github.com` as {member.user}. The check, gh's token for github.com,")
 
 
 def _sync_kit(host: Host, guest, container: str, emit: Callable[[str], None]) -> None:

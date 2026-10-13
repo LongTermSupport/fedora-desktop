@@ -241,7 +241,7 @@ class Forge:
         self,
         api: str,
         *,
-        token: str | None = None,
+        token: str,
         opener: object | None = None,
         sleep: Callable[[float], object] = time.sleep,
         clock: Callable[[], float] = time.time,
@@ -249,6 +249,8 @@ class Forge:
     ) -> None:
         if not isinstance(api, str) or _FORGE_API_RE.fullmatch(api) is None:
             raise ValueError("forge_api must be an https:// URL (spec §8)")
+        if not isinstance(token, str) or not token:
+            raise ValueError("a forge client needs gh's token: there is no anonymous mode (D66)")
         self.api = api
         self._base = api.rstrip("/")
         self._token = token
@@ -461,8 +463,7 @@ class Forge:
         request = urllib.request.Request(self._base + path, method="GET")
         for name, value in API_HEADERS.items():
             request.add_header(name, value)
-        if self._token is not None:
-            request.add_unredirected_header("Authorization", f"Bearer {self._token}")
+        request.add_unredirected_header("Authorization", f"Bearer {self._token}")
         return request
 
     def _get(self, path: str, *, allow: tuple[int, ...]) -> tuple[int, object]:

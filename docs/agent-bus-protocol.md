@@ -367,7 +367,8 @@ credential-assignment  (?i)\b(?:password|passwd|pwd|secret|token|access[_-]?toke
 | `path_prefixes` | array of strings | §11                                                                    |
 | `forge_api`     | string           | `https://[^\s/]+(/\S*)?`                                               |
 
-Every key but `org` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
+The team file accepts only `https://api.github.com` for `forge_api`, the one forge a
+member's credential is sent to (§6). Every key but `org` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
 command that needs it; `status` says why).
 
 A `roles` key names a numbered or a named seat alike, for example
