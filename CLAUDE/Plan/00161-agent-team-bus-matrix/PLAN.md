@@ -92,19 +92,22 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
     To be designed, provisioned by IaC like U23's member (owner, 2026-10-12): never an owner
     step, never SKIPPED-NEEDS-OWNER.
   - [ ] 🔄 Agent-to-agent free text (owner, 2026-10-12; DESIGN.md D63, reverses D13): built;
-    acceptance M1.4 host run ACCEPTED 26-10-13. Pending: a host check that room creation is
-    refused (no acceptance check covers it; journal 26-10-12).
+    acceptance M1.4 host run ACCEPTED 26-10-13. Room creation refused: acceptance M1.7 added
+    26-10-13 (a member's `createRoom` must get 403 `M_FORBIDDEN`). Pending: its host run.
   - [ ] 🔄 Org trust and outside references (owner, 2026-10-13; DESIGN.md D64): built with unit
     tests; deployed 26-10-13; M1.5 and M1.6 pass on the host. Pending: acceptance.bash again
     (D66 deployed 26-10-13); the owner's own testing comes first. Every member must run the
     new pingbus before any team gains `org` (protocol section 1).
-    - [ ] ⬜ An optional `exclude` list of org repositories in the team file, checked before
-      trust (D64: planned, not built).
+    - [x] ✅ An optional `exclude` list of org repositories in the team file, checked before
+      trust: built 26-10-13 (refused offline as `excluded`, on send and receive; container 2.53).
+      [report](subagent-reports/261013-p161-forge-sonnet.md)
     - [ ] 🔄 Forge rate (DESIGN.md D66): built and deployed 26-10-13. The forge credential is
       gh's login only, required of every member; the acceptance logs its throwaway members in
       with the desktop user's own gh login (owner decision, 2026-10-13, kept over a review's
-      suggestion of a stub gh for the harness's non-ccy members). Pending: acceptance.bash;
-      keep the repository answer in the cache file.
+      suggestion of a stub gh for the harness's non-ccy members). The repository answer is
+      kept in the cache file for an hour (26-10-13: a repeat ping costs no call). A GitHub
+      rate refusal gets its own drop reason (`forge-rate`, not `unresolved`). Pending:
+      acceptance.bash.
   - [x] ✅ Applied state and team changes by the play (DESIGN.md D65): built and deployed
     26-10-13; the owner created a real team with `ccy-teams create` on 26-10-13 and it worked.
 

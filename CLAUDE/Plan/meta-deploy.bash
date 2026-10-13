@@ -52,11 +52,15 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # agent team bus: a team without path_prefixes; agent-bus seat choose, seat check
-    # --resolved, seat take --type (Plan 00177)
+    # agent team bus: seat choose, seat take --type, a team without path_prefixes, exclude,
+    # the forge cache (Plans 00177, 00161)
     playbooks/imports/play-agent-bus.yml
-    # CCY 3.95.0: ccy --teams <team> chooses a seat; the re-attach offer keeps --teams
+    # ccy: --teams <team> chooses a seat, the re-attach offer keeps --teams; cc --teams;
+    # the image's pingbus (Plans 00177, 00161)
     playbooks/imports/play-claude-yolo.yml
+    # agent team bus acceptance, with the new pingbus: M1.7 (no room creation) and M2.8
+    # (the forge with gh's login)
+    00161-agent-team-bus-matrix/acceptance.bash
     # speech-to-text: judges the latest Insert replay
     00171-stt-insert-never-ignored-icon-in-sync/acceptance.bash
 )
