@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.94.1 — container 2.51
+
+- **A project image follows its base image.** A project with `.claude/ccy/Dockerfile` was
+  rebuilt only when the base image's `claude-yolo-version` label changed, but the base's
+  build context (the pingbus zipapp, its plugin) changes without that label moving. The
+  project image then kept the old pingbus. ccy now records the base image's ID and rebuilds
+  the project image when it differs. The first launch of each such project after this
+  version rebuilds its image once.
+
 ## 3.94.0 — container 2.51
 
 - **A running session's restore mark can be changed.** `ccy_registry_set_restore` in

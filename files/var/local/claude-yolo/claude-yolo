@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.94.0"  # A running session's restore mark can be changed (ccy-teams Ctrl-R). See docs/ccy-changelog.md.
+CCY_VERSION="3.94.1"  # A project image is rebuilt whenever its base image changes, not only its version label. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2071,7 +2071,7 @@ fi
 PROJECT_DOCKERFILE=".claude/ccy/Dockerfile"
 PROJECT_IMAGE_NAME="claude-yolo:${PROJECT_NAME}"
 PROJECT_DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
-PROJECT_BASE_VERSION_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-version"
+PROJECT_BASE_IMAGE_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-image"
 
 if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
     echo ""
@@ -2093,19 +2093,21 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         previous_project_hash=$(cat "$PROJECT_DOCKERFILE_HASH_FILE")
     fi
 
-    # Get current base image version. The fallback is stated separately from the
-    # substitution, so "the engine could not be asked" is a decision made here
-    # rather than a string that silently becomes the answer.
-    if ! current_base_version=$(container_cmd image inspect "claude-yolo:latest" \
-        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>&1); then
-        current_base_version="unknown"
+    # The base image's ID, not its version label: the label moves only when the base
+    # Dockerfile's version is bumped, but its build context (the pingbus zipapp, the
+    # plugin) changes without one, and a project image left on the old base runs old code.
+    # The fallback is stated separately from the substitution, so "the engine could not be
+    # asked" is a decision made here rather than a string that silently becomes the answer.
+    if ! current_base_image=$(container_cmd image inspect "claude-yolo:latest" \
+        --format '{{.Id}}' 2>&1); then
+        current_base_image="unknown"
     fi
-    [ -n "$current_base_version" ] || current_base_version="unknown"
+    [ -n "$current_base_image" ] || current_base_image="unknown"
 
-    # Get base version that project image was built with
-    previous_base_version=""
-    if [ -f "$PROJECT_BASE_VERSION_FILE" ]; then
-        previous_base_version=$(cat "$PROJECT_BASE_VERSION_FILE")
+    # The base image the project image was built on
+    previous_base_image=""
+    if [ -f "$PROJECT_BASE_IMAGE_FILE" ]; then
+        previous_base_image=$(cat "$PROJECT_BASE_IMAGE_FILE")
     fi
 
     # Build if image doesn't exist, Dockerfile changed, base image updated, or --rebuild flag
@@ -2120,13 +2122,13 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         echo "Project Dockerfile changed, rebuilding image..."
         should_build=true
         rebuild_reason="Dockerfile changed"
-    elif [ "$current_base_version" != "$previous_base_version" ]; then
+    elif [ "$current_base_image" != "$previous_base_image" ]; then
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "ℹ️  Base image updated - rebuilding project image"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Previous base: v$previous_base_version"
-        echo "Current base:  v$current_base_version"
+        echo "Previous base: ${previous_base_image:0:12}"
+        echo "Current base:  ${current_base_image:0:12}"
         echo ""
         echo "Project images inherit from claude-yolo:latest."
         # Extract changelog from the CCY_VERSION comment in this script (e.g. "# fix: ...")
@@ -2142,7 +2144,7 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             echo "Updating Claude Code in project image (fast)..."
             update_claude_inplace "$PROJECT_IMAGE_NAME"
             echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
-            echo "$current_base_version" > "$PROJECT_BASE_VERSION_FILE"
+            echo "$current_base_image" > "$PROJECT_BASE_IMAGE_FILE"
         else
             echo "Force rebuild requested..."
             should_build=true
@@ -2201,9 +2203,9 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
 
         if [ "$build_succeeded" = true ]; then
 
-            # Save hashes and versions to track changes
+            # Save the Dockerfile hash and base image to track changes
             echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
-            echo "$current_base_version" > "$PROJECT_BASE_VERSION_FILE"
+            echo "$current_base_image" > "$PROJECT_BASE_IMAGE_FILE"
             rm -f "$build_log"
             echo ""
             echo "✓ Project image built successfully: $PROJECT_IMAGE_NAME"

@@ -303,9 +303,10 @@ repository; opt-in per machine and per team.
   - [ ] 🔄 Agent-to-agent free text (owner, 2026-10-12; DESIGN.md D63, reverses D13):
     `pingbus say --to` takes agent handles, a named agent gets a `PEER` line (a peer's
     information, no authority), pings unchanged; `allow_room_creation = false` keeps the
-    team room the only one. Built; acceptance M1.4 added. Host run pending: `deploy.bash`
-    (installer, play, ccy image), then `acceptance.bash`; installed teams take the new
-    `tuwunel.toml` when `play-agent-bus.yml` next runs.
+    team room the only one. Built; acceptance M1.4 added. Host run 26-10-13: M1.4 PASS,
+    `play-agent-bus.yml` PASS, acceptance REJECTED at M2.1 because the project's ccy image
+    kept the old pingbus (ccy rebuilt it only on a base version-label change; fixed in CCY
+    3.94.1, journal 26-10-13). Pending: `deploy.bash` and `acceptance.bash` again.
 
 ## Success Criteria
 

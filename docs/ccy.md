@@ -122,7 +122,8 @@ the real order the launcher executes in.
     `REQUIRED_CONTAINER_VERSION`, a rebuild is forced. Claude Code inside the image is
     also updated if it is behind — see [Keeping CCY Current](#keeping-ccy-current).
 07. **Image resolution.** If `.claude/ccy/Dockerfile` exists, the image becomes
-    `claude-yolo:<project-name>` and is rebuilt when the Dockerfile's hash changes.
+    `claude-yolo:<project-name>` and is rebuilt when the Dockerfile's hash or the base
+    image changes.
     Otherwise the base `claude-yolo:latest` is used.
 08. **Network.** Any project compose network is detected and offered, or attached with
     `--network`.
