@@ -1,6 +1,6 @@
 # Plan 00164: stt enter lost after focus retake
 
-**Status**: In Progress
+**Status**: Complete (2026-10-13)
 **Created**: 2026-10-09
 **Owner**: joseph
 **Priority**: Medium
@@ -93,21 +93,25 @@ timelines out of the host's debug log, to confirm the cause from real dictations
 
 ### Phase 3: Verify on the host
 
-- [ ] ⬜ **Task 3.1**: Deploy (`deploy.bash`, through `meta-deploy.bash`). With Debug
+- [x] ✅ **Task 3.1**: Deploy (`deploy.bash`, through `meta-deploy.bash`). With Debug
   Logging on, dictate into a terminal app and into a GUI app, click another window (and,
   once, switch workspace) before stopping; the text is pasted into the first window and
-  sent. Both batch (`wsi`) and streaming (`wsi-stream`) mode.
-- [ ] ⬜ **Task 3.2**: `triage.bash` after it shows, for those dictations, "has focus
-  back", "before the Enter" and the Enter lines in that order.
+  sent. Both batch (`wsi`) and streaming (`wsi-stream`) mode. Deployed; the owner confirmed
+  Enter works. The log's evidence is streaming dictations into a terminal; batch mode
+  and a GUI app were not separately shown, and the owner accepted it as working.
+- [x] ✅ **Task 3.2**: `triage.bash` after it shows, for those dictations, "has focus
+  back", "before the Enter" and the Enter lines in that order. It does, for the four latest
+  dictations that lost focus (host run 26-10-13).
 - [x] ✅ **Task 3.3**: `qa-reviewer` over the plan's commits: FIX-BEFORE-MERGE (the feature
   doc did not describe the behaviour after a focus retake), stale plan text, two NITs; all
   fixed. [report](subagent-reports/261009-qa-reviewer-opus.md).
 
 ## Success Criteria
 
-- [ ] A dictation whose window lost focus is pasted into it and sent, in both recorders.
-- [ ] A dictation whose window kept focus is pasted and sent with no added wait.
-- [ ] The unit and end-to-end tests above pass.
+- [x] A dictation whose window lost focus is pasted into it and sent (streaming shown; the
+  owner accepted it).
+- [x] A dictation whose window kept focus is pasted and sent with no added wait.
+- [x] The unit and end-to-end tests above pass.
 
 ## Delivery & Milestones
 
