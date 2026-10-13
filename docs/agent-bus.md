@@ -176,7 +176,8 @@ WireGuard.
 
 On a desktop built from this repository, `play-agent-bus.yml` (part of the main playbook)
 does it all: it installs the software on every run, puts the bus address on `agentbus0`
-when `agent_bus_address` is set, and installs or removes each team in `agent_bus_teams`
+when `agent_bus_address` is set (`ccy-teams create` asks for it the first time and
+declares it with the team), and installs or removes each team in `agent_bus_teams`
 (see [playbooks.md](playbooks.md)).
 
 **From another project.** Any Fedora desktop or server can be a homeserver host. Its own

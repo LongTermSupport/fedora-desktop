@@ -496,6 +496,14 @@ check_owner() {
     fi
 }
 
+check_bus_address() {
+    local problem
+    problem="$(declare_helper check-address --address "$1" 2>&1)" || {
+        say_problem "${problem}"
+        return 1
+    }
+}
+
 check_subnets() {
     local -a flags=()
     local cidr problem
@@ -565,7 +573,7 @@ SCOPE_ONE="One repository" SCOPE_OWNER="Everything one GitHub owner owns" SCOPE_
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
 create_wizard() {
-    local team="" yes=false text owner="" default_team login probe name rc scope="" here trusts
+    local known_address="" team="" yes=false text owner="" default_team login probe name rc scope="" here trusts
     local -a humans=() allow_from=() flags=() repos=() choices=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -599,6 +607,9 @@ create_wizard() {
         [[ -n "${team}" ]] || STEPS=$((STEPS + 1))
         [[ -n "${humans[*]:-}" ]] || STEPS=$((STEPS + 1))
         [[ -n "${allow_from[*]:-}" ]] || STEPS=$((STEPS + 1))
+        # The machine's bus address is a one-off fact only its owner knows: asked once, kept with the first team.
+        known_address="$(declare_helper address --file "${HOST_VARS}")" || exit
+        [[ -n "${known_address}" ]] || STEPS=$((STEPS + 1))
     fi
     # What the team works on first: its name defaults to that.
     if [[ -z "${owner}" && -z "${repos[*]:-}" && "${yes}" == false ]]; then
@@ -669,6 +680,14 @@ create_wizard() {
         ask_or_quit "${rc}"
         mapfile -t allow_from <<<"$(split_commas "${text}")"
         answered "${allow_from[*]:-none, this machine only}"
+    fi
+    if [[ "${yes}" == false && -z "${known_address}" ]]; then
+        step "Bus address" "Every team's room lives at one address of this machine, used for nothing else: an IP its agents and your Element can reach, such as its WireGuard address, or one added for the bus."
+        rc=0
+        text="$(ask_valid check_bus_address "This machine's bus address" "e.g. 192.0.2.10" "")" || rc=$?
+        ask_or_quit "${rc}"
+        flags+=(--address "${text}")
+        answered "${text}"
     fi
     if [[ "${yes}" == true && -n "${repos[*]:-}" ]]; then
         # The same existence and push-access checks the questions make, before anything is written.

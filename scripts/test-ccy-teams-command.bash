@@ -979,6 +979,26 @@ check "  looked up on GitHub" "yes" "$(logged 'gh api users/example-org')"
 check_has "  the team is named after the owner" "- team: example-org" "$written"
 check_has "  the summary says so in words" "everything example-org owns: any repository, any branch" "$out"
 
+# No bus address declared yet: asked for (a bad one refused, bounded), then declared with the team.
+fresh_no_teams
+printf 'user_login: someone\n' >"$NO_TEAMS"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER ENTER ENTER \
+    '=not-an-ip' '=192.0.2.10' YES NO NO NO)")"
+check "no bus address: asked for, and the team is created" "rc=0" "$(rc_of "$out")"
+check_has "  a bad one is refused with its reason" "not an IP address" "$out"
+written="$(cat "$NO_TEAMS")"
+check_has "  the address is declared by the tool" "agent_bus_address: 192.0.2.10" "$written"
+check_has "  and the team listens on it" 'listen: ["192.0.2.10"]' "$written"
+check_lacks "  the owner is never told to edit a file" "localhost.yml" "$(grep -v 'saved to\|kept at' <<<"$out")"
+fresh_no_teams
+printf 'user_login: someone\n' >"$NO_TEAMS"
+CCY_TEAMS_HOST_VARS="$NO_TEAMS" "$TOOL" create --team beta --human owner --org example-org --yes \
+    </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "no bus address with --yes: refused" "78" "$?"
+check_has "  saying to run create on a terminal" "ccy-teams create" "$(cat "$SCRATCH/err")"
+check_lacks "  and never to edit a file" "localhost.yml" "$(cat "$SCRATCH/err")"
+check "  nothing written" "user_login: someone" "$(cat "$NO_TEAMS")"
+
 # Several repositories, of any owners: failing entries named with why, the list kept as typed.
 fresh_no_teams
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES '=Several repositories' \
