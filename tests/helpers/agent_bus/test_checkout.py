@@ -74,6 +74,13 @@ def make_tar(files: dict[str, bytes | tarfile.TarInfo]) -> bytes:
     return buffer.getvalue()
 
 
+class TtyBytes(io.BytesIO):
+    """stdout as a terminal: `seat list` then prints for a person."""
+
+    def isatty(self) -> bool:
+        return True
+
+
 class FakeHost:
     """The host side: which teams run here, the bus address, and `sudo agent-bus`."""
 
@@ -86,6 +93,8 @@ class FakeHost:
         self.during_add: Callable[[], None] | None = None
         #: A bundle to hand back in place of the well-formed one.
         self.bundle: dict[str, bytes | tarfile.TarInfo] | None = None
+        #: `agent-bus list <team>`'s MEMBER lines: (handle, active|parked) per team.
+        self.members: dict[str, list[tuple[str, str]]] = {}
 
     def team_active(self, team: str) -> bool:
         return team in self.active
@@ -105,12 +114,16 @@ class FakeHost:
             assert arg(argv, "out") == "-", argv
             if self.during_add is not None:
                 self.during_add()
-            handle = f"{arg(argv, 'repo')}.{arg(argv, 'seat')}+{arg(argv, 'host')}.podman"
+            handle = f"{arg(argv, 'repo')}.{arg(argv, 'seat')}+{arg(argv, 'host')}.{arg(argv, 'type')}"
             return 0, make_tar(self.bundle or bundle_files(argv[1], handle))
+        if argv[0] == "list":
+            lines = ["HUMAN\talice\tjoin"] + [f"MEMBER\t{handle}\tworker\tjoin\t{state}"
+                                               for handle, state in self.members.get(argv[1], [])]
+            return 0, ("\n".join(lines) + "\n").encode()
         return 0, f"CHANGED\trevoked the token of {argv[2]}\nCHANGED\tparked {argv[2]}\n".encode()
 
     def verbs(self) -> list[tuple[str, ...]]:
-        return [call[:2] if call[0] == "park-member" else (call[0], call[1], arg(call, "seat"))
+        return [call[:2] if call[0] in ("park-member", "list") else (call[0], call[1], arg(call, "seat"))
                 for call, _ in self.calls]
 
 
@@ -310,6 +323,21 @@ class ActionsTest(unittest.TestCase):
             checkout.take_actions((self.obs("dev1", exists=True),), lambda: (self.WHO, BUS_IP))
         self.assertIn("agent-bus seat remove dev1@team-a", str(caught.exception))
 
+    def test_take_refuses_an_existing_seat_of_another_type(self):
+        observed = (self.obs("1", exists=True, handle="myrepo.1+local.podman"),)
+        who = checkout.Identity(repo="myrepo", host="local", type_="host")
+        with self.assertRaises(checkout.CheckoutError) as caught:
+            checkout.take_actions(observed, lambda: (who, BUS_IP), member_type="host")
+        self.assertIn("ccy (podman)", str(caught.exception))
+        self.assertIn("desktop (host)", str(caught.exception))
+        self.assertEqual(caught.exception.EXIT_CODE, EX_CONFIG)
+
+    def test_take_of_a_host_seat_asks_for_a_host_member(self):
+        who = checkout.Identity(repo="myrepo", host="local", type_="host")
+        actions = checkout.take_actions((self.obs("1"),), lambda: (who, BUS_IP), member_type="host")
+        self.assertEqual(actions[0].handle, "myrepo.1+local.host")
+        self.assertIn("--type=host", actions[0].argv)
+
     def test_remove_parks_the_bundles_handle_or_the_checkouts(self):
         observed = (self.obs("dev1", exists=True, handle="myrepo.dev1+old.podman"), self.obs("qa", TEAM_B))
         actions = checkout.remove_actions(observed, lambda: self.WHO)
@@ -318,10 +346,118 @@ class ActionsTest(unittest.TestCase):
         self.assertEqual([a.delete for a in actions], [True, False])
 
 
+class ChoicesTest(unittest.TestCase):
+    """What the chooser offers for one team (Task 4.8): pure."""
+
+    WHO = checkout.Identity(repo="myrepo", host="local")
+
+    def test_no_seats_and_no_members_offers_seat_one(self):
+        rows, default = checkout.seat_choices((), (), self.WHO)
+        self.assertEqual(rows, (checkout.Choice("1", "new", "myrepo.1+local.podman"),))
+        self.assertEqual(default, "1")
+
+    def test_the_lowest_free_existing_seat_is_the_default(self):
+        seats = (("2", False, "myrepo.2+local.podman"), ("1", True, "myrepo.1+local.podman"),
+                 ("dev", False, "myrepo.dev+local.podman"))
+        rows, default = checkout.seat_choices(seats, (), self.WHO)
+        self.assertEqual([(r.seat, r.state) for r in rows], [("1", "held"), ("2", "free"), ("dev", "free"),
+                                                              ("3", "new")])
+        self.assertEqual(default, "2")
+
+    def test_every_seat_held_defaults_to_a_new_one(self):
+        seats = (("1", True, "myrepo.1+local.podman"),)
+        rows, default = checkout.seat_choices(seats, (), self.WHO)
+        self.assertEqual(default, "2")
+        self.assertEqual(rows[-1], checkout.Choice("2", "new", "myrepo.2+local.podman"))
+
+    def test_the_new_number_skips_active_members_of_the_same_prefix_only(self):
+        members = (("myrepo.1+local.podman", "active"), ("myrepo.2+local.podman", "parked"),
+                   ("myrepo.3+local.podman", "active"), ("other.2+local.podman", "active"),
+                   ("myrepo.2+work.podman", "active"), ("myrepo.2+local.host", "active"))
+        rows, default = checkout.seat_choices((), members, self.WHO)
+        self.assertEqual(default, "2")  # parked: add-member returns it
+
+    def test_a_seat_of_another_type_counts_for_numbering_but_is_never_offered(self):
+        seats = (("1", False, "myrepo.1+local.podman"),)
+        who = checkout.Identity(repo="myrepo", host="local", type_="host")
+        rows, default = checkout.seat_choices(seats, (), who)
+        self.assertEqual(rows, (checkout.Choice("2", "new", "myrepo.2+local.host"),))
+        self.assertEqual(default, "2")
+
+    def test_type_words(self):
+        self.assertEqual(checkout.type_words("myrepo.1+local.podman"), "ccy (podman)")
+        self.assertEqual(checkout.type_words("myrepo.1+local.host"), "desktop (host)")
+        self.assertEqual(checkout.type_words("myrepo.1+local.lxc"), "lxc")
+
+
 # ── the commands ─────────────────────────────────────────────────────────────────────────
 
 
+class ChooseCommandTest(CheckoutTestCase):
+    def test_a_fresh_checkout_offers_seat_one_and_reads_the_members_without_a_prompt(self):
+        shutil.rmtree(self.ccy)  # a first launch: ccy has not made .claude/ccy/ yet
+        code, out, err = self.run_cli("seat", "choose", TEAM_A)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHOICE\t1\tnew\tmyrepo.1+local.podman\tccy (podman)\nDEFAULT\t1\n")
+        self.assertEqual(self.host.calls, [(("list", TEAM_A), True)])
+        self.assertFalse(self.ccy.exists())
+
+    def test_existing_seats_free_and_held(self):
+        self.run_cli("seat", "take", "1@team-a,2@team-b")
+        self.run_cli("seat", "take", "2@team-a")
+        self.hold("1")
+        self.host.members[TEAM_A] = [("myrepo.1+local.podman", "active"), ("myrepo.2+local.podman", "active"),
+                                     ("myrepo.3+local.podman", "active")]
+        before = self.tree()
+        code, out, err = self.run_cli("seat", "choose", TEAM_A)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHOICE\t1\theld\tmyrepo.1+local.podman\tccy (podman)\n"
+                              "CHOICE\t2\tfree\tmyrepo.2+local.podman\tccy (podman)\n"
+                              "CHOICE\t4\tnew\tmyrepo.4+local.podman\tccy (podman)\n"
+                              "DEFAULT\t2\n")
+        self.assertEqual(self.tree(), before)
+
+    def test_type_host(self):
+        self.run_cli("seat", "take", "1@team-a")
+        code, out, err = self.run_cli("seat", "choose", TEAM_A, "--type=host")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHOICE\t2\tnew\tmyrepo.2+local.host\tdesktop (host)\nDEFAULT\t2\n")
+
+    def test_a_refused_member_listing_says_why(self):
+        self.host.fail["list"] = 1
+        code, out, err = self.run_cli("seat", "choose", TEAM_A)
+        self.assertEqual(code, EX_CONFIG)
+        self.assertEqual(out, "")
+        self.assertIn("play-agent-bus.yml", err)
+
+    def test_a_team_not_running_here_or_malformed(self):
+        self.host.active = {TEAM_B}
+        self.assertEqual(self.run_cli("seat", "choose", TEAM_A)[0], EX_CONFIG)
+        code, _, err = self.run_cli("seat", "choose", "LongTermSupport")
+        self.assertEqual(code, EX_USAGE)
+        self.assertIn("`long-term-support`", err)
+        self.assertEqual(self.host.calls, [])
+
+
 class CheckCommandTest(CheckoutTestCase):
+    def test_a_bare_team_is_kept_in_the_canonical_list(self):
+        code, out, err = self.run_cli("seat", "check", " team-a , qa@team-b")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "team-a,qa@team-b\n")
+        self.assertEqual(self.host.calls, [])
+
+    def test_resolved_refuses_a_bare_team(self):
+        code, out, err = self.run_cli("seat", "check", "team-a", "--resolved")
+        self.assertEqual(code, EX_USAGE)
+        self.assertEqual(out, "")
+        self.assertIn("ccy --teams team-a", err)
+
+    def test_a_mixed_case_team_is_answered_with_a_suggestion(self):
+        code, _, err = self.run_cli("seat", "check", "LongTermSupport")
+        self.assertEqual(code, EX_USAGE)
+        self.assertIn("team names are lower-case", err)
+        self.assertIn("`longtermsupport` or `long-term-support`", err)
+
     def test_prints_the_canonical_list_and_changes_nothing(self):
         before = self.tree()
         code, out, err = self.run_cli("seat", "check", " dev1@team-a , qa@team-b")
@@ -340,7 +476,7 @@ class RefusalsAlikeTest(CheckoutTestCase):
 
     def test_a_malformed_list(self):
         for command in ("check", "take", "remove"):
-            for text in ("dev1@t,dev1@t", "dev1@team-a,", "dev1"):
+            for text in ("dev1@t,dev1@t", "dev1@team-a,", "Dev1", "dev1@team-a@x"):
                 with self.subTest(command=command, text=text):
                     code, out, err = self.run_cli("seat", command, text)
                     self.assertEqual(code, EX_USAGE, err)
@@ -372,6 +508,29 @@ class TakeCommandTest(CheckoutTestCase):
         self.assertIn("myrepo.dev1+local.podman", err)
         for path in (self.top / ".claude/ccy/pingbus", self.seats, self.seats / TEAM_A, self.seats / TEAM_B):
             self.assertEqual(path.stat().st_mode & 0o777, 0o700, path)
+
+    def test_a_bare_team_is_refused_naming_the_chooser(self):
+        for command in ("take", "remove"):
+            with self.subTest(command=command):
+                code, out, err = self.run_cli("seat", command, "team-a")
+                self.assertEqual(code, EX_USAGE)
+                self.assertIn("ccy --teams team-a", err)
+        self.assertEqual(self.host.calls, [])
+
+    def test_type_host_creates_a_host_member(self):
+        code, out, err = self.run_cli("seat", "take", "1@team-a", "--type=host")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tseat 1@team-a myrepo.1+local.host\n")
+        self.assertIn("--type=host", self.host.calls[0][0])
+
+    def test_type_host_on_a_podman_seat_is_refused(self):
+        self.run_cli("seat", "take", "1@team-a")
+        self.host.calls.clear()
+        code, out, err = self.run_cli("seat", "take", "1@team-a", "--type=host")
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn("ccy (podman)", err)
+        self.assertIn("desktop (host)", err)
+        self.assertEqual(self.host.calls, [])
 
     def test_the_host_comes_from_ccy_env_local(self):
         self.env_local("export HOOKS_DAEMON_HOSTNAME=Work1\n")
@@ -560,6 +719,19 @@ class ListCommandTest(CheckoutTestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(out, "SEAT\tteam-a\tdev1\tfree\t-\tmyrepo.dev1+local.podman\n"
                               "SEAT\tteam-b\tqa\theld\t-\tmyrepo.qa+local.podman\n")
+
+    def test_on_a_terminal_the_owner_reads_a_table_with_the_full_handle_and_type(self):
+        self.run_cli("seat", "take", "dev1@team-a")
+        self.run_cli("seat", "take", "1@team-b", "--type=host")
+        self.hold("dev1")
+        out, err = TtyBytes(), io.StringIO()
+        code = cli.main(["seat", "list"], stdout=out, stderr=err, checkout_system=self.system())
+        self.assertEqual(code, 0, err.getvalue())
+        lines = out.getvalue().decode().splitlines()
+        self.assertEqual(lines[0].split(), ["TEAM", "SEAT", "STATE", "MEMBER", "TYPE"])
+        self.assertEqual(lines[1].split(), ["team-a", "dev1", "held", "myrepo.dev1+local.podman", "ccy", "(podman)"])
+        self.assertEqual(lines[2].split(), ["team-b", "1", "free", "myrepo.1+local.host", "desktop", "(host)"])
+        self.assertEqual(lines[1].index("myrepo"), lines[2].index("myrepo"))
 
     def test_no_seats_is_no_lines(self):
         self.assertEqual(self.run_cli("seat", "list")[:2], (0, ""))

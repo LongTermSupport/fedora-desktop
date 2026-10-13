@@ -196,7 +196,12 @@ def cmd_render_stamp(args: argparse.Namespace, io: _Io) -> int:
 
 
 def cmd_seat_check(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
-    io.lines([checkout.check(args.seats, system)])
+    io.lines([checkout.check(args.seats, system, resolved=args.resolved)])
+    return EXIT_OK
+
+
+def cmd_seat_choose(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
+    io.lines(checkout.choose(args.team, system, member_type=args.type))
     return EXIT_OK
 
 
@@ -208,13 +213,15 @@ def _emitter(io: _Io) -> Callable[[str], None]:
 
 
 def cmd_seat_take(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
-    checkout.take(args.seats, system, no_prompt=args.no_prompt, say=io.say, emit=_emitter(io))
+    checkout.take(args.seats, system, no_prompt=args.no_prompt, say=io.say, emit=_emitter(io),
+                  member_type=args.type)
     return EXIT_OK
 
 
 def cmd_seat_list(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
+    """SEAT lines for a program; on a terminal, a table the owner reads."""
     lines, failures = checkout.seat_list(system)
-    io.lines(lines)
+    io.lines(checkout.seat_table(lines) if io.stdout.isatty() else lines)
     for failure in failures:
         io.say(failure)
     return EXIT_CONFIG if failures else EXIT_OK
@@ -304,15 +311,25 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
         "seat", help="a ccy checkout's seats: run as yourself (not through sudo), in the checkout")
     seats = seat_parser.add_subparsers(dest="seat", metavar="WHAT", required=True)
     seat_list_help = "<seat>@<team>[,<seat>@<team>...], one seat per team"
+    type_help = "the member type: podman (a ccy session, the default) or host (a desktop session)"
     seat_check = seats.add_parser("check", help="check a list; print it in canonical form; change nothing")
-    seat_check.add_argument("seats", metavar="LIST", help=seat_list_help)
+    seat_check.add_argument("seats", metavar="LIST",
+                            help=f"{seat_list_help}; an item may be a team alone, its seat still to choose")
+    seat_check.add_argument("--resolved", action="store_true",
+                            help="every item names its seat (a launch with nobody to choose one)")
     seat_check.set_defaults(seat_handler=cmd_seat_check)
+    seat_choose = seats.add_parser(
+        "choose", help="CHOICE lines for a chooser: this checkout's seats in TEAM and a new one; change nothing")
+    seat_choose.add_argument("team", metavar="TEAM")
+    seat_choose.add_argument("--type", choices=("podman", "host"), default=checkout.MEMBER_TYPE, help=type_help)
+    seat_choose.set_defaults(seat_handler=cmd_seat_choose)
     seat_take = seats.add_parser("take", help="create each named seat this checkout lacks; refuse a held one")
     seat_take.add_argument("seats", metavar="LIST", help=seat_list_help)
     seat_take.add_argument("--no-prompt", action="store_true",
                            help="run sudo with -n: only its cached credential (a headless launch)")
+    seat_take.add_argument("--type", choices=("podman", "host"), default=checkout.MEMBER_TYPE, help=type_help)
     seat_take.set_defaults(seat_handler=cmd_seat_take)
-    seats.add_parser("list", help="one SEAT line per seat of this checkout").set_defaults(
+    seats.add_parser("list", help="this checkout's seats: SEAT lines, or a table on a terminal").set_defaults(
         seat_handler=cmd_seat_list)
     seat_remove = seats.add_parser("remove", help="park each named seat and delete its directory")
     seat_remove.add_argument("seats", metavar="LIST", help=seat_list_help)

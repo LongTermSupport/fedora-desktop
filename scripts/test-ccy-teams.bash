@@ -81,7 +81,26 @@ if [ "$1 $2" = "seat check" ]; then
         exit 64
         ;;
     esac
+    if [ "${4:-}" = --resolved ] && [[ ",$list," =~ ,[a-z][a-z0-9-]*, ]]; then
+        echo "agent-bus seat check: a team alone is answered on a terminal (fake)" >&2
+        exit 64
+    fi
     printf '%s\n' "$list"
+    exit 0
+fi
+# `seat choose <team>`: FAKE_CHOOSE_OUT, else seat 1 held, 2 free, 3 new; FAKE_CHOOSE_RC refuses.
+if [ "$1 $2" = "seat choose" ]; then
+    if [ "${FAKE_CHOOSE_RC:-0}" -ne 0 ]; then
+        echo "agent-bus seat choose: refused (fake)" >&2
+        exit "$FAKE_CHOOSE_RC"
+    fi
+    if [ -n "${FAKE_CHOOSE_OUT+set}" ]; then
+        printf '%s' "$FAKE_CHOOSE_OUT"
+        exit 0
+    fi
+    printf 'CHOICE\t%s\t%s\t%s\tccy (podman)\n' 1 held myrepo.1+local.podman 2 free myrepo.2+local.podman \
+        3 new myrepo.3+local.podman
+    printf 'DEFAULT\t2\n'
     exit 0
 fi
 if [ "$1 $2" = "seat take" ]; then
@@ -94,6 +113,39 @@ FAKE
 chmod 755 "$bus_bin/agent-bus"
 export FAKE_BUS_LOG="$work/bus.log"
 bus_calls() { if [ -s "$FAKE_BUS_LOG" ]; then paste -sd'|' "$FAKE_BUS_LOG"; else echo none; fi; }
+
+# The fake gum: `gum choose --header H --selected ROW ROWS...` writes its header, selected row
+# and rows to $FAKE_GUM_LOG, one per line, and prints the row FAKE_GUM_PICK names: `default`
+# (the --selected one), a row number from 1, or `cancel` (Esc: exit 1, nothing printed).
+cat >"$bus_bin/gum" <<'FAKE'
+#!/usr/bin/env bash
+[ "$1" = choose ] || { echo "fake gum: unexpected call: $*" >&2; exit 70; }
+shift
+header="" selected=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+    --header) header="$2"; shift 2 ;;
+    --selected) selected="$2"; shift 2 ;;
+    *) break ;;
+    esac
+done
+{ printf 'header=%s\n' "$header"; printf 'selected=%s\n' "$selected"; printf 'row=%s\n' "$@"; } >"$FAKE_GUM_LOG"
+case "${FAKE_GUM_PICK:-default}" in
+cancel) exit 1 ;;
+default) printf '%s\n' "$selected" ;;
+*) printf '%s\n' "${!FAKE_GUM_PICK}" ;;
+esac
+FAKE
+chmod 755 "$bus_bin/gum"
+export FAKE_GUM_LOG="$work/gum.log"
+# A PATH with the fake agent-bus but no gum at all (the ccy image ships a real one).
+nogum_bin="$work/nogum-bin"
+mkdir -p "$nogum_bin"
+ln -s "$bus_bin/agent-bus" "$nogum_bin/agent-bus"
+nogum_path="$nogum_bin"
+for dir in /usr/bin /bin; do
+    [ -e "$dir/gum" ] || nogum_path+=":$dir"
+done
 
 echo "=== lib/agent-bus-seats.bash ==="
 
@@ -118,17 +170,51 @@ lib_run() {
 }
 
 check "seat check prints the canonical list" "dev1@team-a,qa2@team-b
-rc=0" "$(lib_run ccy_seats_check " dev1@team-a , qa2@team-b")"
+rc=0" "$(lib_run ccy_seats_check " dev1@team-a , qa2@team-b" true)"
 check "seat check is given the list as one argument" "seat check  dev1@team-a , qa2@team-b" "$(bus_calls)"
-check "seat check's 64 is passed on" "rc=64" "$(FAKE_CHECK_RC=64 lib_run ccy_seats_check x)"
-check "seat check's 78 is passed on" "rc=78" "$(FAKE_CHECK_RC=78 lib_run ccy_seats_check x)"
+check "seat check's 64 is passed on" "rc=64" "$(FAKE_CHECK_RC=64 lib_run ccy_seats_check x true)"
+check "seat check's 78 is passed on" "rc=78" "$(FAKE_CHECK_RC=78 lib_run ccy_seats_check x true)"
 check "a seat check with nothing on stdout: refused, 78" "rc=78" \
-    "$(FAKE_CHECK_OUT='' lib_run ccy_seats_check dev1@team-a)"
+    "$(FAKE_CHECK_OUT='' lib_run ccy_seats_check dev1@team-a true)"
 check "a seat check printing two lines: refused, 78" "rc=78" \
-    "$(FAKE_CHECK_OUT=$'a@b\nc@d' lib_run ccy_seats_check dev1@team-a)"
+    "$(FAKE_CHECK_OUT=$'a@b\nc@d' lib_run ccy_seats_check dev1@team-a true)"
 check "agent-bus not installed: refused, 78" "rc=78" \
-    "$(LIB_DIR="$LIB_DIR" PATH="/usr/bin:/bin" bash "$work/lib-run.bash" ccy_seats_check dev1@team-a 2>"$work/lib.err")"
+    "$(LIB_DIR="$LIB_DIR" PATH="/usr/bin:/bin" bash "$work/lib-run.bash" ccy_seats_check dev1@team-a true 2>"$work/lib.err")"
 check "that refusal names the play that installs it" "yes" "$(has play-agent-bus.yml "$work/lib.err")"
+check "attended, a team alone is kept for the chooser" "team-a,qa@team-b
+rc=0" "$(lib_run ccy_seats_check team-a,qa@team-b true)"
+check "unattended, the check asks for every seat named" "rc=64" "$(lib_run ccy_seats_check team-a false)"
+check "  with --resolved" "seat check team-a --resolved" "$(bus_calls)"
+
+echo "=== a team alone: the seat chooser (Task 4.8) ==="
+
+check "a list naming every seat: printed as it is, nothing asked" "dev1@team-a,qa@team-b
+rc=0" "$(lib_run ccy_seats_resolve dev1@team-a,qa@team-b)"
+check "  agent-bus not called" "none" "$(bus_calls)"
+check "a team alone: the default (the lowest free seat) is taken" "2@team-a,qa@team-b
+rc=0" "$(FAKE_GUM_PICK=default lib_run ccy_seats_resolve team-a,qa@team-b)"
+check "  the seats were listed, and the resolved list checked again with --resolved" \
+    "seat choose team-a|seat check 2@team-a,qa@team-b --resolved" "$(bus_calls)"
+check "  the full handle is said before it is taken" "yes" \
+    "$(has "Taking seat 2@team-a: myrepo.2+local.podman (ccy (podman))." "$work/lib.err")"
+check "  the chooser starts on the default row" "yes" "$(has "selected=seat 2 " "$FAKE_GUM_LOG")"
+check "  each row shows the full handle and what runs in it" "3" \
+    "$(grep -c '^row=seat [123] .*myrepo\.[123]+local\.podman  *ccy (podman)' "$FAKE_GUM_LOG")"
+check "  a held seat says so" "yes" "$(has "held by a running session" "$FAKE_GUM_LOG")"
+check "  the new one is marked new" "yes" "$(grep -q '^row=seat 3 .*new seat$' "$FAKE_GUM_LOG" && echo yes || echo no)"
+check "  the header names the team" "yes" "$(has "header=Team team-a:" "$FAKE_GUM_LOG")"
+check "another row chosen: that seat" "3@team-a
+rc=0" "$(FAKE_GUM_PICK=3 lib_run ccy_seats_resolve team-a)"
+check "Esc: nothing printed, status 0" "rc=0" "$(FAKE_GUM_PICK=cancel lib_run ccy_seats_resolve team-a)"
+check "  it says nothing started" "yes" "$(has "nothing started" "$work/lib.err")"
+check "  and nothing was checked or taken" "seat choose team-a" "$(bus_calls)"
+check "seat choose's refusal is passed on" "rc=78" "$(FAKE_CHOOSE_RC=78 lib_run ccy_seats_resolve team-a)"
+check "rows with no DEFAULT: refused, 78" "rc=78" \
+    "$(FAKE_CHOOSE_OUT=$'CHOICE\t1\tnew\tmyrepo.1+local.podman\tccy (podman)\n' lib_run ccy_seats_resolve team-a)"
+check "gum not installed: refused, 78" "rc=78" \
+    "$(: >"$FAKE_BUS_LOG"; LIB_DIR="$LIB_DIR" PATH="$nogum_path" bash "$work/lib-run.bash" ccy_seats_resolve team-a 2>"$work/lib.err")"
+check "  it names the play and the seat to name instead" "yes yes" \
+    "$(has play-claude-yolo.yml "$work/lib.err") $(has "--teams 2@team-a" "$work/lib.err")"
 
 check "take with a list: called with it, the container's arguments filled" \
     "-e|PINGBUS_SEATS=dev1@team-a,qa2@team-b|--label|ccy-seats=dev1@team-a,qa2@team-b|rc=0" \
@@ -173,6 +259,74 @@ check "a restart keeps --teams and its list" "--teams|a@x|--resume|$SID|" \
     "$(reg ccy_restart_relaunch_args "$SID" --teams a@x --token t)"
 check "a plain launch's restart has no --teams" "--resume|$SID|" \
     "$(reg ccy_restart_relaunch_args "$SID" --token t)"
+
+echo "=== the re-attach offer keeps --teams (Task 4.6) ==="
+
+# offer <want> [pick]: ccy_tmux_offer for project "app" with the tmux listing and the picker
+# replaced. The sessions: ccy-app (seat 1@team-a), ccy-app-2 (2@team-a,qa@team-b),
+# ccy-app-3 (no --teams), ccy-app-4 (no record), all detached in $PWD, and ccy-app-5 (1@team-b)
+# open in another terminal. The registry records are real, written by ccy_registry_write.
+# The picker prints its rows to picker.rows and answers [pick] (a session name), or Esc.
+# Prints the decision and the status; stderr in offer.err.
+offer_dir="$work/offer"
+mkdir -p "$offer_dir/state"
+cat >"$work/offer.bash" <<'RUN'
+. "$LIB_DIR/common-pure.bash"
+. "$LIB_DIR/session-registry.bash"
+. "$LIB_DIR/tmux-session.bash"
+export CCY_STATE_DIR="$OFFER_DIR/state"
+ccy_registry_write ccy-app "$PWD" /l ccy yes --teams 1@team-a
+ccy_registry_write ccy-app-2 "$PWD" /l ccy yes --no-ssh --teams 2@team-a,qa@team-b
+ccy_registry_write ccy-app-3 "$PWD" /l ccy yes --no-ssh
+ccy_registry_write ccy-app-5 "$PWD" /l ccy yes --teams=1@team-b
+ccy_tmux_project_sessions() {
+    printf '%s 0 %s\n' ccy-app "$PWD" ccy-app-2 "$PWD" ccy-app-3 "$PWD" ccy-app-4 "$PWD"
+    printf '%s 1 %s\n' ccy-app-5 "$PWD"
+}
+ccy_tmux_pick() {
+    cat >"$OFFER_DIR/picker.rows"
+    printf '%s\n' "$2" >"$OFFER_DIR/picker.header"
+    [ -n "$PICK" ] || return 1
+    printf '\n%s  detached\n' "$PICK"
+}
+ccy_tmux_offer app "$1"
+printf 'rc=%s' "$?"
+RUN
+offer() {
+    rm -f "$offer_dir/picker.rows" "$offer_dir/picker.header" "$offer_dir/state/sessions/"*
+    (cd "$offer_dir" && LIB_DIR="$LIB_DIR" OFFER_DIR="$offer_dir" PICK="${2:-}" \
+        bash "$work/offer.bash" "$1" 2>"$work/offer.err")
+}
+offered() {
+    if [ -f "$offer_dir/picker.rows" ]; then awk '{print $1}' "$offer_dir/picker.rows" | paste -sd' '; else echo none; fi
+}
+
+check "no --teams: every detached session is offered, as before" "attach ccy-app-3
+rc=0" "$(offer "" ccy-app-3)"
+check "  all four" "ccy-app ccy-app-2 ccy-app-3 ccy-app-4" "$(offered)"
+check "  no seats column" "no" "$(has "seats " "$offer_dir/picker.rows")"
+check "--teams 2@team-a: only the session holding it" "attach ccy-app-2
+rc=0" "$(offer 2@team-a ccy-app-2)"
+check "  it alone is offered" "ccy-app-2" "$(offered)"
+check "  with the seats it holds" "yes" "$(has "seats 2@team-a,qa@team-b" "$offer_dir/picker.rows")"
+check "  the header says why these" "yes" "$(has "that hold a seat of 2@team-a" "$offer_dir/picker.header")"
+check "a list sharing one seat with each of two sessions: both" "ccy-app ccy-app-2" \
+    "$(offer 1@team-a,qa@team-b >/dev/null; offered)"
+check "Esc in the filtered offer: quit" "quit
+rc=0" "$(offer 1@team-a)"
+check "seats no detached session holds: no offer, a new session" "create
+rc=0" "$(offer 9@team-a)"
+check "  the picker never opened" "none" "$(offered)"
+check "  one line says why" "1" "$(grep -c "No detached session here holds 9@team-a" "$work/offer.err")"
+check "a seat only a session open elsewhere holds: no offer, it is named" "create
+rc=0" "$(offer 1@team-b)"
+check "  as open in another terminal" "yes" "$(has "Open in other terminals: ccy-app-5" "$work/offer.err")"
+
+teams_arg() { bash -c '. "$1/tmux-session.bash"; shift; ccy_tmux_teams_arg "$@"' _ "$LIB_DIR" "$@"; }
+check "the launch's --teams is read from its arguments" "1@a" "$(teams_arg --no-ssh --teams 1@a -c)"
+check "  and from --teams=" "1@a,2@b" "$(teams_arg --teams=1@a,2@b)"
+check "  never after --" "" "$(teams_arg -- --teams 1@a)"
+check "  none: nothing" "" "$(teams_arg --no-ssh)"
 
 echo "=== the real launcher: refusals before anything runs ==="
 
@@ -226,7 +380,7 @@ check "--teams= then --teams: 64" "64" "$RC"
 
 FAKE_CHECK_RC=64 run_ccy with-bus --teams 'dev1@t,dev2@t' --headless
 check "seat check's 64 is the launch's exit code" "64" "$RC"
-check "  agent-bus was asked to check the list, nothing else" "seat check dev1@t,dev2@t" "$(bus_calls)"
+check "  agent-bus was asked to check the list, nothing else" "seat check dev1@t,dev2@t --resolved" "$(bus_calls)"
 check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
 FAKE_CHECK_RC=78 run_ccy with-bus --teams 'dev1@elsewhere' --headless
 check "seat check's 78 (a team not running here) is the launch's exit code" "78" "$RC"
@@ -248,7 +402,12 @@ run_ccy with-bus --headless --teams ' dev1@team-a , qa2@team-b'
 check "an accepted list: the launch goes on to its next check" "1" "$RC"
 check "  which is the one after the parsing" "yes" "$(has "--headless flag requires --prompt" "$work/ccy.err")"
 check "  seat check got the list as given, and take was not called yet" \
-    "seat check  dev1@team-a , qa2@team-b" "$(bus_calls)"
+    "seat check  dev1@team-a , qa2@team-b --resolved" "$(bus_calls)"
+
+run_ccy with-bus --headless --prompt go --teams team-a
+check "a team alone with nobody to choose (headless): refused, 64" "64" "$RC"
+check "  nothing but the check ran, and no chooser" "seat check team-a --resolved" "$(bus_calls)"
+check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
 
 run_ccy with-bus --headless
 check "a plain launch in a checkout with seats: goes on as before" "1" "$RC"
@@ -400,6 +559,14 @@ insulate_line=$(grep -n -F "ccy_tmux_insulate \"\$PROJECT_NAME\"" "$LAUNCHER" | 
 check "the canonical list replaces the given one before tmux records the session" "yes" \
     "$([ -n "$rewrite_line" ] && [ -n "$insulate_line" ] && [ "$rewrite_line" -lt "$insulate_line" ] \
         && echo yes || echo no)"
+resolve_call="ccy_seats_resolve \"\$CCY_SEATS\""
+resolve_line=$(grep -n -F "$resolve_call" "$LAUNCHER" | cut -d: -f1)
+check "the chooser runs once, before the rewrite (so the chosen seat is what is replayed)" "yes" \
+    "$([ "$(grep -c -F "$resolve_call" "$LAUNCHER")" = 1 ] && [ -n "$rewrite_line" ] \
+        && [ "$resolve_line" -lt "$rewrite_line" ] && echo yes || echo no)"
+check "a restore, a restart, headless and no terminal count as nobody to choose" "yes" \
+    "$(grep -A2 '^    _ccy_teams_attended=true' "$LAUNCHER" | grep -F 'ccy_nobody_to_ask' | grep -F 'CCY_SESSION_RESTORE' \
+        | grep -qF 'CCY_RESTART_RELAUNCH_SESSION' && echo yes || echo no)"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

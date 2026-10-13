@@ -18,8 +18,9 @@
 # A ccy checkout's seats (DESIGN.md section 5.6) are the exception: run as yourself, in
 # the checkout, never through sudo, since root never writes in a user's checkout. They
 # reach the root side only through `sudo agent-bus add-member|park-member`.
-#   agent-bus seat check SEAT@TEAM[,SEAT@TEAM...]
-#   agent-bus seat take SEAT@TEAM[,SEAT@TEAM...] [--no-prompt]
+#   agent-bus seat check SEAT@TEAM|TEAM[,...] [--resolved]
+#   agent-bus seat choose TEAM [--type=podman|host]
+#   agent-bus seat take SEAT@TEAM[,SEAT@TEAM...] [--no-prompt] [--type=podman|host]
 #   agent-bus seat list
 #   agent-bus seat remove SEAT@TEAM[,SEAT@TEAM...]
 #

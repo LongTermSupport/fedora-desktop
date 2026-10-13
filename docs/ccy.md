@@ -165,6 +165,10 @@ Then `ccy` in the project directory finds the detached session and offers it in 
 the same bordered list `ccy-sessions` uses, with the session name, its state and its
 directory. Enter re-attaches, Ctrl-N starts a new session instead, and the last row is
 always Exit (Esc or `q` do the same).
+A launch with `--teams` is offered only the detached sessions that hold one of its seats,
+each shown with the seats it holds, so Enter never attaches it to a session in other seats.
+When there are detached sessions but none holds them, one line says so and a new session
+starts.
 Every key acts on its own; nothing needs Enter after it. A session that is open in
 another terminal is named in the header and is not offered: **a session can be attached
 from one terminal only** (`ccy-sessions` can take one over, below). The tmux server
@@ -206,15 +210,15 @@ The host `cc` wrapper does all of the same: its sessions are `cc-<project>` on t
 server, `cc` in a project directory offers a detached one back, and `ccy-sessions` lists
 both kinds. From the keyboard the two feel identical; only the container differs.
 
-| Event                                              | Result                                                                                 |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Terminal emulator crashes or is closed             | Session keeps running, detached                                                        |
-| `ccy` again from the same project directory        | Offers the detached session; Enter re-attaches it (launch arguments are then not used) |
-| `ccy` from the project while a session is attached | Starts a second session, `ccy-<project>-2`                                             |
-| F12, Detach                                        | Leaves the session running; `ccy` re-attaches                                          |
-| `claude` exits                                     | Container removed as before; the tmux session closes with it                           |
-| Launcher fails inside the session                  | Window stays open showing the error until you press Enter                              |
-| Host reboots                                       | Gone — unless the machine has opted in to [restore](#sessions-survive-a-reboot)        |
+| Event                                              | Result                                                                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Terminal emulator crashes or is closed             | Session keeps running, detached                                                                                                  |
+| `ccy` again from the same project directory        | Offers the detached session (with `--teams`, only one in those seats); Enter re-attaches it (launch arguments are then not used) |
+| `ccy` from the project while a session is attached | Starts a second session, `ccy-<project>-2`                                                                                       |
+| F12, Detach                                        | Leaves the session running; `ccy` re-attaches                                                                                    |
+| `claude` exits                                     | Container removed as before; the tmux session closes with it                                                                     |
+| Launcher fails inside the session                  | Window stays open showing the error until you press Enter                                                                        |
+| Host reboots                                       | Gone — unless the machine has opted in to [restore](#sessions-survive-a-reboot)                                                  |
 
 Sessions live on CCY's own tmux server (socket `ccy`), so a plain `tmux ls` does not show
 them; `ccy-sessions` does. The server is started under a transient `systemd --user` scope
@@ -847,19 +851,19 @@ are forwarded unchanged.
 
 ### Session
 
-| Flag              | Effect                                                                                                                                                                                                                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ccy`             | Start a session in the current directory                                                                                                                                                                                                                                                                            |
-| `ccy "task"`      | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                            |
-| `--prompt "text"` | Start with a preseeded prompt                                                                                                                                                                                                                                                                                       |
-| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
-| `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team, e.g. `--teams dev1@dev-team,qa2@other-team` (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                                                                               |
-| `--supervise`     | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                        |
-| `--no-restore`    | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                           |
-| `--top`           | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                             |
-| `ccy-sessions`    | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                 |
-| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                    |
-| `--`              | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                   |
+| Flag                             | Effect                                                                                                                                                                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ccy`                            | Start a session in the current directory                                                                                                                                                                                                                                                                            |
+| `ccy "task"`                     | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                            |
+| `--prompt "text"`                | Start with a preseeded prompt                                                                                                                                                                                                                                                                                       |
+| `--headless`                     | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
+| `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: a team alone asks which seat (`--teams dev-team`), or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                  |
+| `--supervise`                    | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                        |
+| `--no-restore`                   | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                           |
+| `--top`                          | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                             |
+| `ccy-sessions`                   | Separate command: every CCY tmux session with its CPU, network, token and SSH key, attach or end one; `--list` prints the table; `reboot --in N` warns them and reboots; `restore` brings them back                                                                                                                 |
+| `--debug`                        | Interactive debug-layer selection (CCY, entrypoint, Claude Code)                                                                                                                                                                                                                                                    |
+| `--`                             | End of CCY options; everything after is forwarded raw to `claude`                                                                                                                                                                                                                                                   |
 
 ### Image and updates
 
@@ -1077,12 +1081,18 @@ variable, naming each one. pingbus checks references at GitHub with the session'
 login, which the container sets up at start; it reads no credential variable.
 
 ```bash
-ccy --teams dev1@dev-team,qa2@other-team    # quote a list written with spaces
+ccy --teams dev-team                         # choose the seat
+ccy --teams dev1@dev-team,qa2@other-team    # name the seats; quote a list written with spaces
 ```
 
 The launcher checks the list on the host (`agent-bus seat check`, exit 64 for a malformed
 list, 78 for a team whose homeserver is not running on this machine) before anything else
-runs. Just before the container starts, `agent-bus seat take` creates any seat that does
+runs. For a team named alone it then asks, in a chooser, which of this checkout's seats in
+the team to take. Each row shows the member's full handle, `ccy (podman)`, and whether the
+seat is free or held by a running session. The default is the lowest free seat, else a new
+number. ccy says the handle before it takes the seat, and the chosen `<seat>@<team>` goes
+into the launch's arguments. A launch with nobody to answer (headless, no terminal, a
+restore, a restart) must name the seat, and is refused (64) otherwise. Just before the container starts, `agent-bus seat take` creates any seat that does
 not exist yet (one `sudo agent-bus add-member`; a headless launch, a restore or a restart
 uses only sudo's cached credential) and refuses a seat another session holds (75). The
 container gets `PINGBUS_SEATS` and the `ccy-seats` label; its entrypoint claims every seat,

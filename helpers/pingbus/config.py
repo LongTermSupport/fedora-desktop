@@ -62,6 +62,8 @@ COMMANDS_WITHOUT_CONFIG = frozenset({"version", "validate", "suggest-handle"})
 ELEMENT_FLATPAK_DIR = ".var/app/im.riot.Riot"
 ELEMENT_NATIVE_PARENT = ".config"
 ELEMENT_NATIVE_NAME = "Element"
+#: In a `host` seat's directory: its owner accepted it beside Element (`_element_accepted`).
+ELEMENT_ACCEPTED_FILE = "element-accepted"
 
 _DNS_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _DNS_NAME_RE = re.compile(rf"{_DNS_LABEL}(?:\.{_DNS_LABEL})*")
@@ -182,13 +184,28 @@ def load_bundle(
         raise ConfigError("not a team name")
     owner = os.getuid() if uid is None else uid
     bundle_dir = home / team
-    if bundle_dir.is_symlink():
+    linked = bundle_dir.is_symlink()
+    if linked:
         _check_linked_bundle(team, bundle_dir, owner)
     member = read_member(team, bundle_dir)
     read_token(member, uid=owner)
-    if member.member_type == "host":
+    if member.member_type == "host" and not (linked and _element_accepted(bundle_dir, owner)):
         _refuse_beside_element(team, _home_of(owner) if user_home is None else user_home)
     return member
+
+
+def _element_accepted(link: pathlib.Path, owner: int) -> bool:
+    """Plan 00177 Task 4.10: a `host` seat reached through a session home's link (a `cc
+    --teams` session, which runs as the desktop's owner) whose owner accepted, at cc's
+    confirm, that it runs beside their Element profile. The record is a regular file in the
+    seat, owned by `owner`; anything else there does not count. A plain bundle directory
+    (a dedicated agent user's) is never asked."""
+    record = link.parent / os.readlink(link) / ELEMENT_ACCEPTED_FILE
+    try:
+        info = os.lstat(record)
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and info.st_uid == owner
 
 
 def read_member(team: str, bundle_dir: pathlib.Path) -> Member:

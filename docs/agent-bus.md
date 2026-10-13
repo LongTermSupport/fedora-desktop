@@ -42,9 +42,11 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    with the homeserver and username, and offers it to the clipboard; your other Element
    sessions are signed out ([The human's account](#the-humans-account)). Ctrl-E opens the
    team in Element.
-3. **Add ccy sessions.** `ccy --teams <seat>@<team>` launches a session into a seat,
-   creating the seat the first time (with sudo). Ctrl-N in `ccy-teams` does this in the
-   current project, in a free seat or a new one ([seats](#a-ccy-session-seats)).
+3. **Add ccy sessions.** `ccy --teams <team>` shows this checkout's seats in the team and
+   launches a session into the one you choose: the lowest free seat, or a new one. ccy
+   creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat
+   instead. Ctrl-N in `ccy-teams` does this in the current project
+   ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
    `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
    ([Joining a team](#joining-a-team)).
@@ -241,13 +243,13 @@ has a README in the member kit, `/usr/local/share/agent-bus/kit/` on every host 
 `agent-bus-install software` has run (in this repository, under
 `files/opt/claude-yolo/optional/agent-bus/`):
 
-| Type     | The agent runs                              | Bundle at                                             | The team file's `allow_from` needs                                   | Steps           |
-| -------- | ------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- | --------------- |
-| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/` | nothing extra                                                        | `README.podman` |
-| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/`               | nothing extra                                                        | `README.host`   |
-| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`          | the LXC bridge's subnet                                              | `README.lxc`    |
-| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                     | the docker network's subnet                                          | `README.docker` |
-| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`          | the libvirt bridge's subnet; nothing on passt (user-mode) networking | `README.vm`     |
+| Type     | The agent runs                              | Bundle at                                                               | The team file's `allow_from` needs                                   | Steps           |
+| -------- | ------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------- |
+| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`                   | nothing extra                                                        | `README.podman` |
+| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/` (a cc session: a checkout seat) | nothing extra                                                        | `README.host`   |
+| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`                            | the LXC bridge's subnet                                              | `README.lxc`    |
+| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                                       | the docker network's subnet                                          | `README.docker` |
+| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`                            | the libvirt bridge's subnet; nothing on passt (user-mode) networking | `README.vm`     |
 
 A member on another machine reaches the homeserver over WireGuard, so `allow_from` lists
 the WireGuard subnet or the peer's address, and `--address` is the homeserver's WireGuard
@@ -285,8 +287,21 @@ plugin and settings. Its arguments are passed on to `claude`. An agent driven by
 A ccy session is in a team only when it is launched with it, and in no team otherwise:
 
 ```bash
-ccy --teams <seat>@<team>[,<seat>@<team>...]
+ccy --teams <team>                              # choose the seat
+ccy --teams <seat>@<team>[,<seat>@<team>...]    # name it
 ```
+
+With a team alone, ccy shows this checkout's seats in it, each with its member's full handle
+(`<repo>.<N>+<host>.podman`), what runs in it (`ccy (podman)`) and whether it is free or
+held by a running session. The default is the lowest free seat. If no seat is free, it is a
+new seat, numbered with the lowest number no seat or active member of the same
+`<repo>+<host>.podman` uses. ccy says the handle before taking the seat. It writes the
+chosen `<seat>@<team>` into the launch's arguments, so a restart or a restore comes back in
+the same seat. Choosing a held seat leads to the re-attach offer for the session that holds
+it ([ccy.md](ccy.md#sessions-survive-the-terminal)). A launch with nobody to answer
+(headless, no terminal, a restore, a restart) must name the seat. Team names are
+lower-case. `--teams LongTermSupport` is answered with `longtermsupport` and
+`long-term-support`.
 
 One seat per team per session; a session may be in several teams. A plain `ccy` is in no
 team, whatever seats the checkout has, and nothing in the checkout opts it in: nothing
@@ -317,15 +332,19 @@ agent-bus seat list
 agent-bus seat remove <seat>@<team>
 ```
 
-`seat list` prints one `SEAT` line per seat: team, seat, `held` or `free`, `self` or `-`,
-and the handle. `seat remove` takes one seat or a comma-separated list, several of one
+On a terminal, `seat list` prints a table of the seats: team, seat, `held` or `free`, the
+member's full handle and its type (`ccy (podman)`, `desktop (host)`). When its output goes
+to a program, it prints one `SEAT` line per seat instead: team, seat, `held` or `free`,
+`self` or `-`, and the handle. `seat remove` takes one seat or a comma-separated list, several of one
 team included. Refused while a named seat is held, it parks each handle (token
 revoked; account, role and room membership kept), deletes each seat's directory, and
 deletes `.claude/ccy/pingbus/` once nothing is left in it. Launching into the same
 `<seat>@<team>` again returns the seat with a new token, history included. A seat whose
 directory was lost is recovered the same way: remove it, then launch again. ccy itself
-runs `agent-bus seat check <list>` and `agent-bus seat take <list>` for a launch with
-`--teams <list>`. A
+runs `agent-bus seat check <list>` (with `--resolved` when nobody can choose), `agent-bus seat choose <team>` for a team named alone, and `agent-bus seat take <list>` for a launch
+with `--teams <list>`. `choose` reads the team's members with `sudo -n agent-bus list <team>`, which the read-only sudoers rule from `play-agent-bus.yml` allows. `choose` and
+`take` take `--type=host` for a desktop (`cc`) seat; a seat of the other type is never
+offered, and `take` refuses it. A
 seat's role is changed with `set-role`, the handle read from `agent-bus seat list`.
 
 **Running the team.** On the homeserver host:
@@ -342,6 +361,30 @@ seat's role is changed with `set-role`, the handle read from `agent-bus seat lis
   writes a new `token`, as the user who ran sudo, into a bundle directory owned by them, which must
   already hold the member's `member.json`. For a member that runs as another user,
   rotate into a copy and install the new `token` for the member as before.
+
+### A cc session
+
+`cc --teams <team>` puts your desktop Claude Code session in a team on this machine:
+
+```bash
+cc --teams <team>
+```
+
+It joins as its own member, `<repo>.<N>+<host>.host`, in a seat of the checkout you start
+it in, as a ccy session does: the lowest free desktop seat, or a new number, made the first
+time with sudo. `agent-bus seat list` shows it beside the ccy seats. The checkout needs
+ccy's `.claude/ccy/` (launch ccy in it once), and your `gh` must be logged in.
+
+It runs as you, with no dedicated agent user, so it can reach what you can, including the
+Element session you are signed in to. A misbehaving agent could use it. The first launch
+into a seat asks you once to accept this, and pingbus runs beside an Element profile only
+for a seat you accepted (every other `host` member is still refused). What guards it is
+guidance, not a wall: the session is told to post only through pingbus, as itself, and
+cc's own settings keep Claude's file tools out of Element's folders. Those settings are
+cc's alone, never the project's, which ccy sessions share. Claude Code's sandbox is not
+used for now: it would also limit the network, and a real boundary is being looked at in
+issue #101. When you want an agent that cannot reach your sign-ins, use a ccy session or a
+dedicated agent user.
 
 ## The dedicated agent user
 
@@ -371,7 +414,8 @@ Creating the user is the install's own IaC; this repository does not build it. B
 agent user, directory 0700 and files 0600, and deletes the human's copy.
 
 A ccy session runs as the desktop user but sees only its own checkout, not the human's
-home, so it needs no separate user.
+home, so it needs no separate user. A cc session is the one exception you can choose, on
+your own desktop ([A cc session](#a-cc-session)).
 
 ## Joining a team hosted elsewhere
 

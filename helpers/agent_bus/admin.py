@@ -86,9 +86,12 @@ NEXT_STEPS = {
     "podman": "A ccy (podman) seat: `agent-bus seat take <seat>@{team}`, run by `ccy --teams`, wrote\n"
               "this directory to <checkout>/.claude/ccy/pingbus/seats/{team}/<seat>/, which ccy's\n"
               ".gitignore ignores. A session is in team {team} only when launched with that flag.",
-    "host": "A bare-host member: copy this directory to ~/.config/pingbus/{team}/ of the dedicated\n"
-            "agent user (never a user that holds a human's Matrix session), list {team} in\n"
-            "PINGBUS_TEAMS in ~/.config/pingbus/env, and start sessions with agent-bus-claude.",
+    # A `cc --teams` seat holds this file in a checkout its session reads, so it says only
+    # what to do; who may run the member is README.host's (Plan 00177 Task 4.10).
+    "host": "A bare-host member. In a checkout's seat, `cc --teams {team}` placed this directory\n"
+            "and starts the sessions. Otherwise the bundle goes to ~/.config/pingbus/{team}/ of the\n"
+            "agent's user, {team} in PINGBUS_TEAMS in ~/.config/pingbus/env, and sessions start\n"
+            "with agent-bus-claude.",
     "lxc": "An LXC member: inside the container, copy this directory to the agent user's\n"
            "~/.config/pingbus/{team}/ and list {team} in PINGBUS_TEAMS in ~/.config/pingbus/env.",
     "vm": "A VM member: inside the guest, copy this directory to the agent user's\n"
