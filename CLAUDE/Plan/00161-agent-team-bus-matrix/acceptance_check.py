@@ -7,9 +7,10 @@ every judgement is a tested function rather than a grep. Commands (stdout is the
 payload; every reason goes to stderr):
 
   github-repo URL                    owner/repo of a GitHub remote, lowercased
-  team-file TEAM PORT BUS_IP HUMAN REPO BRANCH PREFIX FORGE_API
+  team-file TEAM PORT BUS_IP HUMAN REPO BRANCH PREFIX FORGE_API ORG
                                      a test team's team file (JSON): the acceptance team's,
-                                     and deploy.bash's throwaway team's
+                                     and deploy.bash's throwaway team's; REPO and BRANCH "-"
+                                     list no repository, ORG "-" names no org (D64)
   set-limit MEMBER_JSON KEY VALUE    add one §10 limit to a bundle's member.json, in place
   member-field MEMBER_JSON KEY       one string field of member.json
   handle MEMBER_JSON                 the member's handle (its user ID's localpart)
@@ -20,6 +21,13 @@ payload; every reason goes to stderr):
   room-path ROOM_ID                  the room ID quoted for a URL path
   sent-event OUT TEAM                the event ID of the one SENT line in OUT
   expect-ping OUT TEAM EVENT SENDER VERB REF RE     OUT is exactly that PING line
+  expect-marked OUT TEAM EVENT SENDER VERB REF TRUST BRANCH
+                                     OUT is exactly that PING line, with that trust and branch
+  refused-as STATUS ERR CODE         a `pingbus send` refused with that code (a forge refusal,
+                                     exit 5, or a validator's, exit 4)
+  symref-head                        the branch `git ls-remote --symref URL HEAD` (stdin) names
+  org-fork LOGIN                     the first fork among a GitHub owner's repositories, as
+                                     OWNER/REPO, from `GET /users/LOGIN/repos` (stdin)
   expect-human OUT TEAM EVENT SENDER TEXT           OUT is exactly that HUMAN line
   expect-peer OUT TEAM EVENT SENDER TEXT            OUT is exactly that PEER line
   expect-timeout OUT TEAM EVENT TARGET VERB REF     OUT is exactly that TIMEOUT line
@@ -97,16 +105,23 @@ def github_repo(url: str) -> str:
     return f"{match['owner']}/{match['repo']}".lower()
 
 
-def team_file(team: str, port: int, bus_address: str, human: str, repo: str, branch: str,
-              prefix: str, forge_api: str) -> dict:
+def team_file(team: str, port: int, bus_address: str, human: str, repo: str | None, branch: str | None,
+              prefix: str, forge_api: str, org: str | None = None) -> dict:
     """DESIGN.md section 3.4's team file for a test team: listening on the bus address, one
-    human, one trusted repository and branch, one forge. The only place its shape is
-    written: deploy.bash's throwaway team and the acceptance team both come from here."""
-    return {
+    human, its org (D64) and or one trusted repository and branch, one forge. The only place
+    its shape is written: deploy.bash's throwaway team and the acceptance team both come
+    from here."""
+    data = {
         "team": team, "port": port, "listen": [bus_address], "allow_from": [ALLOW_FROM_EXAMPLE],
-        "humans": [human], "repos": [{"repo": repo, "branches": [branch]}],
-        "path_prefixes": [prefix], "forge_api": forge_api,
+        "humans": [human], "path_prefixes": [prefix], "forge_api": forge_api,
     }
+    if org is not None:
+        data["org"] = org
+    if repo is not None:
+        if branch is None:
+            raise ValueError("a listed repository needs its branch")
+        data["repos"] = [{"repo": repo, "branches": [branch]}]
+    return data
 
 
 def with_limit(member: dict, key: str, value: int) -> dict:
@@ -189,9 +204,11 @@ def _only(text: str, kind: str) -> tuple[tuple[str, ...] | None, list[str]]:
 
 
 def _compare(kind: str, got: Sequence[str], want: Sequence[str | None]) -> list[str]:
-    names = cli.LINES[kind][1]
+    """Each wanted field against the line's; fields past `want` (appended in later versions,
+    §15) are not judged."""
+    names = cli.LINES[kind][1][:len(want)]
     return [f"{kind} {name}: got {g!r}, want {w!r}"
-            for name, g, w in zip(names, got, want, strict=True) if w is not None and g != w]
+            for name, g, w in zip(names, got[:len(want)], want, strict=True) if w is not None and g != w]
 
 
 def expect_ping(text: str, team: str, event: str, sender: str, verb: str, ref: str | None,
@@ -200,6 +217,48 @@ def expect_ping(text: str, team: str, event: str, sender: str, verb: str, ref: s
     if fields is None:
         return problems
     return _compare("PING", fields, (team, event, sender, verb, ref or cli.ABSENT, re_ or cli.ABSENT))
+
+
+def expect_marked(text: str, team: str, event: str, sender: str, verb: str, ref: str, trust: str,
+                  branch: str | None) -> list[str]:
+    """OUT is exactly one PING line for that ping, marked `trust`, naming `branch` (D64)."""
+    fields, problems = _only(text, "PING")
+    if fields is None:
+        return problems
+    return _compare("PING", fields, (team, event, sender, verb, ref, cli.ABSENT, trust, branch or cli.ABSENT))
+
+
+def refused_as(status: int, stderr: str, code: str) -> list[str]:
+    """A `pingbus send` refused with `code`: a forge refusal (exit 5) or a validator's (4)."""
+    if code in forge.REFUSALS:
+        want_status, said = 5, f"{cli.FORGE_REFUSED}: {code}:"
+    else:
+        want_status, said = 4, f"refused: {code}"
+    problems = [] if status == want_status else [f"send exited {status}, want {want_status}"]
+    if said not in stderr:
+        problems.append(f"send did not say {said!r}")
+    return problems
+
+
+def symref_head(text: str) -> str:
+    """The default branch from `git ls-remote --symref URL HEAD`."""
+    for raw in text.splitlines():
+        m = re.fullmatch(r"ref: refs/heads/(\S+)\tHEAD", raw)
+        if m and protocol.is_branch_name(m[1]):
+            return m[1]
+    raise ValueError("ls-remote named no default branch")
+
+
+def org_fork(repos: object, login: str) -> str:
+    """The first fork, by name, that `login` owns, from `GET /users/LOGIN/repos`."""
+    if not isinstance(repos, list):
+        raise ValueError("the repository listing is not a list")
+    forks = sorted(r["full_name"].lower() for r in repos
+                   if isinstance(r, dict) and r.get("fork") is True and isinstance(r.get("full_name"), str)
+                   and r["full_name"].lower().startswith(f"{login.lower()}/"))
+    if not forks or not protocol.is_owner_repo(forks[0]):
+        raise ValueError(f"{login} owns no public fork to prove a fork is refused")
+    return forks[0]
 
 
 def _expect_text(kind: str, text: str, team: str, event: str, sender: str, body: str) -> list[str]:
@@ -409,8 +468,8 @@ def _field(path: str, key: str) -> str:
 
 COMMANDS = {
     "github-repo": (1, lambda a: print(github_repo(a[0]))),
-    "team-file": (8, lambda a: _print_json(team_file(a[0], int(a[1]), *a[2:7],
-                                                     _absent(a[7]) or forge.GITHUB_API))),
+    "team-file": (9, lambda a: _print_json(team_file(a[0], int(a[1]), a[2], a[3], _absent(a[4]), _absent(a[5]),
+                                                     a[6], _absent(a[7]) or forge.GITHUB_API, _absent(a[8])))),
     "set-limit": (3, lambda a: _set_limit(*a)),
     "member-field": (2, lambda a: print(_field(a[0], a[1]))),
     "handle": (1, lambda a: print(handle_of(_field(a[0], "user_id")))),
@@ -421,6 +480,10 @@ COMMANDS = {
     "sent-event": (2, lambda a: print(sent_event(_read(a[0]), a[1]))),
     "expect-ping": (7, lambda a: _verdict(expect_ping(_read(a[0]), a[1], a[2], a[3], a[4],
                                                       _absent(a[5]), _absent(a[6])))),
+    "expect-marked": (8, lambda a: _verdict(expect_marked(_read(a[0]), *a[1:7], _absent(a[7])))),
+    "refused-as": (3, lambda a: _verdict(refused_as(int(a[0]), _read(a[1]), a[2]))),
+    "symref-head": (0, lambda a: print(symref_head(sys.stdin.read()))),
+    "org-fork": (1, lambda a: print(org_fork(_json_stdin(), a[0]))),
     "expect-human": (5, lambda a: _verdict(expect_human(_read(a[0]), *a[1:]))),
     "expect-peer": (5, lambda a: _verdict(expect_peer(_read(a[0]), *a[1:]))),
     "expect-timeout": (6, lambda a: _verdict(expect_timeout(_read(a[0]), *a[1:]))),

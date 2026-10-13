@@ -52,7 +52,7 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    playbooks/imports/play-claude-yolo.yml
+    00161-agent-team-bus-matrix
     playbooks/imports/play-agent-bus.yml
 )
 

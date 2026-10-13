@@ -103,6 +103,12 @@ resolve_reference() {
         printf '[FAIL] branch %s tracks no upstream: the pings need a commit GitHub holds\n' "${current}" >&2
         return 1
     fi
+    # pingbus send names the branch a ccy session's checkout tracks on origin (D64); M2's
+    # sessions send without --branch, so the upstream must be on origin for that to happen.
+    if [[ "${remote}" != "origin" ]]; then
+        printf '[FAIL] branch %s tracks %s, not origin: pingbus send names only an origin branch\n' "${current}" "${remote}" >&2
+        return 1
+    fi
     REF_BRANCH="${merge#refs/heads/}"
     url="$(git -C "${PLAN_REPO_ROOT}" remote get-url "${remote}")" || return 1
     REF_REPO="$("${CHECK[@]}" github-repo "${url}")" || return 1
@@ -118,16 +124,19 @@ resolve_reference() {
     REF_PREFIX="${planPath}/"
     REF_PATH="path:${REF_REPO}@${sha}:${planPath}/DESIGN.md"
     REF_COMMIT="commit:${REF_REPO}@${sha}"
-    printf '==> references: %s and %s (branch %s trusted)\n' "${REF_PATH}" "${REF_COMMIT}" "${REF_BRANCH}"
+    REF_ORG="${REF_REPO%%/*}"
+    printf '==> references: %s and %s (org %s trusted, on branch %s)\n' "${REF_PATH}" "${REF_COMMIT}" \
+        "${REF_ORG}" "${REF_BRANCH}"
 }
 
-# write_acceptance_team_file — the team on the bus address, on a port free on loopback now.
+# write_acceptance_team_file — the team on the bus address, on a port free on loopback now. It
+# trusts the reference repository's org and lists no repository (D64).
 write_acceptance_team_file() {
     local port
     port="$(free_loopback_port)" || return 1
     # FORGE_API "-": pingbus's own GitHub API, where every reference is checked.
-    "${CHECK[@]}" team-file "${TEAM}" "${port}" "${BUS_ADDRESS}" "${HUMAN}" "${REF_REPO}" \
-        "${REF_BRANCH}" "${REF_PREFIX}" - >"${TEAM_FILE}" || return 1
+    "${CHECK[@]}" team-file "${TEAM}" "${port}" "${BUS_ADDRESS}" "${HUMAN}" - - "${REF_PREFIX}" - \
+        "${REF_ORG}" >"${TEAM_FILE}" || return 1
     printf '==> team file %s:\n' "${TEAM_FILE}"
     cat -- "${TEAM_FILE}"
 }
@@ -318,7 +327,7 @@ check_review_ack() {
     local status=0 reviewId ackId
     member_run b wait-review /dev/null "${PINGBUS}" wait --timeout 180 &
     B_WAIT_PID=$!
-    send_ping a send-review review "${REF_PATH}" --to "${B_HANDLE}" || status=$?
+    send_ping a send-review review "${REF_PATH}" --branch "${REF_BRANCH}" --to "${B_HANDLE}" || status=$?
     if [[ "${status}" -ne 0 ]]; then
         stop_waiter || return 1
         return "${status}"
@@ -370,7 +379,7 @@ check_human_addressed() {
 # acked earlier is past the same deadline by then, so no TIMEOUT for it proves the ack counted.
 check_timeout() {
     local status=0 pingId
-    send_ping a send-unanswered review "${REF_COMMIT}" --to "${B_HANDLE}" || return $?
+    send_ping a send-unanswered review "${REF_COMMIT}" --branch "${REF_BRANCH}" --to "${B_HANDLE}" || return $?
     pingId="${SENT_ID}"
     printf '==> waiting for a TIMEOUT for %s, due %d s after it was sent\n' "${pingId}" "${ACK_TIMEOUT_S}"
     member_run a wait-timeout /dev/null "${PINGBUS}" wait --timeout 240 || status=$?
@@ -407,4 +416,125 @@ check_peer_text() {
     "${CHECK[@]}" expect-peer "${MEMBER_DIR}/b/recv-peer.out" "${TEAM}" "${peerId}" "${A_HANDLE}" \
         "${PEER_TEXT}" || return 1
     evidence "agent text ${peerId} from a delivered to b as PEER; ${humanOnlyId}, to the human only, not delivered to b: members/a/say-peer.out, members/a/say-human.out, members/b/recv-peer.out"
+}
+
+# ── the D64 checks: the org's branches, forks, outside repositories ──────────────────────
+# Each is a `done` from a to b: it needs no ack, so it leaves nothing for M1.3's TIMEOUT.
+
+#: A public repository outside any team's org, not a fork, whose first commit GitHub has
+#: served unchanged for over a decade: the outside reference.
+readonly EXTERNAL_COMMIT="commit:octocat/hello-world@7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+
+# d64_delivered <label> <trust> <branch|-> <ref> [send flags...] — a sends `done <ref>` to b;
+# b's recv prints exactly that PING, marked <trust>, naming <branch>.
+d64_delivered() {
+    local label="$1" trust="$2" branch="$3" ref="$4" status=0
+    shift 4
+    send_ping a "send-${label}" "done" "${ref}" "$@" --to "${B_HANDLE}" || return $?
+    member_run b "recv-${label}" /dev/null "${PINGBUS}" recv || status=$?
+    show b "recv-${label}"
+    expect_status b "recv-${label}" "${status}" 0 || return 1
+    "${CHECK[@]}" expect-marked "${MEMBER_DIR}/b/recv-${label}.out" "${TEAM}" "${SENT_ID}" "${A_HANDLE}" \
+        "done" "${ref}" "${trust}" "${branch}" || return 1
+    evidence "${label}: ${ref} delivered ${trust}, branch ${branch}: members/a/send-${label}.out, members/b/recv-${label}.out"
+}
+
+# d64_refused <label> <code> <send argv...> — a's `pingbus send` is refused with <code>, and
+# nothing is sent. 2 when GitHub did not answer the reference check.
+d64_refused() {
+    local label="$1" code="$2" status=0 outcome=0 err="${MEMBER_DIR}/a/send-$1.err"
+    shift 2
+    member_run a "send-${label}" /dev/null "${PINGBUS}" send "$@" --to "${B_HANDLE}" || status=$?
+    show a "send-${label}"
+    "${CHECK[@]}" send-outcome "${status}" "${err}" || outcome=$?
+    if [[ "${outcome}" -eq 2 ]]; then
+        printf '[UNKNOWN] member a send exited %d: GitHub, where the reference is checked, did not answer\n' "${status}" >&2
+        return 2
+    fi
+    "${CHECK[@]}" refused-as "${status}" "${err}" "${code}" || return 1
+    evidence "${label}: refused, ${code}: members/a/send-${label}.err"
+}
+
+# d64_branches — the reference repository's default branch and its tip on GitHub now
+# (D64_DEFAULT, D64_DEFAULT_SHA), and the first other branch whose tip this checkout holds and
+# the default branch does not contain (D64_SIDE, D64_SIDE_SHA). 2 when GitHub did not answer.
+d64_branches() {
+    local head="${PLAN_RUN_DIR}/d64-head.txt" heads="${PLAN_RUN_DIR}/d64-heads.txt" sha ref name status
+    if ! git -C "${PLAN_REPO_ROOT}" ls-remote --symref origin HEAD >"${head}" \
+        || ! git -C "${PLAN_REPO_ROOT}" ls-remote --heads origin >"${heads}"; then
+        printf '[UNKNOWN] git ls-remote origin did not answer: the branches of %s are not known\n' "${REF_REPO}" >&2
+        return 2
+    fi
+    D64_DEFAULT="$("${CHECK[@]}" symref-head <"${head}")" || return 1
+    D64_DEFAULT_SHA="" D64_SIDE="" D64_SIDE_SHA=""
+    while IFS=$'\t' read -r sha ref; do
+        if [[ "${ref}" == "refs/heads/${D64_DEFAULT}" ]]; then
+            D64_DEFAULT_SHA="${sha}"
+        fi
+    done <"${heads}"
+    if [[ -z "${D64_DEFAULT_SHA}" ]] || ! git -C "${PLAN_REPO_ROOT}" cat-file -e "${D64_DEFAULT_SHA}^{commit}"; then
+        printf '[FAIL] this checkout does not hold the tip of %s on GitHub: git fetch origin\n' "${D64_DEFAULT}" >&2
+        return 1
+    fi
+    while IFS=$'\t' read -r sha ref; do
+        name="${ref#refs/heads/}"
+        if [[ "${name}" == "${D64_DEFAULT}" ]] || ! git -C "${PLAN_REPO_ROOT}" cat-file -e "${sha}^{commit}"; then
+            continue
+        fi
+        status=0
+        git -C "${PLAN_REPO_ROOT}" merge-base --is-ancestor "${sha}" "${D64_DEFAULT_SHA}" || status=$?
+        case "${status}" in
+            0) continue ;;
+            1)
+                D64_SIDE="${name}" D64_SIDE_SHA="${sha}"
+                break
+                ;;
+            *) return 1 ;;
+        esac
+    done <"${heads}"
+    if [[ -z "${D64_SIDE}" ]]; then
+        printf '[FAIL] no branch of %s but %s holds a commit %s lacks that this checkout has: git fetch origin\n' \
+            "${REF_REPO}" "${D64_DEFAULT}" "${D64_DEFAULT}" >&2
+        return 1
+    fi
+    printf '==> %s: default branch %s at %s; branch %s at %s, not on %s\n' "${REF_REPO}" "${D64_DEFAULT}" \
+        "${D64_DEFAULT_SHA}" "${D64_SIDE}" "${D64_SIDE_SHA}" "${D64_DEFAULT}"
+}
+
+# check_org_trust — D64 at the forge: an unlisted repository of the org is trusted on any of
+# its branches, the branch named; with none named, its default branch; a commit claimed on a
+# branch that does not contain it is refused (the fork network's commits are served by the
+# parent's API, so being found proves nothing). A public repository outside the org arrives
+# marked external, and a verb that would act on it is refused.
+check_org_trust() {
+    local status=0
+    d64_branches || return $?
+    d64_delivered org-branch trusted "${D64_SIDE}" "commit:${REF_REPO}@${D64_SIDE_SHA}" \
+        --branch "${D64_SIDE}" || return $?
+    d64_delivered org-default trusted - "commit:${REF_REPO}@${D64_DEFAULT_SHA}" || return $?
+    d64_refused org-wrong-branch provenance "done" "commit:${REF_REPO}@${D64_SIDE_SHA}" \
+        --branch "${D64_DEFAULT}" || return $?
+    d64_delivered external external - "${EXTERNAL_COMMIT}" || return $?
+    d64_refused external-run-qa allowlist run-qa "${EXTERNAL_COMMIT}" || status=$?
+    return "${status}"
+}
+
+# check_org_fork — a fork the org owns is refused, though its owner is the org. SKIPPED-NEEDS-
+# OWNER when the org owns no public fork among its first 100 repositories.
+check_org_fork() {
+    local listing="${PLAN_RUN_DIR}/d64-org-repos.json" fork sha
+    if ! curl --silent --show-error --fail-with-body --max-time 30 -H 'Accept: application/vnd.github+json' \
+        "https://api.github.com/users/${REF_ORG}/repos?type=owner&per_page=100" >"${listing}"; then
+        printf '[UNKNOWN] GitHub did not list the repositories of %s\n' "${REF_ORG}" >&2
+        return 2
+    fi
+    if ! fork="$("${CHECK[@]}" org-fork "${REF_ORG}" <"${listing}")"; then
+        needs_owner "a public fork owned by ${REF_ORG} (fork any public repository into it), to show a fork is refused"
+        return 3
+    fi
+    if ! sha="$(git ls-remote "https://github.com/${fork}" HEAD)" || [[ -z "${sha}" ]]; then
+        printf '[UNKNOWN] git ls-remote did not answer for %s\n' "${fork}" >&2
+        return 2
+    fi
+    d64_refused org-fork provenance "done" "commit:${fork}@${sha%%$'\t'*}"
 }
