@@ -34,7 +34,8 @@
 # With no team on this machine, the picker offers to create one; with a team out of date, it
 # offers to update it first; with a team still holding the old default path_prefixes, it
 # offers once to remove them. Run in a checkout of a team's repositories, with no session of
-# that checkout in the team, it offers to start one there (ccy --teams <team>).
+# that checkout in the team, it offers to start one there (ccy --teams <team>); run in a
+# GitHub checkout no team covers, it says so and offers to create a team for it.
 #
 # Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
 # installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
@@ -183,7 +184,10 @@ C_BOLD=$'\e[1m'
 C_GREEN=$'\e[32m'
 C_YELLOW=$'\e[33m'
 C_RED=$'\e[31m'
-C_PINK=$'\e[38;5;212m'
+# ACCENT: the one colour for what is active (questions' cursor, yes button, step headings),
+# a 0-7 terminal index so the terminal's theme decides its shade.
+ACCENT=3
+C_ACCENT=$'\e[3'"${ACCENT}m"
 
 # word_colour <status word> — the colour a status cell is shown in: green is well, yellow
 # wants a look, red is not working.
@@ -254,7 +258,7 @@ show_login() {
     fi
     if ccy_tmux_confirm "Copy the password?" \
         "Put ${name}'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy." \
-        "copy the password"; then
+        "copy the password" yes; then
         if printf '%s' "${password}" | wl-copy; then
             echo "The password is on the clipboard." >&2
         else
@@ -294,6 +298,24 @@ set_password() {
 
 element_launcher() {
     printf '%s\n' "${HOME}/.local/share/applications/agent-bus-$1-element.desktop"
+}
+
+# launch_element <team> — start the team's Element as the desktop would, independent of
+# this terminal: in its own user scope (a terminal tab is a scope, and closing the tab ends
+# everything in it) and its own session (no hangup when the terminal goes), with its
+# chatter (Electron logs a great deal) in a log file, not among the picker's lines. gio
+# returns once Element is started, so a failed launch is said, with the log's tail.
+launch_element() {
+    local log="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy-teams/element-$1.log"
+    mkdir -p "${log%/*}"
+    if ! systemd-run --user --scope --quiet --collect --unit "ccy-teams-element-$1-$$" \
+        --description "Element for agent team $1" -- \
+        setsid -w gio launch "$(element_launcher "$1")" </dev/null >>"${log}" 2>&1; then
+        print_error "Element did not start; its messages are in ${log/#${HOME}/\~}:"
+        tail -n 5 "${log}" >&2
+        return 1
+    fi
+    echo "Element is starting; its own messages go to ${log/#${HOME}/\~}." >&2
 }
 
 # run_element_play — play-agent-bus-element.yml, by its own shebang as run_play does: it
@@ -347,29 +369,25 @@ need_tool() {
     fi
 }
 
-# need_gum — gum, a hard dependency, in high-contrast colours. gum's defaults draw headers,
-# placeholders and prompts in 240-range greys that are barely legible on a black terminal,
-# so every element a person reads is set here, once, through gum's own environment
-# variables: near-white text, and a bright pink (212) or blue (39) for what is active.
+# need_gum — gum, a hard dependency, in the terminal's own colours. gum's defaults draw
+# headers, placeholders and prompts in fixed 240-range greys, barely legible on a black
+# terminal, and a pink and purple palette, so every element is set here, once, through
+# gum's own environment variables: "" is the terminal's own text colour, and the one
+# accent (ACCENT, a 0-15 index, so the terminal's theme decides its shade) marks what is
+# active. An empty value draws no colour at all (gum 0.17, measured).
 need_gum() {
     need_tool gum playbooks/imports/play-claude-yolo.yml
-    export GUM_INPUT_HEADER_FOREGROUND=255 GUM_INPUT_PROMPT_FOREGROUND=39 \
-        GUM_INPUT_PLACEHOLDER_FOREGROUND=250 GUM_INPUT_CURSOR_FOREGROUND=212
-    export GUM_FILTER_HEADER_FOREGROUND=255 GUM_FILTER_PROMPT_FOREGROUND=39 \
-        GUM_FILTER_PLACEHOLDER_FOREGROUND=250 GUM_FILTER_TEXT_FOREGROUND=252 \
-        GUM_FILTER_CURSOR_TEXT_FOREGROUND=255 GUM_FILTER_INDICATOR_FOREGROUND=212 \
-        GUM_FILTER_SELECTED_PREFIX_FOREGROUND=212 GUM_FILTER_UNSELECTED_PREFIX_FOREGROUND=252 \
-        GUM_FILTER_MATCH_FOREGROUND=39
-    export GUM_CONFIRM_PROMPT_FOREGROUND=255 GUM_CONFIRM_SELECTED_FOREGROUND=16 \
-        GUM_CONFIRM_SELECTED_BACKGROUND=212 GUM_CONFIRM_UNSELECTED_FOREGROUND=255 \
-        GUM_CONFIRM_UNSELECTED_BACKGROUND=24
+    export GUM_INPUT_HEADER_FOREGROUND="" GUM_INPUT_PROMPT_FOREGROUND="${ACCENT}" \
+        GUM_INPUT_PLACEHOLDER_FOREGROUND="" GUM_INPUT_CURSOR_FOREGROUND="${ACCENT}"
+    export GUM_CONFIRM_PROMPT_FOREGROUND="" GUM_CONFIRM_SELECTED_FOREGROUND=0 \
+        GUM_CONFIRM_SELECTED_BACKGROUND="${ACCENT}" GUM_CONFIRM_UNSELECTED_FOREGROUND="" \
+        GUM_CONFIRM_UNSELECTED_BACKGROUND=""
     # gum's key-help line is drawn in a fixed dim grey no flag recolours (0.17, measured), so
     # it is hidden; the questions and the yes/no buttons say what to press.
-    export GUM_INPUT_SHOW_HELP=false GUM_FILTER_SHOW_HELP=false GUM_CONFIRM_SHOW_HELP=false \
-        GUM_CHOOSE_SHOW_HELP=false
-    export GUM_SPIN_TITLE_FOREGROUND=255 GUM_SPIN_SPINNER_FOREGROUND=212
-    export GUM_CHOOSE_HEADER_FOREGROUND=255 GUM_CHOOSE_ITEM_FOREGROUND=252 \
-        GUM_CHOOSE_CURSOR_FOREGROUND=212 GUM_CHOOSE_SELECTED_FOREGROUND=212
+    export GUM_INPUT_SHOW_HELP=false GUM_CONFIRM_SHOW_HELP=false GUM_CHOOSE_SHOW_HELP=false
+    export GUM_SPIN_TITLE_FOREGROUND="" GUM_SPIN_SPINNER_FOREGROUND="${ACCENT}"
+    export GUM_CHOOSE_HEADER_FOREGROUND="" GUM_CHOOSE_ITEM_FOREGROUND="" \
+        GUM_CHOOSE_CURSOR_FOREGROUND="${ACCENT}" GUM_CHOOSE_SELECTED_FOREGROUND="${ACCENT}"
 }
 
 # explain <text> [indent] — the explanation before a question, wrapped to the terminal (a
@@ -379,7 +397,7 @@ explain() {
     if ! cols="$(tput cols 2>&1)" || [[ ! "${cols}" =~ ^[0-9]+$ ]] || ((cols < 44)); then
         cols=80 # a width is only layout: with none to read, a common one serves
     fi
-    gum style --foreground 252 --width "$((cols - 4))" --padding "0 0 0 ${2:-0}" "$1" >&2
+    gum style --width "$((cols - 4))" --padding "0 0 0 ${2:-0}" "$1" >&2
 }
 
 # step <title> <hint> — a question's numbered heading and its hint, indented under it.
@@ -389,7 +407,7 @@ step() {
     STEP=$((STEP + 1))
     printf '\n' >&2
     if colour_on 2; then
-        printf '%s%s %d/%d  %s%s\n' "${C_BOLD}" "${C_PINK}" "${STEP}" "${STEPS}" "$1" "${C_RESET}" >&2
+        printf '%s%s %d/%d  %s%s\n' "${C_BOLD}" "${C_ACCENT}" "${STEP}" "${STEPS}" "$1" "${C_RESET}" >&2
     else
         printf '%d/%d  %s\n' "${STEP}" "${STEPS}" "$1" >&2
     fi
@@ -568,7 +586,7 @@ check_repos() {
 # The most repositories a team may list (protocol.py REPOS_MAX; declare.py check enforces it).
 REPOS_MAX=32
 # Create's scope choices, in words.
-SCOPE_ONE="One repository" SCOPE_OWNER="Everything one GitHub owner owns" SCOPE_SEVERAL="Several repositories"
+SCOPE_REPOS="Repositories you list (one or more)" SCOPE_OWNER="Everything one GitHub owner owns"
 
 # create_wizard [flags] — the questions, for what the flags leave out, then a summary and
 # a yes before declare.py writes. Each answer is checked as it is given.
@@ -615,9 +633,9 @@ create_wizard() {
     if [[ -z "${owner}" && -z "${repos[*]:-}" && "${yes}" == false ]]; then
         # Inside a checkout the repository is the default; elsewhere the whole owner.
         if [[ -n "${here}" ]]; then
-            choices=("${SCOPE_ONE}: ${here}" "${SCOPE_OWNER}: ${here%%/*}" "${SCOPE_SEVERAL}")
+            choices=("${SCOPE_REPOS}, starting with ${here}" "${SCOPE_OWNER}: ${here%%/*}")
         else
-            choices=("${SCOPE_OWNER}" "${SCOPE_ONE}" "${SCOPE_SEVERAL}")
+            choices=("${SCOPE_OWNER}" "${SCOPE_REPOS}")
         fi
         step "What the team works on" "Its agents may point each other only at these repositories, on any branch. Anything else reaches them as outside content, marked so."
         rc=0
@@ -634,11 +652,7 @@ create_wizard() {
             answered "${owner}"
             ;;
         *)
-            if [[ "${scope}" == "${SCOPE_SEVERAL}" ]]; then
-                step "Repositories" "owner/repo, comma-separated: up to ${REPOS_MAX} of any owners, each one your gh login can push to."
-            else
-                step "Repository" "owner/repo: one your gh login can push to."
-            fi
+            step "Repositories" "owner/repo, comma-separated: one, or up to ${REPOS_MAX} of any owners, each one your gh login can push to."
             rc=0
             text="$(ask_valid check_repos "Repositories (owner/repo, comma-separated)" "e.g. example-org/alpha" "${here}")" || rc=$?
             ask_or_quit "${rc}"
@@ -749,7 +763,7 @@ after_create() {
         fi
     done
     if ask_yes "Open ${team} in Element now?" true; then
-        gio launch "$(element_launcher "${team}")"
+        launch_element "${team}" || true # it has said why; the team is made either way
     fi
 }
 
@@ -1534,15 +1548,16 @@ offer_update() {
 # Task 4.7, or set on purpose) limits the paths its agents may point each other at. Offered once per
 # team: removed, through declare.py, and applied; or, declined, never asked again.
 offer_path_limits() {
-    local lines line team prefixes
+    local lines line team prefixes trusts
     local -a limited=()
     lines="$(declare_helper limited --file "${HOST_VARS}")" || exit 1
     [[ -z "${lines}" ]] || mapfile -t limited <<<"${lines}"
     for line in "${limited[@]}"; do
-        IFS=$'\t' read -r _ team prefixes <<<"${line}"
+        IFS=$'\t' read -r _ team prefixes trusts <<<"${line}"
         [[ ! -e "${DECLINED_DIR}/path-limit-${team}" ]] || continue
         need_gum
-        say "Team ${team}: its agents may only point each other at files under ${prefixes}."
+        say "One question about a team already on this machine, asked once, whichever checkout you are in."
+        say "Team ${team} (for ${trusts}) was made when teams were limited to some folders: its agents may only point each other at files under ${prefixes}."
         if ask_yes "Remove the limit, so any path in its repositories can be named?" true; then
             declare_helper drop-limit --file "${HOST_VARS}" --team "${team}" >/dev/null
             in_picker apply_teams "${team}"
@@ -1563,7 +1578,11 @@ offer_join_here() {
     local -a teams=()
     project_here || return 0
     candidates="$(join_candidates)" || return 0
-    [[ -z "${candidates}" ]] || mapfile -t teams <<<"${candidates}"
+    if [[ -z "${candidates}" ]]; then
+        offer_create_here
+        return 0
+    fi
+    mapfile -t teams <<<"${candidates}"
     top="$(git rev-parse --show-toplevel)"
     for team in "${teams[@]}"; do
         [[ -n "${LOADED[${team}]:-}" && "$(homeserver_state "${team}")" == up ]] || continue
@@ -1579,6 +1598,25 @@ offer_join_here() {
     done
 }
 join_offered=""
+
+# offer_create_here — run in a GitHub checkout that no team on this machine covers: say so,
+# so the teams listed next are not mistaken for this checkout's, and offer to create one.
+offer_create_here() {
+    local repo rc=0
+    repo="$(the_remote_repo)"
+    [[ -n "${repo}" ]] || return 0
+    need_gum
+    say "No team on this machine works on ${repo} (this checkout). The teams listed next are for other repositories."
+    gum confirm --default=true "Create a team for ${repo} now?" || rc=$?
+    case "${rc}" in
+    0)
+        cmd_create
+        exit
+        ;;
+    1) echo "Nothing created. ccy-teams create starts one whenever you like." >&2 ;;
+    *) cancelled ;;
+    esac
+}
 
 here="${PWD/#${HOME}/\~}"
 
@@ -1758,7 +1796,7 @@ open_element() {
         fi
     done
     echo "Opening ${team} in Element." >&2
-    gio launch "${launcher}"
+    launch_element "${team}"
     exit 0
 }
 
@@ -1813,7 +1851,7 @@ if [[ -e "${HOME}/.config/systemd/user/default.target.wants/ccy-sessions-restore
     restore_word="on"
 fi
 if project_here; then
-    new_line="Ctrl-N starts ccy --teams <seat>@<the row's team> in ${here}"
+    new_line="Ctrl-N starts a new ccy session in the row's team, in ${here}"
 else
     new_line="Ctrl-N unavailable: ${here} is not a project folder (no git repository)"
 fi

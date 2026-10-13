@@ -185,7 +185,7 @@ def launcher_text(profile: Profile) -> str:
     return (
         "[Desktop Entry]\n"
         "Type=Application\n"
-        f"Name=Element ({profile.team} team bus)\n"
+        f"Name={profile.team} team (Element)\n"
         f"Comment=Watch and command the {profile.team} agent team\n"
         f"Exec=flatpak run {FLATPAK_APP} --profile {profile.team}\n"
         f"Icon={FLATPAK_APP}\n"

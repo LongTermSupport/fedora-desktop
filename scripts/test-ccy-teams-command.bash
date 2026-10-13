@@ -235,6 +235,17 @@ EOF
 cat >"$BIN/gio" <<'EOF'
 #!/usr/bin/env bash
 printf 'gio %s\n' "$*" >>"$TEST_LOG"
+echo "electron chatter on stdout"
+echo "electron chatter on stderr" >&2
+[[ -z "${TEST_GIO_FAIL:-}" ]]
+EOF
+cat >"$BIN/systemd-run" <<'EOF'
+#!/usr/bin/env bash
+args=()
+while [[ $# -gt 0 && "$1" != "--" ]]; do args+=("$1"); shift; done
+printf 'systemd-run %s\n' "${args[*]}" >>"$TEST_LOG"
+shift
+exec "$@"
 EOF
 cat >"$BIN/wl-copy" <<'EOF'
 #!/usr/bin/env bash
@@ -746,6 +757,19 @@ out="$(run_picker "$OUTSIDE" "ctrl-e|owner")"
 check "Ctrl-E opens the team's Element launcher" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
 check "  asking no password of a human who has a session" "no" "$(logged 'human password')"
 check "  and exits 0" "rc=0" "$(rc_of "$out")"
+check_has "  in its own user scope, so closing the terminal tab does not end it" \
+    "systemd-run --user --scope --quiet --collect --unit ccy-teams-element-alpha-" "$(cat "$LOG")"
+check_lacks "  Element's own output never reaches the terminal" "electron chatter" "$out"
+check_has "  it goes to a log file, which is named" "ccy-teams/element-alpha.log" "$out"
+check_has "  and holds both its streams" $'electron chatter on stdout\nelectron chatter on stderr' \
+    "$(cat "$HOME_DIR/.local/state/ccy-teams/element-alpha.log")"
+reset
+element_profile
+printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
+out="$(TEST_GIO_FAIL=1 run_picker "$OUTSIDE" "ctrl-e|owner")"
+check_has "a failed Element launch is said, with the log's tail" "Element did not start" "$out"
+check_has "  showing what it said" "electron chatter on stderr" "$out"
+check "  and is a failure" "rc=1" "$(rc_of "$out")"
 reset
 element_profile
 out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|EXIT")"
@@ -777,6 +801,11 @@ out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" 
 check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
     "$(cat "$STATE/clipboard" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
+copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
+check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
+check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"
+check_has "  while the password reset itself still defaults to Exit" "start:last" \
+    "$(awk '/other Element sessions are signed out/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 reset
 out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|YES" "|ABORT")"
 check_has "a failed wl-copy says the password is not on the clipboard" "not on the clipboard" "$out"
@@ -928,7 +957,8 @@ check_has "  its Element profile is declared with it" $'agent_bus_element_teams:
 check "  the team is installed at once" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["proj"]}')"
 check "  and its Element profile written" "yes" "$(logged 'element-profiles')"
 inputs="$(grep -F 'gum input' "$LOG")"
-check_has "  the scope is asked first, this repository selected" "gum choose --header Trust --selected One repository: example-org/proj" \
+check_has "  the scope is asked first, listed repositories selected, this one first" \
+    "gum choose --header Trust --selected Repositories you list (one or more), starting with example-org/proj" \
     "$(grep -F 'gum choose' "$LOG")"
 check_has "  then the repository, defaulting to this checkout's remote, lower-cased" "--value example-org/proj" \
     "$(awk 'NR == 1' <<<"$inputs")"
@@ -936,7 +966,7 @@ check "    checked on GitHub for push access" "yes" "$(logged 'gh api repos/exam
 check_has "  then the name, defaulting to the repository's" "--value proj" "$(grep -F -- '--header Team name' <<<"$inputs")"
 check_has "  the login name is offered as the people's default" "--value owner" "$(grep -F -- '--header People' <<<"$inputs")"
 check_has "  each explanation is printed, wrapped, before its question" "installer creates the accounts" \
-    "$(grep -F 'gum style --foreground 252 --width' "$LOG")"
+    "$(grep -F 'gum style --width' "$LOG")"
 check "  and every header is one short line" "0" \
     "$(grep -E 'gum (input|filter)' "$LOG" | grep -cE -- '--header [^-]{70,}')"
 check_has "  the one question before writing covers installing it" "gum confirm --default=true Create team proj?" "$(cat "$LOG")"
@@ -950,9 +980,11 @@ check_has "  then Element opened" "gum confirm --default=true Open proj in Eleme
 check "  declined, no password is set" "no" "$(logged 'human password')"
 check "  in a checkout of the team, a session is offered, and started in it with no seat" "yes" \
     "$(logged 'launcher --teams proj (in proj)')"
-check_has "  gum's greys are replaced, through its environment" "GUM_INPUT_HEADER_FOREGROUND=255" \
-    "$(cat "$STATE/gum-env")"
-check_lacks "  no 240-range grey for anything read" "=24" "$(grep -v 'UNSELECTED_BACKGROUND' "$STATE/gum-env")"
+check_has "  gum's greys are replaced by the terminal's own text colour" "GUM_INPUT_HEADER_FOREGROUND="$'\n' \
+    "$(cat "$STATE/gum-env")"$'\n'
+check_has "  with one accent from the terminal's theme" "GUM_CONFIRM_SELECTED_BACKGROUND=3" "$(cat "$STATE/gum-env")"
+check "  and no 256-colour value anywhere (the theme decides every shade)" "0" \
+    "$(grep -cE '=[0-9]{2,}$' "$STATE/gum-env")"
 check_has "  gum's dim key-help line is hidden" "GUM_CONFIRM_SHOW_HELP=false" "$(cat "$STATE/gum-env")"
 check_has "  each question is a numbered step" "1/5  What the team works on" "$out"
 check_has "    the last of five" "5/5  Other machines" "$out"
@@ -1001,7 +1033,7 @@ check "  nothing written" "user_login: someone" "$(cat "$NO_TEAMS")"
 
 # Several repositories, of any owners: failing entries named with why, the list kept as typed.
 fresh_no_teams
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES '=Several repositories' \
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER \
     '=Example-Org/Alpha, example-org/readonly, other/missing, bad' '=example-org/alpha,other/tool' ENTER ENTER ENTER YES NO NO NO)")"
 check "several repositories: a bounded re-prompt, then accepted" "rc=0" "$(rc_of "$out")"
 check_has "  a read-only repository is named with its reason" "example-org/readonly: read-only" "$out"
@@ -1032,6 +1064,8 @@ printf '|ABORT\n' >"$TEST_ANSWERS"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
 check_has "a path limit is offered for removal" "gum confirm --default=true Remove the limit, so any path in its repositories can be named?" "$(cat "$LOG")"
 check_has "  saying what it does" "may only point each other at files under" "$out"
+check_has "  naming what the team covers" "Team legacy (for any repository of example-org)" "$out"
+check_has "  and that it is about a team already here, not this checkout" "a team already on this machine" "$out"
 check_lacks "  and never claiming it was the default" "was the default" "$out"
 check_lacks "  and removed from the entry" "path_prefixes" "$(cat "$NO_TEAMS")"
 check "  then applied" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["legacy"]}')"
@@ -1055,6 +1089,31 @@ printf '|ABORT\n' >"$TEST_ANSWERS"
 : >"$LOG" # not reset: that clears the declined marker too
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' NO)")"
 check "  and not offered again" "no" "$(logged 'Remove the limit, so any path')"
+
+echo "== a checkout no team covers"
+fresh_no_teams
+cat >"$NO_TEAMS" <<'EOF'
+agent_bus_address: 192.0.2.10
+agent_bus_teams:
+  - team: elsewhere
+    port: 6191
+    listen: ["192.0.2.10"]
+    allow_from: []
+    humans: ["owner"]
+    org: other-org
+    forge_api: https://api.github.com
+EOF
+printf '|ABORT\n' >"$TEST_ANSWERS"
+# Answers: no to updating the team (not built here), no to creating one for the checkout.
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' NO NO)")"
+check_has "a checkout no team covers is named as such" "No team on this machine works on example-org/proj (this checkout)" "$out"
+check_has "  so the other teams are not mistaken for its own" "The teams listed next are for other repositories" "$out"
+check "  and creating one is offered, default yes" "yes" "$(logged 'gum confirm --default=true Create a team for example-org/proj now?')"
+check_has "  declined, it says how to create one later" "ccy-teams create starts one whenever you like" "$out"
+check "  and the picker still opens" "rc=0" "$(rc_of "$out")"
+printf '|ABORT\n' >"$TEST_ANSWERS"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "")"
+check_lacks "outside a checkout, nothing is said about one" "this checkout" "$out"
 
 echo "== applied, apply, remove"
 STATES="$SCRATCH/states.yml"

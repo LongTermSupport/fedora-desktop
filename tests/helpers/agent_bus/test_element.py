@@ -163,6 +163,9 @@ class TestPaths(unittest.TestCase):
         self.assertTrue(text.startswith("[Desktop Entry]\n"))
         self.assertIn("\nExec=flatpak run im.riot.Riot --profile team-a\n", text)
         self.assertIn("\nIcon=im.riot.Riot\n", text)
+        # The team comes first: the app grid cuts a long name, and "Element" alone is the
+        # plain Element's own entry.
+        self.assertIn("\nName=team-a team (Element)\n", text)
         self.assertIn("\nTerminal=false\n", text)
         self.assertTrue(text.endswith("\n"))
 

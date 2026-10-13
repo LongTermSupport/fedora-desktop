@@ -52,12 +52,14 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # agent team bus: seat choose, seat take --type, a team without path_prefixes, exclude,
-    # the forge cache (Plans 00177, 00161)
-    playbooks/imports/play-agent-bus.yml
-    # ccy: --teams <team> chooses a seat, the re-attach offer keeps --teams; cc --teams;
-    # the image's pingbus (Plans 00177, 00161)
+    # ccy-teams from the owner's first host run: a checkout no team covers is offered a team,
+    # "repositories you list (one or more)", Element started apart from the terminal with
+    # its output logged, copy-the-password defaults to yes, the terminal's own colours with
+    # one accent in the pickers (CCY 3.95.5) (Plan 00177)
     playbooks/imports/play-claude-yolo.yml
+    # Element: may reach the keyring (no "No encryption support" question on a profile's
+    # first start); launchers named "<team> team (Element)" (Plan 00177)
+    playbooks/imports/optional/common/play-agent-bus-element.yml
     # agent team bus acceptance, with the new pingbus: M1.7 (no room creation) and M2.8
     # (the forge with gh's login)
     00161-agent-team-bus-matrix/acceptance.bash

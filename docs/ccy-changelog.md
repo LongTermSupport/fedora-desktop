@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.5 — container 2.54
+
+- **The session pickers use the terminal's own colours.** `ccy-sessions` and `ccy-teams`
+  draw their list in the terminal theme's colours, with one amber accent for the pointer,
+  matches and title, in place of fzf's default palette. `ccy-teams`' questions use the same
+  accent. The image is unchanged.
+- **A yes/no in the picker can default to yes.** `ccy_tmux_confirm` takes an optional
+  fourth argument, `yes`, for a harmless step the person came to take (`ccy-teams`'
+  "Copy the password?"); every other question still starts on Exit.
+
 ## 3.95.4 — container 2.54
 
 - **Container 2.54: the image carries the pingbus that logs a ping the forge rate-limited

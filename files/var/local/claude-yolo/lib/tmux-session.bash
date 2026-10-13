@@ -777,12 +777,14 @@ ccy_tmux_row() {
     printf '%-28s  %-15s  %s' "$1" "$state" "${3/#${HOME}/\~}"
 }
 
-# ccy_tmux_confirm <title> <question> <yes-label> — a yes/no question in the same picker,
-# so no prompt in the human layer is a bare read. The safe answer is the first row and
-# therefore the default; Esc or q is "no" too. Returns 0 only when the yes row is chosen.
+# ccy_tmux_confirm <title> <question> <yes-label> [yes] — a yes/no question in the same
+# picker, so no prompt in the human layer is a bare read. The cursor starts on Exit, the
+# safe answer, unless the fourth argument is "yes" (for a harmless step the person came
+# to take); Esc or q is "no" too. Returns 0 only when the yes row is chosen.
 ccy_tmux_confirm() {
-    local picked
-    if ! picked="$(ccy_tmux_pick "$1" "$(ccy_tmux_header "Enter choose   Esc or q exit" "$2")" "" last \
+    local picked cursor=last
+    [[ "${4:-}" != yes ]] || cursor=""
+    if ! picked="$(ccy_tmux_pick "$1" "$(ccy_tmux_header "Enter choose   Esc or q exit" "$2")" "" "${cursor}" \
         <<<"Yes, $3")"; then
         return 1
     fi
@@ -824,8 +826,11 @@ ccy_tmux_pick() {
     local rows out
     rows=$(cat -)
     # --ansi: a row or the header may carry colour; fzf hands the chosen row back as plain
-    # text, so a caller matches it against its rows without their colour.
+    # text, so a caller matches it against its rows without their colour. --color: the
+    # terminal's own colours (16 base, -1 its default), with one accent, amber (3), for what
+    # is active; the same accent as ccy-teams' questions.
     out=$(printf '%s\n%s\n' "${rows%$'\n'}" "$CCY_TMUX_EXIT_ROW" | fzf --ansi --height=~70% --layout=reverse --no-multi --no-sort --no-info \
+        --color='16,fg:-1,bg:-1,fg+:-1:bold,bg+:-1,hl:3,hl+:3:bold,gutter:-1,pointer:3,marker:3,prompt:3,spinner:3,info:-1,header:-1,border:-1,label:3:bold' \
         --border=rounded --border-label=" $1 " --border-label-pos=3 \
         --margin=1,2 --padding=1,2 --header-first --pointer='▶' \
         --prompt="filter > " --header="$2"$'\n' --bind='q:abort' "${opts[@]}") || return $?

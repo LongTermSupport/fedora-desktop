@@ -77,6 +77,28 @@
         state: present
       tags: [agent-bus-element]
 
+    # Flathub's im.riot.Riot is not granted the secret service, so Element cannot reach the
+    # keyring and asks, on a profile's first start, to keep its login unencrypted instead
+    # (flathub/im.riot.Riot issue 528; the grant is PR 530, still open). The grant is per
+    # user and must be in place before a profile's first start answers that question.
+    - name: Probe Element's per-user Flatpak overrides
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv: [flatpak, override, --user, --show, im.riot.Riot]
+      register: agent_bus_element_override
+      changed_when: false
+      check_mode: false
+      tags: [agent-bus-element]
+
+    - name: Let Element reach the keyring (secret service)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv: [flatpak, override, --user, --talk-name=org.freedesktop.secrets, im.riot.Riot]
+      when: "'org.freedesktop.secrets=talk' not in agent_bus_element_override.stdout"
+      tags: [agent-bus-element]
+
     - name: Write each team's Element profile and launcher
       become: true
       become_user: "{{ user_login }}"

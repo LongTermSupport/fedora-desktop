@@ -44,6 +44,8 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    `gh`; `--org`, `--repo`, `--team`, `--human` and `--yes` ask nothing. A team created
    before this release that still carries the old `path_prefixes` limit
    (`CLAUDE/Plan/`, `docs/`) is offered its removal, once, the next time `ccy-teams` opens.
+   Run in a GitHub checkout that no team covers, `ccy-teams` says so before listing the
+   other teams, and offers to create one for it.
 2. **Watch it in Element.** `create` has already set up the team's Element profile. In
    `ccy-teams`, Enter (or Ctrl-P) on your name under the team sets a new Element password.
    It shows it once, with the homeserver and username, and offers it to the clipboard; your

@@ -693,8 +693,10 @@ class PathLimitTest(CommandCase):
     def test_listed(self) -> None:
         code, out, _ = self.run_cmd("limited")
         self.assertEqual(code, 0)
-        self.assertEqual(out, "LIMITED\talpha\tCLAUDE/Plan/, docs/\nLIMITED\tbeta\tdocs/\n"
-                              "LIMITED\tdelta\tdocs/\nLIMITED\tvaulted\tdocs/\n")
+        org = "any repository of example-org"
+        self.assertEqual(out, f"LIMITED\talpha\tCLAUDE/Plan/, docs/\t{org}\n"
+                              "LIMITED\tbeta\tdocs/\texample-org/one\n"
+                              f"LIMITED\tdelta\tdocs/\t{org}\nLIMITED\tvaulted\tdocs/\t{org}\n")
 
     def test_dropped_and_nothing_else_changed(self) -> None:
         before = declare.entry_of(declare.parse(STATUS_HV).teams[0])

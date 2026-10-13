@@ -878,7 +878,8 @@ def _listing_or_edit(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         for team in parse(text).teams:
             prefixes = _raw_value(team, "path_prefixes") if team.state == "present" else None
             if prefixes:
-                out.write(f"LIMITED\t{team.team}\t{', '.join(str(p) for p in prefixes)}\n")
+                out.write(f"LIMITED\t{team.team}\t{', '.join(str(p) for p in prefixes)}"
+                          f"\t{scope_words(team)}\n")
         return EXIT_OK
     if args.command == "teams-for":
         out.writelines(f"TEAM\t{name}\n" for name in teams_for(parse(text), args.repo))
