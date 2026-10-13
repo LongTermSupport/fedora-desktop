@@ -649,6 +649,23 @@
         - scripts
         - launchers
 
+    # cc --teams: its library and the settings file that keeps the session's file tools
+    # out of Element's folders (Plan 00177 Task 4.10). Sourced and read by cc, not run.
+    - name: Install cc Agent Team Bus Files
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/claude-code/{{ item }}"
+        dest: "/var/local/claude-code/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - cc-teams.bash
+        - cc-teams-settings.json
+      tags:
+        - scripts
+        - launchers
+
     # Claude Code writes its session state — full conversation transcripts,
     # verbatim pre-edit file bodies in file-history/, shell snapshots, prompt
     # history — as plaintext under ~/.claude. Anthropic documents that this

@@ -241,13 +241,13 @@ has a README in the member kit, `/usr/local/share/agent-bus/kit/` on every host 
 `agent-bus-install software` has run (in this repository, under
 `files/opt/claude-yolo/optional/agent-bus/`):
 
-| Type     | The agent runs                              | Bundle at                                             | The team file's `allow_from` needs                                   | Steps           |
-| -------- | ------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- | --------------- |
-| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/` | nothing extra                                                        | `README.podman` |
-| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/`               | nothing extra                                                        | `README.host`   |
-| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`          | the LXC bridge's subnet                                              | `README.lxc`    |
-| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                     | the docker network's subnet                                          | `README.docker` |
-| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`          | the libvirt bridge's subnet; nothing on passt (user-mode) networking | `README.vm`     |
+| Type     | The agent runs                              | Bundle at                                                               | The team file's `allow_from` needs                                   | Steps           |
+| -------- | ------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------- |
+| `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`                   | nothing extra                                                        | `README.podman` |
+| `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/` (a cc session: a checkout seat) | nothing extra                                                        | `README.host`   |
+| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`                            | the LXC bridge's subnet                                              | `README.lxc`    |
+| `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                                       | the docker network's subnet                                          | `README.docker` |
+| `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`                            | the libvirt bridge's subnet; nothing on passt (user-mode) networking | `README.vm`     |
 
 A member on another machine reaches the homeserver over WireGuard, so `allow_from` lists
 the WireGuard subnet or the peer's address, and `--address` is the homeserver's WireGuard
@@ -343,6 +343,30 @@ seat's role is changed with `set-role`, the handle read from `agent-bus seat lis
   already hold the member's `member.json`. For a member that runs as another user,
   rotate into a copy and install the new `token` for the member as before.
 
+### A cc session
+
+`cc --teams <team>` puts your desktop Claude Code session in a team on this machine:
+
+```bash
+cc --teams <team>
+```
+
+It joins as its own member, `<repo>.<N>+<host>.host`, in a seat of the checkout you start
+it in, as a ccy session does: the lowest free desktop seat, or a new number, made the first
+time with sudo. `agent-bus seat list` shows it beside the ccy seats. The checkout needs
+ccy's `.claude/ccy/` (launch ccy in it once), and your `gh` must be logged in.
+
+It runs as you, with no dedicated agent user, so it can reach what you can, including the
+Element session you are signed in to. A misbehaving agent could use it. The first launch
+into a seat asks you once to accept this, and pingbus runs beside an Element profile only
+for a seat you accepted (every other `host` member is still refused). What guards it is
+guidance, not a wall: the session is told to post only through pingbus, as itself, and
+cc's own settings keep Claude's file tools out of Element's folders. Those settings are
+cc's alone, never the project's, which ccy sessions share. Claude Code's sandbox is not
+used for now: it would also limit the network, and a real boundary is being looked at in
+issue #101. When you want an agent that cannot reach your sign-ins, use a ccy session or a
+dedicated agent user.
+
 ## The dedicated agent user
 
 A Matrix client keeps its session token in its user's home, and anything that runs as
@@ -371,7 +395,8 @@ Creating the user is the install's own IaC; this repository does not build it. B
 agent user, directory 0700 and files 0600, and deletes the human's copy.
 
 A ccy session runs as the desktop user but sees only its own checkout, not the human's
-home, so it needs no separate user.
+home, so it needs no separate user. A cc session is the one exception you can choose, on
+your own desktop ([A cc session](#a-cc-session)).
 
 ## Joining a team hosted elsewhere
 

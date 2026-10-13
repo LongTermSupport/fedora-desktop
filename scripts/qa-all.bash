@@ -676,6 +676,17 @@ fi
 ccy_teams_summary=$(qa_gate_case_count "$ccy_teams_out")
 qa_pass_line ccy-teams "$ccy_teams_summary"
 
+# cc --teams (Plan 00177 Task 4.10): a host seat chosen and taken through agent-bus, the
+# owner's one confirm, cc's deny settings, and session text that only says how to post.
+cc_teams_out=""
+if ! cc_teams_out="$(bash "$SCRIPT_DIR/test-cc-teams.bash" 2>&1)"; then
+    qa_hard_gate_failed cc-teams \
+        "cc --teams library tests failed" \
+        "$cc_teams_out"
+fi
+cc_teams_summary=$(qa_gate_case_count "$cc_teams_out")
+qa_pass_line cc-teams "$cc_teams_summary"
+
 # lib/common.bash's .claude/ccy/.gitignore guard: session data stays ignored, the tracked
 # files (ccy.env.local.dist among them) are let through, ccy.env.local never is.
 gitignore_safety_out=""
