@@ -11,7 +11,8 @@
 #
 # Read by all four consumers, so none of them can drift from the others:
 #   scripts/qa-toolchain.bash    asserts what is actually installed, every run
-#   playbooks/imports/play-python.yml   installs it on the host
+#   playbooks/imports/play-python.yml   installs it on the host (golangci-lint through
+#                                       the play-golang.yml it imports)
 #   .claude/ccy/Dockerfile       bakes it into the CCY image
 #   .github/workflows/qa.yml     installs it in CI
 #

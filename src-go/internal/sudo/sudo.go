@@ -32,16 +32,18 @@ var (
 )
 
 // Sudo runs commands as root. Stdin is where a password would be typed; Term.Err is where
-// it is asked for.
+// it is asked for. Stdout is where Run streams a root command's own output: that output is
+// the command's result for the caller, so it is not mixed into the terminal lines.
 type Sudo struct {
 	Runner execx.Runner
 	Term   *term.Term
 	Stdin  io.Reader
+	Stdout io.Writer
 }
 
-// New is a Sudo on the process's stdin.
+// New is a Sudo on the process's stdin and stdout.
 func New(r execx.Runner, t *term.Term) *Sudo {
-	return &Sudo{Runner: r, Term: t, Stdin: os.Stdin}
+	return &Sudo{Runner: r, Term: t, Stdin: os.Stdin, Stdout: os.Stdout}
 }
 
 // Ready makes sudo's credential available for the root commands that follow. Passwordless
@@ -91,12 +93,12 @@ func (s *Sudo) AsRoot(ctx context.Context, argv ...string) (string, error) {
 	return "", err
 }
 
-// Run runs a root command through "sudo -n" with its output on the terminal, for use after
-// Ready.
+// Run runs a root command through "sudo -n", streaming its stdout to Stdout and its stderr
+// to the terminal as it happens, for use after Ready.
 func (s *Sudo) Run(ctx context.Context, argv ...string) error {
 	_, err := s.Runner.Run(ctx, execx.Cmd{
 		Name: cmd, Args: append([]string{"-n"}, argv...),
-		Stdin: s.Stdin, Stdout: s.Term.Err, Stderr: s.Term.Err,
+		Stdin: s.Stdin, Stdout: s.Stdout, Stderr: s.Term.Err,
 	})
 	return err
 }

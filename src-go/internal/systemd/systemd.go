@@ -96,14 +96,20 @@ type Launch struct {
 }
 
 // LaunchError is a failed Element launch, with the end of the log for the person to see.
+// When the log could not be read for its tail, Tail is empty and TailErr says why.
 type LaunchError struct {
-	Log  string
-	Tail string
-	Err  error
+	Log     string
+	Tail    string
+	TailErr error
+	Err     error
 }
 
 func (e *LaunchError) Error() string {
-	return fmt.Sprintf("Element did not start; its messages are in %s: %v", e.Log, e.Err)
+	msg := fmt.Sprintf("Element did not start; its messages are in %s: %v", e.Log, e.Err)
+	if e.TailErr != nil {
+		msg += fmt.Sprintf(" (and the log could not be read: %v)", e.TailErr)
+	}
+	return msg
 }
 
 // Unwrap exposes the underlying failure.
@@ -139,18 +145,19 @@ func (s *Systemd) LaunchElement(ctx context.Context, l Launch) error {
 	if runErr == nil {
 		return nil
 	}
-	return &LaunchError{Log: l.Log, Tail: logTail(l.Log), Err: runErr}
+	tail, tailErr := logTail(l.Log)
+	return &LaunchError{Log: l.Log, Tail: tail, TailErr: tailErr, Err: runErr}
 }
 
-// logTail is the last few lines of the log; an unreadable log has no tail to show.
-func logTail(path string) string {
+// logTail is the last few lines of the log, or why they could not be read.
+func logTail(path string) (string, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("read the Element log: %w", err)
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	if len(lines) > tailLines {
 		lines = lines[len(lines)-tailLines:]
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), nil
 }

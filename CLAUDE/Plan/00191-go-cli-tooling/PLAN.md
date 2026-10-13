@@ -55,17 +55,23 @@ today; rewriting them is out of scope.
   (`.claude/ccy/Dockerfile`, `.qa-versions` GOLANGCI_LINT), checksum-verified; installed in
   the running container now (golangci-lint under `untracked/tools/bin` until the image is
   rebuilt).
-- [ ] 🔄 **Task 1.2**: Host and CI: `play-golang.yml` installs `golang`, gcc and
-  golangci-lint (from `.qa-versions`), and `play-claude-yolo.yml` depends on it rather than
-  repeating it; `scripts/qa-toolchain.bash` asserts both; `.github/workflows/qa.yml`
-  installs them.
+- [x] ✅ **Task 1.2**: Host and CI. `playbooks/imports/optional/common/play-golang.yml`
+  installs `golang`, `gcc` (what `go test -race` links against) and golangci-lint at the
+  `.qa-versions` pin (checksum-verified from the release's checksums file, probed so it is
+  idempotent and a pin change is applied). `play-python.yml` imports it ahead of its
+  QA-toolchain check, so the one play that installs the QA tools installs these too, with a
+  single source of truth. `scripts/qa-toolchain.bash` asserts golangci-lint at the pin and
+  `go` at no less than `src-go/go.mod` requires; `.github/workflows/qa.yml` installs both.
+  `play-claude-yolo.yml` does not depend on the Go play yet: that arrives with Task 2.5,
+  which is where it first builds a binary.
 - [ ] 🔄 **Task 1.3**: `src-go/` skeleton: `go.mod`, `.golangci.yml` (strict), `cmd/`,
   `internal/` (execx runner + recording fake, prompter interface + gum/fzf implementation +
   fake, paths, version), one trivial tool proving build, test and lint.
-- [ ] 🔄 **Task 1.4**: `scripts/qa-go.bash`: gofmt, vet, golangci-lint, test -race with a
-  coverage floor, govulncheck when available; wired into `qa-all.bash` and
-  `qa-changed.bash` (any `src-go/` change). Interim, until Task 3.3 puts go-qa-ci in its
-  place.
+- [ ] 🔄 **Task 1.4**: `scripts/qa-go.bash` exists and is wired into `qa-all.bash` (a
+  hard gate) and `qa-changed.bash` (any `src-go/` change): `golangci-lint fmt --diff` (any
+  diff fails), `go vet`, `go test -race`, `golangci-lint run`, whole module, a missing tool
+  a hard failure. Still to do: the coverage floor and govulncheck. Interim, until Task 3.3
+  puts go-qa-ci in its place.
 
 ### Phase 2: ccy-teams in Go
 

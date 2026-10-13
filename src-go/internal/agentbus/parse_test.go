@@ -10,7 +10,7 @@ func TestParseSeats(t *testing.T) {
 		"\n" +
 		"SEAT\talpha\tqa\tfree\t-\tproj.qa+box.podman\n" +
 		"CHANGED\tignored\n"
-	got, err := ParseSeats([]byte(out))
+	got, err := ParseSeats(out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestParseSeatsRejectsMalformedLines(t *testing.T) {
 		"SEAT\talpha\t1\tbusy\tself\th",
 		"SEAT\talpha\t1\theld\tmaybe\th",
 	} {
-		if _, err := ParseSeats([]byte(line + "\n")); err == nil {
+		if _, err := ParseSeats(line + "\n"); err == nil {
 			t.Fatalf("accepted %q", line)
 		}
 	}
@@ -39,7 +39,7 @@ func TestParseRoster(t *testing.T) {
 	out := "HUMAN\towner\tjoin\nHUMAN\tguest\t-\n" +
 		"MEMBER\tproj.1+box.podman\tworker\tjoin\tactive\n" +
 		"MEMBER\tproj.x+box.lxc\torchestrator\t-\tparked\n"
-	got, err := ParseRoster([]byte(out))
+	got, err := ParseRoster(out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestParseRosterRejectsMalformedLines(t *testing.T) {
 		"MEMBER\th\tworker\tjoin",
 		"MEMBER\th\tworker\tjoin\tasleep",
 	} {
-		if _, err := ParseRoster([]byte(line + "\n")); err == nil {
+		if _, err := ParseRoster(line + "\n"); err == nil {
 			t.Fatalf("accepted %q", line)
 		}
 	}
@@ -81,27 +81,27 @@ func TestMemberKind(t *testing.T) {
 }
 
 func TestParseDevices(t *testing.T) {
-	got, err := ParseDevices([]byte("DEVICE\tD1\t1700\nDEVICE\tD2\t-\nother\n"))
+	got, err := ParseDevices("DEVICE\tD1\t1700\nDEVICE\tD2\t-\nother\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, []Device{{ID: "D1", LastSeenMs: "1700"}, {ID: "D2"}}) {
 		t.Fatalf("got %+v", got)
 	}
-	if _, err := ParseDevices([]byte("DEVICE\tD1\n")); err == nil {
+	if _, err := ParseDevices("DEVICE\tD1\n"); err == nil {
 		t.Fatal("accepted a short DEVICE line")
 	}
 }
 
 func TestParseBackups(t *testing.T) {
-	got, err := ParseBackups([]byte("BACKUP\t2\t2026-01-02T03:04:05Z\nBACKUP\t1\tearlier\n"))
+	got, err := ParseBackups("BACKUP\t2\t2026-01-02T03:04:05Z\nBACKUP\t1\tearlier\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, []Backup{{ID: "2", Time: "2026-01-02T03:04:05Z"}, {ID: "1", Time: "earlier"}}) {
 		t.Fatalf("got %+v", got)
 	}
-	if _, err := ParseBackups([]byte("BACKUP\t1\n")); err == nil {
+	if _, err := ParseBackups("BACKUP\t1\n"); err == nil {
 		t.Fatal("accepted a short BACKUP line")
 	}
 }

@@ -924,12 +924,12 @@ under-reported them.
 runs — ruff (`qa-python`), semgrep (`qa-patterns`), shellcheck (`qa-bash`). Four
 consumers read it, so none can drift from the others:
 
-| Consumer                            | Role                                    |
-| ----------------------------------- | --------------------------------------- |
-| `scripts/qa-toolchain.bash`         | asserts the machine, every `qa-all` run |
-| `playbooks/imports/play-python.yml` | installs it on the host                 |
-| `.claude/ccy/Dockerfile`            | bakes it into the CCY image             |
-| `.github/workflows/qa.yml`          | installs it in CI                       |
+| Consumer                            | Role                                                                    |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| `scripts/qa-toolchain.bash`         | asserts the machine, every `qa-all` run                                 |
+| `playbooks/imports/play-python.yml` | installs it on the host (Go tools via the `play-golang.yml` it imports) |
+| `.claude/ccy/Dockerfile`            | bakes it into the CCY image                                             |
+| `.github/workflows/qa.yml`          | installs it in CI                                                       |
 
 Unpinned, the divergence is silent: each environment is confident and they
 disagree. shellcheck 0.9.0 and 0.11.0 reported 173 and 141 issues on the same

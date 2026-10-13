@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -16,6 +18,36 @@ const prefix = "env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare"
 
 func newClient(f *execx.Fake) *Client {
 	return &Client{Runner: f, Root: "/root", File: "/hv.yml"}
+}
+
+func TestNewClientDefaultsErrToTheProcessStderr(t *testing.T) {
+	c := NewClient(&execx.Fake{}, "/root", "/hv.yml")
+	if c.Err != os.Stderr || c.Root != "/root" || c.File != "/hv.yml" {
+		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestSuccessfulRunStderrIsForwardedEvenWithNoErrWriter(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	processStderr := os.Stderr
+	os.Stderr = pw
+	f := &execx.Fake{}
+	f.On([]string{"env"}, execx.Result{Stdout: []byte("CHANGED\tx\n"), Stderr: []byte("kept at /hv.yml.backup.1\n")})
+	_, runErr := newClient(f).Remove(context.Background(), "alpha", false)
+	os.Stderr = processStderr
+	if closeErr := pw.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	got, readErr := io.ReadAll(pr)
+	if readErr != nil || string(got) != "kept at /hv.yml.backup.1\n" {
+		t.Fatalf("stderr %q err %v", got, readErr)
+	}
 }
 
 func script(f *execx.Fake, sub, stdout string) {

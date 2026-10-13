@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // Socket is the tmux server name every call uses.
@@ -23,6 +24,19 @@ var ErrSessionGone = errors.New("tmux session is gone")
 // ErrOpenElsewhere is a session that has a terminal on it, or has gone, at the moment
 // of asking to attach. It can be attached from one terminal only.
 var ErrOpenElsewhere = errors.New("session is open in another terminal, or gone")
+
+// RefusedError is an attach that was refused. It matches ErrOpenElsewhere under errors.Is,
+// and its Error text is the whole message for the person, without the "ERROR: " label,
+// which the caller adds by printing it with term.PrintError.
+type RefusedError struct {
+	Message string
+}
+
+// Error is the message for the person.
+func (e *RefusedError) Error() string { return e.Message }
+
+// Is matches ErrOpenElsewhere.
+func (e *RefusedError) Is(target error) bool { return target == ErrOpenElsewhere }
 
 // Session is one line of list-sessions.
 type Session struct {
@@ -52,9 +66,11 @@ const (
 )
 
 // Tmux is the CCY tmux server. Stdin, Stdout and Stderr are the terminal handed to
-// attach-session; Stderr also carries the status lines. Any may be nil.
+// attach-session and may be nil. Term carries the status lines, so colour follows the
+// term rules; it is required.
 type Tmux struct {
 	Runner execx.Runner
+	Term   *term.Term
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
@@ -171,8 +187,12 @@ func (t *Tmux) InstallHook(ctx context.Context) error {
 }
 
 // Attach attaches this terminal to a detached session and, when the user detaches again,
-// reports the state they left it in. A session with a terminal on it at the moment of
-// asking is ErrOpenElsewhere; the hook covers the race after that.
+// reports the state they left it in. Attach prints its status lines through Term, but never
+// an error it returns: a session with a terminal on it at the moment of asking returns a
+// *RefusedError (matching ErrOpenElsewhere) and prints nothing, so the caller prints the
+// error once, with term.PrintError. The one refusal that is an outcome and not an error,
+// Kicked (the hook detached this terminal after arrival), is printed here with
+// term.PrintError because Attach returns no error for it.
 func (t *Tmux) Attach(ctx context.Context, name string) (Outcome, error) {
 	if name == "" {
 		return Refused, errors.New("attach requires a session name")
@@ -182,15 +202,12 @@ func (t *Tmux) Attach(ctx context.Context, name string) (Outcome, error) {
 		return Refused, err
 	}
 	if !detached {
-		return t.finish(Refused, ErrOpenElsewhere,
-			"'"+name+"' is open in another terminal, or gone. It can be attached from one terminal only.")
+		return Refused, &RefusedError{Message: "'" + name + "' is open in another terminal, or gone. It can be attached from one terminal only."}
 	}
 	if hookErr := t.InstallHook(ctx); hookErr != nil {
 		return Refused, hookErr
 	}
-	if sayErr := t.say("Attaching to '" + name + "'."); sayErr != nil {
-		return Refused, sayErr
-	}
+	t.Term.Printf("Attaching to '%s'.\n", name)
 	_, err = t.Runner.Run(ctx, execx.Cmd{
 		Name: "tmux", Args: []string{"-L", Socket, "attach-session", "-t", "=" + name},
 		Stdin: t.Stdin, Stdout: t.Stdout, Stderr: t.Stderr,
@@ -200,34 +217,16 @@ func (t *Tmux) Attach(ctx context.Context, name string) (Outcome, error) {
 	}
 	clients, err := t.Clients(ctx, name)
 	if errors.Is(err, ErrSessionGone) {
-		return t.finish(Ended, nil, "'"+name+"' has ended.")
+		t.Term.Printf("'%s' has ended.\n", name)
+		return Ended, nil
 	}
 	if err != nil {
 		return Refused, err
 	}
 	if len(clients) > 0 {
-		return t.finish(Kicked, nil,
-			"'"+name+"' is open in another terminal, so this terminal was not attached to it.")
+		t.Term.PrintError("'" + name + "' is open in another terminal, so this terminal was not attached to it.")
+		return Kicked, nil
 	}
-	return t.finish(Detached, nil,
-		"Detached. '"+name+"' keeps running; run ccy in its project directory to return to it.")
-}
-
-// finish prints the closing note and returns the outcome; a note that cannot be written
-// is itself an error.
-func (t *Tmux) finish(o Outcome, result error, note string) (Outcome, error) {
-	if err := t.say(note); err != nil {
-		return Refused, err
-	}
-	return o, result
-}
-
-func (t *Tmux) say(msg string) error {
-	if t.Stderr == nil {
-		return nil
-	}
-	if _, err := fmt.Fprintln(t.Stderr, msg); err != nil {
-		return fmt.Errorf("write status: %w", err)
-	}
-	return nil
+	t.Term.Printf("Detached. '%s' keeps running; run ccy in its project directory to return to it.\n", name)
+	return Detached, nil
 }

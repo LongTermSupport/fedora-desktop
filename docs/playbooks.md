@@ -434,6 +434,7 @@ gh-personal issue list
 - **pipx** for isolated CLI tool installations
 - **Hugging Face Hub CLI** for ML model management
 - Development dependencies: SDK headers, compression libs, cryptography support
+- The QA toolchain at the `.qa-versions` pins (ruff, semgrep, shellcheck); Go and golangci-lint come from the `play-golang.yml` it imports
 
 **What you get**:
 
@@ -1113,6 +1114,9 @@ Go programming language:
 
 - Golang compiler and standard tools from DNF repositories
 - Latest stable version for Fedora 44
+- `gcc`, which `go test -race` links against
+- `golangci-lint` at the version pinned in `.qa-versions`, checksum-verified
+- Also run by `play-python.yml`, which imports it so the QA toolchain check finds `go` and `golangci-lint`
 
 **What you get**:
 
