@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.94.2 — container 2.51
+
+- **The shared picker shows colour.** `ccy_tmux_pick` runs fzf with `--ansi`, so a row or
+  the header may carry colour and fzf still hands back the chosen row as plain text.
+  ccy-teams colours its status words with it (Plan 00177); rows without colour look as
+  before.
+
 ## 3.94.1 — container 2.51
 
 - **A project image follows its base image.** A project with `.claude/ccy/Dockerfile` was

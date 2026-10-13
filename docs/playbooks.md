@@ -736,6 +736,11 @@ nmcli connection down vpn-name
   `agentbus0` bus address when `agent_bus_address` is set
 - Installs each team declared in `agent_bus_teams` (host_vars), and removes each one
   declared `state: absent` (`purge: true` also deletes its data)
+- Installs a sudoers rule, `/etc/sudoers.d/agent-bus-read-only`, so that `ccy-teams` can
+  read a team's members and its people's Element sessions without a password. It covers
+  two read-only commands, `agent-bus list <team>` and `agent-bus human devices <team> <name>`,
+  each pinned to that argument shape by an anchored pattern, and nothing broader (Plan
+  00177\)
 - A thin caller: the installer does the work and decides what changed, so the same host
   can be built from another project's IaC. Placeholders are in `localhost.yml.dist`.
 

@@ -53,6 +53,7 @@ PLAN_ROOT="${scriptDir}"
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
     playbooks/imports/play-claude-yolo.yml
+    playbooks/imports/play-agent-bus.yml
 )
 
 LIST_ONLY=0

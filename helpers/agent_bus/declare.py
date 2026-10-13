@@ -15,7 +15,8 @@ that no entry declares and nothing listens on (`ss -Hltn`). `listen` is the host
 address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's.
 
     python3 -m helpers.agent_bus.declare declared --file <localhost.yml>
-        TEAM<TAB><team><TAB><port or -><TAB><present|absent> per entry
+        TEAM<TAB><team><TAB><port or -><TAB><present|absent><TAB><server_name><TAB><url or -> per
+        entry; the URL is http://<first listen address, or agent_bus_address>:<port>
     python3 -m helpers.agent_bus.declare create --file <localhost.yml> --team T --human NAME...
             --repo OWNER/REPO=BRANCH[,BRANCH]... [--allow-from CIDR]... [--dry-run]
         CHANGED<TAB>team <team>, port <port>, in <file>, and the next steps on stderr;
@@ -23,8 +24,15 @@ address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's
     python3 -m helpers.agent_bus.declare check --file <localhost.yml> [--team T] [--human NAME]...
             [--repo ...]... [--allow-from CIDR]... [--owner OWNER]
         nothing when every value given is valid; exit 64 naming the first that is not
+    python3 -m helpers.agent_bus.declare repos --file <localhost.yml> --team T
+        REPO<TAB>owner/repo<TAB>branches (comma-joined, or -) per repository of the team
+    python3 -m helpers.agent_bus.declare add-repo --file <localhost.yml> --team T
+            --repo OWNER/REPO=BRANCH[,BRANCH]... [--dry-run]
+        appends to the team's block list of repos, in its own indentation; CHANGED<TAB>...
     python3 -m helpers.agent_bus.declare gh-repos --owner OWNER  < gh repo list's JSON
         COUNT<TAB>n, then REPO<TAB>owner/repo<TAB>branch and EMPTY<TAB>owner/repo lines
+    python3 -m helpers.agent_bus.declare suggest-team --file <localhost.yml> --owner OWNER
+        the owner's name as a free team name, or nothing
     python3 -m helpers.agent_bus.declare github-remote --url URL
         the lower-case OWNER/REPO of a GitHub remote, or nothing
 
@@ -94,6 +102,10 @@ class Declared:
     team: str
     port: int | None
     state: str
+    server_name: str = ""
+    listen: str | None = None  # the first listen address, when written as a flow list
+    keys: tuple[tuple[str, int], ...] = ()  # each key of the item and its line
+    last_line: int = -1  # the item's last line, nested lines included
 
 
 @dataclass(frozen=True)
@@ -174,6 +186,7 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
     item_indent = len(first) - len(first.lstrip(" "))
     key_indent = -1
     items: list[dict[str, tuple[str, int]]] = []
+    ends: list[int] = []
     for index in content:
         bare = lines[index].rstrip("\r\n")
         indent = len(bare) - len(bare.lstrip(" "))
@@ -187,10 +200,12 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
                 raise DeclareError(f"{where}: the {TEAMS_KEY} items are not indented alike")
             key_indent = this_key_indent
             items.append({})
+            ends.append(index)
             body = after.lstrip(" ")
         elif indent == key_indent and items:
             pass
         elif indent > key_indent >= 0 and items:
+            ends[-1] = index
             continue
         else:
             raise DeclareError(f"{where}: not the {TEAMS_KEY} shape ccy-teams edits (a block list of mappings)")
@@ -200,7 +215,9 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
         if m["key"] in items[-1]:
             raise DeclareError(f"{where}: {m['key']} is set twice in one {TEAMS_KEY} item")
         items[-1][m["key"]] = (m["rest"], index)
-    return tuple(_declared(item) for item in _unique(items)), item_indent, key_indent
+        ends[-1] = index
+    return (tuple(_declared(item, end) for item, end in zip(_unique(items), ends, strict=True)),
+            item_indent, key_indent)
 
 
 def _unique(items: list[dict[str, tuple[str, int]]]) -> list[dict[str, tuple[str, int]]]:
@@ -216,7 +233,7 @@ def _unique(items: list[dict[str, tuple[str, int]]]) -> list[dict[str, tuple[str
     return items
 
 
-def _declared(item: dict[str, tuple[str, int]]) -> Declared:
+def _declared(item: dict[str, tuple[str, int]], last_line: int) -> Declared:
     rest, index = item["team"]
     team = _scalar(rest, f"the team on line {index + 1}")
     if not protocol.is_team_name(team):
@@ -234,7 +251,25 @@ def _declared(item: dict[str, tuple[str, int]]) -> Declared:
         state = _scalar(rest, f"the state on line {index + 1}")
         if state not in teamfile.STATES:
             raise DeclareError(f"line {index + 1}: state must be one of {', '.join(teamfile.STATES)}")
-    return Declared(team, port, state)
+    server_name = team + teamfile.SERVER_NAME_SUFFIX
+    if "server_name" in item:
+        rest, index = item["server_name"]
+        server_name = _scalar(rest, f"the server_name on line {index + 1}")
+    return Declared(team, port, state, server_name, _first_listen(item),
+                    tuple((key, index) for key, (_, index) in item.items()), last_line)
+
+
+def _first_listen(item: dict[str, tuple[str, int]]) -> str | None:
+    """The first listen address when the list is written in flow style, as create writes it."""
+    if "listen" not in item:
+        return None
+    try:
+        value = json.loads(_scalar(item["listen"][0], "listen"))
+    except (DeclareError, json.JSONDecodeError):
+        return None
+    if isinstance(value, list) and value and isinstance(value[0], str):
+        return value[0]
+    return None
 
 
 # ---------------------------------------------------------------- the port
@@ -452,11 +487,135 @@ def next_steps(path: pathlib.Path, backup: pathlib.Path, team: str, port: int, a
         f"  2. Watch it in Element: add this item under agent_bus_element_teams in {path.name},\n"
         f"     {{team: {team}, base_url: \"http://{_url_host(address)}:{port}\"}}\n"
         "     and run playbooks/imports/optional/common/play-agent-bus-element.yml.\n"
-        f"  3. Sign in: in ccy-teams, Ctrl-E on {team} offers each human a new Element password,\n"
-        "     shown once.\n"
+        "  3. Sign in: in ccy-teams, choose your name under the team and press Enter. It sets a\n"
+        "     new Element password and shows it once, with the homeserver and username.\n"
         f"  4. Bring in agents: in a checkout of one of the team's repositories, run ccy --teams 1@{team}\n"
         "     (or Ctrl-N on the team in ccy-teams).\n"
     )
+
+
+# ---------------------------------------------------------------- a team's repositories
+
+
+INSTALL_STEP = (
+    "Nothing changes until play-agent-bus.yml runs: add playbooks/imports/play-agent-bus.yml to PLANS\n"
+    "in CLAUDE/Plan/meta-deploy.bash and run ./CLAUDE/Plan/meta-deploy.bash.\n"
+)
+
+
+@dataclass(frozen=True)
+class RepoBlock:
+    repos: tuple[tuple[str, str], ...]  # (OWNER/REPO, its branches comma-joined, or -)
+    insert_at: int
+    indent: int  # of each entry's "- "
+
+
+def _team(hv: HostVars, name: str) -> Declared:
+    for team in hv.teams:
+        if team.team == name:
+            return team
+    raise UsageError(f"--team: team {name} is not declared in {TEAMS_KEY}")
+
+
+def repo_block(hv: HostVars, name: str) -> RepoBlock:
+    """The team's repos list as written: a block list of `- repo:` / `branches:` mappings."""
+    team = _team(hv, name)
+    keys = dict(team.keys)
+    if "repos" not in keys:
+        raise DeclareError(f"team {name} has no repos")
+    line = keys["repos"]
+    m = _KEY_LINE_RE.fullmatch(hv.lines[line].rstrip("\r\n").lstrip(" "))
+    if m is None or _scalar(m["rest"], f"the repos on line {line + 1}"):
+        raise DeclareError(f"team {name}'s repos on line {line + 1} is written inline; ccy-teams adds only "
+                           "to a block list")
+    nested = []
+    for index in range(line + 1, team.last_line + 1):
+        bare = hv.lines[index].rstrip("\r\n")
+        if not bare.strip() or bare.lstrip().startswith("#"):
+            continue
+        if len(bare) - len(bare.lstrip(" ")) <= hv.key_indent:
+            break
+        nested.append(index)
+    if not nested:
+        raise DeclareError(f"team {name}'s repos on line {line + 1} is empty")
+    first = hv.lines[nested[0]].rstrip("\r\n")
+    indent = len(first) - len(first.lstrip(" "))
+    repos: list[list[str]] = []
+    for index in nested:
+        bare = hv.lines[index].rstrip("\r\n")
+        body = bare.lstrip(" ")
+        where = f"line {index + 1}"
+        if len(bare) - len(body) == indent and body.startswith("- "):
+            repos.append(["", "-"])
+            body = body[2:].lstrip(" ")
+        elif not repos:
+            raise DeclareError(f"{where}: team {name}'s repos is not a block list of mappings")
+        km = _KEY_LINE_RE.fullmatch(body)
+        if km is None:
+            raise DeclareError(f"{where}: team {name}'s repos entries must be repo: and branches: lines")
+        if km["key"] == "repo":
+            repos[-1][0] = _scalar(km["rest"], where)
+        elif km["key"] == "branches":
+            try:
+                branches = json.loads(_scalar(km["rest"], where))
+            except json.JSONDecodeError:
+                branches = None
+            if isinstance(branches, list) and all(isinstance(b, str) for b in branches):
+                repos[-1][1] = ",".join(branches)
+    if any(not repo for repo, _ in repos):
+        raise DeclareError(f"team {name}'s repos has an entry with no repo")
+    return RepoBlock(tuple((repo, branches) for repo, branches in repos), nested[-1] + 1, indent)
+
+
+def list_repos(args: argparse.Namespace, out: TextIO) -> int:
+    block = repo_block(parse(_read(pathlib.Path(args.file))), args.team)
+    out.writelines(f"REPO\t{repo}\t{branches}\n" for repo, branches in block.repos)
+    return EXIT_OK
+
+
+def add_repo(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
+    path = pathlib.Path(args.file)
+    hv = parse(_read(path))
+    if not args.repo:
+        raise UsageError("add-repo needs --repo OWNER/REPO=BRANCH[,BRANCH] (ccy-teams add-repo asks on a terminal)")
+    block = repo_block(hv, args.team)
+    known = {repo for repo, _ in block.repos}
+    added = [_parse_repo_flag(value) for value in args.repo]
+    for repo, _ in added:
+        if repo in known:
+            raise UsageError(f"--repo: {repo} is already listed for team {args.team}")
+        known.add(repo)
+    if len(known) > protocol.REPOS_MAX:
+        raise UsageError(f"--repo: a team lists at most {protocol.REPOS_MAX} repositories")
+    pad = " " * block.indent
+    lines = [line for repo, branches in added
+             for line in (f"{pad}- repo: {json.dumps(repo)}\n", f"{pad}  branches: {json.dumps(branches)}\n")]
+    if args.dry_run:
+        out.writelines(lines)
+        return EXIT_OK
+    old = list(hv.lines)
+    new = "".join(old[:block.insert_at] + lines + old[block.insert_at:])
+    after = parse(new)
+    if ([t.team for t in after.teams] != [t.team for t in hv.teams]
+            or [r for r, _ in repo_block(after, args.team).repos] != [*(r for r, _ in block.repos),
+                                                                      *(r for r, _ in added)]):
+        raise DeclareError("the edited file does not read back with the repositories added; nothing was written")
+    backup = write(path, new)
+    names = ", ".join(repo for repo, _ in added)
+    out.write(f"CHANGED\tteam {args.team}: {names} added, in {path}\n")
+    err.write(f"\n{names} added to team {args.team} in {path}.\nThe file as it was is kept at {backup}.\n\n"
+              f"Next: {INSTALL_STEP}")
+    return EXIT_OK
+
+
+def suggest_team(hv: HostVars, owner: str) -> str | None:
+    """The GitHub owner's name in the team-name grammar (a team works within one owner), or
+    None when nothing valid is left of it or a team has the name already."""
+    name = re.sub(r"[^a-z0-9-]+", "-", owner.lower())
+    name = re.sub(r"-+", "-", name).lstrip("-0123456789")[:24].rstrip("-")
+    if not name or field_error("team", name) or any(t.team == name for t in hv.teams):
+        return None
+    return name
 
 
 # ---------------------------------------------------------------- GitHub
@@ -511,8 +670,12 @@ def _read(path: pathlib.Path) -> str:
 
 
 def declared(args: argparse.Namespace, out: TextIO) -> int:
-    for team in parse(_read(pathlib.Path(args.file))).teams:
-        out.write(f"TEAM\t{team.team}\t{team.port if team.port is not None else '-'}\t{team.state}\n")
+    hv = parse(_read(pathlib.Path(args.file)))
+    for team in hv.teams:
+        host = team.listen or hv.address
+        url = f"http://{_url_host(host)}:{team.port}" if host and team.port is not None else "-"
+        out.write(f"TEAM\t{team.team}\t{team.port if team.port is not None else '-'}\t{team.state}"
+                  f"\t{team.server_name}\t{url}\n")
     return EXIT_OK
 
 
@@ -536,8 +699,19 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--dry-run", action="store_true", help="print the entry; write nothing")
         else:
             sub.add_argument("--owner", help="a GitHub owner (an org or a user)")
+    listed = commands.add_parser("repos", help="one REPO line per repository of a team")
+    listed.add_argument("--file", required=True)
+    listed.add_argument("--team", required=True)
+    more = commands.add_parser("add-repo", help="add repositories to a declared team")
+    more.add_argument("--file", required=True)
+    more.add_argument("--team", required=True)
+    more.add_argument("--repo", action="append", metavar="OWNER/REPO=BRANCH[,BRANCH]")
+    more.add_argument("--dry-run", action="store_true", help="print the lines; write nothing")
     repos = commands.add_parser("gh-repos", help="gh repo list's JSON (stdin) as REPO lines")
     repos.add_argument("--owner", required=True)
+    suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub owner's")
+    suggest.add_argument("--file", required=True)
+    suggest.add_argument("--owner", required=True)
     remote = commands.add_parser("github-remote", help="OWNER/REPO of a GitHub remote URL, or nothing")
     remote.add_argument("--url", required=True)
     return parser
@@ -553,12 +727,21 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
             return declared(args, out)
         if args.command == "check":
             return check(args)
+        if args.command == "repos":
+            return list_repos(args, out)
+        if args.command == "add-repo":
+            return add_repo(args, out, err)
         if args.command == "gh-repos":
             try:
                 data = json.load(sys.stdin if stdin is None else stdin)
             except json.JSONDecodeError:
                 raise DeclareError("gh repo list did not print JSON") from None
             out.writelines(f"{line}\n" for line in gh_repos(args.owner, data))
+            return EXIT_OK
+        if args.command == "suggest-team":
+            name = suggest_team(parse(_read(pathlib.Path(args.file))), args.owner)
+            if name:
+                out.write(f"{name}\n")
             return EXIT_OK
         if args.command == "github-remote":
             name = github_remote(args.url)

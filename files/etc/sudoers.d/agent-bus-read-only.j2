@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# Plan 00177: ccy-teams reads a team's members, and whether its people are signed in to
+# Element, without a password. Exactly two read-only agent-bus commands. Each is pinned by
+# an anchored regular expression (sudo 1.9.10 or later) to one argument shape, built from
+# the protocol's team and person name characters, so no option, extra argument or other
+# subcommand reaches the root wrapper. Neither prints a token or a password, and both run as
+# the agent-bus user. This grants no general root. The reasoning is in
+# CLAUDE/Plan/00177-ccy-teams-human-friendly/UX-REVIEW.md, "The sudo decision".
+{{ user_login }} ALL=(root) NOPASSWD: /usr/local/bin/agent-bus ^list [a-z][a-z0-9-]*$, \
+    /usr/local/bin/agent-bus ^human devices [a-z][a-z0-9-]* [a-z][a-z0-9_-]*$

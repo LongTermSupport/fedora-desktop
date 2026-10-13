@@ -104,10 +104,16 @@ EOF
 
 # fzf: answers from $TEST_ANSWERS, one line per call, "<key>|<choice>": <choice> is text the
 # chosen row contains (the first such row), YES, EXIT or ABORT. Every call's rows are kept.
+# With --ansi, as the real fzf does, the rows' colour is shown (kept in $TEST_FZF_RAW) and the
+# chosen row handed back without it.
 cat >"$BIN/fzf" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 rows="$(cat -)"
+printf '%s\n%s\n' "$*" "$rows" >>"$TEST_FZF_RAW"
+if [[ " $* " == *" --ansi "* ]]; then
+    rows="$(awk '{ gsub(/\033\[[0-9;]*m/, ""); print }' <<<"$rows")"
+fi
 printf '%s\n' "$rows" >>"$TEST_FZF_ROWS"
 n=$(($(cat "$TEST_STATE/fzf-calls") + 1))
 printf '%s\n' "$n" >"$TEST_STATE/fzf-calls"
@@ -141,18 +147,45 @@ is-active)
 esac
 EOF
 
-# sudo: -v succeeds; otherwise runs the named command's fake by its basename. TEST_SUDO_FAIL
-# makes every sudo fail as one with no cached credential does.
+# sudo: a credential is cached while $STATE/sudo-cached exists (reset makes it). Without one,
+# `sudo -n` refuses as the real one does, except for the two read-only commands when
+# TEST_SUDO_RULE stands for the sudoers rule; `sudo -v` takes the password and caches it,
+# unless TEST_SUDO_REFUSE stands for three wrong passwords or a Ctrl-C. Then it runs the
+# named command's fake by its basename.
 cat >"$BIN/sudo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'sudo %s\n' "$*" >>"$TEST_LOG"
-if [ -n "${TEST_SUDO_FAIL:-}" ]; then
-    echo "sudo: a password is required" >&2
+refuse() {
+    echo "sudo: $1" >&2
     exit 1
+}
+cached=no
+[ ! -e "$TEST_STATE/sudo-cached" ] || cached=yes
+if [ "$1" = "-v" ]; then
+    [ -z "${TEST_SUDO_REFUSE:-}" ] || refuse "3 incorrect password attempts"
+    touch "$TEST_STATE/sudo-cached"
+    exit 0
 fi
-[ "$1" = "-v" ] && exit 0
-[ "$1" = "-n" ] && shift
+if [ "$1" = "-n" ]; then
+    shift
+    if [ "$1" = "-v" ]; then
+        [ "$cached" = yes ] || refuse "a password is required"
+        exit 0
+    fi
+    if [ "$cached" = no ]; then
+        # The rule: the rendered sudoers template's own command paths and anchored regexes.
+        allowed=no
+        if [ -n "${TEST_SUDO_RULE:-}" ]; then
+            while IFS=$'\t' read -r path regex; do
+                if [ "$1" = "$path" ] && [[ "${*:2}" =~ $regex ]]; then allowed=yes; fi
+            done <"$TEST_STATE/sudo-rules"
+        fi
+        [ "$allowed" = yes ] || refuse "a password is required"
+    fi
+elif [ "$cached" = no ] && [ -n "${TEST_SUDO_REFUSE:-}" ]; then
+    refuse "3 incorrect password attempts"
+fi
 cmd="$(basename "$1")"
 shift
 exec "$cmd" "$@"
@@ -201,6 +234,15 @@ cat >"$BIN/gio" <<'EOF'
 #!/usr/bin/env bash
 printf 'gio %s\n' "$*" >>"$TEST_LOG"
 EOF
+cat >"$BIN/wl-copy" <<'EOF'
+#!/usr/bin/env bash
+printf 'wl-copy %s\n' "$*" >>"$TEST_LOG"
+if [ -n "${TEST_WLCOPY_FAIL:-}" ]; then
+    echo "wl-copy: failed to connect to a Wayland server" >&2
+    exit 1
+fi
+cat >"$TEST_STATE/clipboard"
+EOF
 cat >"$BIN/launcher" <<'EOF'
 #!/usr/bin/env bash
 printf 'launcher %s (in %s)\n' "$*" "$(basename "$PWD")" >>"$TEST_LOG"
@@ -231,7 +273,8 @@ chmod 755 "$BIN"/*
 
 # gum, in a directory of its own so a case can take it off PATH. Answers come from
 # $TEST_GUM_ANSWERS, one line per input, confirm or filter: ENTER (input: its --value;
-# filter: its --selected), =TEXT (input: TEXT), PICK A,B (filter), YES, NO, ESC (exit 1),
+# filter: its --selected), =TEXT (input: TEXT), PICK A,B (filter), ALL or NONE (choose: the
+# first or second option), YES, NO, ESC (exit 1),
 # CTRLC (exit 130). style prints its text; spin runs its command.
 GUMBIN="$SCRATCH/gumbin"
 mkdir -p "$GUMBIN"
@@ -241,6 +284,7 @@ set -euo pipefail
 sub="$1"
 shift
 printf 'gum %s %s\n' "$sub" "$*" >>"$TEST_LOG"
+env | awk '/^GUM_/' | sort >"$TEST_STATE/gum-env"
 next() {
     local n
     n=$(($(cat "$TEST_STATE/gum-calls") + 1))
@@ -266,13 +310,21 @@ spin) exec "$@" ;;
 filter) cat >"$TEST_STATE/filter-items" ;;
 esac
 case "$sub" in
-input | confirm | filter)
+input | confirm | filter | choose)
     answer="$(next)"
     case "$answer" in
     ENTER)
-        if [ "$sub" = filter ]; then printf '%s\n' "$selected"; else printf '%s\n' "$value"; fi ;;
+        if [ "$sub" != filter ]; then
+            printf '%s\n' "$value"
+        elif [ "$selected" = "*" ]; then
+            cat "$TEST_STATE/filter-items"
+        else
+            printf '%s\n' "$selected"
+        fi ;;
     =*) printf '%s\n' "${answer#=}" ;;
     "PICK "*) tr ',' '\n' <<<"${answer#PICK }" ;;
+    ALL) printf '%s\n' "${texts[0]}" ;;
+    NONE) printf '%s\n' "${texts[1]}" ;;
     YES) ;;
     NO | ESC) exit 1 ;;
     CTRLC) exit 130 ;;
@@ -281,6 +333,24 @@ input | confirm | filter)
 esac
 EOF
 chmod 755 "$GUMBIN/gum"
+
+# The sudoers rule play-agent-bus.yml installs, as "<command path><TAB><regex>" lines: the
+# fake sudo grants exactly these when TEST_SUDO_RULE is set, so the rule and the calls
+# ccy-teams makes cannot drift apart unnoticed.
+SUDOERS_TEMPLATE="$REPO_ROOT/files/etc/sudoers.d/agent-bus-read-only.j2"
+python3 - "$SUDOERS_TEMPLATE" "$STATE/sudo-rules" <<'PYEOF'
+import re
+import sys
+
+source, dest = sys.argv[1:3]
+text = open(source, encoding="utf-8").read().replace("\\\n", " ")
+rules = re.findall(r"(/\S+) (\^[^$]*\$)", text.split("NOPASSWD:", 1)[1])
+with open(dest, "w", encoding="utf-8") as handle:
+    handle.writelines(f"{path}\t{regex}\n" for path, regex in rules)
+PYEOF
+check "the sudoers template grants exactly two read-only commands" \
+    $'/usr/local/bin/agent-bus\t^list [a-z][a-z0-9-]*$\n/usr/local/bin/agent-bus\t^human devices [a-z][a-z0-9-]* [a-z][a-z0-9_-]*$' \
+    "$(cat "$STATE/sudo-rules")"
 
 # ── the machine: a host_vars file, one checkout with seats and a session ─────────────────
 HOME_DIR="$SCRATCH/home"
@@ -318,6 +388,8 @@ OUTSIDE="$SCRATCH/not-a-project"
 mkdir -p "$OUTSIDE"
 
 export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_FZF_ROWS="$SCRATCH/fzf-rows"
+export TEST_FZF_RAW="$SCRATCH/fzf-raw"
+unset NO_COLOR WAYLAND_DISPLAY
 export TEST_GUM_ANSWERS="$SCRATCH/gum-answers"
 PATH_WITHOUT_GUM="$BIN:$PATH"
 export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
@@ -334,7 +406,10 @@ source "$LIB_DIR/session-registry.bash"
 reset() {
     : >"$LOG"
     : >"$TEST_FZF_ROWS"
+    : >"$TEST_FZF_RAW"
     printf '0\n' >"$STATE/fzf-calls"
+    touch "$STATE/sudo-cached"
+    rm -f "$STATE/clipboard"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
     rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/seats/"*.unreadable
@@ -403,20 +478,54 @@ check_has "a ccy member whose checkout is not known is listed by handle, parked"
     "$(grep -E '^alpha +proj\.2\+local\.podman +ccy' <<<"$out")"
 check "  and seat 1's handle is not listed twice" "0" "$(grep -c 'proj\.1+local\.podman' <<<"$out")"
 check_has "the LXC member" "active" "$(grep -E '^alpha +proj\.box\+role\.lxc +lxc' <<<"$out")"
-check_has "the human" "join" "$(grep -E '^alpha +owner +human' <<<"$out")"
+human="$(grep -E '^alpha +owner +human' <<<"$out")"
+check_has "the person, in the room in words" "in room" "$human"
+check_has "  never signed in to Element (no device)" "never signed in" "$human"
+check_has "  and the key that gives them a password" "Enter: new password" "$human"
 extra="$(grep -E '^extra +- +team' <<<"$out")"
-check_has "a loaded homeserver not declared is listed, down" "down:inactive" "$extra"
-check_has "  with no port and no members" "port unknown (not declared), members unknown" "$extra"
+check_has "a loaded homeserver not declared is listed, down" "down (inactive)" "$extra"
+check_has "  with no port, and why there are no members" "port unknown (not declared), members: homeserver down" "$extra"
 check "a team declared absent is not listed" "0" "$(grep -c '^gone ' <<<"$out")"
-check "the members are read with sudo's cached credential only" "yes" \
+check "the members are read with sudo -n only" "yes" \
     "$(logged 'sudo -n /usr/local/bin/agent-bus list alpha')"
 check "  and never for a homeserver that is down" "no" "$(logged 'agent-bus list extra')"
+check "  --list never asks for a password" "no" "$(logged 'sudo -v')"
+check "piped, --list is plain text" "0" "$(grep -c $'\e' <<<"$out")"
 
 reset
-out="$(cd "$OUTSIDE" && TEST_SUDO_FAIL=1 "$TOOL" --list 2>"$SCRATCH/err")"
-check "--list with no cached sudo still exits 0" "0" "$?"
-check_has "  says why the members are left out" "members of alpha are left out" "$(cat "$SCRATCH/err")"
-check_has "  and the seat's state is unknown" "unknown" "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+printf 'DEVICE\tABC\t1\nDEVICE\tDEF\t2\n' >"$STATE/devices/owner"
+out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
+check_has "a person signed in on two devices says so" "2 signed in" "$(grep -E '^alpha +owner +human' <<<"$out")"
+
+reset
+printf 'agent-bus-hs@extra.service loaded inactive dead x\n' >"$STATE/units"
+out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
+alpha="$(grep -E '^alpha +- +team' <<<"$out")"
+check_has "a team declared but with no homeserver unit is not installed" "not installed" "$alpha"
+check_has "  and the row says what installs it" "play-agent-bus.yml" "$alpha"
+check "  no members are asked for" "no" "$(logged 'agent-bus list alpha')"
+
+reset
+out="$(cd "$OUTSIDE" && script -qec "$(printf '%q ' "$TOOL" --list)" /dev/null </dev/null 2>&1 | tr -d '\r')"
+check_has "on a terminal, --list is in colour" $'\e[32m' "$out"
+out="$(cd "$OUTSIDE" && NO_COLOR=1 script -qec "$(printf '%q ' "$TOOL" --list)" /dev/null </dev/null 2>&1 | tr -d '\r')"
+check "  but not with NO_COLOR" "0" "$(grep -c $'\e' <<<"$out")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
+check "--list with no sudo credential prints the table, but exits 1: part of it is unread" "1" "$?"
+check_has "  says why the members are not shown" "members of alpha are not shown" "$(cat "$SCRATCH/err")"
+check_has "  and the two ways to show them" "play-agent-bus.yml" "$(cat "$SCRATCH/err")"
+check_has "  the seat's state is need sudo" "need sudo" "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+check_has "  and so is the team row's" "members: need sudo" "$(grep -E '^alpha +- +team' <<<"$out")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(cd "$OUTSIDE" && TEST_SUDO_RULE=1 "$TOOL" --list 2>"$SCRATCH/err")"
+check_has "with the sudoers rule and no credential, the members are read" "active" \
+    "$(grep -E '^alpha +1 +ccy' <<<"$out")"
+check_lacks "  with nothing said about sudo" "sudo" "$(cat "$SCRATCH/err")"
 
 reset
 printf 'SEAT\talpha\t3\tfree\t-\tproj.3+local.podman\n' >"$STATE/seats/proj"
@@ -461,7 +570,40 @@ check_has "  and points at --list" "--list" "$(cat "$SCRATCH/err")"
 reset
 out="$(run_picker "$OUTSIDE" "|ABORT")"
 check "Esc leaves, exit 0" "rc=0" "$(rc_of "$out")"
-check "it asks for sudo first" "yes" "$(logged 'sudo -v')"
+check "with a cached credential it asks no password" "no" "$(logged 'sudo -v')"
+check_has "the rows carry colour, through fzf --ansi" $'\e[32m' "$(cat "$TEST_FZF_RAW")"
+reset
+out="$(NO_COLOR=1 run_picker "$OUTSIDE" "|ABORT")"
+check "  but not with NO_COLOR" "0" "$(grep -c $'\e' "$TEST_FZF_RAW")"
+
+echo "== sudo"
+reset
+rm -f "$STATE/sudo-cached"
+out="$(run_picker "$OUTSIDE" "|ABORT")"
+check "no credential: sudo asks, once the reason is given" "yes" "$(logged 'sudo -v')"
+check_has "  the reason comes first" "done as root" "$out"
+check_has "  with what installs the rule that removes the need" "play-agent-bus.yml" "$out"
+check "  and with the password, the picker shows the members" "rc=0" "$(rc_of "$out")"
+check_has "    seat 1 active" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|ABORT")"
+check "sudo refused (three wrong passwords, or Ctrl-C): exit non-zero" "rc=1" "$(rc_of "$out")"
+check_has "  saying sudo was not given the password" "sudo was not given your password" "$out"
+check_has "  and what that costs" "members cannot be shown" "$out"
+check_lacks "  never 'no teams'" "No agent teams" "$out"
+check "  and no picker is shown" "0" "$(cat "$STATE/fzf-calls")"
+
+reset
+rm -f "$STATE/sudo-cached"
+out="$(TEST_SUDO_RULE=1 run_picker "$OUTSIDE" "|ABORT")"
+check "the sudoers rule installed: no password is asked" "no" "$(logged 'sudo -v')"
+check_has "  and the members are shown" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
+check_has "  and whether the person is signed in, through the rule's second command" "never signed in" \
+    "$(grep -E '^alpha +owner +human' "$TEST_FZF_ROWS")"
+check "  which ccy-teams called as the rule names it" "yes" \
+    "$(logged 'sudo -n /usr/local/bin/agent-bus human devices alpha owner')"
 
 reset
 out="$(run_picker "$OUTSIDE" "|ccy-proj")"
@@ -551,6 +693,66 @@ out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|YES")"
 check "  yes sets one, through sudo agent-bus" "yes" "$(logged 'sudo -n /usr/local/bin/agent-bus human password alpha owner')"
 check_has "  printed once, here" "a-new-password" "$out"
 
+echo "== a person's password"
+reset
+out="$(run_picker "$OUTSIDE" "|owner" "|YES" "|ABORT")"
+check "Enter on a person sets a new Element password, after a yes" "yes" \
+    "$(logged 'agent-bus human password alpha owner')"
+check_has "  the yes says their other sessions are signed out" "other Element sessions are signed out" \
+    "$(cat "$TEST_FZF_RAW")"
+check_has "  the login shows the homeserver" "http://192.0.2.10:6167" "$out"
+check_has "  the username" "Username" "$out"
+check_has "  the Matrix ID" "@owner:alpha.agent-bus.internal" "$out"
+check_has "  and the password" "a-new-password" "$out"
+check "  then back to the list" "rc=0" "$(rc_of "$out")"
+reset
+out="$(run_picker "$OUTSIDE" "|owner" "|EXIT" "|ABORT")"
+check "  no sets none" "no" "$(logged 'human password')"
+reset
+out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|YES" "|ABORT")"
+check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
+    "$(cat "$STATE/clipboard" 2>&1)"
+check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
+reset
+out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|YES" "|ABORT")"
+check_has "a failed wl-copy says the password is not on the clipboard" "not on the clipboard" "$out"
+check_lacks "  and never that it is" "The password is on the clipboard." "$out"
+reset
+rm -f "$STATE/sudo-cached"
+out="$(TEST_SUDO_RULE=1 TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|owner" "|YES" "|ABORT")"
+check "a password needs sudo; refused, none is set" "no" "$(logged 'agent-bus human password')"
+check_has "  saying so" "No password was set for owner." "$out"
+reset
+out="$(run_picker "$OUTSIDE" "ctrl-p|ccy-proj" "|ABORT")"
+check_has "Ctrl-P on another row says where the people are" "KIND human" "$out"
+
+echo "== help and repositories"
+reset
+out="$(run_picker "$OUTSIDE" "?|port 6167" "|ABORT")"
+check_has "? shows every key, explained" "Ctrl-A" "$out"
+check_has "  and the status words" "need sudo" "$out"
+reset
+out="$(run_picker "$OUTSIDE" "|port 6167" "|ABORT")"
+check_has "Enter on a team shows the same help" "Colours:" "$out"
+
+reset
+cp "$HOST_VARS" "$SCRATCH/repo.yml"
+printf '%s\n' ENTER ALL 'PICK example-org/other' YES >"$TEST_GUM_ANSWERS"
+printf '0\n' >"$STATE/gum-calls"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/repo.yml" run_picker "$OUTSIDE" "ctrl-a|port 6167" "|ABORT")"
+check_has "Ctrl-A adds a repository to the row's team" 'repo: "example-org/other"' "$(cat "$SCRATCH/repo.yml")"
+check_has "  with its default branch" 'branches: ["trunk"]' "$(cat "$SCRATCH/repo.yml")"
+check_lacks "  not offering one listed already" "example-org/proj" "$(cat "$STATE/filter-items")"
+check_has "  and says what installs it" "meta-deploy" "$out"
+reset
+cp "$HOST_VARS" "$SCRATCH/repo.yml"
+CCY_TEAMS_HOST_VARS="$SCRATCH/repo.yml" "$TOOL" add-repo alpha --repo example-org/two=main --yes \
+    >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "add-repo with --repo and --yes asks nothing" "0" "$?"
+check_has "  and adds it" 'repo: "example-org/two"' "$(cat "$SCRATCH/repo.yml")"
+"$TOOL" add-repo </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "add-repo needs a team" "64" "$?"
+
 # ── backup, restore, create ──────────────────────────────────────────────────────────────
 echo "== backup and restore"
 reset
@@ -621,32 +823,44 @@ check "  asking for no sudo, as there is nothing to read" "no" "$(logged 'sudo')
 check "  asking with gum, default no" "yes" "$(logged 'gum confirm --default=false Create one now?')"
 
 fresh_no_teams
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES)")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ALL ENTER ENTER YES)")"
 check "yes runs create there and then; every default accepted with Enter" "rc=0" "$(rc_of "$out")"
 written="$(cat "$NO_TEAMS")"
-check_has "  the team is named after this checkout's repository" "- team: proj" "$written"
+check_has "  the team is named after the GitHub owner, never the repository" "- team: example-org" "$written"
 check_has "  you are its human: your login name" 'humans: ["owner"]' "$written"
-check_has "  this checkout's repository, pre-selected" 'repo: "example-org/proj"' "$written"
-check_has "  with its default branch, from gh, never asked" 'branches: ["main"]' "$written"
+check_has "  every repository of the owner, all ticked to start with" 'repo: "example-org/proj"' "$written"
+check_has "    the other one too" 'repo: "example-org/other"' "$written"
+check_has "  each with its default branch, from gh, never asked" 'branches: ["trunk"]' "$written"
 check_has "  and no other machine" 'allow_from: []' "$written"
-check "  four questions and two yeses: name, people, owner, repositories, subnets" "7" "$(cat "$STATE/gum-calls")"
-check "  the login name is offered as the default" "yes" "$(logged 'gum input --header People in the team room')"
-check_has "    as the value Enter accepts" "--value owner" "$(grep -F 'gum input --header People' "$LOG")"
-check_has "  the people prompt says the installer creates the accounts" "installer creates the accounts" \
-    "$(grep -F 'gum input --header People' "$LOG")"
-check_has "  the owner defaults to this checkout's remote, lower-cased" "--value example-org" \
-    "$(grep -F 'gum input --header GitHub owner' "$LOG")"
+check "  owner, name, people, how to start the list, repositories, subnets, and two yeses" "8" "$(cat "$STATE/gum-calls")"
+inputs="$(grep -F 'gum input' "$LOG")"
+check_has "  the owner is asked first" "--header GitHub owner" "$(awk 'NR == 1' <<<"$inputs")"
+check_has "    defaulting to this checkout's remote, lower-cased" "--value example-org" "$(awk 'NR == 1' <<<"$inputs")"
+check_has "  then the name, defaulting to the owner's" "--value example-org" "$(grep -F -- '--header Team name' <<<"$inputs")"
+check_has "  the login name is offered as the people's default" "--value owner" "$(grep -F -- '--header People' <<<"$inputs")"
+check_has "  each explanation is printed, wrapped, before its question" "installer creates the accounts" \
+    "$(grep -F 'gum style --foreground 252 --width' "$LOG")"
+check "  and every header is one short line" "0" \
+    "$(grep -E 'gum (input|filter)' "$LOG" | grep -cE -- '--header [^-]{70,}')"
 check "  which gh looked up" "yes" "$(logged 'gh api users/example-org')"
-check_has "  the repositories question says what the list is for" "send each other to" \
-    "$(grep -F 'gum filter' "$LOG")"
+check_has "  the repositories explanation says what the list is for" "send each other to" \
+    "$(grep -F 'gum style' "$LOG")"
+check_has "  the person chooses how the list starts" "All repos ticked (untick the ones you don't want)" \
+    "$(grep -F 'gum choose' "$LOG")"
+check_has "    or" "No repos ticked (tick the ones you want)" "$(grep -F 'gum choose' "$LOG")"
+check_has "  all ticked starts the list all ticked" "--selected *" "$(grep -F 'gum filter' "$LOG")"
+check_has "  its header names the keys" "Tab unticks" "$(grep -F 'gum filter' "$LOG")"
 items="$(cat "$STATE/filter-items")"
 check_has "  the owner's repositories are offered, lower-cased" "example-org/other" "$items"
 check_lacks "  but not an archived one" "example-org/old" "$items"
 check_lacks "  nor one with no commits" "example-org/fresh" "$items"
 check_has "  which is named as left out" "example-org/fresh" "$out"
 check_has "  the summary says other branches travel by pull request" "pull requests" "$out"
-check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams 1@proj" "$out"
+check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams 1@example-org" "$out"
 check_has "  and name the play that installs it" "play-agent-bus.yml" "$out"
+check_has "  gum's greys are replaced, through its environment" "GUM_INPUT_HEADER_FOREGROUND=255" \
+    "$(cat "$STATE/gum-env")"
+check_lacks "  no 240-range grey for anything read" "=24" "$(grep -v 'UNSELECTED_BACKGROUND' "$STATE/gum-env")"
 
 echo "== create, on a terminal"
 # Each case starts from a copy of the host_vars, alpha declared.
@@ -657,12 +871,14 @@ fresh_wiz() {
 }
 before="$(cat "$HOST_VARS")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=Bad_Name' '=beta' ENTER '=nope' \
-    '=Example-Org' 'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=nope' '=Example-Org' '=Bad_Name' '=beta' ENTER \
+    NONE 'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
 check "a bad name, then a good one; an unknown owner, then a known one" "rc=0" "$(rc_of "$out")"
 check_has "  the bad name is explained, and asked again" "Try again" "$out"
 check_has "  the unknown owner is explained" "no user or organisation called 'nope'" "$out"
 written="$(cat "$WIZ")"
+check_lacks "  none ticked starts the list with nothing ticked" "--selected" "$(grep -F 'gum filter' "$LOG")"
+check_has "    and its header says Tab ticks" "Tab ticks" "$(grep -F 'gum filter' "$LOG")"
 check_has "  both repositories chosen are written, each with its own default branch" \
     'repo: "example-org/other"' "$written"
 check_has "    trunk for the one whose default is trunk" 'branches: ["trunk"]' "$written"
@@ -679,7 +895,7 @@ check "Ctrl-C at a question, the same" "rc=130" "$(rc_of "$out")"
 check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=gamma' ENTER ENTER ENTER ENTER NO)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER '=gamma' ENTER ALL ENTER ENTER NO)" create)"
 check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"

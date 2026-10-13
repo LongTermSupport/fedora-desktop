@@ -788,13 +788,14 @@
     # play, not only of play-tmux-sessions.yml (which runs later in playbook-main.yml and
     # owns the configuration). Installing it here too keeps a standalone run of this play
     # on a fresh host working; the package task is idempotent.
-    - name: Install tmux, fzf and gum (ccy runs every session inside tmux; the pickers use fzf; ccy-teams asks its questions with gum)
+    - name: Install tmux, fzf, gum and wl-clipboard (ccy runs every session inside tmux; the pickers use fzf; ccy-teams asks with gum and copies with wl-copy)
       become: true
       ansible.builtin.package:
         name:
           - tmux
           - fzf
           - gum
+          - wl-clipboard
         state: present
 
     - name: Ensure the User Bin Directory Exists

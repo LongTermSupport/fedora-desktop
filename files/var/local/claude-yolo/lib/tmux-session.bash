@@ -763,7 +763,9 @@ ccy_tmux_pick() {
     fi
     local rows out
     rows=$(cat -)
-    out=$(printf '%s\n%s\n' "${rows%$'\n'}" "$CCY_TMUX_EXIT_ROW" | fzf --height=~70% --layout=reverse --no-multi --no-sort --no-info \
+    # --ansi: a row or the header may carry colour; fzf hands the chosen row back as plain
+    # text, so a caller matches it against its rows without their colour.
+    out=$(printf '%s\n%s\n' "${rows%$'\n'}" "$CCY_TMUX_EXIT_ROW" | fzf --ansi --height=~70% --layout=reverse --no-multi --no-sort --no-info \
         --border=rounded --border-label=" $1 " --border-label-pos=3 \
         --margin=1,2 --padding=1,2 --header-first --pointer='▶' \
         --prompt="filter > " --header="$2"$'\n' --bind='q:abort' "${opts[@]}") || return $?

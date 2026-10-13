@@ -22,10 +22,13 @@ to teams what `ccy-sessions` is to ccy sessions. It has no team logic of its own
 shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described below.
 
 1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
-   asks a few questions. The first is the team's name. Next come the people in its room:
-   you, by default, and the installer creates the accounts. Then it asks for the GitHub
-   owner the team works within, and lets you choose which of its repositories the agents
-   may send each other to. Each repository's default branch comes from GitHub; work on
+   asks a few questions. A team works within one GitHub owner (an organisation or user),
+   so that comes first, then the team's name, which defaults to the owner's. Next come
+   the people in its room: you, by default, and the installer creates the accounts. Then
+   it lists the owner's repositories, starting all ticked (untick the ones you don't want)
+   or none ticked (tick the ones you want), as you choose: these are the repositories the
+   agents may send each other to. Each
+   repository's default branch comes from GitHub; work on
    other branches reaches the agents through pull requests, which need no listing. Last,
    subnets of other machines, empty unless LXC containers or other machines will run
    agents. It shows the entry and asks before adding it to `agent_bus_teams` in your
@@ -33,11 +36,14 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    the team listens on the bus address (`agent_bus_address`, which must be set). The team
    exists once `play-agent-bus.yml` has run, and `create` ends by listing the next steps.
    The questions need `gum` and a logged-in `gh`; `--team`, `--human`, `--repo` and
-   `--yes` ask nothing.
+   `--yes` ask nothing. `ccy-teams add-repo <team>` (or Ctrl-A on the team) adds
+   repositories later in the same way, and `play-agent-bus.yml` applies them.
 2. **Watch it in Element.** Add `{team: <team>, base_url: http://<bus_ip>:<port>}` to
-   `agent_bus_element_teams` and run `play-agent-bus-element.yml`. Ctrl-E on the team in
-   `ccy-teams` opens it, and first offers a new password to a human with no session yet
-   (printed once; [The human's account](#the-humans-account)).
+   `agent_bus_element_teams` and run `play-agent-bus-element.yml`. In `ccy-teams`, Enter
+   (or Ctrl-P) on your name under the team sets a new Element password. It shows it once,
+   with the homeserver and username, and offers it to the clipboard; your other Element
+   sessions are signed out ([The human's account](#the-humans-account)). Ctrl-E opens the
+   team in Element.
 3. **Add ccy sessions.** `ccy --teams <seat>@<team>` launches a session into a seat,
    creating the seat the first time (with sudo). Ctrl-N in `ccy-teams` does this in the
    current project, in a free seat or a new one ([seats](#a-ccy-session-seats)).
@@ -57,11 +63,17 @@ shows and does comes from `agent-bus`, `agent-bus-install` and `ccy`, described 
    `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
    after a yes/no ([Backups](#backups-are-the-root-of-trust)).
 
-`ccy-teams` lists each team (its homeserver up or down, and its port), then its members:
-ccy seats with the session holding each and whether it is restored after a reboot, LXC
-and other members, active or parked, and the humans. Enter attaches a seat's session,
-Ctrl-N starts one, Ctrl-R toggles its restore, Ctrl-X removes a seat or parks a member
-(after a yes/no), and Ctrl-E opens Element. `ccy-teams --list` prints the same table.
+`ccy-teams` lists each team (its homeserver up, down or not installed yet, and its port),
+then its members. They are ccy seats, each with the session holding it and whether it is
+restored after a reboot; LXC and other members, active or parked; and the people, in the
+room or not and how many Element sessions they are signed in with. Enter attaches a seat's
+session, or sets a person's password. Ctrl-N starts a session, Ctrl-A adds repositories,
+Ctrl-R toggles a restore, Ctrl-X removes a seat or parks a member (after a yes/no), Ctrl-E
+opens Element, and `?` explains every key. Status words are in colour on a terminal, but
+not with `NO_COLOR`. `ccy-teams --list` prints the same table, plain when piped. Reading
+the members needs root: `play-agent-bus.yml` installs a sudoers rule for exactly the two
+read-only `agent-bus` commands involved, so no password is asked. Until it has run, the
+picker says why before sudo asks.
 
 Underneath, three commands do the work, and `ccy-teams` calls them:
 
