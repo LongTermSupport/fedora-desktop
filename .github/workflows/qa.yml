@@ -42,6 +42,12 @@ jobs:
         with:
           node-version: "20"
 
+      # The Go version is src-go/go.mod's own; golangci-lint is installed at the pin below.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src-go/go.mod
+
       # Every QA tool is pinned from the single source of truth (.qa-versions),
       # the same file the host playbook and the CCY image read. A gate's verdict
       # is a property of the binary that produced it, so an unpinned tool means
@@ -63,6 +69,16 @@ jobs:
             "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"
           tar -xJf /tmp/shellcheck.tar.xz -C /tmp
           sudo install -m 0755 "/tmp/shellcheck-v${SHELLCHECK}/shellcheck" /usr/local/bin/shellcheck
+          # golangci-lint: the archive is verified against the release's own checksums
+          # file before it is unpacked.
+          GL="golangci-lint-${GOLANGCI_LINT}-linux-amd64.tar.gz"
+          GL_URL="https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT}"
+          mkdir -p /tmp/golangci-lint
+          curl -fsSL -o "/tmp/golangci-lint/${GL}" "${GL_URL}/${GL}"
+          curl -fsSL -o /tmp/golangci-lint/checksums.txt "${GL_URL}/golangci-lint-${GOLANGCI_LINT}-checksums.txt"
+          (cd /tmp/golangci-lint && grep " ${GL}\$" checksums.txt | sha256sum -c -)
+          tar -xzf "/tmp/golangci-lint/${GL}" -C /tmp/golangci-lint
+          sudo install -m 0755 "/tmp/golangci-lint/golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint
           # Asserts the whole toolchain at once, so CI fails on a drifted pin
           # here rather than reporting a verdict nobody else can reproduce.
           ./scripts/qa-toolchain.bash

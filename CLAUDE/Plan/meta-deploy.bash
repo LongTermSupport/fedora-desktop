@@ -52,6 +52,9 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
+    # Go QA tooling: gcc for go test -race, golangci-lint at the .qa-versions pin with
+    # checksum verification; qa-toolchain.bash and the go gate need it (Plan 00191)
+    playbooks/imports/optional/common/play-golang.yml
     # ccy-teams from the owner's first host run: a checkout no team covers is offered a team,
     # "repositories you list (one or more)", Element started apart from the terminal with
     # its output logged, copy-the-password defaults to yes, the terminal's own colours with

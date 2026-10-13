@@ -19,6 +19,7 @@
 #                              the task/vars file by basename (one level), plus the ansible
 #                              fail-fast pattern gate (qa-ansible.bash, whole: it is fast)
 #   markdown, playbooks yml    the docs gate (qa-docs.bash, whole: it is fast)
+#   src-go/ (any file)         the interim Go gate (qa-go.bash, whole: it is fast)
 #   js/mjs                     node --check; extensions/ files also get the project's eslint
 #   any non-markdown file      every scripts/test-*.bash suite (and hard gate script) that
 #                              qa-all.bash runs and whose text names it by path or basename,
@@ -133,6 +134,7 @@ NOTES=()
 SKIPPED=()
 NEED_DOCS=0
 NEED_ANSIBLE_PATTERNS=0
+NEED_GO=0
 declare -A COVERED=()
 
 ALL_PLAYBOOKS=()
@@ -219,6 +221,12 @@ for rel in "${CHANGED[@]}"; do
             fi
             continue
             ;;
+        src-go/*)
+            # Go files, go.mod and the lint config: the interim qa-go.bash gate runs whole.
+            NEED_GO=1
+            COVERED[$rel]=1
+            continue
+            ;;
         *.j2)
             # A template is not valid shell or Python until rendered; qa-all does not lint it
             # either, so only a suite that names it can cover it.
@@ -282,7 +290,7 @@ uniq_array UNIT_MODULES
 # --- suites ---------------------------------------------------------------------------------
 # Population: exactly the test-*/qa-* scripts qa-all.bash invokes by name, minus the gates that
 # are run per file above or that inspect the host.
-PER_FILE_GATES=" qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery "
+PER_FILE_GATES=" qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery "
 SUITES=()
 while IFS= read -r name; do
     [[ "$PER_FILE_GATES" == *" ${name%.bash} "* ]] && continue
@@ -376,6 +384,7 @@ print_plan() {
     [[ ${#PLAYBOOKS[@]} -gt 0 ]] && echo "check ansible-syntax: ${PLAYBOOKS[*]}"
     [[ $NEED_ANSIBLE_PATTERNS -eq 1 ]] && echo "check ansible-patterns"
     [[ $NEED_DOCS -eq 1 ]] && echo "check docs"
+    [[ $NEED_GO -eq 1 ]] && echo "check go"
     [[ ${#JS_FILES[@]} -gt 0 ]] && echo "check node-check: ${JS_FILES[*]}"
     [[ ${#ESLINT_FILES[@]} -gt 0 ]] && echo "check eslint: ${ESLINT_FILES[*]}"
     local i
@@ -539,6 +548,9 @@ if [[ $NEED_ANSIBLE_PATTERNS -eq 1 ]]; then
 fi
 if [[ $NEED_DOCS -eq 1 ]]; then
     run_check docs "whole gate" env QA_JSON_OUT="$(gate_json)" bash "$SCRIPT_DIR/qa-docs.bash"
+fi
+if [[ $NEED_GO -eq 1 ]]; then
+    run_check go "whole gate (interim qa-go.bash)" bash "$SCRIPT_DIR/qa-go.bash"
 fi
 if [[ ${#JS_FILES[@]} -gt 0 ]]; then
     run_check node-check "${#JS_FILES[@]} file(s)" node_check

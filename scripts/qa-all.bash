@@ -108,6 +108,17 @@ fi
 toolchain_summary=$(qa_gate_detail "$toolchain_out" 'TOOLCHAIN-OK .+')
 qa_pass_line toolchain "$toolchain_summary"
 
+# src-go/: format, vet, race tests and golangci-lint, whole. A missing go or golangci-lint
+# fails THIS gate (qa-go.bash exits 2) rather than aborting the run, like the toolchain gate.
+go_out=""
+if ! go_out="$(bash "$SCRIPT_DIR/qa-go.bash" 2>&1)"; then
+    qa_hard_gate_failed go \
+        "Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)" \
+        "$go_out"
+fi
+go_summary=$(qa_gate_detail "$go_out" 'GO-OK [0-9]+ package[(]s[)]')
+qa_pass_line go "$go_summary"
+
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
 # Exit code 2 = missing required tool — refuse to run entirely
 rc=0
