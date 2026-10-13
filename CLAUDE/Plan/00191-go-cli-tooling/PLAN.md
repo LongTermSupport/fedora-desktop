@@ -51,24 +51,27 @@ today; rewriting them is out of scope.
 
 ### Phase 1: Toolchain and skeleton
 
-- [ ] 🔄 **Task 1.1**: Go 1.26.9 and golangci-lint 2.14.0 in the ccy image
+- [x] ✅ **Task 1.1**: Go 1.26.9 and golangci-lint 2.14.0 in the ccy image
   (`.claude/ccy/Dockerfile`, `.qa-versions` GOLANGCI_LINT), checksum-verified; installed in
   the running container now (golangci-lint under `untracked/tools/bin` until the image is
   rebuilt).
-- [ ] ⬜ **Task 1.2**: Host and CI: `play-claude-yolo.yml` installs `golang` and
-  golangci-lint (from `.qa-versions`); `scripts/qa-toolchain.bash` asserts both;
-  `.github/workflows/qa.yml` installs them.
-- [ ] ⬜ **Task 1.3**: `src-go/` skeleton: `go.mod`, `.golangci.yml` (strict), `cmd/`,
+- [ ] 🔄 **Task 1.2**: Host and CI: `play-golang.yml` installs `golang`, gcc and
+  golangci-lint (from `.qa-versions`), and `play-claude-yolo.yml` depends on it rather than
+  repeating it; `scripts/qa-toolchain.bash` asserts both; `.github/workflows/qa.yml`
+  installs them.
+- [ ] 🔄 **Task 1.3**: `src-go/` skeleton: `go.mod`, `.golangci.yml` (strict), `cmd/`,
   `internal/` (execx runner + recording fake, prompter interface + gum/fzf implementation +
   fake, paths, version), one trivial tool proving build, test and lint.
-- [ ] ⬜ **Task 1.4**: `scripts/qa-go.bash`: gofmt, vet, golangci-lint, test -race with a
+- [ ] 🔄 **Task 1.4**: `scripts/qa-go.bash`: gofmt, vet, golangci-lint, test -race with a
   coverage floor, govulncheck when available; wired into `qa-all.bash` and
-  `qa-changed.bash` (any `src-go/` change).
+  `qa-changed.bash` (any `src-go/` change). Interim, until Task 3.3 puts go-qa-ci in its
+  place.
 
 ### Phase 2: ccy-teams in Go
 
-- [ ] 🔄 **Task 2.1**: The functional spec of the bash ccy-teams (research, in this folder).
-- [ ] ⬜ **Task 2.2**: Domain and adapters: teams/members/seats/humans/statuses; the
+- [x] ✅ **Task 2.1**: The functional spec of the bash ccy-teams:
+  [SPEC-ccy-teams.md](SPEC-ccy-teams.md).
+- [ ] 🔄 **Task 2.2**: Domain and adapters: teams/members/seats/humans/statuses; the
   declare.py, agent-bus, systemd, sessions-registry, Element, gh adapters; each unit tested.
 - [ ] ⬜ **Task 2.3**: Flows: list, picker and keys, create wizard, apply, remove, password,
   Element, new session, attach, restore, park; start-up offers.
@@ -80,10 +83,17 @@ today; rewriting them is out of scope.
 
 ### Phase 3: go-qa-ci
 
-- [ ] 🔄 **Task 3.1**: Brief from rust-qa-ci, ts-qa-ci and php-qa-ci (research).
-- [ ] ⬜ **Task 3.2**: Create `LongTermSupport/go-qa-ci` and build it by milestones,
-  self-hosted.
+- [x] ✅ **Task 3.1**: Brief from rust-qa-ci, ts-qa-ci and php-qa-ci, and the Defence
+  Before Fix toolchain spec read from its first-party repository:
+  [RESEARCH-go-qa-ci.md](RESEARCH-go-qa-ci.md).
+- [ ] 🔄 **Task 3.2**: Create `LongTermSupport/go-qa-ci` (created private; the owner makes it
+  public after review) and build it by milestones, self-hosted. It is a generic DBF toolchain
+  for Go: it names no consumer.
 - [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned.
+- [ ] ⬜ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]`: per-package
+  engines on the affected packages only, repo-wide defences always, and a change to
+  `go.mod`, `.golangci.yml` or `qa/` widens it to everything. This repository's
+  `qa-changed.bash` calls it.
 
 ### Phase 4: ccy-sessions, then ccy
 
