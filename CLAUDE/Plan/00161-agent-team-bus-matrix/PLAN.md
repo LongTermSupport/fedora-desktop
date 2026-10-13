@@ -283,8 +283,8 @@ repository; opt-in per machine and per team.
     `helpers/agent_bus/declare.py` (reads and adds `agent_bus_teams` entries),
     `ccy_registry_set_restore` (Ctrl-R; CCY 3.94.0), `agent-bus-install backups`;
     `scripts/test-ccy-teams-command.bash`, `test_declare.py`; "Getting started" in
-    `docs/agent-bus.md`. Host run pending: `play-claude-yolo.yml` (the command and the
-    library) and `play-agent-bus.yml` (the installer), then `ccy-teams` on a real team.
+    `docs/agent-bus.md`. Deployed 26-10-13 (`play-claude-yolo.yml`, `play-agent-bus.yml`).
+    Pending: the owner's first use of `ccy-teams` on a real team.
   - [ ] 🔄 U22.lxc: the owner's existing LXC containers join a team by IaC (owner,
     2026-10-12). Built: `agent_bus_lxc_members` (`localhost.yml.dist`), applied by
     `play-agent-bus.yml` through `helpers/agent_bus_lxc/members.py` (README.lxc's steps;
@@ -303,10 +303,10 @@ repository; opt-in per machine and per team.
   - [ ] 🔄 Agent-to-agent free text (owner, 2026-10-12; DESIGN.md D63, reverses D13):
     `pingbus say --to` takes agent handles, a named agent gets a `PEER` line (a peer's
     information, no authority), pings unchanged; `allow_room_creation = false` keeps the
-    team room the only one. Built; acceptance M1.4 added. Host run 26-10-13: M1.4 PASS,
-    `play-agent-bus.yml` PASS, acceptance REJECTED at M2.1 because the project's ccy image
-    kept the old pingbus (ccy rebuilt it only on a base version-label change; fixed in CCY
-    3.94.1, journal 26-10-13). Pending: `deploy.bash` and `acceptance.bash` again.
+    team room the only one. Built; acceptance M1.4 added. Host run ACCEPTED 26-10-13 (second
+    run; the first was REJECTED at M2.1 by a stale project ccy image, fixed in CCY 3.94.1,
+    journal 26-10-13). Pending: a host check that room creation is refused (no acceptance
+    check covers it; journal 26-10-12).
 
 ## Success Criteria
 
