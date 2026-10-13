@@ -41,15 +41,16 @@ offer to create a team when there is none; think about the UX; do a full critica
 
 ### Phase 1: Critical UX review
 
-- [ ] ⬜ **Task 1.1**: A full critical pass over `ccy-teams` (every verb, key, prompt, message
+- [x] ✅ **Task 1.1**: A full critical pass over `ccy-teams` (every verb, key, prompt, message
   and failure path; first run, no teams, sudo refused or cancelled, no TTY, a team with no
   members). Write the findings into `UX-REVIEW.md` in this folder, each with its fix.
 
 ### Phase 2: Build
 
-- [ ] ⬜ **Task 2.1**: Fix every finding from Task 1.1, with tests in
+- [ ] 🔄 **Task 2.1**: Fix every finding from Task 1.1, with tests in
   `scripts/test-ccy-teams-command.bash`. Update `docs/agent-bus.md` "Getting started" where
-  the flow changes.
+  the flow changes. Owner's order: the no-teams offer and the new create flow first (F3-F6,
+  F9, F15, F21-F23: done); then sudo, the humans and their passwords, colour and the rest.
 - [ ] ⬜ **Task 2.2**: The `qa-reviewer` agent on the branch; fix its findings.
 
 ### Phase 3: Host

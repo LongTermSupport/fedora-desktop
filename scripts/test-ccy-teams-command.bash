@@ -205,7 +205,82 @@ cat >"$BIN/launcher" <<'EOF'
 #!/usr/bin/env bash
 printf 'launcher %s (in %s)\n' "$*" "$(basename "$PWD")" >>"$TEST_LOG"
 EOF
+# id: the desktop login is "owner".
+cat >"$BIN/id" <<'EOF'
+#!/usr/bin/env bash
+[ "$*" = "-un" ] && { echo owner; exit 0; }
+exec /usr/bin/id "$@"
+EOF
+
+# gh: logged in unless TEST_GH_NOAUTH; example-org is the one owner GitHub has; its
+# repositories are $STATE/gh-repos.json.
+cat >"$BIN/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'gh %s\n' "$*" >>"$TEST_LOG"
+case "$1 ${2:-}" in
+"auth status")
+    if [ -n "${TEST_GH_NOAUTH:-}" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi ;;
+"api users/example-org") ;;
+"api "*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+"repo list") cat "$TEST_STATE/gh-repos.json" ;;
+*) echo "fake gh: unexpected call: $*" >&2; exit 97 ;;
+esac
+EOF
 chmod 755 "$BIN"/*
+
+# gum, in a directory of its own so a case can take it off PATH. Answers come from
+# $TEST_GUM_ANSWERS, one line per input, confirm or filter: ENTER (input: its --value;
+# filter: its --selected), =TEXT (input: TEXT), PICK A,B (filter), YES, NO, ESC (exit 1),
+# CTRLC (exit 130). style prints its text; spin runs its command.
+GUMBIN="$SCRATCH/gumbin"
+mkdir -p "$GUMBIN"
+cat >"$GUMBIN/gum" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+sub="$1"
+shift
+printf 'gum %s %s\n' "$sub" "$*" >>"$TEST_LOG"
+next() {
+    local n
+    n=$(($(cat "$TEST_STATE/gum-calls") + 1))
+    printf '%s\n' "$n" >"$TEST_STATE/gum-calls"
+    awk -v n="$n" 'NR == n' "$TEST_GUM_ANSWERS"
+}
+value="" selected=""
+texts=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --) shift; break ;;
+    --value) value="$2"; shift ;;
+    --selected) selected="$2"; shift ;;
+    --header | --placeholder | --title | --border | --padding | --width) shift ;;
+    --*) ;;
+    *) texts+=("$1") ;;
+    esac
+    shift
+done
+case "$sub" in
+style) printf '%s\n' "${texts[@]}" ;;
+spin) exec "$@" ;;
+filter) cat >"$TEST_STATE/filter-items" ;;
+esac
+case "$sub" in
+input | confirm | filter)
+    answer="$(next)"
+    case "$answer" in
+    ENTER)
+        if [ "$sub" = filter ]; then printf '%s\n' "$selected"; else printf '%s\n' "$value"; fi ;;
+    =*) printf '%s\n' "${answer#=}" ;;
+    "PICK "*) tr ',' '\n' <<<"${answer#PICK }" ;;
+    YES) ;;
+    NO | ESC) exit 1 ;;
+    CTRLC) exit 130 ;;
+    *) echo "fake gum: no answer queued for $sub" >&2; exit 2 ;;
+    esac ;;
+esac
+EOF
+chmod 755 "$GUMBIN/gum"
 
 # ── the machine: a host_vars file, one checkout with seats and a session ─────────────────
 HOME_DIR="$SCRATCH/home"
@@ -232,11 +307,20 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES
 CHECKOUT="$SCRATCH/proj"
 mkdir -p "$CHECKOUT/.claude/ccy/pingbus/seats"
 git -C "$CHECKOUT" init -q
+git -C "$CHECKOUT" remote add origin git@github.com:Example-Org/proj.git
+cat >"$STATE/gh-repos.json" <<'EOF'
+[{"name": "proj", "defaultBranchRef": {"name": "main"}, "isArchived": false},
+ {"name": "Other", "defaultBranchRef": {"name": "trunk"}, "isArchived": false},
+ {"name": "old", "defaultBranchRef": {"name": "main"}, "isArchived": true},
+ {"name": "fresh", "defaultBranchRef": null, "isArchived": false}]
+EOF
 OUTSIDE="$SCRATCH/not-a-project"
 mkdir -p "$OUTSIDE"
 
 export TEST_LOG="$LOG" TEST_STATE="$STATE" TEST_ANSWERS="$SCRATCH/answers" TEST_FZF_ROWS="$SCRATCH/fzf-rows"
-export PATH="$BIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
+export TEST_GUM_ANSWERS="$SCRATCH/gum-answers"
+PATH_WITHOUT_GUM="$BIN:$PATH"
+export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
 
 # shellcheck source=/dev/null
@@ -508,6 +592,106 @@ check_has "  saying so on stdout, on a port neither declared nor listening" $'CH
 check_has "  and that play-agent-bus.yml must run" "play-agent-bus.yml" "$(cat "$SCRATCH/err")"
 check "  in the host_vars" "1" "$(grep -c '^  - team: beta$' "$SCRATCH/create.yml")"
 check "  listening on the bus address" "2" "$(grep -c 'listen: \["192.0.2.10"\]' "$SCRATCH/create.yml")"
+
+# run_in <dir> <gum answers (one string, lines)> <words...> — ccy-teams with those words in
+# <dir>, under a terminal, its gum answered from the queue; the output ends "rc=<status>".
+run_in() {
+    local dir="$1"
+    printf '%s\n' "$2" >"$TEST_GUM_ANSWERS"
+    shift 2
+    printf '0\n' >"$STATE/gum-calls"
+    printf '0\n' >"$STATE/fzf-calls"
+    (cd "$dir" && timeout 30 script -qec "$(printf '%q ' "$TOOL" "$@")" /dev/null </dev/null 2>&1
+        echo "rc=$?") | tr -d '\r'
+}
+NO_TEAMS="$SCRATCH/no-teams.yml"
+fresh_no_teams() {
+    reset
+    : >"$STATE/units"
+    printf 'agent_bus_address: 192.0.2.10\n' >"$NO_TEAMS"
+}
+
+echo "== no teams"
+fresh_no_teams
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "NO")"
+check "no teams: the picker offers to create one, and no leaves with exit 0" "rc=0" "$(rc_of "$out")"
+check_has "  saying there are none" "No agent teams on this machine yet" "$out"
+check_has "  and how to create one later" "ccy-teams create" "$out"
+check "  asking for no sudo, as there is nothing to read" "no" "$(logged 'sudo')"
+check "  asking with gum, default no" "yes" "$(logged 'gum confirm --default=false Create one now?')"
+
+fresh_no_teams
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES)")"
+check "yes runs create there and then; every default accepted with Enter" "rc=0" "$(rc_of "$out")"
+written="$(cat "$NO_TEAMS")"
+check_has "  the team is named after this checkout's repository" "- team: proj" "$written"
+check_has "  you are its human: your login name" 'humans: ["owner"]' "$written"
+check_has "  this checkout's repository, pre-selected" 'repo: "example-org/proj"' "$written"
+check_has "  with its default branch, from gh, never asked" 'branches: ["main"]' "$written"
+check_has "  and no other machine" 'allow_from: []' "$written"
+check "  four questions and two yeses: name, people, owner, repositories, subnets" "7" "$(cat "$STATE/gum-calls")"
+check "  the login name is offered as the default" "yes" "$(logged 'gum input --header People in the team room')"
+check_has "    as the value Enter accepts" "--value owner" "$(grep -F 'gum input --header People' "$LOG")"
+check_has "  the people prompt says the installer creates the accounts" "installer creates the accounts" \
+    "$(grep -F 'gum input --header People' "$LOG")"
+check_has "  the owner defaults to this checkout's remote, lower-cased" "--value example-org" \
+    "$(grep -F 'gum input --header GitHub owner' "$LOG")"
+check "  which gh looked up" "yes" "$(logged 'gh api users/example-org')"
+check_has "  the repositories question says what the list is for" "send each other to" \
+    "$(grep -F 'gum filter' "$LOG")"
+items="$(cat "$STATE/filter-items")"
+check_has "  the owner's repositories are offered, lower-cased" "example-org/other" "$items"
+check_lacks "  but not an archived one" "example-org/old" "$items"
+check_lacks "  nor one with no commits" "example-org/fresh" "$items"
+check_has "  which is named as left out" "example-org/fresh" "$out"
+check_has "  the summary says other branches travel by pull request" "pull requests" "$out"
+check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams 1@proj" "$out"
+check_has "  and name the play that installs it" "play-agent-bus.yml" "$out"
+
+echo "== create, on a terminal"
+# Each case starts from a copy of the host_vars, alpha declared.
+WIZ="$SCRATCH/wiz.yml"
+fresh_wiz() {
+    reset
+    cp "$HOST_VARS" "$WIZ"
+}
+before="$(cat "$HOST_VARS")"
+fresh_wiz
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=Bad_Name' '=beta' ENTER '=nope' \
+    '=Example-Org' 'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
+check "a bad name, then a good one; an unknown owner, then a known one" "rc=0" "$(rc_of "$out")"
+check_has "  the bad name is explained, and asked again" "Try again" "$out"
+check_has "  the unknown owner is explained" "no user or organisation called 'nope'" "$out"
+written="$(cat "$WIZ")"
+check_has "  both repositories chosen are written, each with its own default branch" \
+    'repo: "example-org/other"' "$written"
+check_has "    trunk for the one whose default is trunk" 'branches: ["trunk"]' "$written"
+check_has "  the subnet is written" 'allow_from: ["198.51.100.0/24"]' "$written"
+
+fresh_wiz
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER ESC)" create)"
+check "Esc at a question leaves with 130" "rc=130" "$(rc_of "$out")"
+check_has "  in one line" "Cancelled; nothing was changed." "$out"
+check "  and writes nothing" "$before" "$(cat "$WIZ")"
+fresh_wiz
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER CTRLC)" create)"
+check "Ctrl-C at a question, the same" "rc=130" "$(rc_of "$out")"
+check_lacks "  with no traceback" "Traceback" "$out"
+check "  and writes nothing" "$before" "$(cat "$WIZ")"
+fresh_wiz
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=gamma' ENTER ENTER ENTER ENTER NO)" create)"
+check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
+check_has "  saying so" "Nothing was added." "$out"
+check "  the file is as it was" "$before" "$(cat "$WIZ")"
+
+fresh_wiz
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" TEST_GH_NOAUTH=1 run_in "$CHECKOUT" "" create)"
+check "gh not logged in: create stops before asking" "rc=1" "$(rc_of "$out")"
+check_has "  and says to run gh auth login" "gh auth login" "$out"
+fresh_wiz
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" PATH="$PATH_WITHOUT_GUM" run_in "$CHECKOUT" "" create)"
+check "gum missing: create stops" "rc=1" "$(rc_of "$out")"
+check_has "  naming the play that installs it" "play-claude-yolo.yml" "$out"
 
 echo
 echo "passed: $passed  failed: $failed"

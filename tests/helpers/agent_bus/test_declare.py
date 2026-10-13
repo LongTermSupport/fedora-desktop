@@ -14,6 +14,7 @@ refusals, the port choice, the validation (the team file's own) and the write.
 from __future__ import annotations
 
 import io
+import json
 import os
 import pathlib
 import stat
@@ -217,21 +218,12 @@ class WriteTest(unittest.TestCase):
                              sorted(["localhost.yml", backup.name]))
 
 
-class Answers:
-    """A queue of answers for the prompts; None is end of input."""
-
-    def __init__(self, *answers: str | None) -> None:
-        self.answers = list(answers)
-        self.prompts: list[str] = []
-
-    def __call__(self, prompt: str) -> str | None:
-        self.prompts.append(prompt)
-        if not self.answers:
-            raise AssertionError(f"no answer queued for {prompt!r}")
-        return self.answers.pop(0)
-
-
 class CreateTest(unittest.TestCase):
+    """create takes every value as a flag and prompts for nothing: ccy-teams asks the
+    questions (with gum) and calls it with the answers."""
+
+    FLAGS = ("--team", "beta", "--human", "owner", "--repo", "example-org/two=main,dev")
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -240,74 +232,156 @@ class CreateTest(unittest.TestCase):
         self.stdout = io.StringIO()
         self.stderr = io.StringIO()
 
-    def run_create(self, argv: list[str], answers: Answers, *, listening: str = "") -> int:
-        return declare.main(["create", "--file", str(self.path), *argv], ask=answers,
+    def run_create(self, argv: list[str] | tuple[str, ...], *, listening: str = "") -> int:
+        return declare.main(["create", "--file", str(self.path), *argv],
                             ss_output=lambda: listening, stdout=self.stdout, stderr=self.stderr)
 
-    def test_prompts_validate_and_write(self) -> None:
-        answers = Answers("Bad_Name", "beta", "owner", "example-org/two", "main,dev", "",
-                          "", "y")
-        code = self.run_create([], answers, listening="LISTEN 0 1 *:6168 *:*\n")
+    def test_flags_write_the_entry(self) -> None:
+        code = self.run_create(self.FLAGS, listening="LISTEN 0 1 *:6168 *:*\n")
         self.assertEqual(code, 0, self.stderr.getvalue())
         teams = declare.parse(self.path.read_text(encoding="utf-8")).teams
         # 6167 is alpha's, 6168 has a listener: the next one is chosen.
         self.assertEqual([(t.team, t.port) for t in teams][-1], ("beta", 6169))
-        self.assertIn("team", self.stderr.getvalue())  # the bad name was explained
-        self.assertEqual(len([p for p in answers.prompts if p.startswith("Team name")]), 2)
-        self.assertEqual(self.stdout.getvalue(),
-                         f"CHANGED\tteam beta, port 6169, in {self.path}\n")
-        self.assertIn("play-agent-bus.yml", self.stderr.getvalue())
-        self.assertIn("meta-deploy", self.stderr.getvalue())
+        self.assertEqual(self.stdout.getvalue(), f"CHANGED\tteam beta, port 6169, in {self.path}\n")
 
-    def test_a_team_already_declared_is_asked_again(self) -> None:
-        answers = Answers("alpha", "beta", "owner", "example-org/two", "main", "", "", "y")
-        self.assertEqual(self.run_create([], answers), 0, self.stderr.getvalue())
-        self.assertIn("already declared", self.stderr.getvalue())
+    def test_the_next_steps_are_numbered_and_name_each_action(self) -> None:
+        self.assertEqual(self.run_create(self.FLAGS), 0, self.stderr.getvalue())
+        said = self.stderr.getvalue()
+        for text in ("1.", "play-agent-bus.yml", "meta-deploy", "2.", "agent_bus_element_teams",
+                     "http://192.0.2.10:6168", "3.", "password", "4.", "ccy --teams 1@beta"):
+            self.assertIn(text, said)
 
-    def test_no_writes_without_a_yes(self) -> None:
-        answers = Answers("beta", "owner", "example-org/two", "main", "", "", "")
-        self.assertEqual(self.run_create([], answers), 1)
-        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
-        self.assertEqual(self.stdout.getvalue(), "")
-
-    def test_end_of_input_cancels(self) -> None:
-        self.assertEqual(self.run_create([], Answers("beta", None)), 1)
-        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
-        self.assertIn("No changes", self.stderr.getvalue())
-
-    def test_three_wrong_answers_give_up(self) -> None:
-        self.assertEqual(self.run_create([], Answers("A", "B", "C")), 1)
-        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
-
-    def test_flags_need_no_prompt(self) -> None:
-        code = self.run_create(["--team", "beta", "--human", "owner", "--repo", "example-org/two=main",
-                                "--allow-from", "198.51.100.0/24", "--yes"], Answers())
+    def test_allow_from(self) -> None:
+        code = self.run_create([*self.FLAGS, "--allow-from", "198.51.100.0/24"])
         self.assertEqual(code, 0, self.stderr.getvalue())
         self.assertIn('allow_from: ["198.51.100.0/24"]', self.path.read_text(encoding="utf-8"))
 
-    def test_a_bad_flag_is_a_usage_error(self) -> None:
-        code = self.run_create(["--team", "Bad_Name", "--human", "owner", "--repo", "example-org/two=main",
-                                "--yes"], Answers())
-        self.assertEqual(code, 64)
-        code = self.run_create(["--team", "beta", "--human", "owner", "--repo", "example-org/two",
-                                "--yes"], Answers())
-        self.assertEqual(code, 64)
+    def test_dry_run_prints_the_entry_and_writes_nothing(self) -> None:
+        self.assertEqual(self.run_create([*self.FLAGS, "--dry-run"]), 0, self.stderr.getvalue())
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+        self.assertIn("  - team: beta\n", self.stdout.getvalue())
+        self.assertIn('branches: ["main", "dev"]', self.stdout.getvalue())
+        self.assertNotIn("CHANGED", self.stdout.getvalue())
+
+    def test_every_value_is_required(self) -> None:
+        for missing in ("--team", "--human", "--repo"):
+            flags = list(self.FLAGS)
+            at = flags.index(missing)
+            del flags[at:at + 2]
+            self.assertEqual(self.run_create(flags), 64, missing)
         self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
 
-    def test_no_bus_address_is_refused_before_any_prompt(self) -> None:
-        self.path.write_text("user_login: someone\n", encoding="utf-8")
-        self.assertEqual(self.run_create([], Answers()), 78)
-        self.assertIn("agent_bus_address", self.stderr.getvalue())
+    def test_a_bad_flag_is_a_usage_error(self) -> None:
+        self.assertEqual(self.run_create(["--team", "Bad_Name", *self.FLAGS[2:]]), 64)
+        self.assertEqual(self.run_create(["--team", "alpha", *self.FLAGS[2:]]), 64)
+        self.assertIn("already declared", self.stderr.getvalue())
+        self.assertEqual(self.run_create([*self.FLAGS[:4], "--repo", "example-org/two"]), 64)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
 
-    def test_an_unexpected_shape_is_refused_before_any_prompt(self) -> None:
+    def test_no_bus_address_is_refused_and_explained(self) -> None:
+        self.path.write_text("user_login: someone\n", encoding="utf-8")
+        self.assertEqual(self.run_create(self.FLAGS), 78)
+        said = self.stderr.getvalue()
+        self.assertIn("agent_bus_address", said)
+        self.assertIn("192.0.2.", said)  # an example, from the documentation range
+        self.assertIn("listen", said)
+
+    def test_an_unexpected_shape_is_refused(self) -> None:
         self.path.write_text("agent_bus_address: 192.0.2.10\nagent_bus_teams: []\n", encoding="utf-8")
-        self.assertEqual(self.run_create([], Answers()), 78)
+        self.assertEqual(self.run_create(self.FLAGS), 78)
 
     def test_the_file_is_never_printed(self) -> None:
-        answers = Answers("beta", "owner", "example-org/two", "main", "", "", "y")
-        self.run_create([], answers)
+        self.run_create(self.FLAGS)
         self.assertNotIn("ANSIBLE_VAULT", self.stdout.getvalue() + self.stderr.getvalue())
         self.assertNotIn("someone", self.stdout.getvalue() + self.stderr.getvalue())
+
+    def test_ctrl_c_is_one_line_exit_130_and_no_write(self) -> None:
+        def interrupted() -> str:
+            raise KeyboardInterrupt
+        code = declare.main(["create", "--file", str(self.path), *self.FLAGS],
+                            ss_output=interrupted, stdout=self.stdout, stderr=self.stderr)
+        self.assertEqual(code, 130)
+        self.assertEqual(self.stderr.getvalue(), "Cancelled; nothing was changed.\n")
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+
+
+class CheckTest(unittest.TestCase):
+    """check validates what it is given, one field or several, for ccy-teams' re-prompts."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = pathlib.Path(self.tmp.name) / "localhost.yml"
+        self.path.write_text(WITH_TEAMS, encoding="utf-8")
+
+    def check(self, *argv: str) -> tuple[int, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = declare.main(["check", "--file", str(self.path), *argv], stdout=stdout, stderr=stderr)
+        self.assertEqual(stdout.getvalue(), "")
+        return code, stderr.getvalue()
+
+    def test_good_values_pass_silently(self) -> None:
+        self.assertEqual(self.check("--team", "beta"), (0, ""))
+        self.assertEqual(self.check("--human", "owner", "--human", "second"), (0, ""))
+        self.assertEqual(self.check("--allow-from", "198.51.100.0/24"), (0, ""))
+        self.assertEqual(self.check("--owner", "example-org"), (0, ""))
+        self.assertEqual(self.check("--repo", "example-org/two=main"), (0, ""))
+
+    def test_each_bad_value_is_named(self) -> None:
+        for flag, value, said in (("--team", "Bad_Name", "--team"), ("--team", "alpha", "already declared"),
+                                  ("--human", "Not.Valid", "--human"),
+                                  ("--allow-from", "198.51.100.1/24", "--allow-from"),
+                                  ("--owner", "-bad", "--owner"), ("--repo", "example-org/two", "--repo")):
+            code, err = self.check(flag, value)
+            self.assertEqual(code, 64, value)
+            self.assertIn(said, err)
+
+
+class GhReposTest(unittest.TestCase):
+    """gh-repos turns `gh repo list --json name,defaultBranchRef,isArchived` into lines."""
+
+    def gh_repos(self, data: object) -> tuple[int, str, str]:
+        stdin, stdout, stderr = io.StringIO(json.dumps(data)), io.StringIO(), io.StringIO()
+        code = declare.main(["gh-repos", "--owner", "Example-Org"], stdin=stdin, stdout=stdout, stderr=stderr)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_lines_lower_cased_archived_skipped_empty_marked(self) -> None:
+        code, out, _ = self.gh_repos([
+            {"name": "Two", "defaultBranchRef": {"name": "main"}, "isArchived": False},
+            {"name": "old", "defaultBranchRef": {"name": "master"}, "isArchived": True},
+            {"name": "empty", "defaultBranchRef": None, "isArchived": False},
+            {"name": "blank", "defaultBranchRef": {"name": ""}, "isArchived": False},
+            {"name": "one", "defaultBranchRef": {"name": "trunk"}, "isArchived": False},
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "COUNT\t5\n"
+                              "REPO\texample-org/one\ttrunk\n"
+                              "REPO\texample-org/two\tmain\n"
+                              "EMPTY\texample-org/blank\n"
+                              "EMPTY\texample-org/empty\n")
+
+    def test_not_the_expected_json_is_refused(self) -> None:
+        code, out, err = self.gh_repos({"message": "Not Found"})
+        self.assertEqual(code, 78)
+        self.assertEqual(out, "")
+        self.assertIn("gh repo list", err)
+
+
+class GithubRemoteTest(unittest.TestCase):
+    def remote(self, url: str) -> str:
+        stdout = io.StringIO()
+        self.assertEqual(declare.main(["github-remote", "--url", url], stdout=stdout, stderr=io.StringIO()), 0)
+        return stdout.getvalue()
+
+    def test_the_forms_github_remotes_take(self) -> None:
+        for url in ("git@github.com:Example-Org/Two.git", "https://github.com/example-org/two",
+                    "https://github.com/example-org/two.git", "ssh://git@github.com/example-org/two.git",
+                    "git@github.com-work:example-org/two.git"):
+            self.assertEqual(self.remote(url), "example-org/two\n", url)
+
+    def test_anything_else_prints_nothing(self) -> None:
+        for url in ("https://gitlab.example.com/example-org/two.git", "/srv/git/two", ""):
+            self.assertEqual(self.remote(url), "", url)
 
 
 class DeclaredTest(unittest.TestCase):
