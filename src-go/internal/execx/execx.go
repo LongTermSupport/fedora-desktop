@@ -112,6 +112,9 @@ type rule struct {
 	prefix []string
 	result Result
 	err    error // when set, the command fails to start with this error
+	// fn, when set, answers each matching command itself, so a script can change its answer
+	// from one call to the next.
+	fn func(Cmd) (Result, error)
 }
 
 // Fake is a scripted, recording Runner for tests. Safe for concurrent use.
@@ -131,6 +134,16 @@ func (f *Fake) On(prefix []string, r Result) {
 	f.rules = append(f.rules, rule{prefix: prefix, result: r})
 }
 
+// OnFunc answers every command whose argv starts with prefix by calling fn, which sees the
+// command and may answer differently each time. An error from fn is the command failing to
+// start; a Result with a non-zero ExitCode is a command that ran and refused. fn runs with the
+// Fake locked, so it must not call back into it.
+func (f *Fake) OnFunc(prefix []string, fn func(Cmd) (Result, error)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rules = append(f.rules, rule{prefix: prefix, fn: fn})
+}
+
 // Run implements Runner.
 func (f *Fake) Run(_ context.Context, c Cmd) (Result, error) {
 	f.mu.Lock()
@@ -138,29 +151,40 @@ func (f *Fake) Run(_ context.Context, c Cmd) (Result, error) {
 	f.calls = append(f.calls, c)
 	argv := c.argv()
 	for _, r := range slices.Backward(f.rules) {
-		if !hasPrefix(argv, r.prefix) {
-			continue
+		if hasPrefix(argv, r.prefix) {
+			return r.answer(c)
 		}
-		if r.err != nil {
-			return Result{}, r.err
-		}
-		res := r.result
-		if c.Stdout != nil {
-			if _, err := c.Stdout.Write(res.Stdout); err != nil {
-				return res, fmt.Errorf("fake stdout: %w", err)
-			}
-		}
-		if c.Stderr != nil {
-			if _, err := c.Stderr.Write(res.Stderr); err != nil {
-				return res, fmt.Errorf("fake stderr: %w", err)
-			}
-		}
-		if res.ExitCode != 0 {
-			return res, &ExitError{Name: c.Name, Code: res.ExitCode, Stderr: string(res.Stderr)}
-		}
-		return res, nil
 	}
 	return Result{}, fmt.Errorf("%w: %s", ErrUnexpected, c.Line())
+}
+
+// answer is the rule's reply to a command it matched: the output streamed to the command's own
+// writers, and a non-zero exit as an ExitError.
+func (r rule) answer(c Cmd) (Result, error) {
+	if r.err != nil {
+		return Result{}, r.err
+	}
+	res := r.result
+	if r.fn != nil {
+		var err error
+		if res, err = r.fn(c); err != nil {
+			return Result{}, err
+		}
+	}
+	if c.Stdout != nil {
+		if _, err := c.Stdout.Write(res.Stdout); err != nil {
+			return res, fmt.Errorf("fake stdout: %w", err)
+		}
+	}
+	if c.Stderr != nil {
+		if _, err := c.Stderr.Write(res.Stderr); err != nil {
+			return res, fmt.Errorf("fake stderr: %w", err)
+		}
+	}
+	if res.ExitCode != 0 {
+		return res, &ExitError{Name: c.Name, Code: res.ExitCode, Stderr: string(res.Stderr)}
+	}
+	return res, nil
 }
 
 // Calls is every command run so far, in order.

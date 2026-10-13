@@ -18,6 +18,23 @@ const ExitRow = "Exit"
 const pickerColours = "16,fg:-1,bg:-1,fg+:-1:bold,bg+:-1,hl:3,hl+:3:bold,gutter:-1,pointer:3," +
 	"marker:3,prompt:3,spinner:3,info:-1,header:-1,border:-1,label:3:bold"
 
+// fzf's exit statuses that mean the person left: 1 is Enter with nothing matching, 130 is Esc,
+// Ctrl-C or q. Any other status (2 is an error) is a failure, never a leave.
+const (
+	fzfNoMatch     = 1
+	fzfInterrupted = 130
+)
+
+// fzfMissingError is fzf not being installed, with the bash library's sentence verbatim.
+type fzfMissingError struct{}
+
+func (fzfMissingError) Error() string {
+	return "fzf is not installed; playbooks/imports/play-claude-yolo.yml installs it."
+}
+
+// ErrFzfMissing is fzf not being installed. It is a failure, not the person leaving.
+var ErrFzfMissing error = fzfMissingError{}
+
 // errNoRow is fzf printing a key line with no row under it.
 var errNoRow = errors.New("fzf: no row after the key line")
 
@@ -85,8 +102,11 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 		Name: "fzf", Args: args, Stdin: strings.NewReader(rows), Stderr: p.Stderr,
 	})
 	if err != nil {
-		if exitCode(err) > 0 {
+		switch code := exitCode(err); {
+		case code == fzfNoMatch, code == fzfInterrupted:
 			return Picked{}, ErrLeave
+		case execx.IsNotInstalled(err):
+			return Picked{}, ErrFzfMissing
 		}
 		return Picked{}, fmt.Errorf("fzf: %w", err)
 	}

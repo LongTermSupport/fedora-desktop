@@ -27,9 +27,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOOL="$REPO_ROOT/files/home/.local/bin/ccy-sessions"
 LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
+# CCY_SESSIONS_IMPL=go (Plan 00191) tests the Go port instead. There is no tool source text to
+# scan then, so the targets are read from the library and from tmuxccy's one pane-target
+# function, and the built binary is run against the same real server.
+IMPL="${CCY_SESSIONS_IMPL:-bash}"
 SOURCES=("$TOOL" "$LIB_DIR/tmux-session.bash")
+if [ "$IMPL" = go ]; then
+    SOURCES=("$LIB_DIR/tmux-session.bash")
+    TOOL="$REPO_ROOT/src-go/internal/tmuxccy/panes.go"
+fi
 
-for f in "${SOURCES[@]}" "$LIB_DIR/common-pure.bash"; do
+for f in "${SOURCES[@]}" "$LIB_DIR/common-pure.bash" "$TOOL"; do
     if [ ! -f "$f" ]; then
         echo "FAIL: $f does not exist" >&2
         exit 1
@@ -67,12 +75,17 @@ source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/tmux-session.bash"
 # A label of its own as well as a directory of its own: either alone keeps this suite off
-# every real server.
+# every real server. The Go binary cannot be pointed at another label, so in Go mode the
+# server is the one it uses (ccy), alone in this private directory.
 CCY_TMUX_SOCKET="ccy-target-test-$$"
+if [ "$IMPL" = go ]; then
+    CCY_TMUX_SOCKET=ccy
+    BUILD_DIR="$(mktemp -d)"
+fi
 
 cleanup() {
     tmux -L "$CCY_TMUX_SOCKET" kill-server 2>/dev/null
-    rm -rf "$SOCK_DIR"
+    rm -rf "$SOCK_DIR" "${BUILD_DIR:-}"
 }
 trap cleanup EXIT
 
@@ -174,6 +187,13 @@ for call in "${calls[@]}"; do
     esac
     check "$where: $sub -t $template reaches the session (real tmux)" "0" "$rc${out:+ ($out)}"
 done
+if [ "$IMPL" = go ]; then
+    # capture-pane, send-keys and kill-session are issued by the Go port only, and every pane
+    # target it builds comes from one function; its form is read from there.
+    if grep -qF 'return "=" + name + ":"' "$TOOL"; then
+        pane_template="=${D}name:"
+    fi
+fi
 have_calls=no
 if [ "${#calls[@]}" -gt 0 ]; then
     have_calls=yes
@@ -210,12 +230,81 @@ if [ -n "$pane_template" ]; then
         else
             out="$(ccy_tmux send-keys -t "$bare" -l x 2>&1)" || rc=$?
         fi
+        # tmux's refusal is the expected output, so it is shown only when the answer was not one.
         refused=no
         if [ "$rc" -ne 0 ] && [[ "$out" == *"can't find pane"* ]]; then
             refused=yes
+        elif [ -n "$out" ]; then
+            refused="no ($out)"
         fi
-        check "$sub -t $bare (no colon) is refused: can't find pane" "yes" "$refused${out:+ ($out)}"
+        check "$sub -t $bare (no colon) is refused: can't find pane" "yes" "$refused"
     done
+fi
+
+if [ "$IMPL" = go ]; then
+    echo ""
+    echo "== the Go binary, on this real server"
+    TOOL="$BUILD_DIR/ccy-sessions"
+    check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
+    HOME_GO="$SOCK_DIR/home"
+    STATE_GO="$SOCK_DIR/state"
+    mkdir -p "$HOME_GO"
+    printf 'target-test-boot\n' >"$SOCK_DIR/boot_id"
+    go_tool() {
+        HOME="$HOME_GO" CCY_LIB="$LIB_DIR" CCY_STATE_DIR="$STATE_GO" CCY_BOOT_ID_FILE="$SOCK_DIR/boot_id" \
+            CCY_CPU_SAMPLE_SECONDS=0 CCY_SESSIONS_SUBMIT_DELAY=0.1 "$TOOL" "$@" </dev/null
+    }
+    listed="$(go_tool --list 2>/dev/null)"
+    check "--list shows the session, detached, as the real server reports it" "$NAME detached" \
+        "$(awk -v n="$NAME" '$1 == n { print $1, $2 }' <<<"$listed")"
+
+    # A second session whose pane draws Claude's empty input box and then echoes what it is typed.
+    rule="$(printf '─%.0s' $(seq 1 20))"
+    ccy_tmux new-session -d -s "$NAME-go" -c "$WORK" -x 80 -y 24 \
+        bash -c "printf '%s\n❯ \n%s\n' '$rule' '$rule'; exec cat"
+    drawn=no
+    for _ in $(seq 50); do
+        if [[ "$(ccy_tmux capture-pane -p -t "=$NAME-go:")" == *"❯"* ]]; then
+            drawn=yes
+            break
+        fi
+        sleep 0.1
+    done
+    check "the prompt session drew its input box" "yes" "$drawn"
+    conv="$(
+        # shellcheck source=/dev/null
+        source "$LIB_DIR/session-registry.bash"
+        ccy_transcript_dir cc "$WORK" "$HOME_GO/.claude"
+    )/conversation.jsonl"
+    mkdir -p "$(dirname "$conv")"
+    printf '%s\n' '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":98}}}' >"$conv"
+    (
+        # shellcheck source=/dev/null
+        source "$LIB_DIR/session-registry.bash"
+        CCY_STATE_DIR="$STATE_GO" CCY_BOOT_ID_FILE="$SOCK_DIR/boot_id" ccy_restore_manifest_write \
+            "$NAME" cc "$WORK" "" no none "" "" "" \
+            "$NAME-go" cc "$WORK" "" no pending "" "" ""
+    )
+    report="$(go_tool verify-restore 2>/dev/null)"
+    rc=$?
+    check "verify-restore captures each pane with =name: on real tmux, and names the states" \
+        "$NAME OK|$NAME-go SETTING-GOING:1" "${report//$'\n'/|}:$rc"
+    rc=0
+    CCY_RESTORE_COMPACT_FLOOR_TOKENS=150000 CCY_SESSIONS_SET_GOING_WAIT=10 go_tool set-going 2>/dev/null || rc=$?
+    check "set-going types into the pane through =name: and exits 0" "0" "$rc"
+    typed=no
+    for _ in $(seq 50); do
+        if [[ "$(ccy_tmux capture-pane -p -t "=$NAME-go:")" == *"continue"* ]]; then
+            typed=yes
+            break
+        fi
+        sleep 0.1
+    done
+    check "what set-going typed shows on the real screen" "yes" "$typed"
+    # The Go port's own real-tmux tests: the same targets through its Tmux type, kill-session
+    # included, and the bare =name form refused.
+    go_real="$(cd "$REPO_ROOT/src-go" && go test -count=1 -run 'RealTmux' ./internal/tmuxccy/ 2>&1)"
+    check "tmuxccy's real-tmux tests pass" "ok" "$([[ "$go_real" == ok* ]] && echo ok || echo "$go_real")"
 fi
 
 echo ""

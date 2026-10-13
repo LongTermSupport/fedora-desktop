@@ -90,6 +90,31 @@ func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
 	}
 }
 
+func TestPickSurfacesAFzfThatFailedAndOneThatIsMissing(t *testing.T) {
+	spec := PickSpec{Title: "t", Rows: []string{"r"}}
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 1})
+	if _, err := (&Picker{Runner: f}).Pick(context.Background(), spec); !errors.Is(err, ErrLeave) {
+		t.Fatalf("fzf exit 1 (no match) leaves, got %v", err)
+	}
+	// Spec bug 9.2: an fzf that crashed or was given a bad option is not the person pressing Esc.
+	f.On([]string{"fzf"}, execx.Result{ExitCode: 2, Stderr: []byte("unknown option")})
+	_, err := (&Picker{Runner: f}).Pick(context.Background(), spec)
+	if err == nil || errors.Is(err, ErrLeave) {
+		t.Fatalf("fzf exit 2 is a failure, not a leave: %v", err)
+	}
+	// Spec bug 9.1: a missing fzf is a failure with the install hint, not a leave.
+	f.OnError([]string{"fzf"}, &execx.NotInstalledError{Name: "fzf"})
+	_, err = (&Picker{Runner: f}).Pick(context.Background(), spec)
+	if !errors.Is(err, ErrFzfMissing) || errors.Is(err, ErrLeave) {
+		t.Fatalf("a missing fzf is ErrFzfMissing, got %v", err)
+	}
+	want := "fzf is not installed; playbooks/imports/play-claude-yolo.yml installs it."
+	if err.Error() != want {
+		t.Fatalf("message %q", err.Error())
+	}
+}
+
 func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("r\n")})

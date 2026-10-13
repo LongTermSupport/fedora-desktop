@@ -1,0 +1,108 @@
+ccy-sessions — see every CCY and cc session, return to a detached one, or end one; warn
+them all before a reboot; bring them back after one.
+
+ccy and cc run each interactive session inside tmux on CCY's own server (see
+docs/ccy.md "Sessions Survive the Terminal"), so a session outlives the terminal that
+showed it. This is the way back: the same picker ccy and cc show themselves, over every
+session at once. Arrow keys move; Enter attaches; Ctrl-T takes over a session open in
+another terminal; Ctrl-X ends a session; Ctrl-N starts a new ccy session in the current
+project folder (by running ccy the normal way); Esc or q leaves. Nothing needs Enter
+after it.
+
+A session can be attached from ONE terminal only. One that is open elsewhere is shown
+as such and Enter on it is refused — the tmux server enforces the same rule, so even a
+race cannot mirror one claude into two terminals. Ctrl-T takes it over: after a yes/no
+naming the other terminal and how long it has been idle, that terminal is detached (the
+way out of a dropped SSH connection still holding the session) and this one attached.
+The session and everything in it keep running. It can also be ended from here.
+
+Each row also names the container network that session is on, asked of the container
+engine itself so it reflects a later ccy --connect and not only the launch flags:
+  <network>      the network the session's container is connected to
+  none           the container is on no named network (ccy --no-network, or a default
+                 that is not a named network)
+  no container   nothing to ask about — a cc session runs claude on the host, and a ccy
+                 session outlives a container that has exited
+  unknown        the question could not be answered; the reason is printed above the list
+
+The token and SSH key columns name the Claude token and the key(s) the session's container
+was started with, read off its ccy-token and ccy-ssh-keys labels: "none" when it has none,
+"-" when there is no container to ask (as for the network), "unknown" as above.
+
+The CPU column is how busy the session is: the CPU time used by everything it runs (its
+container's processes and its own on the host) over a one-second sample, as top shows it,
+so 100% is one whole core. The list therefore takes about a second to appear.
+
+Usage:
+  ccy-sessions                                    the picker (needs a terminal)
+  ccy-sessions -l|--list                          print the same table, with a heading, on
+                                                  stdout and exit; no terminal needed
+  ccy-sessions notify going-down --minutes N [--dry-run]
+                                                  tell every live session's project that
+                                                  the machine goes down in N minutes, as
+                                                  the kind below that is TRUE here
+  ccy-sessions notify reboot-warning --minutes N  "reboot; a session restore will follow"
+  ccy-sessions notify shutdown-warning --minutes N  "shut down; NO restore, leave a handoff"
+  ccy-sessions notify reboot-cancelled            tell them it is not happening after all
+  ccy-sessions reboot --in N [--dry-run]          warn, count down, warn again at one
+                                                  minute, then systemctl reboot; refused
+                                                  up front unless logind lets this account
+                                                  reboot with nobody to authenticate
+  ccy-sessions restore [--dry-run]                start every session recorded as running
+                                                  at the last shutdown (the boot unit)
+  ccy-sessions set-going                          once each session this boot's restore
+                                                  started has drawn Claude's prompt, type
+                                                  its first input: /compact when its
+                                                  context is at or above
+                                                  CCY_RESTORE_COMPACT_FLOOR_TOKENS, else
+                                                  continue (the unit after the restore)
+  ccy-sessions verify-restore [--wait SECONDS]    check every session this boot's restore
+                                                  brought up, one line each on stdout:
+                                                  "<name> OK", "<name> STARTING",
+                                                  "<name> SETTING-GOING",
+                                                  "<name> NOT-SET-GOING <why>",
+                                                  "<name> WAITING-AT-PROMPT <which>" or
+                                                  "<name> DEAD <why>"; exit 0 only if all
+                                                  are OK. --wait polls until the restore
+                                                  has settled (nothing STARTING or
+                                                  SETTING-GOING, and the same answer twice
+                                                  running), or the time is up
+  ccy-sessions -h|--help                          this text
+
+notify and reboot speak to each project through ITS OWN hooks-daemon CLI
+(.claude/hooks-daemon/bin/hooks-daemon signal ...), naming only a signal kind and a
+number of minutes — never a message. It runs inside the container for a project with a
+ccy session, on the host otherwise (set_route). A live session whose project has no
+daemon CLI, or one that cannot run, is a refusal: every such session is named, nothing is
+signalled, and reboot reboots nothing. Exit 64 for a usage mistake, 1 for a refusal.
+A ccy session with no container found in its process tree (at ccy's startup prompts, or
+its container has exited) has no agent to warn: it is named on stderr and left out.
+
+The daemon's two warning texts differ in what an agent does next — carry on because it
+will be restored, or wind down and hand off because it will not — so `going-down` (and
+`reboot`) choose by whether this user's session restore is enabled, not by the power
+action: reboot-warning when it is, shutdown-warning when it is not. The texts also name
+the action, so a shutdown with restore on reads "will reboot", and a reboot with restore
+off reads "will shut down"; what the agent is asked to do is right either way.
+
+A restore answers only the prompts that have one safe answer (Quick Launch, the two
+running-container menus, and the others docs/ccy.md lists) and the compose question,
+from the compose outcome in the session's record (--compose); every other prompt still
+asks, in the pane, where a person can attach and answer it. verify-restore is how nobody
+has to look: it names each session's state from what its screen shows and whether its
+container runs.
+
+A restored session comes back at an empty prompt with a cold prompt cache, and would wait
+there for a person. set-going is what starts it: it waits (CCY_SESSIONS_SET_GOING_WAIT
+seconds at most) for each started session's prompt to draw, reads the context size from
+the conversation's transcript (the --resume'd one, else the newest), and types /compact
+(the supervisor's continue-after-compaction then carries a ccy session on; for one with
+no supervisor, set-going types continue once the compaction is in the transcript) or
+continue. One session per conversation is set going: a second sharing it is left alone.
+A session whose prompt never draws, is already busy, has someone attached or text in its
+box, or whose context cannot be read is left alone and named on stderr; the others go on.
+Exit 0 when every one was set going, 1 when any was not. verify-restore
+reports a session that did not take what was typed within CCY_SESSIONS_START_WINDOW
+seconds as NOT-SET-GOING, and one left alone the same way.
+
+Runs on the HOST: inside a CCY container there is no server.

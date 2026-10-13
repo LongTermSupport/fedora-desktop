@@ -72,6 +72,14 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/restore-askpass-test.XXXXXX")
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
+# CCY_SESSIONS_IMPL=go runs the final section's restore through the Go port's binary
+# (Plan 00191) instead of the library function it replaces.
+GO_TOOL="$SCRATCH/ccy-sessions"
+if [ "${CCY_SESSIONS_IMPL:-bash}" = go ]; then
+    echo "== the Go binary"
+    check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -o "$GO_TOOL" ./cmd/ccy-sessions 2>&1)"
+fi
+
 # The fixture passphrase has spaces and a quote, so a word-split or an unquoted expansion on
 # its way to ssh-add shows up as a failed unlock.
 PP="fixture pass'phrase 7"
@@ -457,6 +465,9 @@ printf '%s\n' "${!#}"
 EOF
 cat >"$RBIN/tmux" <<'EOF'
 #!/usr/bin/env bash
+# The live-session query is answered with nothing and not logged: the Go binary asks it before
+# starting anything (the library's was replaced above), and the log is the sessions started.
+case "$*" in *list-sessions*) exit 0 ;; esac
 printf '%q ' "$@" >>"$STARTED_LOG"
 printf '\n' >>"$STARTED_LOG"
 printf '%s\n' "${CCY_RESTORE_SSH_PASSPHRASE_FILE-unset}" >>"$TMUX_ENV_LOG"
@@ -469,14 +480,24 @@ ccy_registry_write "ccy-proj" "$PROJ" /launch/ccy ccy yes --ssh-key "$KEYS/githu
 ccy_registry_write "cc-proj" "$PROJ" /launch/cc cc yes
 unset CCY_RESTORE_SSH_PASSPHRASE_FILE
 
+# restore_run — the restore under test. Bash mode runs the library function in this shell; Go
+# mode runs the built binary's `restore` subcommand, which does the same work.
+restore_run() {
+    if [ "${CCY_SESSIONS_IMPL:-bash}" = go ]; then
+        CCY_LIB="$LIB_DIR" "$GO_TOOL" restore
+    else
+        ccy_registry_restore
+    fi
+}
+
 rm -f "$STARTED_LOG"
-out="$(ccy_registry_restore 2>&1)"
+out="$(restore_run 2>&1)"
 check "desktop (no drop-in): the restore succeeds" "0" "$?"
 check "and no session is given a passphrase file" "0" "$(grep -c CCY_RESTORE_SSH_PASSPHRASE_FILE "$STARTED_LOG")"
 
 rm -f "$STARTED_LOG" "$TMUX_ENV_LOG"
 # Exported, as the unit's drop-in gives it to the whole ccy-sessions process.
-out="$(export CCY_RESTORE_SSH_PASSPHRASE_FILE="$PPFILE" && ccy_registry_restore 2>&1)"
+out="$(export CCY_RESTORE_SSH_PASSPHRASE_FILE="$PPFILE" && restore_run 2>&1)"
 check "server: the restore succeeds" "0" "$?"
 check "the ccy session gets the file on its pane's command" "1" \
     "$(grep -F -- "-s ccy-proj -c $(printf '%q' "$PROJ") " "$STARTED_LOG" \
@@ -489,7 +510,7 @@ check "tmux, and so its server and every later pane, does not inherit the file" 
     "$(tr '\n' ' ' <"$TMUX_ENV_LOG" | xargs)"
 
 rm -f "$STARTED_LOG"
-out="$(CCY_RESTORE_SSH_PASSPHRASE_FILE="$SCRATCH/no-such-file" ccy_registry_restore 2>&1)"
+out="$(CCY_RESTORE_SSH_PASSPHRASE_FILE="$SCRATCH/no-such-file" restore_run 2>&1)"
 check "server with the passphrase file missing: the restore fails" "1" "$?"
 check "before anything is started" "absent" "$(test -e "$STARTED_LOG" && echo present || echo absent)"
 check "naming the file" "yes" "$(yes_if grep -qF "$SCRATCH/no-such-file" <<<"$out")"
