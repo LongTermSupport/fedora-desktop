@@ -8,7 +8,7 @@
 # alone and it is instruction, not containment: the session's own text tells it only to post
 # through pingbus, as itself, and never mentions Element or anyone else's sign-in; cc's own
 # settings file denies Claude's file tools Element's folders. The owner accepts the
-# arrangement once per seat at a confirm the session never sees, and only that record lets
+# arrangement once per user at a confirm the session never sees, and only that record lets
 # pingbus run beside Element. Each of these is a property a later edit could quietly lose, so
 # each is checked here: the argument split, the seat chosen and taken as `host` through
 # agent-bus, the confirm (declined, accepted, asked once), the merged settings, the session's
@@ -122,27 +122,32 @@ check "take names the seat and the host type" "seat take 2@dev-team --type=host"
 check "take's report goes to stderr" "" "$(cat "$work/out")"
 check "the seat exists" "yes" "$(yes_no test -d "$checkout/.claude/ccy/pingbus/seats/dev-team/2")"
 
-echo "=== the owner's confirm, once per seat ==="
+echo "=== the owner's confirm, once per user ==="
 
-seat_dir="$checkout/.claude/ccy/pingbus/seats/dev-team/2"
-record="$seat_dir/element-accepted"
+CC_TEAMS_ACCEPTED_DIR="$work/user-config/pingbus"
+record="$CC_TEAMS_ACCEPTED_DIR/element-accepted"
 rc=0
-FAKE_GUM_ANSWER=1 cc_teams_accept "$seat_dir" myrepo.2+local.host 2>"$work/err" || rc=$?
+FAKE_GUM_ANSWER=1 cc_teams_accept myrepo.2+local.host 2>"$work/err" || rc=$?
 check "declined: not started (1)" "1" "$rc"
 check "declined: no record" "no" "$(yes_no test -e "$record")"
 rc=0
-FAKE_GUM_ANSWER=0 cc_teams_accept "$seat_dir" myrepo.2+local.host 2>"$work/err" || rc=$?
+FAKE_GUM_ANSWER=0 cc_teams_accept myrepo.2+local.host 2>"$work/err" || rc=$?
 check "accepted" "0" "$rc"
 check "accepted: the record is a file only its owner reads" "600" "$(stat -c %a "$record")"
+check "accepted: its directory is the owner's alone" "700" "$(stat -c %a "$CC_TEAMS_ACCEPTED_DIR")"
+check "accepted: nothing is written into the seat" "0" "$(find "$checkout/.claude/ccy/pingbus" -name 'element-accepted*' | wc -l)"
 asks=$(wc -l <"$work/gum.calls")
 rc=0
-FAKE_GUM_ANSWER=1 cc_teams_accept "$seat_dir" myrepo.2+local.host 2>"$work/err" || rc=$?
+FAKE_GUM_ANSWER=1 cc_teams_accept myrepo.2+local.host 2>"$work/err" || rc=$?
 check "asked once: the record answers" "0|$asks" "$rc|$(wc -l <"$work/gum.calls")"
+rc=0
+FAKE_GUM_ANSWER=1 cc_teams_accept other.7+local.host 2>"$work/err" || rc=$?
+check "asked once per user, not per seat: another seat is answered too" "0|$asks" "$rc|$(wc -l <"$work/gum.calls")"
 check "the confirm defaults to No" "yes" "$(yes_no grep -q -- '--default=false' "$work/gum.calls")"
 rm "$record"
 ln -s "$work/elsewhere" "$record"
 rc=0
-FAKE_GUM_ANSWER=0 cc_teams_accept "$seat_dir" myrepo.2+local.host 2>"$work/err" || rc=$?
+FAKE_GUM_ANSWER=0 cc_teams_accept myrepo.2+local.host 2>"$work/err" || rc=$?
 check "a record that is a symlink is refused 78" "78" "$rc"
 check "nothing was written through it" "no" "$(yes_no test -e "$work/elsewhere")"
 rm "$record"
@@ -162,6 +167,8 @@ for path in .var/app/im.riot.Riot/** .config/Element/** .config/Element-*/**; do
             "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
     done
 done
+check "deny Edit of the acceptance record's folder" "true" \
+    "$(jq --arg r "Edit($home_rel/.config/pingbus/**)" '.permissions.deny | index($r) != null' "$work/settings.json")"
 check "the settings file is the owner's alone" "600" "$(stat -c %a "$work/settings.json")"
 
 echo "=== what the session reads ==="
@@ -173,6 +180,27 @@ check "it never mentions Element, sign-ins or other people's accounts" "no" \
     "$(yes_no grep -qiE 'element|riot|matrix session|sign|login|log in|owner|human|as anyone|impersonat' <<<"$prompt")"
 check "the plugin's text never mentions the owner's Element session either" "no" \
     "$(yes_no grep -rqiE "owner'?s element|your element|element session|im\.riot" "$KIT_SRC/plugin")"
+
+echo "=== the checkout's .claude/ccy/ ==="
+
+fresh="$work/fresh"
+mkdir -p "$fresh"
+git -C "$fresh" init -q
+(cd "$fresh" && cc_teams_ccy_dir >"$work/out" 2>"$work/err")
+check "a repo never used with ccy gets .claude/ccy/ (0700)" "700" "$(stat -c %a "$fresh/.claude/ccy")"
+check "seats' tree is ignored by git, so seat take may place a token there" "0" \
+    "$(cd "$fresh" && git check-ignore -q .claude/ccy/pingbus/ && echo 0 || echo 1)"
+check "creating it says nothing on stdout" "" "$(cat "$work/out")"
+echo marker >"$fresh/.claude/ccy/keep"
+(cd "$fresh" && cc_teams_ccy_dir 2>"$work/err")
+check "an existing .claude/ccy/ is left as it is" "marker" "$(cat "$fresh/.claude/ccy/keep")"
+linked="$work/linked"
+mkdir -p "$linked/.claude" "$work/elsewhere-dir"
+git -C "$linked" init -q
+ln -s "$work/elsewhere-dir" "$linked/.claude/ccy"
+rc=0
+(cd "$linked" && cc_teams_ccy_dir) 2>"$work/err" || rc=$?
+check ".claude/ccy as a symlink is refused 78" "78" "$rc"
 
 echo "=== the command line ==="
 

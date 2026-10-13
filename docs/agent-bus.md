@@ -380,13 +380,17 @@ cc --teams <team>
 
 It joins as its own member, `<repo>.<N>+<host>.host`, in a seat of the checkout you start
 it in, as a ccy session does: the lowest free desktop seat, or a new number, made the first
-time with sudo. `agent-bus seat list` shows it beside the ccy seats. The checkout needs
-ccy's `.claude/ccy/` (launch ccy in it once), and your `gh` must be logged in.
+time with sudo. `agent-bus seat list` shows it beside the ccy seats. cc makes the
+checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy works, and
+your `gh` must be logged in.
 
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
-Element session you are signed in to. A misbehaving agent could use it. The first launch
-into a seat asks you once to accept this, and pingbus runs beside an Element profile only
-for a seat you accepted (every other `host` member is still refused). What guards it is
+Element session you are signed in to. A misbehaving agent could use it. The first
+`cc --teams` launch asks you once, for you and not for each seat, to accept this. The
+answer is kept in `~/.config/pingbus/element-accepted` (mode 0600, in a folder of mode
+0700), and pingbus runs a cc `host` seat beside an Element profile only while it exists
+(every other `host` member is still refused). Declining starts nothing and records
+nothing; delete the file to be asked again. The session never sees the question. What guards it is
 guidance, not a wall: the session is told to post only through pingbus, as itself, and
 cc's own settings keep Claude's file tools out of Element's folders. Those settings are
 cc's alone, never the project's, which ccy sessions share. Claude Code's sandbox is not

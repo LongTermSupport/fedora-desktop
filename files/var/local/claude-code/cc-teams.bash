@@ -6,8 +6,9 @@
 # seat (`seat choose --type=host`) and makes it the first time (`seat take --type=host`, one
 # sudo agent-bus add-member). It runs as the owner, with no dedicated agent user, by the
 # owner's decision, so it sits beside their Element profile. The owner accepts that once per
-# seat at a confirm the session never sees; cc records it in the seat as `element-accepted`,
-# the only thing that lets pingbus run a `host` member beside Element.
+# user at a confirm the session never sees; cc records it under the user's config
+# (~/.config/pingbus/element-accepted, owner-only), the only thing that lets pingbus run a
+# `host` member beside Element.
 #
 # The guard is cc's alone (project settings are shared with ccy sessions) and it is
 # instruction, not containment: the session's own text says only how to post (pingbus, as
@@ -22,7 +23,9 @@ CC_TEAMS_DENY_SETTINGS="/var/local/claude-code/cc-teams-settings.json"
 CC_TEAMS_AGENT_BUS="agent-bus"
 CC_TEAMS_MEMBER_TYPE="host"
 CC_TEAMS_SEATS_DIR=".claude/ccy/pingbus/seats"
+CC_TEAMS_ACCEPTED_DIR="$HOME/.config/pingbus"
 CC_TEAMS_ACCEPTED_FILE="element-accepted"
+CC_TEAMS_CCY_DIR=".claude/ccy"
 # Where the confirm is asked: the terminal itself, so nothing the session can capture sees it.
 CC_TEAMS_TTY="/dev/tty"
 
@@ -100,16 +103,36 @@ cc_teams_take() {
     fi
 }
 
-# cc_teams_accept <seat-dir> <handle> — the owner's acceptance, asked once per seat. The
-# words are for the human at the terminal; the session starts only after them, and never
-# sees them.
+# cc_teams_ccy_dir — the working directory's checkout has the `.claude/ccy/` that `agent-bus
+# seat take` needs, as ccy makes it, so cc --teams works in a repo never used with ccy. A new
+# one (0700) gets a .gitignore for the seats' tree alone, which is all the seats need; ccy
+# replaces it with its own full one the next time it runs there (it has no `*` rule). An
+# existing one is left as it is.
+cc_teams_ccy_dir() {
+    local top dir
+    top=$(git rev-parse --show-toplevel) || return 78
+    dir="$top/$CC_TEAMS_CCY_DIR"
+    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+        print_error "$dir is not a real directory; remove it and start cc again."
+        return 78
+    fi
+    [ -d "$dir" ] && return 0
+    if ! (umask 077 && mkdir -p "$dir" && printf '%s\n' \
+        '# Created by cc --teams: the team seats hold tokens and are never committed.' \
+        'pingbus/' >"$dir/.gitignore"); then
+        print_error "Could not make $dir."
+        return 78
+    fi
+}
+
+# cc_teams_accept <handle> — the owner's acceptance, asked once per user. The words are for
+# the human at the terminal; the session starts only after them, and never sees them.
 #   0  accepted, now or before   1  declined   78  the record cannot be written safely
 cc_teams_accept() {
-    local dir="${1:?cc_teams_accept requires the seat directory}"
-    local handle="${2:?cc_teams_accept requires the handle}"
-    local record="$dir/$CC_TEAMS_ACCEPTED_FILE"
-    if [ -L "$record" ] || { [ -e "$record" ] && [ ! -f "$record" ]; }; then
-        print_error "$record is not a plain file; remove it and start cc again."
+    local handle="${1:?cc_teams_accept requires the handle}"
+    local dir="$CC_TEAMS_ACCEPTED_DIR" record="$CC_TEAMS_ACCEPTED_DIR/$CC_TEAMS_ACCEPTED_FILE"
+    if [ -L "$dir" ] || [ -L "$record" ] || { [ -e "$record" ] && [ ! -f "$record" ]; }; then
+        print_error "$record, or its folder, is not a plain file or directory; remove it and start cc again."
         return 78
     fi
     [ -f "$record" ] && return 0
@@ -126,14 +149,15 @@ cc_teams_accept() {
         echo
         echo "  It is told to post only through pingbus, as $handle, and its"
         echo "  file tools are kept out of Element's folders. That is guidance,"
-        echo "  not a wall. You are asked once for this seat."
+        echo "  not a wall. You are asked once, for every cc --teams seat."
         echo
     } >&2
     if ! gum confirm --default=false "Accept, and start $handle?" 0<>"$CC_TEAMS_TTY" >&0; then
         echo "Not started. Nothing was recorded; cc --teams asks again next time." >&2
         return 1
     fi
-    if ! (set -C && umask 077 && printf 'accepted %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$record"); then
+    if ! (umask 077 && mkdir -p "$dir" && chmod 700 "$dir" && set -C &&
+        printf 'accepted %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$record"); then
         print_error "Could not record your answer in $record."
         return 78
     fi
@@ -190,10 +214,11 @@ cc_teams_prepare() {
         print_error "cc --teams runs in a git checkout: its seat lives there."
         return 78
     fi
+    cc_teams_ccy_dir || return
     cc_teams_seat "$CC_TEAM" || return
     echo "Agent team $CC_TEAM: seat $CC_SEAT, as $CC_HANDLE" >&2
     cc_teams_take "$CC_SEAT" "$CC_TEAM" || return
-    cc_teams_accept "$checkout/$CC_TEAMS_SEATS_DIR/$CC_TEAM/$CC_SEAT" "$CC_HANDLE" || return
+    cc_teams_accept "$CC_HANDLE" || return
     cc_teams_settings "$tmp/settings.json" || return
     cc_teams_command "$tmp" "$checkout" "$CC_SEAT@$CC_TEAM" "$CC_HANDLE" "$CC_TEAM" "$@"
 }
