@@ -61,9 +61,9 @@ func wordColour(word string) string {
 		return cYellow
 	case isOneOf(word, "up", "active", "held", "in room", "yes"), strings.HasSuffix(word, " signed in"):
 		return cGreen
-	case strings.HasPrefix(word, "out of date"), word == "not built":
+	case strings.HasPrefix(word, "out of date"), word == wordNotBuilt:
 		return cYellow
-	case word == "up to date":
+	case word == wordUpToDate:
 		return cGreen
 	case strings.HasPrefix(word, "down"), strings.HasPrefix(word, "decide:"),
 		isOneOf(word, "not installed", "not in room", "unknown", "need sudo", "unreadable"):

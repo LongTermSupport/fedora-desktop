@@ -73,9 +73,9 @@ func (o *teamOps) remove(ctx context.Context, args []string) int {
 	}
 	s := status[team]
 	switch s.State {
-	case "", opRemoved, opUnbuilt:
+	case "", stRemoved, stUnbuilt:
 		return o.usageError("team " + team + " is not built here; there is nothing to take down.")
-	case opUnreadable:
+	case stUnreadable:
 		return o.usageError("team " + team + "'s entry cannot be read: " + s.Detail + ".")
 	}
 	if code, ok := o.heading(ctx, team); !ok {
@@ -205,7 +205,7 @@ func (o *teamOps) confirmDown(ctx context.Context, team string, purge bool) int 
 		return term.ExitFailure
 	}
 	if s := status[team]; s.State != "" && s.State != "removed" {
-		o.Term.PrintError(team + " is still " + s.statusWord() + " after the play.")
+		o.Term.PrintError(team + " is still " + applyWord(s) + " after the play.")
 		return term.ExitFailure
 	}
 	if purge {

@@ -22,53 +22,6 @@ import (
 // errOpFailed is a flow that failed after saying why: the caller prints nothing more.
 var errOpFailed = errors.New("failed, and said why")
 
-// opStatus is a team's applied state as declare.py status reports it: current, outdated,
-// unbuilt, removed, decide or unreadable, and the detail that says what differs or why.
-type opStatus struct {
-	State  string
-	Detail string
-}
-
-// The states declare.py status reports.
-const (
-	opCurrent    = "current"
-	opOutdated   = "outdated"
-	opUnbuilt    = "unbuilt"
-	opRemoved    = "removed"
-	opDecide     = "decide"
-	opUnreadable = "unreadable"
-)
-
-// statusWord is the APPLIED column, in words.
-func (s opStatus) statusWord() string {
-	switch s.State {
-	case opCurrent:
-		return "up to date"
-	case opOutdated:
-		switch s.Detail {
-		case "unstamped":
-			return "out of date"
-		case "config,software":
-			return "out of date: both"
-		default:
-			return "out of date: " + s.Detail
-		}
-	case opUnbuilt:
-		return "not built"
-	case opRemoved:
-		return "removed"
-	case opDecide:
-		if s.Detail == "absent" {
-			return "decide: absent"
-		}
-		return "decide: undeclared"
-	case opUnreadable:
-		return "unreadable"
-	default:
-		return "unknown"
-	}
-}
-
 // teamOps is the flows that change what runs on this machine: apply and remove (the play),
 // backup and restore (the installer). Every dependency is a field, so a test supplies a
 // scripted runner and buffers and nothing here touches the real system.
@@ -91,7 +44,7 @@ type teamOps struct {
 
 	// Refresh is collect_teams + read_status: the applied state of every team declared or
 	// built. It reports its own failures and returns an error to stop on.
-	Refresh func(ctx context.Context) (map[string]opStatus, error)
+	Refresh func(ctx context.Context) (map[string]declare.Status, error)
 
 	NeedCheckout func() error                      // reports its own refusal
 	LookPath     func(name string) (string, error) // the PATH lookup of a tool
@@ -230,8 +183,8 @@ func (o *teamOps) applyTeams(ctx context.Context, teams []string) error {
 	}
 	var behind []string
 	for _, team := range teams {
-		if status[team].State != opCurrent {
-			behind = append(behind, team+" ("+status[team].statusWord()+")")
+		if status[team].State != stCurrent {
+			behind = append(behind, team+" ("+applyWord(status[team])+")")
 		}
 	}
 	if len(behind) > 0 {
@@ -277,11 +230,11 @@ func (o *teamOps) apply(ctx context.Context, args []string) int {
 		team := args[0]
 		s := status[team]
 		switch s.State {
-		case opOutdated, opUnbuilt, opCurrent:
+		case stOutdated, stUnbuilt, stCurrent:
 			targets = []string{team}
-		case opDecide, opRemoved:
+		case stDecide, stRemoved:
 			return o.usageError("team " + team + " is not declared present; ccy-teams remove " + team + " takes a team down.")
-		case opUnreadable:
+		case stUnreadable:
 			return o.usageError("team " + team + "'s entry cannot be read: " + s.Detail + ".")
 		default:
 			return o.usageError("team " + team + " is not declared in " + o.home(o.Cfg.HostVars) + ".")
@@ -298,17 +251,17 @@ func (o *teamOps) apply(ctx context.Context, args []string) int {
 // allTargets sorts the teams for "apply --all": out of date or unbuilt ones are to be
 // applied, those awaiting a decision are named and left, and unreadable ones refuse the
 // whole run. done is true when the run ends here, with code.
-func (o *teamOps) allTargets(status map[string]opStatus) ([]string, int, bool) {
+func (o *teamOps) allTargets(status map[string]declare.Status) ([]string, int, bool) {
 	var targets []string
 	var waiting, broken []string
 	for _, team := range slices.Sorted(maps.Keys(status)) {
 		s := status[team]
 		switch s.State {
-		case opOutdated, opUnbuilt:
+		case stOutdated, stUnbuilt:
 			targets = append(targets, team)
-		case opDecide:
-			waiting = append(waiting, team+" ("+s.statusWord()+")")
-		case opUnreadable:
+		case stDecide:
+			waiting = append(waiting, team+" ("+applyWord(s)+")")
+		case stUnreadable:
 			broken = append(broken, team+": "+s.Detail)
 		}
 	}

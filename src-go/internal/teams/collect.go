@@ -71,31 +71,7 @@ func (s *Snapshot) statusWord(team string) string {
 	if !ok {
 		return wordUnknown
 	}
-	switch st.State {
-	case "current":
-		return "up to date"
-	case "outdated":
-		switch st.Detail {
-		case "unstamped":
-			return "out of date"
-		case "config,software":
-			return "out of date: both"
-		default:
-			return "out of date: " + st.Detail
-		}
-	case "unbuilt":
-		return "not built"
-	case "removed":
-		return "removed"
-	case "decide":
-		if st.Detail == "absent" {
-			return "decide: absent"
-		}
-		return "decide: undeclared"
-	case wordUnreadable:
-		return wordUnreadable
-	}
-	return wordUnknown
+	return applyWord(st)
 }
 
 func (s *Snapshot) addTeam(seen map[string]bool, team string) {

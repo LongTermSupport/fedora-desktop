@@ -31,7 +31,7 @@ type opsRig struct {
 	err       *bytes.Buffer
 	out       *bytes.Buffer
 	tty       bool
-	statuses  []map[string]opStatus // the answer of the n-th refresh; the last one repeats
+	statuses  []map[string]declare.Status // the answer of the n-th refresh; the last one repeats
 	refreshes int
 	refreshEr error
 	checkout  error
@@ -45,7 +45,7 @@ func newOpsRig(t *testing.T) *opsRig {
 		fake: &execx.Fake{}, err: &bytes.Buffer{}, out: &bytes.Buffer{}, tty: true,
 		files: map[string]bool{}, tools: map[string]bool{"gum": true, "fzf": true},
 	}
-	r.statuses = []map[string]opStatus{{}}
+	r.statuses = []map[string]declare.Status{{}}
 	tm := &term.Term{
 		Err:        r.err,
 		IsTerminal: func(any) bool { return r.tty },
@@ -64,7 +64,7 @@ func newOpsRig(t *testing.T) *opsRig {
 		Stdin:      strings.NewReader(""),
 		Stdout:     r.out,
 		IsTerminal: func(any) bool { return r.tty },
-		Refresh: func(context.Context) (map[string]opStatus, error) {
+		Refresh: func(context.Context) (map[string]declare.Status, error) {
 			n := min(r.refreshes, len(r.statuses)-1)
 			r.refreshes++
 			if r.refreshEr != nil {
@@ -115,33 +115,7 @@ func (r *opsRig) said() string { return opsANSI.ReplaceAllString(r.err.String(),
 
 var opsANSI = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
-func st(state, detail string) opStatus { return opStatus{State: state, Detail: detail} }
-
-func TestStatusWord(t *testing.T) {
-	cases := []struct {
-		s    opStatus
-		want string
-	}{
-		{st("current", ""), "up to date"},
-		{st("outdated", "unstamped"), "out of date"},
-		{st("outdated", "config,software"), "out of date: both"},
-		{st("outdated", "config"), "out of date: config"},
-		{st("outdated", "software"), "out of date: software"},
-		{st("unbuilt", ""), "not built"},
-		{st("removed", ""), "removed"},
-		{st("decide", "absent"), "decide: absent"},
-		{st("decide", "undeclared"), "decide: undeclared"},
-		{st("decide", "anything"), "decide: undeclared"},
-		{st("unreadable", "why"), "unreadable"},
-		{st("", ""), "unknown"},
-		{st("weird", ""), "unknown"},
-	}
-	for _, c := range cases {
-		if got := c.s.statusWord(); got != c.want {
-			t.Errorf("%+v: got %q want %q", c.s, got, c.want)
-		}
-	}
-}
+func st(state, detail string) declare.Status { return declare.Status{State: state, Detail: detail} }
 
 func TestPlayJSONIsExactlyPythonsDumps(t *testing.T) {
 	if got := playJSON([]string{"a", "b"}); got != `{"agent_bus_only_teams": ["a", "b"]}` {
@@ -158,7 +132,7 @@ func TestApplyTeamsRunsPlayThenElementThenSays(t *testing.T) {
 	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tbeta\thttp://192.0.2.10:6167\nELEMENT\tother\thttp://192.0.2.10:6168\n")})
 	r.on(opsElementPlay, execx.Result{})
 	r.files["/home/u/.local/share/applications/agent-bus-beta-element.desktop"] = true
-	r.statuses = []map[string]opStatus{{"beta": st("current", ""), "delta": st("current", "")}}
+	r.statuses = []map[string]declare.Status{{"beta": st("current", ""), "delta": st("current", "")}}
 	if err := r.ops.applyTeams(context.Background(), []string{"beta", "delta"}); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +159,7 @@ func TestApplyTeamsPlayStreamsToStdoutAndStderr(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{Stdout: []byte("PLAY RECAP\n")})
 	r.on(opsDeclare+"element-teams", execx.Result{})
-	r.statuses = []map[string]opStatus{{"beta": st("current", "")}}
+	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.applyTeams(context.Background(), []string{"beta"}); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +198,7 @@ func TestApplyTeamsRefreshFailureIsAFailure(t *testing.T) {
 func TestApplyTeamsStillBehind(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
-	r.statuses = []map[string]opStatus{{"a": st("current", ""), "b": st("outdated", "config"), "c": st("", "")}}
+	r.statuses = []map[string]declare.Status{{"a": st("current", ""), "b": st("outdated", "config"), "c": st("", "")}}
 	if err := r.ops.applyTeams(context.Background(), []string{"a", "b", "c"}); err == nil {
 		t.Fatal("want an error")
 	}
@@ -241,7 +215,7 @@ func TestApplyTeamsElementTeamsDeclareFailure(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
 	r.onExit(opsDeclare+"element-teams", 78, "declare: refused")
-	r.statuses = []map[string]opStatus{{"beta": st("current", "")}}
+	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.applyTeams(context.Background(), []string{"beta"}); err == nil {
 		t.Fatal("want an error")
 	}
@@ -255,7 +229,7 @@ func TestApplyTeamsElementPlayFailure(t *testing.T) {
 	r.on(opsPlay, execx.Result{})
 	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tbeta\thttp://192.0.2.10:6167\n")})
 	r.onExit(opsElementPlay, 2, "")
-	r.statuses = []map[string]opStatus{{"beta": st("current", "")}}
+	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.applyTeams(context.Background(), []string{"beta"}); err == nil {
 		t.Fatal("want an error")
 	}
@@ -277,7 +251,7 @@ func TestApplyTeamsElementLauncherMissing(t *testing.T) {
 	r.on(opsPlay, execx.Result{})
 	r.on(opsDeclare+"element-teams", execx.Result{Stdout: []byte("ELEMENT\tbeta\thttp://192.0.2.10:6167\n")})
 	r.on(opsElementPlay, execx.Result{})
-	r.statuses = []map[string]opStatus{{"beta": st("current", "")}}
+	r.statuses = []map[string]declare.Status{{"beta": st("current", "")}}
 	if err := r.ops.applyTeams(context.Background(), []string{"beta"}); err == nil {
 		t.Fatal("want an error")
 	}
@@ -348,7 +322,7 @@ func TestApplyAllSortedTargetsAndWaiting(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
 	r.on(opsDeclare+"element-teams", execx.Result{})
-	r.statuses = []map[string]opStatus{
+	r.statuses = []map[string]declare.Status{
 		{
 			"delta": st("unbuilt", ""), "beta": st("outdated", "config"), "ok": st("current", ""),
 			"zeta": st("decide", "undeclared"), "gone": st("decide", "absent"), "old": st("removed", ""),
@@ -376,7 +350,7 @@ func TestApplyAllSortedTargetsAndWaiting(t *testing.T) {
 
 func TestApplyAllBrokenRefuses(t *testing.T) {
 	r := newOpsRig(t)
-	r.statuses = []map[string]opStatus{{"z": st("unreadable", "bad port"), "a": st("unreadable", "no name"), "b": st("outdated", "config")}}
+	r.statuses = []map[string]declare.Status{{"z": st("unreadable", "bad port"), "a": st("unreadable", "no name"), "b": st("outdated", "config")}}
 	if code := r.ops.apply(context.Background(), []string{"--all"}); code != 1 {
 		t.Errorf("code %d", code)
 	}
@@ -391,7 +365,7 @@ func TestApplyAllBrokenRefuses(t *testing.T) {
 
 func TestApplyAllNothingToDo(t *testing.T) {
 	r := newOpsRig(t)
-	r.statuses = []map[string]opStatus{{"a": st("current", ""), "b": st("removed", "")}}
+	r.statuses = []map[string]declare.Status{{"a": st("current", ""), "b": st("removed", "")}}
 	if code := r.ops.apply(context.Background(), []string{"--all"}); code != 0 {
 		t.Errorf("code %d", code)
 	}
@@ -405,7 +379,7 @@ func TestApplyAllNothingToDo(t *testing.T) {
 
 func TestApplyAllWaitingOnlyStillSaysNothingToDo(t *testing.T) {
 	r := newOpsRig(t)
-	r.statuses = []map[string]opStatus{{"gone": st("decide", "absent")}}
+	r.statuses = []map[string]declare.Status{{"gone": st("decide", "absent")}}
 	if code := r.ops.apply(context.Background(), []string{"--all"}); code != 0 {
 		t.Errorf("code %d", code)
 	}
@@ -418,7 +392,7 @@ func TestApplyAllWaitingOnlyStillSaysNothingToDo(t *testing.T) {
 
 func TestApplyOneTeamStates(t *testing.T) {
 	cases := []struct {
-		state    opStatus
+		state    declare.Status
 		wantCode int
 		wantMsg  string
 	}{
@@ -434,9 +408,9 @@ func TestApplyOneTeamStates(t *testing.T) {
 		r := newOpsRig(t)
 		r.on(opsPlay, execx.Result{})
 		r.on(opsDeclare+"element-teams", execx.Result{})
-		r.statuses = []map[string]opStatus{{"t": c.state}, {"t": st("current", "")}}
+		r.statuses = []map[string]declare.Status{{"t": c.state}, {"t": st("current", "")}}
 		if c.state.State == "" {
-			r.statuses = []map[string]opStatus{{}}
+			r.statuses = []map[string]declare.Status{{}}
 		}
 		if code := r.ops.apply(context.Background(), []string{"t"}); code != c.wantCode {
 			t.Errorf("%+v: code %d, said %q", c.state, code, r.said())
@@ -453,7 +427,7 @@ func TestApplyOneTeamStates(t *testing.T) {
 func TestApplyFailureAddsNotApplied(t *testing.T) {
 	r := newOpsRig(t)
 	r.onExit(opsPlay, 2, "")
-	r.statuses = []map[string]opStatus{{"b": st("unbuilt", ""), "a": st("unbuilt", "")}}
+	r.statuses = []map[string]declare.Status{{"b": st("unbuilt", ""), "a": st("unbuilt", "")}}
 	if code := r.ops.apply(context.Background(), []string{"--all"}); code != 1 {
 		t.Errorf("code %d", code)
 	}

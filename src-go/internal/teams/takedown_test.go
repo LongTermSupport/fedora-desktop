@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
@@ -25,7 +27,7 @@ func removeRig(t *testing.T) *opsRig {
 	r.on(opsInstaller+"backup-now --team alpha", execx.Result{})
 	r.on(opsDeclare+"remove --file "+opsHostVars+" --team alpha", execx.Result{Stdout: []byte("CHANGED\tteam alpha declared absent\n")})
 	r.on(opsPlay, execx.Result{})
-	r.statuses = []map[string]opStatus{
+	r.statuses = []map[string]declare.Status{
 		{"alpha": st("current", "")},
 		{"alpha": st("removed", "")},
 	}
@@ -89,11 +91,11 @@ func TestRemoveCheckoutGoneAndGumMissingAndRefreshFail(t *testing.T) {
 }
 
 func TestRemoveRefusesWhatIsNotBuilt(t *testing.T) {
-	for _, s := range []opStatus{st("", ""), st("removed", ""), st("unbuilt", "")} {
+	for _, s := range []declare.Status{st("", ""), st("removed", ""), st("unbuilt", "")} {
 		r := newOpsRig(t)
-		r.statuses = []map[string]opStatus{{"alpha": s}}
+		r.statuses = []map[string]declare.Status{{"alpha": s}}
 		if s.State == "" {
-			r.statuses = []map[string]opStatus{{}}
+			r.statuses = []map[string]declare.Status{{}}
 		}
 		if code := r.ops.remove(context.Background(), []string{"alpha"}); code != 64 {
 			t.Errorf("%+v: code %d", s, code)
@@ -109,7 +111,7 @@ func TestRemoveRefusesWhatIsNotBuilt(t *testing.T) {
 
 func TestRemoveRefusesAnUnreadableEntry(t *testing.T) {
 	r := newOpsRig(t)
-	r.statuses = []map[string]opStatus{{"alpha": st("unreadable", "bad port")}}
+	r.statuses = []map[string]declare.Status{{"alpha": st("unreadable", "bad port")}}
 	if code := r.ops.remove(context.Background(), []string{"alpha"}); code != 64 {
 		t.Errorf("code %d", code)
 	}
@@ -312,7 +314,7 @@ func TestRemoveDeleteTypedNameCancelled(t *testing.T) {
 
 func TestRemoveUndeclaredGoesThroughTheInstaller(t *testing.T) {
 	r := removeRig(t)
-	r.statuses = []map[string]opStatus{{"zeta": st("decide", "undeclared")}, {}}
+	r.statuses = []map[string]declare.Status{{"zeta": st("decide", "undeclared")}, {}}
 	r.on(opsInstaller+"remove --team zeta", execx.Result{})
 	r.onExit("gum confirm", 1, "")
 	if code := r.ops.remove(context.Background(), []string{"zeta"}); code != 0 {
@@ -333,7 +335,7 @@ func TestRemoveUndeclaredGoesThroughTheInstaller(t *testing.T) {
 
 func TestRemoveUndeclaredPurgeFlag(t *testing.T) {
 	r := removeRig(t)
-	r.statuses = []map[string]opStatus{{"zeta": st("decide", "undeclared")}, {"zeta": st("removed", "")}}
+	r.statuses = []map[string]declare.Status{{"zeta": st("decide", "undeclared")}, {"zeta": st("removed", "")}}
 	r.on("gum choose", execx.Result{Stdout: []byte("Take it down and delete its data\n")})
 	r.on("gum input", execx.Result{Stdout: []byte("zeta\n")})
 	r.on(opsInstaller+"remove --team zeta --purge", execx.Result{})
@@ -348,7 +350,7 @@ func TestRemoveUndeclaredPurgeFlag(t *testing.T) {
 
 func TestRemoveUndeclaredFailureAndNoSudo(t *testing.T) {
 	r := removeRig(t)
-	r.statuses = []map[string]opStatus{{"zeta": st("decide", "undeclared")}}
+	r.statuses = []map[string]declare.Status{{"zeta": st("decide", "undeclared")}}
 	r.onExit(opsInstaller+"remove", 1, "")
 	r.onExit("gum confirm", 1, "")
 	if code := r.ops.remove(context.Background(), []string{"zeta"}); code != 1 {
@@ -359,7 +361,7 @@ func TestRemoveUndeclaredFailureAndNoSudo(t *testing.T) {
 	}
 
 	r = removeRig(t)
-	r.statuses = []map[string]opStatus{{"zeta": st("decide", "undeclared")}}
+	r.statuses = []map[string]declare.Status{{"zeta": st("decide", "undeclared")}}
 	r.onExit("gum confirm", 1, "")
 	r.onExit("sudo -n -v", 1, "sudo: a password is required")
 	r.onExit("sudo -v", 1, "")
@@ -402,7 +404,7 @@ func TestRemovePlayFailure(t *testing.T) {
 func TestRemoveStillThereAfterThePlay(t *testing.T) {
 	r := removeRig(t)
 	r.onExit("gum confirm", 1, "")
-	r.statuses = []map[string]opStatus{{"alpha": st("current", "")}, {"alpha": st("outdated", "config")}}
+	r.statuses = []map[string]declare.Status{{"alpha": st("current", "")}, {"alpha": st("outdated", "config")}}
 	if code := r.ops.remove(context.Background(), []string{"alpha"}); code != 1 {
 		t.Errorf("code %d", code)
 	}
@@ -414,7 +416,7 @@ func TestRemoveStillThereAfterThePlay(t *testing.T) {
 func TestRemoveAbsentFromTheFinalRefreshIsDone(t *testing.T) {
 	r := removeRig(t)
 	r.onExit("gum confirm", 1, "")
-	r.statuses = []map[string]opStatus{{"alpha": st("current", "")}, {}}
+	r.statuses = []map[string]declare.Status{{"alpha": st("current", "")}, {}}
 	if code := r.ops.remove(context.Background(), []string{"alpha"}); code != 0 {
 		t.Errorf("code %d: %s", code, r.said())
 	}
@@ -424,10 +426,10 @@ func TestRemoveFinalRefreshFailure(t *testing.T) {
 	r := removeRig(t)
 	r.onExit("gum confirm", 1, "")
 	calls := 0
-	r.ops.Refresh = func(context.Context) (map[string]opStatus, error) {
+	r.ops.Refresh = func(context.Context) (map[string]declare.Status, error) {
 		calls++
 		if calls == 1 {
-			return map[string]opStatus{"alpha": st("current", "")}, nil
+			return map[string]declare.Status{"alpha": st("current", "")}, nil
 		}
 		return nil, errors.New("x")
 	}
