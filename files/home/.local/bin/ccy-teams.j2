@@ -520,7 +520,8 @@ the_remote_repo() {
 # check_repos <list> — comma-separated OWNER/REPO, each well formed, on GitHub, and one your
 # gh login can push to (GitHub's own answer for that login: the repository's
 # permissions.push). Every entry that fails is named, with why; then the list as a whole is
-# checked against the team file's limits.
+# checked against the team file's limits. A second argument (non-interactive) drops the
+# "Try again." line.
 check_repos() {
     local repo push bad=0 problem
     local -a flags=()
@@ -547,7 +548,7 @@ check_repos() {
         return 1
     fi
     [[ "${bad}" -eq 0 ]] || {
-        echo "  Try again." >&2
+        [[ -n "${2:-}" ]] || echo "  Try again." >&2
         return 1
     }
     problem="$(declare_helper check --file "${HOST_VARS}" "${flags[@]}" 2>&1)" || {
@@ -668,6 +669,15 @@ create_wizard() {
         ask_or_quit "${rc}"
         mapfile -t allow_from <<<"$(split_commas "${text}")"
         answered "${allow_from[*]:-none, this machine only}"
+    fi
+    if [[ "${yes}" == true && -n "${repos[*]:-}" ]]; then
+        # The same existence and push-access checks the questions make, before anything is written.
+        need_gh
+        text="$(printf '%s,' "${repos[@]}")"
+        check_repos "${text%,}" noninteractive || {
+            print_error "create stopped: fix the repositories above (or drop them); nothing was written."
+            exit 1
+        }
     fi
     [[ -z "${team}" ]] || flags+=(--team "${team}")
     for name in "${humans[@]}"; do [[ -z "${name}" ]] || flags+=(--human "${name}"); done

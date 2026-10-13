@@ -854,6 +854,21 @@ check "create --repo: a team of repositories of any owners" "0" "$?"
 check_has "  each on any branch, no org" 'repos: [{"repo": "example-org/proj"}, {"repo": "other/tool"}]' \
     "$(cat "$SCRATCH/create.yml")"
 check "  no org line for it" "1" "$(grep -c '^    org:' "$SCRATCH/create.yml")"
+check "  each checked on GitHub for push access, as the questions do" "yes yes" \
+    "$(logged 'gh api repos/example-org/proj --jq .permissions.push') $(logged 'gh api repos/other/tool --jq .permissions.push')"
+reset
+cp "$HOST_VARS" "$SCRATCH/create.yml"
+cp "$SCRATCH/create.yml" "$SCRATCH/create.before"
+CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --human owner \
+    --repo example-org/proj --repo example-org/readonly --repo other/missing --repo bad --yes \
+    </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "create --repo --yes: a read-only, a missing and a malformed repository fail it (1)" "1" "$?"
+check_has "  the read-only one named with its reason" "example-org/readonly: read-only" "$(cat "$SCRATCH/err")"
+check_has "  the missing one named with its reason" "other/missing: not found" "$(cat "$SCRATCH/err")"
+check_has "  the malformed one named with its reason" "bad: not OWNER/REPO" "$(cat "$SCRATCH/err")"
+check_lacks "  the good one is not blamed" "example-org/proj:" "$(cat "$SCRATCH/err")"
+check "  nothing is written" "" "$(diff "$SCRATCH/create.before" "$SCRATCH/create.yml")"
+check "  nothing is installed" "no" "$(logged 'play ')"
 reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
 CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_ELEMENT_FAIL=1 "$TOOL" create --team beta --human owner \
