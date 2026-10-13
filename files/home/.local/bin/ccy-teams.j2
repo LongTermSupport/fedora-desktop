@@ -1511,8 +1511,8 @@ offer_update() {
         back_to_list
     fi
 }
-# offer_path_limits — a team created before Task 4.7 still names the old default
-# path_prefixes, which limits the paths its agents may point each other at. Offered once per
+# offer_path_limits — a team with path_prefixes (the old default of teams created before
+# Task 4.7, or set on purpose) limits the paths its agents may point each other at. Offered once per
 # team: removed, through declare.py, and applied; or, declined, never asked again.
 offer_path_limits() {
     local lines line team prefixes
@@ -1523,9 +1523,8 @@ offer_path_limits() {
         IFS=$'\t' read -r _ team prefixes <<<"${line}"
         [[ ! -e "${DECLINED_DIR}/path-limit-${team}" ]] || continue
         need_gum
-        say "Team ${team} lets its agents point each other only at files under ${prefixes}"
-        echo "That limit was the default when ${team} was created; new teams have none. Without it, any file in the team's repositories may be named." >&2
-        if ask_yes "Remove the limit from ${team}?" true; then
+        say "Team ${team}: its agents may only point each other at files under ${prefixes}."
+        if ask_yes "Remove the limit, so any path in its repositories can be named?" true; then
             declare_helper drop-limit --file "${HOST_VARS}" --team "${team}" >/dev/null
             in_picker apply_teams "${team}"
         else

@@ -1010,7 +1010,9 @@ agent_bus_teams:
 EOF
 printf '|ABORT\n' >"$TEST_ANSWERS"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' YES)")"
-check_has "an old default path limit is offered for removal" "gum confirm --default=true Remove the limit from legacy?" "$(cat "$LOG")"
+check_has "a path limit is offered for removal" "gum confirm --default=true Remove the limit, so any path in its repositories can be named?" "$(cat "$LOG")"
+check_has "  saying what it does" "may only point each other at files under" "$out"
+check_lacks "  and never claiming it was the default" "was the default" "$out"
 check_lacks "  and removed from the entry" "path_prefixes" "$(cat "$NO_TEAMS")"
 check "  then applied" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["legacy"]}')"
 fresh_no_teams
@@ -1032,7 +1034,7 @@ check_has "  declined, the limit stays" "path_prefixes" "$(cat "$NO_TEAMS")"
 printf '|ABORT\n' >"$TEST_ANSWERS"
 : >"$LOG" # not reset: that clears the declined marker too
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "$(printf '%s\n' NO)")"
-check "  and not offered again" "no" "$(logged 'Remove the limit from legacy?')"
+check "  and not offered again" "no" "$(logged 'Remove the limit, so any path')"
 
 echo "== applied, apply, remove"
 STATES="$SCRATCH/states.yml"
