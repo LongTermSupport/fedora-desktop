@@ -13,6 +13,7 @@ refusals, the port choice, the validation (the team file's own) and the write.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -24,7 +25,10 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.agent_bus import declare
+from helpers.agent_bus import declare, teamfile
+from helpers.pingbus import bundle
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 VAULTED = """\
 secret_thing: !vault |
@@ -56,15 +60,14 @@ agent_bus_teams:
 other_key: 1
 """
 
-NEW = {"team": "beta", "humans": ["owner"], "repos": [("example-org/two", ["main", "dev"])],
-       "allow_from": []}
+NEW = {"team": "beta", "humans": ["owner"], "org": "example-org", "allow_from": []}
 
 
 def entry(port: int = 6168, **overrides) -> dict:
     values = dict(NEW, **overrides)
     return declare.build_entry(team=values["team"], port=port, listen=["192.0.2.10"],
                                allow_from=values["allow_from"], humans=values["humans"],
-                               repos=values["repos"])
+                               org=values["org"])
 
 
 class ParseTest(unittest.TestCase):
@@ -139,7 +142,8 @@ class ValidateTest(unittest.TestCase):
         self.assertIn("team", declare.field_error("team", "Bad_Name"))
         self.assertIsNone(declare.field_error("humans", ["owner"]))
         self.assertIn("humans", declare.field_error("humans", []))
-        self.assertIn("repos", declare.field_error("repos", [{"repo": "Not A Repo", "branches": ["main"]}]))
+        self.assertIn("org", declare.field_error("org", "Not An Org"))
+        self.assertIsNone(declare.field_error("org", "example-org"))
         self.assertIsNone(declare.field_error("allow_from", ["198.51.100.0/24"]))
         self.assertIn("allow_from", declare.field_error("allow_from", ["198.51.100.1"]))
 
@@ -147,7 +151,8 @@ class ValidateTest(unittest.TestCase):
         built = entry()
         self.assertEqual(built["path_prefixes"], ["CLAUDE/Plan/", "docs/"])
         self.assertEqual(built["forge_api"], "https://api.github.com")
-        self.assertEqual(built["repos"], [{"repo": "example-org/two", "branches": ["main", "dev"]}])
+        self.assertEqual(built["org"], "example-org")
+        self.assertNotIn("repos", built)
         with self.assertRaises(declare.DeclareError):
             entry(humans=["Bad Human"])
 
@@ -164,13 +169,11 @@ class InsertTest(unittest.TestCase):
             '    listen: ["192.0.2.10"]\n'
             '    allow_from: []\n'
             '    humans: ["owner"]\n'
-            '    repos:\n'
-            '      - repo: "example-org/two"\n'
-            '        branches: ["main", "dev"]\n'
+            '    org: "example-org"\n'
             '    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n'
             '    forge_api: "https://api.github.com"\n'
             '\n# trailing comment\n', new)
-        self.assertEqual(len(new.splitlines()), len(WITH_TEAMS.splitlines()) + 10)
+        self.assertEqual(len(new.splitlines()), len(WITH_TEAMS.splitlines()) + 8)
         self.assertTrue(new.startswith(WITH_TEAMS.split("  # a comment")[0]))
         self.assertTrue(new.endswith("\n# trailing comment\n" + VAULTED + "other_key: 1\n"))
         # The new entry comes after the last item's lines, before the trailing comment.
@@ -222,7 +225,7 @@ class CreateTest(unittest.TestCase):
     """create takes every value as a flag and prompts for nothing: ccy-teams asks the
     questions (with gum) and calls it with the answers."""
 
-    FLAGS = ("--team", "beta", "--human", "owner", "--repo", "example-org/two=main,dev")
+    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org")
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -245,11 +248,18 @@ class CreateTest(unittest.TestCase):
         self.assertEqual(self.stdout.getvalue(), f"CHANGED\tteam beta, port 6169, in {self.path}\n")
 
     def test_the_next_steps_are_numbered_and_name_each_action(self) -> None:
+        """Printed by ccy-teams once the team is installed; never a meta-deploy step (D65)."""
         self.assertEqual(self.run_create(self.FLAGS), 0, self.stderr.getvalue())
-        said = self.stderr.getvalue()
-        for text in ("1.", "play-agent-bus.yml", "meta-deploy", "2.", "agent_bus_element_teams",
-                     "http://192.0.2.10:6168", "3.", "password", "4.", "ccy --teams 1@beta"):
+        self.assertNotIn("meta-deploy", self.stderr.getvalue())
+        self.stdout = io.StringIO()
+        code = declare.main(["next-steps", "--file", str(self.path), "--team", "beta"],
+                            stdout=self.stdout, stderr=self.stderr)
+        self.assertEqual(code, 0, self.stderr.getvalue())
+        said = self.stdout.getvalue()
+        for text in ("1.", "password", "2.", "agent_bus_element_teams", "http://192.0.2.10:6168", "3.",
+                     "ccy --teams 1@beta"):
             self.assertIn(text, said)
+        self.assertNotIn("meta-deploy", said)
 
     def test_allow_from(self) -> None:
         code = self.run_create([*self.FLAGS, "--allow-from", "198.51.100.0/24"])
@@ -260,11 +270,11 @@ class CreateTest(unittest.TestCase):
         self.assertEqual(self.run_create([*self.FLAGS, "--dry-run"]), 0, self.stderr.getvalue())
         self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
         self.assertIn("  - team: beta\n", self.stdout.getvalue())
-        self.assertIn('branches: ["main", "dev"]', self.stdout.getvalue())
+        self.assertIn('org: "example-org"', self.stdout.getvalue())
         self.assertNotIn("CHANGED", self.stdout.getvalue())
 
     def test_every_value_is_required(self) -> None:
-        for missing in ("--team", "--human", "--repo"):
+        for missing in ("--team", "--human", "--org"):
             flags = list(self.FLAGS)
             at = flags.index(missing)
             del flags[at:at + 2]
@@ -275,7 +285,7 @@ class CreateTest(unittest.TestCase):
         self.assertEqual(self.run_create(["--team", "Bad_Name", *self.FLAGS[2:]]), 64)
         self.assertEqual(self.run_create(["--team", "alpha", *self.FLAGS[2:]]), 64)
         self.assertIn("already declared", self.stderr.getvalue())
-        self.assertEqual(self.run_create([*self.FLAGS[:4], "--repo", "example-org/two"]), 64)
+        self.assertEqual(self.run_create([*self.FLAGS[:4], "--org", "Example Org"]), 64)
         self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
 
     def test_no_bus_address_is_refused_and_explained(self) -> None:
@@ -324,47 +334,16 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.check("--team", "beta"), (0, ""))
         self.assertEqual(self.check("--human", "owner", "--human", "second"), (0, ""))
         self.assertEqual(self.check("--allow-from", "198.51.100.0/24"), (0, ""))
-        self.assertEqual(self.check("--owner", "example-org"), (0, ""))
-        self.assertEqual(self.check("--repo", "example-org/two=main"), (0, ""))
+        self.assertEqual(self.check("--org", "example-org"), (0, ""))
 
     def test_each_bad_value_is_named(self) -> None:
         for flag, value, said in (("--team", "Bad_Name", "--team"), ("--team", "alpha", "already declared"),
                                   ("--human", "Not.Valid", "--human"),
                                   ("--allow-from", "198.51.100.1/24", "--allow-from"),
-                                  ("--owner", "-bad", "--owner"), ("--repo", "example-org/two", "--repo")):
+                                  ("--org", "-bad", "--org")):
             code, err = self.check(flag, value)
             self.assertEqual(code, 64, value)
             self.assertIn(said, err)
-
-
-class GhReposTest(unittest.TestCase):
-    """gh-repos turns `gh repo list --json name,defaultBranchRef,isArchived` into lines."""
-
-    def gh_repos(self, data: object) -> tuple[int, str, str]:
-        stdin, stdout, stderr = io.StringIO(json.dumps(data)), io.StringIO(), io.StringIO()
-        code = declare.main(["gh-repos", "--owner", "Example-Org"], stdin=stdin, stdout=stdout, stderr=stderr)
-        return code, stdout.getvalue(), stderr.getvalue()
-
-    def test_lines_lower_cased_archived_skipped_empty_marked(self) -> None:
-        code, out, _ = self.gh_repos([
-            {"name": "Two", "defaultBranchRef": {"name": "main"}, "isArchived": False},
-            {"name": "old", "defaultBranchRef": {"name": "master"}, "isArchived": True},
-            {"name": "empty", "defaultBranchRef": None, "isArchived": False},
-            {"name": "blank", "defaultBranchRef": {"name": ""}, "isArchived": False},
-            {"name": "one", "defaultBranchRef": {"name": "trunk"}, "isArchived": False},
-        ])
-        self.assertEqual(code, 0)
-        self.assertEqual(out, "COUNT\t5\n"
-                              "REPO\texample-org/one\ttrunk\n"
-                              "REPO\texample-org/two\tmain\n"
-                              "EMPTY\texample-org/blank\n"
-                              "EMPTY\texample-org/empty\n")
-
-    def test_not_the_expected_json_is_refused(self) -> None:
-        code, out, err = self.gh_repos({"message": "Not Found"})
-        self.assertEqual(code, 78)
-        self.assertEqual(out, "")
-        self.assertIn("gh repo list", err)
 
 
 class GithubRemoteTest(unittest.TestCase):
@@ -384,66 +363,6 @@ class GithubRemoteTest(unittest.TestCase):
             self.assertEqual(self.remote(url), "", url)
 
 
-class AddRepoTest(unittest.TestCase):
-    """add-repo adds repositories to a declared team's repos, in that list's own layout."""
-
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.path = pathlib.Path(self.tmp.name) / "localhost.yml"
-        self.path.write_text(WITH_TEAMS, encoding="utf-8")
-        self.stdout = io.StringIO()
-        self.stderr = io.StringIO()
-
-    def call(self, *argv: str) -> int:
-        return declare.main([argv[0], "--file", str(self.path), *argv[1:]], stdout=self.stdout, stderr=self.stderr)
-
-    def test_repos_lists_a_teams_repositories(self) -> None:
-        self.assertEqual(self.call("repos", "--team", "alpha"), 0, self.stderr.getvalue())
-        self.assertEqual(self.stdout.getvalue(), "REPO\texample-org/one\tmain\n")
-
-    def test_added_after_the_teams_last_repository_and_nothing_else_changes(self) -> None:
-        code = self.call("add-repo", "--team", "alpha", "--repo", "example-org/two=main,dev",
-                        "--repo", "example-org/three=trunk")
-        self.assertEqual(code, 0, self.stderr.getvalue())
-        want = WITH_TEAMS.replace(
-            '        branches: ["main"]\n',
-            '        branches: ["main"]\n'
-            '      - repo: "example-org/two"\n'
-            '        branches: ["main", "dev"]\n'
-            '      - repo: "example-org/three"\n'
-            '        branches: ["trunk"]\n', 1)
-        self.assertEqual(self.path.read_text(encoding="utf-8"), want)
-        self.assertEqual(self.stdout.getvalue(),
-                         f"CHANGED\tteam alpha: example-org/two, example-org/three added, in {self.path}\n")
-        self.assertIn("play-agent-bus.yml", self.stderr.getvalue())
-        self.stdout = io.StringIO()
-        self.call("repos", "--team", "alpha")
-        self.assertEqual(self.stdout.getvalue().count("REPO\t"), 3)
-
-    def test_dry_run_prints_the_lines_and_writes_nothing(self) -> None:
-        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/two=main", "--dry-run"), 0)
-        self.assertEqual(self.stdout.getvalue(), '      - repo: "example-org/two"\n        branches: ["main"]\n')
-        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
-
-    def test_refusals_write_nothing(self) -> None:
-        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/one=main"), 64)
-        self.assertIn("already", self.stderr.getvalue())
-        self.assertEqual(self.call("add-repo", "--team", "nosuch", "--repo", "example-org/two=main"), 64)
-        self.assertEqual(self.call("add-repo", "--team", "alpha"), 64)
-        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/two"), 64)
-        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
-
-    def test_an_inline_repos_list_is_refused(self) -> None:
-        inline = WITH_TEAMS.replace(
-            '    repos:\n      - repo: example-org/one\n        branches: ["main"]\n',
-            '    repos: [{repo: example-org/one, branches: [main]}]\n')
-        self.path.write_text(inline, encoding="utf-8")
-        self.assertEqual(self.call("add-repo", "--team", "alpha", "--repo", "example-org/two=main"), 78)
-        self.assertIn("inline", self.stderr.getvalue())
-        self.assertEqual(self.path.read_text(encoding="utf-8"), inline)
-
-
 class SuggestTeamTest(unittest.TestCase):
     """suggest-team: the GitHub owner's name in the team-name grammar, when free."""
 
@@ -452,7 +371,7 @@ class SuggestTeamTest(unittest.TestCase):
             path = pathlib.Path(tmp) / "localhost.yml"
             path.write_text(WITH_TEAMS, encoding="utf-8")
             stdout = io.StringIO()
-            code = declare.main(["suggest-team", "--file", str(path), "--owner", owner],
+            code = declare.main(["suggest-team", "--file", str(path), "--org", owner],
                                 stdout=stdout, stderr=io.StringIO())
         self.assertEqual(code, 0)
         return stdout.getvalue()
@@ -484,6 +403,183 @@ class DeclaredTest(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         code = declare.main(["declared", "--file", "/nonexistent/localhost.yml"], stdout=stdout, stderr=stderr)
         self.assertEqual(code, 78)
+
+
+STATUS_HV = """\
+agent_bus_address: 192.0.2.10
+agent_bus_teams:
+  - team: alpha
+    port: 6167
+    listen: ["192.0.2.10"]
+    allow_from: []
+    humans: ["owner"]
+    org: "example-org"
+    path_prefixes: ["CLAUDE/Plan/", "docs/"]
+    forge_api: "https://api.github.com"
+  - team: beta
+    port: 6168
+    listen: ["192.0.2.10"]
+    allow_from: ["192.0.2.0/24"]
+    humans:
+      - owner
+      - "second"
+    repos:
+      - repo: example-org/one
+        branches: ["main"]
+    path_prefixes: ["docs/"]
+    forge_api: https://api.github.com   # a comment
+  - team: gamma
+    state: absent
+    purge: false
+  - team: delta
+    port: 6170
+    listen: []
+    allow_from: []
+    humans: ["owner"]
+    org: example-org
+    path_prefixes: ["docs/"]
+    forge_api: https://api.github.com
+  - team: vaulted
+    port: 6171
+    listen: []
+    allow_from: []
+    humans: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      3132
+    org: example-org
+    path_prefixes: ["docs/"]
+    forge_api: https://api.github.com
+"""
+
+
+class EntryTest(unittest.TestCase):
+    """The entry as the play reads it, in the subset ccy-teams reads (D65)."""
+
+    def test_values_typed_as_yaml_types_them(self) -> None:
+        teams = {t.team: t for t in declare.parse(STATUS_HV).teams}
+        self.assertEqual(declare.entry_of(teams["alpha"]), {
+            "team": "alpha", "port": 6167, "listen": ["192.0.2.10"], "allow_from": [], "humans": ["owner"],
+            "org": "example-org", "path_prefixes": ["CLAUDE/Plan/", "docs/"],
+            "forge_api": "https://api.github.com"})
+        beta = declare.entry_of(teams["beta"])
+        self.assertEqual(beta["humans"], ["owner", "second"])
+        self.assertEqual(beta["repos"], [{"repo": "example-org/one", "branches": ["main"]}])
+        self.assertEqual(beta["forge_api"], "https://api.github.com")
+        self.assertIs(declare.entry_of(teams["gamma"])["purge"], False)
+
+    def test_a_vaulted_value_is_not_read(self) -> None:
+        vaulted = next(t for t in declare.parse(STATUS_HV).teams if t.team == "vaulted")
+        with self.assertRaises(declare.DeclareError):
+            declare.entry_of(vaulted)
+
+    def test_the_declared_config_digest_is_the_installers(self) -> None:
+        """The same function the installer's stamp uses, over the team file the play renders."""
+        alpha = next(t for t in declare.parse(STATUS_HV).teams if t.team == "alpha")
+        rendered = teamfile.parse_team_file(dict(declare.entry_of(alpha), state="present"))
+        self.assertEqual(declare.declared_config(alpha), teamfile.config_digest(rendered))
+
+
+class StatusTest(unittest.TestCase):
+    """Every state ccy-teams shows (D65): current, outdated, unbuilt, removed, decide."""
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.path = self.tmp / "localhost.yml"
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+        self.applied = self.tmp / "applied"
+        self.applied.mkdir()
+        self.software = declare.declared_software(REPO_ROOT)
+        self.teams = {t.team: t for t in declare.parse(STATUS_HV).teams}
+
+    def stamp(self, team: str, config: str | None = None, software: str | None = None) -> None:
+        body = {"v": 1, "team": team, "config": config or declare.declared_config(self.teams[team]),
+                "software": software or self.software}
+        (self.applied / f"{team}.json").write_text(json.dumps(body), encoding="utf-8")
+
+    def status(self, *installed: str) -> list[list[str]]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        flags = [f for team in installed for f in ("--installed", team)]
+        code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
+                             "--applied", str(self.applied), *flags], stdout=stdout, stderr=stderr)
+        self.assertEqual(code, 0, stderr.getvalue())
+        return [line.split("\t") for line in stdout.getvalue().splitlines()]
+
+    def test_the_software_digest_is_the_zipapp_the_pinned_tuwunel_and_the_installer(self) -> None:
+        zipapp = bundle.build("agent-bus", REPO_ROOT)
+        pin = (REPO_ROOT / declare.PIN_FILE).read_text()
+        version = next(line.split(":", 1)[1].strip() for line in pin.splitlines()
+                       if line.startswith("tuwunel_version:"))
+        installer = hashlib.sha256((REPO_ROOT / declare.INSTALLER_FILE).read_bytes()).hexdigest()
+        want = hashlib.sha256(
+            f"{hashlib.sha256(zipapp).hexdigest()}\n{version.lstrip('v')}\n{installer}\n".encode()).hexdigest()
+        self.assertEqual(self.software, want)
+
+    def test_all_states(self) -> None:
+        self.stamp("alpha")
+        self.stamp("beta", config="0" * 64)
+        (self.applied / "gamma.json").write_text(json.dumps(
+            {"v": 1, "team": "gamma", "config": "1" * 64, "software": self.software}), encoding="utf-8")
+        (self.applied / "zeta.json").write_text(json.dumps(
+            {"v": 1, "team": "zeta", "config": "2" * 64, "software": "3" * 64}), encoding="utf-8")
+        rows = self.status()
+        self.assertEqual(rows, [
+            ["STATUS", "alpha", "current", "-"],
+            ["STATUS", "beta", "outdated", "config"],
+            ["STATUS", "gamma", "decide", "absent"],
+            ["STATUS", "delta", "unbuilt", "-"],
+            ["STATUS", "vaulted", "unreadable", rows[4][3]],
+            ["STATUS", "zeta", "decide", "undeclared"],
+        ])
+        self.assertIn("vault", rows[4][3])
+
+    def test_software_out_of_date_removed_and_unstamped(self) -> None:
+        self.stamp("alpha", software="4" * 64)
+        rows = {r[1]: r[2:] for r in self.status("delta")}
+        self.assertEqual(rows["alpha"], ["outdated", "software"])
+        self.assertEqual(rows["gamma"], ["removed", "-"])
+        self.assertEqual(rows["delta"], ["outdated", "unstamped"])
+
+    def test_a_malformed_stamp_is_refused(self) -> None:
+        (self.applied / "alpha.json").write_text('{"v": 1}', encoding="utf-8")
+        code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
+                             "--applied", str(self.applied)], stdout=io.StringIO(), stderr=io.StringIO())
+        self.assertEqual(code, 78)
+
+
+class RemoveTest(unittest.TestCase):
+    """remove declares a team absent; its data stays unless --purge (owner, 2026-10-13)."""
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.path = self.tmp / "localhost.yml"
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+
+    def remove(self, *argv: str) -> tuple[int, str]:
+        stdout = io.StringIO()
+        code = declare.main(["remove", "--file", str(self.path), *argv], stdout=stdout, stderr=io.StringIO())
+        return code, stdout.getvalue()
+
+    def team(self, name: str) -> dict:
+        return declare.entry_of(next(t for t in declare.parse(self.path.read_text()).teams if t.team == name))
+
+    def test_absent_and_the_data_kept_by_default(self) -> None:
+        code, out = self.remove("--team", "alpha")
+        self.assertEqual(code, 0)
+        self.assertIn("data kept", out)
+        alpha = self.team("alpha")
+        self.assertEqual((alpha["state"], alpha["purge"], alpha["org"]), ("absent", False, "example-org"))
+        self.assertEqual(self.team("beta")["port"], 6168)
+
+    def test_purge_and_an_existing_state_line_replaced(self) -> None:
+        self.assertEqual(self.remove("--team", "gamma", "--purge")[0], 0)
+        self.assertEqual(self.team("gamma"), {"team": "gamma", "state": "absent", "purge": True})
+
+    def test_dry_run_and_an_unknown_team(self) -> None:
+        code, out = self.remove("--team", "alpha", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("state: absent", out)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(self.remove("--team", "nosuch")[0], 64)
 
 
 if __name__ == "__main__":

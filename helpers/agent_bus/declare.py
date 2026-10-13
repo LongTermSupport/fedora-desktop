@@ -10,7 +10,9 @@ naming the line, rather than guessed at. A value is never printed, and the file 
 beside itself (`localhost.yml.backup.<time>`, which .gitignore covers) before it is replaced.
 
 The entry is validated by the team file's own rules (`teamfile.parse_team_file`) before it
-is written. The port is chosen, never asked: the first in AUTO_PORT_FIRST..AUTO_PORT_LAST
+is written. It trusts its `org`, every repository of that GitHub owner on any of its own
+branches (Plan 00161 DESIGN.md D64); a repository outside the org that the team trusts is
+listed under `repos` by hand. The port is chosen, never asked: the first in AUTO_PORT_FIRST..AUTO_PORT_LAST
 that no entry declares and nothing listens on (`ss -Hltn`). `listen` is the host's bus
 address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's.
 
@@ -18,23 +20,26 @@ address (`agent_bus_address`), `path_prefixes` and `forge_api` are the example's
         TEAM<TAB><team><TAB><port or -><TAB><present|absent><TAB><server_name><TAB><url or -> per
         entry; the URL is http://<first listen address, or agent_bus_address>:<port>
     python3 -m helpers.agent_bus.declare create --file <localhost.yml> --team T --human NAME...
-            --repo OWNER/REPO=BRANCH[,BRANCH]... [--allow-from CIDR]... [--dry-run]
+            --org ORG [--allow-from CIDR]... [--dry-run]
         CHANGED<TAB>team <team>, port <port>, in <file>, and the next steps on stderr;
-        --dry-run prints the entry's lines instead and writes nothing
+        --dry-run prints the entry's lines instead and writes nothing; ccy-teams then installs it
+    python3 -m helpers.agent_bus.declare next-steps --file <localhost.yml> --team T
+        what to do once the team is installed (sign in, Element, ccy --teams)
     python3 -m helpers.agent_bus.declare check --file <localhost.yml> [--team T] [--human NAME]...
-            [--repo ...]... [--allow-from CIDR]... [--owner OWNER]
+            [--org ORG] [--allow-from CIDR]...
         nothing when every value given is valid; exit 64 naming the first that is not
-    python3 -m helpers.agent_bus.declare repos --file <localhost.yml> --team T
-        REPO<TAB>owner/repo<TAB>branches (comma-joined, or -) per repository of the team
-    python3 -m helpers.agent_bus.declare add-repo --file <localhost.yml> --team T
-            --repo OWNER/REPO=BRANCH[,BRANCH]... [--dry-run]
-        appends to the team's block list of repos, in its own indentation; CHANGED<TAB>...
-    python3 -m helpers.agent_bus.declare gh-repos --owner OWNER  < gh repo list's JSON
-        COUNT<TAB>n, then REPO<TAB>owner/repo<TAB>branch and EMPTY<TAB>owner/repo lines
-    python3 -m helpers.agent_bus.declare suggest-team --file <localhost.yml> --owner OWNER
-        the owner's name as a free team name, or nothing
+    python3 -m helpers.agent_bus.declare suggest-team --file <localhost.yml> --org ORG
+        the org's name as a free team name, or nothing
     python3 -m helpers.agent_bus.declare github-remote --url URL
         the lower-case OWNER/REPO of a GitHub remote, or nothing
+    python3 -m helpers.agent_bus.declare status --file <localhost.yml> --source <repo>
+            --applied <dir> [--installed TEAM]...
+        STATUS<TAB><team><TAB><state><TAB><detail or -> per team declared or applied (D65):
+        current, outdated (config, software, both, or unstamped), unbuilt, removed,
+        decide (absent: declared absent but still applied; undeclared: applied, not
+        declared) or unreadable (an entry ccy-teams cannot read; the reason)
+    python3 -m helpers.agent_bus.declare remove --file <localhost.yml> --team T [--purge] [--dry-run]
+        sets the team's state: absent and purge: false (true with --purge); CHANGED<TAB>...
 
 Nothing here prompts: ccy-teams asks the questions and passes the answers as flags, each
 checked by `check` as it is given. Exit 0 done, 64 usage, 78 refused, 130 Ctrl-C (nothing
@@ -45,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import ipaddress
 import json
 import os
@@ -57,7 +63,7 @@ from dataclasses import dataclass
 from typing import TextIO
 
 from helpers.agent_bus import teamfile
-from helpers.pingbus import protocol
+from helpers.pingbus import bundle, protocol
 
 TEAMS_KEY = "agent_bus_teams"
 ADDRESS_KEY = "agent_bus_address"
@@ -83,7 +89,7 @@ _TEMPLATE = {
     "listen": [],
     "allow_from": [],
     "humans": ["template"],
-    "repos": [{"repo": "template/template", "branches": ["main"]}],
+    "org": "template",
     "path_prefixes": list(DEFAULT_PATH_PREFIXES),
     "forge_api": DEFAULT_FORGE_API,
 }
@@ -104,8 +110,8 @@ class Declared:
     state: str
     server_name: str = ""
     listen: str | None = None  # the first listen address, when written as a flow list
-    keys: tuple[tuple[str, int], ...] = ()  # each key of the item and its line
-    last_line: int = -1  # the item's last line, nested lines included
+    #: Each key as written: (key, the rest of its line, its line, the lines nested under it).
+    raw: tuple[tuple[str, str, int, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,7 +192,7 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
     item_indent = len(first) - len(first.lstrip(" "))
     key_indent = -1
     items: list[dict[str, tuple[str, int]]] = []
-    ends: list[int] = []
+    nested: list[dict[str, list[str]]] = []
     for index in content:
         bare = lines[index].rstrip("\r\n")
         indent = len(bare) - len(bare.lstrip(" "))
@@ -200,12 +206,14 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
                 raise DeclareError(f"{where}: the {TEAMS_KEY} items are not indented alike")
             key_indent = this_key_indent
             items.append({})
-            ends.append(index)
+            nested.append({})
             body = after.lstrip(" ")
         elif indent == key_indent and items:
             pass
         elif indent > key_indent >= 0 and items:
-            ends[-1] = index
+            if not items[-1]:
+                raise DeclareError(f"{where}: an indented line before any key of the item")
+            nested[-1][list(items[-1])[-1]].append(bare)
             continue
         else:
             raise DeclareError(f"{where}: not the {TEAMS_KEY} shape ccy-teams edits (a block list of mappings)")
@@ -215,8 +223,8 @@ def _items(lines: Sequence[str], content: Sequence[int]) -> tuple[tuple[Declared
         if m["key"] in items[-1]:
             raise DeclareError(f"{where}: {m['key']} is set twice in one {TEAMS_KEY} item")
         items[-1][m["key"]] = (m["rest"], index)
-        ends[-1] = index
-    return (tuple(_declared(item, end) for item, end in zip(_unique(items), ends, strict=True)),
+        nested[-1][m["key"]] = []
+    return (tuple(_declared(item, more) for item, more in zip(_unique(items), nested, strict=True)),
             item_indent, key_indent)
 
 
@@ -233,7 +241,7 @@ def _unique(items: list[dict[str, tuple[str, int]]]) -> list[dict[str, tuple[str
     return items
 
 
-def _declared(item: dict[str, tuple[str, int]], last_line: int) -> Declared:
+def _declared(item: dict[str, tuple[str, int]], nested: dict[str, list[str]]) -> Declared:
     rest, index = item["team"]
     team = _scalar(rest, f"the team on line {index + 1}")
     if not protocol.is_team_name(team):
@@ -255,8 +263,8 @@ def _declared(item: dict[str, tuple[str, int]], last_line: int) -> Declared:
     if "server_name" in item:
         rest, index = item["server_name"]
         server_name = _scalar(rest, f"the server_name on line {index + 1}")
-    return Declared(team, port, state, server_name, _first_listen(item),
-                    tuple((key, index) for key, (_, index) in item.items()), last_line)
+    raw = tuple((key, rest, index, tuple(nested[key])) for key, (rest, index) in item.items())
+    return Declared(team, port, state, server_name, _first_listen(item), raw)
 
 
 def _first_listen(item: dict[str, tuple[str, int]]) -> str | None:
@@ -270,6 +278,192 @@ def _first_listen(item: dict[str, tuple[str, int]]) -> str | None:
     if isinstance(value, list) and value and isinstance(value[0], str):
         return value[0]
     return None
+
+
+# ---------------------------------------------------------------- an entry's values
+
+_INT_RE = re.compile(r"-?[0-9]+")
+
+
+def _value(rest: str, nested: Sequence[str], where: str) -> object:
+    """One value as the play reads it, in the subset ccy-teams writes and the example shows:
+    a plain or quoted scalar (`true`/`false` and unquoted integers typed), a flow list or
+    mapping written as JSON, or a block list of scalars or of one-line mappings."""
+    plain = re.sub(r"(^|\s)#.*$", "", rest).strip()
+    text = _scalar(rest, where)
+    if plain == "":
+        if not nested:
+            raise DeclareError(f"{where} has no value")
+        return _block_list(nested, where)
+    if nested:
+        raise DeclareError(f"{where} has a value and lines nested under it")
+    if plain[0] in "[{":
+        try:
+            return json.loads(plain)
+        except json.JSONDecodeError:
+            raise DeclareError(f"{where} is a flow value ccy-teams cannot read (write it as JSON)") from None
+    if plain[0] in "\"'":
+        return text
+    if text in ("true", "false"):
+        return text == "true"
+    if _INT_RE.fullmatch(text):
+        return int(text)
+    return text
+
+
+def _block_list(lines: Sequence[str], where: str) -> list:
+    first = lines[0]
+    indent = len(first) - len(first.lstrip(" "))
+    out: list = []
+    pending: dict[str, tuple[str, list[str]]] | None = None
+    for line in lines:
+        body = line.strip()
+        if not body or body.startswith("#"):
+            continue
+        this = len(line) - len(line.lstrip(" "))
+        if this == indent and body.startswith("- "):
+            item = body[2:].strip()
+            km = _KEY_LINE_RE.fullmatch(item)
+            if km is None:
+                out.append(_value(item, (), where))
+                pending = None
+                continue
+            pending = {km["key"]: (km["rest"], [])}
+            out.append(pending)
+        elif this > indent and pending is not None:
+            km = _KEY_LINE_RE.fullmatch(body)
+            if km is None or km["key"] in pending:
+                raise DeclareError(f"{where} holds a list item ccy-teams cannot read")
+            pending[km["key"]] = (km["rest"], [])
+        else:
+            raise DeclareError(f"{where} is not a block list ccy-teams can read")
+    return [{key: _value(rest, more, f"{where}: {key}") for key, (rest, more) in item.items()}
+            if isinstance(item, dict) else item for item in out]
+
+
+def entry_of(team: Declared) -> dict:
+    """The entry as the play hands it to the installer; DeclareError when it is written in
+    a form ccy-teams does not read (a vault-tagged value, YAML beyond the subset above)."""
+    return {key: _value(rest, more, f"{team.team}'s {key} on line {index + 1}")
+            for key, rest, index, more in team.raw}
+
+
+# ---------------------------------------------------------------- applied or not (D65)
+
+PIN_FILE = "files/usr/local/share/agent-bus/tuwunel.pin"
+#: The installer the play runs in place, from this checkout.
+INSTALLER_FILE = "files/usr/local/sbin/agent-bus-install"
+CURRENT, OUTDATED, UNBUILT, REMOVED, DECIDE, UNREADABLE = (
+    "current", "outdated", "unbuilt", "removed", "decide", "unreadable")
+
+
+def declared_software(source: pathlib.Path) -> str:
+    """The software digest the play would stamp now: the admin zipapp built from this
+    checkout (the same reproducible build the installer runs), the pinned Tuwunel and this
+    checkout's installer."""
+    versions = [line.partition(":")[2].strip() for line in (source / PIN_FILE).read_text().splitlines()
+                if line.startswith("tuwunel_version:")]
+    if len(versions) != 1:
+        raise DeclareError(f"{PIN_FILE} names no single tuwunel_version")
+    installer = hashlib.sha256((source / INSTALLER_FILE).read_bytes()).hexdigest()
+    return teamfile.software_digest(bundle.build("agent-bus", source), versions[0], installer)
+
+
+def declared_config(team: Declared) -> str:
+    """The config digest of the team file the play would render from this entry."""
+    entry = {k: v for k, v in entry_of(team).items() if k != "purge"}
+    try:
+        return teamfile.config_digest(teamfile.parse_team_file(dict(entry, state="present")))
+    except teamfile.TeamFileError as exc:
+        raise DeclareError(str(exc)) from None
+
+
+def read_stamps(applied: pathlib.Path) -> dict[str, dict]:
+    """Every `<team>.json` stamp the installer left; a malformed one is refused, naming it."""
+    stamps: dict[str, dict] = {}
+    if not applied.is_dir():
+        return stamps
+    for path in sorted(applied.glob("*.json")):
+        try:
+            found = teamfile.parse_stamp(path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            raise DeclareError(f"{path} is not an applied-team stamp") from None
+        if f"{found['team']}.json" != path.name:
+            raise DeclareError(f"{path} names team {found['team']}")
+        stamps[found["team"]] = found
+    return stamps
+
+
+def team_states(hv: HostVars, stamps: dict[str, dict], software: str,
+                installed: Sequence[str]) -> list[tuple[str, str, str]]:
+    """(team, state, detail) per declared team, then per applied team no longer declared."""
+    rows = []
+    for team in hv.teams:
+        stamp = stamps.get(team.team)
+        if team.state == "absent":
+            rows.append((team.team, DECIDE, "absent") if stamp else (team.team, REMOVED, "-"))
+            continue
+        try:
+            config = declared_config(team)
+        except DeclareError as exc:
+            rows.append((team.team, UNREADABLE, str(exc).replace("\t", " ")))
+            continue
+        if stamp is None:
+            rows.append((team.team, OUTDATED, "unstamped") if team.team in installed else (team.team, UNBUILT, "-"))
+            continue
+        differ = [what for what, now in (("config", config), ("software", software)) if stamp[what] != now]
+        rows.append((team.team, OUTDATED, ",".join(differ)) if differ else (team.team, CURRENT, "-"))
+    declared = {t.team for t in hv.teams}
+    rows += [(name, DECIDE, "undeclared") for name in sorted(stamps) if name not in declared]
+    return rows
+
+
+def status(args: argparse.Namespace, out: TextIO) -> int:
+    hv = parse(_read(pathlib.Path(args.file)))
+    rows = team_states(hv, read_stamps(pathlib.Path(args.applied)), declared_software(pathlib.Path(args.source)),
+                       args.installed or [])
+    out.writelines(f"STATUS\t{team}\t{state}\t{detail}\n" for team, state, detail in rows)
+    return EXIT_OK
+
+
+def mark_absent(hv: HostVars, name: str, purge: bool) -> str:
+    """The file's text with the team's `state: absent` and `purge:` set, every other line as
+    it was; the play then takes the team down, keeping its data unless `purge`."""
+    team = next((t for t in hv.teams if t.team == name), None)
+    if team is None:
+        raise UsageError(f"--team: team {name} is not declared in {TEAMS_KEY}")
+    lines = list(hv.lines)
+    keys = {key: index for key, _, index, _ in team.raw}
+    pad = " " * hv.key_indent
+    for key, value in (("state", "absent"), ("purge", "true" if purge else "false")):
+        line = f"{pad}{key}: {value}\n"
+        if key in keys:
+            if any(k == key and more for k, _, _, more in team.raw):
+                raise DeclareError(f"team {name}'s {key} has nested lines; set it by hand")
+            lines[keys[key]] = line
+        else:
+            at = keys["team"] + 1
+            lines.insert(at, line)
+            keys = {k: (i + 1 if i >= at else i) for k, i in keys.items()}
+            keys[key] = at
+    new = "".join(lines)
+    after = next(t for t in parse(new).teams if t.team == name)
+    if after.state != "absent" or entry_of(after).get("purge") is not purge:
+        raise DeclareError("the edited file does not read back with the team absent; nothing was written")
+    return new
+
+
+def remove(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
+    path = pathlib.Path(args.file)
+    new = mark_absent(parse(_read(path)), args.team, args.purge)
+    if args.dry_run:
+        out.write(new)
+        return EXIT_OK
+    backup = write(path, new)
+    what = "absent, its data deleted (purge: true)" if args.purge else "absent, its data kept (purge: false)"
+    out.write(f"CHANGED\tteam {args.team} {what}, in {path}\n")
+    err.write(f"The file as it was is kept at {backup}.\n")
+    return EXIT_OK
 
 
 # ---------------------------------------------------------------- the port
@@ -318,7 +512,7 @@ def field_error(key: str, value: object) -> str | None:
 
 
 def build_entry(*, team: str, port: int, listen: Sequence[str], allow_from: Sequence[str],
-                humans: Sequence[str], repos: Sequence[tuple[str, Sequence[str]]]) -> dict:
+                humans: Sequence[str], org: str) -> dict:
     """The new agent_bus_teams entry, checked by the team file's validator."""
     entry = {
         "team": team,
@@ -326,7 +520,7 @@ def build_entry(*, team: str, port: int, listen: Sequence[str], allow_from: Sequ
         "listen": list(listen),
         "allow_from": list(allow_from),
         "humans": list(humans),
-        "repos": [{"repo": repo, "branches": list(branches)} for repo, branches in repos],
+        "org": org,
         "path_prefixes": list(DEFAULT_PATH_PREFIXES),
         "forge_api": DEFAULT_FORGE_API,
     }
@@ -343,10 +537,7 @@ def render_entry(entry: dict, item_indent: int, key_indent: int) -> list[str]:
     lines = [f"{pad}- team: {entry['team']}\n", f"{key_pad}port: {entry['port']}\n"]
     for key in ("listen", "allow_from", "humans"):
         lines.append(f"{key_pad}{key}: {json.dumps(entry[key])}\n")
-    lines.append(f"{key_pad}repos:\n")
-    for repo in entry["repos"]:
-        lines.append(f"{key_pad}  - repo: {json.dumps(repo['repo'])}\n")
-        lines.append(f"{key_pad}    branches: {json.dumps(repo['branches'])}\n")
+    lines.append(f"{key_pad}org: {json.dumps(entry['org'])}\n")
     lines.append(f"{key_pad}path_prefixes: {json.dumps(entry['path_prefixes'])}\n")
     lines.append(f"{key_pad}forge_api: {json.dumps(entry['forge_api'])}\n")
     return lines
@@ -417,34 +608,20 @@ def _split(text: str) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
 
 
-def _parse_repo_flag(value: str) -> tuple[str, list[str]]:
-    repo, sep, branches = value.partition("=")
-    if not sep:
-        raise UsageError(f"--repo {value}: give it as OWNER/REPO=BRANCH[,BRANCH]")
-    problem = field_error("repos", [{"repo": repo, "branches": _split(branches)}])
-    if problem:
-        raise UsageError(f"--repo {value}: {problem}")
-    return repo, _split(branches)
-
-
-def _check_flags(hv: HostVars, args: argparse.Namespace) -> list[tuple[str, list[str]]]:
-    """Every value the flags give, by the team file's rules; UsageError names the first bad one.
-    Returns the repos, parsed."""
+def _check_flags(hv: HostVars, args: argparse.Namespace) -> None:
+    """Every value the flags give, by the team file's rules; UsageError names the first bad one."""
     if args.team is not None:
         if any(t.team == args.team for t in hv.teams):
             raise UsageError(f"--team: team {args.team} is already declared in {TEAMS_KEY}")
         problem = field_error("team", args.team)
         if problem:
             raise UsageError(f"--team: {problem}")
-    for flag, key, value in (("--human", "humans", args.human), ("--allow-from", "allow_from", args.allow_from)):
+    for flag, key, value in (("--human", "humans", args.human), ("--allow-from", "allow_from", args.allow_from),
+                             ("--org", "org", args.org)):
         if value:
             problem = field_error(key, value)
             if problem:
                 raise UsageError(f"{flag}: {problem}")
-    owner = getattr(args, "owner", None)
-    if owner is not None and not protocol.is_owner_repo(f"{owner}/x"):
-        raise UsageError(f"--owner: {owner!r} must be a lower-case GitHub owner (an org or a user)")
-    return [_parse_repo_flag(value) for value in args.repo or []]
 
 
 def check(args: argparse.Namespace) -> int:
@@ -457,161 +634,47 @@ def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, 
     hv = parse(_read(path))
     if hv.address is None:
         raise DeclareError(NO_ADDRESS.format(path=path, key=ADDRESS_KEY))
-    missing = [flag for flag, value in (("--team", args.team), ("--human", args.human), ("--repo", args.repo))
+    missing = [flag for flag, value in (("--team", args.team), ("--human", args.human), ("--org", args.org))
                if not value]
     if missing:
         raise UsageError(f"create needs {', '.join(missing)} (ccy-teams create asks for them on a terminal)")
-    repos = _check_flags(hv, args)
+    _check_flags(hv, args)
     port = choose_port({t.port for t in hv.teams if t.port is not None} | listening_ports(ss_output()))
     entry = build_entry(team=args.team, port=port, listen=[hv.address], allow_from=args.allow_from or [],
-                        humans=args.human, repos=repos)
+                        humans=args.human, org=args.org)
     new = insert(hv, entry)
     if args.dry_run:
         out.writelines(render_entry(entry, hv.item_indent, hv.key_indent))
         return EXIT_OK
     backup = write(path, new)
     out.write(f"CHANGED\tteam {args.team}, port {port}, in {path}\n")
-    err.write(next_steps(path, backup, args.team, port, hv.address))
+    err.write(f"Team {args.team} is declared in {path}, on port {port}; the file as it was is kept at {backup}.\n")
     return EXIT_OK
 
 
-def next_steps(path: pathlib.Path, backup: pathlib.Path, team: str, port: int, address: str) -> str:
-    """What happens now, in order: nothing is installed until the play runs."""
+def next_steps(hv: HostVars, path: pathlib.Path, name: str) -> str:
+    """What to do once the team is installed: sign in, watch it, bring in agents."""
+    team = next((t for t in hv.teams if t.team == name), None)
+    if team is None or team.port is None:
+        raise UsageError(f"--team: team {name} is not declared with a port in {TEAMS_KEY}")
+    host = team.listen or hv.address
+    url = f"http://{_url_host(host)}:{team.port}" if host else "-"
     return (
-        f"\nTeam {team} is declared in {path}, on port {port}.\n"
-        f"The file as it was is kept at {backup}.\n\n"
-        "Next:\n"
-        "  1. Install it. Nothing exists until play-agent-bus.yml runs: add\n"
-        "     playbooks/imports/play-agent-bus.yml to PLANS in CLAUDE/Plan/meta-deploy.bash and run\n"
-        "     ./CLAUDE/Plan/meta-deploy.bash. It creates the homeserver, the room and the humans' accounts.\n"
-        f"  2. Watch it in Element: add this item under agent_bus_element_teams in {path.name},\n"
-        f"     {{team: {team}, base_url: \"http://{_url_host(address)}:{port}\"}}\n"
-        "     and run playbooks/imports/optional/common/play-agent-bus-element.yml.\n"
-        "  3. Sign in: in ccy-teams, choose your name under the team and press Enter. It sets a\n"
+        f"Team {name} is up. Next:\n"
+        "  1. Sign in: in ccy-teams, choose your name under the team and press Enter. It sets a\n"
         "     new Element password and shows it once, with the homeserver and username.\n"
-        f"  4. Bring in agents: in a checkout of one of the team's repositories, run ccy --teams 1@{team}\n"
+        f"  2. Watch it in Element: add {{team: {name}, base_url: \"{url}\"}} under\n"
+        f"     agent_bus_element_teams in {path.name}, then run\n"
+        "     playbooks/imports/optional/common/play-agent-bus-element.yml; Ctrl-E in ccy-teams opens it.\n"
+        f"  3. Bring in agents: in a checkout of any of the org's repositories, run ccy --teams 1@{name}\n"
         "     (or Ctrl-N on the team in ccy-teams).\n"
     )
 
 
-# ---------------------------------------------------------------- a team's repositories
-
-
-INSTALL_STEP = (
-    "Nothing changes until play-agent-bus.yml runs: add playbooks/imports/play-agent-bus.yml to PLANS\n"
-    "in CLAUDE/Plan/meta-deploy.bash and run ./CLAUDE/Plan/meta-deploy.bash.\n"
-)
-
-
-@dataclass(frozen=True)
-class RepoBlock:
-    repos: tuple[tuple[str, str], ...]  # (OWNER/REPO, its branches comma-joined, or -)
-    insert_at: int
-    indent: int  # of each entry's "- "
-
-
-def _team(hv: HostVars, name: str) -> Declared:
-    for team in hv.teams:
-        if team.team == name:
-            return team
-    raise UsageError(f"--team: team {name} is not declared in {TEAMS_KEY}")
-
-
-def repo_block(hv: HostVars, name: str) -> RepoBlock:
-    """The team's repos list as written: a block list of `- repo:` / `branches:` mappings."""
-    team = _team(hv, name)
-    keys = dict(team.keys)
-    if "repos" not in keys:
-        raise DeclareError(f"team {name} has no repos")
-    line = keys["repos"]
-    m = _KEY_LINE_RE.fullmatch(hv.lines[line].rstrip("\r\n").lstrip(" "))
-    if m is None or _scalar(m["rest"], f"the repos on line {line + 1}"):
-        raise DeclareError(f"team {name}'s repos on line {line + 1} is written inline; ccy-teams adds only "
-                           "to a block list")
-    nested = []
-    for index in range(line + 1, team.last_line + 1):
-        bare = hv.lines[index].rstrip("\r\n")
-        if not bare.strip() or bare.lstrip().startswith("#"):
-            continue
-        if len(bare) - len(bare.lstrip(" ")) <= hv.key_indent:
-            break
-        nested.append(index)
-    if not nested:
-        raise DeclareError(f"team {name}'s repos on line {line + 1} is empty")
-    first = hv.lines[nested[0]].rstrip("\r\n")
-    indent = len(first) - len(first.lstrip(" "))
-    repos: list[list[str]] = []
-    for index in nested:
-        bare = hv.lines[index].rstrip("\r\n")
-        body = bare.lstrip(" ")
-        where = f"line {index + 1}"
-        if len(bare) - len(body) == indent and body.startswith("- "):
-            repos.append(["", "-"])
-            body = body[2:].lstrip(" ")
-        elif not repos:
-            raise DeclareError(f"{where}: team {name}'s repos is not a block list of mappings")
-        km = _KEY_LINE_RE.fullmatch(body)
-        if km is None:
-            raise DeclareError(f"{where}: team {name}'s repos entries must be repo: and branches: lines")
-        if km["key"] == "repo":
-            repos[-1][0] = _scalar(km["rest"], where)
-        elif km["key"] == "branches":
-            try:
-                branches = json.loads(_scalar(km["rest"], where))
-            except json.JSONDecodeError:
-                branches = None
-            if isinstance(branches, list) and all(isinstance(b, str) for b in branches):
-                repos[-1][1] = ",".join(branches)
-    if any(not repo for repo, _ in repos):
-        raise DeclareError(f"team {name}'s repos has an entry with no repo")
-    return RepoBlock(tuple((repo, branches) for repo, branches in repos), nested[-1] + 1, indent)
-
-
-def list_repos(args: argparse.Namespace, out: TextIO) -> int:
-    block = repo_block(parse(_read(pathlib.Path(args.file))), args.team)
-    out.writelines(f"REPO\t{repo}\t{branches}\n" for repo, branches in block.repos)
-    return EXIT_OK
-
-
-def add_repo(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
-    path = pathlib.Path(args.file)
-    hv = parse(_read(path))
-    if not args.repo:
-        raise UsageError("add-repo needs --repo OWNER/REPO=BRANCH[,BRANCH] (ccy-teams add-repo asks on a terminal)")
-    block = repo_block(hv, args.team)
-    known = {repo for repo, _ in block.repos}
-    added = [_parse_repo_flag(value) for value in args.repo]
-    for repo, _ in added:
-        if repo in known:
-            raise UsageError(f"--repo: {repo} is already listed for team {args.team}")
-        known.add(repo)
-    if len(known) > protocol.REPOS_MAX:
-        raise UsageError(f"--repo: a team lists at most {protocol.REPOS_MAX} repositories")
-    pad = " " * block.indent
-    lines = [line for repo, branches in added
-             for line in (f"{pad}- repo: {json.dumps(repo)}\n", f"{pad}  branches: {json.dumps(branches)}\n")]
-    if args.dry_run:
-        out.writelines(lines)
-        return EXIT_OK
-    old = list(hv.lines)
-    new = "".join(old[:block.insert_at] + lines + old[block.insert_at:])
-    after = parse(new)
-    if ([t.team for t in after.teams] != [t.team for t in hv.teams]
-            or [r for r, _ in repo_block(after, args.team).repos] != [*(r for r, _ in block.repos),
-                                                                      *(r for r, _ in added)]):
-        raise DeclareError("the edited file does not read back with the repositories added; nothing was written")
-    backup = write(path, new)
-    names = ", ".join(repo for repo, _ in added)
-    out.write(f"CHANGED\tteam {args.team}: {names} added, in {path}\n")
-    err.write(f"\n{names} added to team {args.team} in {path}.\nThe file as it was is kept at {backup}.\n\n"
-              f"Next: {INSTALL_STEP}")
-    return EXIT_OK
-
-
-def suggest_team(hv: HostVars, owner: str) -> str | None:
-    """The GitHub owner's name in the team-name grammar (a team works within one owner), or
+def suggest_team(hv: HostVars, org: str) -> str | None:
+    """The GitHub org's name in the team-name grammar (a team works within one org), or
     None when nothing valid is left of it or a team has the name already."""
-    name = re.sub(r"[^a-z0-9-]+", "-", owner.lower())
+    name = re.sub(r"[^a-z0-9-]+", "-", org.lower())
     name = re.sub(r"-+", "-", name).lstrip("-0123456789")[:24].rstrip("-")
     if not name or field_error("team", name) or any(t.team == name for t in hv.teams):
         return None
@@ -634,28 +697,6 @@ def github_remote(url: str) -> str | None:
         return None
     name = f"{m['owner']}/{m['repo']}".lower()
     return name if protocol.is_owner_repo(name) else None
-
-
-def gh_repos(owner: str, data: object) -> list[str]:
-    """`gh repo list <owner> --json name,defaultBranchRef,isArchived` as lines: COUNT (every
-    repository gh listed, so a caller can tell a list cut at its limit), then REPO
-    <owner/repo> <default branch> per live repository and EMPTY <owner/repo> per one with no
-    default branch (no commits), each group sorted. Archived repositories are left out."""
-    if not isinstance(data, list) or not all(isinstance(item, dict) and isinstance(item.get("name"), str)
-                                             for item in data):
-        raise DeclareError("gh repo list did not print the expected JSON list of repositories")
-    repos, empty = [], []
-    for item in data:
-        if item.get("isArchived") is True:
-            continue
-        name = f"{owner}/{item['name']}".lower()
-        ref = item.get("defaultBranchRef")
-        branch = ref.get("name") if isinstance(ref, dict) else None
-        if isinstance(branch, str) and protocol.is_branch_name(branch):
-            repos.append(f"REPO\t{name}\t{branch}")
-        else:
-            empty.append(f"EMPTY\t{name}")
-    return [f"COUNT\t{len(data)}", *sorted(repos), *sorted(empty)]
 
 
 def _url_host(address: str) -> str:
@@ -693,32 +734,33 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--file", required=True)
         sub.add_argument("--team")
         sub.add_argument("--human", action="append")
-        sub.add_argument("--repo", action="append", metavar="OWNER/REPO=BRANCH[,BRANCH]")
+        sub.add_argument("--org", help="the GitHub owner (an org or a user) whose repositories the team trusts")
         sub.add_argument("--allow-from", action="append", dest="allow_from", metavar="CIDR")
         if name == "create":
             sub.add_argument("--dry-run", action="store_true", help="print the entry; write nothing")
-        else:
-            sub.add_argument("--owner", help="a GitHub owner (an org or a user)")
-    listed = commands.add_parser("repos", help="one REPO line per repository of a team")
-    listed.add_argument("--file", required=True)
-    listed.add_argument("--team", required=True)
-    more = commands.add_parser("add-repo", help="add repositories to a declared team")
-    more.add_argument("--file", required=True)
-    more.add_argument("--team", required=True)
-    more.add_argument("--repo", action="append", metavar="OWNER/REPO=BRANCH[,BRANCH]")
-    more.add_argument("--dry-run", action="store_true", help="print the lines; write nothing")
-    repos = commands.add_parser("gh-repos", help="gh repo list's JSON (stdin) as REPO lines")
-    repos.add_argument("--owner", required=True)
-    suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub owner's")
+    suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub org's")
     suggest.add_argument("--file", required=True)
-    suggest.add_argument("--owner", required=True)
+    suggest.add_argument("--org", required=True)
     remote = commands.add_parser("github-remote", help="OWNER/REPO of a GitHub remote URL, or nothing")
     remote.add_argument("--url", required=True)
+    states = commands.add_parser("status", help="each team: applied as declared or not (D65)")
+    states.add_argument("--file", required=True)
+    states.add_argument("--source", required=True, help="this checkout, whose software the play installs")
+    states.add_argument("--applied", required=True, help="the installer's applied-stamp directory")
+    states.add_argument("--installed", action="append", metavar="TEAM", help="a team whose homeserver exists")
+    steps = commands.add_parser("next-steps", help="what to do once a team is installed")
+    steps.add_argument("--file", required=True)
+    steps.add_argument("--team", required=True)
+    down = commands.add_parser("remove", help="declare a team absent, its data kept unless --purge")
+    down.add_argument("--file", required=True)
+    down.add_argument("--team", required=True)
+    down.add_argument("--purge", action="store_true")
+    down.add_argument("--dry-run", action="store_true", help="print the edited file; write nothing")
     return parser
 
 
 def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _ss,
-         stdin: TextIO | None = None, stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
+         stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     try:
@@ -727,22 +769,19 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
             return declared(args, out)
         if args.command == "check":
             return check(args)
-        if args.command == "repos":
-            return list_repos(args, out)
-        if args.command == "add-repo":
-            return add_repo(args, out, err)
-        if args.command == "gh-repos":
-            try:
-                data = json.load(sys.stdin if stdin is None else stdin)
-            except json.JSONDecodeError:
-                raise DeclareError("gh repo list did not print JSON") from None
-            out.writelines(f"{line}\n" for line in gh_repos(args.owner, data))
-            return EXIT_OK
         if args.command == "suggest-team":
-            name = suggest_team(parse(_read(pathlib.Path(args.file))), args.owner)
+            name = suggest_team(parse(_read(pathlib.Path(args.file))), args.org)
             if name:
                 out.write(f"{name}\n")
             return EXIT_OK
+        if args.command == "next-steps":
+            path = pathlib.Path(args.file)
+            out.write(next_steps(parse(_read(path)), path, args.team))
+            return EXIT_OK
+        if args.command == "status":
+            return status(args, out)
+        if args.command == "remove":
+            return remove(args, out, err)
         if args.command == "github-remote":
             name = github_remote(args.url)
             if name:

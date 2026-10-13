@@ -584,6 +584,13 @@ check "bootstrap runs" "yes" "$(says '^agent-bus bootstrap alpha$' "$(LOG)")"
 check "the run says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
 check "stdout carries only CHANGED lines" "0" "$(grep -cv $'^CHANGED\t' "$OUT")"
 check "no secret reaches stdout or stderr" "0" "$(cat "$OUT" "$ERR" | grep -cF "$SECRET_BEFORE")"
+STAMP=$ROOT/var/lib/agent-bus-applied/alpha.json
+check "the applied stamp is world-readable (D65)" "644" "$(mode "$STAMP")"
+check "  in a world-readable directory" "755" "$(mode "$ROOT/var/lib/agent-bus-applied")"
+check "  its config digest is the team.json's, by teamfile.config_digest" \
+    "$(cd "$REPO_ROOT" && python3 -c 'import pathlib, sys; from helpers.agent_bus import teamfile; print(teamfile.config_digest(teamfile.load_team_file(pathlib.Path(sys.argv[1]))))' "$T/team.json")" \
+    "$(jq -r .config "$STAMP")"
+check "  and it holds no secret" "0" "$(grep -cF "$SECRET_BEFORE" "$STAMP")"
 
 echo "== team: nothing changed"
 run team --team-file "$TF"
@@ -857,6 +864,7 @@ check "both units are disabled and stopped" "yes" \
 check "the drop-in is gone" "no" "$(exists "$ROOT/etc/systemd/system/agent-bus-hs@alpha.service.d")"
 check "the rich rule is removed" "0" "$(count . "$STUB_DIR/fw/permanent.public")"
 check "the data stays without --purge" "yes" "$(exists "$ROOT/var/lib/agent-bus/alpha/db")"
+check "the applied stamp is removed (D65)" "no" "$(exists "$ROOT/var/lib/agent-bus-applied/alpha.json")"
 check "remove says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
 run remove --team alpha
 check "a second remove succeeds" "0" "$RC"

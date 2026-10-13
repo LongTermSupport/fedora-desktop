@@ -81,7 +81,7 @@ STDERR = "stderr"
 ABSENT = "-"
 #: Spec §15: each line's stream and the fields after `<KIND>` and the version.
 LINES = {
-    "PING": (STDOUT, ("team", "event ID", "sender", "verb", "ref", "re")),
+    "PING": (STDOUT, ("team", "event ID", "sender", "verb", "ref", "re", "trust", "branch")),
     "HUMAN": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
     "PEER": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
     "TIMEOUT": (STDOUT, ("team", "event ID of the unanswered ping", "silent target", "verb", "ref")),
@@ -179,11 +179,25 @@ def _ref(ref: str | None) -> str | None:
     return ref
 
 
+def _branch(branch: str | None) -> str | None:
+    if branch is not None and not protocol.is_branch_name(branch):
+        raise ValueError("branch field is not a branch name")
+    return branch
+
+
+def _trust(ping: protocol.Ping) -> str | None:
+    """`trusted` or `external` for a ping with a reference, absent without one (§15)."""
+    if (ping.ref is None) != (ping.trust is None) or ping.trust not in (
+            None, protocol.TRUST_TRUSTED, protocol.TRUST_EXTERNAL):
+        raise ValueError("trust field does not match the reference")
+    return ping.trust
+
+
 def ping_line(team: str, server_name: str, ping: protocol.Ping) -> str:
     return format_line(
         "PING", _team(team), _event_id(ping.event_id), _localpart(ping.sender, server_name),
         _verb(ping.verb), _ref(ping.ref.text if ping.ref else None),
-        None if ping.re is None else _event_id(ping.re),
+        None if ping.re is None else _event_id(ping.re), _trust(ping), _branch(ping.branch),
     )
 
 
@@ -448,6 +462,56 @@ def checkout_origin(cwd: str) -> tuple[str, str | None]:
     raise config.ConfigError(f"git remote get-url origin failed: {remote.stderr.strip()}")
 
 
+_GITHUB_URL_RE = re.compile(
+    r"(?:git@github\.com[^:/]*:|ssh://git@github\.com[^/]*/|https://github\.com/)"
+    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?")
+
+
+def checkout_upstream(cwd: str) -> tuple[str, str] | None:
+    """The `OWNER/REPO` (lowercase) of the checkout's `origin` on GitHub and the branch its
+    current branch tracks there, or None when there is no such pair: no checkout, a
+    detached head, no upstream, an upstream on another remote, or an origin that is not a
+    GitHub repository. `pingbus send` names that branch in a ping (D64), so an agent never
+    types it; when it cannot be found the receiver falls back to the default branch."""
+    git_env = {**os.environ, "LC_ALL": "C"}
+    try:
+        upstream = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+            capture_output=True, text=True, check=False, env=git_env,
+        )
+    except FileNotFoundError:
+        return None
+    remote, _, branch = upstream.stdout.strip().partition("/")
+    if upstream.returncode != 0 or remote != "origin" or not protocol.is_branch_name(branch):
+        return None
+    url = subprocess.run(
+        ["git", "-C", cwd, "remote", "get-url", "origin"],
+        capture_output=True, text=True, check=False, env=git_env,
+    )
+    match = _GITHUB_URL_RE.fullmatch(url.stdout.strip()) if url.returncode == 0 else None
+    if match is None:
+        return None
+    repo = f"{match['owner']}/{match['repo']}".lower()
+    return (repo, branch) if protocol.is_owner_repo(repo) else None
+
+
+def _send_branch(args: argparse.Namespace, ref: str | None, record: protocol.TeamRecord,
+                 upstream: Callable[[], tuple[str, str] | None]) -> str | None:
+    """The ping's `branch`: `--branch` as given; else, for a `path` or `commit` reference
+    into an unlisted repository of the team's org, the branch the checkout tracks when its
+    origin is that repository (DESIGN.md D64); else none (the default branch, or a listed
+    repository's listed branches)."""
+    if args.branch is not None:
+        return args.branch
+    parsed = None if ref is None else protocol.parse_ref(ref)
+    if parsed is None or parsed.form not in protocol.BRANCH_REF_FORMS:
+        return None
+    if protocol.ref_source(parsed, record.org, record.repos) != protocol.SOURCE_ORG:
+        return None
+    found = upstream()
+    return found[1] if found is not None and found[0] == parsed.repo_full else None
+
+
 def _detect_virt(*flags: str) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
@@ -542,7 +606,8 @@ class Runtime:
     `wait`'s and `watch`'s long-poll threads; `notice_interval_s` spaces the watcher's
     notices; `spawn` starts the watcher from the SessionStart hook; `seats_root` is the
     checkout's seats (`SEAT` lines, the claim), `session_home` the home a claim builds, and
-    `execvpe` replaces the process with the session once its seats are claimed."""
+    `execvpe` replaces the process with the session once its seats are claimed;
+    `upstream` is the working directory's checkout and the branch it tracks (`send`)."""
 
     forge_for: Callable[
         [config.Member, Mapping[str, str]], Callable[[protocol.TeamRecord], forge.Forge]
@@ -558,6 +623,7 @@ class Runtime:
     seats_root: pathlib.Path = seating.CCY_SEATS_ROOT
     session_home: pathlib.Path = seating.SESSION_HOME
     execvpe: Callable[[str, list[str], dict[str, str]], object] = os.execvpe
+    upstream: Callable[[], tuple[str, str] | None] = lambda: checkout_upstream(os.getcwd())
 
 
 class _LockedStream:
@@ -648,7 +714,7 @@ def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     to = (_orchestrators(record, member.user_id) if args.to_orchestrator
           else _user_ids(args.to, member.server_name))
     ref = None if args.ref is None else protocol.lowercase_ref_repo(args.ref)
-    content = protocol.build_ping(args.verb, to, ref, args.re)
+    content = protocol.build_ping(args.verb, to, ref, args.re, _send_branch(args, ref, record, rt.upstream))
     ping = protocol.validate_content(content, ctx)
     protocol.check_role(args.verb, member.user_id, ctx)
     now = rt.clock_ms()
@@ -1340,6 +1406,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     targets.add_argument("--to-orchestrator", action="store_true",
                          help="every orchestrator in the team record")
     send.add_argument("--re", metavar="EVENT_ID")
+    send.add_argument("--branch", metavar="BRANCH",
+                      help="the branch holding the commit; by default the one this checkout tracks")
     say = command("say", cmd_say, "send text from stdin to the team's humans and agents")
     say.add_argument("--to", required=True, metavar="NAME[,NAME...]",
                      help="human localparts, handles or full user IDs; never @room")

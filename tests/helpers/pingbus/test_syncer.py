@@ -44,7 +44,8 @@ def q(value: str) -> str:
 
 
 class StubForge:
-    """The forge client's interface (`api`, `check`): records each check, fails on demand."""
+    """The forge client's interface (`api`, `check`, `check_org`, `check_external`): records
+    each check, fails on demand."""
 
     api = "https://api.github.com"
 
@@ -57,6 +58,12 @@ class StubForge:
         code = self.fail.get(ref.text)
         if code is not None:
             raise forge.ForgeError(code, "stub")
+
+    def check_org(self, ref: protocol.Ref, org: str, branch: str | None = None) -> None:
+        self.check(ref, (f"<default branch of {org}>",))
+
+    def check_external(self, ref: protocol.Ref, branch: str | None = None) -> None:
+        self.check(ref, ("<external>",))
 
 
 class TeamCase(unittest.TestCase):

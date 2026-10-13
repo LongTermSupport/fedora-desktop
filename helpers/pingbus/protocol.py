@@ -96,7 +96,10 @@ REF_TEMPLATES = {
 MAX_REF_LEN = 700
 
 CONTENT_KEYS = ("msgtype", "body", "m.mentions", PING_KEY)
-PING_KEYS = ("v", "verb", "to", "ref", "re")
+PING_KEYS = ("v", "verb", "to", "ref", "re", "branch")
+#: Reference forms a ping's `branch` may accompany (spec §4, §6): the branch whose history
+#: holds the commit. A pull request names its own head; an issue has no commit.
+BRANCH_REF_FORMS = ("path", "commit")
 PING_REQUIRED_KEYS = ("v", "verb", "to")
 EDIT_KEYS = ("m.relates_to", "m.new_content")
 MAX_CONTENT_BYTES = 4096
@@ -129,10 +132,13 @@ SECRET_PATTERNS = (
      r"|private[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,}"),
 )
 
-TEAM_KEYS = ("v", "team", "humans", "roles", "repos", "path_prefixes", "forge_api")
+TEAM_KEYS = ("v", "team", "humans", "roles", "org", "repos", "path_prefixes", "forge_api")
+#: Keys a team record may leave out (spec §8); every other key is required.
+TEAM_OPTIONAL_KEYS = ("org",)
 FORGE_API_PATTERN = r"https://[^\s/]+(/\S*)?"
 HUMANS_MAX = 16
 ROLES_MAX = 64
+REPOS_MIN = 0
 REPOS_MAX = 32
 BRANCHES_MAX = 8
 PATH_PREFIXES_MAX = 32
@@ -156,6 +162,16 @@ REQUIRED = "required"
 OPTIONAL = "optional"
 FORBIDDEN = "forbidden"
 
+#: Where a reference's repository stands with the team (spec §11): listed in `repos`, of the
+#: team's `org`, or neither (a public repository outside the team: data, never authority).
+SOURCE_LISTED = "listed"
+SOURCE_ORG = "org"
+SOURCE_EXTERNAL = "external"
+#: A ping's trust as the PING line shows it (spec §15): the receiver may act on a
+#: `trusted` reference; an `external` one is content anyone could have written.
+TRUST_TRUSTED = "trusted"
+TRUST_EXTERNAL = "external"
+
 
 @dataclasses.dataclass(frozen=True)
 class VerbRule:
@@ -164,10 +180,14 @@ class VerbRule:
     re: str
     ack_expected: bool
     senders: frozenset[str]
+    #: Whether the `ref` may name a repository outside the team (spec §5, §11): only verbs
+    #: that ask the receiver to read or that report a result, never to follow or run it.
+    external: bool
 
 
-def _rule(ref: str, forms: Sequence[str], re_: str, ack: bool, senders: Sequence[str]) -> VerbRule:
-    return VerbRule(ref, frozenset(forms), re_, ack, frozenset(senders))
+def _rule(ref: str, forms: Sequence[str], re_: str, ack: bool, senders: Sequence[str],
+          external: bool) -> VerbRule:
+    return VerbRule(ref, frozenset(forms), re_, ack, frozenset(senders), external)
 
 
 _ORCH = (ROLE_ORCHESTRATOR,)
@@ -175,15 +195,15 @@ _ORCH_WORKER = (ROLE_ORCHESTRATOR, ROLE_WORKER)
 
 #: The closed verb set, in spec order.
 VERBS: dict[str, VerbRule] = {
-    "fetch": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _ORCH),
-    "sync": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _ORCH),
-    "review": _rule(REQUIRED, ("path", "commit", "pr"), FORBIDDEN, True, _ORCH_WORKER),
-    "run-qa": _rule(REQUIRED, ("commit", "pr"), FORBIDDEN, True, _ORCH_WORKER),
-    "halt": _rule(FORBIDDEN, (), FORBIDDEN, True, _ORCH),
-    "ack": _rule(FORBIDDEN, (), REQUIRED, False, (SENDER_ADDRESSED,)),
-    "nack": _rule(OPTIONAL, REF_FORMS, REQUIRED, False, (SENDER_ADDRESSED,)),
-    "done": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _ORCH_WORKER),
-    "blocked": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _ORCH_WORKER),
+    "fetch": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _ORCH, True),
+    "sync": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _ORCH, False),
+    "review": _rule(REQUIRED, ("path", "commit", "pr"), FORBIDDEN, True, _ORCH_WORKER, True),
+    "run-qa": _rule(REQUIRED, ("commit", "pr"), FORBIDDEN, True, _ORCH_WORKER, False),
+    "halt": _rule(FORBIDDEN, (), FORBIDDEN, True, _ORCH, False),
+    "ack": _rule(FORBIDDEN, (), REQUIRED, False, (SENDER_ADDRESSED,), False),
+    "nack": _rule(OPTIONAL, REF_FORMS, REQUIRED, False, (SENDER_ADDRESSED,), True),
+    "done": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _ORCH_WORKER, True),
+    "blocked": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _ORCH_WORKER, True),
 }
 #: Verbs whose `to` may name a listed human as well as role holders.
 VERBS_TO_HUMANS = frozenset({"ack", "nack", "done", "blocked"})
@@ -197,6 +217,7 @@ _EVENT_ID_RE = re.compile(EVENT_ID_PATTERN)
 _BRANCH_RE = re.compile(BRANCH_PATTERN)
 _PATH = rf"{SEG_PATTERN}(?:/{SEG_PATTERN}){{0,{PATH_MAX_SEGMENTS - 1}}}"
 _PATH_RE = re.compile(_PATH)
+_OWNER_RE = re.compile(OWNER_PATTERN)
 _OWNER_REPO = rf"(?P<owner>{OWNER_PATTERN})/(?P<repo>{REPO_PATTERN})"
 _OWNER_REPO_RE = re.compile(_OWNER_REPO)
 _REF_RES = {
@@ -257,7 +278,8 @@ class Context:
     """What the validator needs from the member config and the verified team record.
 
     `roles` maps agent user IDs to `orchestrator`/`worker`; `repos` maps `owner/repo` to
-    its trusted branches; `humans` are the team's human user IDs.
+    its trusted branches; `org` is the GitHub owner every repository of which is trusted on
+    any of its branches (the ping's, else the default), or None; `humans` are the team's human user IDs.
     """
 
     server_name: str
@@ -265,6 +287,7 @@ class Context:
     roles: Mapping[str, str]
     repos: Mapping[str, Sequence[str]]
     path_prefixes: Sequence[str]
+    org: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -275,9 +298,10 @@ class TeamRecord:
     repos: Mapping[str, tuple[str, ...]]
     path_prefixes: tuple[str, ...]
     forge_api: str
+    org: str | None = None
 
     def context(self, server_name: str) -> Context:
-        return Context(server_name, self.humans, self.roles, self.repos, self.path_prefixes)
+        return Context(server_name, self.humans, self.roles, self.repos, self.path_prefixes, self.org)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -289,6 +313,10 @@ class Ping:
     sender: str | None = None
     event_id: str | None = None
     origin_server_ts: int | None = None
+    #: TRUST_TRUSTED or TRUST_EXTERNAL when there is a `ref`, else None (spec §11, §15).
+    trust: str | None = None
+    #: The branch the sender says holds the commit (spec §4, §6), or None.
+    branch: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -409,6 +437,22 @@ def _repo_name_ok(repo: str) -> bool:
     return repo not in (".", "..") and not repo.endswith(".git")
 
 
+def is_owner(value: object) -> bool:
+    """A lowercase GitHub owner, as a team's `org` names it (spec §8, §11)."""
+    return _full(_OWNER_RE, value) is not None
+
+
+def ref_source(ref: Ref, org: str | None, repos: Mapping[str, Sequence[str]]) -> str:
+    """SOURCE_LISTED when `repos` lists the reference's repository (its listed branches are
+    the trusted ones, in the org or not), SOURCE_ORG when the org owns it, else
+    SOURCE_EXTERNAL (spec §11)."""
+    if ref.repo_full in repos:
+        return SOURCE_LISTED
+    if org is not None and ref.owner == org:
+        return SOURCE_ORG
+    return SOURCE_EXTERNAL
+
+
 def is_owner_repo(value: object) -> bool:
     """A lowercase `OWNER/REPO` as allowlists and references name it (spec §6, §11)."""
     m = _full(_OWNER_REPO_RE, value)
@@ -478,7 +522,10 @@ def render(ping: Mapping[str, object]) -> str:
     """The canonical `body` of a ping (spec §4)."""
     to = " ".join(sorted(ping["to"]))
     ref = ping.get("ref")
-    text = f"{RENDER_TAG} {ping['verb']} {ref if ref is not None else '-'} -> {to}"
+    text = f"{RENDER_TAG} {ping['verb']} {ref if ref is not None else '-'}"
+    if ping.get("branch") is not None:
+        text += f" on {ping['branch']}"
+    text += f" -> {to}"
     if ping.get("re") is not None:
         text += f" re {ping['re']}"
     return text
@@ -532,15 +579,30 @@ def check_ref_form(value: object, rule: VerbRule) -> Ref | None:
     return ref
 
 
-def _check_ref(value: object, rule: VerbRule, ctx: Context) -> Ref | None:
+def _check_ref(value: object, rule: VerbRule, ctx: Context) -> tuple[Ref | None, str | None]:
+    """The reference and its trust (spec §11): a listed or org repository's is trusted and
+    held to `path_prefixes`; any other repository's is external, accepted only for a verb
+    that allows it, and never held to the prefixes, which name the team's own documents."""
     ref = check_ref_form(value, rule)
     if ref is None:
-        return None
-    if ref.repo_full not in ctx.repos:
-        raise Refusal("allowlist")
+        return None, None
+    if ref_source(ref, ctx.org, ctx.repos) == SOURCE_EXTERNAL:
+        if not rule.external:
+            raise Refusal("allowlist")
+        return ref, TRUST_EXTERNAL
     if ref.form == "path" and not path_allowed(ref.path, ctx.path_prefixes):
         raise Refusal("allowlist")
-    return ref
+    return ref, TRUST_TRUSTED
+
+
+def check_branch(value: object, ref: Ref | None) -> str | None:
+    """A ping's `branch` (spec §4): absent, or a branch name beside a `path` or `commit`
+    reference; anything else is `ref`."""
+    if value is None:
+        return None
+    if ref is None or ref.form not in BRANCH_REF_FORMS or not is_branch_name(value):
+        raise Refusal("ref")
+    return value
 
 
 def check_re(value: object, rule: VerbRule) -> str | None:
@@ -579,7 +641,8 @@ def validate_content(content: object, ctx: Context) -> Ping:
     if rule is None:
         raise Refusal("verb")
     to = _check_targets(obj["to"], obj["verb"], ctx)
-    ref = _check_ref(obj.get("ref"), rule, ctx)
+    ref, trust = _check_ref(obj.get("ref"), rule, ctx)
+    branch = check_branch(obj.get("branch"), ref)
     re_ = check_re(obj.get("re"), rule)
     if content["m.mentions"] != {"user_ids": list(to)}:
         raise Refusal("schema")
@@ -587,7 +650,7 @@ def validate_content(content: object, ctx: Context) -> Ping:
         raise Refusal("schema")
     if content["body"] != render(obj):
         raise Refusal("body")
-    return Ping(obj["verb"], to, ref, re_)
+    return Ping(obj["verb"], to, ref, re_, trust=trust, branch=branch)
 
 
 def check_role(verb: str, sender: str, ctx: Context) -> None:
@@ -743,7 +806,7 @@ def _list_of(value: object, low: int, high: int) -> list:
 
 def _parse_repos(value: object) -> dict[str, tuple[str, ...]]:
     repos: dict[str, tuple[str, ...]] = {}
-    for item in _list_of(value, 1, REPOS_MAX):
+    for item in _list_of(value, REPOS_MIN, REPOS_MAX):
         if not isinstance(item, dict) or set(item) != {"repo", "branches"}:
             raise Untrusted("repos entry")
         name = item["repo"]
@@ -758,7 +821,8 @@ def _parse_repos(value: object) -> dict[str, tuple[str, ...]]:
 
 def parse_team_record(content: object, server_name: str, team_name: str) -> TeamRecord:
     """`agent_bus.team` content (spec §8); raises `Untrusted` on any deviation."""
-    if not isinstance(content, dict) or set(content) != set(TEAM_KEYS):
+    required = set(TEAM_KEYS) - set(TEAM_OPTIONAL_KEYS)
+    if not isinstance(content, dict) or not required <= set(content) <= set(TEAM_KEYS):
         raise Untrusted("team record keys")
     if type(content["v"]) is not int or content["v"] != PROTOCOL_VERSION:
         raise Untrusted("team record version")
@@ -779,9 +843,14 @@ def parse_team_record(content: object, server_name: str, team_name: str) -> Team
     forge = content["forge_api"]
     if _full(_FORGE_API_RE, forge) is None:
         raise Untrusted("forge_api")
+    org = content.get("org")
+    if "org" in content and not is_owner(org):
+        raise Untrusted("org")
+    repos = _parse_repos(content["repos"])
+    if org is None and not repos:
+        raise Untrusted("neither an org nor a repository is trusted")
     return TeamRecord(
-        content["team"], frozenset(humans), dict(roles), _parse_repos(content["repos"]),
-        tuple(prefixes), forge,
+        content["team"], frozenset(humans), dict(roles), repos, tuple(prefixes), forge, org,
     )
 
 
@@ -842,11 +911,12 @@ def check_power_levels(content: object, humans: Iterable[str]) -> None:
         raise Untrusted("power levels")
 
 
-def build_ping(verb: str, to: Sequence[str], ref: str | None = None, re: str | None = None) -> dict:
+def build_ping(verb: str, to: Sequence[str], ref: str | None = None, re: str | None = None,
+               branch: str | None = None) -> dict:
     """A ping's full `m.room.message` content; absent fields omitted, `to` sorted.
     Validate it before sending."""
     obj: dict = {"v": PROTOCOL_VERSION, "verb": verb, "to": sorted(to)}
-    for key, value in (("ref", ref), ("re", re)):
+    for key, value in (("ref", ref), ("re", re), ("branch", branch)):
         if value is not None:
             obj[key] = value
     return {

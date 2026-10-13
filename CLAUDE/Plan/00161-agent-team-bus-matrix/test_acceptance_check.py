@@ -78,6 +78,18 @@ class TeamFileTest(unittest.TestCase):
             "path_prefixes": ["CLAUDE/Plan/"], "forge_api": "https://api.github.com",
         })
 
+    def test_an_org_team_lists_no_repository(self) -> None:
+        """D64: the acceptance team trusts its org, every repository of it, none listed."""
+        from helpers.agent_bus import teamfile
+
+        data = ac.team_file(TEAM, 45001, "203.0.113.9", "tester", None, None, "CLAUDE/Plan/",
+                            "https://api.github.com", "example-org")
+        self.assertEqual((data["org"], "repos" in data), ("example-org", False))
+        self.assertEqual(teamfile.parse_team_file(data).org, "example-org")
+        with self.assertRaises(ValueError):
+            ac.team_file(TEAM, 45001, "203.0.113.9", "tester", "example-org/project", None, "CLAUDE/Plan/",
+                         "https://api.github.com")
+
     def test_it_passes_the_admin_tool_validator(self) -> None:
         from helpers.agent_bus import teamfile
 
@@ -89,10 +101,33 @@ class TeamFileTest(unittest.TestCase):
 
     def test_the_command_takes_dash_as_pingbus_github_api(self) -> None:
         args = ("team-file", TEAM, "45001", "203.0.113.9", "owner", "example/project", "main", "CLAUDE/Plan/")
-        status, out, _ = run_main(*args, "-")
+        status, out, _ = run_main(*args, "-", "-")
         self.assertEqual((status, json.loads(out)["forge_api"]), (0, ac.forge.GITHUB_API))
-        status, out, _ = run_main(*args, "https://api.example.com")
+        status, out, _ = run_main(*args, "https://api.example.com", "-")
         self.assertEqual((status, json.loads(out)["forge_api"]), (0, "https://api.example.com"))
+        status, out, _ = run_main("team-file", TEAM, "45001", "203.0.113.9", "owner", "-", "-", "CLAUDE/Plan/",
+                                  "-", "example")
+        self.assertEqual((status, json.loads(out)["org"], "repos" in json.loads(out)), (0, "example", False))
+
+
+class TrustMarksTest(unittest.TestCase):
+    """D64: an external reference arrives marked; a refusal says its code."""
+
+    def test_expect_marked(self) -> None:
+        ext = "commit:someone/project@" + SHA
+        out = line("PING", "1", TEAM, EV1, A, "review", ext, "-", "external", "-") + "\n"
+        self.assertEqual(ac.expect_marked(out, TEAM, EV1, A, "review", ext, "external", None), [])
+        self.assertTrue(ac.expect_marked(out, TEAM, EV1, A, "review", ext, "trusted", None))
+        on_branch = line("PING", "1", TEAM, EV1, A, "review", ext, "-", "trusted", "feature/x") + "\n"
+        self.assertEqual(ac.expect_marked(on_branch, TEAM, EV1, A, "review", ext, "trusted", "feature/x"), [])
+        self.assertTrue(ac.expect_marked(on_branch, TEAM, EV1, A, "review", ext, "trusted", None))
+
+    def test_refused_as(self) -> None:
+        said = f"pingbus: {ac.cli.FORGE_REFUSED}: provenance: commit:x/y@{SHA}: a fork\n"
+        self.assertEqual(ac.refused_as(5, said, "provenance"), [])
+        self.assertTrue(ac.refused_as(0, "", "provenance"))
+        self.assertTrue(ac.refused_as(5, said, "not-found"))
+        self.assertEqual(ac.refused_as(4, "pingbus: refused: allowlist\n", "allowlist"), [])
 
 
 class MemberTest(unittest.TestCase):
@@ -161,7 +196,7 @@ class LinesTest(unittest.TestCase):
                 ac.parse_lines(text)
 
     def test_the_expected_ping_alone_passes(self) -> None:
-        text = line("PING", "1", TEAM, EV1, A, "review", REF, "-") + "\n"
+        text = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-") + "\n"
         self.assertEqual(ac.expect_ping(text, TEAM, EV1, A, "review", REF, None), [])
 
     def test_a_ping_with_any_field_different_fails(self) -> None:
@@ -173,13 +208,13 @@ class LinesTest(unittest.TestCase):
                 self.assertTrue(ac.expect_ping(line(*fields) + "\n", TEAM, EV1, A, "review", REF, None))
 
     def test_an_extra_line_or_none_fails(self) -> None:
-        ping = line("PING", "1", TEAM, EV1, A, "review", REF, "-")
+        ping = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-")
         timeout = line("TIMEOUT", "1", TEAM, EV2, B, "review", REF)
         self.assertTrue(ac.expect_ping(f"{ping}\n{timeout}\n", TEAM, EV1, A, "review", REF, None))
         self.assertTrue(ac.expect_ping("", TEAM, EV1, A, "review", REF, None))
 
     def test_an_ack_names_its_re_and_no_ref(self) -> None:
-        text = line("PING", "1", TEAM, EV2, B, "ack", "-", EV1) + "\n"
+        text = line("PING", "1", TEAM, EV2, B, "ack", "-", EV1, "-", "-") + "\n"
         self.assertEqual(ac.expect_ping(text, TEAM, EV2, B, "ack", None, EV1), [])
         self.assertTrue(ac.expect_ping(text, TEAM, EV2, B, "ack", None, EV2))
 
@@ -213,9 +248,9 @@ class LinesTest(unittest.TestCase):
 
     def test_absent_passes_when_no_line_names_the_event_and_no_human_line(self) -> None:
         self.assertEqual(ac.expect_absent("", EV1), [])
-        other = line("PING", "1", TEAM, EV2, A, "review", REF, "-") + "\n"
+        other = line("PING", "1", TEAM, EV2, A, "review", REF, "-", "trusted", "-") + "\n"
         self.assertEqual(ac.expect_absent(other, EV1), [])
-        self.assertTrue(ac.expect_absent(line("PING", "1", TEAM, EV2, A, "ack", "-", EV1) + "\n", EV1))
+        self.assertTrue(ac.expect_absent(line("PING", "1", TEAM, EV2, A, "ack", "-", EV1, "-", "-") + "\n", EV1))
         human = line("HUMAN", "1", TEAM, EV2, "tester", "1", json.dumps("x")) + "\n"
         self.assertTrue(ac.expect_absent(human, EV1))
         peer = line("PEER", "1", TEAM, EV2, A, "1", json.dumps("x")) + "\n"

@@ -86,6 +86,9 @@ readonly STATE_ROOT=$PREFIX/var/lib/agent-bus
 # Root's own record per team (firewalld rules added, binary last started): kept out of the
 # agent-bus user's directory so the homeserver cannot steer what root later removes.
 readonly INSTALL_STATE_ROOT=$PREFIX/var/lib/agent-bus-install
+# What `team` last applied for each team (<team>.json: config and software digests, no
+# secret), world-readable so ccy-teams can tell an out-of-date team without sudo (D65).
+readonly APPLIED_ROOT=$PREFIX/var/lib/agent-bus-applied
 readonly OS_RELEASE=$PREFIX/etc/os-release
 
 WORK_DIR=""
@@ -826,9 +829,29 @@ cmd_team() {
     wait_ready "$(hs_unit "$team")" "$port"
     assert_listening "$port" "${listen[@]}"
     admin_tool bootstrap "$team"
+    # Last, so a stamp says the team was applied in full: the digests of this team file and
+    # of the software that applied it (the admin zipapp, the Tuwunel it started, and this
+    # installer, hashed here: the admin tool need not be able to read it).
+    local running self_sha
+    running=$(readlink -- "$LIB_DIR/tuwunel")
+    self_sha=$(sha256sum "${BASH_SOURCE[0]}") || die "$EXIT_FAIL" "cannot read ${BASH_SOURCE[0]} to stamp it"
+    admin_tool render stamp --zipapp "$LIB_DIR/agent-bus.pyz" --tuwunel "${running#tuwunel-}" \
+        --installer-sha256 "${self_sha%% *}" \
+        <"$WORK_DIR/team.json" >"$WORK_DIR/stamp.json"
+    ensure_dir "$APPLIED_ROOT" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
+    put_file "team $team applied stamp" "$WORK_DIR/stamp.json" "$APPLIED_ROOT/$team.json" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
 }
 
 # ---------------------------------------------------------------- remove
+
+# unstamp <team> — the team no longer runs what a stamp says was applied (taken down, or
+# restored from a backup whose team.json may differ), so ccy-teams shows it to apply again.
+unstamp() {
+    if [[ -e $APPLIED_ROOT/$1.json ]]; then
+        rm -f -- "$APPLIED_ROOT/$1.json"
+        changed "removed the $1 applied stamp"
+    fi
+}
 
 cmd_remove() {
     parse_options "team:value purge:flag" "$@"
@@ -853,6 +876,7 @@ cmd_remove() {
         systemctl daemon-reload
         changed "removed the $hs drop-in"
     fi
+    unstamp "$team"
     if [[ -n ${OPT[purge]:-} ]]; then
         local path
         for path in "$STATE_ROOT/$team" "$INSTALL_STATE_ROOT/$team"; do
@@ -1055,6 +1079,7 @@ cmd_restore() {
         [[ ! -e $stage/$name ]] || mv -T -- "$stage/$name" "$dir/$name"
     done
     install -m 0640 -o "$ROOT_OWNER" -g "$SVC_GROUP" -T -- "$stage/team.json" "$dir/team.json"
+    unstamp "$team"
     # --collect: a failed run leaves no failed unit behind to block the next restore.
     systemd-run --unit="$once" --collect "${properties[@]}" \
         -- /usr/local/lib/agent-bus/tuwunel --restore-backup "$id" >&2

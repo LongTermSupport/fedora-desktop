@@ -307,6 +307,28 @@ repository; opt-in per machine and per team.
     run; the first was REJECTED at M2.1 by a stale project ccy image, fixed in CCY 3.94.1,
     journal 26-10-13). Pending: a host check that room creation is refused (no acceptance
     check covers it; journal 26-10-12).
+  - [ ] 🔄 Org trust and outside references (owner, 2026-10-13; DESIGN.md D64): a team
+    trusts its GitHub `org`, every repository on any branch the ping names (checked against
+    the repository's own branches; a fork never; no branch named means the default
+    branch), `repos` optional; public outside repositories arrive marked `external` to the
+    reading verbs only; private outside ones are refused. `pingbus send` names the branch
+    from the checkout's upstream. Built with unit tests; acceptance M1.5 and M1.6 added.
+    Pending: the host run (`play-agent-bus.yml`, `play-claude-yolo.yml`, then
+    acceptance.bash, through `meta-deploy.bash`). Every member must run the new pingbus
+    before any team gains `org` (protocol §1).
+    - [ ] ⬜ An optional `exclude` list of org repositories in the team file, checked before
+      trust (D64: planned, not built).
+    - [ ] ⬜ Forge rate: no member has a GitHub token today (a ccy session's GH_TOKEN is
+      unset by the entrypoint), so every member on the machine shares 60 calls an hour, and
+      an org reference costs 4-7 a ping at first (journal 26-10-13). Give ccy seats a forge
+      token, and keep the repository answer in the cache file.
+  - [ ] 🔄 Applied state and team changes by the play (coordinator for the owner,
+    2026-10-13; DESIGN.md D65): applied stamps, `declare.py status`, `ccy-teams` APPLIED
+    column, `apply <team>`/`--all`/Ctrl-U, create installs, removal one team at a time with
+    a backup offer and a typed name to delete data; create's repository step and `add-repo`
+    removed. Built; `scripts/test-ccy-teams-command.bash` (play stubbed) and
+    `scripts/test-agent-bus-install.bash`. Pending: the same host run; then the owner's
+    first `ccy-teams create` of a real team.
 
 ## Success Criteria
 

@@ -22,6 +22,7 @@ import json
 import os
 import pathlib
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -59,12 +60,14 @@ def free_port() -> int:
 
 
 class StubForge:
-    """The forge client's interface (`api`, `check`): records each check, fails on demand."""
+    """The forge client's interface (`api`, `check`, `check_org`, `check_external`): records
+    each check, fails on demand."""
 
     api = "https://api.github.com"
 
     def __init__(self) -> None:
         self.checked: list[str] = []
+        self.external: list[str] = []
         self.fail: dict[str, str] = {}
 
     def check(self, ref: protocol.Ref, branches: tuple[str, ...]) -> None:
@@ -72,6 +75,13 @@ class StubForge:
         code = self.fail.get(ref.text)
         if code is not None:
             raise forge.ForgeError(code, "stub")
+
+    def check_org(self, ref: protocol.Ref, org: str, branch: str | None = None) -> None:
+        self.check(ref, ())
+
+    def check_external(self, ref: protocol.Ref, branch: str | None = None) -> None:
+        self.external.append(ref.text)
+        self.check(ref, ())
 
 
 class Team:
@@ -168,6 +178,7 @@ class BusCase(unittest.TestCase):
         self.home.mkdir()
         (self.tmp / "home").mkdir()
         self.forge = StubForge()
+        self.upstream: tuple[str, str] | None = None
         self.threads: list[threading.Thread] = []
         self.outputs: list[str] = []
         self.a = Team(self, TEAM_A, SN_A)
@@ -204,6 +215,7 @@ class BusCase(unittest.TestCase):
             tick_s=0.05,
             threads=self.threads,
             seats_root=self.tmp / "checkout" / "seats",
+            upstream=lambda: self.upstream,
         )
 
     def run_cli(self, *argv: str, stdin: str | bytes = b"", long_poll_ms: int = LONG_POLL_MS,
@@ -276,7 +288,7 @@ class ExitCodeTest(BusCase):
 
     def test_4_send_refused_by_the_validator(self):
         self.joined()
-        code, out, err = self.run_cli("send", "review", "commit:example-org/other@" + SHA, "--to", ORCH_LP)
+        code, out, err = self.run_cli("send", "run-qa", "commit:example-org/other@" + SHA, "--to", ORCH_LP)
         self.assertEqual((code, out), (cli.EXIT_REFUSED, ""))
         self.assertIn("allowlist", err)
         self.assertEqual(self.a.messages_from_me(), [])
@@ -489,7 +501,83 @@ class SayTest(BusCase):
 # ── recv ───────────────────────────────────────────────────────────────────────────────
 
 
+class SendBranchTest(BusCase):
+    """D64: `send` names the branch holding an org repository's commit, from the checkout's
+    upstream when its origin is that repository, so an agent never types it."""
+
+    ORG_COMMIT = "commit:example-org/other@" + SHA
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.a.set_record(dict(self.a.record, org="example-org"))
+
+    def sent_branch(self, *argv: str) -> str | None:
+        code, _, err = self.run_cli("send", *argv, "--to", ORCH_LP)
+        self.assertEqual(code, cli.EXIT_OK, err)
+        return self.a.messages_from_me()[-1][protocol.PING_KEY].get("branch")
+
+    def test_filled_from_the_checkout_upstream(self) -> None:
+        self.joined()
+        self.upstream = ("example-org/other", "feature/x")
+        self.assertEqual(self.sent_branch("review", self.ORG_COMMIT), "feature/x")
+
+    def test_not_filled_for_another_repository_or_a_listed_one(self) -> None:
+        self.joined()
+        self.upstream = ("example-org/elsewhere", "feature/x")
+        self.assertIsNone(self.sent_branch("review", self.ORG_COMMIT))
+        self.upstream = ("example-org/myrepo", "feature/x")
+        self.now += 120
+        self.assertIsNone(self.sent_branch("review", PATH_REF))
+        self.upstream = None
+        self.now += 120
+        self.assertIsNone(self.sent_branch("review", "commit:example-org/third@" + SHA))
+
+    def test_explicit_branch_wins(self) -> None:
+        self.joined()
+        self.upstream = ("example-org/other", "feature/x")
+        self.assertEqual(self.sent_branch("review", self.ORG_COMMIT, "--branch", "release/2"), "release/2")
+
+
+class TestCheckoutUpstream(unittest.TestCase):
+    """`checkout_upstream` against a real checkout, git isolated from the machine's config."""
+
+    def git(self, cwd: pathlib.Path, *argv: str) -> None:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "-C", str(cwd), *argv], check=True, capture_output=True, env=env)
+
+    def test_upstream_on_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp)
+            self.assertIsNone(cli.checkout_upstream(str(repo)))
+            self.git(repo, "init", "-q", "-b", "feature/x")
+            self.git(repo, "remote", "add", "origin", "git@github.com:Example-Org/Other.git")
+            self.assertIsNone(cli.checkout_upstream(str(repo)))
+            self.git(repo, "config", "branch.feature/x.remote", "origin")
+            self.git(repo, "config", "branch.feature/x.merge", "refs/heads/feature/x")
+            self.git(repo, "-c", "user.name=t", "-c", "user.email=t@example.com",
+                     "commit", "-q", "--allow-empty", "--no-gpg-sign", "-m", "x")
+            self.git(repo, "update-ref", "refs/remotes/origin/feature/x", "HEAD")
+            self.assertEqual(cli.checkout_upstream(str(repo)), ("example-org/other", "feature/x"))
+            self.git(repo, "remote", "set-url", "origin", "https://gitlab.example.com/a/b.git")
+            self.assertIsNone(cli.checkout_upstream(str(repo)))
+
+
 class RecvTest(BusCase):
+    def test_an_external_reference_is_sent_and_received_marked_external(self):
+        """D64: a public repository outside the team is data: `review` may name it, the
+        forge checks it as external content, and the PING line says `external`."""
+        self.joined()
+        outside = "commit:someone/project@" + SHA
+        code, out, err = self.run_cli("send", "review", outside, "--to", ORCH_LP)
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.forge.external, [outside])
+        ping = self.a.ping(self.a.orch, "review", ref=outside)
+        code, out, _ = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(self.lines(out, "PING"),
+                         [["PING", "1", TEAM_A, ping, ORCH_LP, "review", outside, "-", "external", "-"]])
+
     def test_recv_prints_pings_and_human_messages_and_consumes_them(self):
         self.joined()
         ping = self.a.ping(self.a.orch, "review", ref=PATH_REF)
@@ -498,7 +586,7 @@ class RecvTest(BusCase):
         self.assertEqual(code, cli.EXIT_OK)
         self.assert_stdout_kinds(out)
         self.assertEqual(self.lines(out, "PING"),
-                         [["PING", "1", TEAM_A, ping, ORCH_LP, "review", PATH_REF, "-"]])
+                         [["PING", "1", TEAM_A, ping, ORCH_LP, "review", PATH_REF, "-", "trusted", "-"]])
         self.assertEqual(self.lines(out, "HUMAN"),
                          [["HUMAN", "1", TEAM_A, human, "alice", str(int(T0 * 1000)),
                            json.dumps("line one\nline two")]])

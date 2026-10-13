@@ -52,6 +52,10 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
+    # agent team bus D64/D65 (top priority): deploy (ccy-teams, pingbus, installer), acceptance
+    00161-agent-team-bus-matrix
+    # agent team bus: the owner's declared teams, with the new installer
+    playbooks/imports/play-agent-bus.yml
     # speech-to-text: play-speech-to-text.yml once (carries 00171, 00164, 00156, 00148); log out after
     00171-stt-insert-never-ignored-icon-in-sync/deploy.bash
     # speech-to-text: read-only check that the deployed files match the checkout

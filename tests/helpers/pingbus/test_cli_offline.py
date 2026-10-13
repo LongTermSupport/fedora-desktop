@@ -12,6 +12,7 @@ Every bundle is built in a temporary directory; nothing reads the machine's own 
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import os
@@ -274,11 +275,22 @@ class TestLineFormatter(unittest.TestCase):
 
     def test_ping_line(self) -> None:
         ping = p.Ping("review", (SELF,), p.parse_ref(REF_PATH), None, sender=ORCH, event_id=EVENT,
-                      origin_server_ts=1)
+                      origin_server_ts=1, trust=p.TRUST_TRUSTED)
         self.assertEqual(
             cli.ping_line(TEAM, SN, ping),
-            f"PING\t1\t{TEAM}\t{EVENT}\torch.1+workstation.podman\treview\t{REF_PATH}\t-",
+            f"PING\t1\t{TEAM}\t{EVENT}\torch.1+workstation.podman\treview\t{REF_PATH}\t-\ttrusted\t-",
         )
+        external = dataclasses.replace(ping, trust=p.TRUST_EXTERNAL)
+        self.assertTrue(cli.ping_line(TEAM, SN, external).endswith("\t-\texternal\t-"))
+        on_branch = dataclasses.replace(ping, branch="feature/x")
+        self.assertTrue(cli.ping_line(TEAM, SN, on_branch).endswith("\t-\ttrusted\tfeature/x"))
+        halt = p.Ping("halt", (SELF,), None, None, sender=ORCH, event_id=EVENT, origin_server_ts=1)
+        self.assertTrue(cli.ping_line(TEAM, SN, halt).endswith("\thalt\t-\t-\t-\t-"))
+        # A trust that does not match the reference is never printed.
+        for bad in (dataclasses.replace(ping, trust=None), dataclasses.replace(halt, trust=p.TRUST_TRUSTED),
+                    dataclasses.replace(ping, trust="maybe"), dataclasses.replace(ping, branch="a b")):
+            with self.subTest(trust=bad.trust), self.assertRaises(ValueError):
+                cli.ping_line(TEAM, SN, bad)
 
     def test_human_line_escapes(self) -> None:
         msg = p.HumanMessage(EVENT, HUMAN, 1791234567890, "halt\tnow\nplease é")
@@ -360,7 +372,9 @@ class TestValidateRequest(TempCase):
         env = self.active(record())
         cases = [
             (["validate", "review", REF_PATH], 0, "OK"),
-            (["validate", "review", f"commit:someone/else@{SHA}"], 4, "allowlist"),
+            # D64: outside the team, a reading verb takes it as external data; others refuse it.
+            (["validate", "review", f"commit:someone/else@{SHA}"], 0, "OK"),
+            (["validate", "run-qa", f"commit:someone/else@{SHA}"], 4, "allowlist"),
             (["validate", "review", f"path:example-org/myrepo@{SHA}:src/x.py"], 4, "allowlist"),
             (["validate", "halt"], 4, "role"),
             (["validate", "sync", REF_PATH], 4, "role"),

@@ -28,6 +28,10 @@
 # Each step reports changed only when the installer or the helper prints a CHANGED line,
 # so a run with nothing new is all ok. Neither has a dry run, so --check skips them.
 #
+# ccy-teams applies one change at a time (DESIGN.md D65): it runs this play with
+# agent_bus_only_teams set to the teams it means to change, so steps 2 and 3 touch those
+# alone and a bulk update can never take another team down. Unset, every entry applies.
+#
 # Teams live in the untracked host_vars localhost.yml (see localhost.yml.dist): each entry
 # is the team file of DESIGN.md section 3.4, validated by the installer, and an absent
 # entry needs only `team`, `state: absent` and optionally `purge: true`. The LXC members
@@ -43,9 +47,16 @@
     agent_bus_present: "{{ agent_bus_team_list | rejectattr('state', 'defined') | list
       + agent_bus_team_list | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | list }}"
     agent_bus_absent: "{{ agent_bus_team_list | selectattr('state', 'defined') | selectattr('state', 'eq', 'absent') | list }}"
+    # The entries steps 2 and 3 apply: all, or only those agent_bus_only_teams names.
+    agent_bus_apply_present: "{{ agent_bus_present if agent_bus_only_teams is not defined
+      else agent_bus_present | selectattr('team', 'in', agent_bus_only_teams) | list }}"
+    agent_bus_apply_absent: "{{ agent_bus_absent if agent_bus_only_teams is not defined
+      else agent_bus_absent | selectattr('team', 'in', agent_bus_only_teams) | list }}"
     # Matches the installer's and the helper's CHANGED<TAB><what> marker lines.
     agent_bus_changed_re: "^CHANGED\t"
-    agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) }}"
+    # Scoped like the teams: with agent_bus_only_teams, only those teams' LXC members.
+    agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) if agent_bus_only_teams is not defined
+      else agent_bus_lxc_members | default([]) | selectattr('team', 'in', agent_bus_only_teams) | list }}"
     # The helper's arguments but --phase; it validates every entry on each call.
     agent_bus_lxc_args:
       - --members
@@ -64,10 +75,13 @@
           - (agent_bus_present | length + agent_bus_absent | length) == agent_bus_team_list | length
           - agent_bus_present | selectattr('purge', 'defined') | list | length == 0
           - agent_bus_absent | rejectattr('purge', 'undefined') | rejectattr('purge', 'boolean') | list | length == 0
+          - agent_bus_only_teams is not defined or (agent_bus_only_teams is sequence and agent_bus_only_teams is not string
+            and agent_bus_only_teams | difference(agent_bus_team_list | map(attribute='team')) | length == 0)
         fail_msg: >-
           agent_bus_teams in environment/localhost/host_vars/localhost.yml must be a list
           of mappings, each with a unique team, a state of present (the default) or absent,
-          and purge (true or false) only on an absent team. See localhost.yml.dist.
+          and purge (true or false) only on an absent team; agent_bus_only_teams, when given,
+          a list of declared team names. See localhost.yml.dist.
         quiet: true
       tags: [agent-bus]
 
@@ -107,7 +121,7 @@
         argv: >-
           {{ [agent_bus_installer, 'remove', '--team', item.team]
              + (['--purge'] if (item.purge | default(false)) else []) }}
-      loop: "{{ agent_bus_absent }}"
+      loop: "{{ agent_bus_apply_absent }}"
       loop_control:
         label: "{{ item.team }}"
       register: agent_bus_remove
@@ -116,7 +130,7 @@
 
     - name: Install the agent-bus teams declared present
       # The installer has no dry run, so --check renders nothing either.
-      when: agent_bus_present | length > 0 and not ansible_check_mode
+      when: agent_bus_apply_present | length > 0 and not ansible_check_mode
       tags: [agent-bus]
       block:
         # A scratch directory, not a managed file: the installer keeps the validated copy
@@ -135,7 +149,7 @@
             owner: root
             group: root
             mode: "0600"
-          loop: "{{ agent_bus_present }}"
+          loop: "{{ agent_bus_apply_present }}"
           loop_control:
             label: "{{ item.team }}"
           changed_when: false
@@ -147,7 +161,7 @@
               - team
               - --team-file
               - "{{ agent_bus_team_dir.path }}/{{ item.team }}.json"
-          loop: "{{ agent_bus_present }}"
+          loop: "{{ agent_bus_apply_present }}"
           loop_control:
             label: "{{ item.team }}"
           register: agent_bus_team

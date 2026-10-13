@@ -98,9 +98,10 @@ user_email: "yourname@example.com"
 #     listen: ["<bus_ip>"]
 #     allow_from: ["<cidr>"]
 #     humans: ["<name>"]
-#     repos:
+#     org: <github-owner>        # every repository it owns is trusted, on any of its branches
+#     repos:                     # optional: a repository outside the org the team trusts
 #       - repo: <owner>/<repo>
-#         branches: ["<default-branch>"]
+#         branches: ["<branch>"]
 #     path_prefixes: ["CLAUDE/Plan/", "docs/"]
 #     forge_api: https://api.github.com
 #   - team: <old-team>

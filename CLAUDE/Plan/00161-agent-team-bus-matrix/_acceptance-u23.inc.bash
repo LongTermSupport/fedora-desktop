@@ -42,7 +42,7 @@
 #
 # Reads acceptance.bash's and _acceptance-steps.inc.bash's globals and functions: TEAM,
 # BUS_ADDRESS, TEAM_FILE, MEMBER_DIR, CHECK, AGENT_BUS, PINGBUS, OWNER_NEEDS, A_HANDLE,
-# REF_PATH, SENT_ID, member_run, send_ping, show, expect_status, evidence, install_team, and the
+# REF_PATH, REF_BRANCH, SENT_ID, member_run, send_ping, show, expect_status, evidence, install_team, and the
 # plan library's PLAN_RUN_DIR and PLAN_REPO_ROOT. Defines needs_owner for every slice.
 
 readonly U23_NAME="agent-bus-acceptance-u23"
@@ -431,7 +431,7 @@ u23_ping() {
     u23_exec "${kind}" agent wait-review /dev/null pingbus wait --timeout 180 &
     waitPid=$!
     # On a failed send the waiter is left to end with its member, which the teardown removes.
-    send_ping a "send-review-${kind}" review "${REF_PATH}" --to "${handle}" || return $?
+    send_ping a "send-review-${kind}" review "${REF_PATH}" --branch "${REF_BRANCH}" --to "${handle}" || return $?
     reviewId="${SENT_ID}"
     wait "${waitPid}" || status=$?
     show "${kind}" wait-review

@@ -56,7 +56,7 @@ write_team_file() {
     local port
     port="$(free_loopback_port)" || return 1
     python3 -I "${PLAN_SCRIPT_DIR}/acceptance_check.py" team-file "${TEAM}" "${port}" "${BUS_ADDRESS}" \
-        owner example/project main CLAUDE/Plan/ https://api.example.com >"${TEAM_FILE}" || return 1
+        owner - - CLAUDE/Plan/ https://api.example.com example >"${TEAM_FILE}" || return 1
     printf '==> team file %s:\n' "${TEAM_FILE}"
     cat -- "${TEAM_FILE}"
 }

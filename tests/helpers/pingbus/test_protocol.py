@@ -629,9 +629,6 @@ class TestAllowlist(RefusalAssertions):
             (f"path:example-org/myrepo@{SHA}:docs/other.md", "allowlist"),
             (f"path:example-org/myrepo@{SHA}:CLAUDE/Planx/a.md", "allowlist"),
             (f"path:example-org/myrepo@{SHA}:CLAUDE/Plan", "allowlist"),
-            (f"path:example-org/other@{SHA}:CLAUDE/Plan/x.md", "allowlist"),
-            (f"commit:example-org/other@{SHA}", "allowlist"),
-            (f"commit:fork-owner/myrepo@{SHA}", "allowlist"),
             (f"commit:example-org/myrepo@{SHA}", None),
         ]
         for ref, reason in cases:
@@ -640,7 +637,69 @@ class TestAllowlist(RefusalAssertions):
                 if reason:
                     self.assertRefused(reason, p.validate_content, body, ctx)
                 else:
-                    p.validate_content(body, ctx)
+                    self.assertEqual(p.validate_content(body, ctx).trust, p.TRUST_TRUSTED)
+
+    def test_external_refs_are_data_for_reading_verbs_only(self) -> None:
+        """D64: a repository neither listed nor the org's is external: accepted only by a verb
+        that reads or reports, marked external, and never held to the path prefixes."""
+        ctx = make_ctx()
+        external = (f"path:example-org/other@{SHA}:anywhere/x.md", f"commit:example-org/other@{SHA}",
+                    f"commit:fork-owner/myrepo@{SHA}", f"pr:someone/else#3@{SHA}", "issue:someone/else#3")
+        for verb, rule in p.VERBS.items():
+            for ref in external:
+                if rule.ref == p.FORBIDDEN or p.parse_ref(ref).form not in rule.ref_forms:
+                    continue
+                body = content(verb, ref=ref, **({"re": EVENT_ID} if rule.re == p.REQUIRED else {}))
+                with self.subTest(verb=verb, ref=ref):
+                    if rule.external:
+                        self.assertEqual(p.validate_content(body, ctx).trust, p.TRUST_EXTERNAL)
+                    else:
+                        self.assertRefused("allowlist", p.validate_content, body, ctx)
+        self.assertEqual({v for v, r in p.VERBS.items() if r.external},
+                         {"fetch", "review", "nack", "done", "blocked"})
+
+    def test_org_repos_are_trusted_and_held_to_the_prefixes(self) -> None:
+        ctx = make_ctx(org="example-org", repos={})
+        trusted = content("sync", ref=f"path:example-org/other@{SHA}:CLAUDE/Plan/x.md")
+        self.assertEqual(p.validate_content(trusted, ctx).trust, p.TRUST_TRUSTED)
+        self.assertRefused("allowlist", p.validate_content,
+                           content("sync", ref=f"path:example-org/other@{SHA}:src/x.md"), ctx)
+        self.assertRefused("allowlist", p.validate_content,
+                           content("sync", ref=f"commit:other-org/other@{SHA}"), ctx)
+
+    def test_branch(self) -> None:
+        """D64: a ping may name the branch holding a `path` or `commit` reference's commit;
+        the body shows it, and nothing else may carry one."""
+        ctx = make_ctx(org="example-org")
+        ok = content("sync", ref=REFS["commit"], branch="feature/x")
+        self.assertEqual(ok["body"], f"[agent-bus] sync {REFS['commit']} on feature/x -> {WORKER}")
+        self.assertEqual(p.validate_content(ok, ctx).branch, "feature/x")
+        self.assertIsNone(p.validate_content(content("sync", ref=REFS["commit"]), ctx).branch)
+        self.assertEqual(p.validate_content(content("fetch", ref=REFS["path"], branch="main"), ctx).branch, "main")
+        for label, body, reason in (
+            ("pr", content("review", ref=REFS["pr"], branch="main"), "ref"),
+            ("issue", content("done", ref=REFS["issue"], branch="main"), "ref"),
+            ("no ref", content("halt", branch="main"), "ref"),
+            ("bad name", content("sync", ref=REFS["commit"], branch="a b"), "ref"),
+            ("not a string", content("sync", ref=REFS["commit"], branch=5), "schema"),
+        ):
+            with self.subTest(case=label):
+                self.assertRefused(reason, p.validate_content, body, ctx)
+        rendered = dict(ok)
+        rendered["body"] = f"[agent-bus] sync {REFS['commit']} -> {WORKER}"
+        self.assertRefused("body", p.validate_content, rendered, ctx)
+
+    def test_ref_source(self) -> None:
+        listed = {"outside/listed": ("main",), "example-org/pinned": ("release",)}
+        for ref, want in ((f"commit:outside/listed@{SHA}", p.SOURCE_LISTED),
+                          (f"commit:example-org/pinned@{SHA}", p.SOURCE_LISTED),
+                          (f"commit:example-org/any@{SHA}", p.SOURCE_ORG),
+                          (f"commit:example-orgx/any@{SHA}", p.SOURCE_EXTERNAL),
+                          (f"commit:outside/other@{SHA}", p.SOURCE_EXTERNAL)):
+            with self.subTest(ref=ref):
+                self.assertEqual(p.ref_source(p.parse_ref(ref), "example-org", listed), want)
+        self.assertEqual(p.ref_source(p.parse_ref(f"commit:example-org/any@{SHA}"), None, {}),
+                         p.SOURCE_EXTERNAL)
 
     def test_path_allowed_and_prefix_grammar(self) -> None:
         self.assertTrue(p.path_allowed("a/b/c", ("a/",)))
@@ -916,7 +975,8 @@ class TestPingEvent(unittest.TestCase):
             "target": (event(ORCH, wrap(dict(ok, to=[NO_ROLE]))), make_ctx()),
             "verb": (event(ORCH, wrap(dict(ok, verb="deploy"))), make_ctx()),
             "ref": (event(ORCH, wrap(dict(ok, ref=REFS["issue"]))), make_ctx()),
-            "allowlist": (event(ORCH, wrap(dict(ok, ref=f"commit:example-org/other@{SHA}"))), make_ctx()),
+            "allowlist": (event(ORCH, wrap(dict(ok, verb="sync", ref=f"commit:example-org/other@{SHA}"))),
+                          make_ctx()),
             "re": (event(ORCH, wrap(dict(ok, re=EVENT_ID_2))), make_ctx()),
             "body": (event(ORCH, dict(wrap(ok), body="[agent-bus] fetch")), make_ctx()),
         }
@@ -1315,6 +1375,20 @@ class TestTeamRecord(unittest.TestCase):
             with self.subTest(forge=forge):
                 self.assertEqual(self.parse(dict(good, forge_api=forge)).forge_api, forge)
 
+    def test_org(self) -> None:
+        """D64: an optional `org`; with it `repos` may be empty, without it it may not."""
+        good = self.good()
+        self.assertIsNone(self.parse(good).org)
+        rec = self.parse(dict(good, org="example-org", repos=[]))
+        self.assertEqual((rec.org, rec.repos), ("example-org", {}))
+        self.assertEqual(rec.context(SN).org, "example-org")
+        self.assertEqual(self.parse(dict(good, org="example-org")).repos,
+                         {"example-org/myrepo": ("main", "release/1.x")})
+        for label, org in (("upper", "Example-Org"), ("empty", ""), ("int", 5), ("slash", "a/b"),
+                           ("null", None), ("leading dash", "-org")):
+            with self.subTest(org=label), self.assertRaises(p.Untrusted):
+                self.parse(dict(good, org=org))
+
     def test_refusals(self) -> None:
         good = self.good()
         roles65 = {f"@r{i}.1+h.podman:server.test": "worker" for i in range(65)}
@@ -1338,7 +1412,8 @@ class TestTeamRecord(unittest.TestCase):
             ("role for a human", dict(good, roles={HUMAN: "worker"})),
             ("role foreign", dict(good, roles={FOREIGN: "worker"})),
             ("roles list", dict(good, roles=[ORCH])),
-            ("repos empty", dict(good, repos=[])),
+            ("repos empty and no org", dict(good, repos=[])),
+            ("repos missing", {k: v for k, v in dict(good, org="o").items() if k != "repos"}),
             ("repos 33", dict(good, repos=[{"repo": f"o/r{i}", "branches": ["main"]} for i in range(33)])),
             ("repo upper", dict(good, repos=[{"repo": "Example-org/myrepo", "branches": ["main"]}])),
             ("repo .git", dict(good, repos=[{"repo": "o/r.git", "branches": ["main"]}])),

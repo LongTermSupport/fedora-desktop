@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit-test the ccy-teams command (files/home/.local/bin/ccy-teams.j2), the manager of the
-# agent teams on a machine: its table (--list), every picker key, and its create, backup and
-# restore wrappers. (scripts/test-ccy-teams.bash is ccy's own --teams flag.)
+# agent teams on a machine: its table (--list), every picker key, and its create, apply,
+# remove, backup and restore wrappers. (scripts/test-ccy-teams.bash is ccy's own --teams flag.)
 #
 # WHY THIS EXISTS. ccy-teams holds no team logic: every row is something agent-bus,
 # systemd, tmux or the session registry said, and every key hands over to one of them. What
@@ -10,8 +10,9 @@
 # is down), that each key reaches the right command with the right row's values, that a
 # yes/no answered no changes nothing, and that the template renders to a script with no
 # Jinja left in it. None of the real commands can run here, so fakes for tmux, fzf,
-# systemctl, sudo, agent-bus, agent-bus-install, gio and the ccy launcher keep their state
-# in files and log every call; the declare helper, git and the registry library are real.
+# systemctl, sudo, agent-bus, agent-bus-install, gio, the ccy launcher and play-agent-bus.yml
+# keep their state in files and log every call; the declare helper, git and the registry
+# library are real.
 # The picker runs under `script`, because it demands a terminal.
 #
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
@@ -219,6 +220,7 @@ printf 'agent-bus-install %s\n' "$*" >>"$TEST_LOG"
 case "$1" in
 backups) cat "$TEST_STATE/backups" ;;
 backup-now | restore) ;;
+remove) rm -f "$TEST_STATE/applied/$3.json" ;;
 *) echo "fake agent-bus-install: unexpected call: $*" >&2; exit 97 ;;
 esac
 EOF
@@ -254,8 +256,7 @@ cat >"$BIN/id" <<'EOF'
 exec /usr/bin/id "$@"
 EOF
 
-# gh: logged in unless TEST_GH_NOAUTH; example-org is the one owner GitHub has; its
-# repositories are $STATE/gh-repos.json.
+# gh: logged in unless TEST_GH_NOAUTH; example-org is the one owner GitHub has.
 cat >"$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -265,9 +266,19 @@ case "$1 ${2:-}" in
     if [ -n "${TEST_GH_NOAUTH:-}" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi ;;
 "api users/example-org") ;;
 "api "*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
-"repo list") cat "$TEST_STATE/gh-repos.json" ;;
 *) echo "fake gh: unexpected call: $*" >&2; exit 97 ;;
 esac
+EOF
+# play-agent-bus.yml, run by ccy-teams through its shebang: logs its arguments; unless
+# TEST_PLAY_FAIL, each team in agent_bus_only_teams is applied as declared (its stamp
+# written by the real functions the installer uses), or, declared absent, taken down.
+cat >"$BIN/play" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'play %s\n' "$*" >>"$TEST_LOG"
+[ "$1" = -e ] || { echo "fake play: expected -e JSON" >&2; exit 97; }
+if [ -n "${TEST_PLAY_FAIL:-}" ]; then echo "fatal: [localhost]: FAILED!" >&2; exit 2; fi
+cd "$TEST_REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play "$2" "$CCY_TEAMS_HOST_VARS" "$TEST_STATE/applied"
 EOF
 chmod 755 "$BIN"/*
 
@@ -364,9 +375,7 @@ agent_bus_teams:
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]
-    repos:
-      - repo: example-org/proj
-        branches: ["main"]
+    org: example-org
     path_prefixes: ["CLAUDE/Plan/", "docs/"]
     forge_api: https://api.github.com
   - team: gone
@@ -378,12 +387,6 @@ CHECKOUT="$SCRATCH/proj"
 mkdir -p "$CHECKOUT/.claude/ccy/pingbus/seats"
 git -C "$CHECKOUT" init -q
 git -C "$CHECKOUT" remote add origin git@github.com:Example-Org/proj.git
-cat >"$STATE/gh-repos.json" <<'EOF'
-[{"name": "proj", "defaultBranchRef": {"name": "main"}, "isArchived": false},
- {"name": "Other", "defaultBranchRef": {"name": "trunk"}, "isArchived": false},
- {"name": "old", "defaultBranchRef": {"name": "main"}, "isArchived": true},
- {"name": "fresh", "defaultBranchRef": null, "isArchived": false}]
-EOF
 OUTSIDE="$SCRATCH/not-a-project"
 mkdir -p "$OUTSIDE"
 
@@ -394,6 +397,12 @@ export TEST_GUM_ANSWERS="$SCRATCH/gum-answers"
 PATH_WITHOUT_GUM="$BIN:$PATH"
 export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-state" CCY_LIB="$LIB_DIR"
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
+export CCY_TEAMS_PLAY="$BIN/play" CCY_TEAMS_APPLIED_DIR="$STATE/applied" TEST_REPO_ROOT="$REPO_ROOT"
+mkdir -p "$STATE/applied"
+# alpha as built from this host_vars: the stamp the fake play writes, kept for every reset.
+(cd "$REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play '{"agent_bus_only_teams": ["alpha"]}' \
+    "$HOST_VARS" "$STATE/applied")
+cp "$STATE/applied/alpha.json" "$SCRATCH/alpha-stamp.json"
 
 # shellcheck source=/dev/null
 source "$LIB_DIR/common-pure.bash"
@@ -421,6 +430,8 @@ reset() {
     printf 'ccy-proj 0 %s\n' "$CHECKOUT" >"$STATE/sessions"
     printf 'BACKUP\t1\t2026-10-10 03:00 UTC\nBACKUP\t2\t2026-10-11 03:00 UTC\n' >"$STATE/backups"
     rm -rf "$CCY_STATE_DIR" "$HOME_DIR/.local"
+    rm -f "$STATE/applied/"*
+    cp "$SCRATCH/alpha-stamp.json" "$STATE/applied/alpha.json"
     ccy_registry_write ccy-proj "$CHECKOUT" /var/local/claude-yolo/claude-yolo ccy yes --teams 1@alpha
 }
 rc_of() { awk '/^rc=/ { print }' <<<"$1"; }
@@ -465,9 +476,11 @@ check "it exits 0" "0" "$?"
 heading="$(awk 'NR == 1' <<<"$out")"
 check_has "a heading first" "TEAM" "$heading"
 check_has "  naming every column" "RESTORE" "$heading"
+check_has "  APPLIED among them" "APPLIED" "$heading"
 alpha="$(grep -E '^alpha +- +team' <<<"$out")"
 check_has "alpha's homeserver is up" " up " "$alpha"
 check_has "  on its declared port" "port 6167" "$alpha"
+check_has "  applied as declared (D65)" "up to date" "$alpha"
 seat="$(grep -E '^alpha +1 +ccy' <<<"$out")"
 check_has "seat 1 is an active ccy seat" "active" "$seat"
 check_has "  held by ccy-proj" "ccy-proj" "$seat"
@@ -502,7 +515,8 @@ printf 'agent-bus-hs@extra.service loaded inactive dead x\n' >"$STATE/units"
 out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
 alpha="$(grep -E '^alpha +- +team' <<<"$out")"
 check_has "a team declared but with no homeserver unit is not installed" "not installed" "$alpha"
-check_has "  and the row says what installs it" "play-agent-bus.yml" "$alpha"
+check_has "  and the row says what installs it" "ccy-teams apply alpha" "$alpha"
+check_lacks "  never meta-deploy" "meta-deploy" "$out"
 check "  no members are asked for" "no" "$(logged 'agent-bus list alpha')"
 
 reset
@@ -537,6 +551,7 @@ check_has "the current checkout's seats are listed with no session anywhere" "fr
 
 reset
 : >"$STATE/units"
+rm -f "$STATE/applied/"*.json # a built team is listed even when undeclared
 printf 'agent_bus_address: 192.0.2.10\n' >"$SCRATCH/empty.yml"
 out="$(cd "$OUTSIDE" && CCY_TEAMS_HOST_VARS="$SCRATCH/empty.yml" "$TOOL" --list 2>"$SCRATCH/err")"
 check "no teams: exit 0" "0" "$?"
@@ -646,9 +661,11 @@ out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|YES" "|ABORT")"
 check "  as it does a ccy member whose checkout is not known" "yes" \
     "$(logged 'agent-bus park-member alpha proj.2+local.podman')"
 reset
+printf '%s\n' NO "=Leave it running" >"$TEST_GUM_ANSWERS"
+printf '0\n' >"$STATE/gum-calls"
 out="$(run_picker "$OUTSIDE" "ctrl-x|port 6167" "|ABORT")"
-check_has "Ctrl-X on a team says how a team is removed" "state: absent" "$out"
-check "  and asks nothing" "2" "$(cat "$STATE/fzf-calls")"
+check_has "Ctrl-X on a team starts its removal, saying what is lost" "history" "$out"
+check "  and leaving it running changes nothing" "no" "$(logged 'play ')"
 
 reset
 out="$(run_picker "$OUTSIDE" "ctrl-n|port 6167" "|ABORT")"
@@ -729,31 +746,14 @@ check_has "Ctrl-P on another row says where the people are" "KIND human" "$out"
 echo "== help and repositories"
 reset
 out="$(run_picker "$OUTSIDE" "?|port 6167" "|ABORT")"
-check_has "? shows every key, explained" "Ctrl-A" "$out"
+check_has "? shows every key, explained" "Ctrl-U" "$out"
+check_has "  and the APPLIED words" "decide: absent" "$out"
 check_has "  and the status words" "need sudo" "$out"
 reset
 out="$(run_picker "$OUTSIDE" "|port 6167" "|ABORT")"
 check_has "Enter on a team shows the same help" "Colours:" "$out"
 
-reset
-cp "$HOST_VARS" "$SCRATCH/repo.yml"
-printf '%s\n' ENTER ALL 'PICK example-org/other' YES >"$TEST_GUM_ANSWERS"
-printf '0\n' >"$STATE/gum-calls"
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/repo.yml" run_picker "$OUTSIDE" "ctrl-a|port 6167" "|ABORT")"
-check_has "Ctrl-A adds a repository to the row's team" 'repo: "example-org/other"' "$(cat "$SCRATCH/repo.yml")"
-check_has "  with its default branch" 'branches: ["trunk"]' "$(cat "$SCRATCH/repo.yml")"
-check_lacks "  not offering one listed already" "example-org/proj" "$(cat "$STATE/filter-items")"
-check_has "  and says what installs it" "meta-deploy" "$out"
-reset
-cp "$HOST_VARS" "$SCRATCH/repo.yml"
-CCY_TEAMS_HOST_VARS="$SCRATCH/repo.yml" "$TOOL" add-repo alpha --repo example-org/two=main --yes \
-    >"$SCRATCH/out" 2>"$SCRATCH/err"
-check "add-repo with --repo and --yes asks nothing" "0" "$?"
-check_has "  and adds it" 'repo: "example-org/two"' "$(cat "$SCRATCH/repo.yml")"
-"$TOOL" add-repo </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
-check "add-repo needs a team" "64" "$?"
-
-# ── backup, restore, create ──────────────────────────────────────────────────────────────
+# ── applied or not (D65), apply and remove ──────────────────────────────────────────────
 echo "== backup and restore"
 reset
 "$TOOL" backup alpha 2>"$SCRATCH/err"
@@ -788,12 +788,21 @@ cp "$HOST_VARS" "$SCRATCH/create.yml"
 "$TOOL" create </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "create with no terminal and no --yes is a usage error" "64" "$?"
 out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --human owner \
-    --repo example-org/proj=main --yes </dev/null 2>"$SCRATCH/err")"
+    --org example-org --yes </dev/null 2>"$SCRATCH/err")"
 check "create with every value adds the entry" "0" "$?"
 check_has "  saying so on stdout, on a port neither declared nor listening" $'CHANGED\tteam beta, port 6169' "$out"
-check_has "  and that play-agent-bus.yml must run" "play-agent-bus.yml" "$(cat "$SCRATCH/err")"
+check "  and installs it: the play for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
+check_has "  then the next steps" "ccy --teams 1@beta" "$(cat "$SCRATCH/err")"
+check_lacks "  never meta-deploy" "meta-deploy" "$(cat "$SCRATCH/err")"
+check_has "  the org written, no repository list" 'org: "example-org"' "$(cat "$SCRATCH/create.yml")"
 check "  in the host_vars" "1" "$(grep -c '^  - team: beta$' "$SCRATCH/create.yml")"
 check "  listening on the bus address" "2" "$(grep -c 'listen: \["192.0.2.10"\]' "$SCRATCH/create.yml")"
+reset
+cp "$HOST_VARS" "$SCRATCH/create.yml"
+CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_PLAY_FAIL=1 "$TOOL" create --team beta --human owner \
+    --org example-org --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "a failed install is a failure" "1" "$?"
+check_has "  saying the team is declared but not installed, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
 
 # run_in <dir> <gum answers (one string, lines)> <words...> — ccy-teams with those words in
 # <dir>, under a terminal, its gum answered from the queue; the output ends "rc=<status>".
@@ -811,6 +820,7 @@ fresh_no_teams() {
     reset
     : >"$STATE/units"
     printf 'agent_bus_address: 192.0.2.10\n' >"$NO_TEAMS"
+    rm -f "$STATE/applied/"*
 }
 
 echo "== no teams"
@@ -823,16 +833,16 @@ check "  asking for no sudo, as there is nothing to read" "no" "$(logged 'sudo')
 check "  asking with gum, default no" "yes" "$(logged 'gum confirm --default=false Create one now?')"
 
 fresh_no_teams
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ALL ENTER ENTER YES)")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER YES)")"
 check "yes runs create there and then; every default accepted with Enter" "rc=0" "$(rc_of "$out")"
 written="$(cat "$NO_TEAMS")"
 check_has "  the team is named after the GitHub owner, never the repository" "- team: example-org" "$written"
 check_has "  you are its human: your login name" 'humans: ["owner"]' "$written"
-check_has "  every repository of the owner, all ticked to start with" 'repo: "example-org/proj"' "$written"
-check_has "    the other one too" 'repo: "example-org/other"' "$written"
-check_has "  each with its default branch, from gh, never asked" 'branches: ["trunk"]' "$written"
+check_has "  the GitHub owner as its org: every repository of it trusted, none listed" 'org: "example-org"' "$written"
+check_lacks "    no repository step" "repos:" "$written"
 check_has "  and no other machine" 'allow_from: []' "$written"
-check "  owner, name, people, how to start the list, repositories, subnets, and two yeses" "8" "$(cat "$STATE/gum-calls")"
+check "  owner, name, people, subnets, and two yeses" "6" "$(cat "$STATE/gum-calls")"
+check "  and the team is installed at once" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["example-org"]}')"
 inputs="$(grep -F 'gum input' "$LOG")"
 check_has "  the owner is asked first" "--header GitHub owner" "$(awk 'NR == 1' <<<"$inputs")"
 check_has "    defaulting to this checkout's remote, lower-cased" "--value example-org" "$(awk 'NR == 1' <<<"$inputs")"
@@ -843,25 +853,120 @@ check_has "  each explanation is printed, wrapped, before its question" "install
 check "  and every header is one short line" "0" \
     "$(grep -E 'gum (input|filter)' "$LOG" | grep -cE -- '--header [^-]{70,}')"
 check "  which gh looked up" "yes" "$(logged 'gh api users/example-org')"
-check_has "  the repositories explanation says what the list is for" "send each other to" \
+check_has "  the owner explanation says agents may send each other to any of its repositories" "send each other to" \
     "$(grep -F 'gum style' "$LOG")"
-check_has "  the person chooses how the list starts" "All repos ticked (untick the ones you don't want)" \
-    "$(grep -F 'gum choose' "$LOG")"
-check_has "    or" "No repos ticked (tick the ones you want)" "$(grep -F 'gum choose' "$LOG")"
-check_has "  all ticked starts the list all ticked" "--selected *" "$(grep -F 'gum filter' "$LOG")"
-check_has "  its header names the keys" "Tab unticks" "$(grep -F 'gum filter' "$LOG")"
-items="$(cat "$STATE/filter-items")"
-check_has "  the owner's repositories are offered, lower-cased" "example-org/other" "$items"
-check_lacks "  but not an archived one" "example-org/old" "$items"
-check_lacks "  nor one with no commits" "example-org/fresh" "$items"
-check_has "  which is named as left out" "example-org/fresh" "$out"
-check_has "  the summary says other branches travel by pull request" "pull requests" "$out"
+check "  no repository is listed or picked" "no" "$(logged 'gh repo list')"
+check_has "  the one question before writing covers installing it" "gum confirm --default=true Create team example-org?" "$(cat "$LOG")"
 check_has "  the next steps are numbered, ending with how to bring in agents" "ccy --teams 1@example-org" "$out"
-check_has "  and name the play that installs it" "play-agent-bus.yml" "$out"
+check_lacks "  never meta-deploy" "meta-deploy" "$out"
 check_has "  gum's greys are replaced, through its environment" "GUM_INPUT_HEADER_FOREGROUND=255" \
     "$(cat "$STATE/gum-env")"
 check_lacks "  no 240-range grey for anything read" "=24" "$(grep -v 'UNSELECTED_BACKGROUND' "$STATE/gum-env")"
 
+echo "== applied, apply, remove"
+STATES="$SCRATCH/states.yml"
+fresh_states() {
+    reset
+    cp "$HOST_VARS" "$STATES"
+    cat >>"$STATES" <<'EOF'
+  - team: beta
+    port: 6180
+    listen: ["192.0.2.10"]
+    allow_from: []
+    humans: ["owner"]
+    org: example-org
+    path_prefixes: ["docs/"]
+    forge_api: https://api.github.com
+  - team: delta
+    port: 6181
+    listen: ["192.0.2.10"]
+    allow_from: []
+    humans: ["owner"]
+    org: example-org
+    path_prefixes: ["docs/"]
+    forge_api: https://api.github.com
+EOF
+    # beta built from an older declaration; gone declared absent but still built; zeta
+    # built and not declared at all. delta was never built.
+    printf '{"v": 1, "team": "beta", "config": "%s", "software": "%s"}\n' "$(printf '0%.0s' {1..64})" \
+        "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["software"])' "$STATE/applied/alpha.json")" \
+        >"$STATE/applied/beta.json"
+    for team in gone zeta; do
+        printf '{"v": 1, "team": "%s", "config": "%s", "software": "%s"}\n' "$team" \
+            "$(printf '1%.0s' {1..64})" "$(printf '2%.0s' {1..64})" >"$STATE/applied/$team.json"
+    done
+}
+fresh_states
+out="$(cd "$OUTSIDE" && CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" --list 2>"$SCRATCH/err")"
+check_has "a team as declared is up to date" "up to date" "$(grep -E '^alpha +- +team' <<<"$out")"
+check_has "a team built from an older declaration is out of date, saying what differs" "out of date: config" \
+    "$(grep -E '^beta +- +team' <<<"$out")"
+check_has "a team declared and never built is not built" "not built" "$(grep -E '^delta +- +team' <<<"$out")"
+check_has "a team declared absent but still built needs a decision" "decide: absent" "$(grep -E '^gone +- +team' <<<"$out")"
+check_has "a team built but not declared needs a decision" "decide: undeclared" "$(grep -E '^zeta +- +team' <<<"$out")"
+check "  read with no sudo" "no" "$(logged 'sudo -v')"
+
+fresh_states
+CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply --all >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "apply --all succeeds once each team matches its declaration" "0" "$?"
+check "  running the play once" "1" "$(grep -c '^play ' "$LOG")"
+check_has "  for the teams out of date or not built, and only those" '"agent_bus_only_teams": ["beta", "delta"]' "$(grep '^play ' "$LOG")"
+check_has "  saying which teams it leaves for your decision" "gone (decide: absent)" "$(cat "$SCRATCH/err")"
+check_has "    both of them" "zeta (decide: undeclared)" "$(cat "$SCRATCH/err")"
+check_has "  saying so" "Applied: beta delta." "$(cat "$SCRATCH/err")"
+check "  never taking a team down" "no" "$(logged 'agent-bus-install remove')"
+out="$(cd "$OUTSIDE" && CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" --list 2>"$SCRATCH/err")"
+check_has "  beta is up to date afterwards" "up to date" "$(grep -E '^beta +- +team' <<<"$out")"
+
+fresh_states
+CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "apply <team> runs the play for that team" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["delta"]}')"
+fresh_states
+CCY_TEAMS_HOST_VARS="$STATES" TEST_PLAY_FAIL=1 "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "a failed play is a failure" "1" "$?"
+check_has "  saying the entry stands but is not applied, and how to retry" "ccy-teams apply" "$(cat "$SCRATCH/err")"
+CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply gone >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "apply refuses a team declared absent" "64" "$?"
+check_has "  pointing at remove" "ccy-teams remove gone" "$(cat "$SCRATCH/err")"
+"$TOOL" apply >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "apply needs a team or --all" "64" "$?"
+"$TOOL" remove alpha </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "remove needs a terminal: a human decides" "64" "$?"
+"$TOOL" remove alpha --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "  and takes no --yes" "64" "$?"
+
+fresh_states
+out="$(CCY_TEAMS_HOST_VARS="$STATES" run_in "$OUTSIDE" "$(printf '%s\n' ENTER '=Take it down, keep its data')" remove beta)"
+check "remove: a backup first by default, then down with the data kept" "rc=0" "$(rc_of "$out")"
+check "  the backup is taken first" "yes" "$(logged 'sudo /usr/local/sbin/agent-bus-install backup-now --team beta')"
+check_has "  the backup is offered, default yes" "gum confirm --default=true Back beta up first?" "$(cat "$LOG")"
+check_has "  beta is declared absent, its data kept" "purge: false" "$(cat "$STATES")"
+check "  the play runs for beta alone" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["beta"]}')"
+check_has "  and says the data is kept" "its data is kept" "$out"
+
+fresh_states
+out="$(CCY_TEAMS_HOST_VARS="$STATES" run_in "$OUTSIDE" "$(printf '%s\n' NO '=Take it down and delete its data' '=betta')" remove beta)"
+check "remove and delete: a wrong name deletes nothing" "rc=1" "$(rc_of "$out")"
+check_lacks "  the entry is not changed" "purge" "$(cat "$STATES")"
+check "  and no play runs" "no" "$(logged 'play ')"
+check "  no backup when declined" "no" "$(logged 'backup-now')"
+fresh_states
+out="$(CCY_TEAMS_HOST_VARS="$STATES" run_in "$OUTSIDE" "$(printf '%s\n' NO '=Take it down and delete its data' '=beta')" remove beta)"
+check "  typing the team's name deletes it" "rc=0" "$(rc_of "$out")"
+check_has "  declared absent with purge: true" "purge: true" "$(cat "$STATES")"
+fresh_states
+out="$(CCY_TEAMS_HOST_VARS="$STATES" run_in "$OUTSIDE" "$(printf '%s\n' NO '=Take it down, keep its data')" remove zeta)"
+check "a team built but not declared is taken down by the installer, after the same questions" "yes" \
+    "$(logged 'sudo /usr/local/sbin/agent-bus-install remove --team zeta')"
+check_lacks "  never with --purge unless chosen" "--purge" "$(grep 'remove --team zeta' "$LOG")"
+
+fresh_states
+printf '|ABORT\n' >"$TEST_ANSWERS"
+out="$(CCY_TEAMS_HOST_VARS="$STATES" run_in "$OUTSIDE" "$(printf '%s\n' NO)")"
+check_has "the picker offers to update the teams out of date when it starts" "Not as declared" "$out"
+check "  and no leaves them" "no" "$(logged 'play ')"
+
+# ── backup, restore, create ──────────────────────────────────────────────────────────────
 echo "== create, on a terminal"
 # Each case starts from a copy of the host_vars, alpha declared.
 WIZ="$SCRATCH/wiz.yml"
@@ -872,16 +977,12 @@ fresh_wiz() {
 before="$(cat "$HOST_VARS")"
 fresh_wiz
 out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' '=nope' '=Example-Org' '=Bad_Name' '=beta' ENTER \
-    NONE 'PICK example-org/proj,example-org/other' '=198.51.100.0/24' YES)" create)"
+    '=198.51.100.0/24' YES)" create)"
 check "a bad name, then a good one; an unknown owner, then a known one" "rc=0" "$(rc_of "$out")"
 check_has "  the bad name is explained, and asked again" "Try again" "$out"
 check_has "  the unknown owner is explained" "no user or organisation called 'nope'" "$out"
 written="$(cat "$WIZ")"
-check_lacks "  none ticked starts the list with nothing ticked" "--selected" "$(grep -F 'gum filter' "$LOG")"
-check_has "    and its header says Tab ticks" "Tab ticks" "$(grep -F 'gum filter' "$LOG")"
-check_has "  both repositories chosen are written, each with its own default branch" \
-    'repo: "example-org/other"' "$written"
-check_has "    trunk for the one whose default is trunk" 'branches: ["trunk"]' "$written"
+check_has "  the org is written, lower-cased" 'org: "example-org"' "$written"
 check_has "  the subnet is written" 'allow_from: ["198.51.100.0/24"]' "$written"
 
 fresh_wiz
@@ -895,7 +996,7 @@ check "Ctrl-C at a question, the same" "rc=130" "$(rc_of "$out")"
 check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER '=gamma' ENTER ALL ENTER ENTER NO)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER '=gamma' ENTER ENTER NO)" create)"
 check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"

@@ -28,6 +28,7 @@ the session ran and what they printed. Commands (stdout is the payload; reasons 
   expect-not-found TRANSCRIPT        a command's output says pingbus was not found
   find-ping MESSAGES SENDER VERB TO REF RE   the earliest such ping in a /messages response:
                                      "EVENT_ID<TAB>ORIGIN_SERVER_TS"; exit 3 if none
+  expect-ping-branch MESSAGES EVENT_ID BRANCH   that ping names that branch (D64)
   expect-replies MESSAGES RE SENDER  pings answering RE exist, and every one is from SENDER
   expect-within-window TS1 TS2       TS2 - TS1 (ms) is inside the socket's identical-notice
                                      window as U01 measured its lower bound
@@ -406,7 +407,8 @@ def room_pings(response: object) -> list[dict]:
             continue
         found.append({"event_id": event.get("event_id"), "sender": event.get("sender"),
                       "ts": event.get("origin_server_ts"), "verb": ping.get("verb"),
-                      "to": ping.get("to"), "ref": ping.get("ref"), "re": ping.get("re")})
+                      "to": ping.get("to"), "ref": ping.get("ref"), "re": ping.get("re"),
+                      "branch": ping.get("branch")})
     return sorted(found, key=lambda p: p["ts"] if isinstance(p["ts"], int) else 0)
 
 
@@ -417,6 +419,14 @@ def find_ping(pings: Sequence[dict], sender: str, verb: str, to: str, ref: str |
         if (ping["sender"], ping["verb"], ping["to"], ping["ref"], ping["re"]) == (sender, verb, [to], ref, re_):
             return ping
     return None
+
+
+def expect_ping_branch(pings: Sequence[dict], event_id: str, branch: str) -> list[str]:
+    """The ping `event_id` names `branch` (D64: `pingbus send` fills it from the checkout)."""
+    for ping in pings:
+        if ping["event_id"] == event_id:
+            return [] if ping["branch"] == branch else [f"ping {event_id} names branch {ping['branch']!r}, want {branch!r}"]
+    return [f"no ping {event_id} in the room"]
 
 
 def expect_replies(pings: Sequence[dict], re_: str, sender: str) -> list[str]:
@@ -720,6 +730,7 @@ COMMANDS = {
     "expect-history": (3, lambda a: _verdict(expect_history(_lines(a[0]), a[1], a[2]))),
     "expect-not-found": (1, lambda a: _verdict(expect_not_found(_lines(a[0])))),
     "find-ping": (6, _find_ping),
+    "expect-ping-branch": (3, lambda a: _verdict(expect_ping_branch(room_pings(json.loads(_read(a[0]))), a[1], a[2]))),
     "expect-replies": (3, lambda a: _verdict(expect_replies(room_pings(json.loads(_read(a[0]))), a[1], a[2]))),
     "expect-within-window": (2, lambda a: _verdict(expect_within_window(int(a[0]), int(a[1])))),
     "seat-handle": (3, lambda a: print(seat_handle(_read(a[0]), a[1], a[2]))),
