@@ -15,6 +15,9 @@ type harness struct {
 	app    *App
 	out    *bytes.Buffer
 	errOut *bytes.Buffer
+	fake   *execx.Fake
+	env    map[string]string
+	root   string
 }
 
 // newHarness is an App over a scratch root with an installed ccy lib and the declare helper
@@ -25,13 +28,16 @@ func newHarness(t *testing.T) harness {
 	lib := filepath.Join(root, "lib")
 	mustWrite(t, filepath.Join(lib, "tmux-session.bash"), "")
 	mustWrite(t, filepath.Join(root, "helpers", "agent_bus", "declare.py"), "")
-	h := harness{out: &bytes.Buffer{}, errOut: &bytes.Buffer{}}
-	env := map[string]string{"CCY_LIB": lib, "HOME": filepath.Join(root, "home")}
+	h := harness{out: &bytes.Buffer{}, errOut: &bytes.Buffer{}, fake: &execx.Fake{}, root: root}
+	h.env = map[string]string{"CCY_LIB": lib, "HOME": filepath.Join(root, "home")}
+	getenv := func(k string) string { return h.env[k] }
 	h.app = &App{
-		Config: LoadConfig(root, func(k string) string { return env[k] }),
-		Runner: &execx.Fake{}, Stdout: h.out, Stderr: h.errOut,
+		Config: LoadConfig(root, getenv),
+		Runner: h.fake, Stdout: h.out, Stderr: h.errOut, Getenv: getenv, Stdin: &bytes.Buffer{},
 		inContainer: func() bool { return false },
 	}
+	h.app.AppliedDir = filepath.Join(root, "applied")
+	h.app.wire()
 	return h
 }
 
