@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.94.2"  # The shared picker shows colour (fzf --ansi). See docs/ccy-changelog.md.
+CCY_VERSION="3.95.0"  # --teams <team> chooses a seat; the re-attach offer keeps --teams. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -207,12 +207,17 @@ Options:
                          takes this checkout's saved Quick Launch choices without asking,
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
-  --teams SEAT@TEAM[,SEAT@TEAM...]
-                         Put this session in agent team bus teams, one seat in each
-                         (e.g. --teams dev1@dev-team,qa2@other-team; quote a list with
-                         spaces). A seat is created on its first use (sudo agent-bus
-                         add-member) and is held by one session at a time. Without
-                         --teams a session is in no team. Needs play-agent-bus.yml.
+  --teams TEAM | SEAT@TEAM[,SEAT@TEAM...]
+                         Put this session in agent team bus teams, one seat in each.
+                         With a team alone (e.g. --teams long-term-support) ccy shows
+                         this checkout's seats in it, free or held, and takes the one
+                         you choose (the lowest free seat, else a new number, is the
+                         default). Name the seat to skip the question; a launch with
+                         nobody to answer must (e.g. --teams 1@dev-team,qa2@other-team;
+                         quote a list with spaces). A seat is created on its first use
+                         (sudo agent-bus add-member) and is held by one session at a
+                         time. Without --teams a session is in no team. Needs
+                         play-agent-bus.yml.
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -674,7 +679,7 @@ for arg in "$@"; do
     elif [ "$NEXT_IS_TEAMS" = true ]; then
         # An option where the list belongs means the list was left out (exit 64, usage).
         if [[ "$arg" == -* ]]; then
-            print_error "--teams needs a list, <seat>@<team>[,<seat>@<team>...], before $arg"
+            print_error "--teams needs a team or a list (<team> or <seat>@<team>[,<seat>@<team>...]) before $arg"
             exit 64
         fi
         TEAMS_LIST="$arg"
@@ -849,19 +854,25 @@ for arg in "$@"; do
     fi
 done
 
-# --teams <seat>@<team>[,...] (lib/agent-bus-seats.bash). Checked here, before any prompt,
-# SSH or token work, by `agent-bus seat check`, which holds the seat and team grammar and
-# prints the canonical list; its exit code is the launch's. The canonical list then replaces
-# the one given in this launch's arguments, so tmux's session record (a restore) and a
-# restart replay it. Without --teams nothing here runs and agent-bus is never called.
+# --teams <team>|<seat>@<team>[,...] (lib/agent-bus-seats.bash). Checked here, before any
+# prompt, SSH or token work, by `agent-bus seat check`, which holds the seat and team grammar
+# and prints the canonical list; its exit code is the launch's. A team named alone gets its
+# seat from the owner, in a chooser, here and before tmux; a launch with nobody to choose
+# (headless, no terminal, a restore, a restart) is refused one. The canonical list then
+# replaces the one given in this launch's arguments, so tmux's session record (a restore) and
+# a restart replay the seat. Without --teams nothing here runs and agent-bus is never called.
 CCY_SEATS=""
 if [ "$NEXT_IS_TEAMS" = true ] || { [ "$TEAMS_GIVEN" = true ] && [ -z "$TEAMS_LIST" ]; }; then
-    print_error "--teams needs a list: --teams <seat>@<team>[,<seat>@<team>...]"
+    print_error "--teams needs a team or a list: --teams <team> or --teams <seat>@<team>[,<seat>@<team>...]"
     exit 64
 fi
 if [ "$TEAMS_GIVEN" = true ]; then
     _ccy_teams_rc=0
-    CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST") || _ccy_teams_rc=$?
+    _ccy_teams_attended=true
+    if ccy_nobody_to_ask || [ ! -t 2 ] || [ -n "${CCY_SESSION_RESTORE:-}" ] || [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
+        _ccy_teams_attended=false
+    fi
+    CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST" "$_ccy_teams_attended") || _ccy_teams_rc=$?
     if [ "$_ccy_teams_rc" -ne 0 ]; then
         # An unquoted `--teams a@x, b@y` reaches ccy as `a@x,` and a separate word.
         _ccy_teams_next="${*:$((TEAMS_VALUE_POS + 1)):1}"
@@ -871,12 +882,17 @@ if [ "$TEAMS_GIVEN" = true ]; then
         fi
         exit "$_ccy_teams_rc"
     fi
+    if [ "$_ccy_teams_attended" = true ]; then
+        CCY_SEATS=$(ccy_seats_resolve "$CCY_SEATS") || exit $?
+        # Empty: the owner left the chooser, and said so is already on stderr.
+        [ -n "$CCY_SEATS" ] || exit 0
+    fi
     _ccy_teams_args=()
     mapfile -d '' -t _ccy_teams_args < <(ccy_teams_canonical_args "$TEAMS_FLAG_POS" "$TEAMS_VALUE_POS" "$CCY_SEATS" "$@")
     wait "$!" || exit 1
     set -- "${_ccy_teams_args[@]}"
     CCY_ORIG_ARGS=("$@")
-    unset _ccy_teams_args _ccy_teams_rc _ccy_teams_next
+    unset _ccy_teams_args _ccy_teams_rc _ccy_teams_next _ccy_teams_attended
 fi
 
 # Export the GitHub-443 toggle as the env var consumed BOTH by the host-side SSH

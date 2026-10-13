@@ -77,6 +77,18 @@ class SeatRef:
         return f"{self.seat}@{self.team}"
 
 
+@dataclasses.dataclass(frozen=True)
+class TeamRef:
+    """A team named alone (`--teams <team>`): its seat is chosen on a terminal (Plan 00177
+    Task 4.8) before anything is claimed, so it never reaches `take` or a claim."""
+
+    team: str
+
+    @property
+    def text(self) -> str:
+        return self.team
+
+
 # ── the list ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -85,16 +97,37 @@ def _show(item: str) -> str:
     return f" ({item})" if _SHOWABLE_RE.fullmatch(item) else ""
 
 
-def parse_seat_list(text: str, *, one_per_team: bool = True) -> tuple[SeatRef, ...]:
+def _team_case_hint(team: str) -> str:
+    """For a team name refused only for its capitals: the lower-case spellings it may mean
+    (`LongTermSupport`: `longtermsupport` or `long-term-support`); else nothing."""
+    if team == team.lower():
+        return ""
+    kebab = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", team).lower()
+    found = [name for name in dict.fromkeys((team.lower(), kebab)) if protocol.is_team_name(name)]
+    if not found:
+        return ""
+    return "; team names are lower-case: did you mean " + " or ".join(f"`{name}`" for name in found) + "?"
+
+
+def _team_refusal(where: str, team: str) -> SeatListError:
+    return SeatListError(
+        f"{where}: the team is not a team name (a lowercase letter followed by at most 23 "
+        f"lowercase letters, digits or -){_team_case_hint(team)}"
+    )
+
+
+def parse_seat_list(text: str, *, one_per_team: bool = True,
+                    allow_bare: bool = False) -> tuple[SeatRef | TeamRef, ...]:
     """The seats of a `<seat>@<team>[,…]` list, in the order given. Spaces and tabs around
     an item are dropped; everything else that is not one seat of one team per item is
     refused, and so is a seat named twice. A list one session claims also refuses a team
-    named twice (`one_per_team`); a list of seats to remove does not."""
+    named twice (`one_per_team`); a list of seats to remove does not. With `allow_bare` an
+    item may be a team alone (a `TeamRef`), whose seat is still to be chosen."""
     if not isinstance(text, str) or not text.strip(_AROUND_ITEM):
         raise SeatListError("the seat list is empty: give <seat>@<team>[,<seat>@<team>...]")
     items = text.split(",")
-    refs: list[SeatRef] = []
-    by_team: dict[str, SeatRef] = {}
+    refs: list[SeatRef | TeamRef] = []
+    by_team: dict[str, SeatRef | TeamRef] = {}
     for position, raw in enumerate(items, start=1):
         item = raw.strip(_AROUND_ITEM)
         if not item:
@@ -104,20 +137,28 @@ def parse_seat_list(text: str, *, one_per_team: bool = True) -> tuple[SeatRef, .
                         f"write it with no space after a comma ({_EXAMPLE}), or quote it")
             raise SeatListError(f"item {position} is empty (a leading, doubled or trailing comma){hint}")
         where = f"item {position}{_show(item)}"
-        if item.count("@") != 1:
-            raise SeatListError(f"{where}: an item is <seat>@<team>, with exactly one @")
-        name, team = item.split("@")
-        if not protocol.is_seat_name(name):
-            raise SeatListError(
-                f"{where}: the seat is not a seat name (a number 1-999999, or a lowercase "
-                "letter followed by at most 11 lowercase letters or digits)"
-            )
-        if not protocol.is_team_name(team):
-            raise SeatListError(
-                f"{where}: the team is not a team name (a lowercase letter followed by at most "
-                "23 lowercase letters, digits or -)"
-            )
-        ref = SeatRef(name, team)
+        ref: SeatRef | TeamRef
+        if allow_bare and "@" not in item:
+            if not protocol.is_team_name(item):
+                raise _team_refusal(where, item)
+            ref = TeamRef(item)
+            team = item
+        else:
+            if item.count("@") != 1:
+                hint = ""
+                if "@" not in item and protocol.is_team_name(item):
+                    hint = (f"; a team alone (`ccy --teams {item}`) is answered on a terminal, "
+                            "where the seat is chosen")
+                raise SeatListError(f"{where}: an item is <seat>@<team>, with exactly one @{hint}")
+            name, team = item.split("@")
+            if not protocol.is_seat_name(name):
+                raise SeatListError(
+                    f"{where}: the seat is not a seat name (a number 1-999999, or a lowercase "
+                    "letter followed by at most 11 lowercase letters or digits)"
+                )
+            if not protocol.is_team_name(team):
+                raise _team_refusal(where, team)
+            ref = SeatRef(name, team)
         if not one_per_team and ref in refs:
             raise SeatListError(f"`{ref.text}` is named twice")
         first = by_team.setdefault(team, ref)
@@ -129,7 +170,7 @@ def parse_seat_list(text: str, *, one_per_team: bool = True) -> tuple[SeatRef, .
     return tuple(refs)
 
 
-def canonical(refs: tuple[SeatRef, ...]) -> str:
+def canonical(refs: tuple[SeatRef | TeamRef, ...]) -> str:
     """The list as the launcher passes, labels and restores it: the items in the order
     given, joined by `,`."""
     return ",".join(ref.text for ref in refs)

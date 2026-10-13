@@ -1,5 +1,5 @@
 #!/bin/bash
-# CCY agent team bus seats: the host side of `ccy --teams <seat>@<team>[,...]`.
+# CCY agent team bus seats: the host side of `ccy --teams <team>|<seat>@<team>[,...]`.
 #
 # A ccy session is in a team only when its launch names it, in one seat per team (Plan 00161
 # DESIGN.md sections 5.3, 5.5 and 5.6). The seat and team grammar is pingbus's own, so this
@@ -10,6 +10,13 @@
 # exits with their code when either refuses: 64 a malformed list, 75 a held seat, 78 anything
 # else that stops the seats being had (a team not running here, a seat that cannot be made).
 # A launch without --teams calls neither and passes the container no bus variable.
+#
+# A team named alone (`ccy --teams long-term-support`, Plan 00177 Task 4.8) is the normal
+# form on a terminal: ccy_seats_resolve shows the checkout's seats in it (`agent-bus seat
+# choose`) in a gum chooser and puts the chosen `<seat>@<team>` into the list, which then
+# replaces the given one in the launch's arguments like any canonical list, so a restart or a
+# restore replays the seat. A launch with nobody to choose (headless, no terminal, a restore,
+# a restart) checks with `--resolved`, which refuses a team alone.
 #
 # Requires print_error (common-pure.bash, always loaded first).
 
@@ -25,15 +32,22 @@ _ccy_seats_need_agent_bus() {
     fi
 }
 
-# ccy_seats_check <list> — the canonical form of a --teams list, printed on stdout, as
-# `agent-bus seat check` gives it. Changes nothing and runs no sudo.
+# ccy_seats_check <list> <attended> — the canonical form of a --teams list, printed on stdout,
+# as `agent-bus seat check` gives it. Attended (true: a person at a terminal), a team named
+# alone is kept for ccy_seats_resolve; otherwise it is refused (64). Changes nothing and runs
+# no sudo.
 #   status 0   the list is usable here; its canonical form printed
 #   otherwise  agent-bus's own code (64 usage, 78 a team not running here), or 78 when
 #              agent-bus is missing or printed no single list; the reason on stderr
 ccy_seats_check() {
     local list="${1?ccy_seats_check requires a list}" canonical rc=0
+    local attended="${2:?ccy_seats_check requires true or false}"
+    local check=("$CCY_AGENT_BUS_COMMAND" seat check "$list")
+    if [ "$attended" != true ]; then
+        check+=(--resolved)
+    fi
     _ccy_seats_need_agent_bus || return
-    canonical=$("$CCY_AGENT_BUS_COMMAND" seat check "$list") || rc=$?
+    canonical=$("${check[@]}") || rc=$?
     if [ "$rc" -ne 0 ]; then
         print_error "--teams '$list' refused by agent-bus seat check (exit $rc; the reason is above)."
         return "$rc"
@@ -43,6 +57,103 @@ ccy_seats_check() {
         return 78
     fi
     printf '%s\n' "$canonical"
+}
+
+# _ccy_seats_row <seat> <state> <handle> <type words> — one chooser row: the seat, its member's
+# full handle, what runs in it, and whether it is free. PURE.
+_ccy_seats_row() {
+    local state_words
+    case "$2" in
+    free) state_words="free" ;;
+    held) state_words="held by a running session" ;;
+    new) state_words="new seat" ;;
+    *) state_words="$2" ;;
+    esac
+    printf 'seat %-6s  %-40s  %-15s  %s' "$1" "$3" "$4" "$state_words"
+}
+
+# _ccy_seats_choose <team> — ask, with gum on stderr, which seat of <team> this session takes,
+# from `agent-bus seat choose`'s rows; the default is its DEFAULT (the lowest free seat, else a
+# new number). Prints `<seat>@<team>`, and on stderr the full handle being taken. Esc or
+# Ctrl-C prints nothing and returns 0: the owner chose not to start.
+#   otherwise  agent-bus's code (64, 78), or 78 when gum is missing or the rows are unreadable
+_ccy_seats_choose() {
+    local team="${1:?_ccy_seats_choose requires a team}" out rc=0 kind seat state handle words
+    local default="" default_row="" picked i
+    local -a rows=() seats=() handles=()
+    out=$("$CCY_AGENT_BUS_COMMAND" seat choose "$team") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        print_error "--teams $team: the seats of team $team could not be listed (agent-bus seat choose exited $rc; the reason is above)."
+        return "$rc"
+    fi
+    while IFS=$'\t' read -r kind seat state handle words; do
+        case "$kind" in
+        CHOICE)
+            rows+=("$(_ccy_seats_row "$seat" "$state" "$handle" "$words")")
+            seats+=("$seat")
+            handles+=("$handle ($words)")
+            ;;
+        DEFAULT) default="$seat" ;;
+        *)
+            print_error "agent-bus seat choose printed an unknown line ('$kind'); update agent-bus (play-agent-bus.yml)."
+            return 78
+            ;;
+        esac
+    done <<<"$out"
+    for i in "${!seats[@]}"; do
+        if [ "${seats[i]}" = "$default" ]; then
+            default_row="${rows[i]}"
+        fi
+    done
+    if [ "${#rows[@]}" -eq 0 ] || [ -z "$default_row" ]; then
+        print_error "agent-bus seat choose gave no usable rows for team $team; update agent-bus (play-agent-bus.yml)."
+        return 78
+    fi
+    if ! command -v gum >/dev/null; then
+        print_error "--teams $team asks which seat to take, and gum is not installed: play-claude-yolo.yml installs it."
+        echo "  Or name the seat yourself: --teams ${default}@${team}" >&2
+        return 78
+    fi
+    rc=0
+    picked=$(GUM_CHOOSE_SHOW_HELP=false gum choose --header "Team ${team}: which seat does this session take?" \
+        --selected "$default_row" "${rows[@]}") || rc=$?
+    if [ "$rc" -ne 0 ] || [ -z "$picked" ]; then
+        echo "No seat chosen; nothing started." >&2
+        return 0
+    fi
+    for i in "${!rows[@]}"; do
+        if [ "${rows[i]}" = "$picked" ]; then
+            echo "Taking seat ${seats[i]}@${team}: ${handles[i]}." >&2
+            printf '%s@%s\n' "${seats[i]}" "$team"
+            return 0
+        fi
+    done
+    print_error "gum returned a row that was not offered: $picked"
+    return 78
+}
+
+# ccy_seats_resolve <canonical-list> — the list with each team named alone replaced by the
+# seat the owner chooses for it (_ccy_seats_choose), checked again and printed in canonical
+# form. A list with no team alone is printed as it is, and nothing is asked. Empty output with
+# status 0: the owner left a chooser, and nothing is to start.
+ccy_seats_resolve() {
+    local list="${1:?ccy_seats_resolve requires a canonical list}" item chosen resolved="" asked=false
+    local -a items=()
+    IFS=, read -r -a items <<<"$list"
+    for item in "${items[@]}"; do
+        if [[ "$item" != *@* ]]; then
+            asked=true
+            chosen=$(_ccy_seats_choose "$item") || return
+            [ -n "$chosen" ] || return 0
+            item="$chosen"
+        fi
+        resolved+="${resolved:+,}$item"
+    done
+    if [ "$asked" = false ]; then
+        printf '%s\n' "$list"
+        return 0
+    fi
+    ccy_seats_check "$resolved" false
 }
 
 # ccy_seats_take <canonical-list> <unattended> — claim the launch's seats on the host, creating
