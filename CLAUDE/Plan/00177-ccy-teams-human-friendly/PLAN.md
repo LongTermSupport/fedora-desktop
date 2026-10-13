@@ -91,6 +91,19 @@ offer to create a team when there is none; think about the UX; do a full critica
 - [ ] **Task 4.9**: `ccy-teams create` asks the team's scope: the whole GitHub owner, or one
   repository (the default inside a checkout, named after it). Not started: a repo-only team
   needs `repos[].branches` to allow "any branch" (today 1 to 8 names), a protocol change.
+  Decided: an absent `branches` means any branch, the same as an org-wide team.
+- [ ] **Task 4.10**: `cc --teams <team>`: a desktop Claude Code session, running as the
+  owner, joins as a `host` member with its own Matrix account. The owner accepts that it
+  sits beside their Element session (a misbehaving agent could use it). pingbus's refusal
+  beside an Element profile becomes an explicit opt-in for that member. The guard is
+  cc's alone, never project settings (those are shared with ccy sessions), and it is
+  instruction, not containment: the session is told only the correct way to post (pingbus,
+  as its own member). Nothing in its context mentions the owner's Element session or
+  posting as anyone else, so the idea is never put in front of it. `cc --teams`
+  passes `claude --settings <file>` with `Read(...)`/`Edit(...)` deny rules on Element's
+  session folders. Claude Code's sandbox is left out for now: it would also restrict
+  network access; a real boundary is investigated in issue #101. Asked for by the owner
+  26-10-13.
 
 ## Success Criteria
 

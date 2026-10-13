@@ -13,6 +13,18 @@ pointer rather than restated.
 
 How to work effectively on this repo (the `feedback`-type notes).
 
+### Never wait in the foreground — the owner cannot type while a command blocks
+
+A wait for a long job (QA, a build, a log line) runs in the background: Bash with
+`run_in_background` and an `until` loop for one notification, or the Monitor tool for a
+stream of them. Never a foreground `timeout … until …` loop.
+
+**Why:** a foreground wait holds the turn, so the owner's only way to send a message is to
+kill the command, which they have had to do repeatedly.
+
+**How to apply:** start the job in the background, arm the background wait, then carry on
+with other work or end the turn. The notification brings you back.
+
 ### Never assume or hallucinate — decide only from grounded, triaged facts
 
 Every data point that drives a decision or a claim must be **confirmed from a
