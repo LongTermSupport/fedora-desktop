@@ -211,6 +211,52 @@ want=$(printf '%s\n' env PINGBUS_SEATS=2@dev-team "$KIT_SRC/pingbus" seat exec -
     --settings "$work/tmp/settings.json" --append-system-prompt "$prompt" --resume abc)
 check "pingbus seat exec claims the checkout's seat, then claude with plugin and settings" "$want" "$got"
 
+echo "=== prepare: the owner accepts BEFORE the seat is taken ==="
+
+prep_kit="$work/prep-kit"
+mkdir -p "$prep_kit/plugin"
+cp -r "$KIT_SRC/plugin/pingbus" "$prep_kit/plugin/pingbus"
+cp "$KIT_SRC/settings.json" "$prep_kit/settings.json"
+: >"$prep_kit/pingbus"
+CC_TEAMS_KIT="$prep_kit"
+prep_repo="$work/prep-repo"
+mkdir -p "$prep_repo" "$work/prep-tmp"
+git -C "$prep_repo" init -q
+printf 'CHOICE\t2\tfree\tmyrepo.2+local.host\tdesktop (host)\nDEFAULT\t2\n' >"$work/choose"
+CC_TEAMS_ACCEPTED_DIR="$work/prep-config/pingbus"
+record="$CC_TEAMS_ACCEPTED_DIR/element-accepted"
+prep_seat="$prep_repo/.claude/ccy/pingbus/seats/dev-team/2"
+CC_TEAM=dev-team
+: >"$work/agent-bus.calls"
+: >"$work/gum.calls"
+rc=0
+(cd "$prep_repo" && FAKE_GUM_ANSWER=1 cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
+check "declined: prepare stops (1)" "1" "$rc"
+check "declined: the seat is never taken" "0" "$(grep -c 'seat take' "$work/agent-bus.calls")"
+check "declined: no seat directory" "no" "$(yes_no test -e "$prep_seat")"
+check "declined: no record" "no" "$(yes_no test -e "$record")"
+rc=0
+(cd "$prep_repo" && FAKE_GUM_ANSWER=0 cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
+check "accepted: prepare succeeds" "0" "$rc"
+check "accepted: the record exists" "yes" "$(yes_no test -f "$record")"
+check "accepted: then the seat is taken" "1" "$(grep -c 'seat take' "$work/agent-bus.calls")"
+: >"$work/gum.calls"
+rm -rf "$prep_repo/.claude/ccy/pingbus"
+rc=0
+(cd "$prep_repo" && FAKE_GUM_ANSWER=1 cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
+check "record already there: prepare succeeds" "0" "$rc"
+check "record already there: not asked" "0" "$(grep -c . "$work/gum.calls")"
+check "record already there: the seat is taken" "yes" "$(yes_no test -d "$prep_seat")"
+CC_TEAMS_KIT="$KIT_SRC"
+
+echo "=== cc and pingbus name the same acceptance record ==="
+
+pb_config="$REPO_ROOT/helpers/pingbus/config.py"
+pb_dir=$(grep -E '^ELEMENT_ACCEPTED_DIR = ' "$pb_config" | cut -d'"' -f2)
+pb_file=$(grep -E '^ELEMENT_ACCEPTED_FILE = ' "$pb_config" | cut -d'"' -f2)
+cc_record=$(HOME=/h bash -c 'source "$1"; echo "$CC_TEAMS_ACCEPTED_DIR/$CC_TEAMS_ACCEPTED_FILE"' _ "$LIB")
+check "cc and pingbus.config name one path" "/h/$pb_dir/$pb_file" "$cc_record"
+
 echo "=== the play installs both files beside cc ==="
 
 for file in cc-teams.bash cc-teams-settings.json; do

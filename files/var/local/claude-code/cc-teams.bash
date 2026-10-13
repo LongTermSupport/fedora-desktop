@@ -217,8 +217,9 @@ cc_teams_prepare() {
     cc_teams_ccy_dir || return
     cc_teams_seat "$CC_TEAM" || return
     echo "Agent team $CC_TEAM: seat $CC_SEAT, as $CC_HANDLE" >&2
-    cc_teams_take "$CC_SEAT" "$CC_TEAM" || return
+    # The owner's answer comes first: a declined start leaves no member behind.
     cc_teams_accept "$CC_HANDLE" || return
+    cc_teams_take "$CC_SEAT" "$CC_TEAM" || return
     cc_teams_settings "$tmp/settings.json" || return
     cc_teams_command "$tmp" "$checkout" "$CC_SEAT@$CC_TEAM" "$CC_HANDLE" "$CC_TEAM" "$@"
 }
