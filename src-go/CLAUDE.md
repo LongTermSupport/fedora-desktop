@@ -150,6 +150,12 @@ script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwa
 (expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
 `git ls-files` it needs is run by the command through the seam.
 
+`qa/ansiblepause` + `qa/cmd/qa-ansible-pause` (same nested module) are
+`scripts/qa-ansible-pause.bash`, the rule pause-without-register: the script only builds and runs
+the command. A line scan (the annotation is a comment, which a YAML load drops) over the `yaml`
+list of `qa/discovery` under `playbooks/` and `tasks/`; `SPEC-qa-ansible-pause.md` (E1-E17) is the
+specification, and the rule is proven against `tests/fixtures/ansible-pause` by its Go tests.
+
 `qa/patterns` + `qa/cmd/qa-patterns` (same nested module) are `scripts/qa-patterns.bash`, the
 bash-convention gate: semgrep stays the engine and `.semgrep/bash-conventions.yml` the data; the Go
 owns scope (what git would publish), the rule self-test against its fixture, the scan mirror and
