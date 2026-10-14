@@ -249,32 +249,6 @@ def cut_helper_counts_reader(text):
     return text[:start] + text[end:].lstrip("\n")
 
 
-# Gates the table gained after DEFAULT_REV: the legacy text has no block for them, so one in the
-# shape of its count-reader gates is spliced in after the gate named, so the legacy still runs
-# the table's gates in the table's order. name: (gate it follows, script, failure text).
-SPLICED = {
-    "meta-deploy-queue": ("planlib-tests", "test-meta-deploy.bash", "meta-deploy.list queue tests failed"),
-}
-
-
-def splice_added_gates(text):
-    """Add the gates in SPLICED to the legacy text, each straight after the gate it follows."""
-    for name, (after, script, reason) in SPLICED.items():
-        var = name.replace("-", "_")
-        anchor = re.search(rf"^qa_pass_line {re.escape(after)} [^\n]*\n", text, re.MULTILINE)
-        if anchor is None:
-            raise SystemExit(f"the legacy script has no pass line for {after}, so {name} cannot follow it")
-        block = (
-            f'\n{var}_out=""\n'
-            f'if ! {var}_out="$(bash "$SCRIPT_DIR/{script}" 2>&1)"; then\n'
-            f'    qa_hard_gate_failed {name} \\\n        "{reason}" \\\n        "${var}_out"\nfi\n'
-            f'{var}_summary=$(qa_gate_case_count "${var}_out")\n'
-            f'qa_pass_line {name} "${var}_summary"\n'
-        )
-        text = text[: anchor.end()] + block + text[anchor.end():]
-    return text
-
-
 def stub_world_files(stub, table, scenario):
     """Write the scenario's replies as the stubs' answer files."""
     for index, row in enumerate(table):
@@ -333,7 +307,7 @@ def run_one(scen_, table, legacy):
 def legacy_files(rev):
     """The bash as it was at the revision, with the one removed gate cut out."""
     files = {rel: sh(["git", "show", f"{rev}:{rel}"], REPO) + "\n" for rel in LEGACY}
-    text = splice_added_gates(cut_helper_counts_reader(files["scripts/qa-all.bash"]))
+    text = cut_helper_counts_reader(files["scripts/qa-all.bash"])
     if REPORT_ASSIGN not in text:
         raise SystemExit("the legacy script no longer assigns its report path as expected")
     files["scripts/qa-all.bash"] = text.replace(REPORT_ASSIGN, 'JSON_OUT="${QA_RESULTS_JSON:-/tmp/qa-results.json}"')

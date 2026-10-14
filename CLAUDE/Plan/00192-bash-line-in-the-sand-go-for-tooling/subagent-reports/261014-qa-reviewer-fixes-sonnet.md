@@ -19,10 +19,12 @@ are merged into it (`--no-ff`). The only conflict was one record of
 
 Also done, as instructed: `test-meta-deploy.bash` has its own row (`meta-deploy-queue`) in
 `scripts/qa-gates.tsv` and a row in QA.md; the nesting inside `test-planlib.bash` is removed.
-The suite prints `passed: N` for the count reader. The golden replay is a replay of the legacy
-bash, which has no such gate, so `capture.py` now splices gates the table gained after its
-revision into the legacy text (`SPLICED`), and the goldens and pinned deviations were recaptured
-(`go test ./all -update-deviations` for the pins).
+The suite prints `passed: N` for the count reader. The goldens stay exactly as the shipped
+bash printed them. The bash has no such gate, so the golden test keeps a short list of gates
+added after the port (`addedAfterPort` in `src-go/qa/all/addedgates_test.go`, each with its plan
+reason): the replay answers them with a passing reply and removes their stage line and log
+entry from the Go side before comparing. Nothing is pinned as a deviation, and a test fails if a
+listed gate is no longer in `scripts/qa-gates.tsv`.
 
 Not fixed here, by design: findings 3, 4, 5 and 6 are on the agent-bus-install branch; 11 needs
 the coordinator's full qa-all run; the owner-name nit belongs in `mkplan.bash`.
