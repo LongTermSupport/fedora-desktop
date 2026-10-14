@@ -161,7 +161,7 @@ language, and the tracked yardsticks each gate measures its coverage against.
 `qa/deployeddrift` + `qa/cmd/qa-deployed-drift` (same nested module) are
 `scripts/qa-deployed-drift.bash`, the repo-against-host gate: the script only builds and runs the
 command. It reads the repo and the host through `fs.FS`; the one git question (is this a linked
-worktree) is asked by the command through the seam. `SPEC-qa-deployed-drift.md` (E1-E16) is the
+worktree) is asked by the command through the seam. `SPEC-qa-deployed-drift.md` (E1-E18) is the
 specification, proven by unit tests over in-memory trees.
 
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the

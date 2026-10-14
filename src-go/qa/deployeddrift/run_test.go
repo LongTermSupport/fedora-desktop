@@ -22,7 +22,9 @@ type world struct {
 	home     string
 	linked   bool
 	gitErr   error
-	unreadOn string // a host path that fails to open
+	unreadOn string            // a host path that fails to open
+	links    map[string]string // a symlinked root and its target (the Resolve seam)
+	resolve  error
 }
 
 type result struct {
@@ -94,6 +96,15 @@ func (w *world) run(args ...string) result {
 		Stdout: &out, Stderr: &errOut, Cwd: w.root, Home: w.home,
 		Open: func(string) fs.FS { return w.repo },
 		Host: host,
+		Resolve: func(p string) (string, error) {
+			if w.resolve != nil {
+				return "", w.resolve
+			}
+			if target, ok := w.links[p]; ok {
+				return target, nil
+			}
+			return p, nil
+		},
 		LinkedWorktree: func(string) (bool, error) {
 			return w.linked, w.gitErr
 		},
@@ -157,7 +168,7 @@ func TestE4MissingPlaybooksIsExitTwo(t *testing.T) {
 // E5
 func TestE5TemplateWithoutPlaybookDestIsExitTwoEvenInTheContainer(t *testing.T) {
 	w := base()
-	w.root = "/workspace"
+	w.host["run/.containerenv"] = file("")
 	w.repo["files/home/.local/bin/helper.j2"] = file("{{ x }}")
 	w.repo["playbooks/play.yml"] = file("- dest: \"{{ h }}/.local/bin/other\"\n")
 	r := w.run()
@@ -197,7 +208,7 @@ func TestE6PairMatchingNothingIsExitTwo(t *testing.T) {
 // E7
 func TestE7ContainerSkipIsWarnedAndExitZero(t *testing.T) {
 	w := base()
-	w.root = "/workspace"
+	w.host["run/.containerenv"] = file("")
 	w.repo["files/home/.local/bin/t.j2"] = file("x")
 	w.repo["playbooks/p.yml"] = file("dest: /.local/bin/t\n")
 	r := w.run()

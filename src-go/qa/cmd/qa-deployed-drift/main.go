@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ func run(args []string) int {
 		Cwd:            cwd,
 		Home:           os.Getenv("HOME"),
 		Open:           os.DirFS,
+		Resolve:        filepath.EvalSymlinks,
 		Host:           os.DirFS("/"),
 		LinkedWorktree: linkedWorktree,
 	}

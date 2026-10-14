@@ -31,6 +31,13 @@ func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	}
 }
 
+func TestRootThatDoesNotExistIsExitTwo(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "gone")
+	if code := run([]string{"--root", missing}); code != int(deployeddrift.ExitCannotRun) {
+		t.Fatalf("missing root: exit %d", code)
+	}
+}
+
 func TestLinkedWorktreeTellsMainCheckoutFromLinkedWorktree(t *testing.T) {
 	main := t.TempDir()
 	git(t, main, "init", "-q")
