@@ -83,6 +83,8 @@ type OS struct {
 // has already delivered SIGINT to the foreground group on Ctrl-C, and a second SIGINT would
 // read to some programs as "abort now". WaitDelay bounds the wait: a child that ignores TERM,
 // or leaves a grandchild holding its output pipe, is killed and its pipes closed after Grace.
+// Grace also bounds the drain of the pipes after a normal exit, so it must exceed the time
+// the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }

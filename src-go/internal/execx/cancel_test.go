@@ -69,8 +69,10 @@ func TestOSRunCancelEscalatesWhenTheChildIgnoresTERMAndHoldsThePipe(t *testing.T
 	}
 }
 
-func TestOSRunWithoutCancelIgnoresGrace(t *testing.T) {
-	res, err := OS{Grace: time.Millisecond}.Run(context.Background(), Cmd{Name: "sh", Args: []string{"-c", "sleep 0.1; echo done"}})
+// Grace bounds the pipe drain after a normal exit as well (exec.Cmd.WaitDelay), so the Grace
+// here is far above the copy time: a Grace of a millisecond failed under -race on a loaded host.
+func TestOSRunUncancelledReturnsTheWholeOutput(t *testing.T) {
+	res, err := OS{Grace: 2 * time.Second}.Run(context.Background(), Cmd{Name: "sh", Args: []string{"-c", "sleep 0.1; echo done"}})
 	if err != nil || string(res.Stdout) != "done\n" {
 		t.Fatalf("got %q, %v", res.Stdout, err)
 	}
