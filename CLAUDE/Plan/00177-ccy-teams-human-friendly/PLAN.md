@@ -137,6 +137,9 @@ offer to create a team when there is none; think about the UX; do a full critica
   owner's own test: `ccy-teams create` from a repository (scope, Element, sign-in, the
   offer to start a session), `ccy --teams <team>` choosing a seat, and `cc --teams <team>`.
   Deployed; the Go `ccy-teams` works, but the owner's test found the UX clunky: Phase 6.
+  The owner signed in to Element, launched a ccy session into a team, and a message they
+  posted in the room woke the idle session, which answered in the room: the round trip
+  works. That the exchange is hidden inside tool calls in the session is Plan 00194.
 
 ### Phase 6: No hidden keys (the owner's host test)
 
