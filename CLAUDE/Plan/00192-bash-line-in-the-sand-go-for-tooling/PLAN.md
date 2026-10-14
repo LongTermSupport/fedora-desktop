@@ -79,8 +79,14 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ### Phase 4: Review
 
-- [ ] ⬜ **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
-  fixed.
+- [ ] 🔄 **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
+  fixed. Three reviews (subagent-reports/261014-fable-review-{gate,go,gqaci}.md) found
+  blockers in each: the gate is evadable and its CI ratchet bypassable; the DBF rules caught
+  1 of 13 planted evasions and Ctrl-C can wedge the terminal; go-qa-ci cannot be adopted (no
+  nested-module driver, disabled linters counted as suppressions) and ships one rule. Fixing in
+  parallel: the gate on a real bash parser with a versioned ratchet; type-based rules; runtime
+  correctness; go-qa-ci M15 (adoption, gate) and M16 (a bundled rule pack). Then typed state,
+  redraw cost and the `teams` package split. The two ports get their own review before merge.
 - [ ] ⬜ **Task 4.2**: qa-reviewer over the plan.
 
 ## Success Criteria
