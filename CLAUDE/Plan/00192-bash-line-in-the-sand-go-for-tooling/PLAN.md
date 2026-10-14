@@ -95,15 +95,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `src-go/qa/changed`, routing and excluded trees as data, one process seam shared with the
   bash-limits gate, golden replay of the bash over 118 scenarios with 19 numbered deviations,
   the script a build-and-run wrapper. `qa-all.bash` (P3, the second orchestrator) on
-  `go-port/qa-all`: ported, reviewed, its review fixed, and merging into F44 together with the
-  other pending branches through that one integration branch; spec
+  `go-port/qa-all`: ported, reviewed, its review fixed, and merged on the integration branch
+  with the other ports (it lands in F44 after the owner's acceptance); spec
   [SPEC-qa-all.md](SPEC-qa-all.md); nested `src-go/qa/all`, `qa/gates`, `qa/cmd/qa-all`; the
   gate list is data (`scripts/qa-gates.tsv`), read by the runner, by `qa-changed` and by the
   QA.md inventory gate; a reader that finds nothing fails its gate; golden replay of the bash
   over 142 scenarios with 32 pinned deviations (B1-B6, B12, B13, B20-B23, B26); the script a
   build-and-run wrapper, its allowlist entry, the `qa-helper-summary` library, its suite and the
   call-site parser gone (their cases are Go tests). The full `qa-all` run comes before the merge.
-  `qa-ansible.bash` (P3, third orchestrator) on `go-port/qa-ansible`: ported, not merged; spec
+  `qa-ansible.bash` (P3, third orchestrator) on `go-port/qa-ansible`: ported, merged on the integration branch; spec
   [SPEC-qa-ansible.md](SPEC-qa-ansible.md) states the intended behaviour as expectations E1-E19
   (the bash is not an oracle; 13 departures B1-B13 listed there); nested `src-go/qa/ansible`,
   `qa/cmd/qa-ansible`; the script a build-and-run wrapper, its allowlist row gone;
@@ -115,7 +115,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (E6a, B15); F4 `CLAUDE/QA.md` updated; F5 stdout write failure now an `ERROR:` line (E3, B17);
   F6 (`-x` is root's view, any execute bit) and F7 (four passes over each file) are info only,
   accepted, no change.
-  `qa-nokill-containerwatch.bash` (P3) on `go-port/qa-nokill-containerwatch`: ported, not merged;
+  `qa-nokill-containerwatch.bash` (P3) on `go-port/qa-nokill-containerwatch`: ported, merged on the integration branch;
   spec [SPEC-qa-nokill-containerwatch.md](SPEC-qa-nokill-containerwatch.md) (E1-E15, 15 departures
   B1-B15: recursive Python scope, no pass on no Python, what git would publish, the `[engine, "stop"`
   hole, multi-line argv, `.kill(`/`.terminate(`/`killall` rules, containment judged with everything
@@ -135,7 +135,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   limit in the spec, no code change; F9 fixed as routing data plus a `nokill-containerwatch` check
   in `qa/changed` (`scripts/qa-routing.tsv`: the watchdog, its two panel files and the gate's own
   files run the gate).
-  `qa-patterns.bash` (P3, fourth orchestrator) on `go-port/qa-patterns`: ported, not merged; spec
+  `qa-patterns.bash` (P3, fourth orchestrator) on `go-port/qa-patterns`: ported, merged on the integration branch; spec
   [SPEC-qa-patterns.md](SPEC-qa-patterns.md), expectations P1-P18, 14 departures B1-B14; nested
   `src-go/qa/patterns` and `qa/cmd/qa-patterns`; semgrep stays the engine for the rules, which stay
   data in `.semgrep/bash-conventions.yml`; the Go owns scope (what git would publish), the rule
@@ -155,7 +155,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   branch in `fail()` is gone, B7 reworded, an error with no path prints `(no path)`, and the gosec
   exclusion is narrowed from the whole package to the files that read by computed path. Live
   tree after the fixes: 433 scanned, 17 partial-parse notes, exit 0.
-  `qa-python.bash` (P3, fifth gate) on `go-port/qa-python`: ported, not merged; spec
+  `qa-python.bash` (P3, fifth gate) on `go-port/qa-python`: ported, merged on the integration branch; spec
   [SPEC-qa-python.md](SPEC-qa-python.md), expectations Y1-Y23, 17 departures B1-B17; nested
   `src-go/qa/python` and `qa/cmd/qa-python` (the file set comes from `qa/discovery`, called
   in-process);
@@ -174,7 +174,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   command); findings 6-8 recorded in the spec (python3 version unpinned and `.qa-versions` holds
   tool pins only; template false positives are fail-safe; the `syntax-error` text is reached only
   by an older ruff); finding 9 no change.
-  `qa-ansible-syntax.bash` (P3) on `go-port/qa-ansible-syntax`: ported, not merged; spec
+  `qa-ansible-syntax.bash` (P3) on `go-port/qa-ansible-syntax`: ported, merged on the integration branch; spec
   [SPEC-qa-ansible-syntax.md](SPEC-qa-ansible-syntax.md), expectations S1-S15, 10 departures
   D1-D10; nested `src-go/qa/ansiblesyntax` and `qa/cmd/qa-ansible-syntax` (the YAML file set is a
   new `yaml` list of `qa/discovery`, the `tracked-playbooks` yardstick unchanged);
@@ -189,8 +189,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   the output), only the vault password file required and its path never printed, plays found by a
   top-level scan (name-first plays count, a loop-list `- hosts:` does not), the qa-all exit-2
   stage text covers every cause (SPEC-qa-all B27), report mode 0644, symlink departure listed;
-  re-review pending.
-  `qa-bash.bash` (P3, sixth gate) on `go-port/qa-bash`: ported, not merged; spec
+  no second review was run; the coordinator accepted it on the fixes plus their tests, and the
+  integration review (subagent-reports/261014-qa-reviewer-integration.md) read it again.
+  `qa-bash.bash` (P3, sixth gate) on `go-port/qa-bash`: ported, merged on the integration branch; spec
   [SPEC-qa-bash.md](SPEC-qa-bash.md), expectations S1-S15, 12 departures B1-B12; nested
   `src-go/qa/bash` and `qa/cmd/qa-bash` (the file set and the `tracked-shell` yardstick come from
   `qa/discovery`); bash and shellcheck stay the engines, shellcheck pinned to `--norc --external-sources` and an empty `SHELLCHECK_OPTS` so a nested `.shellcheckrc` or the
@@ -210,9 +211,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `TimedOut` branch tested; the leading-`[` check on shellcheck's stdout is kept, because `null`
   decodes without error (tested); the report is written with mode 0644 (S2, B14).
   `qa-discovery.bash` (P3, the shared library the bash gates source) on `go-port/qa-discovery`:
-  ported, not merged; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D15, 11
+  ported, merged on the integration branch; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D17, 11
   departures B1-B11; nested `src-go/qa/discovery` and `qa/cmd/qa-discovery`, one list per call,
-  scope what git would publish; the library is now a build-and-run wrapper (`qa_discover <list> <root>` fills `QA_FILES`; the per-file exclusion test stays in bash over the same trees table),
+  scope what git would publish; the library is now a build-and-run wrapper (`qa_discover <list> <root>` fills `QA_FILES`; no bash exclusion test remains: the Go gates ask the Go discovery),
   its allowlist row gone; `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests` and
   `qa-ready-wait-rules` call `qa_discover` in place of the seven old functions. The seven lists the
   old library made on the live tree are identical to the Go tool's. Fable review
@@ -221,7 +222,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `discovery.ShellShebang`, the bash trees reader refuses a table with no `shell` or no `python`
   row as the Go does (D14), a combined flag group such as `-ec` counts as `-c` (D6), and QA.md
   describes the Go readers.
-  `qa-deployed-drift.bash` (P3) on `go-port/qa-deployed-drift`: ported, not merged; spec
+  `qa-deployed-drift.bash` (P3) on `go-port/qa-deployed-drift`: ported, merged on the integration branch; spec
   [SPEC-qa-deployed-drift.md](SPEC-qa-deployed-drift.md), expectations E1-E18; nested
   `src-go/qa/deployeddrift`, `qa/cmd/qa-deployed-drift`; the script a build-and-run wrapper, its
   allowlist row gone, gate row and routing unchanged. The three host skips keep their `⚠` lines;
@@ -240,7 +241,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   departure is that a stale pair row (E6) now turns every QA run red everywhere, container and CI
   included, not only on the deployed host; F8 E9 reworded to the code's order (HOME is read after
   the skips).
-  `qa-js.bash` (P3) on `go-port/qa-js`: ported, not merged; spec [SPEC-qa-js.md](SPEC-qa-js.md),
+  `qa-js.bash` (P3) on `go-port/qa-js`: ported, merged on the integration branch; spec [SPEC-qa-js.md](SPEC-qa-js.md),
   expectations J1-J16, 11 departures B1-B11; nested `src-go/qa/js` and `qa/cmd/qa-js`; the file set is
   a new `js` list in `qa/discovery` (D16); node and ESLint 8 stay the engines, ESLint pinned with
   `--no-eslintrc --config extensions/.eslintrc.json --no-inline-config`, with the proof that it read

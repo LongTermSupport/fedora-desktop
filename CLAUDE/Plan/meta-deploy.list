@@ -20,6 +20,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# This list assumes the 00161 acceptance has already run from F44's list before this merge.
 # Plans 00177 and 00194: the agent bus kit and LXC members. Re-stages the member kit (the
 # pingbus plugin now registers SessionEnd for the goodbye) and applies the LXC rule that
 # derives a member's handle from its checkout; existing members keep their handles.

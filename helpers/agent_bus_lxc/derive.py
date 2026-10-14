@@ -60,13 +60,14 @@ _ROOT_READ_TEMPLATE = r'''
 import json, os, re, stat, sys
 mode, lxcpath, container, user, path = sys.argv[1:6]
 CAP = @CAP@
-if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", container) or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
-    die("the container or user name is not one the play accepts")
 FLAGS = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
 
 def die(message):
     # A name from the container's tree can be anything: no control character reaches a terminal.
     sys.exit("".join(ch if ch.isprintable() else "?" for ch in message))
+
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", container) or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
+    die("the container or user name is not one the play accepts")
 
 def slurp(file_path):
     # A file of root's own (the LXC config): plain, regular, bounded.

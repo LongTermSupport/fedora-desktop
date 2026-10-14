@@ -220,8 +220,10 @@ are too, by the same route.
     "Refused; nothing was changed."
   - F4 fixed: the host word suggested is `worker`; `lxc-suggest-host` is gone.
   - F5 done: this branch's phase is 9 (Phase 8 belongs to `feat/ccy-teams-hot-add`).
-  - F6 done: `meta-deploy.list` has the `play-claude-yolo.yml` entry before the 00161
-    acceptance (00196 has already run, so nothing else builds this `ccy-teams`).
+  - F6 done: `meta-deploy.list` has the `play-claude-yolo.yml` entry and deliberately omits the 00161
+    acceptance: that runs from F44's current list BEFORE this branch merges, because its
+    message counts predate the goodbye (00196 has already run, so nothing else builds this
+    `ccy-teams`).
   - F7 resolved: the host question is checked with team, container and user.
   - F8 fixed: names read from a container are shown only if the play's user pattern accepts
     them, and the read runs `env -i PATH=... HOME=/root`, as `members.py` does.

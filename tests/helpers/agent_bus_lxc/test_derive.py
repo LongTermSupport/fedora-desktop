@@ -206,6 +206,16 @@ class ProbeScriptTest(unittest.TestCase):
         run = self.lxc.probe(f"/home/{USER}/../../etc")
         self.assertIn("not a clean path", run.stderr)
 
+    def test_a_container_name_the_play_does_not_accept_is_refused_with_its_message(self) -> None:
+        run = run_script("probe", str(self.lxc.lxcpath), "bad name;", USER, CHECKOUT)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(run.stderr.strip(), "the container or user name is not one the play accepts")
+
+    def test_a_user_name_the_play_does_not_accept_is_refused_with_its_message(self) -> None:
+        run = self.lxc.probe(user="Bad User")
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(run.stderr.strip(), "the container or user name is not one the play accepts")
+
     def test_a_user_the_container_lacks_is_refused(self) -> None:
         run = self.lxc.probe(user="nobody2")
         self.assertIn("has no user nobody2", run.stderr)

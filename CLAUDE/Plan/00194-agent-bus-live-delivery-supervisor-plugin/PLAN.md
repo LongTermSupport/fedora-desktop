@@ -54,6 +54,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   at idle); decision G is filed as
   [claude-code-hooks-daemon#119](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/119).
 - [ ] ⬜ **Task 1.2**: The owner agrees the design.
+  The owner gave decisions A-G; the formal tick awaits the owner. The relay code (`relay.py`,
+  `sentlog.py`, the relay `PostToolUse` hook) already ships in image 2.56 and is inert until a
+  launch sets `PINGBUS_DELIVERY=relay`.
 
 ### Phase 2: Build
 
