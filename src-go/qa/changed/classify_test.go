@@ -497,6 +497,33 @@ func TestAnEditToAGateWithNoPerFileCheckRunsItWhole(t *testing.T) {
 	}
 }
 
+// An edit to the ready-wait rule, its fixtures, its script, Go package or command runs the whole
+// ready-wait gate, the .semgrep files count as covered, and the script is not also picked as a
+// suite. An ordinary Python or shell file does not run it (the gate scans every tracked file).
+func TestAReadyWaitGateEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		".semgrep/ready-wait.yml", ".semgrep/ready-wait.py", ".semgrep/ready-wait.bash",
+		"src-go/qa/readywait/rule.go", "src-go/qa/cmd/qa-ready-wait-rules/main.go", "scripts/qa-ready-wait-rules.bash",
+	} {
+		w := newWorld(t)
+		w.touch(f, "x")
+		p := w.classify([]string{f})
+		if !p.has("ready-wait") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+		if f == "scripts/qa-ready-wait-rules.bash" || f == ".semgrep/ready-wait.yml" {
+			if len(p.suites) != 0 {
+				t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+			}
+		}
+	}
+	w := newWorld(t)
+	w.touch("helpers/other.py", "x = 1\n")
+	if p := w.classify([]string{"helpers/other.py"}); p.has("ready-wait") {
+		t.Errorf("an ordinary Python file must not run the ready-wait gate: %v", keys(p))
+	}
+}
+
 // Review F9: an edit to the container-watch watchdog or its two panel files runs the no-kill gate
 // before the commit, not only at the push; a deletion does too (the gate judges what remains).
 func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
