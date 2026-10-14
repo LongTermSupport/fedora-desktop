@@ -1187,56 +1187,6 @@ fi
 run_log_scrub_summary=$(qa_gate_case_count "$run_log_scrub_out")
 qa_pass_line run-log-scrub "$run_log_scrub_summary"
 
-# The shared freeze library (Plan 00122 Task 4.2), which podfreeze and lxcfreeze both
-# source: the group menu, the drill-down, the derived verb, the dry run and the act loop.
-# A defect in here is a defect in BOTH tools at once, which is why it has a gate of its
-# own rather than being covered incidentally by theirs. The cases neither tool's suite can
-# make: every decision driven under BOTH engines' state vocabularies (a hardcoded
-# `running` passes one pass and fails the other), `do_action`'s act/skip/vanished split,
-# and the interactive loop re-prompting on a group that went away instead of ending the
-# session.
-freezelib_out=""
-if ! freezelib_out="$(bash "$SCRIPT_DIR/test-freezelib.bash" 2>&1)"; then
-    qa_hard_gate_failed freezelib \
-        "shared freeze library unit tests failed" \
-        "$freezelib_out"
-fi
-freezelib_summary=$(qa_gate_case_count "$freezelib_out")
-qa_pass_line freezelib "$freezelib_summary"
-
-# lxcfreeze's decisions (Plan 00122). The tool itself cannot run here — this container has
-# no lxc, and a freeze tool that would report an empty machine from inside a container
-# refuses to start by design. So its decisions are pure functions and this drives them
-# directly, which is the same split scripts/test-ccy-rootless-guard.bash makes and for the
-# same reason. The cases that matter are the refusals: `lxc-info` output that cannot be read
-# must not resolve to STOPPED, and a container config that cannot be read must not report as
-# having no network — both would be a confident claim about a host from a probe that failed.
-lxcfreeze_out=""
-if ! lxcfreeze_out="$(bash "$SCRIPT_DIR/test-lxcfreeze.bash" 2>&1)"; then
-    qa_hard_gate_failed lxcfreeze \
-        "lxcfreeze decision unit tests failed" \
-        "$lxcfreeze_out"
-fi
-lxcfreeze_summary=$(qa_gate_case_count "$lxcfreeze_out")
-qa_pass_line lxcfreeze "$lxcfreeze_summary"
-
-# podfreeze's decisions (Plan 00122 Task 4.1), pinned BEFORE the shared library is
-# extracted out of it — a suite written after that move would only prove the refactor
-# agrees with itself. The tool has no sourcing guard, so this sources the definitions above
-# its argument loop rather than the whole file, and the boundary is derived from the file's
-# own content. What it guards is the distinctions a refactor loses without a symptom: a CCY
-# session with no identity is not one that predates the labels, an identity label holding
-# the field separator is fatal rather than mis-grouped, and an unknown network RETURNS so
-# the menu can re-prompt instead of ending the session.
-podfreeze_out=""
-if ! podfreeze_out="$(bash "$SCRIPT_DIR/test-podfreeze.bash" 2>&1)"; then
-    qa_hard_gate_failed podfreeze \
-        "podfreeze decision unit tests failed" \
-        "$podfreeze_out"
-fi
-podfreeze_summary=$(qa_gate_case_count "$podfreeze_out")
-qa_pass_line podfreeze "$podfreeze_summary"
-
 # The server login snippet (Plan 00109 Task 3.2). It is the first thing this repo puts in
 # ~/.bashrc-includes that PRINTS, and bash reads ~/.bashrc for a non-interactive shell too
 # when sshd started it — so a missing interactive guard breaks scp, sftp and rsync to the

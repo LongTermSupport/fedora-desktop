@@ -219,8 +219,8 @@ expect_lacks "sessions:a package it does not import leaves the suites out" "$pla
 
 echo
 echo "== src-go -> every binary has a suite entry =="
-# GO_BINARY_SUITES is a hand-kept list; a new src-go/cmd/<x> missing from it would be built and
-# deployed with no suite selected for its changes and no warning.
+# scripts/go-binary-suites.tsv is a hand-kept table; a new src-go/cmd/<x> missing from it would be
+# built and deployed with no suite selected for its changes and no warning.
 plan="$(plan_for src-go/cmd/ccy-unmapped/main.go)"
 expect_lacks "binaries: the control, a command with no entry, selects no suite" "$plan" "suite scripts/"
 # QA-only commands are run by a QA gate and never built or deployed by a play, so there is no
@@ -229,8 +229,15 @@ QA_ONLY_COMMANDS=" qa-bash-limits "
 for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     cmd_name="$(basename "$cmd_dir")"
     [[ "$QA_ONLY_COMMANDS" == *" $cmd_name "* ]] && continue
+    entry="$(awk -F'\t' -v c="$cmd_name" '$1 == c {print $2}' "$SCRIPT_DIR/go-binary-suites.tsv")"
     plan="$(plan_for "src-go/cmd/$cmd_name/main.go")"
-    expect_has "binaries: $cmd_name has a suite entry" "$plan" "suite scripts/"
+    if [[ "$entry" == "qa-go" ]]; then
+        # Its oracle is a Go test: the whole Go gate is the check, and no bash suite is picked.
+        expect_has "binaries: $cmd_name's oracle is a Go test, which the Go gate runs" "$plan" "check go"
+        expect_lacks "binaries: $cmd_name picks no bash suite for its build closure" "$plan" "builds from"
+    else
+        expect_has "binaries: $cmd_name has a suite entry" "$plan" "suite scripts/"
+    fi
 done
 
 echo

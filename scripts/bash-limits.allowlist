@@ -23,10 +23,8 @@ files/home/.local/bin/fedora-desktop-health.j2	108	2	-
 files/home/.local/bin/ftp-camera	1619	33	ui
 files/home/.local/bin/gshell-nested	95	2	-
 files/home/.local/bin/lan-scan	190	10	-
-files/home/.local/bin/lxcfreeze	462	26	-
 files/home/.local/bin/nord	505	18	-
 files/home/.local/bin/open	419	18	ui
-files/home/.local/bin/podfreeze	529	27	assoc
 files/home/.local/bin/qnap-finder	135	4	-
 files/home/.local/bin/raw-prune	119	1	assoc
 files/home/.local/bin/rclone-cache-status	323	7	-
@@ -45,7 +43,6 @@ files/home/.local/bin/vmtest	1231	67	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	-
 files/home/.local/bin/wsi	1000	26	-
 files/home/.local/bin/wsi-claude-process	125	3	-
-files/home/.local/lib/freeze/freeze-common.bash	470	19	ui
 files/home/.local/share/vmtest/guest-acceptance-desktop.bash	199	2	-
 files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	-
 files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash	265	7	-
@@ -89,13 +86,13 @@ scripts/lib/run-log-scrub.bash	117	4	-
 scripts/lint	257	6	-
 scripts/mark-branches-superseded.bash	236	12	-
 scripts/nvidia-status.bash	430	4	-
-scripts/qa-all.bash	860	2	-
+scripts/qa-all.bash	836	2	-
 scripts/qa-ansible-pause.bash	96	5	-
 scripts/qa-ansible-syntax.bash	88	0	assoc
 scripts/qa-ansible.bash	350	1	-
 scripts/qa-bash.bash	110	0	assoc
-scripts/qa-changed.bash	548	18	assoc
-scripts/qa-deployed-drift.bash	166	1	-
+scripts/qa-changed.bash	543	18	assoc
+scripts/qa-deployed-drift.bash	165	1	-
 scripts/qa-discovery.bash	185	14	-
 scripts/qa-docs.bash	77	0	-
 scripts/qa-gh-scopes.bash	66	0	-

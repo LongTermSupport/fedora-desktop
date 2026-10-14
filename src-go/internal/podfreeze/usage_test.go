@@ -3,19 +3,10 @@ package podfreeze
 import (
 	"strings"
 	"testing"
-
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/freezetest"
 )
 
-// The usage text is the bash tool's usage() function, not its header comment, so the embedded
-// file must equal what the shipped tool prints. This parity test reads the shipped bash and is
-// retired with it at cut-over; the anchor test below is what stays.
-func TestUsageEqualsWhatTheBashToolPrints(t *testing.T) {
-	if want := freezetest.BashUsage(t, tool); usageText != want {
-		t.Fatalf("embedded usage differs from the bash usage():\n--- embedded\n%s\n--- bash\n%s", usageText, want)
-	}
-}
-
+// The embedded usage text was checked byte for byte against the bash tool's usage() function; the
+// golden replay (internal/freeze/golden) keeps that record, and these anchors stay.
 func TestUsageAnchors(t *testing.T) {
 	for _, want := range []string{
 		"Usage: podfreeze [list|freeze|thaw] [target] [options]\n",
