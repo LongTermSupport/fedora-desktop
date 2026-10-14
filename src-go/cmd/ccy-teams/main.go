@@ -2,9 +2,12 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // RootDir is the fedora-desktop checkout the binary was built from, set at build time with
@@ -12,9 +15,16 @@ import (
 var RootDir string
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Getenv))
+	os.Exit(run(os.Args[1:], os.Getenv, RootDir, os.Stderr))
 }
 
-func run(args []string, getenv func(string) string) int {
-	return teams.NewApp(teams.LoadConfig(RootDir, getenv)).Run(args)
+// run refuses an empty root: without it every path is relative to the working directory, so a
+// plain `go build` or `go install` run inside another checkout would act on that checkout.
+func run(args []string, getenv func(string) string, root string, stderr io.Writer) int {
+	if root == "" {
+		fmt.Fprintln(stderr, "ERROR: ccy-teams was built without -ldflags \"-X main.RootDir=<checkout>\"; "+
+			"build it with playbooks/imports/play-claude-yolo.yml, which bakes the checkout in")
+		return term.ExitFailure
+	}
+	return teams.NewApp(teams.LoadConfig(root, getenv)).Run(args)
 }
