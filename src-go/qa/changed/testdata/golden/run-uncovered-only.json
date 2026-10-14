@@ -1,0 +1,7 @@
+{
+ "args": [],
+ "stdout": "plan: 1 changed file(s) vs HEAD\n\u26a0 not covered by qa-changed: misc/other.txt\n\u26a0 1 changed file(s) not covered by qa-changed \u2014 qa-all.bash is the only check\n\u2713 qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

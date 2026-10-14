@@ -52,10 +52,6 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # The QA toolchain, which now owns golangci-lint (at the .qa-versions pin, checksum
-    # verified) beside ruff, semgrep and shellcheck; it imports play-golang.yml for the Go
-    # toolchain and ends by running qa-toolchain.bash, which the go gate needs (Plan 00191)
-    playbooks/imports/play-python.yml
     # ccy-teams from the owner's first host run: a checkout no team covers is offered a team,
     # "repositories you list (one or more)", Element started apart from the terminal with
     # its output logged, copy-the-password defaults to yes, the terminal's own colours with
@@ -73,16 +69,19 @@ PLANS=(
     # deploy.bash also runs play-agent-bus.yml: agent-bus-install is now a Go binary built from
     # the checkout and installed root-owned at /usr/local/sbin (it replaces the bash script;
     # source digest baked in, teams restamped); acceptance.bash checks the installed copy and
-    # records the B12 and B13 probe output; the owner's look is ACCEPTANCE-agent-bus-install.md
+    # records the B12 and B13 probe output; the owner's look is ACCEPTANCE-agent-bus-install.md.
+    # Also from Plan 00177: ccy-teams with no hidden keys (Enter on any row opens a menu of its
+    # actions; Element returns to the board) and bare `ccy --teams` finds the checkout's team,
+    # which Quick Launch remembers (CCY 3.96.2). And the Go sudo helper no longer asks for a
+    # password where root needs none, so the freeze check that timed out on the sudo prompt
+    # (lxcfreeze list) runs again against the baseline the last run saved.
     00192-bash-line-in-the-sand-go-for-tooling
-    # Element: may reach the keyring (no "No encryption support" question on a profile's
-    # first start); launchers named "<team> team (Element)" (Plan 00177)
-    playbooks/imports/optional/common/play-agent-bus-element.yml
-    # agent team bus acceptance, with the new pingbus: M1.7 (no room creation) and M2.8
-    # (the forge with gh's login)
+    # agent team bus acceptance again: the last run passed every bus check, and failed only
+    # M2.10 because a commit landed in this checkout while it ran
     00161-agent-team-bus-matrix/acceptance.bash
-    # speech-to-text: judges the latest Insert replay
-    00171-stt-insert-never-ignored-icon-in-sync/acceptance.bash
+    # Plan 00195: play-comms.yml grants Slack /var/lib/lxc:ro, then acceptance checks every
+    # home symlink into an LXC container resolves in a fresh Slack sandbox. Relaunch Slack.
+    00195-slack-reads-lxc-vhosts-through-project-symlinks
 )
 
 LIST_ONLY=0

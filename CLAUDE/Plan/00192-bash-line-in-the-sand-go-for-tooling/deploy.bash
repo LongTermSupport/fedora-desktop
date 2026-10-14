@@ -75,10 +75,28 @@ is_bash_script() {
     [[ "${first}" == '#!' ]]
 }
 
-# save_baseline — what each bash tool prints for the two acceptance commands, taken before the
+# save_one <tool-path> <tool> <label> <verb-and-args...> — the bash tool's stdout, stderr and
+# exit status for one command, as before-<tool>-<label>.{txt,err,rc}. A non-zero status is part
+# of what the tool answers (with no containers, `freeze --all -n` says "nothing matched" and
+# exits 1), so it is recorded, not treated as a failure. Only a tool that cannot run at all
+# (126: not executable, 127: not found) stops the deploy: replacing it would lose the only
+# reference there is.
+save_one() {
+    local path="$1" tool="$2" label="$3" status=0
+    shift 3
+    "${path}" "$@" >"${BASELINE_DIR}/before-${tool}-${label}.txt" 2>"${BASELINE_DIR}/before-${tool}-${label}.err" || status=$?
+    if [[ "${status}" -eq 126 || "${status}" -eq 127 ]]; then
+        printf '[FATAL] the bash %s could not run (exit %s; stderr in %s/before-%s-%s.err); not replacing it\n' \
+            "${tool}" "${status}" "${BASELINE_DIR}" "${tool}" "${label}" >&2
+        return 1
+    fi
+    printf '%s\n' "${status}" >"${BASELINE_DIR}/before-${tool}-${label}.rc"
+    printf '    %s %s: exit %s\n' "${tool}" "$*" "${status}"
+}
+
+# save_baseline — what each bash tool answers to the two acceptance commands, taken before the
 # plays replace it. A tool that is not installed has nothing to save; one that is already a
-# compiled program keeps the baseline an earlier run saved. A bash tool that fails here stops
-# the deploy: replacing it would lose the only reference there is.
+# compiled program keeps the baseline an earlier run saved.
 save_baseline() {
     local tool path
     mkdir -p -- "${BASELINE_DIR}"
@@ -93,16 +111,8 @@ save_baseline() {
             continue
         fi
         printf '==> saving what the bash %s prints\n' "${tool}"
-        "${path}" list >"${BASELINE_DIR}/before-${tool}-list.txt" 2>"${BASELINE_DIR}/before-${tool}-list.err" || {
-            printf '[FATAL] the bash %s failed (stderr in %s/before-%s-list.err); not replacing a tool whose output cannot be saved\n' \
-                "${tool}" "${BASELINE_DIR}" "${tool}" >&2
-            return 1
-        }
-        "${path}" freeze --all -n >"${BASELINE_DIR}/before-${tool}-dry.txt" 2>"${BASELINE_DIR}/before-${tool}-dry.err" || {
-            printf '[FATAL] the bash %s freeze --all -n failed (stderr in %s/before-%s-dry.err); not replacing a tool whose output cannot be saved\n' \
-                "${tool}" "${BASELINE_DIR}" "${tool}" >&2
-            return 1
-        }
+        save_one "${path}" "${tool}" list list || return 1
+        save_one "${path}" "${tool}" dry freeze --all -n || return 1
     done
 }
 

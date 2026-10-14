@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "files/var/local/claude-yolo/lib/common-pure.bash"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: files/var/local/claude-yolo/lib/common-pure.bash\ncheck shellcheck: files/var/local/claude-yolo/lib/common-pure.bash\ncheck semgrep: files/var/local/claude-yolo/lib/common-pure.bash\ncheck go\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

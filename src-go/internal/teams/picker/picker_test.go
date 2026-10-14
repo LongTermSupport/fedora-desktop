@@ -59,8 +59,8 @@ func TestPickerHeaderNamesTheCheckoutTopNotTheSubdirectory(t *testing.T) {
 	}
 	header := h.HeaderOf(0)
 	for _, want := range []string{
-		"↑↓ choose   Enter attach a seat / password for a person   Ctrl-P password Ctrl-E Element   ? help   Esc or q quit\n",
-		"Ctrl-N new session   Ctrl-U update out-of-date teams   Ctrl-R restore on/off   Ctrl-X remove/park/take down\n",
+		"↑↓ choose   Enter lists what can be done to the row   ? help   Esc or q quit\n",
+		"This row: Ctrl-E open alpha in Element   Ctrl-N start a session in alpha   Ctrl-U update out-of-date teams   Ctrl-X take alpha down   ? help\n",
 		"Ctrl-N starts a new ccy session in the row's team, in " + h.Checkout() + "\n",
 		"session restore on this machine is off (ccy_restore_sessions)\n",
 		"TEAM ",
@@ -282,15 +282,14 @@ func TestPickerCountsOnlyConsecutiveNoOps(t *testing.T) {
 	}
 }
 
-func TestPickerEnterOnAnythingElseSaysSoAndWaits(t *testing.T) {
+func TestPickerEnterOnAnyRowOpensItsMenuAndTheBackRowReturnsToTheList(t *testing.T) {
 	h := newRig(t)
-	h.Script.Fzf = []string{"|proj.box+role.lxc", "|ABORT"}
+	h.Script.Fzf = []string{"|proj.box+role.lxc", "|EXIT", "|ABORT"}
 	if code := h.run(); code != term.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
-	want := "Enter on proj.box+role.lxc does nothing: Ctrl-X parks a member. ? shows every key.\nPress Enter to go back to the list.\n"
-	if !strings.Contains(h.ErrOut.String(), want) {
-		t.Fatalf("stderr %q", h.ErrOut.String())
+	if len(h.Script.Rows) != 3 || !strings.Contains(h.HeaderOf(1), "What to do with proj.box+role.lxc in alpha:") {
+		t.Fatalf("drawn %d times, menu header %q", len(h.Script.Rows), h.HeaderOf(1))
 	}
 }
 

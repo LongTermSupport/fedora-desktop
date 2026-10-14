@@ -28,74 +28,12 @@
 #   qa_has_shell_shebang <path>
 #   qa_has_python_shebang <path>
 
-# Upstream/vendor/runtime trees the project must not gate on:
-#   .claude/hooks-daemon  — upstream dependency (also excluded in qa-python.bash)
-#   .claude/ccy           — whole CCY runtime tree (snapshots, plugins, history)
-#   .claude/skills        — installed skill payloads
-#   .claude/worktrees     — checkouts of other branches; gated on their own branch
-#   roles/vendor          — vendored Ansible roles
-#   .semgrep              — annotated rule FIXTURES. Deliberately full of the
-#                           broken patterns the rules must catch, so linting it
-#                           reports faults that are the point of the file. It is
-#                           validated by `semgrep --test` in qa-patterns.bash,
-#                           which is the check that actually belongs to it.
-QA_EXCLUDE_DIRS=(
-    ".git"
-    # The WHOLE .ansible tree, not just roles/. It is gitignored Galaxy output,
-    # and `ansible-galaxy collection install` populates .ansible/collections/ with
-    # thousands of third-party files carrying their own lint findings.
-    #
-    # This made QA non-idempotent, which is how it was found: qa-all.bash's own
-    # ansible-syntax stage installs the collections, so a repo that passed on the
-    # first run failed on the second with 9 shellcheck findings, 133 ruff issues
-    # and a semgrep block — every one of them in vendored upstream test fixtures.
-    # A gate that fails on its own side effects gets ignored, or bypassed.
-    ".ansible"
-    ".claude/hooks-daemon"
-    # The upgrade preserves the previous copy of any daemon-deployed tree it is
-    # about to replace here. It is a byte copy of `.claude/skills` two lines
-    # below, which is already excluded — so scanning the backup gates upstream
-    # code this repo cannot fix, under a path the original is exempt from. It is
-    # recreated by every upgrade whose deployed tree differs, so deleting the
-    # directory defers this failure rather than fixing it.
-    ".claude/hooks-daemon-backups"
-    ".claude/ccy"
-    ".claude/skills"
-    ".claude/worktrees"
-    "roles/vendor"
-    ".semgrep"
-    "node_modules"
-    "untracked"
-)
-
-# Python's exclusion list is NARROWER than the shell one inside .claude/ccy:
-# .claude/ccy/claude-supervise.py is TRACKED and must stay gated, while the CCY
-# runtime's plugins/ and file-history/ trees must not. Excluding the whole
-# .claude/ccy tree (as the shell list does) would DROP a real file from the
-# gate — this plan's own defect, committed inside the fix for it.
-#
-# Tracked is not the same as ours: that file is DAEMON-OWNED and is rewritten on
-# every hooks-daemon upgrade, so a finding in it is never fixed by editing it.
-# Upstream guarantees it clean under ruff's DEFAULT rules; a finding from a rule
-# this repo selected is excluded here, not patched. See CLAUDE/QA.md.
-QA_PY_EXCLUDE_DIRS=(
-    ".git"
-    # Whole tree, for the same reason as QA_EXCLUDE_DIRS above.
-    ".ansible"
-    ".claude/hooks-daemon"
-    ".claude/ccy/plugins"
-    ".claude/ccy/file-history"
-    # Session transcripts and saved tool output: a saved Read of a Python script
-    # starts with its shebang and would be gated as one.
-    ".claude/ccy/projects"
-    ".claude/worktrees"
-    "roles/vendor"
-    "node_modules"
-    "untracked"
-    "__pycache__"
-    ".venv"
-    "venv"
-)
+# The trees the gates must not gate on are data (scripts/qa-trees.tsv, with the reason for each
+# tree), read by lib/qa-trees.bash into QA_EXCLUDE_DIRS (shell and generic) and
+# QA_PY_EXCLUDE_DIRS (python, narrower inside .claude/ccy). The Go qa-changed reads the same file.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/qa-trees.bash
+source "$(dirname "${BASH_SOURCE[0]}")/lib/qa-trees.bash"
 
 # Shared mechanism: substring containment on a slash-delimited path, so no glob
 # quoting subtleties.

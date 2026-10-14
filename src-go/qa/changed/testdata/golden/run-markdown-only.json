@@ -1,0 +1,9 @@
+{
+ "args": [],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck docs\n\u2713 docs: whole gate\n\u2713 qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stderr": "",
+ "status": 0,
+ "log": [
+  "gate:qa-docs.bash json=1"
+ ]
+}

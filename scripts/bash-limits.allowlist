@@ -17,7 +17,7 @@
 .semgrep/bash-conventions.bash	69	0	118	-
 .semgrep/ready-wait.bash	84	9	99	-
 CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
-CLAUDE/Plan/meta-deploy.bash	187	0	188	assoc
+CLAUDE/Plan/meta-deploy.bash	185	0	188	assoc
 CLAUDE/Plan/mkplan.bash	619	18	495	-
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
 fedora-install/pull-projects.bash	226	5	249	-
@@ -66,7 +66,7 @@ files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	183	2	196	-
 files/var/local/claude-code/cc-teams.bash	170	9	217	ui
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
-files/var/local/claude-yolo/claude-yolo	2840	12	2749	-
+files/var/local/claude-yolo/claude-yolo	2839	12	2748	-
 files/var/local/claude-yolo/entrypoint.sh	443	5	448	data
 files/var/local/claude-yolo/lib/agent-bus-seats.bash	145	7	164	ui
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
@@ -101,12 +101,11 @@ scripts/qa-ansible-pause.bash	96	1	71	-
 scripts/qa-ansible-syntax.bash	88	0	81	assoc,data
 scripts/qa-ansible.bash	351	1	284	data
 scripts/qa-bash.bash	110	0	102	assoc,data
-scripts/qa-changed.bash	543	18	587	assoc
 scripts/qa-deployed-drift.bash	162	1	165	-
-scripts/qa-discovery.bash	185	14	221	-
+scripts/qa-discovery.bash	158	14	221	-
 scripts/qa-docs.bash	77	0	72	data
 scripts/qa-gh-scopes.bash	67	0	82	data
-scripts/qa-go.bash	73	2	83	-
+scripts/qa-go.bash	72	2	81	-
 scripts/qa-helper-tests.bash	90	0	88	assoc
 scripts/qa-js.bash	102	0	95	data
 scripts/qa-nokill-containerwatch.bash	276	5	248	-

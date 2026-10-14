@@ -50,14 +50,24 @@ that play.
    Run in a GitHub checkout that no team covers, `ccy-teams` says so before listing the
    other teams, and offers to create one for it.
 2. **Watch it in Element.** `create` has already set up the team's Element profile. In
-   `ccy-teams`, Enter (or Ctrl-P) on your name under the team sets a new Element password.
-   It shows it once, with the homeserver and username, and offers it to the clipboard; your
-   other Element sessions are signed out ([The human's account](#the-humans-account)).
-   Ctrl-E opens the team in Element.
-3. **Add ccy sessions.** `ccy --teams <team>` (no seat) shows this checkout's seats in the
-   team and launches a session into the one you choose: the lowest free seat, or a new one.
-   ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the
-   seat instead. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
+   `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
+   words. Until you have signed in, the first choice is "Sign in: set a password (shown
+   once)"; it shows the password with the homeserver and username, offers it to the
+   clipboard, and then offers to open Element. Once you are signed in, the first choice is
+   "Open the team in Element", and a new password is a separate choice that says how many of
+   your Element sessions it signs out, and asks first
+   ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
+   which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
+   it, and the header names the selected row's actions, so no key has to be guessed.
+3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
+   finds the team for you (`ccy-teams for-checkout`): the one team that works on that
+   `owner/repo` (an organisation team by its owner), or you choose of several; with none it
+   says so and stops. It then goes on as `ccy --teams <team>` (no seat), which shows this
+   checkout's seats in the team and launches a session into the one you choose: the lowest
+   free seat, or a new one. ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
+   configuration" at the Quick Launch prompt launches into them again (and records them in that
+   session's own record, which is all a reboot restore reads: a restore never gives a session
+   a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
    covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
    `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
@@ -89,11 +99,12 @@ that play.
 `ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
 restored after a reboot; LXC and other members, active or parked; and the people, in the
-room or not and how many Element sessions they are signed in with. Enter attaches a seat's
-session, or sets a person's password. Ctrl-N starts a session, Ctrl-U applies every team
-out of date, Ctrl-R toggles a restore, Ctrl-X removes a seat, parks a member (after a
-yes/no) or takes a team down (as `remove`), Ctrl-E
-opens Element, and `?` explains every key. Status words are in colour on a terminal, but
+room or not and how many Element sessions they are signed in with. Enter on any row opens a
+menu of what can be done to it, in words, each with its shortcut beside it. The shortcuts
+are Ctrl-N (start a session), Ctrl-U (apply every team out of date), Ctrl-R (toggle a
+restore), Ctrl-X (remove a seat, park a member after a yes/no, or take a team down, as
+`remove`), Ctrl-P (a person's new password), Ctrl-E (open Element), and `?` explains
+every key. Status words are in colour on a terminal, but
 not with `NO_COLOR`. `ccy-teams --list` prints the same table, plain when piped. Reading
 the members needs root: `play-agent-bus.yml` installs a sudoers rule for exactly the two
 read-only `agent-bus` commands involved, so no password is asked. Until it has run, the
@@ -317,6 +328,7 @@ plugin and settings. Its arguments are passed on to `claude`. An agent driven by
 A ccy session is in a team only when it is launched with it, and in no team otherwise:
 
 ```bash
+ccy --teams                                     # find the team from this checkout's GitHub repository
 ccy --teams <team>                              # choose the seat
 ccy --teams <seat>@<team>[,<seat>@<team>...]    # name it
 ```

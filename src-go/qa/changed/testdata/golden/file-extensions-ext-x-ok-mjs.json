@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "extensions/ext@x/ok.mjs"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck node-check: extensions/ext@x/ok.mjs\ncheck eslint: extensions/ext@x/ok.mjs\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

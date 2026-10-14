@@ -1,0 +1,9 @@
+{
+ "args": [],
+ "stdout": "plan: 1 changed file(s) vs HEAD\nsuite scripts/test-beta.bash: names a.txt\n\u2713 suite test-beta.bash: passed: 5 (names a.txt)\n\u2713 qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stderr": "",
+ "status": 0,
+ "log": [
+  "suite:test-beta.bash"
+ ]
+}

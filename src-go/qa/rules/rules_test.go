@@ -13,7 +13,7 @@ import (
 // much or too little fails here. The fixtures reproduce the defects the tools actually hit.
 
 func TestSeamExec(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), SeamExec, "fix/internal/execx", "fix/internal/badexec")
+	analysistest.Run(t, analysistest.TestData(), SeamExec, "fix/internal/execx", "fix/qa/internal/proc", "fix/internal/badexec")
 }
 
 func TestSeamCommands(t *testing.T) {
@@ -44,7 +44,7 @@ func TestTestClock(t *testing.T) {
 }
 
 func TestHomeAbbrev(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), HomeAbbrev, "fix/internal/term", "fix/internal/badhome")
+	analysistest.Run(t, analysistest.TestData(), HomeAbbrev, "fix/internal/term", "fix/qa/rules", "fix/internal/badhome")
 }
 
 func TestAllIsValid(t *testing.T) {

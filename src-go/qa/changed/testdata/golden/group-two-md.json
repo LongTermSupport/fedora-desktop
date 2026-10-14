@@ -1,0 +1,12 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "docs/readme.md",
+  "src-go/README.md"
+ ],
+ "stdout": "plan: 2 changed file(s) vs HEAD\ncheck docs\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

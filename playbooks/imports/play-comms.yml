@@ -8,6 +8,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    lxc_containers_dir: /var/lib/lxc
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -56,3 +57,13 @@
       ansible.builtin.command:
         argv: [flatpak, override, --filesystem=home:ro, com.slack.Slack]
       when: "'home:ro' not in slack_flatpak_override.stdout"
+
+    # A ~/Projects entry may be a symlink into an LXC container's filesystem. home:ro
+    # shows Slack the symlink but not its target, so a file dragged from there fails the
+    # same way (Plan 00195). Flatpak has no globs, so the whole LXC directory is granted,
+    # read-only: one fixed grant covers containers created after this play runs.
+    - name: Grant Slack read-only access to LXC containers so files under symlinked projects can be read
+      become: true
+      ansible.builtin.command:
+        argv: [flatpak, override, "--filesystem={{ lxc_containers_dir }}:ro", com.slack.Slack]
+      when: "(lxc_containers_dir ~ ':ro') not in slack_flatpak_override.stdout"

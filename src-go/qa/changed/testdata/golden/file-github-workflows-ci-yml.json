@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  ".github/workflows/ci.yml"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\n\u26a0 not covered by qa-changed: .github/workflows/ci.yml\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

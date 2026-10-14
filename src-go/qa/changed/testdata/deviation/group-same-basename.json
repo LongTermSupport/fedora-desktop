@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 2 changed file(s) vs HEAD\nsuite scripts/test-alpha.bash: names pkg1/main.go; names pkg2/main.go\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

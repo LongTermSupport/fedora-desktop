@@ -60,6 +60,12 @@ Use these Unicode icons in plan documents:
 
 - [00191-go-cli-tooling](00191-go-cli-tooling/) - In Progress (high priority). This repo's large interactive tools leave bash for a Go module under `src-go/`: `ccy-teams` first, then `ccy-sessions`, then possibly `ccy`; and a new `go-qa-ci` repository, sibling of rust-qa-ci, that its QA runs
 
+- [00195-slack-reads-lxc-vhosts-through-project-symlinks](00195-slack-reads-lxc-vhosts-through-project-symlinks/) - In Progress (medium priority). Slack Flatpak granted `/var/lib/lxc:ro` so a file dragged from a folder symlinked into an LXC container uploads; follow-up to 00103
+
+- [00194-agent-bus-live-delivery-supervisor-plugin](00194-agent-bus-live-delivery-supervisor-plugin/) - In Progress (high priority). Agent bus messages delivered live into a ccy team session by a ccy supervisor plugin, with human and agent text kept distinct
+
+- [00193-coral-adoption-audit](00193-coral-adoption-audit/) - In Progress (medium priority). Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon: fit, how opinionated it is, adopt, fork, borrow or leave
+
 - [00192-bash-line-in-the-sand-go-for-tooling](00192-bash-line-in-the-sand-go-for-tooling/) - In Progress (high priority). No more tooling in bash: the limits in `CLAUDE.md`, a Go gate with a ratchet allowlist, project DBF rules for `src-go/`, and the bash (then standalone Python) tools rewritten in Go, one feature branch per programme
 
 - [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`

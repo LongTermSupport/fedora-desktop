@@ -1,0 +1,9 @@
+{
+ "args": [
+  "--plan"
+ ],
+ "stdout": "qa-changed: no changed files (vs HEAD, plus untracked) \u2014 nothing to check.\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

@@ -38,6 +38,7 @@ type Snapshot struct {
 	Members        map[string]agentbus.Roster
 	MembersUnknown map[string]string // team -> why its members are not shown
 	SignedIn       map[string]string // "<team>|<person>" -> their Element sessions in words
+	Sessions       map[string]int    // same key -> how many, for the people whose count could be read
 
 	// NeedSudo is " <team>" for each team whose members wait on sudo (a team can repeat).
 	NeedSudo string
@@ -54,7 +55,15 @@ func NewSnapshot() *Snapshot {
 		Loaded: map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
 		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{},
 		Members: map[string]agentbus.Roster{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
+		Sessions: map[string]int{},
 	}
+}
+
+// SessionsOf is how many Element sessions person has in team; known is false when the count
+// could not be read, which is not the same as none.
+func (s *Snapshot) SessionsOf(team, person string) (int, bool) {
+	count, known := s.Sessions[team+"|"+person]
+	return count, known
 }
 
 // StatusWord is the APPLIED column for team, in words.
@@ -123,6 +132,11 @@ func (s *Snapshot) addTeam(seen map[string]bool, team string) {
 	}
 }
 
+func (s *Snapshot) setSessions(key string, count int) {
+	s.Sessions[key] = count
+	s.SignedIn[key] = signedInWord(count)
+}
+
 func (s *Snapshot) addCheckout(dir string) {
 	if dir == "" || slices.Contains(s.Checkouts, dir) {
 		return
@@ -180,7 +194,7 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt) {
 		}
 		s.Rows = append(s.Rows, Row{
 			Team: team, Member: h.Name, Kind: KindHuman, State: roomWord(h.Membership),
-			Applied: "-", Session: signed, Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-",
+			Applied: "-", Session: signed, Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-",
 		})
 	}
 }

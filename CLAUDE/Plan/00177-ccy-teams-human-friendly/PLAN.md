@@ -136,6 +136,39 @@ offer to create a team when there is none; think about the UX; do a full critica
 - [ ] **Task 5.1**: meta-deploy (`play-agent-bus.yml`, `play-claude-yolo.yml`), then the
   owner's own test: `ccy-teams create` from a repository (scope, Element, sign-in, the
   offer to start a session), `ccy --teams <team>` choosing a seat, and `cc --teams <team>`.
+  Deployed; the Go `ccy-teams` works, but the owner's test found the UX clunky: Phase 6.
+  The owner signed in to Element, launched a ccy session into a team, and a message they
+  posted in the room woke the idle session, which answered in the room: the round trip
+  works. That the exchange is hidden inside tool calls in the session is Plan 00194.
+
+### Phase 6: No hidden keys (the owner's host test)
+
+The owner had to discover Ctrl-E to open Element; Enter on their name kept offering a new
+password, which they set repeatedly, each time signing out their other sessions; and Ctrl-E
+quit `ccy-teams` to start Element.
+
+- [x] ✅ **Task 6.1**: Every action is reachable without knowing a key: Enter on any row opens
+  a menu of what can be done to it, in words, each with its shortcut beside it; the footer
+  names the selected row's actions, not a fixed list.
+- [x] ✅ **Task 6.2**: A person who is signed in is offered Element first; a new password is a
+  plainly labelled choice that says it signs out their N sessions, and asks before doing it.
+  After a password is set, Element is offered at once.
+- [x] ✅ **Task 6.3**: Opening Element starts it apart from `ccy-teams` and returns to the
+  board, which then reads the person's sessions again.
+- [ ] ⬜ **Task 6.4**: The owner tests it again on the host.
+
+### Phase 7: `ccy --teams` finds the team (the owner's host test)
+
+- [ ] 🔄 **Task 7.1**: `ccy --teams` with no value offers the teams whose scope covers this
+  checkout's GitHub `owner/repo` (an organisation team by its owner, a repository team by
+  the repository), choosing alone when exactly one matches and saying so when none does.
+  The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
+  ratchet, only calls it and must not grow. Built (`ccy-teams for-checkout [--choose]`, CCY
+  3.96.0), awaiting the owner's host test.
+- [ ] 🔄 **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
+  `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
+  it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
+  owner's host test.
 
 ## Success Criteria
 

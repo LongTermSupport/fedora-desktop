@@ -135,8 +135,8 @@ today; rewriting them is out of scope.
 
 ## Success Criteria
 
-- [ ] `ccy-teams` on the host is the Go binary, built by the play, and the owner finds it
-  works as before or better.
+- [x] `ccy-teams` on the host is the Go binary, built by the play, and the owner finds it
+  works as before or better (owner's host test after meta-deploy: "seems good").
 - [ ] The parity suite and the Go unit tests pass in `qa-all.bash`, with golangci-lint strict
   and race-detector tests.
 - [ ] `go-qa-ci` exists, tests itself, and this repository's Go QA runs it.

@@ -1,0 +1,12 @@
+{
+ "args": [],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: bad.bash\ncheck shellcheck: bad.bash\ncheck semgrep: bad.bash\ncheck bash-limits\n\u2713 toolchain: QA tool versions match .qa-versions\n\u2717 bash-syntax: 1 file(s)\n\u2713 shellcheck: 1 file(s)\n\u2713 semgrep: 1 file(s)\n\u2713 bash-limits: whole gate (tooling is Go; allowlist ratchet)\n\u2717 qa-changed FAILED: bash-syntax\n",
+ "stderr": "bad.bash: line 1: syntax error near unexpected token `then'\nbad.bash: line 1: `if then'\n",
+ "status": 1,
+ "log": [
+  "gate:qa-toolchain.bash json=",
+  "shellcheck --severity=warning bad.bash",
+  "semgrep --config <ROOT>/.semgrep/bash-conventions.yml --json-output <JSON> --metrics=off --quiet . | mirror: ./bad.bash ",
+  "gate:qa-bash-limits.bash json="
+ ]
+}

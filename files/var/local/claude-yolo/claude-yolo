@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.95.10"  # Container 2.54: single-attach hook quotes the session name (=#{q:session_name}). See docs/ccy-changelog.md.
+CCY_VERSION="3.96.2"  # Container 2.54: a restore never gives a session a team; Quick Launch records it. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -123,7 +123,7 @@ CCY_HASH=$(
 
 # The Quick Launch file's format: the keys it holds and what they mean. Bump it only when
 # those change. A saved file of this format is kept across CCY_VERSION changes.
-CONFIG_VERSION=1
+CONFIG_VERSION=2
 
 IMAGE_NAME="claude-yolo:latest"
 # Base image (no LSPs) - available for project Dockerfiles that want leaner images
@@ -218,6 +218,7 @@ Options:
                          (sudo agent-bus add-member) and is held by one session at a
                          time. Without --teams a session is in no team. Needs
                          play-agent-bus.yml.
+                         Bare --teams finds this checkout's team; Quick Launch keeps it.
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -516,7 +517,7 @@ load_launch_config() {
     # file in this repo, so there is nothing for shellcheck to follow. The
     # failure IS handled — the `||` branch below reports and resets it. What the file does
     # not set must not come from the environment, so the keys are cleared first.
-    unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_LAUNCH_DATE
+    unset SAVED_CONFIG_VERSION SAVED_CCY_VERSION SAVED_CCY_HASH LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS LAST_LAUNCH_DATE
     # shellcheck source=/dev/null
     source "$config_file" 2>/dev/null || {
         echo "Warning: Config file corrupted, reconfiguring..." >&2
@@ -542,7 +543,7 @@ load_launch_config() {
 
     # Every key of the format is present, even if empty: an empty one is a choice.
     local key
-    for key in LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK; do
+    for key in LAST_TOKEN LAST_SSH_KEYS LAST_NETWORK LAST_TEAMS; do
         if [[ ! -v "$key" ]]; then
             echo "Saved launch configuration $config_file has no $key line; reconfiguring with interactive prompts..." >&2
             rm -f "$config_file"
@@ -567,33 +568,6 @@ load_launch_config() {
         echo "" >&2
     fi
     return 0
-}
-
-# Function to save launch configuration for current project
-save_launch_config() {
-    local ccy_root="$1"
-    local token_name="$2"
-    local ssh_keys_str="$3"
-    local network="$4"
-
-    local config_file="$ccy_root/.last-launch.conf"
-
-    cat > "$config_file" <<EOF
-# CCY Launch Configuration
-# Config Version: ${CONFIG_VERSION}
-# CCY Version: ${CCY_VERSION}
-# CCY Hash: ${CCY_HASH}
-# Generated: $(date '+%Y-%m-%d %H:%M:%S')
-SAVED_CONFIG_VERSION=${CONFIG_VERSION}
-SAVED_CCY_VERSION="${CCY_VERSION}"
-SAVED_CCY_HASH="${CCY_HASH}"
-LAST_TOKEN="${token_name}"
-LAST_SSH_KEYS="${ssh_keys_str}"
-LAST_NETWORK="${network}"
-LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
-EOF
-
-    chmod 600 "$config_file"
 }
 
 # Check for wrapper flags
@@ -668,6 +642,8 @@ CCY_ORIG_ARGS=("$@")
 
 for arg in "$@"; do
     CCY_ARG_POS=$((CCY_ARG_POS + 1))
+    # An option where the list belongs means the list was left out: ccy-teams finds the team.
+    [[ "$NEXT_IS_TEAMS" = true && "$arg" == -* ]] && NEXT_IS_TEAMS=false
     if [ "$SAW_DOUBLE_DASH" = true ]; then
         # Everything after `--` is forwarded raw to claude without ccy parsing
         CLAUDE_ARGS+=("$arg")
@@ -677,11 +653,6 @@ for arg in "$@"; do
         SAW_DOUBLE_DASH=true
         CLAUDE_ARGS_BEFORE_SEPARATOR=${#CLAUDE_ARGS[@]}
     elif [ "$NEXT_IS_TEAMS" = true ]; then
-        # An option where the list belongs means the list was left out (exit 64, usage).
-        if [[ "$arg" == -* ]]; then
-            print_error "--teams needs a team or a list (<team> or <seat>@<team>[,<seat>@<team>...]) before $arg"
-            exit 64
-        fi
         TEAMS_LIST="$arg"
         TEAMS_VALUE_POS=$CCY_ARG_POS
         NEXT_IS_TEAMS=false
@@ -760,6 +731,7 @@ for arg in "$@"; do
         fi
         TEAMS_GIVEN=true
         TEAMS_FLAG_POS=$CCY_ARG_POS
+        TEAMS_VALUE_POS=$CCY_ARG_POS
         if [ "$arg" = "--teams" ]; then
             NEXT_IS_TEAMS=true
         else
@@ -858,42 +830,46 @@ done
 # prompt, SSH or token work, by `agent-bus seat check`, which holds the seat and team grammar
 # and prints the canonical list; its exit code is the launch's. A team named alone gets its
 # seat from the owner, in a chooser, here and before tmux; a launch with nobody to choose
-# (headless, no terminal, a restore, a restart) is refused one. The canonical list then
-# replaces the one given in this launch's arguments, so tmux's session record (a restore) and
-# a restart replay the seat. Without --teams nothing here runs and agent-bus is never called.
+# (headless, no terminal, a restore, a restart) is refused one. A bare --teams (TEAMS_LIST
+# empty) asks `ccy-teams for-checkout` which team works on this checkout, and goes on with it
+# as a team alone. The canonical list then replaces the one given in this launch's arguments,
+# so tmux's session record (a restore) and a restart replay the seat. Without --teams nothing
+# here runs and agent-bus is never called. The Quick Launch (below) calls this too, for the
+# team it saved.
 CCY_SEATS=""
-if [ "$NEXT_IS_TEAMS" = true ] || { [ "$TEAMS_GIVEN" = true ] && [ -z "$TEAMS_LIST" ]; }; then
-    print_error "--teams needs a team or a list: --teams <team> or --teams <seat>@<team>[,<seat>@<team>...]"
-    exit 64
-fi
-if [ "$TEAMS_GIVEN" = true ]; then
-    _ccy_teams_rc=0
+ccy_launch_teams() {
+    local rc=0 attended=false next
+    if [ -z "$TEAMS_LIST" ]; then
+        TEAMS_LIST=$(ccy-teams for-checkout --choose) || exit $?
+    fi
     # Attended only when none of these holds. Not written as `if ccy_nobody_to_ask`: that
     # shape marks a question's own guard, and this decides between ccy_seats_check's two modes.
-    _ccy_teams_attended=false
     ccy_nobody_to_ask || [ ! -t 2 ] || [ -n "${CCY_SESSION_RESTORE:-}" ] \
-        || [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] || _ccy_teams_attended=true
-    CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST" "$_ccy_teams_attended") || _ccy_teams_rc=$?
-    if [ "$_ccy_teams_rc" -ne 0 ]; then
+        || [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] || attended=true
+    CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST" "$attended") || rc=$?
+    if [ "$rc" -ne 0 ]; then
         # An unquoted `--teams a@x, b@y` reaches ccy as `a@x,` and a separate word.
-        _ccy_teams_next="${*:$((TEAMS_VALUE_POS + 1)):1}"
-        if [[ "$TEAMS_LIST" =~ ,[[:space:]]*$ ]] && [ -n "$_ccy_teams_next" ]; then
+        next="${*:$((TEAMS_VALUE_POS + 1)):1}"
+        if [[ "$TEAMS_LIST" =~ ,[[:space:]]*$ ]] && [ -n "$next" ]; then
             echo "  The shell split the list at a space. Write it without the space, or quote it:" >&2
-            echo "    --teams '${TEAMS_LIST} ${_ccy_teams_next}'" >&2
+            echo "    --teams '${TEAMS_LIST} ${next}'" >&2
         fi
-        exit "$_ccy_teams_rc"
+        exit "$rc"
     fi
-    if [ "$_ccy_teams_attended" = true ]; then
+    if [ "$attended" = true ]; then
         CCY_SEATS=$(ccy_seats_resolve "$CCY_SEATS") || exit $?
         # Empty: the owner left the chooser, and said so is already on stderr.
         [ -n "$CCY_SEATS" ] || exit 0
     fi
+}
+if [ "$TEAMS_GIVEN" = true ]; then
+    ccy_launch_teams "$@"
     _ccy_teams_args=()
     mapfile -d '' -t _ccy_teams_args < <(ccy_teams_canonical_args "$TEAMS_FLAG_POS" "$TEAMS_VALUE_POS" "$CCY_SEATS" "$@")
     wait "$!" || exit 1
     set -- "${_ccy_teams_args[@]}"
     CCY_ORIG_ARGS=("$@")
-    unset _ccy_teams_args _ccy_teams_rc _ccy_teams_next _ccy_teams_attended
+    unset _ccy_teams_args
 fi
 
 # Export the GitHub-443 toggle as the env var consumed BOTH by the host-side SSH
@@ -1253,6 +1229,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "  Token:   ${LAST_TOKEN:-none}${last_token_label}"
         echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
         echo "  Network: ${LAST_NETWORK:-none}"
+        echo "  Team:    ${TEAMS_LIST:-${LAST_TEAMS:-none}}"
         echo ""
 
         while true; do
@@ -1289,6 +1266,16 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                     if [[ -n "$LAST_NETWORK" ]]; then
                         SPECIFIED_NETWORK="$LAST_NETWORK"
                         NETWORK_FROM_CONFIG=true
+                    fi
+                    # The saved seats, unless --teams was given (that one wins) or this is a
+                    # restore: joining a team is not a preference, so a restore takes --teams
+                    # only from the session's own record. The seats go into that record, as an
+                    # explicit --teams would be, so a restore of this session replays them.
+                    if [[ -n "$LAST_TEAMS" && "$TEAMS_GIVEN" = false && "$SESSION_RESTORE" = false ]]; then
+                        TEAMS_LIST="$LAST_TEAMS"
+                        ccy_launch_teams
+                        CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
+                        ccy-teams record-seats "$CCY_SEATS" || exit 1
                     fi
                     # Headless, an empty saved choice is that choice (no key, no network),
                     # never the picker it would otherwise fall through to; a saved launch
@@ -3462,11 +3449,23 @@ if [[ -n "$SELECTED_TOKEN" ]]; then
     TOKEN_NAME_FOR_CONFIG="${filename%.*.token}"
 fi
 
-# Build SSH keys string for config
-SSH_KEYS_STR="${SSH_KEYS[*]}"
-
-# Save configuration for next launch
-save_launch_config ".claude/ccy" "$TOKEN_NAME_FOR_CONFIG" "$SSH_KEYS_STR" "$AUTO_CONNECT_NETWORK"
+# Save configuration for next launch (the seats are the canonical --teams list, or empty)
+cat > .claude/ccy/.last-launch.conf <<EOF
+# CCY Launch Configuration
+# Config Version: ${CONFIG_VERSION}
+# CCY Version: ${CCY_VERSION}
+# CCY Hash: ${CCY_HASH}
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+SAVED_CONFIG_VERSION=${CONFIG_VERSION}
+SAVED_CCY_VERSION="${CCY_VERSION}"
+SAVED_CCY_HASH="${CCY_HASH}"
+LAST_TOKEN="${TOKEN_NAME_FOR_CONFIG}"
+LAST_SSH_KEYS="${SSH_KEYS[*]}"
+LAST_NETWORK="${AUTO_CONNECT_NETWORK}"
+LAST_TEAMS="${CCY_SEATS}"
+LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
+EOF
+chmod 600 .claude/ccy/.last-launch.conf
 echo "✓ Configuration saved for quick launch next time"
 echo "✓ CCY version: $CCY_VERSION"
 echo ""

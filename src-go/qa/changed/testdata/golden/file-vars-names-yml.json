@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "vars/names.yml"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck ansible-patterns\nsuite scripts/test-beta.bash: names vars/names.yml\nnote: vars/names.yml: no playbook names 'names.yml', so no ansible-syntax target (patterns gate only)\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

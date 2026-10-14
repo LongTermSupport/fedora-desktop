@@ -116,3 +116,13 @@ go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
 limits (`scripts/qa-bash-limits.bash` runs it; allowlist `scripts/bash-limits.allowlist`; the
 measure is defined in the package doc). It is a QA tool, never deployed, so it has no bash oracle
 suite; its Go tests (including real temporary git repositories) are the proof.
+
+`qa/changed` + `qa/cmd/qa-changed` (same nested module) are `scripts/qa-changed.bash`, the
+diff-scoped QA run before each commit: the script only builds and runs the command. The routing
+of a changed file to checks is data (`scripts/qa-routing.tsv`, `scripts/qa-trees.tsv`), the
+checks are a registry in `changed/checks.go`, and the proofs are its Go tests, a golden replay of
+the bash it replaced (`changed/golden_test.go`, difference only as a numbered bug pinned in
+`testdata/deviations.json`) and the black-box suite `scripts/test-qa-changed.bash`. The project
+rules run over this nested module too (`qa-go.bash` runs the driver a second time over it):
+every process it starts goes through the one seam `qa/internal/proc` (shared with
+`qa/bashlimits`' git runner), faked in tests, and its tests read no wall clock.

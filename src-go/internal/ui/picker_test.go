@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -123,6 +124,61 @@ func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
 	}
 	if slices.Contains(f.Calls()[0].Args, "--with-nth=1") {
 		t.Fatalf("args %v", f.Calls()[0].Args)
+	}
+}
+
+func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
+	p := &Picker{Runner: f}
+	_, err := p.Pick(context.Background(), PickSpec{
+		Title: "t", Header: "base", Rows: []string{"a", "b"},
+		RowHeaders: []string{"for a (it's)", "for b"},
+	})
+	if !errors.Is(err, ErrLeave) {
+		t.Fatal(err)
+	}
+	args := f.Calls()[0].Args
+	if !slices.Contains(args, "--header=for a (it's)\n") {
+		t.Fatalf("the first row's header is shown at the start: %q", args)
+	}
+	want := "--bind=focus:transform-header^case {n} in 0) printf '%s\\n' 'for a (it'\\''s)';; " +
+		"1) printf '%s\\n' 'for b';; *) printf '%s\\n' 'base';; esac^"
+	if !slices.Contains(args, want) {
+		t.Fatalf("args %q lack %q", args, want)
+	}
+	if !slices.Contains(f.Calls()[0].Env, "SHELL=/bin/sh") {
+		t.Fatalf("the binding is sh, whatever the login shell is: %q", f.Calls()[0].Env)
+	}
+	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a"}, RowHeaders: []string{"x", "y"}}); err == nil {
+		t.Fatal("headers that do not pair up with rows are refused")
+	}
+}
+
+func TestRowHeadersTooLargeForOneArgumentAreRefusedNotTruncated(t *testing.T) {
+	p := &Picker{Runner: &execx.Fake{}}
+	rows := make([]string, 200)
+	headers := make([]string, 200)
+	for i := range rows {
+		rows[i], headers[i] = "r", strings.Repeat("x", 1000)
+	}
+	_, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: rows, RowHeaders: headers})
+	if !errors.Is(err, errHeadersTooLarge) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestExitLabelNamesTheLastRow(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Back to the list\n")})
+	p := &Picker{Runner: f}
+	_, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a"}, ExitLabel: "Back to the list"})
+	if !errors.Is(err, ErrLeave) {
+		t.Fatal(err)
+	}
+	in, readErr := io.ReadAll(f.Calls()[0].Stdin)
+	if readErr != nil || string(in) != "a\nBack to the list\n" {
+		t.Fatalf("rows fed %q, %v", in, readErr)
 	}
 }
 

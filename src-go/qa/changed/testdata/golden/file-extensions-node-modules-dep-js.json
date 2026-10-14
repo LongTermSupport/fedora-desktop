@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "extensions/node_modules/dep.js"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\nskipped (excluded tree): extensions/node_modules/dep.js\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

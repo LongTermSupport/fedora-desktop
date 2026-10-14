@@ -12,17 +12,24 @@ import (
 	"go/types"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
 
-// execOwner is the only package that may start a process: every external command goes
-// through its runner so a fake sees it.
-const execOwner = "internal/execx"
+// execOwners are the only packages that may start a process: every external command goes
+// through the runner of one of them so a fake sees it. src-go has internal/execx; the nested
+// qa module (which src-go's dependency-free go.mod cannot import) has its own seam,
+// qa/internal/proc.
+var execOwners = []string{"internal/execx", "qa/internal/proc"}
 
-// homeOwner is the only package that may abbreviate the home directory.
-const homeOwner = "internal/term"
+// execOwnerNames is the owners as a message says them.
+var execOwnerNames = strings.Join(execOwners, " or ")
+
+// homeOwners may abbreviate the home directory: the term package, and the rules package, whose
+// own source has to name the "~" it forbids everywhere else.
+var homeOwners = []string{"internal/term", "qa/rules"}
 
 const (
 	sessprobePkg = "internal/sessprobe"
@@ -221,6 +228,11 @@ func ownedBy(pkgPath, owner string) bool {
 	}
 	path = strings.TrimSuffix(path, "_test")
 	return path == owner || strings.HasSuffix(path, "/"+owner)
+}
+
+// ownedByAny is whether the package path is any of the owners.
+func ownedByAny(pkgPath string, owners []string) bool {
+	return slices.ContainsFunc(owners, func(o string) bool { return ownedBy(pkgPath, o) })
 }
 
 // funcName is the name an allowance row uses for a declaration: "func" or "Type.method",

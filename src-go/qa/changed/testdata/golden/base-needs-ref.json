@@ -1,0 +1,9 @@
+{
+ "args": [
+  "--base"
+ ],
+ "stdout": "",
+ "stderr": "ERROR: --base needs a ref\n",
+ "status": 2,
+ "log": []
+}

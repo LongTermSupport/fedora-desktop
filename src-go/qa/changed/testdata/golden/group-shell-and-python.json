@@ -1,0 +1,13 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "tools/run.sh",
+  "helpers/pkg/mod.py",
+  "tools/py-tool"
+ ],
+ "stdout": "plan: 3 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: tools/run.sh\ncheck shellcheck: tools/run.sh\ncheck semgrep: tools/run.sh\ncheck ruff: helpers/pkg/mod.py tools/py-tool\ncheck unit-tests: tests.helpers.pkg.test_mod\ncheck bash-limits\nsuite scripts/test-alpha.bash: names tools/run.sh\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

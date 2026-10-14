@@ -17,6 +17,32 @@ Two version numbers move independently — see
 
 ---
 
+## 3.96.2 — container 2.54
+
+- **Recording the Quick Launch team fails the launch when the session cannot be named.**
+  `ccy-teams record-seats` now finds the current ccy tmux session itself (through the Go tmux
+  adapter) and refuses, naming the tmux error, when it cannot; the launcher stops on that. The
+  image is unchanged.
+
+## 3.96.1 — container 2.54
+
+- **A restore never gives a session a team.** The Quick Launch team is taken only by a launch
+  that asks (or a headless one), never by a session restore, and it is written into that
+  session's own registry record (`ccy-teams record-seats`), so a reboot restore replays the
+  seats from the record: a session launched without a team restores without one. The image is
+  unchanged.
+
+## 3.96.0 — container 2.54
+
+- **`ccy --teams` with no value finds the team.** It asks `ccy-teams for-checkout` which team
+  works on this checkout's GitHub `owner/repo`: the one match is used (and said), several are
+  chosen between, none is an error. Then it goes on as `--teams <team>`, with the seat chooser.
+- **Quick Launch remembers the team.** The saved configuration holds the launch's seats
+  (`LAST_TEAMS`, so its format is now 2: an older file is discarded with the usual message).
+  Using the previous configuration launches into them again; an explicit `--teams` overrides
+  them. `save_launch_config` is inlined at its one call. The image is
+  unchanged.
+
 ## 3.95.10 — container 2.54
 
 - **The single-attach hook quotes the session name.** `ccy_tmux_single_attach_hook` put a bare

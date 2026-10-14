@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "a.txt"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\nsuite scripts/test-beta.bash: names a.txt\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

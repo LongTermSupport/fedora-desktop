@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
@@ -48,17 +49,11 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops) *Login {
 }
 
 // OpenElement opens the team in Element, setting up its profile first when it has none, and
-// offering a password to the people who have never signed in. Opening ends the picker.
+// offering a password to the people who have never signed in. Element starts apart from the
+// picker, which goes on.
 func (l *Login) OpenElement(ctx context.Context, snap *board.Snapshot, team string) (flow.Result, error) {
-	_, statErr := os.Stat(l.Ops.ElementLauncher(team))
-	switch {
-	case errors.Is(statErr, os.ErrNotExist):
-		if res, err := l.setUpElement(ctx, team); err != nil || res != flow.Done {
-			return res, err
-		}
-	case statErr != nil:
-		l.Kit.Term.PrintError("the Element launcher could not be looked for: " + statErr.Error())
-		return flow.Refused, flow.Leave(term.ExitFailure)
+	if res, err := l.ensureProfile(ctx, team); err != nil || res != flow.Done {
+		return res, err
 	}
 	for _, row := range snap.Rows {
 		if row.Team != team || row.Kind != board.KindHuman || snap.SignedIn[team+"|"+row.Member] != board.WordNeverSignedIn {
@@ -78,8 +73,10 @@ func (l *Login) OpenElement(ctx context.Context, snap *board.Snapshot, team stri
 	return flow.Done, l.LaunchElement(ctx, team)
 }
 
-// LaunchElement starts the team's Element apart from this terminal. Ending the picker with a
-// failure when it did not start is the answer, not a side effect of an unchecked error.
+// LaunchElement starts the team's Element apart from this terminal, in a scope of its own, and
+// returns: the picker goes on. It ends the picker with a failure when Element did not start,
+// which is the answer, not a side effect of an unchecked error. Who is signed in is read again
+// afterwards, as the person is about to sign in.
 func (l *Login) LaunchElement(ctx context.Context, team string) error {
 	log := filepath.Join(l.StateDir, "element-"+team+".log")
 	err := l.Systemd.LaunchElement(ctx, systemd.Launch{
@@ -99,20 +96,52 @@ func (l *Login) LaunchElement(ctx context.Context, team string) error {
 		l.Kit.Term.PrintError(err.Error())
 		return flow.Leave(term.ExitFailure)
 	}
+	l.Board.ForgetDevices(team)
 	l.Kit.Tell("Element is starting; its own messages go to " + l.Kit.Abbrev(log) + ".")
-	return flow.Leave(term.ExitOK)
+	return nil
 }
 
-// PasswordRow sets a new Element password for the person on row.
+// PasswordRow sets a new Element password for the person on row. Someone with Element
+// sessions is asked first, with the sessions it would sign out named; someone with none is
+// signing in for the first time and is asked nothing. Either way Element is offered at once.
 func (l *Login) PasswordRow(ctx context.Context, snap *board.Snapshot, row board.Row) (flow.Result, error) {
 	if row.Kind != board.KindHuman {
-		return l.Kit.Note(ctx, "Ctrl-P sets a person's Element password: choose one of the team's people (KIND human).")
+		return l.Kit.Note(ctx, "A new Element password is for one of the team's people (KIND human): choose one of their rows.")
 	}
-	if _, err := l.SetPassword(ctx, snap, row.Team, row.Member); err != nil {
+	set, err := l.passwordFor(ctx, snap, row)
+	if err != nil {
 		return flow.Done, err
+	}
+	if set {
+		if err = l.offerElement(ctx, row.Team); err != nil {
+			return flow.Done, err
+		}
 	}
 	l.Kit.BackToList(ctx)
 	return flow.Done, nil
+}
+
+// SignOutPhrase is what a new password does to name's Element sessions, in words that follow
+// "New password": "signs out guest's 2 Element sessions". It is empty when there are none.
+func SignOutPhrase(snap *board.Snapshot, team, name string) string {
+	count, known := snap.SessionsOf(team, name)
+	switch {
+	case !known:
+		return "signs out " + name + "'s Element sessions"
+	case count == 0:
+		return ""
+	case count == 1:
+		return "signs out " + name + "'s 1 Element session"
+	}
+	return "signs out " + name + "'s " + strconv.Itoa(count) + " Element sessions"
+}
+
+// sessionsWarning is SignOutPhrase as the sentence the question carries.
+func sessionsWarning(snap *board.Snapshot, team, name string) string {
+	if phrase := SignOutPhrase(snap, team, name); phrase != "" {
+		return "This " + phrase + "."
+	}
+	return name + " has no Element session to sign out."
 }
 
 // SetPassword asks, then sets name's password on team and shows it once. It says whether one
@@ -120,7 +149,7 @@ func (l *Login) PasswordRow(ctx context.Context, snap *board.Snapshot, row board
 func (l *Login) SetPassword(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
 	yes, err := l.Kit.Confirm(ctx, "New Element password for "+name+"?",
 		"Sets a new password for "+name+" on "+team+"'s homeserver and shows it here, once: it is stored nowhere. "+
-			name+"'s other Element sessions are signed out.",
+			sessionsWarning(snap, team, name),
 		"set a new password for "+name, false)
 	if err != nil {
 		return false, err
@@ -169,6 +198,43 @@ func (l *Login) Open(ctx context.Context, team string) error {
 	return offerResult(l.LaunchElement(ctx, team))
 }
 
+// ensureProfile is Done when the team has an Element profile, setting one up when it has none.
+func (l *Login) ensureProfile(ctx context.Context, team string) (flow.Result, error) {
+	_, statErr := os.Stat(l.Ops.ElementLauncher(team))
+	switch {
+	case errors.Is(statErr, os.ErrNotExist):
+		return l.setUpElement(ctx, team)
+	case statErr != nil:
+		l.Kit.Term.PrintError("the Element launcher could not be looked for: " + statErr.Error())
+		return flow.Refused, flow.Leave(term.ExitFailure)
+	}
+	return flow.Done, nil
+}
+
+// passwordFor sets row's password, asking first unless the person has no Element session.
+func (l *Login) passwordFor(ctx context.Context, snap *board.Snapshot, row board.Row) (bool, error) {
+	if count, known := snap.SessionsOf(row.Team, row.Member); known && count == 0 {
+		return l.IssuePassword(ctx, snap, row.Team, row.Member)
+	}
+	return l.SetPassword(ctx, snap, row.Team, row.Member)
+}
+
+// offerElement asks whether to open the team in Element now, setting its profile up first when
+// it has none.
+func (l *Login) offerElement(ctx context.Context, team string) error {
+	yes, err := l.Kit.Confirm(ctx, "Open "+team+" in Element now?",
+		"Element opens in a window of its own; ccy-teams stays here.", "open "+team+" in Element", true)
+	if err != nil || !yes {
+		return err
+	}
+	res, err := l.ensureProfile(ctx, team)
+	if err != nil || res != flow.Done {
+		return err
+	}
+	l.Kit.Tell("Opening " + team + " in Element.")
+	return l.LaunchElement(ctx, team)
+}
+
 // setUpElement offers a missing Element profile: declare it, and run the play that writes it.
 // Done means the profile now exists; anything else is why the caller should stop.
 func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, error) {
@@ -181,7 +247,7 @@ func (l *Login) setUpElement(ctx context.Context, team string) (flow.Result, err
 		return flow.Refused, err
 	}
 	if !yes {
-		return l.Kit.Refuse(ctx, "Nothing set up. Ctrl-E offers it again.")
+		return l.Kit.Refuse(ctx, "Nothing set up. Opening the team in Element offers it again.")
 	}
 	if _, err := l.Declare.Element(ctx, team); err != nil {
 		l.Kit.ReportErr(err)

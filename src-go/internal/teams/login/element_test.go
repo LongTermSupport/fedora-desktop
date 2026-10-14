@@ -21,13 +21,29 @@ func (h rig) withElementProfile(t *testing.T) {
 	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
 }
 
-func TestElementOpensTheProfileInItsOwnScopeAndEndsThePicker(t *testing.T) {
+// ownerDeviceReads is how many times the owner's Element sessions were read.
+func (h rig) ownerDeviceReads() int {
+	n := 0
+	for _, c := range h.Fake.Calls() {
+		if strings.HasPrefix(c.Line(), teamtest.SudoBus+"human devices alpha owner") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestElementOpensTheProfileInItsOwnScopeAndReturnsToTheList(t *testing.T) {
 	h := newRig(t)
 	h.withElementProfile(t)
 	snap := h.pass(t)
+	reads := h.ownerDeviceReads()
 	res, err := h.l.OpenElement(context.Background(), snap, "alpha")
-	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 || res != flow.Done {
+	if err != nil || res != flow.Done {
 		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
+	}
+	h.pass(t)
+	if h.ownerDeviceReads() != reads+1 {
+		t.Fatalf("the list reads the team's Element sessions again after Element is started: %d then %d", reads, h.ownerDeviceReads())
 	}
 	var run execx.Cmd
 	for _, c := range h.Fake.Calls() {
@@ -91,8 +107,7 @@ func TestElementOffersNeverSignedInPeopleANewPassword(t *testing.T) {
 	h.passwordable()
 	h.Script.Fzf = []string{"|YES"}
 	snap := h.pass(t)
-	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
-	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 {
+	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v", err)
 	}
 	for _, want := range []string{
@@ -110,8 +125,7 @@ func TestElementNeverSignedInDeclinedStillOpens(t *testing.T) {
 	h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
 	h.Script.Fzf = []string{"|EXIT"}
 	snap := h.pass(t)
-	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
-	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 {
+	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v", err)
 	}
 	if h.Fake.Called(teamtest.SudoBus+"human password") || !h.Fake.Called("systemd-run") {
@@ -131,7 +145,7 @@ func TestElementWithNoProfileOffersToSetItUp(t *testing.T) {
 		t.Fatalf("%v %v", res, err)
 	}
 	for _, want := range []string{
-		"alpha has no Element profile on this desktop yet.\n", "Nothing set up. Ctrl-E offers it again.\nPress Enter to go back to the list.\n",
+		"alpha has no Element profile on this desktop yet.\n", "Nothing set up. Opening the team in Element offers it again.\nPress Enter to go back to the list.\n",
 	} {
 		if !strings.Contains(h.ErrOut.String(), want) {
 			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
@@ -160,8 +174,7 @@ func TestElementSetUpDeclaresThenRunsThePlayThenOpens(t *testing.T) {
 		return execx.Result{}, nil
 	})
 	snap := h.pass(t)
-	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
-	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 {
+	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
 		t.Fatalf("%v: %s", err, h.ErrOut.String())
 	}
 	if h.elementPlays() != 1 {

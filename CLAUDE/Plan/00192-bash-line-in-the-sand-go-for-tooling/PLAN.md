@@ -96,7 +96,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `meta-deploy.bash`), including the B12 and B13 probes. Runs as root and changes behaviour
   (its D7), so it merges only after review and the owner's host test.
 - [ ] ⬜ **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
-  waits on Plan 00191's D1-D10.
+  waits on Plan 00191's D1-D10. `qa-changed.bash` (P3, first of the QA orchestrators) on
+  `go-port/qa-changed`: functional spec written, [SPEC-qa-changed.md](SPEC-qa-changed.md); the Go
+  port done on the branch with the coordinator's defaults for D1-D6 (nested `src-go/qa/changed`,
+  routing and excluded trees as data, one process seam shared with the bash-limits gate), golden
+  replay of the bash over 118 scenarios with 19 numbered deviations, the script now a
+  build-and-run wrapper and its allowlist entry gone. Fable review fixed (B27-B29, the rules
+  over the nested module, one shared wrapper lib) and merged into F44; the push waits on a
+  full QA run, which needs the CCY image rebuilt with golangci-lint (`ccy --rebuild`). The
+  `qa-all` port is next, on `go-port/qa-all`, and reuses the routing data.
 
 ### Phase 4: Review
 

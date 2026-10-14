@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "tools/plain.js"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck node-check: tools/plain.js\nsuite scripts/test-beta.bash: names tools/plain.js\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

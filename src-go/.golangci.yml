@@ -78,11 +78,24 @@ linters:
       # beside camelCase siblings), not ours to choose.
       - path: internal/transcript/transcript\.go
         linters: [tagliatelle]
-      # The QA module cannot import execx (it is a separate module), so its git runner is its
-      # own one process seam, for the same reason.
-      - path: bashlimits/gitrun\.go
+      # The QA module cannot import execx (it is a separate module), so its process runner is
+      # its own one process seam, for the same reason.
+      - path: qa/internal/proc/proc\.go
         linters: [gosec]
         text: "G204"
+      # qa-changed's whole job is to read the repository's files by computed path (their first
+      # line, a playbook's text, a suite's text) and to mirror files for semgrep; the paths come
+      # from git and the command line of the person running it.
+      - path: qa/changed/
+        linters: [gosec]
+        text: "G304|G703"
+      # semgrep's JSON report is snake_case, its wire format.
+      - path: qa/changed/checks\.go
+        linters: [tagliatelle]
+      # A test writes an executable stub to prove the executable check.
+      - path: qa/changed/.*_test\.go
+        linters: [gosec]
+        text: "G302|G306"
   settings:
     cyclop:
       max-complexity: 15

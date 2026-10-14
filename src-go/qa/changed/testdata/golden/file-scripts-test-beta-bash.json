@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "scripts/test-beta.bash"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/test-beta.bash\ncheck shellcheck: scripts/test-beta.bash\ncheck semgrep: scripts/test-beta.bash\ncheck bash-limits\nsuite scripts/test-beta.bash: the suite itself changed\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

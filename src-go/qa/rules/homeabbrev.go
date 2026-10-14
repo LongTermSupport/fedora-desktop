@@ -45,7 +45,7 @@ How to fix: term.AbbrevHome(path, home).`,
 }
 
 func runHomeAbbrev(pass *analysis.Pass) {
-	if ownedBy(pass.Pkg.Path(), homeOwner) {
+	if ownedByAny(pass.Pkg.Path(), homeOwners) {
 		return
 	}
 	reported := map[token.Pos]bool{}
