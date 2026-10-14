@@ -20,6 +20,9 @@
 #                              fail-fast pattern gate (qa-ansible.bash, whole: it is fast)
 #   markdown, playbooks yml    the docs gate (qa-docs.bash, whole: it is fast)
 #   src-go/ (any file)         the interim Go gate (qa-go.bash, whole: it is fast)
+#   any bash file, the bash-   the bash-limits gate (qa-bash-limits.bash, whole: ~0.5s), and its Go
+#   limits allowlist or a      source; a path on the allowlist counts as bash even when deleted
+#   path on the allowlist
 #   js/mjs                     node --check; extensions/ files also get the project's eslint
 #   src-go/ in a command's     that command's suites too (ccy-teams: test-ccy-teams-command.bash;
 #   build closure              ccy-sessions: its four test-ccy-* suites): a file in cmd/<name> or a
@@ -138,8 +141,13 @@ SKIPPED=()
 NEED_DOCS=0
 NEED_ANSIBLE_PATTERNS=0
 NEED_GO=0
+NEED_BASH_LIMITS=0
 SRCGO_FILES=()
 declare -A COVERED=()
+# The paths on the bash-limits allowlist (each line starts with its path and a tab), so a change to
+# a listed file, even a deletion or an extensionless one, runs that gate.
+BASH_LIMITS_LISTED=""
+[[ -f "$SCRIPT_DIR/bash-limits.allowlist" ]] && BASH_LIMITS_LISTED=$'\n'"$(<"$SCRIPT_DIR/bash-limits.allowlist")"
 
 ALL_PLAYBOOKS=()
 ALL_PLAYBOOKS_LOADED=0
@@ -208,6 +216,18 @@ for rel in "${CHANGED[@]}"; do
             NEED_GO=1
             ;;
     esac
+    # The bash-limits gate (whole: it is fast) reads every bash file and the allowlist. No
+    # continue, for the same reason.
+    case "$rel" in
+        *.bash | *.sh | *.j2 | src-go/internal/bashlimits/* | src-go/cmd/qa-bash-limits/*)
+            NEED_BASH_LIMITS=1
+            ;;
+        scripts/bash-limits.allowlist)
+            NEED_BASH_LIMITS=1
+            COVERED[$rel]=1
+            ;;
+    esac
+    [[ "$BASH_LIMITS_LISTED" == *$'\n'"$rel"$'\t'* ]] && NEED_BASH_LIMITS=1
     case "$rel" in
         *.md)
             NEED_DOCS=1
@@ -233,7 +253,9 @@ for rel in "${CHANGED[@]}"; do
             continue
             ;;
         src-go/*)
-            # Go files, go.mod and the lint config: the interim qa-go.bash gate runs whole.
+            # Go files, go.mod and the lint config: the interim qa-go.bash gate runs whole. That
+            # includes the nested src-go/qa module (the project rules): it builds no binary, so
+            # the cmd closure below never owns it, and qa-go.bash checks it first.
             NEED_GO=1
             SRCGO_FILES+=("$rel")
             COVERED[$rel]=1
@@ -302,7 +324,7 @@ uniq_array UNIT_MODULES
 # --- suites ---------------------------------------------------------------------------------
 # Population: exactly the test-*/qa-* scripts qa-all.bash invokes by name, minus the gates that
 # are run per file above or that inspect the host.
-PER_FILE_GATES=" qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery "
+PER_FILE_GATES=" qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery "
 SUITES=()
 while IFS= read -r name; do
     [[ "$PER_FILE_GATES" == *" ${name%.bash} "* ]] && continue
@@ -426,6 +448,8 @@ NEED_TOOLCHAIN=0
 if [[ ${#SH_FILES[@]} -gt 0 || ${#PY_FILES[@]} -gt 0 ]]; then
     NEED_TOOLCHAIN=1
 fi
+# An extensionless shell script (a shebang, no .bash) is only known to be shell here.
+[[ ${#SH_FILES[@]} -gt 0 ]] && NEED_BASH_LIMITS=1
 
 print_plan() {
     echo "plan: ${#CHANGED[@]} changed file(s) vs $BASE"
@@ -441,6 +465,7 @@ print_plan() {
     [[ $NEED_ANSIBLE_PATTERNS -eq 1 ]] && echo "check ansible-patterns"
     [[ $NEED_DOCS -eq 1 ]] && echo "check docs"
     [[ $NEED_GO -eq 1 ]] && echo "check go"
+    [[ $NEED_BASH_LIMITS -eq 1 ]] && echo "check bash-limits"
     [[ ${#JS_FILES[@]} -gt 0 ]] && echo "check node-check: ${JS_FILES[*]}"
     [[ ${#ESLINT_FILES[@]} -gt 0 ]] && echo "check eslint: ${ESLINT_FILES[*]}"
     local i
@@ -607,6 +632,9 @@ if [[ $NEED_DOCS -eq 1 ]]; then
 fi
 if [[ $NEED_GO -eq 1 ]]; then
     run_check go "whole gate (interim qa-go.bash)" bash "$SCRIPT_DIR/qa-go.bash"
+fi
+if [[ $NEED_BASH_LIMITS -eq 1 ]]; then
+    run_check bash-limits "whole gate (tooling is Go; allowlist ratchet)" bash "$SCRIPT_DIR/qa-bash-limits.bash"
 fi
 if [[ ${#JS_FILES[@]} -gt 0 ]]; then
     run_check node-check "${#JS_FILES[@]} file(s)" node_check

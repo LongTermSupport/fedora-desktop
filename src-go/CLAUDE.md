@@ -19,12 +19,21 @@ are gone.
 
 - **Test first.** The test file exists before the source file (the TDD hook enforces it).
   Every flow is unit tested through the fakes, without a terminal.
+
 - **No discarded errors.** Never `_ =` or `_ :=` an error; return it or handle it.
+
 - **No suppression.** No `//nolint`; fix what the linter reports. `.golangci.yml` is strict on
   purpose.
+
 - **Exit codes** come from `term` (`ExitOK`, `ExitFailure`, `ExitUsage`, `ExitCancelled`);
   diagnostics go to stderr, the payload to stdout ([StderrHygiene.md](../CLAUDE/StderrHygiene.md)).
+
 - **Secrets never in argv.** A password goes to its consumer on stdin.
+
+- **Project rules.** `qa/` is a nested module (so this `go.mod` stays dependency-free) of
+  `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
+  no wall clock in tests, one home abbreviation. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
+  A new defect class found here gets a rule there before its fix.
 
 ## Parity oracles
 
@@ -48,3 +57,8 @@ their old paths. Never install a binary by hand: the play is the only route
 `scripts/qa-go.bash` (fmt, vet, `go test -race` with a coverage floor, golangci-lint) is the
 interim gate, run by `qa-all.bash` and by `qa-changed.bash` for a `src-go/` change, until the
 go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
+
+`cmd/qa-bash-limits` + `internal/bashlimits` are the QA gate that holds every bash file to the
+tooling-is-Go limits (`scripts/qa-bash-limits.bash` runs it; allowlist
+`scripts/bash-limits.allowlist`). It is a QA tool, never deployed, so it has no bash oracle suite;
+its Go tests (including a real temporary git repository) are the proof.

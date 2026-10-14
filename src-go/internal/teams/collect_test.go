@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // on scripts every command whose argv starts with prefix (space-separated).
@@ -267,7 +268,7 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v: %s", err, h.errOut.String())
 	}
-	shown := strings.Replace(checkout, h.app.Home, "~", 1)
+	shown := term.AbbrevHome(checkout, h.app.Home)
 	want := []Row{
 		{Team: "alpha", Member: "-", Kind: "team", State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout},

@@ -539,6 +539,7 @@ declare -A GATE_COMMAND=(
     [pins_out]="bash scripts/qa-version-pins.bash"
     [toolchain_out]="bash scripts/qa-toolchain.bash"
     [go_out]="bash scripts/qa-go.bash"
+    [bash_limits_out]="bash scripts/qa-bash-limits.bash"
     [ssh_suspend_guard_out]="bash scripts/test-ssh-suspend-guard.bash"
 )
 gate_command_for() {
