@@ -17,7 +17,7 @@ import (
 func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 	h := newRig(t)
 	h.passwordable()
-	h.Script.Fzf = []string{"|YES"}
+	h.Script.Fzf = []string{"|EXIT"} // Element is offered afterwards, and declined
 	snap := h.pass(t)
 	res, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner"))
 	if err != nil || res != flow.Done {
@@ -35,13 +35,75 @@ func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 	if h.Out.String() != "" {
 		t.Fatalf("stdout %q: the password is not the payload", h.Out.String())
 	}
-	if !strings.Contains(h.HeaderOf(0), "Sets a new password for owner on alpha's homeserver and shows it here, once: it is stored nowhere. owner's other Element sessions are signed out.") {
-		t.Fatalf("header %q", h.HeaderOf(0))
+	if !strings.HasSuffix(h.ErrOut.String(), "Press Enter to go back to the list.\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	if len(h.Script.FzfArgs) != 1 || !slices.Contains(h.Script.FzfArgs[0], "--border-label= Open alpha in Element now? ") {
+		t.Fatalf("someone with no sessions is asked nothing but whether to open Element: %q", h.Script.FzfArgs)
+	}
+	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
+		t.Fatal("opening Element defaults to Yes")
+	}
+}
+
+func TestPasswordForSomeoneSignedInNamesTheSessionsItEndsAndDefaultsToNo(t *testing.T) {
+	h := newRig(t)
+	h.On("sudo -n -v", "", 0)
+	h.On(teamtest.SudoBus+"human password alpha guest", "guest-pw\n", 0)
+	h.Script.Fzf = []string{"|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "guest")); err != nil {
+		t.Fatal(err)
+	}
+	header := h.HeaderOf(0)
+	if !strings.Contains(header, "Sets a new password for guest on alpha's homeserver and shows it here, once: it is stored nowhere.") ||
+		!strings.Contains(header, "This signs out guest's 2 Element sessions.") {
+		t.Fatalf("header %q", header)
 	}
 	if !slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
-		t.Fatal("the reset question defaults to Exit")
+		t.Fatal("the reset question defaults to No")
 	}
-	if !strings.HasSuffix(h.ErrOut.String(), "Press Enter to go back to the list.\n") {
+	if h.Fake.Called(teamtest.SudoBus + "human password") {
+		t.Fatal("declined, so no password was set")
+	}
+
+	h = newRig(t)
+	h.On("sudo -n -v", "", 0)
+	h.On(teamtest.SudoBus+"human password alpha guest", "guest-pw\n", 0)
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
+	snap = h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "guest")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.ErrOut.String(), "Password    guest-pw\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+func TestPasswordWhenTheCountIsUnknownSaysTheSessionsAreSignedOut(t *testing.T) {
+	h := newRig(t)
+	h.Script.Fzf = []string{"|EXIT"}
+	snap := h.pass(t)
+	delete(snap.Sessions, "alpha|owner")
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.HeaderOf(0), "This signs out owner's Element sessions.") {
+		t.Fatalf("header %q", h.HeaderOf(0))
+	}
+}
+
+func TestAfterAPasswordElementIsOfferedAndOpensApart(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
+	h.passwordable()
+	h.Script.Fzf = []string{"|YES"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Fake.Called("systemd-run") || !strings.Contains(h.ErrOut.String(), "Element is starting; its own messages go to ") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }
@@ -106,7 +168,7 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	h.passwordable()
 	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
 	h.On("wl-copy", "", 0)
-	h.Script.Fzf = []string{"ctrl-p|YES", "|YES"}
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
 	snap := h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
@@ -127,14 +189,14 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	if !strings.Contains(h.ErrOut.String(), "The password is on the clipboard.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
-	if slices.Contains(h.Script.FzfArgs[1], "--bind=start:last") {
+	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
 		t.Fatal("the copy question defaults to Yes")
 	}
-	if !slices.Contains(h.Script.FzfArgs[1], "--border-label= Copy the password? ") {
-		t.Fatalf("args %q", h.Script.FzfArgs[1])
+	if !slices.Contains(h.Script.FzfArgs[0], "--border-label= Copy the password? ") {
+		t.Fatalf("args %q", h.Script.FzfArgs[0])
 	}
-	if !slices.Contains(h.Script.Rows[1], "Yes, copy the password") {
-		t.Fatalf("rows %q", h.Script.Rows[1])
+	if !slices.Contains(h.Script.Rows[0], "Yes, copy the password") {
+		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 }
 
@@ -143,7 +205,7 @@ func TestPasswordClipboardFailureIsNotCalledSuccess(t *testing.T) {
 	h.passwordable()
 	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
 	h.OnErr("wl-copy", "no display", 1)
-	h.Script.Fzf = []string{"|YES", "|YES"}
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
 	snap := h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
@@ -164,7 +226,7 @@ func TestPasswordWithoutWlCopySaysWhatInstallsIt(t *testing.T) {
 		}
 		return "/usr/bin/" + name, nil
 	}
-	h.Script.Fzf = []string{"|YES"}
+	h.Script.Fzf = []string{"|EXIT"}
 	snap := h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
@@ -179,17 +241,16 @@ func TestPasswordDeclinedOrRefusedSetsNone(t *testing.T) {
 	h.passwordable()
 	h.Script.Fzf = []string{"|EXIT"}
 	snap := h.pass(t)
-	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "guest")); err != nil {
 		t.Fatal(err)
 	}
-	if h.Fake.Called(teamtest.SudoBus+"human password") || !strings.Contains(h.ErrOut.String(), "No password was set for owner.\n") {
+	if h.Fake.Called(teamtest.SudoBus+"human password") || !strings.Contains(h.ErrOut.String(), "No password was set for guest.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 
 	h = newRig(t)
 	h.OnErr("sudo -n -v", "sudo: a password is required", 1)
 	h.OnErr("sudo -v", "sudo: 3 incorrect password attempts", 1)
-	h.Script.Fzf = []string{"|YES"}
 	snap = h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
@@ -201,7 +262,6 @@ func TestPasswordDeclinedOrRefusedSetsNone(t *testing.T) {
 	h = newRig(t)
 	h.On("sudo -n -v", "", 0)
 	h.OnErr(teamtest.SudoBus+"human password alpha owner", "no such person", 1)
-	h.Script.Fzf = []string{"|YES"}
 	snap = h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
@@ -218,7 +278,7 @@ func TestPasswordOnARowThatIsNotAPersonSaysWhere(t *testing.T) {
 	if err != nil || res != flow.Done {
 		t.Fatalf("%v %v", res, err)
 	}
-	if !strings.Contains(h.ErrOut.String(), "Ctrl-P sets a person's Element password: choose one of the team's people (KIND human).\nPress Enter to go back to the list.\n") {
+	if !strings.Contains(h.ErrOut.String(), "A new Element password is for one of the team's people (KIND human): choose one of their rows.\nPress Enter to go back to the list.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }

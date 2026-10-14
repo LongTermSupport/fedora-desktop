@@ -39,7 +39,7 @@ const readWhy = "Reading who is in each team, and whether its people are signed 
 const maxNoOps = 3
 
 // pickerKeys are the keys besides Enter that choose a row.
-var pickerKeys = []string{"ctrl-n", "ctrl-r", "ctrl-x", "ctrl-e", "ctrl-p", "ctrl-u", "?"}
+var pickerKeys = []string{keyNew, keyRestore, keyRemove, keyElement, keyPassword, keyUpdate, keyHelp}
 
 // Picker is the interactive list. Every dependency is a field so a test stands in for each.
 type Picker struct {
@@ -71,10 +71,10 @@ func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops, c *create.
 
 // run is one run of the picker: the header, built once, and the pass being shown.
 type run struct {
-	p      *Picker
-	header string
-	snap   *board.Snapshot
-	noOps  int
+	p     *Picker
+	frame frame
+	snap  *board.Snapshot
+	noOps int
 }
 
 // Run is ccy-teams with no argument: the list of teams, seats and people, and a key for
@@ -116,33 +116,46 @@ func (p *Picker) pickerSession(ctx context.Context) error {
 	if err = p.offerUpdate(ctx); err != nil {
 		return err
 	}
-	header, err := p.pickerHeader(ctx)
+	above, err := p.pickerFrame(ctx)
 	if err != nil {
 		p.Kit.Term.PrintError(err.Error())
 		return flow.Leave(term.ExitFailure)
 	}
-	return (&run{p: p, header: header}).loop(ctx)
+	return (&run{p: p, frame: above}).loop(ctx)
 }
 
-// pickerHeader is what stays above the rows: the keys, whether Ctrl-N can start a session here,
-// what RESTORE means, and the column headings. It is built once.
-func (p *Picker) pickerHeader(ctx context.Context) (string, error) {
+// frame is what stays above the rows whichever row the cursor is on: where Ctrl-N would start a
+// session, what RESTORE means, and the column headings. It is built once.
+type frame struct {
+	newLine, restoreLine, heading string
+}
+
+// header is the picker's header with footer, the line naming the row's actions, among the rest;
+// footer is empty for the Exit row.
+func (f frame) header(footer string) string {
+	return ui.Header(
+		"Enter lists what can be done to the row   ? help   Esc or q quit",
+		footer, f.newLine, f.restoreLine, f.heading,
+	)
+}
+
+func (p *Picker) pickerFrame(ctx context.Context) (frame, error) {
 	restore := "off"
 	wants := filepath.Join(p.Home, ".config/systemd/user/default.target.wants/ccy-sessions-restore.service")
 	if _, err := os.Stat(wants); err == nil {
 		restore = "on"
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("look for the restore service: %w", err)
+		return frame{}, fmt.Errorf("look for the restore service: %w", err)
 	}
 	project, err := p.Git.ProjectHere(ctx, "")
 	if err != nil {
-		return "", fmt.Errorf("ask git where this is: %w", err)
+		return frame{}, fmt.Errorf("ask git where this is: %w", err)
 	}
 	newLine := "Ctrl-N unavailable: " + p.Kit.Abbrev(p.Here()) + " is not a project folder (no git repository)"
 	if project {
 		top, err := p.Git.TopLevel(ctx, "")
 		if err != nil {
-			return "", fmt.Errorf("ask git where this checkout is: %w", err)
+			return frame{}, fmt.Errorf("ask git where this checkout is: %w", err)
 		}
 		newLine = "Ctrl-N starts a new ccy session in the row's team, in " + p.Kit.Abbrev(top)
 	}
@@ -150,14 +163,21 @@ func (p *Picker) pickerHeader(ctx context.Context) (string, error) {
 	if p.Kit.Term.ColourOn(p.Stdout) {
 		heading = term.Bold + heading + term.Reset
 	}
-	return ui.Header(
-		"Enter attach a seat / password for a person   Ctrl-P password Ctrl-E Element   ? help   Esc or q quit",
-		"Ctrl-N new session   Ctrl-U update out-of-date teams   Ctrl-R restore on/off   Ctrl-X remove/park/take down",
-		newLine,
-		"RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is "+
-			restore+" (ccy_restore_sessions)",
-		heading,
-	), nil
+	return frame{
+		newLine: newLine,
+		restoreLine: "RESTORE: whether the seat's session is started again after a reboot; session restore on this machine is " +
+			restore + " (ccy_restore_sessions)",
+		heading: heading,
+	}, nil
+}
+
+// rowHeaders is the header of each row, with that row's actions in words.
+func (r *run) rowHeaders() []string {
+	headers := make([]string, len(r.snap.Rows))
+	for i, row := range r.snap.Rows {
+		headers[i] = r.frame.header(r.footerFor(row))
+	}
+	return headers
 }
 
 // loop shows the list, does what a key asks, and shows the list again, until a flow leaves.
@@ -190,7 +210,8 @@ func (r *run) once(ctx context.Context, first bool) error {
 		}
 	}
 	picked, err := p.Kit.Choose(ctx, ui.PickSpec{
-		Title: "Agent teams", Header: r.header, Keys: pickerKeys, Rows: r.shownRows(), Tags: r.tags(),
+		Title: "Agent teams", Header: r.frame.header(""), RowHeaders: r.rowHeaders(), Keys: pickerKeys,
+		Rows: r.shownRows(), Tags: r.tags(),
 	})
 	if errors.Is(err, ui.ErrLeave) {
 		if err = p.Kit.Interrupted(ctx); err != nil {

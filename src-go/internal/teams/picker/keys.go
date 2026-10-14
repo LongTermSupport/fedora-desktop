@@ -9,28 +9,37 @@ import (
 )
 
 // act does what key asks of row: the key that was pressed, or "" for Enter, and the row it
-// was pressed on. Enter means what the row's kind makes of it.
+// was pressed on. Enter opens the menu of what can be done to the row; a key is a shortcut to
+// one entry of that menu.
 func (r *run) act(ctx context.Context, key string, row board.Row) (flow.Result, error) {
-	switch {
-	case key == "ctrl-n":
+	if key == "" {
+		return r.menu(ctx, row)
+	}
+	return r.do(ctx, key, row)
+}
+
+// do is one action on row: a key of the menu, which is also the shortcut for it.
+func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, error) {
+	switch key {
+	case keyNew:
 		return r.p.Seats.NewSession(ctx, r.snap, row.Team)
-	case key == "ctrl-r":
+	case keyRestore:
 		return r.p.Seats.ToggleRestore(ctx, r.snap, row)
-	case key == "ctrl-x":
+	case keyRemove:
 		return r.p.Seats.RemoveOrPark(ctx, r.snap, row)
-	case key == "ctrl-e":
+	case keyElement:
 		return r.p.Login.OpenElement(ctx, r.snap, row.Team)
-	case key == "ctrl-p", key == "" && row.Kind == board.KindHuman:
+	case keyPassword:
 		return r.p.Login.PasswordRow(ctx, r.snap, row)
-	case key == "ctrl-u":
+	case keyUpdate:
 		return r.updateAll(ctx)
-	case key == "?", key == "" && row.Kind == board.KindTeam:
+	case keyHelp:
 		r.p.showHelp(ctx)
 		return flow.Done, nil
-	case key == "" && row.Kind == board.KindCcy:
+	case keyAttach:
 		return r.p.Seats.AttachSeat(ctx, r.snap, row)
 	}
-	r.p.Kit.Tell("Enter on " + row.Member + " does nothing: Ctrl-X parks a member. ? shows every key.")
+	r.p.Kit.Tell("That key does nothing here. Enter lists what can be done to a row. ? shows every key.")
 	r.p.Kit.BackToList(ctx)
 	return flow.Done, nil
 }

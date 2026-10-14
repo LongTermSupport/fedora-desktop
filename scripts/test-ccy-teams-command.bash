@@ -95,7 +95,8 @@ esac
 EOF
 
 # fzf: answers from $TEST_ANSWERS, one line per call, "<key>|<choice>": <choice> is text the
-# chosen row contains (the first such row), YES, EXIT or ABORT. Every call's rows are kept.
+# chosen row contains (the first such row), YES, EXIT (the last row: Exit, or a menu's Back to
+# the list) or ABORT. Every call's rows are kept.
 # With --ansi, as the real fzf does, the rows' colour is shown (kept in $TEST_FZF_RAW) and the
 # chosen row handed back without it.
 cat >"$BIN/fzf" <<'EOF'
@@ -114,7 +115,7 @@ key="${answer%%|*}"
 choice="${answer#*|}"
 case "$choice" in
 ABORT) exit 130 ;;
-EXIT) row="Exit" ;;
+EXIT) row="$(awk 'END { print }' <<<"$rows")" ;;
 YES) row="$(awk '/^Yes, / { print; exit }' <<<"$rows")" ;;
 "") echo "fake fzf: no answer queued for call $n" >&2; exit 2 ;;
 *) row="$(grep -m1 -F -- "$choice" <<<"$rows")" ;;
@@ -524,7 +525,7 @@ check_has "the LXC member" "active" "$(grep -E '^alpha +proj\.box\+role\.lxc +lx
 human="$(grep -E '^alpha +owner +human' <<<"$out")"
 check_has "the person, in the room in words" "in room" "$human"
 check_has "  never signed in to Element (no device)" "never signed in" "$human"
-check_has "  and the key that gives them a password" "Enter: new password" "$human"
+check_has "  and the key that gives them their choices" "Enter for choices" "$human"
 extra="$(grep -E '^extra +- +team' <<<"$out")"
 check_has "a loaded homeserver not declared is listed, down" "down (inactive)" "$extra"
 check_has "  with no port, and why there are no members" "port unknown (not declared), members: homeserver down" "$extra"
@@ -651,13 +652,20 @@ check "  which ccy-teams called as the rule names it" "yes" \
     "$(logged 'sudo -n /usr/local/bin/agent-bus human devices alpha owner')"
 
 reset
-out="$(run_picker "$OUTSIDE" "|ccy-proj")"
-check "Enter on a seat attaches its session" "yes" "$(logged 'tmux attach-session -t =ccy-proj')"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Attach this terminal")"
+check "Enter on a seat, then Attach, attaches its session" "yes" "$(logged 'tmux attach-session -t =ccy-proj')"
 check "  and exits 0" "rc=0" "$(rc_of "$out")"
+check_has "  Enter lists the seat's choices, with their shortcuts" "Stop starting its session again after a reboot   (Ctrl-R)" \
+    "$(cat "$TEST_FZF_RAW")"
+
+reset
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|EXIT" "|ABORT")"
+check "Back to the list in a menu changes nothing, and the list is drawn again" "3" "$(cat "$STATE/fzf-calls")"
+check "  and attaches nothing" "no" "$(logged 'attach-session')"
 
 reset
 printf 'ccy-proj 1 %s\n' "$CHECKOUT" >"$STATE/sessions"
-out="$(run_picker "$OUTSIDE" "|ccy-proj" "|ABORT")"
+out="$(run_picker "$OUTSIDE" "|ccy-proj" "|Attach this terminal" "|ABORT")"
 check "a session open elsewhere is not attached" "no" "$(logged 'attach-session')"
 check_has "  ccy-sessions is named for taking it over" "Ctrl-T" "$out"
 
@@ -733,7 +741,7 @@ check "  and changes nothing" "$(cat "$HOST_VARS")" "$(cat "$SCRATCH/element.yml
 reset
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
 gum_queue YES
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner")"
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/element.yml" run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
 check_has "  yes declares the team's Element profile" 'base_url: "http://192.0.2.10:6167"' \
     "$(cat "$SCRATCH/element.yml")"
 check "  runs play-agent-bus-element.yml" "yes" "$(logged 'element-profiles')"
@@ -747,10 +755,13 @@ check "  and nothing is opened" "no" "$(logged 'gio')"
 reset
 element_profile
 printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
-out="$(run_picker "$OUTSIDE" "ctrl-e|owner")"
+out="$(run_picker "$OUTSIDE" "ctrl-e|owner" "|ABORT")"
 check "Ctrl-E opens the team's Element launcher" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
 check "  asking no password of a human who has a session" "no" "$(logged 'human password')"
-check "  and exits 0" "rc=0" "$(rc_of "$out")"
+check "  and returns to the list, which Esc then leaves with 0" "rc=0" "$(rc_of "$out")"
+check "  the list is drawn again after Element is started" "2" "$(cat "$STATE/fzf-calls")"
+check "  and the person's Element sessions are read again for it" "2" \
+    "$(grep -c '^sudo -n /usr/local/bin/agent-bus human devices alpha owner' "$LOG")"
 check_has "  in its own user scope, so closing the terminal tab does not end it" \
     "systemd-run --user --scope --quiet --collect --unit ccy-teams-element-alpha-" "$(cat "$LOG")"
 check_lacks "  Element's own output never reaches the terminal" "electron chatter" "$out"
@@ -766,47 +777,63 @@ check_has "  showing what it said" "electron chatter on stderr" "$out"
 check "  and is a failure" "rc=1" "$(rc_of "$out")"
 reset
 element_profile
-out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|EXIT")"
+out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|EXIT" "|ABORT")"
 check "a human with no session is offered a password; no sets none" "no" "$(logged 'human password')"
 check "  and Element still opens" "yes" "$(logged 'gio launch')"
 reset
 element_profile
-out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|YES")"
+out="$(run_picker "$OUTSIDE" "ctrl-e|ccy-proj" "|YES" "|ABORT")"
 check "  yes sets one, through sudo agent-bus" "yes" "$(logged 'sudo -n /usr/local/bin/agent-bus human password alpha owner')"
 check_has "  printed once, here" "a-new-password" "$out"
 
 echo "== a person's password"
 reset
-out="$(run_picker "$OUTSIDE" "|owner" "|YES" "|ABORT")"
-check "Enter on a person sets a new Element password, after a yes" "yes" \
+out="$(run_picker "$OUTSIDE" "|owner" "|Sign in" "|EXIT" "|ABORT")"
+check "Enter on a person who never signed in offers signing in first, asking nothing" "yes" \
     "$(logged 'agent-bus human password alpha owner')"
-check_has "  the yes says their other sessions are signed out" "other Element sessions are signed out" \
+check_has "  the menu says so in words, with the shortcut" "Sign in: set a password (shown once)   (Ctrl-P)" \
     "$(cat "$TEST_FZF_RAW")"
 check_has "  the login shows the homeserver" "http://192.0.2.10:6167" "$out"
 check_has "  the username" "Username" "$out"
 check_has "  the Matrix ID" "@owner:alpha.agent-bus.internal" "$out"
 check_has "  and the password" "a-new-password" "$out"
+check_has "  Element is offered at once" "Open alpha in Element now?" "$(cat "$TEST_FZF_RAW")"
+check "  and declined, Element is not started" "no" "$(logged 'gio')"
 check "  then back to the list" "rc=0" "$(rc_of "$out")"
 reset
-out="$(run_picker "$OUTSIDE" "|owner" "|EXIT" "|ABORT")"
+element_profile
+out="$(run_picker "$OUTSIDE" "|owner" "|Sign in" "|YES" "|ABORT")"
+check "  accepted, Element opens apart and the list comes back" "yes" "$(logged "gio launch $LAUNCHER_FILE")"
+check "  leaving the list with 0" "rc=0" "$(rc_of "$out")"
+reset
+printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
+out="$(run_picker "$OUTSIDE" "|owner" "|New password" "|YES" "|EXIT" "|ABORT")"
+check "Enter on a person with a session offers Element first, and a password only on request" "yes" \
+    "$(logged 'agent-bus human password alpha owner')"
+check_has "  the menu names the sessions the password signs out" \
+    "New password — signs out owner's 1 Element session   (Ctrl-P)" "$(cat "$TEST_FZF_RAW")"
+check_has "  and the question says it again" "This signs out owner's 1 Element session." "$(cat "$TEST_FZF_RAW")"
+check_has "  while the reset itself defaults to Exit" "start:last" \
+    "$(awk '/This signs out owner/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
+reset
+printf 'DEVICE\tABC\t1\n' >"$STATE/devices/owner"
+out="$(run_picker "$OUTSIDE" "|owner" "|New password" "|EXIT" "|ABORT")"
 check "  no sets none" "no" "$(logged 'human password')"
 reset
-out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|YES" "|ABORT")"
+out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|EXIT" "|ABORT")"
 check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
     "$(cat "$STATE/clipboard" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
 copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
 check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"
-check_has "  while the password reset itself still defaults to Exit" "start:last" \
-    "$(awk '/other Element sessions are signed out/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 reset
-out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|YES" "|ABORT")"
+out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|EXIT" "|ABORT")"
 check_has "a failed wl-copy says the password is not on the clipboard" "not on the clipboard" "$out"
 check_lacks "  and never that it is" "The password is on the clipboard." "$out"
 reset
 rm -f "$STATE/sudo-cached"
-out="$(TEST_SUDO_RULE=1 TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|owner" "|YES" "|ABORT")"
+out="$(TEST_SUDO_RULE=1 TEST_SUDO_REFUSE=1 run_picker "$OUTSIDE" "|owner" "|Sign in" "|ABORT")"
 check "a password needs sudo; refused, none is set" "no" "$(logged 'agent-bus human password')"
 check_has "  saying so" "No password was set for owner." "$out"
 reset
@@ -820,8 +847,10 @@ check_has "? shows every key, explained" "Ctrl-U" "$out"
 check_has "  and the APPLIED words" "decide: absent" "$out"
 check_has "  and the status words" "need sudo" "$out"
 reset
-out="$(run_picker "$OUTSIDE" "|port 6167" "|ABORT")"
-check_has "Enter on a team shows the same help" "Colours:" "$out"
+out="$(run_picker "$OUTSIDE" "|port 6167" "|What the columns" "|ABORT")"
+check_has "Enter on a team lists its choices; the help is one of them" "Colours:" "$out"
+check_has "  with Element, a session, an update and taking the team down, each with its shortcut" \
+    "Take alpha down   (Ctrl-X)" "$(cat "$TEST_FZF_RAW")"
 
 # ── applied or not (D65), apply and remove ──────────────────────────────────────────────
 echo "== backup and restore"
