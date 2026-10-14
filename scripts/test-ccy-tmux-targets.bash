@@ -41,7 +41,7 @@ done
 if ! command -v tmux >/dev/null; then
     echo "FAIL: tmux not found — this suite drives a real tmux server and cannot pass without it." >&2
     echo "  In a ccy session it comes from .claude/ccy/Dockerfile: start ccy again so the project image is rebuilt." >&2
-    echo "  On the host, play-claude-yolo.yml installs it; in CI, .github/workflows/qa.yml." >&2
+    echo "  On the host, play-claude-yolo.yml installs it; in CI, the QA workflow does." >&2
     exit 1
 fi
 
