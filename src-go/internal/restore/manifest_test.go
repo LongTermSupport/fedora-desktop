@@ -21,7 +21,9 @@ func newStore(t *testing.T) *Store {
 	if err := os.WriteFile(bootFile, []byte("boot-one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return NewStore(filepath.Join(state, "sessions"), bootFile)
+	// One level down, so the manifest's directory is the store's to create (and its mode the
+	// store's to set), not the test's temp directory, whose mode depends on the machine.
+	return NewStore(filepath.Join(state, "ccy", "sessions"), bootFile)
 }
 
 func entryA() Entry {
