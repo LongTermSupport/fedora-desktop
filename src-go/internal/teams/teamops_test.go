@@ -119,6 +119,23 @@ func st(state declare.ApplyState, detail string) declare.Status {
 	return declare.Status{State: state, Detail: detail}
 }
 
+func TestEveryFlowThatMayChangeATeamSaysSo(t *testing.T) {
+	r := newOpsRig(t)
+	changed := 0
+	r.ops.Changed = func() { changed++ }
+	ctx := t.Context()
+	r.on(opsPlay, execx.Result{})
+	r.ops.apply(ctx, nil)
+	r.ops.remove(ctx, nil)
+	r.ops.restore(ctx, nil)
+	if changed != 3 {
+		t.Fatalf("apply, remove and restore said so %d times, want 3", changed)
+	}
+	if err := r.ops.applyTeams(ctx, []string{"alpha"}); err == nil || changed != 4 {
+		t.Fatalf("applyTeams: err %v, said so %d times in all", err, changed)
+	}
+}
+
 func TestPlayJSONIsExactlyPythonsDumps(t *testing.T) {
 	if got := playJSON([]string{"a", "b"}); got != `{"agent_bus_only_teams": ["a", "b"]}` {
 		t.Errorf("got %s", got)

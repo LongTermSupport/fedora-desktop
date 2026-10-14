@@ -25,9 +25,18 @@ func (h harness) declarePrefix(sub string) string {
 	return "env PYTHONPATH=" + h.app.RootDir + " python3 -P -m helpers.agent_bus.declare " + sub
 }
 
-// onDeclare scripts one declare.py subcommand.
+// onDeclare scripts one declare.py subcommand. The list is read with "overview", which prints
+// what "declared" prints and then what "status" prints, so scripting either of those scripts
+// its half of the overview.
 func (h harness) onDeclare(sub, stdout string) {
-	h.on(h.declarePrefix(sub), stdout, 0)
+	if sub != "declared" && sub != "status" {
+		h.on(h.declarePrefix(sub), stdout, 0)
+		return
+	}
+	h.overview[sub] = stdout
+	h.fake.OnFunc(strings.Fields(h.declarePrefix("overview")), func(execx.Cmd) (execx.Result, error) {
+		return execx.Result{Stdout: []byte(h.overview["declared"] + h.overview["status"])}, nil
+	})
 }
 
 // checkout is the project checkout world() sets up.
@@ -96,11 +105,12 @@ func TestCollectTeamsOrdersDeclaredThenUnitsThenStamps(t *testing.T) {
 
 func TestCollectTeamsReportsWhatItCouldNotRead(t *testing.T) {
 	h := newHarness(t)
-	h.onErr(h.declarePrefix("declared"), "declare: bad shape", 78)
+	h.on("systemctl list-units", "", 0)
+	h.onErr(h.declarePrefix("overview"), "declare: bad shape", 78)
 	if err := h.app.collectTeams(t.Context(), newSnapshot()); err == nil {
 		t.Fatal("a declare failure fails the collection")
 	}
-	for _, want := range []string{"declare: bad shape\n", "ERROR: the teams declared in " + h.app.HostVars + " could not be read (the reason is above).\n"} {
+	for _, want := range []string{"declare: bad shape\n", "ERROR: the teams declared in " + h.app.HostVars + ", and whether each is applied as declared, could not be read (the reason is above).\n"} {
 		if !strings.Contains(h.errOut.String(), want) {
 			t.Fatalf("stderr %q lacks %q", h.errOut.String(), want)
 		}
@@ -123,14 +133,14 @@ func TestCollectTeamsReportsWhatItCouldNotRead(t *testing.T) {
 	}
 }
 
-func TestReadStatusAndWords(t *testing.T) {
+func TestCollectTeamsReadsStatusAndWords(t *testing.T) {
 	h := newHarness(t)
+	h.on("systemctl list-units", "agent-bus-hs@b.service loaded active running x\nagent-bus-hs@a.service loaded active running x\n", 0)
 	h.onDeclare("status", "STATUS\ta\tcurrent\t-\nSTATUS\tb\toutdated\tunstamped\nSTATUS\tc\toutdated\tconfig,software\n"+
 		"STATUS\td\toutdated\tconfig\nSTATUS\te\tunbuilt\t-\nSTATUS\tf\tremoved\t-\nSTATUS\tg\tdecide\tabsent\n"+
 		"STATUS\th\tdecide\tundeclared\nSTATUS\ti\tunreadable\tbad yaml\n")
 	s := newSnapshot()
-	s.Loaded = map[string]bool{"b": true, "a": true}
-	if err := h.app.readStatus(t.Context(), s); err != nil {
+	if err := h.app.collectTeams(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
@@ -155,11 +165,8 @@ func TestReadStatusAndWords(t *testing.T) {
 		t.Fatalf("--installed %v", installed)
 	}
 
-	h = newHarness(t)
-	h.onErr(h.declarePrefix("status"), "declare: no", 78)
-	if err := h.app.readStatus(t.Context(), newSnapshot()); err == nil ||
-		!strings.Contains(h.errOut.String(), "ERROR: whether each team is applied as declared could not be read (the reason is above).\n") {
-		t.Fatalf("err %v stderr %q", err, h.errOut.String())
+	if calls := spawned(h); calls["declare.py overview"] != 1 || len(calls) != 2 {
+		t.Fatalf("declaration and status were not read in one run: %v", calls)
 	}
 }
 
@@ -316,9 +323,7 @@ func TestCollectNotInstalledAndDownTeams(t *testing.T) {
 	h := newHarness(t)
 	h.onDeclare("declared", declaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\n")
 	h.onDeclare("status", "STATUS\talpha\tdecide\tabsent\nSTATUS\tbeta\tunbuilt\t-\nSTATUS\tgamma\tunreadable\tbad\n")
-	h.on("systemctl list-units", unitAlpha+"agent-bus-hs@gamma.service loaded failed failed x\n", 0)
-	h.on("systemctl is-active agent-bus-hs@alpha.service", "inactive\n", 3)
-	h.on("systemctl is-active agent-bus-hs@gamma.service", "failed\n", 3)
+	h.on("systemctl list-units", "agent-bus-hs@alpha.service loaded inactive dead x\nagent-bus-hs@gamma.service loaded failed failed x\n", 0)
 	h.on("tmux -L ccy list-sessions", "", 0)
 	h.on("git rev-parse --is-inside-work-tree", "", 128)
 	s, err := h.app.collect(t.Context())

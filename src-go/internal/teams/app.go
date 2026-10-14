@@ -71,6 +71,15 @@ type App struct {
 
 	inContainer func() bool
 	writeErr    error // the first failed write through print
+
+	// devices is who is signed in to Element, by "<team>|<person>", read once and kept until
+	// forgetDevices: one sudo process per person is too much to pay on every redraw.
+	devices map[string]string
+	// workTree is what git said of the folder the command was run in, asked once.
+	workTree struct {
+		asked, inside bool
+		top           string
+	}
 }
 
 // teamOperator is the flows the picker hands off to: each takes the arguments the command line
@@ -144,6 +153,9 @@ func (a *App) wire() {
 	}
 	if a.Term == nil {
 		a.Term = a.freshTerm()
+	}
+	if a.devices == nil {
+		a.devices = map[string]string{}
 	}
 	if a.Sudo == nil {
 		a.Sudo = &sudo.Sudo{Runner: a.Runner, Term: a.Term, Stdin: a.Stdin, Stdout: a.Stdout}

@@ -48,6 +48,20 @@ func TestPasswordRowSetsAPasswordAndShowsTheLoginOnce(t *testing.T) {
 	}
 }
 
+func TestANewPasswordMakesTheListReadWhoIsSignedInAgain(t *testing.T) {
+	h := newPickerHarness(t)
+	h.passwordable()
+	h.app.devices["alpha|owner"] = "2 signed in"
+	h.app.devices["beta|owner"] = "1 signed in"
+	r := h.pass(t)
+	if set, err := r.issuePassword(context.Background(), "alpha", "owner"); err != nil || !set {
+		t.Fatalf("%v %v", set, err)
+	}
+	if _, kept := h.app.devices["alpha|owner"]; kept || h.app.devices["beta|owner"] != "1 signed in" {
+		t.Fatalf("devices %v: only the team whose password changed is read again", h.app.devices)
+	}
+}
+
 func TestIssuePasswordAsksNothingAndShowsTheLogin(t *testing.T) {
 	h := newPickerHarness(t)
 	h.passwordable()

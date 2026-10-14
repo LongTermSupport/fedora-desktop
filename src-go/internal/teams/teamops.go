@@ -50,6 +50,16 @@ type teamOps struct {
 	LookPath     func(name string) (string, error) // the PATH lookup of a tool
 	FileExists   func(path string) bool
 	Width        func(ctx context.Context) int // the terminal's columns; nil or small means 80
+
+	// Changed is told when a flow that may have changed a team ran (even one that failed
+	// part way), so what was read of the machine and kept is read again.
+	Changed func()
+}
+
+func (o *teamOps) changed() {
+	if o.Changed != nil {
+		o.Changed()
+	}
 }
 
 // interactive reports whether there is a terminal to ask on.
@@ -197,6 +207,7 @@ func (o *teamOps) elementTeams(ctx context.Context, teams []string) ([]string, e
 // with an Element profile declared has it written by its own play, here too. A failure has
 // already been said.
 func (o *teamOps) applyTeams(ctx context.Context, teams []string) error {
+	defer o.changed()
 	if err := o.runPlay(ctx, teams); err != nil {
 		o.Term.PrintError(fmt.Sprintf("play-agent-bus.yml failed (exit %d, above).", playExit(err)))
 		return errOpFailed
@@ -233,6 +244,7 @@ func (o *teamOps) applyTeams(ctx context.Context, teams []string) error {
 // built, to what the host_vars declare. Never a team declared absent or no longer declared:
 // taking a team down is remove's, one team at a time.
 func (o *teamOps) apply(ctx context.Context, args []string) term.ExitCode {
+	defer o.changed()
 	if err := o.NeedCheckout(); err != nil {
 		return term.ExitFailure
 	}

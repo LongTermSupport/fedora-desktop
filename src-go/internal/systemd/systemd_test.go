@@ -124,6 +124,16 @@ func TestHomeserverStateUnknownWhenSilent(t *testing.T) {
 	}
 }
 
+func TestStateWordIsHomeserverStatesAnswerForAnActiveColumn(t *testing.T) {
+	for active, want := range map[string]string{
+		"active": "up", "inactive": "down (inactive)", "failed": "down (failed)", "activating": "down (activating)", "": "down (unknown)",
+	} {
+		if got := StateWord(active); got != want {
+			t.Errorf("StateWord(%q) = %q, want %q", active, got, want)
+		}
+	}
+}
+
 func TestHomeserverStateCouldNotRun(t *testing.T) {
 	if _, err := (&Systemd{Runner: &execx.Fake{}}).HomeserverState(context.Background(), "alpha"); !errors.Is(err, execx.ErrUnexpected) {
 		t.Fatalf("got %v", err)

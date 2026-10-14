@@ -27,6 +27,7 @@ func (a *App) newTeamOps() *teamOps {
 			}
 			return snap.Status, nil
 		},
+		Changed:      func() { a.forgetDevices("") },
 		NeedCheckout: a.needCheckout,
 		LookPath:     a.LookPath,
 		FileExists: func(path string) bool {

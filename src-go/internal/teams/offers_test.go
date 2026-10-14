@@ -142,7 +142,7 @@ func TestOfferUpdateSaysNothingWhenAllIsCurrent(t *testing.T) {
 
 func TestOfferUpdateFailsWhenStatusCannotBeRead(t *testing.T) {
 	h := newPickerHarness(t)
-	h.onErr(h.declarePrefix("status"), "declare: bad", 78)
+	h.onErr(h.declarePrefix("overview"), "declare: bad", 78)
 	err := h.app.offerUpdate(context.Background())
 	if code, ok := exitCodeOf(err); !ok || code != term.ExitFailure {
 		t.Fatalf("%v", err)

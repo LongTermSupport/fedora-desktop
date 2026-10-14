@@ -52,6 +52,8 @@ func (r *pickerRun) issuePassword(ctx context.Context, team, name string) (bool,
 		a.tell("No password was set for " + name + ", for the reason above.")
 		return false, nil
 	}
+	// The person's other Element sessions were signed out.
+	a.forgetDevices(team)
 	r.showLogin(team, name, password)
 	return true, r.offerCopy(ctx, name, password)
 }

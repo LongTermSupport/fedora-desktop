@@ -47,6 +47,10 @@ type harness struct {
 	fake   *execx.Fake
 	env    map[string]string
 	root   string
+	// overview is the halves of the declare.py overview the test has scripted.
+	overview map[string]string
+	// counted is how many of the fake's calls spawned() has already reported.
+	counted *int
 }
 
 // newHarness is an App over a scratch root with an installed ccy lib and the declare helper
@@ -57,7 +61,7 @@ func newHarness(t *testing.T) harness {
 	lib := filepath.Join(root, "lib")
 	mustWrite(t, filepath.Join(lib, "tmux-session.bash"), "")
 	mustWrite(t, filepath.Join(root, "helpers", "agent_bus", "declare.py"), "")
-	h := harness{out: &bytes.Buffer{}, errOut: &bytes.Buffer{}, fake: &execx.Fake{}, root: root}
+	h := harness{out: &bytes.Buffer{}, errOut: &bytes.Buffer{}, fake: &execx.Fake{}, root: root, overview: map[string]string{}, counted: new(int)}
 	h.env = map[string]string{"CCY_LIB": lib, "HOME": filepath.Join(root, "home")}
 	getenv := func(k string) string { return h.env[k] }
 	h.app = &App{

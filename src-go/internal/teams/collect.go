@@ -26,7 +26,8 @@ const (
 	wordUnreadable = "unreadable"
 	wordNeedSudo   = "need sudo"
 
-	wordNotInstalled = "not installed"
+	wordNotInstalled  = "not installed"
+	wordNeverSignedIn = "never signed in"
 )
 
 // Snapshot is everything one pass over the machine found: the teams, their applied state,
@@ -37,7 +38,8 @@ type Snapshot struct {
 	Port   map[string]string
 	URL    map[string]string
 	Server map[string]string
-	Loaded map[string]bool // the team has a homeserver unit
+	Loaded map[string]bool   // the team has a homeserver unit
+	Active map[string]string // the unit's ACTIVE word from the one list-units pass
 	Status map[string]declare.Status
 
 	Live        map[string]int    // tmux session name -> attached clients
@@ -60,7 +62,7 @@ type Snapshot struct {
 func newSnapshot() *Snapshot {
 	return &Snapshot{
 		Port: map[string]string{}, URL: map[string]string{}, Server: map[string]string{},
-		Loaded: map[string]bool{}, Status: map[string]declare.Status{},
+		Loaded: map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
 		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{},
 		Members: map[string]agentbus.Roster{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
 	}
@@ -82,16 +84,29 @@ func (s *Snapshot) addTeam(seen map[string]bool, team string) {
 	}
 }
 
-// collectTeams fills Teams, Port, URL, Server and Loaded from the declaration, the homeserver
-// units and the applied stamps.
+// collectTeams fills Teams, Port, URL, Server, Loaded, Active and Status from the homeserver
+// units, the declaration and the applied stamps. The units come first because the status check
+// is told which teams have one; declare.py then answers the declaration and the status in one
+// run.
 func (a *App) collectTeams(ctx context.Context, s *Snapshot) error {
 	if err := a.needCheckout(); err != nil {
 		return err
 	}
-	declared, err := a.Declare.Declared(ctx)
+	units, err := a.Systemd.HomeserverUnits(ctx)
+	if err != nil {
+		a.Term.PrintError("systemctl could not list the agent-bus homeserver units.")
+		return errReported
+	}
+	installed := make([]string, 0, len(units))
+	for _, u := range units {
+		s.Loaded[u.Team] = true
+		s.Active[u.Team] = u.Active
+		installed = append(installed, u.Team)
+	}
+	declared, states, err := a.Declare.Overview(ctx, a.RootDir, a.AppliedDir, installed)
 	if err != nil {
 		a.reportErr(err)
-		a.Term.PrintError("the teams declared in " + a.HostVars + " could not be read (the reason is above).")
+		a.Term.PrintError("the teams declared in " + a.HostVars + ", and whether each is applied as declared, could not be read (the reason is above).")
 		return errReported
 	}
 	seen := map[string]bool{}
@@ -109,14 +124,11 @@ func (a *App) collectTeams(ctx context.Context, s *Snapshot) error {
 			s.URL[t.Name] = t.URL
 		}
 	}
-	units, err := a.Systemd.HomeserverUnits(ctx)
-	if err != nil {
-		a.Term.PrintError("systemctl could not list the agent-bus homeserver units.")
-		return errReported
-	}
 	for _, u := range units {
-		s.Loaded[u.Team] = true
 		s.addTeam(seen, u.Team)
+	}
+	for _, st := range states {
+		s.Status[st.Team] = st
 	}
 	// A team whose stamp says it is built, though not declared present, needs a decision.
 	stamps, err := os.ReadDir(a.AppliedDir)
@@ -132,33 +144,11 @@ func (a *App) collectTeams(ctx context.Context, s *Snapshot) error {
 	return nil
 }
 
-// readStatus fills Status: whether each team is applied as declared.
-func (a *App) readStatus(ctx context.Context, s *Snapshot) error {
-	installed := make([]string, 0, len(s.Loaded))
-	for team := range s.Loaded {
-		installed = append(installed, team)
-	}
-	states, err := a.Declare.Status(ctx, a.RootDir, a.AppliedDir, installed)
-	if err != nil {
-		a.reportErr(err)
-		a.Term.PrintError("whether each team is applied as declared could not be read (the reason is above).")
-		return errReported
-	}
-	s.Status = map[string]declare.Status{}
-	for _, st := range states {
-		s.Status[st.Team] = st
-	}
-	return nil
-}
-
 // refresh is the teams and their applied state, read again: what apply and remove check
 // before and after running the play.
 func (a *App) refresh(ctx context.Context) (*Snapshot, error) {
 	s := newSnapshot()
 	if err := a.collectTeams(ctx, s); err != nil {
-		return nil, err
-	}
-	if err := a.readStatus(ctx, s); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -242,17 +232,25 @@ func (s *Snapshot) addRecord(rec registry.Record) {
 	}
 }
 
-// addWorkTree notes the checkout the command was run in, if it is in one.
+// addWorkTree notes the checkout the command was run in, if it is in one. The folder does not
+// change while the command runs, so the work tree is asked about once.
 func (a *App) addWorkTree(ctx context.Context, s *Snapshot) error {
-	here, err := a.Git.ProjectHere(ctx, "")
-	if err != nil || !here {
-		return err
+	if !a.workTree.asked {
+		here, err := a.Git.ProjectHere(ctx, "")
+		if err != nil {
+			return err
+		}
+		a.workTree.inside = here
+		if here {
+			if a.workTree.top, err = a.Git.TopLevel(ctx, ""); err != nil {
+				return err
+			}
+		}
+		a.workTree.asked = true
 	}
-	top, err := a.Git.TopLevel(ctx, "")
-	if err != nil {
-		return err
+	if a.workTree.inside {
+		s.addCheckout(a.workTree.top)
 	}
-	s.addCheckout(top)
 	return nil
 }
 
@@ -288,12 +286,15 @@ func (a *App) collectMembers(ctx context.Context, s *Snapshot, team string) {
 	}
 	for _, h := range roster.Humans {
 		key := team + "|" + h.Name
+		if word, kept := a.devices[key]; kept {
+			s.SignedIn[key] = word
+			continue
+		}
 		devices, err := a.Bus.HumanDevices(ctx, team, h.Name)
 		switch {
-		case err == nil && len(devices) == 0:
-			s.SignedIn[key] = "never signed in"
 		case err == nil:
-			s.SignedIn[key] = strconv.Itoa(len(devices)) + " signed in"
+			s.SignedIn[key] = signedInWord(len(devices))
+			a.devices[key] = s.SignedIn[key]
 		case errors.Is(err, sudo.ErrNeedsPassword):
 			s.SignedIn[key] = wordNeedSudo
 			s.NeedSudo += " " + team
@@ -302,6 +303,29 @@ func (a *App) collectMembers(ctx context.Context, s *Snapshot, team string) {
 				a.reportErr(err)
 			}
 			s.SignedIn[key] = wordUnknown
+		}
+	}
+}
+
+// signedInWord is a person's SESSION column: how many Element sessions they have.
+func signedInWord(devices int) string {
+	if devices == 0 {
+		return wordNeverSignedIn
+	}
+	return strconv.Itoa(devices) + " signed in"
+}
+
+// forgetDevices drops what was read of who is signed in to Element, for team's people or, with
+// no team, everyone's: reading each person costs a sudo process, so the list keeps a read until
+// something that changes it is done (a password set, a team applied, removed or created).
+func (a *App) forgetDevices(team string) {
+	if team == "" {
+		clear(a.devices)
+		return
+	}
+	for key := range a.devices {
+		if strings.HasPrefix(key, team+"|") {
+			delete(a.devices, key)
 		}
 	}
 }
@@ -354,9 +378,6 @@ func (a *App) collect(ctx context.Context) (*Snapshot, error) {
 	if len(s.Teams) == 0 {
 		return s, nil
 	}
-	if err := a.readStatus(ctx, s); err != nil {
-		return nil, err
-	}
 	if err := a.collectSessions(ctx, s); err != nil {
 		return nil, err
 	}
@@ -404,11 +425,7 @@ func (a *App) teamState(ctx context.Context, s *Snapshot, team string) (string, 
 		}
 		return wordNotInstalled, where + ", install it: ccy-teams apply " + team, nil
 	}
-	state, err := a.homeserverState(ctx, team)
-	if err != nil {
-		a.Term.PrintError(err.Error())
-		return "", "", errReported
-	}
+	state := systemd.StateWord(s.Active[team])
 	if state == systemd.HomeserverUp {
 		a.collectMembers(ctx, s, team)
 	} else {

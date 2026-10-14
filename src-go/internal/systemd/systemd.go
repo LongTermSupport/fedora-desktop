@@ -91,13 +91,22 @@ func (s *Systemd) HomeserverState(ctx context.Context, team string) (string, err
 		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr == nil {
 			return "", err
 		}
-	} else if state == "active" {
-		return HomeserverUp, nil
 	}
-	if state == "" {
-		state = "unknown"
+	return StateWord(state), nil
+}
+
+// StateWord is HomeserverState's answer for the word systemd gives a unit's active state (the
+// ACTIVE column of list-units, or what is-active prints): "up" for active, else the word in
+// "down (...)". A list-units pass already carries it for every unit, so a caller that has one
+// does not ask is-active once more per team.
+func StateWord(active string) string {
+	switch active {
+	case "active":
+		return HomeserverUp
+	case "":
+		return "down (unknown)"
 	}
-	return "down (" + state + ")", nil
+	return "down (" + active + ")"
 }
 
 // ElementLogPath is where a team's Element messages go: under stateHome (XDG_STATE_HOME)

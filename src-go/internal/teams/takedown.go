@@ -53,6 +53,7 @@ func (o *teamOps) questionFailed(err error) term.ExitCode {
 // is lost: a backup first (yes by default), then down with its data kept, unless the human
 // chooses to delete it and types the team's name. Never with --yes, never in bulk.
 func (o *teamOps) remove(ctx context.Context, args []string) term.ExitCode {
+	defer o.changed()
 	if err := o.NeedCheckout(); err != nil {
 		return term.ExitFailure
 	}
@@ -233,6 +234,7 @@ func (o *teamOps) backup(ctx context.Context, args []string) term.ExitCode {
 // the backups are listed (on stdout when there is no terminal to choose on, else a picker);
 // without --yes a terminal confirms.
 func (o *teamOps) restore(ctx context.Context, args []string) term.ExitCode {
+	defer o.changed()
 	req, code, ok := o.restoreArgs(args)
 	if !ok {
 		return code

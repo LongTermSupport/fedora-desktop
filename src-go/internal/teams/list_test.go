@@ -117,7 +117,7 @@ func TestListWithAnUnreadableSeatFails(t *testing.T) {
 
 func TestListDownTeamIsStateNotFailure(t *testing.T) {
 	h := world(t)
-	h.on("systemctl is-active agent-bus-hs@alpha.service", "inactive\n", 3)
+	h.on("systemctl list-units", "agent-bus-hs@alpha.service loaded inactive dead x\n", 0)
 	if code := h.app.Run([]string{"--list"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.errOut.String())
 	}
@@ -128,7 +128,7 @@ func TestListDownTeamIsStateNotFailure(t *testing.T) {
 
 func TestListCollectionFailureExitsOne(t *testing.T) {
 	h := newHarness(t)
-	h.onErr(h.declarePrefix("declared"), "declare: bad", 78)
+	h.onErr(h.declarePrefix("overview"), "declare: bad", 78)
 	if code := h.app.Run([]string{"--list"}); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
