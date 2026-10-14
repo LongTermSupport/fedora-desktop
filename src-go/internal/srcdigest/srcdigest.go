@@ -1,7 +1,7 @@
 // Package srcdigest answers `--version` for a deployed command with the digest of the source
 // it was built from. The play bakes the digest in (-ldflags "-X main.SourceDigest=<hex>"), and
-// helpers/go_drift compares the installed command's answer with the checkout's digest, so a
-// binary the plays have not rebuilt since a source change shows as drift.
+// `go-source drift` (qa/gobuild) compares the installed command's answer with the checkout's
+// digest, so a binary the plays have not rebuilt since a source change shows as drift.
 package srcdigest
 
 import (

@@ -34,11 +34,11 @@
 # the owner it leaves.
 #
 # Every command is built with its source digest baked in (-X main.SourceDigest=<hex>), computed
-# by helpers/agent_bus/installer_digest.py from the checkout, and answers `--version` with it.
-# helpers/go_drift/check.py (run by scripts/qa-deployed-drift.bash) compares the installed
-# command's answer with the checkout's digest, so a command the plays have not rebuilt since a
-# source change is a QA finding. A new deployed command needs `var SourceDigest string` in its
-# main package and a row in scripts/go-binary-installs.tsv.
+# by `go-source digest` (src-go/qa/gobuild, run here with `go run`) from the checkout, and
+# answers `--version` with it. `go-source drift` (run by scripts/qa-deployed-drift.bash)
+# compares the installed command's answer with the checkout's digest, so a command the plays
+# have not rebuilt since a source change is a QA finding. A new deployed command needs
+# `var SourceDigest string` in its main package and a row in scripts/go-binary-installs.tsv.
 #
 # Inputs
 #   go_command_name     required; the directory under src-go/cmd and the scratch binary's name
@@ -64,14 +64,20 @@
 - name: Compute the {{ go_command_name }} Source Digest
   ansible.builtin.command:
     argv:
-      - python3
-      - -m
-      - helpers.agent_bus.installer_digest
+      - go
+      - run
+      - ./cmd/go-source
+      - digest
       - --source
       - "{{ root_dir }}"
       - --command
       - "{{ go_command_name }}"
-    chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+    chdir: "{{ root_dir }}/src-go/qa" # the nested QA module holds the tool
+  environment:
+    HOME: "/home/{{ user_login }}"
+    GOTOOLCHAIN: local
+    GOFLAGS: -mod=readonly
+    GOCACHE: "/home/{{ user_login }}/.cache/go-build"
   register: go_command_digest
   changed_when: false
   check_mode: false

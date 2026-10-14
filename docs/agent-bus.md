@@ -211,7 +211,7 @@ so the clone is code root runs: pin a commit you trust):
 ```bash
 cd <clone>/src-go
 go build -trimpath -buildvcs=false \
-  -ldflags "-X main.SourceDigest=$(cd .. && python3 -m helpers.agent_bus.installer_digest --source .)" \
+  -ldflags "-X main.SourceDigest=$(go run -C qa ./cmd/go-source digest --source .. --command agent-bus-install)" \
   -o <clone>/agent-bus-install.bin ./cmd/agent-bus-install
 sudo install -o root -g root -m 0755 <clone>/agent-bus-install.bin /usr/local/sbin/agent-bus-install
 sudo agent-bus-install software --source <clone> --bus-address <bus_ip>

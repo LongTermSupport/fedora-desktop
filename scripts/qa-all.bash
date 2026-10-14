@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The three stage-line readers. Between them they produce the SUMMARY in every stage line
-# below — 37 of them, counted: `qa_gate_case_count` 27, `qa_gate_detail` 9,
+# below — 38 of them, counted: `qa_gate_case_count` 28, `qa_gate_detail` 9,
 # `helper_counts_summary` 1. `qa_pass_line` prints it; only `deployed-drift` composes its own
 # line, because there the line IS the gate's output rather than a summary of it. Sourced
 # rather than inlined so a committed test can drive the real functions — see the library
@@ -336,7 +336,6 @@ fi
 # all. That is the whole reason the suite exists, so "it is exercised on every
 # commit anyway" is not a reason to leave it unwired. Every case is synthetic and
 # the whole suite is sub-second. Same shape as the helper-tests gate above.
-scan_out=""
 if ! scan_out="$(bash "$SCRIPT_DIR/test-secret-scan.bash" 2>&1)"; then
     qa_hard_gate_failed secret-scan-tests \
         "secret scanner unit tests failed" \
@@ -353,7 +352,6 @@ qa_pass_line secret-scan-tests "$scan_summary"
 # for months. One of its cases pins a defect that broke a live host deploy.
 # Nothing ran it automatically, which made it a suite whose passing was a matter
 # of someone remembering. Sub-second, same shape as the two gates above.
-planlib_out=""
 if ! planlib_out="$(bash "$SCRIPT_DIR/test-planlib.bash" 2>&1)"; then
     qa_hard_gate_failed planlib-tests \
         "plan-script library regression tests failed" \
@@ -1291,25 +1289,26 @@ qa_pass_line helper-counts-reader "$helper_summary_tests"
 # that gate treats as its ordinary findings status, and only the payload validation turns it
 # into a refusal. Two hops, neither asserted, either of which would make a traceback look
 # like "no findings".
-docs_exit_out=""
 if ! docs_exit_out="$(bash "$SCRIPT_DIR/test-qa-docs-exit-codes.bash" 2>&1)"; then
-    qa_hard_gate_failed docs-exit-codes \
-        "docs gate exit-code contract failed" \
-        "$docs_exit_out"
+    qa_hard_gate_failed docs-exit-codes "docs gate exit-code contract failed" "$docs_exit_out"
 fi
-docs_exit_summary=$(qa_gate_case_count "$docs_exit_out")
-qa_pass_line docs-exit-codes "$docs_exit_summary"
+qa_pass_line docs-exit-codes "$(qa_gate_case_count "$docs_exit_out")"
 
 # The diff-scoped QA's file -> check mapping (scripts/qa-changed.bash --plan). A wrong mapping
 # is silent: the iteration loop reports a pass over checks it never selected.
-qa_changed_out=""
 if ! qa_changed_out="$(bash "$SCRIPT_DIR/test-qa-changed.bash" 2>&1)"; then
-    qa_hard_gate_failed qa-changed-mapping \
-        "qa-changed file-to-check mapping tests failed" \
-        "$qa_changed_out"
+    qa_hard_gate_failed qa-changed-mapping "qa-changed file-to-check mapping tests failed" "$qa_changed_out"
 fi
-qa_changed_summary=$(qa_gate_case_count "$qa_changed_out")
-qa_pass_line qa-changed-mapping "$qa_changed_summary"
+qa_pass_line qa-changed-mapping "$(qa_gate_case_count "$qa_changed_out")"
+
+# The deployed-drift gate's verdicts on the deployed Go commands (Plan 00192): drift in either
+# kind fails it, a Go check that could not run is "could not run" and not drift, and script
+# pairs and Go commands are counted apart. The gate skips in the CCY container and in a linked
+# worktree, so only a fixture checkout can show any of this.
+if ! drift_verdicts_out="$(bash "$SCRIPT_DIR/test-qa-deployed-drift.bash" 2>&1)"; then
+    qa_hard_gate_failed deployed-drift-verdicts "deployed-drift verdict tests failed" "$drift_verdicts_out"
+fi
+qa_pass_line deployed-drift-verdicts "$(qa_gate_case_count "$drift_verdicts_out")"
 
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then

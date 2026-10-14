@@ -15,7 +15,7 @@
 # output, which cannot be made once the bash tool is gone.
 #
 # It also checks the installed agent-bus-install: a compiled program, root-owned, mode 0755, whose
-# --version is the source digest this checkout would bake in (helpers/agent_bus/installer_digest.py),
+# --version is the source digest this checkout would bake in (`go-source digest`, src-go/qa/gobuild),
 # and that the bash installer is gone from the tree. It records the raw output of the two host
 # probes the installer's spec left to measure (B12 firewalld zone of an unzoned interface, B13
 # nmcli terse addresses) into the run directory, unjudged: ACCEPTANCE-agent-bus-install.md says
@@ -165,7 +165,7 @@ installer=/usr/local/sbin/agent-bus-install
 if [[ -x "${installer}" ]] && is_elf "${installer}"; then
     check "${installer} is a compiled program" yes
     check "${installer} is root-owned, mode 0755" "$(yes_if test "$(stat -c '%U:%G %a' "${installer}")" = 'root:root 755')"
-    want="$(cd "${PLAN_REPO_ROOT}" && python3 -m helpers.agent_bus.installer_digest --source "${PLAN_REPO_ROOT}")"
+    want="$(cd "${PLAN_REPO_ROOT}/src-go/qa" && go run ./cmd/go-source digest --source "${PLAN_REPO_ROOT}" --command agent-bus-install)"
     have="$("${installer}" --version)" || have="(--version failed)"
     check "${installer} --version is the digest this checkout builds (${want})" "$(yes_if test "${have}" = "${want}")"
 else

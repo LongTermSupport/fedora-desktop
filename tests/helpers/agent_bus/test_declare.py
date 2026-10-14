@@ -22,10 +22,11 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.agent_bus import declare, installer_digest, teamfile
+from helpers.agent_bus import declare, teamfile
 from helpers.pingbus import bundle
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -552,7 +553,8 @@ class StatusTest(unittest.TestCase):
         pin = (REPO_ROOT / declare.PIN_FILE).read_text()
         version = next(line.split(":", 1)[1].strip() for line in pin.splitlines()
                        if line.startswith("tuwunel_version:"))
-        installer = installer_digest.source_digest(REPO_ROOT)
+        installer = declare.installer_source_digest(REPO_ROOT)
+        self.assertRegex(installer, r"^[0-9a-f]{64}$")
         want = hashlib.sha256(
             f"{hashlib.sha256(zipapp).hexdigest()}\n{version.lstrip('v')}\n{installer}\n".encode()).hexdigest()
         self.assertEqual(self.software, want)
@@ -563,6 +565,11 @@ class StatusTest(unittest.TestCase):
         pin.write_text("tuwunel_version: v1.0.0\n", encoding="utf-8")
         with self.assertRaisesRegex(declare.DeclareError, "go.mod"):
             declare.declared_software(self.tmp)
+
+    def test_without_a_go_toolchain_the_installer_digest_is_a_declare_error(self) -> None:
+        with mock.patch.dict(os.environ, {"PATH": str(self.tmp)}), \
+                self.assertRaisesRegex(declare.DeclareError, "installer source digest"):
+            declare.installer_source_digest(REPO_ROOT)
 
     def test_all_states(self) -> None:
         self.stamp("alpha")

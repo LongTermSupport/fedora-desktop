@@ -86,11 +86,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   the cut-over wave done on the branch: `play-agent-bus.yml` builds the binary as the login user
   through `tasks/build-go-command.yml` (now with an elevated install and an owner) and installs a
   root-owned copy at `/usr/local/sbin/agent-bus-install`, running that copy rather than a checkout script (it still runs the checkout's Python bundler and wrapper as root); the source
-  digest is defined in `helpers/agent_bus/installer_digest.py`, baked in with ldflags and
-  recomputed by `declare.py` (a Go test and a Python test pin the agreement); the bash installer,
+  digest is defined in the neutral Go package `src-go/qa/gobuild` (tool `go-source`), baked in
+  with ldflags for every deployed command and recomputed by `declare.py` through that tool (a Go
+  test over every command under `src-go/cmd` pins it to `go list -deps`); the bash installer,
   `tarstate.Extract` and the suite's bash mode are deleted; the Python tests that read the bash
   source read the Go source, and `qa-deployed-drift` drops its pair and compares every deployed Go command's `--version` source
-  digest with the checkout's (`helpers/go_drift`, `scripts/go-binary-installs.tsv`); `businstall` and `fsx`
+  digest with the checkout's (`go-source drift`, `scripts/go-binary-installs.tsv`); `businstall` and `fsx`
   are above 90% coverage; `fsx` is one package with F44's atomic writes. The host check is
   [ACCEPTANCE-agent-bus-install.md](ACCEPTANCE-agent-bus-install.md) (via `deploy.bash` in
   `meta-deploy.bash`), including the B12 and B13 probes. Runs as root and changes behaviour

@@ -23,7 +23,7 @@ Nothing here is run by hand to change the host. The play is the only install rou
   `sudo -n /usr/local/sbin/agent-bus-install ...` argv of ccy-teams are the same as before.
 - A team stamped by the bash installer is "out of date" in `ccy-teams` after this change, once:
   the stamp's software digest was the hash of the bash file and is now the hash of the Go source
-  (`helpers/agent_bus/installer_digest.py`). The play restamps each declared team.
+  (`go-source digest`, package `src-go/qa/gobuild`). The play restamps each declared team.
 - Deliberate behaviour changes (spec section 11, each pinned by a suite case): a zone id or an
   IPv4-mapped `--bus-address` is refused (B2); a curl that exits 78 is exit 1, not a
   configuration error (B3); the restore stage is never under `TMPDIR` (B4); a symlink planted in
@@ -48,7 +48,8 @@ files changed; the stamp alone does not restart it.
 
 1. `/usr/local/sbin/agent-bus-install` is a compiled program, owned `root:root`, mode 755.
 2. `agent-bus-install --version` prints the same digest that
-   `python3 -m helpers.agent_bus.installer_digest --source <checkout>` computes. A mismatch means
+   `go run ./cmd/go-source digest --source <checkout> --command agent-bus-install` (in
+   `src-go/qa`) computes. A mismatch means
    the binary was built from other source than the checkout holds now.
 3. `files/usr/local/sbin/agent-bus-install` is gone from the checkout.
 

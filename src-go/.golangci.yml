@@ -89,8 +89,14 @@ linters:
       - path: qa/changed/
         linters: [gosec]
         text: "G304|G703"
-      # semgrep's JSON report is snake_case, its wire format.
-      - path: qa/changed/checks\.go
+      # gobuild's tests build small checkouts in temporary directories, read the repository's
+      # tables by computed path, and write stand-in programs that have to be executable.
+      - path: qa/gobuild/.*_test\.go
+        linters: [gosec]
+        text: "G302|G304|G306"
+      # semgrep's JSON report is snake_case, its wire format; the golden test reads the
+      # recorded run of the bash it replaced, whose JSON is camelCase.
+      - path: qa/changed/(checks|golden_test)\.go
         linters: [tagliatelle]
       # A test writes an executable stub to prove the executable check.
       - path: qa/changed/.*_test\.go

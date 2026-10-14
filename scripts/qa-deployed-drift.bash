@@ -20,11 +20,15 @@
 # feature is never nagged about it.
 #
 # stdout: terse — findings and a one-line summary.
-# Exit 0 = in sync (or nothing deployed to compare against); 1 = drift found.
+# Exit 0 = in sync (or nothing deployed to compare against); 1 = drift found; 2 = a check
+# could not run (which is not drift).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/go-tool.bash
+source "$SCRIPT_DIR/lib/go-tool.bash"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC_DIR="$REPO_ROOT/files/home/.local/bin"
 DEPLOYED_DIR="$HOME/.local/bin"
@@ -51,10 +55,10 @@ for src in "$SRC_DIR"/*; do
     rendered="${name%.j2}"
     if ! grep -rqE --include='*.yml' -- "dest:.*/\.local/bin/${rendered//./\\.}([\"' ]|\$)" \
         "$REPO_ROOT/playbooks"; then
-        echo "✗ deployed-drift: $name has no playbook dest: deploying it as '$rendered'" >&2
-        echo "  A template this gate cannot map to a deployed name is a file it" >&2
-        echo "  would report a pass over without comparing anything. Fix the play," >&2
-        echo "  or the naming convention this check relies on." >&2
+        printf '%s\n' "✗ deployed-drift: $name has no playbook dest: deploying it as '$rendered'" \
+            "  A template this gate cannot map to a deployed name is a file it" \
+            "  would report a pass over without comparing anything. Fix the play," \
+            "  or the naming convention this check relies on." >&2
         exit 2
     fi
     TEMPLATES+=("$name -> $rendered")
@@ -186,10 +190,7 @@ for src in "$SRC_DIR"/*; do
         continue
     fi
     DRIFTED=$((DRIFTED + 1))
-    if [ "$DRIFTED" -eq 1 ]; then
-        echo "✗ deployed-drift: repo changes that were never deployed" >&2
-        echo >&2
-    fi
+    [ "$DRIFTED" -gt 1 ] || printf '✗ deployed-drift: repo changes that were never deployed\n\n' >&2
     echo "  $name" >&2
     echo "    repo:     $src" >&2
     echo "    deployed: $dep" >&2
@@ -250,10 +251,7 @@ for pair in "${EXTRA_PAIRS[@]}"; do
             continue
         fi
         DRIFTED=$((DRIFTED + 1))
-        if [ "$DRIFTED" -eq 1 ]; then
-            echo "✗ deployed-drift: repo changes that were never deployed" >&2
-            echo >&2
-        fi
+        [ "$DRIFTED" -gt 1 ] || printf '✗ deployed-drift: repo changes that were never deployed\n\n' >&2
         echo "  ${src#"$REPO_ROOT"/}" >&2
         echo "    deployed: $dep" >&2
         echo "    deploy it with:" >&2
@@ -264,25 +262,31 @@ done
 
 # THE DEPLOYED GO COMMANDS. A Go binary is not byte-comparable with anything in the repo, so
 # each one reports the digest of the source it was built from (`--version`) and
-# helpers/go_drift compares that with the checkout's digest for every command in
-# scripts/go-binary-installs.tsv. The helper prints its own findings and summary; any
-# failure of it (drift, or a check that could not run, which it names on stderr) fails this
-# gate. This is the check that sees a root binary a timer runs daily going stale.
-PYTHONPATH="$REPO_ROOT" python3 -m helpers.go_drift.check --source "$REPO_ROOT" || DRIFTED=$((DRIFTED + 1))
+# `go-source drift` (src-go/qa/gobuild) compares that with the checkout's digest for every
+# command in scripts/go-binary-installs.tsv. It prints its own findings and its own counts, apart
+# from the script pairs above: exit 1 is drift, any other non-zero exit is a check that could not
+# run (a bad table, a command the source lacks, a toolchain that did not build it), which is
+# not drift and stops this gate with its own message. This is the check that sees a root
+# binary a timer runs daily going stale.
+GO_STATUS=0
+run_go_tool go-source drift --source "$REPO_ROOT" || GO_STATUS=$?
+if [ "$GO_STATUS" -gt 1 ]; then
+    echo "✗ deployed-drift: the check of the deployed Go commands could not run (exit $GO_STATUS); that is a failure of the check, not drift" >&2
+    exit 2
+fi
 
-if [ "$DRIFTED" -gt 0 ]; then
-    echo "  The repo and the host disagree. Deploy, test, THEN commit —" >&2
-    echo "  see CLAUDE/InfrastructureAsCode.md (edit -> playbook -> deploy -> test)." >&2
-    echo >&2
+if [ "$DRIFTED" -gt 0 ] || [ "$GO_STATUS" -eq 1 ]; then
+    printf '%s\n' "  The repo and the host disagree. Deploy, test, THEN commit —" \
+        "  see CLAUDE/InfrastructureAsCode.md (edit -> playbook -> deploy -> test)." "" >&2
     # The failing line states the same three categories the passing line does. A summary
     # that names only what it compared reads as a statement about everything, and on the
     # failing path that is worse than on the passing one: the reader is about to go and
     # fix the drift, and needs to know which scripts were never compared at all before
-    # concluding the fix was complete.
-    failure="✗ deployed-drift: $DRIFTED of $CHECKED deployed script(s) differ from the repo"
-    failure="$failure; $NOT_DEPLOYED not installed on this host"
-    failure="$failure; ${#TEMPLATES[@]} template(s) not byte-comparable"
-    echo "$failure" >&2
+    # concluding the fix was complete. It counts the script pairs only: the Go commands
+    # were counted, and reported, by their own check above.
+    if [ "$DRIFTED" -gt 0 ]; then
+        echo "✗ deployed-drift: $DRIFTED of $CHECKED deployed script(s) differ from the repo; $NOT_DEPLOYED not installed on this host; ${#TEMPLATES[@]} template(s) not byte-comparable" >&2
+    fi
     exit 1
 fi
 
@@ -296,8 +300,7 @@ fi
 # this block was written to fix. "0 template(s)" in a repo that has one is a
 # question somebody asks; a missing clause is not.
 summary="✓ deployed-drift: $CHECKED deployed script(s) match the repo"
-summary="$summary; $NOT_DEPLOYED not installed on this host"
-summary="$summary; ${#TEMPLATES[@]} template(s) not byte-comparable"
+summary="$summary; $NOT_DEPLOYED not installed on this host; ${#TEMPLATES[@]} template(s) not byte-comparable"
 echo "$summary"
 # The bracket-at-plus form, which _planlib.inc.bash's own regression suite
 # enforces repo-wide: TEMPLATES can now legitimately be empty on a host with no

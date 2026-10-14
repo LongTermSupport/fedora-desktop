@@ -12,8 +12,8 @@
 # runs checkout Python as root (the zipapp bundler, with the checkout as its working directory)
 # and installs and later runs the admin wrapper copied from the checkout, so a file the user can
 # write is still executed by root through this play. The build bakes in the source digest that
-# helpers/agent_bus/installer_digest.py computes; `team` stamps it and declare.py recomputes
-# it, so ccy-teams shows a team as out of date until this play has rebuilt the installer.
+# `go-source digest` (src-go/qa/gobuild) computes; `team` stamps it and declare.py recomputes
+# it with that tool, so ccy-teams shows a team as out of date until this play has rebuilt the installer.
 # Then the play:
 #
 #   1. `software --source <this checkout>` on every run, with `--bus-address` when the

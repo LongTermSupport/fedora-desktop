@@ -34,10 +34,11 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   parse. Its test prefix (`AGENT_BUS_INSTALL_TEST_PREFIX`) exists only in a binary built with
   `-tags agentbustest`. It runs as root, so `businstall` and `fsx` are held to 90% coverage each,
   and the play runs only a root-owned installed copy. The binary carries a source digest
-  (`-X main.SourceDigest=`) that `team` stamps; `helpers/agent_bus/installer_digest.py` defines
-  and computes it (the sorted build-closure files of the command plus `go.mod`, each hashed) and
-  `declare.py` recomputes it, with `internal/businstall/digest_agree_test.go` proving the Go
-  and Python sides agree.
+  (`-X main.SourceDigest=`) that `team` stamps; every deployed command carries one, and the
+  neutral package `qa/gobuild` defines and computes it (the sorted build-closure files of the
+  command plus `go.mod`, each hashed), `declare.py` asks the same tool (`go-source digest`),
+  and `qa/gobuild/agree_test.go` proves, for every command under `cmd/`, that the closure is
+  the one `go list -deps` reports and that a binary built the play's way prints the digest.
 
 ## Rules
 
@@ -92,10 +93,10 @@ already listed. Behaviour the golden pins is changed in the same commit as its d
 (`go build -trimpath -buildvcs=false`, as the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
 optional ldflags, and always bakes in the command's source digest (`-X main.SourceDigest=`,
-`helpers/agent_bus/installer_digest.py --command <name>`). Every command's `main` carries
+`go run ./cmd/go-source digest --command <name>` in `qa/`). Every command's `main` carries
 `var SourceDigest string` and answers `--version` through `internal/srcdigest`;
 `qa-deployed-drift.bash` compares the installed answer with the checkout's digest
-(`scripts/go-binary-installs.tsv`, `helpers/go_drift`). `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
+(`scripts/go-binary-installs.tsv`, `go-source drift`). `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
 (`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain). Each binary
@@ -116,6 +117,12 @@ go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
 limits (`scripts/qa-bash-limits.bash` runs it; allowlist `scripts/bash-limits.allowlist`; the
 measure is defined in the package doc). It is a QA tool, never deployed, so it has no bash oracle
 suite; its Go tests (including real temporary git repositories) are the proof.
+
+`qa/gobuild` + `qa/cmd/go-source` (same nested module, standard library only) are the source
+digest of a deployed command and the drift check over the installed ones: the build runs
+`go-source digest` for every command and `scripts/qa-deployed-drift.bash` runs `go-source drift`
+(both through `qa/internal/proc`). They live here, not in a command's package, because every
+deployed command uses them and none should depend on another's package.
 
 `qa/changed` + `qa/cmd/qa-changed` (same nested module) are `scripts/qa-changed.bash`, the
 diff-scoped QA run before each commit: the script only builds and runs the command. The routing

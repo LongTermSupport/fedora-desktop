@@ -745,7 +745,7 @@ nmcli connection down vpn-name
 **Actions**:
 
 - Builds `agent-bus-install` (a Go program, `src-go/cmd/agent-bus-install`) from the checkout
-  as the login user, with the source digest `helpers/agent_bus/installer_digest.py` computes
+  as the login user, with the source digest `go-source digest` (`src-go/qa/gobuild`) computes
   baked in, and installs a root-owned copy at `/usr/local/sbin/agent-bus-install` (0755)
   through the shared `tasks/build-go-command.yml`; root runs that installed copy, not a checkout script (it still builds
   the zipapps with the checkout's Python and installs the checkout's admin wrapper, as before)

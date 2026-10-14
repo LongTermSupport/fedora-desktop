@@ -79,7 +79,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
-from helpers.agent_bus import installer_digest, teamfile
+from helpers.agent_bus import teamfile
 from helpers.pingbus import bundle, protocol
 
 TEAMS_KEY = "agent_bus_teams"
@@ -374,19 +374,36 @@ CURRENT, OUTDATED, UNBUILT, REMOVED, DECIDE, UNREADABLE = (
     "current", "outdated", "unbuilt", "removed", "decide", "unreadable")
 
 
+GO_SOURCE_TOOL = pathlib.Path(__file__).resolve().parents[2] / "src-go" / "qa"
+GO_SOURCE_SECONDS = 300
+
+
+def installer_source_digest(source: pathlib.Path) -> str:
+    """The digest of this checkout's installer source, which the play bakes into the installer
+    binary it builds. The one definition is the Go tool src-go/qa/cmd/go-source (package
+    gobuild), run from the checkout this module belongs to over `source`."""
+    argv = ["go", "run", "-C", str(GO_SOURCE_TOOL), "./cmd/go-source", "digest",
+            "--source", str(source), "--command", "agent-bus-install"]
+    env = dict(os.environ, GOFLAGS="-mod=readonly", GOTOOLCHAIN="local")
+    try:
+        done = subprocess.run(argv, check=False, capture_output=True, text=True, env=env,
+                              timeout=GO_SOURCE_SECONDS, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DeclareError(f"cannot compute the installer source digest: {exc}") from None
+    if done.returncode != 0:
+        raise DeclareError(done.stderr.strip() or f"go-source exited {done.returncode}")
+    return done.stdout.strip()
+
+
 def declared_software(source: pathlib.Path) -> str:
     """The software digest the play would stamp now: the admin zipapp built from this
     checkout (the same reproducible build the installer runs), the pinned Tuwunel and the
-    digest of this checkout's installer source (helpers/agent_bus/installer_digest.py), which
-    the play bakes into the installer binary it builds."""
+    digest of this checkout's installer source."""
     versions = [line.partition(":")[2].strip() for line in (source / PIN_FILE).read_text().splitlines()
                 if line.startswith("tuwunel_version:")]
     if len(versions) != 1:
         raise DeclareError(f"{PIN_FILE} names no single tuwunel_version")
-    try:
-        installer = installer_digest.source_digest(source)
-    except installer_digest.DigestError as exc:
-        raise DeclareError(str(exc)) from None
+    installer = installer_source_digest(source)
     return teamfile.software_digest(bundle.build("agent-bus", source), versions[0], installer)
 
 
