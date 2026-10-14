@@ -150,6 +150,13 @@ script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwa
 (expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
 `git ls-files` it needs is run by the command through the seam.
 
+`qa/readywait` + `qa/cmd/qa-ready-wait-rules` (same nested module) are
+`scripts/qa-ready-wait-rules.bash`, the gate for `ready-wait-ignores-child-exit`: the script only
+builds and runs the command. Python stays semgrep's (`.semgrep/ready-wait.yml` is the data); the
+shell half is the lexer-based rule in Go (it replaced `helpers/ready_wait`), and each half is proven
+against its fixture in `.semgrep/` on every run. Spec `SPEC-qa-ready-wait-rules.md` (R1-R26), proven
+by unit tests over a fake semgrep and real-semgrep tests in `qa/cmd/qa-ready-wait-rules`.
+
 `qa/patterns` + `qa/cmd/qa-patterns` (same nested module) are `scripts/qa-patterns.bash`, the
 bash-convention gate: semgrep stays the engine and `.semgrep/bash-conventions.yml` the data; the Go
 owns scope (what git would publish), the rule self-test against its fixture, the scan mirror and
