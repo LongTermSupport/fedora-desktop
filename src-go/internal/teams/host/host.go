@@ -158,8 +158,10 @@ func (h *Host) NeedCheckout() error {
 // wireTools builds the adapter of each tool.
 func (h *Host) wireTools() {
 	if h.Sudo == nil {
-		h.Sudo = &sudo.Sudo{Runner: h.Runner, Term: h.Term, Stdin: h.Stdin, Stdout: h.Stdout,
-			OpenTTY: func() (io.ReadCloser, error) { return h.OpenTTY() }}
+		h.Sudo = &sudo.Sudo{
+			Runner: h.Runner, Term: h.Term, Stdin: h.Stdin, Stdout: h.Stdout,
+			OpenTTY: func() (io.ReadCloser, error) { return h.OpenTTY() },
+		}
 	}
 	if h.Systemd == nil {
 		h.Systemd = &systemd.Systemd{Runner: h.Runner}
