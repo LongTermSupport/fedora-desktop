@@ -191,9 +191,7 @@ var (
 	tmpPath    = regexp.MustCompile(`/tmp/[A-Za-z0-9._-]+`)
 )
 
-var (
-	explicitPlanHeader = regexp.MustCompile(`plan: ([0-9]+) changed file\(s\) \(explicit\)`)
-)
+var explicitPlanHeader = regexp.MustCompile(`plan: ([0-9]+) changed file\(s\) \(explicit\)`)
 
 // normaliseGolden writes the temporary root as <ROOT>, and puts the bash's wording back for the
 // one text change that touches every --files run (and only those: a git-collected run that

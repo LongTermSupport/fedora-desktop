@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -63,7 +64,7 @@ func gone(pid int) bool {
 		return true
 	}
 	// The state letter follows the parenthesised command name.
-	rest := string(data[strings.LastIndexByte(string(data), ')')+1:])
+	rest := string(data[bytes.LastIndexByte(data, ')')+1:])
 	return strings.HasPrefix(strings.TrimSpace(rest), "Z")
 }
 

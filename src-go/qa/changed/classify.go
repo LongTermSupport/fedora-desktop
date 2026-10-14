@@ -152,6 +152,14 @@ func (s *session) applies(r rule, rel string, deleted bool) (bool, error) {
 }
 
 func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) error {
+	if err := s.applyAlso(ctx, rel, deleted); err != nil {
+		return err
+	}
+	return s.applyFirst(ctx, rel, deleted)
+}
+
+// applyAlso gives the file every "also" rule that matches it, outside its rule's excluded tree.
+func (s *session) applyAlso(ctx context.Context, rel string, deleted bool) error {
 	for _, r := range s.routing.also {
 		match, err := s.applies(r, rel, deleted)
 		if err != nil {
@@ -163,6 +171,12 @@ func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) er
 			}
 		}
 	}
+	return nil
+}
+
+// applyFirst gives the file the first "first" rule that matches it; a match inside the rule's
+// excluded tree skips the file instead.
+func (s *session) applyFirst(ctx context.Context, rel string, deleted bool) error {
 	for _, r := range s.routing.first {
 		match, err := s.applies(r, rel, deleted)
 		if err != nil {
