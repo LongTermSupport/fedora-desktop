@@ -464,13 +464,10 @@ func (s *Snapshot) addMemberRows(a *App, team string, seats []seatAt) {
 // restoreWord is the RESTORE column for the seat at key: "-" when no session record names it.
 func restoreWord(s *Snapshot, key string) string {
 	restores, recorded := s.SeatRestore[key]
-	switch {
-	case !recorded:
+	if !recorded {
 		return "-"
-	case restores:
-		return "yes"
 	}
-	return "no"
+	return term.YesNo(restores)
 }
 
 // seatRow is a ccy seat's row: its session and RESTORE when a registry record names it, else

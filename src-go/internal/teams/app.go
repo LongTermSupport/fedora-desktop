@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
@@ -87,10 +88,7 @@ type teamOperator interface {
 func NewApp(cfg Config) *App {
 	a := &App{
 		Config: cfg, Runner: execx.OS{}, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
-		inContainer: func() bool {
-			info, err := os.Stat("/workspace")
-			return err == nil && info.IsDir()
-		},
+		inContainer: ccyenv.InContainer,
 	}
 	a.wire()
 	return a
@@ -234,16 +232,11 @@ func (a *App) usageError(msg string) term.ExitCode {
 // ccyInstalled refuses to go on without the CCY lib, saying why: inside a container ccy-teams
 // is simply in the wrong place.
 func (a *App) ccyInstalled() bool {
-	lib := filepath.Join(a.CcyLib, "tmux-session.bash")
-	if _, err := os.Stat(lib); err == nil {
-		return true
+	msg := ccyenv.Missing("ccy-teams", a.CcyLib, a.inContainer)
+	if msg != "" {
+		a.print(a.Stderr, msg)
 	}
-	if a.inContainer() {
-		a.print(a.Stderr, "ccy-teams runs on the host, not inside a CCY container.\n")
-		return false
-	}
-	a.print(a.Stderr, "CCY is not installed here ("+lib+" missing). Run playbooks/imports/play-claude-yolo.yml.\n")
-	return false
+	return msg == ""
 }
 
 // needCheckout refuses when the checkout ccy-teams was built from has moved or gone.

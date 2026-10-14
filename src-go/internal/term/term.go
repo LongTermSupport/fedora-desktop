@@ -53,17 +53,27 @@ func New() *Term {
 	return &Term{Err: os.Stderr, IsTerminal: FileIsTerminal, Getenv: os.Getenv}
 }
 
-// FileIsTerminal reports whether v is an *os.File attached to a character device.
+// FileIsTerminal reports whether v is an *os.File attached to a terminal: a character device
+// that is not /dev/null.
 func FileIsTerminal(v any) bool {
 	f, ok := v.(*os.File)
 	if !ok {
 		return false
 	}
 	info, err := f.Stat()
-	if err != nil {
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}
-	return info.Mode()&os.ModeCharDevice != 0
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(info, null)
+}
+
+// YesNo is a flag's word in the tools' record files: "yes" or "no".
+func YesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // ColourOn reports whether w gets colour: only a terminal, and never with NO_COLOR

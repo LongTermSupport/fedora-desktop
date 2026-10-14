@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
@@ -35,7 +36,7 @@ const (
 	// defaultLib is where the CCY libraries are installed.
 	defaultLib = "/var/local/claude-yolo/lib"
 	// containerWorkspace is where ccy mounts a project inside its container.
-	containerWorkspace = "/workspace"
+	containerWorkspace = ccyenv.Workspace
 	// cmdReboot names the reboot subcommand, and the systemctl verb it ends in.
 	cmdReboot = "reboot"
 	// flagDryRun is the flag that says what would be done and does none of it.
@@ -282,10 +283,10 @@ func (a *App) wireSeams() {
 		a.Signals = notifySignals
 	}
 	if a.IsTerminal == nil {
-		a.IsTerminal = isTerminal
+		a.IsTerminal = term.FileIsTerminal
 	}
 	if a.InContainer == nil {
-		a.InContainer = inContainer
+		a.InContainer = ccyenv.InContainer
 	}
 	if a.Executable == nil {
 		a.Executable = isExecutable
@@ -327,16 +328,11 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 // ccyInstalled refuses to go on without the CCY libraries, saying why: inside a container
 // ccy-sessions is simply in the wrong place.
 func (a *App) ccyInstalled(lib string) bool {
-	file := lib + "/tmux-session.bash"
-	if info, err := os.Stat(file); err == nil && info.Mode().IsRegular() {
-		return true
+	msg := ccyenv.Missing("ccy-sessions", lib, a.InContainer)
+	if msg != "" {
+		a.sayf("%s", msg)
 	}
-	if a.InContainer() {
-		a.sayf("ccy-sessions runs on the host, not inside a CCY container.\n")
-		return false
-	}
-	a.sayf("CCY is not installed here (%s missing). Run playbooks/imports/play-claude-yolo.yml.\n", file)
-	return false
+	return msg == ""
 }
 
 // usageError is a mistake in how the command was called: exit 64.
@@ -386,25 +382,6 @@ func notifySignals() (<-chan os.Signal, func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	return ch, func() { signal.Stop(ch) }
-}
-
-// isTerminal reports whether v is a terminal: a character device that is not /dev/null.
-func isTerminal(v any) bool {
-	f, ok := v.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := f.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
-		return false
-	}
-	null, err := os.Stat(os.DevNull)
-	return err != nil || !os.SameFile(info, null)
-}
-
-func inContainer() bool {
-	info, err := os.Stat(containerWorkspace)
-	return err == nil && info.IsDir()
 }
 
 // isExecutable reports whether the path may be executed by this user.

@@ -15,6 +15,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const (
@@ -268,16 +271,9 @@ func parseAt(value string) (time.Time, error) {
 	return time.Unix(n, 0), nil
 }
 
-func yesNo(b bool) string {
-	if b {
-		return valYes
-	}
-	return valNo
-}
-
 // values is the entry's nine values in manifest order.
 func (e Entry) values() [len(manifestKeys)]string {
-	return [...]string{e.Name, e.Prefix, e.Dir, e.Resume, yesNo(e.Supervised), string(e.Going), e.atField(), e.Detail, e.Transcript}
+	return [...]string{e.Name, e.Prefix, e.Dir, e.Resume, term.YesNo(e.Supervised), string(e.Going), e.atField(), e.Detail, e.Transcript}
 }
 
 // Write records the sessions a restore brought up, stamped with this boot's id, written whole
@@ -308,21 +304,7 @@ func (s *Store) Write(entries []Entry) error {
 			b.WriteString(manifestKeys[i] + "=" + v + "\n")
 		}
 	}
-	tmp := fmt.Sprintf("%s.tmp.%d", s.Path, os.Getpid())
-	if writeErr := os.WriteFile(tmp, []byte(b.String()), fileMode); writeErr != nil {
-		return errors.Join(fmt.Errorf("could not write the restore manifest %s: %w", s.Path, writeErr), removeIfPresent(tmp))
-	}
-	if renameErr := os.Rename(tmp, s.Path); renameErr != nil {
-		return errors.Join(fmt.Errorf("could not move the restore manifest into place at %s: %w", s.Path, renameErr), removeIfPresent(tmp))
-	}
-	return nil
-}
-
-func removeIfPresent(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return fsx.WriteAtomic(s.Path, "restore manifest", []byte(b.String()), fileMode)
 }
 
 // Locked runs fn holding the manifest's lock (flock on the file beside it, waited for up to

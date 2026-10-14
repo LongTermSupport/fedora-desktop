@@ -131,6 +131,35 @@ func TestFileIsTerminal(t *testing.T) {
 	}
 }
 
+func TestFileIsTerminalIsFalseForDevNullAndPipes(t *testing.T) {
+	if FileIsTerminal("not a file") {
+		t.Fatal("only a file can be a terminal")
+	}
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if FileIsTerminal(null) {
+		t.Fatal("/dev/null is a character device but not a terminal")
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if FileIsTerminal(reader) {
+		t.Fatal("a pipe is not a terminal")
+	}
+	if err = errors.Join(null.Close(), reader.Close(), writer.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestYesNoIsTheRecordFilesWord(t *testing.T) {
+	if YesNo(true) != "yes" || YesNo(false) != "no" {
+		t.Fatalf("YesNo: %q %q", YesNo(true), YesNo(false))
+	}
+}
+
 type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }

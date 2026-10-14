@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const (
@@ -162,13 +165,6 @@ func validate(r Record) error {
 	return nil
 }
 
-func yesNo(b bool) string {
-	if b {
-		return valYes
-	}
-	return valNo
-}
-
 func render(r Record) string {
 	var b strings.Builder
 	b.WriteString(header + "\n")
@@ -176,7 +172,7 @@ func render(r Record) string {
 	b.WriteString("dir=" + r.Dir + "\n")
 	b.WriteString("launcher=" + r.Launcher + "\n")
 	b.WriteString("prefix=" + r.Prefix + "\n")
-	b.WriteString("restore=" + yesNo(r.Restore) + "\n")
+	b.WriteString("restore=" + term.YesNo(r.Restore) + "\n")
 	if r.Compose != "" {
 		b.WriteString("compose=" + r.Compose + "\n")
 	}
@@ -195,22 +191,7 @@ func (s *Store) Write(r Record) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return fmt.Errorf("could not create the session registry at %s: %w", s.dir, err)
 	}
-	path := filepath.Join(s.dir, r.Name)
-	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
-	if err := os.WriteFile(tmp, []byte(render(r)), 0o600); err != nil {
-		return errors.Join(fmt.Errorf("could not write the session record %s: %w", path, err), removeQuietly(tmp))
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return errors.Join(fmt.Errorf("could not move the session record into place at %s: %w", path, err), removeQuietly(tmp))
-	}
-	return nil
-}
-
-func removeQuietly(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return fsx.WriteAtomic(filepath.Join(s.dir, r.Name), "session record", []byte(render(r)), 0o600)
 }
 
 // Get reads the record named name.
@@ -247,7 +228,7 @@ func (s *Store) Remove(name string) error {
 	if err := validName(name); err != nil {
 		return err
 	}
-	return removeQuietly(filepath.Join(s.dir, name))
+	return fsx.RemoveIfPresent(filepath.Join(s.dir, name))
 }
 
 // List reads every record. Files matching *.tmp.* are writes in flight and are ignored. An
