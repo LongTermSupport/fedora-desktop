@@ -74,6 +74,11 @@ linters:
       - path: internal/execx/
         linters: [gosec]
         text: "G204"
+      # The QA module cannot import execx (it is a separate module), so its git runner is its
+      # own one process seam, for the same reason.
+      - path: bashlimits/gitrun\.go
+        linters: [gosec]
+        text: "G204"
   settings:
     cyclop:
       max-complexity: 15
