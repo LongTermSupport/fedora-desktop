@@ -97,14 +97,18 @@ today; rewriting them is out of scope.
 - [x] ✅ **Task 3.1**: Brief from rust-qa-ci, ts-qa-ci and php-qa-ci, and the Defence
   Before Fix toolchain spec read from its first-party repository:
   [RESEARCH-go-qa-ci.md](RESEARCH-go-qa-ci.md).
-- [ ] 🔄 **Task 3.2**: Create `LongTermSupport/go-qa-ci` (created private; the owner makes it
+- [x] ✅ **Task 3.2**: Create `LongTermSupport/go-qa-ci` (created private; the owner makes it
   public after review) and build it by milestones, self-hosted. It is a generic DBF toolchain
-  for Go: it names no consumer.
-- [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned.
-- [ ] ⬜ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]`: per-package
-  engines on the affected packages only, repo-wide defences always, and a change to
-  `go.mod`, `.golangci.yml` or `qa/` widens it to everything. This repository's
-  `qa-changed.bash` calls it.
+  for Go: it names no consumer. Milestones M0-M13 each passed an independent verifier; its
+  conformance is declared with recorded gaps, never claimed in full. The verifiers' deferred
+  minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
+- [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Waits on the owner
+  making go-qa-ci public (CI and the host cannot fetch a private module); until then the
+  interim `scripts/qa-go.bash` gates `src-go/`.
+- [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
+  per-package engines on the affected packages and their importers, repo-wide defences always,
+  and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to
+  everything. This repository's `qa-changed.bash` calls it with Task 3.3.
 
 ### Phase 4: ccy-sessions, then ccy
 
