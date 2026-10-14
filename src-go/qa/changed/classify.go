@@ -167,7 +167,7 @@ func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) er
 			s.plan.skipped = append(s.plan.skipped, rel)
 			return nil
 		}
-		if !deleted {
+		if !deleted && r.m.contentBased() {
 			s.kinds[r.m.kind]++
 		}
 		return s.apply(ctx, r, rel, deleted)
@@ -180,7 +180,7 @@ func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) er
 func (s *session) apply(ctx context.Context, r rule, rel string, deleted bool) error {
 	added := false
 	for _, id := range r.checks {
-		if deleted && !slices.Contains(wholeGate, id) {
+		if def, _ := checkByID(id); deleted && !def.whole {
 			continue
 		}
 		added = true

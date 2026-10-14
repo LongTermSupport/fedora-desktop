@@ -253,6 +253,21 @@ func TestACheckThatOutlivesItsTimeoutIsKilledAndReported(t *testing.T) {
 	}
 }
 
+// A semgrep that was killed at the timeout wrote no report; reading the missing report would add
+// a second, misleading error to the timeout line.
+func TestAKilledSemgrepDoesNotAlsoComplainAboutItsReport(t *testing.T) {
+	w := newRunWorld(t)
+	w.changeKept()
+	w.runner.semgrepReport = false
+	w.runner.replies["semgrep"] = proc.Result{Code: -1, TimedOut: true}
+	if code := w.main(); code != ExitFailed {
+		t.Fatalf("exit %d", code)
+	}
+	if strings.Contains(w.errOut.String(), "cannot read semgrep's report") {
+		t.Fatalf("stderr: %q", w.errOut.String())
+	}
+}
+
 func TestZeroDisablesTheTimeout(t *testing.T) {
 	w := newRunWorld(t)
 	w.changeKept()

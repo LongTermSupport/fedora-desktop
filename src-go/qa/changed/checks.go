@@ -27,7 +27,10 @@ type checkDef struct {
 	// noun makes the summary "<n> <noun>"; fixed is the summary when there is no noun.
 	noun, fixed string
 	// gate marks a script whose exit status 2 means it could not run, as against failed.
-	gate  bool
+	gate bool
+	// whole is a check that runs over the whole repository whatever file changed, so a deleted
+	// file (which has nothing left to check) may still ask for it.
+	whole bool
 	tools []string
 	run   func(ctx context.Context, s *session, cp *checkPlan) (checkResult, error)
 }
@@ -63,19 +66,25 @@ var checkDefs = []checkDef{
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
 	{id: "ansible-patterns", fixed: "fail-fast patterns, whole gate", gate: true, tools: []string{toolBash}, run: runAnsiblePatterns},
-	{id: "docs", fixed: "whole gate", gate: true, tools: []string{toolBash}, run: runDocs},
-	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
-	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
+	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash}, run: runDocs},
+	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
+	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
 }
 
-// wholeGate lists the checks that run whole, so a deleted file (which has nothing left to
-// check) may still ask for them.
-var wholeGate = []string{"docs", "go", "bash-limits"}
+// checkByID is the check with the id, and whether there is one.
+func checkByID(id string) (checkDef, bool) {
+	i := slices.IndexFunc(checkDefs, func(d checkDef) bool { return d.id == id })
+	if i < 0 {
+		return checkDef{}, false
+	}
+	return checkDefs[i], true
+}
 
 func isCheckID(id string) bool {
-	return slices.ContainsFunc(checkDefs, func(d checkDef) bool { return d.id == id })
+	_, ok := checkByID(id)
+	return ok
 }
 
 // eslintTool is the preflight name of the extensions/ eslint, which is a path, not a PATH tool.
@@ -248,6 +257,9 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	})
 	if err != nil {
 		return checkResult{}, err
+	}
+	if res.TimedOut {
+		return checkResult{output: res.Stdout, code: res.Code}, nil
 	}
 	if res.Code >= semgrepAbnormal {
 		return checkResult{output: fmt.Sprintf("%ssemgrep failed (rc=%d)\n", res.Stdout, res.Code), code: res.Code}, nil

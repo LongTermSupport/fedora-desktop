@@ -93,7 +93,7 @@ linters:
       - path: qa/changed/checks\.go
         linters: [tagliatelle]
       # A test writes an executable stub to prove the executable check.
-      - path: _test\.go
+      - path: qa/changed/.*_test\.go
         linters: [gosec]
         text: "G302|G306"
   settings:
