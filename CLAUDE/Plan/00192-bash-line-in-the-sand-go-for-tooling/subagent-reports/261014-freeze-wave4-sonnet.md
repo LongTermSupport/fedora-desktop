@@ -12,7 +12,8 @@ Branch `go-port/freeze`, not pushed, not merged.
   tools; guard scenarios run the unmodified files. Records stdout, stderr, exit status and the
   commands run.
 - `internal/freeze/golden/golden_test.go` plays the same scenarios through the Go entry points over
-  the same world and compares byte for byte. 136 scenarios: 82 identical, 54 differ, every
+  the same world and compares byte for byte. 136 scenarios: 79 identical, 57 differ (the three lxcfreeze help scenarios were added
+  after the first count of 54), every
   difference a numbered bug, pinned in `testdata/deviations.json` with the bugs, the reason and the
   streams, and the Go output in `testdata/deviation/`.
 - The lxcfreeze usage line changed too (task 5); its three help scenarios are bug 6 deviations.

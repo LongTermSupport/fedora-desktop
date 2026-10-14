@@ -59,21 +59,6 @@ func openDevTTY() (io.ReadCloser, error) {
 	return f, nil
 }
 
-// canPrompt is whether a controlling terminal opens, the test sudo itself applies.
-func (s *Sudo) canPrompt() (bool, error) {
-	if s.OpenTTY == nil {
-		return false, nil
-	}
-	tty, err := s.OpenTTY()
-	if err != nil {
-		return false, nil
-	}
-	if err := tty.Close(); err != nil {
-		return false, fmt.Errorf("close the terminal: %w", err)
-	}
-	return true, nil
-}
-
 // Ready makes sudo's credential available for the root commands that follow. Passwordless
 // or cached sudo asks nothing; otherwise why is said, then sudo asks for the login
 // password. Failure returns ErrNotReady after printing the reason, and the caller must not
@@ -84,13 +69,9 @@ func (s *Sudo) Ready(ctx context.Context, why string) error {
 		return nil
 	}
 	said := strings.TrimRight(string(probe.Stdout)+string(probe.Stderr), "\n")
-	can, err := s.canPrompt()
-	if err != nil {
-		return err
-	}
-	if !can {
+	if noTTY := s.noTerminal(); noTTY != nil {
 		s.Term.PrintError(why + " That needs sudo, and with no terminal there is nowhere to ask for your password (sudo said: " + said + "). Run sudo -v first.")
-		return fmt.Errorf("%w: no terminal", ErrNotReady)
+		return fmt.Errorf("%w: no terminal: %w", ErrNotReady, noTTY)
 	}
 	s.Term.Printf("\n")
 	s.Term.Say(why)
@@ -156,4 +137,17 @@ func (s *Sudo) Run(ctx context.Context, argv ...string) error {
 		Stdin: s.Stdin, Stdout: s.Stdout, Stderr: s.Term.Err,
 	})
 	return err
+}
+
+// noTerminal is why sudo cannot ask for a password here, or nil when it can: sudo asks on the
+// controlling terminal, so whether /dev/tty opens is the test, whatever stdin and stderr are.
+func (s *Sudo) noTerminal() error {
+	if s.OpenTTY == nil {
+		return errors.New("no terminal seam")
+	}
+	tty, err := s.OpenTTY()
+	if err != nil {
+		return err
+	}
+	return tty.Close()
 }

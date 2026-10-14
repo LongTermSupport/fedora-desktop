@@ -68,13 +68,16 @@ type programRunner struct {
 	argIndex int
 }
 
+// sudoType is the receiver type of the sudo seam.
+const sudoType = "Sudo"
+
 // programRunners are the entry points that run a program from their arguments. sudo's three
 // run any program as root; lxcfreeze's two helpers are the same shape one level up, so their
 // callers are judged too.
 var programRunners = []programRunner{
-	{pkg: sudoPkg, recv: "Sudo", method: "Capture", argIndex: 1},
-	{pkg: sudoPkg, recv: "Sudo", method: "AsRoot", argIndex: 1},
-	{pkg: sudoPkg, recv: "Sudo", method: "Run", argIndex: 1},
+	{pkg: sudoPkg, recv: sudoType, method: "Capture", argIndex: 1},
+	{pkg: sudoPkg, recv: sudoType, method: "AsRoot", argIndex: 1},
+	{pkg: sudoPkg, recv: sudoType, method: "Run", argIndex: 1},
 	{pkg: lxcfreezePkg, recv: "Engine", method: "runAct", argIndex: 1},
 	{pkg: lxcfreezePkg, recv: "Engine", method: "probe", argIndex: 1},
 }

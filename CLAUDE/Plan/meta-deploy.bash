@@ -67,8 +67,9 @@ PLANS=(
     # builds no longer stamp the git revision, so an unchanged source reports ok. Plan 00192's
     # deploy.bash runs this play first (its Go builds now go through one shared task file,
     # same flags and paths), then play-podfreeze.yml and play-lxcfreeze.yml: podfreeze and
-    # lxcfreeze become Go binaries at the old paths and ~/.local/lib/freeze goes. BEFORE
-    # running, save the old tools' output as that plan's ACCEPTANCE-freeze.md says
+    # lxcfreeze become Go binaries at the old paths and ~/.local/lib/freeze goes. The
+    # deploy saves the old tools' output first and ends by comparing the new tools with it
+    # (acceptance.bash); the freeze-and-thaw look is that plan's ACCEPTANCE-freeze.md
     00192-bash-line-in-the-sand-go-for-tooling
     # Element: may reach the keyring (no "No encryption support" question on a profile's
     # first start); launchers named "<team> team (Element)" (Plan 00177)

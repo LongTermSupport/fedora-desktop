@@ -389,7 +389,8 @@ if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
     done 3< "$SCRIPT_DIR/go-binary-suites.tsv"
 fi
 
-PICKED=() PICKED_WHY=()
+PICKED=()
+PICKED_WHY=()
 if [[ -s "$PATTERN_FILE" ]]; then
     for suite in "${SUITES[@]}"; do
         why=()

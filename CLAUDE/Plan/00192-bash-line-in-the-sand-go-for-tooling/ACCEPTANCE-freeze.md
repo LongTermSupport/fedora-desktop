@@ -3,48 +3,32 @@
 `podfreeze` and `lxcfreeze` became Go binaries. The golden replay (`src-go/internal/freeze/golden`)
 proves the Go tools print what the bash tools printed, under fakes. Only a host with real engines
 can settle that `podman ps --format` and `lxc-info` emit what the parsers expect, so this is the
-check. Run it from the checkout, on the host, in this order.
+check. The comparison is mechanical; the freeze-and-thaw look is yours.
 
-## 1. Before `./CLAUDE/Plan/meta-deploy.bash`: save what the bash tools print
+## 1. Run `./CLAUDE/Plan/meta-deploy.bash`
 
-`meta-deploy` replaces them, so this cannot be done afterwards.
+Its entry for this plan runs `deploy.bash`, which does the whole mechanical part in order:
 
-```bash
-mkdir -p untracked/freeze-acceptance
-podfreeze list > untracked/freeze-acceptance/before-podfreeze-list.txt 2> /dev/null
-podfreeze freeze --all -n > untracked/freeze-acceptance/before-podfreeze-dry.txt 2> /dev/null
-lxcfreeze list > untracked/freeze-acceptance/before-lxcfreeze-list.txt 2> /dev/null
-lxcfreeze freeze --all -n > untracked/freeze-acceptance/before-lxcfreeze-dry.txt 2> /dev/null
-```
+1. While the bash tools are still installed (an interpreter line at `~/.local/bin/podfreeze` and
+   `lxcfreeze`), it saves what each prints for `list` and for `freeze --all -n` under
+   `untracked/freeze-acceptance/before-*`, stdout and stderr in separate files. A bash tool that
+   fails here stops the deploy before anything is replaced. `lxcfreeze` needs root; the sudo
+   password was asked for at the start of the run. A tool that is already a compiled program keeps
+   the baseline an earlier run saved.
+2. The three plays build and install both tools from the checkout and remove `~/.local/lib/freeze`.
+3. `acceptance.bash` runs the Go tools through the same four commands and compares stdout with the
+   baseline. It also checks both tools are compiled programs and `~/.local/lib/freeze` is gone.
 
-Only stdout is saved: the list and the dry-run block are the tools' payload. `lxcfreeze` asks for
-your sudo password.
+Its verdict is the `COVERAGE: n of n checks passed` line and the exit status. A difference is a
+parser reading a real engine's output differently from the fakes: the diff is in the run
+directory (`diff-*-report.txt`), and the Go tool's stderr beside it (`after-*.err`). Keep them and
+report it. `NOT ESTABLISHED` names a command with no bash baseline, which fails the run: the
+baseline cannot be made once the bash tool is gone.
 
-## 2. Run `./CLAUDE/Plan/meta-deploy.bash`
+`lxcfreeze` reads `/dev/tty` for its sudo password whatever stdin and stderr are, as sudo does, so
+its stderr is saved to a file without losing the explanation of why it asks.
 
-It builds and installs both tools from the checkout, and removes `~/.local/lib/freeze`. Check:
-
-```bash
-file ~/.local/bin/podfreeze ~/.local/bin/lxcfreeze     # both ELF executables
-ls ~/.local/lib/freeze                                 # No such file or directory
-```
-
-## 3. Same commands afterwards, then compare
-
-```bash
-podfreeze list > untracked/freeze-acceptance/after-podfreeze-list.txt 2> /dev/null
-podfreeze freeze --all -n > untracked/freeze-acceptance/after-podfreeze-dry.txt 2> /dev/null
-lxcfreeze list > untracked/freeze-acceptance/after-lxcfreeze-list.txt 2> /dev/null
-lxcfreeze freeze --all -n > untracked/freeze-acceptance/after-lxcfreeze-dry.txt 2> /dev/null
-for f in podfreeze-list podfreeze-dry lxcfreeze-list lxcfreeze-dry; do
-    diff untracked/freeze-acceptance/before-$f.txt untracked/freeze-acceptance/after-$f.txt && echo "same: $f"
-done
-```
-
-Expected: no difference. A difference is a parser reading a real engine's output differently from
-the fakes: keep both files and report it.
-
-## 4. Freeze and thaw a throwaway container with each tool
+## 2. Freeze and thaw a throwaway container with each tool
 
 Use a container that matters to nobody, one per engine. Replace `NAME`.
 
@@ -54,14 +38,15 @@ Use a container that matters to nobody, one per engine. Replace `NAME`.
   shows RUNNING and reports the DHCP renewal.
 - The menu: run each tool with no arguments, pick a group, pick "all", see the act and the return
   to the menu, then quit. The picker is `fzf`; where it is not installed the tools fall back to a
-  numbered menu, which is worth one look too.
+  numbered menu, which is worth one look too. Ctrl-C part-way through a batch ends the run with
+  the count of what was done and the exit status 130.
 - A container the bash tool froze is thawed by the Go tool, and the reverse; the state is held by
   the engine, not the tool.
 
 `lxcfreeze` should say why it asks for your password, and a menu left idle past sudo's timestamp
 asks again with the reason instead of prompting silently.
 
-## 5. Run `./CLAUDE/Plan/meta-deploy.bash` again
+## 3. Run `./CLAUDE/Plan/meta-deploy.bash` again
 
 The freeze tasks report ok, not changed: the build is byte-for-byte reproducible and the install
-compares checksums.
+compares checksums. `acceptance.bash` runs again and still passes.

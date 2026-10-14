@@ -75,7 +75,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   branch: golden replay of the bash tools' recorded output (`internal/freeze/golden`), one task
   file builds any Go command (`tasks/build-go-command.yml`), the bash tools, library, suites and
   gates deleted, the host check in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) with the owner
-  (via `deploy.bash` in `meta-deploy.bash`).
+  (via `deploy.bash` in `meta-deploy.bash`: it saves the bash tools' output first and ends with
+  `acceptance.bash`, which compares the Go tools with it). The Fable review's fixes are in:
+  sudo asks on `/dev/tty`, Ctrl-C and a lapsed sudo timestamp end an act batch cleanly, the
+  sudo seam methods are judged by `project_seam_commands`, the inventory is generic over the
+  engine's record.
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`:
   its spec `SPEC-agent-bus-install.md` is on the branch; wave 1 (root-guarding
   validation) running. Runs as root and changes behaviour (its D7), so it merges only after

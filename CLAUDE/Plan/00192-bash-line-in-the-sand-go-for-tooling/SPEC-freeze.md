@@ -122,7 +122,12 @@ Examples:
   podfreeze thaw --all
 ```
 
-lxcfreeze (`LF` L239-285) is the same shape; the differing lines:
+lxcfreeze (`LF` L239-285) is the same shape; the differing lines. One line of the text is NOT
+verbatim: the last line of the root paragraph, "You will be prompted once per run.", becomes
+"sudo is asked again if its timestamp has expired." because bug 6 makes the promise untrue (the
+Go tool readies sudo again at the start of each refresh and act batch). The three lxcfreeze help
+scenarios (`lxc-help`, `lxc-help-short`, `lxc-help-inside-container`) are bug 6 deviations for
+exactly this line.
 
 ```
 Usage: lxcfreeze [list|freeze|thaw] [target] [options]

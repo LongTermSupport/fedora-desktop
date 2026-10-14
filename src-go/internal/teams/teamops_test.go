@@ -52,13 +52,15 @@ func newOpsRig(t *testing.T) *opsRig {
 		IsTerminal: func(any) bool { return r.tty },
 		Getenv:     func(string) string { return "" },
 	}
-	su := &sudo.Sudo{Runner: r.fake, Term: tm, Stdin: strings.NewReader(""), Stdout: r.out,
+	su := &sudo.Sudo{
+		Runner: r.fake, Term: tm, Stdin: strings.NewReader(""), Stdout: r.out,
 		OpenTTY: func() (io.ReadCloser, error) {
 			if !r.tty {
 				return nil, errors.New("no tty")
 			}
 			return io.NopCloser(strings.NewReader("")), nil
-		}}
+		},
+	}
 	r.ops = &teamOps{
 		Cfg:        Config{RootDir: "/root", HostVars: opsHostVars, Play: opsPlay, ElementPlay: opsElementPlay, Home: "/home/u"},
 		Runner:     r.fake,

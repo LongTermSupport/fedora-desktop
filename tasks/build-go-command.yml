@@ -48,6 +48,9 @@
 
 - name: Build the {{ go_command_name }} Command
   ansible.builtin.command:
+    # argv is a LIST. The folded scalar below renders to one Jinja expression, and Ansible's native
+    # templating returns the list that expression builds (not a string to be word-split), so the
+    # optional -ldflags pair and each path stay single arguments whatever they contain.
     argv: >-
       {{ ['go', 'build', '-trimpath', '-buildvcs=false']
       + (['-ldflags', go_command_ldflags] if (go_command_ldflags | default('')) != '' else [])

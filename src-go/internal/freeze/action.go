@@ -89,56 +89,68 @@ func (s *Session[R]) doAction(ctx context.Context, verb Verb, selected []string)
 		}
 	}
 	s.stderr.Printf("%d container(s) being %s:\n%s", len(b.Act), past, s.Table(b.Act...))
-	done, failed, stop := s.actOn(ctx, verb, b.Act)
-	if verb == VerbFreeze && len(done) > 0 {
-		s.stderr.Printf("\n  Thaw them with: %s thaw %s\n", s.Cfg.Tool, strings.Join(done, " "))
+	res, stop := s.actOn(ctx, verb, b.Act)
+	return s.reportBatch(verb, res, len(b.Act), stop)
+}
+
+// batchResult is what an act batch got through: the names that succeeded and how many failed.
+type batchResult struct {
+	done   []string
+	failed int
+}
+
+// reportBatch says what the batch did, in the order the person needs it: the undo for what was
+// frozen, then why it ended early, or the count of failures.
+func (s *Session[R]) reportBatch(verb Verb, res batchResult, total int, stop error) error {
+	if verb == VerbFreeze && len(res.done) > 0 {
+		s.stderr.Printf("\n  Thaw them with: %s thaw %s\n", s.Cfg.Tool, strings.Join(res.done, " "))
 		if s.Cfg.FreezeNote != "" {
 			s.stderr.Printf("\n%s\n", s.Cfg.FreezeNote)
 		}
 	}
 	if errors.Is(stop, context.Canceled) {
-		s.stderr.Printf("%s: interrupted — %d of %d container(s) done, the rest were not touched.\n", s.Cfg.Tool, len(done), len(b.Act))
-		return stop
+		s.stderr.Printf("%s: interrupted — %d of %d container(s) done, the rest were not touched.\n", s.Cfg.Tool, len(res.done), total)
 	}
 	if stop != nil {
 		return stop
 	}
-	if failed > 0 {
-		s.stderr.Printf("%s: %d of %d container(s) failed — see above.\n", s.Cfg.Tool, failed, len(b.Act))
+	if res.failed > 0 {
+		s.stderr.Printf("%s: %d of %d container(s) failed — see above.\n", s.Cfg.Tool, res.failed, total)
 		return ErrSomeFailed
 	}
 	return nil
 }
 
-// actOn attempts every target in order, reporting each, and returns the names that succeeded and
-// the number that failed. It stops early, with the reason as stop, when the context is cancelled
-// (an interrupt is not a container failure, and a target it killed is not reported as one) or
-// when the engine returns a fatal error, which would only repeat for every target still to go.
-func (s *Session[R]) actOn(ctx context.Context, verb Verb, names []string) (done []string, failed int, stop error) {
+// actOn attempts every target in order, reporting each, and returns what it got through. It
+// stops early, with the reason as stop, when the context is cancelled (an interrupt is not a
+// container failure, and a target it killed is not reported as one) or when the engine returns a
+// fatal error, which would only repeat for every target still to go.
+func (s *Session[R]) actOn(ctx context.Context, verb Verb, names []string) (batchResult, error) {
+	var res batchResult
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
-			return done, failed, err
+			return res, err
 		}
 		out, err := s.Engine.Act(ctx, verb, name)
 		if err != nil {
 			if cerr := ctx.Err(); cerr != nil {
-				return done, failed, cerr
+				return res, cerr
 			}
-			if _, fatal := errors.AsType[*DieError](err); fatal {
-				return done, failed, err
+			if die, fatal := errors.AsType[*DieError](err); fatal && die != nil {
+				return res, err
 			}
 			text := strings.TrimRight(out, "\n")
 			if text == "" {
 				text = err.Error()
 			}
 			s.stderr.Printf("  ✗ %s — %s\n", name, text)
-			failed++
+			res.failed++
 			continue
 		}
 		s.stderr.Printf("  ✓ %s\n", name)
-		done = append(done, name)
+		res.done = append(res.done, name)
 	}
-	return done, failed, nil
+	return res, nil
 }
 
 // withWrites folds a failed write to either stream into the error a run ends with, so a full disk
