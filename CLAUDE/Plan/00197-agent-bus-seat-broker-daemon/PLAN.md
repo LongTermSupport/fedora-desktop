@@ -52,12 +52,10 @@ ranges, the approval policy.
 - Installing the member kit inside a container: the repository that provisions the container
   does that, as today.
 
-## Open questions
+## Related
 
-- The `localhost.yml` backup: the private config repo is saved only when the owner chooses
-  "save" in `run.bash`'s config menu, so ccy-teams' declared changes are not backed up until
-  then. Whether every writer of `localhost.yml` should save it to the config repo straight
-  after is an owner decision, proposed separately.
+- Backing up `localhost.yml` to the private config repo automatically is GitHub issue #104,
+  not this plan.
 
 ## Tasks
 
