@@ -45,10 +45,13 @@ CAPTURE_FILE="${TMPROOT}/capture.txt"
 readonly CAPTURE_FILE
 
 FAILED=0
-pass() { printf 'PASS: %s\n' "$1"; }
+PASSED=0
+FAILED_CHECKS=0
+pass() { PASSED=$((PASSED + 1)); printf 'PASS: %s\n' "$1"; }
 fail() {
     printf 'FAIL: %s\n     expected: %s\n     actual:   %s\n' "$1" "$2" "$3"
     FAILED=1
+    FAILED_CHECKS=$((FAILED_CHECKS + 1))
 }
 # A check we could not run at all. Counted and reported distinctly, because "did not run" is
 # not "passed" — carry the third state rather than rounding it up to green.
@@ -809,6 +812,7 @@ assert_eq "every array expansion uses the set -u-safe bracket-at-plus form" "" "
 # ── summary ──────────────────────────────────────────────────────────────────────────────
 
 printf '\n'
+printf 'passed: %d   failed: %d\n' "${PASSED}" "${FAILED_CHECKS}"
 if [[ "${UNVERIFIED}" -gt 0 ]]; then
     printf '%s check(s) could not be run in this environment (reported above).\n' "${UNVERIFIED}"
 fi
