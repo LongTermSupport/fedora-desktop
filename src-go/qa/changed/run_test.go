@@ -387,11 +387,15 @@ func TestNothingChangedIsExitZeroWithTheNoOpLine(t *testing.T) {
 	if w.out.String() != "qa-changed: no changed files (vs HEAD, plus untracked) — nothing to check.\n" {
 		t.Fatalf("stdout %q", w.out.String())
 	}
-	if code := w.main("--files", "no/such/file.bash"); code != ExitOK {
-		t.Fatalf("exit %d", code)
+}
+
+func TestAnExplicitListOfMissingFilesIsExit2NotNothingToCheck(t *testing.T) {
+	w := newRunWorld(t)
+	if code := w.main("--files", "no/such/file.bash"); code != ExitCannotRun {
+		t.Fatalf("exit %d, want %d", code, ExitCannotRun)
 	}
-	if !strings.Contains(w.out.String(), "no changed files") || strings.Contains(w.out.String(), "vs HEAD") {
-		t.Fatalf("an explicit list diffs against nothing: %q", w.out.String())
+	if strings.Contains(w.out.String(), "nothing to check") || !strings.Contains(w.errOut.String(), "names no existing file") {
+		t.Fatalf("stdout %q stderr %q", w.out.String(), w.errOut.String())
 	}
 }
 

@@ -5,7 +5,7 @@
  "explicit-dot-slash": {"bugs": ["B5"], "reason": "./x and x are one file; the leading ./ is cleaned away before classification and suite naming"},
  "explicit-duplicates": {"bugs": ["B5"], "reason": "a file named twice is one file"},
  "explicit-empty": {"bugs": ["B2"], "reason": "--files with no file is a usage error, exit 2, not 'nothing to check'"},
- "explicit-missing": {"bugs": ["B21"], "reason": "a named path that does not exist is dropped with a word on stderr, not silently"},
+ "explicit-missing": {"bugs": ["B21", "B28"], "reason": "a named path that does not exist is said on stderr, not dropped silently; a list naming no existing file is exit 2, not nothing to check"},
  "explicit-then-flag": {"bugs": ["B3"], "reason": "flags after --files are flags: --plan plans instead of being swallowed as a file and running the real checks"},
  "file-src-go-golangci-yml": {"bugs": ["B7"], "reason": "the src-go rule precedes the YAML rule, so the lint config runs the Go gate instead of being reported uncovered"},
  "git-deleted-allowlisted": {"bugs": ["B6"], "reason": "a deleted allowlisted script runs the bash-limits gate (the ratchet needs --update) instead of 'nothing to check'"},

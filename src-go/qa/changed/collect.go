@@ -100,7 +100,8 @@ func isRegular(path string) (bool, error) {
 
 // collectExplicit takes the files named on the command line: cleaned to repo-relative paths
 // (a path outside the repository is refused), de-duplicated, and a path that is not there is
-// dropped with a word on stderr. A named directory or other non-file is refused.
+// dropped with a word on stderr, unless none exists, which is an error (an all-typo list must
+// not pass as "nothing to check"). A named directory or other non-file is refused.
 func (s *session) collectExplicit(args []string) (collected, error) {
 	var out collected
 	for _, arg := range args {
@@ -122,6 +123,9 @@ func (s *session) collectExplicit(args []string) (collected, error) {
 		default:
 			out.existing = append(out.existing, rel)
 		}
+	}
+	if len(out.existing) == 0 {
+		return collected{}, fmt.Errorf("--files names no existing file (%s)", strings.Join(args, " "))
 	}
 	return out, nil
 }

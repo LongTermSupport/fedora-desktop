@@ -177,10 +177,11 @@ func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenReco
 		args = append(args, strings.NewReplacer("{ROOT}", root, "{FIRST}", first).Replace(a))
 	}
 	code := Main(context.Background(), args, env)
-	norm := func(s string) string { return normaliseGolden(strings.ReplaceAll(s, first, "<FIRST>"), root) }
+	explicit := slices.Contains(sc.Args, "--files")
+	norm := func(s string) string { return normaliseGolden(strings.ReplaceAll(s, first, "<FIRST>"), root, explicit) }
 	log := make([]string, 0, len(runner.log))
 	for _, line := range runner.log {
-		log = append(log, normaliseGolden(line, root))
+		log = append(log, normaliseGolden(line, root, explicit))
 	}
 	return goldenRecord{Stdout: norm(out.String()), Stderr: norm(errOut.String()), Status: int(code), Log: log}
 }
@@ -192,16 +193,17 @@ var (
 
 var (
 	explicitPlanHeader = regexp.MustCompile(`plan: ([0-9]+) changed file\(s\) \(explicit\)`)
-	explicitNoOp       = "no changed files (explicit list)"
 )
 
 // normaliseGolden writes the temporary root as <ROOT>, and puts the bash's wording back for the
-// one text change that touches every --files run: the bash said "vs HEAD" for a list that is
+// one text change that touches every --files run (and only those: a git-collected run that
+// printed the explicit header would differ from the bash and fail the replay): the bash said "vs HEAD" for a list that is
 // diffed against nothing (SPEC-qa-changed.md bug B16, fixed on purpose), so the Go's
 // "(explicit)" is mapped to it here rather than pinned in a deviation file for each scenario.
-func normaliseGolden(text, root string) string {
-	text = explicitPlanHeader.ReplaceAllString(text, "plan: $1 changed file(s) vs HEAD")
-	text = strings.ReplaceAll(text, explicitNoOp, "no changed files (vs HEAD, plus untracked)")
+func normaliseGolden(text, root string, explicit bool) string {
+	if explicit {
+		text = explicitPlanHeader.ReplaceAllString(text, "plan: $1 changed file(s) vs HEAD")
+	}
 	text = strings.ReplaceAll(text, root, "<ROOT>")
 	text = jsonOutArg.ReplaceAllString(text, "--json-output <JSON>")
 	return tmpPath.ReplaceAllString(text, "<TMP>")

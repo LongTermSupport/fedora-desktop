@@ -143,11 +143,9 @@ func (s *session) collect(ctx context.Context) (collected, error) {
 	return s.collectGit(ctx, s.opts.base)
 }
 
-// describeSource says where the changed files came from.
+// describeSource says where the changed files came from; an explicit list never reaches the
+// nothing-to-check line, because a list naming no existing file is an error.
 func (s *session) describeSource() string {
-	if s.opts.explicit {
-		return "explicit list"
-	}
 	return "vs " + s.opts.base + ", plus untracked"
 }
 

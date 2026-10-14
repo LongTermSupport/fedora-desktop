@@ -151,14 +151,26 @@ func TestCollectExplicitRefusesWhatIsOutsideOrNotAFile(t *testing.T) {
 	}
 }
 
-func TestCollectExplicitDropsAMissingPathWithAWord(t *testing.T) {
+func TestCollectExplicitDropsAMissingPathWithAWordWhenOthersExist(t *testing.T) {
 	var errBuf strings.Builder
-	s := &session{root: t.TempDir(), env: Env{Stderr: &errBuf}}
-	got, err := s.collectExplicit([]string{"no/such/file.bash"})
-	if err != nil || len(got.existing) != 0 || len(got.deleted) != 0 {
+	root := t.TempDir()
+	writeFile(t, root, "a.bash", ":\n")
+	s := &session{root: root, env: Env{Stderr: &errBuf}}
+	got, err := s.collectExplicit([]string{"no/such/file.bash", "a.bash"})
+	if err != nil || !reflect.DeepEqual(got.existing, []string{"a.bash"}) {
 		t.Fatalf("got %+v %v", got, err)
 	}
 	if !strings.Contains(errBuf.String(), "no/such/file.bash") {
 		t.Fatalf("the drop must be said: %q", errBuf.String())
+	}
+}
+
+// A list in which no file exists is a typo, not "nothing to check" (SPEC-qa-changed.md B28).
+func TestCollectExplicitRefusesAListWhereNoFileExists(t *testing.T) {
+	var errBuf strings.Builder
+	s := &session{root: t.TempDir(), env: Env{Stderr: &errBuf}}
+	_, err := s.collectExplicit([]string{"no/such/file.bash", "typo.md"})
+	if err == nil || !strings.Contains(err.Error(), "names no existing file") {
+		t.Fatalf("want a names-no-existing-file error, got %v", err)
 	}
 }
