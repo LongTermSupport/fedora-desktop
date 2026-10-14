@@ -20,12 +20,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00177 Phase 9: rebuilds ccy-teams on the host (go build from the checkout) with the
-# lxc-add action, so an LXC container joins a team with no hand edit of localhost.yml. Nothing
-# else changes (no CCY version bump). Then try it: ccy-teams lxc-add <team>.
+# Plans 00177 and 00194: the agent bus kit and LXC members. Re-stages the member kit (the
+# pingbus plugin now registers SessionEnd for the goodbye) and applies the LXC rule that
+# derives a member's handle from its checkout; existing members keep their handles.
+playbooks/imports/play-agent-bus.yml
+# Plans 00177 and 00194: CCY 3.98.0, container 2.56 (the image is rebuilt once). ccy-teams
+# gains the lxc-add action; a team session sends a goodbye to the team's humans and coordinator
+# when it really ends. Then try: ccy-teams lxc-add <team>, and end a team session with
+# `ccy stop` to see its goodbye in Element.
 playbooks/imports/play-claude-yolo.yml
-# agent team bus acceptance, now with the coordinator role (Plan 00196 is deployed). BEFORE
-# running meta, launch `ccy` interactively once in this checkout and choose the token and SSH
-# keys: the saved choices are still in the format before CCY 3.96, which a headless launch
-# discards, so U20 refuses to start until Quick Launch saves them again.
-00161-agent-team-bus-matrix/acceptance.bash
