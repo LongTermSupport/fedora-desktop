@@ -147,8 +147,8 @@ linters:
       - path: qa/bash/report\.go
         linters: [tagliatelle]
         text: "shellcheck_diagnostics"
-      # qa-ready-wait-rules reads semgrep's JSON report, whose key is check_id.
-      - path: qa/readywait/(scan|run_test)\.go
+      # The one shared type for a semgrep result, whose keys are snake_case.
+      - path: qa/internal/semgrepreport/report\.go
         linters: [tagliatelle]
         text: "check_id"
       # qa-bash reads each gated file for its directives and the allowlist by computed path (the

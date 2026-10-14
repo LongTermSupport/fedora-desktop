@@ -24,13 +24,10 @@ var (
 		`|\blxc-ls` + argsGap + `--(?:running|active)` + endClass +
 		`|\bvirsh` + argsGap + `(?:domstate|list)` + endClass)
 	managerStartRe = regexp.MustCompile("(?m)(?:^|[;&|(!{`]|\\b(?:then|do|else|elif|if|while|until)\\b)[ \\t]*" +
-		`(?:(?:!|exec|nohup|sudo(?:[ \t]+-[\w-]+)*|[A-Za-z_]\w*=[^ \t;&|]*)[ \t]+)*` +
+		`(?:(?:!|exec|nohup|sudo(?:[ \t]+-[\w-]+(?:[ \t]+[^-\s;&|][^\s;&|]*)?)*|[A-Za-z_]\w*=[^ \t;&|]*)[ \t]+)*` +
 		`(?P<start>lxc-start|virt-install|virsh` + argsGap + `start)` + endClass)
-	pidCaptureRe = regexp.MustCompile(`[A-Za-z_]\w*=\$!`)
-	functionRe   = regexp.MustCompile(`(?m)^[ \t]*(?:function[ \t]+)?([A-Za-z_][\w:.-]*)[ \t]*\([ \t]*\)[ \t\n]*\{`)
-	heredocRe    = regexp.MustCompile(`^<<(-?)[ \t]*(['"]?)([A-Za-z_]\w*)(['"]?)`)
-	fixtureRe    = regexp.MustCompile(`^\s*#\s*ruleid:\s*` + regexp.QuoteMeta(RuleID) + `\s*$`)
-	notWaitNRe   = regexp.MustCompile(`^\s+-n\b`)
+	fixtureRe  = regexp.MustCompile(`^\s*#\s*ruleid:\s*` + regexp.QuoteMeta(RuleID) + `\s*$`)
+	notWaitNRe = regexp.MustCompile(`^\s+-n\b`)
 )
 
 var startGroup = managerStartRe.SubexpIndex("start")
@@ -115,38 +112,6 @@ func launchesIn(s string, lo, hi int) []int {
 	return found
 }
 
-// function is one shell function: where its definition starts and where its body runs.
-type function struct {
-	name                 string
-	defStart, start, end int
-}
-
-// functionsIn lists the functions of code, a later definition of a name replacing the earlier.
-func functionsIn(code string) []function {
-	var found []function
-	index := map[string]int{}
-	for _, m := range functionRe.FindAllStringSubmatchIndex(code, -1) {
-		depth, i := 1, m[1]
-		for i < len(code) && depth > 0 {
-			switch code[i] {
-			case '{':
-				depth++
-			case '}':
-				depth--
-			}
-			i++
-		}
-		f := function{name: code[m[2]:m[3]], defStart: m[0], start: m[1], end: i - 1}
-		if at, seen := index[f.name]; seen {
-			found[at] = f
-		} else {
-			index[f.name] = len(found)
-			found = append(found, f)
-		}
-	}
-	return found
-}
-
 // isWait is that the loop at header waits for something rather than sampling: it leaves from its
 // body (break, return, exit), or it is a while or until whose condition is a test. A for with
 // none of those, or a while true or while ((...)) without them, runs its full course.
@@ -188,6 +153,7 @@ func unguardedPolls(code string, start, end int, checkers []string) []int {
 			whole := code[loop.header : w.pos+len("done")]
 			if anyOf(code, loop.body, w.pos, "sleep") &&
 				isWait(code, loop.header, loop.body, w.pos) &&
+				!backgrounded(code, w.pos+len("done")) &&
 				!livenessRe.MatchString(whole) &&
 				!callsAny(whole, checkers) {
 				found = append(found, loop.header)

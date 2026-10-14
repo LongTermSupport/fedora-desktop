@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: tools/py-tool\ncheck ruff: tools/py-tool\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

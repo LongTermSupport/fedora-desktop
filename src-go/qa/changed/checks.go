@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/js"
 )
 
@@ -64,6 +65,7 @@ var checkDefs = []checkDef{
 	{id: "shellcheck", listed: true, noun: nounFiles, tools: []string{toolShellcheck}, run: runShellcheck},
 	{id: "shell-directives", listed: true, noun: nounFiles, tools: []string{toolBash, toolGo}, run: runShellDirectives},
 	{id: "semgrep", listed: true, noun: nounFiles, tools: []string{toolSemgrep}, run: runSemgrep},
+	{id: "ready-wait-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWaitFiles},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
@@ -128,6 +130,12 @@ func runBashLimits(ctx context.Context, s *session, _ *checkPlan) (checkResult, 
 
 func runNoKillContainerWatch(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-nokill-containerwatch.bash")
+}
+
+// runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.
+func runReadyWaitFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	argv := append([]string{toolBash, filepath.Join(s.scripts, "qa-ready-wait-rules.bash")}, cp.items...)
+	return s.exec(ctx, nil, argv...)
 }
 
 func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
@@ -295,16 +303,7 @@ func runAnsibleSyntax(ctx context.Context, s *session, cp *checkPlan) (checkResu
 
 // semgrepResults is the part of semgrep's JSON report that matters.
 type semgrepResults struct {
-	Results []struct {
-		Path  string `json:"path"`
-		Start struct {
-			Line int `json:"line"`
-		} `json:"start"`
-		CheckID string `json:"check_id"`
-		Extra   struct {
-			Message string `json:"message"`
-		} `json:"extra"`
-	} `json:"results"`
+	Results []semgrepreport.Result `json:"results"`
 }
 
 // semgrepAbnormal is the lowest exit status that means semgrep itself broke.

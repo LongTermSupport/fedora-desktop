@@ -130,6 +130,8 @@ type gate struct {
 	root    string
 	scripts string
 	stdout  bytes.Buffer
+	// verdict is the exit status of a run that completed.
+	verdict ExitCode
 }
 
 // Main runs the gate and returns the exit status.
@@ -149,14 +151,13 @@ func Main(args []string, env Env) ExitCode {
 	if opts.scripts != "" {
 		g.scripts = opts.scripts
 	}
-	verdict, err := g.run(opts.paths)
-	if err != nil {
+	if err := g.run(opts.paths); err != nil {
 		return report(env, err, false)
 	}
 	if _, err := env.Stdout.Write(g.stdout.Bytes()); err != nil {
 		return report(env, fmt.Errorf("cannot write to stdout: %w", err), false)
 	}
-	return verdict
+	return g.verdict
 }
 
 // write sends text to stdout; the status is that of the write.
@@ -187,24 +188,25 @@ func report(env Env, err error, usage bool) ExitCode {
 // written.
 func statusAfter(_ int, _ error, code ExitCode) ExitCode { return code }
 
-// run is the whole check.
-func (g *gate) run(paths []string) (ExitCode, error) {
+// run is the whole check; a run that ends early is an error, one that completes sets the verdict.
+func (g *gate) run(paths []string) error {
 	ctx := context.Background()
 	if err := g.requireSemgrep(ctx); err != nil {
-		return ExitCannotRun, err
+		return err
 	}
 	if err := g.proveRules(ctx); err != nil {
-		return ExitCannotRun, err
+		return err
 	}
 	sets, err := g.files(paths)
 	if err != nil {
-		return ExitCannotRun, err
+		return err
 	}
 	findings, err := g.scan(ctx, sets)
 	if err != nil {
-		return ExitCannotRun, err
+		return err
 	}
-	return g.finish(len(sets.py), len(sets.sh), findings), nil
+	g.verdict = g.finish(len(sets.py), len(sets.sh), findings)
+	return nil
 }
 
 // runTool runs one process with a time limit. A command that could not start or timed out is an

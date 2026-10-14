@@ -6,20 +6,45 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/discovery"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // requireSemgrep is that semgrep runs at all.
 func (g *gate) requireSemgrep(ctx context.Context) error {
 	res, err := g.runTool(ctx, versionTimeout, "semgrep", "--version")
-	if err != nil || res.Code != 0 {
+	switch {
+	case errors.Is(err, exec.ErrNotFound):
 		return errors.New("semgrep not found. Install with: pipx install semgrep")
+	case err != nil:
+		return fmt.Errorf("semgrep --version could not run: %w", err)
+	case res.Code != 0:
+		return fmt.Errorf("semgrep --version exited %d: %s", res.Code, strings.TrimSpace(res.Stderr))
 	}
 	return nil
+}
+
+// relative is a named file as the repository names it: relative to the root. A path that is
+// absolute or climbs out of the root must lie inside it, else it is refused rather than judged
+// under another name.
+func (g *gate) relative(p string) (string, error) {
+	rel := p
+	if filepath.IsAbs(p) {
+		var err error
+		if rel, err = filepath.Rel(g.root, p); err != nil {
+			return "", fmt.Errorf("%s is outside the repository root", p)
+		}
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", fmt.Errorf("%s is outside the repository root", p)
+	}
+	return rel, nil
 }
 
 // proveRules runs each half of the rule against its annotated fixture. A rule that silently
@@ -44,7 +69,11 @@ func (g *gate) proveRules(ctx context.Context) error {
 	if res.Code != 0 {
 		return failed("%s failed its fixture %s:\n%s%s", rulesPath, pyFixturePath, res.Stdout, res.Stderr)
 	}
-	marks, got := FixtureMarks(string(fixture)), Findings(string(fixture))
+	got, err := Findings(string(fixture))
+	if err != nil {
+		return fmt.Errorf("the bash rule cannot read its fixture %s: %w", shFixturePath, err)
+	}
+	marks := FixtureMarks(string(fixture))
 	if len(marks) == 0 || !slices.Equal(marks, got) {
 		return failed("the bash rule failed its fixture %s: the fixture marks lines %v, the rule reports %v", shFixturePath, marks, got)
 	}
@@ -94,7 +123,11 @@ func (g *gate) discover(list string) ([]string, error) {
 func (g *gate) classify(paths []string) (fileSets, error) {
 	var sets fileSets
 	seen := map[string]bool{}
-	for _, rel := range paths {
+	for _, named := range paths {
+		rel, err := g.relative(named)
+		if err != nil {
+			return fileSets{}, err
+		}
 		if seen[rel] {
 			continue
 		}
@@ -151,7 +184,11 @@ func (g *gate) scan(ctx context.Context, sets fileSets) ([]finding, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, line := range Findings(string(data)) {
+		lines, findErr := Findings(string(data))
+		if findErr != nil {
+			return nil, fmt.Errorf("%s: %w", rel, findErr)
+		}
+		for _, line := range lines {
 			found = append(found, finding{path: rel, line: line, rule: RuleID})
 		}
 	}
@@ -160,14 +197,8 @@ func (g *gate) scan(ctx context.Context, sets fileSets) ([]finding, error) {
 
 // semgrepReport is the part of semgrep's JSON that matters.
 type semgrepReport struct {
-	Results []struct {
-		CheckID string `json:"check_id"`
-		Path    string `json:"path"`
-		Start   struct {
-			Line int `json:"line"`
-		} `json:"start"`
-	} `json:"results"`
-	Errors []struct {
+	Results []semgrepreport.Result `json:"results"`
+	Errors  []struct {
 		Path    string `json:"path"`
 		Message string `json:"message"`
 	} `json:"errors"`

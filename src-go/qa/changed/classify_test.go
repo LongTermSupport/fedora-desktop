@@ -497,6 +497,36 @@ func TestAnEditToAGateWithNoPerFileCheckRunsItWhole(t *testing.T) {
 	}
 }
 
+// A changed Python or shell file (by name or by shebang) runs the ready-wait gate over that file
+// only; other files do not, and a deleted file has nothing to judge.
+func TestAChangedSourceFileRunsTheReadyWaitGateOnThatFile(t *testing.T) {
+	w := newWorld(t)
+	w.touch("helpers/one.py", "x = 1")
+	w.touch("scripts/two.bash", "#!/usr/bin/bash")
+	w.touch("files/home/.local/bin/py-tool", "#!/usr/bin/env python3")
+	w.touch("files/home/.local/bin/sh-tool", "#!/usr/bin/bash")
+	for _, f := range []string{"helpers/one.py", "scripts/two.bash", "files/home/.local/bin/py-tool", "files/home/.local/bin/sh-tool"} {
+		p := w.classify([]string{f})
+		if got := p.items("ready-wait-files"); !reflect.DeepEqual(got, []string{f}) {
+			t.Errorf("%s: ready-wait-files items %v", f, got)
+		}
+		if p.has("ready-wait") {
+			t.Errorf("%s ran the whole ready-wait gate: %v", f, keys(p))
+		}
+	}
+	p := w.classify([]string{"helpers/one.py", "scripts/two.bash"})
+	if got := p.items("ready-wait-files"); !reflect.DeepEqual(got, []string{"helpers/one.py", "scripts/two.bash"}) {
+		t.Errorf("both files: %v", got)
+	}
+	w.touch("docs/a.md", "# a")
+	if p = w.classify([]string{"docs/a.md"}); p.has("ready-wait-files") {
+		t.Errorf("a markdown file ran the ready-wait gate: %v", keys(p))
+	}
+	if p = w.classify(nil, "helpers/gone.py", "scripts/gone.bash"); p.has("ready-wait-files") {
+		t.Errorf("a deleted file has nothing for ready-wait-files: %v", keys(p))
+	}
+}
+
 // An edit to the ready-wait rule, its fixtures, its script, Go package or command runs the whole
 // ready-wait gate, the .semgrep files count as covered, and the script is not also picked as a
 // suite. An ordinary Python or shell file does not run it (the gate scans every tracked file).

@@ -38,7 +38,11 @@ starts: `git ls-files` (through `qa/discovery`) and `semgrep`.
 
 ### Prerequisites and the proof of the rules (every run, before any scan)
 
-- R4. `semgrep` not runnable is exit 2: `ERROR: semgrep not found. Install with: pipx install semgrep`.
+- R4. `semgrep` not runnable is exit 2, saying why: a program that is not on `PATH` is
+  `ERROR: semgrep not found. Install with: pipx install semgrep`; one that cannot start, times out
+  or leaves a process holding its output is `ERROR: semgrep --version could not run: <cause>`; one
+  that exits non-zero is `ERROR: semgrep --version exited <N>: <its stderr>`. A scan that times out
+  or leaves such a process is exit 2 the same way.
 - R5. The rules file `.semgrep/ready-wait.yml` and the two fixtures `.semgrep/ready-wait.py` and
   `.semgrep/ready-wait.bash` must be readable regular files, else exit 2 naming the file.
 - R6. `semgrep --test --metrics=off --disable-version-check --config <rules> <py fixture>` that
@@ -60,7 +64,10 @@ starts: `git ls-files` (through `qa/discovery`) and `semgrep`.
 - R9. **Explicit scope** (PATH...): a file is Python if its name ends `.py`; shell if it ends
   `.bash` or `.sh`; otherwise Python if its first line is a shebang naming python, else shell.
   A path that cannot be read is exit 2 naming it. A path given twice is judged once. Emptiness is
-  not an error here. The lists are not filtered by `.semgrep/`.
+  not an error here. The lists are not filtered by `.semgrep/`. A path is judged and printed
+  relative to the root: an absolute path inside the root is made relative; one outside it, or one
+  that climbs out with `..`, is exit 2 `ERROR: <path> is outside the repository root`. The caller
+  is `qa-changed`'s `ready-wait-files` check, which names the changed Python and shell files.
 
 ### The Python half
 
@@ -76,24 +83,33 @@ starts: `git ls-files` (through `qa/discovery`) and `semgrep`.
 
 ### The shell half: what the rule means
 
-Quoted text, comments and here-document bodies are blanked first (every byte keeps its offset and
-every newline its place); everything below reads the blanked text.
+The file is parsed as bash (`mvdan.cc/sh/v3`, the parser `qa/bashlimits` uses on every gated
+file), and the text is read after the parts that are not code are blanked from the syntax tree
+(every byte keeps its offset and every newline its place); everything below reads the blanked
+text.
 
-- R14. **The lexer.** Single-quoted text, double-quoted text (a `$(...)` inside double quotes is
-  code again, with its own quoting, so nested quotes do not pair with the outer ones), `$'...'`,
-  backslash escapes, `#` comments (only where a word starts, so `$#` and `${#x}` are not
-  comments), and here-document bodies (`<<EOF`, `<<-EOF` with tab stripping, quoted delimiters;
-  `<<<` is a here-string, not a here-document) are blanked. An `&` inside any of them is not a
-  background start.
-- R15. **A background start** arms its scope: a lone `&` (not `&&`, `&>`, `>&`, `<&`, `|&`). A
-  scope is a function body, or the top level outside any function.
-- R16. A call to a function that starts a background process **and keeps its pid** (`VAR=$!`)
-  arms the caller. A function that backgrounds something and keeps no pid (fire and forget) does
-  not. A function called with `&` is itself a background start, not a call whose loops the caller
-  waits in.
+- R14. **What is code.** Blanked: single-quoted text and `$'...'`; double-quoted text, except a
+  command or process substitution inside it (code again, with its own quoting) and `$!`; `#`
+  comments (a `#` that follows a closing quote is part of its word, as bash reads it); the whole
+  of a here-document, body and terminator, whatever its delimiter word (`<<EOF`, `<<-EOF`,
+  `<<END-MARK`, `<<\EOF`, `<<"a b"`; a here-string `<<<` is not one); backslash escapes in
+  unquoted words; and the inside of arithmetic (`$(( ))`, `(( ))`, the header of a C-style `for`).
+  An `&` inside any of them is not a background start. **A file that does not parse is exit 2**
+  `ERROR: <path>: cannot parse as bash: <why>`, and so is a fixture that does not parse: a rule
+  that could not read a file has not judged it, and is never a skip.
+- R15. **A background start** arms its scope: a lone `&` in code (not `&&`, `&>`, `>&`, `<&`,
+  `|&`, and not a bit-and in arithmetic). A scope is a function body, or the top level outside
+  any function.
+- R16. A call to a function that starts a background process **and keeps its pid** (`$!` appears
+  in its code in any form: `VAR=$!`, `local pid="$!"`, `pids+=("$!")`, `printf '%s' "$!"`; not in
+  single quotes or a comment) arms the caller. A function that backgrounds something and keeps no
+  pid (fire and forget) does not. A function called with `&` is itself a background start, not a
+  call whose loops the caller waits in. A function is `name() { ... }` or `function name { ... }`
+  with a brace body; a function whose body is another compound command is not read.
 - R17. **A manager start** arms the scope too: `lxc-start`, `virt-install`, `virsh ... start`, as
   a command (after a separator, `then`/`do`/`else`/`if`/`while`..., `!`, `exec`, `nohup`, `sudo`
-  with options, or variable assignments; also inside `$(...)`); the tool named as an argument
+  with options, including options that take a value (`sudo -u root`), or variable assignments;
+  also inside `$(...)`); the tool named as an argument
   (`command -v lxc-start`, `virsh autostart`, a word in a `for` list) is not a start. A function
   that runs one arms its callers.
 - R18. **A wait** is a `for`/`while`/`until` loop whose body runs `sleep`, in an armed scope or in
@@ -101,7 +117,9 @@ every newline its place); everything below reads the blanked text.
   loops, one level), and that ends when its condition is met: its body has `break`, `return` or
   `exit`, or it is a `while`/`until` whose condition is a test. A `for` without such a word, a
   `while true`/`while :`/`while ((...))` without one, runs its full course and is a sampler, not
-  a wait.
+  a wait. Stated limits, not departures: a `while read` loop is a test and so a wait if it sleeps
+  after a start; a function named as a word elsewhere (`trap waiter EXIT`) counts as a call to it.
+  Both can only add a finding, never hide one.
 - R19. **Liveness** clears a wait: in its header or body, `kill -0`, `kill -s 0`,
   `kill --signal 0`, `wait -n`, `ps -p`, `lxc-info` asking the state (`-s`, `--state`, grouped
   short options containing `s`), `lxc-ls --running|--active`, `virsh domstate` or `virsh list`
@@ -112,10 +130,12 @@ every newline its place); everything below reads the blanked text.
 - R21. **Disarm.** `wait` (but not `wait -n`) on the child, or the end of a `case` arm (`;;`),
   disarms the scope: a loop after it is not waiting for that child. Case arms are alternatives.
 - R22. A loop before the start, a loop without `sleep`, and a poll in a scope with no start are
-  not reported. A loop that is itself backgrounded (`done &`) is a start, not a wait for itself.
+  not reported. A loop that is itself backgrounded (`done &`) is a start, not a wait for itself,
+  whether or not the scope was already armed.
 - R23. A finding is the 1-based line of the loop's first line (`for`/`while`/`until`). Several
   findings on one line are one finding.
-- R24. The bash rule reads a file as bytes; invalid UTF-8 is an ordinary byte, not an error.
+- R24. Text that is not valid UTF-8 cannot be read as bash: it is the parse failure of R14 (exit 2
+  naming the file), not a skip.
 
 ### Output
 
@@ -133,12 +153,14 @@ every newline its place); everything below reads the blanked text.
 | Id  | The legacy                                                                                               | Now                                                                                 |
 | --- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | B1  | the shell half was a Python module with its own unit tests                                               | Go package; the Python module and its tests are removed, the cases ported (R14-R24) |
-| B2  | an unreadable or non-UTF-8 shell file was a Python traceback                                             | unreadable is exit 2 naming it (R9), bytes are bytes (R24)                          |
+| B2  | an unreadable or non-UTF-8 shell file was a Python traceback | unreadable or unparseable is exit 2 naming it (R9, R14, R24) |
 | B3  | the helper had a `--fixture` command line                                                                | in-process proof (R7)                                                               |
 | B4  | the same line found twice was printed twice before `sort -u`                                             | one finding per line (R23)                                                          |
 | B5  | scratch files in a temp directory                                                                        | captured in memory                                                                  |
 | B6  | an explicit PATH was relative to whatever directory the script `cd`'d to                                 | relative to the root, stated (R1)                                                   |
-| B7  | a here-string (`<<<x`) was read as a here-document `<<x`, blanking the rest of the file up to a line `x` | a here-string is skipped whole (R14)                                                |
+| B7  | the hand lexer: a here-string, a delimiter that is not an identifier, `"a"#b`, `$!` in double quotes and a bit-and in arithmetic were misread, silently hiding or inventing waits | the syntax tree of the bash parser decides what is code (R14-R16); a file it cannot parse is exit 2 |
+| B8  | a backgrounded loop in an armed scope was reported, against the rule's own statement | not reported (R22) |
+| B9  | `function name {` was not a function; `sudo -u user` hid a manager start | both read (R16, R17) |
 
 ## 4. Seams
 

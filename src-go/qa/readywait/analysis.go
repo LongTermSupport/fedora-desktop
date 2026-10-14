@@ -16,17 +16,21 @@ type analysis struct {
 	checkers    []string
 }
 
-func analyse(text string) *analysis {
+func analyse(text string) (*analysis, error) {
+	shell, err := readShell(text)
+	if err != nil {
+		return nil, err
+	}
 	a := &analysis{
-		code:        codeOnly(text),
+		code:        shell.code,
 		byName:      map[string]function{},
 		definitions: map[string]int{},
 		launchers:   map[string]bool{},
 	}
-	a.functions = functionsIn(a.code)
+	a.functions = shell.functions
 	for _, f := range a.functions {
 		a.byName[f.name] = f
-		keepsPid := len(launchesIn(a.code, f.start, f.end)) > 0 && pidCaptureRe.MatchString(a.code[f.start:f.end])
+		keepsPid := len(launchesIn(a.code, f.start, f.end)) > 0 && strings.Contains(a.code[f.start:f.end], "$!")
 		if keepsPid || len(managerStarts(a.code, f.start, f.end)) > 0 {
 			a.launchers[f.name] = true
 		}
@@ -35,7 +39,7 @@ func analyse(text string) *analysis {
 		}
 		a.definitions[f.name] = f.defStart + strings.Index(a.code[f.defStart:], f.name)
 	}
-	return a
+	return a, nil
 }
 
 func (a *analysis) inFunction(pos int) bool {
@@ -91,8 +95,11 @@ func (a *analysis) flagScope(start, end int, top bool, flagged map[int]bool) {
 
 // Findings is the 1-based lines of the ready-waits in text that ignore their child, sorted, one
 // per line.
-func Findings(text string) []int {
-	a := analyse(text)
+func Findings(text string) ([]int, error) {
+	a, err := analyse(text)
+	if err != nil {
+		return nil, err
+	}
 	flagged := map[int]bool{}
 	for _, f := range a.functions {
 		a.flagScope(f.start, f.end, false, flagged)
@@ -107,5 +114,5 @@ func Findings(text string) []int {
 		sorted = append(sorted, line)
 	}
 	slices.Sort(sorted)
-	return sorted
+	return sorted, nil
 }

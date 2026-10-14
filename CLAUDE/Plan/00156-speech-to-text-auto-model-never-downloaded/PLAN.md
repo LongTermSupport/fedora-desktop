@@ -55,7 +55,7 @@ then is the original defect fixed. The DBF records live in [`dbf/`](dbf/).
   every instance.
 - [x] ✅ **Task 1.3**: Class "a ready-wait that ignores its child's exit"
   (`ready-wait-ignores-child-exit`). The gate `qa-ready-wait-rules.bash` runs a Semgrep
-  rule for Python and `helpers/ready_wait/bash_ready_waits.py` for bash, because Semgrep
+  rule for Python and the Go rule in `src-go/qa/readywait` for bash, because Semgrep
   cannot parse 88 of the 371 tracked shell scripts. It was committed red with 8
   findings. GNOME JS, Ansible, daemonizing starts and step scripts get no rule; the
   reasons are on the QA.md page. 15 of the search's 16 instances are fixed (#8 after

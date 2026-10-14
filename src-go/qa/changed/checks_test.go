@@ -66,7 +66,7 @@ func (r *scriptedRunner) argv() []string {
 
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
-		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "unit-tests", "ansible-syntax",
+		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "ruff", "unit-tests", "ansible-syntax",
 		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ready-wait", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
@@ -90,6 +90,7 @@ func TestSummaries(t *testing.T) {
 		"toolchain":           "QA tool versions match .qa-versions",
 		"bash-syntax":         "2 file(s)",
 		"shell-directives":    "2 file(s)",
+		"ready-wait-files":    "2 file(s)",
 		"unit-tests":          "2 module(s)",
 		"ansible-syntax":      "2 playbook(s)",
 		"ansible-patterns":    "fail-fast patterns, whole gate",
@@ -187,6 +188,19 @@ func TestShellDirectivesRunsTheGatesDirectivesMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"bash " + filepath.Join(s.scripts, "qa-bash.bash") + " --directives a.bash b.bash"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The per-file ready-wait check runs the gate over the changed files by name (SPEC-qa-ready-wait-rules R9).
+func TestReadyWaitFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("ready-wait-files").run(context.Background(), s, &checkPlan{items: []string{"a.py", "b.bash"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-ready-wait-rules.bash") + " a.py b.bash"}
 	if got := runner.argv(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}

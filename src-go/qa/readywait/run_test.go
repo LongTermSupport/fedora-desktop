@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 const goodFixture = "#!/usr/bin/env bash\nw &\np=$!\n# ruleid: ready-wait-ignores-child-exit\nuntil [ -e r ]; do\n\tsleep 1\ndone\n"
@@ -52,13 +54,7 @@ func (f *fakeRunner) semgrepScans() [][]string {
 	return scans
 }
 
-type jsonResult struct {
-	CheckID string `json:"check_id"`
-	Path    string `json:"path"`
-	Start   struct {
-		Line int `json:"line"`
-	} `json:"start"`
-}
+type jsonResult = semgrepreport.Result
 
 // reportFor is semgrep's JSON naming the files handed over as scanned, with these results.
 func reportFor(t *testing.T, scanned []string, results []jsonResult, errs []map[string]string) proc.Result {
@@ -215,16 +211,71 @@ func TestAnUnresolvableRootIsExitTwo(t *testing.T) {
 
 // R4
 func TestSemgrepMissingIsExitTwo(t *testing.T) {
-	for name, set := range map[string]func(*fakeRunner){
-		"cannot start": func(f *fakeRunner) { f.versionEr = errors.New("not found") },
-		"exits 1":      func(f *fakeRunner) { f.version = proc.Result{Code: 1} },
+	w := newWorld(t, nil)
+	w.fake.versionEr = exec.ErrNotFound
+	w.wantExit(ExitCannotRun, w.run())
+	w.wantStderr("ERROR: semgrep not found. Install with: pipx install semgrep")
+}
+
+// R4: a semgrep that is there but does not answer says why, and is not called "not found".
+func TestSemgrepThatFailsToAnswerSaysWhy(t *testing.T) {
+	cases := map[string]struct {
+		set  func(*fakeRunner)
+		want string
+	}{
+		"cannot start": {func(f *fakeRunner) { f.versionEr = errors.New("permission denied") }, "semgrep --version could not run: semgrep: permission denied"},
+		"exits 1":      {func(f *fakeRunner) { f.version = proc.Result{Code: 1, Stderr: "broken install\n"} }, "semgrep --version exited 1: broken install"},
+		"timed out":    {func(f *fakeRunner) { f.version = proc.Result{TimedOut: true} }, "semgrep --version could not run: semgrep did not finish within"},
+		"leftover":     {func(f *fakeRunner) { f.version = proc.Result{Leftover: true} }, "semgrep --version could not run: semgrep left a process holding its output open"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, nil)
+			c.set(w.fake)
+			w.wantExit(ExitCannotRun, w.run())
+			w.wantStderr("ERROR: " + c.want)
+			if strings.Contains(w.stderr.String(), "not found") {
+				t.Fatalf("a semgrep that exists was called not found:\n%s", w.stderr.String())
+			}
+		})
+	}
+}
+
+// R2: a semgrep scan that times out or leaves a process behind is exit 2 saying so.
+func TestAScanThatTimesOutOrLeavesAProcessIsExitTwo(t *testing.T) {
+	for name, res := range map[string]proc.Result{
+		"timed out": {TimedOut: true},
+		"leftover":  {Leftover: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, nil)
-			set(w.fake)
+			w.fake.scan = func([]string) proc.Result { return res }
 			w.wantExit(ExitCannotRun, w.run())
-			w.wantStderr("ERROR: semgrep not found. Install with: pipx install semgrep")
+			w.wantStderr("ERROR: semgrep ")
 		})
+	}
+}
+
+// R9, R3: a path outside the root, or one that is absolute, is not judged under another name.
+func TestPathsOutsideTheRootAreExitTwo(t *testing.T) {
+	w := newWorld(t, nil)
+	other := filepath.Join(t.TempDir(), "x.bash")
+	if err := os.WriteFile(other, []byte("echo x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{other, "../x.bash", "a/../../x.bash"} {
+		w.stderr.Reset()
+		w.wantExit(ExitCannotRun, w.run(p))
+		w.wantStderr("ERROR: ", p, "outside the repository root")
+	}
+}
+
+// R9, R3: an absolute path inside the root is judged and shown relative to it.
+func TestAnAbsolutePathInsideTheRootIsShownRelative(t *testing.T) {
+	w := newWorld(t, map[string]string{"scripts/waits.bash": waitingScript})
+	w.wantExit(ExitFailed, w.run(filepath.Join(w.root, "scripts", "waits.bash")))
+	if !strings.Contains(w.stdout.String(), "scripts/waits.bash:4: ready-wait-ignores-child-exit") || strings.Contains(w.stdout.String(), w.root) {
+		t.Fatalf("stdout:\n%s", w.stdout.String())
 	}
 }
 
@@ -487,13 +538,25 @@ func TestACleanRunPrintsPassedAndExitsZero(t *testing.T) {
 	}
 }
 
-// R24 at the file level: a shell file that is not UTF-8 is read as bytes.
-func TestAShellFileThatIsNotUTF8IsRead(t *testing.T) {
-	w := newWorld(t, map[string]string{"scripts/latin.bash": "echo \xe9\xff\n" + waitingScript})
-	w.wantExit(ExitFailed, w.run())
-	if !strings.Contains(w.stdout.String(), "scripts/latin.bash:5: ready-wait-ignores-child-exit") {
-		t.Fatalf("stdout:\n%s", w.stdout.String())
+// R24 at the file level: a shell file that cannot be read as bash is exit 2 naming it.
+func TestAShellFileThatCannotBeParsedIsExitTwoNamingIt(t *testing.T) {
+	for name, text := range map[string]string{
+		"not UTF-8":    "echo \xe9\xff\n" + waitingScript,
+		"a bad syntax": "if true; then\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, map[string]string{"scripts/broken.bash": text})
+			w.wantExit(ExitCannotRun, w.run())
+			w.wantStderr("ERROR: scripts/broken.bash: cannot parse as bash")
+		})
 	}
+}
+
+// R14: a fixture that does not parse is exit 2, not a pass.
+func TestABashFixtureThatCannotBeParsedIsExitTwo(t *testing.T) {
+	w := newWorld(t, map[string]string{".semgrep/ready-wait.bash": "if true; then\n"})
+	w.wantExit(ExitCannotRun, w.run())
+	w.wantStderr("ERROR: the bash rule cannot read its fixture .semgrep/ready-wait.bash")
 }
 
 type failingWriter struct{}

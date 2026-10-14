@@ -22,6 +22,19 @@ func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	}
 }
 
+// R4: a semgrep that is not installed is named not found by the real process seam.
+func TestARealMissingSemgrepIsNamedNotFound(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	env := readywait.Env{Stdout: &stdout, Stderr: &stderr, Cwd: t.TempDir(), Runner: proc.OS{}}
+	if code := readywait.Main(nil, env); code != readywait.ExitCannotRun {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(stderr.String(), "ERROR: semgrep not found. Install with: pipx install semgrep") {
+		t.Fatalf("stderr:\n%s", stderr.String())
+	}
+}
+
 // projectFile reads a file of the real repository by its path from this package.
 func projectFile(t *testing.T, rel string) string {
 	t.Helper()
