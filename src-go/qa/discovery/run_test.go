@@ -170,6 +170,17 @@ func TestYardsticksForPlaybooksAndHelperTestsExcludeNothing(t *testing.T) {
 	wantPaths(t, w.main("tracked-helper-tests"), "tests/helpers/untracked/test_x.py")
 }
 
+// The yaml list is the YAML files git would publish outside the shell trees; absolute.
+func TestYamlListIsPublishedYamlOutsideTheExcludedTrees(t *testing.T) {
+	w := newWorld(t)
+	w.track("a.yml", "")
+	w.track("sub/b.yaml", "")
+	w.track("c.txt", "")
+	w.track(".semgrep/x.yml", "")
+	w.fresh("new.yml", "")
+	wantPaths(t, w.main("yaml"), w.root+"/a.yml", w.root+"/new.yml", w.root+"/sub/b.yaml")
+}
+
 func TestABrokenTreesTableIsExitTwo(t *testing.T) {
 	for name, table := range map[string]string{
 		"missing":      "",

@@ -46,6 +46,7 @@ Prints one list of files, each ended by NUL, sorted. LIST is one of:
                       ignored); absolute
   python              Python files, likewise; absolute
   python-templates    .j2 templates with a Python shebang, likewise; absolute; may be empty
+  yaml                .yml/.yaml files, likewise, outside the shell trees; absolute
   tracked-shell       tracked shell scripts; repository-relative
   tracked-python      tracked Python files; repository-relative
   tracked-playbooks   tracked .yml/.yaml files under playbooks/; repository-relative
@@ -160,6 +161,7 @@ var listings = map[string]listing{
 	"shell":             {what: "shell scripts", published: true, absolute: true, dirs: shellDirs, keep: ofKind(shellLang)},
 	"python":            {what: "Python files", published: true, absolute: true, dirs: pythonDirs, keep: ofKind(pythonLang)},
 	"python-templates":  {what: "Python templates", published: true, absolute: true, mayBeEmpty: true, dirs: pythonDirs, keep: ofKind(templateLang)},
+	"yaml":              {what: "YAML files", published: true, absolute: true, dirs: shellDirs, keep: fileUnder("", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},
 	"tracked-shell":     {what: "tracked shell scripts", dirs: shellDirs, keep: ofKind(shellLang)},
 	"tracked-python":    {what: "tracked Python files", dirs: pythonDirs, keep: ofKind(pythonLang)},
 	"tracked-playbooks": {what: "tracked playbooks", keep: fileUnder("playbooks/", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},
