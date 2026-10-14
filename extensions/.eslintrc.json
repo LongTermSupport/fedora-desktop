@@ -39,6 +39,5 @@
         "message": "⚠️  POTENTIAL BLOCKING: Subprocess without pipes may block - consider using async methods"
       }
     ]
-  },
-  "ignorePatterns": ["wsi", "wsi-transcribe"]
+  }
 }

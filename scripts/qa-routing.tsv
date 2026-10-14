@@ -47,6 +47,11 @@ also	ruff.toml	python	covered
 # A Python template is compiled by the python gate once rendered, so an edit to one runs it.
 also	@pytemplate	python	-
 also	scripts/qa-python.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,.qa-versions	python	-
+# The js gate: its tool, its wrapper, the shared discovery and the ESLint config it pins (the
+# per-file eslint check is given the same config).
+also	src-go/qa/js/*,src-go/qa/cmd/qa-js/*,src-go/qa/discovery/*	js	-
+also	scripts/qa-js.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	js	-
+also	extensions/.eslintrc.json	js	covered
 # The shell gate runs whole when its tool, the shared discovery, its wrapper or the table of excluded trees change.
 also	src-go/qa/bash/*,src-go/qa/cmd/qa-bash/*,src-go/qa/discovery/*	bash	-
 also	scripts/qa-bash.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	bash	-

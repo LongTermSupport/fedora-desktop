@@ -327,6 +327,31 @@ func TestThePythonGateRunsWhenItsToolPinConfigOrTableChange(t *testing.T) {
 	}
 }
 
+// J: the js gate runs whole when its tool, its wrapper, the shared discovery, the lint config or
+// the table it reads change; an ordinary extension file is still only parse-checked and linted.
+func TestTheJSGateRunsWhenItsToolWrapperConfigOrTableChange(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{"src-go/qa/js/run.go", "src-go/qa/cmd/qa-js/main.go", "src-go/qa/discovery/list.go", "extensions/.eslintrc.json"} {
+		w.touch(f, "// x")
+		p := w.classify([]string{f})
+		if !p.has("js") || len(p.uncovered) != 0 || len(p.skipped) != 0 {
+			t.Errorf("%s: checks %v uncovered %v skipped %v", f, keys(p), p.uncovered, p.skipped)
+		}
+	}
+	for _, f := range []string{"scripts/qa-js.bash", "scripts/lib/go-tool.bash", "scripts/qa-trees.tsv"} {
+		if f != "scripts/qa-trees.tsv" {
+			w.touch(f, "#!/usr/bin/bash")
+		}
+		if p := w.classify([]string{f}); !p.has("js") {
+			t.Errorf("%s: checks %v", f, keys(p))
+		}
+	}
+	w.touch("extensions/ext@x/extension.js", "// x")
+	if p := w.classify([]string{"extensions/ext@x/extension.js"}); p.has("js") || !p.has("eslint") {
+		t.Fatalf("an ordinary extension file runs only the per-file checks: %v", keys(p))
+	}
+}
+
 func TestParityReferencesRunTheGoGateAndStillClassify(t *testing.T) {
 	w := newWorld(t)
 	w.touch("files/var/local/claude-yolo/lib/common-pure.bash", "#!/usr/bin/bash")

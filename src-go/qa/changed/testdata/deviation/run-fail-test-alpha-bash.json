@@ -16,7 +16,7 @@
   "gate:qa-bash-limits.bash json=",
   "node --check extensions/ext@x/extension.js",
   "node --check tools/plain.js",
-  "eslint ext@x/extension.js in extensions",
+  "eslint --no-eslintrc --config \u003cROOT\u003e/extensions/.eslintrc.json --no-inline-config --format json \u003cROOT\u003e/extensions/ext@x/extension.js",
   "suite:test-alpha.bash",
   "suite:test-beta.bash",
   "suite:test-teams.bash"

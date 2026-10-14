@@ -277,11 +277,28 @@ func (r *goldenRunner) Run(ctx context.Context, c proc.Cmd) (proc.Result, error)
 		line += " | GIT_CONFIG_GLOBAL=" + envOf(c.Env, "GIT_CONFIG_GLOBAL") + " GIT_CONFIG_NOSYSTEM=" + envOf(c.Env, "GIT_CONFIG_NOSYSTEM")
 	case "ansible-playbook":
 		line += " | ANSIBLE_CONFIG=" + envOf(c.Env, "ANSIBLE_CONFIG")
-	case "eslint":
-		line += " in " + filepath.Base(c.Dir)
 	}
 	r.log = append(r.log, line)
-	return r.exit(c, name), nil
+	res := r.exit(c, name)
+	if name == "eslint" && res.Code == 0 {
+		res.Stdout = eslintCleanReport(c.Argv)
+	}
+	return res, nil
+}
+
+// eslintCleanReport is the JSON a clean ESLint run prints for the files it was given, which
+// follow the "json" format name in the argv.
+func eslintCleanReport(argv []string) string {
+	files := argv[slices.Index(argv, "json")+1:]
+	results := make([]map[string]any, 0, len(files))
+	for _, file := range files {
+		results = append(results, map[string]any{"filePath": file, "messages": []any{}})
+	}
+	data, err := json.Marshal(results)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }
 
 func envOf(env []string, key string) string {

@@ -269,6 +269,30 @@ func TestPythonTemplatesArePublishedJ2FilesWithAPythonShebang(t *testing.T) {
 	wantPaths(t, w.main("python-templates"), w.root+"/files/helper.j2", w.root+"/files/new.j2")
 }
 
+// D16: the js list is the published .js and .mjs files outside the shell trees, by name only.
+func TestJSFilesArePublishedJSAndMJSFilesOutsideTheShellTrees(t *testing.T) {
+	w := newWorld(t)
+	w.track("extensions/a/extension.js", "")
+	w.track("tests/extensions/t.mjs", "")
+	w.fresh("fresh.js", "")
+	w.ignore("ignored.js", "")
+	w.track("untracked/scratch.js", "")
+	w.track("notes.json", "")
+	w.track("bin/tool", "#!/usr/bin/env node\n")
+	w.track("lib.cjs", "")
+	w.track("dir.js/readme.txt", "")
+	wantPaths(t, w.main("js"), w.root+"/extensions/a/extension.js", w.root+"/fresh.js", w.root+"/tests/extensions/t.mjs")
+}
+
+// D16: a js list with nothing in it is a broken discovery, like every list but the templates.
+func TestAnEmptyJSListIsABrokenDiscovery(t *testing.T) {
+	w := newWorld(t)
+	w.track("a.bash", "")
+	got := w.main("js")
+	wantExit(t, got, ExitCannotRun)
+	wantStderr(t, got, "ERROR: found 0 JavaScript files under "+w.root)
+}
+
 // D9
 func TestEveryTrackedFileDiscoveredIsAlsoInTheYardstickSource(t *testing.T) {
 	w := newWorld(t)

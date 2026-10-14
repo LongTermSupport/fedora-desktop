@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/js"
 )
 
 // checkResult is how one check ended: its merged output and the status that decides pass or fail.
@@ -70,6 +71,7 @@ var checkDefs = []checkDef{
 	{id: "patterns", fixed: "bash-convention rules, whole gate", gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runPatterns},
 	{id: "bash", fixed: "bash -n and shellcheck, whole gate", gate: true, tools: []string{toolBash, toolGo, toolShellcheck}, run: runBash},
 	{id: "python", fixed: "compile and ruff, whole gate", gate: true, tools: []string{toolBash, toolGo, toolRuff, toolPython}, run: runPython},
+	{id: "js", fixed: "node --check and ESLint, whole gate", gate: true, tools: []string{toolBash, toolGo, toolNode}, run: runJS},
 	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash}, run: runDocs},
 	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
@@ -157,6 +159,10 @@ func runPython(ctx context.Context, s *session, _ *checkPlan) (checkResult, erro
 	return s.gateWithReport(ctx, "qa-python.bash")
 }
 
+func runJS(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.gateWithReport(ctx, "qa-js.bash")
+}
+
 func runDocs(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.gateWithReport(ctx, "qa-docs.bash")
 }
@@ -204,8 +210,11 @@ func runShellcheck(ctx context.Context, s *session, cp *checkPlan) (checkResult,
 	return s.exec(ctx, []string{"SHELLCHECK_OPTS="}, append([]string{"shellcheck", shellcheckNoRc, shellcheckFollow, shellcheckSeverity}, cp.items...)...)
 }
 
+// configFlag names the one config a tool is run under.
+const configFlag = "--config"
+
 func runRuff(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	return s.exec(ctx, nil, append([]string{"ruff", "check", "--config", filepath.Join(s.root, "ruff.toml"), "--no-cache"}, cp.items...)...)
+	return s.exec(ctx, nil, append([]string{"ruff", "check", configFlag, filepath.Join(s.root, "ruff.toml"), "--no-cache"}, cp.items...)...)
 }
 
 func runUnitTests(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
@@ -214,17 +223,37 @@ func runUnitTests(ctx context.Context, s *session, cp *checkPlan) (checkResult, 
 }
 
 func runEslint(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	prefix := cp.rel + "/"
-	argv := make([]string, 1, 1+len(cp.items))
-	argv[0] = "./node_modules/.bin/eslint"
+	// The js gate's run (SPEC-qa-js.md J8, J9, J11) over the changed files: its pins, its working
+	// directory and absolute paths, and its proof that ESLint read every file, so this check and
+	// the gate cannot disagree about the rules or about a file ESLint ignored.
+	flags := js.EslintFlags(filepath.Join(s.root, cp.rel, ".eslintrc.json"))
+	argv := make([]string, 0, 1+len(flags)+len(cp.items))
+	argv = append(argv, filepath.Join(s.root, cp.rel, "node_modules", ".bin", "eslint"))
+	argv = append(argv, flags...)
+	given := make(map[string]string, len(cp.items))
 	for _, f := range cp.items {
-		argv = append(argv, strings.TrimPrefix(f, prefix))
+		abs := filepath.Join(s.root, f)
+		argv = append(argv, abs)
+		given[abs] = f
 	}
-	res, err := s.runCmd(ctx, proc.Cmd{Argv: argv, Dir: filepath.Join(s.root, cp.rel), Merge: true})
+	res, err := s.runCmd(ctx, proc.Cmd{Argv: argv, Dir: s.root})
 	if err != nil {
 		return checkResult{}, err
 	}
-	return checkResult{output: res.Stdout, code: res.Code}, nil
+	return eslintResult(js.Findings(s.root, given, res.Code, res.Stdout, res.Stderr)), nil
+}
+
+// eslintResult is ESLint's judged answer as a check result: one line per finding; an answer that
+// proves nothing (ESLint failed, ignored a file or skipped one) fails the check with the reason.
+func eslintResult(findings []js.Finding, proofErr error) checkResult {
+	if proofErr != nil {
+		return checkResult{output: proofErr.Error() + "\n", code: 1}
+	}
+	var out strings.Builder
+	for _, f := range findings {
+		out.WriteString(f.String() + "\n")
+	}
+	return checkResult{output: out.String(), code: min(len(findings), 1)}
 }
 
 // runAnsibleSyntax checks every playbook (stdout discarded, as the gate does) and names the
@@ -287,7 +316,7 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	}
 	res, err := s.runCmd(ctx, proc.Cmd{
 		Argv: []string{
-			"semgrep", "--config", filepath.Join(s.root, ".semgrep", "bash-conventions.yml"),
+			"semgrep", configFlag, filepath.Join(s.root, ".semgrep", "bash-conventions.yml"),
 			"--json-output", report, "--metrics=off", "--quiet", ".",
 		},
 		Dir:   mirror,
