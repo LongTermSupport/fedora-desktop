@@ -375,7 +375,8 @@ gate that fails or that its pattern does not read.
 A **count** reader gives a pass only for a count line with `passed: <n>`, n above zero, and
 no `failed: <m>` above zero on the same line; no line, zero cases and reported failures are each
 a failed gate even when the suite exited 0 (SPEC-qa-all B2, B21, B22). The same reader serves
-`qa-changed.bash`'s suites. A gate's own output cannot forge the run's verdict: a gate line
+`qa-changed.bash`'s suites, and so does every other reader of a row (`gates.Summarise`): a suite
+picked by `qa-changed` is judged by all of its row's readers, as `qa-all` judges that gate. A gate's own output cannot forge the run's verdict: a gate line
 that opens `✓ QA passed:` / `✗ QA FAILED:` is indented, so the verdict at the end of stdout is
 the only such line (B23); a push gate may therefore read the verdict from stdout.
 

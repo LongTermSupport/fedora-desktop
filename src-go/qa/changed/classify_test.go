@@ -341,3 +341,36 @@ func TestPlaybookListFailureIsAnError(t *testing.T) {
 		t.Fatal("a failed playbook listing must stop the run")
 	}
 }
+
+// Review F9: an edit to the container-watch watchdog or its two panel files runs the no-kill gate
+// before the commit, not only at the push; a deletion does too (the gate judges what remains).
+func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
+	for _, f := range []string{
+		"helpers/containerwatch/core.py",
+		"helpers/containerwatch/sub/nested.py",
+		"extensions/fedora-desktop@fedora-desktop/containerReport.js",
+		"extensions/fedora-desktop@fedora-desktop/sections/containers.js",
+	} {
+		w := newWorld(t)
+		w.touch(f, "// x")
+		if p := w.classify([]string{f}); !p.has("nokill-containerwatch") {
+			t.Errorf("%s: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{"scripts/qa-nokill-containerwatch.bash", "src-go/qa/nokill/rules.go", "src-go/qa/cmd/qa-nokill-containerwatch/main.go"} {
+		w := newWorld(t)
+		w.touch(f, "// x")
+		if p := w.classify([]string{f}); !p.has("nokill-containerwatch") {
+			t.Errorf("the gate's own file %s: %v", f, keys(p))
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, "helpers/containerwatch/gone.py"); !p.has("nokill-containerwatch") {
+		t.Errorf("a deleted watchdog file: %v", keys(p))
+	}
+	w = newWorld(t)
+	w.touch("helpers/other/tool.py", "# x")
+	if p := w.classify([]string{"helpers/other/tool.py"}); p.has("nokill-containerwatch") {
+		t.Errorf("an unrelated helper must not run the gate: %v", keys(p))
+	}
+}

@@ -73,6 +73,51 @@ func Detail(capture string, re *regexp.Regexp) (string, bool) {
 	return re.FindString(last), true
 }
 
+// Summarise is the text of a gate's stage line from its captured output, or the reason it cannot
+// give one: qa-all and qa-changed both judge a script they ran by it, so neither can be more
+// lenient than the other. A gate's every reader must find its line (a count reader a count, a
+// detail reader its pattern); a drift gate must print its own stage line; a helpers or stage
+// gate's verdict is not in its output, so it is refused rather than passed on nothing. The
+// errors keep ErrNoCount, ErrZeroCases and ErrFailedCases reachable with errors.Is.
+func Summarise(g Gate, capture string) (string, error) {
+	switch g.Kind {
+	case KindDrift:
+		return driftLine(g, capture)
+	case KindHelpers:
+		return "", errors.New("its counts travel in a file, not in its output, so its output cannot be judged here")
+	case KindStage:
+		return "", errors.New("its verdict is a JSON report, not its output, so its output cannot be judged here")
+	case KindGate:
+	}
+	parts := make([]string, 0, len(g.Readers))
+	for _, r := range g.Readers {
+		if r.Detail == nil {
+			got, err := CaseCount(capture)
+			if err != nil {
+				return "", fmt.Errorf("exited 0 but %w", err)
+			}
+			parts = append(parts, got)
+			continue
+		}
+		got, ok := Detail(capture, r.Detail)
+		if !ok {
+			return "", errors.New("ran, but its summary line was not found: " + r.Detail.String())
+		}
+		parts = append(parts, got)
+	}
+	return strings.Join(parts, "; "), nil
+}
+
+// driftLine is the text after the drift gate's own "<mark> <name>: " stage line.
+func driftLine(g Gate, capture string) (string, error) {
+	line := regexp.MustCompile(`(?m)^[✓⚠] ` + regexp.QuoteMeta(g.Name) + `: (.*)$`)
+	m := line.FindStringSubmatch(capture)
+	if m == nil {
+		return "", errors.New("ran, but printed no " + g.Name + " stage line")
+	}
+	return m[1], nil
+}
+
 // countKeys are the five keys of the helper-tests counts file, which the runner
 // (helpers/qa_environment/unittest_counts.py) writes from unittest's TestResult. The first four
 // are numbers.

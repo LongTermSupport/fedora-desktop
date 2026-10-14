@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -67,23 +66,11 @@ func (s *session) gateFailed(name, reason, capture string) {
 // summarise answers the text for a passing gate's stage line, or the reason it cannot give
 // one. Every reader must find its line: a gate whose summary cannot be read has proved nothing.
 func summarise(g gates.Gate, capture string) (string, string) {
-	parts := make([]string, 0, len(g.Readers))
-	for _, r := range g.Readers {
-		if r.Detail == nil {
-			got, err := gates.CaseCount(capture)
-			if err != nil {
-				return "", "exited 0 but " + err.Error()
-			}
-			parts = append(parts, got)
-			continue
-		}
-		got, ok := gates.Detail(capture, r.Detail)
-		if !ok {
-			return "", "ran, but its summary line was not found: " + r.Detail.String()
-		}
-		parts = append(parts, got)
+	summary, err := gates.Summarise(g, capture)
+	if err != nil {
+		return "", err.Error()
 	}
-	return strings.Join(parts, "; "), ""
+	return summary, ""
 }
 
 // runHard is a gate: run it, require status 0, read its summary.
@@ -115,9 +102,8 @@ func (s *session) runDrift(ctx context.Context, g gates.Gate) {
 		s.gateFailed(g.Name, b.reason, b.capture)
 		return
 	}
-	line := regexp.MustCompile(`(?m)^[✓⚠] ` + regexp.QuoteMeta(g.Name) + `: `)
-	if !line.MatchString(res.Stdout) {
-		s.gateFailed(g.Name, "ran, but printed no "+g.Name+" stage line", res.Stdout)
+	if _, unreadable := summarise(g, res.Stdout); unreadable != "" {
+		s.gateFailed(g.Name, unreadable, res.Stdout)
 		return
 	}
 	s.outf("%s\n", quarantineText(strings.TrimRight(res.Stdout, "\n")))

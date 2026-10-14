@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -323,7 +322,7 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		}
 		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
 		if o == passed {
-			o, reasons, res.output = judgeSuite(res.output, reasons, suite.detail)
+			o, reasons, res.output = judgeSuite(res.output, reasons, suite.rows)
 		}
 		s.report(name, reasons, res, o)
 		record(name, o)
@@ -331,32 +330,26 @@ func (s *session) execute(ctx context.Context) ExitCode {
 	return s.verdict(failures, cannot)
 }
 
-// judgeSuite settles a suite that exited 0: by the row's detail line when its gate reads one
-// (that line carries into the stage line; none matching means it proved nothing), else by its
-// case count.
-func judgeSuite(output, reasons string, detail *regexp.Regexp) (outcome, string, string) {
-	if detail == nil {
-		return judgeCount(output, reasons)
+// judgeSuite settles a suite that exited 0 by each of its rows' own readers, the judge qa-all
+// uses (gates.Summarise): what they read carries into the stage line; one that reports failed
+// cases is a failure; anything else unreadable means the suite proved nothing and could not run.
+func judgeSuite(output, reasons string, rows []gates.Gate) (outcome, string, string) {
+	if len(rows) == 0 {
+		return cannotRun, reasons, "the suite has no row in qa-gates.tsv to judge its output by\n" + output
 	}
-	text, found := gates.Detail(output, detail)
-	if !found {
-		return cannotRun, reasons, "the suite exited 0 but its detail pattern matched no line, so it proved nothing\n" + output
+	summaries := make([]string, 0, len(rows))
+	for _, row := range rows {
+		summary, err := gates.Summarise(row, output)
+		switch {
+		case err == nil:
+			summaries = append(summaries, summary)
+		case errors.Is(err, gates.ErrFailedCases):
+			return failed, reasons, "the suite " + err.Error() + "\n" + output
+		default:
+			return cannotRun, reasons, "the suite " + err.Error() + "\n" + output
+		}
 	}
-	return passed, text + " " + reasons, output
-}
-
-// judgeCount settles a suite that exited 0 by its count line, the reader qa-all uses: a count
-// carries into the stage line; one that reports failed cases is a failure; no count, or a count
-// of zero, means the suite proved nothing and could not run.
-func judgeCount(output, reasons string) (outcome, string, string) {
-	count, err := gates.CaseCount(output)
-	switch {
-	case err == nil:
-		return passed, count + " " + reasons, output
-	case errors.Is(err, gates.ErrFailedCases):
-		return failed, reasons, "the suite exited 0 but " + err.Error() + "\n" + output
-	}
-	return cannotRun, reasons, "the suite exited 0 but " + err.Error() + "\n" + output
+	return passed, strings.Join(summaries, "; ") + " " + reasons, output
 }
 
 func (s *session) interrupted() ExitCode {
