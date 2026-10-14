@@ -128,12 +128,12 @@ var errPlayOutsideCheckout = errors.New("refusing to run a play from outside the
 // checkPlay accepts a play only if it is an absolute path inside the checkout, once cleaned
 // (so ".." cannot climb out), unless the environment is trusted for tests.
 func (o *teamOps) checkPlay(play string) error {
-	if o.Cfg.TrustPlays {
+	if trustPlays {
 		return nil
 	}
 	rel, err := filepath.Rel(o.Cfg.RootDir, filepath.Clean(play))
 	if !filepath.IsAbs(play) || err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
-		return fmt.Errorf("%w: %q is not under %s (CCY_TEAMS_TRUST_PLAYS=1 is for test stubs only)",
+		return fmt.Errorf("%w: %q is not under %s",
 			errPlayOutsideCheckout, play, o.Cfg.RootDir)
 	}
 	return nil

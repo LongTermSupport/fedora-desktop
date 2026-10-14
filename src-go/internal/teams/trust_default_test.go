@@ -1,3 +1,5 @@
+//go:build !ccyteamstest
+
 package teams
 
 import (
@@ -45,23 +47,19 @@ func TestThePlayInsideTheCheckoutRuns(t *testing.T) {
 	}
 }
 
-func TestATrustedEnvironmentMayNameAPlayAnywhere(t *testing.T) {
+// The untagged (production) build has no switch, in the environment or elsewhere, that lets a
+// play run from outside the checkout.
+func TestTheUntaggedBuildDoesNotTrustPlays(t *testing.T) {
+	if trustPlays {
+		t.Fatal("trustPlays is true without the ccyteamstest tag")
+	}
 	r := newOpsRig(t)
-	r.ops.Cfg.TrustPlays = true
-	r.ops.Cfg.Play = "/tmp/stub-play"
-	r.on("/tmp/stub-play", execx.Result{})
-	if err := r.ops.runPlay(context.Background(), []string{"a"}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestLoadConfigTrustsPlaysOnlyWhenTold(t *testing.T) {
-	env := map[string]string{"HOME": "/h"}
-	if LoadConfig("/r", func(k string) string { return env[k] }).TrustPlays {
-		t.Fatal("trusted by default")
-	}
-	env["CCY_TEAMS_TRUST_PLAYS"] = "1"
-	if !LoadConfig("/r", func(k string) string { return env[k] }).TrustPlays {
-		t.Fatal("CCY_TEAMS_TRUST_PLAYS=1 was ignored")
+	r.ops.Cfg = LoadConfig("/root", func(k string) string {
+		return map[string]string{
+			"HOME": "/h", "CCY_TEAMS_PLAY": "/tmp/stub-play", "CCY_TEAMS_TRUST_PLAYS": "1",
+		}[k]
+	})
+	if err := r.ops.runPlay(context.Background(), []string{"a"}); err == nil || len(r.fake.Calls()) != 0 {
+		t.Fatalf("got %v, ran %v", err, r.fake.Calls())
 	}
 }

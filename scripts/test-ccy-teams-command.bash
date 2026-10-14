@@ -64,9 +64,10 @@ trap cleanup EXIT
 
 TOOL="$SCRATCH/ccy-teams"
 # The Go binary is the command (Plan 00191), built with the checkout injected where the
-# deployed build injects the checkout.
+# deployed build injects the checkout. The ccyteamstest tag, never in the deployed build, lets
+# the stub plays (outside the checkout) run; the binary refuses any play outside it without it.
 echo "== the Go binary"
-build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -ldflags "-X main.RootDir=$REPO_ROOT" -o "$TOOL" ./cmd/ccy-teams 2>&1)"
+build_out="$(cd "$REPO_ROOT/src-go" && go build -tags ccyteamstest -trimpath -buildvcs=false -ldflags "-X main.RootDir=$REPO_ROOT" -o "$TOOL" ./cmd/ccy-teams 2>&1)"
 build_rc=$?
 check "the Go binary builds" "0" "$build_rc"
 if [ "$build_rc" -ne 0 ]; then
@@ -424,8 +425,6 @@ export PATH="$BIN:$GUMBIN:$PATH" HOME="$HOME_DIR" CCY_STATE_DIR="$SCRATCH/ccy-st
 export CCY_TEAMS_HOST_VARS="$HOST_VARS" CCY_TEAMS_LAUNCHER="$BIN/launcher"
 export CCY_TEAMS_PLAY="$BIN/play" CCY_TEAMS_APPLIED_DIR="$STATE/applied" TEST_REPO_ROOT="$REPO_ROOT"
 export CCY_TEAMS_ELEMENT_PLAY="$BIN/element-play"
-# The stub plays live outside the checkout, which ccy-teams refuses to run a play from unless told.
-export CCY_TEAMS_TRUST_PLAYS=1
 mkdir -p "$STATE/applied"
 # alpha as built from this host_vars: the stamp the fake play writes, kept for every reset.
 (cd "$REPO_ROOT" && python3 -m tests.helpers.agent_bus.ccy_teams_play '{"agent_bus_only_teams": ["alpha"]}' \
