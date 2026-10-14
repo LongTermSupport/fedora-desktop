@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/js"
 )
 
 // checkResult is how one check ended: its merged output and the status that decides pass or fail.
@@ -222,19 +223,37 @@ func runUnitTests(ctx context.Context, s *session, cp *checkPlan) (checkResult, 
 }
 
 func runEslint(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	prefix := cp.rel + "/"
-	// The pins of the js gate (SPEC-qa-js.md J9): no config lookup, the project's config, no
-	// inline directive, so this check and the gate cannot disagree about the rules.
-	argv := make([]string, 0, 6+len(cp.items))
-	argv = append(argv, "./node_modules/.bin/eslint", "--no-eslintrc", configFlag, filepath.Join(s.root, cp.rel, ".eslintrc.json"), "--no-inline-config")
+	// The js gate's run (SPEC-qa-js.md J8, J9, J11) over the changed files: its pins, its working
+	// directory and absolute paths, and its proof that ESLint read every file, so this check and
+	// the gate cannot disagree about the rules or about a file ESLint ignored.
+	flags := js.EslintFlags(filepath.Join(s.root, cp.rel, ".eslintrc.json"))
+	argv := make([]string, 0, 1+len(flags)+len(cp.items))
+	argv = append(argv, filepath.Join(s.root, cp.rel, "node_modules", ".bin", "eslint"))
+	argv = append(argv, flags...)
+	given := make(map[string]string, len(cp.items))
 	for _, f := range cp.items {
-		argv = append(argv, strings.TrimPrefix(f, prefix))
+		abs := filepath.Join(s.root, f)
+		argv = append(argv, abs)
+		given[abs] = f
 	}
-	res, err := s.runCmd(ctx, proc.Cmd{Argv: argv, Dir: filepath.Join(s.root, cp.rel), Merge: true})
+	res, err := s.runCmd(ctx, proc.Cmd{Argv: argv, Dir: s.root})
 	if err != nil {
 		return checkResult{}, err
 	}
-	return checkResult{output: res.Stdout, code: res.Code}, nil
+	return eslintResult(js.Findings(s.root, given, res.Code, res.Stdout, res.Stderr)), nil
+}
+
+// eslintResult is ESLint's judged answer as a check result: one line per finding; an answer that
+// proves nothing (ESLint failed, ignored a file or skipped one) fails the check with the reason.
+func eslintResult(findings []js.Finding, proofErr error) checkResult {
+	if proofErr != nil {
+		return checkResult{output: proofErr.Error() + "\n", code: 1}
+	}
+	var out strings.Builder
+	for _, f := range findings {
+		out.WriteString(f.String() + "\n")
+	}
+	return checkResult{output: out.String(), code: min(len(findings), 1)}
 }
 
 // runAnsibleSyntax checks every playbook (stdout discarded, as the gate does) and names the

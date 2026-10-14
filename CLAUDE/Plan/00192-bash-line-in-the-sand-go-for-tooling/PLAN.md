@@ -225,13 +225,21 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   included, not only on the deployed host; F8 E9 reworded to the code's order (HOME is read after
   the skips).
   `qa-js.bash` (P3) on `go-port/qa-js`: ported, not merged; spec [SPEC-qa-js.md](SPEC-qa-js.md),
-  expectations J1-J16, 9 departures B1-B9; nested `src-go/qa/js` and `qa/cmd/qa-js`; the file set is
+  expectations J1-J16, 11 departures B1-B11; nested `src-go/qa/js` and `qa/cmd/qa-js`; the file set is
   a new `js` list in `qa/discovery` (D16); node and ESLint 8 stay the engines, ESLint pinned with
   `--no-eslintrc --config extensions/.eslintrc.json --no-inline-config`, with the proof that it read
   every file it was given; no `eslint-disable` exists in the tree, so no allowlist; the script a
   build-and-run wrapper, its allowlist row gone; `qa-changed` gets a `js` whole-gate check and its
   per-file eslint the same pins (SPEC-qa-changed B37). Same 30 files and pass as the bash on the
-  live tree (18 linted).
+  live tree (18 linted). Fable review (`subagent-reports/261014-fable-review-qa-js.md`)
+  dispositions, fixed spec first and test first: F1 fixed (the root is symlink-resolved, J1, B11);
+  F2 fixed (the per-file eslint runs the gate's `--format json` and is judged by the gate's own
+  proof, `js.Findings`, so an ignored file fails it; B37 amended, the golden deviations re-pinned);
+  F3 fixed (the dead `wsi` and `wsi-transcribe` `ignorePatterns` removed, no such tree exists);
+  F4 documented (J9 and QA.md: `/* global */` and `/* eslint-env */` are inert, globals belong in
+  the config); F5 recorded (J11, B10: `.eslintignore` is read from the root); F6 recorded as a
+  stated limit in J7 (ESM `.js` outside a `type: module` scope needs node 22.7 or later; the nvm
+  play installs `lts/*`).
 
 ### Phase 4: Review
 

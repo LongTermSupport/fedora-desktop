@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -72,26 +73,68 @@ func (g *gate) lint(ctx context.Context, files []string) (map[string][]message, 
 		abs = append(abs, p)
 		rel[p] = f
 	}
-	argv := append([]string{g.eslintBin(), "--no-eslintrc", "--config", g.eslintConfig(), "--no-inline-config", "--format", "json"}, abs...)
-	res, err := g.runTool(ctx, eslintLimit, argv...)
+	argv := append([]string{g.eslintBin()}, EslintFlags(g.eslintConfig())...)
+	res, err := g.runTool(ctx, eslintLimit, append(argv, abs...)...)
 	if err != nil {
 		return nil, err
 	}
-	if res.Code != 0 && res.Code != 1 {
-		return nil, fmt.Errorf("eslint invocation failed (status %d):\n%s", res.Code, strings.TrimSpace(res.Stderr))
+	return readReport(g.root, rel, res.Code, res.Stdout, res.Stderr)
+}
+
+// EslintFlags are the pins every ESLint run of this repository carries, in the order they are
+// given: nothing but the named config sets the rules, and no inline directive changes them. The
+// files follow them. qa-changed shares this list so the two cannot drift.
+func EslintFlags(config string) []string {
+	return []string{"--no-eslintrc", "--config", config, "--no-inline-config", "--format", "json"}
+}
+
+// Finding is one message ESLint made on a file, the path relative to the root.
+type Finding struct {
+	message
+
+	File string
+}
+
+// String is the finding as a line: path:line:column: text (rule).
+func (f Finding) String() string {
+	return fmt.Sprintf("%s:%d:%d: %s%s", f.File, f.Line, f.Column, f.Text, ruleSuffix(f.message))
+}
+
+// readReport is the judgement of one ESLint run. rel maps each absolute path the run was given to
+// its path relative to root; status, stdout and stderr are what the run produced. It returns the
+// messages per relative path, or an error when the run proves nothing: ESLint failed, did not
+// print a JSON array, or did not read exactly the files it was given (see prove).
+func readReport(root string, rel map[string]string, status int, stdout, stderr string) (map[string][]message, error) {
+	if status != 0 && status != 1 {
+		return nil, fmt.Errorf("eslint invocation failed (status %d):\n%s", status, strings.TrimSpace(stderr))
 	}
 	var results []fileResult
-	if decodeErr := json.Unmarshal([]byte(res.Stdout), &results); decodeErr != nil {
+	if decodeErr := json.Unmarshal([]byte(stdout), &results); decodeErr != nil {
 		return nil, fmt.Errorf("eslint did not print a JSON array of results: %w", decodeErr)
 	}
-	found, err := g.prove(rel, results)
+	found, err := prove(root, rel, results)
 	if err != nil {
 		return nil, err
 	}
-	if res.Code == 1 && len(found) == 0 {
+	if status == 1 && len(found) == 0 {
 		return nil, errors.New("eslint exited 1 but reported no finding: the exit status and the report disagree")
 	}
 	return found, nil
+}
+
+// Findings is the judgement of one ESLint run (see readReport) as a sorted list.
+func Findings(root string, rel map[string]string, status int, stdout, stderr string) ([]Finding, error) {
+	found, err := readReport(root, rel, status, stdout, stderr)
+	if err != nil {
+		return nil, err
+	}
+	var out []Finding
+	for _, file := range slices.Sorted(maps.Keys(found)) {
+		for _, m := range found[file] {
+			out = append(out, Finding{File: file, message: m})
+		}
+	}
+	return out, nil
 }
 
 // fileResult is ESLint's answer for one file.
@@ -103,7 +146,7 @@ type fileResult struct {
 // prove is the independent proof that ESLint read every file it was given (rel maps each absolute
 // path given to its relative one): each is answered once, nothing else is answered, and none was
 // dropped by an ignore pattern. It returns the messages per relative path.
-func (g *gate) prove(rel map[string]string, results []fileResult) (map[string][]message, error) {
+func prove(root string, rel map[string]string, results []fileResult) (map[string][]message, error) {
 	answered := map[string]bool{}
 	var ignored []string
 	found := map[string][]message{}
@@ -111,7 +154,7 @@ func (g *gate) prove(rel map[string]string, results []fileResult) (map[string][]
 		name, isGiven := rel[r.FilePath]
 		switch {
 		case !isGiven:
-			return nil, fmt.Errorf("eslint reported on %s, which it was not given", strings.TrimPrefix(r.FilePath, g.root+"/"))
+			return nil, fmt.Errorf("eslint reported on %s, which it was not given", strings.TrimPrefix(r.FilePath, root+"/"))
 		case answered[name]:
 			return nil, fmt.Errorf("eslint reported on %s twice", name)
 		}

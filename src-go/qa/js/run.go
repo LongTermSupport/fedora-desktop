@@ -111,15 +111,23 @@ func absolute(cwd, path string) string {
 	return filepath.Clean(path)
 }
 
-// rootDir resolves the repository root.
-func (o options) rootDir(cwd string) string {
+// rootDir resolves the repository root: absolute, cleaned and with every symlink resolved, because
+// node prints a file's real path and the gate strips the root from what it prints.
+func (o options) rootDir(cwd string) (string, error) {
+	var root string
 	switch {
 	case o.root != "":
-		return absolute(cwd, o.root)
+		root = absolute(cwd, o.root)
 	case o.scripts != "":
-		return filepath.Dir(absolute(cwd, o.scripts))
+		root = filepath.Dir(absolute(cwd, o.scripts))
+	default:
+		root = absolute(cwd, cwd)
 	}
-	return absolute(cwd, cwd)
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve the repository root %s: %w", root, err)
+	}
+	return filepath.Clean(resolved), nil
 }
 
 // scriptsDir resolves the scripts directory under a root.
@@ -149,7 +157,9 @@ func Main(args []string, env Env) ExitCode {
 		return write(env, usageText)
 	}
 	g := &gate{env: env}
-	g.root = opts.rootDir(env.Cwd)
+	if g.root, err = opts.rootDir(env.Cwd); err != nil {
+		return fail(env, err, false)
+	}
 	g.scripts = absolute(env.Cwd, opts.scriptsDir(g.root))
 	g.report = env.Getenv("QA_JSON_OUT")
 	if g.report == "" {

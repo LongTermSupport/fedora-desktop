@@ -2,6 +2,7 @@ package changed
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -188,18 +189,97 @@ func TestShellDirectivesRunsTheGatesDirectivesMode(t *testing.T) {
 	}
 }
 
-// J9: the per-file lint is given the gate's pins, so a nested config or an eslint-disable comment
-// cannot make it pass what the gate fails.
-func TestEslintRunsInExtensionsWithPrefixStrippedAndTheGatesPins(t *testing.T) {
+// eslintReply is the JSON ESLint prints for one file with the given messages.
+func eslintReply(t *testing.T, file string, messages ...map[string]any) string {
+	t.Helper()
+	if messages == nil {
+		messages = []map[string]any{}
+	}
+	data, err := json.Marshal([]map[string]any{{"filePath": file, "messages": messages}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// runEslintCheck runs the eslint check over one changed file whose ESLint answer is reply.
+func runEslintCheck(t *testing.T, reply proc.Result, file string) checkResult {
+	t.Helper()
+	runner := &scriptedRunner{replies: map[string]proc.Result{"": reply}}
+	s := newTestSession(t, runner)
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{file}, rel: "extensions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// J9, J8: the per-file lint is given the gate's pins, so a nested config or an eslint-disable
+// comment cannot make it pass what the gate fails; and it runs from the root on absolute paths,
+// as the gate does, so an ignore file is read from the same directory.
+func TestEslintRunsFromTheRootOnAbsolutePathsWithTheGatesPins(t *testing.T) {
+	rel := "extensions/a@b/x.js"
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
-	_, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{"extensions/a@b/x.js"}, rel: "extensions"})
+	file := filepath.Join(s.root, rel)
+	runner.replies = map[string]proc.Result{"": {Stdout: eslintReply(t, file)}}
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{rel}, rel: "extensions"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := runner.calls[0]
-	if c.Dir != filepath.Join(s.root, "extensions") || !reflect.DeepEqual(c.Argv, []string{"./node_modules/.bin/eslint", "--no-eslintrc", "--config", filepath.Join(s.root, "extensions", ".eslintrc.json"), "--no-inline-config", "a@b/x.js"}) {
-		t.Fatalf("got %+v", c)
+	want := []string{filepath.Join(s.root, "extensions", "node_modules", ".bin", "eslint"), "--no-eslintrc", "--config", filepath.Join(s.root, "extensions", ".eslintrc.json"), "--no-inline-config", "--format", "json", file}
+	if c.Dir != s.root || !reflect.DeepEqual(c.Argv, want) || res.code != 0 {
+		t.Fatalf("got %+v, result %+v", c, res)
+	}
+}
+
+// B37: a file ESLint names but does not read (an ignore pattern drops it, with exit 0) is a
+// failure, as it is in the gate (J11).
+func TestEslintFailsAFileItIgnoredInsteadOfVouchingForIt(t *testing.T) {
+	ignored := map[string]any{"ruleId": nil, "severity": 1, "message": "File ignored by default.  Use a negated ignore pattern to override.", "line": 0, "column": 0}
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	file := filepath.Join(s.root, "extensions", "a@b", ".hidden.js")
+	runner.replies = map[string]proc.Result{"": {Stdout: eslintReply(t, file, ignored)}}
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{"extensions/a@b/.hidden.js"}, rel: "extensions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.code == 0 || !strings.Contains(res.output, "ignored") || !strings.Contains(res.output, "extensions/a@b/.hidden.js") {
+		t.Fatalf("an ignored file was vouched for: %+v", res)
+	}
+}
+
+// B37: a file ESLint does not answer for at all is a failure too.
+func TestEslintFailsWhenItAnswersForNoFile(t *testing.T) {
+	res := runEslintCheck(t, proc.Result{Stdout: "[]"}, "extensions/a@b/x.js")
+	if res.code == 0 || !strings.Contains(res.output, "did not report on 1 of the 1 file(s)") {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+// J12, J13: a finding is a line naming the file relative to the root, with its place and rule.
+func TestEslintReportsEachFindingAsAFileLine(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	file := filepath.Join(s.root, "extensions", "a@b", "x.js")
+	finding := map[string]any{"ruleId": "no-undef", "severity": 2, "message": "'w' is not defined.", "line": 1, "column": 8}
+	runner.replies = map[string]proc.Result{"": {Stdout: eslintReply(t, file, finding), Code: 1}}
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{"extensions/a@b/x.js"}, rel: "extensions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.code == 0 || !strings.Contains(res.output, "extensions/a@b/x.js:1:8: 'w' is not defined. (no-undef)") || strings.Contains(res.output, s.root) {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+// J10: an ESLint that fails to run fails the check with its stderr.
+func TestEslintThatFailsToRunFailsTheCheckWithItsStderr(t *testing.T) {
+	res := runEslintCheck(t, proc.Result{Stderr: "Oops! Something went wrong\n", Code: 2}, "extensions/a@b/x.js")
+	if res.code == 0 || !strings.Contains(res.output, "status 2") || !strings.Contains(res.output, "Oops! Something went wrong") {
+		t.Fatalf("got %+v", res)
 	}
 }
 

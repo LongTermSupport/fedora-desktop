@@ -2,6 +2,7 @@ package js
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -414,4 +415,29 @@ func TestAReportThatCannotBeWrittenIsExitTwo(t *testing.T) {
 	got := w.main()
 	wantExit(t, got, ExitCannotRun)
 	wantStderr(t, got, "cannot write the report")
+}
+
+// J1, J7, J16: a root reached through a symlink is resolved once, so node's real path in its
+// message is the root the gate strips.
+func TestARootReachedThroughASymlinkNeverLeaksTheCheckoutPath(t *testing.T) {
+	w := newWorld(t, map[string]string{"tests/extensions/test-thing.mjs": "SYNTAX_ERROR\n"})
+	link := filepath.Join(t.TempDir(), "view")
+	if err := os.Symlink(w.root, link); err != nil {
+		t.Fatal(err)
+	}
+	w.run.nodeCheck = func(file string) (proc.Result, error) {
+		resolved, err := filepath.EvalSymlinks(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return proc.Result{Code: 1, Stderr: resolved + ":1\nSYNTAX_ERROR\n\nNode.js v22.1.0\n"}, nil
+	}
+	got := w.main("--root", link)
+	wantExit(t, got, ExitFailed)
+	if strings.Contains(got.stdout, w.root) || strings.Contains(w.rawReport(), w.root) || strings.Contains(got.stdout, link) {
+		t.Fatalf("a checkout path leaked:\nstdout:\n%s\nreport:\n%s", got.stdout, w.rawReport())
+	}
+	if !strings.Contains(got.stdout, "✗ js: tests/extensions/test-thing.mjs: tests/extensions/test-thing.mjs:1") {
+		t.Fatalf("stdout:\n%s", got.stdout)
+	}
 }
