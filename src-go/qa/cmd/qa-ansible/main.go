@@ -5,10 +5,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/ansible"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
 func main() {
@@ -27,9 +31,35 @@ func run(args []string) int {
 		Stderr:    os.Stderr,
 		Cwd:       cwd,
 		Open:      os.DirFS,
+		Ignored:   gitIgnored,
 		WriteFile: writeReport,
 	}
 	return int(ansible.Main(args, env))
+}
+
+// gitIgnoredTimeout bounds the git listing.
+const gitIgnoredTimeout = 2 * time.Minute
+
+// gitIgnored lists the gitignored files under the scanned directories of a root, relative to it:
+// the gate judges what git would publish (tracked, or untracked and not ignored), nothing else.
+func gitIgnored(root string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitIgnoredTimeout)
+	defer cancel()
+	argv := append([]string{"git", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--"}, ansible.SearchDirs...)
+	res, err := proc.OS{}.Run(ctx, proc.Cmd{Argv: argv, Dir: root})
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w", err)
+	}
+	if res.Code != 0 {
+		return nil, fmt.Errorf("git ls-files exited %d: %s", res.Code, strings.TrimSpace(res.Stderr))
+	}
+	var files []string
+	for p := range strings.SplitSeq(res.Stdout, "\x00") {
+		if p != "" {
+			files = append(files, p)
+		}
+	}
+	return files, nil
 }
 
 // writeReport writes the machine report where the caller said.

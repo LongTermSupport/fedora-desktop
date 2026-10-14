@@ -4,11 +4,13 @@ import "regexp"
 
 // One spelling list for every directive, and one templated form: YAML 1.1 reads yes/no/on/off as
 // booleans exactly as it reads true/false, and a templated value is as statically unverifiable
-// under one key as under another. The trailing \b stops `no` matching inside `not`.
+// under one key as under another. A value may be wrapped in either quote style: Ansible reads
+// "true" and 'yes' as booleans and "false" as the expression false. The trailing \b stops `no` matching inside `not`.
 const (
-	falsey    = `(false|no|off)\b`
-	truthy    = `(true|yes|on)\b`
-	templated = `"?[{][{]`
+	quote     = `["']?`
+	falsey    = quote + `(false|no|off)\b`
+	truthy    = quote + `(true|yes|on)\b`
+	templated = quote + `[{][{]`
 )
 
 // failFastPattern matches a line that hides an error: a failed_when that is always false, an

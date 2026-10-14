@@ -105,7 +105,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (the bash is not an oracle; 13 departures B1-B13 listed there); nested `src-go/qa/ansible`,
   `qa/cmd/qa-ansible`; the script a build-and-run wrapper, its allowlist row gone;
   `test-qa-ansible-failfast.bash` now drives the built tool. Same output and report as the bash on
-  the live tree.
+  the live tree. Fable review (subagent-reports/261014-fable-review-qa-ansible.md) dispositions:
+  F1 quoted values evaded the fail-fast rules, fixed (E11, B14; the live tree had no quoted
+  violation); F2 symlink to a directory or dangling non-`.yml` link, fixed as exit 2 (E7, B16);
+  F3 owner decision, the gate judges what git would publish and never reads gitignored files
+  (E6a, B15); F4 `CLAUDE/QA.md` updated; F5 stdout write failure now an `ERROR:` line (E3, B17);
+  F6 (`-x` is root's view, any execute bit) and F7 (four passes over each file) are info only,
+  accepted, no change.
 
 ### Phase 4: Review
 

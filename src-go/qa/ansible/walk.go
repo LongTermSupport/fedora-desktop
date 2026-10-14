@@ -2,8 +2,8 @@
 // text patterns and runs six checks that ansible-playbook --syntax-check cannot: error-hiding
 // directives, playbook shebang and execute bit, self-default variables, provisioning scope and
 // guard, deprecated top-level fact variables and guessed runtime-directory uids. It starts no
-// process (the bash it replaced ran grep, find, awk, head and jq), so it has no use for the
-// process seam. SPEC-qa-ansible.md is its specification.
+// process (the bash it replaced ran grep, find, awk, head and jq); the list of gitignored files,
+// which it leaves unread, is injected through Env.Ignored. SPEC-qa-ansible.md is its specification.
 package ansible
 
 import (
@@ -68,9 +68,6 @@ func walk(fsys fs.FS, dir string, skipVendor bool, found *[]string) error {
 
 // followLink lists a symlink to a YAML file and refuses one it cannot read as a file.
 func followLink(fsys fs.FS, name string, found *[]string) error {
-	if !isYAML(name) {
-		return nil
-	}
 	info, err := fs.Stat(fsys, name)
 	if err != nil {
 		return fmt.Errorf("the symlink %s cannot be read: %w", name, err)
@@ -78,8 +75,42 @@ func followLink(fsys fs.FS, name string, found *[]string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("the symlink %s is not a regular file and is not followed", name)
 	}
-	*found = append(*found, name)
+	if isYAML(name) {
+		*found = append(*found, name)
+	}
 	return nil
+}
+
+// publishedFS is a file system without the entries git ignores: they are not part of what the
+// repository publishes, so the gate neither reads them nor trips over them.
+type publishedFS struct {
+	fs.FS
+
+	ignored map[string]bool
+}
+
+// ReadDir implements fs.ReadDirFS.
+func (p publishedFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(p.FS, name)
+	if err != nil {
+		return nil, err
+	}
+	kept := entries[:0]
+	for _, entry := range entries {
+		if !p.ignored[path.Join(name, entry.Name())] {
+			kept = append(kept, entry)
+		}
+	}
+	return kept, nil
+}
+
+// published is fsys without the ignored paths.
+func published(fsys fs.FS, ignored []string) fs.FS {
+	set := make(map[string]bool, len(ignored))
+	for _, p := range ignored {
+		set[p] = true
+	}
+	return publishedFS{FS: fsys, ignored: set}
 }
 
 // splitLines is grep's view of a file: lines end at a newline, the last may lack one, and a

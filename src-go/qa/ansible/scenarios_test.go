@@ -60,7 +60,7 @@ func violationLines(out string) []string {
 }
 
 func scenarios() []scenario {
-	return append(failFastScenarios(), scopeAndFactScenarios()...)
+	return slices.Concat(failFastScenarios(), fileAndQuoteScenarios(), scopeAndFactScenarios())
 }
 
 func failFastScenarios() []scenario {
@@ -95,6 +95,24 @@ func failFastScenarios() []scenario {
 				"tasks/h.yml":              "      ignore_unreachable: \"{{ x }}\" # fail-fast-ok: r\n",
 				"playbooks/optional/n.yml": "k: v\n",
 			}),
+		},
+	}
+}
+
+func fileAndQuoteScenarios() []scenario {
+	ff := "      failed_when: false\n"
+	return []scenario{
+		{
+			name: "ff with a quoted value is still found", code: ExitFailed,
+			files: with(map[string]string{"tasks/q.yml": "  ignore_errors: \"true\"\n  ignore_errors: 'yes'\n" +
+				"  failed_when: \"false\"\n  ignore_unreachable: 'on'\n  ignore_errors: '{{ maybe }}'\n"}),
+			want: []string{
+				"  ERROR (fail-fast): tasks/q.yml:1:  ignore_errors: \"true\"",
+				"  ERROR (fail-fast): tasks/q.yml:2:  ignore_errors: 'yes'",
+				"  ERROR (fail-fast): tasks/q.yml:3:  failed_when: \"false\"",
+				"  ERROR (fail-fast): tasks/q.yml:4:  ignore_unreachable: 'on'",
+				"  ERROR (fail-fast): tasks/q.yml:5:  ignore_errors: '{{ maybe }}'",
+			},
 		},
 		{
 			name: "ff under any other vendor directory is still checked", code: ExitFailed,

@@ -3,6 +3,7 @@ package ansible
 import (
 	"bytes"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ func runIn(t *testing.T, cwd string, args ...string) outcome {
 		Stderr:    &stderr,
 		Cwd:       cwd,
 		Open:      os.DirFS,
+		Ignored:   noneIgnored,
 		WriteFile: func(path string, data []byte) error { return os.WriteFile(path, data, 0o600) },
 	}
 	res := outcome{code: Main(args, env), out: stdout.String(), errOut: stderr.String()}
@@ -42,6 +44,81 @@ func runIn(t *testing.T, cwd string, args ...string) outcome {
 	}
 	res.report = string(body)
 	return res
+}
+
+// noneIgnored is a work tree with no gitignored file.
+func noneIgnored(string) ([]string, error) { return nil, nil }
+
+// runWith runs Main over a real tree with the given gitignored list (or error) and stdout.
+func runWith(t *testing.T, root string, ignored func(string) ([]string, error), stdout io.Writer) (ExitCode, string) {
+	t.Helper()
+	var stderr bytes.Buffer
+	env := Env{
+		Getenv:    func(string) string { return filepath.Join(t.TempDir(), "out.json") },
+		Stdout:    stdout,
+		Stderr:    &stderr,
+		Cwd:       root,
+		Open:      os.DirFS,
+		Ignored:   ignored,
+		WriteFile: func(path string, data []byte) error { return os.WriteFile(path, data, 0o600) },
+	}
+	return Main([]string{"--root", root}, env), stderr.String()
+}
+
+func TestMainLeavesGitignoredFilesUnread(t *testing.T) {
+	files := cleanTree()
+	files["environment/host_vars/leak.yml"] = "  failed_when: false\n"
+	root := writeTree(t, files)
+	chmodX(t, root, "playbooks/a.yml")
+	symlink(t, root, "environment/host_vars/localhost.yml", "../../nope/localhost.yml")
+	ignored := []string{"environment/host_vars/localhost.yml", "environment/host_vars/leak.yml"}
+	code, stderr := runWith(t, root, func(string) ([]string, error) { return ignored, nil }, io.Discard)
+	if code != ExitOK || stderr != "" {
+		t.Fatalf("an ignored dangling link and an ignored violation counted: exit %d, %q", code, stderr)
+	}
+	code, stderr = runWith(t, root, noneIgnored, io.Discard)
+	if code != ExitCannotRun || !strings.HasPrefix(stderr, "ERROR: ") {
+		t.Fatalf("nothing ignored: exit %d, %q", code, stderr)
+	}
+}
+
+func TestMainSymlinkedDirectoryInScopeCannotRun(t *testing.T) {
+	files := cleanTree()
+	files["elsewhere/bad.yml"] = "  failed_when: false\n"
+	root := writeTree(t, files)
+	chmodX(t, root, "playbooks/a.yml")
+	symlink(t, root, "tasks/shared", "../elsewhere")
+	code, stderr := runWith(t, root, noneIgnored, io.Discard)
+	if code != ExitCannotRun || !strings.HasPrefix(stderr, "ERROR: ") || !strings.Contains(stderr, "tasks/shared") {
+		t.Fatalf("exit %d, %q", code, stderr)
+	}
+}
+
+func TestMainGitIgnoredListFailureCannotRun(t *testing.T) {
+	root := writeTree(t, cleanTree())
+	failing := func(string) ([]string, error) { return nil, errors.New("not a git work tree") }
+	code, stderr := runWith(t, root, failing, io.Discard)
+	if code != ExitCannotRun || !strings.Contains(stderr, "ERROR: cannot list the gitignored files") || !strings.Contains(stderr, "not a git work tree") {
+		t.Fatalf("exit %d, %q", code, stderr)
+	}
+}
+
+func TestMainStdoutWriteFailureIsAnErrorLine(t *testing.T) {
+	root := writeTree(t, cleanTree())
+	chmodX(t, root, "playbooks/a.yml")
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := full.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	code, stderr := runWith(t, root, noneIgnored, full)
+	if code != ExitCannotRun || !strings.HasPrefix(stderr, "ERROR: cannot write to stdout: ") {
+		t.Fatalf("exit %d, %q", code, stderr)
+	}
 }
 
 func cleanTree() map[string]string {
@@ -159,6 +236,7 @@ func TestMainUnwritableReportCannotRun(t *testing.T) {
 		Stderr:    &stderr,
 		Cwd:       root,
 		Open:      os.DirFS,
+		Ignored:   noneIgnored,
 		WriteFile: func(string, []byte) error { return errors.New("read-only") },
 	}
 	if code := Main([]string{"--root", root}, env); code != ExitCannotRun {

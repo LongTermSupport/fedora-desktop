@@ -13,7 +13,7 @@ is the Go tests (`src-go/qa/ansible`: unit tests per expectation, and the end-to
 
 The static Ansible gate: six checks on the Ansible source trees that `ansible-playbook --syntax-check` cannot make. Callers: `qa-all` (`scripts/qa-gates.tsv`, stage `ansible`: runs it
 with `QA_JSON_OUT`, reads `.summary.{total,passed,failed}` and `.failures` from the report, exit 2
-aborts the run), `qa-changed` (per-file gate, same report), and people. It starts no process.
+aborts the run), `qa-changed` (per-file gate, same report), and people. It starts no process itself (section 4).
 
 ## 2. Expectations
 
@@ -29,7 +29,8 @@ Numbers are cited by the tests.
 - E2. `QA_JSON_OUT` is the report path; unset or empty is `/tmp/qa-ansible-results.json`.
 - E3. Exit codes: 0 no violation, 1 at least one violation, 2 the run could not complete.
   stdout carries the violation lines and the summary; every exit-2 message is on stderr and starts
-  `ERROR:`. A failed write to stdout or stderr is exit 2.
+  `ERROR:`. A failed write to stdout is exit 2 with `ERROR: cannot write to stdout: <why>` on
+  stderr; a failed write to stderr is exit 2.
 
 ### Inputs: which files, and when the run cannot complete (all exit 2, no report written)
 
@@ -43,9 +44,17 @@ Numbers are cited by the tests.
   ansible-galaxy install target) is skipped; no other directory is. *(Bash skipped every
   directory named `vendor` at any depth in the pattern checks, so `tasks/vendor/x.yml` was never
   checked, and entered them in the playbook checks: inconsistent.)*
-- E7. A symlink below a search directory that names a `*.yml`/`*.yaml` file is read as that file;
-  one that is dangling, or points at anything but a regular file, is exit 2. A symlinked search
-  directory is followed. *(Bash skipped symlinks without a word.)*
+- E6a. **Scope: what git would publish.** Only files in `git ls-files --cached --others --exclude-standard` are judged, within the search directories; a gitignored file is never
+  read, never counted and never an error (the tool lists the ignored ones with `git ls-files --others --ignored --exclude-standard` and leaves them out of the walk). The concrete case:
+  a worktree's `environment/localhost/host_vars/localhost.yml` is a gitignored symlink into the
+  parent checkout's private configuration, and it may dangle; it is neither scanned nor
+  reported. The root must therefore be a git work tree: `git` failing is
+  `ERROR: cannot list the gitignored files under <root>: <why>`, exit 2.
+- E7. Within that scope, a symlink below a search directory that names a `*.yml`/`*.yaml` file
+  is read as that file; a symlink to a non-YAML file is ignored like any non-YAML file; one that
+  is dangling, or points at a directory or anything but a regular file, is exit 2 whatever it is
+  called, with `ERROR: the symlink <path> ...` naming it. A symlinked search directory is
+  followed. *(Bash skipped symlinks without a word.)*
 - E8. A file that cannot be read is exit 2 naming it, in every check. *(Bash: an unreadable
   playbook was treated as "not a playbook".)*
 - E9. A line ends at `\n`; a last line without one counts; `\r` is part of the line. A NUL byte is
@@ -57,7 +66,9 @@ Numbers are cited by the tests.
 
 - E11. **Fail-fast** (case-insensitive) over the search set: `failed_when:` followed by
   whitespace and `false|no|off`; `ignore_errors:` or `ignore_unreachable:` followed by
-  `true|yes|on` or by a template (`{{`, optionally quoted); each value word ends at a word
+  `true|yes|on` or by a template (`{{`); in every case the value may be wrapped in a double or
+  a single quote (`"true"`, `'yes'`, `failed_when: "false"`, `'{{ maybe }}'`: Ansible reads them
+  as the same booleans and the same always-false expression); each value word ends at a word
   boundary (`not`, `online` are not matches). A matching line is skipped when its text contains
   `FAIL-FAST-OK` in any case, or when nothing matches once a comment is cut (the first `#` that
   starts the text or follows a space or tab). Output `  ERROR (fail-fast): <path>:<n>:<text>`.
@@ -119,6 +130,10 @@ Numbers are cited by the tests.
 | B11 | `passed` could be negative                                                | clamped at 0                   | E19         |
 | B12 | JSON hygiene/scope split on ` (`                                          | structured                     | E19         |
 | B13 | empty `playbooks/` passes with 0 playbooks                                | exit 2                         | E5          |
+| B14 | quoted `"true"`, `'yes'`, `"false"`, `'{{ x }}'` pass the gate            | caught                         | E11         |
+| B15 | gitignored files scanned (and a dangling ignored link would be exit 2)    | never read                     | E6a         |
+| B16 | symlink to a directory, or dangling and not `*.yml`, skipped silently     | exit 2 naming it               | E7          |
+| B17 | failed stdout write: exit 2, no message                                   | `ERROR:` line on stderr        | E3          |
 
 Accepted limits, same as the bash: `#` inside a quoted string is treated as a comment start for
 E11; `\b` and case folding are ASCII; JSON of text that is not valid UTF-8 is replaced with
@@ -126,9 +141,10 @@ U+FFFD.
 
 ## 4. Go design and cut-over
 
+The package starts no process itself: the one it needs, `git ls-files` for E6a, is injected as
+`Env.Ignored` and implemented in `cmd/qa-ansible` through the shared `qa/internal/proc` seam.
 `src-go/qa/ansible` (`walk.go` file sets, `failfast.go`, `facts.go`, `playbooks.go` hygiene and
-scope, `report.go`, `run.go`), thin `src-go/qa/cmd/qa-ansible`; no process is started so the
-process seam is not used. `scripts/qa-ansible.bash` is a build-and-run wrapper over
+scope, `report.go`, `run.go`), thin `src-go/qa/cmd/qa-ansible`. `scripts/qa-ansible.bash` is a build-and-run wrapper over
 `lib/go-tool.bash`; its allowlist row is removed. `scripts/test-qa-ansible-failfast.bash`, which
 read the pattern out of the old script text, drives the built tool over fixture trees (the same
-18 cases) and keeps its gate row.
+18 cases, now 24 with the quoted ones) and keeps its gate row.

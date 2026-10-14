@@ -21,9 +21,9 @@ const (
 // defaultReportPath is where the machine report goes unless QA_JSON_OUT says otherwise.
 const defaultReportPath = "/tmp/qa-ansible-results.json"
 
-// searchDirs are the Ansible source trees, in the order they are searched. roles/ is an
+// SearchDirs are the Ansible source trees, in the order they are searched. roles/ is an
 // ansible-galaxy install target and is legitimately absent on a clean checkout.
-var searchDirs = []string{"playbooks", "tasks", "vars", "environment", "roles"}
+var SearchDirs = []string{"playbooks", "tasks", "vars", "environment", "roles"}
 
 // Env is everything the command touches outside the repository tree: the environment, the two
 // streams, the working directory, how a root directory is opened and how the report is written.
@@ -35,6 +35,9 @@ type Env struct {
 	Cwd string
 	// Open returns the file system rooted at a directory.
 	Open func(root string) fs.FS
+	// Ignored lists the gitignored files under the scanned directories of a root, as slash paths
+	// relative to it. They are not part of what the gate judges (E6a).
+	Ignored func(root string) ([]string, error)
 	// WriteFile writes the report.
 	WriteFile func(path string, data []byte) error
 }
@@ -126,7 +129,11 @@ func (e *emitter) text(text string) {
 func Main(args []string, env Env) ExitCode {
 	out, errOut := &emitter{w: env.Stdout}, &emitter{w: env.Stderr}
 	code := run(args, env, out, errOut)
-	if code != ExitCannotRun && (out.err != nil || errOut.err != nil) {
+	if out.err != nil {
+		errOut.line("ERROR: cannot write to stdout: " + out.err.Error())
+		return ExitCannotRun
+	}
+	if code != ExitCannotRun && errOut.err != nil {
 		return ExitCannotRun
 	}
 	return code
@@ -150,7 +157,12 @@ func run(args []string, env Env, out, errOut *emitter) ExitCode {
 		errOut.line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
-	findings, err := Scan(env.Open(root), root)
+	ignored, err := env.Ignored(root)
+	if err != nil {
+		errOut.line("ERROR: cannot list the gitignored files under " + root + ": " + err.Error())
+		return ExitCannotRun
+	}
+	findings, err := Scan(published(env.Open(root), ignored), root)
 	if err != nil {
 		errOut.line("ERROR: " + err.Error())
 		return ExitCannotRun
@@ -201,7 +213,7 @@ func rootDir(opts options, cwd string) (string, error) {
 // could not complete: no search directory, no playbooks directory, a file that cannot be read.
 func Scan(fsys fs.FS, root string) (Findings, error) {
 	var dirs []string
-	for _, dir := range searchDirs {
+	for _, dir := range SearchDirs {
 		if dirExists(fsys, dir) {
 			dirs = append(dirs, dir)
 		}

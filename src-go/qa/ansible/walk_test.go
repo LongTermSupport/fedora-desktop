@@ -3,6 +3,7 @@ package ansible
 import (
 	"os"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -81,6 +82,46 @@ func TestYamlFilesReadsASymlinkedFileAndRefusesTheRest(t *testing.T) {
 	symlink(t, other, "d/dir.yml", "../real")
 	if _, err := yamlFiles(os.DirFS(other), "d", true); err == nil {
 		t.Fatal("a symlink to a directory was skipped")
+	}
+}
+
+func TestYamlFilesRefusesASymlinkToADirectoryWhateverItIsCalled(t *testing.T) {
+	root := writeTree(t, map[string]string{"elsewhere/bad.yml": "x", "d/x.yml": ""})
+	symlink(t, root, "d/shared", "../elsewhere")
+	_, err := yamlFiles(os.DirFS(root), "d", true)
+	if err == nil || !strings.Contains(err.Error(), "d/shared") {
+		t.Fatalf("a symlink to a directory was skipped or unnamed: %v", err)
+	}
+}
+
+func TestYamlFilesRefusesADanglingSymlinkWhateverItIsCalled(t *testing.T) {
+	root := writeTree(t, map[string]string{"d/x.yml": ""})
+	symlink(t, root, "d/broken", "nowhere")
+	_, err := yamlFiles(os.DirFS(root), "d", true)
+	if err == nil || !strings.Contains(err.Error(), "d/broken") {
+		t.Fatalf("a dangling symlink was skipped or unnamed: %v", err)
+	}
+}
+
+func TestYamlFilesIgnoresASymlinkToANonYAMLFile(t *testing.T) {
+	root := writeTree(t, map[string]string{"real/n.txt": "", "d/x.yml": ""})
+	symlink(t, root, "d/text", "../real/n.txt")
+	got, err := yamlFiles(os.DirFS(root), "d", true)
+	if err != nil || !slices.Equal(got, []string{"d/x.yml"}) {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestPublishedLeavesOutTheIgnoredEntriesAndNothingElse(t *testing.T) {
+	root := writeTree(t, map[string]string{"d/keep.yml": "", "d/secret.yml": "", "d/sub/in.yml": "", "d/sub/out.yml": ""})
+	symlink(t, root, "d/dangling.yml", "nowhere.yml")
+	fsys := published(os.DirFS(root), []string{"d/secret.yml", "d/dangling.yml", "d/sub/out.yml"})
+	got, err := yamlFiles(fsys, "d", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"d/keep.yml", "d/sub/in.yml"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 

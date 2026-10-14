@@ -33,6 +33,8 @@ mkdir -p "$TREE/playbooks" "$TREE/tasks"
     printf -- '---\n- hosts: all\n  vars:\n    scope: general\n  tasks: []\n'
 } > "$TREE/playbooks/play.yml"
 chmod +x "$TREE/playbooks/play.yml"
+# The tool judges what git would publish, so the fixture is a work tree.
+git -C "$TREE" init -q
 
 PASS=0
 FAIL=0
@@ -85,6 +87,15 @@ echo "### a templated value is unverifiable under EITHER key"
 expect_match yes 'ignore_errors: "{{ x }}"' '      ignore_errors: "{{ maybe }}"'
 expect_match yes 'ignore_unreachable: "{{ x }}"' '      ignore_unreachable: "{{ maybe }}"'
 expect_match yes 'ignore_errors: {{ x }} unquoted' '      ignore_errors: {{ maybe }}'
+
+echo
+echo "### a quoted value is the same value, in either quote style"
+expect_match yes 'ignore_errors: "true"' '      ignore_errors: "true"'
+expect_match yes "ignore_errors: 'yes'" "      ignore_errors: 'yes'"
+expect_match yes 'failed_when: "false"' '      failed_when: "false"'
+expect_match yes "ignore_unreachable: 'on'" "      ignore_unreachable: 'on'"
+expect_match yes "ignore_errors: '{{ x }}' single-quoted template" "      ignore_errors: '{{ maybe }}'"
+expect_match no 'ignore_errors: "false" (quoted, explicitly off)' '      ignore_errors: "false"'
 
 echo
 echo '### negative controls — the over-match the trailing word boundary exists to stop'
