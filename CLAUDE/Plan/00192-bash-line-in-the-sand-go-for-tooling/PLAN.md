@@ -186,6 +186,14 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `discovery.ShellShebang`, the bash trees reader refuses a table with no `shell` or no `python`
   row as the Go does (D14), a combined flag group such as `-ec` counts as `-c` (D6), and QA.md
   describes the Go readers.
+  `qa-deployed-drift.bash` (P3) on `go-port/qa-deployed-drift`: ported, not merged; spec
+  [SPEC-qa-deployed-drift.md](SPEC-qa-deployed-drift.md), expectations E1-E16; nested
+  `src-go/qa/deployeddrift`, `qa/cmd/qa-deployed-drift`; the script a build-and-run wrapper, its
+  allowlist row gone, gate row and routing unchanged. The three host skips keep their `⚠` lines;
+  departures: git failing is exit 2 (not "compare anyway"), an unreadable file is exit 2 (not
+  drift), a pair matching no file or naming a missing play is exit 2, tier-2 play lookup matches
+  whole words, `request.py` is excluded from the helpers entry only. Same verdict and stage line
+  as the bash on a clean clone of the live tree (0 match, 96 not installed, 2 templates).
 
 ### Phase 4: Review
 

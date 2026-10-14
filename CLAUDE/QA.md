@@ -666,9 +666,12 @@ copy already exists**, so a machine that never installed a feature is never
 nagged.
 
 **Scope is wider than `files/home/.local/bin/`.** Beyond the user scripts it also
-compares the pairs listed in the script's own `EXTRA_PAIRS` — currently the VM
-acceptance lab and the agent bus installer's files (Plans 00110, 00161). The script's header
-comment is the authority on the current set.
+compares the pairs in the `pairs` table of `src-go/qa/deployeddrift/run.go` — currently the VM
+acceptance lab and the agent bus installer's files (Plans 00110, 00161). The tool is Go
+(`SPEC-qa-deployed-drift.md`, E1-E16); the table is the authority on the current set. A pair
+whose deploying play is missing, or whose glob matches no repo file, is **exit 2**, not a
+silent pass; so is an unreadable file, a git that cannot say whether the checkout is a linked
+worktree, and an unset `HOME`.
 
 **It self-skips in three situations, and says so with `⚠`, not `✓`:**
 
