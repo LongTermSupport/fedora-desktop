@@ -88,7 +88,7 @@ fi
 # The same defect was found and fixed in qa-bash.bash (Plan 00076) and qa-python.bash
 # (Plan 00081); this was the third discovery site in this directory and the one that
 # never got the generalisation.
-qa_tracked_helper_tests "$ROOT_DIR"
+qa_discover tracked-helper-tests "$ROOT_DIR"
 
 declare -A discovered=()
 for file in "${test_files[@]}"; do
@@ -96,7 +96,7 @@ for file in "${test_files[@]}"; do
 done
 
 missed=()
-for rel in "${QA_TRACKED_HELPER_TESTS[@]}"; do
+for rel in "${QA_FILES[@]}"; do
     [[ -n "${discovered[$rel]:-}" ]] || missed+=("$rel")
 done
 
@@ -118,7 +118,7 @@ fi
 # rather than implied by the list's length, the way version-pins reports `COVERAGE: 9 of 9`.
 untracked_tests=()
 declare -A tracked=()
-for rel in "${QA_TRACKED_HELPER_TESTS[@]}"; do
+for rel in "${QA_FILES[@]}"; do
     tracked["$rel"]=1
 done
 for file in "${test_files[@]}"; do
@@ -131,7 +131,7 @@ done
 # here would be produced and never delivered, which is one step short of the class this plan
 # exists to remove. What stays here is the part a stage line cannot carry: the file NAMES.
 printf 'COVERAGE: %s of %s tracked helper test modules\n' \
-    "$((${#test_files[@]} - ${#untracked_tests[@]}))" "${#QA_TRACKED_HELPER_TESTS[@]}" >&2
+    "$((${#test_files[@]} - ${#untracked_tests[@]}))" "${#QA_FILES[@]}" >&2
 if [[ "${#untracked_tests[@]}" -gt 0 ]]; then
     echo "  plus ${#untracked_tests[@]} UNTRACKED file(s), which run here and nowhere else:" >&2
     printf '    %s\n' "${untracked_tests[@]}" >&2
@@ -164,5 +164,5 @@ unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 # The runner exits non-zero on any failure; set -e propagates it (fail-fast).
 python3 -m helpers.qa_environment.unittest_counts \
     --counts-file "$counts_file" \
-    --tracked-modules "${#QA_TRACKED_HELPER_TESTS[@]}" \
+    --tracked-modules "${#QA_FILES[@]}" \
     "${token_args[@]}" "${modules[@]}"

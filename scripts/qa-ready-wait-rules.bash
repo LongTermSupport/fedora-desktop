@@ -64,12 +64,12 @@ else
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=qa-discovery.bash
     source "$REPO_ROOT/scripts/qa-discovery.bash"
-    qa_tracked_python_files "$REPO_ROOT"
-    qa_tracked_shell_scripts "$REPO_ROOT"
-    for f in "${QA_TRACKED_PYTHON_FILES[@]}"; do
+    qa_discover tracked-python "$REPO_ROOT"
+    for f in "${QA_FILES[@]}"; do
         [[ "$f" == .semgrep/* ]] || py+=("$f")
     done
-    sh=("${QA_TRACKED_SHELL_FILES[@]}")
+    qa_discover tracked-shell "$REPO_ROOT"
+    sh=("${QA_FILES[@]}")
 fi
 if [[ "$#" -eq 0 && ( "${#py[@]}" -eq 0 || "${#sh[@]}" -eq 0 ) ]]; then
     echo "ERROR: discovery found ${#py[@]} Python and ${#sh[@]} shell files; nothing would be checked" >&2

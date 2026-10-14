@@ -148,5 +148,11 @@ owns scope (what git would publish), the rule self-test against its fixture, the
 the refusal to pass over a script semgrep did not read or parse. git and semgrep go through
 `qa/internal/proc`, faked in the unit tests; `SPEC-qa-patterns.md` (P1-P18) is the specification.
 
+`qa/discovery` + `qa/cmd/qa-discovery` (same nested module) are the shared source-file discovery
+the bash gates source through `scripts/qa-discovery.bash` (`qa_discover <list> <root>`; the exclusion
+test stays in the wrapper over `scripts/qa-trees.tsv`): what git would publish, one predicate per
+language, and the tracked yardsticks each gate measures its coverage against.
+`SPEC-qa-discovery.md` (D1-D14) is the specification.
+
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).

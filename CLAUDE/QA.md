@@ -459,9 +459,14 @@ different number of files depending on whether galaxy content has landed.
 
 ### All three source gates assert their own coverage (Plans 00076, 00081)
 
-`qa-bash.bash`, `qa-patterns.bash` and `qa-python.bash` share one discovery
-library, `scripts/qa-discovery.bash` — one mechanism, one "is this a shell
-script / is this Python" predicate. Change discovery there, not in a gate.
+`qa-bash.bash` and `qa-python.bash` (and the coverage yardsticks of
+`qa-ansible-syntax.bash`, `qa-helper-tests.bash` and `qa-ready-wait-rules.bash`)
+share one discovery, the Go tool `src-go/qa/discovery` (spec
+`SPEC-qa-discovery.md`), reached through the sourced wrapper
+`scripts/qa-discovery.bash` (`qa_discover <list> <root>` fills `QA_FILES`). It
+lists what git would publish, never gitignored files. `qa-patterns` applies the
+same shell predicate in `src-go/qa/patterns` over the same trees table. Change
+discovery there, not in a gate.
 
 The two languages carry **separate exclusion lists** over that one mechanism,
 and the difference is deliberate: `QA_PY_EXCLUDE_DIRS` excludes only

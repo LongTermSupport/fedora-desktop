@@ -41,6 +41,8 @@ also	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	patterns	cover
 also	src-go/qa/patterns/*,src-go/qa/cmd/qa-patterns/*	patterns	-
 # The wrapper that builds and runs the gate, the library it runs through and the table of excluded trees it reads.
 also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patterns	-
+# The discovery wrapper and the table reader it sources are run by the Go tests, over a real work tree.
+also	scripts/qa-discovery.bash,scripts/lib/qa-trees.bash	go	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
