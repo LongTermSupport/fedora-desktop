@@ -82,6 +82,12 @@ also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 also	playbooks/*.yml,playbooks/*.yaml,tasks/*.yml,tasks/*.yaml	ansible-pause	-
 also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ansible-pause	-
 also	tests/fixtures/ansible-pause/*	go	covered
+# The toolchain gate judges the installed tools against .qa-versions (which it covers) and the Go
+# floor of src-go/go.mod; it runs whole when either, its wrapper, its Go package or command, or the
+# wrapper library change. It also runs after any changed shell or Python file (the post row below).
+# It reads no fixtures: its Go tests run on fakes.
+also	.qa-versions	toolchain	covered
+also	src-go/go.mod,scripts/qa-toolchain.bash,src-go/qa/toolchain/*,src-go/qa/cmd/qa-toolchain/*,scripts/lib/go-tool.bash	toolchain	-
 # The ready-wait gate runs over each changed Python and shell file by name (the @py and @sh rows
 # below), and runs whole over every tracked file (too slow to do for each ordinary edit) when
 # its rule, fixtures, script, Go package, command, the shared

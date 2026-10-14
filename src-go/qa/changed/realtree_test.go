@@ -126,6 +126,21 @@ func TestEverySelectableSuitePrintsTheCanonicalCountLine(t *testing.T) {
 	}
 }
 
+// Every input of the toolchain gate, routed by the real table, runs the toolchain check and is
+// covered by something (SPEC-qa-toolchain).
+func TestTheRealRoutingSendsEveryToolchainInputToTheToolchainCheck(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		".qa-versions", "src-go/go.mod", "scripts/qa-toolchain.bash", "scripts/lib/go-tool.bash",
+		"src-go/qa/toolchain/versions.go", "src-go/qa/cmd/qa-toolchain/main.go",
+	} {
+		checkSemgrepRoute(t, root, rel, "check:toolchain")
+	}
+}
+
 // Every file under .semgrep/ is read by the gate or suite listed here; a change to one must run
 // it, and none may be called covered when nothing checked it (SPEC-qa-changed B33).
 var semgrepReaders = map[string]string{
