@@ -66,8 +66,8 @@ func (r *scriptedRunner) argv() []string {
 
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
-		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "deployed-drift", "node-check", "eslint",
+		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "ruff", "unit-tests", "ansible-syntax",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "stt-rules", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -91,6 +91,7 @@ func TestSummaries(t *testing.T) {
 		"bash-syntax":         "2 file(s)",
 		"shell-directives":    "2 file(s)",
 		"ready-wait-files":    "2 file(s)",
+		"stt-rules-files":     "2 file(s)",
 		"unit-tests":          "2 module(s)",
 		"ansible-syntax":      "2 playbook(s)",
 		"ansible-patterns":    "fail-fast patterns, whole gate",
@@ -109,6 +110,7 @@ func TestSummaries(t *testing.T) {
 		"ansible-pause":         "whole gate (every pause registers its answer or says why it waits)",
 		"gh-scopes":             "gh-scope-outside-ssot rule, whole gate",
 		"ready-wait":            "whole gate (no wait ignores the exit of the process it waits for)",
+		"stt-rules":             "whole gate (no model judged present without its weights, no dropdown label that explains itself)",
 	} {
 		if got := lookupCheck(id).summaryFor(two); got != want {
 			t.Errorf("%s: %q, want %q", id, got, want)
@@ -203,6 +205,19 @@ func TestReadyWaitFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"bash " + filepath.Join(s.scripts, "qa-ready-wait-rules.bash") + " a.py b.bash"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The per-file speech-to-text check runs the gate over the changed files by name (SPEC-qa-speech-to-text-rules S10).
+func TestSttRulesFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("stt-rules-files").run(context.Background(), s, &checkPlan{items: []string{"a.py", "b.js"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-speech-to-text-rules.bash") + " a.py b.js"}
 	if got := runner.argv(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -326,12 +341,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "stt-rules"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-speech-to-text-rules.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)

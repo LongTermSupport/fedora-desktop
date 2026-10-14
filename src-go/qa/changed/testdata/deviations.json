@@ -1,78 +1,669 @@
 {
- "bad-base": {"bugs": ["B1"], "reason": "a failing git diff is exit 2 with git's message, not 'nothing to check' with exit 0"},
- "base-swallows-flag": {"bugs": ["B4"], "reason": "--base refuses a following flag as its value instead of using --plan as the ref"},
- "explicit-absolute": {"bugs": ["B5", "B36", "B40"], "reason": "an absolute path inside the repository is cleaned to its repo-relative form; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "explicit-dot-slash": {"bugs": ["B5", "B36", "B40"], "reason": "./x and x are one file; the leading ./ is cleaned away before classification and suite naming; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "explicit-duplicates": {"bugs": ["B5", "B36", "B40"], "reason": "a file named twice is one file; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "explicit-empty": {"bugs": ["B2"], "reason": "--files with no file is a usage error, exit 2, not 'nothing to check'"},
- "explicit-missing": {"bugs": ["B21", "B28"], "reason": "a named path that does not exist is said on stderr, not dropped silently; a list naming no existing file is exit 2, not nothing to check"},
- "explicit-then-flag": {"bugs": ["B3", "B36", "B40"], "reason": "flags after --files are flags: --plan plans instead of being swallowed as a file and running the real checks; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-src-go-golangci-yml": {"bugs": ["B7"], "reason": "the src-go rule precedes the YAML rule, so the lint config runs the Go gate instead of being reported uncovered"},
- "git-deleted-allowlisted": {"bugs": ["B6"], "reason": "a deleted allowlisted script runs the bash-limits gate (the ratchet needs --update) instead of 'nothing to check'"},
- "git-deleted-go": {"bugs": ["B6"], "reason": "a deleted Go file runs the Go gate and the suites of the command whose closure it was in"},
- "git-deleted-named-by-suite": {"bugs": ["B6"], "reason": "a deleted file selects the suites that name it, and a deleted shell script runs the bash-limits gate"},
- "git-modified-untracked-deleted": {"bugs": ["B6", "B36", "B40"], "reason": "the deleted file is counted and selects the suites that name it; it still gets no per-file check; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-semgrep-bash-conventions-yml": {"bugs": ["B33"], "reason": "the bash-convention rules file runs the patterns gate instead of being skipped as an excluded tree, and is not also reported as skipped"},
- "group-everything": {"bugs": ["B7", "B8", "B33", "B36", "B38", "B40"], "reason": "the lint config is covered by the Go gate; two changed main.go are both credited and listed, and no longer reported uncovered; the changed rules file runs the patterns gate and is not also reported as skipped; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "group-same-basename": {"bugs": ["B8"], "reason": "every changed file with the same basename is credited and named by the suite, none reported uncovered"},
- "help": {"bugs": ["B15"], "reason": "usage goes to stdout for --help; the text is the tool's own, not the script's header comment"},
- "unknown-flag": {"bugs": ["B15"], "reason": "the usage after an error is the tool's own text, not the script's header comment"},
- "run-gate-exit-2": {"bugs": ["B13", "B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "a gate that exits 2 is reported 'could not run (exit 2)' and the run exits 2 when nothing else failed; shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-gate-exit-2-and-fail": {"bugs": ["B13", "B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "a check that failed outranks a gate that could not run (exit 1); the report line says 'could not run (exit 2)'; shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-suite-zero-count": {"bugs": ["B31", "B36", "B40"], "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion and could not run (exit 2); the bash ticked it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-suite-count-reports-failures": {"bugs": ["B32", "B36", "B40"], "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite (exit 1); the bash ticked it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-all-pass": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-bash-syntax-error": {"bugs": ["B30", "B35", "B36", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-explicit-files": {"bugs": ["B30", "B34", "B35", "B36", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-ansible-playbook": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-node": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-python3": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-qa-ansible-bash": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-qa-docs-bash": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-qa-toolchain-bash": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-ruff": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-semgrep": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-shellcheck": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-test-alpha-bash": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-test-teams-bash": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-fail-two": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-semgrep-finding": {"bugs": ["B30", "B34", "B35", "B36", "B37", "B38", "B40"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-ccy": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-ccy-teams": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-files-var-local-claude-yolo-lib-common-pure-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-gone-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-kept-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-lib-util-sh": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-qa-all-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-qa-ansible-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-qa-bash-limits-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-qa-docs-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-qa-go-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-qa-toolchain-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-test-alpha-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-test-beta-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-scripts-test-teams-bash": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-tools-bash-tool": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-tools-run-sh": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "group-shell-and-python": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "group-name-in-name": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "group-suite-and-file": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "git-rename": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "git-base-committed": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "git-staged-only": {"bugs": ["B36", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-missing-shellcheck": {"bugs": ["B36", "B38", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-missing-ruff": {"bugs": ["B36", "B38", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-missing-node": {"bugs": ["B36", "B38", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "run-missing-ansible": {"bugs": ["B36", "B38", "B40"], "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-playbooks-imports-play-a-yml": {"bugs": ["B38"], "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"},
- "file-playbooks-play-main-yml": {"bugs": ["B38"], "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"},
- "file-tasks-step-yml": {"bugs": ["B38"], "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"},
- "group-yaml-set": {"bugs": ["B38"], "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"},
- "file-files-home-local-bin-listed-tool": {"bugs": ["B40"], "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-helpers-agent-bus-declare-py": {"bugs": ["B40"], "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-helpers-pkg-init-py": {"bugs": ["B40"], "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-helpers-pkg-lonely-py": {"bugs": ["B40"], "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-helpers-pkg-mod-py": {"bugs": ["B40"], "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-tests-helpers-pkg-test-mod-py": {"bugs": ["B40"], "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"},
- "file-tools-py-tool": {"bugs": ["B40"], "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"}
+  "bad-base": {
+    "bugs": [
+      "B1"
+    ],
+    "reason": "a failing git diff is exit 2 with git's message, not 'nothing to check' with exit 0"
+  },
+  "base-swallows-flag": {
+    "bugs": [
+      "B4"
+    ],
+    "reason": "--base refuses a following flag as its value instead of using --plan as the ref"
+  },
+  "explicit-absolute": {
+    "bugs": [
+      "B5",
+      "B36",
+      "B40"
+    ],
+    "reason": "an absolute path inside the repository is cleaned to its repo-relative form; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "explicit-dot-slash": {
+    "bugs": [
+      "B5",
+      "B36",
+      "B40"
+    ],
+    "reason": "./x and x are one file; the leading ./ is cleaned away before classification and suite naming; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "explicit-duplicates": {
+    "bugs": [
+      "B5",
+      "B36",
+      "B40"
+    ],
+    "reason": "a file named twice is one file; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "explicit-empty": {
+    "bugs": [
+      "B2"
+    ],
+    "reason": "--files with no file is a usage error, exit 2, not 'nothing to check'"
+  },
+  "explicit-missing": {
+    "bugs": [
+      "B21",
+      "B28"
+    ],
+    "reason": "a named path that does not exist is said on stderr, not dropped silently; a list naming no existing file is exit 2, not nothing to check"
+  },
+  "explicit-then-flag": {
+    "bugs": [
+      "B3",
+      "B36",
+      "B40"
+    ],
+    "reason": "flags after --files are flags: --plan plans instead of being swallowed as a file and running the real checks; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-src-go-golangci-yml": {
+    "bugs": [
+      "B7"
+    ],
+    "reason": "the src-go rule precedes the YAML rule, so the lint config runs the Go gate instead of being reported uncovered"
+  },
+  "git-deleted-allowlisted": {
+    "bugs": [
+      "B6"
+    ],
+    "reason": "a deleted allowlisted script runs the bash-limits gate (the ratchet needs --update) instead of 'nothing to check'"
+  },
+  "git-deleted-go": {
+    "bugs": [
+      "B6"
+    ],
+    "reason": "a deleted Go file runs the Go gate and the suites of the command whose closure it was in"
+  },
+  "git-deleted-named-by-suite": {
+    "bugs": [
+      "B6"
+    ],
+    "reason": "a deleted file selects the suites that name it, and a deleted shell script runs the bash-limits gate"
+  },
+  "git-modified-untracked-deleted": {
+    "bugs": [
+      "B6",
+      "B36",
+      "B40",
+      "B44"
+    ],
+    "reason": "the deleted file is counted and selects the suites that name it; it still gets no per-file check; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-semgrep-bash-conventions-yml": {
+    "bugs": [
+      "B33"
+    ],
+    "reason": "the bash-convention rules file runs the patterns gate instead of being skipped as an excluded tree, and is not also reported as skipped"
+  },
+  "group-everything": {
+    "bugs": [
+      "B7",
+      "B8",
+      "B33",
+      "B36",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "the lint config is covered by the Go gate; two changed main.go are both credited and listed, and no longer reported uncovered; the changed rules file runs the patterns gate and is not also reported as skipped; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "group-same-basename": {
+    "bugs": [
+      "B8"
+    ],
+    "reason": "every changed file with the same basename is credited and named by the suite, none reported uncovered"
+  },
+  "help": {
+    "bugs": [
+      "B15"
+    ],
+    "reason": "usage goes to stdout for --help; the text is the tool's own, not the script's header comment"
+  },
+  "unknown-flag": {
+    "bugs": [
+      "B15"
+    ],
+    "reason": "the usage after an error is the tool's own text, not the script's header comment"
+  },
+  "run-gate-exit-2": {
+    "bugs": [
+      "B13",
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "a gate that exits 2 is reported 'could not run (exit 2)' and the run exits 2 when nothing else failed; shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-gate-exit-2-and-fail": {
+    "bugs": [
+      "B13",
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "a check that failed outranks a gate that could not run (exit 1); the report line says 'could not run (exit 2)'; shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-suite-zero-count": {
+    "bugs": [
+      "B31",
+      "B36",
+      "B40"
+    ],
+    "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion and could not run (exit 2); the bash ticked it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "run-suite-count-reports-failures": {
+    "bugs": [
+      "B32",
+      "B36",
+      "B40"
+    ],
+    "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite (exit 1); the bash ticked it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "run-all-pass": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-bash-syntax-error": {
+    "bugs": [
+      "B30",
+      "B35",
+      "B36",
+      "B40"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "run-explicit-files": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-ansible-playbook": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-node": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-python3": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-qa-ansible-bash": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-qa-docs-bash": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-qa-toolchain-bash": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-ruff": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-semgrep": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-shellcheck": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-test-alpha-bash": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-test-teams-bash": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-fail-two": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-semgrep-finding": {
+    "bugs": [
+      "B30",
+      "B34",
+      "B35",
+      "B36",
+      "B37",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does; ruff is given the root's ruff.toml (--config) and --no-cache, so a nested config cannot swap the ruleset; shellcheck is given --norc and an empty SHELLCHECK_OPTS, so no .shellcheckrc or environment option can disable a check, as the shell gate runs it; a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; the per-file eslint runs as the js gate does (SPEC-qa-js J8-J12): from the root on absolute paths, with its pins (--no-eslintrc, --config <root>/extensions/.eslintrc.json, --no-inline-config) and --format json, and its answer is proved with the gate's own code, so a nested config, an eslint-disable comment or a file ESLint ignored cannot make it pass what the gate fails; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-ccy": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-ccy-teams": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-files-var-local-claude-yolo-lib-common-pure-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-gone-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-kept-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-lib-util-sh": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-qa-all-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-qa-ansible-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-qa-bash-limits-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-qa-docs-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-qa-go-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-qa-toolchain-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-test-alpha-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-test-beta-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-scripts-test-teams-bash": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-tools-bash-tool": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "file-tools-run-sh": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "group-shell-and-python": {
+    "bugs": [
+      "B36",
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "group-name-in-name": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "group-suite-and-file": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "git-rename": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "git-base-committed": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "git-staged-only": {
+    "bugs": [
+      "B36",
+      "B40"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report"
+  },
+  "run-missing-shellcheck": {
+    "bugs": [
+      "B36",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-missing-ruff": {
+    "bugs": [
+      "B36",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-missing-node": {
+    "bugs": [
+      "B36",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-missing-ansible": {
+    "bugs": [
+      "B36",
+      "B38",
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed shell file also gets the shell-directives check, the shell gate's suppression ratchet in its --directives mode (SPEC-qa-bash S20), so its check line is added to the plan and the report; a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report; a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-playbooks-imports-play-a-yml": {
+    "bugs": [
+      "B38"
+    ],
+    "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"
+  },
+  "file-playbooks-play-main-yml": {
+    "bugs": [
+      "B38"
+    ],
+    "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"
+  },
+  "file-tasks-step-yml": {
+    "bugs": [
+      "B38"
+    ],
+    "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"
+  },
+  "group-yaml-set": {
+    "bugs": [
+      "B38"
+    ],
+    "reason": "a changed playbook or task file also gets the ansible-pause check, the pause-without-register gate run whole (SPEC-qa-changed B38), so its check line is added to the plan and the report"
+  },
+  "file-files-home-local-bin-listed-tool": {
+    "bugs": [
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-helpers-agent-bus-declare-py": {
+    "bugs": [
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-helpers-pkg-init-py": {
+    "bugs": [
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-helpers-pkg-lonely-py": {
+    "bugs": [
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-helpers-pkg-mod-py": {
+    "bugs": [
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-tests-helpers-pkg-test-mod-py": {
+    "bugs": [
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-tools-py-tool": {
+    "bugs": [
+      "B40",
+      "B44"
+    ],
+    "reason": "a changed Python or shell file also gets the ready-wait-files check, the ready-wait gate over that file (SPEC-qa-ready-wait-rules R9), so its check line is added to the plan and the report; a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-extensions-ext-x-extension-js": {
+    "bugs": [
+      "B44"
+    ],
+    "reason": "a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-extensions-ext-x-ok-mjs": {
+    "bugs": [
+      "B44"
+    ],
+    "reason": "a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "file-tools-plain-js": {
+    "bugs": [
+      "B44"
+    ],
+    "reason": "a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  },
+  "run-missing-eslint": {
+    "bugs": [
+      "B44"
+    ],
+    "reason": "a changed JavaScript or Python file also gets the stt-rules-files check, the speech-to-text rules gate over that file (SPEC-qa-speech-to-text-rules S10), so its check line is added to the plan and the report"
+  }
 }

@@ -88,6 +88,12 @@ also	tests/fixtures/ansible-pause/*	go	covered
 # discovery or the trees table change; the .semgrep files are its own data and count as covered.
 also	.semgrep/ready-wait.yml,.semgrep/ready-wait.py,.semgrep/ready-wait.bash	ready-wait	covered
 also	scripts/qa-ready-wait-rules.bash,src-go/qa/readywait/*,src-go/qa/cmd/qa-ready-wait-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ready-wait	-
+# The speech-to-text rules gate runs over each changed JavaScript and Python file by name (the
+# *.js, *.mjs and @py rows below), and runs whole over every published file when its rules,
+# fixtures, wrapper, Go package, command, the shared discovery or the trees table change; the
+# .semgrep files are its own data and count as covered.
+also	.semgrep/speech-to-text.yml,.semgrep/speech-to-text.js,.semgrep/speech-to-text.py	stt-rules	covered
+also	scripts/qa-speech-to-text-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-speech-to-text-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	stt-rules	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in
@@ -97,14 +103,14 @@ first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*	-	-
 # Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
 first	.semgrep/*	-	-
 first	*.md	docs	covered
-first	*.js,*.mjs	node-check	covered,tree:shell
+first	*.js,*.mjs	node-check,stt-rules-files	covered,tree:shell
 first	src-go/*	go	covered,closure
 first	*.yml,*.yaml	@yaml	tree:shell
 # A template is not valid shell or Python until rendered; only a suite naming it covers it.
 first	*.j2	-	-
-first	@py	ruff,unit-tests,ready-wait-files	covered,tree:python
+first	@py	ruff,unit-tests,ready-wait-files,stt-rules-files	covered,tree:python
 first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-speech-to-text-rules
