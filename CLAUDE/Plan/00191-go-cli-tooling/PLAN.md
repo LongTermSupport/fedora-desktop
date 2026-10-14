@@ -56,11 +56,10 @@ today; rewriting them is out of scope.
   the running container now (golangci-lint under `untracked/tools/bin` until the image is
   rebuilt).
 - [x] ✅ **Task 1.2**: Host and CI. `playbooks/imports/optional/common/play-golang.yml`
-  installs `golang`, `gcc` (what `go test -race` links against) and golangci-lint at the
-  `.qa-versions` pin (checksum-verified from the release's checksums file, probed so it is
-  idempotent and a pin change is applied). `play-python.yml` imports it ahead of its
-  QA-toolchain check, so the one play that installs the QA tools installs these too, with a
-  single source of truth. `scripts/qa-toolchain.bash` asserts golangci-lint at the pin and
+  installs `golang`, all a build needs. `play-python.yml`, the one play that installs the QA
+  tools, imports it and installs the Go QA toolchain itself: `gcc` (what `go test -race` links
+  against) and golangci-lint at the `.qa-versions` pin (checksum-verified from the release's
+  checksums file, probed so it is idempotent and a pin change is applied). `scripts/qa-toolchain.bash` asserts golangci-lint at the pin and
   `go` at no less than `src-go/go.mod` requires; `.github/workflows/qa.yml` installs both.
   `play-claude-yolo.yml` imports it too since Task 2.5, where it first builds a binary.
 - [x] ✅ **Task 1.3**: `src-go/` skeleton: `go.mod`, `.golangci.yml` (strict), `cmd/`,
@@ -100,7 +99,7 @@ today; rewriting them is out of scope.
   [RESEARCH-go-qa-ci.md](RESEARCH-go-qa-ci.md).
 - [x] ✅ **Task 3.2**: Create `LongTermSupport/go-qa-ci` (created private; the owner makes it
   public after review) and build it by milestones, self-hosted. It is a generic DBF toolchain
-  for Go: it names no consumer. Milestones M0-M13 each passed an independent verifier; its
+  for Go: it names no consumer. Milestones M0-M14 each passed an independent verifier; its
   conformance is declared with recorded gaps, never claimed in full. The verifiers' deferred
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
 - [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Waits on the owner

@@ -184,6 +184,7 @@ the topic file that owns the fact — never a copy.
 | any `*.bash`, `scripts/`, `files/**/bin/`                    | `bash-scripts.md`      | StderrHygiene, InteractiveScripts, QA           |
 | `files/var/local/claude-yolo/`                               | `ccy-version-bump.md`  | ContainerRules — **the mandatory version bump** |
 | `helpers/`, `tests/helpers/`, any `*.py`                     | `python-helpers.md`    | helpers/CLAUDE.md, the ruff pin                 |
+| `src-go/`, any `*.go`                                        | `go-code.md`           | src-go/CLAUDE.md, the interim Go gate           |
 | `environment/`, `vault.bash`, `*_vars/`                      | `secrets-and-vault.md` | SecurityRules, ExampleValues                    |
 | `extensions/`, gnome-shell dirs                              | `gnome-extensions.md`  | GnomeShell, the ESLint requirement              |
 | `scripts/qa-*.bash`, `ruff.toml`, workflows                  | `qa-gates.md`          | QA.md, and how these gates have failed before   |
