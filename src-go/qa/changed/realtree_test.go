@@ -193,17 +193,56 @@ func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := os.ReadDir(filepath.Join(root, ".semgrep"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if _, ok := semgrepReaders[".semgrep/"+e.Name()]; !ok {
-			t.Errorf(".semgrep/%s is in the tree but has no reader in this test: name the gate that reads it, or delete the file", e.Name())
+	for _, rel := range publishedUnder(t, root, ".semgrep") {
+		if _, ok := semgrepReaders[rel]; !ok {
+			t.Errorf("%s is in the tree but has no reader in this test: name the gate that reads it, or delete the file", rel)
 		}
 	}
 	for rel, reader := range semgrepReaders {
 		checkSemgrepRoute(t, root, rel, reader)
+	}
+}
+
+// publishedUnder lists the files under dir that git would publish (tracked, or untracked and not
+// ignored), the scope every gate uses, so a gitignored __pycache__ is not "in the tree".
+func publishedUnder(t *testing.T, root, dir string) []string {
+	t.Helper()
+	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{
+		Argv: []string{"git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", dir},
+		Dir:  root,
+	})
+	if err != nil || res.Code != 0 {
+		t.Fatalf("git ls-files under %s: %v %+v", dir, err, res)
+	}
+	var out []string
+	for f := range strings.SplitSeq(res.Stdout, "\x00") {
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func TestPublishedUnderSkipsIgnoredFilesButCatchesNewUntrackedOnes(t *testing.T) {
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: append([]string{"git"}, args...), Dir: repo})
+		if err != nil || res.Code != 0 {
+			t.Fatalf("git %v: %v %+v", args, err, res)
+		}
+	}
+	git("init", "-q")
+	writeFile(t, repo, ".gitignore", "__pycache__/\n")
+	writeFile(t, repo, ".semgrep/tracked.yml", "x")
+	git("add", ".gitignore", ".semgrep/tracked.yml")
+	writeFile(t, repo, ".semgrep/__pycache__/x.pyc", "x")
+	writeFile(t, repo, ".semgrep/new-untracked.yml", "x")
+	got := publishedUnder(t, repo, ".semgrep")
+	slices.Sort(got)
+	want := []string{".semgrep/new-untracked.yml", ".semgrep/tracked.yml"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("published files %v, want %v", got, want)
 	}
 }
 
