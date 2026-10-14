@@ -65,6 +65,9 @@ PLANS=(
     # agent team bus acceptance again: the last run passed every bus check, and failed only
     # M2.10 because a commit landed in this checkout while it ran
     00161-agent-team-bus-matrix/acceptance.bash
+    # Plan 00195: play-comms.yml grants Slack /var/lib/lxc:ro, then acceptance checks every
+    # home symlink into an LXC container resolves in a fresh Slack sandbox. Relaunch Slack.
+    00195-slack-reads-lxc-vhosts-through-project-symlinks
 )
 
 LIST_ONLY=0

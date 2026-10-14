@@ -586,6 +586,8 @@ ccy --custom
 - Grants the Slack sandbox read-only access to the home directory, so a file
   dragged in from Nautilus outside `~/Downloads` can be read instead of being
   rejected as "a type of file not supported by Slack"
+- Grants it read-only access to `/var/lib/lxc` as well, so a file in a folder
+  symlinked into an LXC container can be dragged in too
 
 ### play-gnome-shell.yml & play-gnome-shell-extensions.yml
 
