@@ -169,3 +169,66 @@ func TestTheRealTreeListsAgreeWithGit(t *testing.T) {
 		}
 	}
 }
+
+// D15: git prints an untracked nested repository as one entry, "nested/", and lists none of its
+// files; the run stops naming it rather than dropping the files from every gate.
+func TestAnUntrackedNestedRepositoryStopsTheRunNamingIt(t *testing.T) {
+	root := gitTree(t)
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"git", "init", "-q"}, Dir: nested})
+	if err != nil || res.Code != 0 {
+		t.Fatalf("git init: %v %+v", err, res)
+	}
+	for name, text := range map[string]string{"inner-tool": "#!/bin/bash\n", "inner.bash": "x\n"} {
+		if err := os.WriteFile(filepath.Join(nested, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "scripts", "qa-trees.tsv"), []byte(defaultTrees), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, list := range []string{"shell", "python", "python-templates"} {
+		t.Run(list, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := Main([]string{"--root", root, list}, Env{Stdout: &out, Stderr: &errOut, Cwd: root, Runner: proc.OS{}})
+			if code != ExitCannotRun || out.Len() != 0 || !strings.Contains(errOut.String(), "ERROR:") || !strings.Contains(errOut.String(), "nested/") {
+				t.Fatalf("exit %d\nstdout %q\nstderr %s", code, out.String(), errOut.String())
+			}
+		})
+	}
+}
+
+// D14: the bash reader refuses a table the Go refuses, one with no row for a language.
+func TestTheBashTreesReaderRefusesATableMissingALanguage(t *testing.T) {
+	for name, table := range map[string]string{"no python": "shell\ta\n", "no shell": "python\tb\n"} {
+		t.Run(name, func(t *testing.T) {
+			res := sourceTrees(t, table)
+			if res.Code != 2 || strings.Contains(res.Stdout, "sourced") || !strings.Contains(res.Stderr, "qa-trees") {
+				t.Fatalf("a table with %s was accepted: %+v", name, res)
+			}
+		})
+	}
+	if res := sourceTrees(t, "shell\ta\npython\tb\n"); res.Code != 0 || res.Stdout != "sourced\n" {
+		t.Fatalf("a whole table was refused: %+v", res)
+	}
+}
+
+// sourceTrees sources the real bash trees reader, through a link that sits beside the given table
+// (the reader finds its table relative to the path it was sourced by).
+func sourceTrees(t *testing.T, table string) proc.Result {
+	t.Helper()
+	w := newWorld(t)
+	w.write("lib/keep", "", false)
+	w.write("qa-trees.tsv", table, false)
+	if err := os.Symlink(filepath.Join(repoScripts(t), "lib", "qa-trees.bash"), filepath.Join(w.root, "lib", "qa-trees.bash")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"bash", "-c", "source \"$1/lib/qa-trees.bash\"; echo sourced", "bash", w.root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}

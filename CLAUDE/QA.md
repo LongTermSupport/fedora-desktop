@@ -464,9 +464,11 @@ different number of files depending on whether galaxy content has landed.
 share one discovery, the Go tool `src-go/qa/discovery` (spec
 `SPEC-qa-discovery.md`), reached through the sourced wrapper
 `scripts/qa-discovery.bash` (`qa_discover <list> <root>` fills `QA_FILES`). It
-lists what git would publish, never gitignored files. `qa-patterns` applies the
-same shell predicate in `src-go/qa/patterns` over the same trees table. Change
-discovery there, not in a gate.
+lists what git would publish, never gitignored files, and stops (exit 2) at an
+untracked nested repository, whose files git will not list. `qa-patterns` calls the
+same exported shell predicate (`discovery.ShellShebang`; a `-c` or a combined flag group
+such as `-ec` makes a shebang an inline one-liner, not a script) over the same trees
+table. Change discovery there, not in a gate.
 
 The two languages carry **separate exclusion lists** over that one mechanism,
 and the difference is deliberate: `QA_PY_EXCLUDE_DIRS` excludes only
@@ -913,8 +915,9 @@ have already shipped here, and every change to a gate is measured against them.
 an entire checkout — this repo is vendored at `untracked/repos/fedora-desktop`
 inside another project, and every bash file went unscanned with exit 0
 throughout. Anchor repo-root-relative exclusions to `$REPO_ROOT` (the shared
-`scripts/qa-discovery.bash` lists them repo-relative for this reason) and leave
-only genuinely any-depth names (`.git`, `node_modules`, `__pycache__`, `.venv`,
+`qa_is_excluded` in `scripts/qa-discovery.bash`, which `qa-js` and `qa-ansible-syntax`
+ask per file, tests the repo-relative path for this reason; the Go discovery never sees
+an ancestor of the root) and leave only genuinely any-depth names (`.git`, `node_modules`, `__pycache__`, `.venv`,
 `venv`) unanchored. **Never remove a zero-file guard** to make a gate "work"
 somewhere — zero is the signal.
 
@@ -1085,8 +1088,10 @@ check runs.
 
 The classification is data, not code: `scripts/qa-routing.tsv` (the rules, in order: which
 files get which checks, which are covered, which honour an excluded tree) and
-`scripts/qa-trees.tsv` (the excluded trees, one list for the shell gates through
-`qa-discovery.bash` and for this tool; a test asserts the two readers agree). Both load
+`scripts/qa-trees.tsv` (the excluded trees, one list, read by the Go readers in
+`qa/changed`, `qa/patterns` and `qa/discovery` and by the bash reader `scripts/lib/qa-trees.bash`
+behind `qa-discovery.bash`; a table with no `shell` row or no `python` row is exit 2 in all of
+them). All load
 strictly, a malformed row is exit 2 naming the line. A deleted file has nothing left to check
 but still owes the whole gates it implies (the bash-limits gate for a deleted bash file or
 allowlisted path, the Go gate and the command suites for a deleted `src-go/` file) and selects

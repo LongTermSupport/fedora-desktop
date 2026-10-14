@@ -212,10 +212,13 @@ func TestShellScriptIsByNameOrShebangNeverByMode(t *testing.T) {
 	w.track("py", pyShebang)
 	w.track("bashful", "#!/usr/bin/bashful\n")
 	w.track("inline", "#!/usr/bin/bash -c 'exec ansible-playbook \"$0\"'\n")
+	w.track("inline-ec", "#!/usr/bin/env -S bash -ec 'exec ansible-playbook \"$0\"'\n")
+	w.track("inline-xc", "#!/bin/bash -xc 'true'\n")
+	w.track("combined-no-c", "#!/bin/bash -eu\n")
 	w.track("tmpl.sh.j2", bashShebang)
 	w.track("tmpl2.j2", bashShebang)
 	got := w.main("shell")
-	names := []string{"a.sh", "b.bash", "tool", "tool2", "tool3", "tool4", "tool5", "tool6"}
+	names := []string{"a.sh", "b.bash", "combined-no-c", "tool", "tool2", "tool3", "tool4", "tool5", "tool6"}
 	want := make([]string, 0, len(names))
 	for _, n := range names {
 		want = append(want, w.root+"/"+n)

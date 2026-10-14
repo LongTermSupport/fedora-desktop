@@ -57,8 +57,9 @@ same data file).
 
 - D6. A shell script is a file whose name ends `.sh` or `.bash`, or, with any other name, whose
   first line is a shebang whose interpreter is `bash` or `sh` (directly, or after `env` and its
-  options and `NAME=value` words), without a `-c` argument (a `bash -c` shebang is an inline
-  one-liner in another kind of file, the playbooks'). A `*.j2` file is never one. Mode bits play
+  options and `NAME=value` words), without a `-c` argument, a combined flag group such as `-ec` or `-xc` counting as
+  containing one (a `bash -c` shebang is an inline one-liner in another kind of file, the
+  playbooks'). A `*.j2` file is never one. Mode bits play
   no part.
 - D7. A Python file is a file whose name ends `.py`, or, with any other name that is not `*.j2`,
   whose first line is a shebang whose interpreter (after `env` and its options) has a name
@@ -66,7 +67,8 @@ same data file).
 - D8. `python-templates` lists the `*.j2` files in the published set, outside the Python
   exclusions, whose first line is a Python shebang (D7's test). It may be empty.
 - D9. One predicate per language serves discovery and its yardstick, so the yardstick can never be
-  a second opinion about what counts; they differ only in source (D4).
+  a second opinion about what counts; they differ only in source (D4). The shell predicate is one
+  function, exported by `qa/discovery` and used by `qa/patterns`; no other package keeps a copy.
 - D10. A file whose first line has to be read and cannot be is exit 2 naming it
   (`ERROR: cannot read <path>`): an unreadable file is never quietly classified as not a script. An
   empty file, or one with no newline, has the first line it has.
@@ -79,6 +81,10 @@ same data file).
   `test_*.py`. Neither looks inside a file.
 - D13. An empty `shell`, `python`, `tracked-shell`, `tracked-python`, `tracked-playbooks` or
   `tracked-helper-tests` list is exit 2 (`ERROR: ... found 0 ...: this repository always has some, so discovery is broken`): a pass over nothing would vouch for code nothing had read.
+- D15. `git ls-files --others` does not look inside an untracked nested repository: it prints the
+  one entry, ending in `/`. Such an entry that is not in an excluded tree (D5) is exit 2 naming
+  it (`ERROR: <path> is a nested repository git will not look into ...`): a file the gates
+  cannot see must stop QA. It is either listed in `qa-trees.tsv` on purpose, or a mistake.
 
 ### The bash wrapper
 
@@ -86,7 +92,8 @@ same data file).
   (built by `lib/go-tool.bash`) and fills `QA_FILES` with the list; the tool failing exits the
   caller 2, so a gate cannot go on with a list it did not get. `qa_is_excluded REL` and
   `qa_py_is_excluded REL` keep their contract over `QA_EXCLUDE_DIRS` and `QA_PY_EXCLUDE_DIRS`,
-  which `lib/qa-trees.bash` reads from the same table (a missing table or unknown list is exit 2).
+  which `lib/qa-trees.bash` reads from the same table (a missing table, an unknown list, or no row for `shell` or none for `python` is exit 2, as in
+  D5, so both readers refuse the same tables).
   Sourcing needs neither go nor git; only `qa_discover` does.
 
 ## 3. Where the Go departs from the bash

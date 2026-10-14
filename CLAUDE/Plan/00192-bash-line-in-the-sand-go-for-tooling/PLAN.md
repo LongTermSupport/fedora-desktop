@@ -156,12 +156,17 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   exclusion is narrowed from the whole package to the files that read by computed path. Live
   tree after the fixes: 433 scanned, 17 partial-parse notes, exit 0.
   `qa-discovery.bash` (P3, the shared library the bash gates source) on `go-port/qa-discovery`:
-  ported, not merged; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D14, 11
+  ported, not merged; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D15, 11
   departures B1-B11; nested `src-go/qa/discovery` and `qa/cmd/qa-discovery`, one list per call,
   scope what git would publish; the library is now a build-and-run wrapper (`qa_discover <list> <root>` fills `QA_FILES`; the per-file exclusion test stays in bash over the same trees table),
   its allowlist row gone; `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests` and
   `qa-ready-wait-rules` call `qa_discover` in place of the seven old functions. The seven lists the
-  old library made on the live tree are identical to the Go tool's.
+  old library made on the live tree are identical to the Go tool's. Fable review
+  (subagent-reports/261014-fable-review-qa-discovery.md) fixed, each spec-first and test-first:
+  an untracked nested repository is exit 2 naming it (D15), `qa/patterns` calls the one exported
+  `discovery.ShellShebang`, the bash trees reader refuses a table with no `shell` or no `python`
+  row as the Go does (D14), a combined flag group such as `-ec` counts as `-c` (D6), and QA.md
+  describes the Go readers.
 
 ### Phase 4: Review
 

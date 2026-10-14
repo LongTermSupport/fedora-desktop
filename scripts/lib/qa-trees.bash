@@ -26,4 +26,8 @@ while IFS=$'\t' read -r _qa_list _qa_dir; do
             ;;
     esac
 done < "$_qa_trees_file"
+if ((${#QA_EXCLUDE_DIRS[@]} == 0 || ${#QA_PY_EXCLUDE_DIRS[@]} == 0)); then
+    echo "✗ qa-trees: $_qa_trees_file needs a 'shell' row and a 'python' row: with no excluded trees the gates would gate trees that are not ours" >&2
+    exit 2
+fi
 unset _qa_trees_file _qa_list _qa_dir

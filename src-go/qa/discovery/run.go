@@ -207,6 +207,9 @@ func list(ctx context.Context, env Env, root, scripts string, l listing) ([]stri
 		dirs := l.dirs(t)
 		files = slices.DeleteFunc(files, func(rel string) bool { return excluded(rel, dirs) })
 	}
+	if i := slices.IndexFunc(files, func(rel string) bool { return strings.HasSuffix(rel, "/") }); i >= 0 {
+		return nil, fmt.Errorf("%s is a nested repository git will not look into, so none of its files can be read: add it to %s if it is not ours, else remove or ignore it", files[i], treesFile)
+	}
 	paths, err := pick(files, func(rel string) (bool, error) { return l.keep(f, rel) })
 	if err != nil {
 		return nil, err

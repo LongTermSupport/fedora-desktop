@@ -32,7 +32,7 @@ type language struct {
 }
 
 var (
-	shellLang    = language{exts: []string{".sh", ".bash"}, shebang: shellShebang}
+	shellLang    = language{exts: []string{".sh", ".bash"}, shebang: ShellShebang}
 	pythonLang   = language{exts: []string{".py"}, shebang: pythonShebang}
 	templateLang = language{shebang: pythonShebang, template: true}
 )
