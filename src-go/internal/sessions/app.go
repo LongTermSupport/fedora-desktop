@@ -189,12 +189,12 @@ func NewApp() *App {
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
 // not be written turns a success into a failure.
-func (a *App) Run(args []string) int {
+func (a *App) Run(args []string) term.ExitCode {
 	a.wire()
 	return a.Term.Finish(a.run(args), a.writeErr)
 }
 
-func (a *App) run(args []string) int {
+func (a *App) run(args []string) term.ExitCode {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -305,7 +305,7 @@ func (a *App) wireProbe() {
 	}
 }
 
-func (a *App) dispatch(ctx context.Context, sub string, rest []string) int {
+func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.ExitCode {
 	switch sub {
 	case "notify":
 		return a.notify(ctx, rest)
@@ -340,7 +340,7 @@ func (a *App) ccyInstalled(lib string) bool {
 }
 
 // usageError is a mistake in how the command was called: exit 64.
-func (a *App) usageError(msg string) int {
+func (a *App) usageError(msg string) term.ExitCode {
 	a.sayf("ccy-sessions: %s See ccy-sessions --help.\n", msg)
 	return term.ExitUsage
 }

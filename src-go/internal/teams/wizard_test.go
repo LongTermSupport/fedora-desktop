@@ -211,7 +211,7 @@ func newWzHarness(t *testing.T) *wzHarness {
 	return h
 }
 
-func (h *wzHarness) invoke(args ...string) int {
+func (h *wzHarness) invoke(args ...string) term.ExitCode {
 	return h.c.run(context.Background(), args)
 }
 
@@ -238,7 +238,7 @@ func wzLack(t *testing.T, what, got string, unwanted ...string) {
 	}
 }
 
-func wzCode(t *testing.T, got, want int, h *wzHarness) {
+func wzCode(t *testing.T, got, want term.ExitCode, h *wzHarness) {
 	t.Helper()
 	if got != want {
 		t.Fatalf("exit %d, want %d\nstderr:\n%s", got, want, h.err())

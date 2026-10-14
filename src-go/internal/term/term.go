@@ -10,12 +10,16 @@ import (
 	"strings"
 )
 
+// ExitCode is a tool's exit status. Every run function returns one; only a main turns it
+// into the int os.Exit takes.
+type ExitCode int
+
 // Exit codes shared by ccy-teams, ccy-sessions and ccy.
 const (
-	ExitOK        = 0
-	ExitFailure   = 1
-	ExitUsage     = 64
-	ExitCancelled = 130
+	ExitOK        ExitCode = 0
+	ExitFailure   ExitCode = 1
+	ExitUsage     ExitCode = 64
+	ExitCancelled ExitCode = 130
 )
 
 const (
@@ -71,7 +75,7 @@ func (t *Term) ColourOn(w io.Writer) bool {
 // Finish is the exit code a tool returns: code, unless the run reported success while its
 // output could not be written (to stdout, whose first failure is stdoutErr, or to Err), which
 // is a failure. A run that already failed keeps its own, more specific, code.
-func (t *Term) Finish(code int, stdoutErr error) int {
+func (t *Term) Finish(code ExitCode, stdoutErr error) ExitCode {
 	if code != ExitOK {
 		return code
 	}

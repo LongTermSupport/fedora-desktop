@@ -76,9 +76,9 @@ type App struct {
 // would, and answers the exit code that command would. applyTeams brings the named teams to
 // what is declared; runElementPlay installs Element and writes the teams' profiles.
 type teamOperator interface {
-	create(ctx context.Context, args []string) int
-	apply(ctx context.Context, args []string) int
-	remove(ctx context.Context, args []string) int
+	create(ctx context.Context, args []string) term.ExitCode
+	apply(ctx context.Context, args []string) term.ExitCode
+	remove(ctx context.Context, args []string) term.ExitCode
 	applyTeams(ctx context.Context, teams []string) error
 	runElementPlay(ctx context.Context, teams []string) error
 }
@@ -98,12 +98,12 @@ func NewApp(cfg Config) *App {
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
 // not be written turns a success into a failure.
-func (a *App) Run(args []string) int {
+func (a *App) Run(args []string) term.ExitCode {
 	a.wire()
 	return a.Term.Finish(a.run(args), a.writeErr)
 }
 
-func (a *App) run(args []string) int {
+func (a *App) run(args []string) term.ExitCode {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -195,7 +195,7 @@ func (a *App) wireAsking() {
 }
 
 // dispatch hands the validated subcommand to the file that implements it.
-func (a *App) dispatch(ctx context.Context, sub string, rest []string) int {
+func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.ExitCode {
 	switch sub {
 	case "create":
 		return a.create(ctx, rest)
@@ -226,7 +226,7 @@ func (a *App) reportErr(err error) {
 	a.print(a.Stderr, err.Error()+"\n")
 }
 
-func (a *App) usageError(msg string) int {
+func (a *App) usageError(msg string) term.ExitCode {
 	a.print(a.Stderr, "ccy-teams: "+msg+" See ccy-teams --help.\n")
 	return term.ExitUsage
 }

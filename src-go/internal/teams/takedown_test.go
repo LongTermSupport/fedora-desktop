@@ -488,7 +488,7 @@ func TestBackupKeepsTheInstallersExitCode(t *testing.T) {
 		r := newOpsRig(t)
 		r.sudoOK()
 		r.onExit(opsInstaller+"backup-now", code, "")
-		if got := r.ops.backup(context.Background(), []string{"alpha"}); got != code {
+		if got := r.ops.backup(context.Background(), []string{"alpha"}); int(got) != code {
 			t.Errorf("installer %d: exit %d", code, got)
 		}
 	}

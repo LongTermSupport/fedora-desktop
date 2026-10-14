@@ -13,6 +13,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 )
 
@@ -115,7 +116,7 @@ func (h *harness) pause(d time.Duration, sig <-chan os.Signal) bool {
 }
 
 // run is the command with args, as its exit code.
-func (h *harness) run(args ...string) int {
+func (h *harness) run(args ...string) term.ExitCode {
 	h.t.Helper()
 	return h.app.Run(args)
 }
@@ -230,7 +231,7 @@ func lacks(t *testing.T, label, haystack string, needles ...string) {
 	}
 }
 
-func exitCodeIs(t *testing.T, got, want int, h *harness) {
+func exitCodeIs(t *testing.T, got, want term.ExitCode, h *harness) {
 	t.Helper()
 	if got != want {
 		t.Fatalf("exit %d, want %d\nstdout: %s\nstderr: %s", got, want, h.stdout(), h.stderr())

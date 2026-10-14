@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
@@ -584,7 +585,7 @@ func TestAfterACompactionWhatTheScreenShowsDecidesWhatHappens(t *testing.T) {
 		compacting(t, h)
 		h.sessions(fmt.Sprintf("cc-c %d %s", c.attached, filepath.Join(h.root, "b")))
 		showScreen(h, "cc-c", c.screen)
-		exitCodeIs(t, h.run("set-going"), map[bool]int{true: 0, false: 1}[c.going == restore.GoingCompact], h)
+		exitCodeIs(t, h.run("set-going"), map[bool]term.ExitCode{true: 0, false: 1}[c.going == restore.GoingCompact], h)
 		if c.want != "" {
 			contains(t, c.name, h.stderr(), c.want)
 		}

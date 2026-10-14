@@ -40,18 +40,18 @@ const (
 // leaveError is a flow ending the picker with an exit code: not a failure, though 0 and a
 // failure both end it.
 type leaveError struct {
-	code int
+	code term.ExitCode
 }
 
 func (e *leaveError) Error() string { return fmt.Sprintf("leave the picker with exit %d", e.code) }
 
-func leave(code int) error { return &leaveError{code: code} }
+func leave(code term.ExitCode) error { return &leaveError{code: code} }
 
 // exitCodeOf is the exit code err asks for, if it asks for one.
-func exitCodeOf(err error) (int, bool) {
+func exitCodeOf(err error) (term.ExitCode, bool) {
 	req, ok := errors.AsType[*leaveError](err)
 	if !ok {
-		return 0, false
+		return term.ExitOK, false
 	}
 	return req.code, true
 }
@@ -66,13 +66,13 @@ type pickerRun struct {
 
 // picker is ccy-teams with no argument: the list of teams, seats and people, and a key for
 // each thing that can be done to one.
-func (a *App) picker(ctx context.Context) int {
+func (a *App) picker(ctx context.Context) term.ExitCode {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 	return a.runPicker(ctx)
 }
 
-func (a *App) runPicker(ctx context.Context) int {
+func (a *App) runPicker(ctx context.Context) term.ExitCode {
 	if !a.Term.IsTerminal(a.Stdin) || !a.Term.IsTerminal(a.Stdout) {
 		a.print(a.Stderr, "ccy-teams needs a terminal: it attaches sessions to the one you are in. "+
 			"ccy-teams --list prints the table instead.\n")
@@ -347,12 +347,14 @@ func (a *App) confirm(ctx context.Context, title, question, action string, defau
 
 // inPicker turns the exit code of a flow run from the picker into what the picker does next:
 // success and failure both go back to the list, with the failure named; a cancel ends it.
-func (a *App) inPicker(label string, rc int) error {
+func (a *App) inPicker(label string, rc term.ExitCode) error {
 	switch rc {
 	case term.ExitOK:
 		return nil
 	case term.ExitCancelled:
 		return a.cancelled()
+	case term.ExitFailure, term.ExitUsage:
+		// Named below, with the list to go back to.
 	}
 	a.tell(fmt.Sprintf("(%s failed, exit %d: see above.)", label, rc))
 	return nil

@@ -11,7 +11,7 @@ import (
 // list is ccy-teams --list: the picker's table, with a heading, on stdout. A table with a part
 // that could not be read is printed but is not a success; a homeserver that is down or not
 // installed is a state, not a failure. It never runs sudo -v.
-func (a *App) list(ctx context.Context) int {
+func (a *App) list(ctx context.Context) term.ExitCode {
 	s, err := a.collect(ctx)
 	if err != nil {
 		return term.ExitFailure

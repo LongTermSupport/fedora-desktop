@@ -9,7 +9,7 @@ import (
 )
 
 // create is ccy-teams create: the checkout must be there, then the wizard.
-func (a *App) create(ctx context.Context, args []string) int {
+func (a *App) create(ctx context.Context, args []string) term.ExitCode {
 	if err := a.needCheckout(); err != nil {
 		return term.ExitFailure
 	}

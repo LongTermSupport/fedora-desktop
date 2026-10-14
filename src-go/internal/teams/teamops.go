@@ -58,13 +58,13 @@ func (o *teamOps) interactive() bool {
 }
 
 // usageError is the "ccy-teams: ... See ccy-teams --help." refusal.
-func (o *teamOps) usageError(msg string) int {
+func (o *teamOps) usageError(msg string) term.ExitCode {
 	o.Term.Printf("ccy-teams: %s See ccy-teams --help.\n", msg)
 	return term.ExitUsage
 }
 
 // cancelled is the person leaving a question.
-func (o *teamOps) cancelled() int {
+func (o *teamOps) cancelled() term.ExitCode {
 	o.Term.Printf("Cancelled; nothing was changed.\n")
 	return term.ExitCancelled
 }
@@ -78,18 +78,18 @@ func (o *teamOps) home(path string) string {
 // child chose (64, 77, 78) reaches the caller. A child that could not run at all, or an
 // error of ours, is said and is 1. A declare.py failure is said here too, since the client
 // captured what declare printed.
-func (o *teamOps) childExit(err error) int {
+func (o *teamOps) childExit(err error) term.ExitCode {
 	if de, ok := errors.AsType[*declare.Error](err); ok {
 		if de.Stderr != "" {
 			o.Term.Printf("%s\n", de.Stderr)
 		}
-		return de.Code
+		return term.ExitCode(de.Code)
 	}
 	if ce, ok := errors.AsType[*agentbus.CommandError](err); ok {
-		return ce.Code
+		return term.ExitCode(ce.Code)
 	}
 	if ee, ok := errors.AsType[*execx.ExitError](err); ok {
-		return ee.Code
+		return term.ExitCode(ee.Code)
 	}
 	o.Term.PrintError(err.Error())
 	return term.ExitFailure
@@ -140,9 +140,9 @@ func (o *teamOps) checkPlay(play string) error {
 }
 
 // playExit is the exit status a failed play gave, 1 if it never ran.
-func playExit(err error) int {
+func playExit(err error) term.ExitCode {
 	if ee, ok := errors.AsType[*execx.ExitError](err); ok {
-		return ee.Code
+		return term.ExitCode(ee.Code)
 	}
 	return term.ExitFailure
 }
@@ -232,7 +232,7 @@ func (o *teamOps) applyTeams(ctx context.Context, teams []string) error {
 // apply is "ccy-teams apply <team> | --all": bring a team, or every team out of date or not
 // built, to what the host_vars declare. Never a team declared absent or no longer declared:
 // taking a team down is remove's, one team at a time.
-func (o *teamOps) apply(ctx context.Context, args []string) int {
+func (o *teamOps) apply(ctx context.Context, args []string) term.ExitCode {
 	if err := o.NeedCheckout(); err != nil {
 		return term.ExitFailure
 	}
@@ -275,7 +275,7 @@ func (o *teamOps) apply(ctx context.Context, args []string) int {
 // allTargets sorts the teams for "apply --all": out of date or unbuilt ones are to be
 // applied, those awaiting a decision are named and left, and unreadable ones refuse the
 // whole run. done is true when the run ends here, with code.
-func (o *teamOps) allTargets(status map[string]declare.Status) ([]string, int, bool) {
+func (o *teamOps) allTargets(status map[string]declare.Status) ([]string, term.ExitCode, bool) {
 	var targets []string
 	var waiting, broken []string
 	for _, team := range slices.Sorted(maps.Keys(status)) {

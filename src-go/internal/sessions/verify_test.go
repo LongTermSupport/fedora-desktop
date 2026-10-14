@@ -9,6 +9,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // verifyHost scripts the host for verify-restore: ccy-a runs a container (a_yolo_1) that is up,
@@ -34,7 +35,7 @@ func kept(name, prefix, dir string) restore.Entry {
 	return e
 }
 
-func verifyReport(h *harness, args ...string) (string, int) {
+func verifyReport(h *harness, args ...string) (string, term.ExitCode) {
 	h.out.Reset()
 	h.errOut.Reset()
 	code := h.run(append([]string{"verify-restore"}, args...)...)

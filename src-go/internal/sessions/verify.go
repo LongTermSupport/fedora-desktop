@@ -43,7 +43,7 @@ func parseVerify(args []string) (time.Duration, string) {
 // "<name> OK", "<name> STARTING", "<name> SETTING-GOING", "<name> NOT-SET-GOING <why>",
 // "<name> WAITING-AT-PROMPT <which>" or "<name> DEAD <why>". Exit 0 only if all are OK. --wait
 // polls until the restore has settled, or the time is up.
-func (a *App) verifyRestore(ctx context.Context, args []string) int {
+func (a *App) verifyRestore(ctx context.Context, args []string) term.ExitCode {
 	wait, problem := parseVerify(args)
 	if problem != "" {
 		return a.usageError(problem)

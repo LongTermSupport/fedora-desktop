@@ -393,7 +393,7 @@ func TestApplyAllWaitingOnlyStillSaysNothingToDo(t *testing.T) {
 func TestApplyOneTeamStates(t *testing.T) {
 	cases := []struct {
 		state    declare.Status
-		wantCode int
+		wantCode term.ExitCode
 		wantMsg  string
 	}{
 		{st("outdated", "config"), 0, ""},

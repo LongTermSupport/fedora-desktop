@@ -79,7 +79,7 @@ type goingRun struct {
 // its context is at or above the floor, else continue. It waits (SetGoingWait at most) for the
 // prompts to draw. One set-going runs at a time: a second restore in the same boot starts
 // another, which waits here and then finds whatever that restore added still pending.
-func (a *App) setGoing(ctx context.Context, args []string) int {
+func (a *App) setGoing(ctx context.Context, args []string) term.ExitCode {
 	if len(args) > 0 {
 		return a.usageError("'set-going' takes no arguments.")
 	}
