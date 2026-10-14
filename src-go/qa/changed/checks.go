@@ -70,6 +70,7 @@ var checkDefs = []checkDef{
 	{id: "patterns", fixed: "bash-convention rules, whole gate", gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runPatterns},
 	{id: "bash", fixed: "bash -n and shellcheck, whole gate", gate: true, tools: []string{toolBash, toolGo, toolShellcheck}, run: runBash},
 	{id: "python", fixed: "compile and ruff, whole gate", gate: true, tools: []string{toolBash, toolGo, toolRuff, toolPython}, run: runPython},
+	{id: "js", fixed: "node --check and ESLint, whole gate", gate: true, tools: []string{toolBash, toolGo, toolNode}, run: runJS},
 	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash}, run: runDocs},
 	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
@@ -157,6 +158,10 @@ func runPython(ctx context.Context, s *session, _ *checkPlan) (checkResult, erro
 	return s.gateWithReport(ctx, "qa-python.bash")
 }
 
+func runJS(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.gateWithReport(ctx, "qa-js.bash")
+}
+
 func runDocs(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.gateWithReport(ctx, "qa-docs.bash")
 }
@@ -204,8 +209,11 @@ func runShellcheck(ctx context.Context, s *session, cp *checkPlan) (checkResult,
 	return s.exec(ctx, []string{"SHELLCHECK_OPTS="}, append([]string{"shellcheck", shellcheckNoRc, shellcheckFollow, shellcheckSeverity}, cp.items...)...)
 }
 
+// configFlag names the one config a tool is run under.
+const configFlag = "--config"
+
 func runRuff(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	return s.exec(ctx, nil, append([]string{"ruff", "check", "--config", filepath.Join(s.root, "ruff.toml"), "--no-cache"}, cp.items...)...)
+	return s.exec(ctx, nil, append([]string{"ruff", "check", configFlag, filepath.Join(s.root, "ruff.toml"), "--no-cache"}, cp.items...)...)
 }
 
 func runUnitTests(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
@@ -215,8 +223,10 @@ func runUnitTests(ctx context.Context, s *session, cp *checkPlan) (checkResult, 
 
 func runEslint(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
 	prefix := cp.rel + "/"
-	argv := make([]string, 1, 1+len(cp.items))
-	argv[0] = "./node_modules/.bin/eslint"
+	// The pins of the js gate (SPEC-qa-js.md J9): no config lookup, the project's config, no
+	// inline directive, so this check and the gate cannot disagree about the rules.
+	argv := make([]string, 0, 6+len(cp.items))
+	argv = append(argv, "./node_modules/.bin/eslint", "--no-eslintrc", configFlag, filepath.Join(s.root, cp.rel, ".eslintrc.json"), "--no-inline-config")
 	for _, f := range cp.items {
 		argv = append(argv, strings.TrimPrefix(f, prefix))
 	}
@@ -287,7 +297,7 @@ func runSemgrep(ctx context.Context, s *session, cp *checkPlan) (checkResult, er
 	}
 	res, err := s.runCmd(ctx, proc.Cmd{
 		Argv: []string{
-			"semgrep", "--config", filepath.Join(s.root, ".semgrep", "bash-conventions.yml"),
+			"semgrep", configFlag, filepath.Join(s.root, ".semgrep", "bash-conventions.yml"),
 			"--json-output", report, "--metrics=off", "--quiet", ".",
 		},
 		Dir:   mirror,

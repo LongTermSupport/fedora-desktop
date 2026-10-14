@@ -46,6 +46,7 @@ Prints one list of files, each ended by NUL, sorted. LIST is one of:
                       ignored); absolute
   python              Python files, likewise; absolute
   python-templates    .j2 templates with a Python shebang, likewise; absolute; may be empty
+  js                  .js and .mjs files, likewise (by name only); absolute
   tracked-shell       tracked shell scripts; repository-relative
   tracked-python      tracked Python files; repository-relative
   tracked-playbooks   tracked .yml/.yaml files under playbooks/; repository-relative
@@ -156,10 +157,19 @@ func fileUnder(dir string, name func(base string) bool) func(finder, string) (bo
 	}
 }
 
+// scriptFile keeps the published regular files whose name ends .js or .mjs, under any directory.
+func scriptFile(f finder, rel string) (bool, error) {
+	if ext := path.Ext(rel); ext != ".js" && ext != ".mjs" {
+		return false, nil
+	}
+	return f.regular(rel, true)
+}
+
 var listings = map[string]listing{
 	"shell":             {what: "shell scripts", published: true, absolute: true, dirs: shellDirs, keep: ofKind(shellLang)},
 	"python":            {what: "Python files", published: true, absolute: true, dirs: pythonDirs, keep: ofKind(pythonLang)},
 	"python-templates":  {what: "Python templates", published: true, absolute: true, mayBeEmpty: true, dirs: pythonDirs, keep: ofKind(templateLang)},
+	"js":                {what: "JavaScript files", published: true, absolute: true, dirs: shellDirs, keep: scriptFile},
 	"tracked-shell":     {what: "tracked shell scripts", dirs: shellDirs, keep: ofKind(shellLang)},
 	"tracked-python":    {what: "tracked Python files", dirs: pythonDirs, keep: ofKind(pythonLang)},
 	"tracked-playbooks": {what: "tracked playbooks", keep: fileUnder("playbooks/", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},

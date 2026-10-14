@@ -224,6 +224,14 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   departure is that a stale pair row (E6) now turns every QA run red everywhere, container and CI
   included, not only on the deployed host; F8 E9 reworded to the code's order (HOME is read after
   the skips).
+  `qa-js.bash` (P3) on `go-port/qa-js`: ported, not merged; spec [SPEC-qa-js.md](SPEC-qa-js.md),
+  expectations J1-J16, 9 departures B1-B9; nested `src-go/qa/js` and `qa/cmd/qa-js`; the file set is
+  a new `js` list in `qa/discovery` (D16); node and ESLint 8 stay the engines, ESLint pinned with
+  `--no-eslintrc --config extensions/.eslintrc.json --no-inline-config`, with the proof that it read
+  every file it was given; no `eslint-disable` exists in the tree, so no allowlist; the script a
+  build-and-run wrapper, its allowlist row gone; `qa-changed` gets a `js` whole-gate check and its
+  per-file eslint the same pins (SPEC-qa-changed B37). Same 30 files and pass as the bash on the
+  live tree (18 linted).
 
 ### Phase 4: Review
 

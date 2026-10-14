@@ -12,7 +12,7 @@
 #
 # Provides:
 #   qa_discover <list> <repo_root>   fills QA_FILES with the list. <list> is one of
-#       shell | python | python-templates              absolute paths
+#       shell | python | python-templates | js          absolute paths
 #       tracked-shell | tracked-python | tracked-playbooks | tracked-helper-tests   repo-relative
 #       A list that cannot be made (git failing, a file unreadable, an empty list but
 #       python-templates) exits the caller with status 2 and the tool's message on stderr.

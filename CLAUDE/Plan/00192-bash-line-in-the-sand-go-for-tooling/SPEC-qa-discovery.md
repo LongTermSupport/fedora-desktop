@@ -81,6 +81,10 @@ same data file).
   `test_*.py`. Neither looks inside a file.
 - D13. An empty `shell`, `python`, `tracked-shell`, `tracked-python`, `tracked-playbooks` or
   `tracked-helper-tests` list is exit 2 (`ERROR: ... found 0 ...: this repository always has some, so discovery is broken`): a pass over nothing would vouch for code nothing had read.
+- D16. `js` lists the `.js` and `.mjs` files in the published set (D4), outside the `shell` rows of
+  `scripts/qa-trees.tsv` (D5; that list has always meant shell, YAML and JavaScript discovery), by
+  name only, absolute. A symlink is judged by its target (D11). An empty list is exit 2 (D13):
+  `ERROR: found 0 JavaScript files under <root>: ...`. The `qa-js` gate asks for it (SPEC-qa-js.md J5).
 - D15. `git ls-files --others` does not look inside an untracked nested repository: it prints the
   one entry, ending in `/`. Such an entry that is not in an excluded tree (D5) is exit 2 naming
   it (`ERROR: <path> is a nested repository git will not look into ...`): a file the gates

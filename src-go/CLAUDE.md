@@ -152,6 +152,11 @@ the refusal to pass over a script semgrep did not read or parse. git and semgrep
 ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
 name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the
 `ruff --show-files` proof that ruff read every file, and the judgement. `SPEC-qa-python.md` (Y1-Y23) is the specification.
+`qa/js` + `qa/cmd/qa-js` (same nested module) are `scripts/qa-js.bash`, the JavaScript gate:
+`node --check` and the project's ESLint 8 stay the engines (ESLint run as `--no-eslintrc --config extensions/.eslintrc.json --no-inline-config`, so nothing beside the repository's config changes the
+rules; `qa-changed`'s per-file eslint is given the same pins); the Go owns scope (the `js` list of
+`qa/discovery`), the proof that ESLint read every file it was given, the exit 2 for missing tooling
+(`extensions/node_modules`) and the judgement. `SPEC-qa-js.md` (J1-J16) is the specification.
 `qa/bash` + `qa/cmd/qa-bash` (same nested module) are `scripts/qa-bash.bash`, the shell gate:
 `bash -n` and shellcheck stay the engines (shellcheck with `--norc --external-sources` and an
 empty `SHELLCHECK_OPTS`, so nothing beside a script changes the rules); the Go owns scope (the

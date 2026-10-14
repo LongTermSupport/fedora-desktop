@@ -66,7 +66,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "patterns", "bash", "python", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
+		"ansible-patterns", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -95,6 +95,7 @@ func TestSummaries(t *testing.T) {
 		"patterns":         "bash-convention rules, whole gate",
 		"bash":             "bash -n and shellcheck, whole gate",
 		"python":           "compile and ruff, whole gate",
+		"js":               "node --check and ESLint, whole gate",
 		"docs":             "whole gate",
 		"go":               "whole gate (interim qa-go.bash)",
 		"bash-limits":      "whole gate (tooling is Go; allowlist ratchet)",
@@ -187,7 +188,9 @@ func TestShellDirectivesRunsTheGatesDirectivesMode(t *testing.T) {
 	}
 }
 
-func TestEslintRunsInExtensionsWithPrefixStripped(t *testing.T) {
+// J9: the per-file lint is given the gate's pins, so a nested config or an eslint-disable comment
+// cannot make it pass what the gate fails.
+func TestEslintRunsInExtensionsWithPrefixStrippedAndTheGatesPins(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	_, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{"extensions/a@b/x.js"}, rel: "extensions"})
@@ -195,7 +198,7 @@ func TestEslintRunsInExtensionsWithPrefixStripped(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := runner.calls[0]
-	if c.Dir != filepath.Join(s.root, "extensions") || !reflect.DeepEqual(c.Argv, []string{"./node_modules/.bin/eslint", "a@b/x.js"}) {
+	if c.Dir != filepath.Join(s.root, "extensions") || !reflect.DeepEqual(c.Argv, []string{"./node_modules/.bin/eslint", "--no-eslintrc", "--config", filepath.Join(s.root, "extensions", ".eslintrc.json"), "--no-inline-config", "a@b/x.js"}) {
 		t.Fatalf("got %+v", c)
 	}
 }
