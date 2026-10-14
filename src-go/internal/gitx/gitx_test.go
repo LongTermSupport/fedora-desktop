@@ -92,6 +92,57 @@ func TestRemoteURLGitMissing(t *testing.T) {
 	}
 }
 
+func TestListFiles(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"},
+		execx.Result{Stdout: []byte("a.bash\x00dir/b\x00a.bash\x00")})
+	got, err := gitx.New(f).ListFiles(context.Background(), dir)
+	if err != nil || len(got) != 2 || got[0] != "a.bash" || got[1] != "dir/b" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if f.Calls()[0].Dir != dir {
+		t.Fatalf("ran in %q", f.Calls()[0].Dir)
+	}
+}
+
+func TestListFilesGitFailure(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"git", "ls-files"}, gitFail("fatal"))
+	if _, err := gitx.New(f).ListFiles(context.Background(), dir); err == nil {
+		t.Fatal("a failing git was not an error")
+	}
+}
+
+func TestFileAtRef(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}"}, execx.Result{Stdout: []byte("abc\n")})
+	f.On([]string{"git", "ls-tree", "--name-only", "HEAD", "--", "x.txt"}, execx.Result{Stdout: []byte("x.txt\n")})
+	f.On([]string{"git", "show", "HEAD:x.txt"}, execx.Result{Stdout: []byte("body\n")})
+	text, found, err := gitx.New(f).FileAtRef(context.Background(), dir, "HEAD", "x.txt")
+	if err != nil || !found || text != "body\n" {
+		t.Fatalf("got %q, %v, %v", text, found, err)
+	}
+}
+
+func TestFileAtRefAbsentAtRef(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"git", "rev-parse"}, execx.Result{Stdout: []byte("abc\n")})
+	f.On([]string{"git", "ls-tree"}, execx.Result{})
+	_, found, err := gitx.New(f).FileAtRef(context.Background(), dir, "HEAD", "x.txt")
+	if err != nil || found {
+		t.Fatalf("got found=%v, %v", found, err)
+	}
+}
+
+func TestFileAtRefBadRefIsAnError(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"git", "rev-parse"}, gitFail(""))
+	// A typo in the ref must not read as "nothing to compare with".
+	if _, _, err := gitx.New(f).FileAtRef(context.Background(), dir, "HAED", "x.txt"); err == nil {
+		t.Fatal("an unresolvable ref was not an error")
+	}
+}
+
 type errRunner struct{}
 
 func (errRunner) Run(context.Context, execx.Cmd) (execx.Result, error) {

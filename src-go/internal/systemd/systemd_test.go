@@ -12,6 +12,28 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
+func TestRebootRunsSystemctlRebootStreamingToTheGivenWriter(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"systemctl", "reboot"}, execx.Result{})
+	var sink strings.Builder
+	if err := (&Systemd{Runner: f}).Reboot(context.Background(), &sink); err != nil {
+		t.Fatal(err)
+	}
+	calls := f.Calls()
+	if len(calls) != 1 || calls[0].Line() != "systemctl reboot" || calls[0].Stdout != &sink || calls[0].Stderr != &sink {
+		t.Fatalf("calls %v", calls)
+	}
+}
+
+func TestRebootReturnsTheRunnersErrorUnwrappedForItsExitCode(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"systemctl", "reboot"}, execx.Result{ExitCode: 4})
+	err := (&Systemd{Runner: f}).Reboot(context.Background(), &strings.Builder{})
+	if exit, ok := errors.AsType[*execx.ExitError](err); !ok || exit.Code != 4 {
+		t.Fatalf("got %v", err)
+	}
+}
+
 const listPrefix = "systemctl list-units --all --plain --no-legend --type=service agent-bus-hs@*"
 
 func TestHomeserverUnitsParsesListUnits(t *testing.T) {

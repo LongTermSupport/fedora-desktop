@@ -101,6 +101,33 @@ jobs:
       - name: Provide placeholder vault password (parse-only, never decrypts)
         run: echo "ci-syntax-check-placeholder" > vault-pass.secret
 
+      # The bash-limits gate fails on an allowlist entry added or a record raised relative to a
+      # base commit (scripts/qa-bash-limits.bash, QA_BASH_LIMITS_BASE). Locally that base is
+      # HEAD; here HEAD is the commit under test, so the base is what the change started from:
+      # a pull request's base commit, or a push's previous head (the whole push, however many
+      # commits it carries). A push with no previous head (a new branch) is compared with the
+      # default branch, and so is one whose previous head can no longer be fetched (a
+      # force-push): the default branch's allowlist is a base no honest change raises.
+      - name: Fetch the allowlist base for the bash-limits gate
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "$EVENT" = pull_request ]; then
+            base="$PR_BASE"
+          elif [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            base="$PUSH_BEFORE"
+          fi
+          if [ -z "$base" ] || ! git fetch --no-tags --depth=1 origin "$base"; then
+            echo "::notice::no fetchable previous head; comparing the allowlist with origin/${DEFAULT_BRANCH}"
+            git fetch --no-tags --depth=1 origin "$DEFAULT_BRANCH"
+          fi
+          echo "QA_BASH_LIMITS_BASE=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+
       - name: Run full QA suite
         run: ./scripts/qa-all.bash
 

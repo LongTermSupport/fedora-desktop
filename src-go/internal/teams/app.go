@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
@@ -264,14 +263,20 @@ func openTerminal() (io.ReadCloser, error) {
 // execLauncher replaces this process with the launcher, started in dir: it does not return
 // unless the launcher cannot be started.
 func execLauncher(path string, argv []string, dir string) error {
-	found, err := exec.LookPath(path)
-	if err != nil {
-		return fmt.Errorf("find the launcher: %w", err)
-	}
+	return launcherVia(execx.OS{}, path, argv, dir)
+}
+
+// launcherVia enters dir and replaces the process through x, the one seam that may. argv
+// starts with the launcher's own name, which x supplies from path.
+func launcherVia(x execx.Execer, path string, argv []string, dir string) error {
 	if err := os.Chdir(dir); err != nil {
 		return fmt.Errorf("enter %s: %w", dir, err)
 	}
-	if err := syscall.Exec(found, argv, os.Environ()); err != nil {
+	var args []string
+	if len(argv) > 1 {
+		args = argv[1:]
+	}
+	if err := x.Exec(execx.Cmd{Name: path, Args: args}); err != nil {
 		return fmt.Errorf("start the launcher: %w", err)
 	}
 	return nil

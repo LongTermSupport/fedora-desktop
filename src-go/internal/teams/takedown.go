@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -101,12 +100,8 @@ func (o *teamOps) remove(ctx context.Context, args []string) int {
 
 // heading is the framed title and what taking the team down means.
 func (o *teamOps) heading(ctx context.Context, team string) (int, bool) {
-	_, err := o.Runner.Run(ctx, execx.Cmd{
-		Name: "gum", Args: []string{"style", "--bold", "--border", "rounded", "--padding", "0 1", "Take team " + team + " down"},
-		Stdout: o.Term.Err, Stderr: o.Term.Err,
-	})
-	if err != nil {
-		o.Term.PrintError("gum style: " + err.Error())
+	if err := o.Gum.Box(ctx, true, "Take team "+team+" down"); err != nil {
+		o.Term.PrintError(err.Error())
 		return term.ExitFailure, false
 	}
 	if err := o.explain(ctx, removeExplanation, 0); err != nil {

@@ -162,6 +162,11 @@ expect_lacks "go: a Go file is covered" "$plan" "not covered by qa-changed: src-
 expect_lacks "go: go.mod is covered" "$plan" "not covered by qa-changed: src-go/go.mod"
 expect_lacks "go: qa-go is not also picked as a suite" "$plan" "suite scripts/qa-go.bash"
 
+plan="$(plan_for src-go/qa/rules/seamexec.go src-go/qa/go.mod src-go/qa/rules/testdata/src/fix/internal/badexec/bad.go)"
+expect_has "go: a project-rules file plans the gate" "$plan" "check go"
+expect_lacks "go: the nested rules module is covered" "$plan" "not covered by qa-changed: src-go/qa/"
+expect_lacks "go: the rules module builds no binary, so picks no ccy suite" "$plan" "suite scripts/test-ccy"
+
 plan="$(plan_for scripts/qa-bash.bash)"
 expect_lacks "go: untouched when no src-go file changed" "$plan" "check go"
 
@@ -169,6 +174,20 @@ for ref in files/var/local/claude-yolo/lib/session-registry.bash files/var/local
     plan="$(plan_for "$ref")"
     expect_has "go: parity reference $ref runs the Go gate" "$plan" "check go"
 done
+
+echo
+echo "== bash files, the allowlist and its Go source -> the bash-limits gate =="
+for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/internal/bashlimits/measure.go src-go/cmd/qa-bash-limits/main.go files/home/.local/bin/ftp-camera files/home/.local/bin/fedora-desktop-health.j2; do
+    plan="$(plan_for "$changed")"
+    expect_has "bash-limits: $changed runs the gate" "$plan" "check bash-limits"
+done
+plan="$(plan_for scripts/bash-limits.allowlist)"
+expect_lacks "bash-limits: the allowlist is covered" "$plan" "not covered by qa-changed: scripts/bash-limits.allowlist"
+expect_lacks "bash-limits: the gate script is not also picked as a suite" "$plan" "suite scripts/qa-bash-limits.bash"
+plan="$(plan_for src-go/internal/ui/ui.go)"
+expect_lacks "bash-limits: untouched by an unrelated Go file" "$plan" "check bash-limits"
+plan="$(plan_for CLAUDE/QA.md)"
+expect_lacks "bash-limits: untouched by markdown" "$plan" "check bash-limits"
 
 echo
 echo "== src-go -> the ccy-teams command suite =="
@@ -204,8 +223,12 @@ echo "== src-go -> every binary has a suite entry =="
 # deployed with no suite selected for its changes and no warning.
 plan="$(plan_for src-go/cmd/ccy-unmapped/main.go)"
 expect_lacks "binaries: the control, a command with no entry, selects no suite" "$plan" "suite scripts/"
+# QA-only commands are run by a QA gate and never built or deployed by a play, so there is no
+# bash suite to drive them: qa-go.bash tests them, and qa-changed.bash runs their own gate.
+QA_ONLY_COMMANDS=" qa-bash-limits "
 for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     cmd_name="$(basename "$cmd_dir")"
+    [[ "$QA_ONLY_COMMANDS" == *" $cmd_name "* ]] && continue
     plan="$(plan_for "src-go/cmd/$cmd_name/main.go")"
     expect_has "binaries: $cmd_name has a suite entry" "$plan" "suite scripts/"
 done
