@@ -97,7 +97,6 @@ scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/nvidia-status.bash	430	4	519	-
 scripts/qa-ansible-pause.bash	96	1	71	-
-scripts/qa-ansible-syntax.bash	88	0	81	assoc,data
 scripts/qa-docs.bash	77	0	72	data
 scripts/qa-gh-scopes.bash	67	0	82	data
 scripts/qa-go.bash	72	2	81	-

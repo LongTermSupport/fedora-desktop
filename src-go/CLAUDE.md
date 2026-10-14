@@ -136,6 +136,14 @@ publish) is injected and run by the command through the seam. Its spec is the in
 (`SPEC-qa-ansible.md`, expectations E1-E19), proven by unit tests and end-to-end scenario trees,
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
 
+`qa/ansiblesyntax` + `qa/cmd/qa-ansible-syntax` (same nested module) are
+`scripts/qa-ansible-syntax.bash`, `ansible-playbook --syntax-check` over every playbook: the script
+only builds and runs the command. Ansible stays the engine; the tool owns the playbook set (the
+`yaml` list of `qa/discovery`, the `tracked-playbooks` yardstick), the prerequisites (a password
+file the config names is asked of `ansible-config`, never opened) and the judgement. Spec
+`SPEC-qa-ansible-syntax.md` (S1-S15); its unit tests and the real-engine tests in
+`qa/cmd/qa-ansible-syntax` are the proof.
+
 `qa/nokill` + `qa/cmd/qa-nokill-containerwatch` (same nested module) are
 `scripts/qa-nokill-containerwatch.bash`, the no-kill gate for the container-watch watchdog: the
 script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwatch.md`

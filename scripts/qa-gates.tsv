@@ -33,7 +33,7 @@ stage	bash	scripts/qa-bash.bash	ERROR: Missing required tools. Install them and 
 stage	python	scripts/qa-python.bash	ERROR: Missing required tools. Install them and re-run.
 stage	patterns	scripts/qa-patterns.bash	ERROR: Missing required tools (semgrep). Install with: pipx install semgrep
 stage	ansible	scripts/qa-ansible.bash	ERROR: Missing required tools for ansible check. Install them and re-run.
-stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: Missing required tools (ansible-playbook). Install them and re-run.
+stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: ansible-syntax gate could not produce a result (prerequisites missing or the tool failed: see the ERROR line above).
 stage	js	scripts/qa-js.bash	ERROR: Missing required tools (node / extensions node_modules). Install them and re-run.
 stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (zero-file scan or checker crash).
 # Hard gates that are not report stages.

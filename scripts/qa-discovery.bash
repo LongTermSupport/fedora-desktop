@@ -19,7 +19,7 @@
 #   qa_is_excluded <repo_relative_path>      shell exclusion list (QA_EXCLUDE_DIRS)
 #   qa_py_is_excluded <repo_relative_path>   python exclusion list (QA_PY_EXCLUDE_DIRS)
 # The two lists are scripts/qa-trees.tsv, read by lib/qa-trees.bash (also read by the Go tool and by
-# qa-changed). The exclusion test stays in bash: qa-js and qa-ansible-syntax ask it once per file.
+# qa-changed). The exclusion test stays in bash: qa-js asks it once per file.
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/qa-trees.bash
 source "$(dirname "${BASH_SOURCE[0]}")/lib/qa-trees.bash"

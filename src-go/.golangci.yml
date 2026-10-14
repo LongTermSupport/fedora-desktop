@@ -116,6 +116,11 @@ linters:
       - path: qa/discovery/(list|trees)\.go
         linters: [gosec]
         text: "G304|G703"
+      # qa-ansible-syntax reads each candidate playbook by the path git listed, and its tests read
+      # back a file they wrote under a temporary directory.
+      - path: qa/ansiblesyntax/(discover|helpers_test)\.go|qa/cmd/qa-ansible-syntax/main_test\.go
+        linters: [gosec]
+        text: "G304|G703"
       # The command's report writer and the real-tree test read and write by computed path.
       - path: qa/cmd/qa-patterns/(main|real_test)\.go
         linters: [gosec]
