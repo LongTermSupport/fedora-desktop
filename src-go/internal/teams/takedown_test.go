@@ -488,7 +488,7 @@ func TestBackupKeepsTheInstallersExitCode(t *testing.T) {
 		r := newOpsRig(t)
 		r.sudoOK()
 		r.onExit(opsInstaller+"backup-now", code, "")
-		if got := r.ops.backup(context.Background(), []string{"alpha"}); got != code {
+		if got := r.ops.backup(context.Background(), []string{"alpha"}); int(got) != code {
 			t.Errorf("installer %d: exit %d", code, got)
 		}
 	}
@@ -699,11 +699,11 @@ func TestRestorePicksThenConfirmsThenRestores(t *testing.T) {
 	r := newOpsRig(t)
 	r.sudoOK()
 	r.on(opsInstaller+"backups --team alpha", execx.Result{Stdout: []byte(opsListing)})
-	r.on("fzf", execx.Result{Stdout: []byte("Backup 1      2026-09-30 09:00\n")})
+	r.on("fzf", execx.Result{Stdout: []byte("Backup 1      2026-09-30 09:00\t1\n")})
 	r.on(opsInstaller+"restore --team alpha --backup 1", execx.Result{})
 	// the confirm is the second fzf call; the rules answer by argv prefix, so tell them apart
 	// by what each call reads
-	r.ops.Picker.Runner = &fzfScript{fake: r.fake, confirm: "Yes, restore backup 1\n", pick: "Backup 1      2026-09-30 09:00\n"}
+	r.ops.Picker.Runner = &fzfScript{fake: r.fake, confirm: "Yes, restore backup 1\n", pick: "Backup 1      2026-09-30 09:00\t1\n"}
 	if code := r.ops.restore(context.Background(), []string{"alpha"}); code != 0 {
 		t.Fatalf("code %d: %s", code, r.said())
 	}
@@ -714,7 +714,7 @@ func TestRestorePicksThenConfirmsThenRestores(t *testing.T) {
 	if !ok {
 		t.Fatal("runner type")
 	}
-	if script.rows != "Backup 2      2026-10-01 10:00\nBackup 1      2026-09-30 09:00\nExit\n" {
+	if script.rows != "Backup 2      2026-10-01 10:00\t2\nBackup 1      2026-09-30 09:00\t1\nExit\n" {
 		t.Errorf("rows %q", script.rows)
 	}
 	if !strings.Contains(script.args[0], "--border-label= Restore alpha ") ||
@@ -773,7 +773,7 @@ func TestRestorePickedYesSkipsTheConfirm(t *testing.T) {
 	r := newOpsRig(t)
 	r.sudoOK()
 	r.on(opsInstaller+"backups --team alpha", execx.Result{Stdout: []byte(opsListing)})
-	r.on("fzf", execx.Result{Stdout: []byte("Backup 2      2026-10-01 10:00\n")})
+	r.on("fzf", execx.Result{Stdout: []byte("Backup 2      2026-10-01 10:00\t2\n")})
 	r.on(opsInstaller+"restore --team alpha --backup 2", execx.Result{})
 	if code := r.ops.restore(context.Background(), []string{"alpha", "--yes"}); code != 0 {
 		t.Fatalf("code %d: %s", code, r.said())
@@ -789,15 +789,31 @@ func TestRestorePickedYesSkipsTheConfirm(t *testing.T) {
 	}
 }
 
-func TestPickedBackupID(t *testing.T) {
-	cases := map[string]string{
-		"Backup 12     2026-10-01 10:00": "12",
-		"Backup 3 x":                     "3",
+// The backup restored is the picked row's tag, not a number read back out of the row's text.
+func TestRestoreTakesTheBackupFromTheTagNotTheRowText(t *testing.T) {
+	r := newOpsRig(t)
+	r.sudoOK()
+	r.on(opsInstaller+"backups --team alpha", execx.Result{Stdout: []byte(opsListing)})
+	r.on("fzf", execx.Result{Stdout: []byte("Backup 2      2026-10-01 10:00 reworded\t1\n")})
+	r.on(opsInstaller+"restore --team alpha --backup 1", execx.Result{})
+	if code := r.ops.restore(context.Background(), []string{"alpha", "--yes"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
 	}
-	for row, want := range cases {
-		if got := backupIDOf(row); got != want {
-			t.Errorf("%q: got %q want %q", row, got, want)
-		}
+	if !r.called(opsInstaller + "restore --team alpha --backup 1") {
+		t.Errorf("calls %q", r.lines())
+	}
+}
+
+func TestRestorePickWithNoTagIsAFailure(t *testing.T) {
+	r := newOpsRig(t)
+	r.sudoOK()
+	r.on(opsInstaller+"backups --team alpha", execx.Result{Stdout: []byte(opsListing)})
+	r.on("fzf", execx.Result{Stdout: []byte("Backup 1      2026-09-30 09:00\n")})
+	if code := r.ops.restore(context.Background(), []string{"alpha", "--yes"}); code != 1 {
+		t.Errorf("code %d", code)
+	}
+	if !strings.Contains(r.said(), "names no backup") {
+		t.Errorf("said %q", r.said())
 	}
 }
 
@@ -876,12 +892,6 @@ func TestRestoreListingWriteFailure(t *testing.T) {
 	r.ops.Stdout = brokenWriter{}
 	if code := r.ops.restore(context.Background(), []string{"alpha"}); code != 1 {
 		t.Errorf("code %d", code)
-	}
-}
-
-func TestBackupIDOfEmptyRow(t *testing.T) {
-	if got := backupIDOf(""); got != "" {
-		t.Errorf("got %q", got)
 	}
 }
 

@@ -23,6 +23,10 @@ const (
 	systemctlBin = "systemctl"
 )
 
+// HomeserverUp is HomeserverState's answer for a homeserver that is running; any other answer
+// is "down (<systemd's word>)".
+const HomeserverUp = "up"
+
 // Systemd runs systemctl and systemd-run through a Runner.
 type Systemd struct {
 	Runner execx.Runner
@@ -88,7 +92,7 @@ func (s *Systemd) HomeserverState(ctx context.Context, team string) (string, err
 			return "", err
 		}
 	} else if state == "active" {
-		return "up", nil
+		return HomeserverUp, nil
 	}
 	if state == "" {
 		state = "unknown"

@@ -17,18 +17,26 @@ const (
 
 // The kinds of row: a team, a seat or member run by ccy, a person.
 const (
-	kindTeam  = "team"
-	kindCcy   = "ccy"
-	kindHuman = "human"
+	kindTeam  rowKind = "team"
+	kindCcy   rowKind = "ccy"
+	kindHuman rowKind = "human"
 )
+
+// rowKind is a row's KIND. A member that is not run by ccy (lxc, docker, vm, host) carries the
+// type word it was listed with.
+type rowKind string
 
 const rowFormat = "%-24s  %-36s  %-6s  %-13s  %-18s  %-26s  %-7s  %s"
 
 // Row is one line of the table. Handle and Dir are what a key pressed on the row acts on and
 // are not shown; "-" stands for none, as in the printed table.
 type Row struct {
-	Team, Member, Kind, State, Applied, Session, Restore, Where string
-	Handle, Dir                                                 string
+	Team, Member, State, Applied, Session, Restore, Where string
+	Kind                                                  rowKind
+	Handle, Dir                                           string
+	// Record is the registry name of the session holding a seat; Session shows it with "(stopped)"
+	// when it is not running.
+	Record string
 }
 
 // headingText is the table's heading line.

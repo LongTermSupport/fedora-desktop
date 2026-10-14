@@ -25,7 +25,8 @@ are gone.
 - **No suppression.** No `//nolint`; fix what the linter reports. `.golangci.yml` is strict on
   purpose.
 
-- **Exit codes** come from `term` (`ExitOK`, `ExitFailure`, `ExitUsage`, `ExitCancelled`);
+- **Exit codes** are `term.ExitCode` (`ExitOK`, `ExitFailure`, `ExitUsage`, `ExitCancelled`);
+  every run function returns one and only a `main` turns it into the `int` for `os.Exit`;
   diagnostics go to stderr, the payload to stdout ([StderrHygiene.md](../CLAUDE/StderrHygiene.md)).
 
 - **Secrets never in argv.** A password goes to its consumer on stdin.

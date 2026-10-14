@@ -36,7 +36,7 @@ func parseRestore(args []string) (bool, string) {
 }
 
 // runRestore starts every recorded session that is not running.
-func (a *App) runRestore(ctx context.Context, args []string) int {
+func (a *App) runRestore(ctx context.Context, args []string) term.ExitCode {
 	dryRun, problem := parseRestore(args)
 	if problem != "" {
 		return a.usageError(problem)

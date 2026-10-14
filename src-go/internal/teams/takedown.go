@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -40,7 +41,7 @@ func (o *teamOps) explain(ctx context.Context, text string, indent int) error {
 }
 
 // questionFailed is the exit for a gum question that did not answer.
-func (o *teamOps) questionFailed(err error) int {
+func (o *teamOps) questionFailed(err error) term.ExitCode {
 	if errors.Is(err, ui.ErrCancelled) {
 		return o.cancelled()
 	}
@@ -51,7 +52,7 @@ func (o *teamOps) questionFailed(err error) int {
 // remove is "ccy-teams remove <team>": take one team down, on a terminal, after saying what
 // is lost: a backup first (yes by default), then down with its data kept, unless the human
 // chooses to delete it and types the team's name. Never with --yes, never in bulk.
-func (o *teamOps) remove(ctx context.Context, args []string) int {
+func (o *teamOps) remove(ctx context.Context, args []string) term.ExitCode {
 	if err := o.NeedCheckout(); err != nil {
 		return term.ExitFailure
 	}
@@ -72,10 +73,12 @@ func (o *teamOps) remove(ctx context.Context, args []string) int {
 	}
 	s := status[team]
 	switch s.State {
-	case "", stRemoved, stUnbuilt:
+	case declare.ApplyAbsent, declare.ApplyRemoved, declare.ApplyUnbuilt:
 		return o.usageError("team " + team + " is not built here; there is nothing to take down.")
-	case stUnreadable:
+	case declare.ApplyUnreadable:
 		return o.usageError("team " + team + "'s entry cannot be read: " + s.Detail + ".")
+	case declare.ApplyCurrent, declare.ApplyOutdated, declare.ApplyDecide:
+		// Built here: it can be taken down.
 	}
 	if code, ok := o.heading(ctx, team); !ok {
 		return code
@@ -99,7 +102,7 @@ func (o *teamOps) remove(ctx context.Context, args []string) int {
 }
 
 // heading is the framed title and what taking the team down means.
-func (o *teamOps) heading(ctx context.Context, team string) (int, bool) {
+func (o *teamOps) heading(ctx context.Context, team string) (term.ExitCode, bool) {
 	if err := o.Gum.Box(ctx, true, "Take team "+team+" down"); err != nil {
 		o.Term.PrintError(err.Error())
 		return term.ExitFailure, false
@@ -108,17 +111,17 @@ func (o *teamOps) heading(ctx context.Context, team string) (int, bool) {
 		o.Term.PrintError(err.Error())
 		return term.ExitFailure, false
 	}
-	return 0, true
+	return term.ExitOK, true
 }
 
 // backupFirst offers a backup of the team before it goes, and takes it.
-func (o *teamOps) backupFirst(ctx context.Context, team string) (int, bool) {
+func (o *teamOps) backupFirst(ctx context.Context, team string) (term.ExitCode, bool) {
 	yes, err := o.Gum.Confirm(ctx, "Back "+team+" up first?", true)
 	if err != nil {
 		return o.questionFailed(err), false
 	}
 	if !yes {
-		return 0, true
+		return term.ExitOK, true
 	}
 	if o.Sudo.Ready(ctx, whyBackup) != nil {
 		return term.ExitFailure, false
@@ -128,11 +131,11 @@ func (o *teamOps) backupFirst(ctx context.Context, team string) (int, bool) {
 		o.Term.PrintError("the backup failed (above), so " + team + " was not taken down.")
 		return term.ExitFailure, false
 	}
-	return 0, true
+	return term.ExitOK, true
 }
 
 // chooseFate asks what happens to the team and, for deletion, makes the person type its name.
-func (o *teamOps) chooseFate(ctx context.Context, team string) (bool, int, bool) {
+func (o *teamOps) chooseFate(ctx context.Context, team string) (bool, term.ExitCode, bool) {
 	choice, err := o.Gum.Choose(ctx, "What happens to "+team+"?", choiceKeep, []string{choiceKeep, choicePurge, choiceStay})
 	if err != nil {
 		return false, o.questionFailed(err), false
@@ -158,7 +161,7 @@ func (o *teamOps) chooseFate(ctx context.Context, team string) (bool, int, bool)
 
 // takeDownUndeclared stops a team the host_vars no longer declare, which the play cannot
 // take: the installer does, as the play would.
-func (o *teamOps) takeDownUndeclared(ctx context.Context, team string, purge bool) (int, bool) {
+func (o *teamOps) takeDownUndeclared(ctx context.Context, team string, purge bool) (term.ExitCode, bool) {
 	if o.Sudo.Ready(ctx, whyUndecl) != nil {
 		return term.ExitFailure, false
 	}
@@ -167,12 +170,12 @@ func (o *teamOps) takeDownUndeclared(ctx context.Context, team string, purge boo
 		o.Term.PrintError(team + " was not taken down (above).")
 		return term.ExitFailure, false
 	}
-	return 0, true
+	return term.ExitOK, true
 }
 
 // takeDownDeclared declares the team absent (purge marks its data for deletion), then runs
 // the play that stops it. declare.py's own exit status is the status when it refuses.
-func (o *teamOps) takeDownDeclared(ctx context.Context, team string, purge bool) (int, bool) {
+func (o *teamOps) takeDownDeclared(ctx context.Context, team string, purge bool) (term.ExitCode, bool) {
 	change, err := o.Declare.Remove(ctx, team, purge)
 	if err != nil {
 		return o.childExit(err), false
@@ -190,16 +193,16 @@ func (o *teamOps) takeDownDeclared(ctx context.Context, team string, purge bool)
 			" but is still running; once the cause above is fixed, ccy-teams remove " + team + " runs the play again.")
 		return term.ExitFailure, false
 	}
-	return 0, true
+	return term.ExitOK, true
 }
 
 // confirmDown reads the stamps back: the team must now be removed, or gone altogether.
-func (o *teamOps) confirmDown(ctx context.Context, team string, purge bool) int {
+func (o *teamOps) confirmDown(ctx context.Context, team string, purge bool) term.ExitCode {
 	status, err := o.Refresh(ctx)
 	if err != nil {
 		return term.ExitFailure
 	}
-	if s := status[team]; s.State != "" && s.State != "removed" {
+	if s := status[team]; s.State != declare.ApplyAbsent && s.State != declare.ApplyRemoved {
 		o.Term.PrintError(team + " is still " + applyWord(s) + " after the play.")
 		return term.ExitFailure
 	}
@@ -213,7 +216,7 @@ func (o *teamOps) confirmDown(ctx context.Context, team string, purge bool) int 
 
 // backup is "ccy-teams backup <team>": a backup taken now, as root. The installer's own exit
 // status is the status.
-func (o *teamOps) backup(ctx context.Context, args []string) int {
+func (o *teamOps) backup(ctx context.Context, args []string) term.ExitCode {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return o.usageError("'backup' takes one team.")
 	}
@@ -229,7 +232,7 @@ func (o *teamOps) backup(ctx context.Context, args []string) int {
 // restore is "ccy-teams restore <team> [<n>] [--yes]": put a backup back. Without a number
 // the backups are listed (on stdout when there is no terminal to choose on, else a picker);
 // without --yes a terminal confirms.
-func (o *teamOps) restore(ctx context.Context, args []string) int {
+func (o *teamOps) restore(ctx context.Context, args []string) term.ExitCode {
 	req, code, ok := o.restoreArgs(args)
 	if !ok {
 		return code
@@ -271,7 +274,7 @@ type restoreReq struct {
 }
 
 // restoreArgs reads the arguments of restore: --yes anywhere, then the team and the number.
-func (o *teamOps) restoreArgs(args []string) (restoreReq, int, bool) {
+func (o *teamOps) restoreArgs(args []string) (restoreReq, term.ExitCode, bool) {
 	var req restoreReq
 	for _, a := range args {
 		switch {
@@ -298,7 +301,7 @@ func (o *teamOps) restoreArgs(args []string) (restoreReq, int, bool) {
 
 // chooseBackup lists the team's backups and has the person choose one. With no terminal the
 // listing goes to stdout and the person is told to name one.
-func (o *teamOps) chooseBackup(ctx context.Context, team string) (string, int, bool) {
+func (o *teamOps) chooseBackup(ctx context.Context, team string) (string, term.ExitCode, bool) {
 	backups, err := o.Bus.Backups(ctx, team)
 	if err != nil {
 		return "", o.childExit(err), false
@@ -316,15 +319,15 @@ func (o *teamOps) chooseBackup(ctx context.Context, team string) (string, int, b
 		}
 		return "", o.usageError("name the backup to restore: ccy-teams restore " + team + " <n> --yes."), false
 	}
-	rows := make([]string, 0, len(backups))
+	rows, tags := make([]string, 0, len(backups)), make([]string, 0, len(backups))
 	for _, b := range backups {
-		rows = append(rows, fmt.Sprintf("Backup %-6s %s", b.ID, b.Time))
+		rows, tags = append(rows, fmt.Sprintf("Backup %-6s %s", b.ID, b.Time)), append(tags, b.ID)
 	}
 	picked, err := o.Picker.Pick(ctx, ui.PickSpec{
 		Title: "Restore " + team,
 		Header: ui.Header("Enter choose   Esc or q exit",
 			"The homeserver is stopped, the backup's database and state put back, and it is started again."),
-		Rows: rows,
+		Rows: rows, Tags: tags,
 	})
 	if errors.Is(err, ui.ErrLeave) {
 		o.Term.Printf("Nothing restored.\n")
@@ -334,14 +337,9 @@ func (o *teamOps) chooseBackup(ctx context.Context, team string) (string, int, b
 		o.Term.PrintError(err.Error())
 		return "", term.ExitFailure, false
 	}
-	return backupIDOf(picked.Row), 0, true
-}
-
-// backupIDOf is the number in a picker row "Backup <id>  <time>".
-func backupIDOf(row string) string {
-	fields := strings.Fields(strings.TrimPrefix(row, "Backup "))
-	if len(fields) == 0 {
-		return ""
+	if picked.Tag == "" {
+		o.Term.PrintError("the choice '" + picked.Row + "' names no backup.")
+		return "", term.ExitFailure, false
 	}
-	return fields[0]
+	return picked.Tag, term.ExitOK, true
 }

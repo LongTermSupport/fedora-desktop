@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
@@ -185,7 +186,11 @@ func TestSetGoingTypesEachRestoredSessionItsFirstInput(t *testing.T) {
 	}
 	for name, want := range wantEntries {
 		e := entryNamed(t, h, name)
-		if got := strings.Join([]string{string(e.Going), e.At, e.Detail, e.Transcript}, "|"); got != want {
+		atField := ""
+		if !e.At.IsZero() {
+			atField = strconv.FormatInt(e.AtUnix(), 10)
+		}
+		if got := strings.Join([]string{string(e.Going), atField, e.Detail, e.Transcript}, "|"); got != want {
 			t.Fatalf("%s: entry %q, want %q", name, got, want)
 		}
 	}
@@ -555,7 +560,7 @@ func compacting(t *testing.T, h *harness) string {
 	writeTranscript(t, conv, 300000)
 	appendTo(t, conv, `{"type":"system","subtype":"compact_boundary","timestamp":"`+stamp(h, time.Minute)+`","compactMetadata":{"postTokens":9000}}`)
 	e := pending("cc-c", "cc", b)
-	e.Going, e.At, e.Detail, e.Transcript = restore.GoingCompacting, strconv.FormatInt(h.clock.Unix(), 10), "300000", conv
+	e.Going, e.At, e.Detail, e.Transcript = restore.GoingCompacting, time.Unix(h.clock.Unix(), 0), "300000", conv
 	writeEntries(t, h, e)
 	h.sessions("cc-c 0 " + b)
 	return conv
@@ -580,7 +585,7 @@ func TestAfterACompactionWhatTheScreenShowsDecidesWhatHappens(t *testing.T) {
 		compacting(t, h)
 		h.sessions(fmt.Sprintf("cc-c %d %s", c.attached, filepath.Join(h.root, "b")))
 		showScreen(h, "cc-c", c.screen)
-		exitCodeIs(t, h.run("set-going"), map[bool]int{true: 0, false: 1}[c.going == restore.GoingCompact], h)
+		exitCodeIs(t, h.run("set-going"), map[bool]term.ExitCode{true: 0, false: 1}[c.going == restore.GoingCompact], h)
 		if c.want != "" {
 			contains(t, c.name, h.stderr(), c.want)
 		}

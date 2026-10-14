@@ -32,7 +32,7 @@ const (
 )
 
 // stop ends the run with an exit code; whatever the person needs to read has been printed.
-type stop struct{ code int }
+type stop struct{ code term.ExitCode }
 
 func (s *stop) Error() string { return fmt.Sprintf("stopped with exit %d", s.code) }
 
@@ -93,7 +93,7 @@ func nonEmpty(in []string) []string {
 
 // run is ccy-teams create with the arguments after "create". It returns the exit code:
 // 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
-func (c *creator) run(ctx context.Context, args []string) int {
+func (c *creator) run(ctx context.Context, args []string) term.ExitCode {
 	err := c.create(ctx, args)
 	if err == nil {
 		return term.ExitOK
@@ -103,7 +103,7 @@ func (c *creator) run(ctx context.Context, args []string) int {
 	}
 	if de, ok := errors.AsType[*declare.Error](err); ok {
 		c.term.Printf("%s\n", de.Error())
-		return de.Code
+		return term.ExitCode(de.Code)
 	}
 	c.term.PrintError(err.Error())
 	return term.ExitFailure

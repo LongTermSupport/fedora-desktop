@@ -71,21 +71,25 @@ type Entry struct {
 	Resume     string // the conversation id the launch names with --resume, or empty
 	Supervised bool   // a ccy supervisor carries the session on after a compaction
 	Going      Going
-	At         string // Unix seconds the last input was typed, digits, or empty
-	Detail     string // the context size in tokens, or the reason it was left alone
-	Transcript string // the conversation's file
+	At         time.Time // when the last input was typed; the zero time is none (on disk: Unix seconds in digits, or empty)
+	Detail     string    // the context size in tokens, or the reason it was left alone
+	Transcript string    // the conversation's file
 }
 
-// AtSeconds is At as a number; an entry with none is 0, as bash arithmetic reads an empty value.
-func (e Entry) AtSeconds() (int64, error) {
-	if e.At == "" {
-		return 0, nil
+// AtUnix is At in Unix seconds; an entry with none is 0, as bash arithmetic reads an empty value.
+func (e Entry) AtUnix() int64 {
+	if e.At.IsZero() {
+		return 0
 	}
-	n, err := strconv.ParseInt(e.At, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("the time %s in the restore manifest is not a time in seconds: %w", e.At, err)
+	return e.At.Unix()
+}
+
+// atField is At as the manifest holds it: digits, or empty for none.
+func (e Entry) atField() string {
+	if e.At.IsZero() {
+		return ""
 	}
-	return n, nil
+	return strconv.FormatInt(e.At.Unix(), 10)
 }
 
 // Manifest is the manifest as read: the boot it was written in and its entries in order.
@@ -236,16 +240,32 @@ func setEntryField(e *Entry, path, key, value string) error {
 		}
 		e.Going = Going(value)
 	case "at":
-		if strings.Trim(value, "0123456789") != "" {
+		at, err := parseAt(value)
+		if err != nil {
 			return fmt.Errorf("the restore manifest %s has at=%s, which is not a time in seconds, and is not read", path, value)
 		}
-		e.At = value
+		e.At = at
 	case "detail":
 		e.Detail = value
 	case "transcript":
 		e.Transcript = value
 	}
 	return nil
+}
+
+// parseAt is a manifest's at= value: digits, or empty for no time.
+func parseAt(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	if strings.Trim(value, "0123456789") != "" {
+		return time.Time{}, errors.New("not digits")
+	}
+	n, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("not a time in seconds: %w", err)
+	}
+	return time.Unix(n, 0), nil
 }
 
 func yesNo(b bool) string {
@@ -257,7 +277,7 @@ func yesNo(b bool) string {
 
 // values is the entry's nine values in manifest order.
 func (e Entry) values() [len(manifestKeys)]string {
-	return [...]string{e.Name, e.Prefix, e.Dir, e.Resume, yesNo(e.Supervised), string(e.Going), e.At, e.Detail, e.Transcript}
+	return [...]string{e.Name, e.Prefix, e.Dir, e.Resume, yesNo(e.Supervised), string(e.Going), e.atField(), e.Detail, e.Transcript}
 }
 
 // Write records the sessions a restore brought up, stamped with this boot's id, written whole
@@ -397,7 +417,7 @@ func (s *Store) Merge(entries []Entry, warn func(error)) error {
 // Change is the four fields set-going records about an entry.
 type Change struct {
 	Going      Going
-	At         string
+	At         time.Time
 	Detail     string
 	Transcript string
 }

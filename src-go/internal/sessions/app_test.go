@@ -79,7 +79,7 @@ func TestConfigReadsTheKnobs(t *testing.T) {
 	}
 	want := Config{
 		CcyLib: defaultLib, Minute: 0, Poll: 500 * time.Millisecond, SetGoingWait: 7 * time.Second, StartWindow: time.Hour,
-		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: "150000", PassphraseFile: "/p", BootIDFile: "/b",
+		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: ParseTokenFloor("150000"), PassphraseFile: "/p", BootIDFile: "/b",
 	}
 	if cfg != want {
 		t.Fatalf("config %+v, want %+v", cfg, want)
@@ -244,5 +244,20 @@ func TestStdoutIsFedByOutAndStderrByTheTerm(t *testing.T) {
 	h.app.failErr(errBoom)
 	if h.stdout() != "payload\n" || h.stderr() != "status 1\nERROR: broke\nERROR: boom\n" {
 		t.Fatalf("stdout %q stderr %q", h.stdout(), h.stderr())
+	}
+}
+
+func TestParseTokenFloor(t *testing.T) {
+	if n, ok := ParseTokenFloor("150000").Tokens(); !ok || n != 150000 {
+		t.Fatalf("got %d, %v", n, ok)
+	}
+	for _, bad := range []string{"", "0", "-5", "012", "1.5", "lots", "99999999999999999999"} {
+		f := ParseTokenFloor(bad)
+		if _, ok := f.Tokens(); ok {
+			t.Errorf("%q should not be a floor", bad)
+		}
+		if f.String() != bad {
+			t.Errorf("%q is reported as %q", bad, f.String())
+		}
 	}
 }

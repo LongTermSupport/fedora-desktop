@@ -60,7 +60,7 @@ type Config struct {
 	// CPUSample is the length of the CPU sample; zero means the shortest possible.
 	CPUSample          time.Duration
 	TakeOverWaitTenths int
-	CompactFloor       string
+	CompactFloor       TokenFloor
 	PassphraseFile     string
 	BootIDFile         string
 }
@@ -69,7 +69,7 @@ type Config struct {
 // one is refused, not guessed.
 func loadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		CcyLib: getenv("CCY_LIB"), CompactFloor: getenv("CCY_RESTORE_COMPACT_FLOOR_TOKENS"),
+		CcyLib: getenv("CCY_LIB"), CompactFloor: ParseTokenFloor(getenv("CCY_RESTORE_COMPACT_FLOOR_TOKENS")),
 		PassphraseFile: getenv(unlockFileEnv), BootIDFile: getenv("CCY_BOOT_ID_FILE"),
 		TakeOverWaitTenths: 50,
 	}
@@ -104,6 +104,31 @@ func loadConfig(getenv func(string) string) (Config, error) {
 	}
 	return cfg, nil
 }
+
+// TokenFloor is the context size, in tokens, at or above which a restored session is typed
+// /compact rather than continue. It keeps the text it was read from, because a value that is not
+// a whole number of tokens is reported as it was written, when set-going needs it.
+type TokenFloor struct {
+	raw    string
+	tokens int64
+	valid  bool
+}
+
+// ParseTokenFloor reads a floor: a whole number of tokens, at least 1, written without a sign or
+// leading zero. Anything else is a TokenFloor that is not Valid.
+func ParseTokenFloor(raw string) TokenFloor {
+	tokens, err := strconv.ParseInt(raw, 10, 64)
+	if !wholeTokens.MatchString(raw) || err != nil {
+		return TokenFloor{raw: raw}
+	}
+	return TokenFloor{raw: raw, tokens: tokens, valid: true}
+}
+
+// Tokens is the floor, and whether it is a whole number of tokens at all.
+func (f TokenFloor) Tokens() (int64, bool) { return f.tokens, f.valid }
+
+// String is the floor as it was written.
+func (f TokenFloor) String() string { return f.raw }
 
 // seconds is the named variable as a duration; unset is def.
 func seconds(getenv func(string) string, name string, def time.Duration) (time.Duration, error) {
@@ -164,12 +189,12 @@ func NewApp() *App {
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
 // not be written turns a success into a failure.
-func (a *App) Run(args []string) int {
+func (a *App) Run(args []string) term.ExitCode {
 	a.wire()
 	return a.Term.Finish(a.run(args), a.writeErr)
 }
 
-func (a *App) run(args []string) int {
+func (a *App) run(args []string) term.ExitCode {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -280,7 +305,7 @@ func (a *App) wireProbe() {
 	}
 }
 
-func (a *App) dispatch(ctx context.Context, sub string, rest []string) int {
+func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.ExitCode {
 	switch sub {
 	case "notify":
 		return a.notify(ctx, rest)
@@ -315,7 +340,7 @@ func (a *App) ccyInstalled(lib string) bool {
 }
 
 // usageError is a mistake in how the command was called: exit 64.
-func (a *App) usageError(msg string) int {
+func (a *App) usageError(msg string) term.ExitCode {
 	a.sayf("ccy-sessions: %s See ccy-sessions --help.\n", msg)
 	return term.ExitUsage
 }

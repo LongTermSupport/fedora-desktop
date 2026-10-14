@@ -74,6 +74,10 @@ linters:
       - path: internal/execx/
         linters: [gosec]
         text: "G204"
+      # The transcript's field names are Claude's wire format (usage counts are snake_case
+      # beside camelCase siblings), not ours to choose.
+      - path: internal/transcript/transcript\.go
+        linters: [tagliatelle]
       # The QA module cannot import execx (it is a separate module), so its git runner is its
       # own one process seam, for the same reason.
       - path: bashlimits/gitrun\.go

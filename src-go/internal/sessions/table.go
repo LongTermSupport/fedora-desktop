@@ -77,7 +77,7 @@ func (a *App) rows(ctx context.Context) ([]tableRow, error) {
 }
 
 // list prints the heading and the rows on stdout, with no terminal needed.
-func (a *App) list(ctx context.Context) int {
+func (a *App) list(ctx context.Context) term.ExitCode {
 	rows, err := a.rows(ctx)
 	if err != nil {
 		return term.ExitFailure
