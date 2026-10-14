@@ -65,8 +65,8 @@ func (r *scriptedRunner) argv() []string {
 
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
-		"toolchain", "bash-syntax", "shellcheck", "semgrep", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "patterns", "python", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
+		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "unit-tests", "ansible-syntax",
+		"ansible-patterns", "patterns", "bash", "python", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -88,10 +88,12 @@ func TestSummaries(t *testing.T) {
 	for id, want := range map[string]string{
 		"toolchain":        "QA tool versions match .qa-versions",
 		"bash-syntax":      "2 file(s)",
+		"shell-directives": "2 file(s)",
 		"unit-tests":       "2 module(s)",
 		"ansible-syntax":   "2 playbook(s)",
 		"ansible-patterns": "fail-fast patterns, whole gate",
 		"patterns":         "bash-convention rules, whole gate",
+		"bash":             "bash -n and shellcheck, whole gate",
 		"python":           "compile and ruff, whole gate",
 		"docs":             "whole gate",
 		"go":               "whole gate (interim qa-go.bash)",
@@ -151,7 +153,7 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		}
 	}
 	want := []string{
-		"shellcheck --external-sources --severity=warning a.bash b.bash",
+		"shellcheck --norc --external-sources --severity=warning a.bash b.bash",
 		"ruff check --config " + filepath.Join(s.root, "ruff.toml") + " --no-cache x.py",
 		"python3 -m unittest tests.helpers.test_a",
 	}
@@ -162,9 +164,26 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 	for _, c := range runner.calls {
+		if c.Argv[0] == "shellcheck" && !slices.Contains(c.Env, "SHELLCHECK_OPTS=") {
+			t.Fatalf("shellcheck must not read options from the environment: %v", c.Env)
+		}
 		if c.Argv[0] == "python3" && !reflect.DeepEqual(c.Env, []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}) {
 			t.Fatalf("unit tests must not read the git configuration: %v", c.Env)
 		}
+	}
+}
+
+// SPEC-qa-bash.md S20: a changed shell file gets the suppression verdict the gate gives it, by the
+// gate's own --directives mode, in one process over all the files.
+func TestShellDirectivesRunsTheGatesDirectivesMode(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("shell-directives").run(context.Background(), s, &checkPlan{items: []string{"a.bash", "b.bash"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-bash.bash") + " --directives a.bash b.bash"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 

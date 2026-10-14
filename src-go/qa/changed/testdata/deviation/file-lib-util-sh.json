@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: lib/util.sh\ncheck shellcheck: lib/util.sh\ncheck shell-directives: lib/util.sh\ncheck semgrep: lib/util.sh\ncheck bash-limits\nsuite scripts/test-alpha.bash: names lib/util.sh\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

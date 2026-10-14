@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 2 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: ccy ccy-teams\ncheck shellcheck: ccy ccy-teams\ncheck shell-directives: ccy ccy-teams\ncheck semgrep: ccy ccy-teams\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

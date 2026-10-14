@@ -137,6 +137,23 @@ linters:
       - path: qa/(python/.*|cmd/qa-python/main)_test\.go
         linters: [gosec, tagliatelle]
         text: "G304|G302|G306|ruff_diagnostics"
+      # qa-bash's report carries shellcheck's findings under the snake_case key qa-all reads; its
+      # tests read back what they wrote under a temporary directory.
+      - path: qa/bash/report\.go
+        linters: [tagliatelle]
+        text: "shellcheck_diagnostics"
+      # qa-bash reads each gated file for its directives and the allowlist by computed path (the
+      # paths come from git's file list), and the report it writes is readable by other
+      # accounts (mode 0644, SPEC-qa-bash.md S2).
+      - path: qa/bash/directives\.go
+        linters: [gosec]
+        text: "G304|G703"
+      - path: qa/cmd/qa-bash/main\.go
+        linters: [gosec]
+        text: "G306|G302"
+      - path: qa/(bash/.*|cmd/qa-bash/main)_test\.go
+        linters: [gosec, tagliatelle]
+        text: "G304|G302|G306|shellcheck_diagnostics"
   settings:
     cyclop:
       max-complexity: 15

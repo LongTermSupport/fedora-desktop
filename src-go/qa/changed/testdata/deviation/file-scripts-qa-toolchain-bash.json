@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/qa-toolchain.bash\ncheck shellcheck: scripts/qa-toolchain.bash\ncheck shell-directives: scripts/qa-toolchain.bash\ncheck semgrep: scripts/qa-toolchain.bash\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

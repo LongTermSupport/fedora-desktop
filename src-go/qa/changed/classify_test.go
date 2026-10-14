@@ -85,7 +85,7 @@ func TestShellFileGetsTheShellChecks(t *testing.T) {
 	w := newWorld(t)
 	w.touch("scripts/qa-bash.bash", "#!/usr/bin/bash")
 	p := w.classify([]string{"scripts/qa-bash.bash"})
-	for _, id := range []string{"bash-syntax", "shellcheck", "semgrep"} {
+	for _, id := range []string{"bash-syntax", "shellcheck", "shell-directives", "semgrep"} {
 		if !reflect.DeepEqual(p.items(id), []string{"scripts/qa-bash.bash"}) {
 			t.Errorf("%s: %v", id, p.items(id))
 		}
@@ -277,6 +277,29 @@ func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 	}
 }
 
+func TestTheShellGateRunsWhenItsToolDiscoveryWrapperOrTableChange(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{"src-go/qa/bash/run.go", "src-go/qa/cmd/qa-bash/main.go", "src-go/qa/discovery/list.go"} {
+		w.touch(f, "// x")
+		p := w.classify([]string{f})
+		if !p.has("bash") || len(p.uncovered) != 0 || len(p.skipped) != 0 {
+			t.Errorf("%s: checks %v uncovered %v skipped %v", f, keys(p), p.uncovered, p.skipped)
+		}
+	}
+	for _, f := range []string{"scripts/qa-bash.bash", "scripts/lib/go-tool.bash", "scripts/qa-trees.tsv"} {
+		if f != "scripts/qa-trees.tsv" {
+			w.touch(f, "#!/usr/bin/bash")
+		}
+		if p := w.classify([]string{f}); !p.has("bash") {
+			t.Errorf("%s: checks %v", f, keys(p))
+		}
+	}
+	w.touch("scripts/other.bash", "#!/usr/bin/bash")
+	if p := w.classify([]string{"scripts/other.bash"}); p.has("bash") {
+		t.Fatalf("an ordinary shell script runs the whole shell gate: %v", keys(p))
+	}
+}
+
 func TestThePythonGateRunsWhenItsToolPinConfigOrTableChange(t *testing.T) {
 	w := newWorld(t)
 	for _, f := range []string{"src-go/qa/python/run.go", "src-go/qa/cmd/qa-python/main.go", "src-go/qa/discovery/list.go", "ruff.toml"} {
@@ -358,7 +381,7 @@ func TestDeletedFilesOweOnlyTheWholeGates(t *testing.T) {
 	if !p.has("bash-limits") || !p.has("go") || !p.has("docs") {
 		t.Fatalf("whole gates: %v", keys(p))
 	}
-	for _, id := range []string{"bash-syntax", "shellcheck", "semgrep", "ruff", "toolchain", "ansible-syntax", "ansible-patterns"} {
+	for _, id := range []string{"bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "toolchain", "ansible-syntax", "ansible-patterns"} {
 		if p.has(id) {
 			t.Errorf("a deleted file has nothing for %s", id)
 		}
