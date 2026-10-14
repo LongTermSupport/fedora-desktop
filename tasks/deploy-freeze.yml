@@ -1,0 +1,56 @@
+# Deploy one of the freeze tools, podfreeze or lxcfreeze: the Go binary built from this checkout,
+# the picker it uses when installed, and the removal of what the bash tools left behind.
+#
+# Import this from the play that owns the tool:
+#   - name: Deploy the Freeze Tool
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/deploy-freeze.yml"
+#     vars:
+#       freeze_tool: podfreeze
+#     tags:
+#       - podfreeze
+#
+# WHY A SHARED TASK FILE. The two plays keep their own files because each owns a tool with its
+# own name, its own docs anchor and its own dependencies. What they share is the deployment
+# shape, and a mode or a path fixed in only one of two copies is the drift Plan 00122 Task 4.5
+# removed. The build and install itself is tasks/build-go-command.yml.
+#
+# The importing play imports playbooks/imports/play-golang.yml first, so the Go toolchain is
+# there; it is the one source of truth for the toolchain and this file does not install it.
+
+# fzf is the good multi-select picker. It is OPTIONAL to both tools: without it they fall back
+# to a plain numbered menu. It is installed here rather than by either play so that a fresh host
+# running just one of them gets the same picker, and both plays can truthfully promise the same
+# menu, drill-down and keys.
+- name: Install the Interactive Picker the Freeze Menu Uses
+  ansible.builtin.dnf:
+    name:
+      - fzf
+    state: present
+  become: true
+  tags:
+    - packages
+
+- name: Ensure User Local Bin Directory Exists
+  ansible.builtin.file:
+    path: "/home/{{ user_login }}/.local/bin"
+    state: directory
+    owner: "{{ user_login }}"
+    group: "{{ user_login }}"
+    mode: '0755'
+  become: false
+
+- name: Build and Install the {{ freeze_tool }} Command
+  ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+  vars:
+    go_command_name: "{{ freeze_tool }}"
+    go_command_dest: "/home/{{ user_login }}/.local/bin/{{ freeze_tool }}"
+    go_command_mode: "0755"
+
+# The bash tools sourced a library from here, and nothing sources it now: the binaries carry the
+# menu, the drill-down, the derived verb, the dry run and the act loop themselves. It was
+# deployed by this repo and held nothing else, so the directory goes with it. A host that never
+# had it reports ok.
+- name: Remove the Retired Bash Freeze Library
+  ansible.builtin.file:
+    path: "/home/{{ user_login }}/.local/lib/freeze"
+    state: absent

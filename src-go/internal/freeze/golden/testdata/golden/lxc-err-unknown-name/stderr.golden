@@ -1,0 +1,3 @@
+lxcfreeze: not a running or frozen container: nosuch
+  Run 'lxcfreeze list' to see what is available.
+  A STOPPED container is not listed: it can be neither frozen nor thawed.

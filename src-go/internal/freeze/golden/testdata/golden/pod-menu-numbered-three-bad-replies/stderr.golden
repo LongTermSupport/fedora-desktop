@@ -1,0 +1,14 @@
+What to act on:
+   1) all CCY (Claude) containers            FREEZE 3
+   2) all containers                         FREEZE 4
+   3) network: appnet                        FREEZE 1
+   4) network: podman                        FREEZE 3
+   5) github: alice                          FREEZE 1
+   6) github: bob                            FREEZE 1
+   7) token: work                            FREEZE 2
+   8) ssh-key: id_a                          FREEZE 1
+   9) ssh-key: id_b                          FREEZE 1
+Choice [1-9, q to quit]:   Not one of the options — enter a number between 1 and 9, or q.
+Choice [1-9, q to quit]:   Not one of the options — enter a number between 1 and 9, or q.
+Choice [1-9, q to quit]:   Not one of the options — enter a number between 1 and 9, or q.
+podfreeze: giving up after 3 attempts — nothing changed.

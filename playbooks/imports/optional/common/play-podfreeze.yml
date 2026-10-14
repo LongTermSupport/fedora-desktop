@@ -1,17 +1,19 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# podfreeze is a Go binary built from this checkout (src-go/cmd/podfreeze), so the Go toolchain
+# is installed first. play-golang.yml stays its one source of truth.
+- import_playbook: ../../play-golang.yml
+
 # podfreeze — freeze/thaw Podman containers by name, network, or CCY group.
 #
-# Deploys ~/.local/bin/podfreeze and the shared library it sources, and shells
-# out to the `podman` CLI installed by playbooks/imports/play-podman.yml (a core
-# play imported by playbook-main.yml, so it is always present). Nothing else is
-# added to the host but the optional picker.
+# Builds and installs ~/.local/bin/podfreeze, and shells out to the `podman` CLI installed by
+# playbooks/imports/play-podman.yml (a core play imported by playbook-main.yml, so it is always
+# present). Nothing else is added to the host but the optional picker, fzf.
 #
-# TWO ARTEFACTS, NOT ONE. The group menu, the drill-down, the derived verb, the
-# dry run and the act loop live in ~/.local/lib/freeze/freeze-common.bash, which
-# `lxcfreeze` sources too — so the two tools cannot drift into different habits
-# for the same job (Plan 00122 Phase 4). It is deployed by the shared task file
-# both plays include, and podfreeze does not start without it.
+# One artefact. The group menu, the drill-down, the derived verb, the dry run and the act loop are
+# in the binary, shared with `lxcfreeze` as one Go package (src-go/internal/freeze), so the two
+# tools cannot drift into different habits for the same job (Plan 00122 Phase 4). The build and
+# install is tasks/deploy-freeze.yml, which both plays import with their own tool name.
 #
 # WHY A WRAPPER AND NOT JUST `podman pause`:
 #   - `podman pause --filter network=X` already exists, but you act on a set you
@@ -37,46 +39,14 @@
     podfreeze_binary: "/home/{{ user_login }}/.local/bin/podfreeze"
   tasks:
     # =========================================================================
-    # Dependencies
-    #
-    # fzf moved to tasks/deploy-freeze-lib.yml in Plan 00122 Task 3.5. It is the
-    # LIBRARY that branches on it, and installing it here left play-lxcfreeze.yml
-    # — which includes the same library — offering a different menu on a fresh
-    # host while both plays claimed the menus were identical. The play is still
-    # self-contained: the include below brings the picker with the library.
+    # The tool itself: fzf, ~/.local/bin, the Go build and install, and the
+    # removal of the bash tool's library
     # =========================================================================
 
-    # =========================================================================
-    # The tool itself
-    # =========================================================================
-
-    - name: Ensure User Local Bin Directory Exists
-      ansible.builtin.file:
-        path: "/home/{{ user_login }}/.local/bin"
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
-      tags:
-        - podfreeze
-
-    # Half of podfreeze lives in the library — the group menu, the drill-down,
-    # the derived verb, the dry run, the act loop — and it is sourced at
-    # startup, so the tool does not run without it. Shared with
-    # play-lxcfreeze.yml through one task file rather than copied into both:
-    # two copies of a deploy is the drift Plan 00122 Task 4.5 exists to remove.
-    - name: Deploy the Shared Freeze Library
-      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/deploy-freeze-lib.yml"
-      tags:
-        - podfreeze
-
-    - name: Deploy the podfreeze Command
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/podfreeze"
-        dest: "{{ podfreeze_binary }}"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
+    - name: Deploy the Freeze Tool
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/deploy-freeze.yml"
+      vars:
+        freeze_tool: podfreeze
       tags:
         - podfreeze
 
@@ -114,8 +84,8 @@
           - "  Freezing is the cgroup freezer, not suspend-to-disk — frozen"
           - "  containers do NOT survive a reboot."
           - ""
-          - "  The LXC counterpart is 'lxcfreeze' (play-lxcfreeze.yml). Both"
-          - "  source ~/.local/lib/freeze/freeze-common.bash, so both offer the"
-          - "  same menu, drill-down and keys."
+          - "  The LXC counterpart is 'lxcfreeze' (play-lxcfreeze.yml). Both are"
+          - "  built from the same Go package, so both offer the same menu,"
+          - "  drill-down and keys."
       tags:
         - podfreeze

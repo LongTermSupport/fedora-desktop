@@ -1,0 +1,6 @@
+lxcfreeze: NOTE — 1 container(s) could not be read,
+  so they are in NO group, NO count above and NO selection:
+    alpha
+  Either they went away between 'lxc-ls' and 'lxc-info' — a real race, and
+  harmless — or 'sudo lxc-info -n NAME -s' fails for them. Run that to see
+  which. A container of unknown state is never sent a verb.

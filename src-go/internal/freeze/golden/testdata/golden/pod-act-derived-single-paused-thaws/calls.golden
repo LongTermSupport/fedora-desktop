@@ -1,0 +1,3 @@
+["podman", "ps", "--all", "--format", "{{.Names}}|{{.State}}|{{.Networks}}"]
+["podman", "ps", "--all", "--filter", "label=ccy=true", "--format", "{{.Names}}|{{index .Labels \"ccy-github\"}}|{{index .Labels \"ccy-token\"}}|{{index .Labels \"ccy-ssh-keys\"}}"]
+["podman", "unpause", "db"]

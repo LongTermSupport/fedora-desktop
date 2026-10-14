@@ -24,9 +24,10 @@
 #   shebang), the allowlist,   the gate's own Go source. A path on the allowlist counts as bash even
 #   a path on the allowlist    when deleted
 #   js/mjs                     node --check; extensions/ files also get the project's eslint
-#   src-go/ in a command's     that command's suites too (ccy-teams: test-ccy-teams-command.bash;
-#   build closure              ccy-sessions: its four test-ccy-* suites): a file in cmd/<name> or a
-#                              package it imports (go list -deps), go.mod, go.sum
+#   src-go/ in a command's     that command's suites too, as scripts/go-binary-suites.tsv lists them
+#   build closure              (ccy-teams, ccy-sessions; the freeze tools' oracle is a Go test, which
+#                              the whole Go gate runs): a file in cmd/<name> or a package it
+#                              imports (go list -deps), go.mod, go.sum
 #   any non-markdown file      every scripts/test-*.bash suite (and hard gate script) that
 #                              qa-all.bash runs and whose text names it by path or basename,
 #                              plus any suite that itself changed
@@ -354,17 +355,14 @@ done
 
 # A deployed Go binary is built from its cmd/<name> and the packages it imports, so a change
 # to any of them is exercised by the binary's suites although the suites name none of these
-# files. The closure comes from the go tool, so it cannot drift from the imports. Each entry
-# is "<command>: <suites that build and drive it>".
-GO_BINARY_SUITES=(
-    "ccy-teams: scripts/test-ccy-teams-command.bash"
-    "ccy-sessions: scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash"
-)
+# files. The closure comes from the go tool, so it cannot drift from the imports. The table is
+# scripts/go-binary-suites.tsv (its header says how it reads); a command whose oracle is a Go
+# test is marked qa-go there and skipped here, because the Go gate already runs whole.
 declare -A GO_SUITE_OWNERS=()
 if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
-    for entry in "${GO_BINARY_SUITES[@]}"; do
-        cmd="${entry%%:*}"
-        read -r -a cmd_suites <<<"${entry#*: }"
+    while IFS=$'\t' read -r -u 3 cmd suites; do
+        [[ -z "$cmd" || "$cmd" == \#* || "$suites" == qa-go ]] && continue
+        read -r -a cmd_suites <<<"$suites"
         if ! cmd_dirs="$(cd "$REPO_ROOT/src-go" && go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' "./cmd/$cmd")"; then
             echo "ERROR: go list -deps ./cmd/$cmd failed; cannot map src-go/ changes to the $cmd suites." >&2
             exit 2
@@ -375,8 +373,7 @@ if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
                 src-go/go.mod | src-go/go.sum) owned=1 ;;
                 *)
                     while IFS= read -r dir; do
-                        [[ -n "$dir" ]] || continue
-                        if [[ "$REPO_ROOT/$rel" == "$dir"/* ]]; then
+                        if [[ -n "$dir" && "$REPO_ROOT/$rel" == "$dir"/* ]]; then
                             owned=1
                             break
                         fi
@@ -389,7 +386,7 @@ if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
                 done
             fi
         done
-    done
+    done 3< "$SCRIPT_DIR/go-binary-suites.tsv"
 fi
 
 PICKED=()

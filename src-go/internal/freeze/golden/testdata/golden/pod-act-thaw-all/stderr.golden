@@ -1,0 +1,7 @@
+Skipped — not currently paused: web proj1_yolo proj3_browser legacy_yolo
+2 container(s) being THAWED:
+  NAME                               STATE    CCY  NETWORKS              
+  db                                 paused   -    appnet                
+  proj2_yolo_2                       paused   CCY  podman,appnet         
+  ✓ db
+  ✓ proj2_yolo_2

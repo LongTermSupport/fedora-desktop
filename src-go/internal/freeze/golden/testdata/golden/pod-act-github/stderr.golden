@@ -1,0 +1,12 @@
+podfreeze: NOTE — 1 CCY session(s) carry no identity labels,
+  so they are in no identity group and are NOT in this selection:
+    legacy_yolo
+  They predate CCY 3.40.0. Use --ccy to cover every session regardless
+  of identity, or relaunch them to make them selectable by identity.
+Skipped — not currently running: proj2_yolo_2
+1 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  proj1_yolo                         running  CCY  podman                
+  ✓ proj1_yolo
+
+  Thaw them with: podfreeze thaw proj1_yolo

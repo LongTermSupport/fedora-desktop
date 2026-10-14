@@ -1,0 +1,6 @@
+==> LXC here is rootful: /var/lib/lxc is root-only, so even listing containers
+==> needs root. Authenticating once for this run.
+sudo: a terminal is required to read the password
+lxcfreeze: sudo was refused, so no LXC state could be read.
+  Nothing was changed. This is NOT 'no containers found' — the question was
+  never asked, and reporting an empty machine here would be a guess.

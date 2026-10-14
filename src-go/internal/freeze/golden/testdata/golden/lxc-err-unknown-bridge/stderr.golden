@@ -1,0 +1,2 @@
+lxcfreeze: no running or frozen container is on bridge 'nosuchbr'.
+  In use right now: lxcbr0 virbr1

@@ -1,0 +1,7 @@
+Skipped — not currently running: db
+1 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  web                                running  -    appnet                
+  ✓ web
+
+  Thaw them with: podfreeze thaw web

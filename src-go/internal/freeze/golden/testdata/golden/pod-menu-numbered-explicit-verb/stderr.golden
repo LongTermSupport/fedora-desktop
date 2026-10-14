@@ -1,0 +1,37 @@
+What to act on:
+   1) all CCY (Claude) containers            THAW   1
+   2) all containers                         THAW   2
+   3) network: appnet                        THAW   2
+   4) network: podman                        THAW   1
+   5) github: alice                          THAW   1
+   6) github: bob                            nothing to thaw
+   7) token: work                            nothing to thaw
+   8) ssh-key: id_a                          nothing to thaw
+   9) ssh-key: id_b                          nothing to thaw
+Choice [1-9, q to quit]: In this group:
+   1) *all*                              THAW   2
+   2) web                                running  -    appnet                 -
+   3) db                                 paused   -    appnet                 THAW
+   4) proj1_yolo                         running  CCY  podman                 -
+   5) proj2_yolo_2                       paused   CCY  podman,appnet          THAW
+   6) proj3_browser                      running  CCY  podman                 -
+   7) legacy_yolo                        running  CCY  podman                 -
+Choice [ENTER or 1 for all, numbers for specific, b to go back]: Skipped — not currently paused: web proj1_yolo proj3_browser legacy_yolo
+2 container(s) being THAWED:
+  NAME                               STATE    CCY  NETWORKS              
+  db                                 paused   -    appnet                
+  proj2_yolo_2                       paused   CCY  podman,appnet         
+  ✓ db
+  ✓ proj2_yolo_2
+
+What to act on:
+   1) all CCY (Claude) containers            THAW   1
+   2) all containers                         THAW   2
+   3) network: appnet                        THAW   2
+   4) network: podman                        THAW   1
+   5) github: alice                          THAW   1
+   6) github: bob                            nothing to thaw
+   7) token: work                            nothing to thaw
+   8) ssh-key: id_a                          nothing to thaw
+   9) ssh-key: id_b                          nothing to thaw
+Choice [1-9, q to quit]: 

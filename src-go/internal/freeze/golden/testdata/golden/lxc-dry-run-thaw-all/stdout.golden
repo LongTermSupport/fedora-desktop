@@ -1,0 +1,5 @@
+DRY RUN — 3 container(s) would be THAWED:
+  NAME                               STATE    BRIDGE            IPV4              
+  zulu                               FROZEN   lxcbr0            192.0.2.11        
+  mike                               FROZEN   virbr1                              
+  kilo                               FROZEN   (no network)                        

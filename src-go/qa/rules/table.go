@@ -26,24 +26,61 @@ const homeOwner = "internal/term"
 
 const (
 	sessprobePkg = "internal/sessprobe"
+	podfreezePkg = "internal/podfreeze"
+	lxcfreezePkg = "internal/lxcfreeze"
+	sudoPkg      = "internal/sudo"
+	agentbusPkg  = "internal/agentbus"
 	hostPkg      = "internal/teams/host"
 	opsPkg       = "internal/teams/ops"
 )
 
-// commandOwners maps a program to the package that owns every use of it, so its flags and
+// commandOwners maps a program to the packages that own every use of it, so its flags and
 // target forms are decided once (the gum and fzf prompts, the sudo and tmux argument forms).
-// A program absent from the table is unowned: any package may run it.
-var commandOwners = map[string]string{
-	"sudo":      "internal/sudo",
-	"tmux":      "internal/tmuxccy",
-	"gum":       "internal/ui",
-	"fzf":       "internal/ui",
-	"systemctl": "internal/systemd",
-	"busctl":    "internal/systemd",
-	"git":       "internal/gitx",
-	"ps":        sessprobePkg,
-	"podman":    sessprobePkg,
-	"docker":    sessprobePkg,
+// A program with two owners is used for two different jobs: podman is read for a session's
+// container by sessprobe and driven (pause, unpause, networks) by podfreeze. A program absent
+// from the table is unowned: any package may run it.
+var commandOwners = map[string][]string{
+	"sudo":         {sudoPkg},
+	"tmux":         {"internal/tmuxccy"},
+	"gum":          {"internal/ui"},
+	"fzf":          {"internal/ui"},
+	"systemctl":    {"internal/systemd"},
+	"busctl":       {"internal/systemd"},
+	"git":          {"internal/gitx"},
+	"ps":           {sessprobePkg},
+	"podman":       {sessprobePkg, podfreezePkg},
+	"docker":       {sessprobePkg},
+	"lxc-ls":       {lxcfreezePkg},
+	"lxc-info":     {lxcfreezePkg},
+	"lxc-freeze":   {lxcfreezePkg},
+	"lxc-unfreeze": {lxcfreezePkg},
+	"lxc-attach":   {lxcfreezePkg},
+	"nmcli":        {lxcfreezePkg},
+}
+
+// programRunner is a function or method that runs the program named by its arguments from
+// argIndex on (the program, then its arguments) without the caller building an execx.Cmd, so
+// the call is judged as the Cmd would be. recv is the receiver type name, "" for a package
+// function.
+type programRunner struct {
+	pkg      string
+	recv     string
+	method   string
+	argIndex int
+}
+
+// sudoType is the receiver type of the sudo seam.
+const sudoType = "Sudo"
+
+// programRunners are the entry points that run a program from their arguments. sudo's three
+// run any program as root; lxcfreeze's two helpers are the same shape one level up, so their
+// callers are judged too.
+var programRunners = []programRunner{
+	{pkg: sudoPkg, recv: sudoType, method: "Capture", argIndex: 1},
+	{pkg: sudoPkg, recv: sudoType, method: "AsRoot", argIndex: 1},
+	{pkg: sudoPkg, recv: sudoType, method: "Run", argIndex: 1},
+	{pkg: lxcfreezePkg, recv: "Engine", method: "runAct", argIndex: 1},
+	{pkg: lxcfreezePkg, recv: "Engine", method: "probe", argIndex: 1},
 }
 
 // shells are interpreters that run a string given with -c; handing one to the runner is the
@@ -92,6 +129,26 @@ var dynamicNames = []allowance{
 		pkg:    opsPkg,
 		fn:     "Ops.RunElementPlay",
 		reason: "the Element play, run by its own shebang; its path is configuration",
+	},
+	{
+		pkg:    lxcfreezePkg,
+		fn:     "Engine.runAct",
+		reason: "runs the lxc command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    lxcfreezePkg,
+		fn:     "Engine.probe",
+		reason: "runs the read-only command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    agentbusPkg,
+		fn:     "Client.rootRun",
+		reason: "runs the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
+	},
+	{
+		pkg:    agentbusPkg,
+		fn:     "Client.rootShow",
+		reason: "streams the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
 	},
 }
 

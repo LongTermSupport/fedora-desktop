@@ -1,0 +1,2 @@
+==> LXC here is rootful: /var/lib/lxc is root-only, so even listing containers
+==> needs root. Authenticating once for this run.

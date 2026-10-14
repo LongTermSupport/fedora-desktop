@@ -1,0 +1,5 @@
+What to act on:
+   1) all LXC containers                     FREEZE 2
+   2) bridge: lxcbr0                         FREEZE 1
+   3) bridge: virbr1                         FREEZE 1
+Choice [1-3, q to quit]: 

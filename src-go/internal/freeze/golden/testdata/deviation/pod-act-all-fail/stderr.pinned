@@ -1,0 +1,5 @@
+1 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  proj3_browser                      running  CCY  podman                
+  ✗ proj3_browser — Error: cgroup freezer unavailable
+podfreeze: 1 of 1 container(s) failed — see above.

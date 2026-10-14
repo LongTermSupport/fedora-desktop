@@ -30,10 +30,8 @@ files/home/.local/bin/fedora-desktop-health.j2	108	2	88	-
 files/home/.local/bin/ftp-camera	1627	33	1669	ui,data
 files/home/.local/bin/gshell-nested	95	2	97	-
 files/home/.local/bin/lan-scan	190	10	214	-
-files/home/.local/bin/lxcfreeze	462	26	466	-
 files/home/.local/bin/nord	505	18	502	-
 files/home/.local/bin/open	419	18	422	ui
-files/home/.local/bin/podfreeze	529	27	510	assoc
 files/home/.local/bin/qnap-finder	135	4	178	-
 files/home/.local/bin/raw-prune	119	1	95	assoc
 files/home/.local/bin/rclone-cache-status	323	7	305	data
@@ -52,7 +50,6 @@ files/home/.local/bin/vmtest	1231	67	1467	data
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi	1000	26	1030	-
 files/home/.local/bin/wsi-claude-process	125	3	138	-
-files/home/.local/lib/freeze/freeze-common.bash	470	19	458	ui
 files/home/.local/share/vmtest/guest-acceptance-desktop.bash	203	2	250	data
 files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	186	-
 files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash	265	7	247	data
@@ -100,13 +97,13 @@ scripts/lib/run-log-scrub.bash	130	4	70	data
 scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/nvidia-status.bash	430	4	519	-
-scripts/qa-all.bash	860	2	866	data
+scripts/qa-all.bash	836	2	842	data
 scripts/qa-ansible-pause.bash	96	1	71	-
 scripts/qa-ansible-syntax.bash	88	0	81	assoc,data
 scripts/qa-ansible.bash	351	1	284	data
 scripts/qa-bash.bash	110	0	102	assoc,data
-scripts/qa-changed.bash	548	18	588	assoc
-scripts/qa-deployed-drift.bash	166	1	165	-
+scripts/qa-changed.bash	543	18	587	assoc
+scripts/qa-deployed-drift.bash	165	1	165	-
 scripts/qa-discovery.bash	185	14	221	-
 scripts/qa-docs.bash	77	0	72	data
 scripts/qa-gh-scopes.bash	67	0	82	data

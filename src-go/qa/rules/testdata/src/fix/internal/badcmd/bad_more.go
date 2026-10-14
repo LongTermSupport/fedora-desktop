@@ -108,3 +108,11 @@ func shellScriptFile() execx.Cmd {
 func unownedProgram() execx.Cmd {
 	return execx.Cmd{Name: "systemd-escape", Args: []string{"--", "x"}}
 }
+
+func podmanOutsideItsOwners() execx.Cmd {
+	return execx.Cmd{Name: "podman", Args: []string{"pause", "c"}} // want `"podman" is owned by internal/sessprobe or internal/podfreeze`
+}
+
+func nmcliOutsideItsOwner() execx.Cmd {
+	return execx.Cmd{Name: "nmcli", Args: []string{"device"}} // want `"nmcli" is owned by internal/lxcfreeze`
+}

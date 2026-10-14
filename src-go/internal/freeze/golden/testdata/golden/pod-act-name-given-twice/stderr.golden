@@ -1,0 +1,8 @@
+2 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  web                                running  -    appnet                
+  web                                running  -    appnet                
+  ✓ web
+  ✓ web
+
+  Thaw them with: podfreeze thaw web web

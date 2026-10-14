@@ -1,20 +1,25 @@
 # src-go — the Go module
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
-interactive tools (Plan 00191). `ccy-teams` and `ccy-sessions` live here; their bash originals
-are gone.
+interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze` and
+`lxcfreeze` live here; their bash originals are gone.
 
 ## Layout
 
 - `cmd/<tool>/main.go` — a thin `main`: read the environment, call one `run` function that
   returns an exit code, `os.Exit` it. No logic beyond that; `run` is tested.
-- `internal/<tool>/` — the tool's flows (`teams`, `sessions`). `teams` is the dispatcher and
+- `internal/<tool>/` — the tool's flows (`teams`, `sessions`; `podfreeze` and `lxcfreeze` are
+  the two engines of the freeze tools). `teams` is the dispatcher and
   the wiring only; each flow is a package under it that says what it owns in its package doc:
   `host` (the adapters over one runner), `board` (the table and `--list`), `picker`, `ops`
   (apply, remove, backup, restore), `create` (the wizard), `login` (Element and passwords),
   `seats`, `flow` (what the interactive flows share), `config`, and `teamtest` (the fake
   machine their tests run on). A package takes the few adapters it uses as fields; none
   imports a sibling flow it does not call.
+- `internal/freeze/` — what `podfreeze` and `lxcfreeze` share: the group menu, drill-down,
+  derived verb, dry run and act loop (`freeze`), the command-line grammar (`freeze/cli`), the
+  flow in spec order (`freeze/app`), and the golden replay (`freeze/golden`, test only). An
+  engine implements `freeze.Engine`; never an `if` on the engine in the shared half.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -52,12 +57,27 @@ the real bash libraries and Python helpers and compare results, so a change to t
 reruns the Go gate. A behaviour change that a suite pins is changed in the suite in the same
 commit, with the reason.
 
+The freeze tools' bash originals and their white-box suites are deleted; their oracle is the
+golden replay, `internal/freeze/golden`. `testdata/golden/<scenario>/` is what the shipped bash
+tools printed (stdout, stderr, exit status, the commands run) over each scenario in
+`testdata/scenarios.json` under fakes and a pseudo-terminal, recorded by `CLAUDE/Plan/00192-.../golden-capture/capture.py` from a git
+revision; the test drives the Go entry points over the same world and compares byte for byte. A
+difference is allowed only as a numbered bug of that plan's SPEC-freeze.md section 10, pinned in
+`testdata/deviations.json` with the bugs and the reason and in `testdata/deviation/`;
+`go test ./internal/freeze/golden -update-deviations` rewrites the pinned files for the entries
+already listed. Behaviour the golden pins is changed in the same commit as its deviation entry.
+
 ## Build and deploy
 
-`playbooks/imports/play-claude-yolo.yml` builds both binaries on the host from the checkout
-(`go build -trimpath -buildvcs=false`; `ccy-teams` also gets
-`-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it) and installs them at
-their old paths. Never install a binary by hand: the play is the only route
+`tasks/build-go-command.yml` builds a command on the host from the checkout
+(`go build -trimpath -buildvcs=false`, as the login user, into `~/.cache/ccy-go-build`) and
+installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
+optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
+(`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
+and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
+`play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain). Each binary
+lands at its old path. A new deployed command takes a row in `scripts/go-binary-suites.tsv`. Never
+install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 
 ## QA

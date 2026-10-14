@@ -18,6 +18,7 @@ type wrapper struct {
 	assigns    bool            // NAME=value words may precede the program
 	positional int             // positional arguments before the program (timeout's duration)
 	until      string          // the argument that ends the options, when there is one
+	inner      bool            // the program inside is judged even where the wrapper itself is the owner's
 }
 
 var wrappers = map[string]wrapper{
@@ -31,6 +32,7 @@ var wrappers = map[string]wrapper{
 	"setsid":      {},
 	"nohup":       {},
 	"systemd-run": {until: "--"},
+	"lxc-attach":  {until: "--", inner: true},
 }
 
 func set(words ...string) map[string]bool {
@@ -59,15 +61,23 @@ For an execx.Cmd built outside internal/execx (a composite literal, or an assign
   prog, nice [-n N] prog, setsid prog, nohup prog and systemd-run [opts] -- prog are judged by
   prog. The wrapper's argv must be a literal (or append/slices.Concat of literals) that shows
   the program; when it does not, the finding says so.
-- An owned program (the commandOwners table: sudo, tmux, gum, fzf, systemctl, busctl, git, ps, podman, docker)
-  may be run only by its owner. Any other program is unowned and free.
+- An owned program (the commandOwners table: sudo, tmux, gum, fzf, systemctl, busctl, git, ps, podman, docker,
+  the lxc-* tools, nmcli) may be run only by its owner (podman by sessprobe or podfreeze). Any other program is unowned and free.
+- A wrapper that is its owner's own program and runs another inside (lxc-attach ... -- prog) has
+  prog judged too: lxcfreeze owns nmcli, but not what else it could run in a container.
+- A call of a program runner (the programRunners table: sudo.Sudo Capture, AsRoot and Run, and
+  lxcfreeze's runAct and probe) is judged the same way: its argument from the table's index on
+  is the program, the rest its arguments. A spread slice must show its program (a literal head),
+  or the function needs a dynamicNames row. A runner method taken as a value (f := s.Capture)
+  hides the program from every later call and is flagged where it is taken.
 - A shell with -c (sh, bash, dash, zsh) is a shell string handed to the runner and is flagged.
 
 Test files are exempt: a test spells out the argv it expects. exec.LookPath and text naming a
 program are not commands and are not flagged.
 
-What the owner does with its program (sudo -n, the tmux target forms) is not checked here: the
-owner's tests pin sudo's flags, and project_tmux_targets checks the tmux targets. Not caught: an
+What the owner does with its own program (sudo -n, the tmux target forms) is not checked here:
+the owner's tests pin sudo's flags, and project_tmux_targets checks the tmux targets. The
+programs run THROUGH the owner's methods are judged, whoever calls them. Not caught: an
 execx.Cmd built by copying another, and a wrapper's argv that is not visible as a literal in
 the Cmd (reported as such).
 
@@ -87,6 +97,7 @@ func runSeamCommands(pass *analysis.Pass, dynamic []allowance) {
 		if isTestFile(pass, f) {
 			continue
 		}
+		called := map[ast.Expr]bool{}
 		for _, decl := range f.Decls {
 			dynamicOK := allowedIn(pass, funcName(decl), dynamic)
 			ast.Inspect(decl, func(n ast.Node) bool {
@@ -95,6 +106,11 @@ func runSeamCommands(pass *analysis.Pass, dynamic []allowance) {
 					checkCmdLiteral(pass, n, dynamicOK)
 				case *ast.AssignStmt:
 					checkNameAssign(pass, n, dynamicOK)
+				case *ast.CallExpr:
+					called[ast.Unparen(n.Fun)] = true
+					checkRunnerCall(pass, n, dynamicOK)
+				case *ast.SelectorExpr:
+					checkRunnerValue(pass, n, called[n])
 				}
 				return true
 			})
@@ -166,22 +182,125 @@ type argElem struct {
 	full bool
 }
 
-// checkProgram judges the program a Cmd runs: Name, and through a wrapper the program after it.
-// argsShown is false when the Args are not part of the code being judged (a bare .Name =).
-func checkProgram(pass *analysis.Pass, nameExpr, argsExpr ast.Expr, argsShown, dynamicOK bool) {
-	tv, ok := pass.TypesInfo.Types[nameExpr]
-	if !ok || tv.Value == nil || tv.Value.Kind() != constant.String {
+// runnerFunc is the program runner a function is, if it is one.
+func runnerFunc(fn *types.Func) (programRunner, bool) {
+	if fn == nil || fn.Pkg() == nil {
+		return programRunner{}, false
+	}
+	recv := ""
+	if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
+		t := sig.Recv().Type()
+		if ptr, isPtr := t.(*types.Pointer); isPtr {
+			t = ptr.Elem()
+		}
+		if named, isNamed := types.Unalias(t).(*types.Named); isNamed {
+			recv = named.Obj().Name()
+		}
+	}
+	for _, r := range programRunners {
+		if r.method == fn.Name() && r.recv == recv && ownedBy(fn.Pkg().Path(), r.pkg) {
+			return r, true
+		}
+	}
+	return programRunner{}, false
+}
+
+// isMethodExpr is whether sel is T.Method or (*T).Method, which takes the receiver as its
+// first argument.
+func isMethodExpr(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
+	s, ok := pass.TypesInfo.Selections[sel]
+	return ok && s.Kind() == types.MethodExpr
+}
+
+// checkRunnerCall judges the program a program-runner call runs.
+func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, dynamicOK bool) {
+	sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if !ok || isMethodExpr(pass, sel) {
+		return
+	}
+	runner, ok := runnerFunc(calledFunc(pass, call))
+	if !ok {
+		return
+	}
+	if len(call.Args) <= runner.argIndex {
 		if !dynamicOK {
-			pass.Reportf(nameExpr.Pos(), "Name is not a compile-time constant: name the program with a constant so its owner can be judged (a program chosen at run time needs a dynamicNames row)")
+			pass.Reportf(call.Pos(), "the call names no program: pass the program as the first argument after the context")
 		}
 		return
 	}
-	name := path.Base(constant.StringVal(tv.Value))
+	first := call.Args[runner.argIndex]
+	if call.Ellipsis.IsValid() && runner.argIndex == len(call.Args)-1 {
+		elems, complete := leadingArgs(pass, first)
+		if len(elems) == 0 || !elems[0].full {
+			reportDynamicProgram(pass, first, dynamicOK)
+			return
+		}
+		walkProgram(pass, first, path.Base(elems[0].text), elems[1:], complete)
+		return
+	}
+	name, ok := programName(pass, first, dynamicOK)
+	if !ok {
+		return
+	}
+	rest := call.Args[runner.argIndex+1:]
+	complete := true
+	if call.Ellipsis.IsValid() {
+		rest, complete = rest[:len(rest)-1], false
+	}
+	args := make([]argElem, 0, len(rest))
+	for _, a := range rest {
+		args = append(args, textOf(pass, a))
+	}
+	walkProgram(pass, first, name, args, complete)
+}
+
+// checkRunnerValue flags a program runner taken as a value: the later call of that value names
+// the program where no rule can see it.
+func checkRunnerValue(pass *analysis.Pass, sel *ast.SelectorExpr, calledDirectly bool) {
+	fn, ok := pass.TypesInfo.Uses[sel.Sel].(*types.Func)
+	if !ok {
+		return
+	}
+	if _, runner := runnerFunc(fn); runner && (!calledDirectly || isMethodExpr(pass, sel)) {
+		pass.Reportf(sel.Pos(), "sudo seam method used as a value: call %s directly so the program it runs can be judged", sel.Sel.Name)
+	}
+}
+
+func reportDynamicProgram(pass *analysis.Pass, at ast.Expr, dynamicOK bool) {
+	if !dynamicOK {
+		pass.Reportf(at.Pos(), "Name is not a compile-time constant: name the program with a constant so its owner can be judged (a program chosen at run time needs a dynamicNames row)")
+	}
+}
+
+// programName is the base name of the constant program an expression names; false (after the
+// finding, unless excused) when it is not a constant.
+func programName(pass *analysis.Pass, nameExpr ast.Expr, dynamicOK bool) (string, bool) {
+	tv, ok := pass.TypesInfo.Types[nameExpr]
+	if !ok || tv.Value == nil || tv.Value.Kind() != constant.String {
+		reportDynamicProgram(pass, nameExpr, dynamicOK)
+		return "", false
+	}
+	return path.Base(constant.StringVal(tv.Value)), true
+}
+
+// checkProgram judges the program a Cmd runs: Name, and through a wrapper the program after it.
+// argsShown is false when the Args are not part of the code being judged (a bare .Name =).
+func checkProgram(pass *analysis.Pass, nameExpr, argsExpr ast.Expr, argsShown, dynamicOK bool) {
+	name, ok := programName(pass, nameExpr, dynamicOK)
+	if !ok {
+		return
+	}
 	var args []argElem
 	complete := argsShown
 	if argsShown {
 		args, complete = leadingArgs(pass, argsExpr)
 	}
+	walkProgram(pass, nameExpr, name, args, complete)
+}
+
+// walkProgram judges a program and, through wrappers, the program each one runs. complete is
+// whether args is every argument the call passes.
+func walkProgram(pass *analysis.Pass, nameExpr ast.Expr, name string, args []argElem, complete bool) {
 	for {
 		if !judgeProgram(pass, nameExpr, name, args) {
 			return
@@ -206,14 +325,15 @@ func checkProgram(pass *analysis.Pass, nameExpr, argsExpr ast.Expr, argsShown, d
 
 // judgeProgram reports a program this package may not run, and says whether the walk through
 // wrappers should go on: it does not once the owner is reached (the owner decides its own
-// program's arguments), after a finding, or at a plain program.
+// program's arguments, unless the program is a wrapper marked inner), after a finding, or at a
+// plain program.
 func judgeProgram(pass *analysis.Pass, at ast.Expr, name string, args []argElem) bool {
-	owner, owned := commandOwners[name]
+	owners, owned := commandOwners[name]
 	switch {
-	case owned && ownedBy(pass.Pkg.Path(), owner):
-		return false
+	case owned && slices.ContainsFunc(owners, func(o string) bool { return ownedBy(pass.Pkg.Path(), o) }):
+		return wrappers[name].inner
 	case owned:
-		pass.Reportf(at.Pos(), "%q is owned by %s: use its methods instead of running %s here", name, owner, name)
+		pass.Reportf(at.Pos(), "%q is owned by %s: use its methods instead of running %s here", name, strings.Join(owners, " or "), name)
 		return false
 	case shells[name] && runsShellString(args):
 		pass.Reportf(at.Pos(), "%s -c is a shell string handed to the runner: run the program with its arguments as separate elements", name)

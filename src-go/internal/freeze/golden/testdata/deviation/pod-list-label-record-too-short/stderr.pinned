@@ -1,0 +1,2 @@
+podfreeze: the CCY identity record for 'proj1_yolo' has 3 of 4 fields, so its labels
+  cannot be read reliably. Relaunch that session to restamp its labels.

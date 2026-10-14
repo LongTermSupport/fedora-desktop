@@ -1,0 +1,10 @@
+Skipped — not currently FROZEN: alpha bravo
+3 container(s) being THAWED:
+  NAME                               STATE    BRIDGE            IPV4              
+  zulu                               FROZEN   lxcbr0            192.0.2.11        
+  mike                               FROZEN   virbr1                              
+  kilo                               FROZEN   (no network)                        
+  ✓ zulu
+  ✗ mike — thawed, but the DHCP lease on eth1 was not renewed — nmcli failed: Error: Connection activation failed
+  ✗ kilo — thawed, but the DHCP lease was not renewed — NetworkManager manages no ethernet device
+lxcfreeze: 2 of 3 container(s) failed — see above.

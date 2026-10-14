@@ -64,8 +64,13 @@ PLANS=(
     # now the Go toolchain alone (CCY 3.95.6); ccy-sessions is a Go binary too, installed at
     # the same path for the boot units, shutdown-with-update and the self-update cycle
     # (CCY 3.95.7); the bash functions only the old ccy-sessions called are gone (CCY 3.95.8);
-    # builds no longer stamp the git revision, so an unchanged source reports ok.
-    playbooks/imports/play-claude-yolo.yml
+    # builds no longer stamp the git revision, so an unchanged source reports ok. Plan 00192's
+    # deploy.bash runs this play first (its Go builds now go through one shared task file,
+    # same flags and paths), then play-podfreeze.yml and play-lxcfreeze.yml: podfreeze and
+    # lxcfreeze become Go binaries at the old paths and ~/.local/lib/freeze goes. The
+    # deploy saves the old tools' output first and ends by comparing the new tools with it
+    # (acceptance.bash); the freeze-and-thaw look is that plan's ACCEPTANCE-freeze.md
+    00192-bash-line-in-the-sand-go-for-tooling
     # Element: may reach the keyring (no "No encryption support" question on a profile's
     # first start); launchers named "<team> team (Element)" (Plan 00177)
     playbooks/imports/optional/common/play-agent-bus-element.yml

@@ -1,0 +1,5 @@
+1 container(s) being THAWED:
+  NAME                               STATE    BRIDGE            IPV4              
+  mike                               FROZEN   virbr1                              
+  ✗ mike — thawed, but the DHCP lease on eth1 was not renewed — nmcli failed: Error: Connection activation failed
+lxcfreeze: 1 of 1 container(s) failed — see above.

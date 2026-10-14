@@ -1,0 +1,1 @@
+podfreeze: podman ps failed: Cannot connect to Podman socket: connection refused

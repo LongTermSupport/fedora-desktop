@@ -156,7 +156,8 @@ Yes — once, to pick up the new `docker` group membership. Log out and back in,
   Two tools rather than one because Podman here is rootless and LXC is rootful, so a
   combined tool would prompt for root on every menu open
   (`playbooks/imports/optional/common/play-podfreeze.yml`, `play-lxcfreeze.yml`).
-  They share one menu: `files/home/.local/lib/freeze/freeze-common.bash` holds the
-  group menu, the drill-down, the derived verb, the dry run and the act loop, and each
-  tool supplies its engine through named `freeze_hook_*` functions — never an `if` on
+  Both are Go binaries (`src-go/cmd/podfreeze`, `src-go/cmd/lxcfreeze`) sharing one menu:
+  `src-go/internal/freeze` holds the group menu, the drill-down, the derived verb, the
+  dry run and the act loop, and each engine package (`internal/podfreeze`,
+  `internal/lxcfreeze`) implements the library's `Engine` interface — never an `if` on
   the engine inside the shared half

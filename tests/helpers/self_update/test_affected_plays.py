@@ -127,19 +127,19 @@ class TestInputs(FixtureCase):
         self.assertNotIn("files/old-thing", ap.play_inputs(self.fx.root, play).exact)
 
     def test_included_task_files_are_followed_transitively(self) -> None:
-        self.fx.file("files/lib/freeze.bash")
-        self.fx.file("tasks/deploy-freeze-lib.yml", f"""
+        self.fx.file("files/lib/shared-lib.bash")
+        self.fx.file("tasks/deploy-shared-lib.yml", f"""
             - ansible.builtin.copy:
-                src: "{ROOT}/files/lib/freeze.bash"
+                src: "{ROOT}/files/lib/shared-lib.bash"
         """)
         play = self.fx.play("playbooks/imports/play-a.yml", f"""
             - hosts: desktop
               tasks:
-                - ansible.builtin.include_tasks: "{ROOT}/tasks/deploy-freeze-lib.yml"
+                - ansible.builtin.include_tasks: "{ROOT}/tasks/deploy-shared-lib.yml"
         """)
         inputs = ap.play_inputs(self.fx.root, play)
-        self.assertIn("tasks/deploy-freeze-lib.yml", inputs.exact)
-        self.assertIn("files/lib/freeze.bash", inputs.exact)
+        self.assertIn("tasks/deploy-shared-lib.yml", inputs.exact)
+        self.assertIn("files/lib/shared-lib.bash", inputs.exact)
 
     def test_import_playbook_is_relative_to_the_importing_file(self) -> None:
         self.fx.file("files/x")

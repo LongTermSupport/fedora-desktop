@@ -1,0 +1,45 @@
+Usage: lxcfreeze [list|freeze|thaw] [target] [options]
+
+  Freeze and thaw LXC containers — one, a whole bridge, or all of them.
+  The Podman counterpart is 'podfreeze'; this is its LXC sibling, and is
+  separate because this repo's LXC is rootful and Podman here is not.
+
+  Run with no target for a menu of GROUPS, each row saying what choosing
+  it does right now ("FREEZE 3", "THAW 1"). Choosing one opens the
+  group: the first row acts on all of it, the rest are its containers if
+  you want only some. It acts, then returns to the menu, until you quit.
+
+  The verb is derived: anything running is frozen, a set with nothing
+  running is thawed. So the same choice twice toggles it. There is no
+  confirmation prompt — freezing is undone by doing it again.
+
+  Freezing is the cgroup freezer, not suspend-to-disk: frozen containers
+  do NOT survive a reboot.
+
+  Every operation needs root, including the read-only inventory:
+  /var/lib/lxc is root-only. sudo is asked again if its timestamp has expired.
+
+Verbs (optional — omit to let the state decide):
+  list               Show running and frozen containers, then exit.
+  freeze             Freeze the target containers.
+  thaw               Thaw the target containers.
+
+Targets (exactly one, or none for the menu):
+  NAME...            One or more container names.
+  --bridge BR        Every container whose first interface is on BR.
+  --all              Every running or frozen container.
+
+  A STOPPED container is listed by neither: it can be neither frozen nor
+  thawed, so it is not a candidate.
+
+Options:
+  -n, --dry-run      Print the resolved set and exit; change nothing.
+  -h, --help         Show this help and exit.
+
+Examples:
+  lxcfreeze                       menu: pick a group, it acts, repeat
+  lxcfreeze list
+  lxcfreeze --all                 toggle everything
+  lxcfreeze freeze --all
+  lxcfreeze freeze --bridge lxcbr0 -n
+  lxcfreeze thaw mycontainer

@@ -1,0 +1,5 @@
+1 container(s) being THAWED:
+  NAME                               STATE    BRIDGE            IPV4              
+  kilo                               FROZEN   (no network)                        
+  ✗ kilo — thawed, but the DHCP lease was not renewed — NetworkManager manages no ethernet device
+lxcfreeze: 1 of 1 container(s) failed — see above.

@@ -1,0 +1,3 @@
+podfreeze: a CCY identity label on 'proj1_yolo' contains '|', which
+  makes its labels ambiguous to parse. Rename the offending SSH key or token
+  config so it has no '|', then relaunch that session.
