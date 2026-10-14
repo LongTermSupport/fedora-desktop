@@ -6,6 +6,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // excludes are the rule's own paths.exclude globs: files semgrep drops without saying so.
@@ -39,34 +41,36 @@ func (g *gate) readRule() (excludes, error) {
 	return parseExcludes(string(data))
 }
 
-// parseExcludes reads the list under the rule's `exclude:` key: the `- glob` lines that follow
-// it, comments and blank lines between them allowed. A rule with none is an error, so an emptied
-// or unparseable list cannot silently narrow what the coverage check demands.
+// ruleFileDoc is the part of a semgrep rule file this gate reads.
+type ruleFileDoc struct {
+	Rules []struct {
+		Paths struct {
+			Exclude []string `yaml:"exclude"`
+		} `yaml:"paths"`
+	} `yaml:"rules"`
+}
+
+// parseExcludes decodes the rule file and returns the globs of every rule's paths.exclude. A
+// file that does not decode, or declares none, is an error, so an emptied list cannot silently
+// narrow what the coverage check demands. Unknown keys are the rule's own business (semgrep
+// reads them), so the decode is not strict about them.
 func parseExcludes(rule string) (excludes, error) {
-	var globs []string
-	inList := false
-	for line := range strings.SplitSeq(rule, "\n") {
-		text := strings.TrimSpace(line)
-		switch {
-		case !inList:
-			inList = text == "exclude:"
-		case text == "" || strings.HasPrefix(text, "#"):
-		case strings.HasPrefix(text, "- "):
-			globs = append(globs, strings.Trim(strings.TrimSpace(text[2:]), `'"`))
-		default:
-			inList = false
+	var doc ruleFileDoc
+	if err := yaml.Unmarshal([]byte(rule), &doc); err != nil {
+		return nil, fmt.Errorf("cannot decode %s: %w", ruleFile, err)
+	}
+	var out excludes
+	for _, r := range doc.Rules {
+		for _, glob := range r.Paths.Exclude {
+			re, err := regexp.Compile(globRegexp(glob))
+			if err != nil {
+				return nil, fmt.Errorf("cannot read the exclude %q in %s: %w", glob, ruleFile, err)
+			}
+			out = append(out, re)
 		}
 	}
-	if len(globs) == 0 {
+	if len(out) == 0 {
 		return nil, errors.New(ruleFile + " declares no paths.exclude list; the coverage check is built around the rule's own excludes")
-	}
-	out := make(excludes, 0, len(globs))
-	for _, glob := range globs {
-		re, err := regexp.Compile(globRegexp(glob))
-		if err != nil {
-			return nil, fmt.Errorf("cannot read the exclude %q: %w", glob, err)
-		}
-		out = append(out, re)
 	}
 	return out, nil
 }

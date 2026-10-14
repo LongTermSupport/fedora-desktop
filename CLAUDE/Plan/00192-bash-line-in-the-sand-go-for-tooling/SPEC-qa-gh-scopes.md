@@ -65,8 +65,9 @@ through `qa/internal/proc`.
 - G11. Any entry in the report's `errors` is exit 2 listing path and type: a file semgrep could not
   fully read is not a clean file.
 - G12. **Coverage.** The files expected to be read are the handed files that no `paths.exclude` glob
-  of the rule matches (semgrep drops those without saying so). The globs are read from the rule file
-  itself. A rule with no `paths.exclude` is exit 2 (the gate is built around the rule's own excludes;
+  of the rule matches (semgrep drops those without saying so). The globs are read by decoding the rule
+  file as YAML (`rules[].paths.exclude`, every rule's list together). A rule file that does not
+  decode, or whose `paths.exclude` is not a list of strings, is exit 2 naming it. A rule with no `paths.exclude` is exit 2 (the gate is built around the rule's own excludes;
   an unparseable or emptied list must not silently widen what is expected). Every expected file must
   be in `paths.scanned` or `paths.skipped`; any other is exit 2 listing them, `A pass reported over files the analyser never opened is not a pass`. A glob uses semgrep's meaning: `*` stays within one
   path segment, `**` crosses segments, `**/` may match no directory at all.

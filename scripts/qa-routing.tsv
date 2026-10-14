@@ -41,6 +41,10 @@ also	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	patterns	cover
 also	src-go/qa/patterns/*,src-go/qa/cmd/qa-patterns/*	patterns	-
 # The wrapper that builds and runs the gate, the library it runs through and the table of excluded trees it reads.
 also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patterns	-
+# The gh-scope gate runs whole when its rule, the rule's fixture, its wrapper or its tool change.
+also	.semgrep/gh-scopes.yml,.semgrep/gh-scopes.fixture	gh-scopes	covered
+also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-gh-scopes/*	gh-scopes	-
+also	scripts/qa-gh-scopes.bash,scripts/lib/go-tool.bash	gh-scopes	-
 # The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
 also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*	python	-
 also	ruff.toml	python	covered
@@ -91,4 +95,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-gh-scopes

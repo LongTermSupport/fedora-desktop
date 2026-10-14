@@ -258,6 +258,24 @@ func TestARuleWithoutPathExcludesIsExitTwo(t *testing.T) {
 }
 
 // G12
+func TestTheRuleIsDecodedAsYamlNotReadByLine(t *testing.T) {
+	rule := "rules:\n  - id: a\n    paths: {exclude: ['one.txt', \"two/*.md\", '.semgrep/*']}\n  - id: b\n    paths:\n      exclude:\n      - three.txt\n"
+	w := newWorld(t, map[string]string{ruleFile: rule, "one.txt": "x\n", "two/n.md": "x\n", "three.txt": "x\n"})
+	w.run.scan = func([]string) string { return report([]string{"a.txt"}, nil, nil) }
+	wantExit(t, w.main(), ExitOK)
+}
+
+// G12
+func TestARuleThatIsNotValidYamlOrHasTheWrongShapeIsExitTwo(t *testing.T) {
+	for _, rule := range []string{"rules: [unclosed\n", "rules:\n  - paths:\n      exclude: not-a-list\n", "rules: 3\n", ""} {
+		w := newWorld(t, map[string]string{ruleFile: rule})
+		got := w.main()
+		wantExit(t, got, ExitCannotRun)
+		wantIn(t, "stderr", got.stderr, "ERROR:", ruleFile)
+	}
+}
+
+// G12
 func TestAnExcludeThatIsNotAListItemIsExitTwo(t *testing.T) {
 	w := newWorld(t, map[string]string{ruleFile: "rules:\n  - id: x\n    paths:\n      exclude:\n        a: b\n"})
 	wantExit(t, w.main(), ExitCannotRun)
