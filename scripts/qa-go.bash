@@ -8,7 +8,8 @@
 # by qa-changed.bash for any changed src-go/ file.
 #
 # Steps, in order, each a hard failure: formatting (golangci-lint fmt --diff, any diff
-# fails), go vet, go test -race, golangci-lint run. golangci-lint fmt exits 0 when it
+# fails), go vet, go test -race with a whole-module statement coverage floor
+# (GO_COVERAGE_FLOOR), golangci-lint run. golangci-lint fmt exits 0 when it
 # prints a diff, so the verdict is "printed nothing", not its exit code.
 #
 # Exit codes:
@@ -34,9 +35,14 @@ if ! command -v golangci-lint > /dev/null; then
     exit 2
 fi
 
+# The floor sits a few points under the measured total, so it catches untested code landing,
+# not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
+GO_COVERAGE_FLOOR=90
+
 cd "$GO_DIR"
 OUT="$(mktemp)"
-trap 'rm -f "$OUT"' EXIT
+PROFILE="$(mktemp)"
+trap 'rm -f "$OUT" "$PROFILE"' EXIT
 
 # run_step <name> <command...> — on failure print the step's output and exit 1.
 run_step() {
@@ -56,8 +62,19 @@ if [[ -s "$OUT" ]]; then
     exit 1
 fi
 run_step "go vet" go vet ./...
-run_step "go test -race" go test -race ./...
+run_step "go test -race" go test -race -coverprofile="$PROFILE" ./...
 PACKAGES="$(awk '/^ok/ {n++} END {print n + 0}' "$OUT")"
+run_step "coverage report" go tool cover -func="$PROFILE"
+COVERAGE="$(awk '$1 == "total:" {sub(/%/, "", $NF); print $NF}' "$OUT")"
+if [[ -z "$COVERAGE" ]]; then
+    echo "✗ go: no total in the coverage report" >&2
+    cat "$OUT" >&2
+    exit 1
+fi
+if ! awk -v c="$COVERAGE" -v f="$GO_COVERAGE_FLOOR" 'BEGIN {exit !(c >= f)}'; then
+    echo "✗ go: statement coverage ${COVERAGE}% is under the ${GO_COVERAGE_FLOOR}% floor" >&2
+    exit 1
+fi
 run_step "golangci-lint" golangci-lint run ./...
 
-echo "GO-OK $PACKAGES package(s): fmt, vet, test -race, golangci-lint clean"
+echo "GO-OK $PACKAGES package(s): fmt, vet, test -race, coverage ${COVERAGE}% (floor ${GO_COVERAGE_FLOOR}%), golangci-lint clean"

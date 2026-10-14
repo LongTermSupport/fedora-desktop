@@ -63,14 +63,15 @@ today; rewriting them is out of scope.
   single source of truth. `scripts/qa-toolchain.bash` asserts golangci-lint at the pin and
   `go` at no less than `src-go/go.mod` requires; `.github/workflows/qa.yml` installs both.
   `play-claude-yolo.yml` imports it too since Task 2.5, where it first builds a binary.
-- [ ] 🔄 **Task 1.3**: `src-go/` skeleton: `go.mod`, `.golangci.yml` (strict), `cmd/`,
+- [x] ✅ **Task 1.3**: `src-go/` skeleton: `go.mod`, `.golangci.yml` (strict), `cmd/`,
   `internal/` (execx runner + recording fake, prompter interface + gum/fzf implementation +
-  fake, paths, version), one trivial tool proving build, test and lint.
-- [ ] 🔄 **Task 1.4**: `scripts/qa-go.bash` exists and is wired into `qa-all.bash` (a
+  fake). The two ported tools are what prove build, test and lint.
+- [x] ✅ **Task 1.4**: `scripts/qa-go.bash` exists and is wired into `qa-all.bash` (a
   hard gate) and `qa-changed.bash` (any `src-go/` change): `golangci-lint fmt --diff` (any
-  diff fails), `go vet`, `go test -race`, `golangci-lint run`, whole module, a missing tool
-  a hard failure. Still to do: the coverage floor and govulncheck. Interim, until Task 3.3
-  puts go-qa-ci in its place.
+  diff fails), `go vet`, `go test -race` with a whole-module statement coverage floor of 90%
+  (measured 94.2%), `golangci-lint run`, whole module, a missing tool a hard failure.
+  Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
+  go-qa-ci already runs it.
 
 ### Phase 2: ccy-teams in Go
 
