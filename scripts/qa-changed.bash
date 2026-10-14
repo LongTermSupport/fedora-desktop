@@ -20,9 +20,9 @@
 #                              fail-fast pattern gate (qa-ansible.bash, whole: it is fast)
 #   markdown, playbooks yml    the docs gate (qa-docs.bash, whole: it is fast)
 #   src-go/ (any file)         the interim Go gate (qa-go.bash, whole: it is fast)
-#   any bash file, the bash-   the bash-limits gate (qa-bash-limits.bash, whole: ~0.5s), and its Go
-#   limits allowlist or a      source; a path on the allowlist counts as bash even when deleted
-#   path on the allowlist
+#   any bash file (by name or  the bash-limits gate (qa-bash-limits.bash, whole: ~0.5s); also run for
+#   shebang), the allowlist,   the gate's own Go source. A path on the allowlist counts as bash even
+#   a path on the allowlist    when deleted
 #   js/mjs                     node --check; extensions/ files also get the project's eslint
 #   src-go/ in a command's     that command's suites too (ccy-teams: test-ccy-teams-command.bash;
 #   build closure              ccy-sessions: its four test-ccy-* suites): a file in cmd/<name> or a
@@ -219,7 +219,7 @@ for rel in "${CHANGED[@]}"; do
     # The bash-limits gate (whole: it is fast) reads every bash file and the allowlist. No
     # continue, for the same reason.
     case "$rel" in
-        *.bash | *.sh | *.j2 | src-go/internal/bashlimits/* | src-go/cmd/qa-bash-limits/*)
+        *.bash | *.sh | *.j2 | src-go/qa/bashlimits/* | src-go/qa/cmd/qa-bash-limits/*)
             NEED_BASH_LIMITS=1
             ;;
         scripts/bash-limits.allowlist)

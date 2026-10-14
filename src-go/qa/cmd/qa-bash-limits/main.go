@@ -9,8 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/bashlimits"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/bashlimits"
 )
 
 func main() {
@@ -23,6 +22,6 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "✗ bash-limits: working directory: %v\n", err)
 		return bashlimits.ExitCannotRun
 	}
-	app := &bashlimits.App{Runner: execx.OS{}, Out: os.Stdout, Err: os.Stderr}
+	app := &bashlimits.App{Git: bashlimits.OSGit{}, Out: os.Stdout, Err: os.Stderr}
 	return app.Run(context.Background(), cwd, args)
 }

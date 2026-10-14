@@ -8,9 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const allowlistRel = "scripts/bash-limits.allowlist"
@@ -24,7 +21,7 @@ func script(n int) string {
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	full := append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)
-	if _, err := (execx.OS{}).Run(context.Background(), execx.Cmd{Name: "git", Args: full, Dir: dir}); err != nil {
+	if _, err := (OSGit{}).Run(context.Background(), dir, full...); err != nil {
 		t.Fatalf("git %v: %v", args, err)
 	}
 }
@@ -74,7 +71,7 @@ func repo(t *testing.T) string {
 	put(t, root, "run.bash", script(500))
 	put(t, root, "scripts/test-x.bash", script(500))
 	put(t, root, "README.md", "# docs\n")
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80}}.Format())
+	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "run.bash": {Code: 500, Stmts: 500}}.Format())
 	gitIn(t, root, "add", "-A")
 	gitIn(t, root, "commit", "-q", "-m", "seed")
 	return root
@@ -85,17 +82,28 @@ type result struct {
 	out, err string
 }
 
+// run is runRaw with the base defaulting to HEAD, as no test repository has an origin.
 func run(t *testing.T, root string, args ...string) result {
 	t.Helper()
+	for _, a := range args {
+		if a == "--base" || a == "--seed" || a == "--help" {
+			return runRaw(t, root, args...)
+		}
+	}
+	return runRaw(t, root, append([]string{"--base", "HEAD"}, args...)...)
+}
+
+func runRaw(t *testing.T, root string, args ...string) result {
+	t.Helper()
 	var out, errBuf bytes.Buffer
-	app := &App{Runner: execx.OS{}, Out: &out, Err: &errBuf}
+	app := &App{Git: OSGit{}, Out: &out, Err: &errBuf}
 	code := app.Run(context.Background(), root, args)
 	return result{code, out.String(), errBuf.String()}
 }
 
 func wantFail(t *testing.T, name string, r result, needles ...string) {
 	t.Helper()
-	if r.code != term.ExitFailure {
+	if r.code != ExitFailure {
 		t.Errorf("%s: exit %d, want failure; stderr:\n%s", name, r.code, r.err)
 	}
 	for _, n := range needles {
@@ -108,11 +116,11 @@ func wantFail(t *testing.T, name string, r result, needles ...string) {
 func TestCleanTreePasses(t *testing.T) {
 	root := repo(t)
 	r := run(t, root, "--base", "HEAD")
-	if r.code != term.ExitOK {
+	if r.code != ExitOK {
 		t.Fatalf("exit %d: %s", r.code, r.err)
 	}
-	// 2 checked (small, long), 2 exempt, 1 allowlisted.
-	for _, want := range []string{"BASH-LIMITS-OK", "2 bash file(s) checked", "2 exempt", "1 allowlisted"} {
+	// 3 checked (small, long, run.bash), 1 exempt (the test suite), 2 allowlisted.
+	for _, want := range []string{"BASH-LIMITS-OK", "4 bash files", "1 exempt", "3 checked", "2 allowlisted"} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("summary lacks %q: %s", want, r.out)
 		}
@@ -142,7 +150,7 @@ func TestPlantedViolationsFail(t *testing.T) {
 func TestExactlyAtTheLimitsPasses(t *testing.T) {
 	root := repo(t)
 	put(t, root, "scripts/edge.bash", strings.Repeat("e() { :; }\n", 4)+strings.Repeat("echo x\n", 56))
-	if r := run(t, root); r.code != term.ExitOK {
+	if r := run(t, root); r.code != ExitOK {
 		t.Fatalf("60 code lines and 4 functions failed: %s", r.err)
 	}
 }
@@ -159,13 +167,13 @@ func TestListedFileThatShrankMustBeTightened(t *testing.T) {
 	wantFail(t, "shrunk", run(t, root), "files/bin/long", "tighten the record")
 
 	r := run(t, root, "--update")
-	if r.code != term.ExitOK {
+	if r.code != ExitOK {
 		t.Fatalf("--update: exit %d: %s", r.code, r.err)
 	}
-	if got := readAllowlist(t, root); !strings.Contains(got, "files/bin/long\t70\t0\t-") {
+	if got := readAllowlist(t, root); !strings.Contains(got, "files/bin/long\t70\t0\t70\t-") {
 		t.Fatalf("record not lowered:\n%s", got)
 	}
-	if r := run(t, root, "--base", "HEAD"); r.code != term.ExitOK {
+	if r := run(t, root, "--base", "HEAD"); r.code != ExitOK {
 		t.Fatalf("after --update: %s", r.err)
 	}
 }
@@ -173,9 +181,9 @@ func TestListedFileThatShrankMustBeTightened(t *testing.T) {
 func TestUpdateRemovesEntriesWithinLimitsAndGone(t *testing.T) {
 	root := repo(t)
 	put(t, root, "files/bin/long", script(10))
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80}, "files/bin/deleted": {Code: 99}}.Format())
+	put(t, root, allowlistRel, Allowlist{"run.bash": {Code: 500, Stmts: 500}, "files/bin/long": {Code: 80, Stmts: 80}, "files/bin/deleted": {Code: 99, Stmts: 99}}.Format())
 	wantFail(t, "before", run(t, root), "now within every limit", "files/bin/deleted", "allowlisted")
-	if r := run(t, root, "--update"); r.code != term.ExitOK {
+	if r := run(t, root, "--update"); r.code != ExitOK {
 		t.Fatalf("--update: %s", r.err)
 	}
 	got := readAllowlist(t, root)
@@ -191,36 +199,32 @@ func TestUpdateNeverRaisesOrAdds(t *testing.T) {
 	r := run(t, root, "--update")
 	wantFail(t, "update with growth and a new offender", r, "files/bin/long", "scripts/new.bash")
 	got := readAllowlist(t, root)
-	if !strings.Contains(got, "files/bin/long\t80\t0\t-") || strings.Contains(got, "scripts/new.bash") {
+	if !strings.Contains(got, "files/bin/long\t80\t0\t80\t-") || strings.Contains(got, "scripts/new.bash") {
 		t.Fatalf("--update raised or added a record:\n%s", got)
 	}
 }
 
 func TestStaleEntryFails(t *testing.T) {
 	root := repo(t)
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80}, "files/bin/missing": {Code: 99}}.Format())
-	wantFail(t, "stale", run(t, root), "files/bin/missing", "not a checked bash file")
+	put(t, root, allowlistRel, Allowlist{"run.bash": {Code: 500, Stmts: 500}, "files/bin/long": {Code: 80, Stmts: 80}, "files/bin/missing": {Code: 99, Stmts: 99}}.Format())
+	wantFail(t, "stale", run(t, root), "files/bin/missing", "file is gone")
 }
 
 func TestExemptedFileOnTheListIsStale(t *testing.T) {
 	root := repo(t)
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80}, "run.bash": {Code: 500}}.Format())
-	wantFail(t, "exempt entry", run(t, root), "run.bash", "exempt")
+	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80, Stmts: 80}, "run.bash": {Code: 500, Stmts: 500}, "scripts/test-x.bash": {Code: 500, Stmts: 500}}.Format())
+	wantFail(t, "exempt entry", run(t, root), "scripts/test-x.bash", "exempt")
 }
 
 func TestBaseRejectsAddedAndRaisedEntries(t *testing.T) {
 	root := repo(t)
 	put(t, root, "scripts/new.bash", script(70))
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 80}, "scripts/new.bash": {Code: 70}}.Format())
-	// Without --base the sneaked entry makes the tree pass; with it, the gate objects.
-	if r := run(t, root); r.code != term.ExitOK {
-		t.Fatalf("control: %s", r.err)
-	}
+	put(t, root, allowlistRel, Allowlist{"run.bash": {Code: 500, Stmts: 500}, "files/bin/long": {Code: 80, Stmts: 80}, "scripts/new.bash": {Code: 70, Stmts: 70}}.Format())
 	wantFail(t, "added entry", run(t, root, "--base", "HEAD"), "scripts/new.bash", "new allowlist entry")
 
 	put(t, root, "scripts/new.bash", "")
 	put(t, root, "files/bin/long", script(90))
-	put(t, root, allowlistRel, Allowlist{"files/bin/long": {Code: 90}}.Format())
+	put(t, root, allowlistRel, Allowlist{"run.bash": {Code: 500, Stmts: 500}, "files/bin/long": {Code: 90, Stmts: 90}}.Format())
 	wantFail(t, "raised record", run(t, root, "--base", "HEAD"), "files/bin/long", "raised")
 }
 
@@ -232,19 +236,6 @@ func TestBaseThatDoesNotResolveFails(t *testing.T) {
 	}
 }
 
-func TestBaseWithoutAnAllowlistIsNoted(t *testing.T) {
-	root := t.TempDir()
-	gitIn(t, root, "init", "-q")
-	put(t, root, "README.md", "x\n")
-	gitIn(t, root, "add", "-A")
-	gitIn(t, root, "commit", "-q", "-m", "first")
-	put(t, root, allowlistRel, Allowlist{}.Format())
-	r := run(t, root, "--base", "HEAD")
-	if r.code != term.ExitOK || !strings.Contains(r.err, "has no allowlist") {
-		t.Fatalf("exit %d: %s", r.code, r.err)
-	}
-}
-
 func TestSeed(t *testing.T) {
 	root := t.TempDir()
 	gitIn(t, root, "init", "-q")
@@ -252,14 +243,16 @@ func TestSeed(t *testing.T) {
 	put(t, root, "files/bin/long", script(80))
 	put(t, root, "scripts/ui.bash", "fzf\n")
 	r := run(t, root, "--seed")
-	if r.code != term.ExitOK {
+	if r.code != ExitOK {
 		t.Fatalf("seed: exit %d: %s", r.code, r.err)
 	}
 	got := readAllowlist(t, root)
-	if !strings.Contains(got, "files/bin/long\t80\t0\t-") || !strings.Contains(got, "scripts/ui.bash\t1\t0\tui") || strings.Contains(got, "small.bash") {
+	if !strings.Contains(got, "files/bin/long\t80\t0\t80\t-") || !strings.Contains(got, "scripts/ui.bash\t1\t0\t1\tui") || strings.Contains(got, "small.bash") {
 		t.Fatalf("seed content:\n%s", got)
 	}
-	if again := run(t, root); again.code != term.ExitOK {
+	gitIn(t, root, "add", "-A")
+	gitIn(t, root, "commit", "-q", "-m", "seeded")
+	if again := run(t, root); again.code != ExitOK {
 		t.Fatalf("seeded tree does not pass: %s", again.err)
 	}
 	before := readAllowlist(t, root)
@@ -292,7 +285,7 @@ func TestDeletedTrackedFileIsSkipped(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "scripts/small.bash")); err != nil {
 		t.Fatal(err)
 	}
-	if r := run(t, root); r.code != term.ExitOK {
+	if r := run(t, root); r.code != ExitOK {
 		t.Fatalf("exit %d: %s", r.code, r.err)
 	}
 }
@@ -306,9 +299,11 @@ func TestRootDefaultsToTheGitTopLevel(t *testing.T) {
 
 func TestExplicitRootAndAllowlist(t *testing.T) {
 	root := repo(t)
-	put(t, root, "other.allowlist", Allowlist{"files/bin/long": {Code: 80}}.Format())
+	put(t, root, "other.allowlist", Allowlist{"run.bash": {Code: 500, Stmts: 500}, "files/bin/long": {Code: 80, Stmts: 80}}.Format())
+	gitIn(t, root, "add", "-A")
+	gitIn(t, root, "commit", "-q", "-m", "second allowlist")
 	r := run(t, t.TempDir(), "--root", root, "--allowlist", "other.allowlist")
-	if r.code != term.ExitOK {
+	if r.code != ExitOK {
 		t.Fatalf("exit %d: %s", r.code, r.err)
 	}
 }
@@ -325,7 +320,7 @@ func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("closed pi
 
 func TestUnwritableOutputCannotRun(t *testing.T) {
 	root := repo(t)
-	app := &App{Runner: execx.OS{}, Out: brokenWriter{}, Err: &bytes.Buffer{}}
+	app := &App{Git: OSGit{}, Out: brokenWriter{}, Err: &bytes.Buffer{}}
 	if code := app.Run(context.Background(), root, nil); code != ExitCannotRun {
 		t.Fatalf("exit %d, want %d: a verdict nobody could read is not a pass", code, ExitCannotRun)
 	}
@@ -340,11 +335,11 @@ func TestUsageErrors(t *testing.T) {
 		{"--allowlist", "/abs/path"},
 		{"--allowlist", "../up"},
 	} {
-		if r := run(t, root, args...); r.code != term.ExitUsage {
+		if r := run(t, root, args...); r.code != ExitUsage {
 			t.Errorf("%v: exit %d: %s", args, r.code, r.err)
 		}
 	}
-	if r := run(t, root, "--help"); r.code != term.ExitOK {
+	if r := run(t, root, "--help"); r.code != ExitOK {
 		t.Errorf("--help: exit %d", r.code)
 	}
 }
