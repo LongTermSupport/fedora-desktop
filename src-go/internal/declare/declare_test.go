@@ -119,6 +119,35 @@ func TestStatusSortsInstalledAndParsesRows(t *testing.T) {
 	}
 }
 
+func TestOverviewIsTheDeclaredTeamsAndTheirStatesFromOneRun(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "overview", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\n"+
+		"STATUS\talpha\tcurrent\t-\nSTATUS\tzeta\tdecide\tundeclared\n")
+	teams, states, err := newClient(f).Overview(context.Background(), "/src", "/applied", []string{"beta", "alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTeams := []Team{{Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167"}}
+	wantStates := []Status{{Team: "alpha", State: "current"}, {Team: "zeta", State: "decide", Detail: "undeclared"}}
+	if !reflect.DeepEqual(teams, wantTeams) || !reflect.DeepEqual(states, wantStates) {
+		t.Fatalf("got %+v %+v", teams, states)
+	}
+	line := prefix + " overview --file /hv.yml --source /src --applied /applied --installed alpha --installed beta"
+	if got := lastLine(t, f); got != line || len(f.Calls()) != 1 {
+		t.Fatalf("ran %q in %d calls", got, len(f.Calls()))
+	}
+}
+
+func TestOverviewRejectsAMalformedLineOfEitherKind(t *testing.T) {
+	for _, out := range []string{"TEAM\talpha\tport\tpresent\tsrv\t-\n", "STATUS\talpha\tcurrent\n"} {
+		f := &execx.Fake{}
+		script(f, "overview", out)
+		if _, _, err := newClient(f).Overview(context.Background(), "/s", "/a", nil); err == nil {
+			t.Fatalf("accepted %q", out)
+		}
+	}
+}
+
 func TestStatusRejectsAShortLine(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "status", "STATUS\talpha\tcurrent\n")

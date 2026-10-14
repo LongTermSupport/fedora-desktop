@@ -205,16 +205,18 @@ func SessionPIDs(roots []Root, procs []Proc) []SessionProcs {
 }
 
 // Sample is the clock in microseconds and each still-running process's user plus system time in
-// clock ticks.
+// clock ticks, and the tick (counted from boot) each of them started at: a pid whose start time
+// changed is another process that was given the number.
 type Sample struct {
 	Micros int64
 	Ticks  map[int]int64
+	Starts map[int]int64
 }
 
 // ReadSample reads /proc/<pid>/stat (under procRoot) for each pid at the moment at. A process
 // that has exited since the table was read has no time left to count and is skipped.
 func ReadSample(procRoot string, pids []int, at time.Time) (Sample, error) {
-	s := Sample{Micros: at.UnixMicro(), Ticks: make(map[int]int64, len(pids))}
+	s := Sample{Micros: at.UnixMicro(), Ticks: make(map[int]int64, len(pids)), Starts: make(map[int]int64, len(pids))}
 	for _, pid := range pids {
 		raw, err := os.ReadFile(filepath.Clean(filepath.Join(procRoot, strconv.Itoa(pid), "stat")))
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
@@ -223,33 +225,35 @@ func ReadSample(procRoot string, pids []int, at time.Time) (Sample, error) {
 		if err != nil {
 			return Sample{}, fmt.Errorf("could not read the CPU time of process %d: %w", pid, err)
 		}
-		ticks, parseErr := statTicks(string(raw))
+		ticks, start, parseErr := statTimes(string(raw))
 		if parseErr != nil {
 			return Sample{}, fmt.Errorf("process %d: %w", pid, parseErr)
 		}
-		s.Ticks[pid] = ticks
+		s.Ticks[pid], s.Starts[pid] = ticks, start
 	}
 	return s, nil
 }
 
-// statTicks is utime plus stime (fields 14 and 15) of a /proc/<pid>/stat line. The command name,
-// in brackets, may hold spaces and brackets: the fields are counted after the last ") ".
-func statTicks(line string) (int64, error) {
+// statTimes is utime plus stime (fields 14 and 15) and starttime (field 22) of a
+// /proc/<pid>/stat line. The command name, in brackets, may hold spaces and brackets: the fields
+// are counted after the last ") ".
+func statTimes(line string) (int64, int64, error) {
 	cut := strings.LastIndex(line, ") ")
 	if cut < 0 {
-		return 0, fmt.Errorf("unreadable stat line %q", strings.TrimSpace(line))
+		return 0, 0, fmt.Errorf("unreadable stat line %q", strings.TrimSpace(line))
 	}
 	fields := strings.Fields(line[cut+2:])
-	const utime, stime = 11, 12
-	if len(fields) <= stime {
-		return 0, fmt.Errorf("unreadable stat line %q", strings.TrimSpace(line))
+	const utime, stime, starttime = 11, 12, 19
+	if len(fields) <= starttime {
+		return 0, 0, fmt.Errorf("unreadable stat line %q", strings.TrimSpace(line))
 	}
 	user, userErr := strconv.ParseInt(fields[utime], 10, 64)
 	system, systemErr := strconv.ParseInt(fields[stime], 10, 64)
-	if userErr != nil || systemErr != nil {
-		return 0, fmt.Errorf("unreadable stat line %q", strings.TrimSpace(line))
+	began, beganErr := strconv.ParseInt(fields[starttime], 10, 64)
+	if userErr != nil || systemErr != nil || beganErr != nil {
+		return 0, 0, fmt.Errorf("unreadable stat line %q", strings.TrimSpace(line))
 	}
-	return user + system, nil
+	return user + system, began, nil
 }
 
 // SessionCPU is a session's share of CPU as the picker shows it, "N%".

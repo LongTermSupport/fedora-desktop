@@ -175,8 +175,24 @@ func TestThePickerOffersCtrlTAndListensForTheKeys(t *testing.T) {
 		"Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit",
 		"Ctrl-N unavailable: ~/proj is not a project folder (no git repository)",
 		`"open elsewhere" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running`,
-		"CPU: over the last second, 100% is one core",
+		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
 		`network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`)
+}
+
+// A redraw must not wait out a CPU sampling interval, so the picker measures against its last draw.
+func TestThePickerKeepsItsCPUSamplesBetweenRedraws(t *testing.T) {
+	h := newHarness(t)
+	s := newServer(h)
+	s.listSessions("/srv/a", "ccy-a")
+	notInProject(h)
+	newPickerRig(h, "|ABORT")
+	if h.app.Probe.KeepSamples {
+		t.Fatal("a one-off listing takes two samples")
+	}
+	exitCodeIs(t, h.run(), 0, h)
+	if !h.app.Probe.KeepSamples {
+		t.Fatal("the picker redraws, so it must not sample twice per redraw")
+	}
 }
 
 func TestThePickerHeaderOffersCtrlNInAProject(t *testing.T) {

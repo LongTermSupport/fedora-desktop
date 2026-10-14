@@ -36,7 +36,21 @@ type Probe struct {
 	Sleep      func(time.Duration)
 	SampleFor  time.Duration
 	ClockTicks int64
+	// KeepSamples is for a caller that calls Detail again and again (the picker's redraws): the
+	// CPU is measured against the sample of the previous call, so no call waits out SampleFor.
+	// The first call has nothing to measure against and reads "-" in the CPU column, as does
+	// the first call to see a session, and a call under minRedrawGap after the last repeats the
+	// last reading. Left false, every call takes two samples SampleFor apart, which is right for
+	// a one-off listing.
+	KeepSamples bool
+
+	previous *Sample
+	last     map[string]string
 }
+
+// minRedrawGap is the least time between two samples worth measuring against each other: CPU
+// time counts in ticks of a hundredth of a second, so a shorter span is mostly rounding.
+const minRedrawGap = 250 * time.Millisecond
 
 // Detail is the extra columns of one session's picker row.
 type Detail struct {
@@ -203,6 +217,13 @@ func (p *Probe) cpuOf(sessions []SessionProcs) (map[string]string, error) {
 	if root == "" {
 		root = defaultProcRoot
 	}
+	hz := p.ClockTicks
+	if hz == 0 {
+		hz = defaultClockTicks
+	}
+	if p.KeepSamples {
+		return p.cpuSinceLastCall(root, all, sessions, hz)
+	}
 	before, err := ReadSample(root, all, p.now())
 	if err != nil {
 		return nil, err
@@ -212,11 +233,11 @@ func (p *Probe) cpuOf(sessions []SessionProcs) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	hz := p.ClockTicks
-	if hz == 0 {
-		hz = defaultClockTicks
-	}
-	words, err := CPUWords(sessions, before.Ticks, after.Ticks, after.Micros-before.Micros, hz)
+	return cpuWords(sessions, before.Ticks, after.Ticks, after.Micros-before.Micros, hz)
+}
+
+func cpuWords(sessions []SessionProcs, before, after map[int]int64, elapsedMicros, hz int64) (map[string]string, error) {
+	words, err := CPUWords(sessions, before, after, elapsedMicros, hz)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +246,57 @@ func (p *Probe) cpuOf(sessions []SessionProcs) (map[string]string, error) {
 		cpu[w.Session] = w.Percent
 	}
 	return cpu, nil
+}
+
+// cpuSinceLastCall takes one sample and measures it against the one the call before left. Only a
+// process that has the same pid and start time in both counts: a pid the first sample did not
+// have is a process born since (or one of a session first seen now), whose lifetime of CPU
+// time is not this interval's, and a start time that changed is another process that was given
+// the pid.
+func (p *Probe) cpuSinceLastCall(root string, pids []int, sessions []SessionProcs, hz int64) (map[string]string, error) {
+	now, err := ReadSample(root, pids, p.now())
+	if err != nil {
+		return nil, err
+	}
+	unmeasured := func(known map[string]string) map[string]string {
+		cpu := make(map[string]string, len(sessions))
+		for _, s := range sessions {
+			word, found := known[s.Session]
+			if !found {
+				word = noWord
+			}
+			cpu[s.Session] = word
+		}
+		return cpu
+	}
+	if p.previous == nil {
+		p.previous = &now
+		p.last = unmeasured(nil)
+		return p.last, nil
+	}
+	elapsed := now.Micros - p.previous.Micros
+	if elapsed < minRedrawGap.Microseconds() {
+		return unmeasured(p.last), nil
+	}
+	before, after := map[int]int64{}, map[int]int64{}
+	for pid, ticks := range now.Ticks {
+		if start, seen := p.previous.Starts[pid]; seen && start == now.Starts[pid] {
+			before[pid], after[pid] = p.previous.Ticks[pid], ticks
+		}
+	}
+	var measured []SessionProcs
+	for _, s := range sessions {
+		if slices.ContainsFunc(s.PIDs, func(pid int) bool { _, ok := before[pid]; return ok }) {
+			measured = append(measured, s)
+		}
+	}
+	cpu, err := cpuWords(measured, before, after, elapsed, hz)
+	if err != nil {
+		return nil, err
+	}
+	p.previous = &now
+	p.last = unmeasured(cpu)
+	return p.last, nil
 }
 
 func (p *Probe) now() time.Time {

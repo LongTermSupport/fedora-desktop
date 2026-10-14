@@ -406,7 +406,7 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		g.app.sayf("%s shares its conversation with %s, which is set going; left alone.\n", name, owner)
 		return g.leaveAlone(name, restore.GoingPending, "shares-conversation-with-"+owner)
 	}
-	tokens, err := transcript.ContextTokens(file)
+	tokens, err := g.app.Transcripts.ContextTokens(file)
 	if err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingPending, "context-unreadable")
@@ -426,15 +426,8 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		return g.leaveAlone(name, restore.GoingPending, "send-failed")
 	}
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
-		name, going, tokens, g.app.cfg.CompactFloor, yesNo(e.Supervised))
+		name, going, tokens, g.app.cfg.CompactFloor, term.YesNo(e.Supervised))
 	return g.goingSet(name, restore.GoingPending, going, at, strconv.FormatInt(tokens, 10), file)
-}
-
-func yesNo(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
 }
 
 // notReady says why a pending session cannot be typed into yet: reason, and whether it is only
@@ -486,7 +479,7 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 	if !live {
 		return g.leaveAlone(name, restore.GoingCompacting, "session-ended-while-compacting")
 	}
-	finished, err := transcript.CompactedSince(e.Transcript, e.AtUnix())
+	finished, err := g.app.Transcripts.CompactedSince(e.Transcript, e.AtUnix())
 	if err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingCompacting, "context-unreadable")

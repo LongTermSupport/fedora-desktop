@@ -131,6 +131,55 @@ func TestFileIsTerminal(t *testing.T) {
 	}
 }
 
+func TestFileIsTerminalIsFalseForDevNullAndPipes(t *testing.T) {
+	if FileIsTerminal("not a file") {
+		t.Fatal("only a file can be a terminal")
+	}
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if FileIsTerminal(null) {
+		t.Fatal("/dev/null is a character device but not a terminal")
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if FileIsTerminal(reader) {
+		t.Fatal("a pipe is not a terminal")
+	}
+	if err = errors.Join(null.Close(), reader.Close(), writer.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrinterKeepsTheFirstFailedWrite(t *testing.T) {
+	var p Printer
+	var ok bytes.Buffer
+	p.Print(&ok, "fine\n")
+	if p.Err() != nil || ok.String() != "fine\n" {
+		t.Fatalf("a good write: %v %q", p.Err(), ok.String())
+	}
+	p.Print(failWriter{}, "x")
+	p.Print(&ok, "still written\n")
+	if p.Err() == nil || p.Err().Error() != "broken pipe" || ok.String() != "fine\nstill written\n" {
+		t.Fatalf("after a failed write: %v %q", p.Err(), ok.String())
+	}
+}
+
+func TestBoldAndResetAreTheEscapeCodes(t *testing.T) {
+	if Bold != "\x1b[1m" || Reset != "\x1b[0m" {
+		t.Fatalf("%q %q", Bold, Reset)
+	}
+}
+
+func TestYesNoIsTheRecordFilesWord(t *testing.T) {
+	if YesNo(true) != "yes" || YesNo(false) != "no" {
+		t.Fatalf("YesNo: %q %q", YesNo(true), YesNo(false))
+	}
+}
+
 type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }

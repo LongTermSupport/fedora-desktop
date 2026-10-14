@@ -1,7 +1,6 @@
 package sessions
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,7 +136,7 @@ func TestWireFillsEverySeam(t *testing.T) {
 		"Runner": app.Runner != nil, "Execer": app.Execer != nil, "Stdin": app.Stdin != nil, "Stdout": app.Stdout != nil,
 		"Stderr": app.Stderr != nil, "Getenv": app.Getenv != nil, "Unsetenv": app.Unsetenv != nil, "Term": app.Term != nil,
 		"Tmux": app.Tmux != nil, "Git": app.Git != nil, "Picker": app.Picker != nil, "Now": app.Now != nil,
-		"Pause": app.Pause != nil, "Signals": app.Signals != nil, "IsTerminal": app.IsTerminal != nil,
+		"Transcripts": app.Transcripts != nil, "Pause": app.Pause != nil, "Signals": app.Signals != nil, "IsTerminal": app.IsTerminal != nil,
 		"InContainer": app.InContainer != nil, "Executable": app.Executable != nil, "Getuid": app.Getuid != nil,
 	}
 	for name, ok := range set {
@@ -192,32 +191,6 @@ func TestPauseForWaitsOrIsInterrupted(t *testing.T) {
 		t.Fatal("no channel")
 	}
 	stop()
-}
-
-func TestIsTerminalIsFalseForEverythingThatIsNotOne(t *testing.T) {
-	if isTerminal("not a file") {
-		t.Fatal("only a file can be a terminal")
-	}
-	null, err := os.Open(os.DevNull)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if isTerminal(null) {
-		t.Fatal("/dev/null is not a terminal")
-	}
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if isTerminal(reader) {
-		t.Fatal("a pipe is not a terminal")
-	}
-	if err = errors.Join(null.Close(), reader.Close(), writer.Close()); err != nil {
-		t.Fatal(err)
-	}
-	if isTerminal(null) {
-		t.Fatal("a closed file is not a terminal")
-	}
 }
 
 func TestIsExecutable(t *testing.T) {

@@ -75,6 +75,13 @@ func (f *CommandError) Is(target error) bool { return target == kindOf(f.Code) }
 // Unwrap returns the runner's error.
 func (f *CommandError) Unwrap() error { return f.cause }
 
+// IsCommandError reports whether err is a tool that ran and exited non-zero, which has already
+// copied its own stderr to the terminal.
+func IsCommandError(err error) bool {
+	cmdErr, ok := errors.AsType[*CommandError](err)
+	return ok && cmdErr != nil
+}
+
 // classify turns a runner error into a CommandError when the program ran and exited non-zero;
 // a program that could not start stays the plain wrapped error.
 func classify(tool string, err error) error {

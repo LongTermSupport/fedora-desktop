@@ -44,6 +44,23 @@ func TestListPrintsTheHeadingThenOneRowPerSessionOnStdout(t *testing.T) {
 	}
 }
 
+// A redraw asks the host each question once: the same command twice is a wasted process.
+func TestOneDrawRunsNoCommandTwice(t *testing.T) {
+	h := newHarness(t)
+	probeTables(h, h.env["HOME"])
+	exitCodeIs(t, h.run("--list"), 0, h)
+	seen := map[string]bool{}
+	for _, line := range h.ran() {
+		if seen[line] {
+			t.Errorf("%q ran twice in one draw: %v", line, h.ran())
+		}
+		seen[line] = true
+	}
+	if len(seen) == 0 {
+		t.Fatal("nothing ran")
+	}
+}
+
 func TestListWithNoSessionsIsSilentOnStdout(t *testing.T) {
 	h := newHarness(t)
 	h.sessions()

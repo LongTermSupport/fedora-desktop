@@ -9,7 +9,13 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 - `cmd/<tool>/main.go` — a thin `main`: read the environment, call one `run` function that
   returns an exit code, `os.Exit` it. No logic beyond that; `run` is tested.
 - `internal/<tool>/` — the tool's flows (`teams`, `sessions`; `podfreeze` and `lxcfreeze` are
-  the two engines of the freeze tools).
+  the two engines of the freeze tools). `teams` is the dispatcher and
+  the wiring only; each flow is a package under it that says what it owns in its package doc:
+  `host` (the adapters over one runner), `board` (the table and `--list`), `picker`, `ops`
+  (apply, remove, backup, restore), `create` (the wizard), `login` (Element and passwords),
+  `seats`, `flow` (what the interactive flows share), `config`, and `teamtest` (the fake
+  machine their tests run on). A package takes the few adapters it uses as fields; none
+  imports a sibling flow it does not call.
 - `internal/freeze/` — what `podfreeze` and `lxcfreeze` share: the group menu, drill-down,
   derived verb, dry run and act loop (`freeze`), the command-line grammar (`freeze/cli`), the
   flow in spec order (`freeze/app`), and the golden replay (`freeze/golden`, test only). An
@@ -18,7 +24,8 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
-  `sessprobe`. Reuse these; a second way to run a command or prompt the user is a defect.
+  `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container).
+  Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules
 

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -26,5 +27,5 @@ func run(args []string, getenv func(string) string, root string, stderr io.Write
 			"build it with playbooks/imports/play-claude-yolo.yml, which bakes the checkout in")
 		return term.ExitFailure
 	}
-	return teams.NewApp(teams.LoadConfig(root, getenv)).Run(args)
+	return teams.NewApp(config.Load(root, getenv)).Run(args)
 }

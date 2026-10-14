@@ -22,13 +22,30 @@ const (
 	ExitCancelled ExitCode = 130
 )
 
+// Bold and Reset are the escape codes a tool that paints its own table wraps text in.
 const (
-	reset  = "\x1b[0m"
-	bold   = "\x1b[1m"
+	Reset  = "\x1b[0m"
+	Bold   = "\x1b[1m"
 	green  = "\x1b[32m"
 	red    = "\x1b[0;31m"
 	accent = "\x1b[33m" // terminal index 3: the theme decides its shade
 )
+
+// Printer writes to the streams a tool is given and keeps the first write that failed, so a
+// tool that printed what nobody could read does not report success: it asks Err when it ends.
+type Printer struct {
+	err error
+}
+
+// Print writes s to w.
+func (p *Printer) Print(w io.Writer, s string) {
+	if _, err := io.WriteString(w, s); err != nil && p.err == nil {
+		p.err = err
+	}
+}
+
+// Err is the first failed Print, nil if every one landed.
+func (p *Printer) Err() error { return p.err }
 
 // Term writes a tool's human-facing lines to Err. IsTerminal and Getenv are seams so a
 // test decides what is a terminal and what NO_COLOR says.
@@ -53,17 +70,27 @@ func New() *Term {
 	return &Term{Err: os.Stderr, IsTerminal: FileIsTerminal, Getenv: os.Getenv}
 }
 
-// FileIsTerminal reports whether v is an *os.File attached to a character device.
+// FileIsTerminal reports whether v is an *os.File attached to a terminal: a character device
+// that is not /dev/null.
 func FileIsTerminal(v any) bool {
 	f, ok := v.(*os.File)
 	if !ok {
 		return false
 	}
 	info, err := f.Stat()
-	if err != nil {
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}
-	return info.Mode()&os.ModeCharDevice != 0
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(info, null)
+}
+
+// YesNo is a flag's word in the tools' record files: "yes" or "no".
+func YesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // ColourOn reports whether w gets colour: only a terminal, and never with NO_COLOR
@@ -100,7 +127,7 @@ func (t *Term) Printf(format string, args ...any) {
 // Say is a heading line, bold on a terminal.
 func (t *Term) Say(text string) {
 	if t.ColourOn(t.Err) {
-		text = bold + text + reset
+		text = Bold + text + Reset
 	}
 	t.Printf("%s\n", text)
 }
@@ -110,7 +137,7 @@ func (t *Term) Say(text string) {
 func (t *Term) PrintError(msg string) {
 	label := "ERROR:"
 	if t.ColourOn(t.Err) {
-		label = red + label + reset
+		label = red + label + Reset
 	}
 	t.Printf("%s %s\n", label, msg)
 }
@@ -120,7 +147,7 @@ func (t *Term) Step(title string) {
 	t.step++
 	t.Printf("\n")
 	if t.ColourOn(t.Err) {
-		t.Printf("%s%s %d/%d  %s%s\n", bold, accent, t.step, t.Steps, title, reset)
+		t.Printf("%s%s %d/%d  %s%s\n", Bold, accent, t.step, t.Steps, title, Reset)
 		return
 	}
 	t.Printf("%d/%d  %s\n", t.step, t.Steps, title)
@@ -130,7 +157,7 @@ func (t *Term) Step(title string) {
 func (t *Term) Answered(value string) {
 	mark := "✓"
 	if t.ColourOn(t.Err) {
-		mark = green + mark + reset
+		mark = green + mark + Reset
 	}
 	t.Printf("     %s %s\n", mark, value)
 }

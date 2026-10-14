@@ -169,6 +169,10 @@ func (c *Client) Declared(ctx context.Context) ([]Team, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseTeams(out)
+}
+
+func parseTeams(out string) ([]Team, error) {
 	rows, err := marker.Fields(out, "TEAM", 6)
 	if err != nil {
 		return nil, fmt.Errorf("declare declared: %w", err)
@@ -197,15 +201,41 @@ func (c *Client) Declared(ctx context.Context) ([]Team, error) {
 // software in source. installed names the teams that have a homeserver unit; the flags are
 // passed sorted so the call is the same whatever order a map gave them in.
 func (c *Client) Status(ctx context.Context, source, appliedDir string, installed []string) ([]Status, error) {
+	out, err := c.runFile(ctx, "status", statusArgs(source, appliedDir, installed)...)
+	if err != nil {
+		return nil, err
+	}
+	return parseStatuses(out)
+}
+
+// Overview is Declared and Status from one run of declare.py: the list redraws on every key,
+// and starting Python twice for it doubled the cost of a redraw.
+func (c *Client) Overview(ctx context.Context, source, appliedDir string, installed []string) ([]Team, []Status, error) {
+	out, err := c.runFile(ctx, "overview", statusArgs(source, appliedDir, installed)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	teams, err := parseTeams(out)
+	if err != nil {
+		return nil, nil, err
+	}
+	states, err := parseStatuses(out)
+	if err != nil {
+		return nil, nil, err
+	}
+	return teams, states, nil
+}
+
+func statusArgs(source, appliedDir string, installed []string) []string {
 	args := make([]string, 0, 4+2*len(installed))
 	args = append(args, "--source", source, "--applied", appliedDir)
 	for _, team := range slices.Sorted(slices.Values(installed)) {
 		args = append(args, "--installed", team)
 	}
-	out, err := c.runFile(ctx, "status", args...)
-	if err != nil {
-		return nil, err
-	}
+	return args
+}
+
+func parseStatuses(out string) ([]Status, error) {
 	rows, err := marker.Fields(out, "STATUS", 4)
 	if err != nil {
 		return nil, fmt.Errorf("declare status: %w", err)

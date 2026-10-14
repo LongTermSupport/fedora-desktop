@@ -55,7 +55,7 @@ hide it. `exec.LookPath` is allowed anywhere.
 - Red, fixture: `testdata/src/fix/internal/badexec` (`bad.go` the direct calls, `evade.go` the
   function value, the `exec.Cmd` literal and `.Run`, `new(exec.Cmd)`, a method value,
   `ForkExec`, `StartProcess`; `LookPath` clean; the owner `execx` clean).
-- Red, real tree: `internal/teams/app.go:274: syscall.Exec outside internal/execx`.
+- Red, real tree: `syscall.Exec outside internal/execx` in the launcher hand-over (now `internal/teams/host`).
 - Green: `execLauncher` now hands over through `execx.Execer` (`launcherVia`, tested with the
   fake).
 - Not caught: raw `syscall.Syscall(SYS_EXECVE, ...)`, cgo, and a process started by code in a
@@ -113,7 +113,7 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   agent-bus path clean) and `lxcfreeze/runs.go` (the owner running its tools clean; `git` and
   `sh -c` inside `lxc-attach --`, a hidden program and a missing `--` flagged).
 - Red, real tree: `internal/sessions/reboot.go:199` (`systemctl`),
-  `internal/teams/takedown.go:105` (`gum`); after the rule was hardened, `busctl` and `ps` run
+  the take-down heading in `internal/teams/ops` (`gum`); after the rule was hardened, `busctl` and `ps` run
   from `sessions`, `podman`/`docker` queried from `sessions`, `env` hiding `python3` in `declare`,
   `systemd-run` hiding `tmux` in `tmuxccy`, and seven run-time names.
 - Green: `systemd.Reboot` and `systemd.CanReboot`, `sessprobe.ProcessTable` and
@@ -178,7 +178,7 @@ leftmost operand is such a constant (`"~" + rest`).
   `evade.go` the concatenation, formatters, builder and buffer writes, trim, replacer and join; a
   `_test.go` flagged, an unrelated `Replace` and a `~` that does not begin the text clean; the
   owner `term` clean).
-- Red, real tree: `internal/teams/collect_test.go:270`, `element_test.go:47`.
+- Red, real tree: the `board` and `login` tests of `internal/teams`.
 - Green: both use `term.AbbrevHome`.
 - Not caught: a `~` assembled from non-constant pieces (`string(rune(126))`, a variable). A
   legitimate "does the answer begin with `~`" check has no exit but `internal/term`; add an

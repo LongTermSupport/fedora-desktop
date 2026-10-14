@@ -1,0 +1,209 @@
+package login
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+)
+
+func (h rig) withElementProfile(t *testing.T) {
+	t.Helper()
+	teamtest.MustWrite(t, h.elementLauncher(), "[Desktop Entry]\n")
+	h.On("systemd-run", "", 0)
+	// the people have each signed in, so no password is offered
+	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
+}
+
+func TestElementOpensTheProfileInItsOwnScopeAndEndsThePicker(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	snap := h.pass(t)
+	res, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 || res != flow.Done {
+		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
+	}
+	var run execx.Cmd
+	for _, c := range h.Fake.Calls() {
+		if c.Name == "systemd-run" {
+			run = c
+		}
+	}
+	line := run.Line()
+	if !strings.HasPrefix(line, "systemd-run --user --scope --quiet --collect --unit ccy-teams-element-alpha-") ||
+		!strings.HasSuffix(line, "setsid -w gio launch "+h.elementLauncher()) {
+		t.Fatalf("systemd-run %q", line)
+	}
+	logPath := filepath.Join(h.l.StateDir, "element-alpha.log")
+	for _, want := range []string{"Opening alpha in Element.\n", "Element is starting; its own messages go to " + term.AbbrevHome(logPath, h.l.Home) + ".\n"} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+	if h.Fake.Called(teamtest.SudoBus + "human password") {
+		t.Fatal("a person who has signed in is offered no password")
+	}
+}
+
+func TestElementFailedLaunchIsExplicitlyAFailureWithTheLogsTail(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	logPath := filepath.Join(h.l.StateDir, "element-alpha.log")
+	teamtest.MustWrite(t, logPath, "electron chatter on stderr\n")
+	h.OnErr("systemd-run", "gio: failed", 1)
+	snap := h.pass(t)
+	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure {
+		t.Fatalf("%v", err)
+	}
+	for _, want := range []string{"ERROR: Element did not start; its messages are in ", "electron chatter on stderr\n"} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+}
+
+func TestElementLaunchFailureThatIsNotAnExitIsReportedToo(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	// the log's directory is a file, so the launch cannot even open its log
+	teamtest.MustWrite(t, h.l.StateDir, "")
+	snap := h.pass(t)
+	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure {
+		t.Fatalf("%v", err)
+	}
+	if !strings.Contains(h.ErrOut.String(), "ERROR: ") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+func TestElementOffersNeverSignedInPeopleANewPassword(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
+	h.passwordable()
+	h.Script.Fzf = []string{"|YES"}
+	snap := h.pass(t)
+	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 {
+		t.Fatalf("%v", err)
+	}
+	for _, want := range []string{
+		"owner has never signed in to alpha.\n", "a-new-password", "Copy it now. Press Enter to open Element.\n", "Opening alpha in Element.\n",
+	} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+}
+
+func TestElementNeverSignedInDeclinedStillOpens(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
+	h.Script.Fzf = []string{"|EXIT"}
+	snap := h.pass(t)
+	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 {
+		t.Fatalf("%v", err)
+	}
+	if h.Fake.Called(teamtest.SudoBus+"human password") || !h.Fake.Called("systemd-run") {
+		t.Fatalf("calls %v", h.Fake.Calls())
+	}
+	if strings.Contains(h.ErrOut.String(), "Copy it now") {
+		t.Fatal("nothing to copy when no password was set")
+	}
+}
+
+func TestElementWithNoProfileOffersToSetItUp(t *testing.T) {
+	h := newRig(t)
+	h.Script.Gum = []string{"NO"}
+	snap := h.pass(t)
+	res, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if err != nil || res != flow.Refused {
+		t.Fatalf("%v %v", res, err)
+	}
+	for _, want := range []string{
+		"alpha has no Element profile on this desktop yet.\n", "Nothing set up. Ctrl-E offers it again.\nPress Enter to go back to the list.\n",
+	} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+	if strings.Contains(h.ErrOut.String(), "agent_bus_element_teams") {
+		t.Fatal("the host_vars key is never named")
+	}
+	if want := "gum confirm --default=true Set one up now? It installs Element Desktop if needed (sudo asks for your password)."; h.Script.GumLog[0] != want {
+		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	if h.elementPlays() != 0 {
+		t.Fatal("the Element play was run")
+	}
+}
+
+func TestElementSetUpDeclaresThenRunsThePlayThenOpens(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("element", "CHANGED\tteam alpha\n")
+	h.On("systemd-run", "", 0)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "DEVICE\ta\t-\n", 0)
+	h.Script.Gum = []string{"YES"}
+	// the play writes the launcher
+	h.Fake.OnFunc(strings.Fields(h.Host.ElementPlay), func(execx.Cmd) (execx.Result, error) {
+		teamtest.MustWrite(t, h.elementLauncher(), "")
+		return execx.Result{}, nil
+	})
+	snap := h.pass(t)
+	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if h.elementPlays() != 1 {
+		t.Fatalf("the Element play ran %d times", h.elementPlays())
+	}
+}
+
+func TestElementSetUpFailureIsSaidAndKeepsThePicker(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("element", "CHANGED\tx\n")
+	h.Script.Gum = []string{"YES"}
+	h.OnErr(h.Host.ElementPlay, "play failed", 1)
+	snap := h.pass(t)
+	res, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if err != nil || res != flow.Refused {
+		t.Fatalf("%v %v", res, err)
+	}
+	if !strings.Contains(h.ErrOut.String(), "alpha was not set up in Element, for the reason above.\nPress Enter to go back to the list.\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	if _, err := os.Stat(h.elementLauncher()); err == nil {
+		t.Fatal("no launcher was written")
+	}
+
+	h = newRig(t)
+	h.OnErr(h.DeclarePrefix("element"), "declare: refused", 78)
+	h.Script.Gum = []string{"YES"}
+	snap = h.pass(t)
+	if res, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil || res != flow.Refused {
+		t.Fatalf("%v %v", res, err)
+	}
+	if h.elementPlays() != 0 || !strings.Contains(h.ErrOut.String(), "declare: refused\n") {
+		t.Fatalf("plays %d stderr %q", h.elementPlays(), h.ErrOut.String())
+	}
+}
+
+func TestElementSetUpCancelledEndsWith130(t *testing.T) {
+	h := newRig(t)
+	h.Script.Gum = []string{"CANCEL"}
+	snap := h.pass(t)
+	_, err := h.l.OpenElement(context.Background(), snap, "alpha")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitCancelled {
+		t.Fatalf("%v", err)
+	}
+}

@@ -13,7 +13,6 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 var wholeSeconds = regexp.MustCompile(`^[0-9]+$`)
@@ -230,7 +229,7 @@ func (a *App) tookInput(e restore.Entry, at int64) (restore.Took, error) {
 	case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingKeep:
 		return restore.TookNA, nil
 	}
-	took, err := transcript.TookInputSince(e.Transcript, at)
+	took, err := a.Transcripts.TookInputSince(e.Transcript, at)
 	if err != nil {
 		a.failErr(err)
 		return restore.TookNA, errReported
