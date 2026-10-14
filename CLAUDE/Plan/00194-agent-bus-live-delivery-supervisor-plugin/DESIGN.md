@@ -1,7 +1,9 @@
 # Plan 00194 design: team messages shown in a ccy session's main thread
 
 **Status**: proposed, with the owner's decisions of 2026-10-14 recorded (section 0). Decision
-G (the upstream issue) is still open.
+G (the upstream issue) is filed. The pingbus side (section 3, "pingbus changes", and the
+spool line format in section 6) is built; the supervisor plugin waits on the upstream
+release.
 
 **The owner's direction.**
 
@@ -78,8 +80,9 @@ Each is the owner's, with the reason given.
   turn. The host test checks that it is visible; if not, revisit (section 5).
 - **F. Body rendering and caps.** §15's `ensure_ascii` for v1. Caps: 2 KiB per body, 12 KiB
   and 8 entries per delivery. The hourly cap is adjusted, with a reason, in section 2.3.
-- **G. Open.** The hooks-daemon plugin API 1.1 issue is not yet filed; it awaits the owner
-  (section 5).
+- **G. Filed.** The hooks-daemon plugin API 1.1 issue is
+  [Edmonds-Commerce-Limited/claude-code-hooks-daemon#119](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/119)
+  (section 5). The plugin and the entrypoint wiring wait on the release that carries it.
 
 ## 1. What works today, end to end
 
@@ -576,13 +579,84 @@ relies on that.
 
 ## 5. Open items for the owner
 
-1. **The upstream issue (decision G).** File the hooks-daemon issue for plugin API 1.1
-   (`Relay`, `on_relay` on every tick, `tick.relayed`, a supervisor-rendered envelope, caps).
-   It narrows Plan 00487's "no general type-this-text" non-goal to "only a
+1. **The upstream issue (decision G): filed** as
+   [#119](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/119)
+   (plugin API 1.1: `Relay`, `on_relay` on every tick, `tick.relayed`, a supervisor-rendered
+   envelope, caps). It narrows Plan 00487's "no general type-this-text" non-goal to "only a
    supervisor-rendered, escaped body", and drops the idle-only constraint for relays while
-   keeping the mid-composition rail. *Recommended: yes, as in section 2.3. Awaiting the
-   owner.*
+   keeping the mid-composition rail, as in section 2.3. Task 2.1 waits on its release.
 2. **If the `SENT` echo's `systemMessage` does not show in the TUI** (host check, section
    1.3): revisit. Candidates are the supervisor typing it as one fixed `SENT` envelope with
    "no reply needed", or putting it in the next relay.
 3. **Tuning the hourly relay cap** (120) from the host test.
+
+## 6. Spool line format
+
+The contract between `pingbus watch` (the producer) and the `ccy-agent-bus` plugin (the
+consumer). It holds in relay mode only (`PINGBUS_DELIVERY=relay`). `docs/agent-bus-protocol.md`
+§12 and §15 carry the same facts in brief; this section is what a plugin is written against.
+`tests/helpers/pingbus/test_relay_cli.py` pins the producer to it.
+
+**Files**, below `$PINGBUS_HOME/relay/` (mode 0700; files 0600):
+
+- `spool/<team>/<event id>.line`: one item to type. `<team>` is a team name and
+  `<event id>` an event ID (`$` and 43 characters of `[A-Za-z0-9_-]`), both checked against
+  their grammars before they become a path. A file appears whole or not at all (written to
+  a dot-prefixed temporary name, then renamed), so a reader may open any name ending in
+  `.line` that is not dot-prefixed.
+- `relayed/<team>/<event id>`: written by the plugin, empty, once the supervisor reports the
+  line submitted. The plugin creates the directory (mode 0700) and writes a marker only for
+  a line it read and had typed.
+- `stalled`: present while the watcher considers relay stalled. The plugin only reads it
+  (for its status line).
+
+**The line.** One line, UTF-8 (in practice ASCII: every field passed its grammar, and the
+text is `json.dumps(…, ensure_ascii=True)`), ending in a single `\n`. Fields are separated
+by one tab; none contains a tab or newline. An absent value is `-`. It is §15's line for the
+item, plus one final field, `cut`. Fields, numbered from 0:
+
+| Kind      | 0         | 1   | 2    | 3                               | 4             | 5       | 6    | 7     | 8     | 9      | 10   | 11    |
+| --------- | --------- | --- | ---- | ------------------------------- | ------------- | ------- | ---- | ----- | ----- | ------ | ---- | ----- |
+| `HUMAN`   | `HUMAN`   | `1` | team | event ID                        | sender        | ts (ms) | text | `cut` |       |        |      |       |
+| `PEER`    | `PEER`    | `1` | team | event ID                        | sender        | ts (ms) | text | copy  | `cut` |        |      |       |
+| `PING`    | `PING`    | `1` | team | event ID                        | sender        | verb    | ref  | re    | trust | branch | copy | `cut` |
+| `TIMEOUT` | `TIMEOUT` | `1` | team | event ID of the unanswered ping | silent target | verb    | ref  | `cut` |       |        |      |       |
+
+- `sender` and `target` are localparts; `text` is a JSON string literal (double-quoted,
+  escaped, one line); `copy` is `-` or `copy:` and localparts joined by `,`.
+- The kind is `HUMAN` only for a message from a human listed in the admin-written team
+  record, and `PEER` only for an agent's text naming this agent; `pingbus` decides it, from
+  the event as the homeserver serves it. The plugin never decides a kind from text.
+- A consumer takes the field count from the kind (`HUMAN` 8, `PEER` 9, `PING` 12, `TIMEOUT`
+  8\) and refuses any other line: it logs the file name and the reason (never the content)
+  and leaves the file, which `watch` will not rewrite.
+
+**`cut`.** `-` when the text is whole. Otherwise `shown/total`: the text was longer than
+2048 UTF-8 bytes (decision F), so `text` holds its first `shown` bytes (cut on a character
+boundary, before escaping) of `total`. The plugin passes the fact on to the supervisor,
+which shows the truncation marker (section 2.4). `PING` and `TIMEOUT` lines have no text and
+always end in `-`.
+
+**What the line leaves out.** The seat addressed is not in it: the plugin knows each team's
+seat from `PINGBUS_SEATS` (at most one seat per team). The `authority` sentence and the
+header wording are the supervisor's, chosen by kind.
+
+**Order and batching.** Oldest first: by `ts` where the line has one, else by the file's
+modification time, then name. The 12 KiB and 8-entry caps (section 2.3) are the
+supervisor's; the plugin offers entries in order and leaves the rest in the spool.
+
+**Confirmation and lifetime.**
+
+1. The plugin returns the line's entries as a `Relay`, under a key of its own choosing
+   (a key may not contain `$`, so it keeps its own map from key to team and event ID).
+2. When `tick.relayed` names the key, it writes `relayed/<team>/<event id>`.
+3. `watch` consumes the inbox item (or marks the `TIMEOUT` reported) once, then removes the
+   line and the marker. The plugin deletes nothing.
+4. A line is never rewritten while it waits. After a container restart the spool is gone
+   and the inbox item is not, so the item is spooled again under the same event ID.
+5. An item the agent read first (`pingbus recv`, `wait`) is withdrawn: the line disappears
+   before it is typed, or, if it was already typed, the marker is removed unread.
+
+**Stall.** If items wait and no marker appears for 120 s, `watch` writes `stalled`; it
+removes it at the next confirmation or when nothing waits. `pingbus status` shows
+`relay=stalled`, and the hooks bring back the counts and the Stop block.

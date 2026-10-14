@@ -20,6 +20,17 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pingbus hook post-tool"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
