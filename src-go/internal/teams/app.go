@@ -148,7 +148,7 @@ func (a *App) wire() {
 		a.Term = a.freshTerm()
 	}
 	if a.Sudo == nil {
-		a.Sudo = &sudo.Sudo{Runner: a.Runner, Term: a.Term, Stdin: a.Stdin, Stdout: a.Stdout}
+		a.Sudo = &sudo.Sudo{Runner: a.Runner, Term: a.Term, Stdin: a.Stdin, Stdout: a.Stdout, OpenTTY: func() (io.ReadCloser, error) { return a.OpenTTY() }}
 	}
 	if a.Systemd == nil {
 		a.Systemd = &systemd.Systemd{Runner: a.Runner}

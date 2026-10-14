@@ -3,6 +3,7 @@ package freeze
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -176,4 +177,68 @@ func (f *failOn) Act(ctx context.Context, verb Verb, name string) (string, error
 		return "refused", errors.New("exit status 1")
 	}
 	return out, err
+}
+
+// Ctrl-C part-way through a batch is a cancellation, not N container failures: the targets after
+// the interrupt are not attempted, nothing is marked failed, and the run ends 130.
+func TestDoActionCancelledMidBatchStopsAndIsACancellation(t *testing.T) {
+	h := newHarness(t, vocabs[0])
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.eng.onAct = func(call int) error {
+		if call == 3 {
+			cancel()
+			return fmt.Errorf("run podman: %w", ctx.Err())
+		}
+		return nil
+	}
+	h.eng.entries = append(h.eng.entries,
+		Entry{Name: "foxtrot", State: vocabs[0].running}, Entry{Name: "golf", State: vocabs[0].running})
+	if err := h.s.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	err := h.s.DoAction(ctx, VerbFreeze, []string{"charlie", "echo", "foxtrot", "golf"})
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrSomeFailed) {
+		t.Fatalf("want a bare cancellation, got %v", err)
+	}
+	got := h.err.String()
+	mustEq(t, "the third act was the last attempted", h.eng.actsLine(), "freeze charlie;freeze echo;freeze foxtrot;")
+	mustEq(t, "two ticks", strings.Count(got, "✓"), 2)
+	mustLack(t, "no crosses", got, "✗")
+	mustLack(t, "no failure count", got, "failed")
+	mustContain(t, "the thaw hint names only what was frozen", got, "  Thaw them with: testfreeze thaw charlie echo\n")
+	mustContain(t, "one clear line says it was interrupted", got, "testfreeze: interrupted — 2 of 4 container(s) done, the rest were not touched.\n")
+}
+
+// A context already cancelled before the batch starts acts on nothing.
+func TestDoActionAlreadyCancelledActsOnNothing(t *testing.T) {
+	h := newHarness(t, vocabs[0])
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := h.s.DoAction(ctx, VerbFreeze, []string{"charlie"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	mustEq(t, "no act", len(h.eng.acts), 0)
+}
+
+// A fatal error from the engine (sudo's timestamp lapsing) ends the batch with its one message
+// rather than failing every remaining container.
+func TestDoActionAFatalActErrorStopsTheBatchWithOneMessage(t *testing.T) {
+	h := newHarness(t, vocabs[0])
+	h.eng.entries = append(h.eng.entries,
+		Entry{Name: "foxtrot", State: vocabs[0].running}, Entry{Name: "golf", State: vocabs[0].running})
+	if err := h.s.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	h.eng.onAct = func(call int) error {
+		if call == 2 {
+			return Die("the credential lapsed.")
+		}
+		return nil
+	}
+	err := h.s.DoAction(context.Background(), VerbFreeze, []string{"charlie", "echo", "foxtrot", "golf"})
+	mustEq(t, "the one fatal message", dieMsg(err), "the credential lapsed.")
+	mustEq(t, "the batch stopped at the fatal act", h.eng.actsLine(), "freeze charlie;freeze echo;")
+	mustLack(t, "no per-container failure lines", h.err.String(), "✗")
+	mustContain(t, "what succeeded is still named for the undo", h.err.String(), "  Thaw them with: testfreeze thaw charlie\n")
 }

@@ -38,6 +38,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -125,6 +126,12 @@ func newSudo(f *execx.Fake, tty bool) *sudo.Sudo {
 		},
 		Stdin:  strings.NewReader(""),
 		Stdout: &bytes.Buffer{},
+		OpenTTY: func() (io.ReadCloser, error) {
+			if !tty {
+				return nil, errors.New("no tty")
+			}
+			return io.NopCloser(strings.NewReader("")), nil
+		},
 	}
 }
 

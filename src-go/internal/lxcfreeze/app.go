@@ -65,10 +65,11 @@ func (a *App) plain(key string) string {
 
 func (a *App) tool() app.Tool {
 	asker := &sudo.Sudo{
-		Runner: a.Env.Runner,
-		Term:   &term.Term{Err: a.Env.Err, IsTerminal: a.Env.IsTerminal, Getenv: a.plain},
-		Stdin:  a.Stdin,
-		Stdout: a.Env.Out,
+		Runner:  a.Env.Runner,
+		Term:    &term.Term{Err: a.Env.Err, IsTerminal: a.Env.IsTerminal, Getenv: a.plain},
+		Stdin:   a.Stdin,
+		Stdout:  a.Env.Out,
+		OpenTTY: a.Env.OpenTTY,
 	}
 	engine := &Engine{Sudo: asker, LookPath: a.Env.LookPath, Err: a.Env.Err}
 	return app.Tool{Spec: spec, Usage: usageText, Cfg: Config(), Engine: engine}

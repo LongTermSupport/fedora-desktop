@@ -2,6 +2,7 @@ package freeze
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -88,12 +89,19 @@ func (s *Session) doAction(ctx context.Context, verb Verb, selected []string) er
 		}
 	}
 	s.stderr.Printf("%d container(s) being %s:\n%s", len(b.Act), past, s.Table(b.Act...))
-	done, failed := s.actOn(ctx, verb, b.Act)
+	done, failed, stop := s.actOn(ctx, verb, b.Act)
 	if verb == VerbFreeze && len(done) > 0 {
 		s.stderr.Printf("\n  Thaw them with: %s thaw %s\n", s.Cfg.Tool, strings.Join(done, " "))
 		if s.Cfg.FreezeNote != "" {
 			s.stderr.Printf("\n%s\n", s.Cfg.FreezeNote)
 		}
+	}
+	if errors.Is(stop, context.Canceled) {
+		s.stderr.Printf("%s: interrupted — %d of %d container(s) done, the rest were not touched.\n", s.Cfg.Tool, len(done), len(b.Act))
+		return stop
+	}
+	if stop != nil {
+		return stop
 	}
 	if failed > 0 {
 		s.stderr.Printf("%s: %d of %d container(s) failed — see above.\n", s.Cfg.Tool, failed, len(b.Act))
@@ -103,13 +111,22 @@ func (s *Session) doAction(ctx context.Context, verb Verb, selected []string) er
 }
 
 // actOn attempts every target in order, reporting each, and returns the names that succeeded and
-// the number that failed.
-func (s *Session) actOn(ctx context.Context, verb Verb, names []string) ([]string, int) {
-	var done []string
-	failed := 0
+// the number that failed. It stops early, with the reason as stop, when the context is cancelled
+// (an interrupt is not a container failure, and a target it killed is not reported as one) or
+// when the engine returns a fatal error, which would only repeat for every target still to go.
+func (s *Session) actOn(ctx context.Context, verb Verb, names []string) (done []string, failed int, stop error) {
 	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return done, failed, err
+		}
 		out, err := s.Engine.Act(ctx, verb, name)
 		if err != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				return done, failed, cerr
+			}
+			if _, fatal := errors.AsType[*DieError](err); fatal {
+				return done, failed, err
+			}
 			text := strings.TrimRight(out, "\n")
 			if text == "" {
 				text = err.Error()
@@ -121,7 +138,7 @@ func (s *Session) actOn(ctx context.Context, verb Verb, names []string) ([]strin
 		s.stderr.Printf("  ✓ %s\n", name)
 		done = append(done, name)
 	}
-	return done, failed
+	return done, failed, nil
 }
 
 // withWrites folds a failed write to either stream into the error a run ends with, so a full disk

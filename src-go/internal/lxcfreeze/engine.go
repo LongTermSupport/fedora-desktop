@@ -186,10 +186,30 @@ func (e *Engine) Load(ctx context.Context) (freeze.Inventory, error) {
 // runAct runs one lxc command as root; its words are the container's failure text.
 func (e *Engine) runAct(ctx context.Context, argv ...string) (string, error) {
 	res, err := e.Sudo.Capture(ctx, argv...)
+	if stop := e.endsBatch(ctx, err); stop != nil {
+		return "", stop
+	}
 	if err != nil {
 		return freeze.FailureText(res, err), err
 	}
 	return "", nil
+}
+
+// endsBatch is non-nil when err means no further container of the batch can be acted on, so it
+// is not one container's failure: the run was interrupted (the context's own error, so the exit
+// is a cancellation), or sudo's timestamp lapsed and every remaining act would say the same.
+func (e *Engine) endsBatch(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if errors.Is(err, sudo.ErrNeedsPassword) {
+		return freeze.Die("sudo's password timestamp lapsed part-way through, so the rest was not attempted.\n" +
+			"  Run 'sudo -v' and try again; what is listed above as done was done.")
+	}
+	return nil
 }
 
 // read is one container: its entry when it is running or frozen, no entry when it is stopped, and

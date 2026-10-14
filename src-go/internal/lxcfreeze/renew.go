@@ -21,6 +21,9 @@ const ethernet = "ethernet"
 func (e *Engine) renewDHCP(ctx context.Context, name string) (string, error) {
 	attach := []string{"lxc-attach", "-n", name, "--", "nmcli"}
 	status, err := e.Sudo.Capture(ctx, append(attach, "-t", "-f", "DEVICE,TYPE", "device", "status")...)
+	if stop := e.endsBatch(ctx, err); stop != nil {
+		return "", stop
+	}
 	if err != nil {
 		return "thawed, but the DHCP lease was not renewed — nmcli failed: " + freeze.FailureText(status, err), errNotRenewed
 	}
@@ -30,6 +33,9 @@ func (e *Engine) renewDHCP(ctx context.Context, name string) (string, error) {
 	}
 	for _, dev := range devices {
 		res, connectErr := e.Sudo.Capture(ctx, append(attach, "device", "connect", dev)...)
+		if stop := e.endsBatch(ctx, connectErr); stop != nil {
+			return "", stop
+		}
 		if connectErr != nil {
 			return "thawed, but the DHCP lease on " + dev + " was not renewed — nmcli failed: " + freeze.FailureText(res, connectErr), errNotRenewed
 		}

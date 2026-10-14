@@ -29,6 +29,35 @@ func loopHarness(t *testing.T, keys ...string) *harness {
 	return h
 }
 
+// Ctrl-C during an act in the menu ends the session as a cancellation: no refresh on the dead
+// context, no second menu.
+func TestLoopCancelledDuringActEndsAsACancellationWithoutRefreshing(t *testing.T) {
+	h := loopHarness(t, "all", "all")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.eng.onAct = func(int) error {
+		cancel()
+		return ctx.Err()
+	}
+	err := h.s.Loop(ctx)
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrSomeFailed) {
+		t.Fatalf("want a bare cancellation, got %v", err)
+	}
+	mustEq(t, "no refresh after the interrupt", h.eng.loads, 1)
+	mustEq(t, "no second menu", h.chooser.groups, 1)
+}
+
+func TestLoopCancelledBeforeARefreshDoesNotRunIt(t *testing.T) {
+	h := loopHarness(t, "all")
+	ctx, cancel := context.WithCancel(context.Background())
+	h.s.fresh = false
+	cancel()
+	if err := h.s.Loop(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	mustEq(t, "the engine was not asked", h.eng.loads, 1)
+}
+
 func TestLoopQuittingLeavesWithSuccess(t *testing.T) {
 	h := loopHarness(t)
 	if err := h.s.Loop(context.Background()); err != nil {

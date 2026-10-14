@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -20,8 +21,19 @@ func newSudo(f *execx.Fake, tty bool) *Sudo {
 			IsTerminal: func(any) bool { return tty },
 			Getenv:     func(string) string { return "" },
 		},
-		Stdin:  strings.NewReader(""),
-		Stdout: &bytes.Buffer{},
+		Stdin:   strings.NewReader(""),
+		Stdout:  &bytes.Buffer{},
+		OpenTTY: fakeTTY(tty),
+	}
+}
+
+// fakeTTY is the seam for /dev/tty: openable or not.
+func fakeTTY(openable bool) func() (io.ReadCloser, error) {
+	return func() (io.ReadCloser, error) {
+		if !openable {
+			return nil, errors.New("open /dev/tty: no such device or address")
+		}
+		return io.NopCloser(strings.NewReader("")), nil
 	}
 }
 
@@ -223,5 +235,31 @@ func TestRunFailure(t *testing.T) {
 func TestNewWiresRealStreams(t *testing.T) {
 	if s := New(&execx.Fake{}, term.New()); s.Stdin != os.Stdin || s.Stdout != os.Stdout || s.Runner == nil {
 		t.Fatal("New leaves a field unset")
+	}
+}
+
+// sudo prompts on /dev/tty whatever stdin and stderr are, so a redirected stderr or a piped
+// stdin must not stop Ready asking while a controlling terminal exists.
+func TestReadyAsksWhenStdinAndStderrAreNotTerminalsButDevTTYOpens(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-v"}, execx.Result{})
+	s := newSudo(f, true)
+	s.Term.IsTerminal = func(any) bool { return false }
+	if err := s.Ready(context.Background(), "Freezing."); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if !f.Called("sudo -v") {
+		t.Error("sudo -v was not run although /dev/tty opens")
+	}
+}
+
+func TestReadyWithNilOpenTTYCannotPrompt(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	s := newSudo(f, true)
+	s.OpenTTY = nil
+	if err := s.Ready(context.Background(), "x"); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("got %v", err)
 	}
 }

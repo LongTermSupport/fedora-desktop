@@ -6,6 +6,8 @@ package lxcfreeze
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -216,6 +218,51 @@ func TestActACommandThatCannotStartIsAFailureOfThatContainer(t *testing.T) {
 	out, err := act(f, freeze.VerbFreeze)
 	if err == nil || !strings.Contains(out, "sudo is not installed") {
 		t.Fatalf("got %q, %v", out, err)
+	}
+}
+
+// ---- cancellation and sudo expiry mid-batch ----
+
+// A cancel between the unfreeze and the renewal is a cancellation: the container is thawed, and
+// the run must not claim a failed renewal of a lease nobody had time to renew.
+func TestActCancelledDuringTheRenewalIsTheCancellationNotARenewalFailure(t *testing.T) {
+	f := actFake()
+	f.OnError([]string{"sudo", "-n", "lxc-attach", "-n", "demo", "--", "nmcli", "-t"},
+		fmt.Errorf("run sudo: %w", context.Canceled))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out, err := newEngine(f).Act(ctx, freeze.VerbThaw, "demo")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	if strings.Contains(out, "thawed, but") {
+		t.Errorf("a cancel reported as a renewal failure: %q", out)
+	}
+}
+
+// sudo's timestamp lapsing between two containers of a batch is one fatal message, from the
+// first act that meets it, whichever command meets it.
+func TestActSudoExpiringMidBatchIsFatalWithTheRefusalText(t *testing.T) {
+	want := "sudo's password timestamp lapsed part-way through, so the rest was not attempted.\n" +
+		"  Run 'sudo -v' and try again; what is listed above as done was done."
+	cases := map[string]struct {
+		verb freeze.Verb
+		argv []string
+	}{
+		"freeze":          {freeze.VerbFreeze, []string{"sudo", "-n", "lxc-freeze"}},
+		"unfreeze":        {freeze.VerbThaw, []string{"sudo", "-n", "lxc-unfreeze"}},
+		"renewal scan":    {freeze.VerbThaw, []string{"sudo", "-n", "lxc-attach", "-n", "demo", "--", "nmcli", "-t"}},
+		"renewal connect": {freeze.VerbThaw, []string{"sudo", "-n", "lxc-attach", "-n", "demo", "--", "nmcli", "device"}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := actFake()
+			f.On(c.argv, exit1("sudo: a password is required\n"))
+			_, err := newEngine(f).Act(context.Background(), c.verb, "demo")
+			if msg := dieText(t, err); msg != want {
+				t.Fatalf("got %q", msg)
+			}
+		})
 	}
 }
 

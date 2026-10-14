@@ -29,6 +29,9 @@ func (s *Session) Loop(ctx context.Context) error {
 // (the session goes on) unless stop is also set.
 func (s *Session) pass(ctx context.Context) (bool, error) {
 	if !s.fresh {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
 		if err := s.Refresh(ctx); err != nil {
 			return true, err
 		}

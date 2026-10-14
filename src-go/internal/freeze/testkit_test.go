@@ -87,6 +87,8 @@ type fakeEngine struct {
 	acts      []string // "freeze charlie"
 	actErr    error
 	actOutput string
+	// onAct runs inside Act after the call is recorded; a non-nil result is Act's error.
+	onAct func(call int) error
 	selectFn  func(key string) ([]string, error)
 	groupsFn  func(inv Inventory) []Group
 	footer    string
@@ -119,6 +121,11 @@ func (f *fakeEngine) Select(_ context.Context, inv Inventory, key string) ([]str
 
 func (f *fakeEngine) Act(_ context.Context, verb Verb, name string) (string, error) {
 	f.acts = append(f.acts, string(verb)+" "+name)
+	if f.onAct != nil {
+		if err := f.onAct(len(f.acts)); err != nil {
+			return "", err
+		}
+	}
 	if f.actErr != nil {
 		return f.actOutput, f.actErr
 	}

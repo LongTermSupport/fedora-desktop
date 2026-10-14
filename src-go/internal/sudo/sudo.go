@@ -40,11 +40,38 @@ type Sudo struct {
 	Term   *term.Term
 	Stdin  io.Reader
 	Stdout io.Writer
+	// OpenTTY opens the controlling terminal. sudo asks for its password there whatever
+	// stdin and stderr are, so whether it opens is whether asking is possible. Nil means
+	// no terminal to ask on.
+	OpenTTY func() (io.ReadCloser, error)
 }
 
-// New is a Sudo on the process's stdin and stdout.
+// New is a Sudo on the process's stdin and stdout, asking on /dev/tty.
 func New(r execx.Runner, t *term.Term) *Sudo {
-	return &Sudo{Runner: r, Term: t, Stdin: os.Stdin, Stdout: os.Stdout}
+	return &Sudo{Runner: r, Term: t, Stdin: os.Stdin, Stdout: os.Stdout, OpenTTY: openDevTTY}
+}
+
+func openDevTTY() (io.ReadCloser, error) {
+	f, err := os.Open("/dev/tty")
+	if err != nil {
+		return nil, fmt.Errorf("open /dev/tty: %w", err)
+	}
+	return f, nil
+}
+
+// canPrompt is whether a controlling terminal opens, the test sudo itself applies.
+func (s *Sudo) canPrompt() (bool, error) {
+	if s.OpenTTY == nil {
+		return false, nil
+	}
+	tty, err := s.OpenTTY()
+	if err != nil {
+		return false, nil
+	}
+	if err := tty.Close(); err != nil {
+		return false, fmt.Errorf("close the terminal: %w", err)
+	}
+	return true, nil
 }
 
 // Ready makes sudo's credential available for the root commands that follow. Passwordless
@@ -57,7 +84,11 @@ func (s *Sudo) Ready(ctx context.Context, why string) error {
 		return nil
 	}
 	said := strings.TrimRight(string(probe.Stdout)+string(probe.Stderr), "\n")
-	if !s.Term.IsTerminal(s.Stdin) || !s.Term.IsTerminal(s.Term.Err) {
+	can, err := s.canPrompt()
+	if err != nil {
+		return err
+	}
+	if !can {
 		s.Term.PrintError(why + " That needs sudo, and with no terminal there is nowhere to ask for your password (sudo said: " + said + "). Run sudo -v first.")
 		return fmt.Errorf("%w: no terminal", ErrNotReady)
 	}
