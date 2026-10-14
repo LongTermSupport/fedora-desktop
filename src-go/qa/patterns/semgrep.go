@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // requireSemgrep is that semgrep runs at all.
@@ -74,17 +76,8 @@ const noPath = "(no path)"
 
 // semgrepReport is the part of semgrep's JSON that matters.
 type semgrepReport struct {
-	Results []struct {
-		CheckID string `json:"check_id"`
-		Path    string `json:"path"`
-		Start   struct {
-			Line int `json:"line"`
-		} `json:"start"`
-		Extra struct {
-			Message string `json:"message"`
-		} `json:"extra"`
-	} `json:"results"`
-	Errors []struct {
+	Results []semgrepreport.Result `json:"results"`
+	Errors  []struct {
 		Type json.RawMessage `json:"type"`
 		Path string          `json:"path"`
 	} `json:"errors"`

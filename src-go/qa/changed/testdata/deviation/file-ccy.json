@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: ccy\ncheck shellcheck: ccy\ncheck shell-directives: ccy\ncheck semgrep: ccy\ncheck bash-limits\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: ccy\ncheck shellcheck: ccy\ncheck shell-directives: ccy\ncheck semgrep: ccy\ncheck ready-wait-files: ccy\ncheck bash-limits\n",
  "stderr": "",
  "status": 0,
  "log": []

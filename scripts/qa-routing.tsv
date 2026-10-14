@@ -82,6 +82,12 @@ also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 also	playbooks/*.yml,playbooks/*.yaml,tasks/*.yml,tasks/*.yaml	ansible-pause	-
 also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ansible-pause	-
 also	tests/fixtures/ansible-pause/*	go	covered
+# The ready-wait gate runs over each changed Python and shell file by name (the @py and @sh rows
+# below), and runs whole over every tracked file (too slow to do for each ordinary edit) when
+# its rule, fixtures, script, Go package, command, the shared
+# discovery or the trees table change; the .semgrep files are its own data and count as covered.
+also	.semgrep/ready-wait.yml,.semgrep/ready-wait.py,.semgrep/ready-wait.bash	ready-wait	covered
+also	scripts/qa-ready-wait-rules.bash,src-go/qa/readywait/*,src-go/qa/cmd/qa-ready-wait-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ready-wait	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in
@@ -96,9 +102,9 @@ first	src-go/*	go	covered,closure
 first	*.yml,*.yaml	@yaml	tree:shell
 # A template is not valid shell or Python until rendered; only a suite naming it covers it.
 first	*.j2	-	-
-first	@py	ruff,unit-tests	covered,tree:python
-first	@sh	bash-syntax,shellcheck,shell-directives,semgrep	covered,tree:shell
+first	@py	ruff,unit-tests,ready-wait-files	covered,tree:python
+first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules

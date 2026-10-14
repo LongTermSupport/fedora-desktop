@@ -156,6 +156,13 @@ the command. A line scan (the annotation is a comment, which a YAML load drops) 
 list of `qa/discovery` under `playbooks/` and `tasks/`; `SPEC-qa-ansible-pause.md` (E1-E17) is the
 specification, and the rule is proven against `tests/fixtures/ansible-pause` by its Go tests.
 
+`qa/readywait` + `qa/cmd/qa-ready-wait-rules` (same nested module) are
+`scripts/qa-ready-wait-rules.bash`, the gate for `ready-wait-ignores-child-exit`: the script only
+builds and runs the command. Python stays semgrep's (`.semgrep/ready-wait.yml` is the data); the
+shell half is the lexer-based rule in Go (it replaced `helpers/ready_wait`), and each half is proven
+against its fixture in `.semgrep/` on every run. Spec `SPEC-qa-ready-wait-rules.md` (R1-R26), proven
+by unit tests over a fake semgrep and real-semgrep tests in `qa/cmd/qa-ready-wait-rules`.
+
 `qa/patterns` + `qa/cmd/qa-patterns` (same nested module) are `scripts/qa-patterns.bash`, the
 bash-convention gate: semgrep stays the engine and `.semgrep/bash-conventions.yml` the data; the Go
 owns scope (what git would publish), the rule self-test against its fixture, the scan mirror and

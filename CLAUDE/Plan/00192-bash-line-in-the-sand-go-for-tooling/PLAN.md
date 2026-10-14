@@ -268,6 +268,17 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (`subagent-reports/261014-fable-review-pause-ghscopes.md`): its two blockers (gh-scopes G-1, a
   fixture with no `ruleid` line passing the self-test; pause P-1, fixtures routed to a check that
   never reads them) and the FIX findings are fixed on the branch tips before this merge.
+  `qa-ready-wait-rules.bash` (P3) on `go-port/qa-ready-wait-rules`: ported, merged on the integration branch; spec
+  [SPEC-qa-ready-wait-rules.md](SPEC-qa-ready-wait-rules.md), expectations R1-R26; nested
+  `src-go/qa/readywait` and `qa/cmd/qa-ready-wait-rules`; semgrep stays the Python engine and the
+  shell half is a Go rule replacing `helpers/ready_wait`; the script a build-and-run wrapper, its
+  allowlist row gone; `qa-changed` gets a `ready-wait` whole-gate check (SPEC-qa-changed B39) and a
+  listed `ready-wait-files` check over each changed Python and shell file (B40). Fable review
+  (`subagent-reports/261014-fable-review-readywait.md`) found false passes in the hand lexer (F1,
+  F2), arithmetic and quoting slips (F3, F4), a backgrounded-loop slip (F7) and the per-file
+  scope with no caller (F15); the branch tip fixed them (the shell rule now reads the mvdan syntax
+  tree, journal 22:37); the gate is green on the merged tree (739 files, 0 findings). Review G-7
+  of the sibling gh-scopes port is recorded as SPEC-qa-changed B41, a stated limit.
 
 ### Phase 4: Review
 

@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs \u003cFIRST\u003e\ncheck toolchain\ncheck bash-syntax: kept.bash\ncheck shellcheck: kept.bash\ncheck shell-directives: kept.bash\ncheck semgrep: kept.bash\ncheck bash-limits\n",
+ "stdout": "plan: 1 changed file(s) vs \u003cFIRST\u003e\ncheck toolchain\ncheck bash-syntax: kept.bash\ncheck shellcheck: kept.bash\ncheck shell-directives: kept.bash\ncheck semgrep: kept.bash\ncheck ready-wait-files: kept.bash\ncheck bash-limits\n",
  "stderr": "",
  "status": 0,
  "log": []

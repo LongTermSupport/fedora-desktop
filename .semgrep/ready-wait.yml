@@ -21,7 +21,7 @@ rules:
   # The rule reports a loop that sleeps, in a function that starts a process, when the
   # loop never calls .poll() or .wait(), reads .returncode, or probes a pid with
   # os.kill(pid, 0) or os.waitpid. The bash half of the rule is
-  # helpers/ready_wait/bash_ready_waits.py, because semgrep cannot parse about a quarter of
+  # src-go/qa/readywait, because semgrep cannot parse about a quarter of
   # this repo's bash.
   - id: ready-wait-ignores-child-exit
     languages: [python]

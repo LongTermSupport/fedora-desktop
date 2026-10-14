@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/js"
 )
 
@@ -64,6 +65,7 @@ var checkDefs = []checkDef{
 	{id: "shellcheck", listed: true, noun: nounFiles, tools: []string{toolShellcheck}, run: runShellcheck},
 	{id: "shell-directives", listed: true, noun: nounFiles, tools: []string{toolBash, toolGo}, run: runShellDirectives},
 	{id: "semgrep", listed: true, noun: nounFiles, tools: []string{toolSemgrep}, run: runSemgrep},
+	{id: "ready-wait-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWaitFiles},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
@@ -79,6 +81,7 @@ var checkDefs = []checkDef{
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
+	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
@@ -137,6 +140,16 @@ func runAnsiblePause(ctx context.Context, s *session, _ *checkPlan) (checkResult
 
 func runGhScopes(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-gh-scopes.bash")
+}
+
+// runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.
+func runReadyWaitFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	argv := append([]string{toolBash, filepath.Join(s.scripts, "qa-ready-wait-rules.bash")}, cp.items...)
+	return s.exec(ctx, nil, argv...)
+}
+
+func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-ready-wait-rules.bash")
 }
 
 // gateWithReport runs a gate that requires QA_JSON_OUT, a file for its machine report, which
@@ -300,16 +313,7 @@ func runAnsibleSyntax(ctx context.Context, s *session, cp *checkPlan) (checkResu
 
 // semgrepResults is the part of semgrep's JSON report that matters.
 type semgrepResults struct {
-	Results []struct {
-		Path  string `json:"path"`
-		Start struct {
-			Line int `json:"line"`
-		} `json:"start"`
-		CheckID string `json:"check_id"`
-		Extra   struct {
-			Message string `json:"message"`
-		} `json:"extra"`
-	} `json:"results"`
+	Results []semgrepreport.Result `json:"results"`
 }
 
 // semgrepAbnormal is the lowest exit status that means semgrep itself broke.
