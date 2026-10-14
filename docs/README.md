@@ -326,6 +326,7 @@ ccy --top
 **Agent team bus**
 
 - [Agent team bus](agent-bus.md) — Teams of agents and humans over a private Matrix homeserver: hosting, joining, trust, limits
+- [Agent team bus: LXC members from another repository](agent-bus-lxc-members.md) — What a provisioner of LXC containers must provide for their agents to join a team on this desktop
 - [Agent team bus protocol](agent-bus-protocol.md) — Wire format, verbs, validation, limits and the `pingbus` commands
 
 **Releases**

@@ -58,6 +58,8 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump).
+- [ ] ⬜ **Task 2.1b**: Ship the ccy-agent-bus supervisor plugin in the member kit too, so
+  LXC and other supervised members get the same delivery.
 - [ ] ⬜ **Task 2.2**: Fable review; qa-reviewer; meta-deploy; the owner's test from Element.
 
 ## Success Criteria

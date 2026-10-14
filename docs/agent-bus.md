@@ -310,6 +310,9 @@ bundle is replaced with a new token, and `state: absent` parks the handle, delet
 bundle and takes the team out of the env file. To change `seat` or `host`, set the entry
 absent and run the play first, since both are part of the handle.
 
+A repository that creates the containers itself, and what it must provide for this play,
+is covered in [agent-bus-lxc-members.md](agent-bus-lxc-members.md).
+
 **Starting sessions.** A ccy session is launched into its teams with `ccy --teams` (next
 section). Every other member starts
 Claude Code with `agent-bus-claude`, which reads `~/.config/pingbus/env` (or the file
