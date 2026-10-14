@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -36,6 +37,38 @@ func TestOSMergesTheStreamsInOrderWhenAsked(t *testing.T) {
 	}
 }
 
+func TestOSStreamsToTheWritersWhenGivenAndCapturesNothingThere(t *testing.T) {
+	var out, errOut strings.Builder
+	res, err := OS{}.Run(context.Background(), Cmd{
+		Argv:     []string{"sh", "-c", "echo out; echo err >&2; exit 4"},
+		StdoutTo: &out,
+		StderrTo: &errOut,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "out\n" || errOut.String() != "err\n" {
+		t.Fatalf("streamed %q and %q", out.String(), errOut.String())
+	}
+	if res.Code != 4 || res.Stdout != "" || res.Stderr != "" {
+		t.Fatalf("a streamed stream is not also captured: %+v", res)
+	}
+}
+
+func TestOSStreamsOneStreamAndCapturesTheOther(t *testing.T) {
+	var out strings.Builder
+	res, err := OS{}.Run(context.Background(), Cmd{
+		Argv:     []string{"sh", "-c", "echo out; echo err >&2"},
+		StdoutTo: &out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "out\n" || res.Stderr != "err\n" || res.Stdout != "" {
+		t.Fatalf("streamed %q, got %+v", out.String(), res)
+	}
+}
+
 func TestOSPassesTheExtraEnvironment(t *testing.T) {
 	res, err := OS{}.Run(context.Background(), Cmd{
 		Argv: []string{"sh", "-c", "printf %s \"$QA_RUN_PROBE\""},
@@ -63,7 +96,7 @@ func gone(pid int) bool {
 		return true
 	}
 	// The state letter follows the parenthesised command name.
-	rest := string(data[strings.LastIndexByte(string(data), ')')+1:])
+	rest := string(data[bytes.LastIndexByte(data, ')')+1:])
 	return strings.HasPrefix(strings.TrimSpace(rest), "Z")
 }
 

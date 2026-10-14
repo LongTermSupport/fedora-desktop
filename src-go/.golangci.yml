@@ -89,6 +89,11 @@ linters:
       - path: qa/changed/
         linters: [gosec]
         text: "G304|G703"
+      # qa-all and the gate table read the gate scripts and the counts file by computed path,
+      # and write the machine report where the caller says.
+      - path: qa/(all|gates)/
+        linters: [gosec]
+        text: "G304|G703|G306|G302"
       # semgrep's JSON report is snake_case, its wire format.
       - path: qa/changed/checks\.go
         linters: [tagliatelle]

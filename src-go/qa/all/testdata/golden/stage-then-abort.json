@@ -1,0 +1,15 @@
+{
+ "args": [],
+ "stdout": "\u2713 toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n\u2717 go: Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)\n\u2713 bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n\u2713 bash: 4 files OK\n\u2713 python: 4 files OK\n\u2713 patterns: 4 files OK\n",
+ "stderr": "GO-OK 39 package(s), all tested: fmt, vet, test -race\ngo: boom\nno semgrep\nERROR: Missing required tools (semgrep). Install with: pipx install semgrep\n",
+ "status": 2,
+ "log": [
+  "qa-toolchain ",
+  "qa-go ",
+  "qa-bash-limits ",
+  "qa-bash  json",
+  "qa-python  json",
+  "qa-patterns  json"
+ ],
+ "report": null
+}

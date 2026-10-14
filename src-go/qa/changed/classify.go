@@ -152,16 +152,8 @@ func (s *session) applies(r rule, rel string, deleted bool) (bool, error) {
 }
 
 func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) error {
-	for _, r := range s.routing.also {
-		match, err := s.applies(r, rel, deleted)
-		if err != nil {
-			return err
-		}
-		if match && (r.tree == "" || !s.trees.byName(r.tree).excludes(rel)) {
-			if err := s.apply(ctx, r, rel, deleted); err != nil {
-				return err
-			}
-		}
+	if err := s.applyAlso(ctx, rel, deleted); err != nil {
+		return err
 	}
 	for _, r := range s.routing.first {
 		match, err := s.applies(r, rel, deleted)
@@ -179,6 +171,23 @@ func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) er
 			s.kinds[r.m.kind]++
 		}
 		return s.apply(ctx, r, rel, deleted)
+	}
+	return nil
+}
+
+// applyAlso gives the file the checks of every additive rule it matches, which never end its
+// classification.
+func (s *session) applyAlso(ctx context.Context, rel string, deleted bool) error {
+	for _, r := range s.routing.also {
+		match, err := s.applies(r, rel, deleted)
+		if err != nil {
+			return err
+		}
+		if match && (r.tree == "" || !s.trees.byName(r.tree).excludes(rel)) {
+			if err := s.apply(ctx, r, rel, deleted); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

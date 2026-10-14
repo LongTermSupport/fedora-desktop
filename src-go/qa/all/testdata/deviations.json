@@ -1,0 +1,176 @@
+{
+ "help": {
+  "bugs": [
+   "B1"
+  ],
+  "reason": "the bash ignored every argument and ran the whole suite; the Go prints usage for -h/--help and refuses an unknown argument with exit 2"
+ },
+ "unknown-flag": {
+  "bugs": [
+   "B1"
+  ],
+  "reason": "the bash ignored every argument and ran the whole suite; the Go prints usage for -h/--help and refuses an unknown argument with exit 2"
+ },
+ "fail-bash": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "fail-python": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "fail-patterns": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "fail-ansible": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "fail-ansible-syntax": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "fail-js": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "fail-docs": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "gate-and-stage-fail": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "stage-fail-without-failures": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "stage-failures-merge": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "many-fail": {
+  "bugs": [
+   "B13"
+  ],
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+ },
+ "stale-report-then-abort": {
+  "bugs": [
+   "B6"
+  ],
+  "reason": "the previous run's report is removed before the first gate, so a run that aborts leaves none"
+ },
+ "no-count": {
+  "bugs": [
+   "B2"
+  ],
+  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed"
+ },
+ "no-count-empty": {
+  "bugs": [
+   "B2"
+  ],
+  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed"
+ },
+ "detail-miss-go": {
+  "bugs": [
+   "B3"
+  ],
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+ },
+ "detail-miss-toolchain": {
+  "bugs": [
+   "B3"
+  ],
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+ },
+ "detail-miss-manifest-second": {
+  "bugs": [
+   "B3"
+  ],
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+ },
+ "drift-empty": {
+  "bugs": [
+   "B12"
+  ],
+  "reason": "deployed-drift passing with no stage line is a failed gate, not a blank line"
+ },
+ "helpers-counts-empty": {
+  "bugs": [
+   "B20"
+  ],
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+ },
+ "helpers-counts-no-skipped": {
+  "bugs": [
+   "B20"
+  ],
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+ },
+ "helpers-counts-wrong-token": {
+  "bugs": [
+   "B20"
+  ],
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+ },
+ "helpers-counts-duplicate": {
+  "bugs": [
+   "B20"
+  ],
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+ },
+ "helpers-counts-non-numeric": {
+  "bugs": [
+   "B20"
+  ],
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+ },
+ "stage-report-empty-shifts": {
+  "bugs": [
+   "B4"
+  ],
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+ },
+ "stage-report-malformed": {
+  "bugs": [
+   "B4"
+  ],
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+ },
+ "stage-report-no-summary": {
+  "bugs": [
+   "B4"
+  ],
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+ },
+ "stage-exit0-with-failures": {
+  "bugs": [
+   "B5"
+  ],
+  "reason": "a stage that exits 0 while its report counts failures is a failed stage"
+ }
+}

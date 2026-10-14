@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
@@ -27,6 +28,9 @@ type Cmd struct {
 	Env []string
 	// Merge sends stderr into Stdout, in the order the command wrote them.
 	Merge bool
+	// StdoutTo and StderrTo, when set, receive that stream as the command writes it instead of
+	// the Result capturing it: a long gate's output reaches the terminal live and in order.
+	StdoutTo, StderrTo io.Writer
 }
 
 // Result is how a command ended.
@@ -63,11 +67,11 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = killGrace
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	cmd.Stdout = streamOr(c.StdoutTo, &stdout)
 	if c.Merge {
-		cmd.Stderr = &stdout
+		cmd.Stderr = cmd.Stdout
 	} else {
-		cmd.Stderr = &stderr
+		cmd.Stderr = streamOr(c.StderrTo, &stderr)
 	}
 	runErr := cmd.Run()
 	if cmd.ProcessState == nil {
@@ -75,6 +79,14 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	}
 	res := Result{Stdout: stdout.String(), Stderr: stderr.String(), Code: cmd.ProcessState.ExitCode()}
 	return res.finish(ctx, runErr, c.Argv[0])
+}
+
+// streamOr is the writer a stream goes to: the caller's when given, else the capture buffer.
+func streamOr(to io.Writer, capture *bytes.Buffer) io.Writer {
+	if to != nil {
+		return to
+	}
+	return capture
 }
 
 // finish settles how the run ended: a context that ended first is a kill (a timeout when it was
