@@ -257,6 +257,17 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   the config); F5 recorded (J11, B10: `.eslintignore` is read from the root); F6 recorded as a
   stated limit in J7 (ESM `.js` outside a `type: module` scope needs node 22.7 or later; the nvm
   play installs `lts/*`).
+  `qa-ansible-pause.bash` (P3) on `go-port/qa-ansible-pause`: ported, merged on the integration branch; spec
+  [SPEC-qa-ansible-pause.md](SPEC-qa-ansible-pause.md), expectations E1-E17; nested
+  `src-go/qa/ansiblepause` and `qa/cmd/qa-ansible-pause`; the script a build-and-run wrapper, its
+  allowlist row gone; `qa-changed` gets an `ansible-pause` whole-gate check (SPEC-qa-changed B38).
+  `qa-gh-scopes.bash` (P3) on `go-port/qa-gh-scopes`: ported, merged on the integration branch; spec
+  [SPEC-qa-gh-scopes.md](SPEC-qa-gh-scopes.md), expectations G1-G16; nested `src-go/qa/ghscopes`
+  and `qa/cmd/qa-gh-scopes`; semgrep stays the engine; the script a build-and-run wrapper, its
+  allowlist row gone; `qa-changed` gets a `gh-scopes` whole-gate check. One Fable review of both
+  (`subagent-reports/261014-fable-review-pause-ghscopes.md`): its two blockers (gh-scopes G-1, a
+  fixture with no `ruleid` line passing the self-test; pause P-1, fixtures routed to a check that
+  never reads them) and the FIX findings are fixed on the branch tips before this merge.
 
 ### Phase 4: Review
 

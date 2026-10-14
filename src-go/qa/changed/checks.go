@@ -78,6 +78,7 @@ var checkDefs = []checkDef{
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
+	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
@@ -132,6 +133,10 @@ func runNoKillContainerWatch(ctx context.Context, s *session, _ *checkPlan) (che
 
 func runAnsiblePause(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-ansible-pause.bash")
+}
+
+func runGhScopes(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-gh-scopes.bash")
 }
 
 // gateWithReport runs a gate that requires QA_JSON_OUT, a file for its machine report, which

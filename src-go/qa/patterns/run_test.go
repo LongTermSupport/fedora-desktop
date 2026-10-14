@@ -149,6 +149,16 @@ func TestP5MissingRulesOrFixtureIsExit2NamingIt(t *testing.T) {
 	}
 }
 
+func TestP5AFixtureThatMarksNoRuleidLineProvesNothingAndIsExit2(t *testing.T) {
+	w := newWorld(t, map[string]string{".semgrep/bash-conventions.bash": "# fixture\n# ok: bash-x\n"})
+	got := w.main()
+	wantExit(t, got, ExitCannotRun)
+	wantStderr(t, got, "ERROR: .semgrep/bash-conventions.bash marks no ruleid line; the self-test proves nothing")
+	if w.run.mirror != "" {
+		t.Fatal("scanned over a fixture that proves nothing")
+	}
+}
+
 func TestP5SelfTestRunsOnRulesAndFixtureAndItsFailureIsExit2WithItsOutput(t *testing.T) {
 	w := oneScript(t)
 	w.run.testCode = 1

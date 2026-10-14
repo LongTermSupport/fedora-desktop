@@ -42,6 +42,9 @@ change (section 4, B33), besides its own per-file semgrep check.
   the missing one. Then `semgrep --test --config <rules> <fixture> --metrics=off` must exit 0;
   otherwise `ERROR: semgrep rule self-tests failed (see .semgrep/bash-conventions.bash)` followed
   by semgrep's own output, exit 2. A rule that stops matching is worse than a missing tool.
+  `semgrep --test` exits 0 on a fixture with no annotations, so a fixture with no `ruleid:` line
+  is exit 2 as well (`ERROR: .semgrep/bash-conventions.bash marks no ruleid line; the self-test
+  proves nothing`).
 
 ### Which files: what git would publish
 

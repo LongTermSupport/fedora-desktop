@@ -402,8 +402,8 @@ func TestExcludedShellIsSkippedButStillAsksTheBashLimitsGateLikeBefore(t *testin
 func TestDeletedFilesOweOnlyTheWholeGates(t *testing.T) {
 	w := newWorld(t)
 	w.touch("scripts/keep.bash", "#!/usr/bin/bash")
-	p := w.classify(nil, "scripts/gone.bash", "src-go/internal/old/old.go", "docs/gone.md", "playbooks/old.yml", "scripts/gone.py", "files/home/.local/bin/listed-tool", "untracked/gone.js")
-	if !p.has("bash-limits") || !p.has("go") || !p.has("docs") {
+	p := w.classify(nil, "scripts/gone.bash", "src-go/internal/old/old.go", "docs/gone.md", "playbooks/old.yml", "scripts/gone.py", "files/home/.local/bin/listed-tool", "untracked/gone.js", ".semgrep/gh-scopes.fixture")
+	if !p.has("bash-limits") || !p.has("go") || !p.has("docs") || !p.has("gh-scopes") {
 		t.Fatalf("whole gates: %v", keys(p))
 	}
 	for _, id := range []string{"bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "toolchain", "ansible-syntax", "ansible-patterns"} {

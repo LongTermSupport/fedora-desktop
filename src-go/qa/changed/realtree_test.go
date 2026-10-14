@@ -131,8 +131,8 @@ func TestEverySelectableSuitePrintsTheCanonicalCountLine(t *testing.T) {
 var semgrepReaders = map[string]string{
 	".semgrep/bash-conventions.yml":  "check:patterns",
 	".semgrep/bash-conventions.bash": "check:patterns",
-	".semgrep/gh-scopes.yml":         "scripts/qa-gh-scopes.bash",
-	".semgrep/gh-scopes.fixture":     "scripts/qa-gh-scopes.bash",
+	".semgrep/gh-scopes.yml":         "check:gh-scopes",
+	".semgrep/gh-scopes.fixture":     "check:gh-scopes",
 	".semgrep/ready-wait.yml":        "scripts/qa-ready-wait-rules.bash",
 	".semgrep/ready-wait.py":         "scripts/qa-ready-wait-rules.bash",
 	".semgrep/ready-wait.bash":       "scripts/qa-ready-wait-rules.bash",

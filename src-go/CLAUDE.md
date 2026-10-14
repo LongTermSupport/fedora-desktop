@@ -162,6 +162,12 @@ owns scope (what git would publish), the rule self-test against its fixture, the
 the refusal to pass over a script semgrep did not read or parse. git and semgrep go through
 `qa/internal/proc`, faked in the unit tests; `SPEC-qa-patterns.md` (P1-P18) is the specification.
 
+`qa/ghscopes` + `qa/cmd/qa-gh-scopes` (same nested module) are `scripts/qa-gh-scopes.bash`, the
+`gh-scope-outside-ssot` gate: semgrep stays the engine and `.semgrep/gh-scopes.yml` the data; the
+Go owns scope (what git would publish, handed by name), the rule self-test against its fixture and
+the refusal to pass over a file semgrep did not read (the rule's own `paths.exclude` globs say
+which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification.
+
 `qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:
 ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
 name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the
