@@ -185,6 +185,23 @@ func TestAGateThatCannotRunIsNotAnOrdinaryFailure(t *testing.T) {
 	}
 }
 
+// The reasons a suite was picked are listed in the order of the changed files, not sorted by
+// the text that matched (the bash sorted by matched text; SPEC-qa-changed.md B27). Here the
+// matched text sorts a.bash before b.bash, but the changed files sort b.bash before dir/a.bash.
+func TestSuiteReasonsFollowTheOrderOfTheChangedFiles(t *testing.T) {
+	w := newRunWorld(t)
+	writeFile(t, w.scripts, "test-one.bash", "#!/usr/bin/bash\nb.bash a.bash\n")
+	writeFile(t, w.root, "b.bash", "#!/usr/bin/bash\n")
+	writeFile(t, w.root, "dir/a.bash", "#!/usr/bin/bash\n")
+	if code := w.main("--plan"); code != ExitOK {
+		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
+	}
+	want := "suite scripts/test-one.bash: names b.bash; names dir/a.bash\n"
+	if !strings.Contains(w.out.String(), want) {
+		t.Fatalf("want %q in:\n%s", want, w.out.String())
+	}
+}
+
 // A suite whose harness died before its summary can still exit 0; with no case count it has
 // proved nothing, so it is "could not run", never a pass (SPEC-qa-changed.md B29).
 func TestASuiteThatExitsZeroWithoutACaseCountCouldNotRun(t *testing.T) {
