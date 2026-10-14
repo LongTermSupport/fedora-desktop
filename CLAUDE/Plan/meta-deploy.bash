@@ -52,14 +52,17 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # Go QA tooling: gcc for go test -race, golangci-lint at the .qa-versions pin with
-    # checksum verification; qa-toolchain.bash and the go gate need it (Plan 00191)
-    playbooks/imports/optional/common/play-golang.yml
+    # The QA toolchain, which now owns golangci-lint (at the .qa-versions pin, checksum
+    # verified) beside ruff, semgrep and shellcheck; it imports play-golang.yml for the Go
+    # toolchain and ends by running qa-toolchain.bash, which the go gate needs (Plan 00191)
+    playbooks/imports/play-python.yml
     # ccy-teams from the owner's first host run: a checkout no team covers is offered a team,
     # "repositories you list (one or more)", Element started apart from the terminal with
     # its output logged, copy-the-password defaults to yes, the terminal's own colours with
     # one accent in the pickers (CCY 3.95.5) (Plan 00177); and ccy-teams is now the Go
-    # binary, built from the checkout by this play, which imports play-golang.yml (CCY 3.95.6);
+    # binary, built from the checkout by this play, which imports play-golang.yml, now the Go
+    # toolchain alone (CCY 3.95.6); builds no longer stamp the git revision, so an unchanged
+    # source reports ok; the bash functions only the old ccy-sessions called are gone (CCY 3.95.8);
     # and ccy-sessions is too, installed at the same path for the boot units, shutdown-with-update
     # and the self-update cycle (CCY 3.95.7) (Plan 00191)
     playbooks/imports/play-claude-yolo.yml

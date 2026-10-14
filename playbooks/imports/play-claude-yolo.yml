@@ -835,7 +835,8 @@
     # restores them at boot. A Go binary (src-go/cmd/ccy-sessions, Plan 00191) built from this
     # checkout; it needs no checkout path baked in. Built to a scratch path and installed with
     # `copy`, which compares checksums, so an unchanged source reports ok rather than changed
-    # (-trimpath keeps the build byte-for-byte reproducible). A failed build stops the play
+    # (-trimpath and -buildvcs=false keep the build byte-for-byte reproducible: the
+    # first drops the checkout path, the second the git revision a build otherwise stamps in). A failed build stops the play
     # before anything is installed. The systemd units, shutdown-with-update and the
     # self-update cycle call it at this path.
     - name: Ensure the ccy Go Build Directory Exists
@@ -852,7 +853,7 @@
     - name: Build the ccy-sessions Command
       ansible.builtin.command:
         cmd: >-
-          go build -trimpath
+          go build -trimpath -buildvcs=false
           -o /home/{{ user_login }}/.cache/ccy-go-build/ccy-sessions
           ./cmd/ccy-sessions
         chdir: "{{ root_dir }}/src-go"
@@ -884,12 +885,13 @@
     # host_vars helper (helpers/agent_bus/declare.py) lives there; it calls agent-bus,
     # which play-agent-bus.yml installs. Built to a scratch path and installed with `copy`,
     # which compares checksums, so an unchanged source reports ok rather than changed
-    # (-trimpath keeps the build byte-for-byte reproducible). A failed build stops the play
+    # (-trimpath and -buildvcs=false keep the build byte-for-byte reproducible: the
+    # first drops the checkout path, the second the git revision a build otherwise stamps in). A failed build stops the play
     # before anything is installed.
     - name: Build the ccy-teams Command
       ansible.builtin.command:
         cmd: >-
-          go build -trimpath
+          go build -trimpath -buildvcs=false
           -ldflags "-X main.RootDir={{ root_dir }}"
           -o /home/{{ user_login }}/.cache/ccy-go-build/ccy-teams
           ./cmd/ccy-teams

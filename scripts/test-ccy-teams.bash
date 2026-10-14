@@ -328,6 +328,16 @@ check "  and from --teams=" "1@a,2@b" "$(teams_arg --teams=1@a,2@b)"
 check "  never after --" "" "$(teams_arg -- --teams 1@a)"
 check "  none: nothing" "" "$(teams_arg --no-ssh)"
 
+# The picker rows ccy_tmux_row prints: the state words are what the pickers test for, and
+# the extra column is absent, not blank, when it is not given.
+tmux_row() { HOME=/home/u bash -c '. "$1/tmux-session.bash"; shift; ccy_tmux_row "$@"' _ "$LIB_DIR" "$@"; }
+squeeze() { tr -s ' ' <<<"$1"; }
+check "a row is name, state, directory" "ccy-app detached ~/code/p" "$(squeeze "$(tmux_row ccy-app 0 /home/u/code/p)")"
+check "  an extra column sits before the directory" "ccy-app detached seats 1@a ~/code/p" \
+    "$(squeeze "$(tmux_row ccy-app 0 /home/u/code/p 'seats 1@a')")"
+check "  an attached session says open elsewhere" "ccy-app open elsewhere ~/code/p" \
+    "$(squeeze "$(tmux_row ccy-app 1 /home/u/code/p)")"
+
 echo "=== the real launcher: refusals before anything runs ==="
 
 repo="$work/repo"

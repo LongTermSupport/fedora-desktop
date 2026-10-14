@@ -935,54 +935,12 @@ check "a --no-supervise after -- is claude's word" "yes" "$(ccy_registry_supervi
 check "cc never is" "no" "$(ccy_registry_supervised cc --model opus --continue)"
 
 echo ""
-echo "=== Claude's prompt: drawn, busy, or not yet (from the pane) ==="
-# Claude Code 2.1.x's input box, as capture-pane prints it (Plan 00135 journal 26-10-08).
-RULE="$(printf '─%.0s' $(seq 1 60))"
-DRAWN="$(printf '%s\n' " ▐▛███▜▌   Claude Code" "" "$RULE" "❯ " "$RULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle)")"
-check "the framed input box is a drawn prompt" "ready" "$(ccy_claude_screen_state "$DRAWN")"
-# capture-pane -e output, in the shape measured: ❯, a no-break space, then the placeholder
-# in dim (SGR 2) when the box is empty.
-DIM_BOX=$'\e[39m❯\xc2\xa0\e[2mTry "fix typecheck errors"\e[22m'
-check "the placeholder, in dim, is an empty box: ready" "ready" \
-    "$(ccy_claude_screen_state "$(printf '%s\n' "$RULE" "$DIM_BOX" "$RULE")")"
-check "Claude's own cursor attributes are not text" "ready" \
-    "$(ccy_claude_screen_state "$(printf '%s\n' "$RULE" $'❯ \e[7m \e[27m' "$RULE")")"
-check "text someone typed, not dim, is typed: Enter would submit it with ours" "typed" \
-    "$(ccy_claude_screen_state "$(printf '%s\n' "$RULE" $'\e[39m❯\xc2\xa0\e[39mhalf a thought' "$RULE")")"
-check "plain typed text is typed too" "typed" \
-    "$(ccy_claude_screen_state "$(printf '%s\n' "$RULE" '❯ half a thought' "$RULE")")"
-check "a turn running just above it is busy" "busy" \
-    "$(ccy_claude_screen_state "$(printf '%s\n' "✻ Compacting conversation… (12s · esc to interrupt)" "" "$RULE" "❯ " "$RULE")")"
-check "the phrase quoted higher up the conversation is not" "ready" \
-    "$(ccy_claude_screen_state "$(printf '%s\n' "the spinner says esc to interrupt" "one" "two" "three" "four" "$RULE" "❯ " "$RULE")")"
-check "escapes are stripped for the plain text" "❯ hi" "$(ccy_screen_plain $'\e[1;31m❯\e[0m \e[2mhi\e[22m')"
-check "a selection dialog's cursor is not a prompt" "not-drawn" \
-    "$(ccy_claude_screen_state "$(printf '%s\n' "Do you trust the files in this folder?" "" "❯ 1. Yes, proceed" "  2. No, exit")")"
-check "a box with no rule under it is not drawn yet" "not-drawn" "$(ccy_claude_screen_state "$(printf '%s\n' "$RULE" "❯ ")")"
-check "the launcher's own output is not drawn" "not-drawn" "$(ccy_claude_screen_state $'Building image...\n> ')"
-check "an empty screen is not drawn" "not-drawn" "$(ccy_claude_screen_state "")"
-
-echo ""
 echo "=== the transcript: where it is, how big the context is, whether input was taken ==="
 check "ccy's transcripts are under the project's .claude/ccy, at /workspace" "/p/my proj/.claude/ccy/projects/-workspace" \
     "$(ccy_transcript_dir ccy "/p/my proj" /home/u/.claude)"
 check "cc's are under the config home, named for the directory" "/home/u/.claude/projects/-p-my-proj-v1-2" \
     "$(ccy_transcript_dir cc "/p/my proj/v1.2" /home/u/.claude)"
 check "an unknown launcher has none" "1" "$(ccy_transcript_dir zz /p /h 2>/dev/null; echo $?)"
-TD="$SCRATCH/transcripts"
-mkdir -p "$TD/older-session-subagents"
-check "no transcript at all is a failure" "1" "$(ccy_transcript_newest "$TD" 2>/dev/null; echo $?)"
-check "nor is a missing directory a transcript" "1" "$(ccy_transcript_newest "$TD/nope" 2>/dev/null; echo $?)"
-printf '{}\n' >"$TD/old.jsonl"
-touch -d '2026-01-01 00:00' "$TD/old.jsonl"
-printf '{}\n' >"$TD/new.jsonl"
-touch -d '2026-01-02 00:00' "$TD/new.jsonl"
-printf '{}\n' >"$TD/older-session-subagents/agent.jsonl"
-check "the newest conversation is the one --continue resumes" "$TD/new.jsonl" "$(ccy_transcript_newest "$TD")"
-check "with no id, the conversation is the newest" "$TD/new.jsonl" "$(ccy_transcript_for "$TD" "")"
-check "with --resume's id, that conversation, however old" "$TD/old.jsonl" "$(ccy_transcript_for "$TD" old)"
-check "an id with no transcript is a failure, not the newest" "1" "$(ccy_transcript_for "$TD" gone 2>/dev/null; echo $?)"
-check "an id that is not one is a failure" "1" "$(ccy_transcript_for "$TD" ../new 2>/dev/null; echo $?)"
 # A transcript in the shapes measured on a real one: an assistant usage, a sub-agent's
 # usage after it (another context), an error placeholder, and a half-written last line.
 T="$SCRATCH/t.jsonl"
