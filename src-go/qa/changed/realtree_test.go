@@ -14,7 +14,7 @@ import (
 )
 
 // These tests read the repository's own tables: they are what catches a hand edit that leaves
-// the data, the bash reader or the registry disagreeing.
+// the data or the registry disagreeing.
 
 func TestTheRealRoutingTableLoads(t *testing.T) {
 	r, err := loadRouting(filepath.Join(realScripts, "qa-routing.tsv"))
@@ -25,60 +25,6 @@ func TestTheRealRoutingTableLoads(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(realScripts, gate+".bash")); err != nil {
 			t.Errorf("per-file gate %s is not a script: %v", gate, err)
 		}
-	}
-}
-
-func TestTheBashReaderAndTheGoReaderAgreeOnTheExcludedTrees(t *testing.T) {
-	want, err := loadTrees(filepath.Join(realScripts, "qa-trees.tsv"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	discovery, err := filepath.Abs(filepath.Join(realScripts, "qa-discovery.bash"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := `set -euo pipefail
-source "$1"
-printf '%s\n' "${QA_EXCLUDE_DIRS[@]}"
-echo ---
-printf '%s\n' "${QA_PY_EXCLUDE_DIRS[@]}"`
-	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"bash", "-c", script, "bash", discovery}})
-	if err != nil || res.Code != 0 {
-		t.Fatalf("bash reader: %v %+v", err, res)
-	}
-	shell, python, found := strings.Cut(strings.TrimSpace(res.Stdout), "\n---\n")
-	if !found {
-		t.Fatalf("unexpected output %q", res.Stdout)
-	}
-	if got := strings.Split(shell, "\n"); !reflect.DeepEqual(treeList(got), want.shell) {
-		t.Errorf("shell list differs:\n bash %v\n go   %v", got, want.shell)
-	}
-	if got := strings.Split(python, "\n"); !reflect.DeepEqual(treeList(got), want.python) {
-		t.Errorf("python list differs:\n bash %v\n go   %v", got, want.python)
-	}
-}
-
-func TestTheBashReaderRefusesAMissingOrBrokenTable(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "qa-discovery.bash", readReal(t, "qa-discovery.bash"))
-	writeFile(t, dir, "lib/qa-trees.bash", readReal(t, "lib/qa-trees.bash"))
-	run := func() proc.Result {
-		res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"bash", "-c", "source \"$1\"", "bash", filepath.Join(dir, "qa-discovery.bash")}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return res
-	}
-	if res := run(); res.Code != 2 || !strings.Contains(res.Stderr, "cannot read") {
-		t.Fatalf("a missing table: %+v", res)
-	}
-	writeFile(t, dir, "qa-trees.tsv", "ruby\tx\n")
-	if res := run(); res.Code != 2 || !strings.Contains(res.Stderr, "unknown list 'ruby'") {
-		t.Fatalf("an unknown list: %+v", res)
-	}
-	writeFile(t, dir, "qa-trees.tsv", readReal(t, "qa-trees.tsv"))
-	if res := run(); res.Code != 0 {
-		t.Fatalf("the real table: %+v", res)
 	}
 }
 

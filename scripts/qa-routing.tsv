@@ -58,7 +58,7 @@ also	scripts/qa-bash.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	bash	-
 # The suppression ratchet is judged whole by the shell gate when it changes.
 also	scripts/shellcheck-disable.allowlist	bash	covered
 # The discovery wrapper and the table reader it sources are run by the Go tests, over a real work tree.
-also	scripts/qa-discovery.bash,scripts/lib/qa-trees.bash	go	-
+also	scripts/qa-discovery.bash	go	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-

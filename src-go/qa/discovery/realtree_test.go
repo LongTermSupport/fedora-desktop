@@ -125,17 +125,6 @@ func TestTheWrapperExitsTheCallerWhenTheListCannotBeMade(t *testing.T) {
 	}
 }
 
-func TestTheWrapperExclusionTestReadsTheRepositoryTrees(t *testing.T) {
-	res := sourceWrapper(t, `qa_is_excluded roles/vendor/x/y.yml && echo shell-vendor
-qa_is_excluded roles/own/y.yml || echo shell-own
-qa_py_is_excluded .claude/ccy/plugins/p.py && echo py-plugin
-qa_py_is_excluded .claude/ccy/claude-supervise.py || echo py-supervise
-`)
-	if res.Code != 0 || res.Stdout != "shell-vendor\nshell-own\npy-plugin\npy-supervise\n" {
-		t.Fatalf("%+v", res)
-	}
-}
-
 // D4, D9: on this repository, the lists agree with git and with each other.
 func TestTheRealTreeListsAgreeWithGit(t *testing.T) {
 	scripts := repoScripts(t)
@@ -199,36 +188,4 @@ func TestAnUntrackedNestedRepositoryStopsTheRunNamingIt(t *testing.T) {
 			}
 		})
 	}
-}
-
-// D14: the bash reader refuses a table the Go refuses, one with no row for a language.
-func TestTheBashTreesReaderRefusesATableMissingALanguage(t *testing.T) {
-	for name, table := range map[string]string{"no python": "shell\ta\n", "no shell": "python\tb\n"} {
-		t.Run(name, func(t *testing.T) {
-			res := sourceTrees(t, table)
-			if res.Code != 2 || strings.Contains(res.Stdout, "sourced") || !strings.Contains(res.Stderr, "qa-trees") {
-				t.Fatalf("a table with %s was accepted: %+v", name, res)
-			}
-		})
-	}
-	if res := sourceTrees(t, "shell\ta\npython\tb\n"); res.Code != 0 || res.Stdout != "sourced\n" {
-		t.Fatalf("a whole table was refused: %+v", res)
-	}
-}
-
-// sourceTrees sources the real bash trees reader, through a link that sits beside the given table
-// (the reader finds its table relative to the path it was sourced by).
-func sourceTrees(t *testing.T, table string) proc.Result {
-	t.Helper()
-	w := newWorld(t)
-	w.write("lib/keep", "", false)
-	w.write("qa-trees.tsv", table, false)
-	if err := os.Symlink(filepath.Join(repoScripts(t), "lib", "qa-trees.bash"), filepath.Join(w.root, "lib", "qa-trees.bash")); err != nil {
-		t.Fatal(err)
-	}
-	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"bash", "-c", "source \"$1/lib/qa-trees.bash\"; echo sourced", "bash", w.root}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return res
 }

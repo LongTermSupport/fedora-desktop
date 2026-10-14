@@ -95,10 +95,9 @@ same data file).
 
 - D14. `scripts/qa-discovery.bash` is sourced, as before. `qa_discover LIST ROOT` runs the tool
   (built by `lib/go-tool.bash`) and fills `QA_FILES` with the list; the tool failing exits the
-  caller 2, so a gate cannot go on with a list it did not get. `qa_is_excluded REL` and
-  `qa_py_is_excluded REL` keep their contract over `QA_EXCLUDE_DIRS` and `QA_PY_EXCLUDE_DIRS`,
-  which `lib/qa-trees.bash` reads from the same table (a missing table, an unknown list, or no row for `shell` or none for `python` is exit 2, as in
-  D5, so both readers refuse the same tables).
+  caller 2, so a gate cannot go on with a list it did not get. There is no bash exclusion
+  test and no bash reader of `qa-trees.tsv`: the Go gates ask the Go discovery (the bash
+  `qa_is_excluded` and `qa_py_is_excluded` had no caller left and were deleted).
   Sourcing needs neither go nor git; only `qa_discover` does.
 
 ## 3. Where the Go departs from the bash
@@ -115,7 +114,7 @@ same data file).
 | B8  | a missing `python` row in the table scanned everything                                                  | exit 2                                           | D5          |
 | B9  | only an empty shell/python list was checked, by each caller                                             | every list but templates, by the tool            | D13         |
 | B10 | seven `qa_*` list functions and seven arrays                                                            | one `qa_discover LIST ROOT` and `QA_FILES`       | D14         |
-| B11 | an excluded name in an ancestor of the root: handled for the list, not for `qa_is_excluded` callers     | the relative path only, everywhere               | D5          |
+| B11 | an excluded name in an ancestor of the root: handled for the list, not for the per-file test           | the relative path only, everywhere               | D5          |
 
 B10 changes the callers: `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests` and
 `qa-ready-wait-rules` call `qa_discover` in place of the old functions.
@@ -124,9 +123,8 @@ B10 changes the callers: `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper
 
 `src-go/qa/discovery` (`run.go` command line and lists, `list.go` the git sets and classification,
 `trees.go`, `shebang.go`) and a thin `src-go/qa/cmd/qa-discovery`. Every process goes through
-`proc.Runner`; tests substitute a fake git over a real temporary tree. The wrapper keeps the
-exclusion test in bash because `qa-js` and `qa-ansible-syntax` ask it once per file, where a process
-per file would cost minutes; both readers use `scripts/qa-trees.tsv` and a test asserts they agree.
-Its allowlist row is removed. Routing: `scripts/qa-discovery.bash` stays in `perfile-gate`; a change
-to the wrapper, `lib/qa-trees.bash` or the Go package runs the Go gate, whose tests run the wrapper
-over a real work tree.
+`proc.Runner`; tests substitute a fake git over a real temporary tree. The wrapper holds only
+`qa_discover`; the exclusion test and its bash reader of `scripts/qa-trees.tsv` were deleted once
+`qa-js` and `qa-ansible-syntax` became Go and nothing asked them. Its allowlist row is removed.
+Routing: `scripts/qa-discovery.bash` stays in `perfile-gate`; a change to the wrapper or the Go
+package runs the Go gate, whose tests run the wrapper over a real work tree.

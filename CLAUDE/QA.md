@@ -918,9 +918,8 @@ have already shipped here, and every change to a gate is measured against them.
 an entire checkout — this repo is vendored at `untracked/repos/fedora-desktop`
 inside another project, and every bash file went unscanned with exit 0
 throughout. Anchor repo-root-relative exclusions to `$REPO_ROOT` (the shared
-`qa_is_excluded` in `scripts/qa-discovery.bash`, which `qa-js` and `qa-ansible-syntax`
-ask per file, tests the repo-relative path for this reason; the Go discovery never sees
-an ancestor of the root) and leave only genuinely any-depth names (`.git`, `node_modules`, `__pycache__`, `.venv`,
+exclusion test of the Go discovery (`src-go/qa/discovery`) tests the repo-relative path
+for this reason; it never sees an ancestor of the root) and leave only genuinely any-depth names (`.git`, `node_modules`, `__pycache__`, `.venv`,
 `venv`) unanchored. **Never remove a zero-file guard** to make a gate "work"
 somewhere — zero is the signal.
 
@@ -1101,9 +1100,8 @@ check runs.
 The classification is data, not code: `scripts/qa-routing.tsv` (the rules, in order: which
 files get which checks, which are covered, which honour an excluded tree) and
 `scripts/qa-trees.tsv` (the excluded trees, one list, read by the Go readers in
-`qa/changed`, `qa/patterns` and `qa/discovery` and by the bash reader `scripts/lib/qa-trees.bash`
-behind `qa-discovery.bash`; a table with no `shell` row or no `python` row is exit 2 in all of
-them). All load
+`qa/changed`, `qa/patterns` and `qa/discovery`; a table with no `shell` row or no `python`
+row is exit 2 in all of them). All load
 strictly, a malformed row is exit 2 naming the line. A deleted file has nothing left to check
 but still owes the whole gates it implies (the bash-limits gate for a deleted bash file or
 allowlisted path, the Go gate and the command suites for a deleted `src-go/` file) and selects

@@ -260,8 +260,8 @@ func (rl *rule) parseFlags(field string) error {
 	return nil
 }
 
-// trees are the excluded directory lists, from scripts/qa-trees.tsv, which qa-discovery.bash
-// reads too so the bash gates and this tool share one list.
+// trees are the excluded directory lists, from scripts/qa-trees.tsv, which the Go
+// discovery and patterns gates read too, so they and this tool share one list.
 type trees struct {
 	shell, python treeList
 }

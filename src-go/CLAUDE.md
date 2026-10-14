@@ -174,9 +174,9 @@ shebang; `--directives FILE...` runs only this, for `qa-changed`) and the judgem
 `SPEC-qa-bash.md` (S1-S20) is the specification.
 `qa/discovery` + `qa/cmd/qa-discovery` (same nested module) are the shared source-file discovery
 the bash gates source through `scripts/qa-discovery.bash` (`qa_discover <list> <root>`; the exclusion
-test stays in the wrapper over `scripts/qa-trees.tsv`): what git would publish, one predicate per
+trees are `scripts/qa-trees.tsv`, read by the Go tools only): what git would publish, one predicate per
 language, and the tracked yardsticks each gate measures its coverage against.
-`SPEC-qa-discovery.md` (D1-D14) is the specification.
+`SPEC-qa-discovery.md` (D1-D17) is the specification.
 
 `qa/deployeddrift` + `qa/cmd/qa-deployed-drift` (same nested module) are
 `scripts/qa-deployed-drift.bash`, the repo-against-host gate: the script only builds and runs the

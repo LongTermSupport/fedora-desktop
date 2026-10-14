@@ -16,27 +16,9 @@
 #       tracked-shell | tracked-python | tracked-playbooks | tracked-helper-tests   repo-relative
 #       A list that cannot be made (git failing, a file unreadable, an empty list but
 #       python-templates) exits the caller with status 2 and the tool's message on stderr.
-#   qa_is_excluded <repo_relative_path>      shell exclusion list (QA_EXCLUDE_DIRS)
-#   qa_py_is_excluded <repo_relative_path>   python exclusion list (QA_PY_EXCLUDE_DIRS)
-# The two lists are scripts/qa-trees.tsv, read by lib/qa-trees.bash (also read by the Go tool and by
-# qa-changed). The exclusion test stays in bash: qa-js asks it once per file.
-# shellcheck source-path=SCRIPTDIR
-# shellcheck source=lib/qa-trees.bash
-source "$(dirname "${BASH_SOURCE[0]}")/lib/qa-trees.bash"
+# The excluded trees are scripts/qa-trees.tsv, read by the Go tools (discovery, patterns,
+# qa-changed); no bash reader of it remains.
 _QA_DISCOVERY_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Substring containment on a slash-delimited path, so no glob quoting subtleties.
-_qa_path_in_dirs() {
-    local rel="/$1/" dir
-    shift
-    for dir in "$@"; do
-        [[ "$rel" == *"/$dir/"* ]] && return 0
-    done
-    return 1
-}
-
-qa_is_excluded() { _qa_path_in_dirs "$1" "${QA_EXCLUDE_DIRS[@]}"; }
-qa_py_is_excluded() { _qa_path_in_dirs "$1" "${QA_PY_EXCLUDE_DIRS[@]}"; }
 
 qa_discover() {
     local out file status=0
