@@ -274,7 +274,7 @@ This project follows these core principles:
 **DRY** - Don't repeat yourself, extract common patterns
 **Idempotent** - Safe to run multiple times, same result every time
 **Security First** - Vault-encrypted secrets, no credentials in version control
-**Tooling Is Go** - No more tooling written in bash: tools live in [`src-go/`](src-go/CLAUDE.md), typed and unit tested; bash is only for very small helpers (at most 60 code lines and 4 functions, with no associative arrays, interactive menus or data parsing), plus test suites and plan scripts, which are exempt
+**Tooling Is Go** - No more tooling written in bash: tools live in [`src-go/`](src-go/CLAUDE.md), typed and unit tested; bash is only for very small helpers (at most 60 code lines, 90 statements and 4 functions, with no associative arrays, interactive menus or data parsing), plus test suites and plan scripts, which are exempt
 
 Read more about these principles in [CLAUDE.md](CLAUDE.md) if you're contributing.
 

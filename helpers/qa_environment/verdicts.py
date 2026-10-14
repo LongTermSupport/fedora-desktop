@@ -51,7 +51,9 @@ RUN_SUMMARY = re.compile(r"^[✓✗⚠] QA (?:passed|FAILED):")
 #: terminal state — and a machine missing semgrep or ansible-playbook is exactly the
 #: divergence this tool compares, so treating it as a truncated capture would refuse the
 #: plan's own headline case and misreport it as a broken download.
-TOOL_ABORT = re.compile(r"^ERROR: (?:Missing required tools|[a-z-]+ gate could not produce)")
+TOOL_ABORT = re.compile(
+    r"^ERROR: (?:Missing required tools|[a-z-]+ gate could not produce|qa-all: )"
+)
 
 #: Any line whose payload opens with a status symbol.
 SYMBOL_LINE = re.compile(r"^[✓✗⚠] ")

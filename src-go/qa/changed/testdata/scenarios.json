@@ -1418,6 +1418,24 @@
    }
   },
   {
+   "name": "run-suite-zero-count",
+   "args": [],
+   "setup": {
+    "write": {
+     "scripts/test-teams.bash": "#!/usr/bin/bash\necho \"suite:test-teams.bash\" >> \"$STUB_LOG\"\ncode=0\n[[ -f \"$STUB_DIR/exit-test-teams.bash\" ]] && code=\"$(cat \"$STUB_DIR/exit-test-teams.bash\")\"\n[[ \"$code\" == 0 ]] || { echo \"test-teams.bash: stub failure\" >&2; exit \"$code\"; }\necho \"passed: 0 failed: 0\"\n\n"
+    }
+   }
+  },
+  {
+   "name": "run-suite-count-reports-failures",
+   "args": [],
+   "setup": {
+    "write": {
+     "scripts/test-teams.bash": "#!/usr/bin/bash\necho \"suite:test-teams.bash\" >> \"$STUB_LOG\"\ncode=0\n[[ -f \"$STUB_DIR/exit-test-teams.bash\" ]] && code=\"$(cat \"$STUB_DIR/exit-test-teams.bash\")\"\n[[ \"$code\" == 0 ]] || { echo \"test-teams.bash: stub failure\" >&2; exit \"$code\"; }\necho \"passed: 9 failed: 2\"\n\n"
+    }
+   }
+  },
+  {
    "name": "run-excluded-only",
    "args": [],
    "setup": {

@@ -1,0 +1,124 @@
+# Every QA gate scripts/qa-all.bash runs, in the order it runs them. Tab separated; # starts a
+# comment line. The order is part of the contract: the stage lines come out in this order and a
+# failure never stops the gates after it. src-go/qa/gates loads this file strictly (a short row,
+# an unknown kind or reader, a bad name or pattern, a duplicate, or a missing script is exit 2
+# with the line number); qa-changed reads its suite population from it and the QA.md inventory
+# gate (helpers/docs/link_check.py) checks the documentation against it. SPEC-qa-all.md section 11.
+#
+#   kind    name    command    text    [reader ...]
+#
+#   kind     gate     run, capture stdout+stderr, status 0 passes; the readers give the summary
+#            stage    one of the seven jq-merged report stages: run with QA_JSON_OUT, output
+#                     streamed live, status 2 aborts the whole run with the text as its message
+#            drift    like gate, but its own output is the stage line (no summary to read)
+#            helpers  the helper unit suite: counts travel in a file, not in text
+#   name     the stage-line name, [a-z0-9-]+ (helpers/qa_environment/verdicts.py parses it)
+#   command  words relative to the repository root; scripts/x.bash runs through bash
+#   text     gate/drift/helpers: the reason on the failed stage line; stage: the exit-2 message
+#   reader   gate rows, one or more, joined with "; " on the pass line:
+#              count          the last "passed: N" the suite printed
+#              detail:<ERE>   the text the POSIX ERE matches on the last line that matches
+#            A gate whose reader finds nothing FAILS: it proved nothing.
+#
+# Adding a gate is adding a row here (and a row in CLAUDE/QA.md). Nothing else lists the gates.
+# Toolchain first: every verdict below is a property of the binary that produced it. It does
+# not abort, because a drifted toolchain makes the verdicts unreliable, not unrunnable.
+gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
+# src-go/: format, vet, race tests, golangci-lint, project rules.
+gate	go	scripts/qa-go.bash	Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)	detail:GO-OK [0-9]+ package[(]s[)]
+# Tooling is Go: every bash file within the limits or on the ratchet allowlist.
+gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
+# The seven report stages. Their reports are merged into the machine report.
+stage	bash	scripts/qa-bash.bash	ERROR: Missing required tools. Install them and re-run.
+stage	python	scripts/qa-python.bash	ERROR: Missing required tools. Install them and re-run.
+stage	patterns	scripts/qa-patterns.bash	ERROR: Missing required tools (semgrep). Install with: pipx install semgrep
+stage	ansible	scripts/qa-ansible.bash	ERROR: Missing required tools for ansible check. Install them and re-run.
+stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: Missing required tools (ansible-playbook). Install them and re-run.
+stage	js	scripts/qa-js.bash	ERROR: Missing required tools (node / extensions node_modules). Install them and re-run.
+stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (zero-file scan or checker crash).
+# Hard gates that are not report stages.
+gate	nokill-containerwatch	scripts/qa-nokill-containerwatch.bash	rejected a process-termination call site in the container-watch watchdog	detail:[0-9]+ container-watch file[(]s[)] clean
+drift	deployed-drift	scripts/qa-deployed-drift.bash	repo-owned scripts differ from their deployed copies
+helpers	helper-tests	scripts/qa-helper-tests.bash	the helper unit suite failed
+# The unit suites and rule gates. The count reader wants a 'passed: N' line.
+gate	secret-scan-tests	scripts/test-secret-scan.bash	secret scanner unit tests failed	count
+gate	planlib-tests	scripts/test-planlib.bash	plan-script library regression tests failed	detail:PASSED [(]library version [0-9.]+[)]
+gate	meta-deploy-queue	scripts/test-meta-deploy.bash	meta-deploy.list queue tests failed	count
+gate	ccy-rootless-guard	scripts/test-ccy-rootless-guard.bash	ccy rootless-engine guard unit tests failed	count
+gate	ccy-token-mode	scripts/test-ccy-token-mode.bash	ccy token-mode unit tests failed	count
+gate	ccy-token-usage-output	scripts/test-ccy-token-usage-output.bash	ccy token usage view printed lines that are not part of its display	count
+gate	ccy-token-usage-command	scripts/test-ccy-token-usage-command.bash	ccy --token-usage tests failed	count
+gate	ccy-token-import-cleanup	scripts/test-ccy-token-import-cleanup.bash	ccy token import cleanup tests failed	count
+gate	ccy-ssh-handling	scripts/test-ccy-ssh-handling.bash	ccy ssh-handling unit tests failed	count
+gate	ccy-git-signing	scripts/test-ccy-git-signing.bash	ccy commit-signing unit tests failed	count
+gate	git-signing-declared	scripts/test-git-signing-declared.bash	git signing gate tests failed	count
+gate	qa-tool-pin-converges	scripts/test-qa-tool-pin-converges.bash	QA tool pin convergence tests failed	count
+gate	ccy-browser-session-guard	scripts/test-agent-browser-session-guard.bash	ccy browser session guard unit tests failed	count
+gate	gh-scope-outside-ssot	scripts/qa-gh-scopes.bash	GitHub scopes named outside vars/github-required-scopes.yml	count
+gate	speech-to-text-rules	scripts/qa-speech-to-text-rules.bash	speech-to-text rules: a model judged present without its weights, or a dropdown label that explains itself	count
+gate	ready-wait-rules	scripts/qa-ready-wait-rules.bash	a ready-wait that ignores its child's exit (Python and bash)	count
+gate	pause-without-register	scripts/qa-ansible-pause.bash	an ansible pause with no register and no PAUSE-OK reason	count
+gate	ccy-selinux-verdict	scripts/test-ccy-selinux-verdict.bash	ccy selinux-verdict unit tests failed	count
+gate	ccy-relabel-preflight	scripts/test-ccy-relabel-preflight.bash	ccy relabel-preflight tests failed	count
+gate	agent-mailbox-watch	scripts/test-agent-mailbox-watch.bash	agent mailbox watcher tests failed	count
+gate	ccy-gpu-device	scripts/test-ccy-gpu-device.bash	ccy gpu-device unit tests failed	count
+gate	ccy-container-menus	scripts/test-ccy-container-menus.bash	ccy container menu tests failed	count
+gate	ccy-flag-check	scripts/test-ccy-flag-check.bash	ccy flag check tests failed	count
+gate	ccy-restart-request	scripts/test-ccy-restart-request.bash	ccy restart-request unit tests failed	count
+gate	ccy-container-version-hook	scripts/test-ccy-container-version-hook.bash	ccy container version hook tests failed	count
+gate	ccy-project-env	scripts/test-ccy-project-env.bash	ccy project env tests failed	count
+gate	ccy-git-preflight	scripts/test-ccy-git-preflight.bash	ccy entrypoint git preflight tests failed	count
+gate	ccy-agent-bus	scripts/test-ccy-agent-bus.bash	ccy agent team bus entrypoint tests failed	count
+gate	ccy-teams	scripts/test-ccy-teams.bash	ccy --teams launcher tests failed	count
+gate	cc-teams	scripts/test-cc-teams.bash	cc --teams library tests failed	count
+gate	ccy-gitignore-safety	scripts/test-ccy-gitignore-safety.bash	ccy .gitignore guard tests failed	count
+gate	ccy-env-local-dist	scripts/test-ccy-env-local-dist.bash	ccy ccy.env.local.dist tests failed	count
+gate	ccy-lifecycle	scripts/test-ccy-lifecycle.bash	ccy session-lifecycle unit tests failed	count
+gate	wsi-stop-grace	scripts/test-wsi-stop-grace.bash	speech-to-text stop grace tests failed	count
+gate	stt-limits	scripts/qa-stt-limits.bash	a speech-to-text recording limit is held in more than one place	count
+gate	ccy-host-hostname	scripts/test-ccy-host-hostname.bash	ccy host-hostname unit tests failed	count
+gate	ccy-host-time-zone	scripts/test-ccy-host-time-zone.bash	ccy host time zone unit tests failed	count
+gate	ccy-network-disconnect	scripts/test-ccy-network-disconnect.bash	ccy --disconnect unit tests failed	count
+gate	ccy-info-flags	scripts/test-ccy-info-flags.bash	ccy informational-option tests failed	count
+gate	ssh-suspend-guard	scripts/test-ssh-suspend-guard.bash	ssh-suspend-guard session-detection unit tests failed	detail:VERDICT: PASS
+gate	ccy-session-registry	scripts/test-ccy-session-registry.bash	ccy session-registry unit tests failed	count
+gate	ccy-compose-restore	scripts/test-ccy-compose-restore.bash	ccy compose-question / unanswerable-prompt unit tests failed	count
+gate	ccy-sessions-reboot	scripts/test-ccy-sessions-reboot.bash	ccy-sessions reboot/notify/restore unit tests failed	count
+gate	ccy-sessions-take-over	scripts/test-ccy-sessions-take-over.bash	ccy-sessions take-over unit tests failed	count
+gate	ccy-tmux-targets	scripts/test-ccy-tmux-targets.bash	ccy tmux exact-target tests failed	count
+gate	ccy-teams-command	scripts/test-ccy-teams-command.bash	ccy-teams command unit tests failed	count
+gate	ccy-restore-askpass	scripts/test-ccy-restore-askpass.bash	ccy restore-askpass unit tests failed	count
+gate	vmtest-host-only-gate	scripts/test-vmtest-host-only-gate.bash	vmtest host-only gate unit tests failed	count
+gate	vmtest-reboot-dispatch	scripts/test-vmtest-reboot-dispatch.bash	vmtest reboot dispatch unit tests failed	count
+gate	vmtest-kernel-selection	scripts/test-vmtest-kernel-selection.bash	vmtest kernel selection unit tests failed	count
+gate	vmtest-build-dir-cleanup	scripts/test-vmtest-build-dir-cleanup.bash	vmtest build directory cleanup tests failed	count
+gate	vmtest-member	scripts/test-vmtest-member.bash	vmtest member lifecycle tests failed	count
+gate	vmtest-prepare-record	scripts/test-vmtest-prepare-record.bash	vmtest prepare-record contract tests failed	count
+gate	panel-sections	scripts/test-panel-sections.bash	panel section unit tests failed	count
+gate	run-bash-headless-localhost-yml	scripts/test-run-bash-headless-localhost-yml.bash	run.bash headless localhost.yml unit tests failed	count
+gate	run-bash-ssh-agent-teardown	scripts/test-run-bash-ssh-agent-teardown.bash	run.bash ssh-agent teardown unit tests failed	count
+gate	run-bash-single-play	scripts/test-run-bash-single-play.bash	run.bash single-play / play-lock tests failed	count
+gate	run-bash-changed	scripts/test-run-bash-changed.bash	run.bash --changed tests failed	count
+gate	run-bash-rerun	scripts/test-run-bash-rerun.bash	run.bash --rerun tests failed	count
+gate	run-bash-gh-scopes	scripts/test-run-bash-gh-scopes.bash	run.bash / gh-account-setup.bash single-pass scope tests failed	count
+gate	run-bash-config-repo	scripts/test-run-bash-config-repo.bash	run.bash config-repo tests failed	count
+gate	run-bash-ssh-agent-start	scripts/test-run-bash-ssh-agent-start.bash	run.bash headless SSH unlock tests failed	count
+gate	gh-alias-wrappers	scripts/test-gh-alias-wrappers.bash	gh-<alias> wrapper tests failed	count
+gate	self-update-cycle	scripts/test-self-update-cycle.bash	fedora-desktop-self-update end-to-end tests failed	count
+gate	agent-bus-install	scripts/test-agent-bus-install.bash	agent-bus-install tests failed	count
+gate	release	scripts/test-release.bash	scripts/release.bash tests failed	count
+gate	run-log-scrub	scripts/test-run-log-scrub.bash	run-log secret scrubber unit tests failed	count
+gate	host-health-login-snippet	scripts/test-host-health-login-snippet.bash	host-health login snippet unit tests failed	count
+gate	bash-history-search	scripts/test-bash-history-search.bash	bash history search unit tests failed	count
+gate	bash-history-session	scripts/test-bash-history-session.bash	bash history session unit tests failed	count
+gate	terminal-modes	scripts/test-terminal-modes.bash	terminal modes prompt hook unit tests failed	count
+gate	fedora-desktop-health	scripts/test-fedora-desktop-health.bash	fedora-desktop-health command unit tests failed	count
+gate	failfast-pattern-tests	scripts/test-qa-ansible-failfast.bash	fail-fast directive pattern unit tests failed	count
+gate	docs-exit-codes	scripts/test-qa-docs-exit-codes.bash	docs gate exit-code contract failed	count
+gate	qa-changed-mapping	scripts/test-qa-changed.bash	qa-changed file-to-check mapping tests failed	count
+# Python-module and manifest gates, last.
+gate	extension-compat	python3 -m helpers.gnome.check_extension_compat	an extension does not declare the GNOME Shell this Fedora ships	detail:All [0-9]+ extension[(]s[)] cover the GNOME Shell that Fedora [0-9]+ ships
+gate	panel-contract	python3 -m helpers.gnome.check_panel_contract .	the panel and the status document producer disagree	detail:[0-9]+ constant[(]s[)] agree between .+
+gate	vmtest-manifest	scripts/qa-vmtest-manifest.bash	the VM-test scenario manifest is not valid	detail:vars/[a-z-]+[.]yml: scenarios=[0-9]+ runnable=[0-9]+ bridge=[0-9]+ host_only=[0-9]+ bases=[0-9]+	detail:[0-9]+ scenario[(]s[)] agree with their guest checker	detail:[0-9]+ scenario fixture[(]s[)] run before a declared reboot
+gate	plan-script-logging	scripts/qa-plan-script-logging.bash	a plan script uses the un-waitable run-log pattern, or keeps a plan-local logs/ dir	detail:[0-9]+ plan script[(]s[)] examined, no offences
+gate	version-pins	scripts/qa-version-pins.bash	the upstream version-pin manifest is not valid	detail:vars/[a-z-]+[.]yml: VERSION-PINS-OK .+

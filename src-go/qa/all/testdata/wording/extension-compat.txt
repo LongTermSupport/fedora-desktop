@@ -1,0 +1,7 @@
+COMPAT-OK dock-recovery-on-unlock@fedora-desktop: Fedora 44 ships GNOME Shell 50, which metadata.json shell-version ['45', '46', '47', '48', '49', '50'] covers.
+COMPAT-OK fedora-desktop@fedora-desktop: Fedora 44 ships GNOME Shell 50, which metadata.json shell-version ['45', '46', '47', '48', '49', '50'] covers.
+COMPAT-OK remote-desktop-toggle@fedora-desktop: Fedora 44 ships GNOME Shell 50, which metadata.json shell-version ['47', '48', '49', '50'] covers.
+COMPAT-OK speech-to-text@fedora-desktop: Fedora 44 ships GNOME Shell 50, which metadata.json shell-version ['45', '46', '47', '48', '49', '50'] covers.
+COMPAT-OK workspace-names-overview@fedora-desktop: Fedora 44 ships GNOME Shell 50, which metadata.json shell-version ['45', '46', '47', '48', '49', '50'] covers.
+
+All 5 extension(s) cover the GNOME Shell that Fedora 44 ships.

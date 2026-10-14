@@ -8,7 +8,7 @@
 #   also    every matching row applies, in order, and none stops the others
 #   first   the first matching row classifies the file and ends the search
 #   post    after every file is classified, when any file matched the kind: any:@sh, any:@py
-#   perfile-gate  not a rule: the qa-*.bash gates that qa-all.bash runs which are NOT suites
+#   perfile-gate  not a rule: the qa-*.bash gates that scripts/qa-gates.tsv lists which are NOT suites
 #                 (run per file above, run whole as a gate, or inspecting the host)
 # match
 #   comma-separated globs with bash `case` semantics: a star matches any run of characters
@@ -36,8 +36,8 @@ also	helpers/agent_bus/declare.py	go	-
 also	*.bash,*.sh,*.j2	bash-limits	-
 also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/proc/*	bash-limits	-
 also	scripts/bash-limits.allowlist	bash-limits	covered
-# The tables that route files are read by the Go tests (which run the real ones) and by the suite below.
-also	scripts/qa-routing.tsv,scripts/qa-trees.tsv	go	covered
+# The tables that route files and list the gates are read by the Go tests (which run the real ones).
+also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 first	*.md	docs	covered

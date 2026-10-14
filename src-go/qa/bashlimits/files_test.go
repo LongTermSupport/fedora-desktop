@@ -106,7 +106,7 @@ func TestExemptionFor(t *testing.T) {
 		"CLAUDE/Plan/mkplan.bash":                        false,
 		"CLAUDE/Plan/_planlib.inc.bash":                  false,
 		"files/home/.local/bin/vmtest":                   false,
-		"scripts/lib/qa-helper-summary.bash":             false,
+		"scripts/lib/go-tool.bash":                       false,
 	}
 	for p, want := range cases {
 		reason, ok, err := ExemptionFor(p)

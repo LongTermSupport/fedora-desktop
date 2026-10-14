@@ -332,6 +332,24 @@ class TestMain(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("QA-VERDICTS-FAIL", out)
 
+    def test_every_abort_the_go_runner_prints_is_a_terminal_state(self):
+        # The Go qa-all prefixes each abort of its own (an unknown argument, an unwritable
+        # report, an unreadable gate table) `ERROR: qa-all: `, so a capture ending that way
+        # is an aborted run, not a truncated download.
+        for message in (
+            "ERROR: qa-all: unknown argument '--typo'",
+            "ERROR: qa-all: cannot clear the previous report /tmp/qa-results.json: boom",
+            "ERROR: qa-all: cannot write the report: boom",
+            "ERROR: qa-all: cannot read the gate table: no such file",
+            "ERROR: qa-all: working directory: boom",
+        ):
+            with self.subTest(message=message):
+                aborted = "✓ bash: 258 files OK\n" + message + "\n"
+                code, out = self._run("✓ bash: 258 files OK\n" + self.END, aborted, terminate=False)
+                self.assertEqual(code, 0)
+                self.assertNotIn("QA-VERDICTS-FAIL", out)
+                self.assertIn("1 tool abort", out)
+
     def test_an_unrelated_error_line_is_not_mistaken_for_a_terminal_state(self):
         # The guard must stay narrow: prose beginning "ERROR:" from inside a gate is not
         # the run ending, and treating it as one would put the truncation hole back.

@@ -244,7 +244,7 @@ say so in the output. When something must happen between the two that a script c
 `deploy.bash`'s closing message.
 
 The owner never runs a plan's `deploy.bash` by hand from a chat instruction: the plan goes
-into `CLAUDE/Plan/meta-deploy.bash`'s `PLANS` list, which runs it
+into `CLAUDE/Plan/meta-deploy.list`, which `meta-deploy.bash` runs
 ([PlanWorkflow.md](PlanWorkflow.md)).
 
 ### R10 — Reports go in the run directory, and the script writes them

@@ -10,7 +10,7 @@ import (
 
 // startsProcess lists the standard-library functions that start or replace a process.
 var startsProcess = map[string][]string{
-	"os/exec": {"Command", "CommandContext"},
+	execPkg:   {"Command", "CommandContext"},
 	"syscall": {"Exec", "ForkExec", "StartProcess"},
 	"os":      {"StartProcess"},
 }
@@ -101,5 +101,5 @@ func isOSExecCmd(t types.Type) bool {
 	if !ok || named.Obj().Pkg() == nil {
 		return false
 	}
-	return named.Obj().Pkg().Path() == "os/exec" && named.Obj().Name() == "Cmd"
+	return named.Obj().Pkg().Path() == execPkg && named.Obj().Name() == "Cmd"
 }

@@ -18,6 +18,8 @@
  "unknown-flag": {"bugs": ["B15"], "reason": "the usage after an error is the tool's own text, not the script's header comment"},
  "run-gate-exit-2": {"bugs": ["B13", "B30"], "reason": "a gate that exits 2 is reported 'could not run (exit 2)' and the run exits 2 when nothing else failed; shellcheck reads the files a changed script sources (--external-sources), as the full gate does"},
  "run-gate-exit-2-and-fail": {"bugs": ["B13", "B30"], "reason": "a check that failed outranks a gate that could not run (exit 1); the report line says 'could not run (exit 2)'; shellcheck reads the files a changed script sources (--external-sources), as the full gate does"},
+ "run-suite-zero-count": {"bugs": ["B31"], "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion and could not run (exit 2); the bash ticked it"},
+ "run-suite-count-reports-failures": {"bugs": ["B32"], "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite (exit 1); the bash ticked it"},
  "run-all-pass": {"bugs": ["B30"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does"},
  "run-bash-syntax-error": {"bugs": ["B30"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does"},
  "run-explicit-files": {"bugs": ["B30"], "reason": "shellcheck reads the files a changed script sources (--external-sources), as the full gate does"},

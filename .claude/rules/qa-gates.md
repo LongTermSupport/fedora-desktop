@@ -1,6 +1,12 @@
 ---
 paths:
   - "scripts/qa-*.bash"
+  - "scripts/qa-gates.tsv"
+  - "scripts/qa-routing.tsv"
+  - "scripts/qa-trees.tsv"
+  - "src-go/qa/all/**"
+  - "src-go/qa/gates/**"
+  - "src-go/qa/changed/**"
   - "helpers/docs/**"
   - "ruff.toml"
   - ".qa-versions"

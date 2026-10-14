@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +27,14 @@ import (
 // difference is allowed only as a numbered bug of SPEC-qa-changed.md section 10, pinned in
 // deviations.json with the reason and in deviation/<scenario>.json (the output the Go is
 // expected to give). -update-deviations rewrites the pinned files for the entries listed.
+
+// goldenGates lists what the world's qa-all.bash invokes: three suites and the docs gate, which
+// the routing table names as a per-file gate.
+const goldenGates = `gate	alpha	scripts/test-alpha.bash	alpha failed	count
+gate	beta	scripts/test-beta.bash	beta failed	count
+gate	teams	scripts/test-teams.bash	teams failed	count
+stage	docs	scripts/qa-docs.bash	docs unavailable
+`
 
 var updateDeviations = flag.Bool("update-deviations", false, "rewrite testdata/deviation for the scenarios listed in deviations.json")
 
@@ -149,6 +158,9 @@ func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenReco
 	for rel, text := range world {
 		writeFile(t, root, rel, text)
 	}
+	// The world's qa-all.bash is the text the recorded bash scanned for suites; the Go reads the
+	// same suites from the gate table, which says the same.
+	writeFile(t, root, "scripts/qa-gates.tsv", goldenGates)
 	writeFile(t, root, "scripts/qa-routing.tsv", readReal(t, "qa-routing.tsv"))
 	writeFile(t, root, "scripts/qa-trees.tsv", readReal(t, "qa-trees.tsv"))
 	gitIn(t, root, "init", "-q")
@@ -156,7 +168,10 @@ func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenReco
 	gitIn(t, root, "commit", "-q", "-m", "base")
 	first := gitIn(t, root, "rev-parse", "HEAD")
 	applySetup(t, root, sc.Setup)
-	runner := &goldenRunner{t: t, exits: sc.Exits, findings: sc.SemgrepFindings, world: world}
+	// A suite the scenario rewrites answers with its new text, as the bash stub does.
+	current := maps.Clone(world)
+	maps.Copy(current, sc.Setup.Write)
+	runner := &goldenRunner{t: t, exits: sc.Exits, findings: sc.SemgrepFindings, world: current}
 	var out, errOut bytes.Buffer
 	env := Env{
 		Getenv: func(string) string { return "" },
@@ -244,7 +259,7 @@ type goldenRunner struct {
 	log      []string
 }
 
-var suiteCount = regexp.MustCompile(`passed: ([0-9]+) failed`)
+var suiteCount = regexp.MustCompile(`passed: ([0-9]+) failed: ([0-9]+)`)
 
 func (r *goldenRunner) Run(ctx context.Context, c proc.Cmd) (proc.Result, error) {
 	name := filepath.Base(c.Argv[0])
@@ -304,11 +319,11 @@ func (r *goldenRunner) script(c proc.Cmd) proc.Result {
 	r.log = append(r.log, "suite:"+name)
 	res := r.exit(c, name)
 	if res.Code == 0 {
-		count := "0"
+		count, failedCount := "0", "0"
 		if m := suiteCount.FindStringSubmatch(r.world["scripts/"+name]); m != nil {
-			count = m[1]
+			count, failedCount = m[1], m[2]
 		}
-		res.Stdout = "passed: " + count + " failed: 0\n"
+		res.Stdout = "passed: " + count + " failed: " + failedCount + "\n"
 	}
 	return res
 }

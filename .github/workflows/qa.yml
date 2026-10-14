@@ -155,7 +155,7 @@ jobs:
   # qa-all.bash, a local `./scripts/qa-all.bash` could pass on a change that CI
   # then failed — and CLAUDE/QA.md tells everyone that command is sufficient.
   # A gate listed in two places drifts; a gate listed once cannot. If you add a
-  # suite, add it to qa-all.bash and it reaches CI for free.
+  # suite, add a row to scripts/qa-gates.tsv (what qa-all.bash runs) and it reaches CI for free.
 
   gitleaks:
     name: gitleaks secret scan

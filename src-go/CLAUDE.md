@@ -45,7 +45,8 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 
 - **Project rules.** `qa/` is a nested module (so this `go.mod` stays dependency-free) of
   `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
-  no wall clock in tests, one home abbreviation. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
+  tmux target forms, no wall clock in tests, one home abbreviation, a `WaitDelay` that names
+  its error. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.
 
 ## Parity oracles
@@ -101,3 +102,16 @@ the bash it replaced (`changed/golden_test.go`, difference only as a numbered bu
 rules run over this nested module too (`qa-go.bash` runs the driver a second time over it):
 every process it starts goes through the one seam `qa/internal/proc` (shared with
 `qa/bashlimits`' git runner), faked in tests, and its tests read no wall clock.
+
+`qa/all` + `qa/cmd/qa-all` + `qa/gates` (same nested module) are `scripts/qa-all.bash`, the full
+QA run before a push: the script only builds and runs the command. **What it runs is data:
+`scripts/qa-gates.tsv`**, one row per gate in run order, loaded strictly by `qa/gates`, which
+also holds the three stage-line readers (case count, detail pattern, the helper-tests counts
+file) and is read by `qa/changed` for its suite population; the docs gate checks the same file
+against `CLAUDE/QA.md`. A gate whose reader finds nothing fails. The proofs are its Go tests (a
+fake process seam over the real table, every gate failing in turn), a golden replay of the bash
+it replaced (`qa/all/golden_test.go`, recorded by `CLAUDE/Plan/00192-.../qa-all-golden/capture.py`;
+difference only as a numbered bug of `SPEC-qa-all.md` section 10 pinned in
+`testdata/deviations.json`), and the real tree (`scripts/test-qa-changed.bash`, the docs gate).
+`qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
+terminal live and in order).

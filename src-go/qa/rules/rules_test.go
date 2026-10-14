@@ -42,12 +42,16 @@ func TestHomeAbbrev(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), HomeAbbrev, "fix/internal/term", "fix/qa/rules", "fix/internal/badhome")
 }
 
+func TestWaitDelay(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 5 {
-		t.Fatalf("want 5 rules, got %d", got)
+	if got := len(All()); got != 6 {
+		t.Fatalf("want 6 rules, got %d", got)
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 )
 
 // runWorld is a scratch git repository (the root) plus a separate scripts directory carrying
-// the real tables, a fake qa-all.bash with two suites, and stub gates.
+// the real tables, a fake gate table with two suites, and stub gates.
 type runWorld struct {
 	t       *testing.T
 	root    string
@@ -31,7 +31,7 @@ func newRunWorld(t *testing.T) *runWorld {
 	for _, name := range []string{"qa-routing.tsv", "qa-trees.tsv"} {
 		writeFile(t, w.scripts, name, readReal(t, name))
 	}
-	writeFile(t, w.scripts, "qa-all.bash", "run \"$SCRIPT_DIR/test-one.bash\"\nrun \"$SCRIPT_DIR/test-two.bash\"\n")
+	writeFile(t, w.scripts, "qa-gates.tsv", "gate\tone\tscripts/test-one.bash\tone failed\tcount\ngate\ttwo\tscripts/test-two.bash\ttwo failed\tcount\n")
 	writeFile(t, w.scripts, "test-one.bash", "#!/usr/bin/bash\nkept.bash\n")
 	writeFile(t, w.scripts, "test-two.bash", "#!/usr/bin/bash\nkept.bash\n")
 	writeFile(t, w.scripts, "go-binary-suites.tsv", "frz\tqa-go\n")
@@ -223,6 +223,55 @@ func TestASuiteThatExitsZeroWithoutACaseCountCouldNotRun(t *testing.T) {
 	}
 	if !strings.Contains(w.errOut.String(), "printed no 'passed: <n>' line") || !strings.Contains(w.errOut.String(), "set up, then nothing") {
 		t.Fatalf("stderr must say why and keep the output: %q", w.errOut.String())
+	}
+}
+
+// A suite that counted no cases ran nothing: also could not run (SPEC-qa-changed.md B31).
+func TestASuiteThatCountedZeroCasesCouldNotRun(t *testing.T) {
+	w := newRunWorld(t)
+	w.changeKept()
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-one.bash")] = proc.Result{Stdout: "passed: 0 failed: 0\n"}
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-two.bash")] = proc.Result{Stdout: "passed: 3 failed: 0\n"}
+	if code := w.main(); code != ExitCannotRun {
+		t.Fatalf("exit %d, want %d", code, ExitCannotRun)
+	}
+	if !strings.Contains(w.out.String(), "✗ suite test-one.bash: (names kept.bash) — could not run (exit 2)\n") {
+		t.Fatalf("stdout:\n%s", w.out.String())
+	}
+	if !strings.Contains(w.errOut.String(), "counted 0 passed cases") {
+		t.Fatalf("stderr must say why: %q", w.errOut.String())
+	}
+}
+
+// A count line that reports failures is a failed suite although it exited 0 (B32).
+func TestASuiteWhoseCountLineReportsFailuresFailsDespiteExitZero(t *testing.T) {
+	w := newRunWorld(t)
+	w.changeKept()
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-one.bash")] = proc.Result{Stdout: "passed: 3 failed: 2\n"}
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-two.bash")] = proc.Result{Stdout: "passed: 3 failed: 0\n"}
+	if code := w.main(); code != ExitFailed {
+		t.Fatalf("exit %d, want %d", code, ExitFailed)
+	}
+	out := w.out.String()
+	if !strings.Contains(out, "✗ suite test-one.bash: (names kept.bash)\n") || !strings.Contains(out, "✗ qa-changed FAILED: suite test-one.bash\n") {
+		t.Fatalf("stdout:\n%s", out)
+	}
+	if !strings.Contains(w.errOut.String(), "2 failed") {
+		t.Fatalf("stderr must say why: %q", w.errOut.String())
+	}
+}
+
+// A tool that exited 0 but left a child holding its output open is a failure that keeps the
+// output it wrote and says what it left behind.
+func TestACheckThatLeavesAChildBehindFailsAndKeepsItsOutput(t *testing.T) {
+	w := newRunWorld(t)
+	w.changeKept()
+	w.runner.replies["bash -n"] = proc.Result{Stdout: "captured\n", Leftover: true}
+	if code := w.main(); code != ExitFailed {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.errOut.String(), "captured\n") || !strings.Contains(w.errOut.String(), "left a process running") {
+		t.Fatalf("stderr: %q", w.errOut.String())
 	}
 }
 

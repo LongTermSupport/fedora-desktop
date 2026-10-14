@@ -19,10 +19,20 @@ no changed file names. See [qa-changed.bash](#qa-changedbash--diff-scoped-qa-whi
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs every gate in the two tables below. Seven merge their JSON into
-`/tmp/qa-results.json` through a positional `.[0]..[6]` merge; the rest run separately
-(see below). Those seven emit **eight** named verdict lines — `qa-bash.bash` prints `bash`
-and `shellcheck` — so a run shows one more stage name than it has gates.
+`qa-all.bash` is a wrapper (a header comment, `set -euo pipefail`, and one call into
+`lib/go-tool.bash`, no logic of its own) over a Go tool (`src-go/qa/all`, command
+`src-go/qa/cmd/qa-all`, in the nested QA module; `lib/go-tool.bash` builds it into a private
+directory under the cache and runs it). **What it runs is data: `scripts/qa-gates.tsv`**, one
+row per gate in run order, with the gate's kind, command, the reason on its `✗` line and how
+its summary is read. It runs every row in the two tables below, never stopping at a failure.
+Seven are *stages*: they write a JSON report that is merged **by stage name** into
+`/tmp/qa-results.json` (`QA_RESULTS_JSON` overrides the path; the run removes the previous
+report first, so a run that ends early leaves none to be mistaken for its own); the rest are
+run, captured and read separately (see below). Those seven emit **eight** named verdict lines
+— `qa-bash.bash` prints `bash` and `shellcheck` — so a run shows one more stage name than it
+has gates. Each gate has a time limit (`QA_ALL_TIMEOUT`, 30 minutes, `0` disables) and
+`qa-all.bash --help` prints the usage; an unknown argument is exit 2 (the bash ignored every
+argument and ran the suite).
 
 This page states no gate count, because a number in a document is the first thing to go
 stale. For the count, run `./scripts/qa-all.bash` and count the distinct `name:` prefixes
@@ -30,12 +40,21 @@ on the `✓`/`✗`/`⚠` lines. A missing **required** tool makes a stage (and t
 run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure,
 never silently treated as "0 issues".
 
-**This inventory is derived, not maintained.** `helpers/docs/link_check.py` parses the
-gate invocations out of `qa-all.bash` and fails the docs gate for any that has no row
+**This inventory is derived, not maintained.** `helpers/docs/link_check.py` reads the
+gates out of `scripts/qa-gates.tsv` and fails the docs gate for any that has no row
 below, so a gate added without a row is caught on the same commit. It is derived because
 it kept going stale: the counts above were wrong by eleven and the table was missing ten
 rows, having been "corrected" more than once by swapping one hand-written list for a
-fresher hand-written list.
+fresher hand-written list. `qa-changed.bash` reads its suite population from the same file,
+so no tool scans another script's text for what it runs.
+
+The tool's proofs are its Go tests (a fake process seam over the real table: the order, every
+gate failing in turn with the rest still running, each detail pattern against the gate's own
+output captured from a real run, the report merge byte for byte against what `jq -s` produced), a golden replay of
+the bash it replaced (`src-go/qa/all/golden_test.go`, recorded from a git revision by
+`CLAUDE/Plan/00192-.../qa-all-golden/capture.py`; any difference must be a numbered bug of that
+plan's `SPEC-qa-all.md` section 10 pinned in `testdata/deviations.json`), and the real tree:
+`test-qa-changed.bash` reads the same table, and the docs gate checks it against this page.
 
 | Script                   | Checks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Files                                                                                                                                                 |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -52,8 +71,8 @@ fresher hand-written list.
 | `qa-toolchain.bash`      | Runs FIRST, as a hard gate: every tool a gate runs (ruff, semgrep, shellcheck) is installed at the version `/.qa-versions` pins. A mismatch or absence fails this gate and lets the rest run — never exit 2, which would abort the suite (see "The QA Toolchain Is Pinned")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | The machine, not any file                                                                                                                             |
 
 The further gates below run inside `qa-all.bash` as **hard, non-structural** checks —
-they are deliberately not jq-merged stages, so they cannot disturb the positional
-`.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
+they are rows of kind `gate` (or `drift`, `helpers`), not report stages, so they have no
+JSON to merge. Any one of them fails the run, and the gates after it still run:
 
 | Gate                                        | Checks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -62,6 +81,7 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `qa-helper-tests.bash`                      | the `helpers/` unit suite (Plan 00081 F11); `--counts-file` reports its size and skip count as data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `test-secret-scan.bash`                     | the pre-commit secret scanner's own unit suite (Plan 00092)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `test-planlib.bash`                         | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `test-meta-deploy.bash`                     | `meta-deploy.bash` and its `meta-deploy.list` queue: a malformed entry, a missing plan script or playbook and a failing unit all stop the batch, and the real list validates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `test-ccy-rootless-guard.bash`              | ccy's rootless-engine verdict (Plan 00072); pure function, no podman needed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `test-ccy-token-mode.bash`                  | `select_token`'s per-mode answer to an unusable token pool (Plan 00048, CCY 3.50.0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `test-ccy-token-usage-output.bash`          | the token menu's usage view (`u`) prints only its own display lines: driven through the real fetch-and-redraw path with curl stubbed, every line is classified against the intended display, stray assignment or trace lines fail, stderr must stay empty, and the classifier is checked against known noise first                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -131,7 +151,6 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `test-terminal-modes.bash`                  | the prompt hook that switches stray terminal modes off, on a real pseudo-terminal: the exact sequence at the prompt, nothing on a pipe or for `TERM=dumb`, nothing that clears or swaps the screen, `$?` unchanged for later prompt hooks, added once when sourced twice, bracketed paste re-enabled by readline afterwards                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `test-fedora-desktop-health.bash`           | the on-demand report command: a sentence on a clean host, `--hold` released by Enter or EOF, a missing checkout named without a traceback (Plan 00136)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `test-qa-ansible-failfast.bash`             | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `test-qa-helper-summary.bash`               | the three readers in `lib/qa-helper-summary.bash` that produce every stage line below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `test-qa-changed.bash`                      | `qa-changed.bash`'s file-to-check mapping through its `--plan` mode, its git collection (modified, untracked, ignored, deleted, `--base`) in a scratch repository, and its command line and exit codes; `QA_CHANGED_BIN=<binary>` runs the same cases against a built binary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `test-qa-docs-exit-codes.bash`              | `qa-docs.bash`'s three exit codes, driven against fixture trees — a crash must never read as clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `helpers.gnome.check_extension_compat`      | every extension declares the GNOME Shell major this branch's Fedora ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -154,8 +173,8 @@ nobody is working on. Being exercised incidentally is not the same as being test
 `test-ccy-rootless-guard.bash` was the sharpest case, because it was worse than
 unrun: it ran in `.github/workflows/qa.yml` and nowhere locally, so this page's
 "ALWAYS and ONLY use `qa-all.bash`" was false for anyone touching ccy's engine
-guard — green here, red in CI. **When adding a suite, add it to `qa-all.bash`
-first; CI runs `qa-all.bash`, so a separate CI step is a divergence, not a
+guard — green here, red in CI. **When adding a suite, add a row to
+`scripts/qa-gates.tsv` first; CI runs `qa-all.bash`, so a separate CI step is a divergence, not a
 belt-and-braces.** `scripts/test-ccy-ssh-probe.bash` is deliberately not a gate:
 it needs a real host and a `gh` token, so it is a host diagnostic.
 
@@ -279,15 +298,15 @@ printed by `python3 -m unittest -v <module>`, not by the suite at its default ve
 **That count is read from a file, never scraped from the run's output.**
 `qa-helper-tests.bash --counts-file PATH` has
 `helpers/qa_environment/unittest_counts.py` take the numbers from unittest's
-`TestResult` object and write them there; `helper_counts_summary` in
-`scripts/lib/qa-helper-summary.bash` reads the file and **fails** rather than reporting
+`TestResult` object and write them there; `HelperCounts` in
+`src-go/qa/gates/readers.go` reads the file and **fails** rather than reporting
 zero if it cannot. Four readers that parsed the text instead were each defeated by a test
 printing unittest-shaped output — a decoy crosses the summary in either direction
 depending only on Python's 8KB stdout buffering, and an `atexit` handler writes to stderr
 after it. A test can put anything on either stream in any order, so the streams are not a
-source of truth for this; the result object is. Both halves are covered by
-`test-qa-helper-summary.bash`, whose last case runs the real runner end to end so a format
-change on one side alone turns it red.
+source of truth for this; the result object is. Both halves are covered by the Go tests of
+that package, whose last case runs the real runner end to end so a format change on one
+side alone turns it red.
 
 The file is **harder to reach than a stream, not unreachable**: its path travels in `argv`, so
 a test that reads `sys.argv` could overwrite it — and this module's own tests are collected by
@@ -307,55 +326,58 @@ than a comment. (This sentence carried the test count until it had rotted twice 
 copies of it disagreed. A number that must be re-measured to stay true does not belong in
 prose — the stage line prints the live one on every run.)
 
-### The stage-line readers are shared, and tested against the gates they read
+### The stage-line readers are Go, and a reader that finds nothing fails its gate
 
-`scripts/lib/qa-helper-summary.bash` holds all three, and between them they produce the
-summary in **every** stage line `qa-all.bash` composes. `qa_pass_line` prints
-it, and prints nothing when that gate has already failed, so a gate cannot report both
-outcomes. Only `deployed-drift` builds its own line, because there the line IS the gate's
-output rather than a summary of it.
+`src-go/qa/gates` holds the three readers, and between them they produce the summary in
+**every** stage line `qa-all.bash` composes; the runner prints a `✓` line only for a gate that
+has not already failed, so a gate cannot report both outcomes. Only `deployed-drift` builds its
+own line, because there the line IS the gate's output rather than a summary of it (a pass that
+printed none is a failure).
 
-| Function                  | Used by                                | Degrades to                       |
-| ------------------------- | -------------------------------------- | --------------------------------- |
-| `helper_counts_summary()` | `helper-tests`                         | **nothing — it fails the gate**   |
-| `qa_gate_case_count()`    | the gates that print `passed: <n>`     | the word `passed`, never a number |
-| `qa_gate_detail()`        | the gates whose summary is not a count | the literal `summary unreadable`  |
+| Reader           | Used by                                 | When it finds nothing                            |
+| ---------------- | --------------------------------------- | ------------------------------------------------ |
+| `HelperCounts()` | `helper-tests`                          | **the gate fails** (the reader refuses the file) |
+| `CaseCount()`    | the gates whose row says `count`        | **the gate fails**: it proved nothing            |
+| `Detail()`       | the gates whose row says `detail:<ERE>` | **the gate fails**: its pattern is blind         |
 
 (The `()` is load-bearing, not decoration: `check_qa_gate_inventory` reads any row whose
 first cell is a backticked bare name as a **gate this document claims**, so writing them
 plain made the table assert three gates that do not exist — caught by that check's own test.)
 
-Only the first hard-fails, and the asymmetry is deliberate: its number distinguishes two
-machines, so a blind read there is the defect this page exists to remove. The other two read
-a gate that has *already* reported pass or fail through its exit status, so the stage line is
-detail rather than verdict — but it must still never be a **wrong** number, which is why
-neither ever substitutes a plausible-looking one.
+The bash readers degraded instead: `qa_gate_case_count` to the bare word `passed` and
+`qa_gate_detail` to the literal `summary unreadable`, each a green `✓` line over a reader that
+had gone blind. That was the defect `nokill-containerwatch` lived with for its whole life
+(`[0-9]+ call site[s]? checked` against a gate that only ever printed `N container-watch file(s) clean`, behind a `||` fallback that asserted a sentence on every run), and a suite that
+re-ran eleven gates to compare their patterns was the only thing watching for it. The pattern
+now sits in the gate's own row and **every full run applies it to the real output**: a pattern
+that stops matching, or a suite that prints no `passed: <n>` line, turns that gate red on the
+spot. `test-ccy-info-flags.bash` was the live case (it printed `Summary: N passed`, so its tick
+had never carried a count) and now prints the line.
 
 Each gate used to inline its own reader. `grep -oE 'passed: [0-9]+'` prints EVERY match, so
 an earlier `passed: <digits>` in the capture made the stage line two lines, and `verdicts.py`
 reads the first as the stage and loses the rest — one defect, found once, then found again in
-21 untested copies, and again in 2 more that had a different regex. `vmtest-manifest`
-interpolated its whole capture and emitted a **three-line** stage line on every run, dropping
-two coverage measurements into nothing.
+21 untested copies, and again in 2 more that had a different regex. `CaseCount()` takes the
+last matching line and the last match on it, and a gate with several measurements
+(`vmtest-manifest`) lists several `detail:` readers, joined `; ` on one stage line.
 
-**Adding a gate: do not write a reader.** Call one of the three. If your gate's summary is not
-a case count, use `qa_gate_detail` with a pattern matching what it actually prints — and note
-that `test-qa-helper-summary.bash` reads every `qa_gate_detail` pattern out of `qa-all.bash`
-and runs it against the real gate, so a call site whose capture variable is not registered
-there FAILS — **and so does a registration no call site reads**, which is what a removed call
-site leaves behind. That is deliberate: `nokill-containerwatch` read `[0-9]+ call site[s]? checked` from a gate that has only ever printed `N container-watch file(s) clean` — zero
-matches for its entire life, behind a `||` fallback that asserted `no forbidden kill call sites` on every run. A pattern and a gate that nothing compares will drift, and the drift is
-silent.
+**Adding a gate: add a row to `scripts/qa-gates.tsv`** (and a row in the tables above, which the
+docs gate checks both ways). Pick the reader that matches what the gate actually prints. The
+Go tests load the real table, run every detail pattern against the gate's own output as
+captured from a real run (`src-go/qa/all/testdata/wording/<gate>.txt`), and fail each gate in
+turn to prove the ones after it still run; no tool scans `qa-all.bash` for what it runs,
+because it is a wrapper. The captured wording is a snapshot: a gate that is reworded fails its
+next full run (a pattern that matches nothing is a failed gate), and
+`go test ./qa/all -run TestCaptureTheRealWordingOfTheDetailGates -capture-wording -timeout 30m`
+(from `src-go/`, wording in `qa/all/testdata/wording`) recaptures it by running every detail gate for real and refusing a
+gate that fails or that its pattern does not read.
 
-**Finding the call sites is parsed, not grepped** —
-`helpers/qa_environment/gate_call_sites.py`, with its own unit tests. Three greps that had to
-agree lived here first (a strict extraction, a looser denominator, and parameter expansions
-that re-split each match), and every defect found in them was one drifting from the other
-two: a spelling the extraction took and the splitter mis-read, a spelling both greps missed
-in lockstep and therefore agreed on, a prose mention only one counted. **Two counts that must
-agree can agree while both are wrong.** The parser has no second count — anything that looks
-like a call and does not parse comes back in `unparsed` with its line and text, and the gate
-fails on it. A silently dropped call site is not a state it can reach.
+A **count** reader gives a pass only for a count line with `passed: <n>`, n above zero, and
+no `failed: <m>` above zero on the same line; no line, zero cases and reported failures are each
+a failed gate even when the suite exited 0 (SPEC-qa-all B2, B21, B22). The same reader serves
+`qa-changed.bash`'s suites. A gate's own output cannot forge the run's verdict: a gate line
+that opens `✓ QA passed:` / `✗ QA FAILED:` is indented, so the verdict at the end of stdout is
+the only such line (B23); a push gate may therefore read the verdict from stdout.
 
 A count is a **proxy, not a proof**: two machines could skip the same NUMBER of different
 tests. With the three conditional skips the suite has today the four machine shapes give
@@ -401,9 +423,9 @@ one.** Two consequences follow, and the second is the one that bites:
   set grew **5 → 11 → 25**, and 20 of those had never executed in CI.
 
 **Every gate runs now, and the run reports all of them** (Plan 00125). A failing hard gate
-records itself with `qa_hard_gate_failed` and the suite carries on; the final line names
-every gate that failed rather than the first one that did. Only the seven `exit 2`
-missing-tool aborts still stop the run, because a suite that cannot run its tools has
+records itself and the suite carries on; the final lines name every gate (and every report
+stage) that failed rather than the first one that did. Only a report stage's `exit 2`
+missing-tool abort still stops the run, because a suite that cannot run its tools has
 nothing to accumulate.
 
 Two things this buys, and the second is easy to miss:
@@ -416,10 +438,11 @@ Two things this buys, and the second is easy to miss:
   well as everything behind it. Measured under one mutated gate: **11 of 38** stages parsed
   before, **38 of 38** after, and the failing gate present only in the second.
 
-`scripts/test-qa-helper-summary.bash` holds the guard: exactly one `exit 1` may remain in
-`qa-all.bash`, the final summary's. Proving the behaviour itself means running the whole
-suite against a mutated gate, which is too slow for every commit; noticing the shape coming
-back is one grep.
+The Go tests hold the guard, and it is the behaviour itself rather than the shape of a source
+file: with the real `scripts/qa-gates.tsv` and a fake process seam, every gate fails in turn
+and every other gate must still run, in order, with the failure named in the verdict
+(`src-go/qa/all/realtable_test.go`). It used to be a grep for `exit 1` in the bash, because
+running the whole suite against a mutated gate was too slow for every commit.
 
 So when a gate needs something an environment lacks, add the dependency (`CLAUDE.md` →
 "Missing Dependencies — Fail Fast, Fix in IaC") rather than teaching the gate to tolerate
@@ -1042,17 +1065,17 @@ time limit (`QA_CHANGED_TIMEOUT`, `30m` by default, `0` disables) and is killed 
 children when the limit passes. The tools every planned check needs are checked once, before the first
 check runs.
 
-| Changed file                  | Checks                                                                                                                                                     |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shell (`.sh`/`.bash`/shebang) | the toolchain pin, `bash -n`, shellcheck (`error`/`warning` gate, as in `qa-bash.bash`), the semgrep bash rules via the same temp-mirror idea              |
-| Python                        | the toolchain pin, ruff, and the mirrored `tests/helpers/x/test_y.py` for `helpers/x/y.py` (a changed test runs itself)                                    |
-| Playbook yml                  | `ansible-playbook --syntax-check` on it, `qa-ansible.bash` and `qa-docs.bash` whole                                                                        |
-| Task / vars yml               | `--syntax-check` on every playbook naming the file by basename (one level), `qa-ansible.bash` whole                                                        |
-| Markdown                      | `qa-docs.bash` whole                                                                                                                                       |
-| `.js`/`.mjs`                  | `node --check`; under `extensions/`, the project's eslint on those files                                                                                   |
-| `src-go/`, any file           | `qa-go.bash` whole, and the suites of every command whose build closure holds the file (`go list -deps`, `scripts/go-binary-suites.tsv`)                   |
-| Any bash file, the allowlist  | `qa-bash-limits.bash` whole                                                                                                                                |
-| Any non-markdown file         | each `test-*.bash` suite and hard gate script that `qa-all.bash` runs and whose text names the file by path or basename, and any suite that itself changed |
+| Changed file                  | Checks                                                                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shell (`.sh`/`.bash`/shebang) | the toolchain pin, `bash -n`, shellcheck (`error`/`warning` gate, as in `qa-bash.bash`), the semgrep bash rules via the same temp-mirror idea                        |
+| Python                        | the toolchain pin, ruff, and the mirrored `tests/helpers/x/test_y.py` for `helpers/x/y.py` (a changed test runs itself)                                              |
+| Playbook yml                  | `ansible-playbook --syntax-check` on it, `qa-ansible.bash` and `qa-docs.bash` whole                                                                                  |
+| Task / vars yml               | `--syntax-check` on every playbook naming the file by basename (one level), `qa-ansible.bash` whole                                                                  |
+| Markdown                      | `qa-docs.bash` whole                                                                                                                                                 |
+| `.js`/`.mjs`                  | `node --check`; under `extensions/`, the project's eslint on those files                                                                                             |
+| `src-go/`, any file           | `qa-go.bash` whole, and the suites of every command whose build closure holds the file (`go list -deps`, `scripts/go-binary-suites.tsv`)                             |
+| Any bash file, the allowlist  | `qa-bash-limits.bash` whole                                                                                                                                          |
+| Any non-markdown file         | each `test-*.bash` suite and hard gate script that `scripts/qa-gates.tsv` lists and whose text names the file by path or basename, and any suite that itself changed |
 
 The classification is data, not code: `scripts/qa-routing.tsv` (the rules, in order: which
 files get which checks, which are covered, which honour an excluded tree) and

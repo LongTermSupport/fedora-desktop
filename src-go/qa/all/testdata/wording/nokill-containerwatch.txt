@@ -1,0 +1,2 @@
+✓ containment.py: stop-only confirmed (the one audited exception)
+✓ no-kill gate: 6 container-watch file(s) clean — no process-termination call site

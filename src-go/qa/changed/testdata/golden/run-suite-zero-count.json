@@ -1,0 +1,13 @@
+{
+ "args": [],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/test-teams.bash\ncheck shellcheck: scripts/test-teams.bash\ncheck semgrep: scripts/test-teams.bash\ncheck bash-limits\nsuite scripts/test-teams.bash: the suite itself changed\n\u2713 toolchain: QA tool versions match .qa-versions\n\u2713 bash-syntax: 1 file(s)\n\u2713 shellcheck: 1 file(s)\n\u2713 semgrep: 1 file(s)\n\u2713 bash-limits: whole gate (tooling is Go; allowlist ratchet)\n\u2713 suite test-teams.bash: passed: 0 (the suite itself changed)\n\u2713 qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stderr": "",
+ "status": 0,
+ "log": [
+  "gate:qa-toolchain.bash json=",
+  "shellcheck --severity=warning scripts/test-teams.bash",
+  "semgrep --config <ROOT>/.semgrep/bash-conventions.yml --json-output <JSON> --metrics=off --quiet . | mirror: ./scripts/test-teams.bash ",
+  "gate:qa-bash-limits.bash json=",
+  "suite:test-teams.bash"
+ ]
+}
