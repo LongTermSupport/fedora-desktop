@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "files/home/.local/bin/listed-tool"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ruff: files/home/.local/bin/listed-tool\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

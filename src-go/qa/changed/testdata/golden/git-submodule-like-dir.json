@@ -1,0 +1,9 @@
+{
+ "args": [
+  "--plan"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\n\u26a0 not covered by qa-changed: emptydir/.keep\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--base",
+  "nosuchref"
+ ],
+ "stdout": "qa-changed: no changed files (vs nosuchref, plus untracked) \u2014 nothing to check.\n",
+ "stderr": "fatal: bad revision 'nosuchref'\n",
+ "status": 0,
+ "log": []
+}

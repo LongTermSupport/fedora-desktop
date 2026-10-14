@@ -1,0 +1,19 @@
+{
+ "args": [
+  "--files",
+  "tools/run.sh",
+  "helpers/pkg/mod.py"
+ ],
+ "stdout": "plan: 2 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: tools/run.sh\ncheck shellcheck: tools/run.sh\ncheck semgrep: tools/run.sh\ncheck ruff: helpers/pkg/mod.py\ncheck unit-tests: tests.helpers.pkg.test_mod\ncheck bash-limits\nsuite scripts/test-alpha.bash: names tools/run.sh\n\u2713 toolchain: QA tool versions match .qa-versions\n\u2713 bash-syntax: 1 file(s)\n\u2713 shellcheck: 1 file(s)\n\u2713 semgrep: 1 file(s)\n\u2713 ruff: 1 file(s)\n\u2713 unit-tests: 1 module(s)\n\u2713 bash-limits: whole gate (tooling is Go; allowlist ratchet)\n\u2713 suite test-alpha.bash: passed: 3 (names tools/run.sh)\n\u2713 qa-changed passed: 2 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stderr": "",
+ "status": 0,
+ "log": [
+  "gate:qa-toolchain.bash json=",
+  "shellcheck --severity=warning tools/run.sh",
+  "semgrep --config <ROOT>/.semgrep/bash-conventions.yml --json-output <JSON> --metrics=off --quiet . | mirror: ./tools/run.sh ",
+  "ruff check helpers/pkg/mod.py",
+  "python3 -m unittest tests.helpers.pkg.test_mod | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1",
+  "gate:qa-bash-limits.bash json=",
+  "suite:test-alpha.bash"
+ ]
+}

@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "untracked/skip.bash"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck bash-limits\nskipped (excluded tree): untracked/skip.bash\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

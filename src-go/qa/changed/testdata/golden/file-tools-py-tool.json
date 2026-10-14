@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "tools/py-tool"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ruff: tools/py-tool\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

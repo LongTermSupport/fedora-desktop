@@ -1,0 +1,9 @@
+{
+ "args": [
+  "--plan"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: kept.bash\ncheck shellcheck: kept.bash\ncheck semgrep: kept.bash\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

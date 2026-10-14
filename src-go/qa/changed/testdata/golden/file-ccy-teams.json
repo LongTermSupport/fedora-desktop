@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "ccy-teams"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: ccy-teams\ncheck shellcheck: ccy-teams\ncheck semgrep: ccy-teams\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

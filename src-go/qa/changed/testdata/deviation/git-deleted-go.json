@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

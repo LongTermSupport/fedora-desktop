@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "pkg1/main.go"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\nsuite scripts/test-alpha.bash: names pkg1/main.go\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

@@ -87,8 +87,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 - [ ] ⬜ **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
   waits on Plan 00191's D1-D10. `qa-changed.bash` (P3, first of the QA orchestrators) on
   `go-port/qa-changed`: functional spec written, [SPEC-qa-changed.md](SPEC-qa-changed.md); the Go
-  port (nested `src-go/qa` module, shared routing data for the `qa-all` port) waits on its
-  decisions D1-D6.
+  port done on the branch with the coordinator's defaults for D1-D6 (nested `src-go/qa/changed`,
+  routing and excluded trees as data, one process seam shared with the bash-limits gate), golden
+  replay of the bash over 118 scenarios with 19 numbered deviations, the script now a
+  build-and-run wrapper and its allowlist entry gone; waiting on review and merge. The `qa-all`
+  port is next and reuses the routing data.
 
 ### Phase 4: Review
 

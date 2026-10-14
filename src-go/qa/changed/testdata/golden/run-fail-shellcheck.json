@@ -1,0 +1,24 @@
+{
+ "args": [],
+ "stdout": "plan: 9 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: tools/run.sh\ncheck shellcheck: tools/run.sh\ncheck semgrep: tools/run.sh\ncheck ruff: helpers/pkg/mod.py\ncheck unit-tests: tests.helpers.pkg.test_mod\ncheck ansible-syntax: playbooks/imports/play-a.yml\ncheck ansible-patterns\ncheck docs\ncheck go\ncheck bash-limits\ncheck node-check: extensions/ext@x/extension.js tools/plain.js\ncheck eslint: extensions/ext@x/extension.js\nsuite scripts/test-alpha.bash: names tools/run.sh\nsuite scripts/test-beta.bash: names tools/plain.js\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\nskipped (excluded tree): extensions/node_modules/.bin/eslint\nnote: tasks/step.yml: no playbook names 'step.yml', so no ansible-syntax target (patterns gate only)\n\u2713 toolchain: QA tool versions match .qa-versions\n\u2713 bash-syntax: 1 file(s)\n\u2717 shellcheck: 1 file(s)\n\u2713 semgrep: 1 file(s)\n\u2713 ruff: 1 file(s)\n\u2713 unit-tests: 1 module(s)\n\u2713 ansible-syntax: 1 playbook(s)\n\u2713 ansible-patterns: fail-fast patterns, whole gate\n\u2713 docs: whole gate\n\u2713 go: whole gate (interim qa-go.bash)\n\u2713 bash-limits: whole gate (tooling is Go; allowlist ratchet)\n\u2713 node-check: 2 file(s)\n\u2713 eslint: 1 file(s)\n\u2713 suite test-alpha.bash: passed: 3 (names tools/run.sh)\n\u2713 suite test-beta.bash: passed: 5 (names tools/plain.js)\n\u2713 suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n\u2717 qa-changed FAILED: shellcheck\n",
+ "stderr": "shellcheck: stub failure\n",
+ "status": 1,
+ "log": [
+  "gate:qa-toolchain.bash json=",
+  "shellcheck --severity=warning tools/run.sh",
+  "semgrep --config <ROOT>/.semgrep/bash-conventions.yml --json-output <JSON> --metrics=off --quiet . | mirror: ./tools/run.sh ",
+  "ruff check helpers/pkg/mod.py",
+  "python3 -m unittest tests.helpers.pkg.test_mod | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1",
+  "ansible-playbook --syntax-check playbooks/imports/play-a.yml | ANSIBLE_CONFIG=<ROOT>/ansible.cfg",
+  "gate:qa-ansible.bash json=1",
+  "gate:qa-docs.bash json=1",
+  "gate:qa-go.bash json=",
+  "gate:qa-bash-limits.bash json=",
+  "node --check extensions/ext@x/extension.js",
+  "node --check tools/plain.js",
+  "eslint ext@x/extension.js in extensions",
+  "suite:test-alpha.bash",
+  "suite:test-beta.bash",
+  "suite:test-teams.bash"
+ ]
+}

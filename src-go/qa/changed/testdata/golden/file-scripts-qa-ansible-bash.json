@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "scripts/qa-ansible.bash"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/qa-ansible.bash\ncheck shellcheck: scripts/qa-ansible.bash\ncheck semgrep: scripts/qa-ansible.bash\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

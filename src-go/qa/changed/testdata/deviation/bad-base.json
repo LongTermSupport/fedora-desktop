@@ -1,0 +1,6 @@
+{
+ "stdout": "",
+ "stderr": "ERROR: cannot list changed files vs nosuchref: git diff --name-only -z --diff-filter=d nosuchref -- exited 128: fatal: bad revision 'nosuchref'\n",
+ "status": 2,
+ "log": []
+}

@@ -75,7 +75,12 @@ type options struct {
 }
 
 // usageError is a command line the tool refuses.
-type usageError struct{ msg string }
+type usageError struct {
+	msg string
+	// listUsage is whether the usage text follows the message: it does for an argument the
+	// tool does not know, not for a flag given a bad value.
+	listUsage bool
+}
 
 func (e *usageError) Error() string { return e.msg }
 
@@ -99,7 +104,7 @@ func parseArgs(args []string) (options, error) {
 		}
 	}
 	if opts.explicit && len(opts.files) == 0 {
-		return options{}, &usageError{"--files needs at least one file"}
+		return options{}, &usageError{msg: "--files needs at least one file"}
 	}
 	return opts, nil
 }
@@ -108,13 +113,13 @@ func parseArgs(args []string) (options, error) {
 func (o *options) takeFiles(rest []string) error {
 	if !o.explicit {
 		if len(rest) > 0 {
-			return &usageError{fmt.Sprintf("unknown argument '%s'", rest[0])}
+			return &usageError{msg: fmt.Sprintf("unknown argument '%s'", rest[0]), listUsage: true}
 		}
 		return nil
 	}
 	o.files = append(o.files, rest...)
 	if len(o.files) == 0 {
-		return &usageError{"--files needs at least one file"}
+		return &usageError{msg: "--files needs at least one file"}
 	}
 	return nil
 }
@@ -136,7 +141,7 @@ func (o *options) apply(arg string, rest []string) ([]string, error) {
 		return o.value(rest, &o.scripts, "--scripts needs a directory")
 	default:
 		if !o.explicit || (len(arg) > 0 && arg[0] == '-') {
-			return rest, &usageError{fmt.Sprintf("unknown argument '%s'", arg)}
+			return rest, &usageError{msg: fmt.Sprintf("unknown argument '%s'", arg), listUsage: true}
 		}
 		o.files = append(o.files, arg)
 	}
@@ -147,7 +152,7 @@ func (o *options) apply(arg string, rest []string) ([]string, error) {
 // is a usage error.
 func (o *options) value(rest []string, into *string, missing string) ([]string, error) {
 	if len(rest) == 0 || len(rest[0]) == 0 || rest[0][0] == '-' {
-		return rest, &usageError{missing}
+		return rest, &usageError{msg: missing}
 	}
 	*into = rest[0]
 	return rest[1:], nil
@@ -161,7 +166,7 @@ func parseTimeout(value string) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil || d < 0 {
-		return 0, &usageError{fmt.Sprintf("QA_CHANGED_TIMEOUT=%q is not a duration such as 30m (0 disables)", value)}
+		return 0, &usageError{msg: fmt.Sprintf("QA_CHANGED_TIMEOUT=%q is not a duration such as 30m (0 disables)", value)}
 	}
 	return d, nil
 }

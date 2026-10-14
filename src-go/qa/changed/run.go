@@ -18,7 +18,10 @@ func Main(ctx context.Context, args []string, env Env) ExitCode {
 	bare := &session{env: env}
 	opts, err := parseArgs(args)
 	if err != nil {
-		bare.errf("ERROR: %v\n%s", err, usageText)
+		bare.errf("ERROR: %v\n", err)
+		if usage, listed := errors.AsType[*usageError](err); listed && usage.listUsage {
+			bare.errf("%s", usageText)
+		}
 		return ExitCannotRun
 	}
 	if opts.help {

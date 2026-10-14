@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Unit-test scripts/qa-changed.bash's file -> check mapping through its --plan mode, which
-# prints the chosen checks without running any of them. The mapping itself is data:
+# Black-box test of scripts/qa-changed.bash (the build-and-run wrapper over the Go tool in
+# src-go/qa/changed): its file -> check mapping through --plan, which prints the chosen checks
+# without running any of them, and its command line and exit codes. The mapping itself is data:
 # scripts/qa-routing.tsv (rules) and scripts/qa-trees.tsv (excluded trees); a change to either
 # selects this suite.
 #
@@ -14,10 +15,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# QA_CHANGED_BIN, when set, is the command under test instead of the sibling script: the Go
+# QA_CHANGED_BIN, when set, is the command under test instead of the wrapper: the built Go
 # binary (go build -C src-go/qa -o <dir>/qa-changed ./cmd/qa-changed) gets --scripts so it reads
 # this checkout's tables and suites. Nothing else in the suite changes, so every case runs
-# unmodified against either implementation.
+# unmodified against the wrapper or the binary, which is how the Go port was held to the bash
+# it replaced (the Go golden replay, src-go/qa/changed/golden_test.go, is the other half).
 if [[ -n "${QA_CHANGED_BIN:-}" ]]; then
     TARGET=("$QA_CHANGED_BIN" --scripts "$SCRIPT_DIR")
     if [[ ! -x "$QA_CHANGED_BIN" ]]; then
@@ -257,6 +259,74 @@ for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
         expect_has "binaries: $cmd_name has a suite entry" "$plan" "suite scripts/"
     fi
 done
+
+echo
+echo "== command line and exit codes =="
+# capture <command...> — run it, keeping stdout in OUT, stderr in ERR and the status in RC.
+capture() {
+    RC=0
+    OUT="$("$@" 2> "$SCRATCH/err")" || RC=$?
+    ERR="$(<"$SCRATCH/err")"
+}
+expect_rc() {
+    local label="$1" want="$2"
+    if [[ "$RC" -eq "$want" ]]; then
+        printf '  ok    %s\n' "$label"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s — exit %s, wanted %s\n' "$label" "$RC" "$want"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+capture "${TARGET[@]}" --help
+expect_rc "--help: exit 0" 0
+expect_has "--help: usage on stdout" "$OUT" "usage: qa-changed"
+expect_lacks "--help: nothing on stderr" "$ERR" "usage"
+capture "${TARGET[@]}" --nope
+expect_rc "unknown argument: exit 2" 2
+expect_has "unknown argument: named on stderr" "$ERR" "ERROR: unknown argument '--nope'"
+capture "${TARGET[@]}" --base
+expect_rc "--base without a ref: exit 2" 2
+capture "${TARGET[@]}" --base --plan
+expect_rc "--base does not take a flag as its ref: exit 2" 2
+capture "${TARGET[@]}" --plan --files
+expect_rc "--files without a file: exit 2" 2
+capture "${TARGET[@]}" --files scripts/qa-bash.bash --plan
+expect_rc "--files then --plan: plans" 0
+expect_has "--files then --plan: the plan is printed" "$OUT" "check bash-syntax: scripts/qa-bash.bash"
+expect_lacks "--files then --plan: nothing ran" "$OUT" "✓"
+capture "${TARGET[@]}" --plan --files ./scripts/qa-bash.bash scripts/qa-bash.bash
+expect_has "an explicit path is cleaned of ./" "$OUT" "check bash-syntax: scripts/qa-bash.bash"
+expect_lacks "a file named twice is one file" "$OUT" "scripts/qa-bash.bash scripts/qa-bash.bash"
+capture "${TARGET[@]}" --plan --files ../outside.bash
+expect_rc "a path outside the repository: exit 2" 2
+capture env QA_CHANGED_ROOT=/no/such/directory "${TARGET[@]}" --plan
+expect_rc "an unreadable root: exit 2" 2
+capture env QA_CHANGED_TIMEOUT=soon "${TARGET[@]}" --plan --files scripts/qa-bash.bash
+expect_rc "a bad QA_CHANGED_TIMEOUT: exit 2" 2
+
+echo
+echo "== a deleted allowlisted tool, a bad base, the lint config, task files =="
+capture env QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan --base nosuchref
+expect_rc "a bad --base is exit 2, not 'nothing to check'" 2
+expect_lacks "a bad --base does not say nothing to check" "$OUT" "nothing to check"
+
+mkdir -p "$REPO/files/home/.local/bin"
+printf '#!/usr/bin/env python3\n' > "$REPO/files/home/.local/bin/ftp-camera"
+git_s add -A
+git_s commit -q -m "a listed tool"
+rm "$REPO/files/home/.local/bin/ftp-camera"
+capture env QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan
+expect_has "a deleted allowlisted tool runs the bash-limits gate" "$OUT" "check bash-limits"
+expect_lacks "a deleted file is not checked per file" "$OUT" "check shellcheck: files/home"
+
+capture "${TARGET[@]}" --plan --files src-go/.golangci.yml
+expect_has "the Go lint config runs the Go gate" "$OUT" "check go"
+expect_lacks "the Go lint config is covered" "$OUT" "not covered by qa-changed: src-go/.golangci.yml"
+capture "${TARGET[@]}" --plan --files tasks/build-go-command.yml
+expect_has "a task file runs the patterns gate" "$OUT" "check ansible-patterns"
+expect_has "a task file maps to the playbooks that name it" "$OUT" "check ansible-syntax: "
 
 echo
 echo "=============================================================="

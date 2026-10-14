@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "src-go/internal/frz/f.go"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

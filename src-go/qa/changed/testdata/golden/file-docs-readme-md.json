@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "docs/readme.md"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck docs\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}
