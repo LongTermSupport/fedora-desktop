@@ -11,9 +11,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -23,9 +27,6 @@ const (
 	scopeRepos = "Repositories you list (one or more)"
 	scopeOwner = "Everything one GitHub owner owns"
 )
-
-// flagTeams is the ccy flag that names a team.
-const flagTeams = "--teams"
 
 const (
 	// maxTries is how often a refused answer is asked again before the run ends.
@@ -70,6 +71,25 @@ type Wizard struct {
 	ExecLauncher func(dir string, argv []string) error
 
 	term *term.Term
+}
+
+// New is the Wizard over a host and the flows it hands the work after the entry is written to:
+// apply installs the team, login signs a person in and opens Element.
+func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
+	return &Wizard{
+		Declare: h.Declare, Gum: h.Gum, Git: h.Git, NewTerm: h.FreshTerm, Runner: h.Runner,
+		Stdin: h.Stdin, Stdout: h.Stdout,
+		Cwd: h.Here(), HostVars: h.HostVars, Home: h.Home, Launcher: h.Launcher,
+		LookPath: h.LookPath,
+		ApplyTeams: func(ctx context.Context, teams ...string) error {
+			return o.ApplyTeams(ctx, teams)
+		},
+		NewPassword:   l.NewPassword,
+		LaunchElement: l.Open,
+		ExecLauncher: func(dir string, argv []string) error {
+			return h.Exec(h.Launcher, argv, dir)
+		},
+	}
 }
 
 // createOpts is what the flags said; the questions fill in the rest.
@@ -868,7 +888,7 @@ func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
 		return err
 	}
 	c.term.Printf("Starting ccy --teams %s in %s.\n", team, shown)
-	if err = c.ExecLauncher(top, []string{c.Launcher, flagTeams, team}); err != nil {
+	if err = c.ExecLauncher(top, []string{c.Launcher, ccyenv.FlagTeams, team}); err != nil {
 		return fmt.Errorf("start ccy --teams %s: %w", team, err)
 	}
 	return nil

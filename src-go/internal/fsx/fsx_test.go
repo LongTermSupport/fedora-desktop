@@ -16,9 +16,16 @@ func TestWriteAtomicLeavesTheWholeFileAndNoTemporary(t *testing.T) {
 	if err := WriteAtomic(path, "record", []byte("two\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(path)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := root.ReadFile("record")
 	if err != nil || string(got) != "two\n" {
 		t.Fatalf("read %q, %v", got, err)
+	}
+	if err = root.Close(); err != nil {
+		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
 	if err != nil || info.Mode().Perm() != 0o600 {

@@ -12,6 +12,8 @@ const (
 	SessionLib = "tmux-session.bash"
 	// Workspace is where ccy mounts a project inside its container.
 	Workspace = "/workspace"
+	// FlagTeams is the ccy launcher's flag that names the teams (and seats) a session joins.
+	FlagTeams = "--teams"
 )
 
 // Missing is the refusal a tool prints when CCY cannot be used here, ending in a newline, or ""

@@ -106,6 +106,14 @@ func wzDPBare(sub string, rest ...string) []string {
 	return append([]string{"env", "PYTHONPATH=" + wzRoot, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, rest...)
 }
 
+// wzNoColour is an environment that asks for no colour.
+func wzNoColour(k string) string {
+	if k == "NO_COLOR" {
+		return "1"
+	}
+	return ""
+}
+
 type wzHarness struct {
 	run      *wzScript
 	fake     *execx.Fake
@@ -174,15 +182,7 @@ func newWzHarness(t *testing.T) *wzHarness {
 		Gum:     &ui.Gum{Runner: h.run, Stderr: h.stderr},
 		Git:     gitx.New(h.run),
 		NewTerm: func() *term.Term {
-			return &term.Term{
-				Err: h.stderr, IsTerminal: func(any) bool { return h.tty },
-				Getenv: func(k string) string {
-					if k == "NO_COLOR" {
-						return "1"
-					}
-					return ""
-				},
-			}
+			return &term.Term{Err: h.stderr, IsTerminal: func(any) bool { return h.tty }, Getenv: wzNoColour}
 		},
 		Runner: h.run, Stdin: strings.NewReader(""), Stdout: h.stdout,
 		Cwd: "/home/u/proj/sub", HostVars: wzHostVars, Home: wzHome, Launcher: "/opt/ccy/launcher",

@@ -1,6 +1,7 @@
 package teams
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -13,8 +14,8 @@ func TestUnwritableStdoutIsAFailureExit(t *testing.T) {
 	if code := h.app.Run([]string{"--help"}); code != term.ExitFailure {
 		t.Fatalf("exit %d, want %d", code, term.ExitFailure)
 	}
-	if !strings.Contains(h.errOut.String(), "could not write") || !strings.Contains(h.errOut.String(), "disk full") {
-		t.Fatalf("stderr %q", h.errOut.String())
+	if !strings.Contains(h.ErrOut.String(), "could not write") || !strings.Contains(h.ErrOut.String(), "disk full") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }
 
@@ -34,3 +35,8 @@ func TestAFailureExitIsNotMaskedByTheWriteError(t *testing.T) {
 		t.Fatalf("exit %d, want %d", code, term.ExitUsage)
 	}
 }
+
+// brokenWriter fails every write.
+type brokenWriter struct{}
+
+func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }

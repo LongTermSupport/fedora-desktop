@@ -154,6 +154,26 @@ func TestFileIsTerminalIsFalseForDevNullAndPipes(t *testing.T) {
 	}
 }
 
+func TestPrinterKeepsTheFirstFailedWrite(t *testing.T) {
+	var p Printer
+	var ok bytes.Buffer
+	p.Print(&ok, "fine\n")
+	if p.Err() != nil || ok.String() != "fine\n" {
+		t.Fatalf("a good write: %v %q", p.Err(), ok.String())
+	}
+	p.Print(failWriter{}, "x")
+	p.Print(&ok, "still written\n")
+	if p.Err() == nil || p.Err().Error() != "broken pipe" || ok.String() != "fine\nstill written\n" {
+		t.Fatalf("after a failed write: %v %q", p.Err(), ok.String())
+	}
+}
+
+func TestBoldAndResetAreTheEscapeCodes(t *testing.T) {
+	if Bold != "\x1b[1m" || Reset != "\x1b[0m" {
+		t.Fatalf("%q %q", Bold, Reset)
+	}
+}
+
 func TestYesNoIsTheRecordFilesWord(t *testing.T) {
 	if YesNo(true) != "yes" || YesNo(false) != "no" {
 		t.Fatalf("YesNo: %q %q", YesNo(true), YesNo(false))

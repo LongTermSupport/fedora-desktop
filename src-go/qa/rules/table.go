@@ -26,7 +26,8 @@ const homeOwner = "internal/term"
 
 const (
 	sessprobePkg = "internal/sessprobe"
-	teamsPkg     = "internal/teams"
+	hostPkg      = "internal/teams/host"
+	opsPkg       = "internal/teams/ops"
 )
 
 // commandOwners maps a program to the package that owns every use of it, so its flags and
@@ -78,18 +79,18 @@ var dynamicNames = []allowance{
 		reason: "a project's daemon CLI path, or the container engine that execs it inside the project's container",
 	},
 	{
-		pkg:    teamsPkg,
+		pkg:    hostPkg,
 		fn:     "launcherVia",
 		reason: "the ccy launcher path the process is replaced with, given by the environment",
 	},
 	{
-		pkg:    teamsPkg,
-		fn:     "teamOps.runPlay",
+		pkg:    opsPkg,
+		fn:     "Ops.runPlay",
 		reason: "the agent-bus play, run by its own shebang; its path is configuration",
 	},
 	{
-		pkg:    teamsPkg,
-		fn:     "teamOps.runElementPlay",
+		pkg:    opsPkg,
+		fn:     "Ops.RunElementPlay",
 		reason: "the Element play, run by its own shebang; its path is configuration",
 	},
 }
