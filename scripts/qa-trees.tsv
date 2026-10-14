@@ -1,0 +1,53 @@
+# The directory trees the QA gates must not gate on, one source for both readers:
+# scripts/qa-discovery.bash (qa-bash, qa-python, qa-patterns and the other bash gates) and the Go
+# qa-changed (src-go/qa/changed). A hand edit to one reader would be invisible to the other, so
+# there is only this file; src-go/qa/changed carries a test that the two readers agree.
+#
+# list <TAB> dir
+#   list  shell: shell, YAML and JavaScript discovery. python: Python discovery, narrower inside
+#         .claude/ccy because claude-supervise.py is tracked and must stay gated.
+#   dir   a directory name matched as a whole /<dir>/ segment sequence anywhere in the path,
+#         not only at the repository root.
+#
+# .git, .ansible: the WHOLE .ansible tree, not just roles/. It is gitignored Galaxy output and
+#   `ansible-galaxy collection install` populates .ansible/collections/ with thousands of
+#   third-party files carrying their own lint findings. Gating them made QA non-idempotent: a
+#   repo that passed the first run failed the second, on vendored upstream fixtures.
+# .claude/hooks-daemon: upstream dependency.
+# .claude/hooks-daemon-backups: the upgrade keeps the previous copy of any daemon-deployed tree
+#   it replaces; it is a byte copy of .claude/skills, already excluded, and is recreated by
+#   every upgrade, so deleting the directory defers the failure rather than fixing it.
+# .claude/ccy: the whole CCY runtime tree (snapshots, plugins, history) for shell. Python
+#   excludes only plugins, file-history and projects (saved transcripts of a Read of a script
+#   start with its shebang), because claude-supervise.py is tracked. It is daemon-owned and
+#   rewritten on every upgrade; upstream guarantees it clean under ruff's default rules, and a
+#   finding from a rule this repo selected is excluded here, not patched (CLAUDE/QA.md).
+# .claude/skills: installed skill payloads.
+# .claude/worktrees: checkouts of other branches, gated on their own branch.
+# roles/vendor: vendored Ansible roles.
+# .semgrep: annotated rule FIXTURES, deliberately full of the broken patterns the rules must
+#   catch; validated by `semgrep --test` in qa-patterns.bash, which is the check that belongs to it.
+shell	.git
+shell	.ansible
+shell	.claude/hooks-daemon
+shell	.claude/hooks-daemon-backups
+shell	.claude/ccy
+shell	.claude/skills
+shell	.claude/worktrees
+shell	roles/vendor
+shell	.semgrep
+shell	node_modules
+shell	untracked
+python	.git
+python	.ansible
+python	.claude/hooks-daemon
+python	.claude/ccy/plugins
+python	.claude/ccy/file-history
+python	.claude/ccy/projects
+python	.claude/worktrees
+python	roles/vendor
+python	node_modules
+python	untracked
+python	__pycache__
+python	.venv
+python	venv

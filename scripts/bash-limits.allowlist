@@ -104,7 +104,7 @@ scripts/qa-ansible.bash	351	1	284	data
 scripts/qa-bash.bash	110	0	102	assoc,data
 scripts/qa-changed.bash	543	18	587	assoc
 scripts/qa-deployed-drift.bash	165	1	165	-
-scripts/qa-discovery.bash	185	14	221	-
+scripts/qa-discovery.bash	158	14	221	-
 scripts/qa-docs.bash	77	0	72	data
 scripts/qa-gh-scopes.bash	67	0	82	data
 scripts/qa-go.bash	73	2	83	-

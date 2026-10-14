@@ -1,12 +1,12 @@
 package bashlimits
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
 // Git runs git in a directory and returns its standard output. This module is the nested QA
@@ -28,23 +28,19 @@ func (e *RefusedError) Error() string {
 	return fmt.Sprintf("git %s: %s", strings.Join(e.Args, " "), strings.TrimSpace(e.Stderr))
 }
 
-// OSGit runs the git on PATH.
+// OSGit runs the git on PATH through the shared process seam.
 type OSGit struct{}
 
 // Run implements Git.
 func (OSGit) Run(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	if exitErr, exited := errors.AsType[*exec.ExitError](err); exited {
-		return "", &RefusedError{Args: args, Code: exitErr.ExitCode(), Stderr: stderr.String()}
-	}
+	res, err := proc.OS{}.Run(ctx, proc.Cmd{Argv: append([]string{"git"}, args...), Dir: dir})
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
-	return stdout.String(), nil
+	if res.Code != 0 {
+		return "", &RefusedError{Args: args, Code: res.Code, Stderr: res.Stderr}
+	}
+	return res.Stdout, nil
 }
 
 // gitRepo answers the questions the gate asks git about one working directory.

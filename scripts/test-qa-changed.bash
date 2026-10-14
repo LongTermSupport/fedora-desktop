@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Unit-test scripts/qa-changed.bash's file -> check mapping through its --plan mode, which
-# prints the chosen checks without running any of them.
+# prints the chosen checks without running any of them. The mapping itself is data:
+# scripts/qa-routing.tsv (rules) and scripts/qa-trees.tsv (excluded trees); a change to either
+# selects this suite.
 #
 # Two halves: (1) `--plan --files` against real repo paths, asserting which checks and suites
 # each kind of file selects, including the "not covered" warning; (2) the git collection
@@ -12,11 +14,22 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET="$SCRIPT_DIR/qa-changed.bash"
-
-if [[ ! -f "$TARGET" ]]; then
-    echo "ERROR: $TARGET not found — nothing to test." >&2
-    exit 2
+# QA_CHANGED_BIN, when set, is the command under test instead of the sibling script: the Go
+# binary (go build -C src-go/qa -o <dir>/qa-changed ./cmd/qa-changed) gets --scripts so it reads
+# this checkout's tables and suites. Nothing else in the suite changes, so every case runs
+# unmodified against either implementation.
+if [[ -n "${QA_CHANGED_BIN:-}" ]]; then
+    TARGET=("$QA_CHANGED_BIN" --scripts "$SCRIPT_DIR")
+    if [[ ! -x "$QA_CHANGED_BIN" ]]; then
+        echo "ERROR: QA_CHANGED_BIN=$QA_CHANGED_BIN is not an executable — nothing to test." >&2
+        exit 2
+    fi
+else
+    TARGET=(bash "$SCRIPT_DIR/qa-changed.bash")
+    if [[ ! -f "$SCRIPT_DIR/qa-changed.bash" ]]; then
+        echo "ERROR: $SCRIPT_DIR/qa-changed.bash not found — nothing to test." >&2
+        exit 2
+    fi
 fi
 
 SCRATCH="$(mktemp -d)"
@@ -49,7 +62,7 @@ expect_lacks() {
 }
 
 plan_for() {
-    bash "$TARGET" --plan --files "$@"
+    "${TARGET[@]}" --plan --files "$@"
 }
 
 echo "== file -> check mapping (--plan --files, real repo paths) =="
@@ -126,13 +139,16 @@ printf 'x = 1\n' > "$REPO/new.py"
 printf '#!/usr/bin/bash\n:\n' > "$REPO/ignored.bash"
 
 scratch_plan() {
-    QA_CHANGED_ROOT="$REPO" bash "$TARGET" --plan "$@"
+    QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan "$@"
 }
 
 plan="$(scratch_plan)"
 expect_has "modified file is collected" "$plan" "check bash-syntax: kept.bash"
 expect_has "untracked file is collected" "$plan" "check ruff: new.py"
-expect_lacks "deleted file is dropped" "$plan" "gone.bash"
+# A deleted file has nothing left to check, so no per-file check lists it (it may still run a
+# whole gate, or a suite that names it).
+expect_lacks "deleted file: no per-file check lists it" "$plan" "kept.bash gone.bash"
+expect_lacks "deleted file: not checked per file" "$plan" "check shellcheck: gone.bash"
 expect_lacks "ignored file is dropped" "$plan" "ignored.bash"
 
 git_s add -A
@@ -141,7 +157,7 @@ plan="$(scratch_plan)"
 expect_has "clean tree says so" "$plan" "no changed files"
 
 rc=0
-QA_CHANGED_ROOT="$REPO" bash "$TARGET" > /dev/null || rc=$?
+QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" > /dev/null || rc=$?
 if [[ $rc -eq 0 ]]; then
     printf '  ok    clean tree: exit 0\n'
     PASS=$((PASS + 1))
