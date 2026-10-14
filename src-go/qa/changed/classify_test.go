@@ -417,7 +417,10 @@ func TestDeletedFilesOweOnlyTheWholeGates(t *testing.T) {
 	if !p.covered["src-go/internal/old/old.go"] || !p.covered["docs/gone.md"] {
 		t.Fatalf("covered: %v", p.covered)
 	}
-	want := []string{"playbooks/old.yml", "scripts/gone.py"}
+	if !p.has("ansible-pause") {
+		t.Fatalf("a deleted playbook runs the pause gate over what remains: %v", keys(p))
+	}
+	want := []string{"scripts/gone.py"}
 	slices.Sort(want)
 	got := slices.Clone(p.uncovered)
 	slices.Sort(got)
@@ -494,6 +497,28 @@ func TestAnEditToAGateWithNoPerFileCheckRunsItWhole(t *testing.T) {
 	w.touch("src-go/qa/bash/run.go", "// x")
 	if p := w.classify([]string{"src-go/qa/bash/run.go"}); p.has("ansible-syntax-gate") || p.has("deployed-drift") {
 		t.Errorf("an unrelated port runs the wrong gate: %v", keys(p))
+	}
+}
+
+// An edit to a playbook or task file, to the pause gate's own sources or to its fixtures runs the
+// whole pause gate, and the fixtures count as covered.
+func TestAPauseGateEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		"playbooks/imports/play-x.yml", "tasks/deep/t.yml", "tasks/t.yaml",
+		"src-go/qa/ansiblepause/scan.go", "src-go/qa/cmd/qa-ansible-pause/main.go", "scripts/qa-ansible-pause.bash",
+		"tests/fixtures/ansible-pause/flagged.yml", "tests/fixtures/ansible-pause/clean.yml",
+	} {
+		w := newWorld(t)
+		w.touch(f, "- name: x")
+		p := w.classify([]string{f})
+		if !p.has("ansible-pause") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+	}
+	w := newWorld(t)
+	w.touch("vars/v.yml", "a: 1")
+	if p := w.classify([]string{"vars/v.yml"}); p.has("ansible-pause") {
+		t.Errorf("a vars file must not run the pause gate: %v", keys(p))
 	}
 }
 
