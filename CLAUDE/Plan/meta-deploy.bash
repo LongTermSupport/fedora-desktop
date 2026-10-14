@@ -52,33 +52,19 @@ PLAN_ROOT="${scriptDir}"
 # An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
 # three fixed names fits. It is run as one unit, like a playbook entry.
 PLANS=(
-    # The QA toolchain, which now owns golangci-lint (at the .qa-versions pin, checksum
-    # verified) beside ruff, semgrep and shellcheck; it imports play-golang.yml for the Go
-    # toolchain and ends by running qa-toolchain.bash, which the go gate needs (Plan 00191)
-    playbooks/imports/play-python.yml
-    # ccy-teams from the owner's first host run: a checkout no team covers is offered a team,
-    # "repositories you list (one or more)", Element started apart from the terminal with
-    # its output logged, copy-the-password defaults to yes, the terminal's own colours with
-    # one accent in the pickers (CCY 3.95.5) (Plan 00177). Then, from Plan 00191: ccy-teams
-    # is now a Go binary, built from the checkout by this play, which imports play-golang.yml,
-    # now the Go toolchain alone (CCY 3.95.6); ccy-sessions is a Go binary too, installed at
-    # the same path for the boot units, shutdown-with-update and the self-update cycle
-    # (CCY 3.95.7); the bash functions only the old ccy-sessions called are gone (CCY 3.95.8);
-    # builds no longer stamp the git revision, so an unchanged source reports ok. Plan 00192's
-    # deploy.bash runs this play first (its Go builds now go through one shared task file,
-    # same flags and paths), then play-podfreeze.yml and play-lxcfreeze.yml: podfreeze and
-    # lxcfreeze become Go binaries at the old paths and ~/.local/lib/freeze goes. The
-    # deploy saves the old tools' output first and ends by comparing the new tools with it
-    # (acceptance.bash); the freeze-and-thaw look is that plan's ACCEPTANCE-freeze.md
+    # Plan 00192's deploy.bash runs play-claude-yolo.yml, then play-podfreeze.yml and
+    # play-lxcfreeze.yml, then its acceptance.bash. From Plan 00177, through
+    # play-claude-yolo.yml: ccy-teams with no hidden keys (Enter on any row opens a menu of its
+    # actions; a signed-in person is offered Element first, a new password asks first; Element
+    # returns to the board), and bare `ccy --teams` finds the checkout's team, which Quick
+    # Launch remembers (CCY 3.96.2). From Plan 00192: the Go sudo helper no longer asks for a
+    # password where root needs none, so the freeze check that timed out on the sudo prompt
+    # (lxcfreeze list) runs again against the baseline the last run saved; the plays report ok
+    # where nothing changed.
     00192-bash-line-in-the-sand-go-for-tooling
-    # Element: may reach the keyring (no "No encryption support" question on a profile's
-    # first start); launchers named "<team> team (Element)" (Plan 00177)
-    playbooks/imports/optional/common/play-agent-bus-element.yml
-    # agent team bus acceptance, with the new pingbus: M1.7 (no room creation) and M2.8
-    # (the forge with gh's login)
+    # agent team bus acceptance again: the last run passed every bus check, and failed only
+    # M2.10 because a commit landed in this checkout while it ran
     00161-agent-team-bus-matrix/acceptance.bash
-    # speech-to-text: judges the latest Insert replay
-    00171-stt-insert-never-ignored-icon-in-sync/acceptance.bash
 )
 
 LIST_ONLY=0
