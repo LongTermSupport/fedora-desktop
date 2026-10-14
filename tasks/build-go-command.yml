@@ -1,0 +1,73 @@
+# Build one Go command from this checkout's src-go/ and install it.
+#
+# Import this from any play that deploys a command from src-go/cmd/<name>:
+#
+#   - name: Build and install the foo command
+#     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+#     vars:
+#       go_command_name: foo
+#       go_command_dest: "/home/{{ user_login }}/.local/bin/foo"
+#       go_command_mode: "0755"
+#       go_command_ldflags: "-X main.RootDir={{ root_dir }}"   # optional
+#     tags:
+#       - foo
+#
+# import_tasks, not include_tasks: the tags on the import reach every task below, so
+# `--tags foo` runs the whole build and the install, not just the include.
+#
+# Needs the Go toolchain, which playbooks/imports/play-golang.yml installs: the importing play
+# imports that play first. This file only builds and installs, as the login user.
+#
+# Built to a scratch path and installed with `copy`, which compares checksums, so an unchanged
+# source reports ok rather than changed (-trimpath and -buildvcs=false keep the build
+# byte-for-byte reproducible: the first drops the checkout path, the second the git revision a
+# build otherwise stamps in). A failed build stops the play before anything is installed, and
+# nothing is ever installed by hand ([InfrastructureAsCode.md](CLAUDE/InfrastructureAsCode.md)).
+#
+# Every task runs as the login user (become: false) whatever the importing play does: the Go
+# build cache and the scratch directory are the user's, and a build run as root would leave
+# root-owned files in them.
+#
+# Inputs
+#   go_command_name     required; the directory under src-go/cmd and the scratch binary's name
+#   go_command_dest     required; where the binary is installed
+#   go_command_mode     required; the installed file's mode
+#   go_command_ldflags  optional; one -ldflags value, omitted when unset or empty
+#
+# The scratch directory predates its second user and keeps its first user's name; every command
+# built through this file lands there.
+
+- name: Ensure the Go Command Build Directory Exists
+  ansible.builtin.file:
+    path: "/home/{{ user_login }}/.cache/ccy-go-build"
+    state: directory
+    owner: "{{ user_login }}"
+    group: "{{ user_login }}"
+    mode: "0755"
+  become: false
+
+- name: Build the {{ go_command_name }} Command
+  ansible.builtin.command:
+    argv: >-
+      {{ ['go', 'build', '-trimpath', '-buildvcs=false']
+      + (['-ldflags', go_command_ldflags] if (go_command_ldflags | default('')) != '' else [])
+      + ['-o', '/home/' ~ user_login ~ '/.cache/ccy-go-build/' ~ go_command_name,
+      './cmd/' ~ go_command_name] }}
+    chdir: "{{ root_dir }}/src-go"
+  environment:
+    HOME: "/home/{{ user_login }}"
+    GOTOOLCHAIN: local
+    GOFLAGS: -mod=readonly
+    GOCACHE: "/home/{{ user_login }}/.cache/go-build"
+  become: false
+  changed_when: false # a build into the scratch path changes nothing installed; the copy below reports the change
+
+- name: Install the {{ go_command_name }} Command
+  ansible.builtin.copy:
+    src: "/home/{{ user_login }}/.cache/ccy-go-build/{{ go_command_name }}"
+    remote_src: true
+    dest: "{{ go_command_dest }}"
+    owner: "{{ user_login }}"
+    group: "{{ user_login }}"
+    mode: "{{ go_command_mode }}"
+  become: false
