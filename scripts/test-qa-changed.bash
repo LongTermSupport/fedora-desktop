@@ -117,8 +117,9 @@ wf_name="qa"
 plan="$(plan_for "$wf_dir/${wf_name}.yml")"
 expect_has "unmapped file is reported" "$plan" "not covered by qa-changed: $wf_dir/${wf_name}.yml"
 
-plan="$(plan_for no/such/file.bash)"
-expect_has "nonexistent file is dropped" "$plan" "no changed files"
+plan="$(plan_for no/such/file.bash scripts/qa-bash.bash 2> /dev/null)"
+expect_has "nonexistent file is dropped, the others planned" "$plan" "check shellcheck: scripts/qa-bash.bash"
+expect_lacks "nonexistent file is not planned" "$plan" "no/such/file.bash"
 
 echo
 echo "== git collection (scratch repository) =="
@@ -245,7 +246,9 @@ echo
 echo "== src-go -> every binary has a suite entry =="
 # scripts/go-binary-suites.tsv is a hand-kept table; a new src-go/cmd/<x> missing from it would be
 # built and deployed with no suite selected for its changes and no warning.
-plan="$(plan_for src-go/cmd/ccy-unmapped/main.go)"
+# The unmapped command's file does not exist (the control is its absence from the table); README.md
+# is the one real file the list needs and selects no suite.
+plan="$(plan_for src-go/cmd/ccy-unmapped/main.go README.md 2> /dev/null)"
 expect_lacks "binaries: the control, a command with no entry, selects no suite" "$plan" "suite scripts/"
 for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     cmd_name="$(basename "$cmd_dir")"
@@ -299,6 +302,9 @@ expect_lacks "--files then --plan: nothing ran" "$OUT" "✓"
 capture "${TARGET[@]}" --plan --files ./scripts/qa-bash.bash scripts/qa-bash.bash
 expect_has "an explicit path is cleaned of ./" "$OUT" "check bash-syntax: scripts/qa-bash.bash"
 expect_lacks "a file named twice is one file" "$OUT" "scripts/qa-bash.bash scripts/qa-bash.bash"
+capture "${TARGET[@]}" --plan --files no/such/file.bash
+expect_rc "a list naming no existing file: exit 2, not nothing to check" 2
+expect_has "a list naming no existing file says so" "$ERR" "names no existing file"
 capture "${TARGET[@]}" --plan --files ../outside.bash
 expect_rc "a path outside the repository: exit 2" 2
 capture env QA_CHANGED_ROOT=/no/such/directory "${TARGET[@]}" --plan
