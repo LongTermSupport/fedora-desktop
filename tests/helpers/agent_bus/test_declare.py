@@ -1042,6 +1042,33 @@ class LxcDeriveTest(CommandCase):
         self.assertEqual(self.path.read_text(), LXC_HV)
 
 
+class LxcCheckoutsTest(CommandCase):
+    """The checkouts offered for the checkout question: those in the user's home with a GitHub
+    remote, from what the host-side reader printed."""
+
+    def scan(self, *items: tuple[str, str | None]) -> str:
+        return json.dumps([{"path": path, "git_config": None if url is None else
+                            f'[remote "origin"]\n\turl = {url}\n'} for path, url in items])
+
+    def test_only_checkouts_with_a_github_remote_are_listed_with_their_repository(self) -> None:
+        scan = self.scan(("/srv/agent/one", "git@github.com:Example-Org/One.git"),
+                         ("/srv/agent/two", "https://github.com/example-org/two"),
+                         ("/srv/agent/other", "https://forge.example.com/example-org/other.git"),
+                         ("/srv/agent/none", None))
+        code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out, "CHECKOUT\t/srv/agent/one\texample-org/one\nCHECKOUT\t/srv/agent/two\texample-org/two\n")
+
+    def test_nothing_found_prints_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("lxc-checkouts", "--scan", "[]")[:2], (0, ""))
+
+    def test_what_the_container_printed_is_judged(self) -> None:
+        for scan in ("{", self.scan(("relative", None)), self.scan(("/srv/\x1b[31m", None))):
+            code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
+            self.assertEqual((code, out), (64, ""), scan)
+            self.assertTrue(err.startswith("declare: "), err)
+
+
 class LxcScriptTest(unittest.TestCase):
     """The script that reads a container's checkout from the host exists once, in derive.py; the
     Go tool asks for it here instead of carrying a copy."""

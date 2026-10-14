@@ -19,6 +19,10 @@ func (noLxc) Containers(context.Context) ([]string, []string, error) {
 
 func (noLxc) Users(context.Context, string) ([]string, error) { return nil, errors.New("not asked") }
 
+func (noLxc) ReadCheckout(context.Context, string, string, string, string, string) (string, error) {
+	return "", errors.New("not asked")
+}
+
 func TestEveryRowsMenuOffersAddingAnLxcContainerWithNoHiddenKey(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)

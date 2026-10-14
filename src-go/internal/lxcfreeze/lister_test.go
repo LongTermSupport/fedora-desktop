@@ -113,3 +113,68 @@ func TestListerUsersSkipsMalformedLinesAndFailsOnAFailedRead(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+const readerScript = "import sys\nprint(sys.argv)\n"
+
+// reader answers the two commands ReadCheckout runs: where LXC keeps its containers, and the
+// host-side reader run as root with the script as one argument (no shell, no file).
+func reader(f *execx.Fake, lxcPath string, out execx.Result) {
+	f.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte(lxcPath)})
+	f.On([]string{"sudo", "-n", "python3", "-I", "-c", readerScript, "probe", "/var/lib/lxc", "box-a", "agent", "/srv/p"}, out)
+}
+
+func TestListerReadsACheckoutFromTheHostSideWithAnIsolatedPythonAndNoShell(t *testing.T) {
+	f := &execx.Fake{}
+	reader(f, "/var/lib/lxc\n", execx.Result{Stdout: []byte(`{"path": "/srv/p"}`)})
+	got, err := newLister(f).ReadCheckout(context.Background(), readerScript, "probe", "box-a", "agent", "/srv/p")
+	if err != nil || got != `{"path": "/srv/p"}` {
+		t.Fatalf("%q %v", got, err)
+	}
+	for _, c := range f.Calls() {
+		if strings.Contains(c.Line(), "lxc-attach") || strings.Contains(c.Line(), " sh ") {
+			t.Fatalf("the container was entered or a shell was used: %q", c.Line())
+		}
+	}
+}
+
+func TestListerReadCheckoutAFailureCarriesTheReadersWords(t *testing.T) {
+	f := &execx.Fake{}
+	reader(f, "/var/lib/lxc\n", exit1("/srv/p/.git/config is a symbolic link; the container's tree is not followed through one\n"))
+	_, err := newLister(f).ReadCheckout(context.Background(), readerScript, "probe", "box-a", "agent", "/srv/p")
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") || !strings.Contains(err.Error(), "box-a") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestListerReadCheckoutAFailureCannotSteerTheTerminal(t *testing.T) {
+	f := &execx.Fake{}
+	reader(f, "/var/lib/lxc\n", exit1("/srv/p/\x1b[2J\x07 is a symbolic link\n"))
+	_, err := newLister(f).ReadCheckout(context.Background(), readerScript, "probe", "box-a", "agent", "/srv/p")
+	if err == nil || strings.ContainsAny(err.Error(), "\x1b\x07") || !strings.Contains(err.Error(), "is a symbolic link") {
+		t.Fatalf("got %q", err)
+	}
+}
+
+func TestListerReadCheckoutRefusesALxcPathThatIsNotAPath(t *testing.T) {
+	for _, printed := range []string{"relative\n", "\n", "/var/lib/\x1b[2Jlxc\n"} {
+		f := &execx.Fake{}
+		f.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte(printed)})
+		if _, err := newLister(f).ReadCheckout(context.Background(), readerScript, "probe", "box-a", "agent", "/srv/p"); err == nil {
+			t.Fatalf("%q was accepted as LXC's path", printed)
+		}
+	}
+}
+
+func TestListerReadCheckoutNamesAMissingPython(t *testing.T) {
+	l := newLister(&execx.Fake{})
+	l.LookPath = func(name string) (string, error) {
+		if name == "python3" {
+			return "", errNotFound
+		}
+		return "/usr/bin/" + name, nil
+	}
+	_, err := l.ReadCheckout(context.Background(), readerScript, "probe", "box-a", "agent", "/srv/p")
+	if err == nil || !strings.Contains(err.Error(), "python3") {
+		t.Fatalf("got %v", err)
+	}
+}

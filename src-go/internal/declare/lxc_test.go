@@ -85,41 +85,74 @@ func TestLxcAddDryRunReturnsTheEntryLines(t *testing.T) {
 	}
 }
 
-func TestLxcSuggestSeatReadsDefaultOrNeededWithASuggestion(t *testing.T) {
-	cases := map[string]struct {
-		out  string
-		want SeatAdvice
-	}{
-		"default":                {out: "SEAT\tdefault\n", want: SeatAdvice{}},
-		"needed with suggestion": {out: "SEAT\tneeded\tc2024box\n", want: SeatAdvice{Needed: true, Suggestion: "c2024box"}},
-		"needed with none":       {out: "SEAT\tneeded\t\n", want: SeatAdvice{Needed: true}},
-	}
-	for name, tc := range cases {
-		f := &execx.Fake{}
-		script(f, "lxc-suggest-seat", tc.out)
-		got, err := newClient(f).LxcSuggestSeat(context.Background(), "alpha", "2024box")
-		if err != nil || got != tc.want {
-			t.Fatalf("%s: %+v %v", name, got, err)
-		}
-		if line := lastLine(t, f); line != prefix+" lxc-suggest-seat --file /hv.yml --team alpha --container 2024box" {
-			t.Fatalf("%s: ran %q", name, line)
-		}
-	}
+func TestLxcMembersReadsADashAsNoHost(t *testing.T) {
 	f := &execx.Fake{}
-	script(f, "lxc-suggest-seat", "garbage\n")
-	if _, err := newClient(f).LxcSuggestSeat(context.Background(), "alpha", "box"); err == nil {
+	script(f, "lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\n")
+	got, err := newClient(f).LxcMembers(context.Background())
+	if err != nil || len(got) != 1 || got[0].Host != "" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestLxcScriptIsAskedForByName(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-script", "import os\nprint(1)\n")
+	got, err := newClient(f).LxcScript(context.Background(), "root-read")
+	if err != nil || got != "import os\nprint(1)\n" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if line := lastLine(t, f); line != prefix+" lxc-script --name root-read" {
+		t.Fatalf("ran %q", line)
+	}
+}
+
+func TestLxcDeriveReadsTheDerivedHandleAndPassesWhatWasRead(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-derive", "DERIVED\tproj\tworker\t2\tproj.2+worker.lxc\n")
+	e := LxcEntry{Team: "alpha", Container: "container-a", User: "agent"}
+	got, err := newClient(f).LxcDerive(context.Background(), e, `{"path": "/srv/p"}`, "proj.1+worker.lxc=active")
+	want := Derived{Repo: "proj", Host: "worker", Seat: "2", Handle: "proj.2+worker.lxc"}
+	if err != nil || got != want {
+		t.Fatalf("%+v %v", got, err)
+	}
+	line := prefix + " lxc-derive --file /hv.yml --team alpha --container container-a --user agent" +
+		` --probe {"path": "/srv/p"} --roster proj.1+worker.lxc=active`
+	if ran := lastLine(t, f); ran != line {
+		t.Fatalf("ran %q", ran)
+	}
+}
+
+func TestLxcDeriveSendsAnEmptyRosterAsAnArgumentAndRefusesAnUnreadableAnswer(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-derive", "DERIVED\tproj\tlocal\t1\tproj.1+local.lxc\n")
+	if _, err := newClient(f).LxcDerive(context.Background(), LxcEntry{Team: "alpha"}, "{}", ""); err != nil {
+		t.Fatal(err)
+	}
+	if ran := lastLine(t, f); !strings.HasSuffix(ran, " --probe {} --roster ") {
+		t.Fatalf("ran %q", ran)
+	}
+	g := &execx.Fake{}
+	script(g, "lxc-derive", "garbage\n")
+	if _, err := newClient(g).LxcDerive(context.Background(), LxcEntry{Team: "alpha"}, "{}", ""); err == nil {
 		t.Fatal("an unreadable answer was accepted")
 	}
 }
 
-func TestLxcCheckSeatPassesTheSeatToBeJudged(t *testing.T) {
+func TestLxcCheckoutsReadsThePathAndRepository(t *testing.T) {
 	f := &execx.Fake{}
-	script(f, "lxc-suggest-seat", "")
-	if err := newClient(f).LxcCheckSeat(context.Background(), "alpha", "box", "boxc"); err != nil {
-		t.Fatal(err)
+	script(f, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\nCHECKOUT\t/srv/agent/two\texample-org/two\n")
+	got, err := newClient(f).LxcCheckouts(context.Background(), "[]")
+	want := []Checkout{{Path: "/srv/agent/one", Repo: "example-org/one"}, {Path: "/srv/agent/two", Repo: "example-org/two"}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("%+v %v", got, err)
 	}
-	if line := lastLine(t, f); line != prefix+" lxc-suggest-seat --file /hv.yml --team alpha --container box --seat boxc" {
-		t.Fatalf("ran %q", line)
+	if ran := lastLine(t, f); ran != prefix+" lxc-checkouts --file /hv.yml --scan []" {
+		t.Fatalf("ran %q", ran)
+	}
+	g := &execx.Fake{}
+	script(g, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\n")
+	if _, err = newClient(g).LxcCheckouts(context.Background(), "[]"); err == nil {
+		t.Fatal("a short line was accepted")
 	}
 }
 
@@ -217,28 +250,36 @@ func TestRealUserOfOneTeamCanBeCheckedAndAddedToASecond(t *testing.T) {
 	}
 }
 
-func TestRealSeatAdviceForANameWithNoSeatAndForACollision(t *testing.T) {
+func TestRealDerivedHandleFromWhatTheReaderPrinted(t *testing.T) {
 	c := realCopy(t)
 	ctx := context.Background()
-	advice, err := c.LxcSuggestSeat(ctx, "alpha", "2024box")
-	if err != nil || !advice.Needed || advice.Suggestion != "c2024box" {
-		t.Fatalf("%+v %v", advice, err)
+	probe := `{"path": "/srv/agent/one", "uid": 1000, "env_uid": 1000, ` +
+		`"git_config": "[remote \"origin\"]\n\turl = https://github.com/example-org/proj.git\n", ` +
+		`"env_local": "export HOOKS_DAEMON_HOSTNAME=worker\n"}`
+	e := LxcEntry{Team: "alpha", Container: "container-a", User: "agent"}
+	got, err := c.LxcDerive(ctx, e, probe, "")
+	if err != nil || got.Handle != "proj.1+worker.lxc" {
+		t.Fatalf("%+v %v", got, err)
 	}
-	if err = c.LxcCheckSeat(ctx, "alpha", "2024box", "c2024box"); err != nil {
-		t.Fatal(err)
+	if got, err = c.LxcDerive(ctx, e, probe, "proj.1+worker.lxc=active"); err != nil || got.Seat != "2" {
+		t.Fatalf("an active seat was given again: %+v %v", got, err)
 	}
-	held := LxcEntry{
-		Team: "alpha", Container: "longcontainername-one", User: "agent", Host: "worker", Checkout: "/srv/agent/one",
+	if _, err = c.LxcDerive(ctx, e, "{", ""); !errors.Is(err, ErrUsage) {
+		t.Fatalf("an unreadable probe was not refused as a usage mistake: %v", err)
 	}
-	if _, err = c.LxcAdd(ctx, held); err != nil {
-		t.Fatal(err)
+	script, err := c.LxcScript(ctx, "root-read")
+	if err != nil || !strings.Contains(script, "O_NOFOLLOW") {
+		t.Fatalf("the root-side reader: %v", err)
 	}
-	advice, err = c.LxcSuggestSeat(ctx, "alpha", "longcontainername-two")
-	if err != nil || !advice.Needed || advice.Suggestion != "longcontain2" {
-		t.Fatalf("%+v %v", advice, err)
-	}
-	if err = c.LxcCheckSeat(ctx, "alpha", "longcontainername-two", "longcontaine"); !errors.Is(err, ErrUsage) {
-		t.Fatalf("a taken seat was accepted: %v", err)
+}
+
+func TestRealCheckoutsOfferedAreThoseWithAGitHubRemote(t *testing.T) {
+	c := realCopy(t)
+	scan := `[{"path": "/srv/a", "git_config": "[remote \"origin\"]\n\turl = git@github.com:Example-Org/A.git\n"},` +
+		`{"path": "/srv/b", "git_config": null}]`
+	got, err := c.LxcCheckouts(context.Background(), scan)
+	if err != nil || !reflect.DeepEqual(got, []Checkout{{Path: "/srv/a", Repo: "example-org/a"}}) {
+		t.Fatalf("%+v %v", got, err)
 	}
 }
 

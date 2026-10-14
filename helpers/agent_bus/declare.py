@@ -81,6 +81,9 @@ trusted reference may name any path in the team's repositories (a team narrows i
         DERIVED<TAB><repo><TAB><host><TAB><seat><TAB><handle>: the handle the play gives the entry,
         by helpers/agent_bus_lxc/derive.py's rule (ccy's), from the checkout as the host-side
         reader printed it (--probe) and the team's members; exit 64 when it cannot be derived
+    python3 -m helpers.agent_bus.declare lxc-checkouts --file <localhost.yml> --scan JSON
+        CHECKOUT<TAB><path in the container><TAB><owner/repo> for each checkout the reader found
+        in the user's home whose origin is on GitHub
     python3 -m helpers.agent_bus.declare lxc-script --name root-read
         the script the host runs as root to read a container's checkout (derive.ROOT_READ_PY)
 
@@ -1008,6 +1011,14 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         out.writelines(f"LXCMEMBER\t{m.team}\t{m.container}\t{m.user}\t{m.host or '-'}\t{m.role}\t{m.state}\n"
                        for m in found)
         return EXIT_OK
+    if args.command == "lxc-checkouts":
+        try:
+            found = derive.parse_checkouts(args.scan)
+        except derive.DeriveError as exc:
+            raise UsageError(str(exc)) from None
+        out.writelines(f"CHECKOUT\t{path}\t{repo}\n" for path, origin in found
+                       if origin is not None and (repo := github_remote(origin)) is not None)
+        return EXIT_OK
     if args.command == "lxc-derive":
         out.write("DERIVED\t" + "\t".join(derive_lxc(text, args)) + "\n")
         return EXIT_OK
@@ -1191,6 +1202,9 @@ def _lxc_parsers(commands: argparse._SubParsersAction) -> None:
     shown.add_argument("--roster", default="", help="the team's members: HANDLE=active|parked,...")
     shown.add_argument("--host", help="the entry's own host, an override")
     shown.add_argument("--seat", help="the entry's own seat, an override")
+    offered = commands.add_parser("lxc-checkouts", help="the checkouts with a GitHub remote among those the reader found")
+    offered.add_argument("--file", required=True)
+    offered.add_argument("--scan", required=True, help="what the root-side reader printed for the user's home")
     script = commands.add_parser("lxc-script", help="print a script the play runs on the host as root")
     script.add_argument("--name", required=True, choices=sorted(derive.SCRIPTS))
 

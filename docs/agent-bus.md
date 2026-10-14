@@ -72,7 +72,8 @@ that play.
    covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** In `ccy-teams`, Enter on a row of the team, then *Add an
    LXC container's agent to `<team>`*, or `ccy-teams lxc-add <team>`: it lists the host's
-   running containers, asks for the user, the checkout, the handle's host word and the role,
+   running containers, asks for the user, the checkout and the role (the handle's repo, host
+   and seat are derived from the checkout, as for a ccy seat), shows the handle,
    writes the `agent_bus_lxc_members` entry and applies the team, then says what is left
    inside the container (`gh auth login` if needed, then `ccy --teams <team>`). No hand edit
    of `localhost.yml` (writing the entry yourself and running `play-agent-bus.yml` still
@@ -299,7 +300,11 @@ address.
 **LXC containers on a fedora-desktop host, by the play.** `ccy-teams lxc-add <team>` (or the
 team's menu in `ccy-teams`) writes each agent user's entry in `agent_bus_lxc_members` and
 applies the team. By hand, list the entry in your host_vars `localhost.yml` (the commented
-example in `localhost.yml.dist` names every key) and run `play-agent-bus.yml`. The play runs `README.lxc`'s steps for you, and checks the result with
+example in `localhost.yml.dist` names every key; only `team`, `container`, `user` and
+`checkout` are needed, since an LXC member's handle `<repo>.<seat>+<host>.lxc` is derived the
+way a ccy seat's is: `<repo>` from the checkout's forge remote, `<host>` from the
+`HOOKS_DAEMON_HOSTNAME` its `ccy.env.local` assigns or `local`, `<seat>` the lowest number no
+active member of that `<repo>+<host>.lxc` holds) and run `play-agent-bus.yml`. The play runs `README.lxc`'s steps for you, and checks the result with
 `pingbus config check` on every run. The container and its agent user must already exist,
 the container must be running, and the team must be declared present in `agent_bus_teams`.
 The agent user must have gh logged in to github.com inside the container: the play checks

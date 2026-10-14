@@ -83,14 +83,17 @@ Usage:
   ccy-teams lxc-add <team>         add an LXC container's agent to a team, on a terminal only,
                                    with no hand edit of the host_vars. It lists this host's
                                    running containers (as root: sudo asks), then asks, with
-                                   gum, for the container, its seat (only when the container's
-                                   name gives none the play can take), its user (the
-                                   container's ordinary users are suggested), the checkout
-                                   inside it (an absolute path), the handle's host word (a
-                                   role word; worker is suggested) and the role (worker;
-                                   coordinator only when the team has none). Each answer is
-                                   checked by declare.py as it is given, and asked again when
-                                   refused. It shows a summary and asks once, then writes the
+                                   gum, for the container, its user (the container's ordinary
+                                   users are suggested), the checkout inside it (those in the
+                                   user's home with a GitHub remote are suggested) and the role
+                                   (worker; coordinator only when the team has none). The
+                                   handle's repo, host and seat are never asked: they come from
+                                   the checkout as ccy derives them (repo from its origin, host
+                                   from .claude/ccy/ccy.env.local else local, the next free
+                                   seat), read from this host's side as plain files, no git run.
+                                   Each answer is checked by declare.py as it is given, and
+                                   asked again when refused. It shows a summary with the
+                                   derived handle and asks once, then writes the
                                    agent_bus_lxc_members entry and runs play-agent-bus.yml for
                                    the team, which joins the member (the user must already
                                    exist and be logged in to gh in the container; the play

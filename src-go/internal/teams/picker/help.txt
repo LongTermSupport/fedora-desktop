@@ -30,7 +30,7 @@ Keys:
 
 Add an LXC container's agent to <team> is in the menu of every row (Enter; it has no key).
 It lists the host's running LXC containers and asks for the container, its user, the
-checkout inside it, the handle's host word and the role, shows a summary, writes the
+checkout inside it and the role (the handle comes from the checkout), shows a summary, writes the
 agent_bus_lxc_members entry for you and applies the team. It is the same as
 `ccy-teams lxc-add <team>`.
 

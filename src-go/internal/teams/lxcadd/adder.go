@@ -1,9 +1,14 @@
 // Package lxcadd is "ccy-teams lxc-add <team>": an agent user of an existing LXC container
 // joins a team without anyone editing the host_vars. It lists the host's running containers,
-// asks for the user, the checkout, the handle's host word and the role (each answer checked
-// by declare.py as it is given), shows a summary and asks once, then writes the
+// asks for the user, the checkout and the role (each answer checked by declare.py as it is
+// given), shows a summary with the member's handle and asks once, then writes the
 // agent_bus_lxc_members entry through declare.py and applies the team, which runs the play
 // that joins the member. What is left to do inside the container is printed at the end.
+//
+// The handle's repo, host and seat are never asked: they are derived from the checkout as ccy
+// derives them for a podman seat (helpers/agent_bus_lxc/derive.py is the one rule). The checkout
+// is read from this host's side, as root, through the container's LXC config: the host reads
+// plain files, runs no git, follows no link, and enters nothing.
 package lxcadd
 
 import (
@@ -33,9 +38,8 @@ const (
 	// readWhy is what sudo is asked for: LXC is rootful on this host.
 	readWhy = "LXC here is rootful, so listing the containers and reading who lives in one is done as root."
 
-	// suggestedHost is the host word offered: the role word, because a container's name is
-	// install-specific and handles appear in public forge text.
-	suggestedHost = "worker"
+	// rootReader is the declare.py script that reads a container's checkout from the host.
+	rootReader = "root-read"
 
 	roleWorker      = "worker"
 	roleCoordinator = "coordinator"
@@ -47,6 +51,8 @@ const (
 type Containers interface {
 	Containers(ctx context.Context) (running, stopped []string, err error)
 	Users(ctx context.Context, container string) ([]string, error)
+	// ReadCheckout runs the host-side reader script as root (see lxcfreeze.Lister.ReadCheckout).
+	ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error)
 }
 
 // stop ends the run with an exit code; whatever the person needs to read has been printed.
@@ -76,6 +82,9 @@ type Adder struct {
 	Home     string // for the ~ abbreviation
 
 	term *term.Term
+	// script is the host-side reader, fetched from declare.py once per run; roster is the
+	// team's members as declare.py reads them, for the seat.
+	script, roster string
 }
 
 // New is the Adder over a host and the flows it hands the work to: apply joins the member.
@@ -91,11 +100,14 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
 
 // answers is what the questions collect.
 type answers struct {
-	team, container, user, checkout, host, role, seat string
+	team, container, user, checkout, role string
+	// derived is the handle the checkout gives, shown before the yes and never written: the
+	// entry carries neither a host nor a seat, so the play derives them again.
+	derived declare.Derived
 }
 
 func (a answers) entry() declare.LxcEntry {
-	e := declare.LxcEntry{Team: a.team, Container: a.container, User: a.user, Host: a.host, Checkout: a.checkout, Seat: a.seat}
+	e := declare.LxcEntry{Team: a.team, Container: a.container, User: a.user, Checkout: a.checkout}
 	if a.role == roleCoordinator {
 		e.Role = a.role
 	}
@@ -157,14 +169,21 @@ func (a *Adder) add(ctx context.Context, team string) error {
 	if err != nil {
 		return err
 	}
-	held, err := a.coordinatorOf(ctx, team)
+	if a.script, err = a.Declare.LxcScript(ctx, rootReader); err != nil {
+		return err
+	}
+	roster, err := a.teamRoster(ctx, team)
+	if err != nil {
+		return err
+	}
+	held, err := a.coordinatorOf(ctx, team, roster)
 	if err != nil {
 		return err
 	}
 	ans := answers{team: team, role: roleWorker}
-	a.term.Steps = 4
+	a.term.Steps = 3
 	if held.holder == "" {
-		a.term.Steps = 5
+		a.term.Steps = 4
 	}
 	if err = a.ask(ctx, &ans, running, held); err != nil {
 		return err
@@ -219,16 +238,35 @@ func (a *Adder) listContainers(ctx context.Context) ([]string, error) {
 }
 
 // coordinator says who holds the team's coordinator role, from the declaration and from the
-// live team, and whether the live team could be read.
+// live team.
 type coordinator struct {
-	holder     string // empty: the team has none
-	unreadable string // why the live team could not be read; empty when it was
+	holder string // empty: the team has none
+}
+
+// teamRoster is the running team's members, which both the role and the seat depend on: the
+// seat is the lowest number no active member of the same repo and host holds. A team whose
+// members cannot be read stops the run, naming the way on.
+func (a *Adder) teamRoster(ctx context.Context, team string) (agentbus.Roster, error) {
+	roster, err := a.Roster(ctx, team)
+	if err != nil {
+		return agentbus.Roster{}, a.failed("the members of " + team + " could not be read (" + err.Error() + "), and the seat " +
+			"is chosen among theirs. If " + team + " has not been applied yet, ccy-teams apply " + team + " first; nothing was changed.")
+	}
+	parts := make([]string, 0, len(roster.Members))
+	for _, m := range roster.Members {
+		state := "active"
+		if m.Parked {
+			state = "parked"
+		}
+		parts = append(parts, m.Handle+"="+state)
+	}
+	a.roster = strings.Join(parts, ",")
+	return roster, nil
 }
 
 // coordinatorOf reads the declared LXC members first (a present coordinator there is the one
-// the play will set), then the live roster. A roster that cannot be read is said later and
-// leaves only worker on offer: a second coordinator is refused by declare.py in any case.
-func (a *Adder) coordinatorOf(ctx context.Context, team string) (coordinator, error) {
+// the play will set), then the live roster.
+func (a *Adder) coordinatorOf(ctx context.Context, team string, roster agentbus.Roster) (coordinator, error) {
 	members, err := a.Declare.LxcMembers(ctx)
 	if err != nil {
 		return coordinator{}, err
@@ -238,35 +276,20 @@ func (a *Adder) coordinatorOf(ctx context.Context, team string) (coordinator, er
 			return coordinator{holder: m.User + "@" + m.Container}, nil
 		}
 	}
-	return a.liveCoordinator(ctx, team), nil
-}
-
-// liveCoordinator is the coordinator the running team has, if its roster can be read.
-func (a *Adder) liveCoordinator(ctx context.Context, team string) coordinator {
-	roster, err := a.Roster(ctx, team)
-	if err != nil {
-		return coordinator{holder: "unknown", unreadable: err.Error()}
-	}
 	if m, ok := roster.Coordinator(); ok {
-		return coordinator{holder: m.Handle}
+		return coordinator{holder: m.Handle}, nil
 	}
-	return coordinator{}
+	return coordinator{}, nil
 }
 
 func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held coordinator) error {
 	if err := a.askContainer(ctx, ans, running); err != nil {
 		return err
 	}
-	if err := a.askSeat(ctx, ans); err != nil {
-		return err
-	}
 	if err := a.askUser(ctx, ans); err != nil {
 		return err
 	}
 	if err := a.askCheckout(ctx, ans); err != nil {
-		return err
-	}
-	if err := a.askHost(ctx, ans); err != nil {
 		return err
 	}
 	return a.askRole(ctx, ans, held)
@@ -290,30 +313,6 @@ func (a *Adder) askContainer(ctx context.Context, ans *answers, running []string
 	return nil
 }
 
-// askSeat asks for the handle's seat only when the container's name gives none the play would
-// take: no letter first, or another container of the team already holds it.
-func (a *Adder) askSeat(ctx context.Context, ans *answers) error {
-	advice, err := a.Declare.LxcSuggestSeat(ctx, ans.team, ans.container)
-	if err != nil || !advice.Needed {
-		return err
-	}
-	a.term.Steps++
-	hint := "The <seat> part of the member's handle. The container's name does not give one the play can take " +
-		"(a letter first, then letters and digits, at most 12, not held by another container of " + ans.team + "): name one."
-	if err = a.step(ctx, "Seat", hint); err != nil {
-		return err
-	}
-	seat, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
-		return a.checked(a.Declare.LxcCheckSeat(ctx, ans.team, ans.container, answer))
-	}, "Seat for "+ans.container, "e.g. boxa", advice.Suggestion)
-	if err != nil {
-		return err
-	}
-	ans.seat = seat
-	a.term.Answered(seat)
-	return nil
-}
-
 func (a *Adder) askUser(ctx context.Context, ans *answers) error {
 	users, err := a.Lister.Users(ctx, ans.container)
 	suggestion, hint := "", "The login user the agent runs as in the container, which must already exist."
@@ -332,7 +331,7 @@ func (a *Adder) askUser(ctx context.Context, ans *answers) error {
 			a.problem("name the user", true)
 			return false, nil
 		}
-		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{Team: ans.team, Container: ans.container, User: answer, Seat: ans.seat}))
+		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{Team: ans.team, Container: ans.container, User: answer}))
 	}, "User in "+ans.container, "e.g. agent", suggestion)
 	if err != nil {
 		return err
@@ -343,14 +342,16 @@ func (a *Adder) askUser(ctx context.Context, ans *answers) error {
 }
 
 func (a *Adder) askCheckout(ctx context.Context, ans *answers) error {
-	hint := "Where the agent's repository is checked out, inside the container: an absolute path. " +
-		"The play runs pingbus there, as " + ans.user + ", to name the member's handle."
+	suggestion, listed := a.suggestCheckouts(ctx, ans)
+	hint := "Where the agent's repository is checked out, inside the container: its top directory, an absolute path. " +
+		"The handle's repo, host and seat come from it as ccy derives them: the repo from its origin, the host from " +
+		".claude/ccy/ccy.env.local (else local), the seat the next free one." + listed
 	if err := a.step(ctx, "Checkout", hint); err != nil {
 		return err
 	}
 	path, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
-		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{Checkout: answer}))
-	}, "Checkout path in "+ans.container, "an absolute path, e.g. /srv/work/project", "/home/"+ans.user+"/")
+		return a.checkoutOK(ctx, ans, answer)
+	}, "Checkout path in "+ans.container, "an absolute path, e.g. /srv/work/project", suggestion)
 	if err != nil {
 		return err
 	}
@@ -359,34 +360,54 @@ func (a *Adder) askCheckout(ctx context.Context, ans *answers) error {
 	return nil
 }
 
-func (a *Adder) askHost(ctx context.Context, ans *answers) error {
-	hint := "The <host> part of the member's handle: a role word such as worker, never a machine's hostname, " +
-		"because handles appear in public forge text. Lower-case letters, digits and -."
-	if err := a.step(ctx, "Handle host word", hint); err != nil {
-		return err
+// suggestCheckouts is the checkout to offer first and the sentence naming the others: those in the
+// user's home with a GitHub remote, read from the host's side. A listing that cannot be read is
+// said, and the path is typed from the home.
+func (a *Adder) suggestCheckouts(ctx context.Context, ans *answers) (string, string) {
+	suggestion := "/home/" + ans.user + "/"
+	scan, err := a.Lister.ReadCheckout(ctx, a.script, "checkouts", ans.container, ans.user, "-")
+	var found []declare.Checkout
+	if err == nil {
+		found, err = a.Declare.LxcCheckouts(ctx, scan)
 	}
-	word, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
-		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{
-			Team: ans.team, Container: ans.container, User: ans.user, Host: answer, Seat: ans.seat,
-		}))
-	}, "Host word", "e.g. worker", suggestedHost)
 	if err != nil {
-		return err
+		a.term.Printf("The checkouts in the home of %s could not be listed: %s\n", ans.user, err.Error())
+		return suggestion, ""
 	}
-	ans.host = word
-	a.term.Answered(word)
-	return nil
+	if len(found) == 0 {
+		return suggestion, ""
+	}
+	names := make([]string, 0, len(found))
+	for _, c := range found {
+		names = append(names, c.Path+" ("+c.Repo+")")
+	}
+	return found[0].Path, " On GitHub, in its home: " + strings.Join(names, ", ") + "."
+}
+
+// checkoutOK judges a typed checkout: its form, then the checkout itself, read from the host's side
+// and turned into the handle it gives. Whatever cannot be read or derived is said and the path asked again.
+func (a *Adder) checkoutOK(ctx context.Context, ans *answers, path string) (bool, error) {
+	if ok, err := a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{Checkout: path})); !ok || err != nil {
+		return false, err
+	}
+	probe, err := a.Lister.ReadCheckout(ctx, a.script, "probe", ans.container, ans.user, path)
+	if err != nil {
+		a.problem(err.Error(), true)
+		return false, nil
+	}
+	who := declare.LxcEntry{Team: ans.team, Container: ans.container, User: ans.user}
+	derived, err := a.Declare.LxcDerive(ctx, who, probe, a.roster)
+	if ok, cerr := a.checked(err); !ok || cerr != nil {
+		return false, cerr
+	}
+	ans.derived = derived
+	return true, nil
 }
 
 // askRole offers coordinator only when the team has none; otherwise the member is a worker and
 // the person is told why there is no question.
 func (a *Adder) askRole(ctx context.Context, ans *answers, held coordinator) error {
 	if held.holder != "" {
-		if held.unreadable != "" {
-			a.term.Printf("\nRole: worker. Who is in %s could not be read (%s), so a coordinator is not offered.\n",
-				ans.team, held.unreadable)
-			return nil
-		}
 		a.term.Printf("\nRole: worker. %s already has a coordinator (%s); a team has one.\n", ans.team, held.holder)
 		return nil
 	}
@@ -465,13 +486,15 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 		line("Container", ans.container),
 		line("User", ans.user),
 		line("Checkout", ans.checkout),
-		line("Host word", ans.host),
+		line("Handle", ans.derived.Handle),
 		line("Role", ans.role),
 	}, "\n")
 	a.term.Printf("\n")
 	if err := a.Gum.Box(ctx, false, ans.label()+" joins "+ans.team, "", body); err != nil {
 		return err
 	}
+	a.term.Printf("The handle is derived from the checkout as ccy derives it: repo %s, host %s, seat %s.\n",
+		ans.derived.Repo, ans.derived.Host, ans.derived.Seat)
 	question := "Add " + ans.label() + " to " + ans.team + "? (saved to " + term.AbbrevHome(a.HostVars, a.Home) +
 		", then " + ans.team + " is applied: sudo asks for your password)"
 	yes, err := a.Gum.Confirm(ctx, question, true)
@@ -506,7 +529,7 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 			"  sudo lxc-attach -n " + ans.container + " -- su - " + ans.user + "     (then gh auth login, and exit)\n" +
 			"Once the cause is fixed, ccy-teams apply " + ans.team + " joins it.")
 	}
-	a.term.Say(ans.label() + " is a member of " + ans.team + ".")
+	a.term.Say(ans.label() + " is a member of " + ans.team + " as " + ans.derived.Handle + ".")
 	a.term.Printf("What is left is inside the container:\n"+
 		"  Agent    as %s, in %s: ccy --teams %s\n"+
 		"  GitHub   the play checked that %s is logged in to GitHub there; if it is ever logged out, gh auth login as %s.\n",

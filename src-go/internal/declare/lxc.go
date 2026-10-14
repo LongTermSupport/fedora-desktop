@@ -3,10 +3,11 @@ package declare
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
 )
+
+const flagTeam = "--team"
 
 // LxcEntry is the values of an agent_bus_lxc_members entry that lxc-add and lxc-check take;
 // empty fields are not passed. It is one agent user of an existing LXC container joining a team.
@@ -14,16 +15,16 @@ type LxcEntry struct {
 	Team      string
 	Container string
 	User      string
-	Host      string // the handle's host word, a role name and never a machine's hostname
+	Host      string // an override of the handle's host; otherwise read from the checkout, never asked for
 	Checkout  string // an absolute path inside the container
 	Role      string // worker (the default) or coordinator
-	Seat      string // the handle's seat; by default the container's name gives it
+	Seat      string // an override of the handle's seat; otherwise derived, never asked for
 }
 
 func (e LxcEntry) args() []string {
 	var args []string
 	for _, f := range []struct{ flag, value string }{
-		{"--team", e.Team},
+		{flagTeam, e.Team},
 		{"--container", e.Container},
 		{"--user", e.User},
 		{"--host", e.Host},
@@ -60,7 +61,11 @@ func (c *Client) LxcMembers(ctx context.Context) ([]LxcMember, error) {
 	}
 	found := make([]LxcMember, 0, len(rows))
 	for _, f := range rows {
-		found = append(found, LxcMember{Team: f[1], Container: f[2], User: f[3], Host: f[4], Role: f[5], State: f[6]})
+		host := f[4]
+		if host == "-" { // the entry leaves its host to be derived
+			host = ""
+		}
+		found = append(found, LxcMember{Team: f[1], Container: f[2], User: f[3], Host: host, Role: f[5], State: f[6]})
 	}
 	return found, nil
 }
@@ -82,32 +87,60 @@ func (c *Client) LxcAddDryRun(ctx context.Context, e LxcEntry) (string, error) {
 	return c.runFile(ctx, "lxc-add", append(e.args(), "--dry-run")...)
 }
 
-// SeatAdvice says whether the container's name gives its seat. When it does not (no letter
-// first, or another container of the team holds it) the seat is to be asked for, with a
-// suggestion the play accepts, or none.
-type SeatAdvice struct {
-	Needed     bool
-	Suggestion string
+// LxcScript is the script the play runs on the host, as root, to read a container's checkout
+// (derive.py's, so there is one copy): run as `python3 -I -c SCRIPT MODE LXCPATH CONTAINER USER PATH`.
+func (c *Client) LxcScript(ctx context.Context, name string) (string, error) {
+	return c.run(ctx, "lxc-script", "--name", name)
 }
 
-// LxcSuggestSeat is the seat advice for the container in the team.
-func (c *Client) LxcSuggestSeat(ctx context.Context, team, container string) (SeatAdvice, error) {
-	out, err := c.runFile(ctx, "lxc-suggest-seat", "--team", team, "--container", container)
+// Derived is what the play would give an entry that leaves its host and seat out.
+type Derived struct {
+	Repo, Host, Seat, Handle string
+}
+
+// LxcDerive is the handle the play would give the entry, from the checkout as the root-side
+// reader printed it (probe) and the team's members (roster: "HANDLE=active|parked,...", empty for
+// none). Both come from the container and are judged by declare.py, never here.
+func (c *Client) LxcDerive(ctx context.Context, e LxcEntry, probe, roster string) (Derived, error) {
+	args := []string{flagTeam, e.Team, "--container", e.Container, "--user", e.User, "--probe", probe, "--roster", roster}
+	if e.Host != "" {
+		args = append(args, "--host", e.Host)
+	}
+	if e.Seat != "" {
+		args = append(args, "--seat", e.Seat)
+	}
+	out, err := c.runFile(ctx, "lxc-derive", args...)
 	if err != nil {
-		return SeatAdvice{}, err
+		return Derived{}, err
 	}
-	fields := strings.Split(strings.TrimRight(out, "\r\n"), "\t")
-	switch {
-	case len(fields) == 2 && fields[0] == "SEAT" && fields[1] == "default":
-		return SeatAdvice{}, nil
-	case len(fields) == 3 && fields[0] == "SEAT" && fields[1] == "needed":
-		return SeatAdvice{Needed: true, Suggestion: fields[2]}, nil
+	rows, err := marker.Fields(out, "DERIVED", 5)
+	if err != nil || len(rows) != 1 {
+		return Derived{}, fmt.Errorf("declare lxc-derive: unreadable answer %q", out)
 	}
-	return SeatAdvice{}, fmt.Errorf("declare lxc-suggest-seat: unreadable answer %q", out)
+	f := rows[0]
+	return Derived{Repo: f[1], Host: f[2], Seat: f[3], Handle: f[4]}, nil
 }
 
-// LxcCheckSeat refuses (ErrUsage) a seat the play would not take for the container in the team.
-func (c *Client) LxcCheckSeat(ctx context.Context, team, container, seat string) error {
-	_, err := c.runFile(ctx, "lxc-suggest-seat", "--team", team, "--container", container, "--seat", seat)
-	return err
+// Checkout is a checkout in a container's user home whose origin is on GitHub.
+type Checkout struct {
+	Path string // inside the container
+	Repo string // OWNER/REPO, lower case
+}
+
+// LxcCheckouts are the checkouts with a GitHub remote among those the root-side reader found
+// (scan is what it printed, judged by declare.py).
+func (c *Client) LxcCheckouts(ctx context.Context, scan string) ([]Checkout, error) {
+	out, err := c.runFile(ctx, "lxc-checkouts", "--scan", scan)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := marker.Fields(out, "CHECKOUT", 3)
+	if err != nil {
+		return nil, fmt.Errorf("declare lxc-checkouts: %w", err)
+	}
+	found := make([]Checkout, 0, len(rows))
+	for _, f := range rows {
+		found = append(found, Checkout{Path: f[1], Repo: f[2]})
+	}
+	return found, nil
 }

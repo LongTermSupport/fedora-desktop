@@ -91,14 +91,14 @@ Notes on the table:
    ```
 
    It asks for sudo (LXC is rootful), lists the host's running containers and asks for the
-   container, the seat (only when the container's name gives none the play can take, because
-   it has no letter first or another container of the team holds it; a free one is
-   suggested), the agent user (the container's ordinary users are suggested; a user already
-   in another team is fine), the checkout inside it, the handle's host word (`worker` is
-   suggested: a role word, never the container's name, because handles appear in public forge
-   text) and the role (`worker`; `coordinator` only while the team has none). Each answer is checked as it is
+   container, the agent user (the container's ordinary users are suggested; a user already
+   in another team is fine), the checkout inside it (those in the user's home with a GitHub
+   remote are suggested) and the role (`worker`; `coordinator` only while the team has
+   none). It never asks for the handle's repo, host or seat: they are derived from the
+   checkout, as for a ccy seat (below). Each answer is checked as it is
    given by the rules the play applies, and asked again when refused (a duplicate, a second
-   coordinator, a relative checkout). It then shows a summary, asks once, writes the
+   coordinator, a relative checkout, a path that is not a git checkout). It then shows a
+   summary with the derived handle, asks once, writes the
    `agent_bus_lxc_members` entry (the file as it was is kept beside it as
    `localhost.yml.backup.<time>`) and applies the team, which is step 3. It ends by saying
    what is left inside the container: `gh auth login` as the agent user if gh is not logged
@@ -114,14 +114,12 @@ Notes on the table:
      - team: <team>
        container: <container>
        user: <agent-user>
-       host: <role>
        checkout: /home/<agent-user>/<repo>
    ```
 
-   `host` is the install's role, which becomes the handle's `<host>` part. It is a role name
-   (for example `worker`), never a machine's hostname: handles appear in public forge text.
-   The optional keys are `seat`, `role`, `human_text`, `repo` and `state`; the comments in
-   `localhost.yml.dist` describe each.
+   Those four keys are all an entry needs. The handle is derived (see **The handle** below).
+   The optional keys are `host` and `seat` (overrides), `role`, `human_text`, `repo` and
+   `state`; the comments in `localhost.yml.dist` describe each.
 
 3. **Run the play**, or let `ccy-teams apply <team>` run it for that team:
 
@@ -135,12 +133,38 @@ Notes on the table:
    `HOOKS_DAEMON_HOSTNAME=<role>`, and runs `pingbus config check` as the agent user. A run
    with nothing new reports no change.
 
-**The handle stays fixed.** The member's handle is `<repo>.<seat>+<host>.lxc`. The seat
-defaults to the container's name (lower case, letters and digits, at most 12, a letter
-first); set `seat` when the name does not give one. A member that has joined is left alone on
-later runs, so its token does not change; a lost bundle is replaced with a new token for the
-same handle. `seat` and `host` are part of the handle: to change either, set the entry
-`state: absent`, run the play, then declare it again.
+**The handle** is `<repo>.<seat>+<host>.lxc`, derived from the repository as ccy derives a
+podman seat's ([agent-bus.md](agent-bus.md)), reading the checkout in the container:
+
+- `<repo>` is the last component of the checkout's `origin` (`.git` removed), else the
+  directory's name;
+- `<host>` is the `HOOKS_DAEMON_HOSTNAME` that the checkout's `.claude/ccy/ccy.env.local`
+  assigns, else the literal `local`; never the machine's hostname, because handles appear in
+  public forge text;
+- `<seat>` is the lowest number that no active member of the same `<repo>+<host>.lxc` holds in
+  the team; a parked member's number is offered again, so it returns.
+
+The checkout is read from the host's side, as root, through the container's LXC config (its
+rootfs and the bind mounts the config declares), so it also works for a container that is
+stopped. Nothing is run there: `.git/config` and `ccy.env.local` are read as plain files, no
+git is started (a repository config can name programs to run), every path component is opened
+without following a link and a link anywhere is refused, and each file is capped at 64 KiB. A
+container with an `lxc.idmap` (unprivileged) or a rootfs that is not a directory is refused.
+`git`'s `insteadOf` rewrites are not applied; only the last path component matters.
+
+**The handle stays fixed.** A member that has joined is left alone on later runs, so its token
+does not change; a lost bundle is replaced with a new token for the same handle. An entry that
+leaves `seat` out keeps the seat its bundle in the container names, so a run again never
+renames it.
+
+**Entries written before host and seat were derived** keep their handles, and nothing is renamed
+silently. An entry that gives `host` and `seat` is used as it is, and the checkout is not read.
+An entry that gives `host` but not `seat` keeps the seat its bundle names; with no bundle, the
+seat the container's name gave before (lower case, letters and digits, at most 12, a letter
+first) when a member of that handle is already in the team; otherwise it is derived like a new
+one. `host` and `seat` stay valid as overrides. They are part of the handle: to change either,
+set the entry `state: absent`, run the play, then declare it again. If a member's bundle is
+lost while it is still active, give its `seat`, or the derivation will not find it.
 
 **Leaving.** `state: absent` parks the member's handle in the team, deletes the bundle from
 the container and takes the team out of `PINGBUS_TEAMS`. A container that is already gone

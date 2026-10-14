@@ -7,13 +7,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 )
 
 // listerTools are the programs a Lister runs, in the order a missing one is named.
-var listerTools = []string{"lxc-ls", "lxc-attach", "sudo"}
+var listerTools = []string{"lxc-ls", "lxc-attach", "lxc-config", "python3", "sudo"}
 
 // Ordinary users of a container are those from this uid up to (not including) nobody's.
 const (
@@ -81,6 +82,48 @@ func (l *Lister) Users(ctx context.Context, container string) ([]string, error) 
 		}
 	}
 	return users, nil
+}
+
+// ReadCheckout runs a container-reading script (members.py's, fetched by the caller so there is
+// one copy) from this host's side, as root: `python3 -I -c SCRIPT MODE LXCPATH CONTAINER USER
+// PATH`, an argument list with no shell. The container's tree is reached through its LXC config
+// on this host, not by entering it, so it works while the container is stopped; what the script
+// reads is the container's, and the script runs no git and follows no link. What it printed is
+// returned for declare.py to judge.
+func (l *Lister) ReadCheckout(ctx context.Context, script, mode, container, user, path string) (string, error) {
+	if err := l.preflight(); err != nil {
+		return "", err
+	}
+	res, err := l.Sudo.Capture(ctx, "lxc-config", "lxc.lxcpath")
+	if err != nil {
+		return "", fmt.Errorf("lxc-config lxc.lxcpath failed: %s", failureWords(string(res.Stderr), err))
+	}
+	lxcPath := strings.TrimSpace(string(res.Stdout))
+	if !strings.HasPrefix(lxcPath, "/") || !isPlain(lxcPath) {
+		return "", fmt.Errorf("lxc-config lxc.lxcpath printed %q, which is not a path", lxcPath)
+	}
+	res, err = l.Sudo.Capture(ctx, "python3", "-I", "-c", script, mode, lxcPath, container, user, path)
+	if err != nil {
+		return "", fmt.Errorf("%s of %s@%s could not be read from the host: %s", path, user, container,
+			plain(failureWords(string(res.Stderr), err)))
+	}
+	return string(res.Stdout), nil
+}
+
+// plain is text with every character that could steer a terminal replaced by a question mark: the
+// reader's words carry names from the container's tree.
+func plain(text string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || unicode.IsPrint(r) {
+			return r
+		}
+		return '?'
+	}, text)
+}
+
+// isPlain reports whether text has only printable characters, so nothing in it can steer a terminal.
+func isPlain(text string) bool {
+	return !strings.ContainsFunc(text, func(r rune) bool { return !unicode.IsPrint(r) })
 }
 
 // preflight refuses, saying so, when the LXC tools are not installed: that is not "no

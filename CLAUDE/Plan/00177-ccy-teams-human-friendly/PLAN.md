@@ -180,7 +180,7 @@ are too, by the same route.
 
 - [x] ✅ **Task 9.1**: `helpers/agent_bus/declare.py` gains `lxc-add` (with `--dry-run`),
   `lxc-check`, `lxc-members`, `lxc-remove` (sets `state: absent`, which the play applies by
-  parking the member) and `lxc-suggest-seat`. The entry is judged by
+  parking the member) and `lxc-suggest-seat` (replaced in Task 9.7 by `lxc-derive`). The entry is judged by
   `helpers/agent_bus_lxc/members.py`'s own `parse_members`, imported not copied, as the last
   of the entries already there: a duplicate (team, container, user), a second present
   coordinator and a bad role or user are refused (exit 64) by the play's rule. Declare adds
@@ -200,7 +200,8 @@ are too, by the same route.
   has none, declared or live), each checked by `declare.py` and asked again up to three
   times; a summary and one yes; then `declare.py lxc-add` and the apply of that team; then
   what is left inside the container (`ccy --teams <team>` as that user in the checkout, and
-  `gh auth login` if needed; a failed apply says the same with the command to run).
+  `gh auth login` if needed; a failed apply says the same with the command to run). Task 9.7
+  removed the seat and host word questions: the handle is derived.
 - [x] ✅ **Task 9.4**: `docs/agent-bus-lxc-members.md`, `docs/agent-bus.md`,
   `localhost.yml.dist` and the usage text say to use the action; hand-editing stays
   documented as the alternative.
@@ -226,6 +227,26 @@ are too, by the same route.
     them, and the read runs `env -i PATH=... HOME=/root`, as `members.py` does.
   - F9 done: the unused `LxcRemove` is gone (the Python `lxc-remove` stays for the play's
     `state: absent` route), and the spacing is fixed.
+- [x] ✅ **Task 9.7**: The handle is derived from the repository, never asked (owner:
+  "seat names / host word should be derived from the repo just like with ccy"). One rule in
+  `helpers/agent_bus_lxc/derive.py`, built on `checkout.repo_from_origin` and
+  `checkout.host_from_env_local` (the pure halves of what `agent-bus seat take` applies):
+  `<repo>` from the checkout's origin, `<host>` the `HOOKS_DAEMON_HOSTNAME` its
+  `ccy.env.local` assigns else `local`, `<seat>` the bundle's, else the container-name seat
+  of a member already in the team, else the lowest number no active member of the same
+  `<repo>+<host>.lxc` holds (`checkout.seat_choices`' rule; a parked number returns).
+  `members.py` and `play-agent-bus.yml` derive for an entry that omits host and seat, so a
+  hand-written entry needs team, container, user and checkout; `host` and `seat` stay as
+  overrides, an entry that gives both is used as it is, and an existing entry keeps its
+  handle. The checkout is read from the host's side through the container's LXC config
+  (rootfs and `lxc.mount.entry` binds) by a root script that runs no git, follows no link and
+  caps every size (owner's safety rules; a symlinked `.git/config`, an fsmonitor setting and
+  an oversized file are tested). The flow asks only container, user, checkout (checkouts with
+  a GitHub remote suggested) and role, and shows the derived handle before the yes. The host
+  word and seat questions, `lxc-suggest-seat` and its Go client methods are gone;
+  `declare.py` gains `lxc-derive`, `lxc-checkouts` and `lxc-script`. The users listing keeps
+  `getent passwd` through `lxc-attach` (it needs the running container anyway, and the
+  names it returns are already validated by the play's pattern).
 
 ## Success Criteria
 
