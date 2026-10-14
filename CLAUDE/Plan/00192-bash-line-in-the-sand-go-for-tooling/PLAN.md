@@ -15,8 +15,11 @@ bash is for very small helpers only; anything over a measured threshold is writt
 gate, with the existing large scripts on a ratchet allowlist that may only shrink.
 
 The existing bash (and then the standalone Python the Go tools call) is inventoried and the
-large tools are rewritten in Go, one feature branch per programme, by the Plan 00191 method:
-the existing suite is the parity oracle, run against the Go binary, before the cut-over.
+large tools are rewritten in Go, one feature branch per programme. The owner's method
+(2026-10-14), from qa-ansible on: a spec of intended behaviour as clear expectations, each a
+test written first; the bash is read for requirements and never treated as correct, and no
+replay of it is recorded (src-go/CLAUDE.md, "How a port is built"). The earlier ports' replays
+stay as regression tests.
 
 go-qa-ci (Plan 00191 Phase 3) is reviewed for completeness, and this repository starts
 recording its own Defence Before Fix rules for the defect classes the ports found.

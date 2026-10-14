@@ -49,7 +49,22 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   its error. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.
 
-## Parity oracles
+## How a port is built: spec first, tests first
+
+A new port is built to a spec of intended behaviour, not to a replay of the bash. The plan's
+`SPEC-<tool>.md` states each behaviour as a numbered, testable expectation (inputs, output
+lines, exit codes, failure modes, all fail-fast); the old bash is read only to find the
+requirements, and is not assumed correct. Where it was wrong, the spec states the right
+behaviour and notes the departure. Each expectation gets a Go test written first and seen to
+fail, then the code (red and green recorded in the plan journal). Before cut-over, the Go tool
+runs on the live tree and any difference from the old tool's result is explained.
+`SPEC-qa-ansible.md` and `qa/ansible` are the model. Do not record the bash's output as an
+oracle for a new port.
+
+## Parity oracles (earlier ports)
+
+The replays below came from earlier ports and stay as regression tests; they are not
+extended. Where one gets in the way, replace it with expectation tests rather than recording again.
 
 The bash suites that tested the bash tools now drive the Go binaries and remain the
 behaviour oracle: `scripts/test-ccy-teams-command.bash` and the four
