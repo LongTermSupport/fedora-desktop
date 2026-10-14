@@ -233,7 +233,9 @@ for rel in "${CHANGED[@]}"; do
             continue
             ;;
         src-go/*)
-            # Go files, go.mod and the lint config: the interim qa-go.bash gate runs whole.
+            # Go files, go.mod and the lint config: the interim qa-go.bash gate runs whole. That
+            # includes the nested src-go/qa module (the project rules): it builds no binary, so
+            # the cmd closure below never owns it, and qa-go.bash checks it first.
             NEED_GO=1
             SRCGO_FILES+=("$rel")
             COVERED[$rel]=1

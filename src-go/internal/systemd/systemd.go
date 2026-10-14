@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,8 @@ const (
 	unitPrefix = "agent-bus-hs@"
 	unitSuffix = ".service"
 	tailLines  = 5
+
+	systemctlBin = "systemctl"
 )
 
 // Systemd runs systemctl and systemd-run through a Runner.
@@ -31,9 +34,16 @@ type Unit struct {
 	Name, Team, Load, Active, Sub, Description string
 }
 
+// Reboot asks systemd to reboot, streaming systemctl's own words to out. The runner's error
+// comes back as it is, so a caller can read the exit code of a refusal.
+func (s *Systemd) Reboot(ctx context.Context, out io.Writer) error {
+	_, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"reboot"}, Stdout: out, Stderr: out})
+	return err
+}
+
 // HomeserverUnits lists every agent-bus-hs@* service unit systemd knows, loaded or not.
 func (s *Systemd) HomeserverUnits(ctx context.Context) ([]Unit, error) {
-	res, err := s.Runner.Run(ctx, execx.Cmd{Name: "systemctl", Args: []string{
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{
 		"list-units", "--all", "--plain", "--no-legend", "--type=service", unitPrefix + "*",
 	}})
 	if err != nil {
@@ -62,7 +72,7 @@ func (s *Systemd) HomeserverUnits(ctx context.Context) ([]Unit, error) {
 // HomeserverState is "up", or "down (<systemd's word>)". A non-zero is-active exit is the
 // answer, not a failure; only a systemctl that could not run is an error.
 func (s *Systemd) HomeserverState(ctx context.Context, team string) (string, error) {
-	res, err := s.Runner.Run(ctx, execx.Cmd{Name: "systemctl", Args: []string{"is-active", unitPrefix + team + unitSuffix}})
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: systemctlBin, Args: []string{"is-active", unitPrefix + team + unitSuffix}})
 	state := strings.TrimSpace(string(res.Stdout))
 	if err != nil {
 		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr == nil {

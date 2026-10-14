@@ -291,29 +291,32 @@ func TestReadSample(t *testing.T) {
 	}
 }
 
+// sampledAt is the instant the malformed-stat samples are taken at: fixed, not the wall clock.
+var sampledAt = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+
 func TestReadSampleMalformed(t *testing.T) {
 	root := t.TempDir()
 	writeStat(t, root, 10, "10 bash S 1\n")
-	if _, err := sessprobe.ReadSample(root, []int{10}, time.Now()); err == nil {
+	if _, err := sessprobe.ReadSample(root, []int{10}, sampledAt); err == nil {
 		t.Fatal("no closing paren is an error")
 	}
 	writeStat(t, root, 11, "11 (bash) S 1 2 3\n")
-	if _, err := sessprobe.ReadSample(root, []int{11}, time.Now()); err == nil {
+	if _, err := sessprobe.ReadSample(root, []int{11}, sampledAt); err == nil {
 		t.Fatal("too few fields is an error")
 	}
 	writeStat(t, root, 12, "12 (bash) S 1 10 10 0 -1 4194304 1 0 0 0 x 3 0 0\n")
-	if _, err := sessprobe.ReadSample(root, []int{12}, time.Now()); err == nil {
+	if _, err := sessprobe.ReadSample(root, []int{12}, sampledAt); err == nil {
 		t.Fatal("a non-numeric time is an error")
 	}
 	writeStat(t, root, 13, "13 (bash) S 1 10 10 0 -1 4194304 1 0 0 0 1 y 0 0\n")
-	if _, err := sessprobe.ReadSample(root, []int{13}, time.Now()); err == nil {
+	if _, err := sessprobe.ReadSample(root, []int{13}, sampledAt); err == nil {
 		t.Fatal("a non-numeric system time is an error")
 	}
 	// A pid directory that is a file is not "exited": that is a real read failure.
 	if err := os.WriteFile(filepath.Join(root, "14"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sessprobe.ReadSample(root, []int{14}, time.Now()); err == nil {
+	if _, err := sessprobe.ReadSample(root, []int{14}, sampledAt); err == nil {
 		t.Fatal("ENOTDIR is not an exited process")
 	}
 }

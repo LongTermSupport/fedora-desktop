@@ -44,7 +44,7 @@ func TestElementOpensTheProfileInItsOwnScopeAndEndsThePicker(t *testing.T) {
 		t.Fatalf("systemd-run %q", line)
 	}
 	logPath := filepath.Join(h.app.StateDir, "element-alpha.log")
-	for _, want := range []string{"Opening alpha in Element.\n", "Element is starting; its own messages go to " + strings.Replace(logPath, h.app.Home, "~", 1) + ".\n"} {
+	for _, want := range []string{"Opening alpha in Element.\n", "Element is starting; its own messages go to " + term.AbbrevHome(logPath, h.app.Home) + ".\n"} {
 		if !strings.Contains(h.errOut.String(), want) {
 			t.Fatalf("stderr %q lacks %q", h.errOut.String(), want)
 		}

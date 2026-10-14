@@ -162,6 +162,11 @@ expect_lacks "go: a Go file is covered" "$plan" "not covered by qa-changed: src-
 expect_lacks "go: go.mod is covered" "$plan" "not covered by qa-changed: src-go/go.mod"
 expect_lacks "go: qa-go is not also picked as a suite" "$plan" "suite scripts/qa-go.bash"
 
+plan="$(plan_for src-go/qa/rules/seamexec.go src-go/qa/go.mod src-go/qa/rules/testdata/src/fix/internal/badexec/bad.go)"
+expect_has "go: a project-rules file plans the gate" "$plan" "check go"
+expect_lacks "go: the nested rules module is covered" "$plan" "not covered by qa-changed: src-go/qa/"
+expect_lacks "go: the rules module builds no binary, so picks no ccy suite" "$plan" "suite scripts/test-ccy"
+
 plan="$(plan_for scripts/qa-bash.bash)"
 expect_lacks "go: untouched when no src-go file changed" "$plan" "check go"
 

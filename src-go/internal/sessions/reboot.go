@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -196,7 +197,7 @@ func (a *App) secondWarning(ctx context.Context, run *rebootRun) (int, bool) {
 // this process, not a cancellation, so the channel is simply no longer read. A refused reboot
 // is a failure, reported as one: nobody cancelled it.
 func (a *App) systemctlReboot(ctx context.Context, run *rebootRun) int {
-	_, err := a.Runner.Run(ctx, execx.Cmd{Name: "systemctl", Args: []string{cmdReboot}, Stdout: a.Stderr, Stderr: a.Stderr})
+	err := (&systemd.Systemd{Runner: a.Runner}).Reboot(ctx, a.Stderr)
 	if err == nil {
 		return term.ExitOK
 	}
