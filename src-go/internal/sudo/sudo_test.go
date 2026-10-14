@@ -58,9 +58,37 @@ func TestReadyCachedCredentialAsksNothing(t *testing.T) {
 	}
 }
 
+// sudo -v needs authentication unless every sudoers entry is NOPASSWD, so on a host with some
+// NOPASSWD entries "-n -v" fails while "-n true" runs. That host needs no prompt.
+func TestReadyNoPasswordRootWithoutPromptWhenDashVFails(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{Stderr: []byte("sudo: a password is required\n"), ExitCode: 1})
+	f.On([]string{"sudo", "-n", "true"}, execx.Result{})
+	s := newSudo(f, true)
+	if err := s.Ready(context.Background(), "Why."); err != nil {
+		t.Fatal(err)
+	}
+	if said(s) != "" || f.Called("sudo -v") {
+		t.Errorf("prompted: said %q, calls %v", said(s), f.Calls())
+	}
+}
+
+func TestReadyCachedCredentialDoesNotProbeTrue(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{})
+	s := newSudo(f, true)
+	if err := s.Ready(context.Background(), "Why."); err != nil {
+		t.Fatal(err)
+	}
+	if f.Called("sudo -n true") {
+		t.Error("probed sudo -n true after -n -v succeeded")
+	}
+}
+
 func TestReadyNoTerminalRefusesWithProbe(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n", "-v"}, execx.Result{Stderr: []byte("sudo: a password is required\n"), ExitCode: 1})
+	f.On([]string{"sudo", "-n", "true"}, execx.Result{ExitCode: 1})
 	s := newSudo(f, false)
 	err := s.Ready(context.Background(), "Backing up.")
 	if !errors.Is(err, ErrNotReady) {
@@ -78,6 +106,7 @@ func TestReadyNoTerminalRefusesWithProbe(t *testing.T) {
 func TestReadyAsksOnTerminal(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-n", "true"}, execx.Result{ExitCode: 1})
 	f.On([]string{"sudo", "-v"}, execx.Result{})
 	s := newSudo(f, true)
 	if err := s.Ready(context.Background(), "Removing."); err != nil {
@@ -87,7 +116,7 @@ func TestReadyAsksOnTerminal(t *testing.T) {
 	if said(s) != want {
 		t.Errorf("got %q", said(s))
 	}
-	c := f.Calls()[1]
+	c := f.Calls()[2]
 	if c.Line() != "sudo -v" || c.Stdin != s.Stdin || c.Stderr != s.Term.Err {
 		t.Errorf("sudo -v not attached to the terminal: %+v", c)
 	}
@@ -96,6 +125,7 @@ func TestReadyAsksOnTerminal(t *testing.T) {
 func TestReadyRefusedPassword(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-n", "true"}, execx.Result{ExitCode: 1})
 	f.On([]string{"sudo", "-v"}, execx.Result{ExitCode: 1})
 	s := newSudo(f, true)
 	if err := s.Ready(context.Background(), "x"); !errors.Is(err, ErrNotReady) {
@@ -243,6 +273,7 @@ func TestNewWiresRealStreams(t *testing.T) {
 func TestReadyAsksWhenStdinAndStderrAreNotTerminalsButDevTTYOpens(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-n", "true"}, execx.Result{ExitCode: 1})
 	f.On([]string{"sudo", "-v"}, execx.Result{})
 	s := newSudo(f, true)
 	s.Term.IsTerminal = func(any) bool { return false }
@@ -257,6 +288,7 @@ func TestReadyAsksWhenStdinAndStderrAreNotTerminalsButDevTTYOpens(t *testing.T) 
 func TestReadyWithNilOpenTTYCannotPrompt(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-n", "true"}, execx.Result{ExitCode: 1})
 	s := newSudo(f, true)
 	s.OpenTTY = nil
 	if err := s.Ready(context.Background(), "x"); !errors.Is(err, ErrNotReady) {
