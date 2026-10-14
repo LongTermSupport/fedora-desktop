@@ -2,6 +2,9 @@ package proc
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -52,20 +55,43 @@ func TestOSReportsAProgramThatCannotStart(t *testing.T) {
 	}
 }
 
+// gone is whether the process no longer runs: it has no /proc entry, or it is a zombie that
+// only waits to be reaped.
+func gone(pid int) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return true
+	}
+	// The state letter follows the parenthesised command name.
+	rest := string(data[strings.LastIndexByte(string(data), ')')+1:])
+	return strings.HasPrefix(strings.TrimSpace(rest), "Z")
+}
+
+// The command's background child holds its output pipe, so a kill of the shell alone would
+// leave it running; the process group kill ends it. The child's pid is read from the output
+// and watched in /proc, so the test needs no wall clock.
 func TestOSKillsTheWholeProcessGroupOnTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	start := time.Now()
-	res, err := OS{}.Run(ctx, Cmd{Argv: []string{"sh", "-c", "sleep 30 & sleep 30"}, Merge: true})
+	res, err := OS{}.Run(ctx, Cmd{Argv: []string{"sh", "-c", "sleep 30 & echo $!; sleep 30"}, Merge: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !res.TimedOut {
 		t.Fatalf("not marked timed out: %+v", res)
 	}
-	if time.Since(start) > 10*time.Second {
-		t.Fatalf("the children outlived the timeout: %v", time.Since(start))
+	pid, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
+	if err != nil {
+		t.Fatalf("the child's pid was not printed: %q", res.Stdout)
 	}
+	const polls = 500
+	for range polls {
+		if gone(pid) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the child %d outlived the timeout", pid)
 }
 
 func TestOSCancelledIsNotATimeout(t *testing.T) {

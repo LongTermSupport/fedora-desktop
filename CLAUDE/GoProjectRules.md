@@ -45,7 +45,8 @@ not catch is listed under it, so the catalogue claims no more than the code does
 
 ### project_seam_exec
 
-Outside `internal/execx`, any reference (a call, a function value, an argument, an assignment)
+Outside `internal/execx` (and `qa/internal/proc`, the nested `src-go/qa` module's own seam, which
+the rules also judge), any reference (a call, a function value, an argument, an assignment)
 to `exec.Command`, `exec.CommandContext`, `syscall.Exec`, `syscall.ForkExec`,
 `syscall.StartProcess` or `os.StartProcess`; any use of the `os/exec.Cmd` type (composite
 literal, `new(exec.Cmd)`, a parameter); and the `Run`, `Start`, `Output` and `CombinedOutput`

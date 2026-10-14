@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
@@ -245,12 +244,8 @@ func TestACheckThatOutlivesItsTimeoutIsKilledAndReported(t *testing.T) {
 			<-ctx.Done()
 		}
 	}
-	start := time.Now()
 	if code := w.main(); code != ExitFailed {
 		t.Fatalf("exit %d", code)
-	}
-	if time.Since(start) > 10*time.Second {
-		t.Fatal("the timeout did not end the check")
 	}
 	out := w.out.String()
 	if !strings.Contains(out, "✗ toolchain: QA tool versions match .qa-versions — timed out after 50ms\n") || !strings.Contains(out, "✓ shellcheck") {

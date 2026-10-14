@@ -98,6 +98,6 @@ of a changed file to checks is data (`scripts/qa-routing.tsv`, `scripts/qa-trees
 checks are a registry in `changed/checks.go`, and the proofs are its Go tests, a golden replay of
 the bash it replaced (`changed/golden_test.go`, difference only as a numbered bug pinned in
 `testdata/deviations.json`) and the black-box suite `scripts/test-qa-changed.bash`. The project
-rules run over `src-go` and stop at this nested module, so the QA module keeps their discipline
-by hand: every process it starts goes through the one seam `qa/internal/proc` (shared with
-`qa/bashlimits`' git runner), faked in tests.
+rules run over this nested module too (`qa-go.bash` runs the driver a second time over it):
+every process it starts goes through the one seam `qa/internal/proc` (shared with
+`qa/bashlimits`' git runner), faked in tests, and its tests read no wall clock.

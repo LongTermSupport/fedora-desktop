@@ -90,7 +90,7 @@ How to fix: call the owner's method; add the operation to the owner if it is mis
 }
 
 func runSeamCommands(pass *analysis.Pass, dynamic []allowance) {
-	if ownedBy(pass.Pkg.Path(), execOwner) {
+	if ownedByAny(pass.Pkg.Path(), execOwners) {
 		return
 	}
 	for _, f := range pass.Files {
@@ -127,7 +127,7 @@ func isCmdType(t types.Type) bool {
 	if !ok || named.Obj().Pkg() == nil {
 		return false
 	}
-	return named.Obj().Name() == "Cmd" && ownedBy(named.Obj().Pkg().Path(), execOwner)
+	return named.Obj().Name() == "Cmd" && ownedByAny(named.Obj().Pkg().Path(), execOwners)
 }
 
 func checkCmdLiteral(pass *analysis.Pass, lit *ast.CompositeLit, dynamicOK bool) {
