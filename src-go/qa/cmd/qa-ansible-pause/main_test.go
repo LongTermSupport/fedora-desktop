@@ -81,6 +81,38 @@ func TestYamlListsWhatTheSharedDiscoveryPublishes(t *testing.T) {
 	}
 }
 
+// E3: an absolute PATH reached through a symlinked checkout is inside the root once both are
+// resolved; a symlink inside the tree to a readable file is read as that file (E6).
+func TestAbsolutePathThroughASymlinkedCheckoutIsInsideTheRoot(t *testing.T) {
+	root := gitRepo(t, "", map[string]string{"playbooks/a.yml": cleanTask, "playbooks/bad.yml": badTask})
+	link := filepath.Join(t.TempDir(), "view")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--root", root, filepath.Join(link, "playbooks", "bad.yml")}); code != int(ansiblepause.ExitFailed) {
+		t.Fatalf("path through a symlinked checkout, real root: exit %d", code)
+	}
+	if code := run([]string{"--root", link, filepath.Join(root, "playbooks", "bad.yml")}); code != int(ansiblepause.ExitFailed) {
+		t.Fatalf("real path, symlinked root: exit %d", code)
+	}
+	if code := run([]string{"--root", link, filepath.Join(link, "playbooks", "a.yml")}); code != int(ansiblepause.ExitOK) {
+		t.Fatalf("clean file through the link: exit %d", code)
+	}
+	if code := run([]string{"--root", root, filepath.Join(t.TempDir(), "x.yml")}); code != int(ansiblepause.ExitCannotRun) {
+		t.Fatalf("a file outside the root: exit %d", code)
+	}
+}
+
+func TestASymlinkedPlaybookIsReadAsItsTarget(t *testing.T) {
+	root := gitRepo(t, "", map[string]string{"playbooks/a.yml": cleanTask, "elsewhere/real.yml": badTask})
+	if err := os.Symlink(filepath.Join(root, "elsewhere", "real.yml"), filepath.Join(root, "playbooks", "linked.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--root", root, "playbooks/linked.yml"}); code != int(ansiblepause.ExitFailed) {
+		t.Fatalf("symlinked playbook with a bare pause: exit %d", code)
+	}
+}
+
 // End to end on a real work tree: clean passes, then a pause in an untracked playbook fails, and
 // the same in an ignored one or outside playbooks/ and tasks/ does not.
 func TestEndToEndOnARealWorkTree(t *testing.T) {

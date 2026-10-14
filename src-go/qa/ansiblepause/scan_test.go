@@ -19,6 +19,22 @@ func TestE8PauseKeyForms(t *testing.T) {
 	expectLines(t, "longer key", joinLines("- name: x", "  pausex:", "  unpause:", "  my.pause:"))
 }
 
+// E8/E10: a dash may be followed by more than one space; the task's keys then sit further right.
+func TestE8ListIndentationVariants(t *testing.T) {
+	expectLines(t, "wide dash, pause on the dash line", joinLines("-   pause:", "      seconds: 1"), 1)
+	expectLines(t, "wide dash, builtin", joinLines("-   ansible.builtin.pause:", "      seconds: 1"), 1)
+	expectLines(t, "wide dash, registered below", joinLines("-   pause:", "    register: r"))
+	expectLines(t, "wide dash, register before", joinLines("-   register: r", "    pause:"))
+	expectLines(t, "wide dash, register on the dash line", joinLines("-   register: r", "    pause:", "      seconds: 1"))
+	expectLines(t, "wide dash head, key below", joinLines("-   name: a", "    pause:"), 2)
+	expectLines(t, "wide dash head, registered", joinLines("-   name: a", "    pause:", "    register: r"))
+	expectLines(t, "wide dash, register too shallow", joinLines("-   name: a", "    pause:", "  register: r"), 2)
+	expectLines(t, "wide dash, annotated", joinLines("-   name: a  # PAUSE-OK: why", "    pause:"))
+	expectLines(t, "indented list", joinLines("tasks:", "  -   name: a", "      pause:", "  - name: b", "    pause:"), 3, 5)
+	expectLines(t, "dash alone then keys", joinLines("-", "  pause:"), 2)
+	expectLines(t, "nested sequence under a key", joinLines("block:", "  - name: a", "    pause:", "    register: r"))
+}
+
 func TestE9TaskExtentAndHead(t *testing.T) {
 	// A comment at the dash indent ends the task, so the next task's register is not this one's.
 	expectLines(t, "next task registers", joinLines(

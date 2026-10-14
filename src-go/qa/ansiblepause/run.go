@@ -175,7 +175,7 @@ func population(env Env, root string, paths []string) ([]string, error) {
 func candidates(env Env, root string, paths []string) ([]string, error) {
 	var targets []string
 	for _, p := range paths {
-		rel, err := relative(root, p)
+		rel, err := relative(env.Resolve, root, p)
 		if err != nil {
 			return nil, err
 		}
@@ -198,11 +198,16 @@ func candidates(env Env, root string, paths []string) ([]string, error) {
 }
 
 // relative turns a PATH argument into a slash path under the root; one outside it is an error.
-func relative(root, p string) (string, error) {
+// An absolute path is resolved through symlinks the way the root was, so a checkout reached by a
+// link still holds it.
+func relative(resolve rootpath.Eval, root, p string) (string, error) {
 	rel := p
 	if filepath.IsAbs(p) {
-		var err error
-		if rel, err = filepath.Rel(root, p); err != nil {
+		resolved, err := resolve(p)
+		if err != nil {
+			return "", fmt.Errorf("cannot resolve path %s: %w", p, err)
+		}
+		if rel, err = filepath.Rel(root, resolved); err != nil {
 			return "", fmt.Errorf("path %s is outside the repository root", p)
 		}
 	}

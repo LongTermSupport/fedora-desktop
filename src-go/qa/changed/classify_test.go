@@ -506,12 +506,21 @@ func TestAPauseGateEditRunsTheGate(t *testing.T) {
 	for _, f := range []string{
 		"playbooks/imports/play-x.yml", "tasks/deep/t.yml", "tasks/t.yaml",
 		"src-go/qa/ansiblepause/scan.go", "src-go/qa/cmd/qa-ansible-pause/main.go", "scripts/qa-ansible-pause.bash",
-		"tests/fixtures/ansible-pause/flagged.yml", "tests/fixtures/ansible-pause/clean.yml",
 	} {
 		w := newWorld(t)
 		w.touch(f, "- name: x")
 		p := w.classify([]string{f})
 		if !p.has("ansible-pause") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+	}
+	// The fixtures are read by the Go tests of the rule (E17), so they run the go check, which
+	// covers them; the gate itself never reads them.
+	for _, f := range []string{"tests/fixtures/ansible-pause/flagged.yml", "tests/fixtures/ansible-pause/clean.yml"} {
+		w := newWorld(t)
+		w.touch(f, "- name: x")
+		p := w.classify([]string{f})
+		if !p.has("go") || p.has("ansible-pause") || len(p.uncovered) != 0 {
 			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
 		}
 	}

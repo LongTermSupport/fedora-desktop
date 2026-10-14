@@ -73,10 +73,11 @@ also	@listed:bash-limits.allowlist	bash-limits	-
 also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-nokill-containerwatch/*,helpers/containerwatch/*,extensions/fedora-desktop@fedora-desktop/containerReport.js,extensions/fedora-desktop@fedora-desktop/sections/containers.js	nokill-containerwatch	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 # The pause gate judges the YAML under playbooks/ and tasks/ and runs whole when one changes, or
-# its own script, Go package, shared discovery or fixtures (the fixtures are its own test data).
+# its own script, Go package or shared discovery. Its fixtures are read only by the Go tests of
+# the rule, so they run the go check.
 also	playbooks/*.yml,playbooks/*.yaml,tasks/*.yml,tasks/*.yaml	ansible-pause	-
 also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ansible-pause	-
-also	tests/fixtures/ansible-pause/*	ansible-pause	covered
+also	tests/fixtures/ansible-pause/*	go	covered
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in

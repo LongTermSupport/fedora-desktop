@@ -10,11 +10,11 @@ type Finding struct{ Line int }
 
 var (
 	// pauseKey is a line that opens a pause: optionally a list dash, then the module name.
-	pauseKey = regexp.MustCompile(`^ *(- )?(?:ansible\.(?:builtin|legacy)\.)?pause:(?:[ \t]|$)`)
+	pauseKey = regexp.MustCompile(`^ *(-[ ]+)?(?:ansible\.(?:builtin|legacy)\.)?pause:(?:[ \t]|$)`)
 	// pauseOK is the annotation: a comment naming a reason (at least one character after the colon).
 	pauseOK = regexp.MustCompile(`#[ \t]*PAUSE-OK:[ \t]*[^ \t]`)
 	// dashPrefix is the list dash and its spaces at the start of a line.
-	dashPrefix = regexp.MustCompile(`^ *- `)
+	dashPrefix = regexp.MustCompile(`^ *-[ ]+`)
 )
 
 // lineSet is the lines of one file, a trailing carriage return dropped.
@@ -45,7 +45,7 @@ func Scan(text string) []Finding {
 		if m == nil {
 			continue
 		}
-		tk, found := ls.task(i, m[1] != "")
+		tk, found := ls.task(i, len(m[1]))
 		if !found {
 			continue
 		}
@@ -61,11 +61,12 @@ func Scan(text string) []Finding {
 // indent of the task's own keys, and the line after its last.
 type task struct{ start, dashIndent, keyIndent, stop int }
 
-// task locates the task of the pause key on line i. false when a key not on a dash line has no head.
-func (ls lineSet) task(i int, onDash bool) (task, bool) {
+// task locates the task of the pause key on line i; dashWidth is the width of the dash and the
+// spaces after it when the key is on a dash line, else 0. false when a key not on a dash line has no head.
+func (ls lineSet) task(i, dashWidth int) (task, bool) {
 	keyIndent := indent(ls[i])
-	if onDash {
-		return task{start: i, dashIndent: keyIndent, keyIndent: keyIndent + 2}, true
+	if dashWidth > 0 {
+		return task{start: i, dashIndent: keyIndent, keyIndent: keyIndent + dashWidth}, true
 	}
 	for j := i - 1; j >= 0; j-- {
 		if isBlank(ls[j]) || isComment(ls[j]) {

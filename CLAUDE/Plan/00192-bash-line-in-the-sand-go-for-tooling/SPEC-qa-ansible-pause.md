@@ -33,7 +33,7 @@ Numbers are cited by the tests.
   complete. Every exit-2 message is on stderr and starts `ERROR:`. A failed write to stdout is
   exit 2 with `ERROR: cannot write to stdout: <why>`.
 - E3. Positional arguments are PATHs: only those files are scanned, instead of the discovered
-  population. A PATH is relative to the root, or absolute and inside it; one that escapes the root,
+  population. A PATH is relative to the root, or absolute and inside it once both are resolved through symlinks (a checkout reached by a link); one that escapes the root,
   or cannot be read, is exit 2 naming it.
 
 ### Which files are judged; when the run cannot complete (exit 2, never a pass)
@@ -50,7 +50,8 @@ Numbers are cited by the tests.
 ### The rule
 
 - E8. **A pause key** is a line, outside any other judgement, that reads
-  `[spaces][- ][ansible.builtin.|ansible.legacy.]pause:` followed by a space, a tab or the line's
+  `[spaces][-<one or more spaces>][ansible.builtin.|ansible.legacy.]pause:` (the task's own keys
+  then sit at the column after the dash and its spaces) followed by a space, a tab or the line's
   end. `pause` as a word inside prose or a longer key (`ansible.builtin.pause` in a message,
   `pausex:`, `unpause:`) is not a pause key.
 - E9. **The task** of a pause key on a `- ` line is that list item: from the dash line down to, not
