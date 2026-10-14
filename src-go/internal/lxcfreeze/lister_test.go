@@ -1,0 +1,96 @@
+package lxcfreeze
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+)
+
+var errNotFound = errors.New("not found")
+
+func newLister(f *execx.Fake) *Lister {
+	return &Lister{
+		Sudo:     newSudo(f, false),
+		LookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil },
+	}
+}
+
+func TestListerSplitsRunningFromStoppedContainers(t *testing.T) {
+	f := &execx.Fake{}
+	// The last rule that matches answers, so the narrower one comes last.
+	f.On([]string{"sudo", "-n", "lxc-ls", "-1"}, execx.Result{Stdout: []byte("box-a\nbox-b\nbox-c\n\n")})
+	f.On([]string{"sudo", "-n", "lxc-ls", "-1", "--running"}, execx.Result{Stdout: []byte("box-b\nbox-a\n")})
+	running, stopped, err := newLister(f).Containers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	eqStrings(t, "running", running, []string{"box-a", "box-b"})
+	eqStrings(t, "stopped", stopped, []string{"box-c"})
+}
+
+func TestListerSaysLxcIsNotInstalledNamingTheMissingTools(t *testing.T) {
+	l := newLister(&execx.Fake{})
+	l.LookPath = func(name string) (string, error) {
+		if name == "lxc-ls" || name == "lxc-attach" {
+			return "", errNotFound
+		}
+		return "/usr/bin/" + name, nil
+	}
+	_, _, err := l.Containers(context.Background())
+	if err == nil {
+		t.Fatal("no complaint")
+	}
+	for _, want := range []string{"LXC is not installed on this host", "lxc-ls lxc-attach", "play-lxc-install-config.yml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("%q lacks %q", err.Error(), want)
+		}
+	}
+}
+
+func TestListerAFailedListIsAnErrorNotAnEmptyMachine(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-ls"}, exit1("lxc-ls: boom\n"))
+	_, _, err := newLister(f).Containers(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "lxc-ls failed") || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+const passwd = "root:x:0:0:root:/root:/bin/bash\n" +
+	"daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n" +
+	"agent:x:1000:1000:Agent,,,:/srv/agent:/bin/bash\n" +
+	"svc:x:1001:1001::/var/lib/svc:/bin/false\n" +
+	"other:x:1002:1002::/srv/other:/bin/sh\n" +
+	"nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"
+
+func TestListerUsersAreTheOrdinaryOnesWithAShell(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach", "-n", "box-a", "--clear-env", "--", "getent", "passwd"},
+		execx.Result{Stdout: []byte(passwd)})
+	got, err := newLister(f).Users(context.Background(), "box-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eqStrings(t, "users", got, []string{"agent", "other"})
+}
+
+func TestListerUsersSkipsMalformedLinesAndFailsOnAFailedRead(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach", "-n", "box-a"},
+		execx.Result{Stdout: []byte("junk\nagent:x:notanumber:1::/h:/bin/bash\nok:x:1003:1003::/h:/bin/bash\n")})
+	got, err := newLister(f).Users(context.Background(), "box-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eqStrings(t, "users", got, []string{"ok"})
+
+	g := &execx.Fake{}
+	g.On([]string{"sudo", "-n", "lxc-attach", "-n", "box-a"}, exit1("lxc-attach: box-a: not running\n"))
+	if _, err = newLister(g).Users(context.Background(), "box-a"); err == nil ||
+		!strings.Contains(err.Error(), "box-a") || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("got %v", err)
+	}
+}

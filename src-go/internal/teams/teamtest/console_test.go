@@ -74,6 +74,25 @@ func TestInteractiveRecordsTheLauncherAndReadsTheTerminalFromTTY(t *testing.T) {
 	}
 }
 
+func TestScriptPrintsWithGumStyleWithoutTakingAnAnswer(t *testing.T) {
+	w := Populated(t)
+	c := Interactive(t, w)
+	c.Script.Gum = []string{"YES"}
+	c.Script.SkipStyle = true
+	if err := w.Host.Gum.Box(t.Context(), true, "Title", "", "body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Host.Gum.Explain(t.Context(), "words", 5); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Script.Gum) != 1 || len(c.Script.GumLog) != 0 || len(c.Script.Styled) != 2 {
+		t.Fatalf("answers left %v, questions %v, styled %v", c.Script.Gum, c.Script.GumLog, c.Script.Styled)
+	}
+	if yes, err := w.Host.Gum.Confirm(t.Context(), "Sure?", true); err != nil || !yes {
+		t.Fatalf("%v %v", yes, err)
+	}
+}
+
 func TestScriptAnswersTheTerminalWidthWith80Columns(t *testing.T) {
 	c := Interactive(t, Populated(t))
 	res, err := c.Script.Run(t.Context(), execx.Cmd{Name: "tput", Args: []string{"cols"}})

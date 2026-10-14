@@ -31,6 +31,11 @@ playbooks/imports/play-agent-bus.yml
 # Make coordinator in a seat's menu; pingbus --to-coordinator). It goes before the acceptance
 # below, whose checks read the new pingbus and the coordinator role.
 00196-team-coordinator-role
+# Plan 00177 Phase 8: builds the new ccy-teams on the host (go build from the checkout), which
+# gains `ccy-teams lxc-add <team>` and an "Add an LXC container's agent" line in every row's
+# menu, so an LXC container joins a team with no hand edit of localhost.yml. The play changes
+# nothing else (no CCY version bump). Then try it: ccy-teams lxc-add <team>.
+playbooks/imports/play-claude-yolo.yml
 # agent team bus acceptance again. BEFORE running meta, launch `ccy` interactively once in
 # this checkout and choose the token and SSH keys (Quick Launch saves them; CCY 3.96 changed
 # the saved file's format, so the earlier choices were discarded); U20 reuses them.

@@ -118,6 +118,7 @@ user_email: "yourname@example.com"
 # every present team itself; allow_from need not list it. A joined member is left alone on later runs; state: absent
 # parks its handle, deletes its bundle and takes the team out of its env file. Change
 # seat or host only through state: absent first, as they make the handle.
+# `ccy-teams lxc-add <team>` writes an entry for you; hand-editing works the same.
 #   team       a team declared present in agent_bus_teams
 #   container  the LXC container's name (lxc-ls)
 #   user       the agent user inside it

@@ -82,7 +82,29 @@ Notes on the table:
    The full team file is described in [agent-bus.md](agent-bus.md); `localhost.yml.dist`
    shows an example entry.
 
-2. **Declare the member** in `agent_bus_lxc_members` in the same file:
+2. **Add the member from ccy-teams.** This is the way to do it: no file is edited by hand.
+   In `ccy-teams`, Enter on any row of the team and choose *Add an LXC container's agent to
+   `<team>`* (it has no shortcut key), or run:
+
+   ```bash
+   ccy-teams lxc-add <team>
+   ```
+
+   It asks for sudo (LXC is rootful), lists the host's running containers and asks for the
+   container, the agent user (the container's ordinary users are suggested), the checkout
+   inside it, the handle's host word (suggested from the container's name) and the role
+   (`worker`; `coordinator` only while the team has none). Each answer is checked as it is
+   given by the rules the play applies, and asked again when refused (a duplicate, a second
+   coordinator, a relative checkout). It then shows a summary, asks once, writes the
+   `agent_bus_lxc_members` entry (the file as it was is kept beside it as
+   `localhost.yml.backup.<time>`) and applies the team, which is step 3. It ends by saying
+   what is left inside the container: `gh auth login` as the agent user if gh is not logged
+   in (the play stops naming it when it is not; fix that, then `ccy-teams apply <team>`), and
+   `ccy --teams <team>` as that user in the checkout. The container and user must already
+   exist; this never makes either.
+
+   **Or declare the member by hand** in `agent_bus_lxc_members` in the same file, which is
+   what the command writes:
 
    ```yaml
    agent_bus_lxc_members:

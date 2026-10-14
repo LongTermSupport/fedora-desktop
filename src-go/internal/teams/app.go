@@ -6,6 +6,7 @@
 //	picker  the interactive list (no argument), with the seats, login and create flows it calls
 //	ops     apply, remove, backup and restore
 //	create  the create wizard
+//	lxcadd  lxc-add: an LXC container's agent joins a team
 //	find    for-checkout: the teams that work on this checkout's repository
 //	choose  choose-seat and describe-seats: the launcher's seat and role chooser
 //
@@ -25,6 +26,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
@@ -43,6 +45,7 @@ type App struct {
 	Login  *login.Login
 	Seats  *seats.Seats
 	Create *create.Wizard
+	Lxc    *lxcadd.Adder
 	Find   *find.Find
 	Choose *choose.Choose
 	Picker *picker.Picker
@@ -60,9 +63,10 @@ func Wire(h *host.Host) *App {
 	l := login.New(h, kit, b, o)
 	s := seats.New(h, kit, o)
 	c := create.New(h, o, l)
+	x := lxcadd.New(h, kit, o)
 	return &App{
-		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Find: find.New(h), Choose: choose.New(h, kit, s),
-		Picker: picker.New(h, kit, b, o, c, l, s),
+		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: choose.New(h, kit, s),
+		Picker: picker.New(h, kit, b, o, c, l, s, x),
 	}
 }
 
@@ -78,7 +82,7 @@ func (a *App) run(args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "create", "apply", "remove", "backup", "restore", "for-checkout", "record-seats",
+	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "for-checkout", "record-seats",
 		"choose-seat", "describe-seats":
 	case "-l", "--list":
 		if len(args) > 1 {
@@ -104,6 +108,11 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 			return term.ExitFailure
 		}
 		return a.Create.Run(ctx, rest)
+	case "lxc-add":
+		if err := a.NeedCheckout(); err != nil {
+			return term.ExitFailure
+		}
+		return a.Lxc.Run(ctx, rest)
 	case "apply":
 		return a.Ops.Apply(ctx, rest)
 	case "remove":
