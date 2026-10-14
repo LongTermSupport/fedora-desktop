@@ -357,6 +357,13 @@ check "inside a user's own tmux: nothing, and tmux is not asked" ":0" \
     "$(TMUX="/tmp/tmux-1000/default,123,0" TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session):$(grep -c '^display-message' "$LOG")"
 check "outside tmux: nothing" "" "$(env -u TMUX TEST_TMUX_CURRENT=ccy-a bash -c "$(printf 'source %q; source %q; ccy_tmux_current_session' "$LIB_DIR/common-pure.bash" "$LIB_DIR/tmux-session.bash")")"
 
+echo "== the single-attach hook names its session safely"
+hook="$(ccy_tmux_single_attach_hook)"
+check "the hook targets the session shell-quoted and exactly" \
+    "if-shell 'test \$(tmux -L $CCY_TMUX_SOCKET list-clients -t =#{q:session_name} | wc -l) -gt 1' 'detach-client'" "$hook"
+check "and never as a bare, prefix-matching, shell-expanded name" "no" \
+    "$([[ "$hook" == *'"#{session_name}"'* ]] && echo yes || echo no)"
+
 # ── the picker: ccy-sessions under a terminal ─────────────────────────────────────────
 # run_picker <answers...> — run the real ccy-sessions in the scratch directory with the
 # fake fzf answering in order; prints its output (\r stripped), then "rc=<status>".

@@ -69,6 +69,7 @@ type App struct {
 	Exec     func(path string, argv []string, dir string) error
 
 	inContainer func() bool
+	writeErr    error // the first failed write through print
 }
 
 // teamOperator is the flows the picker hands off to: each takes the arguments the command line
@@ -95,9 +96,14 @@ func NewApp(cfg Config) *App {
 	return a
 }
 
-// Run dispatches args (without the program name) and returns the exit code.
+// Run dispatches args (without the program name) and returns the exit code. Output that could
+// not be written turns a success into a failure.
 func (a *App) Run(args []string) int {
 	a.wire()
+	return a.Term.Finish(a.run(args), a.writeErr)
+}
+
+func (a *App) run(args []string) int {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -266,25 +272,23 @@ func execLauncher(path string, argv []string, dir string) error {
 	return launcherVia(execx.OS{}, path, argv, dir)
 }
 
-// launcherVia enters dir and replaces the process through x, the one seam that may. argv
+// launcherVia replaces the process through x, the one seam that may. argv
 // starts with the launcher's own name, which x supplies from path.
 func launcherVia(x execx.Execer, path string, argv []string, dir string) error {
-	if err := os.Chdir(dir); err != nil {
-		return fmt.Errorf("enter %s: %w", dir, err)
-	}
 	var args []string
 	if len(argv) > 1 {
 		args = argv[1:]
 	}
-	if err := x.Exec(execx.Cmd{Name: path, Args: args}); err != nil {
+	if err := x.Exec(execx.Cmd{Name: path, Args: args, Dir: dir}); err != nil {
 		return fmt.Errorf("start the launcher: %w", err)
 	}
 	return nil
 }
 
-// print writes to a terminal stream; a failed write there has nowhere better to be reported.
+// print writes to a stream. The first failed write is kept and Run turns it into a failure
+// exit, so output nobody could read is never reported as success.
 func (a *App) print(w io.Writer, s string) {
-	if _, err := io.WriteString(w, s); err != nil {
-		return
+	if _, err := io.WriteString(w, s); err != nil && a.writeErr == nil {
+		a.writeErr = err
 	}
 }

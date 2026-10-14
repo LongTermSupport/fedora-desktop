@@ -280,9 +280,12 @@ func (a *App) backToList(ctx context.Context) {
 	a.waitForEnter(ctx)
 }
 
-// readLine waits for a line from r, one byte at a time so nothing past it is taken. It gives up
-// at the end of the input, an error, or when ctx is done.
-func readLine(ctx context.Context, r io.Reader) bool {
+// readLine waits for a line from r, one byte at a time so nothing past it is taken, and closes
+// r. It gives up at the end of the input, an error, or when ctx is done. Closing r is what ends
+// the reader goroutine of a cancelled wait, so readLine waits for that goroutine before it
+// returns and r's Read must return once Close has been called (a terminal file does): nothing
+// is left blocked on the terminal to swallow the next wait's Enter. The error is Close's.
+func readLine(ctx context.Context, r io.ReadCloser) (bool, error) {
 	got := make(chan bool, 1)
 	go func() {
 		buf := make([]byte, 1)
@@ -300,8 +303,10 @@ func readLine(ctx context.Context, r io.Reader) bool {
 	}()
 	select {
 	case ok := <-got:
-		return ok
+		return ok, r.Close()
 	case <-ctx.Done():
-		return false
+		err := r.Close()
+		<-got
+		return false, err
 	}
 }

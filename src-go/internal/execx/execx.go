@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 )
 
 // Cmd is one program run: argv, extra environment, stdin and working directory. Stdout and
@@ -67,12 +69,27 @@ type Runner interface {
 	Run(ctx context.Context, c Cmd) (Result, error)
 }
 
-// OS runs commands for real.
-type OS struct{}
+// DefaultGrace is how long a cancelled child gets to exit after SIGTERM before it is killed.
+const DefaultGrace = 3 * time.Second
 
-// Run implements Runner.
-func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
+// OS runs commands for real. Grace overrides DefaultGrace when set.
+type OS struct {
+	Grace time.Duration
+}
+
+// Run implements Runner. Cancelling ctx sends the child SIGTERM, not SIGKILL: fzf and gum
+// restore the terminal (raw mode, alternate screen) from their TERM handler, and a kill that
+// lands first leaves the tty wedged. SIGTERM rather than SIGINT because the terminal driver
+// has already delivered SIGINT to the foreground group on Ctrl-C, and a second SIGINT would
+// read to some programs as "abort now". WaitDelay bounds the wait: a child that ignores TERM,
+// or leaves a grandchild holding its output pipe, is killed and its pipes closed after Grace.
+func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = DefaultGrace
+	if o.Grace > 0 {
+		cmd.WaitDelay = o.Grace
+	}
 	cmd.Dir = c.Dir
 	if len(c.Env) > 0 || len(c.Unset) > 0 {
 		cmd.Env = ChildEnv(os.Environ(), c.Env, c.Unset)

@@ -11,28 +11,29 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-func TestLauncherViaChangesDirectoryThenReplacesTheProcessThroughTheExecer(t *testing.T) {
-	t.Chdir(t.TempDir()) // registers the restore of the working directory launcherVia changes
+func TestLauncherViaPassesTheDirectoryToTheExecerAndLeavesTheProcessCwdAlone(t *testing.T) {
+	before := t.TempDir()
+	t.Chdir(before)
 	dir := t.TempDir()
 	f := &execx.Fake{}
 	if err := launcherVia(f, "/top/ccy", []string{"ccy", "--teams", "a"}, dir); err != nil {
 		t.Fatal(err)
 	}
 	execs := f.Execs()
-	if len(execs) != 1 || execs[0].Name != "/top/ccy" || strings.Join(execs[0].Args, " ") != "--teams a" {
+	if len(execs) != 1 || execs[0].Name != "/top/ccy" || strings.Join(execs[0].Args, " ") != "--teams a" || execs[0].Dir != dir {
 		t.Fatalf("execs %+v", execs)
 	}
-	if cwd, err := os.Getwd(); err != nil || cwd != dir {
-		t.Fatalf("cwd %q, %v", cwd, err)
+	want, err := filepath.EvalSymlinks(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cwd, err := os.Getwd(); err != nil || cwd != want {
+		t.Fatalf("cwd %q, %v; the caller must not chdir", cwd, err)
 	}
 }
 
-func TestLauncherViaReportsAnUnenterableDirectoryAndAFailedExec(t *testing.T) {
-	t.Chdir(t.TempDir())
+func TestLauncherViaReportsAFailedExec(t *testing.T) {
 	f := &execx.Fake{}
-	if err := launcherVia(f, "ccy", []string{"ccy"}, filepath.Join(t.TempDir(), "absent")); err == nil || len(f.Execs()) != 0 {
-		t.Fatalf("got %v, execs %v", err, f.Execs())
-	}
 	f.ExecError(&execx.NotInstalledError{Name: "ccy"})
 	if err := launcherVia(f, "ccy", nil, t.TempDir()); err == nil || !strings.Contains(err.Error(), "start the launcher") {
 		t.Fatalf("got %v", err)

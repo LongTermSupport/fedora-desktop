@@ -69,6 +69,11 @@ linters:
       # as a constant, or flagging a list like "A A B", hides what is asserted.
       - path: _test\.go
         linters: [goconst, dupword]
+      # G204: the runner exists to launch a command from a variable; it is the one place that
+      # may. Every other package reaches a program through it, so a G204 elsewhere is real.
+      - path: internal/execx/
+        linters: [gosec]
+        text: "G204"
   settings:
     cyclop:
       max-complexity: 15
@@ -89,13 +94,10 @@ linters:
       disable:
         # Reordering struct fields for padding costs readability for bytes nobody needs.
         - fieldalignment
-    gosec:
-      excludes:
-        # G204: launching a command from a variable is this module's purpose (gum, fzf,
-        # sudo agent-bus, plays); every argv is built from validated values, never a shell.
-        - G204
     exhaustive:
-      default-signifies-exhaustive: true
+      # A switch over an enum lists every member: a default would let a new member fall
+      # through unhandled.
+      default-signifies-exhaustive: false
 
 formatters:
   enable:

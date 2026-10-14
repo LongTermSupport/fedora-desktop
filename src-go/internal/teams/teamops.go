@@ -109,12 +109,32 @@ func playJSON(teams []string) string {
 func (o *teamOps) runPlay(ctx context.Context, teams []string) error {
 	o.Term.Say("Running play-agent-bus.yml for " + strings.Join(teams, " ") +
 		": it starts each team's homeserver, and creates its room and its people's accounts.")
+	if err := o.checkPlay(o.Cfg.Play); err != nil {
+		return err
+	}
 	_, err := o.Runner.Run(ctx, execx.Cmd{
 		Name: o.Cfg.Play, Args: []string{"-e", playJSON(teams)},
 		Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
 	})
 	if err != nil {
 		return fmt.Errorf("play-agent-bus.yml: %w", err)
+	}
+	return nil
+}
+
+// errPlayOutsideCheckout is a play path that is not the checkout's own.
+var errPlayOutsideCheckout = errors.New("refusing to run a play from outside the checkout")
+
+// checkPlay accepts a play only if it is an absolute path inside the checkout, once cleaned
+// (so ".." cannot climb out), unless the environment is trusted for tests.
+func (o *teamOps) checkPlay(play string) error {
+	if trustPlays {
+		return nil
+	}
+	rel, err := filepath.Rel(o.Cfg.RootDir, filepath.Clean(play))
+	if !filepath.IsAbs(play) || err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return fmt.Errorf("%w: %q is not under %s",
+			errPlayOutsideCheckout, play, o.Cfg.RootDir)
 	}
 	return nil
 }
@@ -136,6 +156,10 @@ func (o *teamOps) elementLauncher(team string) string {
 func (o *teamOps) runElementPlay(ctx context.Context, teams []string) error {
 	names := strings.Join(teams, " ")
 	o.Term.Say("Running play-agent-bus-element.yml: it installs Element Desktop (sudo) and writes the Element profile for " + names + ".")
+	if err := o.checkPlay(o.Cfg.ElementPlay); err != nil {
+		o.Term.PrintError(err.Error())
+		return errOpFailed
+	}
 	_, err := o.Runner.Run(ctx, execx.Cmd{
 		Name: o.Cfg.ElementPlay, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Term.Err,
 	})

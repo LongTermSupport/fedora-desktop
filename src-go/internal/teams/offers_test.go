@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -190,26 +191,72 @@ func TestBackToListWithNoTerminalDoesNotWait(t *testing.T) {
 	}
 }
 
-// blockingReader never has a line to give until it is closed.
-type blockingReader struct{ done chan struct{} }
+// blockingReader never has a line to give until it is closed, as a terminal file does.
+// readReturned is closed when a Read call has returned.
+type blockingReader struct {
+	done         chan struct{}
+	readReturned chan struct{}
+	once         *sync.Once
+}
+
+func newBlockingReader() blockingReader {
+	return blockingReader{done: make(chan struct{}), readReturned: make(chan struct{}), once: &sync.Once{}}
+}
 
 func (b blockingReader) Read([]byte) (int, error) {
 	<-b.done
+	close(b.readReturned)
 	return 0, io.EOF
 }
 
-func (b blockingReader) Close() error { return nil }
+func (b blockingReader) Close() error {
+	b.once.Do(func() { close(b.done) })
+	return nil
+}
 
 func TestBackToListGivesUpWhenInterrupted(t *testing.T) {
 	h := newPickerHarness(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	done := make(chan struct{})
-	t.Cleanup(func() { close(done) })
-	h.app.OpenTTY = func() (io.ReadCloser, error) { return blockingReader{done: done}, nil }
+	r := newBlockingReader()
+	h.app.OpenTTY = func() (io.ReadCloser, error) { return r, nil }
 	h.app.backToList(ctx)
 	if !strings.HasSuffix(h.errOut.String(), "\n\n") {
 		t.Fatalf("stderr %q", h.errOut.String())
+	}
+}
+
+// A cancelled wait must not leave its reader goroutine blocked on the terminal, where a later
+// wait would race it for the Enter.
+func TestReadLineCancelledLeavesNoReaderGoroutine(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := newBlockingReader()
+	got, err := readLine(ctx, r)
+	if got || err != nil {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	select {
+	case <-r.readReturned:
+	default:
+		t.Fatal("the reader goroutine is still blocked in Read after readLine returned")
+	}
+}
+
+func TestReadLineTakesOneLineAndNothingPastIt(t *testing.T) {
+	src := strings.NewReader("ab\ncd")
+	got, err := readLine(context.Background(), io.NopCloser(src))
+	if !got || err != nil {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if src.Len() != 2 {
+		t.Fatalf("%d bytes left, want the 2 after the newline", src.Len())
+	}
+}
+
+func TestReadLineEndOfInputIsNoLine(t *testing.T) {
+	if got, err := readLine(context.Background(), io.NopCloser(strings.NewReader("ab"))); got || err != nil {
+		t.Fatalf("got %v, %v", got, err)
 	}
 }
 

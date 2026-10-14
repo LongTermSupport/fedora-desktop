@@ -105,8 +105,9 @@ ccy_tmux_is_detached() {
 # The hook that enforces one terminal per session. It runs on the server for every attach;
 # if the session then has more than one client, the client that just arrived is detached.
 # tmux's own #{session_attached} is not reliable inside this hook, hence list-clients.
+# tmux expands the name before sh reads it, so #{q:} shell-quotes it and = makes it exact.
 ccy_tmux_single_attach_hook() {
-    printf "if-shell 'test \$(tmux -L %s list-clients -t \"#{session_name}\" | wc -l) -gt 1' 'detach-client'" \
+    printf "if-shell 'test \$(tmux -L %s list-clients -t =#{q:session_name} | wc -l) -gt 1' 'detach-client'" \
         "$CCY_TMUX_SOCKET"
 }
 
