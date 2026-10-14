@@ -34,6 +34,9 @@ type plan struct {
 	existing, deleted []string
 }
 
+// add plans a check for an item. rel is the directory a check runs in, set only by routing
+// rules; loadRouting refuses a table that gives one check two different rels, so the first rel
+// kept here is the only one there can be.
 func (p *plan) add(id, item, rel string) {
 	cp := p.checks[id]
 	if cp == nil {
@@ -102,10 +105,15 @@ func (s *session) readListed(name string) error {
 	if err != nil {
 		return fmt.Errorf("cannot read %s: %w", name, err)
 	}
-	for line := range strings.SplitSeq(string(body), "\n") {
-		if tab := strings.IndexByte(line, '\t'); tab > 0 {
-			s.listed[line[:tab]] = true
+	for n, line := range strings.Split(string(body), "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
+		tab := strings.IndexByte(line, '\t')
+		if tab <= 0 {
+			return fmt.Errorf("%s:%d: want a path, a tab, then the record; got %q", name, n+1, line)
+		}
+		s.listed[line[:tab]] = true
 	}
 	return nil
 }

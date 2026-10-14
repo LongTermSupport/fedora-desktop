@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -103,8 +104,27 @@ func loadRouting(path string) (*routing, error) {
 		if err := r.add(rw); err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, rw.line, err)
 		}
+		if err := r.checkRels(); err != nil {
+			return nil, fmt.Errorf("%s:%d: %w", path, rw.line, err)
+		}
 	}
 	return r, nil
+}
+
+// checkRels refuses a rule table in which one check carries two different rel values (a rule
+// with no rel counts as the empty one): the plan keeps one rel per check, and the second would
+// be dropped silently.
+func (r *routing) checkRels() error {
+	seen := map[string]string{}
+	for _, rl := range slices.Concat(r.also, r.first) {
+		for _, id := range rl.checks {
+			if prev, ok := seen[id]; ok && prev != rl.rel {
+				return fmt.Errorf("check %s has rel %q here and %q in an earlier rule: one check has one rel", id, rl.rel, prev)
+			}
+			seen[id] = rl.rel
+		}
+	}
+	return nil
 }
 
 type row struct {

@@ -102,6 +102,24 @@ func TestLoadRoutingRefusesBadRowsWithTheLineNumber(t *testing.T) {
 	}
 }
 
+// A check planned by two rules with different rel would keep the first rel silently
+// (plan.add), so the table may not say two things about one check.
+func TestLoadRoutingRefusesOneCheckWithTwoRels(t *testing.T) {
+	for name, body := range map[string]string{
+		"two rels":       "also\ta/*.js\teslint\trel:a\nalso\tb/*.js\teslint\trel:b\n",
+		"rel and no rel": "also\ta/*.js\teslint\trel:a\nfirst\t*.js\teslint\t-\n",
+	} {
+		_, err := loadRouting(writeFile(t, t.TempDir(), "r.tsv", body))
+		if err == nil || !strings.Contains(err.Error(), "eslint") || !strings.Contains(err.Error(), ":2:") {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	same := "also\ta/*.js\teslint\trel:a\nfirst\tb/*.js\teslint\trel:a\n"
+	if _, err := loadRouting(writeFile(t, t.TempDir(), "same.tsv", same)); err != nil {
+		t.Fatalf("one rel twice is fine: %v", err)
+	}
+}
+
 func TestLoadTreesReadsBothLists(t *testing.T) {
 	path := writeFile(t, t.TempDir(), "t.tsv", "# c\nshell\t.git\nshell\tuntracked\npython\t.git\npython\t__pycache__\n")
 	trees, err := loadTrees(path)

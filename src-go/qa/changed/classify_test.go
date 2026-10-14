@@ -128,7 +128,7 @@ func TestAllowlistedPathRunsTheBashLimitsGateWhateverItIs(t *testing.T) {
 	if !p.has("bash-limits") {
 		t.Fatalf("a listed path: %v", keys(p))
 	}
-	w.touch("scripts/bash-limits.allowlist", "# x")
+	writeFile(t, w.root, "scripts/bash-limits.allowlist", "# x\n")
 	p = w.classify([]string{"scripts/bash-limits.allowlist"})
 	if !p.has("bash-limits") || len(p.uncovered) != 0 {
 		t.Fatalf("the allowlist itself: %v %v", keys(p), p.uncovered)

@@ -33,7 +33,7 @@ func loadPopulation(scripts string, perFileGates []string) ([]string, error) {
 		return nil, fmt.Errorf("cannot read qa-all.bash: %w", err)
 	}
 	var population []string
-	for line := range strings.SplitSeq(string(text), "\n") {
+	for n, line := range strings.Split(string(text), "\n") {
 		if commentLine.MatchString(line) {
 			continue
 		}
@@ -44,9 +44,10 @@ func loadPopulation(scripts string, perFileGates []string) ([]string, error) {
 			}
 			if regular, err := isRegular(filepath.Join(scripts, name)); err != nil {
 				return nil, err
-			} else if regular {
-				population = append(population, name)
+			} else if !regular {
+				return nil, fmt.Errorf("qa-all.bash:%d invokes %s, which is not a file in %s: a suite that is gone would never be picked", n+1, name, scripts)
 			}
+			population = append(population, name)
 		}
 	}
 	if len(population) == 0 {

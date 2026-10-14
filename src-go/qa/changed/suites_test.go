@@ -18,7 +18,6 @@ run bash "$SCRIPT_DIR/qa-gate-one.bash"   # also fine
 echo "$SCRIPT_DIR/test-in-a-string.bash"
 run bash "$SCRIPT_DIR/test-alpha.bash"
 run bash "$SCRIPT_DIR/qa-bash.bash"
-run bash "$SCRIPT_DIR/test-missing.bash"
 run bash "$SCRIPT_DIR/test-with.dots_and-dash2.bash"
 `
 
@@ -52,6 +51,17 @@ func TestPopulationRefusesAnInvocationShapeItCannotRead(t *testing.T) {
 	}
 	if _, err := loadPopulation(t.TempDir(), nil); err == nil {
 		t.Fatal("a missing qa-all.bash must be an error")
+	}
+}
+
+// A suite qa-all.bash invokes whose file is gone would never be picked, silently: it is an
+// error naming the suite and the line of qa-all.bash that invokes it.
+func TestPopulationRefusesASuiteWhoseFileIsGone(t *testing.T) {
+	scripts := populationWorld(t)
+	writeFile(t, scripts, "qa-all.bash", fakeQAAll+"run bash \"$SCRIPT_DIR/test-gone.bash\"\n")
+	_, err := loadPopulation(scripts, nil)
+	if err == nil || !strings.Contains(err.Error(), "test-gone.bash") || !strings.Contains(err.Error(), "qa-all.bash:9") {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -250,14 +260,14 @@ func TestGoListFailureIsAnError(t *testing.T) {
 	}
 }
 
-func TestASuiteQAAllNamesButWhoseFileIsGoneIsDropped(t *testing.T) {
+func TestASuiteQAAllNamesButWhoseFileIsGoneIsAnError(t *testing.T) {
 	w := suiteWorld(t)
 	w.touch("tool.py", "# x")
 	if err := os.Remove(filepath.Join(w.root, "scripts/test-in-a-string.bash")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.selectSuites([]string{"tool.py"}); err != nil {
-		t.Fatal(err)
+	if _, err := w.selectSuites([]string{"tool.py"}); err == nil || !strings.Contains(err.Error(), "test-in-a-string.bash") {
+		t.Fatalf("got %v", err)
 	}
 }
 
