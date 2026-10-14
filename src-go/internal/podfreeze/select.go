@@ -2,7 +2,6 @@ package podfreeze
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,13 +17,6 @@ const (
 	keyNetwork = "net:"
 	keyID      = "id:"
 )
-
-// goneError is a group that vanished between the menu being drawn and the row chosen (a network
-// removed, an identity value whose sessions are gone). It is recoverable from the menu, where it
-// is said and the person re-prompted, and fatal from the command line, where it ends the run.
-type goneError struct{ msg string }
-
-func (g *goneError) Error() string { return g.msg }
 
 // Groups are the menu rows in order: the CCY sessions, everything, each network in use, then each
 // value of each identity axis that actually tells two sessions apart.
@@ -55,13 +47,7 @@ func (e *Engine) Groups(inv freeze.Inventory) []freeze.Group {
 // on stderr and returned as freeze.ErrGroupGone, so the menu re-prompts instead of ending.
 func (e *Engine) Select(ctx context.Context, inv freeze.Inventory, key string) ([]string, error) {
 	names, err := e.selectKey(ctx, inv, key)
-	if gone, ok := errors.AsType[*goneError](err); ok {
-		if sayErr := e.say("%s: %s\n", tool, gone.msg); sayErr != nil {
-			return nil, sayErr
-		}
-		return nil, freeze.ErrGroupGone
-	}
-	return names, err
+	return names, freeze.SelectGone(e.Err, tool, err)
 }
 
 func (e *Engine) selectKey(ctx context.Context, inv freeze.Inventory, key string) ([]string, error) {
@@ -101,10 +87,7 @@ func (e *Engine) SelectTarget(ctx context.Context, inv freeze.Inventory, mode, v
 	default:
 		err = freeze.Die("internal error: unknown target mode '%s'.", mode)
 	}
-	if gone, ok := errors.AsType[*goneError](err); ok {
-		return nil, freeze.Die("%s", gone.msg)
-	}
-	return selected, err
+	return selected, freeze.DieGone(err)
 }
 
 // selectNetwork checks the network exists (a filter naming one that does not would answer
@@ -114,7 +97,7 @@ func (e *Engine) SelectTarget(ctx context.Context, inv freeze.Inventory, mode, v
 func (e *Engine) selectNetwork(ctx context.Context, inv freeze.Inventory, net string) ([]string, error) {
 	res, err := e.Runner.Run(ctx, execx.Cmd{Name: podmanBin, Args: []string{"network", "ls", "--format", "{{.Name}}"}})
 	if err != nil {
-		return nil, freeze.Die("podman network ls failed: %s", failureText(res, err))
+		return nil, freeze.Die("podman network ls failed: %s", freeze.FailureText(res, err))
 	}
 	known := strings.Split(strings.TrimRight(string(res.Stdout), "\n"), "\n")
 	if !slices.Contains(known, net) {
@@ -125,7 +108,7 @@ func (e *Engine) selectNetwork(ctx context.Context, inv freeze.Inventory, net st
 				fmt.Fprintf(&b, "\n    %s", name)
 			}
 		}
-		return nil, &goneError{msg: b.String()}
+		return nil, freeze.Gone("%s", b.String())
 	}
 	return networkMap(inv)[net], nil
 }
@@ -151,7 +134,7 @@ func (e *Engine) selectIdentity(inv freeze.Inventory, axis, want string) ([]stri
 				fmt.Fprintf(&b, "\n    %s", v)
 			}
 		}
-		return nil, &goneError{msg: b.String()}
+		return nil, freeze.Gone("%s", b.String())
 	}
 	names := identityNames(ax, want, inv)
 	return names, e.warnBlindSpot(inv)

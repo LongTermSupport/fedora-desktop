@@ -5,7 +5,6 @@ package podfreeze
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -152,23 +151,9 @@ func (e *Engine) Load(ctx context.Context) (freeze.Inventory, error) {
 func (e *Engine) query(ctx context.Context, what string, args ...string) (string, error) {
 	res, err := e.Runner.Run(ctx, execx.Cmd{Name: podmanBin, Args: args})
 	if err != nil {
-		return "", freeze.Die("%s failed: %s", what, failureText(res, err))
+		return "", freeze.Die("%s failed: %s", what, freeze.FailureText(res, err))
 	}
 	return string(res.Stdout), nil
-}
-
-// failureText is what a failed command said: stderr first, then any stdout, else the error.
-func failureText(res execx.Result, err error) string {
-	var parts []string
-	for _, s := range []string{string(res.Stderr), string(res.Stdout)} {
-		if s = strings.TrimSpace(s); s != "" {
-			parts = append(parts, s)
-		}
-	}
-	if len(parts) == 0 {
-		return err.Error()
-	}
-	return strings.Join(parts, "\n")
 }
 
 // parseContainers keeps the running and paused containers in podman's order. An exited or
@@ -243,12 +228,4 @@ func identityLabel(v string) string {
 		return ""
 	}
 	return v
-}
-
-// say writes a note to the engine's stderr; a failed write is returned, not lost.
-func (e *Engine) say(format string, args ...any) error {
-	if _, err := fmt.Fprintf(e.Err, format, args...); err != nil {
-		return errors.Join(errors.New("write note"), err)
-	}
-	return nil
 }

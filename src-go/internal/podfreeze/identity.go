@@ -127,16 +127,16 @@ func (e *Engine) warnBlindSpot(inv freeze.Inventory) error {
 	if len(unlabelled) == 0 {
 		return nil
 	}
-	if err := e.say("%s: NOTE — %d CCY session(s) carry no identity labels,\n"+
+	if err := freeze.Say(e.Err, "%s: NOTE — %d CCY session(s) carry no identity labels,\n"+
 		"  so they are in no identity group and are NOT in this selection:\n", tool, len(unlabelled)); err != nil {
 		return err
 	}
 	for _, name := range unlabelled {
-		if err := e.say("    %s\n", name); err != nil {
+		if err := freeze.Say(e.Err, "    %s\n", name); err != nil {
 			return err
 		}
 	}
-	return e.say("  They predate CCY 3.40.0. Use --ccy to cover every session regardless\n" +
+	return freeze.Say(e.Err, "  They predate CCY 3.40.0. Use --ccy to cover every session regardless\n" +
 		"  of identity, or relaunch them to make them selectable by identity.\n")
 }
 

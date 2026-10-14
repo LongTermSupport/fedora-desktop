@@ -367,7 +367,7 @@ func (f *failAfter) Write(p []byte) (int, error) {
 }
 
 func TestNewAGoneErrorCarriesItsMessage(t *testing.T) {
-	if got := (&goneError{msg: "no such network"}).Error(); got != "no such network" {
+	if got := (&freeze.GoneError{Msg: "no such network"}).Error(); got != "no such network" {
 		t.Fatalf("got %q", got)
 	}
 }

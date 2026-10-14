@@ -82,6 +82,11 @@ func (s *Session) doAction(ctx context.Context, verb Verb, selected []string) er
 		s.stdout.Printf("DRY RUN — %d container(s) would be %s:\n%s", len(b.Act), past, s.Table(b.Act...))
 		return nil
 	}
+	if p, ok := s.Engine.(actPreparer); ok {
+		if err := p.BeforeAct(ctx); err != nil {
+			return err
+		}
+	}
 	s.stderr.Printf("%d container(s) being %s:\n%s", len(b.Act), past, s.Table(b.Act...))
 	done, failed := s.actOn(ctx, verb, b.Act)
 	if verb == VerbFreeze && len(done) > 0 {
