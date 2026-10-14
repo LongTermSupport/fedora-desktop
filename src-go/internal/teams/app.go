@@ -266,17 +266,14 @@ func execLauncher(path string, argv []string, dir string) error {
 	return launcherVia(execx.OS{}, path, argv, dir)
 }
 
-// launcherVia enters dir and replaces the process through x, the one seam that may. argv
+// launcherVia replaces the process through x, the one seam that may. argv
 // starts with the launcher's own name, which x supplies from path.
 func launcherVia(x execx.Execer, path string, argv []string, dir string) error {
-	if err := os.Chdir(dir); err != nil {
-		return fmt.Errorf("enter %s: %w", dir, err)
-	}
 	var args []string
 	if len(argv) > 1 {
 		args = argv[1:]
 	}
-	if err := x.Exec(execx.Cmd{Name: path, Args: args}); err != nil {
+	if err := x.Exec(execx.Cmd{Name: path, Args: args, Dir: dir}); err != nil {
 		return fmt.Errorf("start the launcher: %w", err)
 	}
 	return nil

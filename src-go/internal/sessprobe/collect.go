@@ -47,12 +47,6 @@ type Detail struct {
 	CPU     string
 }
 
-// Unknown is the Detail of a session the probe could not read: every column says so, because a
-// blank one would read as "no network".
-func Unknown(session string) Detail {
-	return Detail{Session: session, Network: unknownWord, Token: unknownWord, Keys: unknownWord, CPU: unknownWord}
-}
-
 // Detail is the network, token, key and CPU columns for every session on the CCY server, in
 // the server's pane order. The same probes whatever the number of sessions: tmux for the panes,
 // one process table, two queries per engine that is actually running a CCY container (none at
