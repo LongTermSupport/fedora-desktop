@@ -195,8 +195,17 @@ func Supervised(prefix string, args []string) bool {
 // feature.
 func Trampoline(recordPath, prefix string) string {
 	return `"$@"; rc=$?; rm -f -- ` + shellQuote(recordPath) +
-		`; if [ "$rc" -ne 0 ]; then printf '\n` + prefix + ` exited with status %s. ` + screen.EndedText +
+		`; if [ "$rc" -ne 0 ]; then printf '\n` + formatInSingleQuotes(prefix) + ` exited with status %s. ` + screen.EndedText +
 		`\n' "$rc"; read -r; fi; exit "$rc"`
+}
+
+// formatInSingleQuotes makes s safe to splice into a single-quoted printf format: printf's own
+// escapes (backslash, percent) are doubled so it prints s literally, then the single quote,
+// the one character a single-quoted shell word cannot hold, is closed, escaped and reopened.
+func formatInSingleQuotes(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", "%%")
+	return strings.ReplaceAll(s, "'", `'\''`)
 }
 
 // shellQuote quotes s for a POSIX shell, leaving a plain path as it is.

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -171,9 +173,41 @@ func TestIsDetached(t *testing.T) {
 }
 
 func TestSingleAttachHook(t *testing.T) {
-	want := `if-shell 'test $(tmux -L ccy list-clients -t "#{session_name}" | wc -l) -gt 1' 'detach-client'`
+	want := `if-shell 'test $(tmux -L ccy list-clients -t =#{q:session_name} | wc -l) -gt 1' 'detach-client'`
 	if got := tmuxccy.SingleAttachHook(); got != want {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// The hook's session name is expanded by tmux and then read by sh, so it must come out
+// shell-quoted and as an exact-match target; a bare "#{session_name}" lets a directory-derived
+// name run commands and prefix-matches a longer session.
+func TestSingleAttachHookQuotesTheSessionNameForTheShell(t *testing.T) {
+	hook := tmuxccy.SingleAttachHook()
+	if strings.Contains(hook, `"#{session_name}"`) || !strings.Contains(hook, "-t =#{q:session_name}") {
+		t.Fatalf("hook %q", hook)
+	}
+	sock := "hooktest" + strconv.Itoa(os.Getpid())
+	name := `a b$(echo PWN);x"y'z` + "`id`"
+	ctx := context.Background()
+	run := func(args ...string) string {
+		t.Helper()
+		out, err := execx.Combined(ctx, execx.OS{}, execx.Cmd{Name: "tmux", Args: append([]string{"-L", sock}, args...)})
+		if err != nil {
+			t.Fatalf("tmux %v: %v", args, err)
+		}
+		return out
+	}
+	run("new-session", "-d", "-s", name, "sleep", "30")
+	t.Cleanup(func() {
+		if _, err := execx.Combined(ctx, execx.OS{}, execx.Cmd{Name: "tmux", Args: []string{"-L", sock, "kill-server"}}); err != nil {
+			t.Errorf("kill-server: %v", err)
+		}
+	})
+	quoted := strings.TrimSpace(run("display-message", "-p", "-t", "="+name+":", "#{q:session_name}"))
+	got, err := execx.Combined(ctx, execx.OS{}, execx.Cmd{Name: "sh", Args: []string{"-c", "printf %s " + quoted}})
+	if err != nil || got != name {
+		t.Fatalf("sh read %q (%v) from %q, want %q", got, err, quoted, name)
 	}
 }
 
