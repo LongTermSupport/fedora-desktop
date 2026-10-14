@@ -136,9 +136,23 @@ offer to create a team when there is none; think about the UX; do a full critica
 - [ ] **Task 5.1**: meta-deploy (`play-agent-bus.yml`, `play-claude-yolo.yml`), then the
   owner's own test: `ccy-teams create` from a repository (scope, Element, sign-in, the
   offer to start a session), `ccy --teams <team>` choosing a seat, and `cc --teams <team>`.
-  Deployed; the owner finds the Go `ccy-teams` good, but the Element steps (a profile, an
-  account and a password per team) were not clear to them. Explained in conversation;
-  whether the sign-in needs to be simpler is the owner's call.
+  Deployed; the Go `ccy-teams` works, but the owner's test found the UX clunky: Phase 6.
+
+### Phase 6: No hidden keys (the owner's host test)
+
+The owner had to discover Ctrl-E to open Element; Enter on their name kept offering a new
+password, which they set repeatedly, each time signing out their other sessions; and Ctrl-E
+quit `ccy-teams` to start Element.
+
+- [ ] 🔄 **Task 6.1**: Every action is reachable without knowing a key: Enter on any row opens
+  a menu of what can be done to it, in words, each with its shortcut beside it; the footer
+  names the selected row's actions, not a fixed list.
+- [ ] 🔄 **Task 6.2**: A person who is signed in is offered Element first; a new password is a
+  plainly labelled choice that says it signs out their N sessions, and asks before doing it.
+  After a password is set, Element is offered at once.
+- [ ] 🔄 **Task 6.3**: Opening Element starts it apart from `ccy-teams` and returns to the
+  board, which then reads the person's sessions again.
+- [ ] ⬜ **Task 6.4**: The owner tests it again on the host.
 
 ## Success Criteria
 
