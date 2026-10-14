@@ -11,9 +11,8 @@ import (
 )
 
 type cancelRun struct {
-	out  string
-	err  error
-	took time.Duration
+	out string
+	err error
 }
 
 // runThenCancel runs script and cancels the context once the child has printed "ready", so
@@ -35,14 +34,22 @@ func runThenCancel(t *testing.T, r OS, script string) cancelRun {
 		}
 	}()
 	var out bytes.Buffer
-	start := time.Now()
-	_, err := r.Run(ctx, Cmd{Name: "sh", Args: []string{"-c", script}, Stdout: io.MultiWriter(&out, pw)})
-	took := time.Since(start)
+	finished := make(chan error, 1)
+	go func() {
+		_, err := r.Run(ctx, Cmd{Name: "sh", Args: []string{"-c", script}, Stdout: io.MultiWriter(&out, pw)})
+		finished <- err
+	}()
+	var err error
+	select {
+	case err = <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after cancel: the child was never escalated to a kill")
+	}
 	if cerr := pw.Close(); cerr != nil {
 		t.Fatal(cerr)
 	}
 	<-done
-	return cancelRun{out: out.String(), err: err, took: took}
+	return cancelRun{out: out.String(), err: err}
 }
 
 func TestOSRunCancelSendsSIGTERMSoTheChildCanRestoreTheTerminal(t *testing.T) {
@@ -59,9 +66,6 @@ func TestOSRunCancelEscalatesWhenTheChildIgnoresTERMAndHoldsThePipe(t *testing.T
 	got := runThenCancel(t, OS{Grace: 300 * time.Millisecond}, `trap '' TERM; echo ready; sleep 30 & while :; do sleep 0.05; done`)
 	if got.err == nil {
 		t.Fatal("want an error from the cancelled command")
-	}
-	if got.took > 10*time.Second {
-		t.Fatalf("cancel did not escalate: took %v", got.took)
 	}
 }
 
