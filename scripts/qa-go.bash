@@ -64,6 +64,29 @@ fi
 run_step "go vet" go vet ./...
 run_step "go test -race" go test -race -coverprofile="$PROFILE" ./...
 PACKAGES="$(awk '/^ok/ {n++} END {print n + 0}' "$OUT")"
+# A library package with no test files is untested code the coverage floor can hide behind
+# the rest of the module; only the thin cmd/ mains may go without.
+# With -coverprofile go prints such a package as "<tab>pkg<tab>coverage: 0.0% of statements"
+# (no "ok" or "?" prefix); without it, as "?  pkg  [no test files]".
+NO_TEST_AWK="$(
+    cat << 'AWK'
+    /^\?/ && /\[no test files\]/ {pkg = $2}
+    /^[ \t]/ && /coverage: 0.0% of statements/ {pkg = $1}
+    pkg != "" {
+        if (pkg ~ /\/cmd\//) {cmd++} else {print pkg}
+        pkg = ""
+    }
+    END {print "CMD " cmd + 0 > "/dev/stderr"}
+AWK
+)"
+UNTESTED="$(awk "$NO_TEST_AWK" "$OUT" 2> "$PROFILE.cmd")"
+CMD_UNTESTED="$(awk '{print $2}' "$PROFILE.cmd")"
+rm -f "$PROFILE.cmd"
+if [[ -n "$UNTESTED" ]]; then
+    echo "✗ go: package(s) with no test files:" >&2
+    echo "$UNTESTED" >&2
+    exit 1
+fi
 run_step "coverage report" go tool cover -func="$PROFILE"
 COVERAGE="$(awk '$1 == "total:" {sub(/%/, "", $NF); print $NF}' "$OUT")"
 if [[ -z "$COVERAGE" ]]; then
@@ -77,4 +100,4 @@ if ! awk -v c="$COVERAGE" -v f="$GO_COVERAGE_FLOOR" 'BEGIN {exit !(c >= f)}'; th
 fi
 run_step "golangci-lint" golangci-lint run ./...
 
-echo "GO-OK $PACKAGES package(s): fmt, vet, test -race, coverage ${COVERAGE}% (floor ${GO_COVERAGE_FLOOR}%), golangci-lint clean"
+echo "GO-OK $PACKAGES package(s) tested, $CMD_UNTESTED cmd package(s) without tests: fmt, vet, test -race, coverage ${COVERAGE}% (floor ${GO_COVERAGE_FLOOR}%), golangci-lint clean"
