@@ -343,7 +343,7 @@ def _parse_entry(position: int, entry: object) -> Member:
         seat = str(seat)
     if not isinstance(seat, str) or not protocol.is_seat_name(seat):
         raise MemberError(f"{where}: seat must match {protocol.HANDLE_SEAT_PATTERN}")
-    role = entry.get("role", DEFAULT_ROLE)
+    role = protocol.normalise_role(entry.get("role", DEFAULT_ROLE))
     if role not in registry.ROLES:
         raise MemberError(f"{where}: role must be one of {', '.join(registry.ROLES)}")
     human_text = entry.get("human_text", True)

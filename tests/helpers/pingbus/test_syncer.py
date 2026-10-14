@@ -86,7 +86,7 @@ class TeamCase(unittest.TestCase):
         self.room = self.create_room(self.admin, [self.me, self.orch, self.peer, self.alice])
         self.record = {
             "v": 1, "team": TEAM, "humans": [self.alice],
-            "roles": {self.me: "worker", self.orch: "orchestrator", self.peer: "worker"},
+            "roles": {self.me: "worker", self.orch: "coordinator", self.peer: "worker"},
             "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
             "path_prefixes": ["docs/"], "forge_api": "https://api.github.com",
         }
@@ -328,10 +328,10 @@ class TrustTest(TeamCase):
 
     def test_a_valid_record_change_is_taken_up(self):
         s = self.ready()
-        self.record["roles"][self.peer] = "orchestrator"
+        self.record["roles"][self.peer] = "coordinator"
         self.put_state(self.admin, protocol.EVENT_TEAM, "", self.record)
         s.sync_once()
-        self.assertEqual(s.record.roles[self.peer], "orchestrator")
+        self.assertEqual(s.record.roles[self.peer], "coordinator")
         self.assertEqual(json.loads((self.state.path / inbox.TEAM_FILE).read_text()), self.record)
 
     def test_verify_checks_the_create_event(self):
@@ -376,7 +376,7 @@ class HumanPipelineTest(TeamCase):
         s = self.ready()
         mine = self.human("for me")
         room = self.human("for everyone", room=True)
-        self.human("for the orchestrator", to=[self.orch])
+        self.human("for the coordinator", to=[self.orch])
         batch = s.sync_once()
         self.assertEqual(batch.accepted, (mine, room))
         self.assertEqual(sorted(self.stored()), sorted([mine, room]))

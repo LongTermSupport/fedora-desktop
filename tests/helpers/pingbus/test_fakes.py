@@ -229,7 +229,7 @@ class TeamRoom(unittest.TestCase):
         self.tok = {uid: self.fake.mint_token(uid) for uid in
                     (self.admin, self.human, self.agent, self.other, self.outsider)}
         record = {"v": 1, "team": "team-a", "humans": [self.human],
-                  "roles": {self.agent: protocol.ROLE_WORKER, self.other: protocol.ROLE_ORCHESTRATOR},
+                  "roles": {self.agent: protocol.ROLE_WORKER, self.other: protocol.ROLE_COORDINATOR},
                   "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
                   "path_prefixes": ["CLAUDE/Plan/"], "forge_api": "https://api.github.com"}
         status, body = self.call(self.admin, "POST", "/_matrix/client/v3/createRoom", body={

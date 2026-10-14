@@ -174,9 +174,9 @@ class MemberCommandsTest(CliTestCase):
 
     def test_set_role_list_remove(self) -> None:
         self.ok(ADD)
-        self.ok(["set-role", "team-a", HANDLE, "--role=orchestrator"])
+        self.ok(["set-role", "team-a", HANDLE, "--role=coordinator"])
         listed = self.ok(["list", "team-a"]).text
-        self.assertIn(f"MEMBER\t{HANDLE}\torchestrator\tinvite\tactive\n", listed)
+        self.assertIn(f"MEMBER\t{HANDLE}\tcoordinator\tinvite\tactive\n", listed)
         self.ok(["remove-member", "team-a", HANDLE])
         self.assertNotIn(HANDLE, self.ok(["list", "team-a"]).text)
 
@@ -248,7 +248,7 @@ class SecretHygieneTest(CliTestCase):
         self.ok(["bootstrap", "team-a"])
         bundle = tarfile.open(fileobj=io.BytesIO(self.ok(ADD).out))
         member_token = bundle.extractfile("token").read().decode()
-        self.ok(["set-role", "team-a", HANDLE, "--role=orchestrator"])
+        self.ok(["set-role", "team-a", HANDLE, "--role=coordinator"])
         self.ok(["list", "team-a"])
         seat_add = [*ADD, "--seat=dev"]
         seat_token = tarfile.open(fileobj=io.BytesIO(self.ok(seat_add).out)).extractfile("token").read().decode()

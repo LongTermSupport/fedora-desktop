@@ -446,7 +446,7 @@ class WatchRefusalTest(WatchCase):
     def test_losing_trust_ends_watch_with_exit_10(self):
         self.joined()
         self.start_watch()
-        self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"}))
         self.watcher.join(10)
         self.assertEqual(self.result[0][0], cli.EXIT_UNTRUSTED)
 
@@ -457,14 +457,14 @@ class WatchRefusalTest(WatchCase):
         self.joined()
         self.start_watch()
         self.until(lambda: inbox.probe_lock(b.state) == "watch", "team B never held")
-        self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"}))
         self.until(lambda: inbox.probe_lock(self.a.state) is None, "team A was never let go")
         self.assertTrue(self.watcher.is_alive(), f"one team's failure ended the watcher: {self.result}")
         b.human("for b")
         (text,) = self.sock.wait_for(1)
         self.assertEqual(NOTICE_RE.fullmatch(text).groups()[:3], ("1", "1", "0"))
         self.assertEqual(inbox.probe_lock(b.state), "watch")
-        b.set_record(dict(b.record, roles={b.orch: "orchestrator"}))
+        b.set_record(dict(b.record, roles={b.orch: "coordinator"}))
         self.watcher.join(10)
         self.assertFalse(self.watcher.is_alive(), "the watcher outlived its last team")
         code, _, err = self.result[0]

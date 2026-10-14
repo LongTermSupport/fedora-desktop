@@ -41,9 +41,12 @@ MSGTYPE_HUMAN = "m.text"
 MSGTYPE_TEXT = "m.notice"
 RENDER_TAG = "[agent-bus]"
 
-ROLE_ORCHESTRATOR = "orchestrator"
+ROLE_COORDINATOR = "coordinator"
 ROLE_WORKER = "worker"
-ROLES = (ROLE_ORCHESTRATOR, ROLE_WORKER)
+ROLES = (ROLE_COORDINATOR, ROLE_WORKER)
+#: Role spellings a team record or a registry may still hold, and the role each reads as
+#: (spec §8): a record written before the rename needs no migration.
+LEGACY_ROLES = {"orchestrator": ROLE_COORDINATOR}
 #: "May be sent by: anyone addressed by `re`": any role holder here; the addressing itself
 #: is checked against the outbox, not offline.
 SENDER_ADDRESSED = "addressed"
@@ -192,20 +195,20 @@ def _rule(ref: str, forms: Sequence[str], re_: str, ack: bool, senders: Sequence
     return VerbRule(ref, frozenset(forms), re_, ack, frozenset(senders), external)
 
 
-_ORCH = (ROLE_ORCHESTRATOR,)
-_ORCH_WORKER = (ROLE_ORCHESTRATOR, ROLE_WORKER)
+_COORD = (ROLE_COORDINATOR,)
+_COORD_WORKER = (ROLE_COORDINATOR, ROLE_WORKER)
 
 #: The closed verb set, in spec order.
 VERBS: dict[str, VerbRule] = {
-    "fetch": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _ORCH, True),
-    "sync": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _ORCH, False),
-    "review": _rule(REQUIRED, ("path", "commit", "pr"), FORBIDDEN, True, _ORCH_WORKER, True),
-    "run-qa": _rule(REQUIRED, ("commit", "pr"), FORBIDDEN, True, _ORCH_WORKER, False),
-    "halt": _rule(FORBIDDEN, (), FORBIDDEN, True, _ORCH, False),
+    "fetch": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _COORD, True),
+    "sync": _rule(REQUIRED, ("path", "commit"), FORBIDDEN, True, _COORD, False),
+    "review": _rule(REQUIRED, ("path", "commit", "pr"), FORBIDDEN, True, _COORD_WORKER, True),
+    "run-qa": _rule(REQUIRED, ("commit", "pr"), FORBIDDEN, True, _COORD_WORKER, False),
+    "halt": _rule(FORBIDDEN, (), FORBIDDEN, True, _COORD, False),
     "ack": _rule(FORBIDDEN, (), REQUIRED, False, (SENDER_ADDRESSED,), False),
     "nack": _rule(OPTIONAL, REF_FORMS, REQUIRED, False, (SENDER_ADDRESSED,), True),
-    "done": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _ORCH_WORKER, True),
-    "blocked": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _ORCH_WORKER, True),
+    "done": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _COORD_WORKER, True),
+    "blocked": _rule(REQUIRED, REF_FORMS, OPTIONAL, False, _COORD_WORKER, True),
 }
 #: Verbs whose `to` may name a listed human as well as role holders.
 VERBS_TO_HUMANS = frozenset({"ack", "nack", "done", "blocked"})
@@ -280,7 +283,7 @@ class Ref:
 class Context:
     """What the validator needs from the member config and the verified team record.
 
-    `roles` maps agent user IDs to `orchestrator`/`worker`; `repos` maps `owner/repo` to
+    `roles` maps agent user IDs to `coordinator`/`worker`; `repos` maps `owner/repo` to
     its trusted branches, () for any branch; `org` is the GitHub owner every repository of which is trusted on
     any of its branches (the ping's, else the default), or None; `exclude` names repositories of
     that org the team never trusts or lets a ping name (spec §11); `humans` are the team's human user IDs.
@@ -324,6 +327,9 @@ class Ping:
     trust: str | None = None
     #: The branch the sender says holds the commit (spec §4, §6), or None.
     branch: str | None = None
+    #: The listed humans the ping was also addressed to, when the receiver is the
+    #: coordinator and so on copy (spec §7, §15); () otherwise.
+    copy_of: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -349,6 +355,9 @@ class PeerText:
     sender: str
     origin_server_ts: int
     text: str
+    #: The listed humans the text was also addressed to, when the receiver is the
+    #: coordinator and so on copy (spec §7, §15); () otherwise.
+    copy_of: tuple[str, ...] = ()
 
 
 ACCEPT = "accept"
@@ -521,6 +530,35 @@ def path_allowed(path: str, prefixes: Sequence[str]) -> bool:
         path.startswith(prefix) if prefix.endswith("/") else path == prefix
         for prefix in prefixes
     )
+
+
+def normalise_role(role: object) -> object:
+    """The role a legacy spelling reads as (`orchestrator` is `coordinator`); anything
+    else unchanged, for the caller to judge against `ROLES`."""
+    return LEGACY_ROLES.get(role, role) if isinstance(role, str) else role
+
+
+def coordinators(roles: Mapping[str, str]) -> list[str]:
+    """The user IDs holding the coordinator role, sorted: one in a team the writers keep
+    in order, every one in a record that somehow lists more."""
+    return sorted(user for user, role in roles.items() if role == ROLE_COORDINATOR)
+
+
+def with_coordinator_copy(to: Sequence[str], sender: str, ctx: Context) -> list[str]:
+    """`to` with the team's coordinator added when a worker is writing to a human (spec §7):
+    the coordinator is copied on what workers tell humans without the worker remembering.
+    Unchanged when the sender is not a worker, no human is named, or the coordinator already
+    is (or there is none)."""
+    if ctx.roles.get(sender) != ROLE_WORKER or not any(user in ctx.humans for user in to):
+        return list(to)
+    return [*to, *(user for user in coordinators(ctx.roles) if user not in to)]
+
+
+def _copy_of(to: Iterable[str], self_user_id: str, ctx: Context) -> tuple[str, ...]:
+    """The listed humans `to` names, when the receiver is the coordinator: it is on copy."""
+    if ctx.roles.get(self_user_id) != ROLE_COORDINATOR:
+        return ()
+    return tuple(sorted(user for user in to if user in ctx.humans))
 
 
 def sender_class(user_id: object, ctx: Context) -> str | None:
@@ -763,7 +801,8 @@ def _agent_text_outcome(
     except Refusal as refusal:
         return Outcome(DROP, refusal.reason)
     # Valid text has its mentions equal to its `to`, so either naming this agent puts it in `to`.
-    return Outcome(ACCEPT, peer=PeerText(event_id, sender, ts, text.text))
+    return Outcome(ACCEPT, peer=PeerText(event_id, sender, ts, text.text,
+                                         _copy_of(text.to, self_user_id, ctx)))
 
 
 def validate_event(
@@ -815,7 +854,8 @@ def validate_event(
     if self_user_id not in ping.to:
         return Outcome(IGNORE, "not-addressed")
     return Outcome(ACCEPT, ping=dataclasses.replace(
-        ping, sender=sender, event_id=event_id, origin_server_ts=ts))
+        ping, sender=sender, event_id=event_id, origin_server_ts=ts,
+        copy_of=_copy_of(ping.to, self_user_id, ctx)))
 
 
 def _list_of(value: object, low: int, high: int) -> list:
@@ -878,6 +918,7 @@ def parse_team_record(content: object, server_name: str, team_name: str) -> Team
     roles = content["roles"]
     if not isinstance(roles, dict) or len(roles) > ROLES_MAX:
         raise Untrusted("roles")
+    roles = {user: normalise_role(role) for user, role in roles.items()}
     for user, role in roles.items():
         if role not in ROLES or not is_agent_user_id(user, server_name):
             raise Untrusted("roles")

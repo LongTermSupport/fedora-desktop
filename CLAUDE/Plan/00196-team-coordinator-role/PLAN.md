@@ -56,17 +56,17 @@ must not grow: the logic goes into Go.
 
 ### Phase 1: protocol, pingbus, agent-bus
 
-- [ ] ⬜ **Task 1.1**: `protocol.py`: role `coordinator`; the team record accepts `orchestrator` as
+- [x] ✅ **Task 1.1**: `protocol.py`: role `coordinator`; the team record accepts `orchestrator` as
   a legacy spelling read as `coordinator`; at most one coordinator in a record (red tests first)
-- [ ] ⬜ **Task 1.2**: `agent_bus` registry/admin: writers write `coordinator`; `set-role` refuses a
+- [x] ✅ **Task 1.2**: `agent_bus` registry/admin: writers write `coordinator`; `set-role` refuses a
   second coordinator naming the holder; legacy entries read as `coordinator`
-- [ ] ⬜ **Task 1.3**: `pingbus send --to-coordinator` and `say --to-coordinator`; the old flag is
+- [x] ✅ **Task 1.3**: `pingbus send --to-coordinator` and `say --to-coordinator`; the old flag is
   renamed unless something on the host depends on it
-- [ ] ⬜ **Task 1.4**: auto-copy: a worker's `say`/`send` that names a human also names the coordinator;
+- [x] ✅ **Task 1.4**: auto-copy: a worker's `say`/`send` that names a human also names the coordinator;
   the receiver marks the copy; spec in `docs/agent-bus-protocol.md` (§1, §5, §7, §8, §13, §15)
-- [ ] ⬜ **Task 1.5**: session-start hook text states the agent's role and who the coordinator is;
+- [x] ✅ **Task 1.5**: session-start hook text states the agent's role and who the coordinator is;
   the pingbus skill gains role guidance
-- [ ] ⬜ **Task 1.6**: `docs/agent-bus.md`, usage texts, README.host/README.podman updated
+- [x] ✅ **Task 1.6**: `docs/agent-bus.md`, usage texts, README.host/README.podman updated
 
 ### Phase 2: ccy-teams and the launcher
 

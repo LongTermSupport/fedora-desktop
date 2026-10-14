@@ -235,11 +235,15 @@ class ParseMembersTest(unittest.TestCase):
                          ("worker", True, "present", None))
 
     def test_seat_and_repo_given(self) -> None:
-        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="orchestrator",
+        (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="coordinator",
                                                  human_text=False)])
         self.assertEqual((member.seat, member.repo, member.role, member.human_text),
-                         ("2", "owner-proj", "orchestrator", False))
+                         ("2", "owner-proj", "coordinator", False))
         self.assertEqual(member.handle("proj"), "proj.2+box.lxc")
+
+    def test_an_entry_still_saying_orchestrator_is_a_coordinator(self) -> None:
+        (member,) = members.parse_members([entry(role="orchestrator")])
+        self.assertEqual(member.role, "coordinator")
 
     def test_absent_needs_checkout_or_repo(self) -> None:
         (member,) = members.parse_members([entry(state="absent", checkout=None, repo="proj")])
@@ -294,7 +298,7 @@ class PresentPlanTest(unittest.TestCase):
         self.assertEqual(self.plan(self.found(), ("worker", False)), members.Plan())
 
     def test_role_change_only_sets_the_role(self) -> None:
-        self.assertEqual(self.plan(self.found(), ("orchestrator", False)), members.Plan(set_role=True))
+        self.assertEqual(self.plan(self.found(), ("coordinator", False)), members.Plan(set_role=True))
 
     def test_reissued_when_the_bundle_is_stale(self) -> None:
         reissue = members.Plan(remove_bundle=True, park=True, add=True)
@@ -307,7 +311,7 @@ class PresentPlanTest(unittest.TestCase):
                          members.Plan(park=True, add=True))
 
     def test_parked_handle_returns(self) -> None:
-        self.assertEqual(self.plan(members.Found(False, None, False), ("orchestrator", True)),
+        self.assertEqual(self.plan(members.Found(False, None, False), ("coordinator", True)),
                          members.Plan(add=True, set_role=True))
         self.assertEqual(self.plan(self.found(), ("worker", True)),
                          members.Plan(remove_bundle=True, add=True))
@@ -443,9 +447,9 @@ class PresentPhaseTest(Fixture):
 
     def test_role_and_human_text_follow_the_entry(self) -> None:
         self.run_phase("present", [entry()])
-        changed = self.run_phase("present", [entry(role="orchestrator")])
-        self.assertEqual(changed, [f"{HANDLE} is now orchestrator in team {TEAM}"])
-        changed = self.run_phase("present", [entry(role="orchestrator", human_text=False)])
+        changed = self.run_phase("present", [entry(role="coordinator")])
+        self.assertEqual(changed, [f"{HANDLE} is now coordinator in team {TEAM}"])
+        changed = self.run_phase("present", [entry(role="coordinator", human_text=False)])
         self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
         member = json.loads((self.bundle_dir() / "member.json").read_text())
         self.assertIs(member["human_text"], False)

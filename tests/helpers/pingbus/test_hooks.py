@@ -113,7 +113,7 @@ class HookCase(unittest.TestCase):
 
     def record(self, team: str, sn: str) -> dict:
         return {"v": 1, "team": team, "humans": [ALICE.replace(SN, sn)],
-                "roles": {ME.replace(SN, sn): "worker", ORCH.replace(SN, sn): "orchestrator"},
+                "roles": {ME.replace(SN, sn): "worker", ORCH.replace(SN, sn): "coordinator"},
                 "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
                 "path_prefixes": ["docs/"], "forge_api": "https://api.github.com"}
 
@@ -260,6 +260,30 @@ class SessionStartTest(HookCase):
         self.assertEqual(self.spawned[0][notify.SOCKET_ENV], self.env[notify.SOCKET_ENV])
         self.assertEqual(result["hookSpecificOutput"]["hookEventName"], "SessionStart")
         self.assertIn(hooks.TEMPLATES["watcher_started"], self.context(result))
+
+    def test_a_worker_is_told_its_role_and_who_the_coordinator_is(self):
+        context = self.context(self.start())
+        self.assertIn(hooks.fill("role_worker", team=TEAM, handle="orch.1+workstation.podman"), context)
+
+    def test_the_coordinator_is_told_it_is_the_coordinator(self):
+        record = self.record(TEAM, SN)
+        record["roles"] = {ME: "coordinator", ORCH: "worker"}
+        self.state.save_team_record(record)
+        context = self.context(self.start())
+        self.assertIn(hooks.fill("role_coordinator", team=TEAM), context)
+        self.assertNotIn("you are a worker", context)
+
+    def test_a_worker_in_a_team_without_a_coordinator_is_told_so(self):
+        record = self.record(TEAM, SN)
+        record["roles"] = {ME: "worker"}
+        self.state.save_team_record(record)
+        self.assertIn(hooks.fill("role_worker_alone", team=TEAM), self.context(self.start()))
+
+    def test_the_old_spelling_in_a_stored_record_reads_as_coordinator(self):
+        record = self.record(TEAM, SN)
+        record["roles"] = {ME: "orchestrator", ORCH: "worker"}
+        self.state.save_team_record(record)
+        self.assertIn(hooks.fill("role_coordinator", team=TEAM), self.context(self.start()))
 
     def test_a_seat_held_by_a_waker_starts_no_watcher(self):
         self.hold("watch")

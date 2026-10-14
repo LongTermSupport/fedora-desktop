@@ -172,14 +172,14 @@ class RegistryLogicTest(unittest.TestCase):
 
     def test_park_then_return(self) -> None:
         reg, handle = registry.Registry.empty("alpha").add_member("myrepo", "local", "podman", "worker", seat="dev")
-        reg = reg.set_role(handle, "orchestrator")
+        reg = reg.set_role(handle, "coordinator")
         parked = reg.park(handle)
         self.assertEqual(parked.parked, frozenset({handle}))
-        self.assertEqual(dict(parked.members), {handle: "orchestrator"})
+        self.assertEqual(dict(parked.members), {handle: "coordinator"})
         self.assertTrue(parked.is_parked(handle))
         returned = parked.unpark(handle)
         self.assertEqual(returned.parked, frozenset())
-        self.assertEqual(dict(returned.members), {handle: "orchestrator"})
+        self.assertEqual(dict(returned.members), {handle: "coordinator"})
         self.assertEqual(returned, reg)
 
     def test_park_and_unpark_refusals(self) -> None:
@@ -197,12 +197,12 @@ class RegistryLogicTest(unittest.TestCase):
 
     def test_add_member_numbers_per_seat(self) -> None:
         reg = registry.Registry.empty("alpha")
-        reg, h1 = reg.add_member("myrepo", "ws", "podman", "orchestrator")
+        reg, h1 = reg.add_member("myrepo", "ws", "podman", "coordinator")
         reg, h2 = reg.add_member("myrepo", "ws", "podman", "worker")
         reg, h3 = reg.add_member("myrepo", "ws", "host", "worker")
         self.assertEqual((h1, h2, h3), ("myrepo.1+ws.podman", "myrepo.2+ws.podman", "myrepo.1+ws.host"))
         self.assertEqual(dict(reg.counters), {"myrepo+ws.podman": 2, "myrepo+ws.host": 1})
-        self.assertEqual(reg.members[h1], "orchestrator")
+        self.assertEqual(reg.members[h1], "coordinator")
 
     def test_n_never_reused_after_removal(self) -> None:
         reg = registry.Registry.empty("alpha")
@@ -228,7 +228,7 @@ class RegistryLogicTest(unittest.TestCase):
 
     def test_set_role(self) -> None:
         reg, h = registry.Registry.empty("alpha").add_member("r", "h", "vm", "worker")
-        self.assertEqual(reg.set_role(h, "orchestrator").members[h], "orchestrator")
+        self.assertEqual(reg.set_role(h, "coordinator").members[h], "coordinator")
         with self.assertRaises(registry.RegistryError):
             reg.set_role(h, "boss")
         with self.assertRaises(registry.RegistryError):
@@ -244,7 +244,7 @@ class ParseRegistryTest(unittest.TestCase):
         "v": 2,
         "team": "alpha",
         "counters": {"myrepo+ws.podman": 2},
-        "members": {"myrepo.2+ws.podman": "worker", "myrepo.dev+local.podman": "orchestrator"},
+        "members": {"myrepo.2+ws.podman": "worker", "myrepo.dev+local.podman": "coordinator"},
         "parked": ["myrepo.dev+local.podman"],
     }
     V1 = {
@@ -261,7 +261,7 @@ class ParseRegistryTest(unittest.TestCase):
 
     def test_good(self) -> None:
         reg = registry.parse_registry(self.GOOD)
-        self.assertEqual(dict(reg.members), {"myrepo.2+ws.podman": "worker", "myrepo.dev+local.podman": "orchestrator"})
+        self.assertEqual(dict(reg.members), {"myrepo.2+ws.podman": "worker", "myrepo.dev+local.podman": "coordinator"})
         self.assertEqual(reg.parked, frozenset({"myrepo.dev+local.podman"}))
         self.assertEqual(reg.as_dict(), self.GOOD)
 
@@ -319,7 +319,7 @@ class LoadSaveTest(unittest.TestCase):
 
     def test_round_trip(self) -> None:
         reg, _ = registry.Registry.empty("alpha").add_member("myrepo", "ws", "podman", "worker")
-        reg, _ = reg.add_member("other", "ws", "host", "orchestrator")
+        reg, _ = reg.add_member("other", "ws", "host", "coordinator")
         reg, dev = reg.add_member("myrepo", "local", "podman", "worker", seat="dev")
         reg = reg.park(dev)
         registry.save_registry(self.path, reg)
@@ -413,6 +413,54 @@ class UpdateRegistryTest(unittest.TestCase):
     def test_unchanged_registry_is_not_written(self) -> None:
         registry.update_registry(self.path, "alpha", lambda reg: (reg, None))
         self.assertFalse(self.path.exists())
+
+
+class CoordinatorTest(unittest.TestCase):
+    """At most one coordinator per team; the old spelling reads as the new one."""
+
+    def team(self) -> tuple[registry.Registry, str, str]:
+        reg, boss = registry.Registry.empty("alpha").add_member("myrepo", "ws", "podman", "coordinator")
+        reg, other = reg.add_member("myrepo", "ws", "podman", "worker")
+        return reg, boss, other
+
+    def test_a_second_coordinator_is_refused_naming_the_holder(self) -> None:
+        reg, boss, other = self.team()
+        with self.assertRaisesRegex(registry.RegistryError, boss.replace("+", r"\+")):
+            reg.set_role(other, "coordinator")
+        with self.assertRaisesRegex(registry.RegistryError, "coordinator"):
+            reg.add_member("myrepo", "ws", "podman", "coordinator")
+
+    def test_the_holder_may_be_set_again_and_may_step_down(self) -> None:
+        reg, boss, other = self.team()
+        self.assertEqual(reg.set_role(boss, "coordinator"), reg)
+        freed = reg.set_role(boss, "worker")
+        self.assertEqual(freed.set_role(other, "coordinator").members[other], "coordinator")
+
+    def test_a_parked_coordinator_still_holds_the_role(self) -> None:
+        reg, boss, other = self.team()
+        with self.assertRaisesRegex(registry.RegistryError, "parked"):
+            reg.park(boss).set_role(other, "coordinator")
+
+    def test_the_old_spelling_is_accepted_and_stored_as_coordinator(self) -> None:
+        reg, handle = registry.Registry.empty("alpha").add_member("myrepo", "ws", "podman", "orchestrator")
+        self.assertEqual(reg.members[handle], "coordinator")
+        reg, other = reg.add_member("myrepo", "ws", "podman", "worker")
+        freed = reg.set_role(handle, "worker")
+        self.assertEqual(freed.set_role(other, "orchestrator").members[other], "coordinator")
+
+    def test_a_stored_registry_with_the_old_spelling_reads_as_coordinator(self) -> None:
+        data = {"v": 2, "team": "alpha", "counters": {"myrepo+ws.podman": 1},
+                "members": {"myrepo.1+ws.podman": "orchestrator"}, "parked": []}
+        self.assertEqual(dict(registry.parse_registry(data).members), {"myrepo.1+ws.podman": "coordinator"})
+
+    def test_a_stored_registry_with_two_old_coordinators_still_loads(self) -> None:
+        data = {"v": 2, "team": "alpha", "counters": {"myrepo+ws.podman": 2},
+                "members": {"myrepo.1+ws.podman": "orchestrator", "myrepo.2+ws.podman": "orchestrator"},
+                "parked": []}
+        reg = registry.parse_registry(data)
+        self.assertEqual(set(reg.members.values()), {"coordinator"})
+        with self.assertRaises(registry.RegistryError):
+            reg.set_role("myrepo.1+ws.podman", "worker").set_role("myrepo.1+ws.podman", "coordinator")
 
 
 if __name__ == "__main__":

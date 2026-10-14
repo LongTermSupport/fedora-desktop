@@ -41,7 +41,7 @@ LIM = limits.Limits()
 CTX = protocol.Context(
     server_name=SN,
     humans=frozenset({HUMAN}),
-    roles={ME: "worker", ORCH: "orchestrator", PEER: "worker"},
+    roles={ME: "worker", ORCH: "coordinator", PEER: "worker"},
     repos={"example-org/myrepo": ("main",)},
     path_prefixes=("docs/",),
 )
@@ -620,7 +620,7 @@ class SendGateTest(StateCase):
 
 
 TEAM_CONTENT = {
-    "v": 1, "team": "team-a", "humans": [HUMAN], "roles": {ME: "worker", ORCH: "orchestrator"},
+    "v": 1, "team": "team-a", "humans": [HUMAN], "roles": {ME: "worker", ORCH: "coordinator"},
     "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
     "path_prefixes": ["docs/"], "forge_api": "https://api.github.com",
 }

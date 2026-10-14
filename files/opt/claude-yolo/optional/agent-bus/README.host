@@ -37,7 +37,7 @@ run `gh auth login --hostname github.com`". Setting this up is yours; nothing he
    ```
 
    `--address` is one of the team's listen addresses; `--role` is `worker` or
-   `orchestrator`; add `--no-human-text` if this member should take pings only. The
+   `coordinator` (at most one per team); add `--no-human-text` if this member should take pings only. The
    bundle is written for the user who ran sudo, so it is then installed for the agent
    user, owned by it, directory 0700 and files 0600, at
    ~<agent-user>/.config/pingbus/<team>/, and the human's copy deleted.

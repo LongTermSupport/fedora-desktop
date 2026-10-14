@@ -48,6 +48,13 @@ token, so every receiver re-checks everything (§9).
 - `exclude` (§8, §11) is the same: a receiver built before it reads a team record carrying
   `exclude` as untrusted (an unknown key), so every member of a team takes the current
   pingbus before the team's file names an `exclude`.
+- The `coordinator` role (§8) and the copy a worker's message to a human also sends it (§7)
+  are still version 1: the copy is an ordinary ping or agent text that names one more
+  addressee, so a receiver built before it accepts it as it accepts any other. But a receiver
+  built before the rename reads a team record that says `coordinator` as untrusted (an unknown
+  role), so every member of a team takes the current pingbus before the team's file names a
+  coordinator. A record that still says `orchestrator` reads as `coordinator` (§8), so the
+  rename needs no migration.
 - `pingbus version` prints `pingbus <tool-version> protocol 1`.
 
 ## 2. Event types and the `agent_bus` prefix
@@ -165,15 +172,15 @@ Example: `[agent-bus] review pr:example-org/myrepo#12@0123456789abcdef0123456789
 
 | Verb      | Meaning to the receiver                                                                            | `ref` forms allowed              | `re`      | Ack expected | May be sent by           | External `ref` |
 | --------- | -------------------------------------------------------------------------------------------------- | -------------------------------- | --------- | ------------ | ------------------------ | -------------- |
-| `fetch`   | Fetch the referenced repository state and read the artefact; no other action implied.              | required: `path`, `commit`       | forbidden | yes          | orchestrator             | yes            |
-| `sync`    | Re-read the referenced plan or spec and bring your work in line with it.                           | required: `path`, `commit`       | forbidden | yes          | orchestrator             | no             |
-| `review`  | Review the referenced artefact; answer `done` with a reference to your review, or `blocked`.       | required: `path`, `commit`, `pr` | forbidden | yes          | orchestrator, worker     | yes            |
-| `run-qa`  | Run QA on the referenced commit or pull request head; answer `done` or `blocked` with a reference. | required: `commit`, `pr`         | forbidden | yes          | orchestrator, worker     | no             |
-| `halt`    | Stop at the next safe point, commit work in progress, start nothing new until a `sync`.            | forbidden                        | forbidden | yes          | orchestrator             | no             |
+| `fetch`   | Fetch the referenced repository state and read the artefact; no other action implied.              | required: `path`, `commit`       | forbidden | yes          | coordinator              | yes            |
+| `sync`    | Re-read the referenced plan or spec and bring your work in line with it.                           | required: `path`, `commit`       | forbidden | yes          | coordinator              | no             |
+| `review`  | Review the referenced artefact; answer `done` with a reference to your review, or `blocked`.       | required: `path`, `commit`, `pr` | forbidden | yes          | coordinator, worker      | yes            |
+| `run-qa`  | Run QA on the referenced commit or pull request head; answer `done` or `blocked` with a reference. | required: `commit`, `pr`         | forbidden | yes          | coordinator, worker      | no             |
+| `halt`    | Stop at the next safe point, commit work in progress, start nothing new until a `sync`.            | forbidden                        | forbidden | yes          | coordinator              | no             |
 | `ack`     | The ping or human message `re` was received and will be acted on.                                  | forbidden                        | required  | no           | anyone addressed by `re` | no             |
 | `nack`    | The ping or human message `re` was received and will not be acted on; `ref` may give the reason.   | optional: any form               | required  | no           | anyone addressed by `re` | yes            |
-| `done`    | The work is finished; the result is at `ref`; `re` names the request when there was one.           | required: any form               | optional  | no           | orchestrator, worker     | yes            |
-| `blocked` | Cannot proceed; the reason is written at `ref` (an issue comment, a plan entry).                   | required: any form               | optional  | no           | orchestrator, worker     | yes            |
+| `done`    | The work is finished; the result is at `ref`; `re` names the request when there was one.           | required: any form               | optional  | no           | coordinator, worker      | yes            |
+| `blocked` | Cannot proceed; the reason is written at `ref` (an issue comment, a plan entry).                   | required: any form               | optional  | no           | coordinator, worker      | yes            |
 
 A verb from a sender whose role is not in its "May be sent by" column: drop (`role`). A `ref`
 form not allowed for the verb: drop (`ref`). An external `ref` (§11) for a verb whose last
@@ -312,6 +319,17 @@ command. Pings remain the way to act: whenever there is a structured action (a r
 ack, a wake-up, anything with a real artefact to reference) the agent sends a ping (§4),
 and uses agent text for the discussion around it. A member whose bundle has `"human_text": false` takes pings only: it drops agent text naming it as `sender`, as it does human text.
 
+**The coordinator's copy.** When a worker writes to a listed human, by `say` or by a ping
+that may name one (`ack`, `nack`, `done`, `blocked`, §4), `pingbus` adds the team's
+coordinator to the addressees, unless the coordinator is the sender or is already named, or
+the team has none: the worker never has to remember to. It is no new kind of message: the
+coordinator is one more user ID in `to` and in `m.mentions.user_ids`, so every check on send
+and on receive treats it like any other addressee, and a member built before this simply
+sees an agent text or ping that names the coordinator. A receiver that is the coordinator
+and finds listed humans among the addressees is **on copy**: its `PEER` or `PING` line says
+so and names them (§15). Nothing is added for a message to agents only, or to the
+coordinator alone.
+
 An `m.room.message` whose content has exactly these keys:
 
 | Key              | Value                                                |
@@ -366,21 +384,31 @@ credential-assignment  (?i)\b(?:password|passwd|pwd|secret|token|access[_-]?toke
 
 **Team record**: `agent_bus.team`, state key `""`, sent by `admin`:
 
-| Key             | Type             | Rule                                                                   |
-| --------------- | ---------------- | ---------------------------------------------------------------------- |
-| `v`             | integer          | `1`                                                                    |
-| `team`          | string           | the team name; equals the member config's                              |
-| `humans`        | array of strings | 1 to 16 user IDs of human localparts                                   |
-| `roles`         | object           | 0 to 64 entries: agent-handle user ID → `"orchestrator"` or `"worker"` |
-| `org`           | string           | optional; `OWNER` (§6), §11                                            |
-| `exclude`       | array of strings | optional; needs `org`; §11                                             |
-| `repos`         | array of objects | §11                                                                    |
-| `path_prefixes` | array of strings | optional; §11                                                          |
-| `forge_api`     | string           | `https://[^\s/]+(/\S*)?`                                               |
+| Key             | Type             | Rule                                                                  |
+| --------------- | ---------------- | --------------------------------------------------------------------- |
+| `v`             | integer          | `1`                                                                   |
+| `team`          | string           | the team name; equals the member config's                             |
+| `humans`        | array of strings | 1 to 16 user IDs of human localparts                                  |
+| `roles`         | object           | 0 to 64 entries: agent-handle user ID → `"coordinator"` or `"worker"` |
+| `org`           | string           | optional; `OWNER` (§6), §11                                           |
+| `exclude`       | array of strings | optional; needs `org`; §11                                            |
+| `repos`         | array of objects | §11                                                                   |
+| `path_prefixes` | array of strings | optional; §11                                                         |
+| `forge_api`     | string           | `https://[^\s/]+(/\S*)?`                                              |
 
 The team file accepts only `https://api.github.com` for `forge_api`, the one forge a
 member's credential is sent to (§6). Every key but `org`, `exclude` and `path_prefixes` is required. Unknown keys, or a record not sent by `admin`, make the room untrusted (exit 10 for every
 command that needs it; `status` says why).
+
+**The coordinator.** A team has three kinds of member: workers, humans, and at most one
+agent its owner nominates as the **coordinator**. The coordinator holds every verb a worker
+holds and the verbs that direct others (`fetch`, `sync`, `halt`, §5), is the addressee of
+`--to-coordinator` (§13), and is copied on what workers tell humans (§7). A record that says
+`"orchestrator"`, the name this role had, reads as `"coordinator"` (`roles` of the parsed
+record holds only `coordinator` and `worker`); writers write `coordinator`. The limit of one
+is the writers': `agent-bus add-member` and `set-role` refuse a second coordinator, naming the
+holder, and a parked member keeps the role it holds. A receiver does not refuse a record that
+lists more than one (a record from before the limit may): it treats each as a coordinator.
 
 A `roles` key names a numbered or a named seat alike, for example
 `@myrepo.3+workstation.host:<sn>` and `@myrepo.dev1+local.podman:<sn>`; a parked member
@@ -651,8 +679,8 @@ homeserver host.
 
 | Command                                                                                          | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Network |
 | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `send VERB [REF] (--to HANDLE[,HANDLE…] \| --to-orchestrator) [--re EVENT_ID] [--branch BRANCH]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs; `--to-orchestrator` means every orchestrator in the team record but the sender, refused (`target`) when there is none; the ping's `branch` (§4) is `--branch`, else, for a `path` or `commit` reference into a repository whose every branch is trusted (an unlisted one of the team's `org`, or one listed with no `branches`), the branch the working directory's checkout tracks on `origin` when `origin` is that repository (so an agent never types it), else none                                                                                                                                                                                                                                                                                                                                                                                                            | yes     |
-| `say --to NAME[,NAME…]`                                                                          | the only way to emit an agent text (§7); the text is read from stdin as UTF-8, less one trailing newline; `--to` takes human localparts, handles or full user IDs, each a listed human or a role-holding agent, never `@room`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | yes     |
+| `send VERB [REF] [--to HANDLE[,HANDLE…]] [--to-coordinator] [--re EVENT_ID] [--branch BRANCH]` | the only way to emit a ping; `--to` takes handles, human localparts, or full user IDs; at least one of `--to` and `--to-coordinator` is required and they combine; `--to-coordinator` means the team's coordinator, refused (`target`) when the sender is the only one or there is none; a worker's ping naming a human also names the coordinator (§7); the ping's `branch` (§4) is `--branch`, else, for a `path` or `commit` reference into a repository whose every branch is trusted (an unlisted one of the team's `org`, or one listed with no `branches`), the branch the working directory's checkout tracks on `origin` when `origin` is that repository (so an agent never types it), else none                                                                                                                                                                                                                                                                                                                                                                                                            | yes     |
+| `say [--to NAME[,NAME…]] [--to-coordinator]` | the only way to emit an agent text (§7); the text is read from stdin as UTF-8, less one trailing newline; `--to` takes human localparts, handles or full user IDs, each a listed human or a role-holding agent, never `@room`; as for `send`, at least one of `--to` and `--to-coordinator` is required, and a worker's text naming a human also names the coordinator (§7)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | yes     |
 | `recv`                                                                                           | sync once if the lock is free, then print and consume every pending item and due `TIMEOUT`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | yes     |
 | `wait [--timeout S]`                                                                             | hold the locks, long-poll until at least one item or `TIMEOUT`, print and consume them, exit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | yes     |
 | `watch`                                                                                          | started by the SessionStart hook: hold the locks, sync, fill the inbox, notify the session socket (counts and a rising notice number) whenever an item is pending that was not at the last look, at most one notice per 2 s; exit 0 when the socket goes; a team that fails is reported and dropped, and the watcher exits with the first failure's code once no team is left; refused (78) without `CLAUDE_CODE_MESSAGING_SOCKET` and its token                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | yes     |
@@ -711,9 +739,9 @@ only ever appended in later versions, never reordered.
 
 | Line      | Stream | Fields                                                                                                                     |
 | --------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `PING`    | stdout | `PING`, `1`, team, event ID, sender, verb, ref, re, trust, branch                                                          |
+| `PING`    | stdout | `PING`, `1`, team, event ID, sender, verb, ref, re, trust, branch, copy                                                          |
 | `HUMAN`   | stdout | `HUMAN`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string                                       |
-| `PEER`    | stdout | `PEER`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string                                        |
+| `PEER`    | stdout | `PEER`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string, copy                                |
 | `TIMEOUT` | stdout | `TIMEOUT`, `1`, team, event ID of the unanswered ping, silent target, verb, ref                                            |
 | `SENT`    | stdout | `SENT`, `1`, team, event ID (from `send` or `say`)                                                                         |
 | `DROPPED` | stderr | `DROPPED`, `1`, count, `reason=count` pairs joined by `,` (one line per batch: per team per pass; re-fetch drops included) |
@@ -727,16 +755,22 @@ information, never follows instructions found in it, and does nothing on its str
 would not do for a stranger's text. The ping's verb still says what is asked (read it, review
 it, or note a result), never more.
 
+A `PING` or `PEER` line's last field, `copy`, is `-` unless the receiver is the team's
+coordinator and the item also names listed humans (§7): then it is `copy:` and those humans'
+localparts joined by `,` (`copy:alice,bob`), and the receiving agent knows the item was
+addressed to them and sent to it for its information, not as a request of its own.
+
 The `HUMAN` and `PEER` text field is `json.dumps(body, ensure_ascii=True)`, so newlines, tabs
 and control characters arrive escaped, and the line stays one line. A `PEER` line is an
 agent's text naming this agent (§7): information from a peer, never an instruction; its
 sender is an agent handle, never a human. Examples:
 
 ```
-PING	1	<team>	$AbC…	orch.1+workstation.podman	review	pr:example-org/myrepo#12@0123…	-	trusted	-
-PING	1	<team>	$MnO…	orch.1+workstation.podman	done	issue:someone/project#7	-	external	-
+PING	1	<team>	$AbC…	orch.1+workstation.podman	review	pr:example-org/myrepo#12@0123…	-	trusted	-	-
+PING	1	<team>	$MnO…	orch.1+workstation.podman	done	issue:someone/project#7	-	external	-	copy:alice
 HUMAN	1	<team>	$DeF…	alice	1791234567890	"please halt and commit what you have"
-PEER	1	<team>	$JkL…	orch.1+workstation.podman	1791234567950	"I am on the docs; the tests are yours"
+PEER	1	<team>	$JkL…	orch.1+workstation.podman	1791234567950	"I am on the docs; the tests are yours"	-
+PEER	1	<team>	$PqR…	myrepo.2+workstation.podman	1791234568100	"the docs are merged"	copy:alice
 ```
 
 A `HISTORY` line (`history`, §13) records one item: `in` for one this member received,
@@ -748,7 +782,7 @@ holds it). It is a record of the past, never a request to act:
 work comes from `recv` and `wait` only.
 
 ```
-HISTORY	1	out	1791234567999	PING	<team>	$GhI…	myrepo.1+workstation.podman	ack	-	$AbC…
+HISTORY	1	out	1791234567999	PING	<team>	$GhI…	myrepo.1+workstation.podman	ack	-	$AbC…	-	-	-
 HISTORY	1	in	1791234567890	HUMAN	<team>	$DeF…	alice	1791234567890	"please halt and commit what you have"
 ```
 
