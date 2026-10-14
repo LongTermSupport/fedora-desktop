@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -294,6 +295,58 @@ func TestP8SymlinkAndDirectoryEntriesAreNotScriptsAndSymlinksAreCounted(t *testi
 	}
 }
 
+// P8, P16: a link is "not scanned in its own right" only when its target is scanned.
+func TestP8LinkToAScriptOutsideTheScannedSetIsScannedUnderItsOwnNameAndNamed(t *testing.T) {
+	w := oneScript(t)
+	w.write("untracked/scratch/evil.bash", shebang+"cmd || true\n")
+	w.link("scripts/alias.bash", "../untracked/scratch/evil.bash")
+	got := w.main()
+	wantExit(t, got, ExitOK)
+	if strings.Join(w.run.mirrorFiles, ",") != "scripts/a.bash,scripts/alias.bash" {
+		t.Fatalf("mirror: %v", w.run.mirrorFiles)
+	}
+	if w.run.mirrorData["scripts/alias.bash"] != shebang+"cmd || true\n" {
+		t.Fatalf("the link's content: %q", w.run.mirrorData["scripts/alias.bash"])
+	}
+	for _, part := range []string{
+		"⚠ patterns: 1 symlink(s) scanned under their own name, their targets being outside the scanned set:",
+		"    scripts/alias.bash -> untracked/scratch/evil.bash",
+		"✓ patterns: 2 files OK",
+	} {
+		if !strings.Contains(got.stdout, part) {
+			t.Fatalf("stdout lacks %q:\n%s", part, got.stdout)
+		}
+	}
+	if strings.Contains(got.stdout, "not scanned in their own right") {
+		t.Fatalf("claims a target scanned that is not:\n%s", got.stdout)
+	}
+}
+
+func TestP8LinkToATargetOutsideTheRootIsScannedUnderItsOwnNameToo(t *testing.T) {
+	w := oneScript(t)
+	outside := filepath.Join(t.TempDir(), "far.bash")
+	if err := os.WriteFile(outside, []byte(shebang), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w.link("scripts/far.bash", outside)
+	got := w.main()
+	wantExit(t, got, ExitOK)
+	if !strings.Contains(got.stdout, "    scripts/far.bash -> "+outside) {
+		t.Fatalf("stdout:\n%s", got.stdout)
+	}
+}
+
+func TestP8LinkToAScriptInAnExcludedTreeIsScannedUnderItsOwnName(t *testing.T) {
+	w := oneScript(t)
+	w.write("untracked/x.bash", shebang)
+	w.link("scripts/viaexcluded", "../untracked/x.bash")
+	got := w.main()
+	wantExit(t, got, ExitOK)
+	if !strings.Contains(got.stdout, "    scripts/viaexcluded -> untracked/x.bash") || !slices.Contains(w.run.mirrorFiles, "scripts/viaexcluded.bash") {
+		t.Fatalf("mirror %v\nstdout:\n%s", w.run.mirrorFiles, got.stdout)
+	}
+}
+
 func TestP8ACandidateGitListsButTheTreeLacksIsExit2NamingIt(t *testing.T) {
 	w := oneScript(t)
 	w.run.files = append(w.run.files, "bin/vanished")
@@ -371,13 +424,58 @@ func TestP11SemgrepRunsInTheMirrorWithTheRules(t *testing.T) {
 		}
 	}
 	joined := strings.Join(argv, " ")
-	for _, part := range []string{"--config " + filepath.Join(w.root, ".semgrep/bash-conventions.yml"), "--json-output", "--metrics=off", "--quiet"} {
+	for _, part := range []string{"--config ../rules.yml", "--json-output", "--metrics=off", "--quiet", "--max-target-bytes=0"} {
 		if !strings.Contains(joined, part) {
 			t.Fatalf("argv %q lacks %q", joined, part)
 		}
 	}
 	if argv[len(argv)-1] != "." {
 		t.Fatalf("target is not the mirror root: %v", argv)
+	}
+}
+
+func TestP11RulesAreCopiedBesideTheMirrorSoRuleIdsAreBare(t *testing.T) {
+	w := newWorld(t, map[string]string{"scripts/a.bash": shebang, ".semgrep/bash-conventions.yml": "rules: [the-rules]\n"})
+	wantExit(t, w.main(), ExitOK)
+	if w.run.rulesBeside != "rules: [the-rules]\n" {
+		t.Fatalf("the rules beside the mirror: %q", w.run.rulesBeside)
+	}
+	for _, rel := range w.run.mirrorFiles {
+		if strings.Contains(rel, "rules") {
+			t.Fatalf("the rules file is inside the mirror and would be scanned: %v", w.run.mirrorFiles)
+		}
+	}
+	for _, c := range w.run.calls {
+		if c[0] == "semgrep" && slices.Contains(c, "--json-output") && strings.Contains(strings.Join(c, " "), w.root) {
+			t.Fatalf("the checkout path reaches semgrep's scan argv, so it reaches rule ids: %v", c)
+		}
+	}
+}
+
+// P10: semgrep's own ignore list would drop tests/, vendor/, build/ and more; the mirror
+// overrides it with an empty one.
+func TestP10MirrorHoldsAnEmptySemgrepignoreAndKeepsTestsDirectories(t *testing.T) {
+	w := newWorld(t, map[string]string{"scripts/a.bash": shebang, "tests/x.bash": shebang})
+	wantExit(t, w.main(), ExitOK)
+	if w.run.ignoreFile == nil || *w.run.ignoreFile != "" {
+		t.Fatalf("the mirror's .semgrepignore: %v", w.run.ignoreFile)
+	}
+	if got := strings.Join(w.run.mirrorFiles, ","); got != "scripts/a.bash,tests/x.bash" {
+		t.Fatalf("mirror: %s", got)
+	}
+}
+
+// P10: CRLF becomes LF in the copy, so a $-anchored rule matches; the real file is untouched.
+func TestP10MirrorNormalisesCRLFToLFAndLeavesTheSourceAlone(t *testing.T) {
+	crlf := "#!/usr/bin/bash\r\ncmd || true\r\nlone\rcr\r\n"
+	w := newWorld(t, map[string]string{"scripts/a.bash": crlf})
+	wantExit(t, w.main(), ExitOK)
+	if got := w.run.mirrorData["scripts/a.bash"]; got != "#!/usr/bin/bash\ncmd || true\nlone\rcr\n" {
+		t.Fatalf("mirror copy: %q", got)
+	}
+	src, err := os.ReadFile(filepath.Join(w.root, "scripts/a.bash"))
+	if err != nil || string(src) != crlf {
+		t.Fatalf("source touched: %q %v", src, err)
 	}
 }
 
@@ -470,6 +568,19 @@ func TestP14AnyOtherErrorTypeIsExit2(t *testing.T) {
 	wantExit(t, got, ExitCannotRun)
 	wantStderr(t, got, "ERROR:", "Timeout", "scripts/a.bash")
 	noReport(t, w)
+}
+
+func TestP14AnErrorWithNoPathNamesNoPathNotAnEmptyString(t *testing.T) {
+	w := oneScript(t)
+	w.run.scan = func(string) string {
+		return semgrepJSON([]string{"scripts/a.bash"}, nil, `{"type":"Timeout"}`)
+	}
+	got := w.main()
+	wantExit(t, got, ExitCannotRun)
+	wantStderr(t, got, "ERROR:", "Timeout", "(no path)")
+	if strings.Contains(got.stderr, `""`) {
+		t.Fatalf("an empty quoted path:\n%s", got.stderr)
+	}
 }
 
 // P15, P17, P18

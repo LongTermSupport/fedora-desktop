@@ -62,6 +62,9 @@ type scanResult struct {
 	partial  map[string][]lineRange
 }
 
+// noPath names the file of an error semgrep gives none.
+const noPath = "(no path)"
+
 // semgrepReport is the part of semgrep's JSON that matters.
 type semgrepReport struct {
 	Results []struct {
@@ -103,8 +106,12 @@ func (g *gate) scanIn(ctx context.Context, work string, scripts []script) (scanR
 		return scanResult{}, err
 	}
 	out := filepath.Join(work, "semgrep.json")
-	rules := filepath.Join(g.root, filepath.FromSlash(rulesPath))
-	run, err := g.runTool(ctx, semgrepTimeout, mirror, "semgrep", "--config", rules, "--json-output", out, "--metrics=off", "--quiet", ".")
+	if err := g.copyRules(filepath.Join(work, "rules.yml")); err != nil {
+		return scanResult{}, err
+	}
+	// The rules sit beside the mirror and are named relative to it: a config file outside the
+	// scan root makes semgrep prefix every rule id with that file's dotted absolute path.
+	run, err := g.runTool(ctx, semgrepTimeout, mirror, "semgrep", "--config", "../rules.yml", "--json-output", out, "--metrics=off", "--quiet", "--max-target-bytes=0", ".")
 	if err != nil {
 		return scanResult{}, err
 	}
@@ -123,6 +130,18 @@ func (g *gate) scanIn(ctx context.Context, work string, scripts []script) (scanR
 		return scanResult{}, fmt.Errorf("cannot read semgrep's report: %w", err)
 	}
 	return g.judge(scripts, report)
+}
+
+// copyRules puts the rules file where the scan reads it.
+func (g *gate) copyRules(dest string) error {
+	data, err := os.ReadFile(filepath.Join(g.root, filepath.FromSlash(rulesPath)))
+	if err != nil {
+		return fmt.Errorf("cannot read the rules: %w", err)
+	}
+	if err := os.WriteFile(dest, data, 0o600); err != nil {
+		return fmt.Errorf("cannot copy the rules beside the scan mirror: %w", err)
+	}
+	return nil
 }
 
 // judge maps the report back to repository paths and refuses a pass over code the analyser
@@ -177,9 +196,11 @@ func (g *gate) judgeErrors(report semgrepReport, unmirror func(string) (string, 
 		if err != nil {
 			return err
 		}
-		rel, err := unmirror(e.Path)
-		if err != nil {
-			return err
+		rel := noPath
+		if e.Path != "" {
+			if rel, err = unmirror(e.Path); err != nil {
+				return err
+			}
 		}
 		switch name {
 		case "Syntax error":

@@ -258,8 +258,17 @@ func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 	for _, f := range []string{".semgrep/bash-conventions.yml", ".semgrep/bash-conventions.bash", "src-go/qa/patterns/run.go", "src-go/qa/cmd/qa-patterns/main.go"} {
 		w.touch(f, "// x")
 		p := w.classify([]string{f})
-		if !p.has("patterns") || len(p.uncovered) != 0 {
-			t.Errorf("%s: checks %v uncovered %v", f, keys(p), p.uncovered)
+		if !p.has("patterns") || len(p.uncovered) != 0 || len(p.skipped) != 0 {
+			t.Errorf("%s: checks %v uncovered %v skipped %v", f, keys(p), p.uncovered, p.skipped)
+		}
+	}
+	// The wrapper, the library it runs and the table it reads change what the gate does.
+	for _, f := range []string{"scripts/qa-patterns.bash", "scripts/lib/go-tool.bash", "scripts/qa-trees.tsv"} {
+		if f != "scripts/qa-trees.tsv" {
+			w.touch(f, "#!/usr/bin/bash")
+		}
+		if p := w.classify([]string{f}); !p.has("patterns") {
+			t.Errorf("%s: checks %v", f, keys(p))
 		}
 	}
 	w.touch(".semgrep/gh-scopes.yml", "# x")

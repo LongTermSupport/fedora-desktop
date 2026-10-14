@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck patterns\nskipped (excluded tree): .semgrep/bash-conventions.yml\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck patterns\n",
  "stderr": "",
  "status": 0,
  "log": []

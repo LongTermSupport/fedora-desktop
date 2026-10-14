@@ -2,6 +2,7 @@ package patterns
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -23,39 +24,88 @@ type script struct {
 // headBytes is how much of a file is read to see its shebang.
 const headBytes = 1024
 
-// discover lists the shell scripts git would publish, outside the excluded trees, and the
-// count of symlinks that are scripts but are not scanned under their own name.
-func (g *gate) discover(ctx context.Context) ([]script, int, error) {
+// linkCoverage is what became of the symlinks that are shell scripts: covered counts those whose
+// target is itself scanned, and own lists "link -> target" for those scanned under the link's name
+// because the target is not among the scripts.
+type linkCoverage struct {
+	covered int
+	own     []string
+}
+
+// discover lists the shell scripts git would publish, outside the excluded trees, and what became
+// of the symlinks that are scripts.
+func (g *gate) discover(ctx context.Context) ([]script, linkCoverage, error) {
+	var links linkCoverage
 	trees, err := loadShellTrees(filepath.Join(g.scripts, treesFile))
 	if err != nil {
-		return nil, 0, err
+		return nil, links, err
 	}
 	candidates, err := g.published(ctx)
 	if err != nil {
-		return nil, 0, err
+		return nil, links, err
 	}
 	var scripts []script
-	symlinks := 0
+	var symlinks []string
 	for _, rel := range candidates {
 		if excluded(rel, trees) {
 			continue
 		}
-		k, err := g.classify(rel)
-		if err != nil {
-			return nil, 0, err
+		k, classErr := g.classify(rel)
+		if classErr != nil {
+			return nil, links, classErr
 		}
 		switch k {
 		case kindScript:
 			scripts = append(scripts, script{rel: rel, mirror: mirrorName(rel)})
 		case kindSymlinkedScript:
-			symlinks++
+			symlinks = append(symlinks, rel)
 		case kindOther:
 		}
 	}
-	if len(scripts) == 0 {
-		return nil, 0, fmt.Errorf("shell-script discovery found 0 shell scripts under %s: this repository always has some, so discovery is broken, and a pass here would vouch for code nothing had read", g.root)
+	scripts, links, err = g.placeSymlinks(scripts, symlinks)
+	if err != nil {
+		return nil, links, err
 	}
-	return scripts, symlinks, nil
+	if len(scripts) == 0 {
+		return nil, links, fmt.Errorf("shell-script discovery found 0 shell scripts under %s: this repository always has some, so discovery is broken, and a pass here would vouch for code nothing had read", g.root)
+	}
+	return scripts, links, nil
+}
+
+// placeSymlinks leaves a link out of the scan only when its target is among the scripts, where it
+// is scanned under its own name. Any other link (the target is ignored by git, in an excluded
+// tree, or outside the root) is scanned under its own name, so no published path to shell goes
+// unread.
+func (g *gate) placeSymlinks(scripts []script, symlinks []string) ([]script, linkCoverage, error) {
+	var links linkCoverage
+	if len(symlinks) == 0 {
+		return scripts, links, nil
+	}
+	rootReal, err := filepath.EvalSymlinks(g.root)
+	if err != nil {
+		return nil, links, fmt.Errorf("cannot resolve %s: %w", g.root, err)
+	}
+	scanned := make(map[string]bool, len(scripts))
+	for _, s := range scripts {
+		scanned[s.rel] = true
+	}
+	for _, rel := range symlinks {
+		target, linkErr := filepath.EvalSymlinks(filepath.Join(g.root, filepath.FromSlash(rel)))
+		if linkErr != nil {
+			return nil, links, fmt.Errorf("the symlink %s cannot be followed: %w", rel, linkErr)
+		}
+		shown := target
+		if inRoot, relErr := filepath.Rel(rootReal, target); relErr == nil && inRoot != ".." && !strings.HasPrefix(inRoot, "../") {
+			shown = filepath.ToSlash(inRoot)
+			if scanned[shown] {
+				links.covered++
+				continue
+			}
+		}
+		scripts = append(scripts, script{rel: rel, mirror: mirrorName(rel)})
+		links.own = append(links.own, rel+" -> "+shown)
+	}
+	return scripts, links, nil
 }
 
 // published is the files git would publish (tracked, or untracked and not ignored) that are
@@ -258,9 +308,17 @@ func mirrorName(rel string) string {
 	return rel + ".bash"
 }
 
-// buildMirror copies the scripts into dir at their mirror names. Two scripts claiming one name
+// buildMirror copies the scripts into dir at their mirror names, line endings normalised to LF. Two scripts claiming one name
 // would silently replace each other, so that is an error.
 func (g *gate) buildMirror(dir string, scripts []script) error {
+	// semgrep drops tests/, vendor/, build/ and more by default; an empty ignore file keeps every
+	// script the gate discovered.
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("cannot build the scan mirror: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".semgrepignore"), nil, 0o600); err != nil {
+		return fmt.Errorf("cannot build the scan mirror: %w", err)
+	}
 	claimed := make(map[string]string, len(scripts))
 	for _, s := range scripts {
 		if other, taken := claimed[s.mirror]; taken {
@@ -275,7 +333,7 @@ func (g *gate) buildMirror(dir string, scripts []script) error {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 			return fmt.Errorf("cannot build the scan mirror: %w", err)
 		}
-		if err := os.WriteFile(dest, data, 0o600); err != nil {
+		if err := os.WriteFile(dest, bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n")), 0o600); err != nil {
 			return fmt.Errorf("cannot build the scan mirror: %w", err)
 		}
 	}

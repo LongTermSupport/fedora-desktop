@@ -147,6 +147,11 @@ type fakeRun struct {
 	dirs        []string
 	mirror      string
 	mirrorFiles []string
+	// mirrorData is each mirror file's bytes as semgrep saw them; ignoreFile is the mirror's
+	// .semgrepignore (nil when there is none); rulesBeside is the rules file next to the mirror.
+	mirrorData  map[string]string
+	ignoreFile  *string
+	rulesBeside string
 }
 
 func (f *fakeRun) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
@@ -184,6 +189,8 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	}
 	f.mirror = c.Dir
 	f.mirrorFiles = nil
+	f.mirrorData = map[string]string{}
+	f.ignoreFile = nil
 	err := filepath.WalkDir(c.Dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -194,6 +201,21 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	})
 	if err != nil {
 		return proc.Result{}, err
+	}
+	for _, rel := range f.mirrorFiles {
+		data, readErr := os.ReadFile(filepath.Join(c.Dir, rel))
+		if readErr != nil {
+			return proc.Result{}, readErr
+		}
+		f.mirrorData[rel] = string(data)
+	}
+	if text, ok := f.mirrorData[".semgrepignore"]; ok {
+		f.ignoreFile = &text
+		delete(f.mirrorData, ".semgrepignore")
+		f.mirrorFiles = slices.DeleteFunc(f.mirrorFiles, func(rel string) bool { return rel == ".semgrepignore" })
+	}
+	if rules, readErr := os.ReadFile(filepath.Join(c.Dir, "..", "rules.yml")); readErr == nil {
+		f.rulesBeside = string(rules)
 	}
 	slices.Sort(f.mirrorFiles)
 	if i := slices.Index(c.Argv, "--json-output"); i >= 0 {

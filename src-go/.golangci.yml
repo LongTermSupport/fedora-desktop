@@ -103,12 +103,22 @@ linters:
       # which qa-all and qa-changed read.
       - path: qa/changed/checks\.go|qa/ansible/report\.go|qa/patterns/semgrep\.go
         linters: [tagliatelle]
-      # qa-patterns copies the scripts git lists into a scan mirror, reads the trees table and
-      # each script's first line, and reads semgrep's report, all by computed path; the paths
-      # come from git and the command line of the person running it.
-      - path: qa/(patterns|cmd/qa-patterns)/
+      # qa-patterns copies the scripts into a scan mirror (discover.go), reads the trees table
+      # and each script's first line, reads the rules and semgrep's report (semgrep.go), and
+      # reads a script back for its line count (report.go), all by computed path; the paths come
+      # from the repository's own file list and the command line of the person running it. Only
+      # these files, so a new file or a test is still held to the rule.
+      - path: qa/patterns/(discover|semgrep|report)\.go
         linters: [gosec]
         text: "G304|G703"
+      # The command's report writer and the real-tree test read and write by computed path.
+      - path: qa/cmd/qa-patterns/(main|real_test)\.go
+        linters: [gosec]
+        text: "G304|G703"
+      # Two tests read back a file they wrote under a temporary directory.
+      - path: qa/(patterns/helpers_test|cmd/qa-patterns/main_test)\.go
+        linters: [gosec]
+        text: "G304"
       # A test writes an executable stub to prove the executable check.
       - path: qa/changed/.*_test\.go
         linters: [gosec]

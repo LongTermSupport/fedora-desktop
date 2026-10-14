@@ -167,17 +167,18 @@ func write(env Env, text string) ExitCode {
 }
 
 // fail prints an ERROR line (and the usage, for a usage error) on stderr. A stderr that cannot
-// be written to has nowhere left to say so; the status still stands.
+// be written to has nowhere left to say so; the status is the same either way.
 func fail(env Env, err error, usage bool) ExitCode {
 	text := "ERROR: " + err.Error() + "\n"
 	if usage {
 		text += usageText
 	}
-	if _, werr := io.WriteString(env.Stderr, text); werr != nil {
-		return ExitCannotRun
-	}
-	return ExitCannotRun
+	return statusAfter(io.WriteString(env.Stderr, text))
 }
+
+// statusAfter is the status of a run that could not complete, whether or not its explanation
+// could be written.
+func statusAfter(int, error) ExitCode { return ExitCannotRun }
 
 // run is the whole check; every error is a run that could not complete.
 func (g *gate) run() (ExitCode, error) {
@@ -188,12 +189,15 @@ func (g *gate) run() (ExitCode, error) {
 	if err := g.proveRules(ctx); err != nil {
 		return ExitCannotRun, err
 	}
-	scripts, symlinks, err := g.discover(ctx)
+	scripts, links, err := g.discover(ctx)
 	if err != nil {
 		return ExitCannotRun, err
 	}
-	if symlinks > 0 {
-		fmt.Fprintf(&g.stdout, "⚠ patterns: %d symlink(s) not scanned in their own right (their targets are, under their own names)\n", symlinks)
+	if links.covered > 0 {
+		fmt.Fprintf(&g.stdout, "⚠ patterns: %d symlink(s) not scanned in their own right (their targets are, under their own names)\n", links.covered)
+	}
+	if len(links.own) > 0 {
+		fmt.Fprintf(&g.stdout, "⚠ patterns: %d symlink(s) scanned under their own name, their targets being outside the scanned set:\n%s\n", len(links.own), indent(links.own))
 	}
 	scan, err := g.scan(ctx, scripts)
 	if err != nil {
