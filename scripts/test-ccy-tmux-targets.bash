@@ -295,8 +295,15 @@ done
 check "what set-going typed shows on the real screen" "yes" "$typed"
 # The Go port's own real-tmux tests: the same targets through its Tmux type, kill-session
 # included, and the bare =name form refused.
-go_real="$(cd "$REPO_ROOT/src-go" && go test -count=1 -run 'RealTmux' ./internal/tmuxccy/ 2>&1)"
-check "tmuxccy's real-tmux tests pass" "ok" "$([[ "$go_real" == ok* ]] && echo ok || echo "$go_real")"
+#
+# `go test -run` that matches nothing still prints "ok", so a renamed test would pass this
+# check by running nothing: require a PASS line for a RealTmux test in the verbose output.
+go_run_pattern="${CCY_TMUX_TARGETS_GO_RUN:-RealTmux}"
+go_real="$(cd "$REPO_ROOT/src-go" && go test -count=1 -v -run "$go_run_pattern" ./internal/tmuxccy/ 2>&1)" || go_real="FAILED: $go_real"
+go_real_verdict=ok
+[[ "$go_real" == FAILED:* ]] && go_real_verdict="$go_real"
+[[ "$go_real_verdict" == ok && "$go_real" != *"--- PASS: "*RealTmux* ]] && go_real_verdict="no RealTmux test ran: $go_real"
+check "tmuxccy's real-tmux tests pass, and at least one ran" "ok" "$go_real_verdict"
 
 echo ""
 echo "ccy tmux targets, against $(tmux -V)"

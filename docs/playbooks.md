@@ -423,6 +423,14 @@ gh-personal issue list
 - Default engine for CCY and all new container work
 - See [Containerization Guide](containerization.md) for Podman vs Docker role split
 
+### play-golang.yml
+
+**Purpose**: Go toolchain, imported by `play-python.yml` and `play-claude-yolo.yml` (not optional)
+
+- Golang compiler and standard tools from DNF repositories
+- The toolchain only: no QA tooling, because `play-claude-yolo.yml` imports this play and runs unattended on self-update
+- `golangci-lint` and `gcc` (for `go test -race`) are installed by `play-python.yml`, the QA toolchain play, which also imports this one so its toolchain check finds `go`
+
 ### play-python.yml
 
 **Purpose**: Python development environment\
@@ -473,6 +481,8 @@ pipx install ruff
 - **Claude Code CLI**: installs the native `claude` binary on the `latest` channel and
   deploys the `cc` wrapper, which shares CCY's token pool and lib
 - Tightens the host `~/.claude` session store to owner-only permissions
+- Installs Go through the `play-golang.yml` it imports, then builds and installs the
+  `ccy-teams` and `ccy-sessions` Go binaries from the checkout
 - **CCY (YOLO Mode)**: General-purpose development container with browser automation built in
 - Unified token management
 - Custom Dockerfile support per project
@@ -1107,24 +1117,6 @@ Install camera FTP server (Sony A7V):
 Install GNOME Shell development tools:
 
 - Development dependencies for writing and testing GNOME Shell extensions
-
-#### play-golang.yml
-
-Go programming language:
-
-- Golang compiler and standard tools from DNF repositories
-- Latest stable version for Fedora 44
-- The toolchain only: no QA tooling, because `play-claude-yolo.yml` imports this play and runs unattended on self-update
-- `golangci-lint` and `gcc` (for `go test -race`) are installed by `play-python.yml`, the QA toolchain play, which also imports this one so its toolchain check finds `go`
-
-**What you get**:
-
-```bash
-go version
-go build
-go test
-go mod init
-```
 
 #### play-hd-audio.yml
 

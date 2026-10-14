@@ -4,7 +4,6 @@
 # Every play here MUST be scope: general AND headless-safe (no unconditional GUI
 # dependency, no interactive prompt reachable in a headless run). run.bash expands
 # the reserved token 'server-recommended' in RUN_BASH_OPTIONAL_PLAYBOOKS to this list.
-play-golang.yml
 play-rust-dev.yml
 play-distrobox.yml
 play-network-tools.yml

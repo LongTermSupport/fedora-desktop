@@ -59,12 +59,12 @@ PLANS=(
     # ccy-teams from the owner's first host run: a checkout no team covers is offered a team,
     # "repositories you list (one or more)", Element started apart from the terminal with
     # its output logged, copy-the-password defaults to yes, the terminal's own colours with
-    # one accent in the pickers (CCY 3.95.5) (Plan 00177); and ccy-teams is now the Go
-    # binary, built from the checkout by this play, which imports play-golang.yml, now the Go
-    # toolchain alone (CCY 3.95.6); builds no longer stamp the git revision, so an unchanged
-    # source reports ok; the bash functions only the old ccy-sessions called are gone (CCY 3.95.8);
-    # and ccy-sessions is too, installed at the same path for the boot units, shutdown-with-update
-    # and the self-update cycle (CCY 3.95.7) (Plan 00191)
+    # one accent in the pickers (CCY 3.95.5) (Plan 00177). Then, from Plan 00191: ccy-teams
+    # is now a Go binary, built from the checkout by this play, which imports play-golang.yml,
+    # now the Go toolchain alone (CCY 3.95.6); ccy-sessions is a Go binary too, installed at
+    # the same path for the boot units, shutdown-with-update and the self-update cycle
+    # (CCY 3.95.7); the bash functions only the old ccy-sessions called are gone (CCY 3.95.8);
+    # builds no longer stamp the git revision, so an unchanged source reports ok.
     playbooks/imports/play-claude-yolo.yml
     # Element: may reach the keyring (no "No encryption support" question on a profile's
     # first start); launchers named "<team> team (Element)" (Plan 00177)

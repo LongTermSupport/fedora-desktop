@@ -3,7 +3,7 @@
 # The QA toolchain check below (scripts/qa-toolchain.bash) asserts go too, so the Go
 # toolchain is installed first; play-golang.yml stays its one source of truth. The QA
 # tools, golangci-lint included, are installed by this play.
-- import_playbook: optional/common/play-golang.yml
+- import_playbook: play-golang.yml
 
 # This play installs things you need for Python and AI development
 - hosts: desktop
