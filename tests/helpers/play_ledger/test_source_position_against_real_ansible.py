@@ -34,9 +34,21 @@ from helpers.play_ledger import plugin_support
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-#: Any tracked playbook with a `- hosts:` play will do; the assertion is that the
-#: helper names THIS file, so the choice only has to be stable.
-PLAYBOOK = os.path.join(REPO_ROOT, "playbooks", "imports", "play-claude-yolo.yml")
+#: The playbook the probe parses, written by the test itself. The assertion is that the helper
+#: names THIS file, so any `- hosts:` play will do; a repository play is not used because the
+#: bare `Play.load` here does not template a static `import_tasks` path from play vars as the
+#: real CLI does, so borrowing a real play broke this probe each time that play grew.
+PLAYBOOK_TEXT = textwrap.dedent(
+    """\
+    - name: Source position probe
+      hosts: localhost
+      gather_facts: false
+      tasks:
+        - name: A task, so the play has a body
+          ansible.builtin.debug:
+            msg: probe
+    """
+)
 
 #: Runs inside the ansible venv. Prints the helper's answer as JSON, or exits non-zero
 #: with its reason on stderr — never a bare traceback the caller cannot explain.
@@ -113,6 +125,13 @@ def _ansible_python() -> str:
 
 
 class TestSourcePositionAgainstRealAnsible(unittest.TestCase):
+    def setUp(self) -> None:
+        workdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, workdir)
+        self.playbook = os.path.join(workdir, "probe.yml")
+        with open(self.playbook, "w", encoding="utf-8") as handle:
+            handle.write(PLAYBOOK_TEXT)
+
     def _probe(self, playbook: str) -> dict:
         result = subprocess.run(
             [_ansible_python(), "-c", PROBE.format(repo=REPO_ROOT, playbook=playbook)],
@@ -129,7 +148,7 @@ class TestSourcePositionAgainstRealAnsible(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_the_production_helper_gets_the_real_file_from_a_real_play(self) -> None:
-        probed = self._probe(PLAYBOOK)
+        probed = self._probe(self.playbook)
         for label, answer in probed["answers"].items():
             with self.subTest(play=label, ansible=probed["ansible"]):
                 self.assertIsNotNone(
@@ -138,13 +157,13 @@ class TestSourcePositionAgainstRealAnsible(unittest.TestCase):
                     f"{probed['ansible']} — this is the 2.19 regression recurring, and "
                     "every play would be recorded as a hole",
                 )
-                self.assertEqual(os.path.abspath(answer[0]), os.path.abspath(PLAYBOOK))
+                self.assertEqual(os.path.abspath(answer[0]), os.path.abspath(self.playbook))
                 self.assertIsInstance(answer[1], int)
 
     def test_the_parsed_play_and_the_callbacks_copy_agree(self) -> None:
         """A callback never sees the parsed play. If the position survives parsing but
         is lost in `copy()`, every unit test passes and every real run records a hole."""
-        probed = self._probe(PLAYBOOK)
+        probed = self._probe(self.playbook)
         self.assertEqual(probed["answers"]["parsed"], probed["answers"]["copy"])
 
 
