@@ -92,8 +92,16 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   replay of the bash over 118 scenarios with 19 numbered deviations, the script now a
   build-and-run wrapper and its allowlist entry gone. Fable review fixed (B27-B29, the rules
   over the nested module, one shared wrapper lib) and merged into F44; the push waits on a
-  full QA run, which needs the CCY image rebuilt with golangci-lint (`ccy --rebuild`). The
-  `qa-all` port is next, on `go-port/qa-all`, and reuses the routing data.
+  full QA run, which needs the CCY image rebuilt with golangci-lint (`ccy --rebuild`).
+  `qa-all.bash` (P3, the second orchestrator) on `go-port/qa-all`: functional spec
+  [SPEC-qa-all.md](SPEC-qa-all.md); the Go port done on the branch (nested `src-go/qa/all`,
+  `qa/gates`, `qa/cmd/qa-all`): the gate list is data (`scripts/qa-gates.tsv`, 92 rows) read by
+  the runner, by `qa-changed` (its suite population no longer scans `qa-all.bash`) and by the
+  QA.md inventory gate; the three stage-line readers are Go and a reader that finds nothing now
+  fails its gate; golden replay of the bash over 138 scenarios with 29 pinned deviations
+  (B1-B6, B12, B13, B20); the script now a build-and-run wrapper, its allowlist entry and the
+  `qa-helper-summary` library, its suite and the call-site parser gone (their cases are Go
+  tests). Awaits the coordinator's full QA run and review before the merge into F44.
 
 ### Phase 4: Review
 

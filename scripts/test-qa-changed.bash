@@ -121,8 +121,12 @@ plan="$(plan_for vars/version-pins.yml)"
 expect_has "vars yml: patterns gate" "$plan" "check ansible-patterns"
 expect_has "vars yml: suite naming it, with the reason" "$plan" "suite scripts/qa-version-pins.bash: names vars/version-pins.yml"
 
-plan="$(plan_for scripts/lib/qa-helper-summary.bash)"
-expect_has "suite picked by name, with the reason" "$plan" "suite scripts/test-qa-helper-summary.bash: names scripts/lib/qa-helper-summary.bash"
+plan="$(plan_for scripts/release.bash)"
+expect_has "suite picked by name, with the reason" "$plan" "suite scripts/test-release.bash: names scripts/release.bash"
+
+plan="$(plan_for scripts/qa-gates.tsv)"
+expect_has "the gate table: the Go tests read the real one" "$plan" "check go"
+expect_has "the gate table: the suites that name it run" "$plan" "suite scripts/test-qa-docs-exit-codes.bash: names scripts/qa-gates.tsv"
 
 plan="$(plan_for scripts/test-planlib.bash)"
 expect_has "a changed suite runs itself" "$plan" "suite scripts/test-planlib.bash: the suite itself changed"

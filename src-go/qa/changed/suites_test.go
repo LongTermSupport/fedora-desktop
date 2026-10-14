@@ -11,56 +11,62 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
-const fakeQAAll = `#!/usr/bin/bash
-# bash "$SCRIPT_DIR/test-commented.bash" is only a comment
-run bash "$SCRIPT_DIR/test-alpha.bash"
-run bash "$SCRIPT_DIR/qa-gate-one.bash"   # also fine
-echo "$SCRIPT_DIR/test-in-a-string.bash"
-run bash "$SCRIPT_DIR/test-alpha.bash"
-run bash "$SCRIPT_DIR/qa-bash.bash"
-run bash "$SCRIPT_DIR/test-with.dots_and-dash2.bash"
+// fakeGates is a gate table: a suite run twice under two names, a gate, a per-file gate, a
+// suite whose name has dots and dashes, and a module gate that has no script.
+const fakeGates = `# a comment
+gate	alpha	scripts/test-alpha.bash	alpha failed	count
+gate	one	scripts/qa-gate-one.bash	one failed	count
+gate	alpha-again	scripts/test-alpha.bash	alpha failed	count
+gate	bash-gate	scripts/qa-bash.bash	bash failed	count
+gate	dots	scripts/test-with.dots_and-dash2.bash	dots failed	count
+gate	module	python3 -m helpers.x	module failed	count
 `
 
 func populationWorld(t *testing.T) string {
 	t.Helper()
 	scripts := filepath.Join(t.TempDir(), "scripts")
-	writeFile(t, scripts, "qa-all.bash", fakeQAAll)
-	for _, name := range []string{"test-alpha.bash", "qa-gate-one.bash", "qa-bash.bash", "test-in-a-string.bash", "test-with.dots_and-dash2.bash"} {
+	writeFile(t, scripts, "qa-gates.tsv", fakeGates)
+	for _, name := range []string{"test-alpha.bash", "qa-gate-one.bash", "qa-bash.bash", "test-with.dots_and-dash2.bash"} {
 		writeFile(t, scripts, name, "#!/usr/bin/bash\n")
 	}
 	return scripts
 }
 
-func TestPopulationIsWhatQAAllInvokesMinusThePerFileGates(t *testing.T) {
+func TestPopulationIsTheScriptsOfTheGateTableMinusThePerFileGates(t *testing.T) {
 	scripts := populationWorld(t)
 	got, err := loadPopulation(scripts, []string{"qa-bash"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"test-alpha.bash", "qa-gate-one.bash", "test-in-a-string.bash", "test-with.dots_and-dash2.bash"}
+	want := []string{"test-alpha.bash", "qa-gate-one.bash", "test-with.dots_and-dash2.bash"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 }
 
-func TestPopulationRefusesAnInvocationShapeItCannotRead(t *testing.T) {
+func TestPopulationRefusesATableItCannotUse(t *testing.T) {
 	scripts := filepath.Join(t.TempDir(), "scripts")
-	writeFile(t, scripts, "qa-all.bash", "echo nothing here\n")
-	if _, err := loadPopulation(scripts, nil); err == nil || !strings.Contains(err.Error(), "found no suites in qa-all.bash") {
+	writeFile(t, scripts, "qa-gates.tsv", "gate\tbash-gate\tscripts/qa-bash.bash\tbash failed\tcount\n")
+	writeFile(t, scripts, "qa-bash.bash", "#!/usr/bin/bash\n")
+	if _, err := loadPopulation(scripts, []string{"qa-bash"}); err == nil || !strings.Contains(err.Error(), "found no suites in qa-gates.tsv") {
 		t.Fatalf("got %v", err)
 	}
 	if _, err := loadPopulation(t.TempDir(), nil); err == nil {
-		t.Fatal("a missing qa-all.bash must be an error")
+		t.Fatal("a missing qa-gates.tsv must be an error")
+	}
+	writeFile(t, scripts, "qa-gates.tsv", "gate\tbad\n")
+	if _, err := loadPopulation(scripts, nil); err == nil || !strings.Contains(err.Error(), ":1:") {
+		t.Fatalf("a malformed row must name its line: %v", err)
 	}
 }
 
-// A suite qa-all.bash invokes whose file is gone would never be picked, silently: it is an
-// error naming the suite and the line of qa-all.bash that invokes it.
+// A suite the table runs whose file is gone would never be picked, silently: it is an error
+// naming the suite.
 func TestPopulationRefusesASuiteWhoseFileIsGone(t *testing.T) {
 	scripts := populationWorld(t)
-	writeFile(t, scripts, "qa-all.bash", fakeQAAll+"run bash \"$SCRIPT_DIR/test-gone.bash\"\n")
+	writeFile(t, scripts, "qa-gates.tsv", fakeGates+"gate\tgone\tscripts/test-gone.bash\tgone failed\tcount\n")
 	_, err := loadPopulation(scripts, nil)
-	if err == nil || !strings.Contains(err.Error(), "test-gone.bash") || !strings.Contains(err.Error(), "qa-all.bash:9") {
+	if err == nil || !strings.Contains(err.Error(), "test-gone.bash") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -93,11 +99,11 @@ func TestGoRowsAreValidatedAgainstThePopulation(t *testing.T) {
 	}
 }
 
-// suiteWorld is a scratch root with a scripts directory holding the fake qa-all.bash and suites.
+// suiteWorld is a scratch root with a scripts directory holding the fake gate table and suites.
 func suiteWorld(t *testing.T) *world {
 	t.Helper()
 	w := newWorld(t)
-	writeFile(t, w.root, "scripts/qa-all.bash", fakeQAAll)
+	writeFile(t, w.root, "scripts/qa-gates.tsv", fakeGates)
 	writeFile(t, w.root, "scripts/go-binary-suites.tsv", "teams\tscripts/test-alpha.bash\nfrz\tqa-go\n")
 	for name, body := range map[string]string{
 		"test-alpha.bash":               "#!/usr/bin/bash\nuses scripts/lib/helper.bash and tool.py\n",
@@ -260,13 +266,13 @@ func TestGoListFailureIsAnError(t *testing.T) {
 	}
 }
 
-func TestASuiteQAAllNamesButWhoseFileIsGoneIsAnError(t *testing.T) {
+func TestASuiteTheGateTableRunsButWhoseFileIsGoneIsAnError(t *testing.T) {
 	w := suiteWorld(t)
 	w.touch("tool.py", "# x")
-	if err := os.Remove(filepath.Join(w.root, "scripts/test-in-a-string.bash")); err != nil {
+	if err := os.Remove(filepath.Join(w.root, "scripts/qa-gate-one.bash")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.selectSuites([]string{"tool.py"}); err == nil || !strings.Contains(err.Error(), "test-in-a-string.bash") {
+	if _, err := w.selectSuites([]string{"tool.py"}); err == nil || !strings.Contains(err.Error(), "qa-gate-one.bash") {
 		t.Fatalf("got %v", err)
 	}
 }

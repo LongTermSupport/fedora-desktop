@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -321,7 +322,7 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		}
 		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
 		if o == passed {
-			count, counted := gateCaseCount(res.output)
+			count, counted := gates.CaseCount(res.output)
 			if counted {
 				reasons = count + " " + reasons
 			} else {

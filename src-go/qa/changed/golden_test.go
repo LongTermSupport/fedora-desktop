@@ -27,6 +27,14 @@ import (
 // deviations.json with the reason and in deviation/<scenario>.json (the output the Go is
 // expected to give). -update-deviations rewrites the pinned files for the entries listed.
 
+// goldenGates lists what the world's qa-all.bash invokes: three suites and the docs gate, which
+// the routing table names as a per-file gate.
+const goldenGates = `gate	alpha	scripts/test-alpha.bash	alpha failed	count
+gate	beta	scripts/test-beta.bash	beta failed	count
+gate	teams	scripts/test-teams.bash	teams failed	count
+stage	docs	scripts/qa-docs.bash	docs unavailable
+`
+
 var updateDeviations = flag.Bool("update-deviations", false, "rewrite testdata/deviation for the scenarios listed in deviations.json")
 
 type goldenScenario struct {
@@ -149,6 +157,9 @@ func replay(t *testing.T, world map[string]string, sc goldenScenario) goldenReco
 	for rel, text := range world {
 		writeFile(t, root, rel, text)
 	}
+	// The world's qa-all.bash is the text the recorded bash scanned for suites; the Go reads the
+	// same suites from the gate table, which says the same.
+	writeFile(t, root, "scripts/qa-gates.tsv", goldenGates)
 	writeFile(t, root, "scripts/qa-routing.tsv", readReal(t, "qa-routing.tsv"))
 	writeFile(t, root, "scripts/qa-trees.tsv", readReal(t, "qa-trees.tsv"))
 	gitIn(t, root, "init", "-q")

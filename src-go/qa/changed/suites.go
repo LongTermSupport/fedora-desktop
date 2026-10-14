@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -19,39 +19,24 @@ type pickedSuite struct {
 	why  []string
 }
 
-var (
-	commentLine = regexp.MustCompile(`^\s*#`)
-	suiteRef    = regexp.MustCompile(`[$]SCRIPT_DIR/((?:test|qa)-[A-Za-z0-9._-]+[.]bash)`)
-)
-
-// loadPopulation is the suites that may run: the test-*.bash and qa-*.bash scripts that
-// qa-all.bash invokes, found by text, minus the per-file gates and names that are not files.
-// This is a textual coupling to qa-all.bash: a suite invoked another way is invisible.
+// loadPopulation is the suites that may run: the scripts of the rows of scripts/qa-gates.tsv,
+// the one list of what qa-all runs, minus the per-file gates. A script that is gone would never
+// be picked, silently, so it is an error here.
 func loadPopulation(scripts string, perFileGates []string) ([]string, error) {
-	text, err := os.ReadFile(filepath.Join(scripts, "qa-all.bash"))
+	table, err := gates.Load(filepath.Join(scripts, "qa-gates.tsv"))
 	if err != nil {
-		return nil, fmt.Errorf("cannot read qa-all.bash: %w", err)
+		return nil, err
 	}
-	var population []string
-	for n, line := range strings.Split(string(text), "\n") {
-		if commentLine.MatchString(line) {
-			continue
-		}
-		for _, m := range suiteRef.FindAllStringSubmatch(line, -1) {
-			name := m[1]
-			if slices.Contains(population, name) || slices.Contains(perFileGates, strings.TrimSuffix(name, ".bash")) {
-				continue
-			}
-			if regular, err := isRegular(filepath.Join(scripts, name)); err != nil {
-				return nil, err
-			} else if !regular {
-				return nil, fmt.Errorf("qa-all.bash:%d invokes %s, which is not a file in %s: a suite that is gone would never be picked", n+1, name, scripts)
-			}
-			population = append(population, name)
+	population := gates.Population(table, perFileGates)
+	for _, name := range population {
+		if regular, err := isRegular(filepath.Join(scripts, name)); err != nil {
+			return nil, err
+		} else if !regular {
+			return nil, fmt.Errorf("qa-gates.tsv runs %s, which is not a file in %s: a suite that is gone would never be picked", name, scripts)
 		}
 	}
 	if len(population) == 0 {
-		return nil, errors.New("found no suites in qa-all.bash: its invocation shape changed; fix qa-changed")
+		return nil, errors.New("found no suites in qa-gates.tsv: every row is a per-file gate; fix qa-changed")
 	}
 	return population, nil
 }
@@ -85,7 +70,7 @@ func loadGoRows(path string, population []string) ([]goRow, error) {
 		}
 		for _, suite := range suites {
 			if name, ok := strings.CutPrefix(suite, "scripts/"); !ok || !slices.Contains(population, name) {
-				return nil, fmt.Errorf("%s:%d: suite %q is not one qa-all.bash runs (a misspelt or deleted suite would never be picked)", path, rw.line, suite)
+				return nil, fmt.Errorf("%s:%d: suite %q is not one qa-gates.tsv lists (a misspelt or deleted suite would never be picked)", path, rw.line, suite)
 			}
 		}
 		out = append(out, goRow{command: rw.fields[0], suites: suites})

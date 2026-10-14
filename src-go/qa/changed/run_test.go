@@ -13,7 +13,7 @@ import (
 )
 
 // runWorld is a scratch git repository (the root) plus a separate scripts directory carrying
-// the real tables, a fake qa-all.bash with two suites, and stub gates.
+// the real tables, a fake gate table with two suites, and stub gates.
 type runWorld struct {
 	t       *testing.T
 	root    string
@@ -31,7 +31,7 @@ func newRunWorld(t *testing.T) *runWorld {
 	for _, name := range []string{"qa-routing.tsv", "qa-trees.tsv"} {
 		writeFile(t, w.scripts, name, readReal(t, name))
 	}
-	writeFile(t, w.scripts, "qa-all.bash", "run \"$SCRIPT_DIR/test-one.bash\"\nrun \"$SCRIPT_DIR/test-two.bash\"\n")
+	writeFile(t, w.scripts, "qa-gates.tsv", "gate\tone\tscripts/test-one.bash\tone failed\tcount\ngate\ttwo\tscripts/test-two.bash\ttwo failed\tcount\n")
 	writeFile(t, w.scripts, "test-one.bash", "#!/usr/bin/bash\nkept.bash\n")
 	writeFile(t, w.scripts, "test-two.bash", "#!/usr/bin/bash\nkept.bash\n")
 	writeFile(t, w.scripts, "go-binary-suites.tsv", "frz\tqa-go\n")

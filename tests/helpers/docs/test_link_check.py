@@ -162,57 +162,48 @@ class TestQaGateInventory(unittest.TestCase):
     That table had drifted by roughly five entries and stated two counts that were both
     wrong, and every previous fix replaced one stale enumeration with a fresher one — so
     it went stale again. `CLAUDE/AgentNotes.md` names the answer: derive the set. The
-    names now come out of `qa-all.bash` itself, so a gate added without a row fails the
-    docs gate on the same commit.
+    names now come out of `scripts/qa-gates.tsv`, the one list of what `qa-all.bash` runs,
+    so a gate added without a row fails the docs gate on the same commit.
     """
 
-    QA_ALL = (
-        'QA_JSON_OUT="$TMP_BASH" "$SCRIPT_DIR/qa-bash.bash" || rc=$?\n'
-        'if ! out="$(bash "$SCRIPT_DIR/test-thing.bash" 2>&1)"; then\n'
-        'if ! c="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_thing 2>&1)"; then\n'
+    TABLE = (
+        "# the gates\n"
+        "\n"
+        "stage\tbash\tscripts/qa-bash.bash\tERROR: Missing required tools.\n"
+        "gate\tthing\tscripts/test-thing.bash\tthing failed\tcount\n"
+        "gate\tmod\tpython3 -m helpers.gnome.check_thing\tmodule failed\tcount\n"
     )
 
     def test_bash_gates_are_extracted(self):
-        self.assertIn("qa-bash.bash", link_check.qa_gates(self.QA_ALL))
-        self.assertIn("test-thing.bash", link_check.qa_gates(self.QA_ALL))
+        self.assertIn("qa-bash.bash", link_check.qa_gates(self.TABLE))
+        self.assertIn("test-thing.bash", link_check.qa_gates(self.TABLE))
 
     def test_python_module_gates_are_extracted_by_their_dotted_path(self):
         """Which is what the table's first cell writes. Reducing them to a last
         component matched the document by substring one way and disagreed with it the
         other, so the reverse check below could never have been clean."""
-        self.assertIn("helpers.gnome.check_thing", link_check.qa_gates(self.QA_ALL))
+        self.assertIn("helpers.gnome.check_thing", link_check.qa_gates(self.TABLE))
 
-    def test_the_same_gate_written_three_ways_is_one_gate(self):
-        """`$SCRIPT_DIR/x`, `${SCRIPT_DIR}/x` and `$REPO_ROOT/scripts/x` name the same
-        gate. Keying on one spelling exempts the others from the inventory silently,
-        and the zero-discovery guard only fires if EVERY form fails."""
-        for form in ('"$SCRIPT_DIR/test-x.bash"', '"${SCRIPT_DIR}/test-x.bash"',
-                     '"$REPO_ROOT/scripts/test-x.bash"'):
-            with self.subTest(form=form):
-                self.assertEqual(link_check.qa_gates(f"bash {form}"), ["test-x.bash"])
+    def test_comments_and_blank_lines_are_not_gates(self):
+        self.assertEqual(link_check.qa_gates("# scripts/test-x.bash\n\n"), [])
 
-    def test_a_sourced_library_is_not_a_gate(self):
-        """`source`ing a library is not invoking a gate. A library emits no verdict line,
-        so a row for it in the gate table would claim something the table cannot mean —
-        and the alternative, documenting it to satisfy the checker, is how an inventory
-        stops describing reality."""
-        sourced = 'source "$SCRIPT_DIR/lib/qa-helper-summary.bash"\n'
-        self.assertEqual(link_check.qa_gates(sourced), [])
+    def test_one_script_run_under_two_names_is_one_gate(self):
+        table = ("gate\ta\tscripts/test-x.bash\tfailed\tcount\n"
+                 "gate\tb\tscripts/test-x.bash\tfailed\tcount\n")
+        self.assertEqual(link_check.qa_gates(table), ["test-x.bash"])
 
-    def test_the_dot_form_of_source_is_also_not_a_gate(self):
-        self.assertEqual(link_check.qa_gates('. "$SCRIPT_DIR/lib/thing.bash"\n'), [])
-
-    def test_a_gate_on_a_line_after_a_sourced_library_is_still_found(self):
-        """The exclusion is per LINE, not a mode the file enters."""
-        content = (
-            'source "$SCRIPT_DIR/lib/qa-helper-summary.bash"\n'
-            'if ! out="$(bash "$SCRIPT_DIR/test-thing.bash" 2>&1)"; then\n'
-        )
-        self.assertEqual(link_check.qa_gates(content), ["test-thing.bash"])
+    def test_a_malformed_row_is_a_crash_not_a_skipped_line(self):
+        """A line this check dropped would be a gate the inventory never looked at; the
+        Go loader refuses the same rows, so the two readers cannot disagree about which
+        lines are gates."""
+        for row in ("gate\tonly-two\n", "gate\tx\t \ttext\tcount\n", "gate\tx\techo hi\ttext\tcount\n"):
+            with self.subTest(row=row):
+                with self.assertRaises(ValueError):
+                    link_check.qa_gates(row)
 
     def test_a_gate_with_no_row_is_reported(self):
         findings = link_check.check_qa_gate_inventory_in(
-            qa_all=self.QA_ALL,
+            gate_table=self.TABLE,
             qa_doc="| `qa-bash.bash` | x |\n| `helpers.gnome.check_thing` | y |\n")
         self.assertEqual([f["target"] for f in findings], ["test-thing.bash"])
 
@@ -220,7 +211,7 @@ class TestQaGateInventory(unittest.TestCase):
         """A substring search over the whole document is satisfied by the paragraph
         below the table that names two gates while discussing them."""
         findings = link_check.check_qa_gate_inventory_in(
-            qa_all='bash "$SCRIPT_DIR/test-thing.bash"',
+            gate_table="gate\tthing\tscripts/test-thing.bash\tfailed\tcount\n",
             qa_doc="test-thing.bash was once documented and not run.")
         self.assertEqual([f["target"] for f in findings], ["test-thing.bash"])
 
@@ -229,7 +220,7 @@ class TestQaGateInventory(unittest.TestCase):
         and a documented gate nobody executes is the failure this document narrates
         below its own table."""
         findings = link_check.check_qa_gate_inventory_in(
-            qa_all='bash "$SCRIPT_DIR/test-thing.bash"',
+            gate_table="gate\tthing\tscripts/test-thing.bash\tfailed\tcount\n",
             qa_doc="| `test-thing.bash` | x |\n| `test-retired.bash` | y |\n")
         self.assertEqual([f["target"] for f in findings], ["test-retired.bash"])
 
@@ -237,7 +228,7 @@ class TestQaGateInventory(unittest.TestCase):
         """A discovery that matches nothing would report a clean inventory over a
         document listing none of them — the shape this repo keeps rediscovering."""
         findings = link_check.check_qa_gate_inventory_in(
-            qa_all="nothing that looks like a gate here", qa_doc="")
+            gate_table="# no rows here\n", qa_doc="")
         self.assertEqual(len(findings), 1)
         self.assertIn("discovery", findings[0]["problem"])
 

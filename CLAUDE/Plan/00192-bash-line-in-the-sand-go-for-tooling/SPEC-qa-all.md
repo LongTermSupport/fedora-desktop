@@ -352,6 +352,14 @@ reproduced. Items verified by running the bash are marked (reproduced).
 | B18 | `QA` L138-141 etc.                   | A stage exit 2 aborts without listing the hard gates that already failed; the earlier `✗` lines are all the record.                                                                                                                                                                                                                                                              | **Keep**: the abort is the stated exception; `VD` reads it as a terminal state                                                                                                                                                                                  |
 | B19 | `QA` L1405                           | The report is built by `jq`, a dependency of this script as well as of the stages.                                                                                                                                                                                                                                                                                               | **Fix**: built in Go (the stages still need `jq` themselves)                                                                                                                                                                                                    |
 
+| B20 | `HS` L78-202 | The helper-tests counts reader's refusals print `helper_counts_summary: ...` (a function that no longer exists) with bash `%q` quoting, and a token mismatch over two lines. | **Fix** (cosmetic): `helper-tests counts: ...` with Go quoting on one line; every refusal and the failed stage line are unchanged, and every message substring `TH` asserted is kept |
+
+Which bugs the golden shows and which a unit test does: B1-B6, B12, B13 and B20 differ in the
+recorded output and are pinned in `testdata/deviations.json`. B7-B11 (the report path, the
+timeout, the interrupt, the table as data, the working directory) and B14-B19 are not visible
+in a recorded stub run, so each has its own Go test (`run_test.go`, `gate_test.go`,
+`config_test.go`, `report_test.go`, the real-tree tests).
+
 K1 (**Keep**): a passing gate's capture is discarded, including its warnings. K2: hard-gate status
 1 and 2 are the same failure (the repo's exit-2 convention is for the stages; `qa-changed`'s "could
 not run" wording would change the `✗` line shape `VD` reads). K3: sequential, in file order; no

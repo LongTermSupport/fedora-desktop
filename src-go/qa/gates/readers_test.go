@@ -1,11 +1,14 @@
 package gates
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
 // The corpus below is scripts/test-qa-helper-summary.bash's own, case for case: that suite drove
@@ -109,6 +112,34 @@ func TestHelperCountsDistinguishesAnUnwrittenFileFromAForeignOne(t *testing.T) {
 	}
 }
 
+// The two halves are developed separately and could drift apart; a fake cannot catch a rename in
+// the thing it fakes. So this runs the REAL runner over a real (tiny) test module and reads the
+// REAL file it writes: the one case that survives the format changing on one side only.
+func TestHelperCountsReadsWhatTheRealRunnerWrites(t *testing.T) {
+	dir := t.TempDir()
+	module := "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_asserts(self):\n        self.assertTrue(True)\n\n" +
+		"    @unittest.skip('proves the skip count survives the round trip')\n    def test_skips(self):\n        pass\n"
+	if err := os.WriteFile(filepath.Join(dir, "t_e2e.py"), []byte(module), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := filepath.Join(dir, "counts")
+	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{
+		Argv: []string{"python3", "-m", "helpers.qa_environment.unittest_counts", "--counts-file", counts, "--counts-token", token, "--tracked-modules", "1", "t_e2e"},
+		Dir:  root, Env: []string{"PYTHONPATH=" + root + ":" + dir}, Merge: true,
+	})
+	if err != nil || res.Code != 0 {
+		t.Fatalf("the runner: %v, %+v", err, res)
+	}
+	got, err := HelperCounts(counts, token)
+	if err != nil || got != "Ran 2 tests in 1 module (1 tracked), 1 skipped" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
 func TestCaseCountReadsTheLastCountLineAndItsLastMatch(t *testing.T) {
 	cases := []struct{ name, capture, want string }{
 		{"a bare summary line", "passed: 29 failed: 0", "passed: 29"},
@@ -120,6 +151,7 @@ func TestCaseCountReadsTheLastCountLineAndItsLastMatch(t *testing.T) {
 		{"a count line followed by other output", "passed: 18 failed: 0\nOK\nVERDICT: PASS\n", "passed: 18"},
 		{"an earlier count on the same line does not win", "suite passed: 3 of them; passed: 29 failed: 0", "passed: 29"},
 		{"extra whitespace after the colon", "passed:  29 failed: 0", "passed: 29"},
+		{"leading zeros are kept", "passed: 0073", "passed: 0073"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -132,7 +164,7 @@ func TestCaseCountReadsTheLastCountLineAndItsLastMatch(t *testing.T) {
 }
 
 func TestCaseCountAnswersNoCountAsNotFoundNeverAsANumber(t *testing.T) {
-	for _, capture := range []string{"PASSED (library version 1.2.0)", "", "Summary: 3 passed, 0 failed"} {
+	for _, capture := range []string{"PASSED (library version 1.2.0)", "", "Summary: 3 passed, 0 failed", "passed: many"} {
 		if got, ok := CaseCount(capture); ok || got != "" {
 			t.Fatalf("%q: got %q, %v", capture, got, ok)
 		}
