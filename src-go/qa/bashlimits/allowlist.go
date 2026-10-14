@@ -220,8 +220,10 @@ func shrankBelow(m, rec Measurement) string {
 // when it may: its file was measured (it is within limits, or is judged on its own), or it is
 // gone and nothing exempt looks like its new home. A file that still exists but is not a
 // checked bash file, or that went away next to an exempt file of the same name, has been
-// moved out of the gate's sight, not ported; unless a Go command of the file's name
-// (src-go/cmd/<name>/main.go) exists, which is where a ported tool's suite stays exempt.
+// moved out of the gate's sight, not ported. The one excuse is a deployed Go command of the
+// file's name (src-go/cmd/<name>/main.go) whose row in scripts/go-binary-suites.tsv names that
+// exempt file as its suite: the table is where a ported tool's bash suite is declared to drive
+// the binary, so a stub command and a renamed script do not qualify on their own.
 func removalProblem(p string, scan Scan) string {
 	if _, measured := scan.Measured[p]; measured {
 		return ""
@@ -232,13 +234,15 @@ func removalProblem(p string, scan Scan) string {
 	case scan.Present[p]:
 		return p + " still exists but is not a bash file the gate checks"
 	}
-	if scan.Present["src-go/cmd/"+strings.TrimSuffix(path.Base(p), path.Ext(p))+"/main.go"] {
-		return "" // a Go command carries its name: the file was ported, its suite stays beside it
+	twin := exemptTwin(p, scan)
+	if twin == "" {
+		return ""
 	}
-	if twin := exemptTwin(p, scan); twin != "" {
-		return p + " is gone but " + twin + " is exempt and has its name: a file moved into an exempt path is not ported"
+	name := strings.TrimSuffix(path.Base(p), path.Ext(p))
+	if scan.Present["src-go/cmd/"+name+"/main.go"] && scan.Suites[name][twin] {
+		return "" // ported: the Go command carries the name and the table gives it this suite
 	}
-	return ""
+	return p + " is gone but " + twin + " is exempt and has its name: a file moved into an exempt path is not ported (a Go command src-go/cmd/" + name + " with " + twin + " in " + suitesTable + " would be)"
 }
 
 // exemptTwin is an exempt bash file named like p, with or without a "test-" prefix, or "".

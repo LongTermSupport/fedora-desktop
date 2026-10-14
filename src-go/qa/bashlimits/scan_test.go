@@ -55,3 +55,19 @@ func TestScanTreeReadErrorIsAnError(t *testing.T) {
 		t.Fatal("an unreadable file was skipped")
 	}
 }
+
+func TestScanTreeReadsTheGoCommandSuitesTable(t *testing.T) {
+	table := "# comment\n\nccy-x\tscripts/test-a.bash scripts/test-b.bash\nlib\tqa-go\n"
+	fsys := fstest.MapFS{suitesTable: {Data: []byte(table)}}
+	scan, err := ScanTree(fsys, []string{suitesTable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scan.Suites["ccy-x"]["scripts/test-a.bash"] || !scan.Suites["ccy-x"]["scripts/test-b.bash"] || !scan.Suites["lib"]["qa-go"] || len(scan.Suites) != 2 {
+		t.Fatalf("suites = %v", scan.Suites)
+	}
+	none, err := ScanTree(fstest.MapFS{}, nil)
+	if err != nil || len(none.Suites) != 0 {
+		t.Fatalf("a tree without the table has no suites: %v, %v", none.Suites, err)
+	}
+}

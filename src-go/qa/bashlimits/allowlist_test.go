@@ -244,13 +244,23 @@ func TestRemeasureIsTheSeedUnlessItWouldHideAFile(t *testing.T) {
 	wantKinds(t, "twin", refused, "scripts/gone.bash:"+KindOrphan)
 }
 
-func TestAFileGoneBesideAnExemptSuiteIsPortedWhenAGoCommandHasItsName(t *testing.T) {
+func TestAFileGoneBesideAnExemptSuiteIsPortedWhenTheCommandsTableNamesThatSuite(t *testing.T) {
 	scan := scanOf(map[string]Measurement{})
 	scan.Exempt["scripts/test-gone.bash"] = true
 	scan.Present["scripts/test-gone.bash"] = true
 	list := Allowlist{"files/usr/local/sbin/gone": {Code: 80}}
 	_, refused := Remeasure(list, scan)
 	wantKinds(t, "no Go command", refused, "files/usr/local/sbin/gone:"+KindOrphan)
+	scan.Present["src-go/cmd/gone/main.go"] = true
+	_, refused = Remeasure(list, scan)
+	wantKinds(t, "a stub command, no suites row", refused, "files/usr/local/sbin/gone:"+KindOrphan)
+	scan.Suites = map[string]map[string]bool{"gone": {"scripts/other.bash": true}}
+	_, refused = Remeasure(list, scan)
+	wantKinds(t, "a row naming another suite", refused, "files/usr/local/sbin/gone:"+KindOrphan)
+	scan.Suites = map[string]map[string]bool{"gone": {"scripts/test-gone.bash": true}}
+	scan.Present["src-go/cmd/gone/main.go"] = false
+	_, refused = Remeasure(list, scan)
+	wantKinds(t, "a row but no command", refused, "files/usr/local/sbin/gone:"+KindOrphan)
 	scan.Present["src-go/cmd/gone/main.go"] = true
 	got, refused := Remeasure(list, scan)
 	if len(refused) != 0 || len(got) != 0 {

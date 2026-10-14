@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"strings"
 )
 
 // Scan is the result of measuring a tree.
 type Scan struct {
-	Measured map[string]Measurement // every non-exempt bash file
-	Exempt   map[string]bool        // bash files an Exemption covers
-	Present  map[string]bool        // every regular file that was looked at, bash or not
+	Measured map[string]Measurement     // every non-exempt bash file
+	Exempt   map[string]bool            // bash files an Exemption covers
+	Present  map[string]bool            // every regular file that was looked at, bash or not
+	Suites   map[string]map[string]bool // Go command -> the suites scripts/go-binary-suites.tsv gives it
 }
+
+// suitesTable is the file that says which suites drive each deployed Go command.
+const suitesTable = "scripts/go-binary-suites.tsv"
 
 // ScanTree measures each bash file among files. A listed file that is gone from disk, or is not
 // a regular file (a symlink, a submodule), is not scanned; any other failure stops the scan.
@@ -34,7 +39,37 @@ func ScanTree(fsys fs.FS, files []string) (Scan, error) {
 			return Scan{}, err
 		}
 	}
+	if scan.Present[suitesTable] {
+		suites, err := readSuites(fsys)
+		if err != nil {
+			return Scan{}, err
+		}
+		scan.Suites = suites
+	}
 	return scan, nil
+}
+
+// readSuites parses the suites table: "command<TAB>suite suite ...", with # comments.
+func readSuites(fsys fs.FS) (map[string]map[string]bool, error) {
+	raw, err := fs.ReadFile(fsys, suitesTable)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", suitesTable, err)
+	}
+	suites := map[string]map[string]bool{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		command, list, found := strings.Cut(line, "\t")
+		if !found {
+			return nil, fmt.Errorf("%s: %q has no tab between the command and its suites", suitesTable, line)
+		}
+		suites[command] = map[string]bool{}
+		for _, suite := range strings.Fields(list) {
+			suites[command][suite] = true
+		}
+	}
+	return suites, nil
 }
 
 func scanFile(fsys fs.FS, p string, scan *Scan) error {
