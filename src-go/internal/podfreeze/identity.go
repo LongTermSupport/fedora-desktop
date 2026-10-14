@@ -136,7 +136,7 @@ func (e *Engine) warnBlindSpot(inv freeze.Inventory) error {
 			return err
 		}
 	}
-	return freeze.Say(e.Err, "  They predate CCY 3.40.0. Use --ccy to cover every session regardless\n" +
+	return freeze.Say(e.Err, "  They predate CCY 3.40.0. Use --ccy to cover every session regardless\n"+
 		"  of identity, or relaunch them to make them selectable by identity.\n")
 }
 

@@ -62,8 +62,8 @@ func (e *engine) Act(_ context.Context, verb freeze.Verb, name string) (string, 
 	return "", nil
 }
 
-func (e *engine) Columns() string          { return "COL" }
-func (e *engine) Row(freeze.Entry) string  { return "row" }
+func (e *engine) Columns() string         { return "COL" }
+func (e *engine) Row(freeze.Entry) string { return "row" }
 
 func cfg() freeze.Config {
 	return freeze.Config{
@@ -72,7 +72,7 @@ func cfg() freeze.Config {
 	}
 }
 
-type quitChooser struct{ closed *int }
+type quitChooser struct{}
 
 func (quitChooser) Group(context.Context, []string, []string) (string, error) {
 	return "", freeze.ErrQuit

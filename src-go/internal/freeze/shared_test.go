@@ -18,7 +18,7 @@ func TestGoneIsAnErrorWithItsOwnWords(t *testing.T) {
 	if err.Error() != "no such network: 'nosuchnet'" {
 		t.Fatalf("got %q", err.Error())
 	}
-	if _, ok := errors.AsType[*GoneError](err); !ok {
+	if gone, ok := errors.AsType[*GoneError](err); !ok || gone == nil {
 		t.Fatal("Gone returns a *GoneError")
 	}
 }
@@ -99,6 +99,7 @@ func TestFailureText(t *testing.T) {
 // preparingEngine is an engine that wants readying before a batch of acts.
 type preparingEngine struct {
 	fakeEngine
+
 	prepared int
 	prepErr  error
 }

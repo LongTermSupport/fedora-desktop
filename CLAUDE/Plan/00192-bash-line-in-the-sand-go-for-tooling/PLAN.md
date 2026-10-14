@@ -62,7 +62,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 - [ ] ⬜ **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
   Branch `go-port/freeze` (P7): functional spec written, [SPEC-freeze.md](SPEC-freeze.md); Go
   port in waves: library (`internal/freeze`) and podfreeze (`internal/podfreeze`,
-  `cmd/podfreeze`, shared `internal/freeze/cli`) done; lxcfreeze and the cut-over to come.
+  `cmd/podfreeze`, shared `internal/freeze/cli`) and lxcfreeze (`internal/lxcfreeze`,
+  `cmd/lxcfreeze`, shared flow in `internal/freeze/app`) done; the cut-over to come.
 
 ### Phase 4: Review
 

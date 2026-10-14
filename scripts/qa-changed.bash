@@ -25,8 +25,8 @@
 #   path on the allowlist
 #   js/mjs                     node --check; extensions/ files also get the project's eslint
 #   src-go/ in a command's     that command's suites too (ccy-teams: test-ccy-teams-command.bash;
-#   build closure              ccy-sessions: its four test-ccy-* suites; podfreeze: test-podfreeze.bash,
-#                              the bash oracle until cut-over): a file in cmd/<name> or a
+#   build closure              ccy-sessions: its four test-ccy-* suites; podfreeze: test-podfreeze.bash;
+#                              lxcfreeze: test-lxcfreeze.bash; both bash oracles until cut-over): a file in cmd/<name> or a
 #                              package it imports (go list -deps), go.mod, go.sum
 #   any non-markdown file      every scripts/test-*.bash suite (and hard gate script) that
 #                              qa-all.bash runs and whose text names it by path or basename,
@@ -141,8 +141,7 @@ NOTES=()
 SKIPPED=()
 NEED_DOCS=0
 NEED_ANSIBLE_PATTERNS=0
-NEED_GO=0
-NEED_BASH_LIMITS=0
+NEED_GO=0 NEED_BASH_LIMITS=0
 SRCGO_FILES=()
 declare -A COVERED=()
 # The paths on the bash-limits allowlist (each line starts with its path and a tab), so a change to
@@ -366,6 +365,8 @@ GO_BINARY_SUITES=(
     # with the bash tool; src-go/cmd/podfreeze then joins QA_ONLY_COMMANDS in test-qa-changed.bash
     # or gains a real black-box suite.
     "podfreeze: scripts/test-podfreeze.bash"
+    # lxcfreeze: the same arrangement, with scripts/test-lxcfreeze.bash as its oracle.
+    "lxcfreeze: scripts/test-lxcfreeze.bash"
 )
 declare -A GO_SUITE_OWNERS=()
 if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
