@@ -55,7 +55,9 @@ driving a command. Existing scripts over the limits are on a ratchet allowlist: 
 shrink and be ported, never grow. Python that Ansible loads stays Python; a standalone Python
 CLI is ported to Go when it is next reworked.
 
-**Gate, allowlist and the port programme:** [Plan 00192](CLAUDE/Plan/00192-bash-line-in-the-sand-go-for-tooling/PLAN.md)
+**Enforced by** `scripts/qa-bash-limits.bash` (in `qa-all.bash` and `qa-changed.bash`; see
+[QA.md](CLAUDE/QA.md)) against the ratchet allowlist `scripts/bash-limits.allowlist`.
+**Go defect classes** get a project rule first: [GoProjectRules.md](CLAUDE/GoProjectRules.md).
 
 ### Public Repository — Never Commit Secrets
 

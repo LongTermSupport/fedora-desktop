@@ -44,22 +44,38 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ### Phase 1: The rule
 
-- [ ] 🔄 **Task 1.1**: Inventory of tracked bash and Python with sizes, invokers, tests and a
+- [x] ✅ **Task 1.1**: Inventory of tracked bash and Python with sizes, invokers, tests and a
   port/keep class: [INVENTORY.md](INVENTORY.md).
-- [ ] ⬜ **Task 1.2**: Thresholds chosen from the inventory's counts; the rule in `CLAUDE.md`
-  and `README.md`; `src-go/CLAUDE.md` linked from the root `CLAUDE.md`.
-- [ ] ⬜ **Task 1.3**: The gate, in Go, with its ratchet allowlist, wired into `qa-all.bash`
-  and `qa-changed.bash`; control fixtures prove it fails.
+- [x] ✅ **Task 1.2**: Thresholds chosen from the inventory's counts (60 code lines, 4
+  functions, no associative arrays, no interactive UI, no data parsing past one `jq -r`); the
+  rule in `CLAUDE.md` and `README.md`; `src-go/CLAUDE.md` linked from the root `CLAUDE.md`.
+- [x] ✅ **Task 1.3**: The gate, in Go (`cmd/qa-bash-limits`, `internal/bashlimits`), with its
+  ratchet allowlist `scripts/bash-limits.allowlist` (records only move down; `--base` refuses
+  an added entry or a raised record), wired into `qa-all.bash`, `qa-changed.bash` and CI;
+  controls (over-long, too many functions, `declare -A`, `fzf`, growth, an added entry) fail.
 
 ### Phase 2: DBF rules and go-qa-ci
 
-- [ ] 🔄 **Task 2.1**: Audit go-qa-ci's state and rule mechanisms; list the defect classes
-  the ports found and whether a rule catches each.
-- [ ] ⬜ **Task 2.2**: Project DBF rules for those classes, each proven red then green.
+- [x] ✅ **Task 2.1**: go-qa-ci audited: [AUDIT-go-qa-ci.md](AUDIT-go-qa-ci.md). Complete with
+  recorded gaps; its bundled rule set is one analyzer; this repo had no project rules.
+- [x] ✅ **Task 2.2**: Project DBF rules as `go/analysis` analyzers in the nested module
+  `src-go/qa` (so the shipped binaries stay dependency-free), run by `qa-go.bash`: one process
+  seam, owned programs (sudo, tmux, gum, fzf, systemctl, git), no wall clock in tests, one home
+  abbreviation; catalogue [GoProjectRules.md](../../GoProjectRules.md). Each red on a fixture of
+  the historical defect, green on the tree after fixing the real instances; on landing they
+  caught the bash-limits gate running git outside `gitx`.
 
 ### Phase 3: Rewrites, one feature branch each
 
-- [ ] ⬜ **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
+- [ ] 🔄 **Task 3.1**: Freeze toolkit (`podfreeze`, `lxcfreeze`, `freeze-common`) on
+  `go-port/freeze`: its spec `SPEC-freeze.md` is on the branch; wave 1 (library) done,
+  wave 2 (`podfreeze`) running; then `lxcfreeze`, golden capture and cut-over.
+- [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`:
+  its spec `SPEC-agent-bus-install.md` is on the branch; wave 1 (root-guarding
+  validation) running. Runs as root and changes behaviour (its D7), so it merges only after
+  review and the owner's host test.
+- [ ] ⬜ **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
+  waits on Plan 00191's D1-D10.
 
 ### Phase 4: Review
 
