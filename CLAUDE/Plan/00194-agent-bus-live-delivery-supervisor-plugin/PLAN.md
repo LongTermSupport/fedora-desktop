@@ -39,12 +39,14 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 ### Phase 1: Design
 
-- [ ] 🔄 **Task 1.1**: Establish what works today on a real ccy team session (seat told at
+- [x] ✅ **Task 1.1**: Establish what works today on a real ccy team session (seat told at
   start; does `pingbus watch` run and wake an idle session; how a human's Element message
   reaches the agent) and write `DESIGN.md`: the supervisor plugin API (as the installed
   hooks daemon defines it), how the plugin gets the session's messages (the inbox, the
   watcher, or the bundle directly), what it injects and how it is framed per sender kind,
   rate and size limits, the failure modes, and how it is tested without a live homeserver.
+  Done: [DESIGN.md](DESIGN.md). It needs hooks-daemon plugin API 1.1 (API 1.0 cannot type
+  text).
 - [ ] ⬜ **Task 1.2**: The owner agrees the design.
 
 ### Phase 2: Build
@@ -61,4 +63,4 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 ## Delivery & Milestones
 
-- Design: pending.
+- Design: proposed in [DESIGN.md](DESIGN.md), awaiting the owner (Task 1.2).
