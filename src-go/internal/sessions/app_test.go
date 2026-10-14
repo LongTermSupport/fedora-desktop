@@ -22,26 +22,6 @@ func TestHelpPrintsTheHeaderTextOnStdoutBeforeAnyGuard(t *testing.T) {
 	}
 }
 
-func TestUsageTextIsTheBashHeaderVerbatim(t *testing.T) {
-	raw, err := os.ReadFile("../../../files/home/.local/bin/ccy-sessions")
-	if err != nil {
-		t.Skip("the bash command is gone; nothing to compare with")
-	}
-	var want strings.Builder
-	for i, line := range strings.Split(string(raw), "\n") {
-		if i == 0 {
-			continue
-		}
-		if !strings.HasPrefix(line, "#") {
-			break
-		}
-		want.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "#"), " ") + "\n")
-	}
-	if usage != want.String() {
-		t.Fatal("usage.txt differs from the bash command's header comment")
-	}
-}
-
 func TestUsageErrorsAreExit64WithTheSeeHelpSuffix(t *testing.T) {
 	cases := []struct {
 		args []string

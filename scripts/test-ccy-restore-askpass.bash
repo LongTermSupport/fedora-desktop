@@ -72,12 +72,13 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/restore-askpass-test.XXXXXX")
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
-# CCY_SESSIONS_IMPL=go runs the final section's restore through the Go port's binary
-# (Plan 00191) instead of the library function it replaces.
+# The final section's restore runs through the Go binary (Plan 00191), as the boot unit does.
 GO_TOOL="$SCRATCH/ccy-sessions"
-if [ "${CCY_SESSIONS_IMPL:-bash}" = go ]; then
-    echo "== the Go binary"
-    check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -o "$GO_TOOL" ./cmd/ccy-sessions 2>&1)"
+echo "== the Go binary"
+check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -o "$GO_TOOL" ./cmd/ccy-sessions 2>&1)"
+if [ ! -x "$GO_TOOL" ]; then
+    echo "FAIL: the Go binary was not built" >&2
+    exit 1
 fi
 
 # The fixture passphrase has spaces and a quote, so a word-split or an unquoted expansion on
@@ -480,14 +481,10 @@ ccy_registry_write "ccy-proj" "$PROJ" /launch/ccy ccy yes --ssh-key "$KEYS/githu
 ccy_registry_write "cc-proj" "$PROJ" /launch/cc cc yes
 unset CCY_RESTORE_SSH_PASSPHRASE_FILE
 
-# restore_run — the restore under test. Bash mode runs the library function in this shell; Go
-# mode runs the built binary's `restore` subcommand, which does the same work.
+# restore_run — the restore under test: the built binary's `restore` subcommand, which is
+# what the boot unit runs.
 restore_run() {
-    if [ "${CCY_SESSIONS_IMPL:-bash}" = go ]; then
-        CCY_LIB="$LIB_DIR" "$GO_TOOL" restore
-    else
-        ccy_registry_restore
-    fi
+    CCY_LIB="$LIB_DIR" "$GO_TOOL" restore
 }
 
 rm -f "$STARTED_LOG"

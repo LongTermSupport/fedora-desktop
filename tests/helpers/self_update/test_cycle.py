@@ -917,9 +917,9 @@ class TestVerifyCeiling(unittest.TestCase):
             return handle.read()
 
     def test_the_ceiling_outlasts_set_going_and_its_start_window(self) -> None:
-        tool = self._read("files/home/.local/bin/ccy-sessions")
-        wait = int(re.search(r'^SET_GOING_WAIT="\$\{CCY_SESSIONS_SET_GOING_WAIT:-(\d+)\}"', tool, re.M).group(1))
-        window = int(re.search(r'^START_WINDOW="\$\{CCY_SESSIONS_START_WINDOW:-(\d+)\}"', tool, re.M).group(1))
+        tool = self._read("src-go/internal/sessions/app.go")
+        wait = int(re.search(r'\{"CCY_SESSIONS_SET_GOING_WAIT", (\d+) \* time\.Second,', tool).group(1))
+        window = int(re.search(r'\{"CCY_SESSIONS_START_WINDOW", (\d+) \* time\.Second,', tool).group(1))
         self.assertGreater(cycle.VERIFY_WAIT_SECONDS, wait + window)
 
     def test_the_unit_outlasts_the_ceiling(self) -> None:

@@ -59,7 +59,7 @@ def _seed(base: str, runs: list[tuple[str, str, str]], *, dirty: frozenset[str] 
 
 
 INPUTS = {
-    YOLO: Inputs(exact={YOLO, "files/home/.local/bin/ccy-sessions"},
+    YOLO: Inputs(exact={YOLO, "files/home/.config/systemd/user/ccy-sessions-restore.service"},
                  prefixes={"files/var/local/claude-yolo/"}),
     GIT: Inputs(exact={GIT}, unresolved=[f"{GIT}:12: {{{{ root_dir }}}}/vars/git-signing.yml"]),
     BASIC: Inputs(exact={BASIC}),
@@ -140,7 +140,7 @@ class TestWhatRuns(_Case):
         """The case the ledger alone misses: the play's own file is untouched."""
         with tempfile.TemporaryDirectory() as base:
             _seed(base, [(YOLO, COMMIT_A, "ok")])
-            code, out, _ = self._run(base, changed={COMMIT_A: ["files/home/.local/bin/ccy-sessions"]})
+            code, out, _ = self._run(base, changed={COMMIT_A: ["files/home/.config/systemd/user/ccy-sessions-restore.service"]})
             self.assertEqual(out, f"RUN {YOLO}\n")
 
     def test_a_change_under_a_deployed_directory_runs_the_play(self) -> None:
@@ -202,7 +202,7 @@ class TestListAll(_Case):
         with tempfile.TemporaryDirectory() as base:
             _seed(base, [(BASIC, COMMIT_A, "failed"), (YOLO, COMMIT_A, "ok"), (OPT_A, COMMIT_A, "ok")],
                   dirty=frozenset({OPT_A}))
-            code, out, _ = self._run(base, changed={COMMIT_A: ["files/home/.local/bin/ccy-sessions"]},
+            code, out, _ = self._run(base, changed={COMMIT_A: ["files/home/.config/systemd/user/ccy-sessions-restore.service"]},
                                      list_all=True)
             self.assertEqual(code, changed_plays.EXIT_OK)
             self.assertEqual(out, f"PLAY failed {BASIC}\nPLAY stale {YOLO}\nPLAY stale {OPT_A}\n")

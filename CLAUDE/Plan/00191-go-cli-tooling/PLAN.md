@@ -108,9 +108,13 @@ today; rewriting them is out of scope.
 
 ### Phase 4: ccy-sessions, then ccy
 
-- [ ] 🔄 **Task 4.1**: ccy-sessions in Go on the shared packages, by the same method. Ported
-  as `cmd/ccy-sessions` plus `internal/sessions`; the four oracle suites gain a Go mode
-  (`CCY_SESSIONS_IMPL=go`). Open: the bash tool's retirement and wiring into the playbook.
+- [x] ✅ **Task 4.1**: ccy-sessions in Go on the shared packages, by the same method. Ported
+  as `cmd/ccy-sessions` plus `internal/sessions`. Cut over: `play-claude-yolo.yml` builds it
+  into the shared `ccy-go-build` scratch directory and installs it at the same path and mode
+  (`-trimpath`, installed only when the checksum differs); `files/home/.local/bin/ccy-sessions`
+  is deleted; the four oracle suites are Go-only (the bash library cases stay); `qa-changed.bash`
+  runs them for any `src-go/` file in the binary's build closure; docs updated; CCY 3.95.7.
+  Done pending the owner's host run (`meta-deploy.bash` lists `play-claude-yolo.yml`).
 - [ ] ⬜ **Task 4.2**: The ccy launcher: assess and plan (about 4,000 lines and the container
   boundary); decide with the owner.
 

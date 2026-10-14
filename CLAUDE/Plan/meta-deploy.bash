@@ -59,8 +59,9 @@ PLANS=(
     # "repositories you list (one or more)", Element started apart from the terminal with
     # its output logged, copy-the-password defaults to yes, the terminal's own colours with
     # one accent in the pickers (CCY 3.95.5) (Plan 00177); and ccy-teams is now the Go
-    # binary, built from the checkout by this play, which imports play-golang.yml (CCY 3.95.6)
-    # (Plan 00191)
+    # binary, built from the checkout by this play, which imports play-golang.yml (CCY 3.95.6);
+    # and ccy-sessions is too, installed at the same path for the boot units, shutdown-with-update
+    # and the self-update cycle (CCY 3.95.7) (Plan 00191)
     playbooks/imports/play-claude-yolo.yml
     # Element: may reach the keyring (no "No encryption support" question on a profile's
     # first start); launchers named "<team> team (Element)" (Plan 00177)

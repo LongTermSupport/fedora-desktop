@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Unit-test the ccy-sessions subcommands that warn sessions before a reboot and restore them
-# after one (files/home/.local/bin/ccy-sessions: notify, reboot, restore).
+# after one (the Go binary, src-go/cmd/ccy-sessions: notify, reboot, restore).
 #
 # WHY THIS EXISTS. `ccy-sessions reboot --in N` is the deliberate way to take a machine
 # down with agents running: it signals every live session's project through that
@@ -19,15 +19,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TOOL="$REPO_ROOT/files/home/.local/bin/ccy-sessions"
 LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
-# CCY_SESSIONS_IMPL=go drives the same cases against the Go port's binary (Plan 00191).
-IMPL="${CCY_SESSIONS_IMPL:-bash}"
-
-if [ "$IMPL" != go ] && [ ! -x "$TOOL" ]; then
-    echo "FAIL: $TOOL is missing or not executable" >&2
-    exit 1
-fi
 
 passed=0
 failed=0
@@ -47,14 +39,12 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/sessions-reboot-test.XXXXXX")
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
-if [ "$IMPL" = go ]; then
-    TOOL="$SCRATCH/ccy-sessions"
-    echo "== the Go binary"
-    check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
-    if [ ! -x "$TOOL" ]; then
-        echo "FAIL: the Go binary was not built" >&2
-        exit 1
-    fi
+TOOL="$SCRATCH/ccy-sessions"
+echo "== the Go binary"
+check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
+if [ ! -x "$TOOL" ]; then
+    echo "FAIL: the Go binary was not built" >&2
+    exit 1
 fi
 
 # ── the fakes ─────────────────────────────────────────────────────────────────────────
@@ -1022,12 +1012,8 @@ echo "=== set-going: each restored session's first input, once its prompt has dr
 # The real tool, the real library, the fake tmux: what is typed is what the log records.
 FLOOR=150000
 # The line the tool types for a compact, read from the tool, so the case drives the constant.
-# A binary has no source to read: the Go port's constant is read from its source file instead.
-if [ "$IMPL" = go ]; then
-    SET_GOING_COMPACT_EXPECTED="$(awk -F'"' '/^\tsetGoingCompact +=/ { print $2 }' "$REPO_ROOT/src-go/internal/sessions/setgoing.go")"
-else
-    SET_GOING_COMPACT_EXPECTED="$(awk -F'"' '/^SET_GOING_COMPACT=/ { print $2 }' "$TOOL")"
-fi
+# A binary has no source to read: the constant is read from its source file instead.
+SET_GOING_COMPACT_EXPECTED="$(awk -F'"' '/^\tsetGoingCompact +=/ { print $2 }' "$REPO_ROOT/src-go/internal/sessions/setgoing.go")"
 check "the compact line is found in the tool" "yes" "$([[ "$SET_GOING_COMPACT_EXPECTED" == "/compact "* ]] && echo yes || echo no)"
 RULE="$(printf '─%.0s' $(seq 1 60))"
 PROMPT_SCREEN="$(printf '%s\n' "  Claude Code" "$RULE" "❯ " "$RULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle)")"
