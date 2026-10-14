@@ -153,14 +153,19 @@ func TestSettleDirRefusesAMissingDirectoryAndOneThatChangedUnderIt(t *testing.T)
 	}
 }
 
-// A directory made a moment ago is opened without following a link: a name swapped for a
-// symlink to another directory below the root is refused, not settled.
-func TestSettleDirDoesNotFollowASymlinkInPlaceOfTheDirectory(t *testing.T) {
+// A directory made a moment ago is checked against its own lstat: os.Root follows a symlink at
+// the last component, so a name swapped for a link to another directory is refused.
+func TestSettleDirRefusesASymlinkSwappedInForTheDirectoryJustMade(t *testing.T) {
 	e := newEnv(t, "/r")
 	e.mkdir("real")
 	e.symlink("real", "swapped")
-	if err := e.fs.settleDir("swapped", nil, 0o755, e.self); err == nil {
-		t.Fatal("settleDir followed a symlink")
+	linkInfo, err := e.fs.root.Lstat("swapped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = e.fs.settleDir("swapped", linkInfo, 0o755, e.self)
+	if err == nil || !strings.Contains(err.Error(), "changed while it was being fixed") {
+		t.Fatalf("settleDir followed a symlink: %v", err)
 	}
 }
 

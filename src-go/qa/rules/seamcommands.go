@@ -67,9 +67,11 @@ For an execx.Cmd built outside internal/execx (a composite literal, or an assign
 - A wrapper that is its owner's own program and runs another inside (lxc-attach ... -- prog) has
   prog judged too: lxcfreeze owns nmcli, but not what else it could run in a container.
 - A call of a program runner (the programRunners table: sudo.Sudo Capture, AsRoot and Run, and
-  lxcfreeze's runAct and probe) is judged the same way: its argument from the table's index on
+  lxcfreeze's runAct and probe, systemd's RunTransient) is judged the same way: its argument from the table's index on
   is the program, the rest its arguments. A spread slice must show its program (a literal head),
-  or the function needs a dynamicNames row. A runner method taken as a value (f := s.Capture)
+  or the function needs a dynamicNames row.
+  A program runner's own body is excused a wrapper whose program is its parameter (its callers
+  are judged); no other function is, whatever its row. A runner method taken as a value (f := s.Capture)
   hides the program from every later call and is flagged where it is taken.
 - A shell with -c (sh, bash, dash, zsh) is a shell string handed to the runner and is flagged.
 
@@ -90,6 +92,24 @@ How to fix: call the owner's method; add the operation to the owner if it is mis
 	}
 }
 
+// excuses are what the enclosing function is excused from. name: its dynamicNames row, so a
+// program chosen at run time is no finding. wrapper: it is itself a program runner.
+type excuses struct{ name, wrapper bool }
+
+// isRunnerDecl is whether decl declares one of the programRunners.
+func isRunnerDecl(pass *analysis.Pass, decl ast.Decl) bool {
+	fd, ok := decl.(*ast.FuncDecl)
+	if !ok {
+		return false
+	}
+	fn, ok := pass.TypesInfo.Defs[fd.Name].(*types.Func)
+	if !ok {
+		return false
+	}
+	_, runner := runnerFunc(fn)
+	return runner
+}
+
 func runSeamCommands(pass *analysis.Pass, dynamic []allowance) {
 	if ownedBy(pass.Pkg.Path(), execOwner) {
 		return
@@ -100,16 +120,16 @@ func runSeamCommands(pass *analysis.Pass, dynamic []allowance) {
 		}
 		called := map[ast.Expr]bool{}
 		for _, decl := range f.Decls {
-			dynamicOK := allowedIn(pass, funcName(decl), dynamic)
+			ex := excuses{name: allowedIn(pass, funcName(decl), dynamic), wrapper: isRunnerDecl(pass, decl)}
 			ast.Inspect(decl, func(n ast.Node) bool {
 				switch n := n.(type) {
 				case *ast.CompositeLit:
-					checkCmdLiteral(pass, n, dynamicOK)
+					checkCmdLiteral(pass, n, ex)
 				case *ast.AssignStmt:
-					checkNameAssign(pass, n, dynamicOK)
+					checkNameAssign(pass, n, ex)
 				case *ast.CallExpr:
 					called[ast.Unparen(n.Fun)] = true
-					checkRunnerCall(pass, n, dynamicOK)
+					checkRunnerCall(pass, n, ex)
 				case *ast.SelectorExpr:
 					checkRunnerValue(pass, n, called[n])
 				}
@@ -131,7 +151,7 @@ func isCmdType(t types.Type) bool {
 	return named.Obj().Name() == "Cmd" && ownedBy(named.Obj().Pkg().Path(), execOwner)
 }
 
-func checkCmdLiteral(pass *analysis.Pass, lit *ast.CompositeLit, dynamicOK bool) {
+func checkCmdLiteral(pass *analysis.Pass, lit *ast.CompositeLit, ex excuses) {
 	if !isCmdType(pass.TypesInfo.TypeOf(lit)) {
 		return
 	}
@@ -159,11 +179,11 @@ func checkCmdLiteral(pass *analysis.Pass, lit *ast.CompositeLit, dynamicOK bool)
 		}
 	}
 	if name != nil {
-		checkProgram(pass, name, args, true, dynamicOK)
+		checkProgram(pass, name, args, true, ex)
 	}
 }
 
-func checkNameAssign(pass *analysis.Pass, as *ast.AssignStmt, dynamicOK bool) {
+func checkNameAssign(pass *analysis.Pass, as *ast.AssignStmt, ex excuses) {
 	if len(as.Lhs) != len(as.Rhs) {
 		return
 	}
@@ -172,7 +192,7 @@ func checkNameAssign(pass *analysis.Pass, as *ast.AssignStmt, dynamicOK bool) {
 		if !ok || sel.Sel.Name != "Name" || !isCmdType(pass.TypesInfo.TypeOf(sel.X)) {
 			continue
 		}
-		checkProgram(pass, as.Rhs[i], nil, false, dynamicOK)
+		checkProgram(pass, as.Rhs[i], nil, false, ex)
 	}
 }
 
@@ -214,7 +234,7 @@ func isMethodExpr(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
 }
 
 // checkRunnerCall judges the program a program-runner call runs.
-func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, dynamicOK bool) {
+func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, ex excuses) {
 	sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
 	if !ok || isMethodExpr(pass, sel) {
 		return
@@ -224,7 +244,7 @@ func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, dynamicOK bool) {
 		return
 	}
 	if len(call.Args) <= runner.argIndex {
-		if !dynamicOK {
+		if !ex.name {
 			pass.Reportf(call.Pos(), "the call names no program: pass the program as the first argument after the context")
 		}
 		return
@@ -233,13 +253,13 @@ func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, dynamicOK bool) {
 	if call.Ellipsis.IsValid() && runner.argIndex == len(call.Args)-1 {
 		elems, complete := leadingArgs(pass, first)
 		if len(elems) == 0 || !elems[0].full {
-			reportDynamicProgram(pass, first, dynamicOK)
+			reportDynamicProgram(pass, first, ex.name)
 			return
 		}
-		walkProgram(pass, first, path.Base(elems[0].text), elems[1:], complete, dynamicOK)
+		walkProgram(pass, first, path.Base(elems[0].text), elems[1:], complete, ex.wrapper)
 		return
 	}
-	name, ok := programName(pass, first, dynamicOK)
+	name, ok := programName(pass, first, ex.name)
 	if !ok {
 		return
 	}
@@ -252,7 +272,7 @@ func checkRunnerCall(pass *analysis.Pass, call *ast.CallExpr, dynamicOK bool) {
 	for _, a := range rest {
 		args = append(args, textOf(pass, a))
 	}
-	walkProgram(pass, first, name, args, complete, dynamicOK)
+	walkProgram(pass, first, name, args, complete, ex.wrapper)
 }
 
 // checkRunnerValue flags a program runner taken as a value: the later call of that value names
@@ -286,8 +306,8 @@ func programName(pass *analysis.Pass, nameExpr ast.Expr, dynamicOK bool) (string
 
 // checkProgram judges the program a Cmd runs: Name, and through a wrapper the program after it.
 // argsShown is false when the Args are not part of the code being judged (a bare .Name =).
-func checkProgram(pass *analysis.Pass, nameExpr, argsExpr ast.Expr, argsShown, dynamicOK bool) {
-	name, ok := programName(pass, nameExpr, dynamicOK)
+func checkProgram(pass *analysis.Pass, nameExpr, argsExpr ast.Expr, argsShown bool, ex excuses) {
+	name, ok := programName(pass, nameExpr, ex.name)
 	if !ok {
 		return
 	}
@@ -296,14 +316,16 @@ func checkProgram(pass *analysis.Pass, nameExpr, argsExpr ast.Expr, argsShown, d
 	if argsShown {
 		args, complete = leadingArgs(pass, argsExpr)
 	}
-	walkProgram(pass, nameExpr, name, args, complete, dynamicOK)
+	walkProgram(pass, nameExpr, name, args, complete, ex.wrapper)
 }
 
 // walkProgram judges a program and, through wrappers, the program each one runs. complete is
-// whether args is every argument the call passes. In a function with a dynamicNames row the
-// program under a wrapper may be chosen at run time, so a wrapper whose arguments are not a
-// literal is not a finding there (one whose arguments end before naming a program still is).
-func walkProgram(pass *analysis.Pass, nameExpr ast.Expr, name string, args []argElem, complete, dynamicOK bool) {
+// whether args is every argument the call passes. callersJudged is true in the body of a
+// program runner (programRunners): the program under a wrapper there is its parameter, and the
+// calls of the runner are judged instead, so a wrapper whose arguments are not a literal is not
+// a finding there. Anywhere else it is, whatever dynamicNames excuses (one whose arguments end
+// before naming a program is a finding in a runner too).
+func walkProgram(pass *analysis.Pass, nameExpr ast.Expr, name string, args []argElem, complete, callersJudged bool) {
 	for {
 		if !judgeProgram(pass, nameExpr, name, args) {
 			return
@@ -317,7 +339,7 @@ func walkProgram(pass *analysis.Pass, nameExpr ast.Expr, name string, args []arg
 			why := "its arguments end before naming a program"
 			if !complete || slices.ContainsFunc(args, func(a argElem) bool { return !a.full }) {
 				why = "its arguments are not a literal"
-				if dynamicOK {
+				if callersJudged {
 					return
 				}
 			}

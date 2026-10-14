@@ -171,7 +171,7 @@ func (a *App) replaceAndRestart(team, id string, port int, teamFS *fsx.FS, state
 		return err
 	}
 	sd := a.sd()
-	if err := sd.RunTransient(a.ctx(), once, properties, []string{restoredTuwunel, "--restore-backup", id}); err != nil {
+	if err := sd.RunTransient(a.ctx(), once, properties, restoredTuwunel, "--restore-backup", id); err != nil {
 		return failf("%v", err)
 	}
 	if err := a.waitReady(once, port); err != nil {

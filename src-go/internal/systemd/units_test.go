@@ -132,7 +132,7 @@ func TestRunTransientPassesEachPropertyAndTheCommandAfterTheSeparator(t *testing
 	s, f := newUnits(&chatter)
 	f.On([]string{"systemd-run"}, execx.Result{Stdout: []byte("Running as unit: u.service\n")})
 	err := s.RunTransient(context.Background(), "u.service", []string{"User=x", "IPAddressAllow=a b"},
-		[]string{"/bin/tool", "--flag", "1"})
+		"/bin/tool", "--flag", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestRunTransientPassesEachPropertyAndTheCommandAfterTheSeparator(t *testing
 		t.Fatalf("chatter %q", chatter.String())
 	}
 	f.On([]string{"systemd-run"}, execx.Result{ExitCode: 1})
-	if err := s.RunTransient(context.Background(), "u.service", nil, []string{"/bin/tool"}); err == nil ||
+	if err := s.RunTransient(context.Background(), "u.service", nil, "/bin/tool"); err == nil ||
 		!strings.Contains(err.Error(), "systemd-run --unit=u.service") {
 		t.Fatalf("got %v", err)
 	}

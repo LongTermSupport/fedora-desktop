@@ -82,16 +82,17 @@ func (s *Systemd) SignalMain(ctx context.Context, unit, signal string) error {
 	return s.run(ctx, "kill", "--kill-whom=main", "--signal="+signal, unit)
 }
 
-// RunTransient runs argv once in a transient unit named unit, with the given properties
-// (Name=Value). The unit is collected even when the run fails, so a failure leaves no failed
-// unit behind to block the name.
-func (s *Systemd) RunTransient(ctx context.Context, unit string, properties, argv []string) error {
-	args := []string{"--unit=" + unit, "--collect"}
+// RunTransient runs program with args once in a transient unit named unit, with the given
+// properties (Name=Value). The unit is collected even when the run fails, so a failure leaves
+// no failed unit behind to block the name. The program is its own parameter so the project's
+// seam rule judges it at each call.
+func (s *Systemd) RunTransient(ctx context.Context, unit string, properties []string, program string, args ...string) error {
+	argv := []string{"--unit=" + unit, "--collect"}
 	for _, p := range properties {
-		args = append(args, "--property="+p)
+		argv = append(argv, "--property="+p)
 	}
-	args = append(append(args, "--"), argv...)
-	_, err := s.Runner.Run(ctx, execx.Cmd{Name: systemdRunBin, Args: args, Stdout: s.Chatter, Stderr: s.Chatter})
+	argv = append(append(argv, "--", program), args...)
+	_, err := s.Runner.Run(ctx, execx.Cmd{Name: systemdRunBin, Args: argv, Stdout: s.Chatter, Stderr: s.Chatter})
 	if err != nil {
 		return fmt.Errorf("%s --unit=%s: %w", systemdRunBin, unit, err)
 	}

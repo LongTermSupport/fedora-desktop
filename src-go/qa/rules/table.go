@@ -93,14 +93,15 @@ type programRunner struct {
 const sudoType = "Sudo"
 
 // programRunners are the entry points that run a program from their arguments. sudo's three
-// run any program as root; lxcfreeze's two helpers are the same shape one level up, so their
-// callers are judged too.
+// run any program as root; lxcfreeze's two helpers are the same shape one level up, and
+// systemd's RunTransient runs one program in a transient unit, so their callers are judged too.
 var programRunners = []programRunner{
 	{pkg: sudoPkg, recv: sudoType, method: "Capture", argIndex: 1},
 	{pkg: sudoPkg, recv: sudoType, method: "AsRoot", argIndex: 1},
 	{pkg: sudoPkg, recv: sudoType, method: "Run", argIndex: 1},
 	{pkg: lxcfreezePkg, recv: "Engine", method: "runAct", argIndex: 1},
 	{pkg: lxcfreezePkg, recv: "Engine", method: "probe", argIndex: 1},
+	{pkg: systemdPkg, recv: "Systemd", method: "RunTransient", argIndex: 3},
 }
 
 // shells are interpreters that run a string given with -c; handing one to the runner is the
@@ -159,11 +160,6 @@ var dynamicNames = []allowance{
 		pkg:    "internal/busadmin",
 		fn:     "Admin.render",
 		reason: "the agent-bus admin tool, run at the path the installer's configuration gives",
-	},
-	{
-		pkg:    systemdPkg,
-		fn:     "Systemd.RunTransient",
-		reason: "runs the one-off program its caller names in a transient unit; systemd-run is not owned",
 	},
 	{
 		pkg:    lxcfreezePkg,

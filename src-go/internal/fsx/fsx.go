@@ -143,7 +143,13 @@ func (f *FS) makeDir(name string, mode fs.FileMode, own Owner) (bool, error) {
 	if err := f.root.Mkdir(name, 0o700); err != nil {
 		return false, fmt.Errorf("%s: %w", f.shown(name), err)
 	}
-	if err := f.settleDir(name, nil, mode, own); err != nil {
+	// os.Root.OpenFile follows a symlink at the last component, so the directory just made
+	// is lstat-ed and the opened one must be that very directory.
+	made, err := f.root.Lstat(name)
+	if err != nil {
+		return false, f.dropDir(name, fmt.Errorf("%s: %w", f.shown(name), err))
+	}
+	if err = f.settleDir(name, made, mode, own); err != nil {
 		return false, f.dropDir(name, err)
 	}
 	return true, f.changed("directory " + f.shown(name))
@@ -171,7 +177,7 @@ func (f *FS) fixDir(name string, info fs.FileInfo, mode fs.FileMode, own Owner) 
 // the directory cannot be swapped for a symlink between the check and the change. before,
 // when not nil, is the lstat the opened directory must still match.
 func (f *FS) settleDir(name string, before fs.FileInfo, mode fs.FileMode, own Owner) (err error) {
-	d, err := f.root.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+	d, err := f.root.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY, 0)
 	if err != nil {
 		return fmt.Errorf("%s: %w", f.shown(name), err)
 	}

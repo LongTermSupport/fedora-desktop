@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"testing"
 
 	"golang.org/x/tools/go/analysis"
@@ -24,9 +25,12 @@ func TestSeamCommands(t *testing.T) {
 func TestSeamCommandsDynamicNames(t *testing.T) {
 	allow := []allowance{
 		{pkg: "internal/dynamic", fn: "Launch", reason: "the program is chosen at run time"},
-		{pkg: "internal/dynamic", fn: "Transient", reason: "the program under the wrapper is chosen at run time"},
+		{pkg: "internal/dynamic", fn: "Transient", reason: "a row excuses the Name, not a hidden wrapper program"},
 		{pkg: "internal/dynamic", fn: "Runner.Run", reason: "the program is chosen at run time"},
 	}
+	old := programRunners
+	programRunners = append(slices.Clone(old), programRunner{pkg: "internal/dynamic", recv: "Systemd", method: "RunTransient", argIndex: 2})
+	t.Cleanup(func() { programRunners = old })
 	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow), "fix/internal/dynamic")
 }
 
