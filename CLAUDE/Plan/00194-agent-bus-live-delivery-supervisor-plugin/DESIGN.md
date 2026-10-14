@@ -424,6 +424,10 @@ relies on that.
     test pins that copy to `helpers/pingbus/cli.py`. It does not import pingbus.
   - The Dockerfile's `COPY` already takes the directory. Its `chmod` and ownership lines
     gain the file.
+- **Not ccy-image-only.** The plugin is a standard-library file with no ccy dependency, so
+  it also goes in the member kit (`files/opt/claude-yolo/optional/agent-bus/`). A member
+  outside ccy (an LXC container whose own launcher uses the hooks-daemon supervisor,
+  `docs/agent-bus-lxc-members.md`) enables it with the same `--plugin` flag; Task 2.1b.
 - **Enabled only for `--teams` launches.**
   - When `PINGBUS_SEATS` is set, the entrypoint's AGENT-BUS block adds
     `--plugin ccy-agent-bus=<file>` to the wrapper.
