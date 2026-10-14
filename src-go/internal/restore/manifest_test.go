@@ -27,7 +27,7 @@ func newStore(t *testing.T) *Store {
 }
 
 func entryA() Entry {
-	return Entry{Name: "ccy-a", Prefix: "ccy", Dir: "/p/odd dir=x", Resume: "", Supervised: true, Going: GoingCompact, At: "1700000000", Detail: "250000", Transcript: "/t x.jsonl"}
+	return Entry{Name: "ccy-a", Prefix: "ccy", Dir: "/p/odd dir=x", Resume: "", Supervised: true, Going: GoingCompact, At: time.Unix(1700000000, 0), Detail: "250000", Transcript: "/t x.jsonl"}
 }
 
 func entryB() Entry {
@@ -230,7 +230,7 @@ func TestMergeKeepsAndReplaces(t *testing.T) {
 	// set-going moved ccy-a on; a second restore finds it running and says keep.
 	moved := entryA()
 	moved.Going = GoingContinue
-	moved.At = "1700000005"
+	moved.At = time.Unix(1700000005, 0)
 	if err := s.Write([]Entry{moved, entryB()}); err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestUpdate(t *testing.T) {
 	if err := s.Write([]Entry{entryA(), entryB()}); err != nil {
 		t.Fatal(err)
 	}
-	change := Change{Going: GoingContinue, At: "1700000001", Detail: "4000", Transcript: "/t/c.jsonl"}
+	change := Change{Going: GoingContinue, At: time.Unix(1700000001, 0), Detail: "4000", Transcript: "/t/c.jsonl"}
 	if err := s.Update("boot-one", "cc-b", GoingPending, change); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := got.Entries[1]
-	if b.Going != GoingContinue || b.At != "1700000001" || b.Detail != "4000" || b.Transcript != "/t/c.jsonl" || b.Resume != "0a1b" {
+	if b.Going != GoingContinue || !b.At.Equal(time.Unix(1700000001, 0)) || b.Detail != "4000" || b.Transcript != "/t/c.jsonl" || b.Resume != "0a1b" {
 		t.Fatalf("got %+v", b)
 	}
 	if got.Entries[0] != entryA() {
@@ -423,15 +423,59 @@ func TestSetGoingLockCannotOpen(t *testing.T) {
 	}
 }
 
-func TestAtSeconds(t *testing.T) {
-	if n, err := (Entry{}).AtSeconds(); err != nil || n != 0 {
-		t.Fatalf("got %d, %v", n, err)
+func TestAtUnix(t *testing.T) {
+	if n := (Entry{}).AtUnix(); n != 0 {
+		t.Fatalf("an entry with no time is 0, got %d", n)
 	}
-	if n, err := (Entry{At: "1700000000"}).AtSeconds(); err != nil || n != 1700000000 {
-		t.Fatalf("got %d, %v", n, err)
+	if n := (Entry{At: time.Unix(1700000000, 0)}).AtUnix(); n != 1700000000 {
+		t.Fatalf("got %d", n)
 	}
-	if _, err := (Entry{At: "99999999999999999999999"}).AtSeconds(); err == nil {
-		t.Fatal("an overflowing time is an error")
+}
+
+// A manifest written by an earlier build, or by the bash library, loads and writes back
+// byte for byte: at= is digits or empty, and the zero second stays "0", not empty.
+func TestAnExistingManifestLoadsAndWritesBackUnchanged(t *testing.T) {
+	s := newStore(t)
+	onDisk := "ccy-restore-manifest 2\nboot=boot-one\n" +
+		"name=ccy-a\nprefix=ccy\ndir=/p\nresume=\nsupervised=yes\ngoing=compact\nat=1700000000\ndetail=250000\ntranscript=/t.jsonl\n" +
+		"name=cc-b\nprefix=cc\ndir=/d\nresume=\nsupervised=no\ngoing=pending\nat=\ndetail=\ntranscript=\n" +
+		"name=cc-c\nprefix=cc\ndir=/e\nresume=\nsupervised=no\ngoing=continue\nat=0\ndetail=5\ntranscript=\n"
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.Path, []byte(onDisk), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := s.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Entries[0].AtUnix() != 1700000000 || !m.Entries[1].At.IsZero() || m.Entries[2].At.IsZero() || m.Entries[2].AtUnix() != 0 {
+		t.Fatalf("read %+v", m.Entries)
+	}
+	if err = s.Write(m.Entries); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != onDisk {
+		t.Fatalf("rewritten:\n%q\nwant:\n%q", raw, onDisk)
+	}
+}
+
+func TestATimeTooLargeForSecondsIsNotRead(t *testing.T) {
+	s := newStore(t)
+	bad := "ccy-restore-manifest 2\nboot=boot-one\nname=a\nprefix=cc\ndir=/\nresume=\nsupervised=no\ngoing=compact\nat=99999999999999999999999\ndetail=\ntranscript=\n"
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.Path, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Read(); err == nil || !strings.Contains(err.Error(), "not a time in seconds") {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -475,7 +519,7 @@ func TestBashWritesGoReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Entry{
-		{Name: "ccy-odd", Prefix: "ccy", Dir: "/odd dir=x", Supervised: true, Going: GoingCompact, At: "1700000000", Detail: "250000", Transcript: "/t x.jsonl"},
+		{Name: "ccy-odd", Prefix: "ccy", Dir: "/odd dir=x", Supervised: true, Going: GoingCompact, At: time.Unix(1700000000, 0), Detail: "250000", Transcript: "/t x.jsonl"},
 		{Name: "cc-two", Prefix: "cc", Dir: "/d2", Resume: "0a1b", Going: GoingPending},
 	}
 	if got.Boot != "boot-one" || !slices.Equal(got.Entries, want) {
@@ -495,7 +539,7 @@ ccy_restore_manifest_update boot-one cc-b pending continue 1700000001 4000 /t/c.
 		t.Fatalf("bash saw %q", out)
 	}
 	got, err := s.Read()
-	if err != nil || got.Entries[1].Going != GoingContinue || got.Entries[1].At != "1700000001" {
+	if err != nil || got.Entries[1].Going != GoingContinue || !got.Entries[1].At.Equal(time.Unix(1700000001, 0)) {
 		t.Fatalf("go saw %+v, %v", got, err)
 	}
 	if err = s.Update("boot-one", "cc-b", GoingContinue, Change{Going: GoingUntouched, Detail: "x"}); err != nil {
@@ -517,10 +561,10 @@ ccy_restore_going_state untouched "" "" 1 1 -`)
 	if out != want {
 		t.Fatalf("bash said %q", out)
 	}
-	if got := Judge("ccy", true, "Use same configuration? [Y/n] ", "-", "started").String(); got != "WAITING-AT-PROMPT quick-launch" {
+	if got := Judge("ccy", true, "Use same configuration? [Y/n] ", ContainerNone, GoingOutcome{Kind: OutcomeStarted}).String(); got != "WAITING-AT-PROMPT quick-launch" {
 		t.Fatalf("got %q", got)
 	}
-	if got := GoingState(GoingCompacting, 100, "5", 220, 120, TookNo); got != "failed:compact-not-started" {
+	if got := GoingState(GoingCompacting, 100, "5", 220, 120, TookNo); got.String() != "failed:compact-not-started" {
 		t.Fatalf("got %q", got)
 	}
 }

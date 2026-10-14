@@ -157,17 +157,17 @@ func (a *App) hostView(ctx context.Context) (hostView, error) {
 	return v, err
 }
 
-// containerState is "-" for a session with no engine client, "up" when its container is in the
-// engine's running list, else "starting".
-func (v hostView) containerState(name string) string {
+// containerState is ContainerNone for a session with no engine client, ContainerUp when its
+// container is in the engine's running list, else ContainerStarting.
+func (v hostView) containerState(name string) restore.ContainerState {
 	client := v.clientOf[name]
 	switch {
 	case client == "":
-		return "-"
+		return restore.ContainerNone
 	case v.running[client]:
-		return "up"
+		return restore.ContainerUp
 	}
-	return "starting"
+	return restore.ContainerStarting
 }
 
 // restoreStates is "<name> <STATE>[ <detail>]" for every session in the manifest, from one pass
@@ -193,7 +193,7 @@ func (a *App) restoreStates(ctx context.Context, m restore.Manifest) ([]string, 
 // stateOf is one restored session's state, as verify-restore prints it after the name.
 func (a *App) stateOf(ctx context.Context, e restore.Entry, view hostView) (string, error) {
 	live := view.live[e.Name]
-	container, pane := "-", ""
+	container, pane := restore.ContainerNone, ""
 	if live {
 		var err error
 		if pane, err = a.Tmux.CapturePane(ctx, e.Name, false); err != nil {
@@ -202,11 +202,7 @@ func (a *App) stateOf(ctx context.Context, e restore.Entry, view hostView) (stri
 		}
 		container = view.containerState(e.Name)
 	}
-	at, err := e.AtSeconds()
-	if err != nil {
-		a.failErr(err)
-		return "", errReported
-	}
+	at := e.AtUnix()
 	took, err := a.tookInput(e, at)
 	if err != nil {
 		return "", err

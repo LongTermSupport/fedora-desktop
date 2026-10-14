@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
@@ -155,13 +156,12 @@ func (g *goingRun) workLeft() []string {
 // setFloor reads the compact floor. Without a whole number of tokens no session can be set
 // going: each is left alone, with the reason.
 func (g *goingRun) setFloor(work []string) error {
-	raw := g.app.cfg.CompactFloor
-	floor, err := strconv.ParseInt(raw, 10, 64)
-	if wholeTokens.MatchString(raw) && err == nil {
+	floor, ok := g.app.cfg.CompactFloor.Tokens()
+	if ok {
 		g.floor = floor
 		return nil
 	}
-	g.app.fail(fmt.Sprintf("CCY_RESTORE_COMPACT_FLOOR_TOKENS is '%s', not a whole number of tokens, so no restored session can be set going. ccy-sessions-set-going.service sets it from ccy_restore_compact_floor_tokens (play-claude-yolo.yml).", raw))
+	g.app.fail(fmt.Sprintf("CCY_RESTORE_COMPACT_FLOOR_TOKENS is '%s', not a whole number of tokens, so no restored session can be set going. ccy-sessions-set-going.service sets it from ccy_restore_compact_floor_tokens (play-claude-yolo.yml).", g.app.cfg.CompactFloor))
 	if leaveErr := g.leaveAll(work, "no-compact-floor"); leaveErr != nil {
 		return leaveErr
 	}
@@ -274,7 +274,7 @@ func (g *goingRun) pass(ctx context.Context, work []string, live map[string]bool
 
 // goingSet records what was done with one session, under the manifest's lock, only while its
 // entry still says expect. Afterwards the manifest is read again as it now is.
-func (g *goingRun) goingSet(name string, expect, going restore.Going, at, detail, transcriptPath string) error {
+func (g *goingRun) goingSet(name string, expect, going restore.Going, at time.Time, detail, transcriptPath string) error {
 	a := g.app
 	err := g.store.Update(g.boot, name, expect, restore.Change{Going: going, At: at, Detail: detail, Transcript: transcriptPath})
 	switch {
@@ -300,7 +300,7 @@ func (g *goingRun) goingSet(name string, expect, going restore.Going, at, detail
 func (g *goingRun) leaveAlone(name string, expect restore.Going, reason string) error {
 	g.leftAlone++
 	g.app.sayf("left %s untouched: %s\n", name, reason)
-	return g.goingSet(name, expect, restore.GoingUntouched, "", reason, "")
+	return g.goingSet(name, expect, restore.GoingUntouched, time.Time{}, reason, "")
 }
 
 // typeInto types the text into the session's pane, then presses Enter on its own after the
@@ -327,12 +327,14 @@ func (g *goingRun) lookAt(ctx context.Context, name, prefix string, attached int
 		a.failErr(err)
 		return look{kind: lookUnreadable}
 	}
-	verdict := restore.Judge(prefix, true, screen.Plain(pane), "up", "-")
+	verdict := restore.Judge(prefix, true, screen.Plain(pane), restore.ContainerUp, restore.GoingOutcome{})
 	switch verdict.State {
 	case restore.StateDead:
 		return look{kind: lookDead, detail: verdict.Detail}
 	case restore.StateWaitingAtPrompt:
 		return look{kind: lookWaiting, detail: verdict.Detail}
+	case restore.StateOK, restore.StateStarting, restore.StateSettingGoing, restore.StateNotSetGoing:
+		// The pane is neither dead nor at a prompt; what it is doing is read below.
 	}
 	// A person attached is at the keyboard: whatever they are doing, nothing is typed over it.
 	if attached > 0 {
@@ -419,13 +421,13 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		}
 	}
 	// Taken before typing, so whatever the input writes to the transcript is at or after it.
-	at := g.app.Now().Unix()
+	at := g.app.Now()
 	if err = g.app.typeInto(ctx, name, text); err != nil {
 		return g.leaveAlone(name, restore.GoingPending, "send-failed")
 	}
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
 		name, going, tokens, g.app.cfg.CompactFloor, yesNo(e.Supervised))
-	return g.goingSet(name, restore.GoingPending, going, strconv.FormatInt(at, 10), strconv.FormatInt(tokens, 10), file)
+	return g.goingSet(name, restore.GoingPending, going, at, strconv.FormatInt(tokens, 10), file)
 }
 
 func yesNo(b bool) string {
@@ -484,12 +486,7 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 	if !live {
 		return g.leaveAlone(name, restore.GoingCompacting, "session-ended-while-compacting")
 	}
-	at, err := e.AtSeconds()
-	if err != nil {
-		g.app.failErr(err)
-		return g.leaveAlone(name, restore.GoingCompacting, "context-unreadable")
-	}
-	finished, err := transcript.CompactedSince(e.Transcript, at)
+	finished, err := transcript.CompactedSince(e.Transcript, e.AtUnix())
 	if err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingCompacting, "context-unreadable")
@@ -517,10 +514,10 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 
 // typeContinue types continue into a session whose compaction has finished.
 func (g *goingRun) typeContinue(ctx context.Context, e restore.Entry) error {
-	at := g.app.Now().Unix()
+	at := g.app.Now()
 	if err := g.app.typeInto(ctx, e.Name, setGoingContinue); err != nil {
 		return g.leaveAlone(e.Name, restore.GoingCompacting, "send-failed-after-compaction")
 	}
 	g.app.sayf("set %s going after its compaction: continue.\n", e.Name)
-	return g.goingSet(e.Name, restore.GoingCompacting, restore.GoingContinue, strconv.FormatInt(at, 10), e.Detail, e.Transcript)
+	return g.goingSet(e.Name, restore.GoingCompacting, restore.GoingContinue, at, e.Detail, e.Transcript)
 }
