@@ -191,8 +191,8 @@ def _copy(copy_of: Sequence[str], server_name: str) -> str | None:
     """`copy:<human>[,<human>...]` for an item the coordinator is copied on, else absent (§15)."""
     if not copy_of:
         return None
-    if not all(protocol.is_human_user_id(user, server_name) for user in copy_of):
-        raise ValueError("copy field names a user who is not a human")
+    # copy_of is the receiver's `to` cut to ctx.humans, and the only TeamRecord constructor
+    # (protocol.parse_team_record) refuses a humans entry that is not a human user ID.
     return "copy:" + ",".join(_localpart(user, server_name) for user in copy_of)
 
 

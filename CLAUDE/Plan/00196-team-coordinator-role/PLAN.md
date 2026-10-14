@@ -57,7 +57,9 @@ must not grow: the logic goes into Go.
 ### Phase 1: protocol, pingbus, agent-bus
 
 - [x] ✅ **Task 1.1**: `protocol.py`: role `coordinator`; the team record accepts `orchestrator` as
-  a legacy spelling read as `coordinator`; at most one coordinator in a record (red tests first)
+  a legacy spelling read as `coordinator`; at most one coordinator in a record. Red first holds
+  for the review-fix round only (each fix's failing run is in the journal); the earlier rounds
+  landed tests and code in the same commits, with no red run recorded.
 - [x] ✅ **Task 1.2**: `agent_bus` registry/admin: writers write `coordinator`; `set-role` refuses a
   second coordinator naming the holder; legacy entries read as `coordinator`
 - [x] ✅ **Task 1.3**: `pingbus send --to-coordinator` and `say --to-coordinator`; the old flag is
@@ -104,4 +106,11 @@ must not grow: the logic goes into Go.
 - Phase 1, protocol, pingbus, agent-bus: 2eb62a22
 - Phase 2, ccy-teams, launcher, host run: aec5e43a
 - qa-reviewer fixes (container 2.55, LXC handover, 00161 acceptance): 278d0481
+- Adversarial review (report in `subagent-reports/`, verdict merge, no blocker), disposition:
+  fixed: LXC handover order (every demotion before any promotion, across containers), a worker
+  told every coordinator when a record lists several, the deploy.bash CCY version, a test pinning
+  the copy-over-limit `target` refusal, the unreachable `_copy` branch removed; not a defect: the
+  U20 acceptance has no worker-to-human message (the only sender to the human is the coordinator,
+  never copied), so its expectations stand and a comment says why; left as is: `describe-seats`
+  under `set -e` (one play deploys launcher and binary together)
 - Branch `feat/team-coordinator`, unmerged: the owner merges it, then runs `meta-deploy.bash`

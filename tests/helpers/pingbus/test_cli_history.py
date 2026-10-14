@@ -93,11 +93,6 @@ class HistoryLineTest(unittest.TestCase):
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, peer=peer))
         self.assertTrue(line.endswith('\t9\t"all green"\tcopy:alice'), line)
 
-    def test_a_copy_of_something_not_a_human_is_refused(self) -> None:
-        peer = protocol.PeerText(self.EVENT, self.ORCH, 9, "x", (self.ME,))
-        with self.assertRaises(ValueError):
-            cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, peer=peer))
-
     def test_a_human_message_is_escaped_as_its_human_line(self) -> None:
         human = protocol.HumanMessage(self.EVENT, f"@alice:{self.SN}", 9, "two\tfields\nno")
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, human=human))

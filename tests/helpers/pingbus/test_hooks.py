@@ -49,12 +49,16 @@ def event_id(n: int) -> str:
     return "$" + f"{n:043d}"
 
 
+#: The handle pattern without its group names, which one regex may not repeat.
+UNNAMED_HANDLE = re.sub(r"\?P<\w+>", "", protocol.HANDLE_PATTERN)
+
 #: What each named template field may be: a count, or a name that passed its grammar.
 FIELD_RES = {
     **dict.fromkeys(hooks.COUNT_FIELDS, r"\d+"),
     "seat": rf"(?:{protocol.HANDLE_SEAT_PATTERN})",
     "team": protocol.TEAM_NAME_PATTERN,
     "handle": protocol.HANDLE_PATTERN,
+    "handles": rf"{UNNAMED_HANDLE}(?:, {UNNAMED_HANDLE})*",
     "lock": "(?:held|free)",
 }
 
@@ -264,6 +268,16 @@ class SessionStartTest(HookCase):
     def test_a_worker_is_told_its_role_and_who_the_coordinator_is(self):
         context = self.context(self.start())
         self.assertIn(hooks.fill("role_worker", team=TEAM, handle="orch.1+workstation.podman"), context)
+
+    def test_a_worker_is_told_every_coordinator_when_the_record_lists_several(self):
+        record = self.record(TEAM, SN)
+        second = ORCH.replace("orch.1", "orch.2")
+        record["roles"] = {ME: "worker", ORCH: "coordinator", second: "coordinator"}
+        self.state.save_team_record(record)
+        context = self.context(self.start())
+        self.assertIn(hooks.fill("role_worker_many", team=TEAM,
+                                 handles="orch.1+workstation.podman, orch.2+workstation.podman"), context)
+        self.assertNotIn("the coordinator is", context)
 
     def test_the_coordinator_is_told_it_is_the_coordinator(self):
         record = self.record(TEAM, SN)

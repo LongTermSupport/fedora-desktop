@@ -382,13 +382,6 @@ def parse_members(data: object) -> tuple[Member, ...]:
     return found
 
 
-def coordinators_last(members: Sequence[Member]) -> list[Member]:
-    """The entries with each coordinator after every worker (order otherwise kept), so handing
-    the role from one member to another demotes the old holder before the new one is made, whichever
-    way round the entries are listed: a team has one coordinator at a time."""
-    return sorted(members, key=lambda member: member.role == protocol.ROLE_COORDINATOR)
-
-
 # ── the decisions (pure) ─────────────────────────────────────────────────────────────────
 
 
@@ -712,7 +705,7 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
     _check_teams(members, teams_present, host)
     bus = host.bus_address()
     ready = []
-    for (container, user), group in _groups(coordinators_last(members)).items():
+    for (container, user), group in _groups(members).items():
         guest = _guest_running(host, container)
         home = _home(guest, group[0])
         _check_gh(guest, group[0], home)
@@ -720,13 +713,18 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
         ready.append((container, user, group, guest, home))
     synced: set[str] = set()
     for container, user, group, guest, home in ready:
-        first = group[0]
         if container not in synced:
             _sync_kit(host, guest, container, emit)
             synced.add(container)
-        for member in group:
-            say(f"{member.label}: team {member.team}")
-            _join(host, guest, member, home, bus, emit)
+    # Every demotion, in every container, lands before any promotion: a team has one coordinator.
+    for coordinators in (False, True):
+        for _container, _user, group, guest, home in ready:
+            for member in group:
+                if (member.role == protocol.ROLE_COORDINATOR) == coordinators:
+                    say(f"{member.label}: team {member.team}")
+                    _join(host, guest, member, home, bus, emit)
+    for container, user, group, guest, home in ready:
+        first = group[0]
         _, env = _observe(guest, first, home)
         teams = [member.team for member in group]
         merged = merge_env(env, where=f"{first.label}: {ENV_PATH}", add=teams, host=first.host)

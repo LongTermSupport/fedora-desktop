@@ -728,7 +728,9 @@ u20_check_wait_fallback() {
 
 # M2.4 — the human posts a message mentioning acca only, asking for an ack. acca, woken by a
 # notice counting a human, acks it; neither accb nor accc answers it, and no notice counting
-# a human reaches accb.
+# a human reaches accb. The coordinator's copy of a worker's message to a human is not in play
+# here: the only sender to the human is acca, the coordinator, whose own messages are never
+# copied, and no step has accb or accc address a human (their pings go to agents).
 u20_check_human_addressed() {
     local message text response event txn found ack
     message="$(u20_ev human-message.json)"

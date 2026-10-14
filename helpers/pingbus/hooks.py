@@ -60,6 +60,8 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "team": protocol.is_team_name,
     "handle": lambda value: protocol.parse_handle(value) is not None,
     "lock": lambda value: value in LOCK_STATES,
+    "handles": lambda value: isinstance(value, str) and all(
+        protocol.parse_handle(part) is not None for part in value.split(", ")),
 }
 TEMPLATES = {
     "pending": "agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings). Run `pingbus recv`.",
@@ -79,6 +81,9 @@ TEMPLATES = {
                          "how and dispatch it to the workers, then track it."),
     "role_worker": ("agent-bus: in team {team} you are a worker; the coordinator is {handle}. Report to it "
                     "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans."),
+    "role_worker_many": ("agent-bus: in team {team} you are a worker; the coordinators are {handles}. Report to "
+                         "them (`--to-coordinator` on `pingbus send` and `say` names all of them); they are "
+                         "copied on what you tell humans."),
     "role_worker_alone": "agent-bus: in team {team} you are a worker; the team has no coordinator.",
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "
                   "with run_in_background."),
@@ -122,8 +127,10 @@ def role_lines(views: tuple[TeamView, ...]) -> list[str]:
     for view in views:
         if view.role == protocol.ROLE_COORDINATOR:
             lines.append(fill("role_coordinator", team=view.team))
-        elif view.role == protocol.ROLE_WORKER and view.coordinator is not None:
-            lines.append(fill("role_worker", team=view.team, handle=view.coordinator))
+        elif view.role == protocol.ROLE_WORKER and len(view.coordinators) == 1:
+            lines.append(fill("role_worker", team=view.team, handle=view.coordinators[0]))
+        elif view.role == protocol.ROLE_WORKER and view.coordinators:
+            lines.append(fill("role_worker_many", team=view.team, handles=", ".join(view.coordinators)))
         elif view.role == protocol.ROLE_WORKER:
             lines.append(fill("role_worker_alone", team=view.team))
     return lines
@@ -157,10 +164,10 @@ class TeamView:
     holder: str | None
     pending: inbox.Pending | None
     failure: str | None
-    #: This member's role and the coordinator's handle, from the cached team record (None
-    #: where the record could not be read: `failure` says why).
+    #: This member's role and every coordinator's handle, from the cached team record (None
+    #: and empty where the record could not be read: `failure` says why).
     role: str | None = None
-    coordinator: str | None = None
+    coordinators: tuple[str, ...] = ()
 
     @property
     def waker(self) -> bool:
@@ -207,9 +214,9 @@ def _team_view(member: config.Member) -> TeamView:
         return TeamView(member.team, holder, None, "untrusted")
     except inbox.StateError:
         return TeamView(member.team, holder, None, "state")
-    coordinators = protocol.coordinators(record.roles)
-    handle = protocol.parse_user_id(coordinators[0], member.server_name) if coordinators else None
-    return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handle)
+    handles = tuple(protocol.parse_user_id(user, member.server_name)
+                    for user in protocol.coordinators(record.roles))
+    return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles)
 
 
 def survey(environ: Mapping[str, str]) -> Survey:

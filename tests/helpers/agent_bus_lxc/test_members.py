@@ -15,6 +15,7 @@ registry and hands back a bundle tar, as the root wrapper's `add-member --out=-`
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import os
@@ -258,13 +259,6 @@ class ParseMembersTest(unittest.TestCase):
         ])
         self.assertEqual(len(found), 3)
 
-    def test_workers_join_before_a_coordinator_so_a_handover_works_in_any_list_order(self) -> None:
-        new, old = (entry(container="box-new", role="coordinator"), entry(container="box-old", role="worker"))
-        ordered = members.coordinators_last(members.parse_members([new, old]))
-        self.assertEqual([m.container for m in ordered], ["box-old", "box-new"])
-        same = members.coordinators_last(members.parse_members([old, new]))
-        self.assertEqual([m.container for m in same], ["box-old", "box-new"])
-
     def test_absent_needs_checkout_or_repo(self) -> None:
         (member,) = members.parse_members([entry(state="absent", checkout=None, repo="proj")])
         self.assertIsNone(member.checkout)
@@ -473,6 +467,26 @@ class PresentPhaseTest(Fixture):
         self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", changed)
         member = json.loads((self.bundle_dir() / "member.json").read_text())
         self.assertIs(member["human_text"], False)
+
+    def test_a_handover_demotes_before_it_promotes_whatever_the_entry_order(self) -> None:
+        guests = {name: FakeGuest(self.tmp / name) for name in ("box-a", "box-b")}
+        host = dataclasses.replace(self.host(), guest=lambda name: guests[name])
+        old = entry(container="box-a", role="coordinator")
+        members.run_phase("present", members.parse_members([old]), (TEAM, OTHER_TEAM), host,
+                          emit=lambda text: None, say=lambda text: None)
+        self.bus.calls.clear()
+        # box-b lists a worker of another team before its coordinator of this one, and is itself
+        # listed before the container whose coordinator is being demoted.
+        handover = [entry(container="box-b", team=OTHER_TEAM, role="worker", seat="other"),
+                    entry(container="box-b", role="coordinator"),
+                    entry(container="box-a", role="worker")]
+        members.run_phase("present", members.parse_members(handover), (TEAM, OTHER_TEAM), host,
+                          emit=lambda text: None, say=lambda text: None)
+        roles = [call for call in self.bus.calls
+                 if call[0] in ("set-role", "add-member") and call[1] == TEAM]
+        self.assertEqual([call[0] for call in roles], ["set-role", "add-member"])
+        self.assertEqual(roles[0][3], "--role=worker")
+        self.assertIn("--role=coordinator", roles[1])
 
     def test_two_teams_share_the_env_file(self) -> None:
         self.run_phase("present", [entry(), entry(team=OTHER_TEAM)], (TEAM, OTHER_TEAM))

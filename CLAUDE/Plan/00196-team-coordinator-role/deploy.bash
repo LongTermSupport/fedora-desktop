@@ -8,7 +8,7 @@
 #   1. play-agent-bus.yml    the agent-bus software (set-role refuses a second coordinator,
 #                            the registry and team record read orchestrator as coordinator);
 #                            a team whose software is out of date is rebuilt and restarted.
-#   2. play-claude-yolo.yml  the launcher (CCY 3.97.0: ccy --teams offers the seat's role,
+#   2. play-claude-yolo.yml  the launcher (CCY 3.97.1: ccy --teams offers the seat's role,
 #                            Quick Launch shows it), the ccy-teams binary (the coordinator on
 #                            the board and in a seat's menu, choose-seat, describe-seats) and
 #                            the pingbus plugin and skill the containers get.

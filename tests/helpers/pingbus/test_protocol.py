@@ -1715,6 +1715,16 @@ class TestCoordinator(RefusalAssertions):
         ping = p.validate_content(p.build_ping("done", to, REFS["issue"]), ctx)
         self.assertEqual(ping.to, tuple(sorted([HUMAN, ORCH])))
 
+    def test_a_copy_that_pushes_the_addressees_past_the_limit_is_refused_target(self) -> None:
+        humans = [f"@h{i}:server.test" for i in range(p.MAX_TEXT_TO)]
+        ctx = make_ctx(humans=frozenset(humans))
+        fits = p.with_coordinator_copy(humans[:p.MAX_TEXT_TO - 1], WORKER, ctx)
+        self.assertEqual(len(fits), p.MAX_TEXT_TO)
+        p.validate_text_content(p.build_text(fits, "hi"), ctx)
+        over = p.with_coordinator_copy(humans, WORKER, ctx)
+        self.assertEqual(len(over), p.MAX_TEXT_TO + 1)
+        self.assertRefused("target", p.validate_text_content, p.build_text(over, "hi"), ctx)
+
     def test_the_coordinator_receiving_a_copy_of_text_is_told_which_humans(self) -> None:
         ctx = make_ctx()
         body = p.build_text(p.with_coordinator_copy([HUMAN], WORKER, ctx), "all green")
