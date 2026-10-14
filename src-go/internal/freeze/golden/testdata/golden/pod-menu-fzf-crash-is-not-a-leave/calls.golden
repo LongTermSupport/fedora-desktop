@@ -1,0 +1,5 @@
+["podman", "ps", "--all", "--format", "{{.Names}}|{{.State}}|{{.Networks}}"]
+["podman", "ps", "--all", "--filter", "label=ccy=true", "--format", "{{.Names}}|{{index .Labels \"ccy-github\"}}|{{index .Labels \"ccy-token\"}}|{{index .Labels \"ccy-ssh-keys\"}}"]
+["podman", "ps", "--all", "--format", "{{.Names}}|{{.State}}|{{.Networks}}"]
+["podman", "ps", "--all", "--filter", "label=ccy=true", "--format", "{{.Names}}|{{index .Labels \"ccy-github\"}}|{{index .Labels \"ccy-token\"}}|{{index .Labels \"ccy-ssh-keys\"}}"]
+["fzf", "--height=50%", "--reverse", "--prompt=podfreeze: ", "--header=ENTER acts on the chosen group \u2014 ESC to quit"]

@@ -3,6 +3,7 @@ package sessprobe_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -49,21 +50,23 @@ type rig struct {
 	fake  *execx.Fake
 	slept []time.Duration
 	clock time.Time
+	// step is how far the clock moves at each reading of it.
+	step time.Duration
 }
 
 func newRig(t *testing.T, panes []tmuxccy.Pane) *rig {
 	t.Helper()
 	root := t.TempDir()
 	for _, pid := range []int{100, 110, 700, 701, 400, 410} {
-		writeStat(t, root, pid, itoa(pid)+" (x) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0\n")
+		writeStat(t, root, pid, statLine(pid, 0, 0, 500))
 	}
-	g := &rig{fake: &execx.Fake{}, clock: time.Unix(1_700_000_000, 0)}
+	g := &rig{fake: &execx.Fake{}, clock: time.Unix(1_700_000_000, 0), step: time.Second}
 	g.probe = &sessprobe.Probe{
 		Tmux:     fixedPanes{panes: panes},
 		Runner:   g.fake,
 		ProcRoot: root,
 		Now: func() time.Time {
-			defer func() { g.clock = g.clock.Add(g.stepEvery()) }()
+			defer func() { g.clock = g.clock.Add(g.step) }()
 			return g.clock
 		},
 		Sleep: func(d time.Duration) { g.slept = append(g.slept, d) },
@@ -72,17 +75,25 @@ func newRig(t *testing.T, panes []tmuxccy.Pane) *rig {
 	return g
 }
 
-// stepEvery makes the clock advance one second between the two samples, whatever Sleep did.
-func (g *rig) stepEvery() time.Duration { return time.Second }
+// statLine is a /proc/<pid>/stat line: the CPU ticks the process has used and when it started.
+func statLine(pid int, user, system, start int64) string {
+	return fmt.Sprintf("%d (x) S 1 1 1 0 -1 0 0 0 0 0 %d %d 0 0 20 0 1 0 %d 1 1\n", pid, user, system, start)
+}
 
 // busy rewrites two stat files so the second sample shows 50 and 10 ticks of CPU.
 func (g *rig) busy(t *testing.T) {
 	t.Helper()
 	g.probe.Sleep = func(d time.Duration) {
 		g.slept = append(g.slept, d)
-		writeStat(t, g.probe.ProcRoot, 701, "701 (x) S 1 1 1 0 -1 0 0 0 0 0 30 20 0 0\n")
-		writeStat(t, g.probe.ProcRoot, 410, "410 (x) S 1 1 1 0 -1 0 0 0 0 0 5 5 0 0\n")
+		g.burn(t)
 	}
+}
+
+// burn is the CPU the busy processes use between two samples.
+func (g *rig) burn(t *testing.T) {
+	t.Helper()
+	writeStat(t, g.probe.ProcRoot, 701, statLine(701, 30, 20, 500))
+	writeStat(t, g.probe.ProcRoot, 410, statLine(410, 5, 5, 500))
 }
 
 func TestDetailRows(t *testing.T) {
@@ -238,5 +249,119 @@ func TestDetailDefaultClockAndSleepAreReal(t *testing.T) {
 	got, err := g.probe.Detail(context.Background())
 	if err != nil || len(got) != 1 || got[0].CPU != "0%" {
 		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+// cpuOf is the CPU column of the one session cc-b after another Detail.
+func cpuOf(t *testing.T, g *rig) string {
+	t.Helper()
+	got, err := g.probe.Detail(context.Background())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	return got[0].CPU
+}
+
+// A picker redraws again and again. With KeepSamples it samples once per redraw and measures
+// against the sample before, so no redraw waits out a sampling interval.
+func TestKeptSamplesNeverSleepAndMeasureAgainstTheLastRedraw(t *testing.T) {
+	g := newRig(t, []tmuxccy.Pane{{Session: "cc-b", PID: 400}})
+	g.probe.KeepSamples = true
+	g.probe.Sleep = func(d time.Duration) { t.Fatalf("a redraw slept %v", d) }
+	if got := cpuOf(t, g); got != "-" {
+		t.Fatalf("the first draw has nothing to measure against: %q", got)
+	}
+	g.burn(t)
+	if got := cpuOf(t, g); got != "10%" {
+		t.Fatalf("10 ticks over the 1 s since the last draw: %q", got)
+	}
+	if got := cpuOf(t, g); got != "0%" {
+		t.Fatalf("nothing used since: %q", got)
+	}
+}
+
+func TestKeptSamplesTooCloseTogetherRepeatTheLastReading(t *testing.T) {
+	g := newRig(t, []tmuxccy.Pane{{Session: "cc-b", PID: 400}})
+	g.probe.KeepSamples = true
+	g.step = 100 * time.Millisecond
+	for range 3 {
+		if got := cpuOf(t, g); got != "-" {
+			t.Fatalf("under a quarter of a second since the first draw: %q", got)
+		}
+	}
+	g.burn(t)
+	g.clock = g.clock.Add(time.Second)
+	if got := cpuOf(t, g); got != "8%" {
+		t.Fatalf("10 ticks over 1.3 s: %q", got)
+	}
+	if got := cpuOf(t, g); got != "8%" {
+		t.Fatalf("a redraw 100 ms later repeats it: %q", got)
+	}
+}
+
+func TestKeptSamplesDoNotCountAProcessThatReusedAPid(t *testing.T) {
+	g := newRig(t, []tmuxccy.Pane{{Session: "cc-b", PID: 400}})
+	g.probe.KeepSamples = true
+	cpuOf(t, g)
+	// Another process now has pid 410, and has used far more than the one that had it.
+	writeStat(t, g.probe.ProcRoot, 410, statLine(410, 9000, 9000, 777))
+	if got := cpuOf(t, g); got != "0%" {
+		t.Fatalf("the new process's lifetime is not this interval's CPU: %q", got)
+	}
+}
+
+func TestKeptSamplesShowASessionFirstSeenNowAsUnmeasured(t *testing.T) {
+	g := newRig(t, []tmuxccy.Pane{{Session: "cc-b", PID: 400}})
+	g.probe.KeepSamples = true
+	cpuOf(t, g)
+	g.probe.Tmux = fixedPanes{panes: []tmuxccy.Pane{{Session: "cc-b", PID: 400}, {Session: "cc-new", PID: 700}}}
+	writeStat(t, g.probe.ProcRoot, 700, statLine(700, 4000, 0, 500))
+	got, err := g.probe.Detail(context.Background())
+	if err != nil || len(got) != 2 || got[0].CPU != "0%" || got[1].Session != "cc-new" || got[1].CPU != "-" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestProcessTableIsWhatPsPrints(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On(strings.Fields(psArgs), ok(psTable()))
+	got, err := sessprobe.ProcessTable(context.Background(), fake)
+	if err != nil || got != psTable() {
+		t.Fatalf("ProcessTable = %q, %v", got, err)
+	}
+}
+
+func TestProcessTableFailureIsAnError(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.OnError(strings.Fields(psArgs), errors.New("no ps"))
+	if _, err := sessprobe.ProcessTable(context.Background(), fake); err == nil {
+		t.Fatal("a failed ps must be an error")
+	}
+}
+
+func TestRunningContainerNamesAsksEachEngineForItsLabelledContainers(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On([]string{"podman", "ps", "--filter", "label=ccy=true", "--format", "{{.Names}}"}, ok("a_yolo\n\nb_yolo\n"))
+	fake.On([]string{"docker", "ps", "--filter", "label=ccy=true", "--format", "{{.Names}}"}, ok("c_yolo\n"))
+	got, err := sessprobe.RunningContainerNames(context.Background(), fake, []string{"podman", "docker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a_yolo", "b_yolo", "c_yolo"} {
+		if !got[name] {
+			t.Errorf("%s missing from %v", name, got)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("want 3 names, got %v", got)
+	}
+}
+
+func TestRunningContainerNamesNamesTheEngineThatFailed(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.OnError([]string{"podman", "ps"}, errors.New("cannot connect"))
+	_, err := sessprobe.RunningContainerNames(context.Background(), fake, []string{"podman"})
+	if err == nil || !strings.Contains(err.Error(), "podman ps failed") {
+		t.Fatalf("err = %v", err)
 	}
 }

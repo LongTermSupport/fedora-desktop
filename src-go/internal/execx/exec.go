@@ -92,6 +92,12 @@ func (OS) Exec(c Cmd) error {
 		}
 		path = found
 	}
+	if c.Dir != "" {
+		// The program is already resolved, so a relative Name was looked up from the old cwd.
+		if err := os.Chdir(c.Dir); err != nil {
+			return fmt.Errorf("enter %s: %w", c.Dir, err)
+		}
+	}
 	if err := syscallExec(path, c.argv(), ChildEnv(os.Environ(), c.Env, c.Unset)); err != nil {
 		return fmt.Errorf("exec %s: %w", path, err)
 	}

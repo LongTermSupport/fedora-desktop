@@ -52,6 +52,10 @@ trusted reference may name any path in the team's repositories (a team narrows i
         current, outdated (config, software, both, or unstamped), unbuilt, removed,
         decide (absent: declared absent but still applied; undeclared: applied, not
         declared) or unreadable (an entry ccy-teams cannot read; the reason)
+    python3 -m helpers.agent_bus.declare overview --file <localhost.yml> --source <repo>
+            --applied <dir> [--installed TEAM]...
+        what `declared` prints, then what `status` prints, from one run (ccy-teams redraws the
+        list on every key and starts one process instead of two)
     python3 -m helpers.agent_bus.declare remove --file <localhost.yml> --team T [--purge] [--dry-run]
         sets the team's state: absent and purge: false (true with --purge); CHANGED<TAB>...
 
@@ -440,6 +444,11 @@ def status(args: argparse.Namespace, out: TextIO) -> int:
                        args.installed or [])
     out.writelines(f"STATUS\t{team}\t{state}\t{detail}\n" for team, state, detail in rows)
     return EXIT_OK
+
+
+def overview(args: argparse.Namespace, out: TextIO) -> int:
+    declared(args, out)
+    return status(args, out)
 
 
 def mark_absent(hv: HostVars, name: str, purge: bool) -> str:
@@ -936,11 +945,13 @@ def build_parser() -> argparse.ArgumentParser:
     covering.add_argument("--repo", required=True)
     remote = commands.add_parser("github-remote", help="OWNER/REPO of a GitHub remote URL, or nothing")
     remote.add_argument("--url", required=True)
-    states = commands.add_parser("status", help="each team: applied as declared or not (D65)")
-    states.add_argument("--file", required=True)
-    states.add_argument("--source", required=True, help="this checkout, whose software the play installs")
-    states.add_argument("--applied", required=True, help="the installer's applied-stamp directory")
-    states.add_argument("--installed", action="append", metavar="TEAM", help="a team whose homeserver exists")
+    for name, help_text in (("status", "each team: applied as declared or not (D65)"),
+                            ("overview", "the declared teams, then each team's applied state")):
+        states = commands.add_parser(name, help=help_text)
+        states.add_argument("--file", required=True)
+        states.add_argument("--source", required=True, help="this checkout, whose software the play installs")
+        states.add_argument("--applied", required=True, help="the installer's applied-stamp directory")
+        states.add_argument("--installed", action="append", metavar="TEAM", help="a team whose homeserver exists")
     commands.add_parser("address", help="the bus address, or nothing").add_argument("--file", required=True)
     check_address = commands.add_parser("check-address", help="validate a bus address")
     check_address.add_argument("--address", required=True)
@@ -987,6 +998,8 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
             return _listing_or_edit(args, out, err)
         if args.command == "status":
             return status(args, out)
+        if args.command == "overview":
+            return overview(args, out)
         if args.command == "remove":
             return remove(args, out, err)
         if args.command == "github-remote":

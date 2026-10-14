@@ -1,7 +1,6 @@
 package sessions
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +78,7 @@ func TestConfigReadsTheKnobs(t *testing.T) {
 	}
 	want := Config{
 		CcyLib: defaultLib, Minute: 0, Poll: 500 * time.Millisecond, SetGoingWait: 7 * time.Second, StartWindow: time.Hour,
-		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: "150000", PassphraseFile: "/p", BootIDFile: "/b",
+		SubmitDelay: 0, CPUSample: 0, TakeOverWaitTenths: 3, CompactFloor: ParseTokenFloor("150000"), PassphraseFile: "/p", BootIDFile: "/b",
 	}
 	if cfg != want {
 		t.Fatalf("config %+v, want %+v", cfg, want)
@@ -137,7 +136,7 @@ func TestWireFillsEverySeam(t *testing.T) {
 		"Runner": app.Runner != nil, "Execer": app.Execer != nil, "Stdin": app.Stdin != nil, "Stdout": app.Stdout != nil,
 		"Stderr": app.Stderr != nil, "Getenv": app.Getenv != nil, "Unsetenv": app.Unsetenv != nil, "Term": app.Term != nil,
 		"Tmux": app.Tmux != nil, "Git": app.Git != nil, "Picker": app.Picker != nil, "Now": app.Now != nil,
-		"Pause": app.Pause != nil, "Signals": app.Signals != nil, "IsTerminal": app.IsTerminal != nil,
+		"Transcripts": app.Transcripts != nil, "Pause": app.Pause != nil, "Signals": app.Signals != nil, "IsTerminal": app.IsTerminal != nil,
 		"InContainer": app.InContainer != nil, "Executable": app.Executable != nil, "Getuid": app.Getuid != nil,
 	}
 	for name, ok := range set {
@@ -194,32 +193,6 @@ func TestPauseForWaitsOrIsInterrupted(t *testing.T) {
 	stop()
 }
 
-func TestIsTerminalIsFalseForEverythingThatIsNotOne(t *testing.T) {
-	if isTerminal("not a file") {
-		t.Fatal("only a file can be a terminal")
-	}
-	null, err := os.Open(os.DevNull)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if isTerminal(null) {
-		t.Fatal("/dev/null is not a terminal")
-	}
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if isTerminal(reader) {
-		t.Fatal("a pipe is not a terminal")
-	}
-	if err = errors.Join(null.Close(), reader.Close(), writer.Close()); err != nil {
-		t.Fatal(err)
-	}
-	if isTerminal(null) {
-		t.Fatal("a closed file is not a terminal")
-	}
-}
-
 func TestIsExecutable(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "x")
@@ -244,5 +217,20 @@ func TestStdoutIsFedByOutAndStderrByTheTerm(t *testing.T) {
 	h.app.failErr(errBoom)
 	if h.stdout() != "payload\n" || h.stderr() != "status 1\nERROR: broke\nERROR: boom\n" {
 		t.Fatalf("stdout %q stderr %q", h.stdout(), h.stderr())
+	}
+}
+
+func TestParseTokenFloor(t *testing.T) {
+	if n, ok := ParseTokenFloor("150000").Tokens(); !ok || n != 150000 {
+		t.Fatalf("got %d, %v", n, ok)
+	}
+	for _, bad := range []string{"", "0", "-5", "012", "1.5", "lots", "99999999999999999999"} {
+		f := ParseTokenFloor(bad)
+		if _, ok := f.Tokens(); ok {
+			t.Errorf("%q should not be a floor", bad)
+		}
+		if f.String() != bad {
+			t.Errorf("%q is reported as %q", bad, f.String())
+		}
 	}
 }

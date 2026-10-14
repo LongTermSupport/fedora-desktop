@@ -21,6 +21,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/fsx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // The host the installer runs on, simulated: stubs for every program the installer runs, with
@@ -701,7 +702,7 @@ func (h *harness) writePin(version, sha string) {
 }
 
 // run runs the installer with fresh output buffers and a fresh call log.
-func (h *harness) run(args ...string) int {
+func (h *harness) run(args ...string) term.ExitCode {
 	h.t.Helper()
 	h.out.Reset()
 	h.errb.Reset()

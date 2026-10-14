@@ -192,9 +192,12 @@ func SingleAttachHook() string {
 	return SingleAttachHookFor(Socket)
 }
 
-// SingleAttachHookFor is SingleAttachHook on the server of another socket name.
+// SingleAttachHookFor is SingleAttachHook on the server of another socket name (a plain name:
+// it is spliced unquoted into the hook). tmux expands the session name before sh reads the
+// command, so it is shell-quoted by tmux (q:) and given as an exact-match target (=): a bare
+// "#{session_name}" would run $(...) from a directory-derived name and prefix-match a longer one.
 func SingleAttachHookFor(socket string) string {
-	return "if-shell 'test $(tmux -L " + socket + ` list-clients -t "#{session_name}" | wc -l) -gt 1' 'detach-client'`
+	return "if-shell 'test $(tmux -L " + socket + ` list-clients -t =#{q:session_name} | wc -l) -gt 1' 'detach-client'`
 }
 
 // InstallHook sets the single-attach hook on the server.

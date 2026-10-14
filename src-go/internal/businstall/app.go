@@ -39,13 +39,13 @@ var backupIDPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
 // failure is a run that ends with a message and an exit status. An empty message is
 // printed as nothing (check reports its failure in its own lines).
 type failure struct {
-	code int
+	code term.ExitCode
 	msg  string
 }
 
 func (f *failure) Error() string { return f.msg }
 
-func fail(code int, format string, args ...any) error {
+func fail(code term.ExitCode, format string, args ...any) error {
 	return &failure{code: code, msg: fmt.Sprintf(format, args...)}
 }
 
@@ -102,7 +102,7 @@ func NewApp(cfg Config) *App {
 
 // Run runs the installer with the command line (without the program name) and returns its
 // exit status.
-func (a *App) Run(args []string) int {
+func (a *App) Run(args []string) term.ExitCode {
 	a.stdout.err, a.stderr.err = nil, nil
 	code := a.report(a.dispatch(args))
 	if err := a.finish(); err != nil && code == term.ExitOK {
@@ -120,7 +120,7 @@ func (a *App) Run(args []string) int {
 // and is ended by its caller (the play, systemd or a signal).
 func (a *App) ctx() context.Context { return context.Background() }
 
-func (a *App) report(err error) int {
+func (a *App) report(err error) term.ExitCode {
 	if err == nil {
 		return term.ExitOK
 	}
@@ -270,7 +270,7 @@ var adminCodes = []int{64, 69, 70, 75, 77, 78}
 func adminFailure(err error, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
 	if code, ok := execx.ExitOf(err); ok && slices.Contains(adminCodes, code) {
-		return fail(code, "%s", msg)
+		return fail(term.ExitCode(code), "%s", msg)
 	}
 	return failf("%s: %v", msg, err)
 }

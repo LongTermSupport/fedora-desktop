@@ -105,7 +105,11 @@ today; rewriting them is out of scope.
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
 - [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Waits on the owner
   making go-qa-ci public (CI and the host cannot fetch a private module); until then the
-  interim `scripts/qa-go.bash` gates `src-go/`.
+  interim `scripts/qa-go.bash` gates `src-go/`. Ready on go-qa-ci's side since M15/M16 (Plan
+  00192): it builds a project driver from a nested module (`src-go/qa`), counts disabled linters
+  as the chosen defence set rather than suppressions, and ships nine bundled analyzers. When
+  adopted, its pinned tools (ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint)
+  go into the image, `play-python.yml` and CI by IaC, as golangci-lint did.
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to

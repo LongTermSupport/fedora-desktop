@@ -10,24 +10,45 @@ import (
 	"strings"
 )
 
+// ExitCode is a tool's exit status. Every run function returns one; only a main turns it
+// into the int os.Exit takes.
+type ExitCode int
+
 // Exit codes shared by ccy-teams, ccy-sessions and ccy, and by agent-bus-install, whose
 // 77 (not root) and 78 (configuration) ccy-teams reads to tell a refusal from a failure.
 const (
-	ExitOK        = 0
-	ExitFailure   = 1
-	ExitUsage     = 64
-	ExitNotRoot   = 77
-	ExitConfig    = 78
-	ExitCancelled = 130
+	ExitOK        ExitCode = 0
+	ExitFailure   ExitCode = 1
+	ExitUsage     ExitCode = 64
+	ExitNotRoot   ExitCode = 77
+	ExitConfig    ExitCode = 78
+	ExitCancelled ExitCode = 130
 )
 
+// Bold and Reset are the escape codes a tool that paints its own table wraps text in.
 const (
-	reset  = "\x1b[0m"
-	bold   = "\x1b[1m"
+	Reset  = "\x1b[0m"
+	Bold   = "\x1b[1m"
 	green  = "\x1b[32m"
 	red    = "\x1b[0;31m"
 	accent = "\x1b[33m" // terminal index 3: the theme decides its shade
 )
+
+// Printer writes to the streams a tool is given and keeps the first write that failed, so a
+// tool that printed what nobody could read does not report success: it asks Err when it ends.
+type Printer struct {
+	err error
+}
+
+// Print writes s to w.
+func (p *Printer) Print(w io.Writer, s string) {
+	if _, err := io.WriteString(w, s); err != nil && p.err == nil {
+		p.err = err
+	}
+}
+
+// Err is the first failed Print, nil if every one landed.
+func (p *Printer) Err() error { return p.err }
 
 // Term writes a tool's human-facing lines to Err. IsTerminal and Getenv are seams so a
 // test decides what is a terminal and what NO_COLOR says.
@@ -40,26 +61,39 @@ type Term struct {
 	Steps int
 	step  int
 
-	// WriteErr is the first failed write to Err, if any.
-	WriteErr error
+	writeErr error
 }
+
+// WriteFailed is the first failed write to Err, nil if every write landed. A tool checks it
+// when it ends: output that could not be shown is a failure, not a success.
+func (t *Term) WriteFailed() error { return t.writeErr }
 
 // New is a Term on the process's stderr, reading the real environment.
 func New() *Term {
 	return &Term{Err: os.Stderr, IsTerminal: FileIsTerminal, Getenv: os.Getenv}
 }
 
-// FileIsTerminal reports whether v is an *os.File attached to a character device.
+// FileIsTerminal reports whether v is an *os.File attached to a terminal: a character device
+// that is not /dev/null.
 func FileIsTerminal(v any) bool {
 	f, ok := v.(*os.File)
 	if !ok {
 		return false
 	}
 	info, err := f.Stat()
-	if err != nil {
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}
-	return info.Mode()&os.ModeCharDevice != 0
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(info, null)
+}
+
+// YesNo is a flag's word in the tools' record files: "yes" or "no".
+func YesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // ColourOn reports whether w gets colour: only a terminal, and never with NO_COLOR
@@ -68,18 +102,35 @@ func (t *Term) ColourOn(w io.Writer) bool {
 	return t.IsTerminal(w) && t.Getenv("NO_COLOR") == ""
 }
 
+// Finish is the exit code a tool returns: code, unless the run reported success while its
+// output could not be written (to stdout, whose first failure is stdoutErr, or to Err), which
+// is a failure. A run that already failed keeps its own, more specific, code.
+func (t *Term) Finish(code ExitCode, stdoutErr error) ExitCode {
+	if code != ExitOK {
+		return code
+	}
+	if stdoutErr != nil {
+		t.PrintError("could not write the output: " + stdoutErr.Error())
+		return ExitFailure
+	}
+	if t.writeErr != nil {
+		return ExitFailure
+	}
+	return code
+}
+
 // Printf writes to Err. A failed write to the terminal cannot be reported anywhere
-// better, so the first one is kept in WriteErr for the tool to check when it ends.
+// better, so the first one is kept for the tool to read with WriteFailed when it ends.
 func (t *Term) Printf(format string, args ...any) {
-	if _, err := fmt.Fprintf(t.Err, format, args...); err != nil && t.WriteErr == nil {
-		t.WriteErr = err
+	if _, err := fmt.Fprintf(t.Err, format, args...); err != nil && t.writeErr == nil {
+		t.writeErr = err
 	}
 }
 
 // Say is a heading line, bold on a terminal.
 func (t *Term) Say(text string) {
 	if t.ColourOn(t.Err) {
-		text = bold + text + reset
+		text = Bold + text + Reset
 	}
 	t.Printf("%s\n", text)
 }
@@ -89,7 +140,7 @@ func (t *Term) Say(text string) {
 func (t *Term) PrintError(msg string) {
 	label := "ERROR:"
 	if t.ColourOn(t.Err) {
-		label = red + label + reset
+		label = red + label + Reset
 	}
 	t.Printf("%s %s\n", label, msg)
 }
@@ -99,7 +150,7 @@ func (t *Term) Step(title string) {
 	t.step++
 	t.Printf("\n")
 	if t.ColourOn(t.Err) {
-		t.Printf("%s%s %d/%d  %s%s\n", bold, accent, t.step, t.Steps, title, reset)
+		t.Printf("%s%s %d/%d  %s%s\n", Bold, accent, t.step, t.Steps, title, Reset)
 		return
 	}
 	t.Printf("%d/%d  %s\n", t.step, t.Steps, title)
@@ -109,7 +160,7 @@ func (t *Term) Step(title string) {
 func (t *Term) Answered(value string) {
 	mark := "✓"
 	if t.ColourOn(t.Err) {
-		mark = green + mark + reset
+		mark = green + mark + Reset
 	}
 	t.Printf("     %s %s\n", mark, value)
 }

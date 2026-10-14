@@ -1,0 +1,48 @@
+Usage: podfreeze [list|freeze|thaw] [target] [options]
+
+  Freeze (pause) and thaw (unpause) Podman containers — one, a whole
+  network, or every CCY (Claude) session at once.
+
+  Run with no target for a menu of GROUPS, each row saying what
+  choosing it does right now ("FREEZE 8", "THAW 3"). Choosing one
+  opens the group: the first row acts on all of it, the rest are its
+  containers if you want only some. It acts, then returns to the
+  menu, until you quit.
+
+  The verb is derived: anything running is frozen, a set with nothing
+  running is thawed. So the same choice twice toggles it. There is no
+  confirmation prompt — freezing is undone by doing it again.
+
+  Freezing is the cgroup freezer, not suspend-to-disk: frozen
+  containers do not survive a reboot.
+
+Verbs (optional — omit to let the state decide):
+  list               Show running and frozen containers, then exit.
+  freeze             Pause the target containers.
+  thaw               Unpause the target containers.
+
+Targets (exactly one, or none for the menu):
+  NAME...            One or more container names.
+  --ccy              Every CCY container.
+  --network NET      Every container attached to network NET.
+  --github ID        Every CCY session running as GitHub account ID.
+  --token LABEL      Every CCY session using that Anthropic token.
+  --ssh-key NAME     Every CCY session with that SSH key mounted.
+  --all              Every running/paused container.
+
+  The last three read labels CCY stamps on each session at launch, so
+  they only see sessions started by CCY 3.40.0 or later. An unknown
+  value is an error listing the known ones, never an empty set.
+
+Options:
+  -n, --dry-run      Print the resolved set and exit; change nothing.
+  -h, --help         Show this help and exit.
+
+Examples:
+  podfreeze                       menu: pick a group, it acts, repeat
+  podfreeze list
+  podfreeze --ccy                 toggle every Claude session
+  podfreeze freeze --ccy          explicitly freeze them
+  podfreeze freeze --network mynet -n
+  podfreeze freeze --github <gh-username>
+  podfreeze thaw --all

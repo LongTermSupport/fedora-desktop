@@ -5,7 +5,6 @@
 package transcript
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,108 +99,114 @@ func For(dir, id string) (string, error) {
 	return path, nil
 }
 
-// entries reads the file's JSON objects, skipping every line that is not one: the last line
-// can be half-written while Claude appends to it.
-func entries(path string) ([]map[string]any, error) {
-	raw, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("the transcript %s could not be read: %w", path, err)
-	}
-	var out []map[string]any
-	for line := range bytes.SplitSeq(raw, []byte("\n")) {
-		var v any
-		if json.Unmarshal(line, &v) != nil {
-			continue
-		}
-		if obj, ok := v.(map[string]any); ok {
-			out = append(out, obj)
-		}
-	}
-	return out, nil
+// field is one transcript field read as T. It is tolerant as jq is: a field of any other type
+// is not an error that costs the entry its other fields, it is Err and not Present, and
+// null and absent are neither.
+type field[T any] struct {
+	Value   T
+	Present bool
+	Err     error
 }
 
-// truthy is jq's truth: everything but null, false and absent.
-func truthy(v any) bool {
-	b, isBool := v.(bool)
-	return v != nil && (!isBool || b)
-}
-
-func mainThread(e map[string]any) bool { return !truthy(e["isSidechain"]) }
-
-func object(v any) (map[string]any, bool) {
-	m, ok := v.(map[string]any)
-	return m, ok
-}
-
-// number is a JSON number field, with absent and null counting as 0 as jq's `// 0` does.
-func number(m map[string]any, key string) (float64, error) {
-	switch n := m[key].(type) {
-	case nil:
-		return 0, nil
-	case float64:
-		return n, nil
-	default:
-		return 0, fmt.Errorf("%s is not a number", key)
+func (f *field[T]) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
 	}
+	var v T
+	f.Err = json.Unmarshal(data, &v)
+	if f.Err == nil {
+		f.Value, f.Present = v, true
+	}
+	return nil
+}
+
+// flag is a field read with jq's truth: everything but null, false and absent is true.
+type flag bool
+
+func (f *flag) UnmarshalJSON(data []byte) error {
+	*f = string(data) != "null" && string(data) != "false"
+	return nil
+}
+
+// entry is the part of one transcript line this package reads. Every other field is ignored.
+type entry struct {
+	Type            field[string]          `json:"type"`
+	Subtype         field[string]          `json:"subtype"`
+	Timestamp       field[string]          `json:"timestamp"`
+	IsSidechain     flag                   `json:"isSidechain"`
+	IsMeta          flag                   `json:"isMeta"`
+	Message         field[message]         `json:"message"`
+	CompactMetadata field[compactMetadata] `json:"compactMetadata"`
+}
+
+type message struct {
+	Model field[string] `json:"model"`
+	Usage field[usage]  `json:"usage"`
+}
+
+// usage is an assistant message's token counts; absent and null count as 0 as jq's `// 0` does.
+type usage struct {
+	Input         field[float64] `json:"input_tokens"`
+	CacheCreation field[float64] `json:"cache_creation_input_tokens"`
+	CacheRead     field[float64] `json:"cache_read_input_tokens"`
+}
+
+type compactMetadata struct {
+	PostTokens field[float64] `json:"postTokens"`
+}
+
+const (
+	typeAssistant   = "assistant"
+	typeSystem      = "system"
+	typeUser        = "user"
+	subtypeBoundary = "compact_boundary"
+	modelSynthetic  = "<synthetic>"
+)
+
+func mainThread(e entry) bool { return !bool(e.IsSidechain) }
+
+// count is a usage count, with absent and null counting as 0.
+func count(f field[float64], name string) (float64, error) {
+	if f.Err != nil {
+		return 0, fmt.Errorf("%s is not a number", name)
+	}
+	return f.Value, nil
 }
 
 // ContextTokens is the conversation's context size in tokens: that of the last main-thread
 // entry carrying one. An assistant message's input, cache-write and cache-read tokens together
 // are what the next turn re-sends; a compaction boundary's postTokens is the size a compaction
 // left. Sub-agent entries are another context, and a <synthetic> assistant message is an error
-// placeholder with zero usage, so neither counts.
-func ContextTokens(path string) (int64, error) {
-	all, err := entries(path)
-	if err != nil {
-		return 0, err
-	}
-	last, found := 0.0, false
-	for _, e := range all {
-		if !mainThread(e) {
-			continue
-		}
-		size, ok, sizeErr := contextOf(e)
-		if sizeErr != nil {
-			return 0, fmt.Errorf("the transcript %s could not be read: %w", path, sizeErr)
-		}
-		if ok {
-			last, found = size, true
-		}
-	}
-	if !found || last < 0 || last != float64(int64(last)) {
-		return 0, fmt.Errorf("the transcript %s records no context size", path)
-	}
-	return int64(last), nil
-}
+// placeholder with zero usage, so neither counts. A Cache answers the same from what it has
+// already read; this reads the whole file.
+func ContextTokens(path string) (int64, error) { return NewCache().ContextTokens(path) }
 
 // contextOf is the context size one entry records, if it records one.
-func contextOf(e map[string]any) (float64, bool, error) {
-	switch e["type"] {
-	case "assistant":
-		msg, ok := object(e["message"])
-		if !ok {
+func contextOf(e entry) (float64, bool, error) {
+	switch e.Type.Value {
+	case typeAssistant:
+		if !e.Message.Present || !e.Message.Value.Usage.Present || e.Message.Value.Model.Value == modelSynthetic {
 			return 0, false, nil
 		}
-		usage, ok := object(msg["usage"])
-		if !ok || msg["model"] == "<synthetic>" {
-			return 0, false, nil
-		}
+		u := e.Message.Value.Usage.Value
 		var sum float64
-		for _, key := range []string{"input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"} {
-			n, err := number(usage, key)
+		for _, c := range []struct {
+			name string
+			f    field[float64]
+		}{{"input_tokens", u.Input}, {"cache_creation_input_tokens", u.CacheCreation}, {"cache_read_input_tokens", u.CacheRead}} {
+			n, err := count(c.f, c.name)
 			if err != nil {
 				return 0, false, err
 			}
 			sum += n
 		}
 		return sum, true, nil
-	case "system":
-		meta, ok := object(e["compactMetadata"])
-		if !ok || e["subtype"] != "compact_boundary" {
+	case typeSystem:
+		if !e.CompactMetadata.Present || e.Subtype.Value != subtypeBoundary {
 			return 0, false, nil
 		}
-		post, isNumber := meta["postTokens"].(float64)
-		return post, isNumber, nil
+		post := e.CompactMetadata.Value.PostTokens
+		return post.Value, post.Present, nil
 	}
 	return 0, false, nil
 }
@@ -211,42 +216,13 @@ func contextOf(e map[string]any) (float64, bool, error) {
 // it is taken (a typed /compact, its expansion, or `continue`); a line left sitting in the
 // input box writes nothing. Meta entries are Claude's own notes, not input.
 func TookInputSince(path string, since int64) (bool, error) {
-	return anySince(path, since, func(e map[string]any) bool {
-		return e["type"] == "user" && !truthy(e["isMeta"])
-	})
+	return NewCache().TookInputSince(path, since)
 }
 
 // CompactedSince reports whether a compaction of the conversation finished at or after the
 // Unix time since (a main-thread compact_boundary entry).
 func CompactedSince(path string, since int64) (bool, error) {
-	return anySince(path, since, func(e map[string]any) bool {
-		return e["type"] == "system" && e["subtype"] == "compact_boundary"
-	})
-}
-
-func anySince(path string, since int64, wanted func(map[string]any) bool) (bool, error) {
-	all, err := entries(path)
-	if err != nil {
-		return false, err
-	}
-	found := false
-	for _, e := range all {
-		if !mainThread(e) || !wanted(e) {
-			continue
-		}
-		stamp, isString := e["timestamp"].(string)
-		if !isString {
-			continue
-		}
-		at, parseErr := epoch(stamp)
-		if parseErr != nil {
-			return false, fmt.Errorf("the transcript %s could not be read: %w", path, parseErr)
-		}
-		if at >= since {
-			found = true
-		}
-	}
-	return found, nil
+	return NewCache().CompactedSince(path, since)
 }
 
 // epoch is a transcript timestamp as Unix seconds: UTC, the fraction dropped.

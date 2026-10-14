@@ -3,115 +3,123 @@
 # Every bash file over a limit, at its current measurement. A file may shrink and be ported to
 # Go; it may never grow or gain a flag, and a new over-limit file does not belong here.
 # Records only move down: `scripts/qa-bash-limits.bash --update` lowers them and removes
-# entries that are within limits or gone. Never edit a number up or add a line by hand; the
-# gate compares this file with the base ref's and fails on either.
+# entries that are within limits or whose file is gone; it refuses to drop one whose file still
+# exists. Never edit a number up or add a line by hand; the gate compares this file with the
+# merge-base with the default branch and fails on either.
 #
-# path <TAB> code lines <TAB> functions <TAB> grandfathered flags (assoc, ui, or -)
-.claude/ccy/claude-supervise	68	4	-
-.semgrep/bash-conventions.bash	69	0	-
-.semgrep/ready-wait.bash	84	9	-
-CLAUDE/Plan/_planlib.inc.bash	395	25	-
-CLAUDE/Plan/meta-deploy.bash	187	0	assoc
-CLAUDE/Plan/mkplan.bash	611	27	-
-extensions/scripts/gnome-shell-extract-js.bash	85	6	-
-fedora-install/pull-projects.bash	226	5	-
-fedora-install/push.bash	446	9	assoc
-fedora-install/setup-netinstall-boot.bash	957	30	-
-files/home/.local/bin/bash-history-rank	68	3	-
-files/home/.local/bin/ccdt	144	6	-
-files/home/.local/bin/fedora-desktop-health.j2	108	2	-
-files/home/.local/bin/ftp-camera	1619	33	ui
-files/home/.local/bin/gshell-nested	95	2	-
-files/home/.local/bin/lan-scan	190	10	-
-files/home/.local/bin/lxcfreeze	462	26	-
-files/home/.local/bin/nord	505	18	-
-files/home/.local/bin/open	419	18	ui
-files/home/.local/bin/podfreeze	529	27	assoc
-files/home/.local/bin/qnap-finder	135	4	-
-files/home/.local/bin/raw-prune	119	1	assoc
-files/home/.local/bin/rclone-cache-status	323	7	-
-files/home/.local/bin/rclone-cache-warm	101	1	-
-files/home/.local/bin/rclone-rc-auth.bash	96	4	-
-files/home/.local/bin/rclone-tail	226	7	assoc
-files/home/.local/bin/rdt	90	6	-
-files/home/.local/bin/reclaim	456	29	-
-files/home/.local/bin/scp-with-key	85	2	-
-files/home/.local/bin/ssh-agent-start	109	6	-
-files/home/.local/bin/ssh-copy-id-with-key	73	2	-
-files/home/.local/bin/ssh-keys-rekey	228	5	-
-files/home/.local/bin/ssh-with-agent.bash	108	6	-
-files/home/.local/bin/ssh-with-key	87	2	-
-files/home/.local/bin/vmtest	1231	67	-
-files/home/.local/bin/vmtest-bridge-watcher	53	8	-
-files/home/.local/bin/wsi	1000	26	-
-files/home/.local/bin/wsi-claude-process	125	3	-
-files/home/.local/lib/freeze/freeze-common.bash	470	19	ui
-files/home/.local/share/vmtest/guest-acceptance-desktop.bash	199	2	-
-files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	-
-files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash	265	7	-
-files/home/.local/share/vmtest/guest-acceptance-server.bash	138	2	-
-files/home/.local/share/vmtest/guest-prepare-server-host-health-kernel-change.bash	169	7	-
-files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend	91	2	-
-files/usr/local/bin/agent-bus	119	9	-
-files/usr/local/bin/compress	96	2	-
-files/usr/local/bin/shutdown-with-update	290	10	-
-files/usr/local/bin/uncompress	106	2	-
-files/usr/local/bin/watermark	310	6	-
-files/usr/local/sbin/agent-bus-install	995	62	assoc
-files/usr/local/sbin/fedora-desktop-self-update	94	2	-
-files/var/local/claude-code/cc	183	2	-
-files/var/local/claude-code/cc-teams.bash	170	9	ui
-files/var/local/claude-yolo/agent-browser-session-guard	123	2	-
-files/var/local/claude-yolo/claude-yolo	2834	12	-
-files/var/local/claude-yolo/entrypoint.sh	443	5	-
-files/var/local/claude-yolo/lib/agent-bus-seats.bash	145	7	ui
-files/var/local/claude-yolo/lib/common-pure.bash	324	15	-
-files/var/local/claude-yolo/lib/common.bash	689	21	assoc
-files/var/local/claude-yolo/lib/docker-health.bash	454	9	-
-files/var/local/claude-yolo/lib/dockerfile-custom.bash	556	4	-
-files/var/local/claude-yolo/lib/network-management.bash	962	30	assoc
-files/var/local/claude-yolo/lib/restart-request.bash	318	8	-
-files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	-
-files/var/local/claude-yolo/lib/session-registry.bash	1044	39	assoc
-files/var/local/claude-yolo/lib/ssh-handling.bash	1398	40	-
-files/var/local/claude-yolo/lib/tmux-session.bash	390	22	ui
-files/var/local/claude-yolo/lib/token-management.bash	1386	36	assoc
-files/var/local/docker-in-lxc	649	14	-
-scripts/check-displaylink-status.sh	211	1	-
-scripts/check-pinned-versions.bash	137	3	-
-scripts/collect-diagnostics.bash	364	9	-
-scripts/gh-account-setup.bash	546	19	-
-scripts/git-hooks/commit-msg	117	0	-
-scripts/git-hooks/lib/secret-scan.bash	216	6	assoc
-scripts/git-hooks/pre-commit	279	0	-
-scripts/lib/qa-helper-summary.bash	118	3	-
-scripts/lib/run-log-scrub.bash	117	4	-
-scripts/lint	257	6	-
-scripts/mark-branches-superseded.bash	236	12	-
-scripts/nvidia-status.bash	430	4	-
-scripts/qa-all.bash	860	2	-
-scripts/qa-ansible-pause.bash	96	5	-
-scripts/qa-ansible-syntax.bash	88	0	assoc
-scripts/qa-ansible.bash	350	1	-
-scripts/qa-bash.bash	110	0	assoc
-scripts/qa-changed.bash	548	18	assoc
-scripts/qa-deployed-drift.bash	166	1	-
-scripts/qa-discovery.bash	185	14	-
-scripts/qa-docs.bash	77	0	-
-scripts/qa-gh-scopes.bash	66	0	-
-scripts/qa-go.bash	73	2	-
-scripts/qa-helper-tests.bash	90	0	assoc
-scripts/qa-js.bash	102	0	-
-scripts/qa-nokill-containerwatch.bash	275	5	-
-scripts/qa-patterns.bash	196	0	assoc
-scripts/qa-plan-script-logging.bash	64	1	-
-scripts/qa-python.bash	155	0	assoc
-scripts/qa-ready-wait-rules.bash	99	0	-
-scripts/qa-speech-to-text-rules.bash	105	1	-
-scripts/qa-toolchain.bash	92	3	-
-scripts/qa-version-pins.bash	111	4	-
-scripts/qa-vmtest-manifest.bash	125	4	-
-scripts/release.bash	227	8	-
-scripts/setup-rclone.bash	439	9	-
-scripts/setup.bash	74	5	-
-vault.bash	179	11	-
+# The one exception is a new measurer: when the way files are measured changes, its version
+# rises and `--remeasure` rewrites every record at the new measure, in the commit that
+# changes the measurer. The version below is the measurer these records were taken with.
+#
+# path <TAB> code lines <TAB> functions <TAB> statements <TAB> grandfathered flags (assoc, ui, data or -)
+# measurer: 2
+.claude/ccy/claude-supervise	68	4	74	-
+.semgrep/bash-conventions.bash	69	0	118	-
+.semgrep/ready-wait.bash	84	9	99	-
+CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
+CLAUDE/Plan/meta-deploy.bash	187	0	188	assoc
+CLAUDE/Plan/mkplan.bash	619	18	495	-
+extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
+fedora-install/pull-projects.bash	226	5	249	-
+fedora-install/push.bash	454	9	400	assoc,data
+fedora-install/setup-netinstall-boot.bash	959	30	1138	-
+files/etc/profile.d/zz_lts-fedora-desktop.bash	82	8	89	-
+files/home/.local/bin/bash-history-rank	68	1	46	-
+files/home/.local/bin/ccdt	144	6	117	-
+files/home/.local/bin/fedora-desktop-health.j2	108	2	88	-
+files/home/.local/bin/ftp-camera	1627	33	1669	ui,data
+files/home/.local/bin/gshell-nested	95	2	97	-
+files/home/.local/bin/lan-scan	190	10	214	-
+files/home/.local/bin/nord	505	18	502	-
+files/home/.local/bin/open	419	18	422	ui
+files/home/.local/bin/qnap-finder	135	4	178	-
+files/home/.local/bin/raw-prune	119	1	95	assoc
+files/home/.local/bin/rclone-cache-status	323	7	305	data
+files/home/.local/bin/rclone-cache-warm	101	1	110	-
+files/home/.local/bin/rclone-rc-auth.bash	96	4	111	-
+files/home/.local/bin/rclone-tail	226	7	225	assoc,data
+files/home/.local/bin/rdt	90	6	70	-
+files/home/.local/bin/reclaim	456	29	592	-
+files/home/.local/bin/scp-with-key	85	2	94	-
+files/home/.local/bin/ssh-agent-start	109	6	111	-
+files/home/.local/bin/ssh-copy-id-with-key	73	2	77	-
+files/home/.local/bin/ssh-keys-rekey	228	5	252	-
+files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
+files/home/.local/bin/ssh-with-key	87	2	98	-
+files/home/.local/bin/vmtest	1231	67	1467	data
+files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
+files/home/.local/bin/wsi	1000	26	1030	-
+files/home/.local/bin/wsi-claude-process	125	3	138	-
+files/home/.local/share/vmtest/guest-acceptance-desktop.bash	203	2	250	data
+files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	186	-
+files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash	265	7	247	data
+files/home/.local/share/vmtest/guest-acceptance-server.bash	138	2	165	-
+files/home/.local/share/vmtest/guest-prepare-server-host-health-kernel-change.bash	169	7	239	data
+files/home/bashrc-includes/history-search.bash	57	2	65	ui
+files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend	91	2	95	-
+files/usr/local/bin/agent-bus	119	9	124	-
+files/usr/local/bin/compress	96	2	63	-
+files/usr/local/bin/shutdown-with-update	290	10	298	-
+files/usr/local/bin/uncompress	106	2	80	-
+files/usr/local/bin/watermark	311	6	288	-
+files/usr/local/sbin/agent-bus-install	995	62	1158	assoc,data
+files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
+files/var/local/claude-code/cc	183	2	196	-
+files/var/local/claude-code/cc-teams.bash	170	9	217	ui
+files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
+files/var/local/claude-yolo/claude-yolo	2840	12	2749	-
+files/var/local/claude-yolo/entrypoint.sh	443	5	448	data
+files/var/local/claude-yolo/lib/agent-bus-seats.bash	145	7	164	ui
+files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
+files/var/local/claude-yolo/lib/common.bash	719	21	752	assoc
+files/var/local/claude-yolo/lib/docker-health.bash	454	9	477	-
+files/var/local/claude-yolo/lib/dockerfile-custom.bash	595	4	231	-
+files/var/local/claude-yolo/lib/network-management.bash	962	30	1125	assoc
+files/var/local/claude-yolo/lib/restart-request.bash	318	8	317	data
+files/var/local/claude-yolo/lib/session-lifecycle.bash	185	8	223	-
+files/var/local/claude-yolo/lib/session-registry.bash	1044	39	1077	assoc,data
+files/var/local/claude-yolo/lib/ssh-handling.bash	1402	40	1695	-
+files/var/local/claude-yolo/lib/tmux-session.bash	390	22	463	ui
+files/var/local/claude-yolo/lib/token-management.bash	1389	36	1455	assoc
+files/var/local/colours	65	16	65	-
+files/var/local/docker-in-lxc	668	20	526	-
+files/var/local/ps1-prompt	76	6	78	-
+run.bash	2856	66	2821	assoc,data
+scripts/check-displaylink-status.sh	211	1	239	-
+scripts/check-pinned-versions.bash	137	3	127	data
+scripts/collect-diagnostics.bash	364	9	365	-
+scripts/gh-account-setup.bash	546	19	548	data
+scripts/git-hooks/commit-msg	117	0	136	-
+scripts/git-hooks/lib/secret-scan.bash	225	6	128	assoc,data
+scripts/git-hooks/pre-commit	279	0	312	-
+scripts/lib/qa-helper-summary.bash	118	3	110	-
+scripts/lib/run-log-scrub.bash	130	4	70	data
+scripts/lint	257	6	246	data
+scripts/mark-branches-superseded.bash	236	12	223	-
+scripts/nvidia-status.bash	430	4	519	-
+scripts/qa-all.bash	836	2	842	data
+scripts/qa-ansible-pause.bash	96	1	71	-
+scripts/qa-ansible-syntax.bash	88	0	81	assoc,data
+scripts/qa-ansible.bash	351	1	284	data
+scripts/qa-bash.bash	110	0	102	assoc,data
+scripts/qa-changed.bash	543	18	587	assoc
+scripts/qa-deployed-drift.bash	165	1	165	-
+scripts/qa-discovery.bash	185	14	221	-
+scripts/qa-docs.bash	77	0	72	data
+scripts/qa-gh-scopes.bash	67	0	82	data
+scripts/qa-go.bash	73	2	83	-
+scripts/qa-helper-tests.bash	90	0	88	assoc
+scripts/qa-js.bash	102	0	95	data
+scripts/qa-nokill-containerwatch.bash	276	5	248	-
+scripts/qa-patterns.bash	196	0	164	assoc,data
+scripts/qa-plan-script-logging.bash	64	1	77	-
+scripts/qa-python.bash	155	0	137	assoc,data
+scripts/qa-ready-wait-rules.bash	99	0	115	data
+scripts/qa-speech-to-text-rules.bash	105	1	106	data
+scripts/qa-toolchain.bash	92	3	113	-
+scripts/qa-version-pins.bash	111	4	146	data
+scripts/qa-vmtest-manifest.bash	125	4	94	data
+scripts/release.bash	227	8	271	data
+scripts/setup-rclone.bash	442	9	450	data
+scripts/setup.bash	74	5	107	-
+vault.bash	179	11	164	data

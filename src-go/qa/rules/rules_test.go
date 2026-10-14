@@ -17,7 +17,21 @@ func TestSeamExec(t *testing.T) {
 
 func TestSeamCommands(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SeamCommands,
-		"fix/internal/execx", "fix/internal/sudo", "fix/internal/hostnet", "fix/internal/badcmd")
+		"fix/internal/execx", "fix/internal/sudo", "fix/internal/hostnet", "fix/internal/badcmd", "fix/other/internal/tmuxccy",
+		"fix/internal/podfreeze", "fix/internal/lxcfreeze", "fix/internal/sessprobe", "fix/internal/badrun")
+}
+
+func TestSeamCommandsDynamicNames(t *testing.T) {
+	allow := []allowance{
+		{pkg: "internal/dynamic", fn: "Launch", reason: "the program is chosen at run time"},
+		{pkg: "internal/dynamic", fn: "Transient", reason: "the program under the wrapper is chosen at run time"},
+		{pkg: "internal/dynamic", fn: "Runner.Run", reason: "the program is chosen at run time"},
+	}
+	analysistest.Run(t, analysistest.TestData(), newSeamCommands(allow), "fix/internal/dynamic")
+}
+
+func TestTmuxTargets(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), TmuxTargets, "fix/internal/tmuxccy", "fix/internal/term")
 }
 
 func TestTestClock(t *testing.T) {
@@ -33,8 +47,16 @@ func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 4 {
-		t.Fatalf("want 4 rules, got %d", got)
+	if got := len(All()); got != 5 {
+		t.Fatalf("want 5 rules, got %d", got)
+	}
+}
+
+func TestEveryDynamicNameHasAReason(t *testing.T) {
+	for _, a := range dynamicNames {
+		if a.reason == "" || a.pkg == "" || a.fn == "" {
+			t.Errorf("allowance %+v needs a package, a function and a reason", a)
+		}
 	}
 }
 

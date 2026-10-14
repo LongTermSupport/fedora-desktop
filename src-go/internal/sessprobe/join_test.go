@@ -289,6 +289,9 @@ func TestReadSample(t *testing.T) {
 	if _, present := got.Ticks[12]; present {
 		t.Fatal("a pid that exited is skipped")
 	}
+	if len(got.Starts) != 2 || got.Starts[10] != 1000 || got.Starts[11] != 1000 {
+		t.Fatalf("the start times tell a pid's process from the next one to have it: %+v", got.Starts)
+	}
 }
 
 // sampledAt is the instant the malformed-stat samples are taken at: fixed, not the wall clock.
@@ -311,6 +314,14 @@ func TestReadSampleMalformed(t *testing.T) {
 	writeStat(t, root, 13, "13 (bash) S 1 10 10 0 -1 4194304 1 0 0 0 1 y 0 0\n")
 	if _, err := sessprobe.ReadSample(root, []int{13}, sampledAt); err == nil {
 		t.Fatal("a non-numeric system time is an error")
+	}
+	writeStat(t, root, 15, "15 (bash) S 1 10 10 0 -1 4194304 1 0 0 0 1 2 0 0 20 0 1 0\n")
+	if _, err := sessprobe.ReadSample(root, []int{15}, sampledAt); err == nil {
+		t.Fatal("a line with no start time is an error")
+	}
+	writeStat(t, root, 16, "16 (bash) S 1 10 10 0 -1 4194304 1 0 0 0 1 2 0 0 20 0 1 0 soon\n")
+	if _, err := sessprobe.ReadSample(root, []int{16}, sampledAt); err == nil {
+		t.Fatal("a non-numeric start time is an error")
 	}
 	// A pid directory that is a file is not "exited": that is a real read failure.
 	if err := os.WriteFile(filepath.Join(root, "14"), []byte("x"), 0o600); err != nil {

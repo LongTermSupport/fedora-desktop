@@ -156,6 +156,41 @@ func TestContextTokensIgnoresNonObjectsAndNonObjectUsage(t *testing.T) {
 	}
 }
 
+// Decoding is tolerant as jq is: a field of a surprising type, or one we never read, does not
+// cost the entry its other fields, and jq's truth (anything but null and false) marks a sidechain.
+func TestDecodingIsTolerantOfFieldsItDoesNotUnderstand(t *testing.T) {
+	d := t.TempDir()
+	odd := filepath.Join(d, "odd.jsonl")
+	write(t, odd, `{"type":"user","timestamp":"2026-10-08T10:05:00.000Z","message":"plain text","compactMetadata":[1],"extra":{"deep":[1,2]},"isMeta":false}`+"\n", fixedMtime)
+	if got, err := TookInputSince(odd, sent); err != nil || !got {
+		t.Fatalf("an entry with odd unrelated fields is still input: %v, %v", got, err)
+	}
+	for _, truthy := range []string{`"yes"`, `0`, `1`, `[]`, `{}`, `true`} {
+		side := filepath.Join(d, "side.jsonl")
+		write(t, side, `{"type":"user","isSidechain":`+truthy+`,"timestamp":"2026-10-08T10:05:00.000Z"}`+"\n", fixedMtime)
+		if got, err := TookInputSince(side, sent); err != nil || got {
+			t.Fatalf("isSidechain %s is a sidechain, not input: %v, %v", truthy, got, err)
+		}
+	}
+	for _, notSide := range []string{`false`, `null`} {
+		main := filepath.Join(d, "main.jsonl")
+		write(t, main, `{"type":"user","isSidechain":`+notSide+`,"isMeta":`+notSide+`,"timestamp":"2026-10-08T10:05:00.000Z"}`+"\n", fixedMtime)
+		if got, err := TookInputSince(main, sent); err != nil || !got {
+			t.Fatalf("isSidechain %s is the main thread: %v, %v", notSide, got, err)
+		}
+	}
+	notNumber := filepath.Join(d, "nn.jsonl")
+	write(t, notNumber, `{"type":"assistant","message":{"usage":{"input_tokens":"7"}}}`+"\n", fixedMtime)
+	if _, err := ContextTokens(notNumber); err == nil || !strings.Contains(err.Error(), "input_tokens is not a number") {
+		t.Fatalf("a usage count that is not a number is an error: %v", err)
+	}
+	nullCounts := filepath.Join(d, "nc.jsonl")
+	write(t, nullCounts, `{"type":"assistant","message":{"usage":{"input_tokens":null,"cache_read_input_tokens":5}}}`+"\n", fixedMtime)
+	if got, err := ContextTokens(nullCounts); err != nil || got != 5 {
+		t.Fatalf("a null count is 0: %d, %v", got, err)
+	}
+}
+
 // 2026-10-08T10:00:00Z is 1791453600.
 const sent = 1791453600
 

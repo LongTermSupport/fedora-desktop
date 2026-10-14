@@ -1,0 +1,3 @@
+podfreeze: no terminal to ask on — name a target explicitly: NAME..., --ccy,
+  --network NET, or --all.
+  See 'podfreeze --help'.

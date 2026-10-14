@@ -1,0 +1,14 @@
+==> LXC here is rootful: /var/lib/lxc is root-only, so even listing containers
+==> needs root. Authenticating once for this run.
+1 container(s) being FROZEN:
+  NAME                               STATE    BRIDGE            IPV4              
+  alpha                              RUNNING  lxcbr0            192.0.2.12        
+  ✓ alpha
+
+  Thaw them with: lxcfreeze thaw alpha
+
+  While frozen, the container answers nothing: every ssh session into it
+  dies with the frozen TCP connection, and so does any agent socket forwarded
+  over one. Thaw renews the DHCP lease, so the address comes back even after a
+  freeze longer than the lease — the connections do not. Reconnect after thawing
+  rather than trusting an old session.

@@ -1,0 +1,40 @@
+What to act on:
+   1) all CCY (Claude) containers            FREEZE 3
+   2) all containers                         FREEZE 4
+   3) network: appnet                        FREEZE 1
+   4) network: podman                        FREEZE 3
+   5) github: alice                          FREEZE 1
+   6) github: bob                            FREEZE 1
+   7) token: work                            FREEZE 2
+   8) ssh-key: id_a                          FREEZE 1
+   9) ssh-key: id_b                          FREEZE 1
+Choice [1-9, q to quit]: In this group:
+   1) *all*                              FREEZE 3
+   2) proj1_yolo                         running  CCY  podman                 FREEZE
+   3) proj2_yolo_2                       paused   CCY  podman,appnet          THAW
+   4) proj3_browser                      running  CCY  podman                 FREEZE
+   5) legacy_yolo                        running  CCY  podman                 FREEZE
+Choice [ENTER or 1 for all, numbers for specific, b to go back]: Skipped — not currently running: proj2_yolo_2
+3 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  proj1_yolo                         running  CCY  podman                
+  proj3_browser                      running  CCY  podman                
+  legacy_yolo                        running  CCY  podman                
+  ✓ proj1_yolo
+  ✗ proj3_browser — Error: cgroup freezer unavailable
+  ✓ legacy_yolo
+
+  Thaw them with: podfreeze thaw proj1_yolo proj3_browser legacy_yolo
+podfreeze: 1 of 3 container(s) failed — see above.
+
+What to act on:
+   1) all CCY (Claude) containers            FREEZE 3
+   2) all containers                         FREEZE 4
+   3) network: appnet                        FREEZE 1
+   4) network: podman                        FREEZE 3
+   5) github: alice                          FREEZE 1
+   6) github: bob                            FREEZE 1
+   7) token: work                            FREEZE 2
+   8) ssh-key: id_a                          FREEZE 1
+   9) ssh-key: id_b                          FREEZE 1
+Choice [1-9, q to quit]: 

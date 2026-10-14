@@ -1,0 +1,8 @@
+
+LXC here is rootful: /var/lib/lxc is root-only, so even listing containers needs root.
+sudo asks for your login password.
+What to act on:
+   1) all LXC containers                     FREEZE 2
+   2) bridge: lxcbr0                         FREEZE 1
+   3) bridge: virbr1                         FREEZE 1
+Choice [1-3, q to quit]: 

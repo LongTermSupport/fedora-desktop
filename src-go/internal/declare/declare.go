@@ -89,9 +89,25 @@ type Team struct {
 // Status is a STATUS line: whether a team is applied as declared.
 type Status struct {
 	Team   string
-	State  string // current, outdated, unbuilt, removed, decide, unreadable
+	State  ApplyState
 	Detail string // empty when declare printed "-"
 }
+
+// ApplyState is a team's applied state, the word declare.py status prints for it. A word this
+// build does not know is kept as it came, so it can be reported as unknown, not lost.
+type ApplyState string
+
+// The applied states declare.py status reports.
+const (
+	// ApplyAbsent is a team declare did not report on (the zero Status).
+	ApplyAbsent     ApplyState = ""
+	ApplyCurrent    ApplyState = "current"
+	ApplyOutdated   ApplyState = "outdated"
+	ApplyUnbuilt    ApplyState = "unbuilt"
+	ApplyRemoved    ApplyState = "removed"
+	ApplyDecide     ApplyState = "decide"
+	ApplyUnreadable ApplyState = "unreadable"
+)
 
 // Limit is a LIMITED line: a team still limited to some folders.
 type Limit struct {
@@ -153,6 +169,10 @@ func (c *Client) Declared(ctx context.Context) ([]Team, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseTeams(out)
+}
+
+func parseTeams(out string) ([]Team, error) {
 	rows, err := marker.Fields(out, "TEAM", 6)
 	if err != nil {
 		return nil, fmt.Errorf("declare declared: %w", err)
@@ -181,22 +201,48 @@ func (c *Client) Declared(ctx context.Context) ([]Team, error) {
 // software in source. installed names the teams that have a homeserver unit; the flags are
 // passed sorted so the call is the same whatever order a map gave them in.
 func (c *Client) Status(ctx context.Context, source, appliedDir string, installed []string) ([]Status, error) {
+	out, err := c.runFile(ctx, "status", statusArgs(source, appliedDir, installed)...)
+	if err != nil {
+		return nil, err
+	}
+	return parseStatuses(out)
+}
+
+// Overview is Declared and Status from one run of declare.py: the list redraws on every key,
+// and starting Python twice for it doubled the cost of a redraw.
+func (c *Client) Overview(ctx context.Context, source, appliedDir string, installed []string) ([]Team, []Status, error) {
+	out, err := c.runFile(ctx, "overview", statusArgs(source, appliedDir, installed)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	teams, err := parseTeams(out)
+	if err != nil {
+		return nil, nil, err
+	}
+	states, err := parseStatuses(out)
+	if err != nil {
+		return nil, nil, err
+	}
+	return teams, states, nil
+}
+
+func statusArgs(source, appliedDir string, installed []string) []string {
 	args := make([]string, 0, 4+2*len(installed))
 	args = append(args, "--source", source, "--applied", appliedDir)
 	for _, team := range slices.Sorted(slices.Values(installed)) {
 		args = append(args, "--installed", team)
 	}
-	out, err := c.runFile(ctx, "status", args...)
-	if err != nil {
-		return nil, err
-	}
+	return args
+}
+
+func parseStatuses(out string) ([]Status, error) {
 	rows, err := marker.Fields(out, "STATUS", 4)
 	if err != nil {
 		return nil, fmt.Errorf("declare status: %w", err)
 	}
 	states := make([]Status, 0, len(rows))
 	for _, f := range rows {
-		states = append(states, Status{Team: f[1], State: f[2], Detail: marker.DashEmpty(f[3])})
+		states = append(states, Status{Team: f[1], State: ApplyState(f[2]), Detail: marker.DashEmpty(f[3])})
 	}
 	return states, nil
 }
@@ -333,8 +379,8 @@ func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, e
 }
 
 func (c *Client) run(ctx context.Context, sub string, args ...string) (string, error) {
-	argv := slices.Concat([]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)
-	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: argv})
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: slices.Concat(
+		[]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)})
 	if err != nil {
 		if exit, ok := errors.AsType[*execx.ExitError](err); ok {
 			return "", &Error{Code: exit.Code, Stderr: strings.TrimSpace(exit.Stderr), cause: err}

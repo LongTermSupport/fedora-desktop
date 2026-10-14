@@ -1,0 +1,3 @@
+podfreeze: this is a container — run podfreeze on the HOST.
+  The host's podman is not reachable from in here, so every container would
+  look absent. Freezing your own session would also be unrecoverable.

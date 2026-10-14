@@ -36,7 +36,21 @@ type Probe struct {
 	Sleep      func(time.Duration)
 	SampleFor  time.Duration
 	ClockTicks int64
+	// KeepSamples is for a caller that calls Detail again and again (the picker's redraws): the
+	// CPU is measured against the sample of the previous call, so no call waits out SampleFor.
+	// The first call has nothing to measure against and reads "-" in the CPU column, as does
+	// the first call to see a session, and a call under minRedrawGap after the last repeats the
+	// last reading. Left false, every call takes two samples SampleFor apart, which is right for
+	// a one-off listing.
+	KeepSamples bool
+
+	previous *Sample
+	last     map[string]string
 }
+
+// minRedrawGap is the least time between two samples worth measuring against each other: CPU
+// time counts in ticks of a hundredth of a second, so a shorter span is mostly rounding.
+const minRedrawGap = 250 * time.Millisecond
 
 // Detail is the extra columns of one session's picker row.
 type Detail struct {
@@ -45,12 +59,6 @@ type Detail struct {
 	Token   string
 	Keys    string
 	CPU     string
-}
-
-// Unknown is the Detail of a session the probe could not read: every column says so, because a
-// blank one would read as "no network".
-func Unknown(session string) Detail {
-	return Detail{Session: session, Network: unknownWord, Token: unknownWord, Keys: unknownWord, CPU: unknownWord}
 }
 
 // Detail is the network, token, key and CPU columns for every session on the CCY server, in
@@ -67,7 +75,7 @@ func (p *Probe) Detail(ctx context.Context) ([]Detail, error) {
 	if len(panes) == 0 {
 		return nil, nil
 	}
-	table, err := execx.Combined(ctx, p.Runner, execx.Cmd{Name: "ps", Args: []string{"-ww", "-eo", "pid=,ppid=,args="}})
+	table, err := ProcessTable(ctx, p.Runner)
 	if err != nil {
 		return nil, fmt.Errorf("the process table could not be read, so no session can be matched to a container: %s: %w", strings.TrimSpace(table), err)
 	}
@@ -122,15 +130,44 @@ func engines(owners []Owner) []string {
 	return list
 }
 
+// ProcessTable is the host's process table as ps prints it (pid, parent pid, command line), for
+// ParseProcs. This is the one place ps is run.
+func ProcessTable(ctx context.Context, r execx.Runner) (string, error) {
+	return execx.Combined(ctx, r, execx.Cmd{Name: "ps", Args: []string{"-ww", "-eo", "pid=,ppid=,args="}})
+}
+
+// enginePS is what one engine lists of its running CCY containers. Every CCY container carries
+// `--label ccy=true`, so this asks about those and nothing else on the host.
+func enginePS(ctx context.Context, r execx.Runner, engine, format string) (string, error) {
+	return execx.Combined(ctx, r, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", "--format", format}})
+}
+
+// RunningContainerNames is the names of the running CCY containers of each engine. The engines
+// are podman and docker, programs this package owns, so a caller names the engine it found and
+// does not run it.
+func RunningContainerNames(ctx context.Context, r execx.Runner, engines []string) (map[string]bool, error) {
+	running := map[string]bool{}
+	for _, engine := range engines {
+		out, err := enginePS(ctx, r, engine, "{{.Names}}")
+		if err != nil {
+			return nil, fmt.Errorf("%s ps failed: %s: %w", engine, strings.TrimSpace(out), err)
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			if name := strings.TrimSpace(line); name != "" {
+				running[name] = true
+			}
+		}
+	}
+	return running, nil
+}
+
 // listEngines asks each engine in use for its CCY containers: every listed container's words,
 // and the set of the running ones.
 func (p *Probe) listEngines(ctx context.Context, owners []Owner) ([]Container, map[string]bool, error) {
 	var known []Container
 	running := map[string]bool{}
 	for _, engine := range engines(owners) {
-		// Every CCY container carries `--label ccy=true`, so this asks about those and nothing
-		// else on the host.
-		out, err := execx.Combined(ctx, p.Runner, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", "--format", DetailFormat}})
+		out, err := enginePS(ctx, p.Runner, engine, DetailFormat)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s ps failed: %s: %w", engine, strings.TrimSpace(out), err)
 		}
@@ -180,6 +217,13 @@ func (p *Probe) cpuOf(sessions []SessionProcs) (map[string]string, error) {
 	if root == "" {
 		root = defaultProcRoot
 	}
+	hz := p.ClockTicks
+	if hz == 0 {
+		hz = defaultClockTicks
+	}
+	if p.KeepSamples {
+		return p.cpuSinceLastCall(root, all, sessions, hz)
+	}
 	before, err := ReadSample(root, all, p.now())
 	if err != nil {
 		return nil, err
@@ -189,11 +233,11 @@ func (p *Probe) cpuOf(sessions []SessionProcs) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	hz := p.ClockTicks
-	if hz == 0 {
-		hz = defaultClockTicks
-	}
-	words, err := CPUWords(sessions, before.Ticks, after.Ticks, after.Micros-before.Micros, hz)
+	return cpuWords(sessions, before.Ticks, after.Ticks, after.Micros-before.Micros, hz)
+}
+
+func cpuWords(sessions []SessionProcs, before, after map[int]int64, elapsedMicros, hz int64) (map[string]string, error) {
+	words, err := CPUWords(sessions, before, after, elapsedMicros, hz)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +246,57 @@ func (p *Probe) cpuOf(sessions []SessionProcs) (map[string]string, error) {
 		cpu[w.Session] = w.Percent
 	}
 	return cpu, nil
+}
+
+// cpuSinceLastCall takes one sample and measures it against the one the call before left. Only a
+// process that has the same pid and start time in both counts: a pid the first sample did not
+// have is a process born since (or one of a session first seen now), whose lifetime of CPU
+// time is not this interval's, and a start time that changed is another process that was given
+// the pid.
+func (p *Probe) cpuSinceLastCall(root string, pids []int, sessions []SessionProcs, hz int64) (map[string]string, error) {
+	now, err := ReadSample(root, pids, p.now())
+	if err != nil {
+		return nil, err
+	}
+	unmeasured := func(known map[string]string) map[string]string {
+		cpu := make(map[string]string, len(sessions))
+		for _, s := range sessions {
+			word, found := known[s.Session]
+			if !found {
+				word = noWord
+			}
+			cpu[s.Session] = word
+		}
+		return cpu
+	}
+	if p.previous == nil {
+		p.previous = &now
+		p.last = unmeasured(nil)
+		return p.last, nil
+	}
+	elapsed := now.Micros - p.previous.Micros
+	if elapsed < minRedrawGap.Microseconds() {
+		return unmeasured(p.last), nil
+	}
+	before, after := map[int]int64{}, map[int]int64{}
+	for pid, ticks := range now.Ticks {
+		if start, seen := p.previous.Starts[pid]; seen && start == now.Starts[pid] {
+			before[pid], after[pid] = p.previous.Ticks[pid], ticks
+		}
+	}
+	var measured []SessionProcs
+	for _, s := range sessions {
+		if slices.ContainsFunc(s.PIDs, func(pid int) bool { _, ok := before[pid]; return ok }) {
+			measured = append(measured, s)
+		}
+	}
+	cpu, err := cpuWords(measured, before, after, elapsed, hz)
+	if err != nil {
+		return nil, err
+	}
+	p.previous = &now
+	p.last = unmeasured(cpu)
+	return p.last, nil
 }
 
 func (p *Probe) now() time.Time {

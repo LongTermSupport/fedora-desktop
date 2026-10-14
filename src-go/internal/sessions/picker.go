@@ -21,7 +21,7 @@ var pickerKeys = []string{"ctrl-t", "ctrl-x", "ctrl-n"}
 // having used a try or not.
 type step struct {
 	done   bool
-	code   int
+	code   term.ExitCode
 	counts bool
 }
 
@@ -32,7 +32,7 @@ var (
 	tried = step{counts: true}
 )
 
-func leave(code int) step { return step{done: true, code: code} }
+func leave(code term.ExitCode) step { return step{done: true, code: code} }
 
 // pickState is what the picker knows for its whole run.
 type pickState struct {
@@ -50,12 +50,13 @@ const terminalRequired = "ccy-sessions needs a terminal: it attaches sessions to
 // picker is the interactive list. Only the picker needs a terminal: it attaches sessions to the
 // one it runs in. The subcommands run headless: the restore unit has no terminal, and a reboot
 // helper is as likely to be run over ssh as from a desktop.
-func (a *App) picker(ctx context.Context) int {
+func (a *App) picker(ctx context.Context) term.ExitCode {
 	if !a.IsTerminal(a.Stdin) || !a.IsTerminal(a.Stdout) {
 		a.sayf(terminalRequired)
 		return term.ExitFailure
 	}
 	st := a.newPickState(ctx)
+	a.Probe.KeepSamples = true
 	attempt := 1
 	for {
 		rows, err := a.rows(ctx)
@@ -108,7 +109,7 @@ func (a *App) newPickState(ctx context.Context) *pickState {
 	st.header = ui.Header("Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit",
 		newLine,
 		`"open elsewhere" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running`,
-		"CPU: over the last second, 100% is one core",
+		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
 		`network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`)
 	return st
 }
@@ -130,7 +131,7 @@ func (a *App) choose(ctx context.Context, st *pickState, rows []tableRow) (ui.Pi
 
 // noSessions is what the picker does when nothing is running: offer to start ccy in a project
 // folder, or say how.
-func (a *App) noSessions(ctx context.Context, st *pickState) int {
+func (a *App) noSessions(ctx context.Context, st *pickState) term.ExitCode {
 	if !st.projectHere {
 		a.sayf("No CCY or cc sessions are running. Start one with ccy or cc in a project directory.\n")
 		return term.ExitOK

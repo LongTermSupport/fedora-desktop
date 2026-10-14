@@ -67,9 +67,19 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ### Phase 3: Rewrites, one feature branch each
 
-- [ ] 🔄 **Task 3.1**: Freeze toolkit (`podfreeze`, `lxcfreeze`, `freeze-common`) on
-  `go-port/freeze`: its spec `SPEC-freeze.md` is on the branch; wave 1 (library) done,
-  wave 2 (`podfreeze`) running; then `lxcfreeze`, golden capture and cut-over.
+- [ ] ⬜ **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
+  Branch `go-port/freeze` (P7): functional spec written, [SPEC-freeze.md](SPEC-freeze.md); Go
+  port in waves: library (`internal/freeze`) and podfreeze (`internal/podfreeze`,
+  `cmd/podfreeze`, shared `internal/freeze/cli`) and lxcfreeze (`internal/lxcfreeze`,
+  `cmd/lxcfreeze`, shared flow in `internal/freeze/app`) done; cut-over (wave 4) done on the
+  branch: golden replay of the bash tools' recorded output (`internal/freeze/golden`), one task
+  file builds any Go command (`tasks/build-go-command.yml`), the bash tools, library, suites and
+  gates deleted, the host check in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) with the owner
+  (via `deploy.bash` in `meta-deploy.bash`: it saves the bash tools' output first and ends with
+  `acceptance.bash`, which compares the Go tools with it). The Fable review's fixes are in:
+  sudo asks on `/dev/tty`, Ctrl-C and a lapsed sudo timestamp end an act batch cleanly, the
+  sudo seam methods are judged by `project_seam_commands`, the inventory is generic over the
+  engine's record.
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`:
   its spec `SPEC-agent-bus-install.md` is on the branch; wave 1 (root-guarding
   validation) and wave 2 (every subcommand, the host adapters, the Go binary and the suite in
@@ -81,8 +91,16 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 ### Phase 4: Review
 
-- [ ] ⬜ **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
-  fixed.
+- [ ] 🔄 **Task 4.1**: Fable adversarial review of the rule, gate, rules and rewrites; findings
+  fixed. Three reviews (subagent-reports/261014-fable-review-{gate,go,gqaci}.md) found
+  blockers in each: the gate is evadable and its CI ratchet bypassable; the DBF rules caught
+  1 of 13 planted evasions and Ctrl-C can wedge the terminal; go-qa-ci cannot be adopted (no
+  nested-module driver, disabled linters counted as suppressions) and ships one rule. Fixing in
+  parallel: the gate on a real bash parser with a versioned ratchet; type-based rules; runtime
+  correctness; go-qa-ci M15 (adoption, gate) and M16 (a bundled rule pack). All five are
+  merged (go-qa-ci's on its own remote), and so are typed state, the ccy-sessions and
+  ccy-teams redraw cost, and the `teams` package split. The two ports get their own review
+  before merge: freeze's found two blockers, being fixed on its branch.
 - [ ] ⬜ **Task 4.2**: qa-reviewer over the plan.
 
 ## Success Criteria

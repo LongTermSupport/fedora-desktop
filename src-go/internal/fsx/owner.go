@@ -1,7 +1,3 @@
-// Package fsx holds the file primitives the installer writes as root with: every write
-// goes through an os.Root (so a symlink swapped into a directory another user can write
-// cannot redirect it), is atomic (temp file and rename), refuses to follow a symlink at
-// the destination, and reports each change as a CHANGED line.
 package fsx
 
 import (

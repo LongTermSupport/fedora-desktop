@@ -1,82 +1,34 @@
 package teams
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-func TestLauncherViaChangesDirectoryThenReplacesTheProcessThroughTheExecer(t *testing.T) {
-	t.Chdir(t.TempDir()) // registers the restore of the working directory launcherVia changes
-	dir := t.TempDir()
-	f := &execx.Fake{}
-	if err := launcherVia(f, "/top/ccy", []string{"ccy", "--teams", "a"}, dir); err != nil {
-		t.Fatal(err)
-	}
-	execs := f.Execs()
-	if len(execs) != 1 || execs[0].Name != "/top/ccy" || strings.Join(execs[0].Args, " ") != "--teams a" {
-		t.Fatalf("execs %+v", execs)
-	}
-	if cwd, err := os.Getwd(); err != nil || cwd != dir {
-		t.Fatalf("cwd %q, %v", cwd, err)
-	}
-}
-
-func TestLauncherViaReportsAnUnenterableDirectoryAndAFailedExec(t *testing.T) {
-	t.Chdir(t.TempDir())
-	f := &execx.Fake{}
-	if err := launcherVia(f, "ccy", []string{"ccy"}, filepath.Join(t.TempDir(), "absent")); err == nil || len(f.Execs()) != 0 {
-		t.Fatalf("got %v, execs %v", err, f.Execs())
-	}
-	f.ExecError(&execx.NotInstalledError{Name: "ccy"})
-	if err := launcherVia(f, "ccy", nil, t.TempDir()); err == nil || !strings.Contains(err.Error(), "start the launcher") {
-		t.Fatalf("got %v", err)
-	}
-}
-
+// harness is the fake machine and the App wired over it.
 type harness struct {
-	app    *App
-	out    *bytes.Buffer
-	errOut *bytes.Buffer
-	fake   *execx.Fake
-	env    map[string]string
-	root   string
+	*teamtest.World
+
+	app *App
 }
 
-// newHarness is an App over a scratch root with an installed ccy lib and the declare helper
-// present, so dispatch reaches the subcommand.
 func newHarness(t *testing.T) harness {
 	t.Helper()
-	root := t.TempDir()
-	lib := filepath.Join(root, "lib")
-	mustWrite(t, filepath.Join(lib, "tmux-session.bash"), "")
-	mustWrite(t, filepath.Join(root, "helpers", "agent_bus", "declare.py"), "")
-	h := harness{out: &bytes.Buffer{}, errOut: &bytes.Buffer{}, fake: &execx.Fake{}, root: root}
-	h.env = map[string]string{"CCY_LIB": lib, "HOME": filepath.Join(root, "home")}
-	getenv := func(k string) string { return h.env[k] }
-	h.app = &App{
-		Config: LoadConfig(root, getenv),
-		Runner: h.fake, Stdout: h.out, Stderr: h.errOut, Getenv: getenv, Stdin: &bytes.Buffer{},
-		inContainer: func() bool { return false },
-	}
-	h.app.AppliedDir = filepath.Join(root, "applied")
-	h.app.wire()
-	return h
+	w := teamtest.New(t)
+	return harness{World: w, app: Wire(w.Host)}
 }
 
-func mustWrite(t *testing.T, path, body string) {
+// world is the machine with team alpha declared, built and up.
+func world(t *testing.T) harness {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	w := teamtest.Populated(t)
+	return harness{World: w, app: Wire(w.Host)}
 }
 
 func TestHelpPrintsTheUsageToStdout(t *testing.T) {
@@ -85,8 +37,8 @@ func TestHelpPrintsTheUsageToStdout(t *testing.T) {
 		if code := h.app.Run([]string{flag}); code != term.ExitOK {
 			t.Fatalf("%s: exit %d", flag, code)
 		}
-		if !strings.Contains(h.out.String(), "ccy-teams -l|--list") || strings.Contains(h.out.String(), "set -euo") {
-			t.Fatalf("%s: usage %q", flag, h.out.String())
+		if !strings.Contains(h.Out.String(), "ccy-teams -l|--list") || strings.Contains(h.Out.String(), "set -euo") {
+			t.Fatalf("%s: usage %q", flag, h.Out.String())
 		}
 	}
 }
@@ -102,40 +54,97 @@ func TestUsageErrors(t *testing.T) {
 		if code := h.app.Run(args); code != term.ExitUsage {
 			t.Fatalf("%v: exit %d", args, code)
 		}
-		if h.errOut.String() != want {
-			t.Fatalf("%v: stderr %q", args, h.errOut.String())
+		if h.ErrOut.String() != want {
+			t.Fatalf("%v: stderr %q", args, h.ErrOut.String())
 		}
 	}
 }
 
-func TestMissingCcyLibRefuses(t *testing.T) {
+func TestMissingCcyLibRefusesBeforeAnySubcommand(t *testing.T) {
 	h := newHarness(t)
 	h.app.CcyLib = filepath.Join(t.TempDir(), "absent")
 	if code := h.app.Run([]string{"--list"}); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(h.errOut.String(), "CCY is not installed here ("+h.app.CcyLib+"/tmux-session.bash missing)") {
-		t.Fatalf("stderr %q", h.errOut.String())
+	if !strings.Contains(h.ErrOut.String(), "CCY is not installed here ("+h.app.CcyLib+"/tmux-session.bash missing)") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
-	h = newHarness(t)
-	h.app.CcyLib = filepath.Join(t.TempDir(), "absent")
-	h.app.inContainer = func() bool { return true }
-	h.app.Run([]string{"--list"})
-	if h.errOut.String() != "ccy-teams runs on the host, not inside a CCY container.\n" {
-		t.Fatalf("stderr %q", h.errOut.String())
+	if len(h.Fake.Calls()) != 0 {
+		t.Fatalf("nothing runs without CCY: %v", h.Fake.Calls())
 	}
 }
 
-func TestNeedCheckout(t *testing.T) {
+func TestDispatchWithNoArgumentsIsThePicker(t *testing.T) {
 	h := newHarness(t)
-	if err := h.app.needCheckout(); err != nil {
-		t.Fatal(err)
+	if code := h.app.Run(nil); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
 	}
-	h.app.RootDir = filepath.Join(t.TempDir(), "gone")
-	if err := h.app.needCheckout(); err == nil {
-		t.Fatal("a checkout with no declare.py is refused")
+	if !strings.Contains(h.ErrOut.String(), "ccy-teams needs a terminal") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
-	if !strings.Contains(h.errOut.String(), "has gone; re-run playbooks/imports/play-claude-yolo.yml") {
-		t.Fatalf("stderr %q", h.errOut.String())
+	if h.Out.String() != "" {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
+func TestDispatchListIsTheBoard(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"--list"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasPrefix(h.Out.String(), "TEAM ") || !strings.Contains(h.Out.String(), "up to date") {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
+func TestSubcommandsReachTheirRealFlowsWithTheirUsageErrors(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"create", "--bogus"}, "ccy-teams: unknown create option '--bogus'. See ccy-teams --help."},
+		{[]string{"apply"}, "ccy-teams: 'apply' takes one team, or --all. See ccy-teams --help."},
+		{[]string{"remove"}, "ccy-teams: 'remove' takes one team (and no --yes: it always asks). See ccy-teams --help."},
+		{[]string{"backup"}, "ccy-teams: 'backup' takes one team. See ccy-teams --help."},
+		{[]string{"restore", "--nope"}, "unknown restore option '--nope'"},
+		{[]string{"restore"}, "ccy-teams: "},
+	}
+	for _, c := range cases {
+		h := newHarness(t)
+		if code := h.app.Run(c.args); code != term.ExitUsage {
+			t.Fatalf("%v: exit %d, stderr %q", c.args, code, h.ErrOut.String())
+		}
+		if !strings.Contains(h.ErrOut.String(), c.want) {
+			t.Fatalf("%v: stderr %q, want %q", c.args, h.ErrOut.String(), c.want)
+		}
+	}
+}
+
+func TestCreateApplyAndRemoveRefuseWhenTheCheckoutHasGone(t *testing.T) {
+	for _, sub := range []string{"create", "apply", "remove"} {
+		h := newHarness(t)
+		if err := os.Remove(filepath.Join(h.Root, "helpers", "agent_bus", "declare.py")); err != nil {
+			t.Fatal(err)
+		}
+		args := []string{sub, "alpha"}
+		if sub == "create" {
+			args = []string{sub, "--yes"}
+		}
+		if code := h.app.Run(args); code != term.ExitFailure {
+			t.Fatalf("%s: exit %d", sub, code)
+		}
+		if !strings.Contains(h.ErrOut.String(), "has gone") {
+			t.Fatalf("%s: stderr %q", sub, h.ErrOut.String())
+		}
+	}
+}
+
+func TestNewAppIsTheRealSystemOverTheConfig(t *testing.T) {
+	a := NewApp(config.Config{RootDir: "/checkout"})
+	if a.Runner == nil || a.Board == nil || a.Ops == nil || a.Login == nil || a.Seats == nil || a.Create == nil || a.Picker == nil {
+		t.Fatalf("app %+v", a)
+	}
+	if a.RootDir != "/checkout" {
+		t.Fatalf("config %+v", a.Config)
 	}
 }

@@ -24,50 +24,171 @@ const execOwner = "internal/execx"
 // homeOwner is the only package that may abbreviate the home directory.
 const homeOwner = "internal/term"
 
-// commandOwners maps a program to the package that owns every use of it, so its flags and
-// target forms are decided once (sudo -n; tmux's =name: target; the gum and fzf prompts).
-//
-// The installer's programs are owned by the package that knows their flags and outputs:
-// the unit tools by systemd, firewall-cmd by firewalld, the network tools (and curl, which
-// only ever fetches over the network) by hostnet, the package, account and architecture
-// tools by hostsys. systemd-run is not here: ccy's tmux
-// launcher starts a transient scope with it too. agent-bus is not here either: the ccy
-// client and the installer's admin adapter both run it, each through its own configured path.
-var commandOwners = map[string]string{
-	"sudo":         "internal/sudo",
-	"tmux":         "internal/tmuxccy",
-	"gum":          "internal/ui",
-	"fzf":          "internal/ui",
-	"systemctl":    "internal/systemd",
-	"journalctl":   "internal/systemd",
-	"git":          "internal/gitx",
-	"firewall-cmd": "internal/firewalld",
-	"ip":           netOwner,
-	"ss":           netOwner,
-	"nmcli":        netOwner,
-	"curl":         netOwner,
-	"rpm":          sysOwner,
-	"dnf":          sysOwner,
-	"getent":       sysOwner,
-	"useradd":      sysOwner,
-	"uname":        sysOwner,
-	"zstd":         sysOwner,
-}
-
 const (
-	// netOwner owns the network tools and curl.
-	netOwner = "internal/hostnet"
-	// sysOwner owns the package, account, architecture and decompression tools.
-	sysOwner = "internal/hostsys"
+	sessprobePkg = "internal/sessprobe"
+	podfreezePkg = "internal/podfreeze"
+	lxcfreezePkg = "internal/lxcfreeze"
+	sudoPkg      = "internal/sudo"
+	systemdPkg   = "internal/systemd"
+	agentbusPkg  = "internal/agentbus"
+	hostPkg      = "internal/teams/host"
+	opsPkg       = "internal/teams/ops"
+	// The installer's owners: the network tools and curl, the package, account, architecture
+	// and decompression tools, and firewall-cmd.
+	hostnetPkg   = "internal/hostnet"
+	hostsysPkg   = "internal/hostsys"
+	firewalldPkg = "internal/firewalld"
 )
 
-// clockAllowance excuses one test function from the fixed-clock rule. It is data, with the
-// reason it needs wall time, never a comment in the test.
-type clockAllowance struct {
-	pkg    string // package path suffix, as for an owner
-	fn     string // the test function
+// commandOwners maps a program to the packages that own every use of it, so its flags and
+// target forms are decided once (the gum and fzf prompts, the sudo and tmux argument forms).
+// A program with two owners is used for two different jobs: podman is read for a session's
+// container by sessprobe and driven (pause, unpause, networks) by podfreeze. A program absent
+// from the table is unowned: any package may run it. The installer's programs are owned by the
+// package that knows their flags and outputs; systemd-run and agent-bus are not here (ccy's
+// tmux launcher starts a transient scope with the one; the ccy client and the installer's
+// admin adapter each run the other through their own configured path).
+var commandOwners = map[string][]string{
+	"sudo":         {sudoPkg},
+	"tmux":         {"internal/tmuxccy"},
+	"gum":          {"internal/ui"},
+	"fzf":          {"internal/ui"},
+	"systemctl":    {systemdPkg},
+	"busctl":       {systemdPkg},
+	"journalctl":   {systemdPkg},
+	"git":          {"internal/gitx"},
+	"ps":           {sessprobePkg},
+	"podman":       {sessprobePkg, podfreezePkg},
+	"docker":       {sessprobePkg},
+	"lxc-ls":       {lxcfreezePkg},
+	"lxc-info":     {lxcfreezePkg},
+	"lxc-freeze":   {lxcfreezePkg},
+	"lxc-unfreeze": {lxcfreezePkg},
+	"lxc-attach":   {lxcfreezePkg},
+	"nmcli":        {lxcfreezePkg, hostnetPkg},
+	"firewall-cmd": {firewalldPkg},
+	"ip":           {hostnetPkg},
+	"ss":           {hostnetPkg},
+	"curl":         {hostnetPkg},
+	"rpm":          {hostsysPkg},
+	"dnf":          {hostsysPkg},
+	"getent":       {hostsysPkg},
+	"useradd":      {hostsysPkg},
+	"uname":        {hostsysPkg},
+	"zstd":         {hostsysPkg},
+}
+
+// programRunner is a function or method that runs the program named by its arguments from
+// argIndex on (the program, then its arguments) without the caller building an execx.Cmd, so
+// the call is judged as the Cmd would be. recv is the receiver type name, "" for a package
+// function.
+type programRunner struct {
+	pkg      string
+	recv     string
+	method   string
+	argIndex int
+}
+
+// sudoType is the receiver type of the sudo seam.
+const sudoType = "Sudo"
+
+// programRunners are the entry points that run a program from their arguments. sudo's three
+// run any program as root; lxcfreeze's two helpers are the same shape one level up, so their
+// callers are judged too.
+var programRunners = []programRunner{
+	{pkg: sudoPkg, recv: sudoType, method: "Capture", argIndex: 1},
+	{pkg: sudoPkg, recv: sudoType, method: "AsRoot", argIndex: 1},
+	{pkg: sudoPkg, recv: sudoType, method: "Run", argIndex: 1},
+	{pkg: lxcfreezePkg, recv: "Engine", method: "runAct", argIndex: 1},
+	{pkg: lxcfreezePkg, recv: "Engine", method: "probe", argIndex: 1},
+}
+
+// shells are interpreters that run a string given with -c; handing one to the runner is the
+// sh -c route round the argv the runner and its fake exist to show.
+var shells = map[string]bool{"sh": true, "bash": true, "dash": true, "zsh": true}
+
+// allowance excuses one function of one package from a rule. It is data, with the reason,
+// never a comment in the code. pkg is a package path suffix, as for an owner.
+type allowance struct {
+	pkg    string
+	fn     string // the enclosing function; "" is a package-level declaration
 	reason string
 }
+
+// dynamicNames are the functions that may build an execx.Cmd whose Name is not a constant,
+// because the program is chosen at run time. Every other Name is a constant, so the owner
+// table can judge it. A dynamic Name is not judged against the owner table, so each row says
+// what it can be. fn is "func" or "Type.method".
+var dynamicNames = []allowance{
+	{
+		pkg:    sessprobePkg,
+		fn:     "enginePS",
+		reason: "the container engine (podman or docker) the caller found; sessprobe owns both",
+	},
+	{
+		pkg:    sessprobePkg,
+		fn:     "Probe.inspectRunning",
+		reason: "the container engine (podman or docker) found in a session's process tree; sessprobe owns both",
+	},
+	{
+		pkg:    "internal/sessions",
+		fn:     "route.run",
+		reason: "a project's daemon CLI path, or the container engine that execs it inside the project's container",
+	},
+	{
+		pkg:    hostPkg,
+		fn:     "launcherVia",
+		reason: "the ccy launcher path the process is replaced with, given by the environment",
+	},
+	{
+		pkg:    opsPkg,
+		fn:     "Ops.runPlay",
+		reason: "the agent-bus play, run by its own shebang; its path is configuration",
+	},
+	{
+		pkg:    opsPkg,
+		fn:     "Ops.RunElementPlay",
+		reason: "the Element play, run by its own shebang; its path is configuration",
+	},
+	{
+		pkg:    "internal/busadmin",
+		fn:     "Admin.Bootstrap",
+		reason: "the agent-bus admin tool, run at the path the installer's configuration gives",
+	},
+	{
+		pkg:    "internal/busadmin",
+		fn:     "Admin.render",
+		reason: "the agent-bus admin tool, run at the path the installer's configuration gives",
+	},
+	{
+		pkg:    systemdPkg,
+		fn:     "Systemd.RunTransient",
+		reason: "runs the one-off program its caller names in a transient unit; systemd-run is not owned",
+	},
+	{
+		pkg:    lxcfreezePkg,
+		fn:     "Engine.runAct",
+		reason: "runs the lxc command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    lxcfreezePkg,
+		fn:     "Engine.probe",
+		reason: "runs the read-only command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    agentbusPkg,
+		fn:     "Client.rootRun",
+		reason: "runs the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
+	},
+	{
+		pkg:    agentbusPkg,
+		fn:     "Client.rootShow",
+		reason: "streams the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
+	},
+}
+
+// clockAllowance excuses one test function from the fixed-clock rule.
+type clockAllowance = allowance
 
 var clockAllowances = []clockAllowance{
 	{
@@ -92,7 +213,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched
@@ -104,6 +225,29 @@ func ownedBy(pkgPath, owner string) bool {
 	}
 	path = strings.TrimSuffix(path, "_test")
 	return path == owner || strings.HasSuffix(path, "/"+owner)
+}
+
+// funcName is the name an allowance row uses for a declaration: "func" or "Type.method",
+// and "" for a package-level declaration that is not a function.
+func funcName(decl ast.Decl) string {
+	fd, ok := decl.(*ast.FuncDecl)
+	if !ok {
+		return ""
+	}
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return fd.Name.Name
+	}
+	recv := fd.Recv.List[0].Type
+	if star, isStar := recv.(*ast.StarExpr); isStar {
+		recv = star.X
+	}
+	if idx, isIdx := recv.(*ast.IndexExpr); isIdx {
+		recv = idx.X
+	}
+	if id, isIdent := recv.(*ast.Ident); isIdent {
+		return id.Name + "." + fd.Name.Name
+	}
+	return fd.Name.Name
 }
 
 // isTestFile is whether the file is a _test.go file.

@@ -2,7 +2,10 @@ module github.com/LongTermSupport/fedora-desktop/src-go/qa
 
 go 1.26.0
 
-require golang.org/x/tools v0.52.0
+require (
+	golang.org/x/tools v0.52.0
+	mvdan.cc/sh/v3 v3.14.1
+)
 
 require (
 	golang.org/x/mod v0.42.0 // indirect

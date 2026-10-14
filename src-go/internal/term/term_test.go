@@ -139,6 +139,55 @@ func TestFileIsTerminal(t *testing.T) {
 	}
 }
 
+func TestFileIsTerminalIsFalseForDevNullAndPipes(t *testing.T) {
+	if FileIsTerminal("not a file") {
+		t.Fatal("only a file can be a terminal")
+	}
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if FileIsTerminal(null) {
+		t.Fatal("/dev/null is a character device but not a terminal")
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if FileIsTerminal(reader) {
+		t.Fatal("a pipe is not a terminal")
+	}
+	if err = errors.Join(null.Close(), reader.Close(), writer.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrinterKeepsTheFirstFailedWrite(t *testing.T) {
+	var p Printer
+	var ok bytes.Buffer
+	p.Print(&ok, "fine\n")
+	if p.Err() != nil || ok.String() != "fine\n" {
+		t.Fatalf("a good write: %v %q", p.Err(), ok.String())
+	}
+	p.Print(failWriter{}, "x")
+	p.Print(&ok, "still written\n")
+	if p.Err() == nil || p.Err().Error() != "broken pipe" || ok.String() != "fine\nstill written\n" {
+		t.Fatalf("after a failed write: %v %q", p.Err(), ok.String())
+	}
+}
+
+func TestBoldAndResetAreTheEscapeCodes(t *testing.T) {
+	if Bold != "\x1b[1m" || Reset != "\x1b[0m" {
+		t.Fatalf("%q %q", Bold, Reset)
+	}
+}
+
+func TestYesNoIsTheRecordFilesWord(t *testing.T) {
+	if YesNo(true) != "yes" || YesNo(false) != "no" {
+		t.Fatalf("YesNo: %q %q", YesNo(true), YesNo(false))
+	}
+}
+
 type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
@@ -147,8 +196,30 @@ func TestPrintfKeepsFirstWriteError(t *testing.T) {
 	tm := &Term{Err: failWriter{}, IsTerminal: func(any) bool { return false }, Getenv: func(string) string { return "" }}
 	tm.Say("a")
 	tm.Say("b")
-	if tm.WriteErr == nil || tm.WriteErr.Error() != "broken pipe" {
-		t.Errorf("got %v", tm.WriteErr)
+	if tm.WriteFailed() == nil || tm.WriteFailed().Error() != "broken pipe" {
+		t.Errorf("got %v", tm.WriteFailed())
+	}
+}
+
+// The numeric values are the tools' exit statuses, which scripts and the parity suites read.
+func TestExitCodesKeepTheirStatuses(t *testing.T) {
+	for code, want := range map[ExitCode]int{ExitOK: 0, ExitFailure: 1, ExitUsage: 64, ExitCancelled: 130} {
+		if int(code) != want {
+			t.Errorf("exit code %v is %d, want %d", code, int(code), want)
+		}
+	}
+}
+
+func TestFinishKeepsAFailureAndFailsAnUnwrittenSuccess(t *testing.T) {
+	tm, buf := newTerm(false, "")
+	if got := tm.Finish(ExitUsage, errors.New("pipe")); got != ExitUsage {
+		t.Errorf("a run that failed keeps its code, got %d", got)
+	}
+	if got := tm.Finish(ExitOK, nil); got != ExitOK {
+		t.Errorf("a clean run is ok, got %d", got)
+	}
+	if got := tm.Finish(ExitOK, errors.New("pipe")); got != ExitFailure || !strings.Contains(buf.String(), "could not write the output: pipe") {
+		t.Errorf("an unwritten success fails, got %d with %q", got, buf.String())
 	}
 }
 

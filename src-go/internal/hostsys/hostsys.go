@@ -41,7 +41,7 @@ func (s *Sys) Missing(ctx context.Context, packages []string) ([]string, error) 
 
 // Install installs the packages with one dnf run.
 func (s *Sys) Install(ctx context.Context, packages []string) error {
-	return s.run(ctx, "dnf", append([]string{"install", "-y"}, packages...)...)
+	return s.run(ctx, execx.Cmd{Name: "dnf", Args: append([]string{"install", "-y"}, packages...)})
 }
 
 // UserExists is whether the account is in the password database.
@@ -59,8 +59,10 @@ func (s *Sys) UserExists(ctx context.Context, name string) (bool, error) {
 // AddServiceUser creates a system account with its own group, no login shell and no home
 // directory created.
 func (s *Sys) AddServiceUser(ctx context.Context, name, home, comment string) error {
-	return s.run(ctx, "useradd", "--system", "--user-group", "--no-create-home", "--home-dir", home,
-		"--shell", "/usr/sbin/nologin", "--comment", comment, name)
+	return s.run(ctx, execx.Cmd{Name: "useradd", Args: []string{
+		"--system", "--user-group", "--no-create-home",
+		"--home-dir", home, "--shell", "/usr/sbin/nologin", "--comment", comment, name,
+	}})
 }
 
 // Machine is the hardware name (`uname -m`).
@@ -74,13 +76,14 @@ func (s *Sys) Machine(ctx context.Context) (string, error) {
 
 // Decompress writes the zstd file in as out, replacing out.
 func (s *Sys) Decompress(ctx context.Context, in, out string) error {
-	return s.run(ctx, "zstd", "-q", "-d", "-f", "-o", out, "--", in)
+	return s.run(ctx, execx.Cmd{Name: "zstd", Args: []string{"-q", "-d", "-f", "-o", out, "--", in}})
 }
 
-func (s *Sys) run(ctx context.Context, name string, args ...string) error {
-	_, err := s.Runner.Run(ctx, execx.Cmd{Name: name, Args: args, Stdout: s.Chatter, Stderr: s.Chatter})
+func (s *Sys) run(ctx context.Context, cmd execx.Cmd) error {
+	cmd.Stdout, cmd.Stderr = s.Chatter, s.Chatter
+	_, err := s.Runner.Run(ctx, cmd)
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+		return fmt.Errorf("%s %s: %w", cmd.Name, strings.Join(cmd.Args, " "), err)
 	}
 	return nil
 }

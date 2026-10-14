@@ -1,0 +1,542 @@
+{
+ "lxc-help": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: the usage text no longer promises one password prompt per run, because sudo is readied again before each load and act batch",
+  "streams": [
+   "stdout"
+  ]
+ },
+ "lxc-help-short": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: the usage text no longer promises one password prompt per run, because sudo is readied again before each load and act batch",
+  "streams": [
+   "stdout"
+  ]
+ },
+ "lxc-help-inside-container": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: the usage text no longer promises one password prompt per run, because sudo is readied again before each load and act batch",
+  "streams": [
+   "stdout"
+  ]
+ },
+ "pod-list-label-record-too-short": {
+  "bugs": [
+   14
+  ],
+  "why": "bug 14: a label record is split into exactly four fields and any other count refused",
+  "streams": [
+   "stdout",
+   "stderr",
+   "status"
+  ]
+ },
+ "pod-err-list-takes-no-target": {
+  "bugs": [
+   22
+  ],
+  "why": "bug 22: 'list' with a target is refused before any command is run",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-err-list-takes-no-target-no-podman": {
+  "bugs": [
+   22
+  ],
+  "why": "bug 22: 'list' with a target is refused before any command is run",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "pod-dry-run-thaw-network": {
+  "bugs": [
+   13
+  ],
+  "why": "bug 13: a network group is selected from the inventory the menu was drawn from: the fourth podman query is gone",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-act-freeze-all-partial-failure": {
+  "bugs": [
+   7
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "pod-act-freeze-ccy": {
+  "bugs": [
+   7
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "pod-act-freeze-network": {
+  "bugs": [
+   13
+  ],
+  "why": "bug 13: a network group is selected from the inventory the menu was drawn from: the fourth podman query is gone",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-act-token": {
+  "bugs": [
+   7
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "pod-act-all-fail": {
+  "bugs": [
+   7
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "pod-act-name-given-twice": {
+  "bugs": [
+   4,
+   7
+  ],
+  "why": "bug 4: a name given twice is acted on once; bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "pod-menu-no-terminal": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-empty-machine": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-quit": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-eof": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-three-bad-replies": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-all-then-quit": {
+  "bugs": [
+   13,
+   26
+  ],
+  "why": "bug 13: a network group is selected from the inventory the menu was drawn from: the fourth podman query is gone; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-back-out-of-drill-down": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-specific-members": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-bad-member-reply-then-fixed": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-three-bad-member-replies": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-explicit-verb": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-dry-run": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-failed-act-carries-status": {
+  "bugs": [
+   7,
+   26
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "pod-menu-numbered-network-row": {
+  "bugs": [
+   7,
+   13,
+   26
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 13: a network group is selected from the inventory the menu was drawn from: the fourth podman query is gone; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "pod-menu-fzf-all-then-leave": {
+  "bugs": [
+   7,
+   26
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "pod-menu-fzf-specific-members": {
+  "bugs": [
+   7,
+   26
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "pod-menu-fzf-escape-in-drill-down-goes-back": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-fzf-no-match-quits": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "pod-menu-fzf-crash-is-not-a-leave": {
+  "bugs": [
+   2,
+   26
+  ],
+  "why": "bug 2: an fzf that failed (not Esc, Ctrl-C or no match) is an error, no longer a quiet leave; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "stderr",
+   "status",
+   "calls"
+  ]
+ },
+ "pod-menu-state-changes-after-act": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-sudo-prompted-then-listed": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-sudo-needs-password-no-terminal": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-sudo-refused": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-list-sudo-noise-on-stderr": {
+  "bugs": [
+   1
+  ],
+  "why": "bug 1: stdout and stderr are captured separately: stderr text is no longer parsed as a record",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "lxc-err-list-takes-no-target": {
+  "bugs": [
+   22
+  ],
+  "why": "bug 22: 'list' with a target is refused before any command is run",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-err-list-takes-no-target-sudo-refused": {
+  "bugs": [
+   6,
+   22
+  ],
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines; bug 22: 'list' with a target is refused before any command is run",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "lxc-act-freeze-one-fails": {
+  "bugs": [
+   7
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-act-freeze-all-fail": {
+  "bugs": [
+   7
+  ],
+  "why": "bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-act-name-given-twice": {
+  "bugs": [
+   4,
+   7
+  ],
+  "why": "bug 4: a name given twice is acted on once; bug 7: 'Thaw them with' and the freeze note list only what was frozen, and neither is printed when nothing was",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "lxc-act-sudo-prompted-once-then-acts": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines",
+  "streams": [
+   "stderr"
+  ]
+ },
+ "lxc-menu-no-terminal": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-empty-machine": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-quit": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-eof": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-three-bad-replies": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-all-then-quit": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-back-out-of-drill-down": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-specific-members": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-bridge-row": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-numbered-sudo-prompted-at-start": {
+  "bugs": [
+   6,
+   26
+  ],
+  "why": "bug 6: root is readied by sudo.Ready before each load and act batch: its own words replace the old authenticating lines; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "stderr",
+   "calls"
+  ]
+ },
+ "lxc-menu-fzf-all-then-leave": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-fzf-specific-members": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-fzf-escape-in-drill-down-goes-back": {
+  "bugs": [
+   26
+  ],
+  "why": "bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "calls"
+  ]
+ },
+ "lxc-menu-fzf-crash-is-not-a-leave": {
+  "bugs": [
+   2,
+   26
+  ],
+  "why": "bug 2: an fzf that failed (not Esc, Ctrl-C or no match) is an error, no longer a quiet leave; bug 26: the startup load serves the menu's first pass: one load, not two",
+  "streams": [
+   "stderr",
+   "status",
+   "calls"
+  ]
+ }
+}

@@ -833,48 +833,16 @@
     # The human way back to a session whose terminal died: lists every CCY tmux session,
     # attaches a detached one, takes one over, ends one on request, warns and reboots, and
     # restores them at boot. A Go binary (src-go/cmd/ccy-sessions, Plan 00191) built from this
-    # checkout; it needs no checkout path baked in. Built to a scratch path and installed with
-    # `copy`, which compares checksums, so an unchanged source reports ok rather than changed
-    # (-trimpath and -buildvcs=false keep the build byte-for-byte reproducible: the
-    # first drops the checkout path, the second the git revision a build otherwise
-    # stamps in). A failed build stops the play before anything is installed. The
-    # systemd units, shutdown-with-update and the self-update cycle call it at this path.
-    - name: Ensure the ccy Go Build Directory Exists
-      ansible.builtin.file:
-        path: "/home/{{ user_login }}/.cache/ccy-go-build"
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
-      tags:
-        - scripts
-        - launchers
-
-    - name: Build the ccy-sessions Command
-      ansible.builtin.command:
-        cmd: >-
-          go build -trimpath -buildvcs=false
-          -o /home/{{ user_login }}/.cache/ccy-go-build/ccy-sessions
-          ./cmd/ccy-sessions
-        chdir: "{{ root_dir }}/src-go"
-      environment:
-        HOME: "/home/{{ user_login }}"
-        GOTOOLCHAIN: local
-        GOFLAGS: -mod=readonly
-        GOCACHE: "/home/{{ user_login }}/.cache/go-build"
-      changed_when: false # a build into the scratch path changes nothing installed; the copy below reports the change
-      tags:
-        - scripts
-        - launchers
-
-    - name: Deploy the ccy-sessions Command
-      ansible.builtin.copy:
-        src: "/home/{{ user_login }}/.cache/ccy-go-build/ccy-sessions"
-        remote_src: true
-        dest: "/home/{{ user_login }}/.local/bin/ccy-sessions"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # checkout; it needs no checkout path baked in. Built and installed by the shared
+    # tasks/build-go-command.yml (scratch build, checksum-compared install, a failed build stops
+    # the play before anything is installed). The systemd units, shutdown-with-update and the
+    # self-update cycle call it at this path.
+    - name: Build and Install the ccy-sessions Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ccy-sessions
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ccy-sessions"
+        go_command_mode: "0755"
       tags:
         - scripts
         - launchers
@@ -883,37 +851,14 @@
     # members and the ccy sessions in their seats. A Go binary (src-go/cmd/ccy-teams, Plan
     # 00191) built from this checkout, which is baked in with -X main.RootDir because its
     # host_vars helper (helpers/agent_bus/declare.py) lives there; it calls agent-bus,
-    # which play-agent-bus.yml installs. Built to a scratch path and installed with `copy`,
-    # which compares checksums, so an unchanged source reports ok rather than changed
-    # (-trimpath and -buildvcs=false keep the build byte-for-byte reproducible: the
-    # first drops the checkout path, the second the git revision a build otherwise
-    # stamps in). A failed build stops the play before anything is installed.
-    - name: Build the ccy-teams Command
-      ansible.builtin.command:
-        cmd: >-
-          go build -trimpath -buildvcs=false
-          -ldflags "-X main.RootDir={{ root_dir }}"
-          -o /home/{{ user_login }}/.cache/ccy-go-build/ccy-teams
-          ./cmd/ccy-teams
-        chdir: "{{ root_dir }}/src-go"
-      environment:
-        HOME: "/home/{{ user_login }}"
-        GOTOOLCHAIN: local
-        GOFLAGS: -mod=readonly
-        GOCACHE: "/home/{{ user_login }}/.cache/go-build"
-      changed_when: false # a build into the scratch path changes nothing installed; the copy below reports the change
-      tags:
-        - scripts
-        - launchers
-
-    - name: Deploy the ccy-teams Command
-      ansible.builtin.copy:
-        src: "/home/{{ user_login }}/.cache/ccy-go-build/ccy-teams"
-        remote_src: true
-        dest: "/home/{{ user_login }}/.local/bin/ccy-teams"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # which play-agent-bus.yml installs. Built and installed like ccy-sessions.
+    - name: Build and Install the ccy-teams Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ccy-teams
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ccy-teams"
+        go_command_mode: "0755"
+        go_command_ldflags: "-X main.RootDir={{ root_dir }}"
       tags:
         - scripts
         - launchers

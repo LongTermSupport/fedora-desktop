@@ -1,0 +1,3 @@
+DRY RUN — 1 container(s) would be FROZEN:
+  NAME                               STATE    BRIDGE            IPV4              
+  alpha                              RUNNING  lxcbr0            192.0.2.12        

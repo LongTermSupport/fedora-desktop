@@ -73,15 +73,14 @@ func (t *Tmux) StartDetached(ctx context.Context, spec StartSpec) error {
 	}
 	// The unit name carries the session name (escaped) as well as the pid: a restore starts
 	// several sessions from one process, and two scopes may not share a name.
-	args := slices.Concat([]string{
+	out, err := execx.Combined(ctx, t.Runner, execx.Cmd{Name: "systemd-run", Args: slices.Concat([]string{
 		"--user", "--scope", "--quiet", "--collect",
 		"--unit", fmt.Sprintf("ccy-tmux-%d-%s", pid, strings.TrimRight(escaped, "\n")),
 		"--description", "CCY tmux session " + spec.Name,
 		"--", tmuxBinary, "-L", t.socket(),
 		"new-session", "-d", "-s", spec.Name, "-c", spec.Dir, "--",
 		"bash", "-c", registry.Trampoline(spec.RecordPath, spec.Prefix), "ccy-tmux",
-	}, spec.Command, []string{";", "set-hook", "-g", "client-attached", SingleAttachHookFor(t.socket())})
-	out, err := execx.Combined(ctx, t.Runner, execx.Cmd{Name: "systemd-run", Args: args})
+	}, spec.Command, []string{";", "set-hook", "-g", "client-attached", SingleAttachHookFor(t.socket())})})
 	if err != nil {
 		return fmt.Errorf("could not start session '%s': %s: %w", spec.Name, strings.TrimSpace(out), err)
 	}

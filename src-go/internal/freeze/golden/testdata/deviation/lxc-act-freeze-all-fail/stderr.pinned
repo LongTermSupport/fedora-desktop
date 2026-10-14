@@ -1,0 +1,5 @@
+1 container(s) being FROZEN:
+  NAME                               STATE    BRIDGE            IPV4              
+  alpha                              RUNNING  lxcbr0            192.0.2.12        
+  ✗ alpha — lxc-freeze: alpha: Failed to freeze
+lxcfreeze: 1 of 1 container(s) failed — see above.

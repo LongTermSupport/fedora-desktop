@@ -52,10 +52,7 @@ func parseReboot(args []string) (rebootParams, string) {
 // warned twice. So it is asked first. "yes" is the only answer that reboots unattended;
 // anything else is a refusal that names the way round it.
 func (a *App) rebootPermitted(ctx context.Context) bool {
-	out, err := execx.Combined(ctx, a.Runner, execx.Cmd{Name: "busctl", Args: []string{
-		"--system", "call", "org.freedesktop.login1", "/org/freedesktop/login1",
-		"org.freedesktop.login1.Manager", "CanReboot",
-	}})
+	out, err := (&systemd.Systemd{Runner: a.Runner}).CanReboot(ctx)
 	out = strings.TrimRight(out, "\n")
 	if err != nil {
 		if out == "" {
@@ -95,7 +92,7 @@ type rebootRun struct {
 // what would stop it is found before anyone is told anything. Once a warning may have gone
 // out, any exit other than the reboot itself (an interrupt, a project refusing a warning,
 // systemctl refusing) tells the sessions the reboot is off.
-func (a *App) reboot(ctx context.Context, args []string) int {
+func (a *App) reboot(ctx context.Context, args []string) term.ExitCode {
 	params, problem := parseReboot(args)
 	if problem != "" {
 		return a.usageError(problem)
@@ -139,14 +136,14 @@ func interrupted(sig <-chan os.Signal) bool {
 }
 
 // cancelled is the person (or the system) cancelling the countdown.
-func (a *App) cancelled(run *rebootRun) int {
+func (a *App) cancelled(run *rebootRun) term.ExitCode {
 	run.stop()
 	a.sayf("\nReboot cancelled.\n")
 	return term.ExitCancelled
 }
 
 // rebootSteps is the warnings, the countdown and the reboot itself.
-func (a *App) rebootSteps(ctx context.Context, run *rebootRun) int {
+func (a *App) rebootSteps(ctx context.Context, run *rebootRun) term.ExitCode {
 	run.warned = !run.dryRun
 	reached, err := a.deliverSignal(ctx, run.projects, run.kind, run.minutes, run.dryRun)
 	if err != nil {
@@ -174,7 +171,7 @@ func (a *App) rebootSteps(ctx context.Context, run *rebootRun) int {
 // secondWarning waits until one minute is left and warns again, through a fresh check: a
 // session started meanwhile is warned too, and a project that broke meanwhile stops the
 // reboot. It says whether the reboot ends here, with the code.
-func (a *App) secondWarning(ctx context.Context, run *rebootRun) (int, bool) {
+func (a *App) secondWarning(ctx context.Context, run *rebootRun) (term.ExitCode, bool) {
 	if run.dryRun {
 		a.sayf("would wait %d minute(s), then warn again at one minute\n", run.minutes-1)
 		return term.ExitOK, false
@@ -196,7 +193,7 @@ func (a *App) secondWarning(ctx context.Context, run *rebootRun) (int, bool) {
 // systemctlReboot asks systemd to reboot. From here an INT or TERM is the shutdown reaching
 // this process, not a cancellation, so the channel is simply no longer read. A refused reboot
 // is a failure, reported as one: nobody cancelled it.
-func (a *App) systemctlReboot(ctx context.Context, run *rebootRun) int {
+func (a *App) systemctlReboot(ctx context.Context, run *rebootRun) term.ExitCode {
 	err := (&systemd.Systemd{Runner: a.Runner}).Reboot(ctx, a.Stderr)
 	if err == nil {
 		return term.ExitOK
@@ -208,7 +205,7 @@ func (a *App) systemctlReboot(ctx context.Context, run *rebootRun) int {
 		return term.ExitFailure
 	}
 	a.fail(fmt.Sprintf("the reboot failed: systemctl reboot exited %d (its reason is above). The machine is staying up.", exit.Code))
-	return exit.Code
+	return term.ExitCode(exit.Code)
 }
 
 // withdraw tells the sessions the reboot they were warned of is not happening. It carries on

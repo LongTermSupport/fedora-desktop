@@ -18,11 +18,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -35,7 +37,7 @@ const (
 	// defaultLib is where the CCY libraries are installed.
 	defaultLib = "/var/local/claude-yolo/lib"
 	// containerWorkspace is where ccy mounts a project inside its container.
-	containerWorkspace = "/workspace"
+	containerWorkspace = ccyenv.Workspace
 	// cmdReboot names the reboot subcommand, and the systemctl verb it ends in.
 	cmdReboot = "reboot"
 	// flagDryRun is the flag that says what would be done and does none of it.
@@ -60,7 +62,7 @@ type Config struct {
 	// CPUSample is the length of the CPU sample; zero means the shortest possible.
 	CPUSample          time.Duration
 	TakeOverWaitTenths int
-	CompactFloor       string
+	CompactFloor       TokenFloor
 	PassphraseFile     string
 	BootIDFile         string
 }
@@ -69,7 +71,7 @@ type Config struct {
 // one is refused, not guessed.
 func loadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		CcyLib: getenv("CCY_LIB"), CompactFloor: getenv("CCY_RESTORE_COMPACT_FLOOR_TOKENS"),
+		CcyLib: getenv("CCY_LIB"), CompactFloor: ParseTokenFloor(getenv("CCY_RESTORE_COMPACT_FLOOR_TOKENS")),
 		PassphraseFile: getenv(unlockFileEnv), BootIDFile: getenv("CCY_BOOT_ID_FILE"),
 		TakeOverWaitTenths: 50,
 	}
@@ -105,6 +107,31 @@ func loadConfig(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
+// TokenFloor is the context size, in tokens, at or above which a restored session is typed
+// /compact rather than continue. It keeps the text it was read from, because a value that is not
+// a whole number of tokens is reported as it was written, when set-going needs it.
+type TokenFloor struct {
+	raw    string
+	tokens int64
+	valid  bool
+}
+
+// ParseTokenFloor reads a floor: a whole number of tokens, at least 1, written without a sign or
+// leading zero. Anything else is a TokenFloor that is not Valid.
+func ParseTokenFloor(raw string) TokenFloor {
+	tokens, err := strconv.ParseInt(raw, 10, 64)
+	if !wholeTokens.MatchString(raw) || err != nil {
+		return TokenFloor{raw: raw}
+	}
+	return TokenFloor{raw: raw, tokens: tokens, valid: true}
+}
+
+// Tokens is the floor, and whether it is a whole number of tokens at all.
+func (f TokenFloor) Tokens() (int64, bool) { return f.tokens, f.valid }
+
+// String is the floor as it was written.
+func (f TokenFloor) String() string { return f.raw }
+
 // seconds is the named variable as a duration; unset is def.
 func seconds(getenv func(string) string, name string, def time.Duration) (time.Duration, error) {
 	raw := getenv(name)
@@ -136,6 +163,8 @@ type App struct {
 	Git    *gitx.Git
 	Picker *ui.Picker
 	Probe  *sessprobe.Probe
+	// Transcripts reads only what each polled transcript gained since the last look.
+	Transcripts *transcript.Cache
 
 	// Now is the clock. Pause waits d, or until a signal arrives on sig, and reports whether
 	// it was interrupted. Signals starts listening for INT and TERM and returns the channel
@@ -151,7 +180,8 @@ type App struct {
 	Executable  func(path string) bool
 	Getuid      func() int
 
-	cfg Config
+	cfg      Config
+	writeErr error // the first failed write to Stdout through out
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
@@ -161,9 +191,14 @@ func NewApp() *App {
 	return a
 }
 
-// Run dispatches args (without the program name) and returns the exit code.
-func (a *App) Run(args []string) int {
+// Run dispatches args (without the program name) and returns the exit code. Output that could
+// not be written turns a success into a failure.
+func (a *App) Run(args []string) term.ExitCode {
 	a.wire()
+	return a.Term.Finish(a.run(args), a.writeErr)
+}
+
+func (a *App) run(args []string) term.ExitCode {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -237,6 +272,9 @@ func (a *App) wire() {
 	if a.Picker == nil {
 		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr}
 	}
+	if a.Transcripts == nil {
+		a.Transcripts = transcript.NewCache()
+	}
 }
 
 // wireSeams fills the clock, wait, signal and file-system seams.
@@ -251,10 +289,10 @@ func (a *App) wireSeams() {
 		a.Signals = notifySignals
 	}
 	if a.IsTerminal == nil {
-		a.IsTerminal = isTerminal
+		a.IsTerminal = term.FileIsTerminal
 	}
 	if a.InContainer == nil {
-		a.InContainer = inContainer
+		a.InContainer = ccyenv.InContainer
 	}
 	if a.Executable == nil {
 		a.Executable = isExecutable
@@ -274,7 +312,7 @@ func (a *App) wireProbe() {
 	}
 }
 
-func (a *App) dispatch(ctx context.Context, sub string, rest []string) int {
+func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.ExitCode {
 	switch sub {
 	case "notify":
 		return a.notify(ctx, rest)
@@ -296,29 +334,24 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) int {
 // ccyInstalled refuses to go on without the CCY libraries, saying why: inside a container
 // ccy-sessions is simply in the wrong place.
 func (a *App) ccyInstalled(lib string) bool {
-	file := lib + "/tmux-session.bash"
-	if info, err := os.Stat(file); err == nil && info.Mode().IsRegular() {
-		return true
+	msg := ccyenv.Missing("ccy-sessions", lib, a.InContainer)
+	if msg != "" {
+		a.sayf("%s", msg)
 	}
-	if a.InContainer() {
-		a.sayf("ccy-sessions runs on the host, not inside a CCY container.\n")
-		return false
-	}
-	a.sayf("CCY is not installed here (%s missing). Run playbooks/imports/play-claude-yolo.yml.\n", file)
-	return false
+	return msg == ""
 }
 
 // usageError is a mistake in how the command was called: exit 64.
-func (a *App) usageError(msg string) int {
+func (a *App) usageError(msg string) term.ExitCode {
 	a.sayf("ccy-sessions: %s See ccy-sessions --help.\n", msg)
 	return term.ExitUsage
 }
 
 // out writes to stdout, the tool's payload: the help text, the table and the verify report.
-// A failed write there has nowhere better to be reported.
+// The first failed write is kept and Run turns it into a failure exit.
 func (a *App) out(s string) {
-	if _, err := io.WriteString(a.Stdout, s); err != nil {
-		return
+	if _, err := io.WriteString(a.Stdout, s); err != nil && a.writeErr == nil {
+		a.writeErr = err
 	}
 }
 
@@ -355,25 +388,6 @@ func notifySignals() (<-chan os.Signal, func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	return ch, func() { signal.Stop(ch) }
-}
-
-// isTerminal reports whether v is a terminal: a character device that is not /dev/null.
-func isTerminal(v any) bool {
-	f, ok := v.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := f.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
-		return false
-	}
-	null, err := os.Stat(os.DevNull)
-	return err != nil || !os.SameFile(info, null)
-}
-
-func inContainer() bool {
-	info, err := os.Stat(containerWorkspace)
-	return err == nil && info.IsDir()
 }
 
 // isExecutable reports whether the path may be executed by this user.

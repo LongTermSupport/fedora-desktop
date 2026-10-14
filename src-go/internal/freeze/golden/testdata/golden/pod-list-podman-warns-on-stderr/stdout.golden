@@ -1,0 +1,9 @@
+=== frozen (1) ===
+  NAME                               STATE    CCY  NETWORKS              
+  db                                 paused   -    appnet                
+
+  Thaw them all with: podfreeze thaw --all
+
+=== running (1) ===
+  NAME                               STATE    CCY  NETWORKS              
+  web                                running  -    appnet                

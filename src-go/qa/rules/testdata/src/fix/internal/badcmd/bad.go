@@ -42,7 +42,7 @@ func installerPrograms() []execx.Cmd {
 		{Name: "firewall-cmd"}, // want `"firewall-cmd" is owned by internal/firewalld`
 		{Name: "ip"},           // want `"ip" is owned by internal/hostnet`
 		{Name: "ss"},           // want `"ss" is owned by internal/hostnet`
-		{Name: "nmcli"},        // want `"nmcli" is owned by internal/hostnet`
+		{Name: "nmcli"},        // want `"nmcli" is owned by internal/lxcfreeze or internal/hostnet`
 		{Name: "curl"},         // want `"curl" is owned by internal/hostnet`
 		{Name: "rpm"},          // want `"rpm" is owned by internal/hostsys`
 		{Name: "dnf"},          // want `"dnf" is owned by internal/hostsys`
@@ -55,7 +55,7 @@ func installerPrograms() []execx.Cmd {
 
 // systemd-run is not owned: more than one package starts transient units with it.
 func transient() execx.Cmd {
-	return execx.Cmd{Name: "systemd-run"}
+	return execx.Cmd{Name: "systemd-run", Args: []string{"--scope", "--", "true"}}
 }
 
 func other() execx.Cmd {

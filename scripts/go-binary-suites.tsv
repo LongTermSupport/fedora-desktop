@@ -1,0 +1,14 @@
+# The Go commands a play builds and deploys, and what drives each one (read by qa-changed.bash and
+# checked by test-qa-changed.bash: a deployed command with no row here is a failure).
+#
+# command <TAB> suites
+#   suites   the scripts/test-*.bash suites that build and drive the binary, space separated; they
+#            run when a file in the command's build closure changes. Or qa-go: the command's oracle
+#            is a Go test, which scripts/qa-go.bash runs whole on any src-go/ change, so there is
+#            no bash suite to add.
+# A command no play deploys (a QA tool) lives under src-go/qa/cmd and has no row.
+ccy-teams	scripts/test-ccy-teams-command.bash
+ccy-sessions	scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash
+agent-bus-install	scripts/test-agent-bus-install.bash
+podfreeze	qa-go
+lxcfreeze	qa-go

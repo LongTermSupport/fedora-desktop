@@ -1,0 +1,27 @@
+What to act on:
+   1) all LXC containers                     FREEZE 2
+   2) bridge: lxcbr0                         FREEZE 1
+   3) bridge: virbr1                         FREEZE 1
+Choice [1-3, q to quit]: In this group:
+   1) *all*                              FREEZE 1
+   2) mike                               FROZEN   virbr1                               THAW
+   3) bravo                              RUNNING  virbr1            198.51.100.5       FREEZE
+Choice [ENTER or 1 for all, numbers for specific, b to go back]: Skipped — not currently RUNNING: mike
+1 container(s) being FROZEN:
+  NAME                               STATE    BRIDGE            IPV4              
+  bravo                              RUNNING  virbr1            198.51.100.5      
+  ✓ bravo
+
+  Thaw them with: lxcfreeze thaw bravo
+
+  While frozen, the container answers nothing: every ssh session into it
+  dies with the frozen TCP connection, and so does any agent socket forwarded
+  over one. Thaw renews the DHCP lease, so the address comes back even after a
+  freeze longer than the lease — the connections do not. Reconnect after thawing
+  rather than trusting an old session.
+
+What to act on:
+   1) all LXC containers                     FREEZE 2
+   2) bridge: lxcbr0                         FREEZE 1
+   3) bridge: virbr1                         FREEZE 1
+Choice [1-3, q to quit]: 

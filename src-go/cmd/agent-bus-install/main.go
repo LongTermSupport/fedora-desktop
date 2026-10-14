@@ -24,12 +24,12 @@ const ownerOnly = 0o077
 
 func main() {
 	syscall.Umask(ownerOnly)
-	os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
+	os.Exit(int(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr)))
 }
 
 // run builds the configuration (loadConfig is the one place the test build differs), resets
 // PATH when the configuration says so, and runs the installer.
-func run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+func run(args []string, getenv func(string) string, stdout, stderr io.Writer) term.ExitCode {
 	cfg, err := loadConfig(getenv, stdout, stderr, SourceDigest)
 	if err != nil {
 		return complain(stderr, term.ExitUsage, "%v", err)
@@ -44,7 +44,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 // complain prints a diagnostic and returns the exit status; stderr that cannot be written is
 // itself a failure.
-func complain(stderr io.Writer, code int, format string, args ...any) int {
+func complain(stderr io.Writer, code term.ExitCode, format string, args ...any) term.ExitCode {
 	if _, err := fmt.Fprintf(stderr, "agent-bus-install: "+format+"\n", args...); err != nil {
 		return term.ExitFailure
 	}

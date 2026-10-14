@@ -14,9 +14,8 @@
 # subject is the host rather than the source tree.
 #
 # SCOPE: files/home/.local/bin/ — the user-facing tools — plus the other trees
-# whose deployed copies are authoritative (the VM acceptance lab, the freeze
-# library the two freeze tools source, and the agent bus installer's files; see
-# EXTRA_PAIRS below). A file is checked
+# whose deployed copies are authoritative (the VM acceptance lab and the agent bus
+# installer's files; see EXTRA_PAIRS below). A file is checked
 # only when a deployed copy already EXISTS, so a machine that never installed a
 # feature is never nagged about it.
 #
@@ -210,13 +209,6 @@ done
 # base certified against a recipe the repo no longer has, with QA green — the same
 # hole as above, one directory over.
 #
-# THE FREEZE LIBRARY (Plan 00122). ~/.local/lib/freeze/freeze-common.bash is half
-# of both podfreeze and lxcfreeze — the menu, the derived verb, the act loop — and
-# it is SOURCED at startup rather than carried inside them. So a deployed tool whose
-# own bytes match the repo can still be running a stale menu, which is exactly the
-# invisible drift this gate exists for — and the loop above cannot see it, because
-# that loop only walks .local/bin.
-#
 # THE AGENT BUS (Plan 00161). agent-bus-install copies itself, the admin wrapper, its
 # units, the Tuwunel pin, the resolver stub and the member kit (launcher, settings,
 # plugin; from files/opt/claude-yolo/optional/agent-bus/) out of the checkout; a repo change to any
@@ -229,7 +221,6 @@ EXTRA_PAIRS=(
     "fedora-install/ks-vm-*.cfg|$HOME/.local/share/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
     "files/home/.config/systemd/user/vmtest-*|$HOME/.config/systemd/user|playbooks/imports/optional/common/play-vm-test-lab.yml"
     "helpers/vmtest/*.py|/usr/local/lib/ccy-helpers/helpers/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
-    "files/home/.local/lib/freeze/*|$HOME/.local/lib/freeze|playbooks/imports/optional/common/play-podfreeze.yml"
     "files/usr/local/sbin/agent-bus-install|/usr/local/sbin|playbooks/imports/play-agent-bus.yml"
     "files/usr/local/bin/agent-bus|/usr/local/bin|playbooks/imports/play-agent-bus.yml"
     "files/usr/local/share/agent-bus/*|/usr/local/share/agent-bus|playbooks/imports/play-agent-bus.yml"

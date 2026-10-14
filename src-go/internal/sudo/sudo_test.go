@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -20,8 +21,19 @@ func newSudo(f *execx.Fake, tty bool) *Sudo {
 			IsTerminal: func(any) bool { return tty },
 			Getenv:     func(string) string { return "" },
 		},
-		Stdin:  strings.NewReader(""),
-		Stdout: &bytes.Buffer{},
+		Stdin:   strings.NewReader(""),
+		Stdout:  &bytes.Buffer{},
+		OpenTTY: fakeTTY(tty),
+	}
+}
+
+// fakeTTY is the seam for /dev/tty: openable or not.
+func fakeTTY(openable bool) func() (io.ReadCloser, error) {
+	return func() (io.ReadCloser, error) {
+		if !openable {
+			return nil, errors.New("open /dev/tty: no such device or address")
+		}
+		return io.NopCloser(strings.NewReader("")), nil
 	}
 }
 
@@ -116,6 +128,42 @@ func TestAsRootPasswordWanted(t *testing.T) {
 	}
 }
 
+func TestAsRootOtherSudoFailuresAreNotAPasswordRequest(t *testing.T) {
+	for _, said1 := range []string{
+		"sudo: /usr/local/bin/agent-bus: command not found\n",
+		"sudo: unable to resolve host box: Name or service not known\nsudo: PAM account management error\n",
+		"sudo: sorry, you are not allowed to execute '/x' as root on box.\n",
+	} {
+		f := &execx.Fake{}
+		f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte(said1), ExitCode: 1})
+		s := newSudo(f, true)
+		out, err := s.AsRoot(context.Background(), AgentBus, "list")
+		var exitErr *execx.ExitError
+		if errors.Is(err, ErrNeedsPassword) || !errors.As(err, &exitErr) || out != "" {
+			t.Errorf("%q: out %q err %v", said1, out, err)
+		}
+		if said(s) != said1 {
+			t.Errorf("%q: stderr copied as %q", said1, said(s))
+		}
+	}
+}
+
+func TestAsRootPasswordRequiredBehindAnotherSudoWarning(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte("sudo: unable to resolve host box\nsudo: a password is required\n"), ExitCode: 1})
+	if _, err := newSudo(f, true).AsRoot(context.Background(), AgentBus); !errors.Is(err, ErrNeedsPassword) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAsRootACommandThatMentionsAPasswordItselfIsNotSudoAsking(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte("agent-bus: a password is required for this team\n"), ExitCode: 1})
+	if _, err := newSudo(f, true).AsRoot(context.Background(), AgentBus); errors.Is(err, ErrNeedsPassword) {
+		t.Fatal("the command's own words were taken for sudo's")
+	}
+}
+
 func TestAsRootCommandFailureCopiesStderr(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte("agent-bus: no such team\n"), ExitCode: 1})
@@ -187,5 +235,31 @@ func TestRunFailure(t *testing.T) {
 func TestNewWiresRealStreams(t *testing.T) {
 	if s := New(&execx.Fake{}, term.New()); s.Stdin != os.Stdin || s.Stdout != os.Stdout || s.Runner == nil {
 		t.Fatal("New leaves a field unset")
+	}
+}
+
+// sudo prompts on /dev/tty whatever stdin and stderr are, so a redirected stderr or a piped
+// stdin must not stop Ready asking while a controlling terminal exists.
+func TestReadyAsksWhenStdinAndStderrAreNotTerminalsButDevTTYOpens(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-v"}, execx.Result{})
+	s := newSudo(f, true)
+	s.Term.IsTerminal = func(any) bool { return false }
+	if err := s.Ready(context.Background(), "Freezing."); err != nil {
+		t.Fatalf("got %v", err)
+	}
+	if !f.Called("sudo -v") {
+		t.Error("sudo -v was not run although /dev/tty opens")
+	}
+}
+
+func TestReadyWithNilOpenTTYCannotPrompt(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	s := newSudo(f, true)
+	s.OpenTTY = nil
+	if err := s.Ready(context.Background(), "x"); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("got %v", err)
 	}
 }

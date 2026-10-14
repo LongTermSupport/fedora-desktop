@@ -1,3 +1,9 @@
+// Package fsx is the file writes the tools share. FS holds the primitives the installer
+// writes as root with: every write goes through an os.Root (so a symlink swapped into a
+// directory another user can write cannot redirect it), is atomic (temp file and rename),
+// refuses to follow a symlink at the destination, and reports each change as a CHANGED line.
+// WriteAtomic and RemoveIfPresent are the plain atomic replace and tolerant removal the ccy
+// tools use on their own files.
 package fsx
 
 import (

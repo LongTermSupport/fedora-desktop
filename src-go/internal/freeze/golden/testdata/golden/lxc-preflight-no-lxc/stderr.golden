@@ -1,0 +1,6 @@
+lxcfreeze: LXC is not installed on this host — missing: lxc-info lxc-freeze lxc-unfreeze
+  This is not 'no containers': nothing here can answer the question at all.
+  LXC is declared in playbooks/imports/play-lxc-install-config.yml, which
+  playbook-main.yml imports. Deploy it with:
+    ansible-playbook playbooks/imports/play-lxc-install-config.yml
+  Do NOT install it by hand.

@@ -215,7 +215,7 @@ func TestTeamRefusals(t *testing.T) {
 	cases := []struct {
 		name     string
 		setup    func(h *harness) string
-		wantCode int
+		wantCode term.ExitCode
 		wantMsg  string
 	}{
 		{"render check refuses with 78", func(h *harness) string {

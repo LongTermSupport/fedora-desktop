@@ -198,6 +198,32 @@ func TestTrampolineBehaviour(t *testing.T) {
 	}
 }
 
+func TestTrampolineShowsAHostilePrefixLiterally(t *testing.T) {
+	dir := t.TempDir()
+	for _, prefix := range []string{
+		"my tool", "it's", `say "hi"`, "$(touch " + filepath.Join(dir, "pwned") + ")", "a;b", "`id`", "100%s", `back\nslash`, "two\nlines",
+	} {
+		rec := filepath.Join(dir, "rec")
+		if err := os.WriteFile(rec, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		res, err := execx.OS{}.Run(context.Background(), execx.Cmd{
+			Name: "bash", Args: []string{"-c", Trampoline(rec, prefix), "ccy-tmux", "sh", "-c", "exit 3"},
+			Stdin: strings.NewReader("\n"),
+		})
+		if exitErr, ok := errors.AsType[*execx.ExitError](err); !ok || exitErr.Code != 3 {
+			t.Fatalf("%q: want exit 3, got %v", prefix, err)
+		}
+		want := "\n" + prefix + " exited with status 3. Press Enter to close this session.\n"
+		if got := string(res.Stdout) + string(res.Stderr); got != want {
+			t.Errorf("%q: printed %q, want %q", prefix, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pwned")); err == nil {
+		t.Fatal("the prefix was executed by the shell")
+	}
+}
+
 func TestReadAllReportsEachUnreadableRecord(t *testing.T) {
 	s := newStore(t)
 	if got, err := s.ReadAll(); err != nil || len(got.Records) != 0 || len(got.Problems) != 0 {

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.95.9"  # Container 2.54: tmux-session.bash comment corrected (no live caller of the take-over functions). See docs/ccy-changelog.md.
+CCY_VERSION="3.95.10"  # Container 2.54: single-attach hook quotes the session name (=#{q:session_name}). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,0 +1,5 @@
+DRY RUN — 3 container(s) would be FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  proj1_yolo                         running  CCY  podman                
+  proj3_browser                      running  CCY  podman                
+  legacy_yolo                        running  CCY  podman                

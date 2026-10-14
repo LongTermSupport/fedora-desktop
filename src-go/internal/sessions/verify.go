@@ -9,11 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
 
 var wholeSeconds = regexp.MustCompile(`^[0-9]+$`)
@@ -43,7 +42,7 @@ func parseVerify(args []string) (time.Duration, string) {
 // "<name> OK", "<name> STARTING", "<name> SETTING-GOING", "<name> NOT-SET-GOING <why>",
 // "<name> WAITING-AT-PROMPT <which>" or "<name> DEAD <why>". Exit 0 only if all are OK. --wait
 // polls until the restore has settled, or the time is up.
-func (a *App) verifyRestore(ctx context.Context, args []string) int {
+func (a *App) verifyRestore(ctx context.Context, args []string) term.ExitCode {
 	wait, problem := parseVerify(args)
 	if problem != "" {
 		return a.usageError(problem)
@@ -157,17 +156,17 @@ func (a *App) hostView(ctx context.Context) (hostView, error) {
 	return v, err
 }
 
-// containerState is "-" for a session with no engine client, "up" when its container is in the
-// engine's running list, else "starting".
-func (v hostView) containerState(name string) string {
+// containerState is ContainerNone for a session with no engine client, ContainerUp when its
+// container is in the engine's running list, else ContainerStarting.
+func (v hostView) containerState(name string) restore.ContainerState {
 	client := v.clientOf[name]
 	switch {
 	case client == "":
-		return "-"
+		return restore.ContainerNone
 	case v.running[client]:
-		return "up"
+		return restore.ContainerUp
 	}
-	return "starting"
+	return restore.ContainerStarting
 }
 
 // restoreStates is "<name> <STATE>[ <detail>]" for every session in the manifest, from one pass
@@ -193,7 +192,7 @@ func (a *App) restoreStates(ctx context.Context, m restore.Manifest) ([]string, 
 // stateOf is one restored session's state, as verify-restore prints it after the name.
 func (a *App) stateOf(ctx context.Context, e restore.Entry, view hostView) (string, error) {
 	live := view.live[e.Name]
-	container, pane := "-", ""
+	container, pane := restore.ContainerNone, ""
 	if live {
 		var err error
 		if pane, err = a.Tmux.CapturePane(ctx, e.Name, false); err != nil {
@@ -202,11 +201,7 @@ func (a *App) stateOf(ctx context.Context, e restore.Entry, view hostView) (stri
 		}
 		container = view.containerState(e.Name)
 	}
-	at, err := e.AtSeconds()
-	if err != nil {
-		a.failErr(err)
-		return "", errReported
-	}
+	at := e.AtUnix()
 	took, err := a.tookInput(e, at)
 	if err != nil {
 		return "", err
@@ -217,19 +212,11 @@ func (a *App) stateOf(ctx context.Context, e restore.Entry, view hostView) (stri
 
 // runningContainers is the names of the running CCY containers of each engine, engines sorted.
 func (a *App) runningContainers(ctx context.Context, engines []string) (map[string]bool, error) {
-	running := map[string]bool{}
 	slices.Sort(engines)
-	for _, engine := range engines {
-		out, err := execx.Combined(ctx, a.Runner, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", "--format", "{{.Names}}"}})
-		if err != nil {
-			a.fail(engine + " ps failed: " + strings.TrimSpace(out))
-			return nil, errReported
-		}
-		for line := range strings.SplitSeq(out, "\n") {
-			if name := strings.TrimSpace(line); name != "" {
-				running[name] = true
-			}
-		}
+	running, err := sessprobe.RunningContainerNames(ctx, a.Runner, engines)
+	if err != nil {
+		a.fail(err.Error())
+		return nil, errReported
 	}
 	return running, nil
 }
@@ -242,7 +229,7 @@ func (a *App) tookInput(e restore.Entry, at int64) (restore.Took, error) {
 	case restore.GoingNone, restore.GoingPending, restore.GoingUntouched, restore.GoingKeep:
 		return restore.TookNA, nil
 	}
-	took, err := transcript.TookInputSince(e.Transcript, at)
+	took, err := a.Transcripts.TookInputSince(e.Transcript, at)
 	if err != nil {
 		a.failErr(err)
 		return restore.TookNA, errReported
