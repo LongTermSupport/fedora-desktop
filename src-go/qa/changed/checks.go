@@ -162,8 +162,14 @@ func runNodeCheck(ctx context.Context, s *session, cp *checkPlan) (checkResult, 
 // shellcheckSeverity is the bar qa-bash.bash gates on: error and warning.
 const shellcheckSeverity = "--severity=warning"
 
+// shellcheckFollow lets shellcheck read the files a script sources. qa-bash.bash passes every
+// bash file at once, so shellcheck sees a sourced library there; a diff passes only the changed
+// files, and without this a variable a script sets for its library reads as unused (SC2034),
+// failing here what the full gate passes.
+const shellcheckFollow = "--external-sources"
+
 func runShellcheck(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	return s.exec(ctx, nil, append([]string{"shellcheck", shellcheckSeverity}, cp.items...)...)
+	return s.exec(ctx, nil, append([]string{"shellcheck", shellcheckFollow, shellcheckSeverity}, cp.items...)...)
 }
 
 func runRuff(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
