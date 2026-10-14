@@ -67,6 +67,23 @@ plan_for() {
     "${TARGET[@]}" --plan --files "$@"
 }
 
+# capture <command...> — run it, keeping stdout in OUT, stderr in ERR and the status in RC.
+capture() {
+    RC=0
+    OUT="$("$@" 2> "$SCRATCH/err")" || RC=$?
+    ERR="$(<"$SCRATCH/err")"
+}
+expect_rc() {
+    local label="$1" want="$2"
+    if [[ "$RC" -eq "$want" ]]; then
+        printf '  ok    %s\n' "$label"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s — exit %s, wanted %s\n' "$label" "$RC" "$want"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 echo "== file -> check mapping (--plan --files, real repo paths) =="
 
 plan="$(plan_for scripts/qa-bash.bash)"
@@ -117,9 +134,10 @@ wf_name="qa"
 plan="$(plan_for "$wf_dir/${wf_name}.yml")"
 expect_has "unmapped file is reported" "$plan" "not covered by qa-changed: $wf_dir/${wf_name}.yml"
 
-plan="$(plan_for no/such/file.bash scripts/qa-bash.bash 2> /dev/null)"
-expect_has "nonexistent file is dropped, the others planned" "$plan" "check shellcheck: scripts/qa-bash.bash"
-expect_lacks "nonexistent file is not planned" "$plan" "no/such/file.bash"
+capture plan_for no/such/file.bash scripts/qa-bash.bash
+expect_rc "nonexistent file beside a real one: exit 0" 0
+expect_has "nonexistent file is dropped, the others planned" "$OUT" "check shellcheck: scripts/qa-bash.bash"
+expect_lacks "nonexistent file is not planned" "$OUT" "no/such/file.bash"
 
 echo
 echo "== git collection (scratch repository) =="
@@ -248,8 +266,9 @@ echo "== src-go -> every binary has a suite entry =="
 # built and deployed with no suite selected for its changes and no warning.
 # The unmapped command's file does not exist (the control is its absence from the table); README.md
 # is the one real file the list needs and selects no suite.
-plan="$(plan_for src-go/cmd/ccy-unmapped/main.go README.md 2> /dev/null)"
-expect_lacks "binaries: the control, a command with no entry, selects no suite" "$plan" "suite scripts/"
+capture plan_for src-go/cmd/ccy-unmapped/main.go README.md
+expect_rc "binaries: the control plans: exit 0" 0
+expect_lacks "binaries: the control, a command with no entry, selects no suite" "$OUT" "suite scripts/"
 for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     cmd_name="$(basename "$cmd_dir")"
     entry="$(awk -F'\t' -v c="$cmd_name" '$1 == c {print $2}' "$SCRIPT_DIR/go-binary-suites.tsv")"
@@ -265,22 +284,6 @@ done
 
 echo
 echo "== command line and exit codes =="
-# capture <command...> — run it, keeping stdout in OUT, stderr in ERR and the status in RC.
-capture() {
-    RC=0
-    OUT="$("$@" 2> "$SCRATCH/err")" || RC=$?
-    ERR="$(<"$SCRATCH/err")"
-}
-expect_rc() {
-    local label="$1" want="$2"
-    if [[ "$RC" -eq "$want" ]]; then
-        printf '  ok    %s\n' "$label"
-        PASS=$((PASS + 1))
-    else
-        printf '  FAIL  %s — exit %s, wanted %s\n' "$label" "$RC" "$want"
-        FAIL=$((FAIL + 1))
-    fi
-}
 
 capture "${TARGET[@]}" --help
 expect_rc "--help: exit 0" 0
