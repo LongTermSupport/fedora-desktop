@@ -14,6 +14,7 @@ and no inbox socket at all. The plugin's part is played by the test, which write
 
 from __future__ import annotations
 
+import io
 import json
 import pathlib
 import sys
@@ -290,6 +291,17 @@ class SentLogTest(RelayCase):
         self.assertEqual((entry["kind"], entry["verb"], entry["ref"], entry["re"], entry["to"]),
                          ("ping", "review", bus.PATH_REF, None, [bus.ORCH_LP]))
         self.assertEqual(entry["id"], out.split("\t")[3].strip())
+
+    def test_the_goodbye_in_relay_mode_is_posted_and_is_not_a_delivery_to_self(self):
+        """Plan 00194 Task 2.0b with 2.0: the session-end goodbye reaches the room, but it
+        is not entered in the sent log (no `SENT` echo) and puts nothing in the relay spool."""
+        self.joined()
+        text = "myrepo.1+workstation.podman left the team: session ended (exit)"
+        cli.post_goodbye(self.runtime(), self.env, io.StringIO(), bus.TEAM_A, text)
+        (content,) = self.a.messages_from_me()
+        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch, self.a.peer], text))
+        self.assertEqual(self.log(), [])
+        self.assertFalse((self.home / "relay" / "spool").exists() and any((self.home / "relay" / "spool").rglob("*.line")))
 
     def test_a_refused_send_records_nothing(self):
         self.joined()

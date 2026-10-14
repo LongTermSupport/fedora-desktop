@@ -40,10 +40,11 @@ SKILL = PLUGIN / "skills" / "pingbus" / "SKILL.md"
 SETTINGS = KIT / "settings.json"
 LAUNCHER = KIT / "agent-bus-claude"
 
-#: The hooks whose subcommand does something. `session-end` is not registered: it does
-#: nothing (DESIGN.md section 6), which `test_session_end_is_a_no_op` holds it to.
+#: The hooks whose subcommand does something. `session-end` posts the goodbye (Plan 00194
+#: Task 2.0b) and is registered with a `timeout` above the hook's own cap, because Claude
+#: Code gives a SessionEnd hook only a short default.
 REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "Stop": "stop",
-              "PostToolUse": "post-tool"}
+              "PostToolUse": "post-tool", "SessionEnd": "session-end"}
 #: The one hook that is matched to a tool: the `SENT` echo follows `pingbus say` and `send`,
 #: which are Bash commands.
 MATCHERS = {"PostToolUse": "Bash"}
@@ -110,8 +111,12 @@ class HooksJsonTest(unittest.TestCase):
                 else:
                     self.assertEqual(set(group), {"hooks"}, f"{event}: no matcher is needed")
                 for entry in group["hooks"]:
-                    self.assertEqual(set(entry), {"type", "command"})
+                    self.assertLessEqual(set(entry), {"type", "command", "timeout"})
                     self.assertEqual(entry["type"], "command")
+                    if event == "SessionEnd":
+                        self.assertGreater(entry["timeout"], hooks.GOODBYE_TIMEOUT_S)
+                    else:
+                        self.assertNotIn("timeout", entry)
                     found.setdefault(event, []).append(entry["command"])
         return found
 
@@ -127,7 +132,7 @@ class HooksJsonTest(unittest.TestCase):
             self.assertEqual(hooks.HOOK_EVENT_NAMES[argv[2]], event)
             self.assertTrue(parses(argv[1:]), commands[0])
 
-    def test_session_end_is_a_no_op(self) -> None:
+    def test_session_end_without_a_poster_does_nothing(self) -> None:
         err = io.StringIO()
         result = hooks.run("session-end", b"{}", {}, now_ms=0, spawn=self.fail, err=err)
         self.assertEqual(result, {})

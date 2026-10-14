@@ -231,6 +231,27 @@ class StopDrainTest(RelayHookCase):
         self.assertNotIn("systemMessage", self.stop(env=self.off_env()))
 
 
+class GoodbyeRelayTest(base.GoodbyeTest):
+    """Plan 00194: Task 2.0b in relay mode. Every goodbye test of the base class runs again
+    with `PINGBUS_DELIVERY=relay`, and the goodbye is not a delivery to self."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env["PINGBUS_DELIVERY"] = "relay"
+        self.spool = relay.Spool(self.home)
+
+    def test_the_goodbye_is_sent_at_the_end_of_a_relay_session(self):
+        self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"})
+        self.end()
+        self.assertEqual(self.posted, [(TEAM, f"{base.OWN_HANDLE} left the team: session ended (exit)")])
+
+    def test_the_goodbye_is_not_a_delivery_to_self(self):
+        self.end()
+        self.assertEqual(list((self.home / "relay").rglob("*.line")) if (self.home / "relay").exists() else [], [])
+        self.assertFalse((self.home / "sent.jsonl").exists())
+        self.assertEqual(self.hook("post-tool", {"tool_name": "Bash"}), {})
+
+
 class HooksJsonTest(unittest.TestCase):
     def test_the_plugin_registers_post_tool_for_bash(self):
         path = (pathlib.Path(__file__).resolve().parents[3] / "files" / "opt" / "claude-yolo" / "optional"

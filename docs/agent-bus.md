@@ -363,6 +363,16 @@ the bundle back on stdout; the launch's seat step, running as you, writes it to
 other sessions in it can change it, and a symlink anywhere in that path is refused. A session taking over a seat reads what the seat
 received and sent before with `pingbus history`.
 
+**Goodbye.** When a session in a seat really ends, pingbus posts one room message from the
+seat's member to the team: `<handle> left the team: session ended (exit)`, with `logout` or
+`other` in place of `exit` for those endings. It is a fixed template filled by pingbus, not
+written by the model, so it is sent whatever the harness and whatever the model does at the
+end. It is sent from the SessionEnd hook, once per session, never on `/clear` or `/resume`,
+and within about 4 seconds; if the homeserver cannot be reached, the hook prints one line
+on stderr and the session closes as usual. A hard kill, a closed terminal that never runs
+the hook or a lost container sends nothing: teammates then see only that the seat is no
+longer held (`agent-bus seat list` shows it `free`).
+
 A seat's handle is `<repo>.<seat>+<host>.podman`: `<repo>` from the checkout's forge
 remote, and `<host>` the `HOOKS_DAEMON_HOSTNAME` that the checkout's `ccy.env.local`
 assigns, or the literal `local` when it assigns none, so no role has to be set first and

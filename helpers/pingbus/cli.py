@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import dataclasses
+import functools
 import hashlib
 import io
 import json
@@ -629,6 +630,8 @@ class Runtime:
     execvpe: Callable[[str, list[str], dict[str, str]], object] = os.execvpe
     upstream: Callable[[], tuple[str, str] | None] = lambda: checkout_upstream(os.getcwd())
     stopping: threading.Event = dataclasses.field(default_factory=threading.Event)
+    #: Posts a session-end goodbye `(team, text)`; None is the real one (`post_goodbye`).
+    post: Callable[[str, str], object] | None = None
 
 
 class _LockedStream:
@@ -780,6 +783,18 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
     to = protocol.with_coordinator_copy(_addressees(args, record, member), member.user_id, ctx)
+    event_id, now, said_to = _send_text(seat, ctx, to, text, rt)
+    if relaying:
+        _record_sent(environ, err, sentlog.say_entry(
+            member.team, event_id, now, _localparts(said_to, member.server_name), text))
+    emit(sent_line(member.team, event_id), out, err)
+    return EXIT_OK
+
+
+def _send_text(seat: _Seat, ctx: protocol.Context, to: list[str], text: str, rt: Runtime) -> tuple[str, int, list[str]]:
+    """§9 steps from the build of an agent text to its send; the event ID, the send time
+    and the validated addressees."""
+    member = seat.member
     content = protocol.build_text(to, text)
     said = protocol.validate_text_content(content, ctx)
     if config.read_token(member) in text:
@@ -788,12 +803,25 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
     now = rt.clock_ms()
     seat.state.admit_send(member.limits, SAY_GATE_VERB, digest, None, said.to, now)
-    event_id = seat.client.send_message(member.room, content)
-    if relaying:
-        _record_sent(environ, err, sentlog.say_entry(
-            member.team, event_id, now, _localparts(said.to, member.server_name), text))
-    emit(sent_line(member.team, event_id), out, err)
-    return EXIT_OK
+    return seat.client.send_message(member.room, content), now, said.to
+
+
+def post_goodbye(rt: Runtime, environ: Mapping[str, str], err: TextIO, team: str, text: str) -> None:
+    """The session-end goodbye as a plain room text from this member, to every listed human
+    and every other agent holding a role (at most `MAX_TEXT_TO`, humans first). A refusal or
+    homeserver failure is `hooks.GoodbyeFailed` with the command's own one-line message.
+    It is never written to the sent log: a goodbye is not an echo the session is owed."""
+    try:
+        member = _one_member(environ, team)
+        seat = _seat(member, environ, rt, err)
+        record = seat.syncer.verify_room()
+        ctx = record.context(member.server_name)
+        agents = [user for user in protocol.coordinators(ctx.roles) + sorted(ctx.roles)
+                  if user != member.user_id]
+        to = list(dict.fromkeys([*sorted(ctx.humans), *agents]))[:protocol.MAX_TEXT_TO]
+        _send_text(seat, ctx, to, text, rt)
+    except FAILURES as exc:
+        raise hooks.GoodbyeFailed(failure(exc)[1]) from None
 
 
 def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protocol.Outcome, object]:
@@ -1314,7 +1342,9 @@ def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     """A Claude Code hook: stdin hook JSON, stdout hook JSON, always exit 0 (§13)."""
     rt: Runtime = args.runtime
     raw = args.stdin.read(HOOK_INPUT_MAX + 1)
-    result = hooks.run(args.event, raw, environ, now_ms=rt.clock_ms(), spawn=rt.spawn, err=err)
+    post = rt.post or functools.partial(post_goodbye, rt, environ, err)
+    result = hooks.run(args.event, raw, environ, now_ms=rt.clock_ms(), spawn=rt.spawn, err=err,
+                       post=post)
     out.write(json.dumps(result, ensure_ascii=True) + "\n")
     return EXIT_OK
 

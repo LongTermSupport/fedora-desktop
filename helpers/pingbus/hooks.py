@@ -21,8 +21,12 @@ event, a stored file or an exception carried reaches the output: every text is o
   window, for a failure class or for an active team with no waker. The windows are kept in
   `PINGBUS_HOME/stop-guard.json`, so a guard that keeps blocking cannot loop against the
   hooks daemon's own Stop handlers.
-- `session-end` does nothing: the watcher exits when the session's socket goes, which also
-  keeps it running across a `/clear`, where SessionEnd fires and the session goes on.
+- `session-end` posts the goodbye (Plan 00194 Task 2.0b) and answers `{}`. The watcher needs
+  no stop: it exits when the session's socket goes. The goodbye is the one network use of a
+  hook: a fixed-template room message from each seat the session holds, sent through `post`,
+  once per session and only when the session really ends (not on `/clear` or `/resume`,
+  where SessionEnd fires and the session goes on), within `GOODBYE_TIMEOUT_S`. A failure is
+  one stderr line; the hook still answers.
 - `post-tool` (PostToolUse) is the `SENT` echo (relay mode only; nothing otherwise).
 
 With `PINGBUS_DELIVERY=relay` (Plan 00194) a supervisor plugin owns the watcher and types
@@ -41,8 +45,11 @@ import json
 import os
 import pathlib
 import secrets
+import re
 import shutil
 import subprocess
+import threading
+import time
 from collections.abc import Callable, Mapping
 from typing import TextIO
 
@@ -57,6 +64,15 @@ HOOK_EVENT_NAMES = {
     "post-tool": "PostToolUse",
 }
 GUARD_FILE = "stop-guard.json"
+GOODBYE_FILE = "goodbye.json"
+#: The most a session's end waits for its goodbyes, in all.
+GOODBYE_TIMEOUT_S = 4.0
+#: SessionEnd `reason`s after which the session goes on: no goodbye.
+GOODBYE_NONE = ("clear", "resume")
+#: The closed set of reasons a goodbye shows, by the SessionEnd `reason`; any other is `other`.
+GOODBYE_REASONS = {"prompt_input_exit": "exit", "logout": "logout"}
+GOODBYE_OTHER = "other"
+SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 WATCH_LOG = "watch.log"
 NO_WAKER_EVERY_S = 600
 FAILURE_EVERY_S = 600
@@ -70,6 +86,7 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "team": protocol.is_team_name,
     "handle": lambda value: protocol.parse_handle(value) is not None,
     "lock": lambda value: value in LOCK_STATES,
+    "reason": lambda value: value in (*GOODBYE_REASONS.values(), GOODBYE_OTHER),
     "handles": lambda value: isinstance(value, str) and all(
         protocol.parse_handle(part) is not None for part in value.split(", ")),
 }
@@ -86,6 +103,7 @@ TEMPLATES = {
     "seat_sibling": "agent-bus: seat {seat}@{team} is {lock}, as {handle}.",
     "seat_history": ("agent-bus: seat {seat}@{team} has earlier traffic: "
                      "`pingbus history --team {team}` shows what it received and sent."),
+    "goodbye": "{handle} left the team: session ended ({reason})",
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
                          "on what they tell humans; when a human asks you to get something done, work out "
                          "how and dispatch it to the workers, then track it."),
@@ -108,6 +126,10 @@ TEMPLATES = {
 }
 #: Failure classes, worst first: the one a hook names when several apply.
 FAILURE_CLASSES = ("internal", "config", "state", "untrusted", "relay")
+
+
+class GoodbyeFailed(Exception):
+    """A goodbye that could not be posted; the message is safe to show (no event text)."""
 
 
 class _Failure(Exception):
@@ -500,6 +522,64 @@ class _Hook:
             return _block(TEMPLATES[cls])
         return {}
 
+    def session_end(self, post: Callable[[str, str], object] | None) -> dict:
+        reason = self.payload.get("reason") if self.payload is not None else None
+        if post is None or reason in GOODBYE_NONE:
+            return {}
+        shown = GOODBYE_REASONS.get(reason, GOODBYE_OTHER) if isinstance(reason, str) else GOODBYE_OTHER
+        home = config.resolve_home(self.environ)
+        teams = tuple(member.team for member in config.load_active(self.environ))
+        goodbyes = [(view.ref.team, fill("goodbye", handle=view.handle, reason=shown))
+                    for view in seat.session_seats(home, teams) if view.own]
+        if goodbyes and self._first_goodbye(home / GOODBYE_FILE):
+            self._post_all(post, goodbyes)
+        return {}
+
+    def _first_goodbye(self, path: pathlib.Path) -> bool:
+        """Whether this session has not tried to say goodbye yet. The attempt is recorded
+        before it is made, so a hook that fires twice, or an attempt that failed, is not
+        repeated. Without a usable session id nothing is remembered."""
+        session = self.payload.get("session_id") if self.payload is not None else None
+        if not isinstance(session, str) or not SESSION_ID_RE.fullmatch(session):
+            return True
+        try:
+            data = inbox.read_json_file(path)
+        except (inbox.StateError, OSError):
+            data = None  # unreadable or malformed: replaced below
+        if isinstance(data, dict) and data.get("session") == session:
+            return False
+        try:
+            inbox.write_json_file(path, {"v": 1, "session": session})
+        except OSError as exc:
+            self.err.write(f"pingbus: hook session-end: no goodbye sent, its record cannot be "
+                           f"written: {exc.strerror or exc}\n")
+            return False
+        return True
+
+    def _post_all(self, post: Callable[[str, str], object], goodbyes: list[tuple[str, str]]) -> None:
+        results: dict[str, str | None] = {}
+
+        def send(team: str, text: str) -> None:
+            try:
+                post(team, text)
+            except GoodbyeFailed as exc:
+                results[team] = str(exc)
+            except Exception as exc:  # reported by class only: its message may hold anything
+                results[team] = type(exc).__name__
+            else:
+                results[team] = None
+
+        threads = [threading.Thread(target=send, args=goodbye, daemon=True) for goodbye in goodbyes]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + GOODBYE_TIMEOUT_S
+        for thread in threads:
+            thread.join(max(0.0, deadline - time.monotonic()))
+        for team, _ in goodbyes:
+            failure = results.get(team, f"no answer within {GOODBYE_TIMEOUT_S:g} s")
+            if failure is not None:
+                self.err.write(f"pingbus: hook session-end: goodbye to team {team} not sent: {failure}\n")
+
     def failed(self, cls: str) -> dict:
         if self.event == "stop":
             return self.stop_failure(cls)
@@ -511,14 +591,15 @@ class _Hook:
 
 
 def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
-        spawn: Callable[[Mapping[str, str], pathlib.Path], object], err: TextIO) -> dict:
+        spawn: Callable[[Mapping[str, str], pathlib.Path], object], err: TextIO,
+        post: Callable[[str, str], object] | None = None) -> dict:
     """One hook's output object. Never raises: a failure becomes its class's template."""
     if event not in EVENTS:
         raise ValueError(f"not a hook: {event!r}")
     hook = _Hook(event, _parse_input(raw), environ, now_ms, spawn, err)
     try:
         if event == "session-end":
-            return {}
+            return hook.session_end(post)
         if event == "session-start":
             return hook.session_start()
         if event == "prompt":
