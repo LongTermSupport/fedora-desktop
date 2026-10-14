@@ -253,6 +253,21 @@ func TestSrcGoRoutingIncludingTheLintConfigAndTheNestedModule(t *testing.T) {
 	}
 }
 
+func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{".semgrep/bash-conventions.yml", ".semgrep/bash-conventions.bash", "src-go/qa/patterns/run.go", "src-go/qa/cmd/qa-patterns/main.go"} {
+		w.touch(f, "// x")
+		p := w.classify([]string{f})
+		if !p.has("patterns") || len(p.uncovered) != 0 {
+			t.Errorf("%s: checks %v uncovered %v", f, keys(p), p.uncovered)
+		}
+	}
+	w.touch(".semgrep/gh-scopes.yml", "# x")
+	if p := w.classify([]string{".semgrep/gh-scopes.yml"}); p.has("patterns") {
+		t.Fatalf("another rule file: %v", keys(p))
+	}
+}
+
 func TestParityReferencesRunTheGoGateAndStillClassify(t *testing.T) {
 	w := newWorld(t)
 	w.touch("files/var/local/claude-yolo/lib/common-pure.bash", "#!/usr/bin/bash")

@@ -101,8 +101,14 @@ linters:
         text: "G304|G302|G306"
       # semgrep's JSON report is snake_case, its wire format; so is qa-ansible's machine report,
       # which qa-all and qa-changed read.
-      - path: qa/changed/checks\.go|qa/ansible/report\.go
+      - path: qa/changed/checks\.go|qa/ansible/report\.go|qa/patterns/semgrep\.go
         linters: [tagliatelle]
+      # qa-patterns copies the scripts git lists into a scan mirror, reads the trees table and
+      # each script's first line, and reads semgrep's report, all by computed path; the paths
+      # come from git and the command line of the person running it.
+      - path: qa/(patterns|cmd/qa-patterns)/
+        linters: [gosec]
+        text: "G304|G703"
       # A test writes an executable stub to prove the executable check.
       - path: qa/changed/.*_test\.go
         linters: [gosec]

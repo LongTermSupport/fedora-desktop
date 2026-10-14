@@ -107,7 +107,6 @@ scripts/qa-go.bash	72	2	81	-
 scripts/qa-helper-tests.bash	90	0	88	assoc
 scripts/qa-js.bash	102	0	95	data
 scripts/qa-nokill-containerwatch.bash	276	5	248	-
-scripts/qa-patterns.bash	196	0	164	assoc,data
 scripts/qa-plan-script-logging.bash	64	1	77	-
 scripts/qa-python.bash	155	0	137	assoc,data
 scripts/qa-ready-wait-rules.bash	99	0	115	data

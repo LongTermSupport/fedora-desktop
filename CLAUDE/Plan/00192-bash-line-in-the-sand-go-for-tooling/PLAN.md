@@ -115,6 +115,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (E6a, B15); F4 `CLAUDE/QA.md` updated; F5 stdout write failure now an `ERROR:` line (E3, B17);
   F6 (`-x` is root's view, any execute bit) and F7 (four passes over each file) are info only,
   accepted, no change.
+  `qa-patterns.bash` (P3, fourth orchestrator) on `go-port/qa-patterns`: ported, not merged; spec
+  [SPEC-qa-patterns.md](SPEC-qa-patterns.md), expectations P1-P18, 12 departures B1-B12; nested
+  `src-go/qa/patterns` and `qa/cmd/qa-patterns`; semgrep stays the engine for the rules, which stay
+  data in `.semgrep/bash-conventions.yml`; the Go owns scope (what git would publish), the rule
+  self-test, the mirror and the coverage assertions; the script a build-and-run wrapper, its
+  allowlist row gone; `qa-changed` gains a `patterns` check (SPEC-qa-changed B33). Same result and
+  same 433 scanned files as the bash on the live tree. Not yet reviewed.
 
 ### Phase 4: Review
 

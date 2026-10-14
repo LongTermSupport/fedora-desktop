@@ -36,6 +36,9 @@ also	helpers/agent_bus/declare.py	go	-
 also	*.bash,*.sh,*.j2	bash-limits	-
 also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/proc/*	bash-limits	-
 also	scripts/bash-limits.allowlist	bash-limits	covered
+# The bash-convention gate runs whole when its rules, their fixture or the tool that applies them change.
+also	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	patterns	covered
+also	src-go/qa/patterns/*,src-go/qa/cmd/qa-patterns/*	patterns	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
