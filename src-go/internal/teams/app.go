@@ -111,7 +111,7 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 	case "for-checkout":
 		return a.Find.Run(ctx, rest)
 	case "record-seats":
-		return a.Find.RecordSeats(rest)
+		return a.Find.RecordSeats(ctx, rest)
 	case "-l", "--list":
 		return a.Board.List(ctx)
 	default:

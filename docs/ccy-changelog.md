@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.96.2 — container 2.54
+
+- **Recording the Quick Launch team fails the launch when the session cannot be named.**
+  `ccy-teams record-seats` now finds the current ccy tmux session itself (through the Go tmux
+  adapter) and refuses, naming the tmux error, when it cannot; the launcher stops on that. The
+  image is unchanged.
+
 ## 3.96.1 — container 2.54
 
 - **A restore never gives a session a team.** The Quick Launch team is taken only by a launch

@@ -468,8 +468,7 @@ quick() {
         token_expiry_label() { :; }
         read() { if [ "$1" = -rp ]; then echo PROMPT >>"$PROMPT_LOG"; return 1; fi; builtin read "$@"; }
         ccy_launch_teams() { printf "%s\n" "$TEAMS_LIST" >"$TEAMS_LOG"; CCY_SEATS="$TEAMS_LIST"; }
-        ccy_tmux_current_session() { echo ccy-sess; }
-        ccy-teams() { printf "%s\n" "$*" >>"$TEAMS_REC"; }
+        ccy-teams() { printf "%s\n" "$*" >>"$TEAMS_REC"; return "${FAKE_RECORD_RC:-0}"; }
         CONFIG_VERSION=2 CCY_VERSION=9.9.9 CCY_HASH=h TOKEN_DIR=/nonexistent CCY_PROMPT_QUICK_LAUNCH="?"
         HEADLESS_MODE="$1" SESSION_RESTORE="${QUICK_RESTORE:-false}" NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
@@ -550,7 +549,10 @@ check "a session restore never takes the saved team: it is in a team only if its
 check "  and it records nothing" "none" "$(QUICK_RESTORE=true recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "a quick-launched team goes into the session's own record, as an explicit --teams does" \
-    "record-seats ccy-sess dev1@team-a" "$(recorded_after false)"
+    "record-seats dev1@team-a" "$(recorded_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "  a record that cannot be written stops the launch" "yes" \
+    "$(FAKE_RECORD_RC=1 quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
 save personal /keys/id_a proj_net dev1@team-a
 check "an explicit --teams records nothing here (the launch's arguments carry it)" "none" \
     "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team recorded_after false)"

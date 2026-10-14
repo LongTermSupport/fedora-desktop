@@ -51,6 +51,19 @@ Branch `fix/ccy-teams-find-team`. Not pushed, not merged, `qa-all.bash` not run.
   and no-saved-team cases. The earlier "restore takes the saved team" decision above is
   superseded. Ratchet: 2839 lines (base 2840), 12 functions, 2749 statements (base 2749).
 
+## Follow-up 2: the session lookup fails loudly (CCY 3.96.2)
+
+The coordinator was right: dropping `|| exit 1` on the tmux session lookup traded fail-fast for
+the ratchet. Fixed by moving the lookup to Go, not by removing bash code elsewhere:
+`ccy-teams record-seats <seats>` now finds the current ccy session itself
+(`tmuxccy.Tmux.CurrentSession`, from the inherited TMUX; "" outside a ccy tmux session, where
+there is nothing to record). tmux refusing to name the session is an error ("could not tell
+which ccy session this is: \<tmux's reason>"), exit 1, and the launcher's `|| exit 1` stops the
+launch. Red tests first: `TestCurrentSession*` (tmuxccy), `TestRecordSeatsThatCannotTellTheSessionFailsNamingIt`
+(find), and a bash case where a failing `record-seats` stops the launch. The bash call is now
+`ccy-teams record-seats "$CCY_SEATS" || exit 1`, with no command substitution, so the launcher
+is at 2839 lines and 2748 statements (base 2840 and 2749); nothing was removed elsewhere.
+
 ## Bash-limits ratchet
 
 `claude-yolo`: code lines 2840 (base 2840), functions 12 (12), statements 2745 (base 2749).

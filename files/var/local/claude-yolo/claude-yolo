@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.96.1"  # Container 2.54: a restore never gives a session a team; Quick Launch records it. See docs/ccy-changelog.md.
+CCY_VERSION="3.96.2"  # Container 2.54: a restore never gives a session a team; Quick Launch records it. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1275,7 +1275,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                         TEAMS_LIST="$LAST_TEAMS"
                         ccy_launch_teams
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
-                        ccy-teams record-seats "$(ccy_tmux_current_session)" "$CCY_SEATS" || exit 1
+                        ccy-teams record-seats "$CCY_SEATS" || exit 1
                     fi
                     # Headless, an empty saved choice is that choice (no key, no network),
                     # never the picker it would otherwise fall through to; a saved launch

@@ -113,7 +113,7 @@ func TestDispatchForCheckoutIsTheFindFlow(t *testing.T) {
 
 func TestDispatchRecordSeatsIsTheFindFlow(t *testing.T) {
 	h := world(t)
-	if code := h.app.Run([]string{"record-seats", "only-one"}); code != term.ExitUsage {
+	if code := h.app.Run([]string{"record-seats", "one", "two"}); code != term.ExitUsage {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	if !strings.Contains(h.ErrOut.String(), "record-seats") {
