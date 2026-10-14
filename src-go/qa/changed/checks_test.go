@@ -67,7 +67,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -87,20 +87,22 @@ func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 func TestSummaries(t *testing.T) {
 	two := &checkPlan{items: []string{"a", "b"}}
 	for id, want := range map[string]string{
-		"toolchain":        "QA tool versions match .qa-versions",
-		"bash-syntax":      "2 file(s)",
-		"shell-directives": "2 file(s)",
-		"unit-tests":       "2 module(s)",
-		"ansible-syntax":   "2 playbook(s)",
-		"ansible-patterns": "fail-fast patterns, whole gate",
-		"patterns":         "bash-convention rules, whole gate",
-		"bash":             "bash -n and shellcheck, whole gate",
-		"python":           "compile and ruff, whole gate",
-		"js":               "node --check and ESLint, whole gate",
-		"docs":             "whole gate",
-		"go":               "whole gate (interim qa-go.bash)",
-		"bash-limits":      "whole gate (tooling is Go; allowlist ratchet)",
-		"eslint":           "2 file(s)",
+		"toolchain":           "QA tool versions match .qa-versions",
+		"bash-syntax":         "2 file(s)",
+		"shell-directives":    "2 file(s)",
+		"unit-tests":          "2 module(s)",
+		"ansible-syntax":      "2 playbook(s)",
+		"ansible-patterns":    "fail-fast patterns, whole gate",
+		"ansible-syntax-gate": "every playbook, whole gate",
+		"deployed-drift":      "repo-owned scripts against their deployed copies, whole gate",
+		"patterns":            "bash-convention rules, whole gate",
+		"bash":                "bash -n and shellcheck, whole gate",
+		"python":              "compile and ruff, whole gate",
+		"js":                  "node --check and ESLint, whole gate",
+		"docs":                "whole gate",
+		"go":                  "whole gate (interim qa-go.bash)",
+		"bash-limits":         "whole gate (tooling is Go; allowlist ratchet)",
+		"eslint":              "2 file(s)",
 
 		"nokill-containerwatch": "whole gate (the container-watch watchdog never signals a process)",
 	} {
@@ -307,12 +309,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)
@@ -321,7 +323,7 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 			t.Fatalf("call %d: output must be merged", i)
 		}
 	}
-	for _, i := range []int{3, 4} {
+	for _, i := range []int{3, 4, 6} {
 		env := runner.calls[i].Env
 		if len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
 			t.Fatalf("the JSON-report gates need QA_JSON_OUT: %v", env)

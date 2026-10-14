@@ -68,6 +68,7 @@ var checkDefs = []checkDef{
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
 	{id: "ansible-patterns", fixed: "fail-fast patterns, whole gate", gate: true, tools: []string{toolBash}, run: runAnsiblePatterns},
+	{id: "ansible-syntax-gate", fixed: "every playbook, whole gate", gate: true, tools: []string{toolBash, toolGo, toolAnsible}, run: runAnsibleSyntaxGate},
 	{id: "patterns", fixed: "bash-convention rules, whole gate", gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runPatterns},
 	{id: "bash", fixed: "bash -n and shellcheck, whole gate", gate: true, tools: []string{toolBash, toolGo, toolShellcheck}, run: runBash},
 	{id: "python", fixed: "compile and ruff, whole gate", gate: true, tools: []string{toolBash, toolGo, toolRuff, toolPython}, run: runPython},
@@ -76,6 +77,7 @@ var checkDefs = []checkDef{
 	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
+	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
 }
@@ -139,6 +141,16 @@ func (s *session) gateWithReport(ctx context.Context, name string) (checkResult,
 
 func runAnsiblePatterns(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.gateWithReport(ctx, "qa-ansible.bash")
+}
+
+// runAnsibleSyntaxGate is the whole gate over every playbook (the ansible-syntax check is the
+// per-playbook one a diff selects).
+func runAnsibleSyntaxGate(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.gateWithReport(ctx, "qa-ansible-syntax.bash")
+}
+
+func runDeployedDrift(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-deployed-drift.bash")
 }
 
 func runPatterns(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

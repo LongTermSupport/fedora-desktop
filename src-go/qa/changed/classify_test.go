@@ -470,6 +470,33 @@ func TestPlaybookListFailureIsAnError(t *testing.T) {
 	}
 }
 
+// Review nit 8: the whole ansible-syntax and deployed-drift gates rerun when their Go tool, their
+// wrapper or (for the first) the shared discovery change, as the other ports' gates do.
+func TestAnEditToAGateWithNoPerFileCheckRunsItWhole(t *testing.T) {
+	for check, files := range map[string][]string{
+		"ansible-syntax-gate": {
+			"src-go/qa/ansiblesyntax/run.go", "src-go/qa/cmd/qa-ansible-syntax/main.go", "scripts/qa-ansible-syntax.bash",
+			"scripts/lib/go-tool.bash", "scripts/qa-trees.tsv", "src-go/qa/discovery/run.go",
+		},
+		"deployed-drift": {"src-go/qa/deployeddrift/run.go", "src-go/qa/cmd/qa-deployed-drift/main.go", "scripts/qa-deployed-drift.bash"},
+	} {
+		for _, f := range files {
+			w := newWorld(t)
+			if f != "scripts/qa-trees.tsv" { // the world already holds the real table, which must stay valid
+				w.touch(f, "// x")
+			}
+			if p := w.classify([]string{f}); !p.has(check) || len(p.uncovered) != 0 {
+				t.Errorf("%s does not run %s: %v uncovered %v", f, check, keys(p), p.uncovered)
+			}
+		}
+	}
+	w := newWorld(t)
+	w.touch("src-go/qa/bash/run.go", "// x")
+	if p := w.classify([]string{"src-go/qa/bash/run.go"}); p.has("ansible-syntax-gate") || p.has("deployed-drift") {
+		t.Errorf("an unrelated port runs the wrong gate: %v", keys(p))
+	}
+}
+
 // Review F9: an edit to the container-watch watchdog or its two panel files runs the no-kill gate
 // before the commit, not only at the push; a deletion does too (the gate judges what remains).
 func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {

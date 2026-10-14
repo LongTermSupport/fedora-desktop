@@ -55,6 +55,12 @@ also	extensions/.eslintrc.json	js	covered
 # The shell gate runs whole when its tool, the shared discovery, its wrapper or the table of excluded trees change.
 also	src-go/qa/bash/*,src-go/qa/cmd/qa-bash/*,src-go/qa/discovery/*	bash	-
 also	scripts/qa-bash.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	bash	-
+# The ansible-syntax gate runs whole when its tool, the shared discovery that finds the playbooks,
+# its wrapper or the table of excluded trees change.
+also	src-go/qa/ansiblesyntax/*,src-go/qa/cmd/qa-ansible-syntax/*,src-go/qa/discovery/*	ansible-syntax-gate	-
+also	scripts/qa-ansible-syntax.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ansible-syntax-gate	-
+# The deployed-drift gate runs whole when its tool or its wrapper changes.
+also	src-go/qa/deployeddrift/*,src-go/qa/cmd/qa-deployed-drift/*,scripts/qa-deployed-drift.bash	deployed-drift	-
 # The suppression ratchet is judged whole by the shell gate when it changes.
 also	scripts/shellcheck-disable.allowlist	bash	covered
 # The discovery wrapper and the table reader it sources are run by the Go tests, over a real work tree.
