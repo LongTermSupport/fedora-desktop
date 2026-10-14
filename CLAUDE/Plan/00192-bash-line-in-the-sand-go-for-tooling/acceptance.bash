@@ -121,10 +121,19 @@ for tool in podfreeze lxcfreeze; do
         else
             args=(freeze --all -n)
         fi
-        if run_tool "${tool}" "${label}" "${args[@]}"; then
-            check "${tool} ${args[*]} exits 0" yes
+        # The bash tool's exit status is part of its answer (no containers: "nothing matched",
+        # exit 1), so the Go tool must give the same status, not necessarily 0. A baseline
+        # saved before statuses were recorded has no .rc file and is held to exit 0.
+        wantStatus=0
+        if [[ -f "${BASELINE_DIR}/before-${tool}-${label}.rc" ]]; then
+            read -r wantStatus <"${BASELINE_DIR}/before-${tool}-${label}.rc"
+        fi
+        gotStatus=0
+        run_tool "${tool}" "${label}" "${args[@]}" || gotStatus=$?
+        if [[ "${gotStatus}" -eq "${wantStatus}" ]]; then
+            check "${tool} ${args[*]} exits ${wantStatus}, as the bash tool did" yes
         else
-            check "${tool} ${args[*]} exits 0 (stderr: ${PLAN_RUN_DIR}/after-${tool}-${label}.err)" no
+            check "${tool} ${args[*]} exits ${wantStatus}, as the bash tool did (got ${gotStatus}; stderr: ${PLAN_RUN_DIR}/after-${tool}-${label}.err)" no
             continue
         fi
         after="${PLAN_RUN_DIR}/after-${tool}-${label}.txt"
