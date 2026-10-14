@@ -639,6 +639,17 @@ compares the pairs listed in the script's own `EXTRA_PAIRS` — currently the VM
 acceptance lab and the agent bus installer's files (Plans 00110, 00161). The script's header
 comment is the authority on the current set.
 
+**Deployed Go commands are compared by source digest** (Plan 00192). A Go binary is not
+byte-comparable with anything in the repo, so `tasks/build-go-command.yml` bakes the digest of each
+command's source (`helpers/agent_bus/installer_digest.py --command <name>`) into it, every
+command prints it for `--version`, and `helpers/go_drift/check.py` (run by this script, one
+statement) compares each installed command's answer with the checkout's digest for every row of
+`scripts/go-binary-installs.tsv` (command, installed path, play). A command is checked only when
+installed; one that predates the digest, or was built from older source, is drift and names the
+play to run. This is the check that sees the root installer, which a timer runs daily, going stale.
+A new deployed command takes a row in that table and in `scripts/go-binary-suites.tsv`; the tests
+in `tests/helpers/go_drift` fail while either is missing.
+
 **It self-skips in three situations, and says so with `⚠`, not `✓`:**
 
 | Skipped when                                  | Why it is not drift                                                                                                                                                               |

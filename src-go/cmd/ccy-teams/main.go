@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/srcdigest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -14,8 +15,20 @@ import (
 // -ldflags "-X main.RootDir=<checkout>": the declare helper and the plays are found there.
 var RootDir string
 
+// SourceDigest identifies the source this binary was built from, set at build time with the
+// -X main.SourceDigest=<hex> linker flag that tasks/build-go-command.yml adds; `--version`
+// prints it, and the deployed-drift check compares it with the checkout's.
+var SourceDigest string
+
 func main() {
-	os.Exit(int(run(os.Args[1:], os.Getenv, RootDir, os.Stderr)))
+	os.Exit(int(execute(os.Args[1:], os.Stdout, os.Stderr)))
+}
+
+// execute answers --version and otherwise runs the tool.
+func execute(args []string, stdout, stderr io.Writer) term.ExitCode {
+	return srcdigest.Run(args, SourceDigest, stdout, stderr, func(rest []string) term.ExitCode {
+		return run(rest, os.Getenv, RootDir, stderr)
+	})
 }
 
 // run refuses an empty root: without it every path is relative to the working directory, so a

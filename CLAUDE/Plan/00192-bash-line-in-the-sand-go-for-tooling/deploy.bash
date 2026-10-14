@@ -13,7 +13,8 @@
 #   from this checkout as the login user through the same shared task, with the installer's
 #   source digest baked in, installs a root-owned copy at /usr/local/sbin/agent-bus-install
 #   (0755) in place of the bash installer, then runs it: `software`, and `remove`/`team` for
-#   the teams localhost.yml declares. Root runs only that installed copy, never a checkout file.
+#   the teams localhost.yml declares. Root runs that installed copy, not a checkout script; the
+#   installer still runs the checkout's Python bundler and wrapper as root (ACCEPTANCE-agent-bus-install.md).
 #
 #   Before any play, while the bash freeze tools are still installed, it saves what they print
 #   for `list` and `freeze --all -n` under untracked/freeze-acceptance/before-*; the plays then

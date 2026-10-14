@@ -150,7 +150,7 @@ func TestDownloadUsesHTTPSOnlyAndWritesToTheGivenFile(t *testing.T) {
 	if err := n.Download(context.Background(), "https://example.com/a.zst", "/work/a.zst"); err != nil {
 		t.Fatal(err)
 	}
-	want := "curl --fail --silent --show-error --location --proto =https --tlsv1.2 --max-time 600 -o /work/a.zst https://example.com/a.zst"
+	want := "curl -q --fail --silent --show-error --location --proto =https --tlsv1.2 --max-time 600 -o /work/a.zst https://example.com/a.zst"
 	if got := lastLine(t, f); got != want {
 		t.Fatalf("ran %q", got)
 	}
@@ -169,7 +169,7 @@ func TestProbeReturnsTheMergedOutputWithTheFailure(t *testing.T) {
 	if err != nil || !strings.Contains(out, "Tuwunel") {
 		t.Fatalf("%q, %v", out, err)
 	}
-	want := "curl --fail --silent --show-error --noproxy * --max-time 2 http://127.0.0.1:8448/_tuwunel/server_version"
+	want := "curl -q --fail --silent --show-error --noproxy * --max-time 2 http://127.0.0.1:8448/_tuwunel/server_version"
 	if got := lastLine(t, f); got != want {
 		t.Fatalf("ran %q", got)
 	}

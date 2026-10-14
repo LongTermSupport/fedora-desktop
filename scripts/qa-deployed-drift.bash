@@ -84,8 +84,6 @@ fi
 # you cannot deploy a review branch just to run QA on it, and you should not.
 # Detected structurally: in a linked worktree, .git is a file and the common
 # git dir differs from this tree's git dir.
-git_dir=""
-git_common=""
 if git_dir=$(git -C "$REPO_ROOT" rev-parse --absolute-git-dir 2> /dev/null) \
     && git_common=$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2> /dev/null); then
     if [ "$git_dir" != "$git_common" ]; then
@@ -214,9 +212,8 @@ done
 # files/opt/claude-yolo/optional/agent-bus/) out of the checkout; a repo change to any
 # of them is not live until play-agent-bus.yml runs the installer again. The installer itself
 # is a Go binary the play builds (Plan 00192), so it is not a byte-comparable file and has
-# no pair here. Its drift is the source digest it carries: `agent-bus-install --version` is
-# compared with helpers/agent_bus/installer_digest.py by that plan's acceptance.bash, and
-# ccy-teams shows every team stamped by an older build as out of date.
+# no pair here. Every deployed Go command (the installer included) is checked below by its
+# source digest instead.
 #
 # Each entry is "repo glob | deployed directory | the play that deploys it". As
 # above, a file is compared only when its deployed copy exists.
@@ -265,6 +262,14 @@ for pair in "${EXTRA_PAIRS[@]}"; do
     done
 done
 
+# THE DEPLOYED GO COMMANDS. A Go binary is not byte-comparable with anything in the repo, so
+# each one reports the digest of the source it was built from (`--version`) and
+# helpers/go_drift compares that with the checkout's digest for every command in
+# scripts/go-binary-installs.tsv. The helper prints its own findings and summary; any
+# failure of it (drift, or a check that could not run, which it names on stderr) fails this
+# gate. This is the check that sees a root binary a timer runs daily going stale.
+PYTHONPATH="$REPO_ROOT" python3 -m helpers.go_drift.check --source "$REPO_ROOT" || DRIFTED=$((DRIFTED + 1))
+
 if [ "$DRIFTED" -gt 0 ]; then
     echo "  The repo and the host disagree. Deploy, test, THEN commit —" >&2
     echo "  see CLAUDE/InfrastructureAsCode.md (edit -> playbook -> deploy -> test)." >&2
@@ -301,4 +306,3 @@ echo "$summary"
 for t in "${TEMPLATES[@]+${TEMPLATES[@]}}"; do
     echo "    template (rendered, so not compared): $t"
 done
-exit 0

@@ -305,7 +305,7 @@ func TestRestoreEveryCommandItRunsPropagatesItsFailure(t *testing.T) {
 		seen[firstWords(line)] = true
 	}
 	for prefix := range seen {
-		if prefix == "curl --fail" {
+		if prefix == "curl -q --fail" {
 			continue
 		}
 		h := backedUp(t)

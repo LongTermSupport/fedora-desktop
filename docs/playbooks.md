@@ -745,7 +745,8 @@ nmcli connection down vpn-name
 - Builds `agent-bus-install` (a Go program, `src-go/cmd/agent-bus-install`) from the checkout
   as the login user, with the source digest `helpers/agent_bus/installer_digest.py` computes
   baked in, and installs a root-owned copy at `/usr/local/sbin/agent-bus-install` (0755)
-  through the shared `tasks/build-go-command.yml`; root runs only that installed copy
+  through the shared `tasks/build-go-command.yml`; root runs that installed copy, not a checkout script (it still builds
+  the zipapps with the checkout's Python and installs the checkout's admin wrapper, as before)
 - Runs `agent-bus-install software` on every run: the pinned Tuwunel
   homeserver, its system user and units, the `agent-bus` and `pingbus` commands, and the
   `agentbus0` bus address when `agent_bus_address` is set

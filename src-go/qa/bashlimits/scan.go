@@ -56,7 +56,7 @@ func readSuites(fsys fs.FS) (map[string]map[string]bool, error) {
 		return nil, fmt.Errorf("read %s: %w", suitesTable, err)
 	}
 	suites := map[string]map[string]bool{}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -65,7 +65,7 @@ func readSuites(fsys fs.FS) (map[string]map[string]bool, error) {
 			return nil, fmt.Errorf("%s: %q has no tab between the command and its suites", suitesTable, line)
 		}
 		suites[command] = map[string]bool{}
-		for _, suite := range strings.Fields(list) {
+		for suite := range strings.FieldsSeq(list) {
 			suites[command][suite] = true
 		}
 	}

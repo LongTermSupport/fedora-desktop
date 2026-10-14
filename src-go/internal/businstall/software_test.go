@@ -71,7 +71,7 @@ func TestSoftwareInstallsEverything(t *testing.T) {
 	for unit, want := range map[string]string{
 		"dnf install":         `^dnf install -y python3 firewalld NetworkManager zstd curl jq tcpdump util-linux$`,
 		"useradd":             `^useradd --system --user-group --no-create-home --home-dir /var/lib/agent-bus --shell /usr/sbin/nologin --comment Agent team bus homeserver agent-bus$`,
-		"one download":        `^curl --fail --silent --show-error --location --proto =https --tlsv1.2 --max-time 600 -o .*/v1.9.3-release-all-x86_64-v1-linux-gnu-tuwunel.zst https://github.com/matrix-construct/tuwunel/releases/download/v1.9.3/v1.9.3-release-all-x86_64-v1-linux-gnu-tuwunel.zst$`,
+		"one download":        `^curl -q --fail --silent --show-error --location --proto =https --tlsv1.2 --max-time 600 -o .*/v1.9.3-release-all-x86_64-v1-linux-gnu-tuwunel.zst https://github.com/matrix-construct/tuwunel/releases/download/v1.9.3/v1.9.3-release-all-x86_64-v1-linux-gnu-tuwunel.zst$`,
 		"zstd":                `^zstd -q -d -f -o .*/tuwunel -- .*/v1.9.3-release-all-x86_64-v1-linux-gnu-tuwunel.zst$`,
 		"reload":              `^systemctl daemon-reload$`,
 		"add":                 `^nmcli connection add type dummy ifname agentbus0 con-name agentbus0 connection.autoconnect yes ipv4.method manual ipv4.addresses 192.0.2.10/32 ipv6.method disabled ipv6.addresses $`,

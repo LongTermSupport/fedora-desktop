@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -29,5 +30,15 @@ func TestRunRefusesABinaryBuiltWithoutARootDir(t *testing.T) {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("the error does not name %q: %q", want, stderr.String())
 		}
+	}
+}
+
+func TestExecuteAnswersVersionWithTheSourceDigest(t *testing.T) {
+	old := SourceDigest
+	SourceDigest = "feedbeef"
+	t.Cleanup(func() { SourceDigest = old })
+	var out bytes.Buffer
+	if code := execute([]string{"--version"}, &out, io.Discard); code != term.ExitOK || out.String() != "feedbeef\n" {
+		t.Fatalf("exit %d, stdout %q", code, out.String())
 	}
 }

@@ -89,7 +89,7 @@ func (n *Net) State(ctx context.Context, name string) (string, error) {
 // Download fetches an https URL into the file out, following redirects, within ten minutes.
 func (n *Net) Download(ctx context.Context, url, out string) error {
 	_, err := n.Runner.Run(ctx, execx.Cmd{Name: "curl", Args: []string{
-		"--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--tlsv1.2",
+		"-q", "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--tlsv1.2",
 		"--max-time", "600", "-o", out, url,
 	}})
 	if err != nil {
@@ -102,7 +102,7 @@ func (n *Net) Download(ctx context.Context, url, out string) error {
 // streams comes back with the error, as it explains a failed poll.
 func (n *Net) Probe(ctx context.Context, url string) (string, error) {
 	out, err := execx.Combined(ctx, n.Runner, execx.Cmd{Name: "curl", Args: []string{
-		"--fail", "--silent", "--show-error", "--noproxy", "*", "--max-time", "2", url,
+		"-q", "--fail", "--silent", "--show-error", "--noproxy", "*", "--max-time", "2", url,
 	}})
 	if err != nil {
 		return out, fmt.Errorf("curl %s: %w", url, err)

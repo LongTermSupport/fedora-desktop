@@ -198,7 +198,9 @@ for a in "$@"; do
         --get-zone-of-interface=*)
             iface=${a#*=}
             if [[ -e $STUB_DIR/zone-of/$iface ]]; then cat "$STUB_DIR/zone-of/$iface"; exit 0; fi
-            echo "no zone"; exit 2 ;;
+            echo "no zone"
+            if [[ -e $STUB_DIR/zone-none-status0 ]]; then exit 0; fi
+            exit 2 ;;
         --query-rich-rule=*) op=query; rule=${a#*=} ;;
         --add-rich-rule=*) op=add; rule=${a#*=}
             if [[ -e $STUB_DIR/fw-fail-add ]] && [[ $rule == *"$(cat "$STUB_DIR/fw-fail-add")"* ]]; then
@@ -224,7 +226,9 @@ case "$*" in
     "-t -f NAME connection show")
         if [[ -e $nm/addresses ]]; then echo agentbus0; fi
         echo "Wired connection 1" ;;
-    "-g ipv4.addresses,ipv6.addresses connection show agentbus0") cat "$nm/addresses" ;;
+    "-g ipv4.addresses,ipv6.addresses connection show agentbus0")
+        # Terse mode (-g) escapes every colon in a value, as the real nmcli does.
+        while IFS= read -r line; do printf '%s\n' "${line//:/\\:}"; done <"$nm/addresses" ;;
     "-g GENERAL.STATE connection show agentbus0") if [[ -e $nm/up ]]; then echo activated; fi ;;
     "connection up agentbus0") touch "$nm/up"; echo "Connection successfully activated" ;;
     connection\ add* | connection\ modify*)
@@ -927,6 +931,27 @@ run software --source "$SOURCE"
 check "B3: a curl that exits 78 fails the run with 1, not 78" "1" "$RC"
 check "  and the message names curl" "yes" "$(says 'curl' "$ERR")"
 rm -f "$STUB_DIR/curl-exit"
+
+echo "== Go port: B13 (an IPv6 bus address compares equal to nmcli's terse output)"
+new_root gob13
+run software --source "$SOURCE" --bus-address=2001:db8::10
+check "B13: software with an IPv6 bus address succeeds" "0" "$RC"
+check "  the connection is added with the /128" "yes" \
+    "$(says '^nmcli connection add type dummy ifname agentbus0 con-name agentbus0 .*ipv6.addresses 2001:db8::10/128' "$(LOG)")"
+run software --source "$SOURCE" --bus-address=2001:db8::10
+check "B13: a second run leaves the IPv6 interface alone" "0" "$(count '^nmcli connection (add|modify|up)' "$(LOG)")"
+check "  and prints no CHANGED" "" "$(cat "$OUT")"
+
+echo "== Go port: B12 (the text 'no zone' is authoritative, whatever the exit status)"
+new_root gob12
+touch "$STUB_DIR/zone-none-status0"
+run software --source "$SOURCE"
+team_file alpha '["192.0.2.10"]' '["198.51.100.0/24"]' >"$TF"
+run team --team-file "$TF"
+check "B12: a zoneless interface answered with status 0 still installs the team" "0" "$RC"
+check "  the rule goes to the default zone, not to a zone called 'no zone'" "1" "$(count '198.51.100.0/24' "$STUB_DIR/fw/permanent.public")"
+check "  no rule was added to a zone named no zone" "0" "$(count '^firewall-cmd .*--zone=no' "$(LOG)")"
+rm -f "$STUB_DIR/zone-none-status0"
 
 echo "== Go port: forms the bash suite never drove"
 new_root gof

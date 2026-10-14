@@ -21,7 +21,7 @@ func TestWaitReadyReturnsAtOnceWhenTheHomeserverAnswers(t *testing.T) {
 	if h.sleeps != 0 || h.sim.lines(`^curl `) != 1 {
 		t.Fatalf("sleeps %d, curls %d", h.sleeps, h.sim.lines(`^curl `))
 	}
-	if h.sim.lines(`^curl --fail --silent --show-error --noproxy \* --max-time 2 http://127.0.0.1:8448/_tuwunel/server_version$`) != 1 {
+	if h.sim.lines(`^curl -q --fail --silent --show-error --noproxy \* --max-time 2 http://127.0.0.1:8448/_tuwunel/server_version$`) != 1 {
 		t.Fatalf("log %v", h.sim.log)
 	}
 }

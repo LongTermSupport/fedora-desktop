@@ -2,7 +2,7 @@
 
 `agent-bus-install` became a Go binary (`src-go/cmd/agent-bus-install`). It runs as root, builds a
 homeserver host, and its decisions only show on a real one, so this is the check the suite
-(`scripts/test-agent-bus-install.bash`, 302 cases under stubs) cannot give. The mechanical part
+(`scripts/test-agent-bus-install.bash`, 309 cases under stubs) cannot give. The mechanical part
 runs through `meta-deploy.bash`; the rest is yours.
 
 Nothing here is run by hand to change the host. The play is the only install route
@@ -13,7 +13,12 @@ Nothing here is run by hand to change the host. The play is the only install rou
 - `play-agent-bus.yml` now builds the installer from this checkout as the login user (the shared
   `tasks/build-go-command.yml`, with the source digest baked in) and installs a root-owned copy at
   `/usr/local/sbin/agent-bus-install`, mode 0755, over the bash script that was there. Every later
-  step of the play runs that installed copy. The path, the mode, the units'
+  step of the play runs that installed copy. What this narrows: root no longer runs the installer
+  as a script from the checkout. What it does not: the installer still runs the checkout's Python
+  as root (the zipapp bundler, with the checkout as its working directory) and installs the
+  checkout's admin wrapper, which root runs later, and the binary is copied from the build
+  directory in the user's cache. Whoever can write the checkout can still get code run as root by a
+  play run; that is the existing boundary of every play in the repository, not new here. The path, the mode, the units'
   `ExecStart=/usr/local/sbin/agent-bus-install backup-now --team %i` and the
   `sudo -n /usr/local/sbin/agent-bus-install ...` argv of ccy-teams are the same as before.
 - A team stamped by the bash installer is "out of date" in `ccy-teams` after this change, once:
@@ -57,22 +62,27 @@ and `team` steps report ok, not changed (the build is reproducible, the install 
 checksums, the installer changes nothing that is already right). Any `CHANGED` line the installer
 prints on a converged host is a finding; keep the output.
 
-## 3. The two probes the spec left to measure (B12, B13)
+## 3. B12 and B13: the port fixed both; the probes confirm it on a real host
 
-The port kept the bash installer's current behaviour for both and recorded the question. Read
-`agent-bus-install-probes.txt`.
+The spec left two bash behaviours to be measured (B12, B13). The port did not keep them: it fixed
+both, and the suite pins each under stubs (`scripts/test-agent-bus-install.bash`, "Go port: B13"
+and "Go port: B12"). What a real host can still show is whether the real tools say what the stubs
+say. Read `agent-bus-install-probes.txt`.
 
-- **B13, IPv6 on `agentbus0`.** The first section is `nmcli -g ipv4.addresses,ipv6.addresses connection show agentbus0`. If the host's `agent_bus_address` is an IPv4 address, the line is the
-  address with its prefix and nothing more to settle. If it is IPv6, `-g` (terse) output escapes
-  every `:` as `\:`, so the installer's comparison with the plain address text would never match and
-  every run would modify and bring the connection up again, printing `CHANGED`: the second run in
-  step 2 would show it. Report either way; if it does show, the comparison needs normalising and
-  that is a follow-up fix, not a blocker for IPv4 hosts.
-- **B12, an interface with no firewalld zone.** The second section lists each interface as
-  `name<TAB>exit status<TAB>text`. The installer reads "no zone" from the text. An interface with
-  no zone should show a non-zero status and the text `no zone`; if some interface shows status 0
-  with that text, the installer's exit-status test and its text test disagree on this Fedora and
-  the port must treat the text as authoritative. Report the line.
+- **B13, IPv6 on `agentbus0`.** `nmcli -g` (terse) escapes every `:` in a value as `\:`, and several
+  addresses come comma-separated. The installer normalises: `netprobe.AddressesMatch` unescapes
+  `\:`, splits on `,` and `|`, drops `--` and compares parsed prefixes, so an IPv6 bus address
+  equals what nmcli prints. The first section of the probes file is the raw terse output. If the
+  host's `agent_bus_address` is IPv6, the second run in step 2 must print no `CHANGED` for
+  `agentbus0`; a `CHANGED` there is a finding (the real nmcli prints something the parser does not
+  expect: keep the first section). For an IPv4 host there is nothing to settle.
+- **B12, an interface with no firewalld zone.** The text `no zone` is authoritative:
+  `netprobe.ParseZone` treats it as "no zone" whatever the exit status, and the rule then goes to
+  the default zone. The second section lists each interface as `name<TAB>exit status<TAB>text`. An
+  interface with no zone is expected to show a non-zero status and the text `no zone`; a line with
+  status 0 and that text is handled the same way. A line that shows neither a zone name nor
+  `no zone` (a different message) makes the installer fail with that text, which is the intent.
+  Report any such line.
 
 ## 4. A team, if the host has one declared
 

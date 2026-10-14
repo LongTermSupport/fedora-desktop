@@ -7,8 +7,11 @@
 # nothing here may re-implement a step of it. agent-bus-install is a Go binary (Plan 00192,
 # src-go/cmd/agent-bus-install). The play first builds it from this checkout as the login
 # user through the shared tasks/build-go-command.yml and installs a root-owned copy at
-# /usr/local/sbin/agent-bus-install (0755): root never executes a file the user can write,
-# and every step below runs that installed copy. The build bakes in the source digest that
+# /usr/local/sbin/agent-bus-install (0755), and every step below runs that installed copy
+# rather than a script from the checkout. That is all the install narrows: the installer still
+# runs checkout Python as root (the zipapp bundler, with the checkout as its working directory)
+# and installs and later runs the admin wrapper copied from the checkout, so a file the user can
+# write is still executed by root through this play. The build bakes in the source digest that
 # helpers/agent_bus/installer_digest.py computes; `team` stamps it and declare.py recomputes
 # it, so ccy-teams shows a team as out of date until this play has rebuilt the installer.
 # Then the play:
@@ -97,24 +100,8 @@
         quiet: true
       tags: [agent-bus]
 
-    # The digest is computed from this checkout's Go sources by the helper declare.py also
-    # uses, so the value the binary stamps is the value declare compares it with. It only
-    # reads files, so it runs under --check as well.
-    - name: Compute the installer source digest
-      ansible.builtin.command:
-        argv:
-          - python3
-          - -m
-          - helpers.agent_bus.installer_digest
-          - --source
-          - "{{ root_dir }}"
-        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
-      register: agent_bus_installer_digest
-      changed_when: false
-      check_mode: false
-      become: false
-      tags: [agent-bus]
-
+    # The shared build bakes in the source digest that declare.py also computes, so the value
+    # the binary stamps is the value declare compares it with.
     - name: Build and install the agent-bus-install command
       ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
       vars:
@@ -123,7 +110,6 @@
         go_command_mode: "0755"
         go_command_owner: root
         go_command_become: true
-        go_command_ldflags: "-X main.SourceDigest={{ agent_bus_installer_digest.stdout | trim }}"
       tags: [agent-bus]
 
     - name: Install the agent-bus homeserver software

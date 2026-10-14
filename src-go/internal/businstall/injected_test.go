@@ -15,7 +15,10 @@ type sweepCase struct {
 	args  func(h *harness, file string) []string
 }
 
-func installedAlpha(h *harness) string { return h.installTeam(nil) }
+// sweepAllow gives the team a firewall rule, so firewall-cmd is among the calls swept.
+var sweepAllow = []string{"198.51.100.0/24"}
+
+func installedAlpha(h *harness) string { return h.installTeam(sweepAllow) }
 
 func backedUpAlpha(h *harness) string {
 	file := h.installTeam(nil)
@@ -29,7 +32,7 @@ var sweepCases = []sweepCase{
 	{"software", func(*harness) string { return "" }, func(h *harness, _ string) []string {
 		return []string{"software", "--source", h.source, "--bus-address", "192.0.2.10"}
 	}},
-	{"team (first)", func(h *harness) string { h.software(); return h.teamFile("alpha", []string{"192.0.2.10"}, nil) }, func(_ *harness, file string) []string { return []string{"team", "--team-file", file} }},
+	{"team (first)", func(h *harness) string { h.software(); return h.teamFile("alpha", []string{"192.0.2.10"}, sweepAllow) }, func(_ *harness, file string) []string { return []string{"team", "--team-file", file} }},
 	{"team (again)", installedAlpha, func(_ *harness, file string) []string { return []string{"team", "--team-file", file} }},
 	{"check", installedAlpha, func(*harness, string) []string { return []string{"check", "--team", "alpha"} }},
 	{"backup-now", installedAlpha, func(*harness, string) []string { return []string{"backup-now", "--team", "alpha"} }},
@@ -61,8 +64,14 @@ func callsOf(t *testing.T, c sweepCase) []string {
 }
 
 // resultProbes are the calls whose failure is an answer, not an error: a package that is not
-// installed is installed, a unit that is not enabled is enabled.
-var resultProbes = regexp.MustCompile(`^(rpm -q --quiet |systemctl is-enabled --quiet )`)
+// installed is installed, a unit that is not enabled is enabled, a rich rule that is not there
+// is added (firewalld.Query).
+var resultProbes = regexp.MustCompile(`^(rpm -q --quiet |systemctl is-enabled --quiet |` + ruleQueryText + `)`)
+
+// ruleQuery is a rich-rule query, which `check` turns into a FAIL fact instead of a result.
+var ruleQuery = regexp.MustCompile(`^` + ruleQueryText)
+
+const ruleQueryText = `firewall-cmd .*--query-rich-rule=`
 
 func TestEveryExternalCallThatFailsFailsTheCommandThatMadeIt(t *testing.T) {
 	for _, c := range sweepCases {
@@ -74,6 +83,11 @@ func TestEveryExternalCallThatFailsFailsTheCommandThatMadeIt(t *testing.T) {
 				h.sim.fails = append(h.sim.fails, failRule{prefix: rule, code: 1})
 				code := h.run(c.args(h, file)...)
 				switch {
+				case c.name == "check" && ruleQuery.MatchString(call):
+					// check reports a rule that is not there as a FAIL fact, and fails on it.
+					if code != term.ExitFailure || !strings.Contains(h.stdout(), "FAIL") {
+						t.Fatalf("a rule query that fails is a FAIL fact, but exit %d, stdout %q", code, h.stdout())
+					}
 				case resultProbes.MatchString(call):
 					if code != term.ExitOK {
 						t.Fatalf("a failing probe is a result, but exit %d:\n%s", code, h.stderr())

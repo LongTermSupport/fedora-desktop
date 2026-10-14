@@ -94,11 +94,15 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   inside a container is still a finding).
 - A call of a **program runner** is judged as the `Cmd` it would build. `programRunners` lists the
   entry points that take a program and its arguments with no `Cmd` at the call site:
-  `sudo.Sudo.Capture`, `AsRoot` and `Run`, and lxcfreeze's `runAct` and `probe`. The argument at
+  `sudo.Sudo.Capture`, `AsRoot` and `Run`, lxcfreeze's `runAct` and `probe`, and
+  `systemd.Systemd.RunTransient` (the program is its own parameter, so each caller's literal is judged). The argument at
   the table's index is the program, judged by `checkProgram`'s walk (constant, owner table,
   wrappers, shell `-c`). A spread slice (`Capture(ctx, argv...)`) must show a literal head or the
   enclosing function needs a `dynamicNames` row (`runAct`, `probe` and agentbus's `rootRun` and
-  `rootShow` have one, with the reason). The callee is resolved through `types.Info`, so an alias
+  `rootShow` have one, with the reason). A runner's own body is excused a wrapper whose program is its
+  parameter (`RunTransient` builds `systemd-run ... -- program`); a `dynamicNames` row excuses
+  only a non-constant `Name`, never a wrapper whose program is hidden, so the same shape in any
+  other function is reported. The callee is resolved through `types.Info`, so an alias
   does not hide it; a runner method taken as a value (`f := s.Capture`, `(*Sudo).Capture`) is
   flagged where it is taken, because the later `f(ctx, "lxc-ls")` names its program where no
   rule can see it.

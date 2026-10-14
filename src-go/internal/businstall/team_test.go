@@ -341,8 +341,27 @@ func TestTeamARefusedPortHeldByAnotherTeam(t *testing.T) {
 	h.installTeam(nil)
 	other := h.teamFile("gamma", []string{"192.0.2.10"}, nil)
 	code := h.run("team", "--team-file", other)
-	if code != term.ExitConfig || !strings.Contains(h.stderr(), "port 8448 is team alpha's") {
+	if code != term.ExitConfig || !strings.Contains(h.stderr(), `port 8448 is held by team "alpha"`) {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr())
+	}
+}
+
+// Another team's file is written by the agent-bus user; its team name reaches stderr quoted,
+// so it cannot add a line or a terminal escape of its own.
+func TestTeamAHostileNameInAnotherTeamsFileIsQuotedOnStderr(t *testing.T) {
+	h := newHarness(t)
+	h.software()
+	h.mkdir("var/lib/agent-bus/evil")
+	h.write(h.rel("var/lib/agent-bus/evil/team.json"), "{\"team\": \"x\\nFAIL \\u001b[31mred\", \"port\": 8448}", 0o640)
+	code := h.run("team", "--team-file", h.teamFile("gamma", []string{"192.0.2.10"}, nil))
+	if code != term.ExitConfig {
+		t.Fatalf("exit %d, stderr %q", code, h.stderr())
+	}
+	if strings.ContainsAny(h.stderr(), "\x1b") || strings.Contains(h.stderr(), "\nFAIL") {
+		t.Fatalf("the other team's name reached stderr raw: %q", h.stderr())
+	}
+	if !strings.Contains(h.stderr(), `held by team "x\nFAIL`) {
+		t.Fatalf("stderr %q", h.stderr())
 	}
 }
 
@@ -560,7 +579,7 @@ func TestTeamEveryCommandItRunsPropagatesItsFailure(t *testing.T) {
 	}
 	for prefix := range seen {
 		switch prefix {
-		case "systemctl is-enabled", "firewall-cmd --permanent", "firewall-cmd --zone=trusted", "curl --fail":
+		case "systemctl is-enabled", "firewall-cmd --permanent", "firewall-cmd --zone=trusted", "curl -q --fail":
 			continue // a refusal is an answer for these
 		}
 		h := newHarness(t)

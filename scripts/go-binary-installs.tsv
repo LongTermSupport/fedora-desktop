@@ -1,0 +1,14 @@
+# Where each deployed Go command is installed, and the play that builds it (read by
+# helpers/go_drift/check.py, which scripts/qa-deployed-drift.bash runs on the host).
+#
+# command <TAB> installed path <TAB> play
+#   installed path  `~/` is the login user's home
+# The build (tasks/build-go-command.yml) bakes each command's source digest in; the check runs
+# the installed command's --version and compares it with the checkout's digest. A new deployed
+# command takes a row here and in scripts/go-binary-suites.tsv (tests/helpers/go_drift fails
+# while either is missing).
+ccy-teams	~/.local/bin/ccy-teams	playbooks/imports/play-claude-yolo.yml
+ccy-sessions	~/.local/bin/ccy-sessions	playbooks/imports/play-claude-yolo.yml
+agent-bus-install	/usr/local/sbin/agent-bus-install	playbooks/imports/play-agent-bus.yml
+podfreeze	~/.local/bin/podfreeze	playbooks/imports/optional/common/play-podfreeze.yml
+lxcfreeze	~/.local/bin/lxcfreeze	playbooks/imports/optional/common/play-lxcfreeze.yml

@@ -173,7 +173,7 @@ func TestBackupNowEveryCommandItRunsPropagatesItsFailure(t *testing.T) {
 		seen[firstWords(line)] = true
 	}
 	for prefix := range seen {
-		if prefix == "curl --fail" {
+		if prefix == "curl -q --fail" {
 			continue // a failed poll is retried while the unit is active
 		}
 		h := newHarness(t)

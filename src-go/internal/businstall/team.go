@@ -199,7 +199,7 @@ func otherTeamsLeavePort(state *fsx.FS, team string, port int) error {
 			return decodeErr
 		}
 		if other.Team != team && other.Port == port {
-			return fail(term.ExitConfig, "port %d is team %s's", port, other.Team)
+			return fail(term.ExitConfig, "port %d is held by team %q", port, other.Team)
 		}
 	}
 	return nil

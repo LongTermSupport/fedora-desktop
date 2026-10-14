@@ -109,6 +109,26 @@ var A = b.B
         with self.assertRaisesRegex(installer_digest.DigestError, "go.mod"):
             self.digest()
 
+    def test_another_command_of_the_module_has_its_own_closure_and_digest(self) -> None:
+        write(self.root, "cmd/other/main.go", f'package main\n\nimport _ "{MODULE}/internal/unused"\n')
+        self.assertEqual(installer_digest.closure(self.root, command="other"),
+                         ["cmd/other", "internal/unused"])
+        self.assertNotEqual(installer_digest.source_digest(self.root, command="other"), self.digest())
+        write(self.root, "internal/unused/u.go", "package unused\n\nvar X = 1\n")
+        before = self.digest()
+        self.assertEqual(installer_digest.source_digest(self.root), before)
+
+    def test_a_command_that_is_not_there_is_an_error_naming_it(self) -> None:
+        with self.assertRaisesRegex(installer_digest.DigestError, "cmd/nope"):
+            installer_digest.source_digest(self.root, command="nope")
+
+    def test_the_command_line_takes_the_command(self) -> None:
+        write(self.root, "cmd/other/main.go", "package main\n")
+        out, err = io.StringIO(), io.StringIO()
+        code = installer_digest.main(["--source", str(self.root), "--command", "other"], stdout=out, stderr=err)
+        self.assertEqual((code, out.getvalue(), err.getvalue()),
+                         (0, installer_digest.source_digest(self.root, command="other") + "\n", ""))
+
     def test_the_command_line_prints_the_digest_alone(self) -> None:
         out, err = io.StringIO(), io.StringIO()
         code = installer_digest.main(["--source", str(self.root)], stdout=out, stderr=err)

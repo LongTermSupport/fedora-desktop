@@ -24,7 +24,7 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
-  `sessprobe`, `fsx` (file writes: the plain atomic `WriteAtomic`, and the installer's `os.Root` writer), `ccyenv` (is CCY installed, is this a container).
+  `sessprobe`, `srcdigest` (`--version` prints the source digest the build baked in), `fsx` (file writes: the plain atomic `WriteAtomic`, and the installer's `os.Root` writer), `ccyenv` (is CCY installed, is this a container).
   Reuse these; a second way to run a command or prompt the user is a defect.
 - The installer `agent-bus-install` (`cmd/agent-bus-install`, flows in `internal/businstall`)
   runs host programs only through their owners: `hostnet` (the network tools and curl),
@@ -66,7 +66,12 @@ The bash suites that tested the bash tools now drive the Go binaries and remain 
 behaviour oracle: `scripts/test-ccy-teams-command.bash`, the four
 `scripts/test-ccy-sessions-*.bash` / `test-ccy-tmux-targets.bash` suites, and
 `scripts/test-agent-bus-install.bash` (it builds the Go binary with and without the test tag;
-the cases under "Go port" pin the deliberate changes over the bash installer it replaced). Some Go tests run
+the cases under "Go port" pin the deliberate changes over the bash installer it replaced). Two
+simulators of the same host therefore exist: the suite's stubs are the oracle for what the real
+units, files and tools are (it installs the repository's own units and kit), and the Go harness
+(`internal/businstall/harness_test.go`) is the oracle for flow logic and failure sweeps, with a
+small hand-written homeserver unit shaped to exercise the restore sandbox; a change to either
+simulated tool is made in both. Some Go tests run
 the real bash libraries and Python helpers and compare results, so a change to those files
 reruns the Go gate. A behaviour change that a suite pins is changed in the suite in the same
 commit, with the reason.
@@ -86,13 +91,17 @@ already listed. Behaviour the golden pins is changed in the same commit as its d
 `tasks/build-go-command.yml` builds a command on the host from the checkout
 (`go build -trimpath -buildvcs=false`, as the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
-optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
+optional ldflags, and always bakes in the command's source digest (`-X main.SourceDigest=`,
+`helpers/agent_bus/installer_digest.py --command <name>`). Every command's `main` carries
+`var SourceDigest string` and answers `--version` through `internal/srcdigest`;
+`qa-deployed-drift.bash` compares the installed answer with the checkout's digest
+(`scripts/go-binary-installs.tsv`, `helpers/go_drift`). `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
 (`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain). Each binary
 lands at its old path. `play-agent-bus.yml` imports it for `agent-bus-install` too, with
 `go_command_owner: root` and `go_command_become: true` so only the install is elevated and the
-build stays the login user's; its ldflags carry the source digest. A new deployed command takes a row in `scripts/go-binary-suites.tsv`. Never
+build stays the login user's. A new deployed command takes a row in `scripts/go-binary-suites.tsv` and one in `scripts/go-binary-installs.tsv`. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 

@@ -41,7 +41,7 @@ cut-over. Nothing pushed, nothing merged into F44, no Ansible run (syntax-check 
    `go_command_become` (the build stays the login user's; only the `copy` is elevated).
    `play-agent-bus.yml` imports `play-golang.yml`, computes the digest (`check_mode: false`, read
    only), builds and installs the root-owned 0755 copy at `/usr/local/sbin/agent-bus-install`, and
-   `agent_bus_installer` is that path: root runs no checkout file. The sudo argv of ccy-teams and
+   `agent_bus_installer` is that path: root runs the installed installer, not a checkout script (corrected after review: it still runs the checkout's Python bundler and wrapper). The sudo argv of ccy-teams and
    the units are unchanged.
 3. **Python tests and drift.** `test_member_docs.py` read the bash source three ways: the
    synopsis now comes from `src-go/internal/businstall/usage.txt` (Go tests pin that `--help`
@@ -82,13 +82,14 @@ clean with `-x`); `test-qa-changed.bash` PASS; the agent_bus helper tests (399);
 
 ## For the owner and the reviewer
 
-- **Behaviour the host settles:** B12 (a zoneless interface) and B13 (IPv6 terse `nmcli`) are
-  kept as they were and measured by the probes; the note says what each outcome means.
+- **B12 and B13 (corrected after review):** both are fixed in the port, not kept (`ParseZone` treats
+  the text `no zone` as authoritative; `AddressesMatch` normalises terse `nmcli` output), and pinned by
+  suite cases; the host probes confirm the real tools.
 - **A one-time visible effect:** teams stamped by the bash installer show out of date in
   ccy-teams until the play restamps them (the digest's meaning changed).
 - **First run on a host that has the bash installer:** the `copy` replaces the script with the
-  binary; the play then runs the installed copy. Nothing runs a checkout file as root any more.
-- **`tarstate.Write` opens the team directory by path** (a minor TOCTOU), still open.
+  binary; the play then runs the installed copy. Corrected after review: root no longer runs the installer as a checkout script, but the bundler (checkout Python) and the admin wrapper (copied from the checkout) still run as root.
+- **`tarstate.Write` opened the team directory by path** (a minor TOCTOU): fixed after review, it takes the `os.Root` the run already holds.
 - **Review points:** the `dynamicNames` excuse for a wrapper (a fixture proves the unexcused
   twin is still flagged); the gate's ported-by-name rule; `cmd/agent-bus-install` coverage is
   46% (the `main` and the syscall wiring); the sweeps characterise present behaviour, so a

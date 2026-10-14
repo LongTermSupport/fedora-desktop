@@ -193,7 +193,9 @@ declares it with the team), and installs or removes each team in `agent_bus_team
 installer is a Go program in this repository (`src-go/cmd/agent-bus-install`), so the
 project's own IaC clones this repository at a pinned commit, builds the installer from the
 clone with the Go toolchain as an ordinary user, installs the result as a root-owned file
-and runs that file as root, never a file the user can write:
+and runs that installed file as root (the installer itself is not a file the user can write;
+the Python it builds zipapps from and the admin wrapper it installs still come from the clone,
+so the clone is code root runs: pin a commit you trust):
 
 ```bash
 cd <clone>/src-go
