@@ -37,6 +37,9 @@ func newRunWorld(t *testing.T) *runWorld {
 	writeFile(t, w.scripts, "test-two.bash", "#!/usr/bin/bash\nkept.bash\n")
 	writeFile(t, w.scripts, "go-binary-suites.tsv", "frz\tqa-go\n")
 	writeFile(t, w.scripts, "bash-limits.allowlist", "# none\n")
+	for _, suite := range []string{"test-one.bash", "test-two.bash"} {
+		w.runner.replies["bash "+filepath.Join(w.scripts, suite)] = proc.Result{Stdout: "passed: 1 failed: 0\n"}
+	}
 	return w
 }
 
@@ -73,6 +76,7 @@ func TestAllChecksPassPrintsTheContractLines(t *testing.T) {
 	w := newRunWorld(t)
 	w.changeKept()
 	w.runner.replies["bash "+filepath.Join(w.scripts, "test-one.bash")] = proc.Result{Stdout: "case\npassed: 12 failed: 0\n"}
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-two.bash")] = proc.Result{Stdout: "passed: 3 failed: 0\n"}
 	if code := w.main(); code != ExitOK {
 		t.Fatalf("exit %d, stderr %q", code, w.errOut.String())
 	}
@@ -91,7 +95,7 @@ func TestAllChecksPassPrintsTheContractLines(t *testing.T) {
 		"✓ semgrep: 1 file(s)",
 		"✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)",
 		"✓ suite test-one.bash: passed: 12 (names kept.bash)",
-		"✓ suite test-two.bash: passed (names kept.bash)",
+		"✓ suite test-two.bash: passed: 3 (names kept.bash)",
 		"✓ qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.",
 	}
 	if got := lines(w.out.String()); !reflect.DeepEqual(got, want) {
@@ -106,6 +110,7 @@ func TestChecksRunInOrderAndEveryOneRunsAfterAFailure(t *testing.T) {
 	w := newRunWorld(t)
 	w.changeKept()
 	w.runner.replies["shellcheck"] = proc.Result{Stdout: "SC2086 bad\n", Code: 1}
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-one.bash")] = proc.Result{Stdout: "passed: 5\n"}
 	w.runner.replies["bash "+filepath.Join(w.scripts, "test-two.bash")] = proc.Result{Stdout: "boom\n", Stderr: "", Code: 1}
 	if code := w.main(); code != ExitFailed {
 		t.Fatalf("exit %d", code)
@@ -115,7 +120,7 @@ func TestChecksRunInOrderAndEveryOneRunsAfterAFailure(t *testing.T) {
 		"✗ shellcheck: 1 file(s)\n",
 		"✓ semgrep: 1 file(s)\n",
 		"✓ bash-limits:",
-		"✓ suite test-one.bash: passed (names kept.bash)\n",
+		"✓ suite test-one.bash: passed: 5 (names kept.bash)\n",
 		"✗ suite test-two.bash: (names kept.bash)\n",
 		"✗ qa-changed FAILED: shellcheck suite test-two.bash\n",
 	} {
@@ -177,6 +182,31 @@ func TestAGateThatCannotRunIsNotAnOrdinaryFailure(t *testing.T) {
 	}
 	if !strings.Contains(w.out.String(), "✗ qa-changed FAILED: shellcheck bash-limits\n") {
 		t.Fatalf("both are listed:\n%s", w.out.String())
+	}
+}
+
+// A suite whose harness died before its summary can still exit 0; with no case count it has
+// proved nothing, so it is "could not run", never a pass (SPEC-qa-changed.md B29).
+func TestASuiteThatExitsZeroWithoutACaseCountCouldNotRun(t *testing.T) {
+	w := newRunWorld(t)
+	w.changeKept()
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-one.bash")] = proc.Result{Stdout: "set up, then nothing\n"}
+	w.runner.replies["bash "+filepath.Join(w.scripts, "test-two.bash")] = proc.Result{Stdout: "passed: 3 failed: 0\n"}
+	if code := w.main(); code != ExitCannotRun {
+		t.Fatalf("exit %d, want %d", code, ExitCannotRun)
+	}
+	out := w.out.String()
+	for _, want := range []string{
+		"✗ suite test-one.bash: (names kept.bash) — could not run (exit 2)\n",
+		"✓ suite test-two.bash: passed: 3 (names kept.bash)\n",
+		"✗ qa-changed FAILED: suite test-one.bash\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(w.errOut.String(), "printed no 'passed: <n>' line") || !strings.Contains(w.errOut.String(), "set up, then nothing") {
+		t.Fatalf("stderr must say why and keep the output: %q", w.errOut.String())
 	}
 }
 

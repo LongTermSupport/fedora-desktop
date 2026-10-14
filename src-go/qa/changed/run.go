@@ -321,7 +321,13 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		}
 		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
 		if o == passed {
-			reasons = gateCaseCount(res.output) + " " + reasons
+			count, counted := gateCaseCount(res.output)
+			if counted {
+				reasons = count + " " + reasons
+			} else {
+				o = cannotRun
+				res.output = "the suite exited 0 but printed no 'passed: <n>' line, so it proved nothing\n" + res.output
+			}
 		}
 		s.report(name, reasons, res, o)
 		record(name, o)
