@@ -37,13 +37,17 @@ through `qa/internal/proc`.
 ### Preconditions
 
 - G4. semgrep not runnable (`semgrep --version` fails to start or exits non-zero) is exit 2,
-  `ERROR: semgrep not found. Install with: pipx install semgrep`, before anything else runs.
+  `ERROR: semgrep not found. Install with: pipx install semgrep (<cause>)`, before anything else
+  runs; the cause is the start error or the exit code and stderr of `--version`.
 - G5. The rule file `.semgrep/gh-scopes.yml` and the fixture `.semgrep/gh-scopes.fixture` must be
   regular files; either missing is exit 2 naming it.
 - G6. The rule is proven on every run: `semgrep --test --config <rule> <fixture> --metrics=off`. A
   non-zero result is exit 1, `ERROR: gh-scope-outside-ssot failed its fixture (.semgrep/gh-scopes.fixture):`
   and semgrep's own output, on stderr, and no scan happens. A rule edited into matching nothing fails
-  here and never reports a clean repository. A self-test that cannot start or times out is exit 2.
+  here and never reports a clean repository. `semgrep --test` exits 0 on a fixture with no
+  annotations, so the fixture must also carry at least one `ruleid:` line; none is exit 2,
+  `ERROR: .semgrep/gh-scopes.fixture marks no ruleid line; the self-test proves nothing`, before
+  the test runs. A self-test that cannot start or times out is exit 2.
 
 ### What is scanned
 
@@ -69,8 +73,10 @@ through `qa/internal/proc`.
   file as YAML (`rules[].paths.exclude`, every rule's list together). A rule file that does not
   decode, or whose `paths.exclude` is not a list of strings, is exit 2 naming it. A rule with no `paths.exclude` is exit 2 (the gate is built around the rule's own excludes;
   an unparseable or emptied list must not silently widen what is expected). Every expected file must
-  be in `paths.scanned` or `paths.skipped`; any other is exit 2 listing them, `A pass reported over files the analyser never opened is not a pass`. A glob uses semgrep's meaning: `*` stays within one
-  path segment, `**` crosses segments, `**/` may match no directory at all.
+  be in `paths.scanned` or `paths.skipped`; any other is exit 2 listing them, `A pass reported over files the analyser never opened is not a pass`. A glob uses semgrep's meaning, which is a gitignore
+  pattern's: it matches at any depth (`vars/x.yml` also drops `sub/vars/x.yml`) unless it starts
+  with `/`, which anchors it to the root; `*` stays within one path segment, `**` crosses segments,
+  `**/` may match no directory at all.
 - G13. Files semgrep names as skipped are accounted for, not hidden: a note
   `⚠ gh-scopes: N file(s) skipped by semgrep` and each path indented is printed to stdout.
 - G14. Zero files in `paths.scanned` is exit 2 (`semgrep scanned no file`): a count of nothing proves
@@ -96,3 +102,13 @@ through `qa/internal/proc`.
 | B6  | self-test sent metrics; no timeout on any process                         | `--metrics=off`; every process is time-bounded (G6, G10)    |
 | B7  | arguments ignored                                                         | unknown argument is exit 2 (G1)                             |
 | B8  | a missing semgrep and a missing rule file were different failures         | both exit 2 (G4, G5)                                        |
+
+## 4. Stated limits and decisions
+
+- Scope is this tool's own `git ls-files` walk, not a `qa/discovery` list. Discovery judges a
+  symlink by its target and fails on a nested repository; this gate must leave symlinks out
+  (semgrep refuses them) and has no trees table, so reusing the list would need a second filter
+  and a changed contract for every other caller. Both walks ask git for the same set.
+- `qa-changed` runs this gate (check `gh-scopes`, whole) only when the rule, its fixture, the
+  wrapper or the tool change or are deleted. Every published file is an input to the gate, but a
+  per-commit semgrep over the whole tree is too slow to want; `qa-all` runs it for every push.

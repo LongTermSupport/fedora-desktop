@@ -75,11 +75,17 @@ func parseExcludes(rule string) (excludes, error) {
 	return out, nil
 }
 
-// globRegexp turns a semgrep path glob into an anchored expression: `*` stays within a path
-// segment, `**` crosses segments and `**/` may match no directory at all.
+// globRegexp turns a semgrep path glob into an expression that matches the way a gitignore
+// pattern does: at any depth, unless the glob starts with `/`, which anchors it to the root.
+// `*` stays within a path segment, `**` crosses segments and `**/` may match no directory.
 func globRegexp(glob string) string {
 	var b strings.Builder
-	b.WriteString("^")
+	if rooted, ok := strings.CutPrefix(glob, "/"); ok {
+		glob = rooted
+		b.WriteString("^")
+	} else {
+		b.WriteString("^(?:.*/)?")
+	}
 	for i := 0; i < len(glob); i++ {
 		switch {
 		case strings.HasPrefix(glob[i:], "**/"):

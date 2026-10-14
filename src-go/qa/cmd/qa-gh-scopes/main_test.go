@@ -69,3 +69,17 @@ func TestTheRealEngineFindsAScopeAndPassesACleanTree(t *testing.T) {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
+
+// semgrep drops an excluded name at any depth, as a gitignore pattern does, so the gate must not
+// expect a nested copy to be scanned.
+func TestTheRealEngineDropsExcludedNamesAtAnyDepth(t *testing.T) {
+	leak := "needs " + "admin:" + "public_key\n"
+	code, stdout, stderr := realRun(t, map[string]string{
+		"docs/clean.md":                       "nothing to see\n",
+		"sub/vars/github-required-scopes.yml": leak,
+		"x/CLAUDE/Plan/deep.md":               leak,
+	})
+	if code != ghscopes.ExitOK || !strings.Contains(stdout, "passed: 1 failed: 0") {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+}

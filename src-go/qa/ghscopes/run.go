@@ -37,6 +37,7 @@ const (
 
 // Timeouts bound each process.
 const (
+	versionTimeout = time.Minute
 	gitTimeout     = 2 * time.Minute
 	semgrepTimeout = 15 * time.Minute
 )

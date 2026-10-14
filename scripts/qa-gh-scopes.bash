@@ -6,8 +6,9 @@
 # finds every other place a GitHub OAuth scope is named. The rule's reasoning, and how to fix a
 # finding, are in CLAUDE/QA.md under "gh-scope-outside-ssot".
 #
-# The rule is proven against .semgrep/gh-scopes.fixture on every run, so a change to either file
-# runs this gate (scripts/qa-routing.tsv selects a suite by the files its script names).
+# The rule is proven against .semgrep/gh-scopes.fixture on every run. qa-changed runs this gate
+# whole (check gh-scopes) when the rule, the fixture, this wrapper or the tool change, or when
+# any of them is deleted; scripts/qa-routing.tsv has the rows.
 #
 # The tool is Go (src-go/qa/ghscopes, command src-go/qa/cmd/qa-gh-scopes); semgrep stays the
 # engine. lib/go-tool.bash builds it into a private directory under the cache and runs it, so the

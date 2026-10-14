@@ -34,7 +34,7 @@ func newWorld(t *testing.T, files map[string]string) *world {
 	t.Helper()
 	all := map[string]string{
 		".semgrep/bash-conventions.yml":  "rules: []\n",
-		".semgrep/bash-conventions.bash": "# fixture\n",
+		".semgrep/bash-conventions.bash": "# fixture\n# ruleid: bash-x\n",
 		"scripts/qa-trees.tsv":           defaultTrees,
 	}
 	for k, v := range files {

@@ -12,11 +12,15 @@ import (
 	"strings"
 )
 
-// requireSemgrep is that semgrep runs at all.
+// requireSemgrep is that semgrep runs at all; the reason it does not is part of the error.
 func (g *gate) requireSemgrep(ctx context.Context) error {
-	res, err := g.runTool(ctx, gitTimeout, "semgrep", "--version")
-	if err != nil || res.Code != 0 {
-		return errors.New("semgrep not found. Install with: pipx install semgrep")
+	const hint = "semgrep not found. Install with: pipx install semgrep"
+	res, err := g.runTool(ctx, versionTimeout, "semgrep", "--version")
+	switch {
+	case err != nil:
+		return fmt.Errorf("%s (%w)", hint, err)
+	case res.Code != 0:
+		return fmt.Errorf("%s (semgrep --version exited %d: %s)", hint, res.Code, strings.TrimSpace(res.Stderr))
 	}
 	return nil
 }
@@ -25,6 +29,13 @@ func (g *gate) requireSemgrep(ctx context.Context) error {
 // worse than a missing tool, so a regression here fails the run and never reports a clean tree.
 // A fixture that disagrees with the rule is exit 1, a test that could not run is exit 2.
 func (g *gate) proveRule(ctx context.Context) (ExitCode, error) {
+	fixture, err := os.ReadFile(g.path(fixtureFile))
+	if err != nil {
+		return ExitCannotRun, fmt.Errorf("cannot read %s: %w", fixtureFile, err)
+	}
+	if !strings.Contains(string(fixture), "ruleid:") {
+		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixtureFile)
+	}
 	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(ruleFile), g.path(fixtureFile), "--metrics=off")
 	if err != nil {
 		return ExitCannotRun, err

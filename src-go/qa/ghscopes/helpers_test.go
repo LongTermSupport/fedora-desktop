@@ -43,7 +43,7 @@ func newWorld(t *testing.T, files map[string]string) *world {
 	t.Helper()
 	all := map[string]string{
 		ruleFile:    rulesText,
-		fixtureFile: "# fixture\n",
+		fixtureFile: "# fixture\n# ruleid: gh-scope-outside-ssot\n",
 		"a.txt":     "nothing\n",
 	}
 	for k, v := range files {
@@ -120,6 +120,7 @@ type fakeRun struct {
 
 	noSemgrep   bool
 	versionCode int
+	versionErr  string
 	testCode    int
 	testOut     string
 	scanCode    int
@@ -155,7 +156,7 @@ func (f *fakeRun) semgrep(c proc.Cmd) (proc.Result, error) {
 	}
 	switch {
 	case slices.Contains(c.Argv, "--version"):
-		return proc.Result{Code: f.versionCode, Stdout: "1.0.0\n"}, nil
+		return proc.Result{Code: f.versionCode, Stdout: "1.0.0\n", Stderr: f.versionErr}, nil
 	case slices.Contains(c.Argv, "--test"):
 		if f.timeout == "test" {
 			return proc.Result{TimedOut: true}, nil

@@ -36,6 +36,13 @@ func (g *gate) proveRules(ctx context.Context) error {
 			return fmt.Errorf("%s is not a regular file", p)
 		}
 	}
+	body, err := os.ReadFile(fixture)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", fixture, err)
+	}
+	if !strings.Contains(string(body), "ruleid:") {
+		return fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixturePath)
+	}
 	res, err := g.runTool(ctx, semgrepTimeout, g.root, "semgrep", "--test", "--config", rules, fixture, "--metrics=off")
 	if err != nil {
 		return err

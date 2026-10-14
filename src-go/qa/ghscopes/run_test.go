@@ -49,7 +49,7 @@ func TestAStdoutThatCannotBeWrittenIsExitTwo(t *testing.T) {
 func TestSemgrepThatCannotRunIsExitTwoAndNothingElseRuns(t *testing.T) {
 	for _, set := range []func(*fakeRun){
 		func(f *fakeRun) { f.noSemgrep = true },
-		func(f *fakeRun) { f.versionCode = 1 },
+		func(f *fakeRun) { f.versionCode = 1; f.versionErr = "bad python env" },
 	} {
 		w := newWorld(t, nil)
 		set(w.run)
@@ -60,6 +60,17 @@ func TestSemgrepThatCannotRunIsExitTwoAndNothingElseRuns(t *testing.T) {
 			t.Fatal("git ran before semgrep was found")
 		}
 	}
+}
+
+// G4
+func TestTheRealCauseOfASemgrepThatCannotRunIsShown(t *testing.T) {
+	w := newWorld(t, nil)
+	w.run.noSemgrep = true
+	wantIn(t, "stderr", w.main().stderr, "executable file not found in $PATH")
+	w = newWorld(t, nil)
+	w.run.versionCode = 1
+	w.run.versionErr = "bad python env"
+	wantIn(t, "stderr", w.main().stderr, "semgrep --version exited 1", "bad python env")
 }
 
 // G5
@@ -98,6 +109,17 @@ func TestTheSelfTestRunsTheRuleOverTheFixtureWithMetricsOff(t *testing.T) {
 	want := []string{"semgrep", "--test", "--config", filepath.Join(w.root, ruleFile), filepath.Join(w.root, fixtureFile), "--metrics=off"}
 	if !slices.Equal(test, want) {
 		t.Fatalf("self-test argv %v, want %v", test, want)
+	}
+}
+
+// G6
+func TestAFixtureThatMarksNoRuleidLineProvesNothingAndIsExitTwo(t *testing.T) {
+	w := newWorld(t, map[string]string{fixtureFile: "# fixture\n# ok: gh-scope-outside-ssot\n"})
+	got := w.main()
+	wantExit(t, got, ExitCannotRun)
+	wantIn(t, "stderr", got.stderr, "ERROR: "+fixtureFile+" marks no ruleid line; the self-test proves nothing")
+	if w.run.scanArgv != nil || w.run.called("git") {
+		t.Fatal("a scan ran over a fixture that proves nothing")
 	}
 }
 
@@ -238,6 +260,37 @@ func TestFilesTheRuleExcludesAreNotExpectedToBeScanned(t *testing.T) {
 	})
 	w.run.scan = func([]string) string { return report([]string{"a.txt"}, nil, nil) }
 	wantExit(t, w.main(), ExitOK)
+}
+
+// G12
+func TestAGlobMatchesAtAnyDepthLikeAGitignorePattern(t *testing.T) {
+	w := newWorld(t, map[string]string{
+		"sub/vars/github-required-scopes.yml": "x\n",
+		"x/CLAUDE/Plan/deep.md":               "x\n",
+		"y/helpers/github_scopes/a.py":        "x\n",
+	})
+	w.run.scan = func([]string) string { return report([]string{"a.txt"}, nil, nil) }
+	wantExit(t, w.main(), ExitOK)
+}
+
+// G12
+func TestALeadingSlashAnchorsAGlobToTheRoot(t *testing.T) {
+	rule := "rules:\n  - id: a\n    paths:\n      exclude: ['/top.txt', '.semgrep/*']\n"
+	w := newWorld(t, map[string]string{ruleFile: rule, "top.txt": "x\n", "sub/top.txt": "x\n"})
+	w.run.scan = func([]string) string { return report([]string{"a.txt"}, nil, nil) }
+	got := w.main()
+	wantExit(t, got, ExitCannotRun)
+	wantIn(t, "stderr", got.stderr, "did not scan 1 file(s)", "    sub/top.txt")
+}
+
+// G12
+func TestAnExcludeThatIsNotAStringIsExitTwo(t *testing.T) {
+	for _, list := range []string{"[123, true]", "[[a]]", "[{a: b}]", "[null]"} {
+		w := newWorld(t, map[string]string{ruleFile: "rules:\n  - id: x\n    paths:\n      exclude: " + list + "\n"})
+		got := w.main()
+		wantExit(t, got, ExitCannotRun)
+		wantIn(t, "stderr", got.stderr, "ERROR:", ruleFile)
+	}
 }
 
 // G12
