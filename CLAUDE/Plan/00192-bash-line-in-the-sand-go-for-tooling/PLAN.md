@@ -60,6 +60,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 ### Phase 3: Rewrites, one feature branch each
 
 - [ ] ⬜ **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
+  Branch `go-port/freeze` (P7): functional spec written, [SPEC-freeze.md](SPEC-freeze.md); Go
+  code not started.
 
 ### Phase 4: Review
 
