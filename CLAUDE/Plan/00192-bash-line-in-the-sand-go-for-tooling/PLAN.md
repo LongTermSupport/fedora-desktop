@@ -115,6 +115,26 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (E6a, B15); F4 `CLAUDE/QA.md` updated; F5 stdout write failure now an `ERROR:` line (E3, B17);
   F6 (`-x` is root's view, any execute bit) and F7 (four passes over each file) are info only,
   accepted, no change.
+  `qa-nokill-containerwatch.bash` (P3) on `go-port/qa-nokill-containerwatch`: ported, not merged;
+  spec [SPEC-qa-nokill-containerwatch.md](SPEC-qa-nokill-containerwatch.md) (E1-E15, 15 departures
+  B1-B15: recursive Python scope, no pass on no Python, what git would publish, the `[engine, "stop"`
+  hole, multi-line argv, `.kill(`/`.terminate(`/`killall` rules, containment judged with everything
+  else reported); nested `src-go/qa/nokill`, `qa/cmd/qa-nokill-containerwatch`; the script a
+  build-and-run wrapper, its allowlist row gone; same verdict as the bash on the live tree (7 files
+  counted against 6: containment.py is counted now). The cut-over also fixed a latent `qa-changed`
+  defect: a changed gate script whose row reads a detail line was judged by the case-count reader
+  and failed as "proved nothing"; it is now judged by its own reader (`qa/changed` `judgeSuite`).
+  Fable review of that branch (`subagent-reports/261014-fable-review-qa-nokill.md`) dispositions:
+  F1 and F10 fixed together (one shared judge, `gates.Summarise`, used by qa-all and qa-changed: a
+  suite is judged by every reader of its row, a drift row by its stage line, a helpers or stage row
+  is refused rather than passed on nothing); F2 (parenthesised `from os import (...)`), F3 (zero stop
+  timeout in containment.py), F4 (options between the engine and its verb), F5 (engine variable in
+  any case), F6 (service stop/kill and machine terminate/kill argvs, live tree clean) and F8
+  (comments inside a wrapped argv, cheap, so fixed) fixed in the rules, each spec first and test
+  first (E9-E11); F7 (`kill` without a dash in a shell string, `killall5`) recorded as a stated
+  limit in the spec, no code change; F9 fixed as routing data plus a `nokill-containerwatch` check
+  in `qa/changed` (`scripts/qa-routing.tsv`: the watchdog, its two panel files and the gate's own
+  files run the gate).
 
 ### Phase 4: Review
 

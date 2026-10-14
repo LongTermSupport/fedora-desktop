@@ -39,6 +39,9 @@ also	scripts/bash-limits.allowlist	bash-limits	covered
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
+# The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
+# runs whole when its own script or Go package changes (so it is not also picked as a suite).
+also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-nokill-containerwatch/*,helpers/containerwatch/*,extensions/fedora-desktop@fedora-desktop/containerReport.js,extensions/fedora-desktop@fedora-desktop/sections/containers.js	nokill-containerwatch	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 first	*.md	docs	covered
 first	*.js,*.mjs	node-check	covered,tree:shell
@@ -51,4 +54,4 @@ first	@sh	bash-syntax,shellcheck,semgrep	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch

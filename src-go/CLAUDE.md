@@ -136,5 +136,11 @@ publish) is injected and run by the command through the seam. Its spec is the in
 (`SPEC-qa-ansible.md`, expectations E1-E19), proven by unit tests and end-to-end scenario trees,
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
 
+`qa/nokill` + `qa/cmd/qa-nokill-containerwatch` (same nested module) are
+`scripts/qa-nokill-containerwatch.bash`, the no-kill gate for the container-watch watchdog: the
+script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwatch.md`
+(expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
+`git ls-files` it needs is run by the command through the seam.
+
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).

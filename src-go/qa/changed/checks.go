@@ -69,6 +69,7 @@ var checkDefs = []checkDef{
 	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash}, run: runDocs},
 	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
+	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
 }
@@ -114,6 +115,10 @@ func runGoGate(ctx context.Context, s *session, _ *checkPlan) (checkResult, erro
 
 func runBashLimits(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-bash-limits.bash")
+}
+
+func runNoKillContainerWatch(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-nokill-containerwatch.bash")
 }
 
 // gateWithReport runs a gate that requires QA_JSON_OUT, a file for its machine report, which

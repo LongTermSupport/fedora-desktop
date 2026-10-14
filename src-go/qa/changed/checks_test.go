@@ -66,7 +66,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "semgrep", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "docs", "go", "bash-limits", "node-check", "eslint",
+		"ansible-patterns", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -95,6 +95,8 @@ func TestSummaries(t *testing.T) {
 		"go":               "whole gate (interim qa-go.bash)",
 		"bash-limits":      "whole gate (tooling is Go; allowlist ratchet)",
 		"eslint":           "2 file(s)",
+
+		"nokill-containerwatch": "whole gate (the container-watch watchdog never signals a process)",
 	} {
 		if got := lookupCheck(id).summaryFor(two); got != want {
 			t.Errorf("%s: %q, want %q", id, got, want)
@@ -201,12 +203,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)
