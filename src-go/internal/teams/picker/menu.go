@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
@@ -24,6 +25,8 @@ const (
 	keyUpdate   = "ctrl-u"
 	keyHelp     = "?"
 	keyAttach   = "attach"
+	// keyCoordinator, like keyAttach, has no shortcut: it is what the menu of a seat offers.
+	keyCoordinator = "coordinator"
 )
 
 // backToList is the last line of every menu: leaving it does nothing and shows the list.
@@ -40,7 +43,7 @@ type action struct {
 // shown is the shortcut as a person reads it ("Ctrl-E"); empty when there is none.
 func (a action) shown() string {
 	switch a.key {
-	case keyAttach:
+	case keyAttach, keyCoordinator:
 		return ""
 	case keyHelp:
 		return "?"
@@ -99,7 +102,7 @@ func (r *run) humanActions(row board.Row, open, start, help action) []action {
 }
 
 // seatActions are a ccy seat's: attaching its session, then restore, a session of the team,
-// Element, and taking the seat away.
+// Element, whether it is the team's coordinator, and taking the seat away.
 func (r *run) seatActions(row board.Row, open, start, help action) []action {
 	acts := []action{{keyAttach, "Attach this terminal to the seat's session", "attach its session"}}
 	if current, recorded := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]; recorded {
@@ -109,11 +112,20 @@ func (r *run) seatActions(row board.Row, open, start, help action) []action {
 		}
 		acts = append(acts, restore)
 	}
-	acts = append(acts, start, open)
+	acts = append(acts, start, open, r.coordinatorAction(row))
 	if row.Dir == "-" {
 		return append(acts, action{keyRemove, "Park " + row.Handle, "park it"}, help)
 	}
 	return append(acts, action{keyRemove, "Remove this seat", "remove this seat"}, help)
+}
+
+// coordinatorAction is making the seat's member the team's coordinator, or, when it is, stopping it
+// being: the role is read from the pass the list was drawn from.
+func (r *run) coordinatorAction(row board.Row) action {
+	if r.snap.RoleOf(row.Team, row.Handle) == agentbus.RoleCoordinator {
+		return action{keyCoordinator, "Stop being coordinator", "stop it being the coordinator"}
+	}
+	return action{keyCoordinator, "Make coordinator", "make it the coordinator"}
 }
 
 // menu is Enter on a row: everything that can be done to it, in words, each with its shortcut.

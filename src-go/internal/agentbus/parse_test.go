@@ -23,6 +23,41 @@ func TestParseSeats(t *testing.T) {
 	}
 }
 
+func TestParseChoices(t *testing.T) {
+	out := "CHOICE\t1\tfree\tproj.1+box.podman\ta ccy session\n" +
+		"CHOICE\t2\tnew\tproj.2+box.podman\ta ccy session\n" +
+		"DEFAULT\t1\n"
+	got, err := ParseChoices(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Choices{
+		Rows: []Choice{
+			{Seat: "1", State: "free", Handle: "proj.1+box.podman", Words: "a ccy session"},
+			{Seat: "2", State: "new", Handle: "proj.2+box.podman", Words: "a ccy session"},
+		},
+		Default: "1",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestParseChoicesRejectsWhatIsNotUsable(t *testing.T) {
+	for _, out := range []string{
+		"",
+		"DEFAULT\t1\n",
+		"CHOICE\t1\tfree\th\tw\n",
+		"CHOICE\t1\tfree\th\tw\nDEFAULT\t9\n",
+		"CHOICE\t1\tfree\th\tw\nDEFAULT\t1\nCHANGED\tsurprise\n",
+		"CHOICE\t1\tfree\th\nDEFAULT\t1\n",
+	} {
+		if _, err := ParseChoices(out); err == nil {
+			t.Fatalf("accepted %q", out)
+		}
+	}
+}
+
 func TestParseSeatsRejectsMalformedLines(t *testing.T) {
 	for _, line := range []string{
 		"SEAT\talpha\t1\theld\tself",
@@ -48,10 +83,46 @@ func TestParseRoster(t *testing.T) {
 	}
 	wantMembers := []Member{
 		{Handle: "proj.1+box.podman", Role: "worker", Membership: "join"},
-		{Handle: "proj.x+box.lxc", Role: "orchestrator", Parked: true},
+		{Handle: "proj.x+box.lxc", Role: "coordinator", Parked: true},
 	}
 	if !reflect.DeepEqual(got.Members, wantMembers) {
 		t.Fatalf("members %+v", got.Members)
+	}
+}
+
+func TestParseRosterReadsTheOldRoleNameAsCoordinator(t *testing.T) {
+	got, err := ParseRoster("MEMBER\tproj.x+box.lxc\torchestrator\t-\tactive\nMEMBER\tproj.y+box.lxc\tcoordinator\t-\tactive\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range got.Members {
+		if m.Role != RoleCoordinator {
+			t.Fatalf("%s is %q, want %q", m.Handle, m.Role, RoleCoordinator)
+		}
+	}
+}
+
+func TestRosterCoordinator(t *testing.T) {
+	roster := Roster{Members: []Member{
+		{Handle: "a.1+h.podman", Role: RoleWorker},
+		{Handle: "a.2+h.podman", Role: RoleCoordinator, Parked: true},
+	}}
+	holder, ok := roster.Coordinator()
+	if !ok || holder.Handle != "a.2+h.podman" {
+		t.Fatalf("got %+v %v", holder, ok)
+	}
+	if _, ok := (Roster{Members: roster.Members[:1]}).Coordinator(); ok {
+		t.Fatal("a roster of workers has no coordinator")
+	}
+}
+
+func TestRosterMemberFindsAHandle(t *testing.T) {
+	roster := Roster{Members: []Member{{Handle: "a.1+h.podman", Role: RoleWorker}}}
+	if m, ok := roster.Member("a.1+h.podman"); !ok || m.Role != RoleWorker {
+		t.Fatalf("got %+v %v", m, ok)
+	}
+	if _, ok := roster.Member("a.2+h.podman"); ok {
+		t.Fatal("found a member that is not there")
 	}
 }
 

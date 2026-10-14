@@ -58,6 +58,33 @@ func TestPaintedRowTextEqualsThePlainRow(t *testing.T) {
 	}
 }
 
+func TestTheCoordinatorsSeatRowSaysSoAndPaintsTheSame(t *testing.T) {
+	r := Row{
+		Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes",
+		Where: "~/proj", Dir: "/proj", Role: "coordinator",
+	}
+	if !strings.Contains(r.Text(), "1 (coordinator)") {
+		t.Fatalf("got %q", r.Text())
+	}
+	if got := ansi.ReplaceAllString(r.Painted(), ""); got != r.Text() {
+		t.Fatalf("painted %q strips to %q, want %q", r.Painted(), got, r.Text())
+	}
+	r.Role = "worker"
+	if strings.Contains(r.Text(), "coordinator") {
+		t.Fatalf("a worker's row says coordinator: %q", r.Text())
+	}
+}
+
+func TestAMemberWithNoCheckoutKeepsItsHandleAndSaysTheRoleInWhere(t *testing.T) {
+	r := Row{
+		Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "active", Applied: "-", Session: "-",
+		Restore: "-", Where: "coordinator", Dir: "-", Role: "coordinator",
+	}
+	if strings.Contains(r.Text(), "(coordinator)") {
+		t.Fatalf("a long handle must not be widened: %q", r.Text())
+	}
+}
+
 func TestHeading(t *testing.T) {
 	h := HeadingText()
 	for _, w := range []string{"TEAM", "MEMBER", "KIND", "STATE", "APPLIED", "SESSION", "RESTORE", "WHERE"} {

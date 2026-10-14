@@ -428,5 +428,6 @@ func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[st
 	return Row{
 		Team: team, Member: sa.seat.Seat, Kind: KindCcy, State: state, Applied: "-", Session: session, Record: record,
 		Restore: restore, Where: term.AbbrevHome(sa.dir, c.Home), Handle: sa.seat.Handle, Dir: sa.dir,
+		Role: s.RoleOf(team, sa.seat.Handle),
 	}
 }

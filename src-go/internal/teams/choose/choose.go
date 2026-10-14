@@ -1,0 +1,307 @@
+// Package choose is what the ccy launcher asks of ccy-teams for `ccy --teams` when it has a
+// person to ask: choose-seat, which chooses the seat a session takes in a team and then offers
+// the seat's role (keep it, make it the coordinator, or stop it being one), and describe-seats,
+// which names each seat of a saved launch with its role for Quick Launch's summary. The role is
+// changed by seats.ChangeRole, the code the seat menu of the picker calls, and sudo is used
+// only when the person changes it. The payload is on stdout and everything else on stderr, as
+// the launcher captures the output.
+package choose
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
+)
+
+// exitConfig is the launcher's code for a team or a tool that is not set up here (agent-bus's
+// own 78), used where agent-bus did not give a code.
+const exitConfig term.ExitCode = 78
+
+// stateNew is a seat the checkout does not have yet: its member is made when the launch starts.
+const stateNew = "new"
+
+// Words of the role question.
+const (
+	stopRole    = "Stop being coordinator"
+	makeCoord   = "Make coordinator"
+	keepPrefix  = "Keep as is: "
+	noneInTeam  = "the team has no coordinator"
+	noRoleAsked = "Its role is left as it is."
+)
+
+// Choose is the launcher's chooser. Every dependency is a field so a test stands in for each.
+type Choose struct {
+	Host  *host.Host
+	Bus   *agentbus.Client
+	Gum   *ui.Gum
+	Kit   *flow.Kit
+	Seats *seats.Seats
+}
+
+// New is the chooser over a host.
+func New(h *host.Host, kit *flow.Kit, s *seats.Seats) *Choose {
+	return &Choose{Host: h, Bus: h.Bus, Gum: h.Gum, Kit: kit, Seats: s}
+}
+
+// row is a seat as the chooser shows it: the seat, its member's full handle, what runs in it,
+// and whether it is free.
+func row(c agentbus.Choice) string {
+	state := c.State
+	switch c.State {
+	case "free":
+	case "held":
+		state = "held by a running session"
+	case stateNew:
+		state = "new seat"
+	}
+	return fmt.Sprintf("seat %-6s  %-40s  %-15s  %s", c.Seat, c.Handle, c.Words, state)
+}
+
+func keepRole(role string) string { return keepPrefix + role }
+
+// makeRole is the option that makes the seat the coordinator, saying who it replaces.
+func makeRole(holder agentbus.Member) string {
+	if holder.Handle == "" {
+		return makeCoord
+	}
+	return makeCoord + " (" + holder.Handle + " becomes a worker)"
+}
+
+// Seat is `ccy-teams choose-seat TEAM`: the seat this session takes in team, as SEAT@TEAM on
+// stdout. Leaving the chooser prints nothing and succeeds: the person chose not to start.
+func (c *Choose) Seat(ctx context.Context, args []string) term.ExitCode {
+	if len(args) != 1 {
+		c.say("ccy-teams: 'choose-seat' takes one team. See ccy-teams --help.")
+		return term.ExitUsage
+	}
+	team := args[0]
+	choices, err := c.Bus.SeatChoose(ctx, team)
+	if err != nil {
+		return c.listFailed(team, err)
+	}
+	if !c.Kit.HasTool("gum") {
+		c.say("--teams " + team + " asks which seat to take, and gum is not installed: play-claude-yolo.yml installs it.")
+		c.say("  Or name the seat yourself: --teams " + choices.Default + "@" + team)
+		return exitConfig
+	}
+	picked, ok, code := c.pickSeat(ctx, team, choices)
+	if !ok {
+		return code
+	}
+	c.say("Taking seat " + picked.Seat + "@" + team + ": " + picked.Handle + " (" + picked.Words + ").")
+	if code := c.offerRole(ctx, team, picked); code != term.ExitOK {
+		return code
+	}
+	c.Host.Print(c.Host.Stdout, picked.Seat+"@"+team+"\n")
+	return term.ExitOK
+}
+
+// Describe is `ccy-teams describe-seats [--prefix TEXT] LIST`: each seat of a launch's --teams
+// list followed by its role, for Quick Launch to show, on stdout after the prefix. A role that
+// cannot be read is said so with the reason; it never stops the launch showing what it would do.
+func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
+	prefix := ""
+	if len(args) > 0 && args[0] == "--prefix" {
+		if len(args) < 2 {
+			c.say("ccy-teams: 'describe-seats --prefix' takes the text. See ccy-teams --help.")
+			return term.ExitUsage
+		}
+		prefix, args = args[1], args[2:]
+	}
+	if len(args) != 1 {
+		c.say("ccy-teams: 'describe-seats' takes the list. See ccy-teams --help.")
+		return term.ExitUsage
+	}
+	if args[0] == "" {
+		c.Host.Print(c.Host.Stdout, prefix+"none\n")
+		return term.ExitOK
+	}
+	d := &describer{c: c, rosters: map[string]rosterResult{}}
+	var parts []string
+	for ref := range strings.SplitSeq(args[0], ",") {
+		parts = append(parts, d.describe(ctx, strings.TrimSpace(ref)))
+	}
+	c.Host.Print(c.Host.Stdout, prefix+strings.Join(parts, ", ")+"\n")
+	return term.ExitOK
+}
+
+func (c *Choose) say(msg string) { c.Host.Print(c.Host.Stderr, msg+"\n") }
+
+func (c *Choose) listFailed(team string, err error) term.ExitCode {
+	cmd, ok := errors.AsType[*agentbus.CommandError](err)
+	if !ok || cmd == nil {
+		c.Kit.ReportErr(err)
+		return exitConfig
+	}
+	code := term.ExitCode(cmd.Code)
+	c.Host.Print(c.Host.Stderr, fmt.Sprintf("ccy-teams: --teams %s: the seats of team %s could not be listed "+
+		"(agent-bus seat choose exited %d; the reason is above).\n", team, team, cmd.Code))
+	return code
+}
+
+// pickSeat asks which of the choices; ok is false when the person left (no error: nothing is
+// started) or the question could not be asked, with the code to exit with.
+func (c *Choose) pickSeat(ctx context.Context, team string, choices agentbus.Choices) (agentbus.Choice, bool, term.ExitCode) {
+	rows := make([]string, len(choices.Rows))
+	var def string
+	for i, r := range choices.Rows {
+		rows[i] = row(r)
+		if r.Seat == choices.Default {
+			def = rows[i]
+		}
+	}
+	answer, err := c.Gum.Choose(ctx, "Team "+team+": which seat does this session take?", def, rows)
+	if errors.Is(err, ui.ErrCancelled) {
+		c.say("No seat chosen; nothing started.")
+		return agentbus.Choice{}, false, term.ExitOK
+	}
+	if err != nil {
+		c.Kit.ReportErr(err)
+		return agentbus.Choice{}, false, term.ExitFailure
+	}
+	for i, r := range rows {
+		if r == answer {
+			return choices.Rows[i], true, term.ExitOK
+		}
+	}
+	c.say("ccy-teams: gum returned a row that was not offered: " + answer)
+	return agentbus.Choice{}, false, exitConfig
+}
+
+// offerRole asks what the seat's role should be and changes it when the person says so. A seat
+// that is new has no member yet, so it cannot be given a role until the launch has made it.
+func (c *Choose) offerRole(ctx context.Context, team string, seat agentbus.Choice) term.ExitCode {
+	if seat.State == stateNew {
+		c.say("Seat " + seat.Seat + "@" + team + " is new: it joins as a worker. To make it the coordinator, " +
+			"choose Make coordinator on its row in ccy-teams, or in this chooser the next time.")
+		return term.ExitOK
+	}
+	roster, err := c.Bus.List(ctx, team)
+	if err != nil {
+		c.Kit.ReportRootErr(err)
+		c.say("ccy-teams: the members of " + team + " could not be read, so the seat's role cannot be offered.")
+		return term.ExitFailure
+	}
+	member, ok := roster.Member(seat.Handle)
+	if !ok {
+		c.say("Seat " + seat.Seat + "@" + team + " has no member in " + team + " yet: it joins as a worker.")
+		return term.ExitOK
+	}
+	holder, held := roster.Coordinator()
+	options, wantCoordinator := roleOptions(member, holder, held)
+	answer, err := c.Gum.Choose(ctx, roleHeader(team, seat, member, holder, held), options[0], options)
+	if errors.Is(err, ui.ErrCancelled) {
+		c.say(noRoleAsked)
+		return term.ExitOK
+	}
+	if err != nil {
+		c.Kit.ReportErr(err)
+		return term.ExitFailure
+	}
+	if answer == options[0] {
+		return term.ExitOK
+	}
+	changed, err := c.Seats.ChangeRole(ctx, team, seat.Handle, wantCoordinator)
+	if err != nil {
+		c.Kit.Term.PrintError(err.Error())
+		return term.ExitFailure
+	}
+	if !changed {
+		c.say("Nothing was changed.")
+	}
+	return term.ExitOK
+}
+
+// roleOptions are the choices for a member: keeping its role first (the default), then the
+// change, and whether that change makes it the coordinator.
+func roleOptions(member, holder agentbus.Member, held bool) ([]string, bool) {
+	switch {
+	case member.Role == agentbus.RoleCoordinator:
+		return []string{keepRole(agentbus.RoleCoordinator), stopRole}, false
+	case held:
+		return []string{keepRole(agentbus.RoleWorker), makeRole(holder)}, true
+	}
+	return []string{keepRole(agentbus.RoleWorker), makeRole(agentbus.Member{})}, true
+}
+
+func roleHeader(team string, seat agentbus.Choice, member, holder agentbus.Member, held bool) string {
+	who := noneInTeam
+	switch {
+	case held && holder.Handle == member.Handle:
+		who = "it is the coordinator"
+	case held:
+		who = holder.Handle + " is the coordinator"
+	}
+	return "Team " + team + ", seat " + seat.Seat + ": what is its role? Now " + member.Role + "; " + who + "."
+}
+
+type rosterResult struct {
+	roster agentbus.Roster
+	err    error
+}
+
+// describer reads each team once and the checkout's seats once.
+type describer struct {
+	c       *Choose
+	rosters map[string]rosterResult
+	handles map[string]string // "<seat>@<team>" -> handle
+	loaded  bool
+	loadErr error
+}
+
+func (d *describer) describe(ctx context.Context, ref string) string {
+	seat, team, ok := strings.Cut(ref, "@")
+	if !ok {
+		return ref
+	}
+	handle, found, err := d.handle(ctx, seat, team)
+	if err != nil {
+		return ref + " (role unknown: " + err.Error() + ")"
+	}
+	if !found {
+		return ref + newSeatWords
+	}
+	res, read := d.rosters[team]
+	if !read {
+		roster, rerr := d.c.Bus.List(ctx, team)
+		res = rosterResult{roster, rerr}
+		d.rosters[team] = res
+	}
+	if res.err != nil {
+		return ref + " (role unknown: " + res.err.Error() + ")"
+	}
+	member, ok := res.roster.Member(handle)
+	if !ok {
+		return ref + newSeatWords
+	}
+	return ref + " (" + member.Role + ")"
+}
+
+const newSeatWords = " (new seat: it joins as a worker)"
+
+// handle is the member's handle of a seat of this checkout; found is false for a seat it does
+// not have.
+func (d *describer) handle(ctx context.Context, seat, team string) (string, bool, error) {
+	if !d.loaded {
+		d.loaded = true
+		d.handles = map[string]string{}
+		list, _, err := d.c.Bus.SeatList(ctx, "")
+		d.loadErr = err
+		for _, s := range list {
+			d.handles[s.Seat+"@"+s.Team] = s.Handle
+		}
+	}
+	if d.loadErr != nil {
+		return "", false, d.loadErr
+	}
+	handle, ok := d.handles[seat+"@"+team]
+	return handle, ok, nil
+}

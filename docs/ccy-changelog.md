@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.0 — container 2.54
+
+- **`ccy --teams` offers the seat's role.** With a team alone (or a bare `--teams`) the seat
+  chooser is now `ccy-teams choose-seat`, which, once a seat that exists is chosen, asks whether
+  to keep its role, make it the team's coordinator (naming the current one, who becomes a
+  worker) or stop it being one; sudo runs only when the role changes. A seat that is new joins
+  as a worker. The role lives in the team record, so Quick Launch, which reuses the saved seat,
+  brings it back, and its summary now names the team's seats with their roles
+  (`ccy-teams describe-seats`). The bash chooser in `lib/agent-bus-seats.bash` is gone. The
+  image is unchanged.
+
 ## 3.96.2 — container 2.54
 
 - **Recording the Quick Launch team fails the launch when the session cannot be named.**

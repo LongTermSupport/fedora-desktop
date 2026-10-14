@@ -5,7 +5,9 @@
 package agentbus
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
@@ -26,6 +28,16 @@ type Human struct {
 	Name       string
 	Membership string
 }
+
+// The roles of a team's agents (protocol §8): at most one coordinator, and workers.
+const (
+	RoleCoordinator = "coordinator"
+	RoleWorker      = "worker"
+
+	// legacyCoordinator is what the coordinator was called before it had that name; a
+	// wrapper that has not been updated still prints it.
+	legacyCoordinator = "orchestrator"
+)
 
 // Member is a MEMBER line: an agent account of the team.
 type Member struct {
@@ -53,6 +65,27 @@ type Roster struct {
 	Members []Member
 }
 
+// Coordinator is the member holding the coordinator role, parked or not (a parked member keeps
+// its role), and whether there is one.
+func (r Roster) Coordinator() (Member, bool) {
+	for _, m := range r.Members {
+		if m.Role == RoleCoordinator {
+			return m, true
+		}
+	}
+	return Member{}, false
+}
+
+// Member is the member with handle, and whether there is one.
+func (r Roster) Member(handle string) (Member, bool) {
+	for _, m := range r.Members {
+		if m.Handle == handle {
+			return m, true
+		}
+	}
+	return Member{}, false
+}
+
 // Device is a DEVICE line of "agent-bus human devices": one signed-in Element session.
 type Device struct {
 	ID         string
@@ -63,6 +96,44 @@ type Device struct {
 type Backup struct {
 	ID   string
 	Time string
+}
+
+// Choice is one CHOICE line of "agent-bus seat choose": a seat the chooser offers, its state
+// (free, held or new), the member's handle and the type in words.
+type Choice struct {
+	Seat, State, Handle, Words string
+}
+
+// Choices is what "agent-bus seat choose" printed: the seats offered and the one to start on.
+type Choices struct {
+	Rows    []Choice
+	Default string
+}
+
+// ParseChoices reads the CHOICE and DEFAULT lines of out. Nothing else may be in it, there must
+// be a row to choose, and the default must be one of them: a wrapper that answers otherwise is
+// out of date, and that fails loudly.
+func ParseChoices(out string) (Choices, error) {
+	var c Choices
+	for line := range strings.Lines(out) {
+		text := strings.TrimRight(line, "\r\n")
+		if text == "" {
+			continue
+		}
+		f := strings.Split(text, "\t")
+		switch {
+		case f[0] == "CHOICE" && len(f) == 5:
+			c.Rows = append(c.Rows, Choice{Seat: f[1], State: f[2], Handle: f[3], Words: f[4]})
+		case f[0] == "DEFAULT" && len(f) == 2:
+			c.Default = f[1]
+		default:
+			return Choices{}, fmt.Errorf("agent-bus seat choose printed an unknown line %q", text)
+		}
+	}
+	if !slices.ContainsFunc(c.Rows, func(r Choice) bool { return r.Seat == c.Default }) {
+		return Choices{}, errors.New("agent-bus seat choose gave no usable rows")
+	}
+	return c, nil
 }
 
 // ParseSeats reads the SEAT lines of out.
@@ -109,6 +180,9 @@ func ParseRoster(out string) (Roster, error) {
 	}
 	for _, f := range members {
 		m := Member{Handle: f[1], Role: f[2], Membership: marker.DashEmpty(f[3])}
+		if m.Role == legacyCoordinator {
+			m.Role = RoleCoordinator
+		}
 		switch f[4] {
 		case "parked":
 			m.Parked = true

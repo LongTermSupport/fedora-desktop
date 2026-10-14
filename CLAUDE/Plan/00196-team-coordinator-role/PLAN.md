@@ -70,17 +70,17 @@ must not grow: the logic goes into Go.
 
 ### Phase 2: ccy-teams and the launcher
 
-- [ ] ⬜ **Task 2.1**: `ccy-teams` parses the role; board shows the coordinator
-- [ ] ⬜ **Task 2.2**: seat row menu: "Make coordinator" / "Stop being coordinator" (sudo, asks first,
+- [x] ✅ **Task 2.1**: `ccy-teams` parses the role; board shows the coordinator
+- [x] ✅ **Task 2.2**: seat row menu: "Make coordinator" / "Stop being coordinator" (sudo, asks first,
   names the current holder)
-- [ ] ⬜ **Task 2.3**: bare `ccy --teams` offers the role after team and seat; sudo only on change
-- [ ] ⬜ **Task 2.4**: Quick Launch (LAST_TEAMS) reuses the seat; the previous-configuration summary
+- [x] ✅ **Task 2.3**: bare `ccy --teams` offers the role after team and seat; sudo only on change
+- [x] ✅ **Task 2.4**: Quick Launch (LAST_TEAMS) reuses the seat; the previous-configuration summary
   shows team, seat and role
-- [ ] ⬜ **Task 2.5**: CCY version bump; launcher does not grow (`qa-bash-limits.bash`)
+- [x] ✅ **Task 2.5**: CCY version bump; launcher does not grow (`qa-bash-limits.bash`)
 
 ### Phase 3: verify and close
 
-- [ ] ⬜ **Task 3.1**: touched Python tests and ruff, `scripts/qa-go.bash`, shellcheck,
+- [x] ✅ **Task 3.1**: touched Python tests and ruff, `scripts/qa-go.bash`, shellcheck,
   `scripts/qa-bash-limits.bash`, the ccy-teams/agent-bus/pingbus bash suites
 - [ ] ⬜ **Task 3.2**: `qa-reviewer` agent run; owner decisions recorded; host run via `meta-deploy.bash`
 

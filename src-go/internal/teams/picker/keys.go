@@ -38,6 +38,8 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 		return flow.Done, nil
 	case keyAttach:
 		return r.p.Seats.AttachSeat(ctx, r.snap, row)
+	case keyCoordinator:
+		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
 	}
 	r.p.Kit.Tell("That key does nothing here. Enter lists what can be done to a row. ? shows every key.")
 	r.p.Kit.BackToList(ctx)

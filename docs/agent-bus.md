@@ -64,7 +64,8 @@ that play.
    `owner/repo` (an organisation team by its owner), or you choose of several; with none it
    says so and stops. It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
-   free seat, or a new one. ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
+   free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
+   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
    configuration" at the Quick Launch prompt launches into them again (and records them in that
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team

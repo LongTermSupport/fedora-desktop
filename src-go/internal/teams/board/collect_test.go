@@ -230,10 +230,10 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	shown := term.AbbrevHome(checkout, h.c.Home)
 	want := []Row{
 		{Team: "alpha", Member: "-", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout},
+		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev"},
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
-		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-"},
-		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-"},
+		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-", Role: "dev"},
+		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-", Role: "ops"},
 		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "guest", Kind: "human", State: "invited", Applied: "-", Session: "2 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "ghost", Kind: "human", State: "not in room", Applied: "-", Session: "1 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
@@ -243,6 +243,25 @@ func TestCollectBuildsTheRows(t *testing.T) {
 			t.Logf("got  %+v", s.Rows[i])
 		}
 		t.Fatalf("rows differ from the %d expected", len(want))
+	}
+}
+
+func TestCollectGivesASeatRowItsMembersRole(t *testing.T) {
+	h := populated(t)
+	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
+		"MEMBER\tproj.1+local.podman\tdev", "MEMBER\tproj.1+local.podman\tcoordinator", 1), 0)
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if got := s.Rows[1].Role; got != "coordinator" {
+		t.Fatalf("seat 1 has role %q", got)
+	}
+	if !strings.Contains(s.Rows[1].Text(), "1 (coordinator)") {
+		t.Fatalf("the seat row does not say it is the coordinator: %q", s.Rows[1].Text())
+	}
+	if strings.Contains(s.Rows[2].Text(), "coordinator") {
+		t.Fatalf("a seat that is not the coordinator says so: %q", s.Rows[2].Text())
 	}
 }
 
