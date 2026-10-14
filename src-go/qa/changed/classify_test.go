@@ -277,6 +277,33 @@ func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 	}
 }
 
+func TestThePythonGateRunsWhenItsToolPinConfigOrTableChange(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{"src-go/qa/python/run.go", "src-go/qa/cmd/qa-python/main.go", "src-go/qa/internal/published/published.go", "ruff.toml"} {
+		w.touch(f, "// x")
+		p := w.classify([]string{f})
+		if !p.has("python") || len(p.uncovered) != 0 || len(p.skipped) != 0 {
+			t.Errorf("%s: checks %v uncovered %v skipped %v", f, keys(p), p.uncovered, p.skipped)
+		}
+	}
+	// The wrapper, the library it runs, the pin and the table it reads change what the gate does.
+	for _, f := range []string{"scripts/qa-python.bash", "scripts/lib/go-tool.bash", "scripts/qa-trees.tsv", ".qa-versions"} {
+		switch f {
+		case "scripts/qa-python.bash", "scripts/lib/go-tool.bash":
+			w.touch(f, "#!/usr/bin/bash")
+		case ".qa-versions":
+			w.touch(f, "RUFF=1\n")
+		}
+		if p := w.classify([]string{f}); !p.has("python") {
+			t.Errorf("%s: checks %v", f, keys(p))
+		}
+	}
+	w.touch("scripts/other.py", "# x")
+	if p := w.classify([]string{"scripts/other.py"}); p.has("python") {
+		t.Fatalf("an ordinary Python file runs the whole gate: %v", keys(p))
+	}
+}
+
 func TestParityReferencesRunTheGoGateAndStillClassify(t *testing.T) {
 	w := newWorld(t)
 	w.touch("files/var/local/claude-yolo/lib/common-pure.bash", "#!/usr/bin/bash")

@@ -67,6 +67,7 @@ var checkDefs = []checkDef{
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
 	{id: "ansible-patterns", fixed: "fail-fast patterns, whole gate", gate: true, tools: []string{toolBash}, run: runAnsiblePatterns},
 	{id: "patterns", fixed: "bash-convention rules, whole gate", gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runPatterns},
+	{id: "python", fixed: "compile and ruff, whole gate", gate: true, tools: []string{toolBash, toolGo, toolRuff, toolPython}, run: runPython},
 	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash}, run: runDocs},
 	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
@@ -138,6 +139,10 @@ func runAnsiblePatterns(ctx context.Context, s *session, _ *checkPlan) (checkRes
 
 func runPatterns(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.gateWithReport(ctx, "qa-patterns.bash")
+}
+
+func runPython(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.gateWithReport(ctx, "qa-python.bash")
 }
 
 func runDocs(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

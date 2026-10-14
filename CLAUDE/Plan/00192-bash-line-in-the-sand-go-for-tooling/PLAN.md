@@ -155,6 +155,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   branch in `fail()` is gone, B7 reworded, an error with no path prints `(no path)`, and the gosec
   exclusion is narrowed from the whole package to the files that read by computed path. Live
   tree after the fixes: 433 scanned, 17 partial-parse notes, exit 0.
+  `qa-python.bash` (P3, fifth gate) on `go-port/qa-python`: ported, not merged; spec
+  [SPEC-qa-python.md](SPEC-qa-python.md), expectations Y1-Y21, 16 departures B1-B16; nested
+  `src-go/qa/python`, `qa/cmd/qa-python` and `qa/internal/published` (the files git would publish,
+  the `qa-trees.tsv` reader and the exclusion test, which the discovery port will also need);
+  ruff and python3 stay the engines; the Go owns scope, the one-process compile (no `__pycache__`
+  written), template substitution, the proof that `ruff --show-files` lists every file, and the
+  judgement; the script a build-and-run wrapper, its allowlist row gone; `qa-changed` gains a
+  `python` check (the tool, `ruff.toml`, `.qa-versions`, the wrapper or `qa-trees.tsv` change).
+  Same 311 files and 1 template as the bash on the live tree, exit 0.
 
 ### Phase 4: Review
 
