@@ -96,7 +96,7 @@ user_email: "yourname@example.com"
 #   - team: <team>
 #     port: <port>
 #     listen: ["<bus_ip>"]
-#     allow_from: ["<cidr>"]
+#     allow_from: ["<cidr>"]     # only other machines (WireGuard) or a non-default bridge; the LXC bridge is added by the play
 #     humans: ["<name>"]
 #     org: <github-owner>        # every repository it owns is trusted, on any of its branches
 #     exclude: ["<repo>"]        # optional, needs org: repositories of it never trusted or referenced
@@ -114,8 +114,8 @@ user_email: "yourname@example.com"
 # Optional (Plan 00161): existing LXC containers whose agent users join a team hosted here,
 # applied by play-agent-bus.yml with README.lxc's steps (docs/agent-bus.md, "Joining a
 # team"). The play never creates the container or the user: both must exist, the container
-# running, and the team's allow_from must cover the LXC bridge's subnet (the play refuses,
-# naming the subnet to add). A joined member is left alone on later runs; state: absent
+# running. The play admits the LXC bridge's subnet (lxcbr0, or agent_bus_lxc_bridge) to
+# every present team itself; allow_from need not list it. A joined member is left alone on later runs; state: absent
 # parks its handle, deletes its bundle and takes the team out of its env file. Change
 # seat or host only through state: absent first, as they make the handle.
 #   team       a team declared present in agent_bus_teams

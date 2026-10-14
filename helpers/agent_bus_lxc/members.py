@@ -10,7 +10,8 @@ in its order, after README.lxc's requirement is checked for every container befo
   1. the kit, /usr/local/share/agent-bus/kit, copied into the container (only what differs
      is written) and its `pingbus` and `agent-bus-claude` linked into /usr/local/bin;
   2. the container's source address towards the bus address must be on a bridge of this
-     host and inside the team's `allow_from`: refused otherwise, naming the subnet to add;
+     host and inside the team's `allow_from` (the play adds the default LXC bridge's subnet
+     to every team): refused otherwise, naming the subnet to add;
   3. `HOOKS_DAEMON_HOSTNAME=<host> pingbus suggest-handle`, as the agent user in its
      checkout, gives `--repo` and `--host`, and must say `--type=lxc`;
   4. `agent-bus add-member ... --seat=<seat> --out=-`, the bundle placed by the agent user
@@ -650,8 +651,10 @@ def _check_route(host: Host, guest, members: Sequence[Member], bus: str) -> None
         if not covered(source, allow):
             raise MemberError(
                 f"team {member.team}'s allow_from ({', '.join(allow) or 'empty'}) does not cover LXC "
-                f"container {container} at {source} on bridge {dev}: add \"{cidr}\" to allow_from of "
-                f"team {member.team} in agent_bus_teams ({VARS_FILE}) and run the play again")
+                f"container {container} at {source} on bridge {dev}. The play admits the bridge named by "
+                f"agent_bus_lxc_bridge (lxcbr0 by default) itself; {dev} is another bridge, so either set "
+                f"agent_bus_lxc_bridge to {dev}, or add \"{cidr}\" to allow_from of "
+                f"team {member.team} in agent_bus_teams ({VARS_FILE}), and run the play again")
 
 
 def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable[[str], None]) -> None:

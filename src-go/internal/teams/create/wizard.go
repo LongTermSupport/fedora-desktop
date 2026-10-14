@@ -537,7 +537,7 @@ func (c *Wizard) askHumans(ctx context.Context, o *createOpts) error {
 }
 
 func (c *Wizard) askAllowFrom(ctx context.Context, o *createOpts) error {
-	if err := c.step(ctx, "Other machines", "Usually none: ccy sessions are on this machine. Only for LXC containers or other machines running agents, their subnet."); err != nil {
+	if err := c.step(ctx, "Other machines", "Usually none: ccy sessions and LXC containers on this machine are admitted automatically. Only for agents on other machines (WireGuard) or on a non-default bridge, their subnet."); err != nil {
 		return err
 	}
 	text, err := c.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {

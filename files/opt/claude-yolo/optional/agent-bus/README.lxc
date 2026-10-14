@@ -25,8 +25,9 @@ Elsewhere, by hand:
    one (exit 78).
 
 2. The network. The container reaches the homeserver host's bus address, `<bus_ip>`,
-   routed through the LXC bridge, so the team file's `allow_from` must list the bridge's
-   subnet. A container on another machine reaches the team over WireGuard instead.
+   routed through the LXC bridge. On a fedora-desktop host the play admits the bridge's
+   subnet to every team by itself; by hand, the team file's `allow_from` must list it. A
+   container on another machine reaches the team over WireGuard instead.
 
 3. The member's arguments. Inside the container, as the agent user, in its checkout:
 
