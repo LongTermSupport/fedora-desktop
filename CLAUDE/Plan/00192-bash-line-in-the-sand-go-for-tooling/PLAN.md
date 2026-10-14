@@ -186,6 +186,25 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `discovery.ShellShebang`, the bash trees reader refuses a table with no `shell` or no `python`
   row as the Go does (D14), a combined flag group such as `-ec` counts as `-c` (D6), and QA.md
   describes the Go readers.
+  `qa-deployed-drift.bash` (P3) on `go-port/qa-deployed-drift`: ported, not merged; spec
+  [SPEC-qa-deployed-drift.md](SPEC-qa-deployed-drift.md), expectations E1-E18; nested
+  `src-go/qa/deployeddrift`, `qa/cmd/qa-deployed-drift`; the script a build-and-run wrapper, its
+  allowlist row gone, gate row and routing unchanged. The three host skips keep their `⚠` lines;
+  departures: git failing is exit 2 (not "compare anyway"), an unreadable file is exit 2 (not
+  drift), a pair matching no file or naming a missing play is exit 2, tier-2 play lookup matches
+  whole words, `request.py` is excluded from the helpers entry only. Same verdict and stage line
+  as the bash on a clean clone of the live tree (0 match, 96 not installed, 2 templates).
+  Fable review (`subagent-reports/261014-fable-review-qa-deployed-drift.md`) disposition: F1 fixed
+  (the root is made absolute, cleaned and symlink-resolved once; a container is the marker files
+  `/run/.containerenv` or `/.dockerenv`, the rule `_planlib.inc.bash` uses, never the root's
+  spelling); F2 fixed (HOME cleaned, a relative HOME refused); F3 fixed (a dangling symlink in
+  the repo is exit 2 naming it); F4 fixed (E17: a deployed directory or dangling symlink is
+  drift); F5 fixed as the owner exec bit against the play's declared `mode:` (E18), full mode not
+  compared because the plays do not set it consistently; F6 recorded as a stated limit in E11, no
+  code change; F7 the pair table lives only in `run.go` (the spec points at it), and the
+  departure is that a stale pair row (E6) now turns every QA run red everywhere, container and CI
+  included, not only on the deployed host; F8 E9 reworded to the code's order (HOME is read after
+  the skips).
 
 ### Phase 4: Review
 
