@@ -38,6 +38,19 @@ Branch `fix/ccy-teams-find-team`. Not pushed, not merged, `qa-all.bash` not run.
 - The function-count budget: `ccy_launch_teams` is a new function, offset by inlining
   `save_launch_config` into its single call site (its parameter shuffling is gone).
 
+## Follow-up: a restore never gives a team (CCY 3.96.1)
+
+- A session restore no longer reads `LAST_TEAMS`; it takes `--teams` only from the session's
+  own record, so a teamless session restores teamless.
+- When Quick Launch applies the saved seats, the launcher calls the new
+  `ccy-teams record-seats <session> <seats>` (Go: `registry.Store.SetTeams`), which replaces
+  `--teams` in that session's registry record exactly as an explicit launch would carry it; a
+  restore then replays the seats from the record. No record or no session name is a no-op.
+- Red-first tests: `TestSetTeams*` (registry), `TestRecordSeats*` (find), and in
+  `test-ccy-teams.bash` the restore-stays-teamless, records-into-the-session, explicit-wins
+  and no-saved-team cases. The earlier "restore takes the saved team" decision above is
+  superseded. Ratchet: 2839 lines (base 2840), 12 functions, 2749 statements (base 2749).
+
 ## Bash-limits ratchet
 
 `claude-yolo`: code lines 2840 (base 2840), functions 12 (12), statements 2745 (base 2749).

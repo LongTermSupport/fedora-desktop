@@ -111,6 +111,16 @@ func TestDispatchForCheckoutIsTheFindFlow(t *testing.T) {
 	}
 }
 
+func TestDispatchRecordSeatsIsTheFindFlow(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"record-seats", "only-one"}); code != term.ExitUsage {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.ErrOut.String(), "record-seats") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
 func TestSubcommandsReachTheirRealFlowsWithTheirUsageErrors(t *testing.T) {
 	cases := []struct {
 		args []string

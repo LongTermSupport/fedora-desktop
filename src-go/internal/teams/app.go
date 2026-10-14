@@ -75,7 +75,7 @@ func (a *App) run(args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "create", "apply", "remove", "backup", "restore", "for-checkout":
+	case "", "create", "apply", "remove", "backup", "restore", "for-checkout", "record-seats":
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -110,6 +110,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Ops.Restore(ctx, rest)
 	case "for-checkout":
 		return a.Find.Run(ctx, rest)
+	case "record-seats":
+		return a.Find.RecordSeats(rest)
 	case "-l", "--list":
 		return a.Board.List(ctx)
 	default:

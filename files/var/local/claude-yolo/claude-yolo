@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.96.0"  # Container 2.54: bare --teams finds the team; Quick Launch remembers it. See docs/ccy-changelog.md.
+CCY_VERSION="3.96.1"  # Container 2.54: a restore never gives a session a team; Quick Launch records it. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -218,9 +218,7 @@ Options:
                          (sudo agent-bus add-member) and is held by one session at a
                          time. Without --teams a session is in no team. Needs
                          play-agent-bus.yml.
-                         --teams alone finds this checkout's team (ccy-teams
-                         for-checkout; none is an error). Quick Launch remembers the
-                         team; an explicit --teams overrides it.
+                         Bare --teams finds this checkout's team; Quick Launch keeps it.
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -1269,11 +1267,15 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                         SPECIFIED_NETWORK="$LAST_NETWORK"
                         NETWORK_FROM_CONFIG=true
                     fi
-                    # The saved seats, unless --teams was given: that one wins.
-                    if [[ -n "$LAST_TEAMS" && "$TEAMS_GIVEN" = false ]]; then
+                    # The saved seats, unless --teams was given (that one wins) or this is a
+                    # restore: joining a team is not a preference, so a restore takes --teams
+                    # only from the session's own record. The seats go into that record, as an
+                    # explicit --teams would be, so a restore of this session replays them.
+                    if [[ -n "$LAST_TEAMS" && "$TEAMS_GIVEN" = false && "$SESSION_RESTORE" = false ]]; then
                         TEAMS_LIST="$LAST_TEAMS"
                         ccy_launch_teams
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")
+                        ccy-teams record-seats "$(ccy_tmux_current_session)" "$CCY_SEATS" || exit 1
                     fi
                     # Headless, an empty saved choice is that choice (no key, no network),
                     # never the picker it would otherwise fall through to; a saved launch

@@ -86,6 +86,10 @@ Usage:
                                    one: the only match, or the one you pick of several (with
                                    nobody to ask, it fails naming them). With none, it fails
                                    saying so. ccy --teams with no value calls it
+  ccy-teams record-seats <session> <seats>
+                                   put the seats (a canonical --teams list) into the ccy
+                                   session's own record, so its restore replays them. ccy
+                                   calls it when Quick Launch brings a saved team back
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

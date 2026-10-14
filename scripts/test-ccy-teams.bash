@@ -468,6 +468,8 @@ quick() {
         token_expiry_label() { :; }
         read() { if [ "$1" = -rp ]; then echo PROMPT >>"$PROMPT_LOG"; return 1; fi; builtin read "$@"; }
         ccy_launch_teams() { printf "%s\n" "$TEAMS_LIST" >"$TEAMS_LOG"; CCY_SEATS="$TEAMS_LIST"; }
+        ccy_tmux_current_session() { echo ccy-sess; }
+        ccy-teams() { printf "%s\n" "$*" >>"$TEAMS_REC"; }
         CONFIG_VERSION=2 CCY_VERSION=9.9.9 CCY_HASH=h TOKEN_DIR=/nonexistent CCY_PROMPT_QUICK_LAUNCH="?"
         HEADLESS_MODE="$1" SESSION_RESTORE="${QUICK_RESTORE:-false}" NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
@@ -483,7 +485,14 @@ quick() {
 export PROMPT_LOG="$work/prompt.log"
 # What the block printed on stdout: a headless session's stdout is its output (StderrHygiene).
 export QUICK_OUT="$work/quick.out"
-export TEAMS_LOG="$work/teams-launched.log" TEAMS_END="$work/teams-end.txt"
+export TEAMS_LOG="$work/teams-launched.log" TEAMS_END="$work/teams-end.txt" TEAMS_REC="$work/teams-recorded.log"
+# recorded_after <quick args...>: what the launch put into its session's record (ccy-teams
+# record-seats calls), or none.
+recorded_after() {
+    : >"$TEAMS_REC"
+    quick "$@" >/dev/null
+    if [ -s "$TEAMS_REC" ]; then paste -sd'|' "$TEAMS_REC"; else echo none; fi
+}
 # save <token> <keys> <network> [teams]: a format-2 file, as the launcher writes it.
 save() {
     : >"$PROMPT_LOG"
@@ -536,8 +545,18 @@ save personal /keys/id_a proj_net dev1@team-a
 check "interactive, the previous configuration accepted: the team comes with it" \
     "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(teams_after false)"
 save personal /keys/id_a proj_net dev1@team-a
-check "a session restore takes the saved team as it takes the rest" \
-    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_RESTORE=true teams_after false)"
+check "a session restore never takes the saved team: it is in a team only if its own record says so" \
+    "ran= end=|--orig" "$(QUICK_RESTORE=true teams_after false)"
+check "  and it records nothing" "none" "$(QUICK_RESTORE=true recorded_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "a quick-launched team goes into the session's own record, as an explicit --teams does" \
+    "record-seats ccy-sess dev1@team-a" "$(recorded_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "an explicit --teams records nothing here (the launch's arguments carry it)" "none" \
+    "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team recorded_after false)"
+save personal /keys/id_a proj_net ""
+check "a launch with no saved team records nothing" "none" "$(recorded_after false)"
+save personal /keys/id_a proj_net dev1@team-a
 save personal /keys/id_a proj_net ""
 check "saved with no team: none is launched into" "ran= end=|--orig" "$(teams_after true)"
 check "  the summary says none" "yes" "$(has "Team:    none" "$work/quick.err")"

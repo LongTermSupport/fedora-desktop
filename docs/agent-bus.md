@@ -60,8 +60,9 @@ that play.
    says so and stops. It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
    free seat, or a new one. ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
-   configuration" at the Quick Launch prompt (or a restore) launches into them again, and an
-   explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
+   configuration" at the Quick Launch prompt launches into them again (and records them in that
+   session's own record, which is all a reboot restore reads: a restore never gives a session
+   a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
    covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
    `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
