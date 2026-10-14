@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "helpers/pkg/__init__.py"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ruff: helpers/pkg/__init__.py\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

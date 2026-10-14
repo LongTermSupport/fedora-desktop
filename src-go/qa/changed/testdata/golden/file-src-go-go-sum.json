@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "src-go/go.sum"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\nsuite scripts/test-teams.bash: builds from src-go/go.sum\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

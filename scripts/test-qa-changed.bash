@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Unit-test scripts/qa-changed.bash's file -> check mapping through its --plan mode, which
-# prints the chosen checks without running any of them.
+# Black-box test of scripts/qa-changed.bash (the build-and-run wrapper over the Go tool in
+# src-go/qa/changed): its file -> check mapping through --plan, which prints the chosen checks
+# without running any of them, and its command line and exit codes. The mapping itself is data:
+# scripts/qa-routing.tsv (rules) and scripts/qa-trees.tsv (excluded trees); a change to either
+# selects this suite.
 #
 # Two halves: (1) `--plan --files` against real repo paths, asserting which checks and suites
 # each kind of file selects, including the "not covered" warning; (2) the git collection
@@ -12,15 +15,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET="$SCRIPT_DIR/qa-changed.bash"
-
-if [[ ! -f "$TARGET" ]]; then
-    echo "ERROR: $TARGET not found — nothing to test." >&2
-    exit 2
-fi
-
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
+
+# The cases run the Go binary, built once here (a build per case made this suite slower than the
+# bash it tests); QA_CHANGED_BIN names a prebuilt one instead. The wrapper itself, which builds
+# and runs the tool, is exercised by its own section at the end ("the wrapper").
+if [[ -n "${QA_CHANGED_BIN:-}" ]]; then
+    BIN="$QA_CHANGED_BIN"
+    if [[ ! -x "$BIN" ]]; then
+        echo "ERROR: QA_CHANGED_BIN=$BIN is not an executable — nothing to test." >&2
+        exit 2
+    fi
+else
+    BIN="$SCRATCH/qa-changed"
+    go build -C "$SCRIPT_DIR/../src-go/qa" -o "$BIN" ./cmd/qa-changed
+fi
+TARGET=("$BIN" --scripts "$SCRIPT_DIR")
+if [[ ! -f "$SCRIPT_DIR/qa-changed.bash" ]]; then
+    echo "ERROR: $SCRIPT_DIR/qa-changed.bash not found — nothing to test." >&2
+    exit 2
+fi
 
 PASS=0
 FAIL=0
@@ -49,7 +64,7 @@ expect_lacks() {
 }
 
 plan_for() {
-    bash "$TARGET" --plan --files "$@"
+    "${TARGET[@]}" --plan --files "$@"
 }
 
 echo "== file -> check mapping (--plan --files, real repo paths) =="
@@ -102,8 +117,9 @@ wf_name="qa"
 plan="$(plan_for "$wf_dir/${wf_name}.yml")"
 expect_has "unmapped file is reported" "$plan" "not covered by qa-changed: $wf_dir/${wf_name}.yml"
 
-plan="$(plan_for no/such/file.bash)"
-expect_has "nonexistent file is dropped" "$plan" "no changed files"
+plan="$(plan_for no/such/file.bash scripts/qa-bash.bash 2> /dev/null)"
+expect_has "nonexistent file is dropped, the others planned" "$plan" "check shellcheck: scripts/qa-bash.bash"
+expect_lacks "nonexistent file is not planned" "$plan" "no/such/file.bash"
 
 echo
 echo "== git collection (scratch repository) =="
@@ -126,13 +142,16 @@ printf 'x = 1\n' > "$REPO/new.py"
 printf '#!/usr/bin/bash\n:\n' > "$REPO/ignored.bash"
 
 scratch_plan() {
-    QA_CHANGED_ROOT="$REPO" bash "$TARGET" --plan "$@"
+    QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan "$@"
 }
 
 plan="$(scratch_plan)"
 expect_has "modified file is collected" "$plan" "check bash-syntax: kept.bash"
 expect_has "untracked file is collected" "$plan" "check ruff: new.py"
-expect_lacks "deleted file is dropped" "$plan" "gone.bash"
+# A deleted file has nothing left to check, so no per-file check lists it (it may still run a
+# whole gate, or a suite that names it).
+expect_lacks "deleted file: no per-file check lists it" "$plan" "kept.bash gone.bash"
+expect_lacks "deleted file: not checked per file" "$plan" "check shellcheck: gone.bash"
 expect_lacks "ignored file is dropped" "$plan" "ignored.bash"
 
 git_s add -A
@@ -141,7 +160,7 @@ plan="$(scratch_plan)"
 expect_has "clean tree says so" "$plan" "no changed files"
 
 rc=0
-QA_CHANGED_ROOT="$REPO" bash "$TARGET" > /dev/null || rc=$?
+QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" > /dev/null || rc=$?
 if [[ $rc -eq 0 ]]; then
     printf '  ok    clean tree: exit 0\n'
     PASS=$((PASS + 1))
@@ -227,7 +246,9 @@ echo
 echo "== src-go -> every binary has a suite entry =="
 # scripts/go-binary-suites.tsv is a hand-kept table; a new src-go/cmd/<x> missing from it would be
 # built and deployed with no suite selected for its changes and no warning.
-plan="$(plan_for src-go/cmd/ccy-unmapped/main.go)"
+# The unmapped command's file does not exist (the control is its absence from the table); README.md
+# is the one real file the list needs and selects no suite.
+plan="$(plan_for src-go/cmd/ccy-unmapped/main.go README.md 2> /dev/null)"
 expect_lacks "binaries: the control, a command with no entry, selects no suite" "$plan" "suite scripts/"
 for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     cmd_name="$(basename "$cmd_dir")"
@@ -241,6 +262,86 @@ for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
         expect_has "binaries: $cmd_name has a suite entry" "$plan" "suite scripts/"
     fi
 done
+
+echo
+echo "== command line and exit codes =="
+# capture <command...> — run it, keeping stdout in OUT, stderr in ERR and the status in RC.
+capture() {
+    RC=0
+    OUT="$("$@" 2> "$SCRATCH/err")" || RC=$?
+    ERR="$(<"$SCRATCH/err")"
+}
+expect_rc() {
+    local label="$1" want="$2"
+    if [[ "$RC" -eq "$want" ]]; then
+        printf '  ok    %s\n' "$label"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s — exit %s, wanted %s\n' "$label" "$RC" "$want"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+capture "${TARGET[@]}" --help
+expect_rc "--help: exit 0" 0
+expect_has "--help: usage on stdout" "$OUT" "usage: qa-changed"
+expect_lacks "--help: nothing on stderr" "$ERR" "usage"
+capture "${TARGET[@]}" --nope
+expect_rc "unknown argument: exit 2" 2
+expect_has "unknown argument: named on stderr" "$ERR" "ERROR: unknown argument '--nope'"
+capture "${TARGET[@]}" --base
+expect_rc "--base without a ref: exit 2" 2
+capture "${TARGET[@]}" --base --plan
+expect_rc "--base does not take a flag as its ref: exit 2" 2
+capture "${TARGET[@]}" --plan --files
+expect_rc "--files without a file: exit 2" 2
+capture "${TARGET[@]}" --files scripts/qa-bash.bash --plan
+expect_rc "--files then --plan: plans" 0
+expect_has "--files then --plan: the plan is printed" "$OUT" "check bash-syntax: scripts/qa-bash.bash"
+expect_lacks "--files then --plan: nothing ran" "$OUT" "✓"
+capture "${TARGET[@]}" --plan --files ./scripts/qa-bash.bash scripts/qa-bash.bash
+expect_has "an explicit path is cleaned of ./" "$OUT" "check bash-syntax: scripts/qa-bash.bash"
+expect_lacks "a file named twice is one file" "$OUT" "scripts/qa-bash.bash scripts/qa-bash.bash"
+capture "${TARGET[@]}" --plan --files no/such/file.bash
+expect_rc "a list naming no existing file: exit 2, not nothing to check" 2
+expect_has "a list naming no existing file says so" "$ERR" "names no existing file"
+capture "${TARGET[@]}" --plan --files ../outside.bash
+expect_rc "a path outside the repository: exit 2" 2
+capture env QA_CHANGED_ROOT=/no/such/directory "${TARGET[@]}" --plan
+expect_rc "an unreadable root: exit 2" 2
+capture env QA_CHANGED_TIMEOUT=soon "${TARGET[@]}" --plan --files scripts/qa-bash.bash
+expect_rc "a bad QA_CHANGED_TIMEOUT: exit 2" 2
+
+echo
+echo "== a deleted allowlisted tool, a bad base, the lint config, task files =="
+capture env QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan --base nosuchref
+expect_rc "a bad --base is exit 2, not 'nothing to check'" 2
+expect_lacks "a bad --base does not say nothing to check" "$OUT" "nothing to check"
+
+mkdir -p "$REPO/files/home/.local/bin"
+printf '#!/usr/bin/env python3\n' > "$REPO/files/home/.local/bin/ftp-camera"
+git_s add -A
+git_s commit -q -m "a listed tool"
+rm "$REPO/files/home/.local/bin/ftp-camera"
+capture env QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan
+expect_has "a deleted allowlisted tool runs the bash-limits gate" "$OUT" "check bash-limits"
+expect_lacks "a deleted file is not checked per file" "$OUT" "check shellcheck: files/home"
+
+capture "${TARGET[@]}" --plan --files src-go/.golangci.yml
+expect_has "the Go lint config runs the Go gate" "$OUT" "check go"
+expect_lacks "the Go lint config is covered" "$OUT" "not covered by qa-changed: src-go/.golangci.yml"
+capture "${TARGET[@]}" --plan --files tasks/build-go-command.yml
+expect_has "a task file runs the patterns gate" "$OUT" "check ansible-patterns"
+expect_has "a task file maps to the playbooks that name it" "$OUT" "check ansible-syntax: "
+
+echo
+echo "== the wrapper (the one section that builds and runs the tool through qa-changed.bash) =="
+capture bash "$SCRIPT_DIR/qa-changed.bash" --plan --files scripts/qa-bash.bash
+expect_rc "the wrapper builds the tool and runs it: exit 0" 0
+expect_has "the wrapper passes its arguments through" "$OUT" "check shellcheck: scripts/qa-bash.bash"
+capture env -u HOME -u XDG_CACHE_HOME bash "$SCRIPT_DIR/qa-changed.bash" --plan --files scripts/qa-bash.bash
+expect_rc "no home and no cache directory: exit 2" 2
+expect_has "no home names the missing variable" "$ERR" "neither XDG_CACHE_HOME nor HOME is set"
 
 echo
 echo "=============================================================="

@@ -1,0 +1,98 @@
+// Package proc is the one place the QA module starts a process: every command a QA tool runs
+// (git, the gates, the checked tools) goes through a Runner, so a test can substitute a fake
+// and see the argv. The nested QA module cannot import the main module's execx (its go.mod
+// must stay dependency-free), so this is its own seam, shared by qa/bashlimits and qa/changed.
+package proc
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"syscall"
+	"time"
+)
+
+// killGrace is how long a killed command's output pipes get to drain before Run gives up on them.
+const killGrace = 2 * time.Second
+
+// Cmd is one command to run.
+type Cmd struct {
+	Argv []string
+	// Dir is the working directory ("" is the caller's).
+	Dir string
+	// Env is extra KEY=value entries added to the caller's environment.
+	Env []string
+	// Merge sends stderr into Stdout, in the order the command wrote them.
+	Merge bool
+}
+
+// Result is how a command ended.
+type Result struct {
+	Stdout, Stderr string
+	// Code is the exit status; -1 when the command was killed by a signal.
+	Code int
+	// TimedOut is that the context's deadline passed before the command ended; the command's
+	// process group was killed.
+	TimedOut bool
+}
+
+// Runner runs a command. The error is for a command that could not be started at all; a
+// command that ran and failed is a Result with its Code.
+type Runner interface {
+	Run(ctx context.Context, cmd Cmd) (Result, error)
+}
+
+// OS runs commands on this machine, each in its own process group so that ending the context
+// ends the command and everything it started.
+type OS struct{}
+
+// Run implements Runner.
+func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
+	if len(c.Argv) == 0 {
+		return Result{}, errors.New("proc: empty argv")
+	}
+	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
+	cmd.Dir = c.Dir
+	if len(c.Env) > 0 {
+		cmd.Env = append(os.Environ(), c.Env...)
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = killGrace
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	if c.Merge {
+		cmd.Stderr = &stdout
+	} else {
+		cmd.Stderr = &stderr
+	}
+	runErr := cmd.Run()
+	if cmd.ProcessState == nil {
+		return Result{}, fmt.Errorf("proc %s: %w", c.Argv[0], runErr)
+	}
+	res := Result{Stdout: stdout.String(), Stderr: stderr.String(), Code: cmd.ProcessState.ExitCode()}
+	return res.finish(ctx, runErr, c.Argv[0])
+}
+
+// finish settles how the run ended: a context that ended first is a kill (a timeout when it was
+// the deadline), a non-zero exit is a Result, anything else is a failure of the run itself.
+func (r Result) finish(ctx context.Context, runErr error, program string) (Result, error) {
+	r.TimedOut = errors.Is(ctx.Err(), context.DeadlineExceeded)
+	if err := runFailure(runErr, ctx.Err() != nil); err != nil {
+		return Result{}, fmt.Errorf("proc %s: %w", program, err)
+	}
+	return r, nil
+}
+
+// runFailure is the run error that means the command did not run to an exit: not a kill by the
+// context, and not merely a non-zero status.
+func runFailure(runErr error, killed bool) error {
+	var exitErr *exec.ExitError
+	if killed || errors.As(runErr, &exitErr) {
+		return nil
+	}
+	return runErr
+}

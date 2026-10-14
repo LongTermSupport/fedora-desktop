@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "helpers/agent_bus/declare.py"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ruff: helpers/agent_bus/declare.py\ncheck go\nnote: helpers/agent_bus/declare.py: no mirrored unit test (tests/helpers/agent_bus/test_declare.py)\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

@@ -42,7 +42,7 @@ replacement); add the capability to execx if it is missing.`,
 }
 
 func runSeamExec(pass *analysis.Pass) {
-	if ownedBy(pass.Pkg.Path(), execOwner) {
+	if ownedByAny(pass.Pkg.Path(), execOwners) {
 		return
 	}
 	for _, f := range pass.Files {
@@ -60,17 +60,17 @@ func checkExecUse(pass *analysis.Pass, id *ast.Ident) {
 	case *types.Func:
 		if recv := receiverNamed(obj); recv != nil {
 			if isOSExecCmd(recv) && slices.Contains(cmdRunners, obj.Name()) {
-				pass.Reportf(id.Pos(), "(*exec.Cmd).%s outside %s: run the command through the execx runner", obj.Name(), execOwner)
+				pass.Reportf(id.Pos(), "(*exec.Cmd).%s outside %s: run the command through the execx runner", obj.Name(), execOwnerNames)
 			}
 			return
 		}
 		if obj.Pkg() != nil && slices.Contains(startsProcess[obj.Pkg().Path()], obj.Name()) {
 			pass.Reportf(id.Pos(), "%s.%s outside %s: run the command through the execx runner",
-				obj.Pkg().Name(), obj.Name(), execOwner)
+				obj.Pkg().Name(), obj.Name(), execOwnerNames)
 		}
 	case *types.TypeName:
 		if isOSExecCmd(obj.Type()) {
-			pass.Reportf(id.Pos(), "exec.Cmd outside %s: run the command through the execx runner", execOwner)
+			pass.Reportf(id.Pos(), "exec.Cmd outside %s: run the command through the execx runner", execOwnerNames)
 		}
 	}
 }

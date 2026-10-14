@@ -1,0 +1,14 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "tasks/step.yml",
+  "vars/names.yml",
+  "vars/unnamed.yml",
+  "other/data.yml"
+ ],
+ "stdout": "plan: 4 changed file(s) vs HEAD\ncheck ansible-syntax: playbooks/imports/play-a.yml\ncheck ansible-patterns\nsuite scripts/test-beta.bash: names vars/names.yml\nnote: vars/names.yml: no playbook names 'names.yml', so no ansible-syntax target (patterns gate only)\nnote: vars/unnamed.yml: no playbook names 'unnamed.yml', so no ansible-syntax target (patterns gate only)\n\u26a0 not covered by qa-changed: other/data.yml\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

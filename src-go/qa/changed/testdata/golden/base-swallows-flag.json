@@ -1,0 +1,10 @@
+{
+ "args": [
+  "--base",
+  "--plan"
+ ],
+ "stdout": "qa-changed: no changed files (vs --plan, plus untracked) \u2014 nothing to check.\n",
+ "stderr": "error: invalid option: --plan\n",
+ "status": 0,
+ "log": []
+}

@@ -1,0 +1,13 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "src-go/internal/teams/t.go",
+  "src-go/internal/other/o.go",
+  "src-go/go.mod"
+ ],
+ "stdout": "plan: 3 changed file(s) vs HEAD\ncheck go\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go; builds from src-go/go.mod\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

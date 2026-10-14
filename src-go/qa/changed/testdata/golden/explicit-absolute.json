@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "{ROOT}/tools/run.sh"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: <ROOT>/tools/run.sh\ncheck shellcheck: <ROOT>/tools/run.sh\ncheck semgrep: <ROOT>/tools/run.sh\ncheck bash-limits\nsuite scripts/test-alpha.bash: names <ROOT>/tools/run.sh\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

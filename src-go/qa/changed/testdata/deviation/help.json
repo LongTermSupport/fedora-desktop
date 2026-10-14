@@ -1,0 +1,6 @@
+{
+ "stdout": "usage: qa-changed [--base REF] [--plan] [--files FILE...]\n\nDiff-scoped QA for use while iterating. Runs only the checks the CHANGED files need; the full\n./scripts/qa-all.bash (every gate, every suite) is needed only before a push.\n\n  (no flags)      files changed vs HEAD, plus untracked (not ignored)\n  --base REF      files changed vs REF (e.g. origin/F44), so a burst of local commits is\n                  covered, plus untracked\n  --plan          print the chosen checks, run nothing\n  --files FILE... use exactly these repo-relative files (no git diff); flags may follow\n  --root DIR      the repository root (QA_CHANGED_ROOT does the same)\n  --scripts DIR   the scripts directory holding the gates, suites and routing tables\n  -h, --help      this text\n\nWhat each kind of file gets is scripts/qa-routing.tsv; the excluded trees are\nscripts/qa-trees.tsv; the Go command suites are scripts/go-binary-suites.tsv. A changed file\nthat maps to no check is reported \"not covered by qa-changed\", never silently.\n\nQA_CHANGED_TIMEOUT is the per-check time limit as a Go duration (30m default, 0 disables).\n\nExit codes: 0 pass (or nothing changed), 1 a check failed, 2 bad usage, a missing tool, or a\ncheck that could not run. stdout is the report; failure detail goes to stderr.\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

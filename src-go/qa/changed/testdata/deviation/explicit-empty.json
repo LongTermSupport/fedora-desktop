@@ -1,0 +1,6 @@
+{
+ "stdout": "",
+ "stderr": "ERROR: --files needs at least one file\n",
+ "status": 2,
+ "log": []
+}

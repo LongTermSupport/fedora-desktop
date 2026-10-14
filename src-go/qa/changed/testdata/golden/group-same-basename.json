@@ -1,0 +1,12 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "pkg1/main.go",
+  "pkg2/main.go"
+ ],
+ "stdout": "plan: 2 changed file(s) vs HEAD\nsuite scripts/test-alpha.bash: names pkg2/main.go\n\u26a0 not covered by qa-changed: pkg1/main.go\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

@@ -1,0 +1,1430 @@
+{
+ "revision": "f0284848feede3c1d8550972d6aef7bd80a9dcd7",
+ "scenarios": [
+  {
+   "name": "file-github-workflows-ci-yml",
+   "args": [
+    "--plan",
+    "--files",
+    ".github/workflows/ci.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-gitignore",
+   "args": [
+    "--plan",
+    "--files",
+    ".gitignore"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-semgrep-bash-conventions-yml",
+   "args": [
+    "--plan",
+    "--files",
+    ".semgrep/bash-conventions.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-a-txt",
+   "args": [
+    "--plan",
+    "--files",
+    "a.txt"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-ansible-cfg",
+   "args": [
+    "--plan",
+    "--files",
+    "ansible.cfg"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-ccy",
+   "args": [
+    "--plan",
+    "--files",
+    "ccy"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-ccy-teams",
+   "args": [
+    "--plan",
+    "--files",
+    "ccy-teams"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-docs-readme-md",
+   "args": [
+    "--plan",
+    "--files",
+    "docs/readme.md"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-extensions-ext-x-extension-js",
+   "args": [
+    "--plan",
+    "--files",
+    "extensions/ext@x/extension.js"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-extensions-ext-x-ok-mjs",
+   "args": [
+    "--plan",
+    "--files",
+    "extensions/ext@x/ok.mjs"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-extensions-node-modules-dep-js",
+   "args": [
+    "--plan",
+    "--files",
+    "extensions/node_modules/dep.js"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-files-home-local-bin-listed-tool",
+   "args": [
+    "--plan",
+    "--files",
+    "files/home/.local/bin/listed-tool"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-files-home-local-bin-tmpl-j2",
+   "args": [
+    "--plan",
+    "--files",
+    "files/home/.local/bin/tmpl.j2"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-files-var-local-claude-yolo-lib-common-pure-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "files/var/local/claude-yolo/lib/common-pure.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-gone-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "gone.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-helpers-agent-bus-declare-py",
+   "args": [
+    "--plan",
+    "--files",
+    "helpers/agent_bus/declare.py"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-helpers-pkg-init-py",
+   "args": [
+    "--plan",
+    "--files",
+    "helpers/pkg/__init__.py"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-helpers-pkg-lonely-py",
+   "args": [
+    "--plan",
+    "--files",
+    "helpers/pkg/lonely.py"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-helpers-pkg-mod-py",
+   "args": [
+    "--plan",
+    "--files",
+    "helpers/pkg/mod.py"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-kept-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "kept.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-lib-util-sh",
+   "args": [
+    "--plan",
+    "--files",
+    "lib/util.sh"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-misc-other-txt",
+   "args": [
+    "--plan",
+    "--files",
+    "misc/other.txt"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-other-data-yml",
+   "args": [
+    "--plan",
+    "--files",
+    "other/data.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-pkg1-main-go",
+   "args": [
+    "--plan",
+    "--files",
+    "pkg1/main.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-pkg2-main-go",
+   "args": [
+    "--plan",
+    "--files",
+    "pkg2/main.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-playbooks-imports-play-a-yml",
+   "args": [
+    "--plan",
+    "--files",
+    "playbooks/imports/play-a.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-playbooks-play-main-yml",
+   "args": [
+    "--plan",
+    "--files",
+    "playbooks/play-main.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-bash-limits-allowlist",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/bash-limits.allowlist"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-go-binary-suites-tsv",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/go-binary-suites.tsv"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-qa-all-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/qa-all.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-qa-ansible-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/qa-ansible.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-qa-bash-limits-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/qa-bash-limits.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-qa-docs-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/qa-docs.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-qa-go-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/qa-go.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-qa-toolchain-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/qa-toolchain.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-test-alpha-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/test-alpha.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-test-beta-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/test-beta.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-scripts-test-teams-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/test-teams.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-golangci-yml",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/.golangci.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-README-md",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/README.md"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-cmd-frz-main-go",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/cmd/frz/main.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-cmd-teams-main-go",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/cmd/teams/main.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-go-mod",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/go.mod"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-go-sum",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/go.sum"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-internal-frz-f-go",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/internal/frz/f.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-internal-other-o-go",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/internal/other/o.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-internal-teams-t-go",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/internal/teams/t.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-internal-teams-t-test-go",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/internal/teams/t_test.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-src-go-qa-x-q-go",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/qa/x/q.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-tasks-step-yml",
+   "args": [
+    "--plan",
+    "--files",
+    "tasks/step.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-tests-helpers-pkg-test-mod-py",
+   "args": [
+    "--plan",
+    "--files",
+    "tests/helpers/pkg/test_mod.py"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-tools-bash-tool",
+   "args": [
+    "--plan",
+    "--files",
+    "tools/bash-tool"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-tools-inline",
+   "args": [
+    "--plan",
+    "--files",
+    "tools/inline"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-tools-plain-js",
+   "args": [
+    "--plan",
+    "--files",
+    "tools/plain.js"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-tools-py-tool",
+   "args": [
+    "--plan",
+    "--files",
+    "tools/py-tool"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-tools-run-sh",
+   "args": [
+    "--plan",
+    "--files",
+    "tools/run.sh"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-untracked-skip-bash",
+   "args": [
+    "--plan",
+    "--files",
+    "untracked/skip.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-untracked-skip-py",
+   "args": [
+    "--plan",
+    "--files",
+    "untracked/skip.py"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-vars-names-yml",
+   "args": [
+    "--plan",
+    "--files",
+    "vars/names.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "file-vars-unnamed-yml",
+   "args": [
+    "--plan",
+    "--files",
+    "vars/unnamed.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-shell-and-python",
+   "args": [
+    "--plan",
+    "--files",
+    "tools/run.sh",
+    "helpers/pkg/mod.py",
+    "tools/py-tool"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-go-closure",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/internal/teams/t.go",
+    "src-go/internal/other/o.go",
+    "src-go/go.mod"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-go-frz-only",
+   "args": [
+    "--plan",
+    "--files",
+    "src-go/internal/frz/f.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-everything",
+   "args": [
+    "--plan",
+    "--files",
+    ".github/workflows/ci.yml",
+    ".gitignore",
+    ".semgrep/bash-conventions.yml",
+    "a.txt",
+    "ansible.cfg",
+    "ccy",
+    "ccy-teams",
+    "docs/readme.md",
+    "extensions/ext@x/extension.js",
+    "extensions/ext@x/ok.mjs",
+    "extensions/node_modules/dep.js",
+    "files/home/.local/bin/listed-tool",
+    "files/home/.local/bin/tmpl.j2",
+    "files/var/local/claude-yolo/lib/common-pure.bash",
+    "gone.bash",
+    "helpers/agent_bus/declare.py",
+    "helpers/pkg/__init__.py",
+    "helpers/pkg/lonely.py",
+    "helpers/pkg/mod.py",
+    "kept.bash",
+    "lib/util.sh",
+    "misc/other.txt",
+    "other/data.yml",
+    "pkg1/main.go",
+    "pkg2/main.go",
+    "playbooks/imports/play-a.yml",
+    "playbooks/play-main.yml",
+    "src-go/.golangci.yml",
+    "src-go/README.md",
+    "src-go/cmd/frz/main.go",
+    "src-go/cmd/teams/main.go",
+    "src-go/go.mod",
+    "src-go/go.sum",
+    "src-go/internal/frz/f.go",
+    "src-go/internal/other/o.go",
+    "src-go/internal/teams/t.go",
+    "src-go/internal/teams/t_test.go",
+    "src-go/qa/x/q.go",
+    "tasks/step.yml",
+    "tests/helpers/pkg/test_mod.py",
+    "tools/bash-tool",
+    "tools/inline",
+    "tools/plain.js",
+    "tools/py-tool",
+    "tools/run.sh",
+    "untracked/skip.bash",
+    "untracked/skip.py",
+    "vars/names.yml",
+    "vars/unnamed.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-same-basename",
+   "args": [
+    "--plan",
+    "--files",
+    "pkg1/main.go",
+    "pkg2/main.go"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-name-in-name",
+   "args": [
+    "--plan",
+    "--files",
+    "ccy",
+    "ccy-teams"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-suite-and-file",
+   "args": [
+    "--plan",
+    "--files",
+    "scripts/test-alpha.bash",
+    "tools/run.sh"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-yaml-set",
+   "args": [
+    "--plan",
+    "--files",
+    "tasks/step.yml",
+    "vars/names.yml",
+    "vars/unnamed.yml",
+    "other/data.yml"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "group-two-md",
+   "args": [
+    "--plan",
+    "--files",
+    "docs/readme.md",
+    "src-go/README.md"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "explicit-dot-slash",
+   "args": [
+    "--plan",
+    "--files",
+    "./tools/run.sh"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "explicit-duplicates",
+   "args": [
+    "--plan",
+    "--files",
+    "tools/run.sh",
+    "tools/run.sh"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "explicit-absolute",
+   "args": [
+    "--plan",
+    "--files",
+    "{ROOT}/tools/run.sh"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "explicit-missing",
+   "args": [
+    "--plan",
+    "--files",
+    "no/such/file.bash"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "explicit-empty",
+   "args": [
+    "--plan",
+    "--files"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "explicit-then-flag",
+   "args": [
+    "--files",
+    "tools/run.sh",
+    "--plan"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "help",
+   "args": [
+    "--help"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "unknown-flag",
+   "args": [
+    "--nope"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "base-needs-ref",
+   "args": [
+    "--base"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "base-swallows-flag",
+   "args": [
+    "--base",
+    "--plan"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "bad-base",
+   "args": [
+    "--plan",
+    "--base",
+    "nosuchref"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "clean-tree",
+   "args": [
+    "--plan"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "clean-tree-run",
+   "args": [],
+   "setup": {}
+  },
+  {
+   "name": "git-modified-untracked-deleted",
+   "args": [
+    "--plan"
+   ],
+   "setup": {
+    "write": {
+     "kept.bash": "#!/usr/bin/bash\n: changed\n",
+     "new.py": "x = 1\n",
+     "ignored.bash": ":\n"
+    },
+    "delete": [
+     "gone.bash"
+    ]
+   }
+  },
+  {
+   "name": "git-deleted-allowlisted",
+   "args": [
+    "--plan"
+   ],
+   "setup": {
+    "delete": [
+     "files/home/.local/bin/listed-tool"
+    ]
+   }
+  },
+  {
+   "name": "git-deleted-go",
+   "args": [
+    "--plan"
+   ],
+   "setup": {
+    "delete": [
+     "src-go/internal/teams/t.go"
+    ]
+   }
+  },
+  {
+   "name": "git-deleted-named-by-suite",
+   "args": [
+    "--plan"
+   ],
+   "setup": {
+    "delete": [
+     "lib/util.sh"
+    ]
+   }
+  },
+  {
+   "name": "git-rename",
+   "args": [
+    "--plan"
+   ],
+   "setup": {
+    "rename": [
+     [
+      "kept.bash",
+      "renamed.bash"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "git-base-committed",
+   "args": [
+    "--plan",
+    "--base",
+    "{FIRST}"
+   ],
+   "setup": {
+    "write": {
+     "kept.bash": "#!/usr/bin/bash\n: second\n"
+    },
+    "commit": true
+   }
+  },
+  {
+   "name": "git-staged-only",
+   "args": [
+    "--plan"
+   ],
+   "setup": {
+    "write": {
+     "kept.bash": "#!/usr/bin/bash\n: staged\n"
+    },
+    "stage": true
+   }
+  },
+  {
+   "name": "git-submodule-like-dir",
+   "args": [
+    "--plan"
+   ],
+   "setup": {
+    "write": {
+     "emptydir/.keep": ""
+    },
+    "delete": []
+   }
+  },
+  {
+   "name": "run-all-pass",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   }
+  },
+  {
+   "name": "run-fail-shellcheck",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "shellcheck": 1
+   }
+  },
+  {
+   "name": "run-fail-semgrep",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "semgrep": 1
+   }
+  },
+  {
+   "name": "run-fail-ruff",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "ruff": 1
+   }
+  },
+  {
+   "name": "run-fail-python3",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "python3": 1
+   }
+  },
+  {
+   "name": "run-fail-ansible-playbook",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "ansible-playbook": 1
+   }
+  },
+  {
+   "name": "run-fail-node",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "node": 1
+   }
+  },
+  {
+   "name": "run-fail-qa-ansible-bash",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "qa-ansible.bash": 1
+   }
+  },
+  {
+   "name": "run-fail-qa-docs-bash",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "qa-docs.bash": 1
+   }
+  },
+  {
+   "name": "run-fail-test-alpha-bash",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "test-alpha.bash": 1
+   }
+  },
+  {
+   "name": "run-fail-test-teams-bash",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "test-teams.bash": 1
+   }
+  },
+  {
+   "name": "run-fail-qa-toolchain-bash",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "qa-toolchain.bash": 1
+   }
+  },
+  {
+   "name": "run-fail-two",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "shellcheck": 1,
+    "ruff": 1
+   }
+  },
+  {
+   "name": "run-semgrep-finding",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "semgrepFindings": [
+    {
+     "path": "tools/run.sh.bash",
+     "start": {
+      "line": 3
+     },
+     "check_id": "rule.x",
+     "extra": {
+      "message": "no"
+     }
+    }
+   ]
+  },
+  {
+   "name": "run-gate-exit-2",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "qa-go.bash": 2
+   }
+  },
+  {
+   "name": "run-gate-exit-2-and-fail",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "exits": {
+    "qa-docs.bash": 2,
+    "ruff": 1
+   }
+  },
+  {
+   "name": "run-bash-syntax-error",
+   "args": [],
+   "setup": {
+    "write": {
+     "bad.bash": "if then\n"
+    }
+   }
+  },
+  {
+   "name": "run-missing-shellcheck",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "missing": [
+    "shellcheck"
+   ]
+  },
+  {
+   "name": "run-missing-ruff",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "missing": [
+    "ruff"
+   ]
+  },
+  {
+   "name": "run-missing-node",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "missing": [
+    "node"
+   ]
+  },
+  {
+   "name": "run-missing-ansible",
+   "args": [],
+   "setup": {
+    "write": {
+     "tools/run.sh": "#!/bin/sh\n: changed\n",
+     "helpers/pkg/mod.py": "x = 9\n",
+     "playbooks/imports/play-a.yml": "- hosts: all\n  tasks: []\n  # edit\n",
+     "tasks/step.yml": "- name: step\n  debug: msg=ho\n",
+     "docs/readme.md": "# docs 2\n",
+     "tools/plain.js": "// js 2\n",
+     "extensions/ext@x/extension.js": "// ext 2\n",
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 1 }\n",
+     "extensions/node_modules/.bin/eslint": "#!/bin/sh\necho \"eslint $* in $(basename \"$PWD\")\" >> \"$STUB_LOG\"\n"
+    },
+    "exec": [
+     "extensions/node_modules/.bin/eslint"
+    ]
+   },
+   "missing": [
+    "ansible-playbook"
+   ]
+  },
+  {
+   "name": "run-missing-eslint",
+   "args": [],
+   "setup": {
+    "write": {
+     "extensions/ext@x/extension.js": "// ext 3\n"
+    }
+   }
+  },
+  {
+   "name": "run-uncovered-only",
+   "args": [],
+   "setup": {
+    "write": {
+     "misc/other.txt": "changed\n"
+    }
+   }
+  },
+  {
+   "name": "run-markdown-only",
+   "args": [],
+   "setup": {
+    "write": {
+     "docs/readme.md": "# again\n"
+    }
+   }
+  },
+  {
+   "name": "run-suite-picked-by-name",
+   "args": [],
+   "setup": {
+    "write": {
+     "a.txt": "changed\n"
+    }
+   }
+  },
+  {
+   "name": "run-explicit-files",
+   "args": [
+    "--files",
+    "tools/run.sh",
+    "helpers/pkg/mod.py"
+   ],
+   "setup": {}
+  },
+  {
+   "name": "run-go-closure",
+   "args": [],
+   "setup": {
+    "write": {
+     "src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 2 }\n"
+    }
+   }
+  },
+  {
+   "name": "run-excluded-only",
+   "args": [],
+   "setup": {
+    "write": {
+     "untracked/skip.bash": "#!/usr/bin/bash\n: x\n"
+    }
+   }
+  }
+ ]
+}

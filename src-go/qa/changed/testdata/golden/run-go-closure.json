@@ -1,0 +1,10 @@
+{
+ "args": [],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n\u2713 go: whole gate (interim qa-go.bash)\n\u2713 suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n\u2713 qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stderr": "",
+ "status": 0,
+ "log": [
+  "gate:qa-go.bash json=",
+  "suite:test-teams.bash"
+ ]
+}

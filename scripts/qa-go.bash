@@ -16,7 +16,7 @@
 # must stay dependency-free: src-go/qa is the nested module holding the project rules
 # (go/analysis analyzers, which need golang.org/x/tools). It gets the same steps, first, so
 # the rules are proven before they judge anything. The rules then run over src-go as a final
-# hard step: the driver is built once and used as `go vet -vettool`. Catalogue:
+# hard step, over both modules: the driver is built once and used as `go vet -vettool`. Catalogue:
 # CLAUDE/GoProjectRules.md.
 #
 # Exit codes:
@@ -29,10 +29,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GO_DIR="$REPO_ROOT/src-go"
 
-if [[ ! -f "$GO_DIR/go.mod" ]]; then
-    echo "✗ go: $GO_DIR/go.mod is missing — nothing to check" >&2
-    exit 1
-fi
+for module in "$GO_DIR" "$GO_DIR/qa"; do
+    if [[ ! -f "$module/go.mod" ]]; then
+        echo "✗ go: $module/go.mod is missing — the module is part of this gate, nothing to check" >&2
+        exit 1
+    fi
+done
 if ! command -v go > /dev/null; then
     echo "✗ go: go not installed (install via playbooks/imports/play-golang.yml)" >&2
     exit 2
@@ -47,10 +49,6 @@ fi
 GO_COVERAGE_FLOOR=90
 
 QA_DIR="$GO_DIR/qa"
-if [[ ! -f "$QA_DIR/go.mod" ]]; then
-    echo "✗ go: $QA_DIR/go.mod is missing — the project rules module is part of this gate" >&2
-    exit 1
-fi
 OUT="$(mktemp)"
 PROFILE="$(mktemp)"
 VETTOOL="$(mktemp)"
@@ -111,9 +109,11 @@ QA_COVERAGE="$COVERAGE"
 check_module "$GO_DIR"
 
 # The project rules: the driver is built once and run as go vet's tool over src-go (its
-# ./... stops at the nested module, so the rules do not judge themselves). Any finding fails
-# the gate; a driver that does not build or a vet that cannot run is a failure, not a pass.
+# ./... stops at the nested module, so a second pass runs over the qa module itself; the rules
+# package is exempt from the one rule it cannot obey, in the rules' own table). Any finding
+# fails the gate; a driver that does not build or a vet that cannot run is a failure.
 run_step "project rules driver build" go build -C "$QA_DIR" -o "$VETTOOL" ./driver
 run_step "project rules (CLAUDE/GoProjectRules.md)" go vet -vettool="$VETTOOL" ./...
+run_step "project rules over the qa module" go vet -C "$QA_DIR" -vettool="$VETTOOL" ./...
 
 echo "GO-OK $PACKAGES package(s), all tested: fmt, vet, test -race, coverage ${COVERAGE}% (floor ${GO_COVERAGE_FLOOR}%), golangci-lint clean; qa module $QA_PACKAGES package(s) at ${QA_COVERAGE}%; project rules clean"

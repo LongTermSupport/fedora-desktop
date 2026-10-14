@@ -1,0 +1,6 @@
+{
+ "stdout": "",
+ "stderr": "qa-changed: no/such/file.bash does not exist, ignored\nERROR: --files names no existing file (no/such/file.bash)\n",
+ "status": 2,
+ "log": []
+}

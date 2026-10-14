@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "helpers/pkg/mod.py"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ruff: helpers/pkg/mod.py\ncheck unit-tests: tests.helpers.pkg.test_mod\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

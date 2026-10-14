@@ -1,0 +1,7 @@
+{
+ "args": [],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck node-check: extensions/ext@x/extension.js\ncheck eslint: extensions/ext@x/extension.js\n",
+ "stderr": "ERROR: eslint for extensions/ is not set up (cd extensions && npm ci).\n",
+ "status": 2,
+ "log": []
+}

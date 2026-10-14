@@ -1,0 +1,11 @@
+{
+ "args": [
+  "--plan",
+  "--files",
+  "playbooks/imports/play-a.yml"
+ ],
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck ansible-syntax: playbooks/imports/play-a.yml\ncheck ansible-patterns\ncheck docs\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}
