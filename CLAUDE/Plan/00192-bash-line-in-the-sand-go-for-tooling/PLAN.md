@@ -63,7 +63,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   Branch `go-port/freeze` (P7): functional spec written, [SPEC-freeze.md](SPEC-freeze.md); Go
   port in waves: library (`internal/freeze`) and podfreeze (`internal/podfreeze`,
   `cmd/podfreeze`, shared `internal/freeze/cli`) and lxcfreeze (`internal/lxcfreeze`,
-  `cmd/lxcfreeze`, shared flow in `internal/freeze/app`) done; the cut-over to come.
+  `cmd/lxcfreeze`, shared flow in `internal/freeze/app`) done; cut-over (wave 4) done on the
+  branch: golden replay of the bash tools' recorded output (`internal/freeze/golden`), one task
+  file builds any Go command (`tasks/build-go-command.yml`), the bash tools, library, suites and
+  gates deleted, the host check in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) with the owner
+  (via `deploy.bash` in `meta-deploy.bash`).
 
 ### Phase 4: Review
 
