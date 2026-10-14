@@ -60,6 +60,8 @@ Use these Unicode icons in plan documents:
 
 - [00191-go-cli-tooling](00191-go-cli-tooling/) - In Progress (high priority). This repo's large interactive tools leave bash for a Go module under `src-go/`: `ccy-teams` first, then `ccy-sessions`, then possibly `ccy`; and a new `go-qa-ci` repository, sibling of rust-qa-ci, that its QA runs
 
+- [00192-bash-line-in-the-sand-go-for-tooling](00192-bash-line-in-the-sand-go-for-tooling/) - In Progress (high priority). No more tooling in bash: the limits in `CLAUDE.md`, a Go gate with a ratchet allowlist, project DBF rules for `src-go/`, and the bash (then standalone Python) tools rewritten in Go, one feature branch per programme
+
 - [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`
 
 - [00177-ccy-teams-human-friendly](00177-ccy-teams-human-friendly/) - Blocked on the owner (host run, first use). `ccy-teams` made human friendly: honest failures (a refused sudo is not "no teams"), an offer to create a team when there is none, clear prompts, colour
