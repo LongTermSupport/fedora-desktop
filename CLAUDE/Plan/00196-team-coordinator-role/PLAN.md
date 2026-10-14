@@ -82,7 +82,7 @@ must not grow: the logic goes into Go.
 
 - [x] ✅ **Task 3.1**: touched Python tests and ruff, `scripts/qa-go.bash`, shellcheck,
   `scripts/qa-bash-limits.bash`, the ccy-teams/agent-bus/pingbus bash suites
-- [ ] ⬜ **Task 3.2**: `qa-reviewer` agent run; owner decisions recorded; host run via `meta-deploy.bash`
+- [x] ✅ **Task 3.2**: `qa-reviewer` agent run; owner decisions recorded; host run via `meta-deploy.bash`
 
 ## Success Criteria
 
@@ -100,4 +100,8 @@ must not grow: the logic goes into Go.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00196-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan filed: (this commit)
+- Plan filed: e072931e
+- Phase 1, protocol, pingbus, agent-bus: 2eb62a22
+- Phase 2, ccy-teams, launcher, host run: aec5e43a
+- qa-reviewer fixes (container 2.55, LXC handover, 00161 acceptance): 278d0481
+- Branch `feat/team-coordinator`, unmerged: the owner merges it, then runs `meta-deploy.bash`
