@@ -582,6 +582,18 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(rows["gamma"], ["removed", "-"])
         self.assertEqual(rows["delta"], ["outdated", "unstamped"])
 
+    def test_overview_is_declared_then_status_in_one_run(self) -> None:
+        self.stamp("alpha")
+        argv = ["--file", str(self.path), "--source", str(REPO_ROOT), "--applied", str(self.applied),
+                "--installed", "delta"]
+        out = {}
+        for command in ("declared", "status", "overview"):
+            stdout = io.StringIO()
+            args = argv if command != "declared" else argv[:2]
+            self.assertEqual(declare.main([command, *args], stdout=stdout, stderr=io.StringIO()), 0)
+            out[command] = stdout.getvalue()
+        self.assertEqual(out["overview"], out["declared"] + out["status"])
+
     def test_a_malformed_stamp_is_refused(self) -> None:
         (self.applied / "alpha.json").write_text('{"v": 1}', encoding="utf-8")
         code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),

@@ -54,6 +54,26 @@ func TestRealDeclared(t *testing.T) {
 	}
 }
 
+func TestRealOverviewIsDeclaredAndStatusFromTheSameFile(t *testing.T) {
+	c := realClient(t)
+	applied := t.TempDir()
+	teams, states, err := c.Overview(context.Background(), c.Root, applied, []string{"alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared, err := c.Declared(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := c.Status(context.Background(), c.Root, applied, []string{"alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(teams, declared) || !reflect.DeepEqual(states, status) || len(states) == 0 {
+		t.Fatalf("overview %+v %+v, separately %+v %+v", teams, states, declared, status)
+	}
+}
+
 func TestRealLimited(t *testing.T) {
 	limits, err := realClient(t).Limited(context.Background())
 	if err != nil {
