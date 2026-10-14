@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -13,26 +14,26 @@ func (a *App) create(ctx context.Context, args []string) term.ExitCode {
 	if err := a.needCheckout(); err != nil {
 		return term.ExitFailure
 	}
-	return a.newCreator().run(ctx, args)
+	return a.newCreator().Run(ctx, args)
 }
 
-// newCreator is the create wizard over the App's adapters. Its Term is its own, for the step
-// counters live there, and the offers after create are the picker's own password and Element
+// newCreator is the create wizard over the App's adapters. Each run has a Term of its own, for
+// the step counters live there, and the offers after create are the picker's own password and Element
 // flows.
-func (a *App) newCreator() *creator {
-	return &creator{
-		declare: a.Declare, gum: a.Gum, git: a.Git, term: a.freshTerm(), runner: a.Runner,
-		stdin: a.Stdin, stdout: a.Stdout,
-		cwd: a.here(), hostVars: a.HostVars, home: a.Home, launcher: a.Launcher,
-		lookPath: a.LookPath,
-		applyTeams: func(ctx context.Context, teams ...string) error {
+func (a *App) newCreator() *create.Wizard {
+	return &create.Wizard{
+		Declare: a.Declare, Gum: a.Gum, Git: a.Git, NewTerm: a.freshTerm, Runner: a.Runner,
+		Stdin: a.Stdin, Stdout: a.Stdout,
+		Cwd: a.here(), HostVars: a.HostVars, Home: a.Home, Launcher: a.Launcher,
+		LookPath: a.LookPath,
+		ApplyTeams: func(ctx context.Context, teams ...string) error {
 			return a.Ops.applyTeams(ctx, teams)
 		},
-		newPassword: a.newPasswordFor,
-		launchElement: func(ctx context.Context, team string) error {
+		NewPassword: a.newPasswordFor,
+		LaunchElement: func(ctx context.Context, team string) error {
 			return offerResult(a.launchElement(ctx, team))
 		},
-		execLauncher: func(dir string, argv []string) error {
+		ExecLauncher: func(dir string, argv []string) error {
 			return a.Exec(a.Launcher, argv, dir)
 		},
 	}

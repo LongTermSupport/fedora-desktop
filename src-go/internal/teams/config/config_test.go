@@ -1,9 +1,9 @@
-package teams
+package config
 
 import "testing"
 
-func TestConfigDefaultsAndOverrides(t *testing.T) {
-	c := LoadConfig("/r", func(k string) string {
+func TestLoadDefaultsAndOverrides(t *testing.T) {
+	c := Load("/r", func(k string) string {
 		return map[string]string{"HOME": "/h"}[k]
 	})
 	want := Config{
@@ -19,7 +19,7 @@ func TestConfigDefaultsAndOverrides(t *testing.T) {
 	if c != want {
 		t.Fatalf("got %+v\nwant %+v", c, want)
 	}
-	c = LoadConfig("/r", func(k string) string {
+	c = Load("/r", func(k string) string {
 		return map[string]string{
 			"HOME": "/h", "XDG_STATE_HOME": "/s", "CCY_LIB": "/l", "CCY_TEAMS_HOST_VARS": "/hv",
 			"CCY_TEAMS_LAUNCHER": "/x", "CCY_TEAMS_PLAY": "/p", "CCY_TEAMS_ELEMENT_PLAY": "/e",

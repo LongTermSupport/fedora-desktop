@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -53,7 +54,7 @@ func newOpsRig(t *testing.T) *opsRig {
 	}
 	su := &sudo.Sudo{Runner: r.fake, Term: tm, Stdin: strings.NewReader(""), Stdout: r.out}
 	r.ops = &teamOps{
-		Cfg:        Config{RootDir: "/root", HostVars: opsHostVars, Play: opsPlay, ElementPlay: opsElementPlay, Home: "/home/u"},
+		Cfg:        config.Config{RootDir: "/root", HostVars: opsHostVars, Play: opsPlay, ElementPlay: opsElementPlay, Home: "/home/u"},
 		Runner:     r.fake,
 		Declare:    &declare.Client{Runner: r.fake, Root: "/root", File: opsHostVars, Err: r.err},
 		Sudo:       su,

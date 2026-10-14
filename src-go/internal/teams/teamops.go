@@ -15,6 +15,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -26,7 +27,7 @@ var errOpFailed = errors.New("failed, and said why")
 // backup and restore (the installer). Every dependency is a field, so a test supplies a
 // scripted runner and buffers and nothing here touches the real system.
 type teamOps struct {
-	Cfg     Config
+	Cfg     config.Config
 	Runner  execx.Runner
 	Declare *declare.Client
 	Sudo    *sudo.Sudo

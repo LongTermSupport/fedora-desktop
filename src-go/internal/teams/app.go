@@ -19,6 +19,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -39,7 +40,7 @@ var errCheckoutGone = errors.New("the fedora-desktop checkout has gone")
 // and each tool is reached through an adapter built over them. A test sets Runner (an
 // execx.Fake) and the streams, may replace any adapter, and wire fills in the rest.
 type App struct {
-	Config
+	config.Config
 
 	Runner execx.Runner
 	Stdin  io.Reader
@@ -94,7 +95,7 @@ type teamOperator interface {
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
-func NewApp(cfg Config) *App {
+func NewApp(cfg config.Config) *App {
 	a := &App{
 		Config: cfg, Runner: execx.OS{}, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 		inContainer: ccyenv.InContainer,

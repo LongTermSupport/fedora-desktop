@@ -13,9 +13,9 @@ import (
 func TestTheCreatorIsBuiltOverTheAppsAdapters(t *testing.T) {
 	h := newHarness(t)
 	c := h.app.newCreator()
-	if c.declare != h.app.Declare || c.gum != h.app.Gum || c.git != h.app.Git || c.launcher != h.app.Launcher ||
-		c.applyTeams == nil || c.newPassword == nil || c.launchElement == nil || c.execLauncher == nil ||
-		c.lookPath == nil || c.term == nil {
+	if c.Declare != h.app.Declare || c.Gum != h.app.Gum || c.Git != h.app.Git || c.Launcher != h.app.Launcher ||
+		c.ApplyTeams == nil || c.NewPassword == nil || c.LaunchElement == nil || c.ExecLauncher == nil ||
+		c.LookPath == nil || c.NewTerm == nil {
 		t.Fatalf("creator %+v", c)
 	}
 }
@@ -25,7 +25,7 @@ func TestNewPasswordForTheCreatorFailsWhenTheTeamsCannotBeRead(t *testing.T) {
 	if err := os.Remove(filepath.Join(h.root, "helpers", "agent_bus", "declare.py")); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.app.newCreator().newPassword(t.Context(), "alpha", "owner"); err == nil {
+	if err := h.app.newCreator().NewPassword(t.Context(), "alpha", "owner"); err == nil {
 		t.Fatal("no error")
 	}
 }
@@ -64,7 +64,7 @@ func TestCreatorExecLauncherReplacesTheProcessInTheDirectoryGiven(t *testing.T) 
 		gotPath, gotArgv, gotDir = path, argv, dir
 		return nil
 	}
-	if err := h.app.newCreator().execLauncher("/top", []string{"ccy", "--teams", "a"}); err != nil {
+	if err := h.app.newCreator().ExecLauncher("/top", []string{"ccy", "--teams", "a"}); err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != h.app.Launcher || gotDir != "/top" || len(gotArgv) != 3 {

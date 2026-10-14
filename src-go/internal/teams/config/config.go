@@ -1,4 +1,7 @@
-package teams
+// Package config is where ccy-teams finds everything: the checkout it was built from and the
+// paths derived from it, each overridable by the variable the parity suite and the bash
+// original honour.
+package config
 
 import "path/filepath"
 
@@ -17,8 +20,8 @@ type Config struct {
 	Home        string
 }
 
-// LoadConfig resolves the configuration from root and the environment (getenv).
-func LoadConfig(root string, getenv func(string) string) Config {
+// Load resolves the configuration from root and the environment (getenv).
+func Load(root string, getenv func(string) string) Config {
 	or := func(key, def string) string {
 		if v := getenv(key); v != "" {
 			return v

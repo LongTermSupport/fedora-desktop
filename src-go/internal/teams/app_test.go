@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -65,7 +66,7 @@ func newHarness(t *testing.T) harness {
 	h.env = map[string]string{"CCY_LIB": lib, "HOME": filepath.Join(root, "home")}
 	getenv := func(k string) string { return h.env[k] }
 	h.app = &App{
-		Config: LoadConfig(root, getenv),
+		Config: config.Load(root, getenv),
 		Runner: h.fake, Stdout: h.out, Stderr: h.errOut, Getenv: getenv, Stdin: &bytes.Buffer{},
 		inContainer: func() bool { return false },
 	}

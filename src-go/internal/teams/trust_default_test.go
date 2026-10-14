@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 )
 
 // A play runs under Ansible with the user's sudo, so a path the environment supplies must not
@@ -54,7 +55,7 @@ func TestTheUntaggedBuildDoesNotTrustPlays(t *testing.T) {
 		t.Fatal("trustPlays is true without the ccyteamstest tag")
 	}
 	r := newOpsRig(t)
-	r.ops.Cfg = LoadConfig("/root", func(k string) string {
+	r.ops.Cfg = config.Load("/root", func(k string) string {
 		return map[string]string{
 			"HOME": "/h", "CCY_TEAMS_PLAY": "/tmp/stub-play", "CCY_TEAMS_TRUST_PLAYS": "1",
 		}[k]

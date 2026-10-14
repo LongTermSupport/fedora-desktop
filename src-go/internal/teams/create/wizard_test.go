@@ -1,4 +1,4 @@
-package teams
+package create
 
 import (
 	"bytes"
@@ -109,7 +109,7 @@ func wzDPBare(sub string, rest ...string) []string {
 type wzHarness struct {
 	run      *wzScript
 	fake     *execx.Fake
-	c        *creator
+	c        *Wizard
 	stdout   *bytes.Buffer
 	stderr   *bytes.Buffer
 	declErr  *bytes.Buffer
@@ -169,50 +169,52 @@ func newWzHarness(t *testing.T) *wzHarness {
 
 	client := declare.NewClient(h.run, wzRoot, wzHostVars)
 	client.Err = h.declErr
-	h.c = &creator{
-		declare: client,
-		gum:     &ui.Gum{Runner: h.run, Stderr: h.stderr},
-		git:     gitx.New(h.run),
-		term: &term.Term{
-			Err: h.stderr, IsTerminal: func(any) bool { return h.tty },
-			Getenv: func(k string) string {
-				if k == "NO_COLOR" {
-					return "1"
-				}
-				return ""
-			},
+	h.c = &Wizard{
+		Declare: client,
+		Gum:     &ui.Gum{Runner: h.run, Stderr: h.stderr},
+		Git:     gitx.New(h.run),
+		NewTerm: func() *term.Term {
+			return &term.Term{
+				Err: h.stderr, IsTerminal: func(any) bool { return h.tty },
+				Getenv: func(k string) string {
+					if k == "NO_COLOR" {
+						return "1"
+					}
+					return ""
+				},
+			}
 		},
-		runner: h.run, stdin: strings.NewReader(""), stdout: h.stdout,
-		cwd: "/home/u/proj/sub", hostVars: wzHostVars, home: wzHome, launcher: "/opt/ccy/launcher",
-		lookPath: func(name string) (string, error) {
+		Runner: h.run, Stdin: strings.NewReader(""), Stdout: h.stdout,
+		Cwd: "/home/u/proj/sub", HostVars: wzHostVars, Home: wzHome, Launcher: "/opt/ccy/launcher",
+		LookPath: func(name string) (string, error) {
 			if h.missing[name] {
 				return "", exec.ErrNotFound
 			}
 			return "/usr/bin/" + name, nil
 		},
-		applyTeams: func(_ context.Context, teams ...string) error {
+		ApplyTeams: func(_ context.Context, teams ...string) error {
 			h.applied = append(h.applied, teams)
 			return h.applyErr
 		},
-		newPassword: func(_ context.Context, team, human string) error {
+		NewPassword: func(_ context.Context, team, human string) error {
 			h.pwd = append(h.pwd, team+"/"+human)
 			return h.pwdErr
 		},
-		launchElement: func(_ context.Context, team string) error {
+		LaunchElement: func(_ context.Context, team string) error {
 			h.element = append(h.element, team)
 			return h.elemErr
 		},
-		execLauncher: func(dir string, argv []string) error {
+		ExecLauncher: func(dir string, argv []string) error {
 			h.execd = append(h.execd, append([]string{dir}, argv...))
 			return h.execErr
 		},
 	}
-	h.c.gum.Runner = h.run
+	h.c.Gum.Runner = h.run
 	return h
 }
 
 func (h *wzHarness) invoke(args ...string) term.ExitCode {
-	return h.c.run(context.Background(), args)
+	return h.c.Run(context.Background(), args)
 }
 
 func (h *wzHarness) err() string { return h.stderr.String() }
@@ -895,7 +897,7 @@ func TestACheckoutWithNoRemoteHasNoDefaultRepository(t *testing.T) {
 func TestGitThatCannotRunEndsTheRun(t *testing.T) {
 	h := newWzHarness(t)
 	h.fake.On([]string{"git", "rev-parse", "--is-inside-work-tree"}, execx.Result{})
-	h.c.git = gitx.New(wzFailRunner{})
+	h.c.Git = gitx.New(wzFailRunner{})
 	wzCode(t, h.invoke(), 1, h)
 	wzContain(t, "stderr", h.err(), "ERROR:", "git")
 }
@@ -909,7 +911,7 @@ func (wzFailRunner) Run(context.Context, execx.Cmd) (execx.Result, error) {
 func TestAGumThatCannotRunEndsTheRunWithAnError(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.c.gum = &ui.Gum{Runner: wzFailRunner{}, Stderr: h.stderr}
+	h.c.Gum = &ui.Gum{Runner: wzFailRunner{}, Stderr: h.stderr}
 	wzCode(t, h.invoke(), 1, h)
 	wzContain(t, "stderr", h.err(), "ERROR:", "cannot start")
 }
@@ -1062,7 +1064,7 @@ func TestSuggestingATeamNameThatFailsEndsTheRun(t *testing.T) {
 
 func TestAHardFailureOfACheckerEndsTheRunNotTheRetries(t *testing.T) {
 	h := newWzHarness(t)
-	h.c.declare = declare.NewClient(wzFailRunner{}, wzRoot, wzHostVars)
+	h.c.Declare = declare.NewClient(wzFailRunner{}, wzRoot, wzHostVars)
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
 	wzCode(t, h.invoke(), 1, h)
 	wzContain(t, "stderr", h.err(), "ERROR:")

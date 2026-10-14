@@ -1,4 +1,7 @@
-package teams
+// Package create is "ccy-teams create": the questions for what the flags leave out, a summary
+// and a yes, then the entry written by declare.py and the team installed. It owns the wizard
+// only; installing the team, signing a person in and opening Element are flows it is handed.
+package create
 
 import (
 	"context"
@@ -21,6 +24,9 @@ const (
 	scopeOwner = "Everything one GitHub owner owns"
 )
 
+// flagTeams is the ccy flag that names a team.
+const flagTeams = "--teams"
+
 const (
 	// maxTries is how often a refused answer is asked again before the run ends.
 	maxTries = 3
@@ -36,31 +42,34 @@ type stop struct{ code term.ExitCode }
 
 func (s *stop) Error() string { return fmt.Sprintf("stopped with exit %d", s.code) }
 
-// creator is "ccy-teams create": the questions for what the flags leave out, a summary and a
+// Wizard is "ccy-teams create": the questions for what the flags leave out, a summary and a
 // yes, then the entry written by declare.py and the team installed. Every dependency is a
 // field so a test can stand in for each.
-type creator struct {
-	declare *declare.Client
-	gum     *ui.Gum
-	git     *gitx.Git
-	term    *term.Term
-	runner  execx.Runner // gh, id
+type Wizard struct {
+	Declare *declare.Client
+	Gum     *ui.Gum
+	Git     *gitx.Git
+	// NewTerm is a Term of its own for each run: the step counters live in it.
+	NewTerm func() *term.Term
+	Runner  execx.Runner // gh, id
 
-	stdin  io.Reader // must be a terminal when questions are asked
-	stdout io.Writer // the CHANGED line declare.py prints
+	Stdin  io.Reader // must be a terminal when questions are asked
+	Stdout io.Writer // the CHANGED line declare.py prints
 
-	cwd      string
-	hostVars string
-	home     string // for the ~ abbreviation
-	launcher string // the ccy launcher offered after the team is made
+	Cwd      string
+	HostVars string
+	Home     string // for the ~ abbreviation
+	Launcher string // the ccy launcher offered after the team is made
 
-	lookPath      func(name string) (string, error)
-	applyTeams    func(ctx context.Context, teams ...string) error
-	newPassword   func(ctx context.Context, team, human string) error
-	launchElement func(ctx context.Context, team string) error
-	// execLauncher replaces this process with argv in dir. It returns only on failure
+	LookPath      func(name string) (string, error)
+	ApplyTeams    func(ctx context.Context, teams ...string) error
+	NewPassword   func(ctx context.Context, team, human string) error
+	LaunchElement func(ctx context.Context, team string) error
+	// ExecLauncher replaces this process with argv in dir. It returns only on failure
 	// (a test's stand-in returns nil).
-	execLauncher func(dir string, argv []string) error
+	ExecLauncher func(dir string, argv []string) error
+
+	term *term.Term
 }
 
 // createOpts is what the flags said; the questions fill in the rest.
@@ -91,9 +100,10 @@ func nonEmpty(in []string) []string {
 	return out
 }
 
-// run is ccy-teams create with the arguments after "create". It returns the exit code:
+// Run is ccy-teams create with the arguments after "create". It returns the exit code:
 // 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
-func (c *creator) run(ctx context.Context, args []string) term.ExitCode {
+func (c *Wizard) Run(ctx context.Context, args []string) term.ExitCode {
+	c.term = c.NewTerm()
 	err := c.create(ctx, args)
 	if err == nil {
 		return term.ExitOK
@@ -109,31 +119,31 @@ func (c *creator) run(ctx context.Context, args []string) term.ExitCode {
 	return term.ExitFailure
 }
 
-func (c *creator) usage(msg string) error {
+func (c *Wizard) usage(msg string) error {
 	c.term.Printf("ccy-teams: %s See ccy-teams --help.\n", msg)
 	return &stop{term.ExitUsage}
 }
 
-func (c *creator) cancelled() error {
+func (c *Wizard) cancelled() error {
 	c.term.Printf("Cancelled; nothing was changed.\n")
 	return &stop{term.ExitCancelled}
 }
 
 // failed prints a refusal as an ERROR and ends the run with exit 1.
-func (c *creator) failed(msg string) error {
+func (c *Wizard) failed(msg string) error {
 	c.term.PrintError(msg)
 	return &stop{term.ExitFailure}
 }
 
 // gumErr is a gum question's error: leaving it is the run's cancellation.
-func (c *creator) gumErr(err error) error {
+func (c *Wizard) gumErr(err error) error {
 	if errors.Is(err, ui.ErrCancelled) {
 		return c.cancelled()
 	}
 	return err
 }
 
-func (c *creator) parseFlags(args []string) (createOpts, error) {
+func (c *Wizard) parseFlags(args []string) (createOpts, error) {
 	var o createOpts
 	for i := 0; i < len(args); i++ {
 		flag := args[i]
@@ -166,19 +176,19 @@ func (c *creator) parseFlags(args []string) (createOpts, error) {
 }
 
 // needTool is a hard dependency: missing is a failure naming the play that installs it.
-func (c *creator) needTool(name, play string) error {
-	if _, err := c.lookPath(name); err != nil {
+func (c *Wizard) needTool(name, play string) error {
+	if _, err := c.LookPath(name); err != nil {
 		return c.failed(name + " is not installed, and ccy-teams needs it here. " + play + " installs it; run that play and try again.")
 	}
 	return nil
 }
 
 // needGh is gh installed and logged in: the org and repositories are looked up there.
-func (c *creator) needGh(ctx context.Context) error {
+func (c *Wizard) needGh(ctx context.Context) error {
 	if err := c.needTool("gh", playGh); err != nil {
 		return err
 	}
-	res, err := c.runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"auth", "status"}})
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"auth", "status"}})
 	if err == nil {
 		return nil
 	}
@@ -190,19 +200,19 @@ func (c *creator) needGh(ctx context.Context) error {
 }
 
 // remoteRepo is this checkout's lower-case GitHub OWNER/REPO, or "" outside one.
-func (c *creator) remoteRepo(ctx context.Context) (string, error) {
-	inTree, err := c.git.ProjectHere(ctx, c.cwd)
+func (c *Wizard) remoteRepo(ctx context.Context) (string, error) {
+	inTree, err := c.Git.ProjectHere(ctx, c.Cwd)
 	if err != nil || !inTree {
 		return "", err
 	}
-	url, err := c.git.RemoteURL(ctx, c.cwd)
+	url, err := c.Git.RemoteURL(ctx, c.Cwd)
 	if err != nil || url == "" {
 		return "", err
 	}
-	return c.declare.GithubRemote(ctx, url)
+	return c.Declare.GithubRemote(ctx, url)
 }
 
-func (c *creator) create(ctx context.Context, args []string) error {
+func (c *Wizard) create(ctx context.Context, args []string) error {
 	o, err := c.parseFlags(args)
 	if err != nil {
 		return err
@@ -222,7 +232,7 @@ func (c *creator) create(ctx context.Context, args []string) error {
 }
 
 // ask is the questions, for what the flags leave out, then the summary and its yes.
-func (c *creator) ask(ctx context.Context, o *createOpts, here string) error {
+func (c *Wizard) ask(ctx context.Context, o *createOpts, here string) error {
 	orgFlag := o.org != ""
 	scopeGiven := orgFlag || len(o.repos) > 0
 	prep, err := c.prepare(ctx, *o, scopeGiven)
@@ -252,9 +262,9 @@ type prepared struct {
 
 // prepare is what questions need before the first is asked: a terminal, gum, gh when
 // GitHub is to be asked, the banner, and how many steps there are.
-func (c *creator) prepare(ctx context.Context, o createOpts, scopeGiven bool) (prepared, error) {
+func (c *Wizard) prepare(ctx context.Context, o createOpts, scopeGiven bool) (prepared, error) {
 	var prep prepared
-	if !c.term.IsTerminal(c.stdin) || !c.term.IsTerminal(c.term.Err) {
+	if !c.term.IsTerminal(c.Stdin) || !c.term.IsTerminal(c.term.Err) {
 		return prep, c.usage("'create' asks its questions on a terminal; without one give every value as a flag, and --yes.")
 	}
 	if err := c.needTool("gum", playGum); err != nil {
@@ -269,7 +279,7 @@ func (c *creator) prepare(ctx context.Context, o createOpts, scopeGiven bool) (p
 	if err := c.intro(ctx); err != nil {
 		return prep, err
 	}
-	address, err := c.declare.Address(ctx)
+	address, err := c.Declare.Address(ctx)
 	if err != nil {
 		return prep, err
 	}
@@ -278,11 +288,11 @@ func (c *creator) prepare(ctx context.Context, o createOpts, scopeGiven bool) (p
 	return prep, nil
 }
 
-func (c *creator) intro(ctx context.Context) error {
-	if err := c.gum.Box(ctx, true, "New agent team"); err != nil {
+func (c *Wizard) intro(ctx context.Context) error {
+	if err := c.Gum.Box(ctx, true, "New agent team"); err != nil {
 		return err
 	}
-	return c.gum.Explain(ctx, "Agents and people working together in one private room on this machine, which you follow in Element. Ctrl-C leaves at any point; nothing changes until you say yes at the end.", 0)
+	return c.Gum.Explain(ctx, "Agents and people working together in one private room on this machine, which you follow in Element. Ctrl-C leaves at any point; nothing changes until you say yes at the end.", 0)
 }
 
 // countSteps is how many questions this run asks: what the flags leave out.
@@ -306,9 +316,9 @@ func countSteps(o createOpts, scopeGiven bool, knownAddress string) int {
 	return steps
 }
 
-func (c *creator) step(ctx context.Context, title, hint string) error {
+func (c *Wizard) step(ctx context.Context, title, hint string) error {
 	c.term.Step(title)
-	return c.gum.Explain(ctx, hint, 5)
+	return c.Gum.Explain(ctx, hint, 5)
 }
 
 // ownerOf is the owner part of OWNER/REPO (all of a name with no slash).
@@ -335,7 +345,7 @@ func isRefusal(err error) bool {
 }
 
 // askScope is what the team works on, first: its name defaults to that.
-func (c *creator) askScope(ctx context.Context, o *createOpts, here string) error {
+func (c *Wizard) askScope(ctx context.Context, o *createOpts, here string) error {
 	// Inside a checkout the repository is the default; elsewhere the whole owner.
 	choices := []string{scopeOwner, scopeRepos}
 	if here != "" {
@@ -344,7 +354,7 @@ func (c *creator) askScope(ctx context.Context, o *createOpts, here string) erro
 	if err := c.step(ctx, "What the team works on", "Its agents may point each other only at these repositories, on any branch. Anything else reaches them as outside content, marked so."); err != nil {
 		return err
 	}
-	scope, err := c.gum.Choose(ctx, "Trust", choices[0], choices)
+	scope, err := c.Gum.Choose(ctx, "Trust", choices[0], choices)
 	if err != nil {
 		return c.gumErr(err)
 	}
@@ -367,7 +377,7 @@ func (c *creator) askScope(ctx context.Context, o *createOpts, here string) erro
 	return nil
 }
 
-func (c *creator) askOwner(ctx context.Context, o *createOpts, here string) error {
+func (c *Wizard) askOwner(ctx context.Context, o *createOpts, here string) error {
 	if err := c.step(ctx, "GitHub owner", "The organisation or user the team works for: all of its repositories, never forks."); err != nil {
 		return err
 	}
@@ -384,7 +394,7 @@ func (c *creator) askOwner(ctx context.Context, o *createOpts, here string) erro
 
 // checkFlags looks up the owner and repositories the flags gave, on GitHub, as the questions
 // would have: a team never trusts what its owner cannot see, whichever way it was named.
-func (c *creator) checkFlags(ctx context.Context, o createOpts, orgFlag, ghReady bool) error {
+func (c *Wizard) checkFlags(ctx context.Context, o createOpts, orgFlag, ghReady bool) error {
 	if !orgFlag && (!o.yes || len(o.repos) == 0) {
 		return nil
 	}
@@ -414,7 +424,7 @@ func (c *creator) checkFlags(ctx context.Context, o createOpts, orgFlag, ghReady
 	return nil
 }
 
-func (c *creator) askRest(ctx context.Context, o *createOpts, knownAddress string) error {
+func (c *Wizard) askRest(ctx context.Context, o *createOpts, knownAddress string) error {
 	if o.team == "" {
 		if err := c.askTeam(ctx, o); err != nil {
 			return err
@@ -436,7 +446,7 @@ func (c *creator) askRest(ctx context.Context, o *createOpts, knownAddress strin
 	return nil
 }
 
-func (c *creator) askTeam(ctx context.Context, o *createOpts) error {
+func (c *Wizard) askTeam(ctx context.Context, o *createOpts) error {
 	name := ""
 	switch {
 	case o.org != "":
@@ -447,7 +457,7 @@ func (c *creator) askTeam(ctx context.Context, o *createOpts) error {
 	suggestion := ""
 	if name != "" {
 		var err error
-		if suggestion, err = c.declare.SuggestTeam(ctx, name); err != nil {
+		if suggestion, err = c.Declare.SuggestTeam(ctx, name); err != nil {
 			return err
 		}
 	}
@@ -459,7 +469,7 @@ func (c *creator) askTeam(ctx context.Context, o *createOpts) error {
 			c.problem("the team needs a name", true)
 			return false, nil
 		}
-		return c.checked(c.declare.Check(ctx, declare.Entry{Team: answer}), true)
+		return c.checked(c.Declare.Check(ctx, declare.Entry{Team: answer}), true)
 	}, "Team name", "e.g. example-org", suggestion)
 	if err != nil {
 		return err
@@ -469,13 +479,13 @@ func (c *creator) askTeam(ctx context.Context, o *createOpts) error {
 	return nil
 }
 
-func (c *creator) askHumans(ctx context.Context, o *createOpts) error {
-	res, err := c.runner.Run(ctx, execx.Cmd{Name: "id", Args: []string{"-un"}})
+func (c *Wizard) askHumans(ctx context.Context, o *createOpts) error {
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "id", Args: []string{"-un"}})
 	if err != nil {
 		return fmt.Errorf("id -un: %w", err)
 	}
 	login := strings.TrimSpace(string(res.Stdout))
-	if checkErr := c.declare.Check(ctx, declare.Entry{Humans: []string{login}}); checkErr != nil {
+	if checkErr := c.Declare.Check(ctx, declare.Entry{Humans: []string{login}}); checkErr != nil {
 		de, ok := errors.AsType[*declare.Error](checkErr)
 		if !ok {
 			return checkErr
@@ -496,7 +506,7 @@ func (c *creator) askHumans(ctx context.Context, o *createOpts) error {
 			c.problem("name at least one person; your own login name is the usual answer", true)
 			return false, nil
 		}
-		return c.checked(c.declare.Check(ctx, declare.Entry{Humans: names}), true)
+		return c.checked(c.Declare.Check(ctx, declare.Entry{Humans: names}), true)
 	}, "People, comma-separated", "e.g. "+example+", colleague", login)
 	if err != nil {
 		return err
@@ -506,7 +516,7 @@ func (c *creator) askHumans(ctx context.Context, o *createOpts) error {
 	return nil
 }
 
-func (c *creator) askAllowFrom(ctx context.Context, o *createOpts) error {
+func (c *Wizard) askAllowFrom(ctx context.Context, o *createOpts) error {
 	if err := c.step(ctx, "Other machines", "Usually none: ccy sessions are on this machine. Only for LXC containers or other machines running agents, their subnet."); err != nil {
 		return err
 	}
@@ -515,7 +525,7 @@ func (c *creator) askAllowFrom(ctx context.Context, o *createOpts) error {
 		if len(subnets) == 0 {
 			return true, nil
 		}
-		return c.checked(c.declare.Check(ctx, declare.Entry{AllowFrom: subnets}), true)
+		return c.checked(c.Declare.Check(ctx, declare.Entry{AllowFrom: subnets}), true)
 	}, "Subnets (Enter for none)", "e.g. 192.0.2.0/24", "")
 	if err != nil {
 		return err
@@ -529,12 +539,12 @@ func (c *creator) askAllowFrom(ctx context.Context, o *createOpts) error {
 	return nil
 }
 
-func (c *creator) askAddress(ctx context.Context, o *createOpts) error {
+func (c *Wizard) askAddress(ctx context.Context, o *createOpts) error {
 	if err := c.step(ctx, "Bus address", "Every team's room lives at one address of this machine, used for nothing else: an IP its agents and your Element can reach, such as its WireGuard address, or one added for the bus."); err != nil {
 		return err
 	}
 	address, err := c.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
-		return c.checked(c.declare.CheckAddress(ctx, answer), true)
+		return c.checked(c.Declare.CheckAddress(ctx, answer), true)
 	}, "This machine's bus address", "e.g. 192.0.2.10", "")
 	if err != nil {
 		return err
@@ -550,9 +560,9 @@ type checker func(ctx context.Context, answer string) (bool, error)
 
 // askValid asks until check accepts the answer, maxTries at most. A refused answer comes
 // back as the next try's value, as typed.
-func (c *creator) askValid(ctx context.Context, check checker, header, placeholder, value string) (string, error) {
+func (c *Wizard) askValid(ctx context.Context, check checker, header, placeholder, value string) (string, error) {
 	for range maxTries {
-		answer, err := c.gum.Input(ctx, header, placeholder, value)
+		answer, err := c.Gum.Input(ctx, header, placeholder, value)
 		if err != nil {
 			return "", c.gumErr(err)
 		}
@@ -570,7 +580,7 @@ func (c *creator) askValid(ctx context.Context, check checker, header, placehold
 }
 
 // problem says why an answer was refused, as a person would.
-func (c *creator) problem(msg string, tryAgain bool) {
+func (c *Wizard) problem(msg string, tryAgain bool) {
 	msg = strings.TrimPrefix(msg, "declare: ")
 	if tryAgain {
 		c.term.Printf("  %s. Try again.\n", msg)
@@ -581,7 +591,7 @@ func (c *creator) problem(msg string, tryAgain bool) {
 
 // checked is the outcome of a declare.py check: accepted, refused (said, and false), or a
 // failure to run it (an error).
-func (c *creator) checked(err error, tryAgain bool) (bool, error) {
+func (c *Wizard) checked(err error, tryAgain bool) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
@@ -609,16 +619,16 @@ func splitCommas(text string) []string {
 // checkOwner is a GitHub user or organisation that exists (GitHub's names are not
 // case-sensitive, so it is checked lower-cased, as the team file holds it). On a terminal
 // the lookup has a spinner; only an answer in a question invites another try.
-func (c *creator) checkOwner(ctx context.Context, answer string, spin, tryAgain bool) (bool, error) {
+func (c *Wizard) checkOwner(ctx context.Context, answer string, spin, tryAgain bool) (bool, error) {
 	owner := strings.ToLower(answer)
-	if good, err := c.checked(c.declare.Check(ctx, declare.Entry{Org: owner}), tryAgain); !good || err != nil {
+	if good, err := c.checked(c.Declare.Check(ctx, declare.Entry{Org: owner}), tryAgain); !good || err != nil {
 		return false, err
 	}
 	var err error
 	if spin {
-		err = c.gum.Spin(ctx, "Looking up "+owner+" on GitHub…", "gh", "api", "users/"+owner, "--silent")
+		err = c.Gum.Spin(ctx, "Looking up "+owner+" on GitHub…", "gh", "api", "users/"+owner, "--silent")
 	} else {
-		_, err = c.runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"api", "users/" + owner, "--silent"}})
+		_, err = c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"api", "users/" + owner, "--silent"}})
 	}
 	if err == nil {
 		return true, nil
@@ -634,7 +644,7 @@ func (c *creator) checkOwner(ctx context.Context, answer string, spin, tryAgain 
 // (GitHub's own answer for that login: the repository's permissions.push). Every entry
 // that fails is named, with why; then the list as a whole is checked against the team
 // file's limits.
-func (c *creator) checkRepos(ctx context.Context, repos []string, tryAgain bool) (bool, error) {
+func (c *Wizard) checkRepos(ctx context.Context, repos []string, tryAgain bool) (bool, error) {
 	var listed []string
 	bad := false
 	for _, entry := range repos {
@@ -659,11 +669,11 @@ func (c *creator) checkRepos(ctx context.Context, repos []string, tryAgain bool)
 		}
 		return false, nil
 	}
-	return c.checked(c.declare.Check(ctx, declare.Entry{Repos: listed}), tryAgain)
+	return c.checked(c.Declare.Check(ctx, declare.Entry{Repos: listed}), tryAgain)
 }
 
-func (c *creator) checkRepo(ctx context.Context, repo string) (bool, error) {
-	if err := c.declare.Check(ctx, declare.Entry{Repos: []string{repo}}); err != nil {
+func (c *Wizard) checkRepo(ctx context.Context, repo string) (bool, error) {
+	if err := c.Declare.Check(ctx, declare.Entry{Repos: []string{repo}}); err != nil {
 		if !isRefusal(err) {
 			return false, err
 		}
@@ -671,7 +681,7 @@ func (c *creator) checkRepo(ctx context.Context, repo string) (bool, error) {
 		return false, nil
 	}
 	c.term.Printf("  Checking %s on GitHub…\n", repo)
-	res, err := c.runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"api", "repos/" + repo, "--jq", ".permissions.push"}})
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "gh", Args: []string{"api", "repos/" + repo, "--jq", ".permissions.push"}})
 	if err != nil {
 		if !isExit(err) {
 			return false, err
@@ -702,8 +712,8 @@ func (o *createOpts) trusts() string {
 // confirmSummary dry-runs the whole entry (declare.py checks it before anything is
 // asked), shows what will be written, and asks the one yes that covers writing it and
 // installing the team. No changes nothing, exit 1; Ctrl-C changes nothing, exit 130.
-func (c *creator) confirmSummary(ctx context.Context, o createOpts) error {
-	if _, err := c.declare.CreateDryRun(ctx, o.entry()); err != nil {
+func (c *Wizard) confirmSummary(ctx context.Context, o createOpts) error {
+	if _, err := c.Declare.CreateDryRun(ctx, o.entry()); err != nil {
 		return err
 	}
 	machines := "this one only"
@@ -717,11 +727,11 @@ func (c *creator) confirmSummary(ctx context.Context, o createOpts) error {
 		summaryLine("Element", "a profile for the team, set up on this desktop"),
 	}, "\n")
 	c.term.Printf("\n")
-	if err := c.gum.Box(ctx, false, "Team "+o.team, "", body); err != nil {
+	if err := c.Gum.Box(ctx, false, "Team "+o.team, "", body); err != nil {
 		return err
 	}
-	question := "Create team " + o.team + "? (saved to " + term.AbbrevHome(c.hostVars, c.home) + ", then installed: sudo asks for your password)"
-	yes, err := c.gum.Confirm(ctx, question, true)
+	question := "Create team " + o.team + "? (saved to " + term.AbbrevHome(c.HostVars, c.Home) + ", then installed: sudo asks for your password)"
+	yes, err := c.Gum.Confirm(ctx, question, true)
 	if err != nil {
 		return c.gumErr(err)
 	}
@@ -738,8 +748,8 @@ func summaryLine(label, value string) string {
 
 // write declares the team and its Element profile, installs it, and, on a terminal,
 // offers what comes next.
-func (c *creator) write(ctx context.Context, o createOpts, here string) error {
-	change, err := c.declare.Create(ctx, o.entry())
+func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
+	change, err := c.Declare.Create(ctx, o.entry())
 	if err != nil {
 		return err
 	}
@@ -747,15 +757,15 @@ func (c *creator) write(ctx context.Context, o createOpts, here string) error {
 	if change.Changed {
 		marker = "CHANGED"
 	}
-	if _, err = fmt.Fprintf(c.stdout, "%s\t%s\n", marker, change.Text); err != nil {
+	if _, err = fmt.Fprintf(c.Stdout, "%s\t%s\n", marker, change.Text); err != nil {
 		return fmt.Errorf("write the result: %w", err)
 	}
 	// Element is set up with the team: its profile is declared beside it, and apply runs its play.
-	if _, err = c.declare.Element(ctx, o.team); err != nil {
+	if _, err = c.Declare.Element(ctx, o.team); err != nil {
 		return err
 	}
-	if err = c.applyTeams(ctx, o.team); err != nil {
-		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.hostVars, c.home) +
+	if err = c.ApplyTeams(ctx, o.team); err != nil {
+		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
 			" but not installed. Once the cause above is fixed, ccy-teams apply " + o.team + " installs it.")
 	}
 	if !o.yes {
@@ -763,7 +773,7 @@ func (c *creator) write(ctx context.Context, o createOpts, here string) error {
 			return err
 		}
 	}
-	steps, err := c.declare.NextSteps(ctx, o.team)
+	steps, err := c.Declare.NextSteps(ctx, o.team)
 	if err != nil {
 		return err
 	}
@@ -791,14 +801,14 @@ func withoutOffered(steps string) string {
 }
 
 // afterCreate is, straight after create, each person's sign-in and then Element opened.
-func (c *creator) afterCreate(ctx context.Context, o createOpts) error {
+func (c *Wizard) afterCreate(ctx context.Context, o createOpts) error {
 	for _, human := range nonEmpty(o.humans) {
 		yes, err := c.askYes(ctx, "Sign "+human+" in to Element now? A password is set and shown here once.", true)
 		if err != nil {
 			return err
 		}
 		if yes {
-			if err = c.offered(c.newPassword(ctx, o.team, human)); err != nil {
+			if err = c.offered(c.NewPassword(ctx, o.team, human)); err != nil {
 				return err
 			}
 		}
@@ -807,12 +817,12 @@ func (c *creator) afterCreate(ctx context.Context, o createOpts) error {
 	if err != nil || !yes {
 		return err
 	}
-	return c.offered(c.launchElement(ctx, o.team))
+	return c.offered(c.LaunchElement(ctx, o.team))
 }
 
 // offered is the outcome of something offered after the team was made: it has said why
 // it failed, and the team is made either way, so only leaving it cancels the run.
-func (c *creator) offered(err error) error {
+func (c *Wizard) offered(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -824,8 +834,8 @@ func (c *creator) offered(err error) error {
 }
 
 // askYes is a gum confirm: yes, no, or (Ctrl-C) the run cancelled.
-func (c *creator) askYes(ctx context.Context, question string, defaultYes bool) (bool, error) {
-	yes, err := c.gum.Confirm(ctx, question, defaultYes)
+func (c *Wizard) askYes(ctx context.Context, question string, defaultYes bool) (bool, error) {
+	yes, err := c.Gum.Confirm(ctx, question, defaultYes)
 	if err != nil {
 		return false, c.gumErr(err)
 	}
@@ -834,12 +844,12 @@ func (c *creator) askYes(ctx context.Context, question string, defaultYes bool) 
 
 // offerJoin, in a checkout of the team's repositories, offers to start a ccy session there
 // as a member (ccy --teams <team>, no seat, so ccy chooses one and says it).
-func (c *creator) offerJoin(ctx context.Context, team, here string) error {
-	inTree, err := c.git.ProjectHere(ctx, c.cwd)
+func (c *Wizard) offerJoin(ctx context.Context, team, here string) error {
+	inTree, err := c.Git.ProjectHere(ctx, c.Cwd)
 	if err != nil || !inTree || here == "" {
 		return err
 	}
-	covering, err := c.declare.TeamsFor(ctx, here)
+	covering, err := c.Declare.TeamsFor(ctx, here)
 	if err != nil {
 		// The session is only an offer and the team is made: say why it is not offered.
 		c.term.Printf("%s\n", err.Error())
@@ -848,17 +858,17 @@ func (c *creator) offerJoin(ctx context.Context, team, here string) error {
 	if !slices.Contains(covering, team) {
 		return nil
 	}
-	top, err := c.git.TopLevel(ctx, c.cwd)
+	top, err := c.Git.TopLevel(ctx, c.Cwd)
 	if err != nil {
 		return err
 	}
-	shown := term.AbbrevHome(top, c.home)
+	shown := term.AbbrevHome(top, c.Home)
 	yes, err := c.askYes(ctx, "Start a ccy session in "+shown+" as a member of "+team+"?", true)
 	if err != nil || !yes {
 		return err
 	}
 	c.term.Printf("Starting ccy --teams %s in %s.\n", team, shown)
-	if err = c.execLauncher(top, []string{c.launcher, flagTeams, team}); err != nil {
+	if err = c.ExecLauncher(top, []string{c.Launcher, flagTeams, team}); err != nil {
 		return fmt.Errorf("start ccy --teams %s: %w", team, err)
 	}
 	return nil
