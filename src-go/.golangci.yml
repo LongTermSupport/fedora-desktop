@@ -94,8 +94,14 @@ linters:
       - path: qa/(all|gates)/
         linters: [gosec]
         text: "G304|G703|G306|G302"
-      # semgrep's JSON report is snake_case, its wire format.
-      - path: qa/changed/checks\.go
+      # qa-ansible reads the tree through an fs.FS, but its tests build trees, set the execute
+      # bit the hygiene check looks for, and read the report back by computed path.
+      - path: qa/ansible/.*_test\.go
+        linters: [gosec]
+        text: "G304|G302|G306"
+      # semgrep's JSON report is snake_case, its wire format; so is qa-ansible's machine report,
+      # which qa-all and qa-changed read.
+      - path: qa/changed/checks\.go|qa/ansible/report\.go
         linters: [tagliatelle]
       # A test writes an executable stub to prove the executable check.
       - path: qa/changed/.*_test\.go

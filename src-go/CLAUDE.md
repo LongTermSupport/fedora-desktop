@@ -113,5 +113,12 @@ fake process seam over the real table, every gate failing in turn), a golden rep
 it replaced (`qa/all/golden_test.go`, recorded by `CLAUDE/Plan/00192-.../qa-all-golden/capture.py`;
 difference only as a numbered bug of `SPEC-qa-all.md` section 10 pinned in
 `testdata/deviations.json`), and the real tree (`scripts/test-qa-changed.bash`, the docs gate).
+`qa/ansible` + `qa/cmd/qa-ansible` (same nested module) are `scripts/qa-ansible.bash`, the static
+Ansible gate (fail-fast directives, playbook hygiene, self-default vars, scope and guard,
+deprecated fact vars, guessed runtime-dir uids): the script only builds and runs the command. It
+starts no process, so it does not use the seam. Its spec is the intended behaviour
+(`SPEC-qa-ansible.md`, expectations E1-E19), proven by unit tests and end-to-end scenario trees,
+not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
+
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).

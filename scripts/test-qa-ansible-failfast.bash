@@ -1,52 +1,55 @@
 #!/usr/bin/env bash
-# Unit-test the fail-fast directive pattern in scripts/qa-ansible.bash (Plan 00081 F10).
+# Black-box test of the fail-fast directive pattern of the qa-ansible tool (Plan 00081 F10).
 #
-# WHY THIS EXISTS: F10 fixed a regex that accepted `yes` for ignore_errors only and
-# `false` (never `no`) for failed_when, so `failed_when: no` earned a green tick on
-# this repo's #1 rule. The fix shipped with NO test — reverting FF_FALSEY/FF_TRUTHY
-# to the old single-spelling regex turned nothing red anywhere in the repo. A gate
-# whose own correctness nothing checks is the shape this plan is about.
+# WHY THIS EXISTS: F10 fixed a regex that accepted `yes` for ignore_errors only and `false`
+# (never `no`) for failed_when, so `failed_when: no` earned a green tick on this repo's #1
+# rule. A gate whose own correctness nothing checks is the shape that plan is about.
 #
-# It reads the three FF_* definitions OUT of qa-ansible.bash rather than restating
-# them. A copy would pass while the shipped gate was broken, which is precisely the
-# defect the 00079 review found in that plan's unit test.
+# The pattern is Go now (src-go/qa/ansible/failfast.go) and its unit test holds the same cases;
+# this suite builds the shipped command once and drives it over one-line fixture trees, so the
+# path from the tool to a verdict is exercised as well. A case that should match must make the
+# tool exit 1, one that should not must make it exit 0.
 #
 # Usage: ./scripts/test-qa-ansible-failfast.bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GATE="$SCRIPT_DIR/qa-ansible.bash"
+QA_DIR="$SCRIPT_DIR/../src-go/qa"
 
-if [ ! -f "$GATE" ]; then
-    echo "ERROR: $GATE not found — nothing to test." >&2
+if ! command -v go > /dev/null; then
+    echo "ERROR: go not installed (install via playbooks/imports/play-golang.yml)" >&2
     exit 2
 fi
 
-# Pull the definitions from the real file. A missing definition is a HARD failure:
-# evaluating nothing would leave FF_PATTERN unset and every case would "pass".
-FF_DEFS="$(grep -E '^FF_(FALSEY|TRUTHY|TEMPLATED|PATTERN)=' "$GATE")" || FF_DEFS=""
-if [ -z "$FF_DEFS" ]; then
-    echo "ERROR: no FF_* definitions found in $GATE." >&2
-    echo "  They were renamed or removed; this test cannot vouch for a pattern it" >&2
-    echo "  could not read. Update the test rather than deleting it." >&2
-    exit 2
-fi
-DEF_COUNT="$(printf '%s\n' "$FF_DEFS" | wc -l)"
-if [ "$DEF_COUNT" -lt 4 ]; then
-    echo "ERROR: expected 4 FF_* definitions in $GATE, read $DEF_COUNT." >&2
-    exit 2
-fi
-eval "$FF_DEFS"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+go build -C "$QA_DIR" -o "$WORK/qa-ansible" ./cmd/qa-ansible
+
+# A tree the tool judges clean: one valid general-scope playbook.
+TREE="$WORK/tree"
+mkdir -p "$TREE/playbooks" "$TREE/tasks"
+{
+    echo "#!/usr/bin/env -S bash -c 'p=\$(realpath \"\$0\") && exec \"\${p%/playbooks/*}/run.bash\" \"\$p\" \"\$@\"'"
+    printf -- '---\n- hosts: all\n  vars:\n    scope: general\n  tasks: []\n'
+} > "$TREE/playbooks/play.yml"
+chmod +x "$TREE/playbooks/play.yml"
 
 PASS=0
 FAIL=0
 
 # expect_match <should-match: yes|no> <label> <line>
 expect_match() {
-    local want="$1" label="$2" line="$3" got="no"
-    if printf '%s\n' "$line" | grep -qiE -- "$FF_PATTERN"; then
-        got="yes"
-    fi
+    local want="$1" label="$2" line="$3" got="no" status=0
+    printf '%s\n' "$line" > "$TREE/tasks/case.yml"
+    QA_JSON_OUT="$WORK/out.json" "$WORK/qa-ansible" --root "$TREE" > /dev/null || status=$?
+    case "$status" in
+        0) got="no" ;;
+        1) got="yes" ;;
+        *)
+            echo "ERROR: the tool could not run (exit $status) on case: $label" >&2
+            exit 2
+            ;;
+    esac
     if [ "$got" = "$want" ]; then
         printf '  ok    %s\n' "$label"
         PASS=$((PASS + 1))
@@ -56,7 +59,7 @@ expect_match() {
     fi
 }
 
-echo "== fail-fast directive pattern, read from qa-ansible.bash =="
+echo "== fail-fast directive pattern, through the built qa-ansible =="
 echo
 
 echo "### every falsey spelling of failed_when is caught"
@@ -85,8 +88,6 @@ expect_match yes 'ignore_errors: {{ x }} unquoted' '      ignore_errors: {{ mayb
 
 echo
 echo '### negative controls — the over-match the trailing word boundary exists to stop'
-# `no` inside `not` is the real regression: without \b this reported 10 violations
-# against legitimate probes, and an unsatisfiable gate gets bypassed.
 expect_match no "failed_when: not foo.stat.exists" "      failed_when: not foo.stat.exists"
 expect_match no "failed_when: nothing_matched" "      failed_when: nothing_matched"
 expect_match no "failed_when: true (a real condition)" "      failed_when: true"

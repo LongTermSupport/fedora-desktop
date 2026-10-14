@@ -100,6 +100,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   over 142 scenarios with 32 pinned deviations (B1-B6, B12, B13, B20-B23, B26); the script a
   build-and-run wrapper, its allowlist entry, the `qa-helper-summary` library, its suite and the
   call-site parser gone (their cases are Go tests). The full `qa-all` run comes before the merge.
+  `qa-ansible.bash` (P3, third orchestrator) on `go-port/qa-ansible`: ported, not merged; spec
+  [SPEC-qa-ansible.md](SPEC-qa-ansible.md) states the intended behaviour as expectations E1-E19
+  (the bash is not an oracle; 13 departures B1-B13 listed there); nested `src-go/qa/ansible`,
+  `qa/cmd/qa-ansible`; the script a build-and-run wrapper, its allowlist row gone;
+  `test-qa-ansible-failfast.bash` now drives the built tool. Same output and report as the bash on
+  the live tree.
 
 ### Phase 4: Review
 
