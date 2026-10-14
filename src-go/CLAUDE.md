@@ -148,6 +148,10 @@ owns scope (what git would publish), the rule self-test against its fixture, the
 the refusal to pass over a script semgrep did not read or parse. git and semgrep go through
 `qa/internal/proc`, faked in the unit tests; `SPEC-qa-patterns.md` (P1-P18) is the specification.
 
+`qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:
+ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
+name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the
+`ruff --show-files` proof that ruff read every file, and the judgement. `SPEC-qa-python.md` (Y1-Y23) is the specification.
 `qa/discovery` + `qa/cmd/qa-discovery` (same nested module) are the shared source-file discovery
 the bash gates source through `scripts/qa-discovery.bash` (`qa_discover <list> <root>`; the exclusion
 test stays in the wrapper over `scripts/qa-trees.tsv`): what git would publish, one predicate per

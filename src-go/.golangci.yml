@@ -128,6 +128,15 @@ linters:
       - path: qa/changed/.*_test\.go
         linters: [gosec]
         text: "G302|G306"
+      # qa-python reads the pin and the first line of each file git lists by computed path
+      # (ruff.go), and ruff's report is snake_case, its wire format; the report
+      # is what qa-all reads. Its tests read back what they wrote under a temporary directory.
+      - path: qa/python/(ruff|report)\.go
+        linters: [gosec, tagliatelle]
+        text: "G304|ruff_diagnostics"
+      - path: qa/(python/.*|cmd/qa-python/main)_test\.go
+        linters: [gosec, tagliatelle]
+        text: "G304|G302|G306|ruff_diagnostics"
   settings:
     cyclop:
       max-complexity: 15

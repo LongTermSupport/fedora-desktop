@@ -155,6 +155,25 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   branch in `fail()` is gone, B7 reworded, an error with no path prints `(no path)`, and the gosec
   exclusion is narrowed from the whole package to the files that read by computed path. Live
   tree after the fixes: 433 scanned, 17 partial-parse notes, exit 0.
+  `qa-python.bash` (P3, fifth gate) on `go-port/qa-python`: ported, not merged; spec
+  [SPEC-qa-python.md](SPEC-qa-python.md), expectations Y1-Y23, 17 departures B1-B17; nested
+  `src-go/qa/python` and `qa/cmd/qa-python` (the file set comes from `qa/discovery`, called
+  in-process);
+  ruff and python3 stay the engines; the Go owns scope, the one-process compile (no `__pycache__`
+  written), template substitution, the proof that `ruff --show-files` lists every file, and the
+  judgement; the script a build-and-run wrapper, its allowlist row gone; `qa-changed` gains a
+  `python` check (the tool, `ruff.toml`, `.qa-versions`, the wrapper or `qa-trees.tsv` change).
+  Same 311 files and 1 template as the bash on the live tree, exit 0. Fable review
+  (subagent-reports/261014-fable-review-qa-python.md) dispositions, fixed spec first and test
+  first against real ruff: finding 1 (HIGH) every ruff call gets `--config <root>/ruff.toml`, so a
+  nested config cannot swap the ruleset, and qa-changed's per-file ruff the same plus `--no-cache`
+  (Y22, SPEC-qa-changed B34); finding 2 `--ignore-noqa` (Y23; the live tree has no `noqa`
+  comment, so nothing to fix); finding 3 the root is made absolute and cleaned once (Y1); finding
+  4 a Python `.j2` runs the `python` check (`@pytemplate` row ahead of `*.j2`); finding 5 a closed
+  stdout is exit 2 (Y3; the Go runtime reopens fd 1 on /dev/null read-write, detected in the
+  command); findings 6-8 recorded in the spec (python3 version unpinned and `.qa-versions` holds
+  tool pins only; template false positives are fail-safe; the `syntax-error` text is reached only
+  by an older ruff); finding 9 no change.
   `qa-discovery.bash` (P3, the shared library the bash gates source) on `go-port/qa-discovery`:
   ported, not merged; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D15, 11
   departures B1-B11; nested `src-go/qa/discovery` and `qa/cmd/qa-discovery`, one list per call,

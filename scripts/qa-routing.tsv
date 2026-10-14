@@ -13,8 +13,8 @@
 # match
 #   comma-separated globs with bash `case` semantics: a star matches any run of characters
 #   including a slash, so *.bash matches at any depth. Or a predicate: @py (.py or a Python
-#   shebang), @sh (.sh/.bash or a shell shebang), @listed:<file> (a path that begins a line of
-#   that file; the file is read relative to the scripts directory).
+#   shebang), @pytemplate (a .j2 with a Python shebang), @sh (.sh/.bash or a shell shebang),
+#   @listed:<file> (a path that begins a line of that file; the file is read relative to the scripts directory).
 # checks
 #   comma-separated check ids, - for none, or @yaml (a first row only): the playbook / task /
 #   vars logic, which computes the playbook set and so stays code. unit-tests on a Python file
@@ -41,6 +41,12 @@ also	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	patterns	cover
 also	src-go/qa/patterns/*,src-go/qa/cmd/qa-patterns/*	patterns	-
 # The wrapper that builds and runs the gate, the library it runs through and the table of excluded trees it reads.
 also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patterns	-
+# The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
+also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*	python	-
+also	ruff.toml	python	covered
+# A Python template is compiled by the python gate once rendered, so an edit to one runs it.
+also	@pytemplate	python	-
+also	scripts/qa-python.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,.qa-versions	python	-
 # The discovery wrapper and the table reader it sources are run by the Go tests, over a real work tree.
 also	scripts/qa-discovery.bash,scripts/lib/qa-trees.bash	go	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).

@@ -66,7 +66,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "semgrep", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "patterns", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
+		"ansible-patterns", "patterns", "python", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -92,6 +92,7 @@ func TestSummaries(t *testing.T) {
 		"ansible-syntax":   "2 playbook(s)",
 		"ansible-patterns": "fail-fast patterns, whole gate",
 		"patterns":         "bash-convention rules, whole gate",
+		"python":           "compile and ruff, whole gate",
 		"docs":             "whole gate",
 		"go":               "whole gate (interim qa-go.bash)",
 		"bash-limits":      "whole gate (tooling is Go; allowlist ratchet)",
@@ -151,7 +152,7 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 	}
 	want := []string{
 		"shellcheck --external-sources --severity=warning a.bash b.bash",
-		"ruff check x.py",
+		"ruff check --config " + filepath.Join(s.root, "ruff.toml") + " --no-cache x.py",
 		"python3 -m unittest tests.helpers.test_a",
 	}
 	got := runner.argv()

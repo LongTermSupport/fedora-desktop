@@ -122,6 +122,14 @@ func (p fileProbe) isPython(rel string) (bool, error) {
 	return p.shebang(rel, isPythonShebang)
 }
 
+// isPythonTemplate is a .j2 whose shebang is Python's: the python gate compiles it rendered.
+func (p fileProbe) isPythonTemplate(rel string) (bool, error) {
+	if !strings.HasSuffix(rel, ".j2") {
+		return false, nil
+	}
+	return p.shebang(rel, isPythonShebang)
+}
+
 func (p fileProbe) isShell(rel string) (bool, error) {
 	if strings.HasSuffix(rel, ".sh") || strings.HasSuffix(rel, ".bash") {
 		return true, nil
