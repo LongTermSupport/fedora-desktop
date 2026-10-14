@@ -33,6 +33,30 @@ machine is asked for separately. Full rule: [AgentNotes.md](CLAUDE/AgentNotes.md
 - ❌ "Skip and warn" pattern — NEVER use `debug` to warn and continue
 - ✅ Probe-then-fail pattern — `failed_when: false` is OK when registered result is explicitly checked
 
+### Tooling Is Go — Bash Only for Very Small Helpers — HARD RULE
+
+**Line in the sand: no more tooling is written in bash.** New tools, and any bash that grows
+past the limits below, are written in Go in [`src-go/`](src-go/CLAUDE.md) (read it before
+writing Go). Bash binds names when a line runs, types nothing, and its interactive tools can
+only be tested through a pseudo-terminal; Go is typed, linted, unit tested through fakes, and
+fast.
+
+A bash file must stay within **all** of these, or it is Go:
+
+- at most **60 code lines** (not counting blank lines and comments)
+- at most **4 functions**
+- **no associative arrays** (`declare -A`, `local -A`): a data structure means a program
+- **no interactive UI** (`gum`, `fzf`, `whiptail`, `dialog`, `select` menus)
+- **no data parsing** beyond one `jq -r` lookup: no JSON/YAML walking in `jq`/`python -c`
+
+Bash stays right for: snippets sourced into a user's shell, the bootstrap that runs before Go
+is installed (`run.bash`), git hooks and wrappers that `exec` a Go binary, and test suites
+driving a command. Existing scripts over the limits are on a ratchet allowlist: they may
+shrink and be ported, never grow. Python that Ansible loads stays Python; a standalone Python
+CLI is ported to Go when it is next reworked.
+
+**Gate, allowlist and the port programme:** [Plan 00192](CLAUDE/Plan/00192-bash-line-in-the-sand-go-for-tooling/PLAN.md)
+
 ### Public Repository — Never Commit Secrets
 
 This is a public repository. Never commit personal information, credentials, hardcoded paths, or sensitive data. Always use Ansible variables, placeholders, and Vault encryption.
@@ -209,6 +233,7 @@ Each of these is the single source of truth for its subject. Follow the row you 
 | [DebugCommands.md](CLAUDE/DebugCommands.md)                 | Non-interactive command rules for user diagnostics                          |
 | [InteractiveScripts.md](CLAUDE/InteractiveScripts.md)       | Human-friendly interactive script rules (validate strictly, retry on loop)  |
 | [StderrHygiene.md](CLAUDE/StderrHygiene.md)                 | Diagnostics → stderr; stdout is the captured payload (bash + Python)        |
+| [src-go/CLAUDE.md](src-go/CLAUDE.md)                        | The Go module: layout, rules, parity oracles, build, QA — all new tooling   |
 | [GnomeShell.md](CLAUDE/GnomeShell.md)                       | GNOME Shell extension development (Wayland, ESLint, APIs)                   |
 | [PlanWorkflow.md](CLAUDE/PlanWorkflow.md)                   | Planning workflow and plan document structure                               |
 | [PlanTriage.md](CLAUDE/PlanTriage.md)                       | How to establish facts: plan-local triage scripts (probes go IN the script) |
