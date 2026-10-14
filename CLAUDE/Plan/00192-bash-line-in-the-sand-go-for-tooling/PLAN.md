@@ -175,8 +175,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   tool pins only; template false positives are fail-safe; the `syntax-error` text is reached only
   by an older ruff); finding 9 no change.
   `qa-ansible-syntax.bash` (P3) on `go-port/qa-ansible-syntax`: ported, not merged; spec
-  [SPEC-qa-ansible-syntax.md](SPEC-qa-ansible-syntax.md), expectations S1-S15, 7 departures
-  D1-D7; nested `src-go/qa/ansiblesyntax` and `qa/cmd/qa-ansible-syntax` (the YAML file set is a
+  [SPEC-qa-ansible-syntax.md](SPEC-qa-ansible-syntax.md), expectations S1-S15, 10 departures
+  D1-D10; nested `src-go/qa/ansiblesyntax` and `qa/cmd/qa-ansible-syntax` (the YAML file set is a
   new `yaml` list of `qa/discovery`, the `tracked-playbooks` yardstick unchanged);
   `ansible-playbook --syntax-check` stays the engine, run four at a time and reported in path
   order, config pinned (`ANSIBLE_CONFIG`, root as working directory, `ANSIBLE_NOCOLOR`); a missing
@@ -184,7 +184,12 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   opened; the engine also rejects an empty one) is one exit 2, no longer 83 identical failures;
   the script a build-and-run wrapper, its allowlist row gone. Live tree: the same 83 playbooks
   and pass line as the bash, 26 s down to about 10 s; the missing-prerequisite path run on a
-  clean archive. Not required, against the brief: `localhost.yml` (measured). Review pending.
+  clean archive. Not required, against the brief: `localhost.yml` (measured). Fable review fixed
+  (F1-F7): every colour variable pinned off (a caller's `ANSIBLE_FORCE_COLOR` no longer reaches
+  the output), only the vault password file required and its path never printed, plays found by a
+  top-level scan (name-first plays count, a loop-list `- hosts:` does not), the qa-all exit-2
+  stage text covers every cause (SPEC-qa-all B27), report mode 0644, symlink departure listed;
+  re-review pending.
   `qa-bash.bash` (P3, sixth gate) on `go-port/qa-bash`: ported, not merged; spec
   [SPEC-qa-bash.md](SPEC-qa-bash.md), expectations S1-S15, 12 departures B1-B12; nested
   `src-go/qa/bash` and `qa/cmd/qa-bash` (the file set and the `tracked-shell` yardstick come from

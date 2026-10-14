@@ -133,7 +133,7 @@ func TestRealMissingPasswordFileIsExitTwoAndPresentOneIsEnough(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent")
 	t.Setenv("ANSIBLE_VAULT_PASSWORD_FILE", missing)
 	got := realRun(t, map[string]string{"playbooks/good.yml": goodPlay})
-	if got.code != ansiblesyntax.ExitCannotRun || !strings.Contains(got.stderr, missing) || got.stdout != "" || got.report != "" {
+	if got.code != ansiblesyntax.ExitCannotRun || !strings.Contains(got.stderr, "VAULT_PASSWORD_FILE") || strings.Contains(got.stderr, missing) || got.stdout != "" || got.report != "" {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
 	}
 	present := filepath.Join(t.TempDir(), "present")
@@ -155,5 +155,67 @@ func TestRealNestedConfigCannotReplaceThePinnedOne(t *testing.T) {
 	})
 	if got.code != ansiblesyntax.ExitOK {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
+	}
+}
+
+// S6: a missing password file of another kind does not stop a gate whose engine never loads it.
+func TestRealMissingBecomePasswordFileDoesNotStopTheGate(t *testing.T) {
+	t.Setenv("ANSIBLE_BECOME_PASSWORD_FILE", filepath.Join(t.TempDir(), "absent"))
+	got := realRun(t, map[string]string{"playbooks/good.yml": goodPlay})
+	if got.code != ansiblesyntax.ExitOK {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
+	}
+}
+
+// S10: a caller who forces colour gets no escape codes in the output or the report.
+func TestRealForcedColourDoesNotReachTheOutput(t *testing.T) {
+	t.Setenv("ANSIBLE_FORCE_COLOR", "1")
+	t.Setenv("ANSIBLE_NOCOLOR", "0")
+	got := realRun(t, map[string]string{
+		"playbooks/good.yml": goodPlay,
+		"playbooks/bad.yml":  "- hosts: localhost\n  tasks: [unclosed\n",
+	})
+	if got.code != ansiblesyntax.ExitFailed || got.report == "" {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
+	}
+	for name, text := range map[string]string{"stdout": got.stdout, "report": got.report} {
+		if strings.Contains(text, "\x1b") || strings.Contains(text, `\u001b`) {
+			t.Fatalf("%s carries colour escapes:\n%q", name, text)
+		}
+	}
+}
+
+// S7: a play written name first is a playbook wherever it lives, so a broken one outside
+// playbooks/ fails the gate.
+func TestRealNameFirstPlayOutsidePlaybooksIsChecked(t *testing.T) {
+	got := realRun(t, map[string]string{
+		"playbooks/good.yml": goodPlay,
+		"dev/named.yml":      "- name: broken\n  hosts: localhost\n  gather_facts: false\n  tasks:\n    - no.such.module_xyz: {}\n",
+	})
+	if got.code != ansiblesyntax.ExitFailed || !strings.Contains(got.stdout, "✗ ansible-syntax: dev/named.yml\n") {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
+	}
+}
+
+// S7: hosts inside a loop list of a tasks file is not a play.
+func TestRealLoopListInATasksFileIsNotAPlaybook(t *testing.T) {
+	got := realRun(t, map[string]string{
+		"playbooks/good.yml": goodPlay,
+		"tasks/loop.yml":     "- name: t\n  ansible.builtin.debug:\n    msg: x\n  loop:\n    - hosts: all\n",
+	})
+	if got.code != ansiblesyntax.ExitOK {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
+	}
+}
+
+// S15: the report is readable by other users, as the bash left it under the umask.
+func TestReportIsWorldReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "r.json")
+	if err := writeReport(path, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode %v %v", info, err)
 	}
 }

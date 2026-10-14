@@ -143,7 +143,7 @@ elif [[ $rc -ne 0 ]]; then FAILED=$((FAILED + 1)); fi
 | `bash`, `python` | `ERROR: Missing required tools. Install them and re-run.`                                  |
 | `patterns`       | `ERROR: Missing required tools (semgrep). Install with: pipx install semgrep`              |
 | `ansible`        | `ERROR: Missing required tools for ansible check. Install them and re-run.`                |
-| `ansible-syntax` | `ERROR: Missing required tools (ansible-playbook). Install them and re-run.`               |
+| `ansible-syntax` | `ERROR: ansible-syntax gate could not produce a result (prerequisites missing or the tool failed: see the ERROR line above).` (B27) |
 | `js`             | `ERROR: Missing required tools (node / extensions node_modules). Install them and re-run.` |
 | `docs`           | `ERROR: docs gate could not produce a result (zero-file scan or checker crash).`           |
 
@@ -364,8 +364,9 @@ Found by the review of the port (`subagent-reports/261014-fable-review-qa-all.md
 | B24 | `QA` gate invocation | A gate script that is gone was one failed gate (`bash` status 127) and every other gate still ran.                                                                                           | **Fix**: the table is validated before the first gate: a script that is not a file is `ERROR: qa-all: ...`, exit 2, no gate run (section 11.3). A table that names a script that does not exist is a defect to fix, not a gate to report          |
 | B25 | `QA` `$(...)`        | A gate that exited but left a background child holding its output pipe hung `$(...)` for ever, and no limit applied (B8 bounds it only in Go).                                               | **Fix**: after the grace period the output the gate wrote is kept, the child's process group is killed, and the gate fails: `✗ <name>: <text> (left a process running that held its output open)`                                                 |
 | B26 | `QA` exit-2 aborts   | The Go runner's own aborts (`unknown argument`, `cannot write the report`, an unreadable table) printed bare `ERROR: <text>`, which `verdicts.py` did not read as the end of a run.          | **Fix**: each is `ERROR: qa-all: <text>`, and `TOOL_ABORT` matches the prefix                                                                                                                                                                     |
+| B27 | `QA` exit-2 aborts   | The `ansible-syntax` stage text for exit 2 told the reader to install `ansible-playbook`, but the Go gate exits 2 for six causes (a missing engine, `ansible.cfg` or vault password file, an unusable config dump, a broken playbook discovery, an unwritable report) and prints the true `ERROR:` line first, so the last line contradicted it. | **Fix**: the row names every cause and points at the line above; it still opens `ERROR: ansible-syntax gate could not produce` so `TOOL_ABORT` reads it. Pinned in `testdata/deviations.json` (`exit2-ansible-syntax`) |
 
-Which bugs the golden shows and which a unit test does: B1-B6, B12, B13, B20-B23 and B26 differ in
+Which bugs the golden shows and which a unit test does: B1-B6, B12, B13, B20-B23, B26 and B27 differ in
 the recorded output and are pinned in `testdata/deviations.json`. B7-B11 (the report path, the
 timeout, the interrupt, the table as data, the working directory), B14-B19, B24 and B25 are not
 visible in a recorded stub run, so each has its own Go test (`run_test.go`, `gate_test.go`,

@@ -39,14 +39,18 @@ call this gate.
   working directory, so the verdict depends on the root alone, never on where the gate was
   started from (Ansible's own discovery looks at the working directory, and the playbooks'
   `root_dir` lookup of `CONFIG_FILE` crashes at parse time when it finds none).
-- S6. Every password file the engine will look for must exist. Which files those are is asked of
+- S6. The vault password file the engine will look for must exist. Which files those are is asked of
   the engine, not parsed from the config: `ansible-config dump --only-changed --format json`
   (config pinned as in S5) reports each setting with the path the engine itself resolved, the
   environment override and relative paths included. Each setting whose name ends in
-  `_PASSWORD_FILE` and whose value is a non-empty string must name a regular file with a
-  non-empty body (the engine loads the file at start-up and rejects an empty one at every
-  playbook), else exit 2: `ERROR: the password file <path> (<setting>) does not exist, is not a file, or is empty ...` saying what supplies it (a clean checkout and a bare `git worktree add`
-  lack it) and that the gate never reads it. No such setting: nothing is required. A dump that
+  `_VAULT_PASSWORD_FILE` and whose value is a non-empty string must name a regular file with a
+  non-empty body (the engine loads that file at start-up and rejects an empty one at every
+  playbook), else exit 2: `ERROR: the password file named by <setting> does not exist, is not a file, or is empty ...`
+  naming the setting and never the resolved path (an environment override can be a personal path
+  and the message reaches CI logs), saying what supplies it (a clean checkout and a bare `git worktree add`
+  lack it) and that the gate never reads it. No such setting: nothing is required. Other
+  password files (`BECOME_PASSWORD_FILE`, `CONNECTION_PASSWORD_FILE`) are not required: a parse
+  never loads them (measured: a missing one still exits 0). A dump that
   cannot be had (the tool missing, a non-zero exit, text that is not JSON) is exit 2. Without
   this check every playbook fails with the same Ansible message and the report reads as N broken
   playbooks. The tool only asks the file system whether the file is there and how big it is; it
@@ -54,8 +58,11 @@ call this gate.
 
 ### Which files: the shared discovery
 
-- S7. A playbook is a YAML file (`.yml`/`.yaml`) with a line that is a list item whose first key
-  is `hosts:` or `import_playbook:` (`^\s*-\s+(hosts|import_playbook):`). The second marker
+- S7. A playbook is a YAML file (`.yml`/`.yaml`) whose top-level structure is a list with an item
+  that has `hosts:` or `import_playbook:` as one of its own keys, whichever key comes first
+  (`- name: X` then `hosts:` is a play). Only the top-level list counts: the same keys inside a
+  `loop:` list, a block scalar or a deeper mapping are not a play, and a file whose top level is
+  a mapping is never a playbook. The second marker
   matters: an entrypoint that only composes other playbooks has no play of its own. The YAML
   files considered are those git would publish (tracked, or untracked and not ignored) outside the
   excluded trees, from the shared discovery (`yaml` list of [SPEC-qa-discovery.md](SPEC-qa-discovery.md)).
@@ -69,8 +76,10 @@ call this gate.
 ### The check
 
 - S10. Each playbook is checked with `ansible-playbook --syntax-check <absolute path>`, run in the
-  root with `ANSIBLE_CONFIG` pinned (S5) and `ANSIBLE_NOCOLOR=1` (a colour setting of the caller
-  must not change the report text). Exit 0 passes. Any other exit fails the playbook; its error is
+  root with `ANSIBLE_CONFIG` pinned (S5) and every colour variable the engine reads pinned to off
+  (`ANSIBLE_NOCOLOR=1`, `NO_COLOR=1`, `ANSIBLE_FORCE_COLOR=0`: the engine applies a force after a
+  no-colour, so the no-colour alone loses to a caller's force). A colour setting of the caller
+  must not change the report text, and no escape code appears on stdout or in the report. Exit 0 passes. Any other exit fails the playbook; its error is
   the engine's stderr with trailing blank space removed. The engine's stdout is not used. A
   failing engine with nothing on stderr has the error `ansible-playbook exited <n> with no output`.
 - S11. The checks run in parallel (4 workers; one playbook takes about a third of a second and
@@ -89,7 +98,8 @@ call this gate.
   `✗ ansible-syntax: <F>/<N> playbooks failed → <report>`, exit 1.
 - S15. The report is `{type:"ansible-syntax", status:"pass"|"fail", summary:{total,passed,failed}, results:[{file,type:"ansible-syntax",status[,error]}], failures:[...]}`, `results` in path order
   with repository-relative paths; `failures` the failing entries (an empty array, not null).
-  Written on exit 0 and 1.
+  Written on exit 0 and 1, with mode 0644 whatever the umask (the bash wrote it under the umask;
+  the report holds repository paths and engine errors, no secrets).
 
 ## 3. Departures from the bash
 
@@ -103,6 +113,13 @@ call this gate.
 - D5. `ANSIBLE_NOCOLOR=1` and the working directory pinned to the root (S5, S10).
 - D6. Arguments are parsed (S1); the bash ignored them. A run that cannot complete reports
   `ERROR:` on stderr and writes no report; the closed-stdout and failed-write cases are exit 2.
+- D8. A symlinked `.yml` whose target is a playbook is checked (the shared discovery follows
+  links); the bash's `find -type f` skipped it. A dangling link is exit 2 (an unreadable
+  candidate, S7), where the bash ignored it.
+- D9. Only the vault password file is required (S6), and the path is never printed; the bash
+  required none and printed nothing about it.
+- D10. A play written name first, or with `hosts:` after other keys, is a playbook, and a
+  `- hosts:` nested in a loop list is not (S7); the bash's line marker judged both wrongly.
 - D7. Not required, though the task brief assumed it: `environment/localhost/host_vars/localhost.yml`.
   Measured: a checkout without it and with only a vault password file present parses every
   playbook, so requiring it would fail a working gate.

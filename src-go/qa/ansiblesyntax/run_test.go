@@ -158,7 +158,7 @@ func TestEveryCheckPinsTheConfigAndTheWorkingDirectory(t *testing.T) {
 		t.Fatalf("%d checks", len(checks))
 	}
 	for _, c := range checks {
-		if c.Dir != w.root || !slices.Contains(c.Env, "ANSIBLE_CONFIG="+filepath.Join(w.root, "ansible.cfg")) || !slices.Contains(c.Env, "ANSIBLE_NOCOLOR=1") {
+		if c.Dir != w.root || !slices.Contains(c.Env, "ANSIBLE_CONFIG="+filepath.Join(w.root, "ansible.cfg")) || !slices.Contains(c.Env, "ANSIBLE_NOCOLOR=1") || !slices.Contains(c.Env, "ANSIBLE_FORCE_COLOR=0") {
 			t.Fatalf("check not pinned: dir %q env %v", c.Dir, c.Env)
 		}
 	}
@@ -176,7 +176,7 @@ func TestMissingPasswordFileIsExitTwoNotManyFailures(t *testing.T) {
 	w.addPlaybook("b.yml")
 	w.setting(passwordSetting, filepath.Join(w.root, "absent"))
 	got := w.main()
-	wantStderr(t, got, "password file", filepath.Join(w.root, "absent"), "exist", "never reads")
+	wantStderr(t, got, "password file", passwordSetting, "exist", "never reads")
 	if strings.Contains(got.stdout, "✗") || len(w.run.checks()) != 0 {
 		t.Fatalf("playbooks were judged: stdout %q", got.stdout)
 	}
@@ -211,16 +211,33 @@ func TestEmptyPasswordFileIsExitTwo(t *testing.T) {
 	}
 }
 
-// S6: any configured password file counts, not only the vault's; none configured needs none.
-func TestEveryConfiguredPasswordFileIsRequired(t *testing.T) {
+// S6: only the vault password file is required, since it is the one the engine loads before
+// parsing; another password file pointing nowhere does not stop the gate. None configured needs none.
+func TestOnlyTheVaultPasswordFileIsRequired(t *testing.T) {
 	w := newWorld(t, nil)
 	w.addPlaybook("a.yml")
 	w.setting("BECOME_PASSWORD_FILE", filepath.Join(w.root, "absent"))
-	wantStderr(t, w.main(), "BECOME_PASSWORD_FILE")
-	w.setting("BECOME_PASSWORD_FILE", "")
+	wantExit(t, w.main(), ExitOK)
+	w.setting("CONNECTION_PASSWORD_FILE", filepath.Join(w.root, "absent"))
 	wantExit(t, w.main(), ExitOK)
 	w.setting("ANY_ERRORS_FATAL", true)
 	wantExit(t, w.main(), ExitOK)
+	w.setting(passwordSetting, "")
+	wantExit(t, w.main(), ExitOK)
+}
+
+// S6: the message names the setting, never the resolved path (an environment override can be a
+// personal path, and the message reaches CI logs).
+func TestPasswordFileMessageNamesTheSettingNotThePath(t *testing.T) {
+	w := newWorld(t, nil)
+	w.addPlaybook("a.yml")
+	absent := filepath.Join(w.root, "absent-secret-location")
+	w.setting(passwordSetting, absent)
+	got := w.main()
+	wantStderr(t, got, passwordSetting)
+	if strings.Contains(got.stderr, absent) {
+		t.Fatalf("stderr names the path:\n%s", got.stderr)
+	}
 }
 
 // S6: a config dump that cannot be had or read is the run failing, not a pass.
@@ -242,23 +259,40 @@ func TestUnreadableConfigDumpIsExitTwo(t *testing.T) {
 	}
 }
 
-// S7
+// S7: a play is a top-level list item with `hosts:` or `import_playbook:` as one of its keys,
+// whichever comes first; nothing nested deeper is a play.
 func TestAPlaybookHasAPlayOrImportsOne(t *testing.T) {
 	w := newWorld(t, nil)
 	w.addFile("a.yml", "---\n- hosts: all\n")
 	w.addFile("b.yaml", "- import_playbook: a.yml\n")
 	w.addFile("c.yml", "  -   hosts: x\n")
-	w.addFile("tasks.yml", "- name: t\n  hosts: nope\n")
+	w.addFile("named.yml", "- name: t\n  # a comment\n  hosts: nope\n")
+	w.addFile("bare.yml", "-\n  name: t\n  hosts: nope\n")
+	w.addFile("second.yml", "- name: one\n  debug: {}\n- name: two\n  hosts: all\n")
 	w.addFile("comment.yml", "# - hosts: all\n")
 	w.addFile("vars.yml", "hosts: [a]\n")
 	w.addFile("d.txt", "- hosts: all\n")
 	wantExit(t, w.main(), ExitOK)
-	if got := checkedFiles(w.report()); !slices.Equal(got, []string{"a.yml", "b.yaml", "c.yml", basePlaybook}) {
+	want := []string{"a.yml", "b.yaml", "bare.yml", "c.yml", "named.yml", basePlaybook, "second.yml"}
+	if got := checkedFiles(w.report()); !slices.Equal(got, want) {
+		t.Fatalf("checked %v, want %v", got, want)
+	}
+}
+
+// S7: hosts nested in a task's loop, a block scalar or a deeper key is not a play, so the tasks
+// file is not judged a playbook.
+func TestNestedHostsAreNotAPlay(t *testing.T) {
+	w := newWorld(t, nil)
+	w.addFile("tasks/loop.yml", "- name: t\n  ansible.builtin.debug:\n    msg: x\n  loop:\n    - hosts: all\n")
+	w.addFile("tasks/deep.yml", "- name: t\n  vars:\n    - import_playbook: x\n  hosts_list: [a]\n")
+	w.addFile("tasks/scalar.yml", "- name: t\n  ansible.builtin.copy:\n    content: |\n      - hosts: all\n      hosts: x\n")
+	w.addFile("tasks/top.yml", "name: t\nloop:\n  - hosts: all\n")
+	wantExit(t, w.main(), ExitOK)
+	if got := checkedFiles(w.report()); !slices.Equal(got, []string{basePlaybook}) {
 		t.Fatalf("checked %v", got)
 	}
 }
 
-// S7
 func TestExcludedTreesAreNotPlaybooks(t *testing.T) {
 	w := newWorld(t, nil)
 	w.addPlaybook("p.yml")

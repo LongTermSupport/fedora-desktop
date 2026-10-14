@@ -158,7 +158,11 @@ func Main(args []string, env Env) ExitCode {
 	if g.report == "" {
 		g.report = defaultReportPath
 	}
-	g.engineEnv = []string{"ANSIBLE_CONFIG=" + filepath.Join(g.root, "ansible.cfg"), "ANSIBLE_NOCOLOR=1"}
+	g.engineEnv = []string{
+		"ANSIBLE_CONFIG=" + filepath.Join(g.root, "ansible.cfg"),
+		// Ansible lets a force win over a no-colour, so every variable it reads for colour is pinned.
+		"ANSIBLE_NOCOLOR=1", "NO_COLOR=1", "ANSIBLE_FORCE_COLOR=0",
+	}
 	verdict, err := g.run()
 	if err != nil {
 		return fail(env, err, false)

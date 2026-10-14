@@ -10,8 +10,10 @@ import (
 	"strings"
 )
 
-// passwordFileSuffix ends the name of every setting that points the engine at a password file.
-const passwordFileSuffix = "_PASSWORD_FILE"
+// vaultPasswordFileSuffix ends the name of the setting that points the engine at the vault
+// password file, the one password file it loads and rejects before it parses anything. The
+// other password files (become, connection) are not read by a parse.
+const vaultPasswordFileSuffix = "_VAULT_PASSWORD_FILE"
 
 // requireMachine checks what the machine must supply before any playbook is judged, so a
 // missing prerequisite is one clear exit 2 and never a report of every playbook failing alike.
@@ -34,9 +36,9 @@ type configSetting struct {
 	Value any    `json:"value"`
 }
 
-// requirePasswordFiles asks the engine which password files it will look for (its own
-// resolution of the environment and the config, relative paths included) and requires each to
-// exist as a file. Existence only: the file is never opened.
+// requirePasswordFiles asks the engine which vault password file it will look for (its own
+// resolution of the environment and the config, relative paths included) and requires it to
+// exist as a non-empty file. Existence only: the file is never opened.
 func (g *gate) requirePasswordFiles(ctx context.Context) error {
 	res, err := g.runTool(ctx, probeTimeout, "ansible-config", "dump", "--only-changed", "--format", "json")
 	if err != nil {
@@ -51,15 +53,15 @@ func (g *gate) requirePasswordFiles(ctx context.Context) error {
 	}
 	for _, s := range settings {
 		path, isText := s.Value.(string)
-		if !strings.HasSuffix(s.Name, passwordFileSuffix) || !isText || path == "" {
+		if !strings.HasSuffix(s.Name, vaultPasswordFileSuffix) || !isText || path == "" {
 			continue
 		}
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-			return fmt.Errorf("the password file %s (%s) does not exist, is not a file, or is empty: "+
+			return fmt.Errorf("the password file named by %s does not exist, is not a file, or is empty: "+
 				"supply it (a clean checkout and a bare git worktree add lack it). "+
 				"Only its existence and a non-empty body are needed: this gate never reads it and --syntax-check does not decrypt; "+
-				"without it every playbook would fail with the same message", path, s.Name)
+				"without it every playbook would fail with the same message", s.Name)
 		}
 	}
 	return nil

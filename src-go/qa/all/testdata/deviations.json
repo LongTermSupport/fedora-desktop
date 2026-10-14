@@ -191,5 +191,11 @@
    "B5"
   ],
   "reason": "a stage that exits 0 while its report counts failures is a failed stage"
+ },
+ "exit2-ansible-syntax": {
+  "bugs": [
+   "B27"
+  ],
+  "reason": "ansible-syntax exits 2 for six causes (a missing engine, ansible.cfg or vault password file, an unusable config dump, a broken playbook discovery, an unwritable report), but its stage text only told the reader to install a tool; it now covers every cause and points at the ERROR line above"
  }
 }

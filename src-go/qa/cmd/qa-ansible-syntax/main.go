@@ -55,7 +55,14 @@ func stdoutWasClosed() bool {
 	return errno == 0 && int(flags)&syscall.O_ACCMODE == syscall.O_RDWR
 }
 
+// reportMode is the report's permission: it holds repository paths and engine errors, no secrets.
+const reportMode = 0o644
+
 // writeReport writes the machine report where the caller said.
 func writeReport(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, reportMode); err != nil {
+		return err
+	}
+	// The umask must not narrow it: other users (a CI step, qa-all) read the report.
+	return os.Chmod(path, reportMode)
 }

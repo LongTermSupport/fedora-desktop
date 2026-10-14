@@ -12,9 +12,83 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/discovery"
 )
 
-// playbookMarker is a list item whose first key is `hosts:` (a play) or `import_playbook:` (an
-// entrypoint that only composes other playbooks, which has no play of its own).
-var playbookMarker = regexp.MustCompile(`(?m)^\s*-\s+(hosts|import_playbook):`)
+// playKey matches a mapping key that makes a list item a play (`hosts:`) or an entrypoint that
+// only composes other playbooks and has no play of its own (`import_playbook:`).
+var playKey = regexp.MustCompile(`^(hosts|import_playbook):`)
+
+// listItem matches a line that opens a list item: its indent and what follows the dash.
+var listItem = regexp.MustCompile(`^( *)-(?: +(.*))?$`)
+
+// scan is the position of isPlaybook in the text: the indent of the top-level list items (-1
+// until the first content line shows it) and of the keys of the item being read (-1 before its
+// first key).
+type scan struct{ top, itemKeys int }
+
+// isContent is whether a line says anything: not blank, not a comment, not a document marker.
+func isContent(content string) bool {
+	return content != "" && !strings.HasPrefix(content, "#") && content != "---" && !strings.HasPrefix(content, "--- ")
+}
+
+// isPlaybook is whether the text is a YAML list at the top level one of whose items has `hosts:`
+// or `import_playbook:` as a key of its own, whichever key comes first. Anything nested deeper
+// (a loop list, a block scalar, a play-level variable) is not a play.
+func isPlaybook(body []byte) bool {
+	sc := scan{top: -1, itemKeys: -1}
+	for line := range strings.SplitSeq(string(body), "\n") {
+		content := strings.TrimLeft(line, " ")
+		if !isContent(content) {
+			continue
+		}
+		switch sc.step(line, len(line)-len(content), content) {
+		case isPlay:
+			return true
+		case notPlaybook:
+			return false
+		case undecided:
+		}
+	}
+	return false
+}
+
+// what a line settles: nothing yet, that the file is a playbook, or that it is not.
+type finding int
+
+const (
+	undecided finding = iota
+	isPlay
+	notPlaybook
+)
+
+// step reads one content line.
+func (sc *scan) step(line string, indent int, content string) finding {
+	item := listItem.FindStringSubmatch(line)
+	if sc.top < 0 {
+		if item == nil {
+			return notPlaybook
+		}
+		sc.top = indent
+	}
+	switch {
+	case indent < sc.top:
+		return notPlaybook
+	case indent == sc.top:
+		sc.itemKeys = -1
+		if item != nil && item[2] != "" {
+			sc.itemKeys = len(line) - len(item[2])
+			if playKey.MatchString(item[2]) {
+				return isPlay
+			}
+		}
+	default:
+		if sc.itemKeys < 0 {
+			sc.itemKeys = indent
+		}
+		if indent == sc.itemKeys && playKey.MatchString(content) {
+			return isPlay
+		}
+	}
+	return undecided
+}
 
 // discover is the playbooks: the YAML files git would publish (the shared discovery) that carry
 // the marker, as paths relative to the root, sorted. None, or a tracked playbook that is not
@@ -30,7 +104,7 @@ func (g *gate) discover() ([]string, error) {
 		if readErr != nil {
 			return nil, fmt.Errorf("cannot read %s: %w", rel, readErr)
 		}
-		if playbookMarker.Match(body) {
+		if isPlaybook(body) {
 			playbooks = append(playbooks, rel)
 		}
 	}
