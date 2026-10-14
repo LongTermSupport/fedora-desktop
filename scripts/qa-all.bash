@@ -896,8 +896,8 @@ fi
 tmux_targets_summary=$(qa_gate_case_count "$tmux_targets_out")
 qa_pass_line ccy-tmux-targets "$tmux_targets_summary"
 
-# The ccy-teams command (Plan 00161): the template renders with no Jinja left and its
-# rendering is lint-clean; the REAL --list and picker under fakes for tmux, fzf, systemctl, sudo,
+# The ccy-teams command (Plan 00161, a Go binary since Plan 00191): the suite builds it as the
+# play does; the REAL --list and picker under fakes for tmux, fzf, systemctl, sudo,
 # agent-bus and agent-bus-install show each team, seat, member and human as those sources
 # say, and every key (Enter, Ctrl-N, Ctrl-R, Ctrl-X, Ctrl-E) reaches the right command with
 # the right row; a no changes nothing; create, backup and restore wrap their commands.

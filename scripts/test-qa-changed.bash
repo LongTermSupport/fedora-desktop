@@ -194,6 +194,18 @@ plan="$(plan_for src-go/internal/agentbus/agentbus.go)"
 expect_lacks "sessions:a package it does not import leaves the suites out" "$plan" "test-ccy-sessions-reboot.bash"
 
 echo
+echo "== src-go -> every binary has a suite entry =="
+# GO_BINARY_SUITES is a hand-kept list; a new src-go/cmd/<x> missing from it would be built and
+# deployed with no suite selected for its changes and no warning.
+plan="$(plan_for src-go/cmd/ccy-unmapped/main.go)"
+expect_lacks "binaries: the control, a command with no entry, selects no suite" "$plan" "suite scripts/"
+for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
+    cmd_name="$(basename "$cmd_dir")"
+    plan="$(plan_for "src-go/cmd/$cmd_name/main.go")"
+    expect_has "binaries: $cmd_name has a suite entry" "$plan" "suite scripts/"
+done
+
+echo
 echo "=============================================================="
 printf 'passed: %d   failed: %d\n' "$PASS" "$FAIL"
 if [[ "$FAIL" -gt 0 ]]; then
