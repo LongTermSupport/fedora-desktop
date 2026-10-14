@@ -1,0 +1,12 @@
+=== frozen (3) ===
+  NAME                               STATE    BRIDGE            IPV4              
+  zulu                               FROZEN   lxcbr0            192.0.2.11        
+  mike                               FROZEN   virbr1                              
+  kilo                               FROZEN   (no network)                        
+
+  Thaw them all with: lxcfreeze thaw --all
+
+=== running (2) ===
+  NAME                               STATE    BRIDGE            IPV4              
+  alpha                              RUNNING  lxcbr0            192.0.2.12        
+  bravo                              RUNNING  virbr1            (unknown)         

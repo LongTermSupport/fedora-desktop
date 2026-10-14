@@ -1,0 +1,8 @@
+What to act on:
+   1) all LXC containers                     FREEZE 2
+   2) bridge: lxcbr0                         FREEZE 1
+   3) bridge: virbr1                         FREEZE 1
+Choice [1-3, q to quit]:   Not one of the options — enter a number between 1 and 3, or q.
+Choice [1-3, q to quit]:   Not one of the options — enter a number between 1 and 3, or q.
+Choice [1-3, q to quit]:   Not one of the options — enter a number between 1 and 3, or q.
+lxcfreeze: giving up after 3 attempts — nothing changed.

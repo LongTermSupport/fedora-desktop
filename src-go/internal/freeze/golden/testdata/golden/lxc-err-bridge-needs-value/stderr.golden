@@ -1,0 +1,1 @@
+lxcfreeze: --bridge needs a bridge name — see 'lxcfreeze --help'.

@@ -1,0 +1,5 @@
+1 container(s) being THAWED:
+  NAME                               STATE    BRIDGE            IPV4              
+  zulu                               FROZEN   lxcbr0            192.0.2.11        
+  ✗ zulu — lxc-unfreeze: zulu: Failed to unfreeze
+lxcfreeze: 1 of 1 container(s) failed — see above.

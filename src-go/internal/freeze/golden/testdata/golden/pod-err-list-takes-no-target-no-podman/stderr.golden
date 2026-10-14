@@ -1,0 +1,4 @@
+podfreeze: podman is not installed.
+  It is declared in playbooks/imports/play-podman.yml. Deploy it with:
+    ansible-playbook playbooks/imports/play-podman.yml
+  Do NOT install it by hand.

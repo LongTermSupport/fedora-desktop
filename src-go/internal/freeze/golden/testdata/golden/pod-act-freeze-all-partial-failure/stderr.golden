@@ -1,0 +1,14 @@
+Skipped — not currently running: db proj2_yolo_2
+4 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  web                                running  -    appnet                
+  proj1_yolo                         running  CCY  podman                
+  proj3_browser                      running  CCY  podman                
+  legacy_yolo                        running  CCY  podman                
+  ✓ web
+  ✓ proj1_yolo
+  ✗ proj3_browser — Error: cgroup freezer unavailable
+  ✓ legacy_yolo
+
+  Thaw them with: podfreeze thaw web proj1_yolo proj3_browser legacy_yolo
+podfreeze: 1 of 4 container(s) failed — see above.

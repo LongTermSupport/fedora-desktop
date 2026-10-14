@@ -1,0 +1,10 @@
+2 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  proj1_yolo                         running  CCY  podman                
+  proj3_browser                      running  CCY  podman                
+  ✓ proj1_yolo
+  ✗ proj3_browser — Error: cgroup freezer unavailable
+
+  Thaw them with: podfreeze thaw proj1_yolo
+podfreeze: 1 of 2 container(s) failed — see above.
+

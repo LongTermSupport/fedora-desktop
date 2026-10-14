@@ -1,0 +1,40 @@
+What to act on:
+   1) all CCY (Claude) containers            FREEZE 1
+   2) all containers                         FREEZE 2
+   3) network: appnet                        FREEZE 1
+   4) network: podman                        FREEZE 1
+   5) ssh-key: id_a                          FREEZE 1
+   6) ssh-key: id_b                          FREEZE 1
+Choice [1-6, q to quit]: In this group:
+   1) *all*                              FREEZE 1
+   2) proj1_yolo                         running  CCY  podman                 FREEZE
+Choice [ENTER or 1 for all, numbers for specific, b to go back]: 1 container(s) being FROZEN:
+  NAME                               STATE    CCY  NETWORKS              
+  proj1_yolo                         running  CCY  podman                
+  ✓ proj1_yolo
+
+  Thaw them with: podfreeze thaw proj1_yolo
+
+What to act on:
+   1) all CCY (Claude) containers            THAW   1
+   2) all containers                         FREEZE 1
+   3) network: appnet                        FREEZE 1
+   4) network: podman                        THAW   1
+   5) ssh-key: id_a                          THAW   1
+   6) ssh-key: id_b                          THAW   1
+Choice [1-6, q to quit]: In this group:
+   1) *all*                              THAW   1
+   2) proj1_yolo                         paused   CCY  podman                 THAW
+Choice [ENTER or 1 for all, numbers for specific, b to go back]: 1 container(s) being THAWED:
+  NAME                               STATE    CCY  NETWORKS              
+  proj1_yolo                         paused   CCY  podman                
+  ✓ proj1_yolo
+
+What to act on:
+   1) all CCY (Claude) containers            FREEZE 1
+   2) all containers                         FREEZE 2
+   3) network: appnet                        FREEZE 1
+   4) network: podman                        FREEZE 1
+   5) ssh-key: id_a                          FREEZE 1
+   6) ssh-key: id_b                          FREEZE 1
+Choice [1-6, q to quit]: 

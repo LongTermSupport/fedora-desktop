@@ -1,0 +1,8 @@
+=== frozen (0) ===
+  (none)
+
+=== running (0) ===
+  (none)
+
+  LXC is installed and has no running or frozen containers.
+  (A STOPPED container is not counted — see 'sudo lxc-ls -f'.)

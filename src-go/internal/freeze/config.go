@@ -73,6 +73,13 @@ func Die(format string, args ...any) error {
 	return &DieError{Msg: fmt.Sprintf(format, args...)}
 }
 
+// GaveUpError is a prompt that was answered wrongly MaxTries times. It is a fatal error at the
+// group menu; the drill-down's is said and the menu returns.
+type GaveUpError struct{ *DieError }
+
+// Unwrap lets errors.As find the DieError (and so its message).
+func (e *GaveUpError) Unwrap() error { return e.DieError }
+
 var (
 	// ErrSomeFailed means at least one target failed. Each failure and the count were already
 	// reported on stderr, so the exit status is all that is left to deliver.

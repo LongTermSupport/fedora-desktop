@@ -175,7 +175,7 @@ func (c *TTYChooser) numberedGroup(ctx context.Context, keys, labels []string) (
 }
 
 func giveUp() error {
-	return Die("giving up after %d attempts — nothing changed.", MaxTries)
+	return &GaveUpError{&DieError{Msg: fmt.Sprintf("giving up after %d attempts — nothing changed.", MaxTries)}}
 }
 
 func (c *TTYChooser) members(ctx context.Context, screen MemberScreen) (Choice, error) {

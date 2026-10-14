@@ -1,0 +1,4 @@
+1 container(s) being THAWED:
+  NAME                               STATE    CCY  NETWORKS              
+  db                                 paused   -    appnet                
+  ✓ db

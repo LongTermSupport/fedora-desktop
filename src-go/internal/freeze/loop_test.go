@@ -235,3 +235,33 @@ func TestLoopMenuWithNoRowsIsAnInternalError(t *testing.T) {
 	err := h.s.Loop(context.Background())
 	mustEq(t, "msg", dieMsg(err), "internal error: the menu has no rows to offer.")
 }
+
+// Giving up on the drill-down's replies is said, then the menu comes back: in the bash tool the
+// give-up there was a die inside a command substitution, which ended only that step. The group
+// menu's own give-up stays fatal.
+func TestLoopGivingUpInTheDrillDownSaysSoAndReturnsToTheMenu(t *testing.T) {
+	h := loopHarness(t, "all")
+	h.chooser.members = func(MemberScreen) (Choice, error) { return Choice{}, giveUp() }
+	if err := h.s.Loop(context.Background()); err != nil {
+		t.Fatalf("giving up in the drill-down ends the step, not the session: %v", err)
+	}
+	mustEq(t, "the menu is drawn again", h.eng.loads, 2)
+	mustEq(t, "said once, then a blank line", h.err.String(), "testfreeze: giving up after 3 attempts — nothing changed.\n\n")
+	mustEq(t, "nothing acted", len(h.eng.acts), 0)
+}
+
+func TestLoopAFatalErrorFromTheDrillDownIsStillFatal(t *testing.T) {
+	h := loopHarness(t, "all")
+	h.chooser.members = func(MemberScreen) (Choice, error) { return Choice{}, Die("no terminal") }
+	if err := h.s.Loop(context.Background()); dieMsg(err) != "no terminal" {
+		t.Fatalf("want the fatal error, got %v", err)
+	}
+}
+
+func TestGiveUpIsAFatalErrorOfItsOwnKind(t *testing.T) {
+	err := giveUp()
+	mustEq(t, "msg", dieMsg(err), "giving up after 3 attempts — nothing changed.")
+	if gaveUp, ok := errors.AsType[*GaveUpError](err); !ok || gaveUp == nil {
+		t.Fatalf("want a *GaveUpError, got %T", err)
+	}
+}

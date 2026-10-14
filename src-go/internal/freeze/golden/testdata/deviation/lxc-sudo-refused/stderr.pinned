@@ -1,0 +1,8 @@
+
+LXC here is rootful: /var/lib/lxc is root-only, so even listing containers needs root.
+sudo asks for your login password.
+sudo: 3 incorrect password attempts
+ERROR: sudo was not given your password (three wrong tries, or cancelled).
+lxcfreeze: sudo was refused, so no LXC state could be read.
+  Nothing was changed. This is NOT 'no containers found' — the question was
+  never asked, and reporting an empty machine here would be a guess.

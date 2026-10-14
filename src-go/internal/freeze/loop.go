@@ -83,6 +83,10 @@ func (s *Session) choose(ctx context.Context) ([]string, error) {
 		s.stderr.Printf("\n")
 		return nil, errAgain
 	}
+	if gaveUp, ok := errors.AsType[*GaveUpError](err); ok {
+		s.stderr.Printf("%s: %s\n\n", s.Cfg.Tool, gaveUp.Msg)
+		return nil, errAgain
+	}
 	return picked, err
 }
 
