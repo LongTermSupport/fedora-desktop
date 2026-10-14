@@ -49,7 +49,7 @@ own: the entrypoint logs gh in at start.
    directory once nothing is left in it; launching into the same `<seat>@<team>` again
    returns the seat with a new token. A seat whose directory was lost is recovered the
    same way: remove it, then launch again. To give a seat another role:
-   `sudo agent-bus set-role <team> <handle> --role=orchestrator`, the handle read from
+   `sudo agent-bus set-role <team> <handle> --role=coordinator`, the handle read from
    `agent-bus seat list`.
 
 The team's homeserver must run on this machine (agent-bus-hs@<team>.service is active),

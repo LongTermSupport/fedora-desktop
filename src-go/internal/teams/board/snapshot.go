@@ -66,6 +66,16 @@ func (s *Snapshot) SessionsOf(team, person string) (int, bool) {
 	return count, known
 }
 
+// RoleOf is the role of the member with handle in team, or "" when it is not a member or the
+// members could not be read.
+func (s *Snapshot) RoleOf(team, handle string) string {
+	m, ok := s.Members[team].Member(handle)
+	if !ok {
+		return ""
+	}
+	return m.Role
+}
+
 // StatusWord is the APPLIED column for team, in words.
 func (s *Snapshot) StatusWord(team string) string {
 	st, ok := s.Status[team]
@@ -183,7 +193,7 @@ func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt) {
 		if !shown[m.Handle] {
 			s.Rows = append(s.Rows, Row{
 				Team: team, Member: m.Handle, Kind: Kind(m.Kind()), State: activity[m.Handle],
-				Applied: "-", Session: "-", Restore: "-", Where: m.Role, Handle: m.Handle, Dir: "-",
+				Applied: "-", Session: "-", Restore: "-", Where: m.Role, Handle: m.Handle, Dir: "-", Role: m.Role,
 			})
 		}
 	}

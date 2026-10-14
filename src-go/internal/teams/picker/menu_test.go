@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -170,6 +171,47 @@ func TestTheFooterFollowsTheRowUnderTheCursorInWords(t *testing.T) {
 	}
 	if !strings.Contains(h.HeaderOf(0), "This row: ") || !strings.Contains(h.HeaderOf(0), "TEAM ") {
 		t.Fatalf("the first row's footer and the column heading are shown at once: %q", h.HeaderOf(0))
+	}
+}
+
+func TestASeatsMenuOffersMakingItTheCoordinator(t *testing.T) {
+	h := newRig(t)
+	r := h.run1(t)
+	labels := h.labels(r, h.row(t, r.snap, "1"))
+	if !slices.Contains(labels, "Make coordinator") {
+		t.Fatalf("seat menu %q", labels)
+	}
+	if slices.Contains(labels, "Stop being coordinator") {
+		t.Fatalf("a seat that is not the coordinator offers to stop being it: %q", labels)
+	}
+	footer := r.footerFor(h.row(t, r.snap, "1"))
+	if !strings.Contains(footer, "make it the coordinator via Enter") {
+		t.Fatalf("footer %q", footer)
+	}
+}
+
+func TestTheCoordinatorsSeatMenuOffersToStopBeingIt(t *testing.T) {
+	h := newRig(t)
+	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
+		"MEMBER\tproj.1+local.podman\tdev", "MEMBER\tproj.1+local.podman\tcoordinator", 1), 0)
+	r := h.run1(t)
+	labels := h.labels(r, h.row(t, r.snap, "1"))
+	if !slices.Contains(labels, "Stop being coordinator") || slices.Contains(labels, "Make coordinator") {
+		t.Fatalf("seat menu %q", labels)
+	}
+}
+
+func TestChoosingMakeCoordinatorChangesTheRoleThroughSudo(t *testing.T) {
+	h := newRig(t)
+	h.On("sudo -n -v", "", 0)
+	h.On(teamtest.SudoBus+"set-role alpha", "", 0)
+	h.Script.Fzf = []string{"|YES"}
+	r := h.run1(t)
+	if _, err := r.do(context.Background(), keyCoordinator, h.row(t, r.snap, "1")); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Fake.Called(teamtest.SudoBus + "set-role alpha proj.1+local.podman --role=coordinator") {
+		t.Fatalf("calls %v", h.Fake.Calls())
 	}
 }
 

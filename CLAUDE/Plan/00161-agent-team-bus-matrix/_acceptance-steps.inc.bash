@@ -178,7 +178,7 @@ add_member() {
 }
 
 add_members() {
-    add_member a orchestrator || return 1
+    add_member a coordinator || return 1
     add_member b worker || return 1
     local bundle="${MEMBER_DIR}/a/${TEAM}/member.json"
     A_HANDLE="$("${CHECK[@]}" handle "${bundle}")" || return 1
@@ -187,7 +187,7 @@ add_members() {
     ROOM_ID="$("${CHECK[@]}" member-field "${bundle}" room)" || return 1
     ROOM_PATH="$("${CHECK[@]}" room-path "${ROOM_ID}")" || return 1
     BASE_URL="$("${CHECK[@]}" member-field "${bundle}" base_url)" || return 1
-    printf '==> member a %s (orchestrator, ack deadline %d s), member b %s (worker), at %s\n' \
+    printf '==> member a %s (coordinator, ack deadline %d s), member b %s (worker), at %s\n' \
         "${A_HANDLE}" "${ACK_TIMEOUT_S}" "${B_HANDLE}" "${BASE_URL}"
 }
 

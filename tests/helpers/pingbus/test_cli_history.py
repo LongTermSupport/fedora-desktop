@@ -79,7 +79,19 @@ class HistoryLineTest(unittest.TestCase):
                              trust=protocol.TRUST_TRUSTED)
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 7, ping=ping))
         self.assertEqual(line, f"HISTORY\t1\tin\t7\tPING\t{self.TEAM}\t{self.EVENT}"
-                               f"\torch.1+workstation.podman\treview\t{PATH_REF}\t-\ttrusted\t-")
+                               f"\torch.1+workstation.podman\treview\t{PATH_REF}\t-\ttrusted\t-\t-")
+
+    def test_a_ping_received_on_copy_names_the_humans(self) -> None:
+        ping = protocol.Ping("done", (self.ME,), protocol.parse_ref("issue:example-org/myrepo#7"), None,
+                             sender=self.ORCH, event_id=self.EVENT, origin_server_ts=7,
+                             trust=protocol.TRUST_TRUSTED, copy_of=(f"@alice:{self.SN}", f"@bob:{self.SN}"))
+        line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 7, ping=ping))
+        self.assertTrue(line.endswith("\ttrusted\t-\tcopy:alice,bob"), line)
+
+    def test_a_peer_text_received_on_copy_names_the_humans(self) -> None:
+        peer = protocol.PeerText(self.EVENT, self.ORCH, 9, "all green", (f"@alice:{self.SN}",))
+        line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, peer=peer))
+        self.assertTrue(line.endswith('\t9\t"all green"\tcopy:alice'), line)
 
     def test_a_human_message_is_escaped_as_its_human_line(self) -> None:
         human = protocol.HumanMessage(self.EVENT, f"@alice:{self.SN}", 9, "two\tfields\nno")
@@ -91,7 +103,7 @@ class HistoryLineTest(unittest.TestCase):
         peer = protocol.PeerText(self.EVENT, self.ORCH, 9, "two\tfields\nno")
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("in", 9, peer=peer))
         self.assertEqual(line, f'HISTORY\t1\tin\t9\tPEER\t{self.TEAM}\t{self.EVENT}'
-                               '\torch.1+workstation.podman\t9\t"two\\tfields\\nno"')
+                               '\torch.1+workstation.podman\t9\t"two\\tfields\\nno"\t-')
 
     def test_an_agent_text_sent_is_its_sent_line_without_the_text(self) -> None:
         line = cli.history_line(self.TEAM, self.SN, syncer.HistoryItem("out", 3, sent_event_id=self.EVENT))
@@ -128,16 +140,16 @@ class HistoryTest(HistoryCase):
         self.assertEqual(code, cli.EXIT_OK, err)
         self.assertEqual(self.ids(rows), [ack, human, ping])
         self.assertEqual([(r[2], r[4]) for r in rows], [("out", "PING"), ("in", "HUMAN"), ("in", "PING")])
-        self.assertEqual(rows[0][7:], ["myrepo.1+workstation.podman", "ack", "-", ping, "-", "-"])
+        self.assertEqual(rows[0][7:], ["myrepo.1+workstation.podman", "ack", "-", ping, "-", "-", "-"])
         self.assertEqual(rows[1][7:], ["alice", str(int((bus.T0 + 1) * 1000)), '"please look"'])
-        self.assertEqual(rows[2][7:], ["orch.1+workstation.podman", "review", PATH_REF, "-", "trusted", "-"])
+        self.assertEqual(rows[2][7:], ["orch.1+workstation.podman", "review", PATH_REF, "-", "trusted", "-", "-"])
         self.assertEqual([int(r[3]) for r in rows], sorted((int(r[3]) for r in rows), reverse=True))
 
     def test_only_items_naming_or_sent_by_this_seat(self) -> None:
         self.joined()
         mine = self.ping_to(self.a.orch, [self.a.me, self.a.peer])
         self.ping_to(self.a.orch, [self.a.peer])
-        self.human_to([self.a.orch], "to the orchestrator only")
+        self.human_to([self.a.orch], "to the coordinator only")
         everyone = self.human_to(None, "to the room", room=True)
         self.ping_to(self.a.peer, [self.a.orch], verb="done")
         code, rows, err = self.history()
@@ -168,7 +180,7 @@ class HistoryTest(HistoryCase):
         self.assertEqual(code, cli.EXIT_OK, err)
         self.assertEqual([(r[2], r[4], r[6]) for r in rows], [("out", "SENT", said), ("in", "PEER", heard)])
         self.assertEqual(rows[1][7:], ["orch.1+workstation.podman", str(int(bus.T0 * 1000)),
-                                       '"the docs are next"'])
+                                       '"the docs are next"', "-"])
         self.assertNotIn("DROPPED", err)
 
     def test_an_item_older_than_any_receive_limit_is_still_listed(self) -> None:
@@ -211,7 +223,7 @@ class HistoryTest(HistoryCase):
     def test_a_ping_from_a_member_whose_role_was_removed_is_not_printed(self) -> None:
         self.joined()
         self.ping_to(self.a.peer, [self.a.me], verb="done")
-        roles = {self.a.me: "worker", self.a.orch: "orchestrator"}
+        roles = {self.a.me: "worker", self.a.orch: "coordinator"}
         self.a.set_record(dict(self.a.record, roles=roles))
         code, rows, err = self.history()
         self.assertEqual((code, rows), (cli.EXIT_OK, []))
@@ -316,7 +328,7 @@ class HistoryStateTest(HistoryCase):
     def test_an_untrusted_room_prints_nothing_and_is_exit_10(self) -> None:
         self.joined()
         self.ping_to(self.a.orch, [self.a.me])
-        self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"}))
         code, rows, _ = self.history()
         self.assertEqual((code, rows), (cli.EXIT_UNTRUSTED, []))
 
@@ -347,7 +359,7 @@ class HistoryTeamsTest(HistoryCase):
         b = self.add_team()
         self.joined()
         in_b = b.ping(b.orch, "review", PATH_REF)
-        self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"}))
         code, rows, err = self.history()
         self.assertEqual(code, cli.EXIT_UNTRUSTED)
         self.assertEqual(self.ids(rows), [in_b])

@@ -46,7 +46,7 @@ REFS = {
     "issue": "issue:example-org/myrepo#7",
 }
 
-ROLES = {ORCH: p.ROLE_ORCHESTRATOR, WORKER: p.ROLE_WORKER, WORKER2: p.ROLE_WORKER}
+ROLES = {ORCH: p.ROLE_COORDINATOR, WORKER: p.ROLE_WORKER, WORKER2: p.ROLE_WORKER}
 
 
 def make_ctx(**over: object) -> p.Context:
@@ -167,7 +167,7 @@ class TestConstants(unittest.TestCase):
 
     def test_no_warden(self) -> None:
         self.assertEqual(p.RESERVED_LOCALPARTS, ("admin", "conduit"))
-        self.assertEqual(p.ROLES, ("orchestrator", "worker"))
+        self.assertEqual(p.ROLES, ("coordinator", "worker"))
         self.assertFalse(hasattr(p, "SENDER_WARDEN"))
 
 
@@ -290,20 +290,20 @@ class TestVerbByRefForm(RefusalAssertions):
 
 class TestRoles(RefusalAssertions):
     SENDERS = {
-        "fetch": {"orchestrator"},
-        "sync": {"orchestrator"},
-        "review": {"orchestrator", "worker"},
-        "run-qa": {"orchestrator", "worker"},
-        "halt": {"orchestrator"},
-        "ack": {"orchestrator", "worker"},
-        "nack": {"orchestrator", "worker"},
-        "done": {"orchestrator", "worker"},
-        "blocked": {"orchestrator", "worker"},
+        "fetch": {"coordinator"},
+        "sync": {"coordinator"},
+        "review": {"coordinator", "worker"},
+        "run-qa": {"coordinator", "worker"},
+        "halt": {"coordinator"},
+        "ack": {"coordinator", "worker"},
+        "nack": {"coordinator", "worker"},
+        "done": {"coordinator", "worker"},
+        "blocked": {"coordinator", "worker"},
     }
 
     def test_sender_class_by_verb(self) -> None:
         ctx = make_ctx()
-        who = {"orchestrator": ORCH, "worker": WORKER}
+        who = {"coordinator": ORCH, "worker": WORKER}
         for verb, permitted in self.SENDERS.items():
             for cls, user in who.items():
                 with self.subTest(verb=verb, sender=cls):
@@ -323,7 +323,7 @@ class TestRoles(RefusalAssertions):
 
     def test_sender_class(self) -> None:
         ctx = make_ctx()
-        self.assertEqual(p.sender_class(ORCH, ctx), "orchestrator")
+        self.assertEqual(p.sender_class(ORCH, ctx), "coordinator")
         self.assertEqual(p.sender_class(WORKER, ctx), "worker")
         self.assertEqual(p.sender_class(HUMAN, ctx), p.SENDER_HUMAN)
         for user in (NO_ROLE, ADMIN, CONDUIT, FOREIGN, FOREIGN_HUMAN, None, 5):
@@ -369,7 +369,7 @@ class TestTargets(RefusalAssertions):
 
     def test_thirty_two_targets_is_the_limit(self) -> None:
         roles = {f"@r{i}.1+host.podman:server.test": p.ROLE_WORKER for i in range(33)}
-        roles[ORCH] = p.ROLE_ORCHESTRATOR
+        roles[ORCH] = p.ROLE_COORDINATOR
         ctx = make_ctx(roles=roles)
         users = [u for u in roles if u != ORCH]
         self.assertEqual(len(p.validate_content(content("halt", to=users[:32]), ctx).to), 32)
@@ -450,7 +450,7 @@ class TestEnvelope(RefusalAssertions):
 
     def test_size_limit(self) -> None:
         roles = {f"@{'r' * 40}{i}.1+{'h' * 40}.podman:server.test": p.ROLE_WORKER for i in range(32)}
-        ctx = make_ctx(roles=dict(roles, **{ORCH: p.ROLE_ORCHESTRATOR}))
+        ctx = make_ctx(roles=dict(roles, **{ORCH: p.ROLE_COORDINATOR}))
         body = content("halt", to=sorted(roles))
         self.assertGreater(p.content_size(body), p.MAX_CONTENT_BYTES)
         self.assertRefused("size", p.validate_content, body, ctx)
@@ -1006,7 +1006,7 @@ class TestPingEvent(unittest.TestCase):
             "version": (event(ORCH, wrap(dict(ok, v=2))), make_ctx()),
             "schema": (event(ORCH, wrap(dict(ok, extra=1))), make_ctx()),
             "size": (event(ORCH, content("halt", to=sorted(many))),
-                     make_ctx(roles=dict(many, **{ORCH: p.ROLE_ORCHESTRATOR}))),
+                     make_ctx(roles=dict(many, **{ORCH: p.ROLE_COORDINATOR}))),
             "edit": (event(ORCH, dict(wrap(ok), **{"m.new_content": {}})), make_ctx()),
             "sender": (event(NO_ROLE, wrap(ok)), make_ctx()),
             "role": (event(WORKER2, wrap(ok)), make_ctx()),
@@ -1380,7 +1380,7 @@ class TestTeamRecord(unittest.TestCase):
             "v": 1,
             "team": TEAM,
             "humans": [HUMAN, HUMAN2],
-            "roles": {ORCH: "orchestrator", WORKER: "worker"},
+            "roles": {ORCH: "coordinator", WORKER: "worker"},
             "repos": [{"repo": "example-org/myrepo", "branches": ["main", "release/1.x"]}],
             "path_prefixes": ["CLAUDE/Plan/", "docs/spec.md"],
             "forge_api": "https://api.github.com",
@@ -1393,7 +1393,7 @@ class TestTeamRecord(unittest.TestCase):
         rec = self.parse(self.good())
         self.assertEqual(rec.team, TEAM)
         self.assertEqual(rec.humans, frozenset({HUMAN, HUMAN2}))
-        self.assertEqual(rec.roles, {ORCH: "orchestrator", WORKER: "worker"})
+        self.assertEqual(rec.roles, {ORCH: "coordinator", WORKER: "worker"})
         self.assertEqual(rec.repos, {"example-org/myrepo": ("main", "release/1.x")})
         self.assertEqual(rec.path_prefixes, ("CLAUDE/Plan/", "docs/spec.md"))
         self.assertEqual(rec.forge_api, "https://api.github.com")
@@ -1650,6 +1650,111 @@ class TestBuildPing(RefusalAssertions):
     def test_build_does_not_validate(self) -> None:
         body = p.build_ping("halt", [HUMAN])
         self.assertRefused("target", p.validate_content, body, make_ctx())
+
+
+class TestCoordinator(RefusalAssertions):
+    """The coordinator role: the legacy spelling, the copy a worker's message to a human
+    also sends it, and how a receiver on copy knows (spec §5, §7, §8, §15)."""
+
+    def test_the_role_is_named_coordinator(self) -> None:
+        self.assertEqual(p.ROLE_COORDINATOR, "coordinator")
+        self.assertEqual(p.ROLES, ("coordinator", "worker"))
+        self.assertFalse(hasattr(p, "ROLE_ORCHESTRATOR"))
+        self.assertEqual(p.LEGACY_ROLES, {"orchestrator": "coordinator"})
+
+    def test_normalise_role(self) -> None:
+        self.assertEqual(p.normalise_role("orchestrator"), "coordinator")
+        self.assertEqual(p.normalise_role("coordinator"), "coordinator")
+        self.assertEqual(p.normalise_role("worker"), "worker")
+        self.assertEqual(p.normalise_role("boss"), "boss")
+
+    def record(self, roles: dict) -> dict:
+        return {
+            "v": 1, "team": TEAM, "humans": [HUMAN], "roles": roles,
+            "repos": [{"repo": "example-org/myrepo"}], "forge_api": "https://api.github.com",
+        }
+
+    def test_a_record_reads_the_legacy_role_as_coordinator(self) -> None:
+        for spelling in ("orchestrator", "coordinator"):
+            with self.subTest(spelling=spelling):
+                rec = p.parse_team_record(self.record({ORCH: spelling, WORKER: "worker"}), SN, TEAM)
+                self.assertEqual(rec.roles, {ORCH: "coordinator", WORKER: "worker"})
+                self.assertEqual(p.coordinators(rec.roles), [ORCH])
+
+    def test_an_unknown_role_is_still_untrusted(self) -> None:
+        self.assertUntrusted(p.parse_team_record, self.record({ORCH: "boss"}), SN, TEAM)
+
+    def test_coordinators_lists_every_holder_sorted(self) -> None:
+        roles = {WORKER: "worker", WORKER2: "coordinator", ORCH: "coordinator"}
+        self.assertEqual(p.coordinators(roles), sorted([ORCH, WORKER2]))
+        self.assertEqual(p.coordinators({WORKER: "worker"}), [])
+
+    def test_a_workers_message_to_a_human_also_names_the_coordinator(self) -> None:
+        ctx = make_ctx()
+        self.assertEqual(p.with_coordinator_copy([HUMAN], WORKER, ctx), [HUMAN, ORCH])
+        self.assertEqual(p.with_coordinator_copy([WORKER2, HUMAN2, HUMAN], WORKER, ctx),
+                         [WORKER2, HUMAN2, HUMAN, ORCH])
+
+    def test_no_copy_when_it_is_not_owed(self) -> None:
+        ctx = make_ctx()
+        for label, to, sender, cx in (
+            ("to agents only", [WORKER2], WORKER, ctx),
+            ("sender is the coordinator", [HUMAN], ORCH, ctx),
+            ("already named", [HUMAN, ORCH], WORKER, ctx),
+            ("no coordinator in the team", [HUMAN], WORKER,
+             make_ctx(roles={WORKER: "worker", WORKER2: "worker"})),
+        ):
+            with self.subTest(case=label):
+                self.assertEqual(p.with_coordinator_copy(to, sender, cx), list(to))
+
+    def test_the_copy_validates_as_text_and_as_a_ping_to_a_human(self) -> None:
+        ctx = make_ctx()
+        to = p.with_coordinator_copy([HUMAN], WORKER, ctx)
+        text = p.validate_text_content(p.build_text(to, "done, see the PR"), ctx)
+        self.assertEqual(text.to, tuple(sorted([HUMAN, ORCH])))
+        ping = p.validate_content(p.build_ping("done", to, REFS["issue"]), ctx)
+        self.assertEqual(ping.to, tuple(sorted([HUMAN, ORCH])))
+
+    def test_a_copy_that_pushes_the_addressees_past_the_limit_is_refused_target(self) -> None:
+        humans = [f"@h{i}:server.test" for i in range(p.MAX_TEXT_TO)]
+        ctx = make_ctx(humans=frozenset(humans))
+        fits = p.with_coordinator_copy(humans[:p.MAX_TEXT_TO - 1], WORKER, ctx)
+        self.assertEqual(len(fits), p.MAX_TEXT_TO)
+        p.validate_text_content(p.build_text(fits, "hi"), ctx)
+        over = p.with_coordinator_copy(humans, WORKER, ctx)
+        self.assertEqual(len(over), p.MAX_TEXT_TO + 1)
+        self.assertRefused("target", p.validate_text_content, p.build_text(over, "hi"), ctx)
+
+    def test_the_coordinator_receiving_a_copy_of_text_is_told_which_humans(self) -> None:
+        ctx = make_ctx()
+        body = p.build_text(p.with_coordinator_copy([HUMAN], WORKER, ctx), "all green")
+        out = p.validate_event(event(WORKER, body), ctx, ORCH)
+        self.assertEqual(out.kind, p.ACCEPT)
+        self.assertEqual(out.peer.copy_of, (HUMAN,))
+
+    def test_the_coordinator_receiving_a_copy_of_a_ping_is_told_which_humans(self) -> None:
+        ctx = make_ctx()
+        body = p.build_ping("done", p.with_coordinator_copy([HUMAN], WORKER, ctx), REFS["issue"])
+        out = p.validate_event(event(WORKER, body), ctx, ORCH)
+        self.assertEqual(out.kind, p.ACCEPT)
+        self.assertEqual(out.ping.copy_of, (HUMAN,))
+
+    def test_text_to_the_coordinator_alone_is_not_a_copy(self) -> None:
+        ctx = make_ctx()
+        out = p.validate_event(event(WORKER, p.build_text([ORCH], "question")), ctx, ORCH)
+        self.assertEqual(out.peer.copy_of, ())
+
+    def test_a_worker_named_beside_a_human_is_not_on_copy(self) -> None:
+        ctx = make_ctx()
+        out = p.validate_event(event(WORKER2, p.build_text([HUMAN, WORKER], "fyi")), ctx, WORKER)
+        self.assertEqual(out.kind, p.ACCEPT)
+        self.assertEqual(out.peer.copy_of, ())
+
+    def test_verb_senders_follow_the_renamed_role(self) -> None:
+        ctx = make_ctx()
+        p.check_role("halt", ORCH, ctx)
+        self.assertRefused("role", p.check_role, "halt", WORKER, ctx)
+        self.assertEqual(p.sender_class(ORCH, ctx), "coordinator")
 
 
 if __name__ == "__main__":

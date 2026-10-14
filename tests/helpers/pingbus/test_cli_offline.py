@@ -51,7 +51,7 @@ def record(**overrides: object) -> dict[str, object]:
         "v": 1,
         "team": TEAM,
         "humans": [HUMAN],
-        "roles": {SELF: "worker", ORCH: "orchestrator", WORKER: "worker"},
+        "roles": {SELF: "worker", ORCH: "coordinator", WORKER: "worker"},
         "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
         "path_prefixes": ["CLAUDE/Plan/", "docs/"],
         "forge_api": "https://api.github.com",
@@ -280,14 +280,14 @@ class TestLineFormatter(unittest.TestCase):
                       origin_server_ts=1, trust=p.TRUST_TRUSTED)
         self.assertEqual(
             cli.ping_line(TEAM, SN, ping),
-            f"PING\t1\t{TEAM}\t{EVENT}\torch.1+workstation.podman\treview\t{REF_PATH}\t-\ttrusted\t-",
+            f"PING\t1\t{TEAM}\t{EVENT}\torch.1+workstation.podman\treview\t{REF_PATH}\t-\ttrusted\t-\t-",
         )
         external = dataclasses.replace(ping, trust=p.TRUST_EXTERNAL)
-        self.assertTrue(cli.ping_line(TEAM, SN, external).endswith("\t-\texternal\t-"))
+        self.assertTrue(cli.ping_line(TEAM, SN, external).endswith("\t-\texternal\t-\t-"))
         on_branch = dataclasses.replace(ping, branch="feature/x")
-        self.assertTrue(cli.ping_line(TEAM, SN, on_branch).endswith("\t-\ttrusted\tfeature/x"))
+        self.assertTrue(cli.ping_line(TEAM, SN, on_branch).endswith("\t-\ttrusted\tfeature/x\t-"))
         halt = p.Ping("halt", (SELF,), None, None, sender=ORCH, event_id=EVENT, origin_server_ts=1)
-        self.assertTrue(cli.ping_line(TEAM, SN, halt).endswith("\thalt\t-\t-\t-\t-"))
+        self.assertTrue(cli.ping_line(TEAM, SN, halt).endswith("\thalt\t-\t-\t-\t-\t-"))
         # A trust that does not match the reference is never printed.
         for bad in (dataclasses.replace(ping, trust=None), dataclasses.replace(halt, trust=p.TRUST_TRUSTED),
                     dataclasses.replace(ping, trust="maybe"), dataclasses.replace(ping, branch="a b")):
@@ -395,7 +395,7 @@ class TestValidateRequest(TempCase):
         self.assertEqual(out, "")
 
     def test_cached_record_not_listing_self_is_10(self) -> None:
-        env = self.active(record(roles={ORCH: "orchestrator"}))
+        env = self.active(record(roles={ORCH: "coordinator"}))
         code, out, _ = run(["validate", "halt"], env)
         self.assertEqual((code, out), (10, ""))
 

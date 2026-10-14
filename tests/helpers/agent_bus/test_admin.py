@@ -387,12 +387,12 @@ class AddMemberTest(AdminTestCase):
         self.assertNotIn(self.fake.users[self.user_id].password, self.team_files_text())
 
     def test_registry_record_and_invite(self) -> None:
-        self.add_member(role="orchestrator")
+        self.add_member(role="coordinator")
         reg = registry.load_registry(self.team_dir / "registry.json", "team-a")
-        self.assertEqual(dict(reg.members), {self.handle: "orchestrator"})
+        self.assertEqual(dict(reg.members), {self.handle: "coordinator"})
         _, record_event = self.state(protocol.EVENT_TEAM, event=True)
         record = protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
-        self.assertEqual(record.roles, {self.user_id: "orchestrator"})
+        self.assertEqual(record.roles, {self.user_id: "coordinator"})
         self.assertEqual(self.membership(self.user_id), "invite")
 
     def test_no_human_text(self) -> None:
@@ -453,11 +453,25 @@ class MemberCommandsTest(AdminTestCase):
         return protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
 
     def test_set_role(self) -> None:
-        self.assertTrue(admin.set_role(self.ctx(), self.transport, self.handle, "orchestrator"))
-        self.assertEqual(self.record().roles, {self.user_id: "orchestrator"})
+        self.assertTrue(admin.set_role(self.ctx(), self.transport, self.handle, "coordinator"))
+        self.assertEqual(self.record().roles, {self.user_id: "coordinator"})
         reg = registry.load_registry(self.team_dir / "registry.json", "team-a")
-        self.assertEqual(dict(reg.members), {self.handle: "orchestrator"})
-        self.assertEqual(admin.set_role(self.ctx(), self.transport, self.handle, "orchestrator"), [])
+        self.assertEqual(dict(reg.members), {self.handle: "coordinator"})
+        self.assertEqual(admin.set_role(self.ctx(), self.transport, self.handle, "coordinator"), [])
+
+    def test_set_role_refuses_a_second_coordinator_naming_the_holder(self) -> None:
+        self.add_member(role="coordinator")
+        path = self.team_dir / "registry.json"
+        holder = registry.load_registry(path, "team-a").coordinator()
+        before = registry.load_registry(path, "team-a")
+        with self.assertRaises(admin.AdminError) as caught:
+            self.add_member(role="coordinator")
+        self.assertIn(holder, str(caught.exception))
+        self.assertIn("coordinator", str(caught.exception))
+        self.assertEqual(registry.load_registry(path, "team-a"), before)
+        with self.assertRaises(admin.AdminError) as caught:
+            admin.set_role(self.ctx(), self.transport, self.handle, "coordinator")
+        self.assertIn(holder, str(caught.exception))
 
     def test_set_role_refuses_unknown(self) -> None:
         with self.assertRaises(admin.AdminError):
@@ -554,36 +568,36 @@ class SeatTest(AdminTestCase):
 
     def test_park_revokes_the_token_and_keeps_role_and_room(self) -> None:
         bundle = self.seat()
-        admin.set_role(self.ctx(), self.transport, self.handle, "orchestrator")
+        admin.set_role(self.ctx(), self.transport, self.handle, "coordinator")
         changes = admin.park_member(self.ctx(), self.transport, self.handle)
         self.assertIn(f"parked {self.handle}", changes)
         self.assertEqual(self.whoami(self.token(bundle))[0], 401)
         self.assertEqual(self.registry().parked, frozenset({self.handle}))
-        self.assertEqual(self.record().roles, {self.user_id: "orchestrator"})
+        self.assertEqual(self.record().roles, {self.user_id: "coordinator"})
         self.assertEqual(self.membership(self.user_id), "invite")
         self.assertEqual(self.transport.kicked, [])
         self.assertEqual(self.transport.deactivated, set())
         self.assertNotIn(self.fake.users[self.user_id].password, self.team_files_text())
         lines = admin.list_members(self.ctx(), self.transport)
-        self.assertIn(f"MEMBER\t{self.handle}\torchestrator\tinvite\tparked", lines)
+        self.assertIn(f"MEMBER\t{self.handle}\tcoordinator\tinvite\tparked", lines)
         # Parking again revokes again and changes nothing in the registry.
         self.assertNotIn(f"parked {self.handle}", admin.park_member(self.ctx(), self.transport, self.handle))
 
     def test_parked_seat_returns_with_the_same_account_and_role_and_a_new_token(self) -> None:
         old = self.token(self.seat())
-        admin.set_role(self.ctx(), self.transport, self.handle, "orchestrator")
+        admin.set_role(self.ctx(), self.transport, self.handle, "coordinator")
         admin.park_member(self.ctx(), self.transport, self.handle)
         creations = len(self.account_creations())
         bundle = self.seat(role="worker")
-        self.assertEqual((bundle.handle, bundle.role, bundle.returned), (self.handle, "orchestrator", True))
+        self.assertEqual((bundle.handle, bundle.role, bundle.returned), (self.handle, "coordinator", True))
         new = self.token(bundle)
         self.assertNotEqual(new, old)
         self.assertEqual(self.whoami(new)[1]["user_id"], self.user_id)
         self.assertEqual(self.whoami(old)[0], 401)
         self.assertEqual(len(self.account_creations()), creations)
         self.assertEqual(self.registry().parked, frozenset())
-        self.assertEqual(dict(self.registry().members), {self.handle: "orchestrator"})
-        self.assertEqual(self.record().roles, {self.user_id: "orchestrator"})
+        self.assertEqual(dict(self.registry().members), {self.handle: "coordinator"})
+        self.assertEqual(self.record().roles, {self.user_id: "coordinator"})
         self.assertEqual(self.membership(self.user_id), "invite")
         self.assertNotIn(new, self.team_files_text())
 

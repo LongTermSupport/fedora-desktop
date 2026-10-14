@@ -7,6 +7,7 @@
 //	ops     apply, remove, backup and restore
 //	create  the create wizard
 //	find    for-checkout: the teams that work on this checkout's repository
+//	choose  choose-seat and describe-seats: the launcher's seat and role chooser
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -17,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/choose"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/find"
@@ -42,6 +44,7 @@ type App struct {
 	Seats  *seats.Seats
 	Create *create.Wizard
 	Find   *find.Find
+	Choose *choose.Choose
 	Picker *picker.Picker
 }
 
@@ -58,7 +61,7 @@ func Wire(h *host.Host) *App {
 	s := seats.New(h, kit, o)
 	c := create.New(h, o, l)
 	return &App{
-		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Find: find.New(h),
+		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Find: find.New(h), Choose: choose.New(h, kit, s),
 		Picker: picker.New(h, kit, b, o, c, l, s),
 	}
 }
@@ -75,7 +78,8 @@ func (a *App) run(args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "create", "apply", "remove", "backup", "restore", "for-checkout", "record-seats":
+	case "", "create", "apply", "remove", "backup", "restore", "for-checkout", "record-seats",
+		"choose-seat", "describe-seats":
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -112,6 +116,10 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Find.Run(ctx, rest)
 	case "record-seats":
 		return a.Find.RecordSeats(ctx, rest)
+	case "choose-seat":
+		return a.Choose.Seat(ctx, rest)
+	case "describe-seats":
+		return a.Choose.Describe(ctx, rest)
 	case "-l", "--list":
 		return a.Board.List(ctx)
 	default:

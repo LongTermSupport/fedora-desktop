@@ -343,7 +343,7 @@ def _parse_entry(position: int, entry: object) -> Member:
         seat = str(seat)
     if not isinstance(seat, str) or not protocol.is_seat_name(seat):
         raise MemberError(f"{where}: seat must match {protocol.HANDLE_SEAT_PATTERN}")
-    role = entry.get("role", DEFAULT_ROLE)
+    role = protocol.normalise_role(entry.get("role", DEFAULT_ROLE))
     if role not in registry.ROLES:
         raise MemberError(f"{where}: role must be one of {', '.join(registry.ROLES)}")
     human_text = entry.get("human_text", True)
@@ -362,6 +362,7 @@ def parse_members(data: object) -> tuple[Member, ...]:
     entries: dict[tuple[str, str, str], int] = {}
     hosts: dict[tuple[str, str], str] = {}
     seats: dict[tuple[str, str, str], str] = {}
+    coordinators: dict[str, int] = {}
     for position, member in enumerate(found, start=1):
         key = (member.container, member.user, member.team)
         if key in entries:
@@ -374,6 +375,10 @@ def parse_members(data: object) -> tuple[Member, ...]:
         if seats.setdefault((member.team, member.host, member.seat), member.container) != member.container:
             raise MemberError(f"agent_bus_lxc_members gives seat {member.seat} of team {member.team} "
                               f"to two containers; set seat on one")
+        if member.state == "present" and member.role == protocol.ROLE_COORDINATOR:
+            if coordinators.setdefault(member.team, position) != position:
+                raise MemberError(f"agent_bus_lxc_members entries {coordinators[member.team]} and {position} "
+                                  f"both declare the coordinator of team {member.team}; a team has one")
     return found
 
 
@@ -708,13 +713,18 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
         ready.append((container, user, group, guest, home))
     synced: set[str] = set()
     for container, user, group, guest, home in ready:
-        first = group[0]
         if container not in synced:
             _sync_kit(host, guest, container, emit)
             synced.add(container)
-        for member in group:
-            say(f"{member.label}: team {member.team}")
-            _join(host, guest, member, home, bus, emit)
+    # Every demotion, in every container, lands before any promotion: a team has one coordinator.
+    for coordinators in (False, True):
+        for _container, _user, group, guest, home in ready:
+            for member in group:
+                if (member.role == protocol.ROLE_COORDINATOR) == coordinators:
+                    say(f"{member.label}: team {member.team}")
+                    _join(host, guest, member, home, bus, emit)
+    for container, user, group, guest, home in ready:
+        first = group[0]
         _, env = _observe(guest, first, home)
         teams = [member.team for member in group]
         merged = merge_env(env, where=f"{first.label}: {ENV_PATH}", add=teams, host=first.host)

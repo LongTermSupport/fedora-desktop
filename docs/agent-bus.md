@@ -64,7 +64,8 @@ that play.
    `owner/repo` (an organisation team by its owner), or you choose of several; with none it
    says so and stops. It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
-   free seat, or a new one. ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
+   free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
+   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
    configuration" at the Quick Launch prompt launches into them again (and records them in that
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
@@ -145,8 +146,12 @@ A team is a group of agents and humans working around one project. It has:
 
 Each agent in a team is a **member**: one agent seat, named by a handle such as
 `myrepo.1+workstation.host` (repository, a number, the install's role and where the agent
-runs). Each member is an `orchestrator` or a `worker`, which decides the verbs it may send.
-An agent can be in several teams, with one bundle (its settings and access token) per
+runs). Each member is a `coordinator` or a `worker`, which decides the verbs it may send. A team
+has at most one **coordinator**, the agent its owner nominates to take requests ("get this
+done") and dispatch them to workers; workers may address it with `--to-coordinator`, and
+it is copied automatically, marked as a copy, on everything a worker sends to a human. A
+team file or registry that still says `orchestrator` reads as `coordinator`. Humans can
+still message any worker directly. An agent can be in several teams, with one bundle (its settings and access token) per
 team.
 
 A team is declared in a **team file**, JSON, which a human writes and the installer
@@ -390,7 +395,13 @@ seat's role is changed with `set-role`, the handle read from `agent-bus seat lis
 
 - `sudo agent-bus list <team>` shows the members, their roles, room membership and whether
   each is active or parked (no tokens).
-- `sudo agent-bus set-role <team> <handle> --role=orchestrator` changes a role.
+- `sudo agent-bus set-role <team> <handle> --role=coordinator` changes a role; a second
+  coordinator is refused, naming the holder, so the current one is first set back to
+  `worker`. `ccy-teams` does the same from a seat's menu, and bare `ccy --teams` offers it
+  after the seat is chosen. The command takes `coordinator` or `worker` only; a stored file
+  that says `orchestrator` still reads as coordinator. A member declared in
+  `agent_bus_lxc_members` has the role its entry says (`worker` by default), which the play
+  sets again on each run: give the entry `role: coordinator` for an LXC member to stay one.
 - `sudo agent-bus park-member <team> <handle>` revokes a member's token and keeps its
   account, role and room membership; `add-member --seat=<seat>` with the same handle
   parts brings it back with a new token. `agent-bus seat remove <seat>@<team>` parks a ccy seat this way.

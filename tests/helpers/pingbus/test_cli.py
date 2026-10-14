@@ -104,7 +104,7 @@ class Team:
             "invite": [self.me, self.orch, self.peer, self.alice]})["room_id"]
         self.record = {
             "v": 1, "team": name, "humans": [self.alice],
-            "roles": {self.me: "worker", self.orch: "orchestrator", self.peer: "worker"},
+            "roles": {self.me: "worker", self.orch: "coordinator", self.peer: "worker"},
             "repos": [{"repo": "example-org/myrepo", "branches": ["main"]}],
             "path_prefixes": ["docs/"], "forge_api": "https://api.github.com",
         }
@@ -334,7 +334,7 @@ class ExitCodeTest(BusCase):
 
     def test_10_room_not_trusted(self):
         self.joined()
-        self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"}))
         code, out, _ = self.run_cli("send", "done", PATH_REF, "--to", ORCH_LP)
         self.assertEqual((code, out), (cli.EXIT_UNTRUSTED, ""))
         self.assertEqual(self.a.messages_from_me(), [])
@@ -379,9 +379,9 @@ class SendTest(BusCase):
         self.assertEqual(self.a.messages_from_me()[0][protocol.PING_KEY]["to"],
                          sorted([self.a.orch, self.a.peer]))
 
-    def test_to_orchestrator_addresses_every_orchestrator(self):
+    def test_to_coordinator_addresses_every_coordinator(self):
         self.joined()
-        code, _, err = self.run_cli("send", "review", PATH_REF, "--to-orchestrator")
+        code, _, err = self.run_cli("send", "review", PATH_REF, "--to-coordinator")
         self.assertEqual(code, cli.EXIT_OK, err)
         self.assertEqual(self.a.messages_from_me()[0][protocol.PING_KEY]["to"], [self.a.orch])
 
@@ -422,11 +422,43 @@ class SendTest(BusCase):
         code, _, err = self.run_cli("send", "done", PATH_REF, "--to", ORCH_LP)
         self.assertEqual(code, cli.EXIT_RATE, err)
 
-    def test_to_and_to_orchestrator_are_exclusive_and_one_is_required(self):
+    def test_one_of_to_and_to_coordinator_is_required_and_they_combine(self):
         self.joined()
         self.assertEqual(self.run_cli("send", "halt")[0], cli.EXIT_USAGE)
-        self.assertEqual(self.run_cli("send", "halt", "--to", PEER_LP, "--to-orchestrator")[0],
-                         cli.EXIT_USAGE)
+        code, _, err = self.run_cli("send", "review", PATH_REF, "--to", PEER_LP, "--to-coordinator")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.a.messages_from_me()[0][protocol.PING_KEY]["to"],
+                         sorted([self.a.orch, self.a.peer]))
+
+    def test_to_coordinator_and_the_coordinator_named_by_to_is_one_addressee(self):
+        self.joined()
+        code, _, err = self.run_cli("send", "review", PATH_REF, "--to", ORCH_LP, "--to-coordinator")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.a.messages_from_me()[0][protocol.PING_KEY]["to"], [self.a.orch])
+
+    def test_to_coordinator_without_one_is_a_target_refusal(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "worker", self.a.peer: "worker"}))
+        code, _, err = self.run_cli("send", "review", PATH_REF, "--to-coordinator")
+        self.assertEqual(code, cli.EXIT_REFUSED, err)
+        self.assertIn("target", err)
+
+    def test_the_old_flag_is_gone(self):
+        self.joined()
+        self.assertEqual(self.run_cli("send", "review", PATH_REF, "--to-orchestrator")[0], cli.EXIT_USAGE)
+
+    def test_a_ping_to_a_human_also_goes_to_the_coordinator(self):
+        self.joined()
+        code, _, err = self.run_cli("send", "done", "issue:example-org/myrepo#7", "--to", "alice")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        (content,) = self.a.messages_from_me()
+        self.assertEqual(content, protocol.build_ping("done", [self.a.alice, self.a.orch],
+                                                      ref="issue:example-org/myrepo#7"))
+
+    def test_a_ping_to_agents_only_is_not_copied(self):
+        self.joined()
+        self.run_cli("send", "review", PATH_REF, "--to", PEER_LP)
+        self.assertEqual(self.a.messages_from_me()[0][protocol.PING_KEY]["to"], [self.a.peer])
 
 
 # ── say ────────────────────────────────────────────────────────────────────────────────
@@ -439,7 +471,42 @@ class SayTest(BusCase):
         self.assertEqual(code, cli.EXIT_OK, err)
         self.assertEqual(len(self.lines(out, "SENT")), 1)
         (content,) = self.a.messages_from_me()
-        self.assertEqual(content, protocol.build_text([self.a.alice], "the build is green\nsee the plan"))
+        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch],
+                                                      "the build is green\nsee the plan"))
+
+    def test_say_to_coordinator(self):
+        self.joined()
+        code, _, err = self.run_cli("say", "--to-coordinator", stdin="a question")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.orch], "a question")])
+
+    def test_say_to_a_human_and_the_coordinator_names_the_coordinator_once(self):
+        self.joined()
+        code, _, err = self.run_cli("say", "--to", "alice", "--to-coordinator", stdin="both")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.a.messages_from_me(),
+                         [protocol.build_text([self.a.alice, self.a.orch], "both")])
+
+    def test_say_needs_an_addressee(self):
+        self.joined()
+        self.assertEqual(self.run_cli("say", stdin="hello")[0], cli.EXIT_USAGE)
+
+    def test_say_to_a_peer_agent_only_is_not_copied(self):
+        self.joined()
+        self.run_cli("say", "--to", PEER_LP, stdin="hello peer")
+        self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.peer], "hello peer")])
+
+    def test_the_coordinator_is_not_copied_on_its_own_messages(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.orch: "worker"}))
+        self.run_cli("say", "--to", "alice", stdin="done")
+        self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.alice], "done")])
+
+    def test_no_coordinator_no_copy(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "worker", self.a.peer: "worker"}))
+        self.run_cli("say", "--to", "alice", stdin="hi")
+        self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.alice], "hi")])
 
     def test_say_takes_humans_and_agents_with_a_role(self):
         self.joined()
@@ -584,7 +651,7 @@ class RecvTest(BusCase):
         code, out, _ = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(self.lines(out, "PING"),
-                         [["PING", "1", TEAM_A, ping, ORCH_LP, "review", outside, "-", "external", "-"]])
+                         [["PING", "1", TEAM_A, ping, ORCH_LP, "review", outside, "-", "external", "-", "-"]])
 
     def test_recv_prints_pings_and_human_messages_and_consumes_them(self):
         self.joined()
@@ -594,7 +661,7 @@ class RecvTest(BusCase):
         self.assertEqual(code, cli.EXIT_OK)
         self.assert_stdout_kinds(out)
         self.assertEqual(self.lines(out, "PING"),
-                         [["PING", "1", TEAM_A, ping, ORCH_LP, "review", PATH_REF, "-", "trusted", "-"]])
+                         [["PING", "1", TEAM_A, ping, ORCH_LP, "review", PATH_REF, "-", "trusted", "-", "-"]])
         self.assertEqual(self.lines(out, "HUMAN"),
                          [["HUMAN", "1", TEAM_A, human, "alice", str(int(T0 * 1000)),
                            json.dumps("line one\nline two")]])
@@ -628,7 +695,7 @@ class RecvTest(BusCase):
     def test_agent_text_for_others_is_ignored_not_dropped(self):
         self.joined()
         self.a.send(self.a.peer, protocol.build_text([self.a.alice], "status for the owner"))
-        self.a.send(self.a.peer, protocol.build_text([self.a.orch], "for the orchestrator"))
+        self.a.send(self.a.peer, protocol.build_text([self.a.orch], "for the coordinator"))
         code, out, err = self.run_cli("recv")
         self.assertEqual((code, out), (cli.EXIT_NOTHING, ""))
         self.assertNotIn("DROPPED", err)
@@ -644,6 +711,32 @@ class RecvTest(BusCase):
         self.assertEqual(line[2:5], [TEAM_A, event_id, PEER_LP])
         self.assertEqual(json.loads(line[6]), "the tests pass here\ntab\there")
         self.assertEqual(self.lines(out, "HUMAN"), [])
+
+    def test_the_coordinator_gets_a_workers_text_to_a_human_marked_as_a_copy(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.peer: "worker"}))
+        self.a.send(self.a.peer, protocol.build_text([self.a.alice, self.a.me], "the docs are done"))
+        self.a.send(self.a.peer, protocol.build_text([self.a.me], "a question for you"))
+        code, out, err = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        marks = {json.loads(line[6]): line[7] for line in self.lines(out, "PEER")}
+        self.assertEqual(marks, {"the docs are done": "copy:alice", "a question for you": "-"})
+
+    def test_the_coordinator_gets_a_workers_ping_to_a_human_marked_as_a_copy(self):
+        self.joined()
+        self.a.set_record(dict(self.a.record, roles={self.a.me: "coordinator", self.a.peer: "worker"}))
+        self.a.send(self.a.peer, protocol.build_ping("done", [self.a.alice, self.a.me],
+                                                     ref="issue:example-org/myrepo#7"))
+        code, out, err = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        (line,) = self.lines(out, "PING")
+        self.assertEqual(line[10], "copy:alice")
+
+    def test_a_worker_named_beside_a_human_is_not_on_copy(self):
+        self.joined()
+        self.a.send(self.a.peer, protocol.build_text([self.a.alice, self.a.me], "fyi"))
+        (line,) = self.lines(self.run_cli("recv")[1], "PEER")
+        self.assertEqual(line[7], "-")
 
     def test_malformed_agent_text_naming_this_agent_is_dropped(self):
         self.joined()
@@ -815,7 +908,7 @@ class WaitTest(BusCase):
 
     def test_losing_trust_in_the_middle_of_a_wait_is_exit_10(self):
         self.joined()
-        self.later(0.3, lambda: self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"})))
+        self.later(0.3, lambda: self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"})))
         code, out, err = self.run_cli("wait", "--timeout", "20")
         self.assertEqual((code, out), (cli.EXIT_UNTRUSTED, ""), err)
 

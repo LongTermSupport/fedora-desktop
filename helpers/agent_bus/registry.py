@@ -124,6 +124,8 @@ def prefix_of(handle: str) -> str:
 
 
 def _check_role(role: object) -> str:
+    """The role, with a legacy spelling read as the role it became (protocol §8)."""
+    role = protocol.normalise_role(role)
     if role not in ROLES:
         raise RegistryError(f"role {role!r} must be one of {', '.join(ROLES)}")
     return role
@@ -167,7 +169,7 @@ class Registry:
         """A new member: in `seat` when given, else the prefix's next number. Returns the
         new registry and the handle. A handle already in the registry is refused, parked
         or not: a parked one returns through `unpark`."""
-        _check_role(role)
+        role = self._free_to_hold(None, _check_role(role))
         prefix = _prefix(repo, host, type_)
         counter = self.counters.get(prefix, 0)
         if seat is None:
@@ -204,9 +206,24 @@ class Registry:
         return replace(self, members=members, parked=self.parked - {handle})
 
     def set_role(self, handle: str, role: str) -> Registry:
-        _check_role(role)
+        role = _check_role(role)
         self._member(handle)
+        self._free_to_hold(handle, role)
         return replace(self, members={**self.members, handle: role})
+
+    def coordinator(self) -> str | None:
+        """The handle holding the coordinator role, parked or not (a parked member keeps its
+        role); the first, in handle order, in a registry written before there was a limit."""
+        return next(iter(protocol.coordinators(self.members)), None)
+
+    def _free_to_hold(self, handle: str | None, role: str) -> str:
+        """`role`, unless it is the coordinator's and another member holds it: one per team."""
+        holder = self.coordinator() if role == protocol.ROLE_COORDINATOR else None
+        if holder is not None and holder != handle:
+            parked = " (parked)" if holder in self.parked else ""
+            raise RegistryError(f"team {self.team} already has a coordinator: {holder}{parked}; "
+                                "it must stop being coordinator first")
+        return role
 
     def _member(self, handle: str) -> None:
         if handle not in self.members:
@@ -253,15 +270,16 @@ def parse_registry(data: object) -> Registry:
     members = data["members"]
     if not isinstance(members, dict):
         raise RegistryError("registry members must be an object")
+    roles = {}
     for handle, role in members.items():
         parsed = protocol.parse_handle(handle)
         if parsed is None:
             raise RegistryError(f"registry member {handle!r} is not an agent handle")
-        _check_role(role)
+        roles[handle] = _check_role(role)
         if parsed.n is not None and parsed.n > counters.get(prefix_of(handle), 0):
             raise RegistryError(f"registry member {handle!r} is beyond its prefix's counter")
     parked = _parse_parked(data.get("parked", []), members)
-    return Registry(team, counters, members, parked)
+    return Registry(team, counters, roles, parked)
 
 
 def dump_registry(registry: Registry) -> str:

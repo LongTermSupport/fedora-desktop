@@ -28,6 +28,11 @@ Keys:
            backup first, and the data kept unless you type the team's name)
   ?        this help          Esc or q   leave
 
+A seat marked "(coordinator)" is its team's coordinator: the agent that takes the humans'
+requests, dispatches them to the workers and is copied on what workers tell humans. A team
+has at most one. Enter on a seat has Make coordinator or Stop being coordinator (it asks
+first, names the current coordinator, and needs sudo).
+
 Colours: green is working, yellow wants a look, red is not working.
 "need sudo": reading the members needs root; play-agent-bus.yml installs a rule that
 lets ccy-teams read them without a password.

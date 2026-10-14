@@ -35,6 +35,11 @@ too (? there shows every key, explained). The shortcuts:
   Ctrl-U   update every team that is out of date or not built (never one to take down)
   Ctrl-R   turn the seat's session's restore after a reboot off or on
   Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
+A team has at most one coordinator, an agent that takes the humans' requests, dispatches them
+to the workers and is copied on what workers tell humans. Its seat's MEMBER shows
+"(coordinator)". The menu of a seat has Make coordinator or Stop being coordinator (no
+shortcut): it asks first, names the current coordinator, who becomes a worker, and runs
+agent-bus set-role as root.
   Esc, q   leave
 With no team on this machine, the picker offers to create one; with a team out of date, it
 offers to update it first; with a team still holding the old default path_prefixes, it
@@ -96,6 +101,17 @@ Usage:
                                    the ccy session this runs in (from TMUX), so its restore
                                    replays them. ccy calls it when Quick Launch brings a saved
                                    team back; it fails if the session cannot be named
+  ccy-teams choose-seat <team>     choose which seat this session takes in the team (gum), then
+                                   whether the seat is the team's coordinator, a worker, or
+                                   stops being the coordinator; prints SEAT@TEAM on stdout, the
+                                   rest on stderr. Leaving the chooser prints nothing and
+                                   succeeds. The role is asked only for a seat that exists, and
+                                   sudo only when you change it. ccy --teams with a team alone
+                                   calls it
+  ccy-teams describe-seats [--prefix TEXT] <list>
+                                   print each seat of a --teams list followed by its role,
+                                   (coordinator) or (worker), on one line after TEXT: what
+                                   Quick Launch shows as the previous team. ccy calls it
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

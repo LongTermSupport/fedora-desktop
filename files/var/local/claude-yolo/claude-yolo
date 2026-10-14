@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.96.2"  # Container 2.54: a restore never gives a session a team; Quick Launch records it. See docs/ccy-changelog.md.
+CCY_VERSION="3.97.1"  # Container 2.55: --teams offers the seat's role; the member kit has the coordinator. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,7 +76,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.54"
+REQUIRED_CONTAINER_VERSION="2.55"
 
 set -e
 
@@ -218,7 +218,7 @@ Options:
                          (sudo agent-bus add-member) and is held by one session at a
                          time. Without --teams a session is in no team. Needs
                          play-agent-bus.yml.
-                         Bare --teams finds this checkout's team; Quick Launch keeps it.
+                         Bare --teams finds the team and asks the seat's role; Quick Launch keeps both.
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -1229,7 +1229,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "  Token:   ${LAST_TOKEN:-none}${last_token_label}"
         echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
         echo "  Network: ${LAST_NETWORK:-none}"
-        echo "  Team:    ${TEAMS_LIST:-${LAST_TEAMS:-none}}"
+        ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$LAST_TEAMS}"
         echo ""
 
         while true; do

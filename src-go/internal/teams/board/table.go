@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -42,7 +43,13 @@ type Row struct {
 	// Record is the registry name of the session holding a seat; Session shows it with "(stopped)"
 	// when it is not running.
 	Record string
+	// Role is the member's role in the team (worker, coordinator), empty for a row that is not a
+	// member or whose members could not be read.
+	Role string
 }
+
+// coordinatorMark follows the seat of the team's coordinator in the MEMBER column.
+const coordinatorMark = " (coordinator)"
 
 // HeadingText is the table's heading line.
 func HeadingText() string {
@@ -51,7 +58,7 @@ func HeadingText() string {
 
 // Text is the row as plain text: what --list prints when piped and what the picker hands back.
 func (r Row) Text() string {
-	return fmt.Sprintf(rowFormat, r.Team, r.Member, r.Kind, r.State, r.Applied, r.Session, r.Restore, r.Where)
+	return fmt.Sprintf(rowFormat, r.Team, r.memberCell(), r.Kind, r.State, r.Applied, r.Session, r.Restore, r.Where)
 }
 
 // Painted is Text with the team row in bold and each status word in its colour; stripped of
@@ -61,8 +68,17 @@ func (r Row) Painted() string {
 	if r.Kind == KindTeam {
 		team = term.Bold + team + term.Reset
 	}
-	return fmt.Sprintf("%s  %-36s  %-6s  %s  %s  %s  %s  %s", team, r.Member, r.Kind,
+	return fmt.Sprintf("%s  %-36s  %-6s  %s  %s  %s  %s  %s", team, r.memberCell(), r.Kind,
 		paint(13, r.State), paint(18, r.Applied), paint(26, r.Session), paint(7, r.Restore), r.Where)
+}
+
+// memberCell is the MEMBER column: the seat, marked when it is the team's coordinator. A member
+// shown by its handle (no checkout known) is too wide for a mark and says its role in WHERE.
+func (r Row) memberCell() string {
+	if r.Kind == KindCcy && r.Dir != "-" && r.Role == agentbus.RoleCoordinator {
+		return r.Member + coordinatorMark
+	}
+	return r.Member
 }
 
 // paint pads word to width, inside its colour codes so the columns line up.

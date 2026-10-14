@@ -81,9 +81,9 @@ STDERR = "stderr"
 ABSENT = "-"
 #: Spec §15: each line's stream and the fields after `<KIND>` and the version.
 LINES = {
-    "PING": (STDOUT, ("team", "event ID", "sender", "verb", "ref", "re", "trust", "branch")),
+    "PING": (STDOUT, ("team", "event ID", "sender", "verb", "ref", "re", "trust", "branch", "copy")),
     "HUMAN": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
-    "PEER": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
+    "PEER": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string", "copy")),
     "TIMEOUT": (STDOUT, ("team", "event ID of the unanswered ping", "silent target", "verb", "ref")),
     "SENT": (STDOUT, ("team", "event ID")),
     "DROPPED": (STDERR, ("count", "reason=count pairs joined by ,")),
@@ -187,11 +187,21 @@ def _trust(ping: protocol.Ping) -> str | None:
     return ping.trust
 
 
+def _copy(copy_of: Sequence[str], server_name: str) -> str | None:
+    """`copy:<human>[,<human>...]` for an item the coordinator is copied on, else absent (§15)."""
+    if not copy_of:
+        return None
+    # copy_of is the receiver's `to` cut to ctx.humans, and the only TeamRecord constructor
+    # (protocol.parse_team_record) refuses a humans entry that is not a human user ID.
+    return "copy:" + ",".join(_localpart(user, server_name) for user in copy_of)
+
+
 def ping_line(team: str, server_name: str, ping: protocol.Ping) -> str:
     return format_line(
         "PING", _team(team), _event_id(ping.event_id), _localpart(ping.sender, server_name),
         _verb(ping.verb), _ref(ping.ref.text if ping.ref else None),
         None if ping.re is None else _event_id(ping.re), _trust(ping), _branch(ping.branch),
+        _copy(ping.copy_of, server_name),
     )
 
 
@@ -218,7 +228,7 @@ def peer_line(team: str, server_name: str, message: protocol.PeerText) -> str:
     return format_line(
         "PEER", _team(team), _event_id(message.event_id),
         _localpart(message.sender, server_name), str(ts),
-        json.dumps(message.text, ensure_ascii=True),
+        json.dumps(message.text, ensure_ascii=True), _copy(message.copy_of, server_name),
     )
 
 
@@ -675,12 +685,18 @@ def _user_ids(names: str, server_name: str) -> list[str]:
     return [name if name.startswith("@") else f"@{name}:{server_name}" for name in names.split(",")]
 
 
-def _orchestrators(record: protocol.TeamRecord, self_user_id: str) -> list[str]:
-    found = sorted(user for user, role in record.roles.items()
-                   if role == protocol.ROLE_ORCHESTRATOR and user != self_user_id)
-    if not found:
-        raise protocol.Refusal("target")
-    return found
+def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member) -> list[str]:
+    """`--to`'s names then, for `--to-coordinator`, the team's coordinator but the sender;
+    each user once. Nothing else is judged here: the validator refuses what is not allowed."""
+    to = [] if args.to is None else _user_ids(args.to, member.server_name)
+    if args.to_coordinator:
+        found = [user for user in protocol.coordinators(record.roles) if user != member.user_id]
+        if not found:
+            raise protocol.Refusal("target")
+        to += found
+    if not to:
+        raise config.UsageError("name an addressee: --to NAME[,NAME...] or --to-coordinator")
+    return list(dict.fromkeys(to))
 
 
 def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
@@ -690,8 +706,7 @@ def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
-    to = (_orchestrators(record, member.user_id) if args.to_orchestrator
-          else _user_ids(args.to, member.server_name))
+    to = protocol.with_coordinator_copy(_addressees(args, record, member), member.user_id, ctx)
     ref = None if args.ref is None else protocol.lowercase_ref_repo(args.ref)
     content = protocol.build_ping(args.verb, to, ref, args.re, _send_branch(args, ref, record, rt.upstream))
     ping = protocol.validate_content(content, ctx)
@@ -727,8 +742,10 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     member = _one_member(environ, args.team)
     text = _read_text(args.stdin)
     seat = _seat(member, environ, rt, err)
-    ctx = seat.syncer.verify_room().context(member.server_name)
-    content = protocol.build_text(_user_ids(args.to, member.server_name), text)
+    record = seat.syncer.verify_room()
+    ctx = record.context(member.server_name)
+    to = protocol.with_coordinator_copy(_addressees(args, record, member), member.user_id, ctx)
+    content = protocol.build_text(to, text)
     said = protocol.validate_text_content(content, ctx)
     if config.read_token(member) in text:
         raise protocol.Refusal("secret")
@@ -1387,17 +1404,18 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     send = command("send", cmd_send, "send a ping (the only way to emit one)")
     send.add_argument("verb", metavar="VERB")
     send.add_argument("ref", nargs="?", metavar="REF")
-    targets = send.add_mutually_exclusive_group(required=True)
-    targets.add_argument("--to", metavar="HANDLE[,HANDLE...]",
-                         help="handles, human localparts or full user IDs")
-    targets.add_argument("--to-orchestrator", action="store_true",
-                         help="every orchestrator in the team record")
+    send.add_argument("--to", metavar="HANDLE[,HANDLE...]",
+                      help="handles, human localparts or full user IDs")
+    send.add_argument("--to-coordinator", action="store_true",
+                      help="the team's coordinator, besides any --to")
     send.add_argument("--re", metavar="EVENT_ID")
     send.add_argument("--branch", metavar="BRANCH",
                       help="the branch holding the commit; by default the one this checkout tracks")
     say = command("say", cmd_say, "send text from stdin to the team's humans and agents")
-    say.add_argument("--to", required=True, metavar="NAME[,NAME...]",
+    say.add_argument("--to", metavar="NAME[,NAME...]",
                      help="human localparts, handles or full user IDs; never @room")
+    say.add_argument("--to-coordinator", action="store_true",
+                     help="the team's coordinator, besides any --to")
     command("recv", cmd_recv, "sync once if the lock is free, then print every pending item")
     wait = command("wait", cmd_wait, "long-poll every active team until an item arrives")
     wait.add_argument("--timeout", type=int, metavar="S",

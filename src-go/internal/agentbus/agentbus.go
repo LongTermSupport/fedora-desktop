@@ -123,6 +123,20 @@ func (c *Client) SeatList(ctx context.Context, dir string) ([]Seat, bool, error)
 	return seats, unreadable, nil
 }
 
+// SeatChoose is "agent-bus seat choose <team>" run as the user in the working directory: the
+// seats of the team this checkout can take, and the one to start on.
+func (c *Client) SeatChoose(ctx context.Context, team string) (Choices, error) {
+	res, err := c.userRun(ctx, "", "seat", "choose", team)
+	if err != nil {
+		return Choices{}, err
+	}
+	choices, err := ParseChoices(string(res.Stdout))
+	if err != nil {
+		return Choices{}, fmt.Errorf("agent-bus seat choose %s: %w", team, err)
+	}
+	return choices, nil
+}
+
 // SeatRemove is "agent-bus seat remove <ref>" (SEAT@TEAM) run as the user in dir.
 func (c *Client) SeatRemove(ctx context.Context, dir, ref string) error {
 	_, err := c.userRun(ctx, dir, "seat", "remove", ref)
@@ -145,6 +159,15 @@ func (c *Client) List(ctx context.Context, team string) (Roster, error) {
 // ParkMember is "agent-bus park-member <team> <handle>" as root; what it prints streams to Root.Stdout.
 func (c *Client) ParkMember(ctx context.Context, team, handle string) error {
 	return c.rootShow(ctx, wrapperName, sudo.AgentBus, "park-member", team, handle)
+}
+
+// SetRole is "agent-bus set-role <team> <handle> --role=<role>" as root; what it prints streams
+// to Root.Stdout. A role that agent-bus would refuse is refused here, before sudo is asked.
+func (c *Client) SetRole(ctx context.Context, team, handle, role string) error {
+	if role != RoleCoordinator && role != RoleWorker {
+		return fmt.Errorf("agent-bus set-role: %q is neither %s nor %s", role, RoleCoordinator, RoleWorker)
+	}
+	return c.rootShow(ctx, wrapperName, sudo.AgentBus, "set-role", team, handle, "--role="+role)
 }
 
 // HumanDevices is "agent-bus human devices <team> <name>" as root: the person's Element

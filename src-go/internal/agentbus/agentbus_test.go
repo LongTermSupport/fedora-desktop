@@ -134,6 +134,49 @@ func TestParkMemberShowsWhatTheWrapperSaid(t *testing.T) {
 	}
 }
 
+func TestSeatChooseRunsAsTheUserAndParsesWhatItOffers(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"agent-bus", "seat", "choose", "alpha"},
+		execx.Result{Stdout: []byte("CHOICE\t1\tfree\th.1+b.podman\tw\nDEFAULT\t1\n")})
+	got, err := r.c.SeatChoose(context.Background(), "alpha")
+	if err != nil || got.Default != "1" || len(got.Rows) != 1 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if c := r.last(t); c.Line() != "agent-bus seat choose alpha" {
+		t.Fatalf("ran %q", c.Line())
+	}
+}
+
+func TestSeatChooseFailureIsTheWrappersExit(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"agent-bus", "seat", "choose", "alpha"}, execx.Result{ExitCode: 78, Stderr: []byte("not running")})
+	if _, err := r.c.SeatChoose(context.Background(), "alpha"); !errors.Is(err, ErrConfig) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSetRoleRunsSetRoleAsRootAndShowsWhatItSaid(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"sudo", "-n", "/usr/local/bin/agent-bus", "set-role", "alpha", "h.podman", "--role=coordinator"},
+		execx.Result{Stdout: []byte("CHANGED\th.podman is now coordinator\n")})
+	if err := r.c.SetRole(context.Background(), "alpha", "h.podman", RoleCoordinator); err != nil {
+		t.Fatal(err)
+	}
+	if r.out.String() != "CHANGED\th.podman is now coordinator\n" {
+		t.Fatalf("out %q", r.out.String())
+	}
+}
+
+func TestSetRoleRefusesARoleThatIsNotOne(t *testing.T) {
+	r := newRig()
+	if err := r.c.SetRole(context.Background(), "alpha", "h.podman", "boss"); err == nil {
+		t.Fatal("accepted boss")
+	}
+	if len(r.fake.Calls()) != 0 {
+		t.Fatal("ran sudo for a role agent-bus would refuse")
+	}
+}
+
 func TestHumanDevices(t *testing.T) {
 	r := newRig()
 	r.fake.On([]string{"sudo", "-n", "/usr/local/bin/agent-bus", "human", "devices", "alpha", "owner"},

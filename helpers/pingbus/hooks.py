@@ -60,6 +60,8 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "team": protocol.is_team_name,
     "handle": lambda value: protocol.parse_handle(value) is not None,
     "lock": lambda value: value in LOCK_STATES,
+    "handles": lambda value: isinstance(value, str) and all(
+        protocol.parse_handle(part) is not None for part in value.split(", ")),
 }
 TEMPLATES = {
     "pending": "agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings). Run `pingbus recv`.",
@@ -74,6 +76,15 @@ TEMPLATES = {
     "seat_sibling": "agent-bus: seat {seat}@{team} is {lock}, as {handle}.",
     "seat_history": ("agent-bus: seat {seat}@{team} has earlier traffic: "
                      "`pingbus history --team {team}` shows what it received and sent."),
+    "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
+                         "on what they tell humans; when a human asks you to get something done, work out "
+                         "how and dispatch it to the workers, then track it."),
+    "role_worker": ("agent-bus: in team {team} you are a worker; the coordinator is {handle}. Report to it "
+                    "(`--to-coordinator` on `pingbus send` and `say`); it is copied on what you tell humans."),
+    "role_worker_many": ("agent-bus: in team {team} you are a worker; the coordinators are {handles}. Report to "
+                         "them (`--to-coordinator` on `pingbus send` and `say` names all of them); they are "
+                         "copied on what you tell humans."),
+    "role_worker_alone": "agent-bus: in team {team} you are a worker; the team has no coordinator.",
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "
                   "with run_in_background."),
     "watcher_failed": ("agent-bus: the watcher could not be started. Run `pingbus status`; "
@@ -109,6 +120,22 @@ def fill(name: str, **fields: object) -> str:
     return TEMPLATES[name].format(**fields)
 
 
+def role_lines(views: tuple[TeamView, ...]) -> list[str]:
+    """SessionStart's role context: for each team whose record was read, what this member is
+    and, for a worker, who the coordinator is. Offline."""
+    lines: list[str] = []
+    for view in views:
+        if view.role == protocol.ROLE_COORDINATOR:
+            lines.append(fill("role_coordinator", team=view.team))
+        elif view.role == protocol.ROLE_WORKER and len(view.coordinators) == 1:
+            lines.append(fill("role_worker", team=view.team, handle=view.coordinators[0]))
+        elif view.role == protocol.ROLE_WORKER and view.coordinators:
+            lines.append(fill("role_worker_many", team=view.team, handles=", ".join(view.coordinators)))
+        elif view.role == protocol.ROLE_WORKER:
+            lines.append(fill("role_worker_alone", team=view.team))
+    return lines
+
+
 def seat_lines(environ: Mapping[str, str], teams: tuple[str, ...]) -> list[str]:
     """SessionStart's seat context (DESIGN.md section 5.5): for each seat this session
     holds, its own line, the pointer to `pingbus history` when it has earlier traffic, and
@@ -137,6 +164,10 @@ class TeamView:
     holder: str | None
     pending: inbox.Pending | None
     failure: str | None
+    #: This member's role and every coordinator's handle, from the cached team record (None
+    #: and empty where the record could not be read: `failure` says why).
+    role: str | None = None
+    coordinators: tuple[str, ...] = ()
 
     @property
     def waker(self) -> bool:
@@ -183,7 +214,9 @@ def _team_view(member: config.Member) -> TeamView:
         return TeamView(member.team, holder, None, "untrusted")
     except inbox.StateError:
         return TeamView(member.team, holder, None, "state")
-    return TeamView(member.team, holder, pending, None)
+    handles = tuple(protocol.parse_user_id(user, member.server_name)
+                    for user in protocol.coordinators(record.roles))
+    return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles)
 
 
 def survey(environ: Mapping[str, str]) -> Survey:
@@ -350,6 +383,7 @@ class _Hook:
         except (config.ConfigError, inbox.StateError, OSError) as exc:
             self.err.write(f"pingbus: hook session-start: the seats cannot be read: {exc}\n")
             seat_failure = "state"
+        lines += role_lines(surveyed.teams)
         lines += self._pending_and_failure(surveyed, seat_failure)
         return _context(self.event, lines)
 

@@ -1093,7 +1093,11 @@ runs. For a team named alone it then asks, in a chooser, which of this checkout'
 the team to take. Each row shows the member's full handle, `ccy (podman)`, and whether the
 seat is free or held by a running session. The default is the lowest free seat, else a new
 number. ccy says the handle before it takes the seat, and the chosen `<seat>@<team>` goes
-into the launch's arguments. A launch with nobody to answer (headless, no terminal, a
+into the launch's arguments. For a seat that exists it then asks the seat's role: keep it,
+make it the team's coordinator (naming the current one, who becomes a worker) or, for the
+coordinator, stop it being one; sudo runs only when the role changes, and the role is kept in
+the team record, so the Quick Launch that reuses the seat brings it back and shows it in its
+summary. A seat that is new joins as a worker. A launch with nobody to answer (headless, no terminal, a
 restore, a restart) must name the seat, and is refused (64) otherwise. Just before the container starts, `agent-bus seat take` creates any seat that does
 not exist yet (one `sudo agent-bus add-member`; a headless launch, a restore or a restart
 uses only sudo's cached credential) and refuses a seat another session holds (75). The

@@ -41,7 +41,7 @@ LINE_RES = {
         rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}"),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
     "MEMBER": re.compile(
-        rf"MEMBER\t{TEAM_RE}\t{LOCALPART_RE}\t(?:human|orchestrator|worker)\t(?:listening|stale|-)"),
+        rf"MEMBER\t{TEAM_RE}\t{LOCALPART_RE}\t(?:human|coordinator|worker)\t(?:listening|stale|-)"),
     "UNEXPECTED": re.compile(rf"UNEXPECTED\t{TEAM_RE}\t{USER_RE}\t(?:join|invite)"),
     "PENDING": re.compile(
         rf"PENDING\t{TEAM_RE}\t{protocol.EVENT_ID_PATTERN}\t{LOCALPART_RE}\t\d+"
@@ -95,7 +95,7 @@ class StatusTest(StatusCase):
         self.assertEqual(self.members(rows), {
             "alice": ("human", "-"),
             bus.ME_LP: ("worker", "-"),
-            bus.ORCH_LP: ("orchestrator", "-"),
+            bus.ORCH_LP: ("coordinator", "-"),
             bus.PEER_LP: ("worker", "-"),
         })
 
@@ -145,10 +145,10 @@ class StatusTest(StatusCase):
         self.put_status(self.a.peer, until, key="")
         self.run_cli("recv")
         members = self.members(self.report()[1])
-        self.assertEqual(members[bus.ORCH_LP], ("orchestrator", "listening"))
+        self.assertEqual(members[bus.ORCH_LP], ("coordinator", "listening"))
         self.assertEqual(members[bus.PEER_LP], ("worker", "-"), "a status under a foreign key is ignored")
         self.now += 61
-        self.assertEqual(self.members(self.report()[1])[bus.ORCH_LP], ("orchestrator", "stale"))
+        self.assertEqual(self.members(self.report()[1])[bus.ORCH_LP], ("coordinator", "stale"))
 
     def test_unexpected_members_are_reported(self):
         self.joined()
@@ -166,7 +166,7 @@ class StatusTest(StatusCase):
 
     def test_untrusted_room_says_why(self):
         self.joined()
-        self.a.set_record(dict(self.a.record, roles={self.a.orch: "orchestrator"}))
+        self.a.set_record(dict(self.a.record, roles={self.a.orch: "coordinator"}))
         self.assertEqual(self.run_cli("recv")[0], cli.EXIT_UNTRUSTED)
         code, rows, _ = self.report()
         self.assertEqual(code, cli.EXIT_OK)

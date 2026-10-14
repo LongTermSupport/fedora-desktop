@@ -758,9 +758,10 @@ def set_role(team: Team, transport: Transport, handle: str, role: str) -> list[s
     def change(reg: registry.Registry) -> tuple[registry.Registry, bool]:
         if handle not in reg.members:
             raise AdminError(f"{handle} is not a member of team {team.name}")
-        return reg.set_role(handle, role), reg.members[handle] != role
+        updated = reg.set_role(handle, role)
+        return updated, updated.members[handle] != reg.members[handle]
 
-    changes = [f"{handle} is now {role}"] if _registry_change(team, change) else []
+    changes = [f"{handle} is now {protocol.normalise_role(role)}"] if _registry_change(team, change) else []
     _sync_team(api, room, changes)
     return changes
 
