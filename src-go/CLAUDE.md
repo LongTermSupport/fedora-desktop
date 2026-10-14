@@ -49,7 +49,22 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   its error. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.
 
-## Parity oracles
+## How a port is built: spec first, tests first
+
+A new port is built to a spec of intended behaviour, not to a replay of the bash. The plan's
+`SPEC-<tool>.md` states each behaviour as a numbered, testable expectation (inputs, output
+lines, exit codes, failure modes, all fail-fast); the old bash is read only to find the
+requirements, and is not assumed correct. Where it was wrong, the spec states the right
+behaviour and notes the departure. Each expectation gets a Go test written first and seen to
+fail, then the code (red and green recorded in the plan journal). Before cut-over, the Go tool
+runs on the live tree and any difference from the old tool's result is explained.
+`SPEC-qa-ansible.md` and `qa/ansible` are the model. Do not record the bash's output as an
+oracle for a new port.
+
+## Parity oracles (earlier ports)
+
+The replays below came from earlier ports and stay as regression tests; they are not
+extended. Where one gets in the way, replace it with expectation tests rather than recording again.
 
 The bash suites that tested the bash tools now drive the Go binaries and remain the
 behaviour oracle: `scripts/test-ccy-teams-command.bash` and the four
@@ -113,5 +128,13 @@ fake process seam over the real table, every gate failing in turn), a golden rep
 it replaced (`qa/all/golden_test.go`, recorded by `CLAUDE/Plan/00192-.../qa-all-golden/capture.py`;
 difference only as a numbered bug of `SPEC-qa-all.md` section 10 pinned in
 `testdata/deviations.json`), and the real tree (`scripts/test-qa-changed.bash`, the docs gate).
+`qa/ansible` + `qa/cmd/qa-ansible` (same nested module) are `scripts/qa-ansible.bash`, the static
+Ansible gate (fail-fast directives, playbook hygiene, self-default vars, scope and guard,
+deprecated fact vars, guessed runtime-dir uids): the script only builds and runs the command. It
+starts no process itself: the one `git ls-files` it needs (it judges only what git would
+publish) is injected and run by the command through the seam. Its spec is the intended behaviour
+(`SPEC-qa-ansible.md`, expectations E1-E19), proven by unit tests and end-to-end scenario trees,
+not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
+
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).

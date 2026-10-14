@@ -20,23 +20,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00161 follow-up: every team admits the LXC bridge's subnet, read from the live lxcbr0,
-# so an LXC container's agent can join with no allow_from entry; the play prints the subnet
-# it added, or one line saying there is no bridge.
-playbooks/imports/play-agent-bus.yml
-# Plan 00196: the team coordinator. It runs play-agent-bus.yml (set-role allows one
-# coordinator; a stored orchestrator reads as coordinator; a team whose software is out of date
-# is rebuilt and restarted), then play-claude-yolo.yml (CCY 3.97.1, container 2.55, so the image
-# is rebuilt once: ccy --teams offers the seat's role; ccy-teams marks the coordinator and has
-# Make coordinator in a seat's menu; pingbus --to-coordinator). It goes before the acceptance
-# below, whose checks read the new pingbus and the coordinator role.
-00196-team-coordinator-role
-# Plan 00177 Phase 8: builds the new ccy-teams on the host (go build from the checkout), which
-# gains `ccy-teams lxc-add <team>` and an "Add an LXC container's agent" line in every row's
-# menu, so an LXC container joins a team with no hand edit of localhost.yml. The play changes
-# nothing else (no CCY version bump). Then try it: ccy-teams lxc-add <team>.
+# Plan 00177 Phase 9: rebuilds ccy-teams on the host (go build from the checkout) with the
+# lxc-add action, so an LXC container joins a team with no hand edit of localhost.yml. Nothing
+# else changes (no CCY version bump). Then try it: ccy-teams lxc-add <team>.
 playbooks/imports/play-claude-yolo.yml
-# agent team bus acceptance again. BEFORE running meta, launch `ccy` interactively once in
-# this checkout and choose the token and SSH keys (Quick Launch saves them; CCY 3.96 changed
-# the saved file's format, so the earlier choices were discarded); U20 reuses them.
+# agent team bus acceptance, now with the coordinator role (Plan 00196 is deployed). BEFORE
+# running meta, launch `ccy` interactively once in this checkout and choose the token and SSH
+# keys: the saved choices are still in the format before CCY 3.96, which a headless launch
+# discards, so U20 refuses to start until Quick Launch saves them again.
 00161-agent-team-bus-matrix/acceptance.bash

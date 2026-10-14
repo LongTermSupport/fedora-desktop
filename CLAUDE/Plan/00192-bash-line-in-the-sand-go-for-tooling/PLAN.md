@@ -15,8 +15,11 @@ bash is for very small helpers only; anything over a measured threshold is writt
 gate, with the existing large scripts on a ratchet allowlist that may only shrink.
 
 The existing bash (and then the standalone Python the Go tools call) is inventoried and the
-large tools are rewritten in Go, one feature branch per programme, by the Plan 00191 method:
-the existing suite is the parity oracle, run against the Go binary, before the cut-over.
+large tools are rewritten in Go, one feature branch per programme. The owner's method
+(2026-10-14), from qa-ansible on: a spec of intended behaviour as clear expectations, each a
+test written first; the bash is read for requirements and never treated as correct, and no
+replay of it is recorded (src-go/CLAUDE.md, "How a port is built"). The earlier ports' replays
+stay as regression tests.
 
 go-qa-ci (Plan 00191 Phase 3) is reviewed for completeness, and this repository starts
 recording its own Defence Before Fix rules for the defect classes the ports found.
@@ -100,6 +103,18 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   over 142 scenarios with 32 pinned deviations (B1-B6, B12, B13, B20-B23, B26); the script a
   build-and-run wrapper, its allowlist entry, the `qa-helper-summary` library, its suite and the
   call-site parser gone (their cases are Go tests). The full `qa-all` run comes before the merge.
+  `qa-ansible.bash` (P3, third orchestrator) on `go-port/qa-ansible`: ported, not merged; spec
+  [SPEC-qa-ansible.md](SPEC-qa-ansible.md) states the intended behaviour as expectations E1-E19
+  (the bash is not an oracle; 13 departures B1-B13 listed there); nested `src-go/qa/ansible`,
+  `qa/cmd/qa-ansible`; the script a build-and-run wrapper, its allowlist row gone;
+  `test-qa-ansible-failfast.bash` now drives the built tool. Same output and report as the bash on
+  the live tree. Fable review (subagent-reports/261014-fable-review-qa-ansible.md) dispositions:
+  F1 quoted values evaded the fail-fast rules, fixed (E11, B14; the live tree had no quoted
+  violation); F2 symlink to a directory or dangling non-`.yml` link, fixed as exit 2 (E7, B16);
+  F3 owner decision, the gate judges what git would publish and never reads gitignored files
+  (E6a, B15); F4 `CLAUDE/QA.md` updated; F5 stdout write failure now an `ERROR:` line (E3, B17);
+  F6 (`-x` is root's view, any execute bit) and F7 (four passes over each file) are info only,
+  accepted, no change.
 
 ### Phase 4: Review
 
