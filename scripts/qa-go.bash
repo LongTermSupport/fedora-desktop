@@ -30,7 +30,7 @@ if ! command -v go > /dev/null; then
     exit 2
 fi
 if ! command -v golangci-lint > /dev/null; then
-    echo "✗ go: golangci-lint not installed (install via playbooks/imports/optional/common/play-golang.yml)" >&2
+    echo "✗ go: golangci-lint not installed (install via playbooks/imports/play-python.yml, the QA toolchain play)" >&2
     exit 2
 fi
 

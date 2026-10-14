@@ -133,7 +133,7 @@ if [[ $MISMATCHES -gt 0 ]]; then
     echo "" >&2
     echo "  These gates are version-dependent, so this machine would report a" >&2
     echo "  different verdict from the CCY container and from CI. Bring it into line:" >&2
-    echo "    host      ./playbooks/imports/play-python.yml   (imports play-golang.yml for go and golangci-lint)" >&2
+    echo "    host      ./playbooks/imports/play-python.yml   (installs golangci-lint; go via the play-golang.yml it imports)" >&2
     echo "    container ccy --rebuild   (the image bakes .qa-versions at build time)" >&2
     exit 1
 fi

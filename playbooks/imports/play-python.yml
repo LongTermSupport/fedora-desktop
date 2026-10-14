@@ -1,7 +1,8 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
-# The QA toolchain check below (scripts/qa-toolchain.bash) asserts go and golangci-lint
-# too, so they are installed first. play-golang.yml stays their one source of truth.
+# The QA toolchain check below (scripts/qa-toolchain.bash) asserts go too, so the Go
+# toolchain is installed first; play-golang.yml stays its one source of truth. The QA
+# tools, golangci-lint included, are installed by this play.
 - import_playbook: optional/common/play-golang.yml
 
 # This play installs things you need for Python and AI development
@@ -22,6 +23,8 @@
       {{ dict(lookup('ansible.builtin.file', root_dir ~ '/.qa-versions').splitlines()
               | select('match', '^[A-Z_]+=')
               | map('split', '=', 1)) }}
+    golangci_lint_archive: "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64.tar.gz"
+    golangci_lint_release: "https://github.com/golangci/golangci-lint/releases/download/v{{ qa_versions.GOLANGCI_LINT }}"
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -32,7 +35,7 @@
           - make
           - cmake
           - gcc-c++
-          - gcc
+          - gcc # also what `go test -race` links against (cgo); without it qa-go cannot run
           - patch
           - zlib-ng-compat-devel # F44+: zlib-devel was dropped; zlib-ng-compat-devel provides the same headers/lib (pyenv wiki)
           - bzip2
@@ -69,7 +72,7 @@
     # versions is running different gates. Two shellchecks four minor releases
     # apart reported 141 and 173 issues on this same tree. Only tools a gate
     # runs are pinned: ruff (qa-python), semgrep (qa-patterns), shellcheck
-    # (qa-bash).
+    # (qa-bash), golangci-lint (qa-go).
     #
     # The Python tools come from pipx rather than dnf specifically so they CAN
     # be pinned. Fedora's ruff package tracks whatever Fedora ships, so it moves
@@ -161,6 +164,50 @@
       when: >-
         shellcheck_installed.rc != 0
         or ('version: ' ~ qa_versions.SHELLCHECK) not in shellcheck_installed.stdout
+
+    # golangci-lint (qa-go) is a static Go binary too, at the same pin the CCY image and CI
+    # install. The Go toolchain itself and the gcc `go test -race` links against come from
+    # the play-golang.yml imported above and the dnf list at the top of this play.
+    - name: Check the installed golangci-lint version
+      ansible.builtin.command:
+        cmd: golangci-lint --version
+      register: golangci_lint_installed
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
+
+    # The checksum is read from the release's own checksums file and verified by get_url,
+    # so a tampered or truncated download fails before anything is unpacked.
+    - name: Download golangci-lint at the pinned version
+      ansible.builtin.get_url:
+        url: "{{ golangci_lint_release }}/{{ golangci_lint_archive }}"
+        dest: "/tmp/{{ golangci_lint_archive }}"
+        checksum: "sha256:{{ golangci_lint_release }}/golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-checksums.txt"
+        mode: "0644"
+      when: >-
+        golangci_lint_installed.rc != 0
+        or ('version ' ~ qa_versions.GOLANGCI_LINT ~ ' ') not in golangci_lint_installed.stdout
+
+    - name: Install golangci-lint at the pinned version
+      become: true
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ golangci_lint_archive }}"
+        remote_src: true
+        dest: /usr/local/bin
+        include:
+          - "golangci-lint-{{ qa_versions.GOLANGCI_LINT }}-linux-amd64/golangci-lint"
+        extra_opts:
+          - --strip-components=1
+        owner: root
+        group: root
+        mode: "0755"
+      when: >-
+        golangci_lint_installed.rc != 0
+        or ('version ' ~ qa_versions.GOLANGCI_LINT ~ ' ') not in golangci_lint_installed.stdout
+
+    - name: Remove the golangci-lint download
+      ansible.builtin.file:
+        path: "/tmp/{{ golangci_lint_archive }}"
+        state: absent
 
     # The installs above are not self-verifying: pipx can succeed while the binary
     # on PATH stays the old one (another install site shadowing it), which is the
