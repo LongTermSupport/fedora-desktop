@@ -12,6 +12,13 @@
 # (GO_COVERAGE_FLOOR), golangci-lint run. golangci-lint fmt exits 0 when it
 # prints a diff, so the verdict is "printed nothing", not its exit code.
 #
+# Two modules, because the shipped binaries are built with plain `go build` and src-go/go.mod
+# must stay dependency-free: src-go/qa is the nested module holding the project rules
+# (go/analysis analyzers, which need golang.org/x/tools). It gets the same steps, first, so
+# the rules are proven before they judge anything. The rules then run over src-go as a final
+# hard step: the driver is built once and used as `go vet -vettool`. Catalogue:
+# CLAUDE/GoProjectRules.md.
+#
 # Exit codes:
 #   0  pass
 #   1  a step failed
@@ -39,10 +46,15 @@ fi
 # not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
 GO_COVERAGE_FLOOR=90
 
-cd "$GO_DIR"
+QA_DIR="$GO_DIR/qa"
+if [[ ! -f "$QA_DIR/go.mod" ]]; then
+    echo "✗ go: $QA_DIR/go.mod is missing — the project rules module is part of this gate" >&2
+    exit 1
+fi
 OUT="$(mktemp)"
 PROFILE="$(mktemp)"
-trap 'rm -f "$OUT" "$PROFILE"' EXIT
+VETTOOL="$(mktemp)"
+trap 'rm -f "$OUT" "$PROFILE" "$VETTOOL"' EXIT
 
 # run_step <name> <command...> — on failure print the step's output and exit 1.
 run_step() {
@@ -55,36 +67,53 @@ run_step() {
     fi
 }
 
-run_step "format check" golangci-lint fmt --diff ./...
-if [[ -s "$OUT" ]]; then
-    echo "✗ go: formatting differs (fix with: cd src-go && golangci-lint fmt ./...)" >&2
-    cat "$OUT" >&2
-    exit 1
-fi
-run_step "go vet" go vet ./...
-run_step "go test -race" go test -race -coverprofile="$PROFILE" ./...
-PACKAGES="$(awk '/^ok/ {n++} END {print n + 0}' "$OUT")"
-# A package with no test files is untested code the coverage floor can hide behind the rest of
-# the module, so every package, cmd/ mains included, has tests. With -coverprofile go prints
-# such a package as "<tab>pkg<tab>coverage: 0.0% of statements" (no "ok" or "?" prefix);
-# without it, as "?  pkg  [no test files]".
-UNTESTED="$(awk '/^\?/ && /\[no test files\]/ {print $2} /^[ \t]/ && /coverage: 0.0% of statements/ {print $1}' "$OUT")"
-if [[ -n "$UNTESTED" ]]; then
-    echo "✗ go: package(s) with no test files:" >&2
-    echo "$UNTESTED" >&2
-    exit 1
-fi
-run_step "coverage report" go tool cover -func="$PROFILE"
-COVERAGE="$(awk '$1 == "total:" {sub(/%/, "", $NF); print $NF}' "$OUT")"
-if [[ -z "$COVERAGE" ]]; then
-    echo "✗ go: no total in the coverage report" >&2
-    cat "$OUT" >&2
-    exit 1
-fi
-if ! awk -v c="$COVERAGE" -v f="$GO_COVERAGE_FLOOR" 'BEGIN {exit !(c >= f)}'; then
-    echo "✗ go: statement coverage ${COVERAGE}% is under the ${GO_COVERAGE_FLOOR}% floor" >&2
-    exit 1
-fi
-run_step "golangci-lint" golangci-lint run ./...
+# check_module <dir> — the four steps over one module; sets PACKAGES and COVERAGE.
+check_module() {
+    local dir="$1"
+    cd "$dir"
+    run_step "format check ($dir)" golangci-lint fmt --diff ./...
+    if [[ -s "$OUT" ]]; then
+        echo "✗ go: formatting differs in $dir (fix with: cd $dir && golangci-lint fmt ./...)" >&2
+        cat "$OUT" >&2
+        exit 1
+    fi
+    run_step "go vet ($dir)" go vet ./...
+    run_step "go test -race ($dir)" go test -race -coverprofile="$PROFILE" ./...
+    PACKAGES="$(awk '/^ok/ {n++} END {print n + 0}' "$OUT")"
+    # A package with no test files is untested code the coverage floor can hide behind the
+    # rest of the module, so every package, cmd/ mains included, has tests. With -coverprofile
+    # go prints such a package as "<tab>pkg<tab>coverage: 0.0% of statements" (no "ok" or "?"
+    # prefix); without it, as "?  pkg  [no test files]".
+    local untested
+    untested="$(awk '/^\?/ && /\[no test files\]/ {print $2} /^[ \t]/ && /coverage: 0.0% of statements/ {print $1}' "$OUT")"
+    if [[ -n "$untested" ]]; then
+        echo "✗ go: package(s) with no test files in $dir:" >&2
+        echo "$untested" >&2
+        exit 1
+    fi
+    run_step "coverage report ($dir)" go tool cover -func="$PROFILE"
+    COVERAGE="$(awk '$1 == "total:" {sub(/%/, "", $NF); print $NF}' "$OUT")"
+    if [[ -z "$COVERAGE" ]]; then
+        echo "✗ go: no total in the coverage report for $dir" >&2
+        cat "$OUT" >&2
+        exit 1
+    fi
+    if ! awk -v c="$COVERAGE" -v f="$GO_COVERAGE_FLOOR" 'BEGIN {exit !(c >= f)}'; then
+        echo "✗ go: statement coverage ${COVERAGE}% of $dir is under the ${GO_COVERAGE_FLOOR}% floor" >&2
+        exit 1
+    fi
+    run_step "golangci-lint ($dir)" golangci-lint run ./...
+}
 
-echo "GO-OK $PACKAGES package(s), all tested: fmt, vet, test -race, coverage ${COVERAGE}% (floor ${GO_COVERAGE_FLOOR}%), golangci-lint clean"
+check_module "$QA_DIR"
+QA_PACKAGES="$PACKAGES"
+QA_COVERAGE="$COVERAGE"
+check_module "$GO_DIR"
+
+# The project rules: the driver is built once and run as go vet's tool over src-go (its
+# ./... stops at the nested module, so the rules do not judge themselves). Any finding fails
+# the gate; a driver that does not build or a vet that cannot run is a failure, not a pass.
+run_step "project rules driver build" go build -C "$QA_DIR" -o "$VETTOOL" ./driver
+run_step "project rules (CLAUDE/GoProjectRules.md)" go vet -vettool="$VETTOOL" ./...
+
+echo "GO-OK $PACKAGES package(s), all tested: fmt, vet, test -race, coverage ${COVERAGE}% (floor ${GO_COVERAGE_FLOOR}%), golangci-lint clean; qa module $QA_PACKAGES package(s) at ${QA_COVERAGE}%; project rules clean"

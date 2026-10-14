@@ -19,12 +19,21 @@ are gone.
 
 - **Test first.** The test file exists before the source file (the TDD hook enforces it).
   Every flow is unit tested through the fakes, without a terminal.
+
 - **No discarded errors.** Never `_ =` or `_ :=` an error; return it or handle it.
+
 - **No suppression.** No `//nolint`; fix what the linter reports. `.golangci.yml` is strict on
   purpose.
+
 - **Exit codes** come from `term` (`ExitOK`, `ExitFailure`, `ExitUsage`, `ExitCancelled`);
   diagnostics go to stderr, the payload to stdout ([StderrHygiene.md](../CLAUDE/StderrHygiene.md)).
+
 - **Secrets never in argv.** A password goes to its consumer on stdin.
+
+- **Project rules.** `qa/` is a nested module (so this `go.mod` stays dependency-free) of
+  `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
+  no wall clock in tests, one home abbreviation. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
+  A new defect class found here gets a rule there before its fix.
 
 ## Parity oracles
 

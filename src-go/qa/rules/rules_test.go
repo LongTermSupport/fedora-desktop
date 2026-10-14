@@ -1,0 +1,66 @@
+package rules
+
+import (
+	"testing"
+
+	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/analysistest"
+)
+
+// Each analyzer is proven alone against a fixture: every line the rule must flag carries a
+// want comment, and the clean constructs beside them carry none, so a rule that fires too
+// much or too little fails here. The fixtures reproduce the defects the tools actually hit.
+
+func TestSeamExec(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SeamExec, "fix/internal/execx", "fix/internal/badexec")
+}
+
+func TestSeamCommands(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), SeamCommands,
+		"fix/internal/execx", "fix/internal/sudo", "fix/internal/badcmd")
+}
+
+func TestTestClock(t *testing.T) {
+	allow := []clockAllowance{{pkg: "internal/allowedclock", fn: "TestRealWait", reason: "proves the real sleep ran"}}
+	analysistest.Run(t, analysistest.TestData(), newTestClock(allow), "fix/internal/badclock", "fix/internal/allowedclock")
+}
+
+func TestHomeAbbrev(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), HomeAbbrev, "fix/internal/term", "fix/internal/badhome")
+}
+
+func TestAllIsValid(t *testing.T) {
+	if err := analysis.Validate(All()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(All()); got != 4 {
+		t.Fatalf("want 4 rules, got %d", got)
+	}
+}
+
+func TestEveryClockAllowanceHasAReason(t *testing.T) {
+	for _, a := range clockAllowances {
+		if a.reason == "" || a.pkg == "" || a.fn == "" {
+			t.Errorf("allowance %+v needs a package, a function and a reason", a)
+		}
+	}
+}
+
+func TestOwnedBy(t *testing.T) {
+	cases := []struct {
+		pkg, owner string
+		want       bool
+	}{
+		{"github.com/x/src-go/internal/execx", "internal/execx", true},
+		{"internal/execx", "internal/execx", true},
+		{"github.com/x/src-go/internal/execx_test", "internal/execx", true},
+		{"github.com/x/src-go/internal/execx [github.com/x/src-go/internal/execx.test]", "internal/execx", true},
+		{"github.com/x/src-go/internal/notexecx", "internal/execx", false},
+		{"github.com/x/src-go/internal/execx/sub", "internal/execx", false},
+	}
+	for _, c := range cases {
+		if got := ownedBy(c.pkg, c.owner); got != c.want {
+			t.Errorf("ownedBy(%q, %q) = %v, want %v", c.pkg, c.owner, got, c.want)
+		}
+	}
+}

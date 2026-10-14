@@ -11,6 +11,34 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
+func TestLauncherViaChangesDirectoryThenReplacesTheProcessThroughTheExecer(t *testing.T) {
+	t.Chdir(t.TempDir()) // registers the restore of the working directory launcherVia changes
+	dir := t.TempDir()
+	f := &execx.Fake{}
+	if err := launcherVia(f, "/top/ccy", []string{"ccy", "--teams", "a"}, dir); err != nil {
+		t.Fatal(err)
+	}
+	execs := f.Execs()
+	if len(execs) != 1 || execs[0].Name != "/top/ccy" || strings.Join(execs[0].Args, " ") != "--teams a" {
+		t.Fatalf("execs %+v", execs)
+	}
+	if cwd, err := os.Getwd(); err != nil || cwd != dir {
+		t.Fatalf("cwd %q, %v", cwd, err)
+	}
+}
+
+func TestLauncherViaReportsAnUnenterableDirectoryAndAFailedExec(t *testing.T) {
+	t.Chdir(t.TempDir())
+	f := &execx.Fake{}
+	if err := launcherVia(f, "ccy", []string{"ccy"}, filepath.Join(t.TempDir(), "absent")); err == nil || len(f.Execs()) != 0 {
+		t.Fatalf("got %v, execs %v", err, f.Execs())
+	}
+	f.ExecError(&execx.NotInstalledError{Name: "ccy"})
+	if err := launcherVia(f, "ccy", nil, t.TempDir()); err == nil || !strings.Contains(err.Error(), "start the launcher") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 type harness struct {
 	app    *App
 	out    *bytes.Buffer
