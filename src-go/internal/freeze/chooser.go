@@ -260,8 +260,11 @@ func (c *TTYChooser) readLine(ctx context.Context) (string, error) {
 		err  error
 	}
 	done := make(chan result, 1)
+	// The reader is taken before the goroutine starts: after Ctrl-C the abandoned read is still
+	// blocked on the terminal, and Close must be free to let go of c.tty without racing it.
+	tty := c.tty
 	go func() {
-		line, err := c.tty.ReadString('\n')
+		line, err := tty.ReadString('\n')
 		done <- result{line, err}
 	}()
 	select {

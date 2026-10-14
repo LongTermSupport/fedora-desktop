@@ -359,6 +359,27 @@ func TestANumberedPromptInterruptedByCancellation(t *testing.T) {
 	mustContain(t, "newline", h.err.String(), "q to quit]: \n")
 }
 
+// After Ctrl-C the abandoned read is still blocked on the terminal; releasing the terminal then
+// must not race with it (found by the podfreeze Ctrl-C test under -race).
+func TestNewClosingAfterAnInterruptedPromptDoesNotRaceTheAbandonedRead(t *testing.T) {
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		if err := pw.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	h := newTTY(t, "")
+	h.c.Env.OpenTTY = func() (io.ReadCloser, error) { return pr, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := h.c.Group(ctx, menuKeys, menuLabels); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	if err := h.c.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCloseIsSafeWhetherOrNotATerminalWasOpened(t *testing.T) {
 	h := newTTY(t, "q\n")
 	if err := h.c.Close(); err != nil {

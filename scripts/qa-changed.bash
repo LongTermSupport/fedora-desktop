@@ -25,7 +25,8 @@
 #   path on the allowlist
 #   js/mjs                     node --check; extensions/ files also get the project's eslint
 #   src-go/ in a command's     that command's suites too (ccy-teams: test-ccy-teams-command.bash;
-#   build closure              ccy-sessions: its four test-ccy-* suites): a file in cmd/<name> or a
+#   build closure              ccy-sessions: its four test-ccy-* suites; podfreeze: test-podfreeze.bash,
+#                              the bash oracle until cut-over): a file in cmd/<name> or a
 #                              package it imports (go list -deps), go.mod, go.sum
 #   any non-markdown file      every scripts/test-*.bash suite (and hard gate script) that
 #                              qa-all.bash runs and whose text names it by path or basename,
@@ -359,6 +360,12 @@ done
 GO_BINARY_SUITES=(
     "ccy-teams: scripts/test-ccy-teams-command.bash"
     "ccy-sessions: scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash"
+    # podfreeze: the oracle suite still tests the BASH tool until the cut-over (white-box, it
+    # cannot drive a binary), so it is the behaviour the Go port's cases were taken from and a
+    # change to the port reruns it as a drift check. The cut-over deletes the suite and this entry
+    # with the bash tool; src-go/cmd/podfreeze then joins QA_ONLY_COMMANDS in test-qa-changed.bash
+    # or gains a real black-box suite.
+    "podfreeze: scripts/test-podfreeze.bash"
 )
 declare -A GO_SUITE_OWNERS=()
 if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
@@ -392,8 +399,7 @@ if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
     done
 fi
 
-PICKED=()
-PICKED_WHY=()
+PICKED=() PICKED_WHY=()
 if [[ -s "$PATTERN_FILE" ]]; then
     for suite in "${SUITES[@]}"; do
         why=()
