@@ -71,6 +71,18 @@ func (s *Sudo) Ready(ctx context.Context, why string) error {
 	return nil
 }
 
+// Capture runs a root command through "sudo -n" and hands back both streams unprinted, for a
+// caller that must keep the command's stderr (it is the text of a failure, not noise). On a
+// non-zero exit the Result still carries the streams and the error is the *execx.ExitError;
+// sudo wanting a password is additionally ErrNeedsPassword.
+func (s *Sudo) Capture(ctx context.Context, argv ...string) (execx.Result, error) {
+	res, err := s.Runner.Run(ctx, execx.Cmd{Name: cmd, Args: append([]string{"-n"}, argv...)})
+	if err != nil && strings.HasPrefix(string(res.Stderr), "sudo: a password is required") {
+		return res, fmt.Errorf("%w: %w", ErrNeedsPassword, err)
+	}
+	return res, err
+}
+
 // AsRoot runs a root command through "sudo -n", never prompting, and returns its stdout.
 // ErrNeedsPassword means sudo wanted a password first (exit 1 with sudo's own words on
 // stderr), and nothing is printed. Any other failure copies the command's stderr to the
