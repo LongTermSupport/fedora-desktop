@@ -58,7 +58,8 @@ their old paths. Never install a binary by hand: the play is the only route
 interim gate, run by `qa-all.bash` and by `qa-changed.bash` for a `src-go/` change, until the
 go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
 
-`cmd/qa-bash-limits` + `internal/bashlimits` are the QA gate that holds every bash file to the
-tooling-is-Go limits (`scripts/qa-bash-limits.bash` runs it; allowlist
-`scripts/bash-limits.allowlist`). It is a QA tool, never deployed, so it has no bash oracle suite;
-its Go tests (including a real temporary git repository) are the proof.
+`qa/bashlimits` + `qa/cmd/qa-bash-limits` (in the nested `qa` module, which holds the
+`mvdan.cc/sh` parser dependency) are the QA gate that holds every bash file to the tooling-is-Go
+limits (`scripts/qa-bash-limits.bash` runs it; allowlist `scripts/bash-limits.allowlist`; the
+measure is defined in the package doc). It is a QA tool, never deployed, so it has no bash oracle
+suite; its Go tests (including real temporary git repositories) are the proof.

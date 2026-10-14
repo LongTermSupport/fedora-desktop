@@ -120,14 +120,15 @@ go_summary=$(qa_gate_detail "$go_out" 'GO-OK [0-9]+ package[(]s[)]')
 qa_pass_line go "$go_summary"
 
 # Tooling is Go (Plan 00192): every bash file within the size/function/UI limits or on the
-# ratchet allowlist, and the allowlist only shrinking against HEAD (CI: its base commit).
+# ratchet allowlist, and the allowlist only shrinking against the merge-base with the default
+# branch (CI: its own base commit).
 bash_limits_out=""
 if ! bash_limits_out="$(bash "$SCRIPT_DIR/qa-bash-limits.bash" 2>&1)"; then
     qa_hard_gate_failed bash-limits \
         "a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew" \
         "$bash_limits_out"
 fi
-bash_limits_summary=$(qa_gate_detail "$bash_limits_out" 'BASH-LIMITS-OK [0-9]+ bash file[(]s[)] checked.+')
+bash_limits_summary=$(qa_gate_detail "$bash_limits_out" 'BASH-LIMITS-OK [0-9]+ bash files: .+')
 qa_pass_line bash-limits "$bash_limits_summary"
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)

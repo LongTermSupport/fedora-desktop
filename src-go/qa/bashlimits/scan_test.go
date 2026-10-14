@@ -30,12 +30,16 @@ func TestScanTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scan.Exempt != 3 {
-		t.Errorf("exempt = %d, want 3", scan.Exempt)
+	// scripts/test-x.bash and the plan-folder script are exempt; run.bash is measured now.
+	if len(scan.Exempt) != 2 || !scan.Exempt["scripts/test-x.bash"] || !scan.Exempt["CLAUDE/Plan/001-x/a.bash"] {
+		t.Errorf("exempt = %v", scan.Exempt)
 	}
-	if len(scan.Measured) != 3 || scan.Measured["scripts/qa-long.bash"].Code != 70 ||
+	if len(scan.Measured) != 4 || scan.Measured["scripts/qa-long.bash"].Code != 70 || scan.Measured["run.bash"].Code != 70 ||
 		scan.Measured["files/bin/tool"].Code != 1 || scan.Measured["scripts/small.bash"].Code != 1 {
 		t.Errorf("measured = %v", scan.Measured)
+	}
+	if !scan.Present["README.md"] || scan.Present["gone.bash"] || scan.Present["link.bash"] {
+		t.Errorf("present = %v", scan.Present)
 	}
 }
 

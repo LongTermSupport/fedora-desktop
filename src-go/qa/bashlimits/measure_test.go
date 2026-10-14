@@ -7,7 +7,7 @@ import (
 
 func TestMeasureCodeLines(t *testing.T) {
 	src := "#!/usr/bin/bash\n# a comment\n\n   \n\techo one\n  # indented comment\necho two # trailing\n"
-	if got := Measure([]byte(src)).Code; got != 2 {
+	if got := m(t, src).Code; got != 2 {
 		t.Fatalf("code lines = %d, want 2 (blank, comment and shebang lines do not count)", got)
 	}
 }
@@ -33,7 +33,7 @@ func TestMeasureFunctions(t *testing.T) {
 		{"after a heredoc", "cat <<EOF\nx\nEOF\nfoo() { :; }\n", 1},
 	}
 	for _, c := range cases {
-		if got := Measure([]byte(c.src)).Funcs; got != c.want {
+		if got := m(t, c.src).Funcs; got != c.want {
 			t.Errorf("%s: funcs = %d, want %d", c.name, got, c.want)
 		}
 	}
@@ -63,12 +63,12 @@ func TestMeasureAssociativeArrays(t *testing.T) {
 		"declare -i n",
 	}
 	for _, s := range yes {
-		if !Measure([]byte(s + "\n")).Assoc {
+		if !m(t, s+"\n").Assoc {
 			t.Errorf("not detected: %q", s)
 		}
 	}
 	for _, s := range no {
-		if Measure([]byte(s + "\n")).Assoc {
+		if m(t, s+"\n").Assoc {
 			t.Errorf("false positive: %q", s)
 		}
 	}
@@ -110,12 +110,12 @@ func TestMeasureInteractiveUI(t *testing.T) {
 		"echo select the thing",
 	}
 	for _, s := range yes {
-		if !Measure([]byte(s + "\n")).UI {
+		if !m(t, s+"\n").UI {
 			t.Errorf("not detected: %q", s)
 		}
 	}
 	for _, s := range no {
-		if Measure([]byte(s + "\n")).UI {
+		if m(t, s+"\n").UI {
 			t.Errorf("false positive: %q", s)
 		}
 	}
@@ -130,29 +130,29 @@ func TestMeasureHeredocForms(t *testing.T) {
 		"cat > f <<END_X\ngum choose\nEND_X\n",
 	}
 	for _, s := range forms {
-		if Measure([]byte(s)).UI {
+		if m(t, s).UI {
 			t.Errorf("heredoc body scanned: %q", s)
 		}
 	}
 	// A here-string and an arithmetic shift open no heredoc, so what follows is code.
 	for _, s := range []string{"cat <<< x\ngum choose\n", "(( x = 1 << n ))\ngum choose\n"} {
-		if !Measure([]byte(s)).UI {
+		if !m(t, s).UI {
 			t.Errorf("code after a non-heredoc was skipped: %q", s)
 		}
 	}
 }
 
 func TestMeasureHeredocLinesCountAsCode(t *testing.T) {
-	m := Measure([]byte("cat <<EOF\nline one\n\nline two\nEOF\n"))
-	if m.Code != 4 {
-		t.Fatalf("code = %d, want 4 (cat, two body lines, EOF)", m.Code)
+	got := m(t, "cat <<EOF\nline one\n\nline two\nEOF\n")
+	if got.Code != 4 {
+		t.Fatalf("code = %d, want 4 (cat, two body lines, EOF)", got.Code)
 	}
 }
 
 func TestMeasureQuotedHashIsNotAComment(t *testing.T) {
-	m := Measure([]byte("echo \"a # b\"; declare -A m\necho ${#arr[@]} $# ; declare -A n\n"))
-	if !m.Assoc || m.Code != 2 {
-		t.Fatalf("got %+v", m)
+	got := m(t, "echo \"a # b\"; declare -A m\necho ${#arr[@]} $# ; declare -A n\n")
+	if !got.Assoc || got.Code != 2 {
+		t.Fatalf("got %+v", got)
 	}
 }
 
