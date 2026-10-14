@@ -115,8 +115,10 @@ today; rewriting them is out of scope.
   is deleted; the four oracle suites are Go-only (the bash library cases stay); `qa-changed.bash`
   runs them for any `src-go/` file in the binary's build closure; docs updated; CCY 3.95.7.
   Done pending the owner's host run (`meta-deploy.bash` lists `play-claude-yolo.yml`).
-- [ ] ⬜ **Task 4.2**: The ccy launcher: assess and plan (about 4,000 lines and the container
-  boundary); decide with the owner.
+- [ ] 🔄 **Task 4.2**: The ccy launcher: assess and plan; decide with the owner. Assessed in
+  [ASSESS-ccy-launcher.md](ASSESS-ccy-launcher.md) (about 15,400 lines with its lib and cc, all
+  of it host-side; a strangler port at the same install path, phased); waiting on the owner's
+  decisions D1-D10 there.
 
 ### Phase 5: Review
 
