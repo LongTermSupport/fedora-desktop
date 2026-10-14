@@ -1,0 +1,38 @@
+# meta-deploy.list: the queue meta-deploy.bash runs, in this order.
+#
+# STANDING RULE (CLAUDE/AgentNotes.md): this list is exactly what needs running NOW. Add a
+# run when it is pending, remove it once it has run and is done, leave out what cannot
+# usefully run yet, then ask the owner to run meta-deploy.bash. Every step a run needs lives
+# in the plan's own scripts, so this is the only command the owner is handed. The order is by
+# dependency. A plan with none of triage.bash, deploy.bash and acceptance.bash has nothing
+# for the script to do. A triage-only plan is run once, read-only. Words after the folder
+# name are passed to that plan's triage.bash, both runs.
+#
+# One entry per line, three kinds:
+#   <plan folder>                  its triage, deploy and acceptance scripts, in order
+#   playbooks/<path>.yml           a change no plan owns; run as one unit through its own
+#                                  shebang, which goes through run.bash, exactly as
+#                                  ./playbooks/imports/<play>.yml does by hand
+#   <plan folder>/<script>.bash    one plan script, for a step none of the three fixed names
+#                                  fits; run as one unit, like a playbook entry
+#
+# A line starting with # is a comment and is the description of the entry below it: it is how
+# the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
+# that is not an entry is a fatal error naming its line number.
+
+# Plan 00192's deploy.bash runs play-claude-yolo.yml, then play-podfreeze.yml and
+# play-lxcfreeze.yml, then its acceptance.bash. From Plan 00177, through
+# play-claude-yolo.yml: ccy-teams with no hidden keys (Enter on any row opens a menu of its
+# actions; a signed-in person is offered Element first, a new password asks first; Element
+# returns to the board), and bare `ccy --teams` finds the checkout's team, which Quick
+# Launch remembers (CCY 3.96.2). From Plan 00192: the Go sudo helper no longer asks for a
+# password where root needs none, so the freeze check that timed out on the sudo prompt
+# (lxcfreeze list) runs again against the baseline the last run saved; the plays report ok
+# where nothing changed.
+00192-bash-line-in-the-sand-go-for-tooling
+# agent team bus acceptance again: the last run passed every bus check, and failed only
+# M2.10 because a commit landed in this checkout while it ran
+00161-agent-team-bus-matrix/acceptance.bash
+# Plan 00195: play-comms.yml grants Slack /var/lib/lxc:ro, then acceptance checks every
+# home symlink into an LXC container resolves in a fresh Slack sandbox. Relaunch Slack.
+00195-slack-reads-lxc-vhosts-through-project-symlinks
