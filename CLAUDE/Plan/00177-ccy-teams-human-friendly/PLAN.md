@@ -144,13 +144,13 @@ The owner had to discover Ctrl-E to open Element; Enter on their name kept offer
 password, which they set repeatedly, each time signing out their other sessions; and Ctrl-E
 quit `ccy-teams` to start Element.
 
-- [ ] 🔄 **Task 6.1**: Every action is reachable without knowing a key: Enter on any row opens
+- [x] ✅ **Task 6.1**: Every action is reachable without knowing a key: Enter on any row opens
   a menu of what can be done to it, in words, each with its shortcut beside it; the footer
   names the selected row's actions, not a fixed list.
-- [ ] 🔄 **Task 6.2**: A person who is signed in is offered Element first; a new password is a
+- [x] ✅ **Task 6.2**: A person who is signed in is offered Element first; a new password is a
   plainly labelled choice that says it signs out their N sessions, and asks before doing it.
   After a password is set, Element is offered at once.
-- [ ] 🔄 **Task 6.3**: Opening Element starts it apart from `ccy-teams` and returns to the
+- [x] ✅ **Task 6.3**: Opening Element starts it apart from `ccy-teams` and returns to the
   board, which then reads the person's sessions again.
 - [ ] ⬜ **Task 6.4**: The owner tests it again on the host.
 

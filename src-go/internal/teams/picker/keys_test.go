@@ -14,13 +14,15 @@ func TestActRoutesKeyAndKindToTheFlowThatOwnsThem(t *testing.T) {
 		{"ctrl-r", "proj.box+role.lxc", "this row has no session"},
 		{"ctrl-x", "owner", "A team's people are"},
 		{"ctrl-e", "-", "has no Element profile"},
-		{"ctrl-p", "1", "Ctrl-P sets a person's Element password"},
-		{"", "owner", "Sets a new password for owner"},
+		{"ctrl-p", "1", "A new Element password is for one of the team's people"},
+		{"ctrl-p", "guest", "Sets a new password for guest"},
+		{"", "owner", "What to do with owner in alpha"},
 		{"?", "owner", "Each team is a bold row"},
-		{"", "-", "Each team is a bold row"},
-		{"", "dev", "has no running session to attach"},
-		{"", "proj.box+role.lxc", "Enter on proj.box+role.lxc does nothing"},
-		{"ctrl-z", "1", "Enter on 1 does nothing"},
+		{"", "-", "What to do with team alpha"},
+		{"", "dev", "What to do with dev in alpha"},
+		{keyAttach, "dev", "has no running session to attach"},
+		{"", "proj.box+role.lxc", "What to do with proj.box+role.lxc in alpha"},
+		{"ctrl-z", "1", "That key does nothing here"},
 	}
 	for _, c := range cases {
 		h := newRig(t)

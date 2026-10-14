@@ -744,10 +744,10 @@ def next_steps(hv: HostVars, name: str) -> str:
     team = _present(hv, name)
     return (
         f"Team {name} is up. Later, in ccy-teams:\n"
-        "  Sign in      Enter on your name under the team sets a new Element password and shows it.\n"
-        "  Element      Ctrl-E on the team opens it in Element.\n"
+        "  Sign in      Enter on your name under the team, then choose Sign in: it sets a password and shows it.\n"
+        "  Element      Enter on the team, then choose Open in Element.\n"
         f"  Agents       in a checkout of {scope_words(team)}, run ccy --teams {name}\n"
-        "               (ccy-teams run there offers it; Ctrl-N on the team does it too).\n"
+        "               (ccy-teams run there offers it; Enter on the team, then Start a ccy session, does it too).\n"
     )
 
 

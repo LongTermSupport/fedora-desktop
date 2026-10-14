@@ -66,7 +66,7 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 	case "ABORT":
 		return execx.Result{ExitCode: 130}, &execx.ExitError{Name: "fzf", Code: 130}
 	case "EXIT":
-		row = ui.ExitRow
+		row = rows[len(rows)-1]
 	case "YES":
 		for _, r := range rows {
 			if strings.HasPrefix(r, "Yes, ") {
