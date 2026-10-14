@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/discovery"
 )
 
 // script is one shell script to scan: its path in the repository and the name it has in the
@@ -261,7 +263,7 @@ func isShellScript(full, rel string) (bool, error) {
 	if i := strings.IndexByte(head, '\n'); i >= 0 {
 		head = head[:i]
 	}
-	return shellShebang(head), nil
+	return discovery.ShellShebang(head), nil
 }
 
 func readHead(full string) (string, error) {
@@ -274,29 +276,6 @@ func readHead(full string) (string, error) {
 		err = closeErr
 	}
 	return string(head), err
-}
-
-// shellShebang is a first line that runs bash or sh as a script interpreter, directly or
-// through env, without -c (an inline one-liner in another kind of file, such as a playbook).
-func shellShebang(line string) bool {
-	rest, ok := strings.CutPrefix(line, "#!")
-	if !ok {
-		return false
-	}
-	fields := strings.Fields(rest)
-	if len(fields) > 0 && path.Base(fields[0]) == "env" {
-		fields = fields[1:]
-		for len(fields) > 0 && (strings.HasPrefix(fields[0], "-") || strings.Contains(fields[0], "=")) {
-			fields = fields[1:]
-		}
-	}
-	if len(fields) == 0 {
-		return false
-	}
-	if interp := path.Base(fields[0]); interp != "bash" && interp != "sh" {
-		return false
-	}
-	return !slices.Contains(fields[1:], "-c")
 }
 
 // mirrorName is the name a script has in the scan mirror: semgrep picks the language from the

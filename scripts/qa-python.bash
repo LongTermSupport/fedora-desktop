@@ -111,8 +111,8 @@ fi
 # shellcheck source=qa-discovery.bash
 source "$REPO_ROOT/scripts/qa-discovery.bash"
 
-qa_discover_python_files "$REPO_ROOT"
-PY_FILES=("${QA_PYTHON_FILES[@]}")
+qa_discover python "$REPO_ROOT"
+PY_FILES=("${QA_FILES[@]}")
 
 TOTAL=${#PY_FILES[@]}
 
@@ -129,7 +129,7 @@ fi
 # case that actually happened. A guard on emptiness is half a guard: the state
 # this gate was in for months was "some files", and some files reads exactly
 # like all of them.
-qa_tracked_python_files "$REPO_ROOT"
+qa_discover tracked-python "$REPO_ROOT"
 
 declare -A DISCOVERED=()
 for file in "${PY_FILES[@]}"; do
@@ -137,7 +137,7 @@ for file in "${PY_FILES[@]}"; do
 done
 
 MISSED=()
-for rel in "${QA_TRACKED_PYTHON_FILES[@]}"; do
+for rel in "${QA_FILES[@]}"; do
     [[ -n "${DISCOVERED[$rel]:-}" ]] || MISSED+=("$rel")
 done
 
@@ -174,9 +174,9 @@ done
 # lines of Python, so a substituted file would not represent any real render:
 # that is a HARD FAILURE naming the file, never a skip. "This gate cannot check
 # it" must not resolve to "this gate passes it".
-qa_discover_python_templates "$REPO_ROOT"
-TEMPLATE_COUNT=${#QA_PYTHON_TEMPLATES[@]}
-for tpl in "${QA_PYTHON_TEMPLATES[@]+"${QA_PYTHON_TEMPLATES[@]}"}"; do
+qa_discover python-templates "$REPO_ROOT"
+TEMPLATE_COUNT=${#QA_FILES[@]}
+for tpl in "${QA_FILES[@]+"${QA_FILES[@]}"}"; do
     rel_path="${tpl#"$REPO_ROOT"/}"
     if grep -q '{%' "$tpl"; then
         echo "✗ python: $rel_path contains Jinja statements ({% … %}), so its rendered" >&2

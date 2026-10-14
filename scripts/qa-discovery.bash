@@ -1,332 +1,59 @@
 #!/usr/bin/bash
 # Shared source-file discovery for the QA gates. SOURCE this; do not run it.
 #
-# `qa-bash.bash` (bash -n + shellcheck) and `qa-patterns.bash` (semgrep) must
-# agree, byte for byte, on what "a repo-owned shell script" means. When they
-# disagree the disagreement is invisible: each prints its own file count and
-# each count looks like the whole repo. Plan 00076 is what that costs — 27
-# scripts were outside BOTH gates for months while both reported passes.
+# `qa-bash.bash` (bash -n + shellcheck) and `qa-python.bash` must agree on what "a repo-owned
+# shell script" and "a repo-owned Python file" mean, and each measures its own coverage against
+# the tracked files (Plan 00076, Plan 00081: files outside every gate while every gate reported
+# a pass). One definition, so no gate holds a second opinion.
 #
-# `qa-python.bash` had the SAME defect and did not learn from it (Plan 00081 F3):
-# it discovered by extension or by the EXECUTE BIT, so 6 tracked Python programs
-# of ~4,000 lines, mode 0644 with a `#!/usr/bin/env python3` shebang, were never
-# compiled or linted while the gate printed "✓ python: 35 files OK". Hence one
-# library rather than a second copy of the same mechanism — the file was renamed
-# from qa-shell-discovery.bash when Python moved in.
-#
-# The two languages need DIFFERENT exclusion lists (see QA_PY_EXCLUDE_DIRS), so
-# the lists are separate data over one shared mechanism.
+# The definition is Go (src-go/qa/discovery, command src-go/qa/cmd/qa-discovery); lib/go-tool.bash
+# builds it into a private directory under the cache and runs it. Specification:
+# CLAUDE/Plan/00192-.../SPEC-qa-discovery.md. It lists what git would publish, never gitignored files.
 #
 # Provides:
-#   qa_discover_shell_files <repo_root>   -> QA_SHELL_FILES         (absolute)
-#   qa_tracked_shell_scripts <repo_root>  -> QA_TRACKED_SHELL_FILES (repo-relative)
-#   qa_discover_python_files <repo_root>  -> QA_PYTHON_FILES        (absolute)
-#   qa_tracked_python_files <repo_root>   -> QA_TRACKED_PYTHON_FILES (repo-relative)
-#   qa_tracked_helper_tests <repo_root>   -> QA_TRACKED_HELPER_TESTS (repo-relative)
-#   qa_is_excluded <repo_relative_path>        (shell exclusion list)
-#   qa_py_is_excluded <repo_relative_path>     (python exclusion list)
-#   qa_has_shell_shebang <path>
-#   qa_has_python_shebang <path>
-
-# The trees the gates must not gate on are data (scripts/qa-trees.tsv, with the reason for each
-# tree), read by lib/qa-trees.bash into QA_EXCLUDE_DIRS (shell and generic) and
-# QA_PY_EXCLUDE_DIRS (python, narrower inside .claude/ccy). The Go qa-changed reads the same file.
+#   qa_discover <list> <repo_root>   fills QA_FILES with the list. <list> is one of
+#       shell | python | python-templates              absolute paths
+#       tracked-shell | tracked-python | tracked-playbooks | tracked-helper-tests   repo-relative
+#       A list that cannot be made (git failing, a file unreadable, an empty list but
+#       python-templates) exits the caller with status 2 and the tool's message on stderr.
+#   qa_is_excluded <repo_relative_path>      shell exclusion list (QA_EXCLUDE_DIRS)
+#   qa_py_is_excluded <repo_relative_path>   python exclusion list (QA_PY_EXCLUDE_DIRS)
+# The two lists are scripts/qa-trees.tsv, read by lib/qa-trees.bash (also read by the Go tool and by
+# qa-changed). The exclusion test stays in bash: qa-js and qa-ansible-syntax ask it once per file.
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/qa-trees.bash
 source "$(dirname "${BASH_SOURCE[0]}")/lib/qa-trees.bash"
+_QA_DISCOVERY_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Shared mechanism: substring containment on a slash-delimited path, so no glob
-# quoting subtleties.
+# Substring containment on a slash-delimited path, so no glob quoting subtleties.
 _qa_path_in_dirs() {
-    local rel="/$1/"
+    local rel="/$1/" dir
     shift
-    local dir
     for dir in "$@"; do
         [[ "$rel" == *"/$dir/"* ]] && return 0
     done
     return 1
 }
 
-# True when the repo-relative path falls inside an excluded tree.
 qa_is_excluded() { _qa_path_in_dirs "$1" "${QA_EXCLUDE_DIRS[@]}"; }
 qa_py_is_excluded() { _qa_path_in_dirs "$1" "${QA_PY_EXCLUDE_DIRS[@]}"; }
 
-# Read a file's first line, or refuse to classify it.
-#
-# An unreadable file must not be quietly classified as "not a shell script" /
-# "not Python" — that is this gate's own defect class. Stop instead.
-#
-# A builtin read, not head+grep. This runs against every file in the repo, where
-# two forks per file measured ~9s against ~0.1s for the builtin. `read` returns
-# non-zero at EOF (a first line with no trailing newline, or an empty file) but
-# still sets the value, and the value is all we inspect.
-_qa_first_line() {
-    local first_line=""
-    if [[ ! -r "$1" ]]; then
-        echo "✗ qa-discovery: cannot read $1" >&2
-        echo "  Refusing to classify a file this gate could not open." >&2
+qa_discover() {
+    local out file status=0
+    out=$(mktemp)
+    # A subshell: run_go_tool sets an EXIT trap that must not replace the caller's.
+    (
+        # shellcheck source=lib/go-tool.bash
+        source "$_QA_DISCOVERY_SCRIPTS/lib/go-tool.bash"
+        run_go_tool qa-discovery --root "$2" --scripts "$_QA_DISCOVERY_SCRIPTS" "$1"
+    ) > "$out" || status=$?
+    if [[ "$status" -ne 0 ]]; then
+        rm -f "$out"
         exit 2
     fi
-    if ! IFS= read -r first_line < "$1"; then
-        [[ -n "$first_line" ]] || return 1
-    fi
-    printf '%s' "$first_line"
-}
-
-# A shell shebang, by ONE test used everywhere — discovery and the coverage
-# assertions all call this, so an assertion can never be a second opinion about
-# what counts as a shell script.
-qa_has_shell_shebang() {
-    local first_line
-    first_line=$(_qa_first_line "$1") || return 1
-    # `bash -c '<script>'` runs the inline script, which hands the FILE to
-    # something else (the playbooks exec ansible-playbook on it), so the file
-    # body is not shell and must not be linted as shell.
-    [[ "$first_line" =~ ^#!/.*bash[[:space:]]+-c[[:space:]] ]] && return 1
-    [[ "$first_line" =~ ^#!/.*bash ]] && return 0
-    [[ "$first_line" == "#!/bin/sh" ]] && return 0
-    [[ "$first_line" == "#!/usr/bin/sh" ]] && return 0
-    return 1
-}
-
-# A python shebang, by the same single test. Matches `#!/usr/bin/python3`,
-# `#!/usr/bin/env python3` and the unversioned forms.
-qa_has_python_shebang() {
-    local first_line
-    first_line=$(_qa_first_line "$1") || return 1
-    [[ "$first_line" =~ ^#!.*python ]] && return 0
-    return 1
-}
-
-# Populate QA_SHELL_FILES with every repo-owned shell script, as absolute paths.
-#
-# Shebang discovery is deliberately NOT restricted to `-executable` (Plan 00076).
-# It used to be, and 27 of this repo's scripts — mode 0644, no extension, real
-# bash, most of them deployed 0755 by their plays — were therefore never opened
-# by any gate, while the gates printed passes over the rest. Coverage must depend
-# on what a file IS, not on a permission bit any commit can drop.
-qa_discover_shell_files() {
-    local repo_root="$1" file rel
-
-    # Exclusion is applied AFTER stripping the repo_root prefix, via the same
-    # qa_is_excluded() the git-based qa_tracked_shell_scripts() below already
-    # uses — one exclusion mechanism, operating only on the REPO-RELATIVE path.
-    # An earlier version passed `! -path "*/$dir/*"` straight to find against
-    # the ABSOLUTE path, which matches an excluded name ANYWHERE in the path —
-    # including an ANCESTOR of repo_root itself. A checkout at a path like
-    # .../untracked/repos/fedora-desktop then had every file excluded by the
-    # "untracked" entry (meant to exclude the repo's OWN untracked/ subdir),
-    # silently discovering 0 files. Traversal cost is unchanged: find already
-    # visited every path either way (`! -path` filters output, it does not
-    # `-prune` the walk), only the exclusion test moved.
-    QA_SHELL_FILES=()
+    QA_FILES=()
     while IFS= read -r -d '' file; do
-        rel="${file#"$repo_root"/}"
-        qa_is_excluded "$rel" && continue
-        QA_SHELL_FILES+=("$file")
-    done < <(find "$repo_root" -type f \( -name "*.sh" -o -name "*.bash" \) -print0)
-
-    while IFS= read -r -d '' file; do
-        rel="${file#"$repo_root"/}"
-        qa_is_excluded "$rel" && continue
-        qa_has_shell_shebang "$file" && QA_SHELL_FILES+=("$file")
-    done < <(find "$repo_root" -type f \
-        ! -name "*.sh" \
-        ! -name "*.bash" \
-        ! -name "*.j2" \
-        -print0)
-
-    # A `while read` loop ends with read's EOF status of 1, which would become
-    # this function's return value and abort the caller under `set -e`. The
-    # contract here is total: it populates the array, and a genuine failure
-    # (an unreadable file) exits outright rather than returning.
-    return 0
-}
-
-# qa_require_git_checkout <repo_root> — the yardstick's own precondition.
-#
-# Every qa_tracked_* function below measures a gate's discovery against git, so git being
-# absent or the tree not being a checkout means coverage CANNOT be verified — which is an
-# exit 2 ("cannot verify"), never a pass. Extracted when the FOURTH caller arrived: four
-# verbatim copies of a precondition is how one of them comes to say something different.
-qa_require_git_checkout() {
-    local repo_root="$1" git_probe
-    if ! command -v git > /dev/null; then
-        echo "ERROR: git not found — QA coverage cannot be verified." >&2
-        echo "  These gates will not report a pass they cannot show they earned." >&2
-        exit 2
-    fi
-    if ! git_probe=$(git -C "$repo_root" rev-parse --git-dir 2>&1); then
-        echo "ERROR: $repo_root is not a git checkout, so coverage cannot be verified." >&2
-        echo "  git said: $git_probe" >&2
-        exit 2
-    fi
-}
-
-# Populate QA_TRACKED_SHELL_FILES with every TRACKED shell script, repo-relative.
-#
-# This is the yardstick the gates measure their own coverage against. `find`
-# stays the discovery source above so a brand-new, not-yet-`git add`ed script is
-# still gated; git is the independent second opinion.
-qa_tracked_shell_scripts() {
-    local repo_root="$1" rel
-    qa_require_git_checkout "$repo_root"
-
-    QA_TRACKED_SHELL_FILES=()
-    while IFS= read -r -d '' rel; do
-        # Staged-but-deleted paths and submodule gitlinks are listed but absent.
-        [[ -f "$repo_root/$rel" ]] || continue
-        qa_is_excluded "$rel" && continue
-        [[ "$rel" == *.j2 ]] && continue
-        if [[ "$rel" != *.sh && "$rel" != *.bash ]] \
-            && ! qa_has_shell_shebang "$repo_root/$rel"; then
-            continue
-        fi
-        QA_TRACKED_SHELL_FILES+=("$rel")
-    done < <(git -C "$repo_root" ls-files -z)
-
-    # Total contract, same as above — see qa_discover_shell_files.
-    return 0
-}
-
-# Populate QA_PYTHON_TEMPLATES with every tracked `.j2` that is Python once rendered.
-#
-# `.j2` is excluded from the ordinary Python discovery because a template is not
-# valid Python until it is rendered — which is true, and became a reason nothing
-# ever looked at `files/home/.local/bin/git-account-helper.j2`: 349 lines with a
-# `#!/usr/bin/env python3` shebang, never compiled, never linted, in a gate whose
-# pass line reads as a statement about the repo's Python (Plan 00081 F3/F4).
-#
-# Identified by shebang, not by path, so a second one is covered the day it lands.
-qa_discover_python_templates() {
-    local repo_root="$1" rel
-    QA_PYTHON_TEMPLATES=()
-    while IFS= read -r -d '' rel; do
-        [[ -f "$repo_root/$rel" ]] || continue
-        qa_py_is_excluded "$rel" && continue
-        qa_has_python_shebang "$repo_root/$rel" || continue
-        QA_PYTHON_TEMPLATES+=("$repo_root/$rel")
-    done < <(git -C "$repo_root" ls-files -z -- '*.j2')
-
-    return 0
-}
-
-# Populate QA_TRACKED_PLAYBOOK_CANDIDATES with every tracked YAML under playbooks/,
-# repo-relative. The independent yardstick for the ansible-syntax gate.
-#
-# The yardstick must not share the population's predicate, or the comparison
-# proves nothing. qa-ansible-syntax derives its population by CONTENT — a
-# top-level `- hosts:` or `- import_playbook:`. This function asks a different
-# question entirely: is the file tracked, and does it live in the directory whose
-# whole purpose is playbooks? Narrowing the content marker therefore breaks the
-# comparison, which is exactly the regression that went unnoticed once already:
-# deriving from `- hosts:` alone dropped playbooks/playbook-main.yml and the
-# reported total ROSE, 78 → 79, reading as a gain (Plan 00081 F14).
-#
-# Measured when written: 77 of 77 tracked YAML files under playbooks/ are in the
-# population, so this is a clean invariant rather than an aspiration. A genuine
-# non-playbook added there (a task file, a vars file) will fail this gate and
-# should be given an explicit exemption here, deliberately and with a reason.
-qa_tracked_playbook_candidates() {
-    local repo_root="$1" rel
-    qa_require_git_checkout "$repo_root"
-
-    QA_TRACKED_PLAYBOOK_CANDIDATES=()
-    while IFS= read -r -d '' rel; do
-        [[ -f "$repo_root/$rel" ]] || continue
-        case "$rel" in
-            *.yml | *.yaml) ;;
-            *) continue ;;
-        esac
-        QA_TRACKED_PLAYBOOK_CANDIDATES+=("$rel")
-    done < <(git -C "$repo_root" ls-files -z -- 'playbooks/')
-
-    return 0
-}
-
-# Populate QA_PYTHON_FILES with every repo-owned Python file, as absolute paths.
-#
-# Shebang discovery is deliberately NOT restricted to `-executable`, for exactly
-# the reason Plan 00076 gave for the shell gates and Plan 00081 found had never
-# been applied here: 6 tracked Python programs are mode 0644 with a python
-# shebang (their plays deploy them 0755), so the execute-bit filter skipped
-# ~4,000 lines while the gate reported a pass over the rest. Coverage must depend
-# on what a file IS, not on a permission bit any commit can drop.
-#
-# `.j2` is skipped: a Jinja template is not valid Python until it is rendered.
-qa_discover_python_files() {
-    local repo_root="$1" file rel
-
-    # Exclusion applied on the REPO-RELATIVE path via qa_py_is_excluded() —
-    # see qa_discover_shell_files() above for why (an absolute-path `-path`
-    # predicate can match an excluded name in an ANCESTOR of repo_root, not
-    # just inside the repo).
-    QA_PYTHON_FILES=()
-    while IFS= read -r -d '' file; do
-        rel="${file#"$repo_root"/}"
-        qa_py_is_excluded "$rel" && continue
-        QA_PYTHON_FILES+=("$file")
-    done < <(find "$repo_root" -type f -name "*.py" -print0)
-
-    while IFS= read -r -d '' file; do
-        rel="${file#"$repo_root"/}"
-        qa_py_is_excluded "$rel" && continue
-        qa_has_python_shebang "$file" && QA_PYTHON_FILES+=("$file")
-    done < <(find "$repo_root" -type f \
-        ! -name "*.py" \
-        ! -name "*.j2" \
-        -print0)
-
-    # Total contract — see qa_discover_shell_files.
-    return 0
-}
-
-# Populate QA_TRACKED_PYTHON_FILES with every TRACKED Python file, repo-relative.
-# The yardstick the python gate measures its own coverage against, exactly as
-# qa_tracked_shell_scripts is for the bash gates.
-qa_tracked_python_files() {
-    local repo_root="$1" rel
-    qa_require_git_checkout "$repo_root"
-
-    QA_TRACKED_PYTHON_FILES=()
-    while IFS= read -r -d '' rel; do
-        [[ -f "$repo_root/$rel" ]] || continue
-        qa_py_is_excluded "$rel" && continue
-        [[ "$rel" == *.j2 ]] && continue
-        if [[ "$rel" != *.py ]] \
-            && ! qa_has_python_shebang "$repo_root/$rel"; then
-            continue
-        fi
-        QA_TRACKED_PYTHON_FILES+=("$rel")
-    done < <(git -C "$repo_root" ls-files -z)
-
-    # Total contract — see qa_discover_shell_files.
-    return 0
-}
-
-# Populate QA_TRACKED_HELPER_TESTS with every TRACKED tests/helpers/**/test_*.py,
-# repo-relative. The yardstick qa-helper-tests.bash measures its own discovery
-# against, exactly as the two functions above serve the bash and python gates.
-#
-# It is the third site of the defect Plan 00076 and Plan 00081 each fixed once and
-# did not generalise: that runner discovers with `mapfile -t < <(find ...)`, where
-# find's exit status is discarded and `pipefail` does not reach inside a process
-# substitution. A partly-failed walk yields a shorter module list, unittest runs
-# it, the script exits 0, and the stage line reports a smaller `Ran N tests` with
-# no signal anywhere. An under-match cannot announce itself, which is why the
-# yardstick has to come from somewhere other than the walk being checked.
-qa_tracked_helper_tests() {
-    local repo_root="$1" rel base
-    qa_require_git_checkout "$repo_root"
-
-    QA_TRACKED_HELPER_TESTS=()
-    while IFS= read -r -d '' rel; do
-        [[ -f "$repo_root/$rel" ]] || continue
-        base="${rel##*/}"
-        [[ "$base" == test_*.py ]] || continue
-        QA_TRACKED_HELPER_TESTS+=("$rel")
-    done < <(git -C "$repo_root" ls-files -z -- tests/helpers)
-
-    # Total contract — see qa_discover_shell_files.
-    return 0
+        QA_FILES+=("$file")
+    done < "$out"
+    rm -f "$out"
 }

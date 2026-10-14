@@ -1,7 +1,8 @@
 # The directory trees the QA gates must not gate on, one source for both readers:
-# scripts/qa-discovery.bash (qa-bash, qa-python, qa-patterns and the other bash gates) and the Go
-# qa-changed (src-go/qa/changed). A hand edit to one reader would be invisible to the other, so
-# there is only this file; src-go/qa/changed carries a test that the two readers agree.
+# scripts/lib/qa-trees.bash (the bash gates, through scripts/qa-discovery.bash), the Go readers
+# (src-go/qa/discovery, src-go/qa/patterns) and the Go qa-changed (src-go/qa/changed). A hand edit
+# to one reader would be invisible to the others, so there is only this file; src-go/qa/changed
+# carries a test that the bash and Go readers agree.
 #
 # list <TAB> dir
 #   list  shell: shell, YAML and JavaScript discovery. python: Python discovery, narrower inside

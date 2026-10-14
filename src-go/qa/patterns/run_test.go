@@ -252,6 +252,8 @@ func TestP8WhatIsAShellScript(t *testing.T) {
 		"bin sh":                {"tool", "#!/bin/sh\n", true},
 		"bash -c inline":        {"playbook", "#!/usr/bin/env -S bash -c 'exec x'\n", false},
 		"bash path -c inline":   {"playbook", "#!/bin/bash -c 'x'\n", false},
+		"bash -ec inline":       {"playbook", "#!/usr/bin/env -S bash -ec 'exec x'\n", false},
+		"bash -eu is a script":  {"tool", "#!/bin/bash -eu\n", true},
 		"bashful is not bash":   {"tool", "#!/usr/bin/bashful\n", false},
 		"python":                {"tool", "#!/usr/bin/env python3\n", false},
 		"no shebang":            {"README", "hello\n", false},
