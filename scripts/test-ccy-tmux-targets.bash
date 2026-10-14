@@ -234,7 +234,7 @@ fi
 echo ""
 echo "== the Go binary, on this real server"
 TOOL="$BUILD_DIR/ccy-sessions"
-check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
+check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
 HOME_GO="$SOCK_DIR/home"
 STATE_GO="$SOCK_DIR/state"
 mkdir -p "$HOME_GO"

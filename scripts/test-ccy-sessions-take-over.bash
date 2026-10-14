@@ -62,7 +62,7 @@ trap cleanup EXIT
 
 TOOL="$SCRATCH/ccy-sessions"
 echo "== the Go binary"
-check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
+check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
 if [ ! -x "$TOOL" ]; then
     echo "FAIL: the Go binary was not built" >&2
     exit 1

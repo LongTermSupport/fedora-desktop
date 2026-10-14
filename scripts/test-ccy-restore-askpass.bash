@@ -75,7 +75,7 @@ trap cleanup EXIT
 # The final section's restore runs through the Go binary (Plan 00191), as the boot unit does.
 GO_TOOL="$SCRATCH/ccy-sessions"
 echo "== the Go binary"
-check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -o "$GO_TOOL" ./cmd/ccy-sessions 2>&1)"
+check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$GO_TOOL" ./cmd/ccy-sessions 2>&1)"
 if [ ! -x "$GO_TOOL" ]; then
     echo "FAIL: the Go binary was not built" >&2
     exit 1
