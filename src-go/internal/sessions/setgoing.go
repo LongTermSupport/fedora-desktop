@@ -406,7 +406,7 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		g.app.sayf("%s shares its conversation with %s, which is set going; left alone.\n", name, owner)
 		return g.leaveAlone(name, restore.GoingPending, "shares-conversation-with-"+owner)
 	}
-	tokens, err := transcript.ContextTokens(file)
+	tokens, err := g.app.Transcripts.ContextTokens(file)
 	if err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingPending, "context-unreadable")
@@ -486,7 +486,7 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 	if !live {
 		return g.leaveAlone(name, restore.GoingCompacting, "session-ended-while-compacting")
 	}
-	finished, err := transcript.CompactedSince(e.Transcript, e.AtUnix())
+	finished, err := g.app.Transcripts.CompactedSince(e.Transcript, e.AtUnix())
 	if err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingCompacting, "context-unreadable")

@@ -23,6 +23,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -161,6 +162,8 @@ type App struct {
 	Git    *gitx.Git
 	Picker *ui.Picker
 	Probe  *sessprobe.Probe
+	// Transcripts reads only what each polled transcript gained since the last look.
+	Transcripts *transcript.Cache
 
 	// Now is the clock. Pause waits d, or until a signal arrives on sig, and reports whether
 	// it was interrupted. Signals starts listening for INT and TERM and returns the channel
@@ -267,6 +270,9 @@ func (a *App) wire() {
 	}
 	if a.Picker == nil {
 		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr}
+	}
+	if a.Transcripts == nil {
+		a.Transcripts = transcript.NewCache()
 	}
 }
 
