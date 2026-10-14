@@ -62,7 +62,7 @@ type Engine struct {
 	Err io.Writer
 }
 
-// record is the engine's per-container data, carried in freeze.Entry.Data.
+// record is the engine's per-container data, carried in freeze.Entry[record].Record.
 type record struct {
 	ccy      bool   // a CCY session, by label or by name
 	labelled bool   // came back from the label=ccy=true query (CCY 3.40.0 or later)
@@ -70,15 +70,6 @@ type record struct {
 	github   string // identity labels, empty when absent or "none"
 	token    string
 	sshKeys  string
-}
-
-// recordOf is the engine's record of an entry; an entry it never loaded has none.
-func recordOf(e freeze.Entry) record {
-	rec, ok := e.Data.(record)
-	if !ok {
-		return record{}
-	}
-	return rec
 }
 
 // Preflight checks podman is installed.
@@ -97,8 +88,8 @@ func (e *Engine) Preflight(context.Context) error {
 func (e *Engine) Columns() string { return fmt.Sprintf(columnFormat, "CCY", "NETWORKS") }
 
 // Row is the CCY marker and the networks of one container.
-func (e *Engine) Row(entry freeze.Entry) string {
-	rec := recordOf(entry)
+func (e *Engine) Row(entry freeze.Entry[record]) string {
+	rec := entry.Record
 	marker := "-"
 	if rec.ccy {
 		marker = "CCY"
@@ -125,11 +116,11 @@ func (e *Engine) Act(ctx context.Context, verb freeze.Verb, name string) (string
 // Load reads the machine: the running and paused containers with their networks, then the CCY
 // label pass. Both queries run on every call, so the menu describes the machine now. stdout is
 // parsed; stderr only ever feeds an error's text.
-func (e *Engine) Load(ctx context.Context) (freeze.Inventory, error) {
+func (e *Engine) Load(ctx context.Context) (freeze.Inventory[record], error) {
 	psOut, err := e.query(ctx, "podman ps",
 		"ps", "--all", "--format", "{{.Names}}"+fieldSep+"{{.State}}"+fieldSep+"{{.Networks}}")
 	if err != nil {
-		return freeze.Inventory{}, err
+		return freeze.Inventory[record]{}, err
 	}
 	entries := parseContainers(psOut)
 	labelOut, err := e.query(ctx, "podman ps --filter label="+ccyLabel,
@@ -137,10 +128,10 @@ func (e *Engine) Load(ctx context.Context) (freeze.Inventory, error) {
 		"{{.Names}}"+fieldSep+`{{index .Labels "ccy-github"}}`+fieldSep+
 			`{{index .Labels "ccy-token"}}`+fieldSep+`{{index .Labels "ccy-ssh-keys"}}`)
 	if err != nil {
-		return freeze.Inventory{}, err
+		return freeze.Inventory[record]{}, err
 	}
 	if err := applyLabels(entries, labelOut); err != nil {
-		return freeze.Inventory{}, err
+		return freeze.Inventory[record]{}, err
 	}
 	return freeze.NewInventory(Config(), entries), nil
 }
@@ -159,9 +150,9 @@ func (e *Engine) query(ctx context.Context, what string, args ...string) (string
 // parseContainers keeps the running and paused containers in podman's order. An exited or
 // created container can be neither frozen nor thawed, and a line that is not a record (no
 // separator, no name) is dropped.
-func parseContainers(out string) []freeze.Entry {
+func parseContainers(out string) []freeze.Entry[record] {
 	cfg := Config()
-	var entries []freeze.Entry
+	var entries []freeze.Entry[record]
 	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.SplitN(line, fieldSep, 3)
 		if len(fields) < 3 || fields[0] == "" {
@@ -174,9 +165,9 @@ func parseContainers(out string) []freeze.Entry {
 		if nets == "" {
 			nets = noNetwork
 		}
-		entries = append(entries, freeze.Entry{
+		entries = append(entries, freeze.Entry[record]{
 			Name: name, State: state,
-			Data: record{ccy: ccyNamePattern.MatchString(name), nets: nets},
+			Record: record{ccy: ccyNamePattern.MatchString(name), nets: nets},
 		})
 	}
 	return entries
@@ -186,7 +177,7 @@ func parseContainers(out string) []freeze.Entry {
 // pattern. A record that is not exactly four fields is refused: a mis-split is silent, and the
 // session would be grouped under an identity it does not have. Labelled containers outside the
 // inventory (an exited session) are validated but belong to no group.
-func applyLabels(entries []freeze.Entry, out string) error {
+func applyLabels(entries []freeze.Entry[record], out string) error {
 	at := make(map[string]int, len(entries))
 	for i, entry := range entries {
 		if _, seen := at[entry.Name]; !seen {
@@ -213,10 +204,10 @@ func applyLabels(entries []freeze.Entry, out string) error {
 		if !present {
 			continue
 		}
-		rec := recordOf(entries[i])
+		rec := entries[i].Record
 		rec.ccy, rec.labelled = true, true
 		rec.github, rec.token, rec.sshKeys = identityLabel(fields[1]), identityLabel(fields[2]), identityLabel(fields[3])
-		entries[i].Data = rec
+		entries[i].Record = rec
 	}
 	return nil
 }

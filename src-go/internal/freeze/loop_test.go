@@ -260,7 +260,7 @@ func TestLoopInterruptedIsReturnedAsCancellation(t *testing.T) {
 
 func TestLoopMenuWithNoRowsIsAnInternalError(t *testing.T) {
 	h := loopHarness(t, "all")
-	h.eng.groupsFn = func(Inventory) []Group { return nil }
+	h.eng.groupsFn = func(Inventory[extraOf]) []Group { return nil }
 	err := h.s.Loop(context.Background())
 	mustEq(t, "msg", dieMsg(err), "internal error: the menu has no rows to offer.")
 }

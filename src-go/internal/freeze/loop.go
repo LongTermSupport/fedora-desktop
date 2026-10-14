@@ -9,7 +9,7 @@ import (
 // until the person quits. The inventory is re-read on every pass (the first pass reuses a load
 // just made) so labels describe the machine now. The result is nil, or ErrSomeFailed when any
 // act failed, even if the machine has since emptied or the person then quit.
-func (s *Session) Loop(ctx context.Context) error {
+func (s *Session[R]) Loop(ctx context.Context) error {
 	var carried error
 	for {
 		stop, err := s.pass(ctx)
@@ -27,7 +27,7 @@ func (s *Session) Loop(ctx context.Context) error {
 
 // pass is one trip round the menu. stop ends the session; a non-nil error is ErrSomeFailed
 // (the session goes on) unless stop is also set.
-func (s *Session) pass(ctx context.Context) (bool, error) {
+func (s *Session[R]) pass(ctx context.Context) (bool, error) {
 	if !s.fresh {
 		if err := ctx.Err(); err != nil {
 			return true, err
@@ -64,7 +64,7 @@ func (s *Session) pass(ctx context.Context) (bool, error) {
 var errAgain = errors.New("back to the menu")
 
 // choose takes the person from the group menu to a list of names, or to errAgain / ErrQuit.
-func (s *Session) choose(ctx context.Context) ([]string, error) {
+func (s *Session[R]) choose(ctx context.Context) ([]string, error) {
 	key, err := s.pickTarget(ctx)
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func selectFailure(err error, key string) error {
 }
 
 // pickTarget shows the group menu and returns the chosen key, or ErrQuit.
-func (s *Session) pickTarget(ctx context.Context) (string, error) {
+func (s *Session[R]) pickTarget(ctx context.Context) (string, error) {
 	keys, labels := s.menu()
 	if len(keys) == 0 {
 		return "", Die("internal error: the menu has no rows to offer.")
@@ -113,7 +113,7 @@ func (s *Session) pickTarget(ctx context.Context) (string, error) {
 
 // drill narrows a group to the names the person wants: the whole group for the "all" row, or
 // ErrBack. An empty group is back without asking anything.
-func (s *Session) drill(ctx context.Context, group []string) ([]string, error) {
+func (s *Session[R]) drill(ctx context.Context, group []string) ([]string, error) {
 	if len(group) == 0 {
 		return nil, ErrBack
 	}

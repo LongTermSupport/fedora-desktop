@@ -31,7 +31,7 @@ func TestTableLayoutIsByteExactIncludingTrailingPadding(t *testing.T) {
 // The menu rows, one shape for both tools.
 func TestMenuRowsCarryKeyDescriptionAndWhatChoosingDoes(t *testing.T) {
 	h := newHarness(t, vocabs[0])
-	h.eng.groupsFn = func(inv Inventory) []Group {
+	h.eng.groupsFn = func(inv Inventory[extraOf]) []Group {
 		return []Group{
 			{Key: "all", Description: "everything", Members: inv.Names()},
 			{Key: "one", Description: "just the running one", Members: []string{"charlie"}},

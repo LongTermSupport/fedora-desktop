@@ -46,11 +46,11 @@ func (a identityAxis) matches(want, have string) bool {
 
 // identityValues is the distinct values present in the inventory, sorted bytewise, so the menu
 // never offers a group with no members.
-func identityValues(a identityAxis, inv freeze.Inventory) []string {
+func identityValues(a identityAxis, inv freeze.Inventory[record]) []string {
 	seen := map[string]bool{}
 	var values []string
 	for _, entry := range inv.Entries() {
-		value := a.value(recordOf(entry))
+		value := a.value(entry.Record)
 		if value == "" {
 			continue
 		}
@@ -70,10 +70,10 @@ func identityValues(a identityAxis, inv freeze.Inventory) []string {
 }
 
 // identityNames are the members of one value, in inventory order.
-func identityNames(a identityAxis, want string, inv freeze.Inventory) []string {
+func identityNames(a identityAxis, want string, inv freeze.Inventory[record]) []string {
 	var names []string
 	for _, entry := range inv.Entries() {
-		if a.matches(want, a.value(recordOf(entry))) {
+		if a.matches(want, a.value(entry.Record)) {
 			names = append(names, entry.Name)
 		}
 	}
@@ -84,7 +84,7 @@ func identityNames(a identityAxis, want string, inv freeze.Inventory) []string {
 // should offer its rows. It is COVERAGE, not cardinality: one labelled account plus four
 // unlabelled sessions is a single distinct value covering 2 of 6, and suppressing that row would
 // leave only the WIDER "all CCY containers", steering toward freezing sessions nobody asked about.
-func discriminates(a identityAxis, inv freeze.Inventory) bool {
+func discriminates(a identityAxis, inv freeze.Inventory[record]) bool {
 	values := identityValues(a, inv)
 	switch len(values) {
 	case 0:
@@ -96,10 +96,10 @@ func discriminates(a identityAxis, inv freeze.Inventory) bool {
 }
 
 // ccyNames are the CCY sessions, in inventory order.
-func ccyNames(inv freeze.Inventory) []string {
+func ccyNames(inv freeze.Inventory[record]) []string {
 	var names []string
 	for _, entry := range inv.Entries() {
-		if recordOf(entry).ccy {
+		if entry.Record.ccy {
 			names = append(names, entry.Name)
 		}
 	}
@@ -109,10 +109,10 @@ func ccyNames(inv freeze.Inventory) []string {
 // unlabelledCCY are the sessions that predate the labels. Keyed on label PRESENCE, not on the
 // identity values being empty: a 3.40.0 session with "none" on every axis has none either, and
 // telling its owner to relaunch it so it can be labelled is advice that cannot work.
-func unlabelledCCY(inv freeze.Inventory) []string {
+func unlabelledCCY(inv freeze.Inventory[record]) []string {
 	var names []string
 	for _, entry := range inv.Entries() {
-		if rec := recordOf(entry); rec.ccy && !rec.labelled {
+		if rec := entry.Record; rec.ccy && !rec.labelled {
 			names = append(names, entry.Name)
 		}
 	}
@@ -122,7 +122,7 @@ func unlabelledCCY(inv freeze.Inventory) []string {
 // warnBlindSpot discloses, never blocks: a session from before CCY 3.40.0 is in --ccy but in NO
 // identity group, and a partial answer to "everything running as account X" reads exactly like a
 // complete one.
-func (e *Engine) warnBlindSpot(inv freeze.Inventory) error {
+func (e *Engine) warnBlindSpot(inv freeze.Inventory[record]) error {
 	unlabelled := unlabelledCCY(inv)
 	if len(unlabelled) == 0 {
 		return nil
@@ -143,10 +143,10 @@ func (e *Engine) warnBlindSpot(inv freeze.Inventory) error {
 // networkMap is network -> member names, in inventory order, rebuilt from the inventory each
 // time so the menu only ever offers a network something is attached to. A container can be on
 // several networks, so the column is comma-separated, and spaces within it are noise.
-func networkMap(inv freeze.Inventory) map[string][]string {
+func networkMap(inv freeze.Inventory[record]) map[string][]string {
 	m := map[string][]string{}
 	for _, entry := range inv.Entries() {
-		nets := recordOf(entry).nets
+		nets := entry.Record.nets
 		if nets == noNetwork {
 			continue
 		}

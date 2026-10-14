@@ -11,17 +11,17 @@ import (
 
 // Session is one run of a freeze tool: the engine, the person (a Chooser), and the options the
 // command line set. It owns the current inventory.
-type Session struct {
+type Session[R any] struct {
 	Cfg     Config
 	Env     Env
-	Engine  Engine
+	Engine  Engine[R]
 	Chooser Chooser
 	// Action is the explicit verb from the command line; VerbDerived lets the state decide.
 	Action Verb
 	// DryRun previews every act on stdout instead of performing it.
 	DryRun bool
 
-	inv    Inventory
+	inv    Inventory[R]
 	fresh  bool // the inventory was just loaded and not yet used by the menu
 	stdout *term.Term
 	stderr *term.Term
@@ -29,8 +29,8 @@ type Session struct {
 
 // NewSession wires a session. Out is the payload stream (list, dry run); Err takes everything
 // else.
-func NewSession(cfg Config, env Env, engine Engine, chooser Chooser) *Session {
-	return &Session{
+func NewSession[R any](cfg Config, env Env, engine Engine[R], chooser Chooser) *Session[R] {
+	return &Session[R]{
 		Cfg: cfg, Env: env, Engine: engine, Chooser: chooser,
 		stdout: &term.Term{Err: env.Out}, stderr: &term.Term{Err: env.Err},
 	}
@@ -38,7 +38,7 @@ func NewSession(cfg Config, env Env, engine Engine, chooser Chooser) *Session {
 
 // Refresh reads the engine's state afresh. The menu loop reuses a load made just before it
 // rather than costing the engine a second round trip.
-func (s *Session) Refresh(ctx context.Context) error {
+func (s *Session[R]) Refresh(ctx context.Context) error {
 	inv, err := s.Engine.Load(ctx)
 	if err != nil {
 		return err
@@ -48,16 +48,16 @@ func (s *Session) Refresh(ctx context.Context) error {
 }
 
 // Inventory is the current state.
-func (s *Session) Inventory() Inventory { return s.inv }
+func (s *Session[R]) Inventory() Inventory[R] { return s.inv }
 
 // DoAction freezes or thaws the selected names. VerbDerived lets the state decide. There is no
 // confirmation prompt: freezing is undone by doing it again. Every target is attempted and each
 // failure is named with the engine's own words; any failure ends in ErrSomeFailed.
-func (s *Session) DoAction(ctx context.Context, verb Verb, selected []string) error {
+func (s *Session[R]) DoAction(ctx context.Context, verb Verb, selected []string) error {
 	return s.withWrites(s.doAction(ctx, verb, selected))
 }
 
-func (s *Session) doAction(ctx context.Context, verb Verb, selected []string) error {
+func (s *Session[R]) doAction(ctx context.Context, verb Verb, selected []string) error {
 	if len(selected) == 0 {
 		return Die("nothing matched — the selection is empty.\n  Run '%s list' to see what is running and what is frozen.", s.Cfg.Tool)
 	}
@@ -114,7 +114,7 @@ func (s *Session) doAction(ctx context.Context, verb Verb, selected []string) er
 // the number that failed. It stops early, with the reason as stop, when the context is cancelled
 // (an interrupt is not a container failure, and a target it killed is not reported as one) or
 // when the engine returns a fatal error, which would only repeat for every target still to go.
-func (s *Session) actOn(ctx context.Context, verb Verb, names []string) (done []string, failed int, stop error) {
+func (s *Session[R]) actOn(ctx context.Context, verb Verb, names []string) (done []string, failed int, stop error) {
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
 			return done, failed, err
@@ -143,7 +143,7 @@ func (s *Session) actOn(ctx context.Context, verb Verb, names []string) (done []
 
 // withWrites folds a failed write to either stream into the error a run ends with, so a full disk
 // or a closed pipe is surfaced rather than lost.
-func (s *Session) withWrites(err error) error {
+func (s *Session[R]) withWrites(err error) error {
 	for _, t := range []*term.Term{s.stdout, s.stderr} {
 		if werr := t.WriteFailed(); werr != nil && err == nil {
 			err = fmt.Errorf("write output: %w", werr)

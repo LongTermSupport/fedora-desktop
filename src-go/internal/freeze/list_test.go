@@ -42,7 +42,7 @@ func TestListEmptyInventoryShowsNoneTwice(t *testing.T) {
 // only those two states.
 func TestListCountsAnyNonFrozenStateAsRunning(t *testing.T) {
 	h := newHarness(t, vocabs[1])
-	h.eng.entries = []Entry{{Name: "x", State: "WEIRD", Data: extraOf{"m0", "e"}}}
+	h.eng.entries = []Entry[extraOf]{{Name: "x", State: "WEIRD", Record: extraOf{"m0", "e"}}}
 	if err := h.s.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestListAppendsTheEnginesFooter(t *testing.T) {
 }
 
 // A footer is optional: an engine without ListFooter lists without one.
-type noFooter struct{ Engine }
+type noFooter struct{ Engine[extraOf] }
 
 func TestListWithoutAFooterEngine(t *testing.T) {
 	h := newHarness(t, vocabs[0])

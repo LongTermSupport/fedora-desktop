@@ -192,7 +192,7 @@ func TestSelectAllAndNames(t *testing.T) {
 			mustEq(t, "all", inv.SelectAll(), "[alpha bravo charlie delta echo]")
 		})
 		t.Run(v.name+": an empty inventory gives an empty selection", func(t *testing.T) {
-			empty := NewInventory(testConfig(v), nil)
+			empty := NewInventory[extraOf](testConfig(v), nil)
 			mustEq(t, "all", len(empty.SelectAll()), 0)
 		})
 		// echo is index 4 and charlie index 2: a selector that walked the inventory would swap
@@ -262,7 +262,7 @@ func TestSelectNamesDeduplicatesFirstOccurrenceWins(t *testing.T) {
 }
 
 func TestNewInventoryKeepsTheFirstOfADuplicatedName(t *testing.T) {
-	inv := NewInventory(testConfig(vocabs[0]), []Entry{
+	inv := NewInventory(testConfig(vocabs[0]), []Entry[extraOf]{
 		{Name: "a", State: "running"}, {Name: "a", State: "paused"},
 	})
 	i, ok := inv.IndexOf("a")

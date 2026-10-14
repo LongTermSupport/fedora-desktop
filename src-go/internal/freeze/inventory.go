@@ -5,25 +5,25 @@ import (
 	"strings"
 )
 
-// Entry is one container the engine reported as running or frozen. Data is the engine's own
-// per-container record (its columns), handed back to Engine.Row.
-type Entry struct {
-	Name  string
-	State string
-	Data  any
+// Entry is one container the engine reported as running or frozen. Record is the engine's own
+// per-container record (its columns), typed by the engine and handed back to Engine.Row.
+type Entry[R any] struct {
+	Name   string
+	State  string
+	Record R
 }
 
 // Inventory is what the engine reported on one refresh, with the pure decisions over it. It
 // remembers the state words it was built with so the decisions never compare against a literal.
-type Inventory struct {
+type Inventory[R any] struct {
 	cfg     Config
-	entries []Entry
+	entries []Entry[R]
 	index   map[string]int
 }
 
 // NewInventory indexes the entries. A name reported twice resolves to its first entry.
-func NewInventory(cfg Config, entries []Entry) Inventory {
-	inv := Inventory{cfg: cfg, entries: append([]Entry(nil), entries...), index: make(map[string]int, len(entries))}
+func NewInventory[R any](cfg Config, entries []Entry[R]) Inventory[R] {
+	inv := Inventory[R]{cfg: cfg, entries: append([]Entry[R](nil), entries...), index: make(map[string]int, len(entries))}
 	for i, e := range inv.entries {
 		if _, seen := inv.index[e.Name]; !seen {
 			inv.index[e.Name] = i
@@ -33,13 +33,13 @@ func NewInventory(cfg Config, entries []Entry) Inventory {
 }
 
 // Len is the number of entries.
-func (inv Inventory) Len() int { return len(inv.entries) }
+func (inv Inventory[R]) Len() int { return len(inv.entries) }
 
 // Entries is a copy of the entries, in the engine's order.
-func (inv Inventory) Entries() []Entry { return append([]Entry(nil), inv.entries...) }
+func (inv Inventory[R]) Entries() []Entry[R] { return append([]Entry[R](nil), inv.entries...) }
 
 // Names is every name, in the engine's order.
-func (inv Inventory) Names() []string {
+func (inv Inventory[R]) Names() []string {
 	names := make([]string, len(inv.entries))
 	for i, e := range inv.entries {
 		names[i] = e.Name
@@ -48,23 +48,23 @@ func (inv Inventory) Names() []string {
 }
 
 // IndexOf is an exact match: a prefix, a suffix or the empty string never matches.
-func (inv Inventory) IndexOf(name string) (int, bool) {
+func (inv Inventory[R]) IndexOf(name string) (int, bool) {
 	i, ok := inv.index[name]
 	return i, ok
 }
 
 // Entry looks a name up.
-func (inv Inventory) Entry(name string) (Entry, bool) {
+func (inv Inventory[R]) Entry(name string) (Entry[R], bool) {
 	i, ok := inv.index[name]
 	if !ok {
-		return Entry{}, false
+		return Entry[R]{}, false
 	}
 	return inv.entries[i], true
 }
 
 // CountInState counts how many of the names given are in that state. An unknown name counts
 // nothing and a name given twice counts twice, so selection is what de-duplicates.
-func (inv Inventory) CountInState(state string, names ...string) int {
+func (inv Inventory[R]) CountInState(state string, names ...string) int {
 	n := 0
 	for _, name := range names {
 		if e, ok := inv.Entry(name); ok && e.State == state {
@@ -76,7 +76,7 @@ func (inv Inventory) CountInState(state string, names ...string) int {
 
 // InferAction is freeze if any selected name is running, else thaw (an empty or wholly
 // vanished selection included).
-func (inv Inventory) InferAction(selected []string) Verb {
+func (inv Inventory[R]) InferAction(selected []string) Verb {
 	if inv.CountInState(inv.cfg.StateRunning, selected...) > 0 {
 		return VerbFreeze
 	}
@@ -85,7 +85,7 @@ func (inv Inventory) InferAction(selected []string) Verb {
 
 // TargetEffect says what acting on these names would do. The count is of what the verb will
 // touch, not of the group, and the three refusals are three different strings.
-func (inv Inventory) TargetEffect(action Verb, names ...string) string {
+func (inv Inventory[R]) TargetEffect(action Verb, names ...string) string {
 	running := inv.CountInState(inv.cfg.StateRunning, names...)
 	frozen := inv.CountInState(inv.cfg.StateFrozen, names...)
 	switch action {
@@ -112,7 +112,7 @@ func (inv Inventory) TargetEffect(action Verb, names ...string) string {
 
 // RowVerb is what this one container is about to have done to it: "?" for a name not in the
 // inventory (whatever the verb), "-" for nothing.
-func (inv Inventory) RowVerb(action Verb, name string) string {
+func (inv Inventory[R]) RowVerb(action Verb, name string) string {
 	e, ok := inv.Entry(name)
 	if !ok {
 		return "?"
@@ -146,7 +146,7 @@ type Buckets struct {
 
 // Partition sorts names, in the order given, for a freeze (wants running) or a thaw (wants
 // frozen).
-func (inv Inventory) Partition(verb Verb, names []string) Buckets {
+func (inv Inventory[R]) Partition(verb Verb, names []string) Buckets {
 	want := inv.cfg.StateFrozen
 	if verb == VerbFreeze {
 		want = inv.cfg.StateRunning
@@ -166,12 +166,12 @@ func (inv Inventory) Partition(verb Verb, names []string) Buckets {
 }
 
 // SelectAll is every name in inventory order.
-func (inv Inventory) SelectAll() []string { return inv.Names() }
+func (inv Inventory[R]) SelectAll() []string { return inv.Names() }
 
 // SelectNames keeps the order given and drops repeats (the first occurrence wins). One unknown
 // name selects nothing and is fatal, even when the others exist: acting on fewer containers than
 // were asked for, silently, is the failure.
-func (inv Inventory) SelectNames(names []string) ([]string, error) {
+func (inv Inventory[R]) SelectNames(names []string) ([]string, error) {
 	var selected, unknown []string
 	seen := make(map[string]bool, len(names))
 	for _, name := range names {

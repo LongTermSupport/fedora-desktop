@@ -154,7 +154,7 @@ func said(t *testing.T, e *Engine) string {
 }
 
 // load builds the inventory through the real Load.
-func load(t *testing.T, boxes []box) (*Engine, freeze.Inventory) {
+func load(t *testing.T, boxes []box) (*Engine, freeze.Inventory[record]) {
 	t.Helper()
 	e := newEngine(scripted(boxes))
 	inv, err := e.Load(context.Background())
@@ -164,12 +164,12 @@ func load(t *testing.T, boxes []box) (*Engine, freeze.Inventory) {
 	return e, inv
 }
 
-func fixture(t *testing.T) (*Engine, freeze.Inventory) {
+func fixture(t *testing.T) (*Engine, freeze.Inventory[record]) {
 	t.Helper()
 	return load(t, fixtureBoxes())
 }
 
-func entryOf(t *testing.T, inv freeze.Inventory, name string) freeze.Entry {
+func entryOf(t *testing.T, inv freeze.Inventory[record], name string) freeze.Entry[record] {
 	t.Helper()
 	e, ok := inv.Entry(name)
 	if !ok {
@@ -178,14 +178,10 @@ func entryOf(t *testing.T, inv freeze.Inventory, name string) freeze.Entry {
 	return e
 }
 
-func recordFor(t *testing.T, inv freeze.Inventory, name string) record {
+func recordFor(t *testing.T, inv freeze.Inventory[record], name string) record {
 	t.Helper()
 	e := entryOf(t, inv, name)
-	rec, ok := e.Data.(record)
-	if !ok {
-		t.Fatalf("%s carries %T, not a record", name, e.Data)
-	}
-	return rec
+	return e.Record
 }
 
 func eqStrings(t *testing.T, what string, got, want []string) {

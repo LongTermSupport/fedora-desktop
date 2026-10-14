@@ -125,8 +125,8 @@ func TestLoadBuildsTheInventoryInLxcLsOrderWithEachContainersBridgeAndAddress(t 
 func TestLoadEachEntryCarriesItsOwnRecord(t *testing.T) {
 	_, inv := fixture(t)
 	for _, e := range inv.Entries() {
-		if _, ok := e.Data.(record); !ok {
-			t.Errorf("%s carries %T", e.Name, e.Data)
+		if e.Record == (record{}) {
+			t.Errorf("%s carries no record", e.Name)
 		}
 	}
 }
@@ -326,4 +326,4 @@ func TestListFooterOnlyWhenNothingRunsAndNothingWasUnreadable(t *testing.T) {
 
 // ---- Engine satisfies what the library asks of it ----
 
-var _ freeze.Engine = (*Engine)(nil)
+var _ freeze.Engine[record] = (*Engine)(nil)

@@ -21,10 +21,13 @@ import (
 
 const usage = "Usage: testfreeze\n"
 
+// none is the record of an engine whose entries carry nothing.
+type none struct{}
+
 type engine struct {
 	order       *[]string
 	preflight   error
-	entries     []freeze.Entry
+	entries     []freeze.Entry[none]
 	selected    []string
 	gotMode     string
 	gotValue    string
@@ -38,20 +41,20 @@ func (e *engine) Preflight(context.Context) error {
 	return e.preflight
 }
 
-func (e *engine) Load(context.Context) (freeze.Inventory, error) {
+func (e *engine) Load(context.Context) (freeze.Inventory[none], error) {
 	*e.order = append(*e.order, "load")
 	return freeze.NewInventory(cfg(), e.entries), nil
 }
 
-func (e *engine) Groups(inv freeze.Inventory) []freeze.Group {
+func (e *engine) Groups(inv freeze.Inventory[none]) []freeze.Group {
 	return []freeze.Group{{Key: "all", Description: "everything", Members: inv.Names()}}
 }
 
-func (e *engine) Select(_ context.Context, inv freeze.Inventory, _ string) ([]string, error) {
+func (e *engine) Select(_ context.Context, inv freeze.Inventory[none], _ string) ([]string, error) {
 	return inv.Names(), nil
 }
 
-func (e *engine) SelectTarget(_ context.Context, _ freeze.Inventory, mode, value string, names []string) ([]string, error) {
+func (e *engine) SelectTarget(_ context.Context, _ freeze.Inventory[none], mode, value string, names []string) ([]string, error) {
 	*e.order = append(*e.order, "select")
 	e.gotMode, e.gotValue, e.gotNames = mode, value, names
 	return e.selected, e.selectedErr
@@ -62,8 +65,8 @@ func (e *engine) Act(_ context.Context, verb freeze.Verb, name string) (string, 
 	return "", nil
 }
 
-func (e *engine) Columns() string         { return "COL" }
-func (e *engine) Row(freeze.Entry) string { return "row" }
+func (e *engine) Columns() string               { return "COL" }
+func (e *engine) Row(freeze.Entry[none]) string { return "row" }
 
 func cfg() freeze.Config {
 	return freeze.Config{
@@ -89,13 +92,13 @@ type rig struct {
 	out   *bytes.Buffer
 	errb  *bytes.Buffer
 	env   freeze.Env
-	tool  Tool
+	tool  Tool[none]
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	r := &rig{t: t, out: &bytes.Buffer{}, errb: &bytes.Buffer{}}
-	r.eng = &engine{order: &r.order, entries: []freeze.Entry{
+	r.eng = &engine{order: &r.order, entries: []freeze.Entry[none]{
 		{Name: "alpha", State: "running"}, {Name: "bravo", State: "paused"},
 	}}
 	r.env = freeze.NewEnv(r.out, r.errb, &execx.Fake{})
@@ -103,7 +106,7 @@ func newRig(t *testing.T) *rig {
 	r.env.ContainerEnvPath, r.env.DockerEnvPath = dir+"/containerenv", dir+"/dockerenv"
 	r.env.Getenv = func(string) string { return "" }
 	r.env.IsTerminal = func(any) bool { return false }
-	r.tool = Tool{
+	r.tool = Tool[none]{
 		Spec:   cli.Spec{Tool: "testfreeze", Flags: []cli.Flag{{Name: "--all"}, {Name: "--group", Needs: "a group"}}},
 		Usage:  usage,
 		Cfg:    cfg(),

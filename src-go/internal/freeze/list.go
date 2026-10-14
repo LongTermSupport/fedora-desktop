@@ -2,12 +2,12 @@ package freeze
 
 // List is the report of what is frozen and what is running, on stdout. "Frozen" is the frozen
 // state; everything else counts as running, since an inventory holds only those two states.
-func (s *Session) List() error {
+func (s *Session[R]) List() error {
 	s.list()
 	return s.withWrites(nil)
 }
 
-func (s *Session) list() {
+func (s *Session[R]) list() {
 	var running, frozen []string
 	for _, e := range s.inv.Entries() {
 		if e.State == s.Cfg.StateFrozen {
@@ -28,7 +28,7 @@ func (s *Session) list() {
 	} else {
 		s.stdout.Printf("%s", s.Table(running...))
 	}
-	if f, ok := s.Engine.(listFooterer); ok {
+	if f, ok := s.Engine.(listFooterer[R]); ok {
 		s.stdout.Printf("%s", f.ListFooter(s.inv))
 	}
 }

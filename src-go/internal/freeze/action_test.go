@@ -193,7 +193,7 @@ func TestDoActionCancelledMidBatchStopsAndIsACancellation(t *testing.T) {
 		return nil
 	}
 	h.eng.entries = append(h.eng.entries,
-		Entry{Name: "foxtrot", State: vocabs[0].running}, Entry{Name: "golf", State: vocabs[0].running})
+		Entry[extraOf]{Name: "foxtrot", State: vocabs[0].running}, Entry[extraOf]{Name: "golf", State: vocabs[0].running})
 	if err := h.s.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestDoActionAlreadyCancelledActsOnNothing(t *testing.T) {
 func TestDoActionAFatalActErrorStopsTheBatchWithOneMessage(t *testing.T) {
 	h := newHarness(t, vocabs[0])
 	h.eng.entries = append(h.eng.entries,
-		Entry{Name: "foxtrot", State: vocabs[0].running}, Entry{Name: "golf", State: vocabs[0].running})
+		Entry[extraOf]{Name: "foxtrot", State: vocabs[0].running}, Entry[extraOf]{Name: "golf", State: vocabs[0].running})
 	if err := h.s.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}

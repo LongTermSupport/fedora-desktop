@@ -109,7 +109,7 @@ func (p *preparingEngine) BeforeAct(context.Context) error {
 	return p.prepErr
 }
 
-func newPreparing(t *testing.T) (*Session, *preparingEngine) {
+func newPreparing(t *testing.T) (*Session[extraOf], *preparingEngine) {
 	t.Helper()
 	cfg := testConfig(vocabs[0])
 	eng := &preparingEngine{fakeEngine: fakeEngine{entries: fixtureEntries(vocabs[0]), cfg: cfg}}

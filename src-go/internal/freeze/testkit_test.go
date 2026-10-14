@@ -65,51 +65,51 @@ type extraOf struct{ mark, extra string }
 // fixtureEntries is one inventory, deliberately out of order and mixed-state: charlie is a
 // running container sitting at index 2 behind two frozen ones, so a predicate that reads only
 // the first name it is handed gets several answers wrong.
-func fixtureEntries(v vocab) []Entry {
+func fixtureEntries(v vocab) []Entry[extraOf] {
 	names := []string{"alpha", "bravo", "charlie", "delta", "echo"}
 	states := []string{v.frozen, v.frozen, v.running, v.frozen, v.running}
-	entries := make([]Entry, len(names))
+	entries := make([]Entry[extraOf], len(names))
 	for i, n := range names {
-		entries[i] = Entry{Name: n, State: states[i], Data: extraOf{fmt.Sprintf("m%d", i), "e-" + n}}
+		entries[i] = Entry[extraOf]{Name: n, State: states[i], Record: extraOf{fmt.Sprintf("m%d", i), "e-" + n}}
 	}
 	return entries
 }
 
-func fixtureInventory(v vocab) Inventory {
+func fixtureInventory(v vocab) Inventory[extraOf] {
 	return NewInventory(testConfig(v), fixtureEntries(v))
 }
 
 // fakeEngine is the test's engine. It records every call so a case can prove the library
 // called it, and how, rather than only what it printed.
 type fakeEngine struct {
-	entries   []Entry // what the next Load returns
+	entries   []Entry[extraOf] // what the next Load returns
 	loads     int
 	acts      []string // "freeze charlie"
 	actErr    error
 	actOutput string
 	// onAct runs inside Act after the call is recorded; a non-nil result is Act's error.
-	onAct func(call int) error
-	selectFn  func(key string) ([]string, error)
-	groupsFn  func(inv Inventory) []Group
-	footer    string
-	cfg       Config
+	onAct    func(call int) error
+	selectFn func(key string) ([]string, error)
+	groupsFn func(inv Inventory[extraOf]) []Group
+	footer   string
+	cfg      Config
 }
 
 func (f *fakeEngine) Preflight(context.Context) error { return nil }
 
-func (f *fakeEngine) Load(context.Context) (Inventory, error) {
+func (f *fakeEngine) Load(context.Context) (Inventory[extraOf], error) {
 	f.loads++
 	return NewInventory(f.cfg, f.entries), nil
 }
 
-func (f *fakeEngine) Groups(inv Inventory) []Group {
+func (f *fakeEngine) Groups(inv Inventory[extraOf]) []Group {
 	if f.groupsFn != nil {
 		return f.groupsFn(inv)
 	}
 	return []Group{{Key: "all", Description: "everything", Members: inv.Names()}}
 }
 
-func (f *fakeEngine) Select(_ context.Context, inv Inventory, key string) ([]string, error) {
+func (f *fakeEngine) Select(_ context.Context, inv Inventory[extraOf], key string) ([]string, error) {
 	if f.selectFn != nil {
 		return f.selectFn(key)
 	}
@@ -134,15 +134,11 @@ func (f *fakeEngine) Act(_ context.Context, verb Verb, name string) (string, err
 
 func (f *fakeEngine) Columns() string { return fmt.Sprintf("%-4s %s", "MARK", "EXTRA") }
 
-func (f *fakeEngine) Row(e Entry) string {
-	d, ok := e.Data.(extraOf)
-	if !ok {
-		return "?"
-	}
-	return fmt.Sprintf("%-4s %s", d.mark, d.extra)
+func (f *fakeEngine) Row(e Entry[extraOf]) string {
+	return fmt.Sprintf("%-4s %s", e.Record.mark, e.Record.extra)
 }
 
-func (f *fakeEngine) ListFooter(Inventory) string { return f.footer }
+func (f *fakeEngine) ListFooter(Inventory[extraOf]) string { return f.footer }
 
 func (f *fakeEngine) actsLine() string { return strings.Join(f.acts, ";") + ";" }
 
@@ -174,7 +170,7 @@ func (c *scriptedChooser) Members(_ context.Context, s MemberScreen) (Choice, er
 
 // harness is a Session wired to buffers and the fakes.
 type harness struct {
-	s       *Session
+	s       *Session[extraOf]
 	eng     *fakeEngine
 	chooser *scriptedChooser
 	out     *bytes.Buffer

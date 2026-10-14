@@ -20,7 +20,7 @@ const (
 
 // Groups are the menu rows in order: the CCY sessions, everything, each network in use, then each
 // value of each identity axis that actually tells two sessions apart.
-func (e *Engine) Groups(inv freeze.Inventory) []freeze.Group {
+func (e *Engine) Groups(inv freeze.Inventory[record]) []freeze.Group {
 	groups := []freeze.Group{
 		{Key: keyCCY, Description: "all CCY (Claude) containers", Members: ccyNames(inv)},
 		{Key: keyAll, Description: "all containers", Members: inv.Names()},
@@ -45,12 +45,12 @@ func (e *Engine) Groups(inv freeze.Inventory) []freeze.Group {
 
 // Select resolves a menu key to its members. A network or identity value that vanished is said
 // on stderr and returned as freeze.ErrGroupGone, so the menu re-prompts instead of ending.
-func (e *Engine) Select(ctx context.Context, inv freeze.Inventory, key string) ([]string, error) {
+func (e *Engine) Select(ctx context.Context, inv freeze.Inventory[record], key string) ([]string, error) {
 	names, err := e.selectKey(ctx, inv, key)
 	return names, freeze.SelectGone(e.Err, tool, err)
 }
 
-func (e *Engine) selectKey(ctx context.Context, inv freeze.Inventory, key string) ([]string, error) {
+func (e *Engine) selectKey(ctx context.Context, inv freeze.Inventory[record], key string) ([]string, error) {
 	switch {
 	case key == keyCCY:
 		return ccyNames(inv), nil
@@ -70,7 +70,7 @@ func (e *Engine) selectKey(ctx context.Context, inv freeze.Inventory, key string
 // SelectTarget resolves the one-shot command line to a selection: a mode (the target flag, or
 // cli.ModeNames), its value, and the names given. A vanished network or identity value is fatal
 // here, with the same words the menu path says.
-func (e *Engine) SelectTarget(ctx context.Context, inv freeze.Inventory, mode, value string, names []string) ([]string, error) {
+func (e *Engine) SelectTarget(ctx context.Context, inv freeze.Inventory[record], mode, value string, names []string) ([]string, error) {
 	var selected []string
 	var err error
 	switch mode {
@@ -94,7 +94,7 @@ func (e *Engine) SelectTarget(ctx context.Context, inv freeze.Inventory, mode, v
 // "nothing is on it", a confident answer to a question never asked) and returns its members from
 // the inventory just loaded, so the menu's count and the action cannot disagree. The name is a
 // literal, not a pattern.
-func (e *Engine) selectNetwork(ctx context.Context, inv freeze.Inventory, net string) ([]string, error) {
+func (e *Engine) selectNetwork(ctx context.Context, inv freeze.Inventory[record], net string) ([]string, error) {
 	res, err := e.Runner.Run(ctx, execx.Cmd{Name: podmanBin, Args: []string{"network", "ls", "--format", "{{.Name}}"}})
 	if err != nil {
 		return nil, freeze.Die("podman network ls failed: %s", freeze.FailureText(res, err))
@@ -116,7 +116,7 @@ func (e *Engine) selectNetwork(ctx context.Context, inv freeze.Inventory, net st
 // selectIdentity resolves one value of one axis. An unknown value must fail loudly: resolving it
 // to an empty set would report "nothing to do" for a question that was never asked. It is also the
 // guard that keeps an empty value from matching every session without a label.
-func (e *Engine) selectIdentity(inv freeze.Inventory, axis, want string) ([]string, error) {
+func (e *Engine) selectIdentity(inv freeze.Inventory[record], axis, want string) ([]string, error) {
 	ax, err := axisByName(axis)
 	if err != nil {
 		return nil, err

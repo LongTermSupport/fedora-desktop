@@ -63,7 +63,7 @@ func (a *App) plain(key string) string {
 	return a.Env.Getenv(key)
 }
 
-func (a *App) tool() app.Tool {
+func (a *App) tool() app.Tool[record] {
 	asker := &sudo.Sudo{
 		Runner:  a.Env.Runner,
 		Term:    &term.Term{Err: a.Env.Err, IsTerminal: a.Env.IsTerminal, Getenv: a.plain},
@@ -72,5 +72,5 @@ func (a *App) tool() app.Tool {
 		OpenTTY: a.Env.OpenTTY,
 	}
 	engine := &Engine{Sudo: asker, LookPath: a.Env.LookPath, Err: a.Env.Err}
-	return app.Tool{Spec: spec, Usage: usageText, Cfg: Config(), Engine: engine}
+	return app.Tool[record]{Spec: spec, Usage: usageText, Cfg: Config(), Engine: engine}
 }

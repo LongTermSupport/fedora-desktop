@@ -16,11 +16,11 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/cli"
 )
 
-func bridgeEntry(name, bridge string) freeze.Entry {
-	return freeze.Entry{Name: name, State: "RUNNING", Data: record{bridge: bridge}}
+func bridgeEntry(name, bridge string) freeze.Entry[record] {
+	return freeze.Entry[record]{Name: name, State: "RUNNING", Record: record{bridge: bridge}}
 }
 
-func inventoryOf(entries ...freeze.Entry) freeze.Inventory {
+func inventoryOf(entries ...freeze.Entry[record]) freeze.Inventory[record] {
 	return freeze.NewInventory(Config(), entries)
 }
 
@@ -40,8 +40,8 @@ func TestBridgeNamesAreEachBridgeOnceSorted(t *testing.T) {
 func TestBridgeNamesExcludeTheTwoNonBridgeLabels(t *testing.T) {
 	_, inv := fixture(t)
 	entries := inv.Entries()
-	entries[4].Data = record{bridge: bridgeUnreadable} // bravo, virbr1's other member, is now unreadable
-	entries[1].Data = record{bridge: bridgeNone}       // and so is mike, so virbr1 is no longer in use
+	entries[4].Record = record{bridge: bridgeUnreadable} // bravo, virbr1's other member, is now unreadable
+	entries[1].Record = record{bridge: bridgeNone}       // and so is mike, so virbr1 is no longer in use
 	eqStrings(t, "bridges", bridgeNames(inventoryOf(entries...)), []string{"lxcbr0"})
 	got := bridgeNames(inventoryOf(bridgeEntry("a", bridgeNone), bridgeEntry("b", bridgeNone), bridgeEntry("c", bridgeUnreadable)))
 	if len(got) != 0 {
@@ -91,8 +91,8 @@ func TestGroupLabelsSayWhatChoosingEachRowDoes(t *testing.T) {
 // A bridge holding nothing that can be frozen still gets a row, saying what it CAN do.
 func TestAWhollyFrozenBridgeOffersToThawIt(t *testing.T) {
 	frozen := inventoryOf(
-		freeze.Entry{Name: "zulu", State: "FROZEN", Data: record{bridge: "lxcbr0"}},
-		freeze.Entry{Name: "mike", State: "FROZEN", Data: record{bridge: "virbr1"}},
+		freeze.Entry[record]{Name: "zulu", State: "FROZEN", Record: record{bridge: "lxcbr0"}},
+		freeze.Entry[record]{Name: "mike", State: "FROZEN", Record: record{bridge: "virbr1"}},
 	)
 	groups := bare().Groups(frozen)
 	if got := frozen.TargetEffect(freeze.VerbDerived, groups[1].Members...); !strings.Contains(got, "THAW") {
@@ -298,7 +298,7 @@ func TestTheBridgeColumnIsWiderThanTheLongestLabelItCanHold(t *testing.T) {
 }
 
 func TestAnUnreadableAddressReachesTheRow(t *testing.T) {
-	row := bare().Row(freeze.Entry{Name: "x", State: "RUNNING", Data: record{bridge: "lxcbr0", ipv4: ipv4Unreadable}})
+	row := bare().Row(freeze.Entry[record]{Name: "x", State: "RUNNING", Record: record{bridge: "lxcbr0", ipv4: ipv4Unreadable}})
 	if col(row, 2) != ipv4Unreadable {
 		t.Fatalf("got %q", col(row, 2))
 	}
@@ -306,7 +306,7 @@ func TestAnUnreadableAddressReachesTheRow(t *testing.T) {
 
 // A row for an entry this engine never loaded is not a crash.
 func TestRowOfAnEntryWithNoRecordIsBlankNotAPanic(t *testing.T) {
-	if got := bare().Row(freeze.Entry{Name: "x"}); strings.TrimSpace(got) != "" {
+	if got := bare().Row(freeze.Entry[record]{Name: "x"}); strings.TrimSpace(got) != "" {
 		t.Fatalf("got %q", got)
 	}
 }

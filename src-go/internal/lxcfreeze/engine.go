@@ -58,19 +58,10 @@ type Engine struct {
 	unreadable []string
 }
 
-// record is the engine's per-container data, carried in freeze.Entry.Data.
+// record is the engine's per-container data, carried in freeze.Entry[record].Record.
 type record struct {
 	bridge string // the first interface's bridge, or one of the two non-bridge labels
 	ipv4   string // the first IPv4 address; blank when there is none, ipv4Unreadable when unasked
-}
-
-// recordOf is the engine's record of an entry; an entry it never loaded has none.
-func recordOf(e freeze.Entry) record {
-	rec, ok := e.Data.(record)
-	if !ok {
-		return record{}
-	}
-	return rec
 }
 
 // Preflight checks the LXC tools are installed and that sudo exists. Root itself is asked for at
@@ -100,8 +91,8 @@ func (e *Engine) Preflight(context.Context) error {
 func (e *Engine) Columns() string { return columns(bridgeHeader, "IPV4") }
 
 // Row is the bridge and the address of one container.
-func (e *Engine) Row(entry freeze.Entry) string {
-	rec := recordOf(entry)
+func (e *Engine) Row(entry freeze.Entry[record]) string {
+	rec := entry.Record
 	return columns(rec.bridge, rec.ipv4)
 }
 
@@ -113,7 +104,7 @@ func columns(bridge, addr string) string {
 
 // ListFooter says an empty machine is empty, but only when nothing was unreadable: a list that
 // could not be read is not known to be empty.
-func (e *Engine) ListFooter(inv freeze.Inventory) string {
+func (e *Engine) ListFooter(inv freeze.Inventory[record]) string {
 	if inv.Len() > 0 || len(e.unreadable) > 0 {
 		return ""
 	}
@@ -151,17 +142,17 @@ func (e *Engine) Act(ctx context.Context, verb freeze.Verb, name string) (string
 // Load reads the machine as root: every container's state, then for the running and frozen ones
 // the bridge and the address. A container whose state cannot be read is in no group and is named
 // once, after this load. stdout is parsed; stderr only ever feeds an error's text.
-func (e *Engine) Load(ctx context.Context) (freeze.Inventory, error) {
+func (e *Engine) Load(ctx context.Context) (freeze.Inventory[record], error) {
 	if err := e.Sudo.Ready(ctx, readyWhy); err != nil {
-		return freeze.Inventory{}, freeze.Die("sudo was refused, so no LXC state could be read.\n" +
+		return freeze.Inventory[record]{}, freeze.Die("sudo was refused, so no LXC state could be read.\n" +
 			"  Nothing was changed. This is NOT 'no containers found' — the question was\n" +
 			"  never asked, and reporting an empty machine here would be a guess.")
 	}
 	listed, err := e.Sudo.Capture(ctx, "lxc-ls", "-1")
 	if err != nil {
-		return freeze.Inventory{}, e.fatal("lxc-ls failed, so the container list is unknown", listed, err)
+		return freeze.Inventory[record]{}, e.fatal("lxc-ls failed, so the container list is unknown", listed, err)
 	}
-	var entries []freeze.Entry
+	var entries []freeze.Entry[record]
 	e.unreadable = nil
 	for line := range strings.SplitSeq(string(listed.Stdout), "\n") {
 		name := strings.TrimSpace(line)
@@ -170,7 +161,7 @@ func (e *Engine) Load(ctx context.Context) (freeze.Inventory, error) {
 		}
 		entry, readable, err := e.read(ctx, name)
 		if err != nil {
-			return freeze.Inventory{}, err
+			return freeze.Inventory[record]{}, err
 		}
 		if !readable {
 			e.unreadable = append(e.unreadable, name)
@@ -214,7 +205,7 @@ func (e *Engine) endsBatch(ctx context.Context, err error) error {
 
 // read is one container: its entry when it is running or frozen, no entry when it is stopped, and
 // readable false when its state could not be had.
-func (e *Engine) read(ctx context.Context, name string) (*freeze.Entry, bool, error) {
+func (e *Engine) read(ctx context.Context, name string) (*freeze.Entry[record], bool, error) {
 	info, ok, err := e.probe(ctx, "lxc-info", "-n", name, "-s")
 	if err != nil || !ok {
 		return nil, false, err
@@ -236,7 +227,7 @@ func (e *Engine) read(ctx context.Context, name string) (*freeze.Entry, bool, er
 		return nil, false, err
 	}
 	rec := record{bridge: bridgeLabel(ok, config), ipv4: ipv4Label(addrOK, addr)}
-	return &freeze.Entry{Name: name, State: state, Data: rec}, true, nil
+	return &freeze.Entry[record]{Name: name, State: state, Record: rec}, true, nil
 }
 
 // probe runs a read-only command as root. ok is false when the command ran and said no (the

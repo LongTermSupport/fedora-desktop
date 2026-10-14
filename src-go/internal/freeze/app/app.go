@@ -19,17 +19,17 @@ import (
 // TargetEngine is an Engine that can also resolve the command line's target to container names.
 // A vanished group (a network, a bridge, an identity value) is fatal there, with the same words
 // the menu says when it re-prompts.
-type TargetEngine interface {
-	freeze.Engine
-	SelectTarget(ctx context.Context, inv freeze.Inventory, mode, value string, names []string) ([]string, error)
+type TargetEngine[R any] interface {
+	freeze.Engine[R]
+	SelectTarget(ctx context.Context, inv freeze.Inventory[R], mode, value string, names []string) ([]string, error)
 }
 
 // Tool is everything that differs between the freeze tools.
-type Tool struct {
+type Tool[R any] struct {
 	Spec   cli.Spec
 	Usage  string // what --help prints to stdout, byte for byte
 	Cfg    freeze.Config
-	Engine TargetEngine
+	Engine TargetEngine[R]
 }
 
 // ChooserFactory makes the person at the keyboard, and the function that lets go of the terminal
@@ -38,14 +38,14 @@ type ChooserFactory func() (freeze.Chooser, func() error)
 
 // Run executes args and returns the exit status. Ctrl-C reaches an open prompt through the
 // context. A nil chooser means the person at the terminal (fzf, else numbered prompts).
-func Run(env freeze.Env, chooser freeze.Chooser, tool Tool, args []string) term.ExitCode {
+func Run[R any](env freeze.Env, chooser freeze.Chooser, tool Tool[R], args []string) term.ExitCode {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	return freeze.ExitCode(env.Err, tool.Cfg.Tool, Execute(ctx, env, chooser, tool, args))
 }
 
 // Execute is Run without the signal handling and the exit status: the error the run ended with.
-func Execute(ctx context.Context, env freeze.Env, chooser freeze.Chooser, tool Tool, args []string) error {
+func Execute[R any](ctx context.Context, env freeze.Env, chooser freeze.Chooser, tool Tool[R], args []string) error {
 	return ExecuteClosing(ctx, env, func() (freeze.Chooser, func() error) {
 		if chooser != nil {
 			return chooser, func() error { return nil }
@@ -56,7 +56,7 @@ func Execute(ctx context.Context, env freeze.Env, chooser freeze.Chooser, tool T
 
 // ExecuteClosing is Execute with the chooser made only once the run needs one, and closed when it
 // ends; a failure to close is joined to the run's own result.
-func ExecuteClosing(ctx context.Context, env freeze.Env, newChooser ChooserFactory, tool Tool, args []string) error {
+func ExecuteClosing[R any](ctx context.Context, env freeze.Env, newChooser ChooserFactory, tool Tool[R], args []string) error {
 	parsed, err := cli.Parse(tool.Spec, args)
 	if err != nil {
 		return err
@@ -87,7 +87,7 @@ func ExecuteClosing(ctx context.Context, env freeze.Env, newChooser ChooserFacto
 	return err
 }
 
-func session(ctx context.Context, env freeze.Env, chooser freeze.Chooser, tool Tool, parsed cli.Parsed) error {
+func session[R any](ctx context.Context, env freeze.Env, chooser freeze.Chooser, tool Tool[R], parsed cli.Parsed) error {
 	s := freeze.NewSession(tool.Cfg, env, tool.Engine, chooser)
 	s.Action, s.DryRun = parsed.Action(), parsed.DryRun
 	// One load serves the one-shot paths; the menu reuses it for its first pass.

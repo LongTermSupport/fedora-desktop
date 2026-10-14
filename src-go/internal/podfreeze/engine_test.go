@@ -254,7 +254,7 @@ func TestCCYMarker(t *testing.T) {
 	}
 	// A name with no record at all defaults to not-CCY rather than failing: the marker is drawn
 	// beside a row, so a missing record must not take the whole table down.
-	if got := strings.Fields(e.Row(freeze.Entry{Name: "nosuch"}))[0]; got != "-" {
+	if got := strings.Fields(e.Row(freeze.Entry[record]{Name: "nosuch"}))[0]; got != "-" {
 		t.Fatalf("a name the engine never saw: %q", got)
 	}
 }

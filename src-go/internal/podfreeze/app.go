@@ -56,7 +56,7 @@ func (a *App) RunContext(ctx context.Context, args []string) term.ExitCode {
 	return freeze.ExitCode(a.Env.Err, tool, app.Execute(ctx, a.Env, a.Chooser, a.tool(), args))
 }
 
-func (a *App) tool() app.Tool {
+func (a *App) tool() app.Tool[record] {
 	engine := &Engine{Runner: a.Env.Runner, LookPath: a.Env.LookPath, Err: a.Env.Err}
-	return app.Tool{Spec: spec, Usage: usageText, Cfg: Config(), Engine: engine}
+	return app.Tool[record]{Spec: spec, Usage: usageText, Cfg: Config(), Engine: engine}
 }
