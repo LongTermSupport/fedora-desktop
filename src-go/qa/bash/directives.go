@@ -329,22 +329,38 @@ func (g *gate) git(ctx context.Context, args ...string) (string, error) {
 	return res.Stdout, nil
 }
 
-// againstBase compares the list with the copy at the merge-base of HEAD and origin's default
-// branch: nothing added, nothing raised. A list with no record is not compared.
+// baseVariable names the commit the list is compared with when the caller sets it: the variable
+// the bash-limits gate reads, set by CI (the head before a push to the default branch).
+const baseVariable = "QA_BASH_LIMITS_BASE"
+
+// baseRef is the commit the list is compared with: QA_BASH_LIMITS_BASE when set, else the
+// merge-base of HEAD and origin's default branch.
+func (g *gate) baseRef(ctx context.Context, rel string) (string, error) {
+	if set := strings.TrimSpace(g.env.Getenv(baseVariable)); set != "" {
+		return set, nil
+	}
+	head, err := g.git(ctx, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", fmt.Errorf("no base to compare %s with: origin's default branch is not known here (run: git remote set-head origin --auto, or set %s): %w", rel, baseVariable, err)
+	}
+	base, err := g.git(ctx, "merge-base", "HEAD", strings.TrimSpace(head))
+	if err != nil {
+		return "", fmt.Errorf("no base to compare %s with: %w", rel, err)
+	}
+	return strings.TrimSpace(base), nil
+}
+
+// againstBase compares the list with the copy at the base commit: nothing added, nothing
+// raised. A list with no record is not compared.
 func (g *gate) againstBase(ctx context.Context, list map[string]record) ([]dfinding, error) {
 	if len(list) == 0 {
 		return nil, nil
 	}
 	rel := g.allowlistRel()
-	head, err := g.git(ctx, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+	ref, err := g.baseRef(ctx, rel)
 	if err != nil {
-		return nil, fmt.Errorf("no base to compare %s with: origin's default branch is not known here (run: git remote set-head origin --auto): %w", rel, err)
+		return nil, err
 	}
-	base, err := g.git(ctx, "merge-base", "HEAD", strings.TrimSpace(head))
-	if err != nil {
-		return nil, fmt.Errorf("no base to compare %s with: %w", rel, err)
-	}
-	ref := strings.TrimSpace(base)
 	listed, err := g.git(ctx, "ls-tree", "--name-only", ref, "--", rel)
 	if err != nil {
 		return nil, err

@@ -158,8 +158,10 @@ a script whatever its flags. The gate therefore enforces the ban itself, with a 
   codes, is a finding (grew); *n* or *C* below the record is a finding (tighten: lower the
   record); a record with *n* = 0, or for a path that is no longer a gated file, is a finding
   (stale: remove it). Records only move down. Against the base: when the list holds any record, it
-  is compared with the copy at the merge-base of HEAD and origin's default branch (git, through
-  the seam); an entry the base lacks, a higher count, or a code the base's entry lacks is a
+  is compared with the copy at the base commit (git, through the seam): `QA_BASH_LIMITS_BASE`
+  when set (the variable the bash-limits gate reads; CI sets it to the head before a push to the
+  default branch, where the merge-base would be HEAD itself), else the merge-base of HEAD and
+  origin's default branch; an entry the base lacks, a higher count, or a code the base's entry lacks is a
   finding (added, raised). An unresolvable origin default branch is exit 2 naming the fix; a base
   with no allowlist file is the commit that introduces it and has nothing to compare. A list with
   no record is not compared at all, since nothing can have been added to it.

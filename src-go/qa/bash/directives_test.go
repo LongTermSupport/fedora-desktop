@@ -195,6 +195,39 @@ func TestTheListIsComparedWithTheBase(t *testing.T) {
 	expect(t, w.main(), ExitOK)
 }
 
+// S17: QA_BASH_LIMITS_BASE, the variable the bash-limits gate reads and CI sets (the previous
+// head on a push to the default branch), is the base: a list that grew since it fails, and the
+// merge-base with origin's default branch is not asked for.
+func TestTheBaseVariableNamesTheCommitTheListIsComparedWith(t *testing.T) {
+	file := "#!/usr/bin/bash\n# shellcheck disable=SC2046\n# shellcheck disable=SC2086\n"
+	w := newWorld(t, map[string]string{"x.bash": file, allowlistPath: list("x.bash 2 SC2046,SC2086")})
+	w.env["QA_BASH_LIMITS_BASE"] = "prev0"
+	grown := list("x.bash 1 SC2086")
+	w.run.baseList = &grown
+	got := w.main()
+	expect(t, got, ExitFailed)
+	mustContain(t, "stdout", got.stdout, "raised")
+	var lsTree []string
+	for _, c := range w.run.cmds("git") {
+		if slices.Contains(c.Argv, "merge-base") || slices.Contains(c.Argv, "symbolic-ref") {
+			t.Fatalf("the base variable was set but git was asked for the merge-base: %v", c.Argv)
+		}
+		if c.Argv[1] == "ls-tree" {
+			lsTree = c.Argv
+		}
+	}
+	if !slices.Contains(lsTree, "prev0") {
+		t.Fatalf("the list was not read at the base commit: %v", lsTree)
+	}
+
+	w = newWorld(t, map[string]string{"x.bash": file, allowlistPath: list("x.bash 2 SC2046,SC2086")})
+	w.env["QA_BASH_LIMITS_BASE"] = "prev0"
+	w.run.noOriginHead = true
+	same := list("x.bash 2 SC2046,SC2086")
+	w.run.baseList = &same
+	expect(t, w.main(), ExitOK)
+}
+
 // S17: a base with no list is the commit that introduces it; an unknown default branch is exit 2;
 // an empty list needs no base.
 func TestTheBaseIsOnlyAskedForWhenTheListHoldsRecords(t *testing.T) {

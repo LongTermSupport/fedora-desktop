@@ -1005,7 +1005,8 @@ daemon: `qa-bash.bash` fails any `# shellcheck disable=` directive that
 `scripts/shellcheck-disable.allowlist` does not record. The list is a ratchet like
 `scripts/bash-limits.allowlist`: each record is a path, a count of directives and their codes;
 it may be lowered by hand when a directive is removed (the gate fails on a record above what
-the file holds) and never raised or added to (the gate compares it with the merge-base).
+the file holds) and never raised or added to (the gate compares it with `QA_BASH_LIMITS_BASE`, the same base CI sets for the
+bash-limits list, else the merge-base).
 `disable=all` is never allowable, even listed, and a `# shellcheck shell=` that contradicts a
 shebang (`shell=bash` on `#!/bin/sh`) fails; `shell=` on a file with no shebang is correct use.
 To get a new directive in, fix the code instead.
