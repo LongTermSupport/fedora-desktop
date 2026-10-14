@@ -182,6 +182,17 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   gone; `qa-changed` gains a `bash` check (tool, discovery, wrapper or `qa-trees.tsv` change) and
   its per-file shellcheck the same `--norc` (SPEC-qa-changed B35). Live tree: the same 433 files as
   the bash, exit 0; 5 fewer advisory findings (SC1091 info, resolved by `--external-sources`).
+  Fable review (subagent-reports/261014-fable-review-qa-bash.md) fixed, each spec-first and
+  test-first: suppression is gated (S16-S20, B13): a `# shellcheck disable=` directive fails
+  unless the ratchet `scripts/shellcheck-disable.allowlist` records it (per-file count and codes,
+  seeded with the 21 live directives, compared with the merge-base so it only moves down),
+  `disable=all` never passes, and `qa-changed` gains a `shell-directives` check running the
+  gate's `--directives` mode (SPEC-qa-changed B36); a `shell=` contradicting a shebang fails
+  (S18); S9 states the SC1091-to-SC1094 promotion `--external-sources` causes and that findings
+  inside followed files are not reported, and S10's "diagnostic on a file not given" check is kept
+  as a loud defence, proven by a fake, not removed; the time limits are named (S8a) and the
+  `TimedOut` branch tested; the leading-`[` check on shellcheck's stdout is kept, because `null`
+  decodes without error (tested); the report is written with mode 0644 (S2, B14).
   `qa-discovery.bash` (P3, the shared library the bash gates source) on `go-port/qa-discovery`:
   ported, not merged; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D15, 11
   departures B1-B11; nested `src-go/qa/discovery` and `qa/cmd/qa-discovery`, one list per call,

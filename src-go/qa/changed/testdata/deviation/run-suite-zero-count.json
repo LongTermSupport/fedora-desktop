@@ -1,10 +1,11 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/test-teams.bash\ncheck shellcheck: scripts/test-teams.bash\ncheck semgrep: scripts/test-teams.bash\ncheck bash-limits\nsuite scripts/test-teams.bash: the suite itself changed\n✓ toolchain: QA tool versions match .qa-versions\n✓ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✗ suite test-teams.bash: (the suite itself changed) — could not run (exit 2)\n✗ qa-changed FAILED: suite test-teams.bash\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/test-teams.bash\ncheck shellcheck: scripts/test-teams.bash\ncheck shell-directives: scripts/test-teams.bash\ncheck semgrep: scripts/test-teams.bash\ncheck bash-limits\nsuite scripts/test-teams.bash: the suite itself changed\n✓ toolchain: QA tool versions match .qa-versions\n✓ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✗ suite test-teams.bash: (the suite itself changed) — could not run (exit 2)\n✗ qa-changed FAILED: suite test-teams.bash\n",
  "stderr": "the suite exited 0 but counted 0 passed cases ('passed: 0'), so it proved nothing\npassed: 0 failed: 0\n",
  "status": 2,
  "log": [
   "gate:qa-toolchain.bash json=",
   "shellcheck --norc --external-sources --severity=warning scripts/test-teams.bash",
+  "gate:qa-bash.bash json=",
   "semgrep --config \u003cROOT\u003e/.semgrep/bash-conventions.yml --json-output \u003cJSON\u003e --metrics=off --quiet . | mirror: ./scripts/test-teams.bash ",
   "gate:qa-bash-limits.bash json=",
   "suite:test-teams.bash"

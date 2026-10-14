@@ -1,10 +1,11 @@
 {
- "stdout": "plan: 2 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: tools/run.sh\ncheck shellcheck: tools/run.sh\ncheck semgrep: tools/run.sh\ncheck ruff: helpers/pkg/mod.py\ncheck unit-tests: tests.helpers.pkg.test_mod\ncheck bash-limits\nsuite scripts/test-alpha.bash: names tools/run.sh\n✓ toolchain: QA tool versions match .qa-versions\n✓ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ruff: 1 file(s)\n✓ unit-tests: 1 module(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ suite test-alpha.bash: passed: 3 (names tools/run.sh)\n✓ qa-changed passed: 2 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stdout": "plan: 2 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: tools/run.sh\ncheck shellcheck: tools/run.sh\ncheck shell-directives: tools/run.sh\ncheck semgrep: tools/run.sh\ncheck ruff: helpers/pkg/mod.py\ncheck unit-tests: tests.helpers.pkg.test_mod\ncheck bash-limits\nsuite scripts/test-alpha.bash: names tools/run.sh\n✓ toolchain: QA tool versions match .qa-versions\n✓ bash-syntax: 1 file(s)\n✓ shellcheck: 1 file(s)\n✓ shell-directives: 1 file(s)\n✓ semgrep: 1 file(s)\n✓ ruff: 1 file(s)\n✓ unit-tests: 1 module(s)\n✓ bash-limits: whole gate (tooling is Go; allowlist ratchet)\n✓ suite test-alpha.bash: passed: 3 (names tools/run.sh)\n✓ qa-changed passed: 2 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
  "stderr": "",
  "status": 0,
  "log": [
   "gate:qa-toolchain.bash json=",
   "shellcheck --norc --external-sources --severity=warning tools/run.sh",
+  "gate:qa-bash.bash json=",
   "semgrep --config \u003cROOT\u003e/.semgrep/bash-conventions.yml --json-output \u003cJSON\u003e --metrics=off --quiet . | mirror: ./tools/run.sh ",
   "ruff check --config \u003cROOT\u003e/ruff.toml --no-cache helpers/pkg/mod.py",
   "python3 -m unittest tests.helpers.pkg.test_mod | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1",

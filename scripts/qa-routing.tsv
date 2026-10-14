@@ -50,6 +50,8 @@ also	scripts/qa-python.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,.qa-ve
 # The shell gate runs whole when its tool, the shared discovery, its wrapper or the table of excluded trees change.
 also	src-go/qa/bash/*,src-go/qa/cmd/qa-bash/*,src-go/qa/discovery/*	bash	-
 also	scripts/qa-bash.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	bash	-
+# The suppression ratchet is judged whole by the shell gate when it changes.
+also	scripts/shellcheck-disable.allowlist	bash	covered
 # The discovery wrapper and the table reader it sources are run by the Go tests, over a real work tree.
 also	scripts/qa-discovery.bash,scripts/lib/qa-trees.bash	go	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
@@ -74,7 +76,7 @@ first	*.yml,*.yaml	@yaml	tree:shell
 # A template is not valid shell or Python until rendered; only a suite naming it covers it.
 first	*.j2	-	-
 first	@py	ruff,unit-tests	covered,tree:python
-first	@sh	bash-syntax,shellcheck,semgrep	covered,tree:shell
+first	@sh	bash-syntax,shellcheck,shell-directives,semgrep	covered,tree:shell
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-

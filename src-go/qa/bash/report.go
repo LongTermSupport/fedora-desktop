@@ -58,7 +58,7 @@ func byPlace(a, b diagnostic) int {
 }
 
 // finish prints the findings and the verdict and writes the report.
-func (g *gate) finish(files []string, syntax map[string]string, diagnostics []diagnostic) (ExitCode, error) {
+func (g *gate) finish(files []string, syntax map[string]string, diagnostics []diagnostic, hidden []dfinding) (ExitCode, error) {
 	var gating []diagnostic
 	for _, d := range diagnostics {
 		if d.gating() {
@@ -71,16 +71,29 @@ func (g *gate) finish(files []string, syntax map[string]string, diagnostics []di
 		byFile[d.file] = append(byFile[d.file], d)
 	}
 	rep := machineReport{Type: typeBash, Status: statusPass, Results: []entry{}, Failures: []entry{}, Diagnostics: []map[string]json.RawMessage{}}
+	hiddenBy := map[string][]dfinding{}
+	for _, f := range hidden {
+		hiddenBy[f.file] = append(hiddenBy[f.file], f)
+	}
 	for _, rel := range files {
 		if msg := syntax[rel]; msg != "" {
 			fmt.Fprintf(&g.stdout, "✗ bash: %s: %s\n", rel, msg)
 		}
-		rep.Results = append(rep.Results, judge(rel, syntax[rel], byFile[rel]))
+		rep.Results = append(rep.Results, judge(rel, syntax[rel], byFile[rel], hiddenBy[rel]))
+		delete(hiddenBy, rel)
 	}
+	// A finding about a path that is not a gated file (a stale record) is its own entry.
+	for rel, found := range hiddenBy {
+		rep.Results = append(rep.Results, judge(rel, "", nil, found))
+	}
+	slices.SortStableFunc(rep.Results, func(a, b entry) int { return strings.Compare(a.File, b.File) })
 	for _, d := range diagnostics {
 		rep.Diagnostics = append(rep.Diagnostics, d.raw)
 	}
 	g.sayShellcheck(len(diagnostics), gating)
+	for _, f := range hidden {
+		fmt.Fprintln(&g.stdout, f.text())
+	}
 	for _, r := range rep.Results {
 		if r.Status == statusFail {
 			rep.Failures = append(rep.Failures, r)
@@ -94,10 +107,10 @@ func (g *gate) finish(files []string, syntax map[string]string, diagnostics []di
 		return ExitCannotRun, err
 	}
 	if rep.Status == statusPass {
-		fmt.Fprintf(&g.stdout, "✓ bash: %d files OK\n", len(files))
+		fmt.Fprintf(&g.stdout, "✓ bash: %d files OK\n", len(rep.Results))
 		return ExitOK, nil
 	}
-	fmt.Fprintf(&g.stdout, "✗ bash: %d/%d files failed → %s\n", len(rep.Failures), len(files), g.report)
+	fmt.Fprintf(&g.stdout, "✗ bash: %d/%d files failed → %s\n", len(rep.Failures), len(rep.Results), g.report)
 	return ExitFailed, nil
 }
 
@@ -117,13 +130,16 @@ func (g *gate) sayShellcheck(total int, gating []diagnostic) {
 
 // judge is the result for one file: failed when it does not parse or has a gating finding, its
 // error being the syntax message and then the findings (already in place order).
-func judge(rel, syntaxErr string, findings []diagnostic) entry {
+func judge(rel, syntaxErr string, findings []diagnostic, hidden []dfinding) entry {
 	var parts []string
 	if syntaxErr != "" {
 		parts = append(parts, syntaxErr)
 	}
 	for _, d := range findings {
 		parts = append(parts, fmt.Sprintf("SC%d:%d (%s) %s", d.code, d.line, d.level, d.text))
+	}
+	for _, f := range hidden {
+		parts = append(parts, f.errorPart())
 	}
 	r := entry{File: rel, Type: typeBash, Status: statusPass}
 	if len(parts) > 0 {

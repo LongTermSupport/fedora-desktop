@@ -1,0 +1,21 @@
+# Ratchet allowlist for shellcheck suppression (scripts/qa-bash.bash, QA.md "Suppression").
+#
+# Every gated shell file that still holds a `# shellcheck disable=` directive: how many
+# disable directives it may hold and which codes they name. A file may lose directives; it may
+# never gain one or a new code, and a file not listed may hold none. `disable=all` is never
+# allowable, listed or not, and a `shell=` that contradicts a shebang is never allowable.
+# Lower a record by hand when a directive is removed (the gate fails on a record above what the
+# file holds); the gate compares this file with the merge-base with the default branch and
+# fails on an entry added or a count or code raised.
+#
+# path <TAB> directives <TAB> codes (sorted, comma-separated)
+.claude/init.sh	5	SC1090,SC1091,SC2064,SC2317
+CLAUDE/Plan/00055-container-process-watchdog/acceptance.bash	4	SC2016,SC2086,SC2317
+CLAUDE/Plan/Completed/00138-bash-history-and-ctrl-r/acceptance.bash	1	SC2016
+CLAUDE/Plan/Completed/00138-bash-history-and-ctrl-r/probe-history.bash	1	SC2016
+files/etc/profile.d/zz_lts-fedora-desktop.bash	1	SC2086
+files/home/.local/bin/rdt	1	SC1090
+files/var/local/claude-yolo/lib/common.bash	1	SC2254
+files/var/local/claude-yolo/lib/token-management.bash	4	SC2153,SC2317
+run.bash	2	SC2001,SC2016
+scripts/test-ccy-teams.bash	1	SC2086

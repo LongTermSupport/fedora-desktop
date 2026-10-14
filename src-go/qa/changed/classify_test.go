@@ -85,7 +85,7 @@ func TestShellFileGetsTheShellChecks(t *testing.T) {
 	w := newWorld(t)
 	w.touch("scripts/qa-bash.bash", "#!/usr/bin/bash")
 	p := w.classify([]string{"scripts/qa-bash.bash"})
-	for _, id := range []string{"bash-syntax", "shellcheck", "semgrep"} {
+	for _, id := range []string{"bash-syntax", "shellcheck", "shell-directives", "semgrep"} {
 		if !reflect.DeepEqual(p.items(id), []string{"scripts/qa-bash.bash"}) {
 			t.Errorf("%s: %v", id, p.items(id))
 		}
@@ -381,7 +381,7 @@ func TestDeletedFilesOweOnlyTheWholeGates(t *testing.T) {
 	if !p.has("bash-limits") || !p.has("go") || !p.has("docs") {
 		t.Fatalf("whole gates: %v", keys(p))
 	}
-	for _, id := range []string{"bash-syntax", "shellcheck", "semgrep", "ruff", "toolchain", "ansible-syntax", "ansible-patterns"} {
+	for _, id := range []string{"bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "toolchain", "ansible-syntax", "ansible-patterns"} {
 		if p.has(id) {
 			t.Errorf("a deleted file has nothing for %s", id)
 		}

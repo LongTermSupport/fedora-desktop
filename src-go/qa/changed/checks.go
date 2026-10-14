@@ -61,6 +61,7 @@ var checkDefs = []checkDef{
 	{id: "toolchain", fixed: "QA tool versions match .qa-versions", gate: true, tools: []string{toolBash}, run: runToolchain},
 	{id: "bash-syntax", listed: true, noun: nounFiles, tools: []string{toolBash}, run: runBashSyntax},
 	{id: "shellcheck", listed: true, noun: nounFiles, tools: []string{toolShellcheck}, run: runShellcheck},
+	{id: "shell-directives", listed: true, noun: nounFiles, tools: []string{toolBash, toolGo}, run: runShellDirectives},
 	{id: "semgrep", listed: true, noun: nounFiles, tools: []string{toolSemgrep}, run: runSemgrep},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
@@ -144,6 +145,12 @@ func runPatterns(ctx context.Context, s *session, _ *checkPlan) (checkResult, er
 
 func runBash(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.gateWithReport(ctx, "qa-bash.bash")
+}
+
+// runShellDirectives gives the changed shell files the suppression verdict the shell gate gives
+// them (SPEC-qa-bash.md S20): the gate's own --directives mode, one process for all of them.
+func runShellDirectives(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	return s.exec(ctx, nil, append([]string{toolBash, filepath.Join(s.scripts, "qa-bash.bash"), "--directives"}, cp.items...)...)
 }
 
 func runPython(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

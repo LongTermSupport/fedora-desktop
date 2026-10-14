@@ -154,6 +154,13 @@ type fakeRun struct {
 	// lint is shellcheck's answer to a lint run, given the files it was given.
 	lint func(files []string) proc.Result
 
+	// baseList is the suppression allowlist as committed at the merge-base (nil: the base has
+	// none); noOriginHead makes origin's default branch unknown.
+	baseList     *string
+	noOriginHead bool
+	// syntaxTimesOut makes every bash -n run out of time.
+	syntaxTimesOut bool
+
 	calls []proc.Cmd
 }
 
@@ -175,6 +182,23 @@ func (f *fakeRun) git(c proc.Cmd) (proc.Result, error) {
 		return proc.Result{Code: f.gitFails, Stderr: "fatal: not a git repository\n"}, nil
 	}
 	switch {
+	case c.Argv[1] == "symbolic-ref":
+		if f.noOriginHead {
+			return proc.Result{Code: 1}, nil
+		}
+		return proc.Result{Stdout: "refs/remotes/origin/F44\n"}, nil
+	case c.Argv[1] == "merge-base":
+		return proc.Result{Stdout: "base0\n"}, nil
+	case c.Argv[1] == "ls-tree":
+		if f.baseList == nil {
+			return proc.Result{}, nil
+		}
+		return proc.Result{Stdout: c.Argv[len(c.Argv)-1] + "\n"}, nil
+	case c.Argv[1] == "show":
+		if f.baseList == nil {
+			return proc.Result{Code: 128, Stderr: "fatal: path does not exist\n"}, nil
+		}
+		return proc.Result{Stdout: *f.baseList}, nil
 	case slices.Contains(c.Argv, "--deleted"):
 		return proc.Result{}, nil
 	case !slices.Contains(c.Argv, "--others") && f.tracked != nil:
@@ -196,6 +220,9 @@ func (f *fakeRun) bash(c proc.Cmd) (proc.Result, error) {
 		return proc.Result{}, errors.New("bash not run as bash -n -- FILE")
 	}
 	file := c.Argv[3]
+	if f.syntaxTimesOut {
+		return proc.Result{TimedOut: true, Code: -1}, nil
+	}
 	data, err := os.ReadFile(filepath.Join(c.Dir, file))
 	if err != nil {
 		f.w.t.Fatalf("bash -n was given a file it cannot read from %q: %v", c.Dir, err)

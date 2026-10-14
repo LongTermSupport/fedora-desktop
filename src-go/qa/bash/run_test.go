@@ -271,6 +271,39 @@ func TestShellcheckStatusAndOutputAreChecked(t *testing.T) {
 	mustContain(t, "stderr", w.main().stderr, "ERROR: shellcheck invocation failed (status 2):", "boom")
 }
 
+// S8a: the one shellcheck process has fifteen minutes for all files, and a timeout is named as one.
+func TestAShellcheckTimeoutNamesTheLimit(t *testing.T) {
+	w := newWorld(t, nil)
+	w.run.lint = func([]string) proc.Result { return proc.Result{TimedOut: true, Code: -1} }
+	got := w.main()
+	expect(t, got, ExitCannotRun)
+	if !strings.Contains(got.stderr, "ERROR: shellcheck did not finish within 15m0s") {
+		t.Fatalf("stderr %q", got.stderr)
+	}
+	w.noReport()
+}
+
+// S8a: each bash -n has one minute.
+func TestABashSyntaxTimeoutNamesTheFileAndTheLimit(t *testing.T) {
+	w := newWorld(t, nil)
+	w.run.syntaxTimesOut = true
+	got := w.main()
+	expect(t, got, ExitCannotRun)
+	mustContain(t, "stderr", got.stderr, "ERROR: bash -n tool.bash: bash did not finish within 1m0s")
+	w.noReport()
+}
+
+// S10: stdout that decodes without error but is not an array of findings is refused: null decodes
+// to an empty list, so the leading bracket check is not redundant.
+func TestShellcheckNullOutputIsNotAnArray(t *testing.T) {
+	w := newWorld(t, nil)
+	w.run.lint = func([]string) proc.Result { return proc.Result{Stdout: "null\n"} }
+	got := w.main()
+	expect(t, got, ExitCannotRun)
+	mustContain(t, "stderr", got.stderr, "ERROR: shellcheck did not print a JSON array of findings")
+	w.noReport()
+}
+
 // S10: a path under the root is made relative, and every field survives.
 func TestDiagnosticsKeepTheirFieldsAndGetRelativePaths(t *testing.T) {
 	w := newWorld(t, nil)

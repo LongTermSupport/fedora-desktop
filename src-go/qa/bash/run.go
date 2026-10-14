@@ -38,6 +38,9 @@ const (
 	flagScripts = "--scripts"
 )
 
+// flagDirectives takes every argument after it as a file.
+const flagDirectives = "--directives"
+
 // Timeouts bound each process.
 const (
 	probeTimeout  = time.Minute
@@ -58,13 +61,15 @@ type Env struct {
 	WriteFile func(path string, data []byte) error
 }
 
-const usageText = `usage: qa-bash [--root DIR] [--scripts DIR]
+const usageText = `usage: qa-bash [--root DIR] [--scripts DIR] [--directives FILE...]
 
 Checks every shell script git would publish (tracked, or untracked and not ignored): it must
-parse (bash -n) and have no shellcheck finding of level error or warning.
+parse (bash -n), have no shellcheck finding of level error or warning, and hide none behind a
+shellcheck directive that scripts/shellcheck-disable.allowlist does not record.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
+  --directives    only the directive check, over the files that follow (root-relative)
   -h, --help      this text
 
 QA_JSON_OUT       where the machine report goes (default /tmp/qa-bash-results.json).
@@ -79,6 +84,9 @@ type options struct {
 	help    bool
 	root    string
 	scripts string
+	// directives is --directives: only the suppression scan, over files (SPEC-qa-bash.md S20).
+	directives bool
+	files      []string
 }
 
 // parseArgs reads the command line; anything unknown is a usage error.
@@ -88,6 +96,12 @@ func parseArgs(args []string) (options, error) {
 		switch arg := args[i]; arg {
 		case "-h", "--help":
 			opts.help = true
+		case flagDirectives:
+			opts.directives, opts.files = true, args[i+1:]
+			if len(opts.files) == 0 {
+				return opts, fmt.Errorf("%s needs at least one file", flagDirectives)
+			}
+			return opts, nil
 		case flagRoot, flagScripts:
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("%s needs a value", arg)
@@ -156,7 +170,12 @@ func Main(args []string, env Env) ExitCode {
 	g.script = opts.scriptsDir(g.root)
 	g.report = orDefault(env.Getenv("QA_JSON_OUT"), defaultReportPath)
 	g.merged = orDefault(env.Getenv("QA_RESULTS_JSON"), defaultMergedPath)
-	verdict, err := g.run()
+	var verdict ExitCode
+	if opts.directives {
+		verdict, err = g.runDirectives(context.Background(), opts.files)
+	} else {
+		verdict, err = g.run()
+	}
 	if err != nil {
 		return fail(env, err, false)
 	}
@@ -205,6 +224,10 @@ func (g *gate) run() (ExitCode, error) {
 	if err != nil {
 		return ExitCannotRun, err
 	}
+	hidden, err := g.directiveFindings(ctx, files, true)
+	if err != nil {
+		return ExitCannotRun, err
+	}
 	syntax, err := g.syntax(ctx, files)
 	if err != nil {
 		return ExitCannotRun, err
@@ -213,7 +236,7 @@ func (g *gate) run() (ExitCode, error) {
 	if err != nil {
 		return ExitCannotRun, err
 	}
-	return g.finish(files, syntax, diagnostics)
+	return g.finish(files, syntax, diagnostics, hidden)
 }
 
 // runTool runs one process with a time limit. A command that could not start or timed out is an

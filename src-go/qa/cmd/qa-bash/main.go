@@ -55,7 +55,14 @@ func stdoutWasClosed() bool {
 	return errno == 0 && int(flags)&syscall.O_ACCMODE == syscall.O_RDWR
 }
 
-// writeReport writes the machine report where the caller said.
+// reportMode is the report's mode: readable by other accounts, as the bash's umask made it.
+const reportMode = 0o644
+
+// writeReport writes the machine report where the caller said. The mode is set after the write
+// so the umask, and an older file's mode, cannot change it.
 func writeReport(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, reportMode); err != nil {
+		return err
+	}
+	return os.Chmod(path, reportMode)
 }

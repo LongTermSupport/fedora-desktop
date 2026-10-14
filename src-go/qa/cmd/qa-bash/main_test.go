@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/bash"
@@ -32,6 +33,23 @@ func TestWriteReportWritesTheFile(t *testing.T) {
 	}
 	if err := writeReport(filepath.Join(t.TempDir(), "no", "r.json"), nil); err == nil {
 		t.Fatal("a report in a missing directory was written")
+	}
+}
+
+// S2: the report is readable by other accounts, whatever the umask.
+func TestTheReportHasMode0644(t *testing.T) {
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	path := filepath.Join(t.TempDir(), "r.json")
+	if err := writeReport(path, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode %v, want 0644", info.Mode().Perm())
 	}
 }
 
