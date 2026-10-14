@@ -139,8 +139,8 @@ func TestPrintfKeepsFirstWriteError(t *testing.T) {
 	tm := &Term{Err: failWriter{}, IsTerminal: func(any) bool { return false }, Getenv: func(string) string { return "" }}
 	tm.Say("a")
 	tm.Say("b")
-	if tm.WriteErr == nil || tm.WriteErr.Error() != "broken pipe" {
-		t.Errorf("got %v", tm.WriteErr)
+	if tm.WriteFailed() == nil || tm.WriteFailed().Error() != "broken pipe" {
+		t.Errorf("got %v", tm.WriteFailed())
 	}
 }
 

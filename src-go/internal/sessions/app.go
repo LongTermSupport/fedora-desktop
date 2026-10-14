@@ -151,7 +151,8 @@ type App struct {
 	Executable  func(path string) bool
 	Getuid      func() int
 
-	cfg Config
+	cfg      Config
+	writeErr error // the first failed write to Stdout through out
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
@@ -161,9 +162,14 @@ func NewApp() *App {
 	return a
 }
 
-// Run dispatches args (without the program name) and returns the exit code.
+// Run dispatches args (without the program name) and returns the exit code. Output that could
+// not be written turns a success into a failure.
 func (a *App) Run(args []string) int {
 	a.wire()
+	return a.Term.Finish(a.run(args), a.writeErr)
+}
+
+func (a *App) run(args []string) int {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -315,10 +321,10 @@ func (a *App) usageError(msg string) int {
 }
 
 // out writes to stdout, the tool's payload: the help text, the table and the verify report.
-// A failed write there has nowhere better to be reported.
+// The first failed write is kept and Run turns it into a failure exit.
 func (a *App) out(s string) {
-	if _, err := io.WriteString(a.Stdout, s); err != nil {
-		return
+	if _, err := io.WriteString(a.Stdout, s); err != nil && a.writeErr == nil {
+		a.writeErr = err
 	}
 }
 
