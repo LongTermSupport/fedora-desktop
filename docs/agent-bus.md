@@ -398,7 +398,10 @@ seat's role is changed with `set-role`, the handle read from `agent-bus seat lis
 - `sudo agent-bus set-role <team> <handle> --role=coordinator` changes a role; a second
   coordinator is refused, naming the holder, so the current one is first set back to
   `worker`. `ccy-teams` does the same from a seat's menu, and bare `ccy --teams` offers it
-  after the seat is chosen.
+  after the seat is chosen. The command takes `coordinator` or `worker` only; a stored file
+  that says `orchestrator` still reads as coordinator. A member declared in
+  `agent_bus_lxc_members` has the role its entry says (`worker` by default), which the play
+  sets again on each run: give the entry `role: coordinator` for an LXC member to stay one.
 - `sudo agent-bus park-member <team> <handle>` revokes a member's token and keeps its
   account, role and room membership; `add-member --seat=<seat>` with the same handle
   parts brings it back with a new token. `agent-bus seat remove <seat>@<team>` parks a ccy seat this way.

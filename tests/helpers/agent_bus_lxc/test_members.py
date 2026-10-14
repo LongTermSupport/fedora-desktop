@@ -245,6 +245,26 @@ class ParseMembersTest(unittest.TestCase):
         (member,) = members.parse_members([entry(role="orchestrator")])
         self.assertEqual(member.role, "coordinator")
 
+    def test_two_coordinators_in_one_team_are_refused_before_anything_runs(self) -> None:
+        with self.assertRaisesRegex(members.MemberError, "entries 1 and 2 both declare the coordinator of team"):
+            members.parse_members([entry(container="box-a", role="coordinator"),
+                                   entry(container="box-b", role="coordinator")])
+
+    def test_one_coordinator_per_team_is_fine_and_an_absent_one_does_not_count(self) -> None:
+        found = members.parse_members([
+            entry(container="box-a", role="coordinator"),
+            entry(container="box-b", role="coordinator", team="team-b"),
+            entry(container="box-c", role="coordinator", state="absent"),
+        ])
+        self.assertEqual(len(found), 3)
+
+    def test_workers_join_before_a_coordinator_so_a_handover_works_in_any_list_order(self) -> None:
+        new, old = (entry(container="box-new", role="coordinator"), entry(container="box-old", role="worker"))
+        ordered = members.coordinators_last(members.parse_members([new, old]))
+        self.assertEqual([m.container for m in ordered], ["box-old", "box-new"])
+        same = members.coordinators_last(members.parse_members([old, new]))
+        self.assertEqual([m.container for m in same], ["box-old", "box-new"])
+
     def test_absent_needs_checkout_or_repo(self) -> None:
         (member,) = members.parse_members([entry(state="absent", checkout=None, repo="proj")])
         self.assertIsNone(member.checkout)

@@ -16,7 +16,7 @@
 # `gh auth login --with-token` on stdin, and it goes with the member at teardown.
 #
 # M1 CHECKS, in DESIGN.md section 12's U17 row (each step in _acceptance-steps.inc.bash):
-#   M1.1 a (orchestrator) sends `review` (a path reference) to b (worker); b's `wait` prints
+#   M1.1 a (coordinator) sends `review` (a path reference) to b (worker); b's `wait` prints
 #        exactly that PING; b's `ack --re` it reaches a's `recv`;
 #   M1.2 the human, by curl, posts an m.text mentioning a only: a's `recv` prints exactly
 #        that HUMAN line, b's prints nothing of it;
@@ -43,7 +43,7 @@
 # M2 CHECKS, U20's row (_acceptance-u20.inc.bash): real ccy sessions in THIS checkout, run
 # headless with stream-json input so each sits idle between turns, each launched with
 # `ccy --teams <seat>@acceptance` onto a seat its first launch creates: acca (made
-# orchestrator), accb and accc (workers). No checkout or owner setup step. Judged on room
+# coordinator), accb and accc (workers). No checkout or owner setup step. Judged on room
 # events, `agent-bus seat list`, `sudo agent-bus list`, each seat's `pingbus status`, the
 # containers' labels and the sessions' transcripts (found by session ID), never on what the
 # model says.
@@ -261,7 +261,7 @@ plan_deploy_leg "the references the pings carry" resolve_reference
 plan_deploy_leg "the desktop user's gh login for github.com, lent to the members for the run" read_gh_login
 plan_deploy_leg "write the ${TEAM} team file" write_acceptance_team_file
 plan_deploy_leg "agent-bus-install team ${TEAM}" install_team team
-plan_deploy_leg "agent-bus add-member: a (orchestrator) and b (worker)" add_members
+plan_deploy_leg "agent-bus add-member: a (coordinator) and b (worker)" add_members
 plan_deploy_leg "members take their bundles, pass config check and join the team room" place_members
 check_leg "M1.1 review sent, received by wait, acked" check_review_ack
 check_leg "M1.2 a human message reaches only the member it mentions" check_human_addressed
@@ -272,7 +272,7 @@ check_leg "M1.7 a member's createRoom is refused (403 M_FORBIDDEN): the team roo
 check_leg "M1.4 an agent text reaches the member it names as PEER, not one it does not" check_peer_text
 check_leg "M1.3 TIMEOUT for an unanswered review, none for the acked one" check_timeout
 plan_deploy_leg "U20: record this checkout and the ${TEAM} members before M2.0" u20_record
-plan_deploy_leg "U20: ccy --teams acca@${TEAM}, accb@${TEAM}, accc@${TEAM} launched in turn; acca made orchestrator" u20_launch_seats
+plan_deploy_leg "U20: ccy --teams acca@${TEAM}, accb@${TEAM}, accc@${TEAM} launched in turn; acca made coordinator" u20_launch_seats
 check_leg "M2.0 each launch created its seat: the owner's, git-ignored, a new member with the checkout's host, held" u20_check_seats_created
 check_leg "M2.0b a seat's agent forwards exactly one key: lists it, refuses changes, signs with it" u20_check_one_key
 plan_deploy_leg "U20: each session given its orders, idle with a watcher" u20_give_orders

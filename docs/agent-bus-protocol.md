@@ -767,7 +767,7 @@ sender is an agent handle, never a human. Examples:
 
 ```
 PING	1	<team>	$AbC…	orch.1+workstation.podman	review	pr:example-org/myrepo#12@0123…	-	trusted	-	-
-PING	1	<team>	$MnO…	orch.1+workstation.podman	done	issue:someone/project#7	-	external	-	copy:alice
+PING	1	<team>	$MnO…	myrepo.2+workstation.podman	done	issue:someone/project#7	-	external	-	copy:alice
 HUMAN	1	<team>	$DeF…	alice	1791234567890	"please halt and commit what you have"
 PEER	1	<team>	$JkL…	orch.1+workstation.podman	1791234567950	"I am on the docs; the tests are yours"	-
 PEER	1	<team>	$PqR…	myrepo.2+workstation.podman	1791234568100	"the docs are merged"	copy:alice

@@ -14,7 +14,7 @@
 # add-member`), so sudo's credential is refreshed first. No --token or --ssh-key: ccy's
 # headless Quick Launch takes this checkout's saved choices (D38, D57), and the harness reads
 # only the saved token's name, to scrub its value from the evidence afterwards. Three seats:
-# acca (made orchestrator by `set-role`), accb and accc (workers). Later sessions: accb again
+# acca (made coordinator by `set-role`), accb and accc (workers). Later sessions: accb again
 # (M2.7), accc after `seat remove` (M2.8), and a plain `ccy` (M2.9). Every container is found by
 # its `ccy-seats` label, never by the project label the owner's own sessions carry too.
 #
@@ -31,7 +31,7 @@
 #
 # Reads acceptance.bash's globals (TEAM, HUMAN, CHECK, AGENT_BUS, PINGBUS, REPORT, TEAM_PRESENT,
 # PLAN_*), and the M1 slice's: REF_PATH, REF_COMMIT, REF_BRANCH, A_HANDLE (M1's member a, the host
-# orchestrator the harness sends from), SERVER_NAME, ROOM_PATH, BASE_URL, SENT_ID, HUMAN_TOKEN,
+# coordinator the harness sends from), SERVER_NAME, ROOM_PATH, BASE_URL, SENT_ID, HUMAN_TOKEN,
 # and its functions send_ping, human_login, human_logout, human_curl, evidence.
 
 readonly CCY_LAUNCHER="/var/local/claude-yolo/claude-yolo"
@@ -497,7 +497,7 @@ u20_stdin_lines() {
 # ── M2.0: three sessions, their seats created by their launches ──────────────────────────
 
 # u20_launch_seats — acca, accb and accc launched one after another (no two create a seat at
-# the same moment), each running before the next starts; then acca made the orchestrator.
+# the same moment), each running before the next starts; then acca made the coordinator.
 u20_launch_seats() {
     local seat
     u20_refresh_sudo || return 1
@@ -510,7 +510,7 @@ u20_launch_seats() {
         U20_UID[${seat}]="@${U20_HANDLE[${seat}]}:${SERVER_NAME}"
         printf '==> seat %s@%s: %s\n' "${seat}" "${TEAM}" "${U20_HANDLE[${seat}]}"
     done
-    sudo -n "${AGENT_BUS}" set-role "${TEAM}" "${U20_HANDLE[acca]}" --role orchestrator || return 1
+    sudo -n "${AGENT_BUS}" set-role "${TEAM}" "${U20_HANDLE[acca]}" --role coordinator || return 1
 }
 
 # M2.0 — ccy.env.local unchanged; each seat's directory the owner's own (0700, files 0600) and
@@ -534,7 +534,7 @@ u20_check_seats_created() {
     done
     u20_member_list "$(u20_ev members-launched)" || return 1
     "${U20[@]}" expect-new-members "$(u20_ev members-before)" "$(u20_ev members-launched)" \
-        "${U20_HANDLE[acca]}=orchestrator,${U20_HANDLE[accb]}=worker,${U20_HANDLE[accc]}=worker" || return 1
+        "${U20_HANDLE[acca]}=coordinator,${U20_HANDLE[accb]}=worker,${U20_HANDLE[accc]}=worker" || return 1
     "${U20[@]}" expect-seats "$(u20_ev seats-launched)" "${TEAM}" held acca,accb,accc || return 1
     evidence "M2.0 seats acca, accb and accc created by their launches (handles ${U20_HANDLE[acca]}, ${U20_HANDLE[accb]}, ${U20_HANDLE[accc]}; host ${host}), held, git-ignored, 0700/0600; ccy.env.local unchanged: u20/seats-launched, u20/members-launched"
 }

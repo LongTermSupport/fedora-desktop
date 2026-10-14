@@ -362,6 +362,7 @@ def parse_members(data: object) -> tuple[Member, ...]:
     entries: dict[tuple[str, str, str], int] = {}
     hosts: dict[tuple[str, str], str] = {}
     seats: dict[tuple[str, str, str], str] = {}
+    coordinators: dict[str, int] = {}
     for position, member in enumerate(found, start=1):
         key = (member.container, member.user, member.team)
         if key in entries:
@@ -374,7 +375,18 @@ def parse_members(data: object) -> tuple[Member, ...]:
         if seats.setdefault((member.team, member.host, member.seat), member.container) != member.container:
             raise MemberError(f"agent_bus_lxc_members gives seat {member.seat} of team {member.team} "
                               f"to two containers; set seat on one")
+        if member.state == "present" and member.role == protocol.ROLE_COORDINATOR:
+            if coordinators.setdefault(member.team, position) != position:
+                raise MemberError(f"agent_bus_lxc_members entries {coordinators[member.team]} and {position} "
+                                  f"both declare the coordinator of team {member.team}; a team has one")
     return found
+
+
+def coordinators_last(members: Sequence[Member]) -> list[Member]:
+    """The entries with each coordinator after every worker (order otherwise kept), so handing
+    the role from one member to another demotes the old holder before the new one is made, whichever
+    way round the entries are listed: a team has one coordinator at a time."""
+    return sorted(members, key=lambda member: member.role == protocol.ROLE_COORDINATOR)
 
 
 # ── the decisions (pure) ─────────────────────────────────────────────────────────────────
@@ -700,7 +712,7 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
     _check_teams(members, teams_present, host)
     bus = host.bus_address()
     ready = []
-    for (container, user), group in _groups(members).items():
+    for (container, user), group in _groups(coordinators_last(members)).items():
         guest = _guest_running(host, container)
         home = _home(guest, group[0])
         _check_gh(guest, group[0], home)

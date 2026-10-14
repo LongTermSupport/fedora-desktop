@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.1 — container 2.55
+
+- **The member kit carries the coordinator role.** `pingbus` takes `--to-coordinator` on `send`
+  and `say`, copies the team's coordinator on what a worker tells a human, and says at session
+  start which role the agent has and who the coordinator is; the skill gives role guidance. The
+  kit is in the image, so the container version moves to 2.55 and the image is rebuilt once.
+
 ## 3.97.0 — container 2.54
 
 - **`ccy --teams` offers the seat's role.** With a team alone (or a bare `--teams`) the seat
@@ -25,8 +32,7 @@ Two version numbers move independently — see
   worker) or stop it being one; sudo runs only when the role changes. A seat that is new joins
   as a worker. The role lives in the team record, so Quick Launch, which reuses the saved seat,
   brings it back, and its summary now names the team's seats with their roles
-  (`ccy-teams describe-seats`). The bash chooser in `lib/agent-bus-seats.bash` is gone. The
-  image is unchanged.
+  (`ccy-teams describe-seats`). The bash chooser in `lib/agent-bus-seats.bash` is gone.
 
 ## 3.96.2 — container 2.54
 
