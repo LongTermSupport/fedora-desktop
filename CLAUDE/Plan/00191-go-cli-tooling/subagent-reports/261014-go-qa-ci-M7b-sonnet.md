@@ -20,3 +20,12 @@ namespace test accepts `gqaci_`. depguard allow-list gained go/types and go/cons
 allow-list entry, not a suppression). Config is via flags / `sensitiveformat.New`; no
 qa/go-qa.toml key yet (recorded gap). Not followed: interface-typed and type-parameter operands,
 verbs other than v/s/w.
+
+## Fix round after verifier rejection (commit 2884524)
+
+- Redaction is now decided per sink (exposure.go `sink`): fmt/log %v %+v %s %w and Print-style = String, Error or Format; %#v = GoString or Format; slog = LogValue or Error (slog never calls String; a JSON handler marshals fields). `-redacting` redacts everywhere.
+- slog resolves only the top-level value, so nested fields are not treated as honoured under slog; fmt still honours exported nested fields.
+- verbs.go now records the `#` flag (`verb{letter, sharp}`) so %#v is its own sink.
+- Red fixture gained LogValue-only/GoString-only/String-only leaks (fmt, %#v, slog, wrapped); clean fixture now only prints each partial type to the sink it redacts; Credentials has String+GoString+LogValue.
+- Rule page and analyzer Doc rewritten with the per-sink table and the corrected correct construction.
+- Gates: gofmt, go vet, go test -race ./..., golangci-lint 0 issues.
