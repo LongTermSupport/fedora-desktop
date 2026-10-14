@@ -89,9 +89,25 @@ type Team struct {
 // Status is a STATUS line: whether a team is applied as declared.
 type Status struct {
 	Team   string
-	State  string // current, outdated, unbuilt, removed, decide, unreadable
+	State  ApplyState
 	Detail string // empty when declare printed "-"
 }
+
+// ApplyState is a team's applied state, the word declare.py status prints for it. A word this
+// build does not know is kept as it came, so it can be reported as unknown, not lost.
+type ApplyState string
+
+// The applied states declare.py status reports.
+const (
+	// ApplyAbsent is a team declare did not report on (the zero Status).
+	ApplyAbsent     ApplyState = ""
+	ApplyCurrent    ApplyState = "current"
+	ApplyOutdated   ApplyState = "outdated"
+	ApplyUnbuilt    ApplyState = "unbuilt"
+	ApplyRemoved    ApplyState = "removed"
+	ApplyDecide     ApplyState = "decide"
+	ApplyUnreadable ApplyState = "unreadable"
+)
 
 // Limit is a LIMITED line: a team still limited to some folders.
 type Limit struct {
@@ -196,7 +212,7 @@ func (c *Client) Status(ctx context.Context, source, appliedDir string, installe
 	}
 	states := make([]Status, 0, len(rows))
 	for _, f := range rows {
-		states = append(states, Status{Team: f[1], State: f[2], Detail: marker.DashEmpty(f[3])})
+		states = append(states, Status{Team: f[1], State: ApplyState(f[2]), Detail: marker.DashEmpty(f[3])})
 	}
 	return states, nil
 }
@@ -333,8 +349,8 @@ func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, e
 }
 
 func (c *Client) run(ctx context.Context, sub string, args ...string) (string, error) {
-	argv := slices.Concat([]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)
-	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: argv})
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: slices.Concat(
+		[]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)})
 	if err != nil {
 		if exit, ok := errors.AsType[*execx.ExitError](err); ok {
 			return "", &Error{Code: exit.Code, Stderr: strings.TrimSpace(exit.Stderr), cause: err}

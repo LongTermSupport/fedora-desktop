@@ -12,7 +12,7 @@ import (
 // line a fatal error owes on stderr. ErrSomeFailed prints nothing (each failure and the count
 // were already reported); a cancellation prints nothing (the prompt already ended its line).
 // Usage mistakes exit 1, not term.ExitUsage: the cut-over keeps every observable status.
-func ExitCode(stderr io.Writer, tool string, err error) int {
+func ExitCode(stderr io.Writer, tool string, err error) term.ExitCode {
 	switch {
 	case err == nil:
 		return term.ExitOK

@@ -115,7 +115,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 	if code, ok := exitCodeOf(err); !ok || code != 0 || res != done {
 		t.Fatalf("%v %v: %s", res, err, h.errOut.String())
 	}
-	if want := []string{"Seat dev@alpha   free", "Seat 3@alpha   new", "Exit"}; !slices.Equal(h.script.rows[0], want) {
+	if want := []string{"Seat dev@alpha   free\tdev@alpha", "Seat 3@alpha   new\t3@alpha", "Exit"}; !slices.Equal(h.script.rows[0], want) {
 		t.Fatalf("rows %q", h.script.rows[0])
 	}
 	if len(h.execs) != 1 || h.execs[0].dir != h.checkout() || h.execs[0].path != "/x/launcher" ||
@@ -152,7 +152,7 @@ func TestNewSessionNumbersAfterThisRepositoryOnly(t *testing.T) {
 	if _, err := r.newSession(context.Background(), "alpha"); err != nil && !strings.Contains(err.Error(), "exit") {
 		t.Fatal(err)
 	}
-	if !slices.Contains(h.script.rows[0], "Seat 3@alpha   new") {
+	if !slices.Contains(h.script.rows[0], "Seat 3@alpha   new\t3@alpha") {
 		t.Fatalf("rows %q: another repository's seat 7 must not count", h.script.rows[0])
 	}
 }
@@ -255,7 +255,7 @@ func TestToggleRestoreReportsARecordThatIsGone(t *testing.T) {
 	}
 	row := r.row(t, "1")
 	row.Restore = "yes"
-	r.snap.SeatRestore[row.Dir+"|1@alpha"] = "yes"
+	r.snap.SeatRestore[row.Dir+"|1@alpha"] = true
 	if _, err := r.toggleRestore(context.Background(), row); err != nil {
 		t.Fatal(err)
 	}

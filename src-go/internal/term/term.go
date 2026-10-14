@@ -10,12 +10,16 @@ import (
 	"strings"
 )
 
+// ExitCode is a tool's exit status. Every run function returns one; only a main turns it
+// into the int os.Exit takes.
+type ExitCode int
+
 // Exit codes shared by ccy-teams, ccy-sessions and ccy.
 const (
-	ExitOK        = 0
-	ExitFailure   = 1
-	ExitUsage     = 64
-	ExitCancelled = 130
+	ExitOK        ExitCode = 0
+	ExitFailure   ExitCode = 1
+	ExitUsage     ExitCode = 64
+	ExitCancelled ExitCode = 130
 )
 
 const (
@@ -37,9 +41,12 @@ type Term struct {
 	Steps int
 	step  int
 
-	// WriteErr is the first failed write to Err, if any.
-	WriteErr error
+	writeErr error
 }
+
+// WriteFailed is the first failed write to Err, nil if every write landed. A tool checks it
+// when it ends: output that could not be shown is a failure, not a success.
+func (t *Term) WriteFailed() error { return t.writeErr }
 
 // New is a Term on the process's stderr, reading the real environment.
 func New() *Term {
@@ -65,11 +72,28 @@ func (t *Term) ColourOn(w io.Writer) bool {
 	return t.IsTerminal(w) && t.Getenv("NO_COLOR") == ""
 }
 
+// Finish is the exit code a tool returns: code, unless the run reported success while its
+// output could not be written (to stdout, whose first failure is stdoutErr, or to Err), which
+// is a failure. A run that already failed keeps its own, more specific, code.
+func (t *Term) Finish(code ExitCode, stdoutErr error) ExitCode {
+	if code != ExitOK {
+		return code
+	}
+	if stdoutErr != nil {
+		t.PrintError("could not write the output: " + stdoutErr.Error())
+		return ExitFailure
+	}
+	if t.writeErr != nil {
+		return ExitFailure
+	}
+	return code
+}
+
 // Printf writes to Err. A failed write to the terminal cannot be reported anywhere
-// better, so the first one is kept in WriteErr for the tool to check when it ends.
+// better, so the first one is kept for the tool to read with WriteFailed when it ends.
 func (t *Term) Printf(format string, args ...any) {
-	if _, err := fmt.Fprintf(t.Err, format, args...); err != nil && t.WriteErr == nil {
-		t.WriteErr = err
+	if _, err := fmt.Fprintf(t.Err, format, args...); err != nil && t.writeErr == nil {
+		t.writeErr = err
 	}
 }
 

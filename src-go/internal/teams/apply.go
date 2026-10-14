@@ -5,10 +5,11 @@ import (
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // apply is ccy-teams apply.
-func (a *App) apply(ctx context.Context, args []string) int {
+func (a *App) apply(ctx context.Context, args []string) term.ExitCode {
 	return a.newTeamOps().apply(ctx, args)
 }
 

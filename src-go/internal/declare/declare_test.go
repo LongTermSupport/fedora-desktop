@@ -360,3 +360,16 @@ func TestACommandThatCannotRunIsNotAnError(t *testing.T) {
 		t.Fatalf("a command that did not run is not a declare Error: %v", declErr)
 	}
 }
+
+// The constants are the words declare.py status prints.
+func TestApplyStatesAreDeclaresWords(t *testing.T) {
+	want := map[ApplyState]string{
+		ApplyCurrent: "current", ApplyOutdated: "outdated", ApplyUnbuilt: "unbuilt",
+		ApplyRemoved: "removed", ApplyDecide: "decide", ApplyUnreadable: "unreadable", ApplyAbsent: "",
+	}
+	for state, word := range want {
+		if string(state) != word {
+			t.Errorf("%q is not %q", string(state), word)
+		}
+	}
+}

@@ -38,6 +38,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/lxcfreeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/podfreeze"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 const (
@@ -351,7 +352,7 @@ func play(f scenarioFile, s scenario) (result, error) {
 		}
 		return ttyReader{strings.NewReader(typed.String())}, nil
 	}
-	var status int
+	var status term.ExitCode
 	switch s.Tool {
 	case podTool:
 		status = (&podfreeze.App{Env: env}).RunContext(context.Background(), s.Args)

@@ -62,7 +62,7 @@ func (a *App) sessionContainers(ctx context.Context) ([]sessprobe.Owner, error) 
 		a.failErr(err)
 		return nil, errReported
 	}
-	table, err := execx.Combined(ctx, a.Runner, execx.Cmd{Name: "ps", Args: []string{"-ww", "-eo", "pid=,ppid=,args="}})
+	table, err := sessprobe.ProcessTable(ctx, a.Runner)
 	if err != nil {
 		a.fail("the process table could not be read, so no session can be matched to its container: " + strings.TrimSpace(table))
 		return nil, errReported

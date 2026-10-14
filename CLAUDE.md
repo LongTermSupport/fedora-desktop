@@ -43,19 +43,27 @@ fast.
 
 A bash file must stay within **all** of these, or it is Go:
 
-- at most **60 code lines** (not counting blank lines and comments)
+- at most **60 code lines** (not counting blank lines and whole-line comments) and **90
+  statements**, so `;` cannot pack a program into a few lines
 - at most **4 functions**
 - **no associative arrays** (`declare -A`, `local -A`): a data structure means a program
 - **no interactive UI** (`gum`, `fzf`, `whiptail`, `dialog`, `select` menus)
-- **no data parsing** beyond one `jq -r` lookup: no JSON/YAML walking in `jq`/`python -c`
+- **no data parsing** beyond one `jq` call: no second `jq`, no `python -c`, no `yq`
 
-Bash stays right for: snippets sourced into a user's shell, the bootstrap that runs before Go
-is installed (`run.bash`), git hooks and wrappers that `exec` a Go binary, and test suites
-driving a command. Existing scripts over the limits are on a ratchet allowlist: they may
-shrink and be ported, never grow. Python that Ansible loads stays Python; a standalone Python
-CLI is ported to Go when it is next reworked.
+The gate parses every file as bash and counts on the syntax tree; the measure is defined in
+the package doc of `src-go/qa/bashlimits`. A bash file is found by what it is: `*.bash`,
+`*.sh`, or a first line that is a bash/sh shebang, whatever the file is called.
 
-**Gate, allowlist and the port programme:** [Plan 00192](CLAUDE/Plan/00192-bash-line-in-the-sand-go-for-tooling/PLAN.md)
+Exempt: test suites (`scripts/test-*.bash`, `tests/`), plan-folder scripts (they are plan-local
+scaffolding that [PlanScriptStandards.md](CLAUDE/PlanScriptStandards.md) requires), and
+vendored or daemon-owned trees. Everything else is measured, including shell snippets and
+`run.bash`; wrappers that `exec` a Go binary fit the limits. Existing scripts over the limits
+are on a ratchet allowlist: they may shrink and be ported, never grow. Python that Ansible
+loads stays Python; a standalone Python CLI is ported to Go when it is next reworked.
+
+**Enforced by** `scripts/qa-bash-limits.bash` (in `qa-all.bash`, `qa-changed.bash` and CI; see
+[QA.md](CLAUDE/QA.md)) against the ratchet allowlist `scripts/bash-limits.allowlist`.
+**Go defect classes** get a project rule first: [GoProjectRules.md](CLAUDE/GoProjectRules.md).
 
 ### Public Repository — Never Commit Secrets
 

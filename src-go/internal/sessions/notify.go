@@ -84,7 +84,7 @@ func parseWarning(kind string, args []string) (notifyArgs, string) {
 
 // notify tells every live session's project the machine is going down, or that it is not
 // after all. Nothing goes to stdout.
-func (a *App) notify(ctx context.Context, args []string) int {
+func (a *App) notify(ctx context.Context, args []string) term.ExitCode {
 	n, problem := parseNotify(args)
 	if problem != "" {
 		return a.usageError(problem)

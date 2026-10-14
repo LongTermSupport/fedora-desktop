@@ -45,12 +45,12 @@ func NewApp() *App {
 
 // Run executes args (without the program name) and returns the exit status. Ctrl-C reaches an
 // open prompt through the context.
-func (a *App) Run(args []string) int {
+func (a *App) Run(args []string) term.ExitCode {
 	return app.Run(a.Env, a.Chooser, a.tool(), args)
 }
 
 // RunContext is Run on a caller-supplied context.
-func (a *App) RunContext(ctx context.Context, args []string) int {
+func (a *App) RunContext(ctx context.Context, args []string) term.ExitCode {
 	return freeze.ExitCode(a.Env.Err, tool, app.Execute(ctx, a.Env, a.Chooser, a.tool(), args))
 }
 

@@ -8,16 +8,16 @@ import (
 
 func TestApplyWord(t *testing.T) {
 	cases := map[declare.Status]string{
-		{State: stCurrent}:                             wordUpToDate,
-		{State: stOutdated, Detail: "unstamped"}:       "out of date",
-		{State: stOutdated, Detail: "config,software"}: "out of date: both",
-		{State: stOutdated, Detail: "config"}:          "out of date: config",
-		{State: stUnbuilt}:                             wordNotBuilt,
-		{State: stRemoved}:                             wordRemoved,
-		{State: stDecide, Detail: "absent"}:            "decide: absent",
-		{State: stDecide, Detail: "undeclared"}:        "decide: undeclared",
-		{State: stUnreadable, Detail: "bad entry"}:     wordUnreadable,
-		{State: "something new"}:                       wordUnknown,
+		{State: declare.ApplyCurrent}:                             wordUpToDate,
+		{State: declare.ApplyOutdated, Detail: "unstamped"}:       "out of date",
+		{State: declare.ApplyOutdated, Detail: "config,software"}: "out of date: both",
+		{State: declare.ApplyOutdated, Detail: "config"}:          "out of date: config",
+		{State: declare.ApplyUnbuilt}:                             wordNotBuilt,
+		{State: declare.ApplyRemoved}:                             wordRemoved,
+		{State: declare.ApplyDecide, Detail: "absent"}:            "decide: absent",
+		{State: declare.ApplyDecide, Detail: "undeclared"}:        "decide: undeclared",
+		{State: declare.ApplyUnreadable, Detail: "bad entry"}:     wordUnreadable,
+		{State: "something new"}:                                  wordUnknown,
 	}
 	for st, want := range cases {
 		if got := applyWord(st); got != want {

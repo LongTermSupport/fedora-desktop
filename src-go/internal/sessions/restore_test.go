@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -138,7 +139,7 @@ func TestRestoreSkipsNoRestoreRecordsAndRunningSessionsKeepingTheirManifestEntry
 		t.Fatal(err)
 	}
 	store := restore.NewStore(regdir, h.env["CCY_BOOT_ID_FILE"])
-	if err = store.Write([]restore.Entry{{Name: "ccy-a", Prefix: "ccy", Dir: a, Supervised: true, Going: restore.GoingContinue, At: "123", Detail: "5000", Transcript: "/t"}}); err != nil {
+	if err = store.Write([]restore.Entry{{Name: "ccy-a", Prefix: "ccy", Dir: a, Supervised: true, Going: restore.GoingContinue, At: time.Unix(123, 0), Detail: "5000", Transcript: "/t"}}); err != nil {
 		t.Fatal(err)
 	}
 	exitCodeIs(t, h.run("restore"), 0, h)
@@ -147,7 +148,7 @@ func TestRestoreSkipsNoRestoreRecordsAndRunningSessionsKeepingTheirManifestEntry
 		t.Fatal("nothing is started")
 	}
 	m := manifestOf(t, h)
-	if len(m.Entries) != 1 || m.Entries[0].Going != restore.GoingContinue || m.Entries[0].At != "123" {
+	if len(m.Entries) != 1 || m.Entries[0].Going != restore.GoingContinue || m.Entries[0].AtUnix() != 123 {
 		t.Fatalf("the earlier restore's entry is kept: %+v", m)
 	}
 }

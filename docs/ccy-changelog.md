@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.10 — container 2.54
+
+- **The single-attach hook quotes the session name.** `ccy_tmux_single_attach_hook` put a bare
+  `-t "#{session_name}"` in a command tmux expands and `sh` then reads, so a directory-derived
+  session name could run commands, and the target prefix-matched a longer name. It now uses
+  `-t =#{q:session_name}`: shell-quoted by tmux, exact match. The image is unchanged.
+
 ## 3.95.9 — container 2.54
 
 - **A library comment told the truth.** `lib/tmux-session.bash` said `ccy-sessions` used the

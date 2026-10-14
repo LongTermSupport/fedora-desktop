@@ -139,8 +139,30 @@ func TestPrintfKeepsFirstWriteError(t *testing.T) {
 	tm := &Term{Err: failWriter{}, IsTerminal: func(any) bool { return false }, Getenv: func(string) string { return "" }}
 	tm.Say("a")
 	tm.Say("b")
-	if tm.WriteErr == nil || tm.WriteErr.Error() != "broken pipe" {
-		t.Errorf("got %v", tm.WriteErr)
+	if tm.WriteFailed() == nil || tm.WriteFailed().Error() != "broken pipe" {
+		t.Errorf("got %v", tm.WriteFailed())
+	}
+}
+
+// The numeric values are the tools' exit statuses, which scripts and the parity suites read.
+func TestExitCodesKeepTheirStatuses(t *testing.T) {
+	for code, want := range map[ExitCode]int{ExitOK: 0, ExitFailure: 1, ExitUsage: 64, ExitCancelled: 130} {
+		if int(code) != want {
+			t.Errorf("exit code %v is %d, want %d", code, int(code), want)
+		}
+	}
+}
+
+func TestFinishKeepsAFailureAndFailsAnUnwrittenSuccess(t *testing.T) {
+	tm, buf := newTerm(false, "")
+	if got := tm.Finish(ExitUsage, errors.New("pipe")); got != ExitUsage {
+		t.Errorf("a run that failed keeps its code, got %d", got)
+	}
+	if got := tm.Finish(ExitOK, nil); got != ExitOK {
+		t.Errorf("a clean run is ok, got %d", got)
+	}
+	if got := tm.Finish(ExitOK, errors.New("pipe")); got != ExitFailure || !strings.Contains(buf.String(), "could not write the output: pipe") {
+		t.Errorf("an unwritten success fails, got %d with %q", got, buf.String())
 	}
 }
 

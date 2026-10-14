@@ -9,17 +9,17 @@ import (
 )
 
 func direct() error {
-	return exec.Command("ls").Run() // want `exec.Command outside internal/execx`
+	return exec.Command("ls").Run() // want `exec.Command outside internal/execx` `\(\*exec.Cmd\).Run outside internal/execx`
 }
 
 func withContext(ctx context.Context) error {
-	return exec.CommandContext(ctx, "ls").Run() // want `exec.CommandContext outside internal/execx`
+	return exec.CommandContext(ctx, "ls").Run() // want `exec.CommandContext outside internal/execx` `\(\*exec.Cmd\).Run outside internal/execx`
 }
 
 // shellEvasion is the sh -c route round a gosec G204 finding: the command is still not
 // the runner's.
 func shellEvasion(arg string) error {
-	return exec.Command("sh", "-c", "tmux kill-server "+arg).Run() // want `exec.Command outside internal/execx`
+	return exec.Command("sh", "-c", "tmux kill-server "+arg).Run() // want `exec.Command outside internal/execx` `\(\*exec.Cmd\).Run outside internal/execx`
 }
 
 func replace() error {

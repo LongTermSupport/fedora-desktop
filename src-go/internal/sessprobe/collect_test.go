@@ -240,3 +240,47 @@ func TestDetailDefaultClockAndSleepAreReal(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
+
+func TestProcessTableIsWhatPsPrints(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On(strings.Fields(psArgs), ok(psTable()))
+	got, err := sessprobe.ProcessTable(context.Background(), fake)
+	if err != nil || got != psTable() {
+		t.Fatalf("ProcessTable = %q, %v", got, err)
+	}
+}
+
+func TestProcessTableFailureIsAnError(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.OnError(strings.Fields(psArgs), errors.New("no ps"))
+	if _, err := sessprobe.ProcessTable(context.Background(), fake); err == nil {
+		t.Fatal("a failed ps must be an error")
+	}
+}
+
+func TestRunningContainerNamesAsksEachEngineForItsLabelledContainers(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.On([]string{"podman", "ps", "--filter", "label=ccy=true", "--format", "{{.Names}}"}, ok("a_yolo\n\nb_yolo\n"))
+	fake.On([]string{"docker", "ps", "--filter", "label=ccy=true", "--format", "{{.Names}}"}, ok("c_yolo\n"))
+	got, err := sessprobe.RunningContainerNames(context.Background(), fake, []string{"podman", "docker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a_yolo", "b_yolo", "c_yolo"} {
+		if !got[name] {
+			t.Errorf("%s missing from %v", name, got)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("want 3 names, got %v", got)
+	}
+}
+
+func TestRunningContainerNamesNamesTheEngineThatFailed(t *testing.T) {
+	fake := &execx.Fake{}
+	fake.OnError([]string{"podman", "ps"}, errors.New("cannot connect"))
+	_, err := sessprobe.RunningContainerNames(context.Background(), fake, []string{"podman"})
+	if err == nil || !strings.Contains(err.Error(), "podman ps failed") {
+		t.Fatalf("err = %v", err)
+	}
+}

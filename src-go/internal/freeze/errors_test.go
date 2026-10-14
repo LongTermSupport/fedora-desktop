@@ -20,7 +20,7 @@ func TestExitCodeMapsErrorsToStatusAndPrintsTheToolLine(t *testing.T) {
 	cases := []struct {
 		what     string
 		err      error
-		wantCode int
+		wantCode term.ExitCode
 		wantErr  string
 	}{
 		{"success", nil, term.ExitOK, ""},

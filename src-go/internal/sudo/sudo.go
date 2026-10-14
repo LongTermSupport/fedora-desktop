@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -96,13 +97,24 @@ func (s *Sudo) AsRoot(ctx context.Context, argv ...string) (string, error) {
 	if !errors.As(err, &exitErr) {
 		return "", err
 	}
-	if exitErr.Code == 1 && strings.HasPrefix(string(res.Stderr), "sudo: ") {
+	if exitErr.Code == 1 && asksForPassword(string(res.Stderr)) {
 		return "", ErrNeedsPassword
 	}
 	if _, werr := s.Term.Err.Write(res.Stderr); werr != nil {
 		return "", errors.Join(err, werr)
 	}
 	return "", err
+}
+
+// passwordRequired is the line sudo -n prints when it would have had to prompt. Other sudo
+// failures (unknown command, unresolvable host, PAM, not permitted) also exit 1 behind a
+// "sudo: " prefix and must not be reported as a missing credential.
+const passwordRequired = "sudo: a password is required"
+
+// asksForPassword reports whether stderr carries sudo's own refusal line. Only a whole line
+// counts, so a root command that prints similar words behind its own prefix is not mistaken.
+func asksForPassword(stderr string) bool {
+	return slices.Contains(strings.Split(stderr, "\n"), passwordRequired)
 }
 
 // Run runs a root command through "sudo -n", streaming its stdout to Stdout and its stderr

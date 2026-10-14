@@ -33,7 +33,7 @@ func TestIsCandidate(t *testing.T) {
 		"a/bin/envdashs": true, "a/bin/shtool": true, "a/bin/spaced": true,
 		"a/bin/pytool": false, "a/bin/shell-ish": false, "a/bin/noshebang": false,
 		"a/bin/empty": false, "a/tpl.j2": true, "a/pytpl.j2": false, "a/note.j2": false,
-		"a/doc.md": false, "a/prog.py": false, "a/with.dot.tool": false, "a/.hidden": false,
+		"a/doc.md": true, "a/prog.py": true, "a/with.dot.tool": true, "a/.hidden": true,
 		"a/shebang-only-second": false,
 	}
 	for p, w := range want {
@@ -93,9 +93,9 @@ func TestExemptionTableIsSound(t *testing.T) {
 
 func TestExemptionFor(t *testing.T) {
 	cases := map[string]bool{
-		"run.bash": true,
-		"files/home/bashrc-includes/history-search.bash": true,
-		"files/etc/profile.d/zz_lts-fedora-desktop.bash": true,
+		"run.bash": false,
+		"files/home/bashrc-includes/history-search.bash": false,
+		"files/etc/profile.d/zz_lts-fedora-desktop.bash": false,
 		"scripts/test-ccy-lifecycle.bash":                true,
 		"tests/helpers/x.bash":                           true,
 		"CLAUDE/Plan/00192-x/triage.bash":                true,

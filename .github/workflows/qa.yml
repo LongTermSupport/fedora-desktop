@@ -16,9 +16,13 @@ on:
 permissions:
   contents: read
 
+# A newer push cancels the older run of a branch, but never a run on the default branch: the
+# bash-limits ratchet compares a default-branch push with the commit before it, and a cancelled
+# run would leave a raised record (or a new allowlist entry) in history that no run ever judged,
+# for the next push to inherit as its base.
 concurrency:
   group: qa-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
   qa-all:
@@ -102,31 +106,33 @@ jobs:
         run: echo "ci-syntax-check-placeholder" > vault-pass.secret
 
       # The bash-limits gate fails on an allowlist entry added or a record raised relative to a
-      # base commit (scripts/qa-bash-limits.bash, QA_BASH_LIMITS_BASE). Locally that base is
-      # HEAD; here HEAD is the commit under test, so the base is what the change started from:
-      # a pull request's base commit, or a push's previous head (the whole push, however many
-      # commits it carries). A push with no previous head (a new branch) is compared with the
-      # default branch, and so is one whose previous head can no longer be fetched (a
-      # force-push): the default branch's allowlist is a base no honest change raises.
+      # base commit (scripts/qa-bash-limits.bash, QA_BASH_LIMITS_BASE). The base is a point the
+      # change has not reached, whatever the push granularity: the merge-base of HEAD and the
+      # default branch, for a pull request and for a push to any other branch alike. A push to
+      # the default branch has nothing to branch from, so its base is the head before the push
+      # (the whole push, however many commits it carries); that is sound because a run on the
+      # default branch is never cancelled (see concurrency above), so the head before it was
+      # judged. A default-branch push whose previous head cannot be had (a force-push, a new
+      # branch) fails the step: nothing can be compared, and a gate that cannot compare must
+      # not pass.
       - name: Fetch the allowlist base for the bash-limits gate
         env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          REF: ${{ github.ref }}
           PUSH_BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          base=""
-          if [ "$EVENT" = pull_request ]; then
-            base="$PR_BASE"
-          elif [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin
+          fi
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          if [ "$REF" = "refs/heads/${DEFAULT_BRANCH}" ]; then
+            git cat-file -e "${PUSH_BEFORE}^{commit}"
             base="$PUSH_BEFORE"
+          else
+            base="$(git merge-base HEAD "origin/${DEFAULT_BRANCH}")"
           fi
-          if [ -z "$base" ] || ! git fetch --no-tags --depth=1 origin "$base"; then
-            echo "::notice::no fetchable previous head; comparing the allowlist with origin/${DEFAULT_BRANCH}"
-            git fetch --no-tags --depth=1 origin "$DEFAULT_BRANCH"
-          fi
-          echo "QA_BASH_LIMITS_BASE=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+          echo "QA_BASH_LIMITS_BASE=${base}" >> "$GITHUB_ENV"
 
       - name: Run full QA suite
         run: ./scripts/qa-all.bash

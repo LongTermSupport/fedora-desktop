@@ -30,7 +30,8 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 - **No suppression.** No `//nolint`; fix what the linter reports. `.golangci.yml` is strict on
   purpose.
 
-- **Exit codes** come from `term` (`ExitOK`, `ExitFailure`, `ExitUsage`, `ExitCancelled`);
+- **Exit codes** are `term.ExitCode` (`ExitOK`, `ExitFailure`, `ExitUsage`, `ExitCancelled`);
+  every run function returns one and only a `main` turns it into the `int` for `os.Exit`;
   diagnostics go to stderr, the payload to stdout ([StderrHygiene.md](../CLAUDE/StderrHygiene.md)).
 
 - **Secrets never in argv.** A password goes to its consumer on stdin.
@@ -78,7 +79,8 @@ install a binary by hand: the play is the only route
 interim gate, run by `qa-all.bash` and by `qa-changed.bash` for a `src-go/` change, until the
 go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
 
-`cmd/qa-bash-limits` + `internal/bashlimits` are the QA gate that holds every bash file to the
-tooling-is-Go limits (`scripts/qa-bash-limits.bash` runs it; allowlist
-`scripts/bash-limits.allowlist`). It is a QA tool, never deployed, so it has no bash oracle suite;
-its Go tests (including a real temporary git repository) are the proof.
+`qa/bashlimits` + `qa/cmd/qa-bash-limits` (in the nested `qa` module, which holds the
+`mvdan.cc/sh` parser dependency) are the QA gate that holds every bash file to the tooling-is-Go
+limits (`scripts/qa-bash-limits.bash` runs it; allowlist `scripts/bash-limits.allowlist`; the
+measure is defined in the package doc). It is a QA tool, never deployed, so it has no bash oracle
+suite; its Go tests (including real temporary git repositories) are the proof.

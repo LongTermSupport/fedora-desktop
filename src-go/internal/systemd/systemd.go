@@ -23,6 +23,10 @@ const (
 	systemctlBin = "systemctl"
 )
 
+// HomeserverUp is HomeserverState's answer for a homeserver that is running; any other answer
+// is "down (<systemd's word>)".
+const HomeserverUp = "up"
+
 // Systemd runs systemctl and systemd-run through a Runner.
 type Systemd struct {
 	Runner execx.Runner
@@ -32,6 +36,15 @@ type Systemd struct {
 // and the description (the rest of the line).
 type Unit struct {
 	Name, Team, Load, Active, Sub, Description string
+}
+
+// CanReboot asks logind whether this account may reboot with nobody to authenticate. It is
+// busctl's reply as printed (s "yes"), together with busctl's error and its words on failure.
+func (s *Systemd) CanReboot(ctx context.Context) (string, error) {
+	return execx.Combined(ctx, s.Runner, execx.Cmd{Name: "busctl", Args: []string{
+		"--system", "call", "org.freedesktop.login1", "/org/freedesktop/login1",
+		"org.freedesktop.login1.Manager", "CanReboot",
+	}})
 }
 
 // Reboot asks systemd to reboot, streaming systemctl's own words to out. The runner's error
@@ -79,7 +92,7 @@ func (s *Systemd) HomeserverState(ctx context.Context, team string) (string, err
 			return "", err
 		}
 	} else if state == "active" {
-		return "up", nil
+		return HomeserverUp, nil
 	}
 	if state == "" {
 		state = "unknown"

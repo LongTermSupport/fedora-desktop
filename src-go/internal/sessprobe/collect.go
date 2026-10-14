@@ -47,12 +47,6 @@ type Detail struct {
 	CPU     string
 }
 
-// Unknown is the Detail of a session the probe could not read: every column says so, because a
-// blank one would read as "no network".
-func Unknown(session string) Detail {
-	return Detail{Session: session, Network: unknownWord, Token: unknownWord, Keys: unknownWord, CPU: unknownWord}
-}
-
 // Detail is the network, token, key and CPU columns for every session on the CCY server, in
 // the server's pane order. The same probes whatever the number of sessions: tmux for the panes,
 // one process table, two queries per engine that is actually running a CCY container (none at
@@ -67,7 +61,7 @@ func (p *Probe) Detail(ctx context.Context) ([]Detail, error) {
 	if len(panes) == 0 {
 		return nil, nil
 	}
-	table, err := execx.Combined(ctx, p.Runner, execx.Cmd{Name: "ps", Args: []string{"-ww", "-eo", "pid=,ppid=,args="}})
+	table, err := ProcessTable(ctx, p.Runner)
 	if err != nil {
 		return nil, fmt.Errorf("the process table could not be read, so no session can be matched to a container: %s: %w", strings.TrimSpace(table), err)
 	}
@@ -122,15 +116,44 @@ func engines(owners []Owner) []string {
 	return list
 }
 
+// ProcessTable is the host's process table as ps prints it (pid, parent pid, command line), for
+// ParseProcs. This is the one place ps is run.
+func ProcessTable(ctx context.Context, r execx.Runner) (string, error) {
+	return execx.Combined(ctx, r, execx.Cmd{Name: "ps", Args: []string{"-ww", "-eo", "pid=,ppid=,args="}})
+}
+
+// enginePS is what one engine lists of its running CCY containers. Every CCY container carries
+// `--label ccy=true`, so this asks about those and nothing else on the host.
+func enginePS(ctx context.Context, r execx.Runner, engine, format string) (string, error) {
+	return execx.Combined(ctx, r, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", "--format", format}})
+}
+
+// RunningContainerNames is the names of the running CCY containers of each engine. The engines
+// are podman and docker, programs this package owns, so a caller names the engine it found and
+// does not run it.
+func RunningContainerNames(ctx context.Context, r execx.Runner, engines []string) (map[string]bool, error) {
+	running := map[string]bool{}
+	for _, engine := range engines {
+		out, err := enginePS(ctx, r, engine, "{{.Names}}")
+		if err != nil {
+			return nil, fmt.Errorf("%s ps failed: %s: %w", engine, strings.TrimSpace(out), err)
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			if name := strings.TrimSpace(line); name != "" {
+				running[name] = true
+			}
+		}
+	}
+	return running, nil
+}
+
 // listEngines asks each engine in use for its CCY containers: every listed container's words,
 // and the set of the running ones.
 func (p *Probe) listEngines(ctx context.Context, owners []Owner) ([]Container, map[string]bool, error) {
 	var known []Container
 	running := map[string]bool{}
 	for _, engine := range engines(owners) {
-		// Every CCY container carries `--label ccy=true`, so this asks about those and nothing
-		// else on the host.
-		out, err := execx.Combined(ctx, p.Runner, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", "--format", DetailFormat}})
+		out, err := enginePS(ctx, p.Runner, engine, DetailFormat)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s ps failed: %s: %w", engine, strings.TrimSpace(out), err)
 		}

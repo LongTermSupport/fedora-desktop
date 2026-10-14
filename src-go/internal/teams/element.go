@@ -104,8 +104,8 @@ func (a *App) waitForEnter(ctx context.Context) {
 		a.print(a.Stderr, "\n")
 		return
 	}
-	got := readLine(ctx, tty)
-	if err := tty.Close(); err != nil {
+	got, err := readLine(ctx, tty)
+	if err != nil {
 		a.Term.PrintError("the terminal could not be closed: " + err.Error())
 	}
 	if !got {

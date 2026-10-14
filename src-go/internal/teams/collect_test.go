@@ -181,9 +181,12 @@ func TestCollectSessionsGathersLiveRecordsAndCheckouts(t *testing.T) {
 	if want := []string{checkout, "/elsewhere"}; !reflect.DeepEqual(s.Checkouts, want) {
 		t.Fatalf("checkouts %v, want %v", s.Checkouts, want)
 	}
-	if s.SeatSession[checkout+"|1@alpha"] != "ccy-proj" || s.SeatRestore[checkout+"|1@alpha"] != "yes" ||
-		s.SeatSession["/elsewhere|dev@alpha"] != "ccy-other" || s.SeatRestore["/elsewhere|2@alpha"] != "no" {
+	if s.SeatSession[checkout+"|1@alpha"] != "ccy-proj" || !s.SeatRestore[checkout+"|1@alpha"] ||
+		s.SeatSession["/elsewhere|dev@alpha"] != "ccy-other" {
 		t.Fatalf("seat sessions %v restore %v", s.SeatSession, s.SeatRestore)
+	}
+	if restores, recorded := s.SeatRestore["/elsewhere|2@alpha"]; !recorded || restores {
+		t.Fatalf("a record that says restore=no is recorded as not restoring: %v", s.SeatRestore)
 	}
 	if _, ok := s.SeatSession["/elsewhere|9@alpha"]; ok {
 		t.Fatal("launcher args after -- are not the launcher's")
@@ -271,7 +274,7 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	shown := term.AbbrevHome(checkout, h.app.Home)
 	want := []Row{
 		{Team: "alpha", Member: "-", Kind: "team", State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout},
+		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout},
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
 		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-"},
 		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-"},
@@ -397,7 +400,7 @@ func TestCollectSeatInAStoppedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Rows[1].Session != "ccy-proj(stopped)" || s.Rows[1].Restore != "yes" {
+	if s.Rows[1].Session != "ccy-proj(stopped)" || s.Rows[1].Restore != "yes" || s.Rows[1].Record != "ccy-proj" {
 		t.Fatalf("row %+v", s.Rows[1])
 	}
 }

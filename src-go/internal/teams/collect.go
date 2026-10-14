@@ -13,6 +13,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -41,7 +42,7 @@ type Snapshot struct {
 
 	Live        map[string]int    // tmux session name -> attached clients
 	SeatSession map[string]string // "<dir>|<seat>@<team>" -> registry session name
-	SeatRestore map[string]string // same key -> "yes" or "no"
+	SeatRestore map[string]bool   // same key -> whether the session is started again after a reboot
 	Checkouts   []string
 
 	Members        map[string]agentbus.Roster
@@ -60,7 +61,7 @@ func newSnapshot() *Snapshot {
 	return &Snapshot{
 		Port: map[string]string{}, URL: map[string]string{}, Server: map[string]string{},
 		Loaded: map[string]bool{}, Status: map[string]declare.Status{},
-		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]string{},
+		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{},
 		Members: map[string]agentbus.Roster{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
 	}
 }
@@ -233,14 +234,10 @@ func (s *Snapshot) addRecord(rec registry.Record) {
 		return
 	}
 	s.addCheckout(rec.Dir)
-	restore := "no"
-	if rec.Restore {
-		restore = "yes"
-	}
 	for ref := range strings.SplitSeq(teamsListOf(rec.Args), ",") {
 		if ref != "" {
 			s.SeatSession[rec.Dir+"|"+ref] = rec.Name
-			s.SeatRestore[rec.Dir+"|"+ref] = restore
+			s.SeatRestore[rec.Dir+"|"+ref] = rec.Restore
 		}
 	}
 }
@@ -259,7 +256,7 @@ func (a *App) addWorkTree(ctx context.Context, s *Snapshot) error {
 	return nil
 }
 
-// homeserverState is "up", or "down (<systemd's word>)".
+// homeserverState is systemd.HomeserverUp, or "down (<systemd's word>)".
 func (a *App) homeserverState(ctx context.Context, team string) (string, error) {
 	return a.Systemd.HomeserverState(ctx, team)
 }
@@ -381,7 +378,7 @@ func (a *App) addTeamRows(ctx context.Context, s *Snapshot, team string, seats [
 	if s.Incomplete != "" {
 		where += ", " + s.Incomplete + " (above)"
 	}
-	if s.Status[team].State == wordUnreadable {
+	if s.Status[team].State == declare.ApplyUnreadable {
 		where += ", entry unreadable: " + s.Status[team].Detail
 	}
 	s.Rows = append(s.Rows, Row{
@@ -402,7 +399,7 @@ func (a *App) teamState(ctx context.Context, s *Snapshot, team string) (string, 
 	where := "port " + port
 	if !s.Loaded[team] {
 		s.MembersUnknown[team] = wordNotInstalled
-		if s.Status[team].State == "decide" {
+		if s.Status[team].State == declare.ApplyDecide {
 			return wordNotInstalled, where + ", not declared present: ccy-teams remove " + team + " takes it down", nil
 		}
 		return wordNotInstalled, where + ", install it: ccy-teams apply " + team, nil
@@ -412,7 +409,7 @@ func (a *App) teamState(ctx context.Context, s *Snapshot, team string) (string, 
 		a.Term.PrintError(err.Error())
 		return "", "", errReported
 	}
-	if state == "up" {
+	if state == systemd.HomeserverUp {
 		a.collectMembers(ctx, s, team)
 	} else {
 		s.MembersUnknown[team] = "homeserver down"
@@ -447,7 +444,7 @@ func (s *Snapshot) addMemberRows(a *App, team string, seats []seatAt) {
 	for _, m := range roster.Members {
 		if !shown[m.Handle] {
 			s.Rows = append(s.Rows, Row{
-				Team: team, Member: m.Handle, Kind: m.Kind(), State: activity[m.Handle],
+				Team: team, Member: m.Handle, Kind: rowKind(m.Kind()), State: activity[m.Handle],
 				Applied: "-", Session: "-", Restore: "-", Where: m.Role, Handle: m.Handle, Dir: "-",
 			})
 		}
@@ -464,20 +461,30 @@ func (s *Snapshot) addMemberRows(a *App, team string, seats []seatAt) {
 	}
 }
 
+// restoreWord is the RESTORE column for the seat at key: "-" when no session record names it.
+func restoreWord(s *Snapshot, key string) string {
+	restores, recorded := s.SeatRestore[key]
+	switch {
+	case !recorded:
+		return "-"
+	case restores:
+		return "yes"
+	}
+	return "no"
+}
+
 // seatRow is a ccy seat's row: its session and RESTORE when a registry record names it, else
 // the seat's own state.
 func (a *App) seatRow(s *Snapshot, team string, sa seatAt, activity map[string]string, unknown string) Row {
 	key := sa.dir + "|" + sa.seat.Seat + "@" + team
-	session, restore := s.SeatSession[key], s.SeatRestore[key]
-	if restore == "" {
-		restore = "-"
-	}
-	if session == "" {
+	record, restore := s.SeatSession[key], restoreWord(s, key)
+	session := record
+	if record == "" {
 		session, restore = "free", "-"
 		if sa.seat.Held {
 			session = "held"
 		}
-	} else if _, live := s.Live[session]; !live {
+	} else if _, live := s.Live[record]; !live {
 		session += "(stopped)"
 	}
 	state := activity[sa.seat.Handle]
@@ -485,7 +492,7 @@ func (a *App) seatRow(s *Snapshot, team string, sa seatAt, activity map[string]s
 		state = unknown
 	}
 	return Row{
-		Team: team, Member: sa.seat.Seat, Kind: kindCcy, State: state, Applied: "-", Session: session,
+		Team: team, Member: sa.seat.Seat, Kind: kindCcy, State: state, Applied: "-", Session: session, Record: record,
 		Restore: restore, Where: term.AbbrevHome(sa.dir, a.Home), Handle: sa.seat.Handle, Dir: sa.dir,
 	}
 }

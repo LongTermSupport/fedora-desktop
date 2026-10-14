@@ -21,6 +21,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 type harness struct {
@@ -62,12 +63,12 @@ func (h *harness) withTTY(replies string) {
 	h.app.Env.OpenTTY = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(replies)), nil }
 }
 
-func (h *harness) run(args ...string) int {
+func (h *harness) run(args ...string) term.ExitCode {
 	h.t.Helper()
 	return h.app.RunContext(context.Background(), args)
 }
 
-func mustExit(t *testing.T, h *harness, want int, args ...string) {
+func mustExit(t *testing.T, h *harness, want term.ExitCode, args ...string) {
 	t.Helper()
 	if got := h.run(args...); got != want {
 		t.Fatalf("%v: exit %d, want %d\nstdout: %s\nstderr: %s", args, got, want, h.out, h.errb)
@@ -813,7 +814,7 @@ func TestCtrlCAtANumberedPromptExits130(t *testing.T) {
 	h.app.Env.IsTerminal = func(any) bool { return true }
 	h.app.Env.OpenTTY = func() (io.ReadCloser, error) { return reader, nil }
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan int, 1)
+	done := make(chan term.ExitCode, 1)
 	go func() { done <- h.app.RunContext(ctx, nil) }()
 	time.AfterFunc(50*time.Millisecond, cancel)
 	select {

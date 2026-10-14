@@ -21,7 +21,7 @@ var pickerKeys = []string{"ctrl-t", "ctrl-x", "ctrl-n"}
 // having used a try or not.
 type step struct {
 	done   bool
-	code   int
+	code   term.ExitCode
 	counts bool
 }
 
@@ -32,7 +32,7 @@ var (
 	tried = step{counts: true}
 )
 
-func leave(code int) step { return step{done: true, code: code} }
+func leave(code term.ExitCode) step { return step{done: true, code: code} }
 
 // pickState is what the picker knows for its whole run.
 type pickState struct {
@@ -50,7 +50,7 @@ const terminalRequired = "ccy-sessions needs a terminal: it attaches sessions to
 // picker is the interactive list. Only the picker needs a terminal: it attaches sessions to the
 // one it runs in. The subcommands run headless: the restore unit has no terminal, and a reboot
 // helper is as likely to be run over ssh as from a desktop.
-func (a *App) picker(ctx context.Context) int {
+func (a *App) picker(ctx context.Context) term.ExitCode {
 	if !a.IsTerminal(a.Stdin) || !a.IsTerminal(a.Stdout) {
 		a.sayf(terminalRequired)
 		return term.ExitFailure
@@ -130,7 +130,7 @@ func (a *App) choose(ctx context.Context, st *pickState, rows []tableRow) (ui.Pi
 
 // noSessions is what the picker does when nothing is running: offer to start ccy in a project
 // folder, or say how.
-func (a *App) noSessions(ctx context.Context, st *pickState) int {
+func (a *App) noSessions(ctx context.Context, st *pickState) term.ExitCode {
 	if !st.projectHere {
 		a.sayf("No CCY or cc sessions are running. Start one with ccy or cc in a project directory.\n")
 		return term.ExitOK

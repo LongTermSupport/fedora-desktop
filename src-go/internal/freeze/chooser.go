@@ -126,10 +126,9 @@ func (c *TTYChooser) noTerminal() error {
 
 // withWrites surfaces a failed write to the prompt stream.
 func (c *TTYChooser) withWrites(err error) error {
-	if c.say.WriteErr != nil && err == nil {
-		err = fmt.Errorf("write prompt: %w", c.say.WriteErr)
+	if werr := c.say.WriteFailed(); werr != nil && err == nil {
+		err = fmt.Errorf("write prompt: %w", werr)
 	}
-	c.say.WriteErr = nil
 	return err
 }
 

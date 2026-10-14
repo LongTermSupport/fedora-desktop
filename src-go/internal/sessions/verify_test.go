@@ -3,13 +3,13 @@ package sessions
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 // verifyHost scripts the host for verify-restore: ccy-a runs a container (a_yolo_1) that is up,
@@ -35,7 +35,7 @@ func kept(name, prefix, dir string) restore.Entry {
 	return e
 }
 
-func verifyReport(h *harness, args ...string) (string, int) {
+func verifyReport(h *harness, args ...string) (string, term.ExitCode) {
 	h.out.Reset()
 	h.errOut.Reset()
 	code := h.run(append([]string{"verify-restore"}, args...)...)
@@ -183,7 +183,7 @@ func TestVerifyRestoreChecksThatWhatWasTypedWasTaken(t *testing.T) {
 	writeTranscript(t, conv, 5000)
 	at := h.clock.Unix()
 	e := kept("ccy-a", "ccy", a)
-	e.Going, e.At, e.Detail, e.Transcript = restore.GoingCompact, strconv.FormatInt(at, 10), "5000", conv
+	e.Going, e.At, e.Detail, e.Transcript = restore.GoingCompact, time.Unix(at, 0), "5000", conv
 	writeEntries(t, h, e)
 	h.sessions("ccy-a 0 " + a)
 	showScreen(h, "ccy-a", "claude is running\n")
@@ -254,7 +254,7 @@ func TestVerifyRestoreIsAFailureWhenAProbeFails(t *testing.T) {
 
 	h = verifyHost(t)
 	e := kept("ccy-a", "ccy", "/srv/a")
-	e.Going, e.At, e.Transcript = restore.GoingContinue, "1", filepath.Join(h.root, "no-such-transcript")
+	e.Going, e.At, e.Transcript = restore.GoingContinue, time.Unix(1, 0), filepath.Join(h.root, "no-such-transcript")
 	writeEntries(t, h, e)
 	h.sessions("ccy-a 0 /srv/a")
 	showScreen(h, "ccy-a", "claude is running\n")

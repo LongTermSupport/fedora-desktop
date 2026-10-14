@@ -12,6 +12,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/cli"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -37,7 +38,7 @@ type ChooserFactory func() (freeze.Chooser, func() error)
 
 // Run executes args and returns the exit status. Ctrl-C reaches an open prompt through the
 // context. A nil chooser means the person at the terminal (fzf, else numbered prompts).
-func Run(env freeze.Env, chooser freeze.Chooser, tool Tool, args []string) int {
+func Run(env freeze.Env, chooser freeze.Chooser, tool Tool, args []string) term.ExitCode {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	return freeze.ExitCode(env.Err, tool.Cfg.Tool, Execute(ctx, env, chooser, tool, args))

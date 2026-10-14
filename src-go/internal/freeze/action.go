@@ -128,10 +128,9 @@ func (s *Session) actOn(ctx context.Context, verb Verb, names []string) ([]strin
 // or a closed pipe is surfaced rather than lost.
 func (s *Session) withWrites(err error) error {
 	for _, t := range []*term.Term{s.stdout, s.stderr} {
-		if t.WriteErr != nil && err == nil {
-			err = fmt.Errorf("write output: %w", t.WriteErr)
+		if werr := t.WriteFailed(); werr != nil && err == nil {
+			err = fmt.Errorf("write output: %w", werr)
 		}
-		t.WriteErr = nil
 	}
 	return err
 }

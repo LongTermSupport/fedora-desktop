@@ -6,12 +6,13 @@ import (
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/podfreeze"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
 func main() {
-	os.Exit(run(os.Args[1:]))
+	os.Exit(int(run(os.Args[1:])))
 }
 
-func run(args []string) int {
+func run(args []string) term.ExitCode {
 	return podfreeze.NewApp().Run(args)
 }

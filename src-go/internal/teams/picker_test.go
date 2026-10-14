@@ -17,24 +17,24 @@ import (
 // fakeOps records the flows the picker hands off, and answers what the test set.
 type fakeOps struct {
 	calls     []string
-	createRC  int
-	applyRC   int
-	removeRC  int
+	createRC  term.ExitCode
+	applyRC   term.ExitCode
+	removeRC  term.ExitCode
 	teamsErr  error
 	elementEr error
 }
 
-func (f *fakeOps) create(_ context.Context, args []string) int {
+func (f *fakeOps) create(_ context.Context, args []string) term.ExitCode {
 	f.calls = append(f.calls, "create "+strings.Join(args, " "))
 	return f.createRC
 }
 
-func (f *fakeOps) apply(_ context.Context, args []string) int {
+func (f *fakeOps) apply(_ context.Context, args []string) term.ExitCode {
 	f.calls = append(f.calls, "apply "+strings.Join(args, " "))
 	return f.applyRC
 }
 
-func (f *fakeOps) remove(_ context.Context, args []string) int {
+func (f *fakeOps) remove(_ context.Context, args []string) term.ExitCode {
 	f.calls = append(f.calls, "remove "+strings.Join(args, " "))
 	return f.removeRC
 }
@@ -188,7 +188,7 @@ func (h *pickerHarness) inProject() {
 	h.on("git rev-parse --show-toplevel", h.checkout()+"\n", 0)
 }
 
-func (h *pickerHarness) run() int { return h.app.runPicker(context.Background()) }
+func (h *pickerHarness) run() term.ExitCode { return h.app.runPicker(context.Background()) }
 
 // headerOf is the --header of fzf call n.
 func (h *pickerHarness) headerOf(n int) string {

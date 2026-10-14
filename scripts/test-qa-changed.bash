@@ -177,13 +177,19 @@ done
 
 echo
 echo "== bash files, the allowlist and its Go source -> the bash-limits gate =="
-for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/internal/bashlimits/measure.go src-go/cmd/qa-bash-limits/main.go files/home/.local/bin/ftp-camera files/home/.local/bin/fedora-desktop-health.j2; do
+for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/qa/bashlimits/measure.go src-go/qa/cmd/qa-bash-limits/main.go files/home/.local/bin/ftp-camera files/home/.local/bin/fedora-desktop-health.j2; do
     plan="$(plan_for "$changed")"
     expect_has "bash-limits: $changed runs the gate" "$plan" "check bash-limits"
 done
 plan="$(plan_for scripts/bash-limits.allowlist)"
 expect_lacks "bash-limits: the allowlist is covered" "$plan" "not covered by qa-changed: scripts/bash-limits.allowlist"
 expect_lacks "bash-limits: the gate script is not also picked as a suite" "$plan" "suite scripts/qa-bash-limits.bash"
+# By content, not name: an extensionless tool that is not on the allowlist (yet) is bash because of
+# its shebang; a file of the same kind with a Python shebang is not.
+plan="$(plan_for files/home/.local/bin/tmate-share)"
+expect_has "bash-limits: an extensionless bash tool off the allowlist runs the gate" "$plan" "check bash-limits"
+plan="$(plan_for files/home/.local/bin/clip-scan)"
+expect_lacks "bash-limits: a python-shebang tool does not" "$plan" "check bash-limits"
 plan="$(plan_for src-go/internal/ui/ui.go)"
 expect_lacks "bash-limits: untouched by an unrelated Go file" "$plan" "check bash-limits"
 plan="$(plan_for CLAUDE/QA.md)"
@@ -223,12 +229,8 @@ echo "== src-go -> every binary has a suite entry =="
 # built and deployed with no suite selected for its changes and no warning.
 plan="$(plan_for src-go/cmd/ccy-unmapped/main.go)"
 expect_lacks "binaries: the control, a command with no entry, selects no suite" "$plan" "suite scripts/"
-# QA-only commands are run by a QA gate and never built or deployed by a play, so there is no
-# bash suite to drive them: qa-go.bash tests them, and qa-changed.bash runs their own gate.
-QA_ONLY_COMMANDS=" qa-bash-limits "
 for cmd_dir in "$SCRIPT_DIR"/../src-go/cmd/*/; do
     cmd_name="$(basename "$cmd_dir")"
-    [[ "$QA_ONLY_COMMANDS" == *" $cmd_name "* ]] && continue
     entry="$(awk -F'\t' -v c="$cmd_name" '$1 == c {print $2}' "$SCRIPT_DIR/go-binary-suites.tsv")"
     plan="$(plan_for "src-go/cmd/$cmd_name/main.go")"
     if [[ "$entry" == "qa-go" ]]; then
