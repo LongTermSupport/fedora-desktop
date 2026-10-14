@@ -156,7 +156,7 @@ class WatchRelayTest(RelayCase):
         sent_id = self.a.fake.rooms[self.a.room].events[-1].event_id
         self.now += limits.DEFAULTS["ack_timeout_s"] + 1
         self.start_watch()
-        fields = self.spooled(sent_id)
+        fields = self.spooled(relay.key(sent_id, bus.ORCH_LP))
         self.assertEqual(fields[:7], ["TIMEOUT", "1", bus.TEAM_A, sent_id, bus.ORCH_LP, "review", bus.PATH_REF])
         self.assertEqual(fields[-1], "-")
         self.stop_watch()
@@ -169,9 +169,10 @@ class WatchRelayTest(RelayCase):
         sent_id = self.a.fake.rooms[self.a.room].events[-1].event_id
         self.now += limits.DEFAULTS["ack_timeout_s"] + 1
         self.start_watch()
-        self.spooled(sent_id)
-        self.confirm(sent_id)
-        self.until(lambda: not self.spool.has(bus.TEAM_A, sent_id), "the line stayed")
+        name = relay.key(sent_id, bus.ORCH_LP)
+        self.spooled(name)
+        self.confirm(name)
+        self.until(lambda: not self.spool.has(bus.TEAM_A, name), "the line stayed")
         self.stop_watch()
         self.stopping.clear()
         self.assertEqual(self.run_cli("recv")[0], cli.EXIT_NOTHING, "reported once, by the relay")
@@ -241,6 +242,91 @@ class WatchRelayTest(RelayCase):
         self.assertIn("PINGBUS_DELIVERY", err)
 
 
+class RecvRelayRaceTest(RelayCase):
+    """An item is delivered once: printed by `recv` or typed through the relay, never both.
+    The two run in other processes, so the test interleaves them at the one point that
+    matters, the watcher's re-fetch (a network round trip), with no sleeps and no threads."""
+
+    def seat(self) -> tuple[cli._Seat, protocol.TeamRecord]:
+        member = self.member()
+        seat = cli._seat(member, self.env, self.runtime(), io.StringIO(), reads=True)
+        seat.syncer.sync_once(0)
+        return seat, seat.syncer.record
+
+    def test_recv_between_the_watchers_refetch_and_its_spool_write_leaves_nothing_to_type(self):
+        self.joined()
+        event = self.a.human("only once")
+        seat, record = self.seat()
+        recv_out = io.StringIO()
+        real = seat.fetcher.get_event
+        raced: list[str] = []
+
+        def get_event(room, event_id):
+            got = real(room, event_id)
+            if not raced:
+                raced.append(event_id)
+                cli._deliver(seat, record, self.runtime(), recv_out, io.StringIO(), self.spool)
+            return got
+
+        with mock.patch.object(seat.fetcher, "get_event", get_event):
+            cli._deliver(seat, record, self.runtime(), io.StringIO(), io.StringIO(), self.spool, relaying=True)
+        self.assertEqual(raced, [event])
+        self.assertEqual(len(self.lines(recv_out.getvalue(), "HUMAN")), 1, "recv printed it")
+        self.assertFalse(self.spool.has(bus.TEAM_A, event), "and the relay must not type it as well")
+
+    def test_a_confirmation_racing_a_recv_consumes_nothing_twice(self):
+        self.joined()
+        event = self.a.human("only once")
+        seat, record = self.seat()
+        cli._deliver(seat, record, self.runtime(), io.StringIO(), io.StringIO(), self.spool, relaying=True)
+        self.assertTrue(self.spool.has(bus.TEAM_A, event))
+        recv_out = io.StringIO()
+        cli._deliver(seat, record, self.runtime(), recv_out, io.StringIO(), self.spool)
+        self.confirm(event)
+        self.assertEqual(cli._relay_confirm(seat, self.spool, self.runtime()), 0, "recv had it first")
+        self.assertFalse(self.spool.has(bus.TEAM_A, event))
+
+
+class SilentTargetsTest(RelayCase):
+    """`send review --to A,B` with both silent owes two TIMEOUT lines, each reported only
+    once it is confirmed."""
+
+    TARGETS = f"{bus.ORCH_LP},{bus.PEER_LP}"
+
+    def silent_ping(self) -> str:
+        self.joined()
+        self.assertEqual(self.run_cli("send", "review", bus.PATH_REF, "--to", self.TARGETS)[0], cli.EXIT_OK)
+        sent_id = self.a.fake.rooms[self.a.room].events[-1].event_id
+        self.now += limits.DEFAULTS["ack_timeout_s"] + 1
+        return sent_id
+
+    def spooled_targets(self, sent_id: str) -> list[str]:
+        directory = self.home / "relay" / "spool" / bus.TEAM_A
+        lines = [path.read_text(encoding="utf-8").split("\t") for path in sorted(directory.glob(f"{sent_id}*.line"))]
+        return sorted(fields[4] for fields in lines)
+
+    def test_both_timeouts_are_spooled(self):
+        sent_id = self.silent_ping()
+        seat = cli._seat(self.member(), self.env, self.runtime(), io.StringIO(), reads=True)
+        record = inbox.load_cached_record(self.member())
+        cli._deliver(seat, record, self.runtime(), io.StringIO(), io.StringIO(), self.spool, relaying=True)
+        self.assertEqual(self.spooled_targets(sent_id), sorted([bus.ORCH_LP, bus.PEER_LP]))
+
+    def test_each_is_reported_only_when_it_is_confirmed(self):
+        self.silent_ping()
+        seat = cli._seat(self.member(), self.env, self.runtime(), io.StringIO(), reads=True)
+        record = inbox.load_cached_record(self.member())
+        cli._deliver(seat, record, self.runtime(), io.StringIO(), io.StringIO(), self.spool, relaying=True)
+        keys = sorted(self.spool.ids(bus.TEAM_A))
+        self.assertEqual(len(keys), 2)
+        self.confirm(keys[0])
+        self.assertEqual(cli._relay_confirm(seat, self.spool, self.runtime()), 1)
+        code, out, _ = self.run_cli("recv", env={k: v for k, v in self.env.items() if k != "PINGBUS_DELIVERY"})
+        self.assertEqual(code, cli.EXIT_OK, "the other target is still owed")
+        (line,) = self.lines(out, "TIMEOUT")
+        self.assertNotEqual(line[4], keys[0].split(relay.KEY_SEP)[1])
+
+
 class StatusRelayTest(RelayCase):
     def relay_field(self, env=None) -> str:
         code, out, err = self.run_cli("status", env=env)
@@ -299,7 +385,7 @@ class SentLogTest(RelayCase):
         text = "myrepo.1+workstation.podman left the team: session ended (exit)"
         cli.post_goodbye(self.runtime(), self.env, io.StringIO(), bus.TEAM_A, text)
         (content,) = self.a.messages_from_me()
-        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch, self.a.peer], text))
+        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch], text))
         self.assertEqual(self.log(), [])
         self.assertFalse((self.home / "relay" / "spool").exists() and any((self.home / "relay" / "spool").rglob("*.line")))
 

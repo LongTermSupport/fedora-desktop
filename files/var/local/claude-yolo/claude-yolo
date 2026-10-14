@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.97.2"  # Container 2.56: the member kit says goodbye at session end and has relay delivery. See docs/ccy-changelog.md.
+CCY_VERSION="3.98.0"  # Container 2.56: the member kit says goodbye at session end and has relay delivery. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

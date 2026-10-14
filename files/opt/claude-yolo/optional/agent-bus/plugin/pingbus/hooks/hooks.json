@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pingbus hook post-tool"
+            "command": "if [ \"$PINGBUS_DELIVERY\" = relay ]; then exec pingbus hook post-tool; fi"
           }
         ]
       }

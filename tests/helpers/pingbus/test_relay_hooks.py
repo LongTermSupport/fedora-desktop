@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -63,12 +65,15 @@ class SessionStartRelayTest(RelayHookCase):
         self.hold("watch")
         self.assertNotIn("already have a watcher", self.context(self.hook("session-start")))
 
-    def test_only_unspooled_items_are_counted(self):
+    def test_pending_items_are_not_announced_because_the_plugin_types_them(self):
+        """Spooled or not, an item is the plugin's to type; telling the agent to `recv` an
+        unspooled one is the window in which `recv` and the relay deliver it twice."""
         spooled = self.plant_human(1)
         self.plant_ping(2)
         self.spool.write(TEAM, spooled, "HUMAN")
         context = self.context(self.hook("session-start"))
-        self.assertIn("agent-bus: 1 pending (0 from humans, 0 from agents, 1 pings).", context)
+        self.assertNotIn("pending", context)
+        self.assertNotIn("pingbus recv", context)
 
     def test_off_still_spawns_and_counts_everything(self):
         spooled = self.plant_human(1)
@@ -80,10 +85,10 @@ class SessionStartRelayTest(RelayHookCase):
 
 
 class PromptRelayTest(RelayHookCase):
-    def test_a_spooled_item_is_not_counted_and_an_unspooled_one_is(self):
+    def test_no_item_spooled_or_not_sends_the_agent_to_recv(self):
         first, second = self.plant_human(1), self.plant_ping(2)
+        self.assertEqual(self.hook("prompt"), {}, "unspooled: the watcher spools it within a second")
         self.spool.write(TEAM, first, "HUMAN")
-        self.assertIn("1 pending (0 from humans, 0 from agents, 1 pings)", self.context(self.hook("prompt")))
         self.spool.write(TEAM, second, "PING")
         self.assertEqual(self.hook("prompt"), {})
 
@@ -233,7 +238,9 @@ class StopDrainTest(RelayHookCase):
 
 class GoodbyeRelayTest(base.GoodbyeTest):
     """Plan 00194: Task 2.0b in relay mode. Every goodbye test of the base class runs again
-    with `PINGBUS_DELIVERY=relay`, and the goodbye is not a delivery to self."""
+    with `PINGBUS_DELIVERY=relay`. That the goodbye is not a delivery to self is pinned
+    against the real `post_goodbye` in test_relay_cli (`SentLogTest`): the poster here is a
+    fake that cannot write a spool line or a sent log, so a test of that here cannot fail."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -245,20 +252,57 @@ class GoodbyeRelayTest(base.GoodbyeTest):
         self.end()
         self.assertEqual(self.posted, [(TEAM, f"{base.OWN_HANDLE} left the team: session ended (exit)")])
 
-    def test_the_goodbye_is_not_a_delivery_to_self(self):
-        self.end()
-        self.assertEqual(list((self.home / "relay").rglob("*.line")) if (self.home / "relay").exists() else [], [])
-        self.assertFalse((self.home / "sent.jsonl").exists())
-        self.assertEqual(self.hook("post-tool", {"tool_name": "Bash"}), {})
-
 
 class HooksJsonTest(unittest.TestCase):
-    def test_the_plugin_registers_post_tool_for_bash(self):
+    """The PostToolUse entry is a shell guard, so an off-mode session starts no Python
+    process per Bash call. Empty stdout with exit 0 is a no-op for PostToolUse (Claude Code
+    reads no JSON from it), which is what `hooks.run` already returns as `{}` in off mode."""
+
+    def command(self) -> str:
         path = (pathlib.Path(__file__).resolve().parents[3] / "files" / "opt" / "claude-yolo" / "optional"
                 / "agent-bus" / "plugin" / "pingbus" / "hooks" / "hooks.json")
         registered = json.loads(path.read_text(encoding="utf-8"))["hooks"]["PostToolUse"]
-        self.assertEqual(registered, [{"matcher": "Bash", "hooks": [
-            {"type": "command", "command": "pingbus hook post-tool"}]}])
+        self.assertEqual(len(registered), 1)
+        self.assertEqual(registered[0]["matcher"], "Bash")
+        (hook,) = registered[0]["hooks"]
+        self.assertEqual(hook["type"], "command")
+        self.assertEqual(set(hook), {"type", "command"})
+        return hook["command"]
+
+    def run_guard(self, delivery: str | None) -> tuple[subprocess.CompletedProcess, pathlib.Path]:
+        tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        marker = tmp / "called"
+        fake = tmp / "pingbus"
+        script = ["#!/bin/sh", f'echo "$@" > "{marker}"', """echo '{"systemMessage":"x"}'"""]
+        fake.write_text("\n".join(script) + "\n", encoding="utf-8")
+        fake.chmod(0o755)
+        env = {"PATH": f"{tmp}:/usr/bin:/bin"}
+        if delivery is not None:
+            env["PINGBUS_DELIVERY"] = delivery
+        done = subprocess.run(["sh", "-c", self.command()], env=env, capture_output=True, text=True,
+                              check=False, input="{}")
+        return done, marker
+
+    def test_the_command_is_a_guard_that_names_the_mode_and_the_hook(self):
+        command = self.command()
+        self.assertIn('"$PINGBUS_DELIVERY" = relay', command)
+        self.assertIn("exec pingbus hook post-tool", command)
+
+    def test_unset_costs_no_pingbus_process_and_emits_nothing(self):
+        done, marker = self.run_guard(None)
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+        self.assertFalse(marker.exists(), "off mode started pingbus")
+
+    def test_empty_costs_no_pingbus_process_either(self):
+        done, marker = self.run_guard("")
+        self.assertEqual((done.returncode, done.stdout), (0, ""))
+        self.assertFalse(marker.exists())
+
+    def test_relay_runs_the_hook_and_passes_its_output_through(self):
+        done, marker = self.run_guard("relay")
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(marker.read_text(encoding="utf-8").strip(), "hook post-tool")
+        self.assertEqual(json.loads(done.stdout), {"systemMessage": "x"})
 
 
 if __name__ == "__main__":

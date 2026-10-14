@@ -244,7 +244,7 @@ class Survey:
         return sum(1 for view in self.teams if not view.waker)
 
 
-def _team_view(member: config.Member, spool: relay.Spool | None) -> TeamView:
+def _team_view(member: config.Member) -> TeamView:
     state = inbox.TeamState.for_member(member)
     try:
         holder = inbox.probe_lock(state)
@@ -254,10 +254,6 @@ def _team_view(member: config.Member, spool: relay.Spool | None) -> TeamView:
         record = inbox.load_cached_record(member)
         pending = state.pending(record.context(member.server_name), member.user_id,
                                 human_text=member.human_text)
-        if spool is not None:
-            spooled = spool.ids(member.team)
-            pending = inbox.Pending(tuple(item for item in pending.items if item.event_id not in spooled),
-                                    pending.rejected)
     except protocol.Untrusted:
         return TeamView(member.team, holder, None, "untrusted")
     except inbox.StateError:
@@ -271,13 +267,11 @@ def survey(environ: Mapping[str, str]) -> Survey:
     """Every active team, offline. `_Failure` when the bundles themselves are refused."""
     try:
         relaying = relay.enabled(environ)
-        spool = relay.Spool(config.resolve_home(environ)) if relaying else None
         members = config.load_active(environ)
     except (config.ConfigError, config.UsageError):
         raise _Failure("config") from None
-    stalled = spool is not None and spool.stalled()
-    return Survey(tuple(_team_view(member, None if stalled else spool) for member in members),
-                  relaying, stalled)
+    stalled = relaying and relay.Spool(config.resolve_home(environ)).stalled()
+    return Survey(tuple(_team_view(member) for member in members), relaying, stalled)
 
 
 # ── starting the watcher ─────────────────────────────────────────────────────────────────
@@ -451,7 +445,9 @@ class _Hook:
     def _pending_and_failure(self, surveyed: Survey, extra_failure: str | None = None) -> list[str]:
         lines = []
         total, humans, peers, pings = surveyed.counts()
-        if total:
+        if total and not surveyed.relay_active:
+            # Relay is delivering: the watcher spools within a second and the plugin types
+            # it. Sending the agent to `recv` now would deliver the item a second time.
             lines.append(pending_text(total, humans, peers, pings))
         found = {surveyed.failure(), extra_failure}
         failure = next((cls for cls in FAILURE_CLASSES if cls in found), None)

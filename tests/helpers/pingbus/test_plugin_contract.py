@@ -48,6 +48,9 @@ REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "St
 #: The one hook that is matched to a tool: the `SENT` echo follows `pingbus say` and `send`,
 #: which are Bash commands.
 MATCHERS = {"PostToolUse": "Bash"}
+#: The PostToolUse command runs only in relay mode; behaviour is tested in test_relay_hooks.
+GUARD_PREFIX = 'if [ "$PINGBUS_DELIVERY" = relay ]; then exec '
+GUARD_SUFFIX = "; fi"
 
 #: The commands an agent runs by hand, each of which the skill must name.
 AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
@@ -126,7 +129,11 @@ class HooksJsonTest(unittest.TestCase):
     def test_each_command_is_its_events_pingbus_hook_subcommand(self) -> None:
         for event, commands in self.commands().items():
             self.assertEqual(len(commands), 1, event)
-            argv = shlex.split(commands[0])
+            command = commands[0]
+            if event == "PostToolUse":  # guarded in shell: off mode starts no Python process
+                self.assertTrue(command.startswith(GUARD_PREFIX) and command.endswith(GUARD_SUFFIX), command)
+                command = command[len(GUARD_PREFIX):-len(GUARD_SUFFIX)]
+            argv = shlex.split(command)
             self.assertEqual(argv, ["pingbus", "hook", REGISTERED[event]], event)
             self.assertIn(argv[2], hooks.EVENTS)
             self.assertEqual(hooks.HOOK_EVENT_NAMES[argv[2]], event)

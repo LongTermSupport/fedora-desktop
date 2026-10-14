@@ -389,7 +389,12 @@ Rules:
 - **The hooks in relay mode.**
   - The Stop hook no longer blocks on pending items; the supervisor delivers them, and a
     `recv` would only duplicate.
-  - UserPromptSubmit counts only items not yet spooled.
+  - UserPromptSubmit and SessionStart announce no pending count while the relay delivers:
+    telling the agent to `recv` an item the watcher has not yet spooled opens the window in
+    which `recv` and the relay deliver it twice. A stalled relay brings the counts back.
+  - `recv` and the watcher take one lock (`relay/lock`) around check-and-spool and
+    print-and-consume, and each re-checks the item is still in the inbox under it.
+  - A `TIMEOUT` is spooled under `<event id>~<target localpart>`, one per silent target.
 
 ### 2.7 Delivered once, failures loud
 
@@ -433,7 +438,8 @@ thread. An instruction to the agent ("say what you sent") can be forgotten, so i
    refused send never shows as sent.
 
 2. **A PostToolUse hook** (`pingbus hook post-tool`, matcher `Bash`, added to the plugin's
-   `hooks.json`) reads the entries past its saved offset. It returns them as the hook
+   `hooks.json` behind a shell guard that runs it only when `PINGBUS_DELIVERY=relay`, so an
+   off-mode session starts no Python process per Bash call) reads the entries past its saved offset. It returns them as the hook
    output's `systemMessage` (decision E), which Claude Code shows to the human in the main
    thread, in the `SENT` envelope:
 
@@ -599,7 +605,9 @@ consumer). It holds in relay mode only (`PINGBUS_DELIVERY=relay`). `docs/agent-b
 
 **Files**, below `$PINGBUS_HOME/relay/` (mode 0700; files 0600):
 
-- `spool/<team>/<event id>.line`: one item to type. `<team>` is a team name and
+- `spool/<team>/<key>.line`: one item to type; the key is the event ID, or for a `TIMEOUT`
+  `<event id>~<target localpart>` (one per silent target), and the marker under `relayed/`
+  carries the same key. `relay/lock` is `watch`'s and `recv`'s, not the plugin's. `<team>` is a team name and
   `<event id>` an event ID (`$` and 43 characters of `[A-Za-z0-9_-]`), both checked against
   their grammars before they become a path. A file appears whole or not at all (written to
   a dot-prefixed temporary name, then renamed), so a reader may open any name ending in

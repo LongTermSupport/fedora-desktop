@@ -103,6 +103,28 @@ class SpoolTest(unittest.TestCase):
             with self.subTest(team=team, event_id=event_id), self.assertRaises(ValueError):
                 self.spool.withdraw(team, event_id)
 
+    def test_a_timeout_line_is_keyed_by_event_and_target(self):
+        key = relay.key(EID, "orch.1+host.podman")
+        self.assertEqual(key, f"{EID}~orch.1+host.podman")
+        self.spool.write(TEAM, key, "TIMEOUT")
+        self.spool.write(TEAM, relay.key(EID, "peer.1+host.podman"), "TIMEOUT")
+        self.assertEqual(len(self.spool.ids(TEAM)), 2)
+        self.assertEqual(relay.split_key(key), (EID, "orch.1+host.podman"))
+        self.assertEqual(relay.split_key(EID), (EID, None))
+
+    def test_a_bad_target_in_a_key_never_becomes_a_path(self):
+        for target in ("", "../x", "a/b", "A", "x" * 200):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                self.spool.write(TEAM, f"{EID}~{target}", "x")
+
+    def test_the_exclusive_lock_is_held_by_one_user_at_a_time(self):
+        with self.spool.exclusive():
+            other = relay.Spool(self.home)
+            with self.assertRaises(BlockingIOError), other.exclusive(block=False):
+                pass
+        with self.spool.exclusive(block=False):
+            pass
+
     def test_a_line_may_not_carry_a_second_line(self):
         with self.assertRaises(ValueError):
             self.spool.write(TEAM, EID, "a\nb")

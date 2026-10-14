@@ -364,14 +364,34 @@ other sessions in it can change it, and a symlink anywhere in that path is refus
 received and sent before with `pingbus history`.
 
 **Goodbye.** When a session in a seat really ends, pingbus posts one room message from the
-seat's member to the team: `<handle> left the team: session ended (exit)`, with `logout` or
-`other` in place of `exit` for those endings. It is a fixed template filled by pingbus, not
-written by the model, so it is sent whatever the harness and whatever the model does at the
-end. It is sent from the SessionEnd hook, once per session, never on `/clear` or `/resume`,
-and within about 4 seconds; if the homeserver cannot be reached, the hook prints one line
-on stderr and the session closes as usual. A hard kill, a closed terminal that never runs
-the hook or a lost container sends nothing: teammates then see only that the seat is no
-longer held (`agent-bus seat list` shows it `free`).
+seat's member: `<handle> left the team: session ended (exit)`, with `logout` or
+`other` in place of `exit` for those endings. It is addressed to the team's humans and its
+coordinator(s) only, not to every agent: an agent that is addressed spends a model turn on
+the message, so a team of `k` agents would spend `k-1` turns on each exit, and agents learn
+the seat is free from its lock anyway (`agent-bus seat list` shows it `free`). It is a
+fixed template filled by pingbus, not written by the model, so it is sent whatever the
+harness and whatever the model does at the end. It is sent from the SessionEnd hook, once
+per session, never on `/clear` or `/resume`, and within about 4 seconds; if the homeserver
+cannot be reached or does not answer in time, the hook prints one line on stderr and the
+session closes as usual (a slow homeserver can still deliver a goodbye the line calls "not
+sent").
+
+Which endings run the hook (Claude Code 2.1.299): `/exit`, logout, Ctrl-C (SIGINT), a closed
+terminal (SIGHUP) and a forwarded SIGTERM all run SessionEnd, so `ccy stop` should produce a
+goodbye. A SIGKILL (a container stop whose grace period expired) or a lost container sends
+nothing; teammates then see only that the seat is no longer held. Claude Code's default
+SessionEnd hook timeout is 1500 ms, so the kit's `"timeout": 6` on the `SessionEnd` hook is
+load-bearing: without it the goodbye would be cut off at 1.5 s. The test in
+`test_plugin_contract.py` pins it.
+
+**Relay mode choices.** `PINGBUS_DELIVERY=relay` is off by default and is opt-in per launch.
+Two visible differences from off are intended: `pingbus status` TEAM lines end with an
+additive `relay=off|on|stalled` field (fields are only ever appended), and a mistyped
+`PINGBUS_DELIVERY` (anything but unset, empty or `relay`) is refused with a configuration
+error instead of silently falling back to the socket. The `PostToolUse` hook that echoes
+what the session sent is a shell guard in `hooks.json`, so an off-mode session starts no
+Python process per Bash call; it prints nothing and exits 0 in that case, which Claude Code
+reads as "no output".
 
 A seat's handle is `<repo>.<seat>+<host>.podman`: `<repo>` from the checkout's forge
 remote, and `<host>` the `HOOKS_DAEMON_HOSTNAME` that the checkout's `ccy.env.local`

@@ -466,7 +466,8 @@ class SendTest(BusCase):
 
 class GoodbyePostTest(BusCase):
     """`post_goodbye`, the real poster behind the SessionEnd hook (Plan 00194 Task 2.0b): a
-    plain room text from the member, to the team's humans and its other agents."""
+    plain room text from the member, to the team's humans and its coordinator(s) only: a
+    message addressed to an agent costs that agent a model turn."""
 
     GOODBYE = "myrepo.1+workstation.podman left the team: session ended (exit)"
 
@@ -475,11 +476,17 @@ class GoodbyePostTest(BusCase):
         cli.post_goodbye(self.runtime(), self.env, err, TEAM_A, text)
         return err
 
-    def test_it_is_one_ordinary_room_text_to_every_human_and_other_agent(self):
+    def test_it_is_one_ordinary_room_text_to_the_humans_and_the_coordinator_only(self):
         self.joined()
         self.post()
         (content,) = self.a.messages_from_me()
-        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch, self.a.peer], self.GOODBYE))
+        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch], self.GOODBYE))
+
+    def test_a_worker_peer_is_not_woken(self):
+        self.joined()
+        self.post()
+        (content,) = self.a.messages_from_me()
+        self.assertNotIn(self.a.peer, json.dumps(content))
 
     def test_a_homeserver_that_cannot_be_reached_is_a_goodbye_failure(self):
         self.joined()

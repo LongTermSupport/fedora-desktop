@@ -20,10 +20,13 @@ Layout, per team, below `PINGBUS_HOME/relay/`:
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import os
 import pathlib
+import re
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 
 from helpers.pingbus import config, protocol
 
@@ -69,11 +72,43 @@ def cap_text(text: str) -> tuple[str, str]:
     return shown, f"{len(shown.encode('utf-8', 'surrogatepass'))}/{len(raw)}"
 
 
-def _check(team: str, event_id: str) -> None:
-    if not protocol.is_team_name(team):
-        raise ValueError("not a team name")
+#: Between the event ID and the silent target in a TIMEOUT's key. One ping with several
+#: silent targets owes one TIMEOUT line each, so the event ID alone cannot name them.
+KEY_SEP = "~"
+_TARGET_RE = re.compile(r"[a-z0-9][a-z0-9._+-]{0,127}")
+LOCK_FILE = "lock"
+
+
+def key(event_id: str, target: str) -> str:
+    """The spool and marker name of the TIMEOUT for `target` (a localpart) of ping `event_id`."""
+    return f"{event_id}{KEY_SEP}{target}"
+
+
+def split_key(name: str) -> tuple[str, str | None]:
+    """(event ID, target localpart or None) of a spool key; ValueError if it is neither an
+    event ID nor an event ID, `KEY_SEP` and a localpart."""
+    event_id, sep, target = name.partition(KEY_SEP)
     if not protocol.is_event_id(event_id):
         raise ValueError("not an event ID")
+    if not sep:
+        return event_id, None
+    if _TARGET_RE.fullmatch(target) is None:
+        raise ValueError("not a target")
+    return event_id, target
+
+
+def _valid_key(name: str) -> bool:
+    try:
+        split_key(name)
+    except ValueError:
+        return False
+    return True
+
+
+def _check(team: str, name: str) -> None:
+    if not protocol.is_team_name(team):
+        raise ValueError("not a team name")
+    split_key(name)
 
 
 class Spool:
@@ -87,6 +122,19 @@ class Spool:
 
     def _relayed(self, team: str) -> pathlib.Path:
         return self.root / RELAYED_DIR / team
+
+    @contextlib.contextmanager
+    def exclusive(self, *, block: bool = True) -> Iterator[None]:
+        """The one lock that makes the watcher's check-and-spool and `recv`'s
+        print-and-consume mutually exclusive, so an item is typed or printed, never both.
+        Hold it only around local file work: no network call belongs inside."""
+        os.makedirs(self.root, mode=DIR_MODE, exist_ok=True)
+        fd = os.open(self.root / LOCK_FILE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, FILE_MODE)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | (0 if block else fcntl.LOCK_NB))
+            yield
+        finally:
+            os.close(fd)
 
     def has(self, team: str, event_id: str) -> bool:
         _check(team, event_id)
@@ -107,7 +155,7 @@ class Spool:
         found = []
         for name in names:
             stem = name[: len(name) - len(suffix)] if suffix else name
-            if name.endswith(suffix) and protocol.is_event_id(stem):
+            if name.endswith(suffix) and _valid_key(stem):
                 found.append(stem)
         return found
 

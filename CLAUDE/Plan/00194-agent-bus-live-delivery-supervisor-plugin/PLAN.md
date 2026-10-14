@@ -69,7 +69,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   `helpers/pingbus/`. Not yet done, by design, because they land with Task 2.1: the plugin's
   `settings.json` `crossSessionInbound`, the entrypoint, the launcher, the skill's envelope
   text. Integrated with Task 2.0b on branch `feat/agent-bus-presence`, which carries the
-  one container bump (2.56, CCY 3.97.2) for both; in relay mode the goodbye is still sent
+  one container bump (2.56, CCY 3.98.0) for both; in relay mode the goodbye is still sent
   and is not entered in the sent log or spool (tests `GoodbyeRelayTest` and
   `SentLogTest.test_the_goodbye_in_relay_mode_is_posted_and_is_not_a_delivery_to_self`).
 - [x] ✅ **Task 2.0b**: Goodbye on session end. The owner: "when shutting down a ccy
@@ -97,6 +97,11 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   ccy session within seconds, with the agent running nothing, framed as the human's.
 - [ ] Another agent's message appears in the same envelope with its own kind and no
   authority.
+- [ ] Host: `ccy stop` on a running `--teams` session sends the goodbye (to the team's
+  humans and coordinator, not to the other agents). SIGTERM reaches Claude Code's SessionEnd
+  in 2.1.299, but whether the supervisor dies fast enough inside the container's stop grace
+  is only known on the host. If it does not, set `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`
+  in the entrypoint.
 - [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
 ## Delivery & Milestones
