@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -133,7 +135,7 @@ func (a *App) offerUpdate(ctx context.Context) error {
 	}
 	var behind []string
 	for _, team := range s.Teams {
-		if state := s.Status[team].State; state == "outdated" || state == "unbuilt" {
+		if state := s.Status[team].State; state == declare.ApplyOutdated || state == declare.ApplyUnbuilt {
 			behind = append(behind, team+" ("+s.statusWord(team)+")")
 		}
 	}
@@ -200,7 +202,7 @@ func (r *pickerRun) offerJoinHere(ctx context.Context) error {
 		return leave(term.ExitFailure)
 	}
 	for _, team := range teams {
-		if !r.snap.Loaded[team] || r.snap.stateOf(team) != "up" || r.snap.holdsLiveSeat(top, team) {
+		if !r.snap.Loaded[team] || r.snap.stateOf(team) != systemd.HomeserverUp || r.snap.holdsLiveSeat(top, team) {
 			continue
 		}
 		if err := a.offerJoin(ctx, top, team); err != nil {

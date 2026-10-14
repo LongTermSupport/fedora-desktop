@@ -207,7 +207,7 @@ func (o *teamOps) applyTeams(ctx context.Context, teams []string) error {
 	}
 	var behind []string
 	for _, team := range teams {
-		if status[team].State != stCurrent {
+		if status[team].State != declare.ApplyCurrent {
 			behind = append(behind, team+" ("+applyWord(status[team])+")")
 		}
 	}
@@ -254,12 +254,14 @@ func (o *teamOps) apply(ctx context.Context, args []string) term.ExitCode {
 		team := args[0]
 		s := status[team]
 		switch s.State {
-		case stOutdated, stUnbuilt, stCurrent:
+		case declare.ApplyOutdated, declare.ApplyUnbuilt, declare.ApplyCurrent:
 			targets = []string{team}
-		case stDecide, stRemoved:
+		case declare.ApplyDecide, declare.ApplyRemoved:
 			return o.usageError("team " + team + " is not declared present; ccy-teams remove " + team + " takes a team down.")
-		case stUnreadable:
+		case declare.ApplyUnreadable:
 			return o.usageError("team " + team + "'s entry cannot be read: " + s.Detail + ".")
+		case declare.ApplyAbsent:
+			fallthrough
 		default:
 			return o.usageError("team " + team + " is not declared in " + o.home(o.Cfg.HostVars) + ".")
 		}
@@ -281,12 +283,14 @@ func (o *teamOps) allTargets(status map[string]declare.Status) ([]string, term.E
 	for _, team := range slices.Sorted(maps.Keys(status)) {
 		s := status[team]
 		switch s.State {
-		case stOutdated, stUnbuilt:
+		case declare.ApplyOutdated, declare.ApplyUnbuilt:
 			targets = append(targets, team)
-		case stDecide:
+		case declare.ApplyDecide:
 			waiting = append(waiting, team+" ("+applyWord(s)+")")
-		case stUnreadable:
+		case declare.ApplyUnreadable:
 			broken = append(broken, team+": "+s.Detail)
+		case declare.ApplyCurrent, declare.ApplyRemoved, declare.ApplyAbsent:
+			// Nothing to apply, and nothing to decide.
 		}
 	}
 	if len(broken) > 0 {

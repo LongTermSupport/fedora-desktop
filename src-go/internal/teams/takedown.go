@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -72,10 +73,12 @@ func (o *teamOps) remove(ctx context.Context, args []string) term.ExitCode {
 	}
 	s := status[team]
 	switch s.State {
-	case "", stRemoved, stUnbuilt:
+	case declare.ApplyAbsent, declare.ApplyRemoved, declare.ApplyUnbuilt:
 		return o.usageError("team " + team + " is not built here; there is nothing to take down.")
-	case stUnreadable:
+	case declare.ApplyUnreadable:
 		return o.usageError("team " + team + "'s entry cannot be read: " + s.Detail + ".")
+	case declare.ApplyCurrent, declare.ApplyOutdated, declare.ApplyDecide:
+		// Built here: it can be taken down.
 	}
 	if code, ok := o.heading(ctx, team); !ok {
 		return code
@@ -199,7 +202,7 @@ func (o *teamOps) confirmDown(ctx context.Context, team string, purge bool) term
 	if err != nil {
 		return term.ExitFailure
 	}
-	if s := status[team]; s.State != "" && s.State != "removed" {
+	if s := status[team]; s.State != declare.ApplyAbsent && s.State != declare.ApplyRemoved {
 		o.Term.PrintError(team + " is still " + applyWord(s) + " after the play.")
 		return term.ExitFailure
 	}
@@ -316,15 +319,15 @@ func (o *teamOps) chooseBackup(ctx context.Context, team string) (string, term.E
 		}
 		return "", o.usageError("name the backup to restore: ccy-teams restore " + team + " <n> --yes."), false
 	}
-	rows := make([]string, 0, len(backups))
+	rows, tags := make([]string, 0, len(backups)), make([]string, 0, len(backups))
 	for _, b := range backups {
-		rows = append(rows, fmt.Sprintf("Backup %-6s %s", b.ID, b.Time))
+		rows, tags = append(rows, fmt.Sprintf("Backup %-6s %s", b.ID, b.Time)), append(tags, b.ID)
 	}
 	picked, err := o.Picker.Pick(ctx, ui.PickSpec{
 		Title: "Restore " + team,
 		Header: ui.Header("Enter choose   Esc or q exit",
 			"The homeserver is stopped, the backup's database and state put back, and it is started again."),
-		Rows: rows,
+		Rows: rows, Tags: tags,
 	})
 	if errors.Is(err, ui.ErrLeave) {
 		o.Term.Printf("Nothing restored.\n")
@@ -334,14 +337,9 @@ func (o *teamOps) chooseBackup(ctx context.Context, team string) (string, term.E
 		o.Term.PrintError(err.Error())
 		return "", term.ExitFailure, false
 	}
-	return backupIDOf(picked.Row), 0, true
-}
-
-// backupIDOf is the number in a picker row "Backup <id>  <time>".
-func backupIDOf(row string) string {
-	fields := strings.Fields(strings.TrimPrefix(row, "Backup "))
-	if len(fields) == 0 {
-		return ""
+	if picked.Tag == "" {
+		o.Term.PrintError("the choice '" + picked.Row + "' names no backup.")
+		return "", term.ExitFailure, false
 	}
-	return fields[0]
+	return picked.Tag, term.ExitOK, true
 }

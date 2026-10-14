@@ -115,7 +115,9 @@ func (r *opsRig) said() string { return opsANSI.ReplaceAllString(r.err.String(),
 
 var opsANSI = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
-func st(state, detail string) declare.Status { return declare.Status{State: state, Detail: detail} }
+func st(state declare.ApplyState, detail string) declare.Status {
+	return declare.Status{State: state, Detail: detail}
+}
 
 func TestPlayJSONIsExactlyPythonsDumps(t *testing.T) {
 	if got := playJSON([]string{"a", "b"}); got != `{"agent_bus_only_teams": ["a", "b"]}` {

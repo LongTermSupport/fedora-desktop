@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -97,20 +97,20 @@ func nextSeat(top string, own []agentbus.Seat, team string, roster agentbus.Rost
 	return highest + 1, nil
 }
 
-// seatChoices are the rows of the new-session picker: each free seat of the team in this
-// checkout, then a new one.
-func seatChoices(top, team string, seats []agentbus.Seat, roster agentbus.Roster) ([]string, error) {
+// seatChoices are the rows of the new-session picker, each tagged with its seat: every free seat
+// of the team in this checkout, then a new one.
+func seatChoices(top, team string, seats []agentbus.Seat, roster agentbus.Roster) ([]string, []string, error) {
 	next, err := nextSeat(top, seats, team, roster)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var rows []string
+	var rows, tags []string
 	for _, seat := range seats {
 		if seat.Team == team && !seat.Held {
-			rows = append(rows, "Seat "+seat.Seat+"@"+team+"   free")
+			rows, tags = append(rows, "Seat "+seat.Seat+"@"+team+"   free"), append(tags, seat.Seat+"@"+team)
 		}
 	}
-	return append(rows, "Seat "+strconv.Itoa(next)+"@"+team+"   new"), nil
+	return append(rows, "Seat "+strconv.Itoa(next)+"@"+team+"   new"), append(tags, strconv.Itoa(next)+"@"+team), nil
 }
 
 // newSession starts ccy in this checkout, in a free seat of the team or a new one.
@@ -129,7 +129,7 @@ func (r *pickerRun) newSession(ctx context.Context, team string) (result, error)
 		a.Term.PrintError(err.Error())
 		return refused, leave(term.ExitFailure)
 	}
-	if state != "up" {
+	if state != systemd.HomeserverUp {
 		return r.refuse(ctx, team+"'s homeserver is down, so no session can join it.")
 	}
 	top, err := a.Git.TopLevel(ctx, "")
@@ -145,7 +145,7 @@ func (r *pickerRun) newSession(ctx context.Context, team string) (result, error)
 		return r.refuse(ctx, "Not every seat of this checkout could be read (above), so no seat is offered: "+
 			"one of them may be the seat a new session would take.")
 	}
-	rows, err := seatChoices(top, team, seats, r.snap.Members[team])
+	rows, tags, err := seatChoices(top, team, seats, r.snap.Members[team])
 	if err != nil {
 		a.Term.PrintError(err.Error())
 		return refused, leave(term.ExitFailure)
@@ -154,7 +154,7 @@ func (r *pickerRun) newSession(ctx context.Context, team string) (result, error)
 		Title: "New ccy session in " + team,
 		Header: ui.Header("Enter start   Esc or q back", "Runs ccy --teams <seat>@"+team+" in "+a.abbrev(top)+
 			"; a new seat is created by that launch (sudo)."),
-		Rows: rows,
+		Rows: rows, Tags: tags,
 	})
 	if errors.Is(err, ui.ErrLeave) {
 		return done, a.interrupted(ctx)
@@ -162,28 +162,27 @@ func (r *pickerRun) newSession(ctx context.Context, team string) (result, error)
 	if err != nil {
 		return done, err
 	}
-	words := strings.Fields(picked.Row)
-	if len(words) < 2 {
+	if picked.Tag == "" {
 		a.Term.PrintError("the choice '" + picked.Row + "' names no seat.")
 		return refused, leave(term.ExitFailure)
 	}
-	return done, a.startCcy(top, words[1])
+	return done, a.startCcy(top, picked.Tag)
 }
 
 // toggleRestore turns on or off the restart after a reboot of the session holding a seat.
 func (r *pickerRun) toggleRestore(ctx context.Context, row Row) (result, error) {
 	a := r.a
-	current := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
-	if row.Kind != kindCcy || current == "" {
+	current, recorded := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]
+	if row.Kind != kindCcy || !recorded {
 		return r.note(ctx, "Ctrl-R changes whether a seat's ccy session comes back after a reboot, and this row has no session.")
 	}
-	name := strings.TrimSuffix(row.Session, "(stopped)")
+	name := row.Record
 	store, err := a.Registry()
 	if err != nil {
 		a.Term.PrintError(err.Error())
 		return r.note(ctx, "Nothing was changed.")
 	}
-	want := current != "yes"
+	want := !current
 	if err := store.SetRestore(name, want); err != nil {
 		a.Term.PrintError(err.Error())
 		a.backToList(ctx)
