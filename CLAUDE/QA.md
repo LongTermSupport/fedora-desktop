@@ -19,7 +19,8 @@ no changed file names. See [qa-changed.bash](#qa-changedbash--diff-scoped-qa-whi
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` is a two-line wrapper over a Go tool (`src-go/qa/all`, command
+`qa-all.bash` is a wrapper (a header comment, `set -euo pipefail`, and one call into
+`lib/go-tool.bash`, no logic of its own) over a Go tool (`src-go/qa/all`, command
 `src-go/qa/cmd/qa-all`, in the nested QA module; `lib/go-tool.bash` builds it into a private
 directory under the cache and runs it). **What it runs is data: `scripts/qa-gates.tsv`**, one
 row per gate in run order, with the gate's kind, command, the reason on its `✗` line and how
@@ -48,8 +49,8 @@ fresher hand-written list. `qa-changed.bash` reads its suite population from the
 so no tool scans another script's text for what it runs.
 
 The tool's proofs are its Go tests (a fake process seam over the real table: the order, every
-gate failing in turn with the rest still running, each reader against a sample of the gate's
-real wording, the report merge byte for byte against what `jq -s` produced), a golden replay of
+gate failing in turn with the rest still running, each detail pattern against the gate's own
+output captured from a real run, the report merge byte for byte against what `jq -s` produced), a golden replay of
 the bash it replaced (`src-go/qa/all/golden_test.go`, recorded from a git revision by
 `CLAUDE/Plan/00192-.../qa-all-golden/capture.py`; any difference must be a numbered bug of that
 plan's `SPEC-qa-all.md` section 10 pinned in `testdata/deviations.json`), and the real tree:
@@ -361,9 +362,21 @@ last matching line and the last match on it, and a gate with several measurement
 
 **Adding a gate: add a row to `scripts/qa-gates.tsv`** (and a row in the tables above, which the
 docs gate checks both ways). Pick the reader that matches what the gate actually prints. The
-Go tests load the real table, run every row's reader against a sample of the gate's real
-wording, and fail each gate in turn to prove the ones after it still run; no tool scans
-`qa-all.bash` for what it runs, because it is a wrapper.
+Go tests load the real table, run every detail pattern against the gate's own output as
+captured from a real run (`src-go/qa/all/testdata/wording/<gate>.txt`), and fail each gate in
+turn to prove the ones after it still run; no tool scans `qa-all.bash` for what it runs,
+because it is a wrapper. The captured wording is a snapshot: a gate that is reworded fails its
+next full run (a pattern that matches nothing is a failed gate), and
+`go test ./qa/all -run TestCaptureTheRealWordingOfTheDetailGates -capture-wording -timeout 30m`
+(from `src-go/`, wording in `qa/all/testdata/wording`) recaptures it by running every detail gate for real and refusing a
+gate that fails or that its pattern does not read.
+
+A **count** reader gives a pass only for a count line with `passed: <n>`, n above zero, and
+no `failed: <m>` above zero on the same line; no line, zero cases and reported failures are each
+a failed gate even when the suite exited 0 (SPEC-qa-all B2, B21, B22). The same reader serves
+`qa-changed.bash`'s suites. A gate's own output cannot forge the run's verdict: a gate line
+that opens `✓ QA passed:` / `✗ QA FAILED:` is indented, so the verdict at the end of stdout is
+the only such line (B23); a push gate may therefore read the verdict from stdout.
 
 A count is a **proxy, not a proof**: two machines could skip the same NUMBER of different
 tests. With the three conditional skips the suite has today the four machine shapes give

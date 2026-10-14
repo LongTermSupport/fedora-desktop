@@ -104,6 +104,23 @@ func TestCommandRunsAScriptThroughBashAndAModuleAsWritten(t *testing.T) {
 	}
 }
 
+// The words after a script are its arguments; they reach the script, in order, and the
+// command Command returns is a copy the caller may extend.
+func TestCommandPassesAScriptsArgumentsThrough(t *testing.T) {
+	gs, err := Load(writeTable(t, "gate\ttest-args\tscripts/test-args.bash --flag two\targs failed\tcount\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := gs[0].Command("/r")
+	if want := []string{"bash", "/r/scripts/test-args.bash", "--flag", "two"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	got[1], got[2] = "mutated", "mutated"
+	if again := gs[0].Command("/r"); again[1] != "/r/scripts/test-args.bash" || gs[0].Argv[1] != "--flag" {
+		t.Fatalf("a caller changed the row: %v / %v", again, gs[0].Argv)
+	}
+}
+
 func TestPopulationIsTheScriptRowsMinusThePerFileGatesInOrder(t *testing.T) {
 	gs, err := Load(writeTable(t, goodTable+"gate\tsuite-b\tscripts/test-b.bash\tb\tcount\ngate\tsuite-a-again\tscripts/test-a.bash\ta\tcount\n"))
 	if err != nil {

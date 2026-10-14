@@ -7,9 +7,28 @@
  },
  "unknown-flag": {
   "bugs": [
-   "B1"
+   "B1",
+   "B26"
   ],
-  "reason": "the bash ignored every argument and ran the whole suite; the Go prints usage for -h/--help and refuses an unknown argument with exit 2"
+  "reason": "the bash ignored every argument and ran the whole suite; the Go prints usage for -h/--help and refuses an unknown argument with exit 2, its ERROR line opening 'ERROR: qa-all: ' so the verdict reader knows the run ended there"
+ },
+ "zero-count": {
+  "bugs": [
+   "B21"
+  ],
+  "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion; the bash ticked it, the Go fails the gate"
+ },
+ "count-line-reports-failures": {
+  "bugs": [
+   "B22"
+  ],
+  "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite; the bash ticked it, the Go fails the gate"
+ },
+ "stage-forges-verdict": {
+  "bugs": [
+   "B23"
+  ],
+  "reason": "a stage's own line that opens like the run's verdict is indented so the closing verdict is the only such line"
  },
  "fail-bash": {
   "bugs": [

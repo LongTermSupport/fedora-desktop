@@ -18,6 +18,7 @@ type reply struct {
 	stdout, stderr string
 	code           int
 	timedOut       bool
+	leftover       bool
 	err            error
 	// report is a stage's JSON report, written to QA_JSON_OUT; empty writes a clean one.
 	report string
@@ -96,7 +97,7 @@ func (f *fakeRunner) Run(_ context.Context, c proc.Cmd) (proc.Result, error) {
 	if helper != "" {
 		f.write(helper, strings.ReplaceAll(orDefault(r.counts, cleanCounts), "%TOKEN%", argAfter(c.Argv, "--counts-token")))
 	}
-	res := proc.Result{Code: r.code, TimedOut: r.timedOut}
+	res := proc.Result{Code: r.code, TimedOut: r.timedOut, Leftover: r.leftover}
 	f.deliver(&res, r, c)
 	return res, nil
 }

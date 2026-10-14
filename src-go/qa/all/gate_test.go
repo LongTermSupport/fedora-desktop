@@ -80,6 +80,35 @@ func TestACountGateWithNoCountFails(t *testing.T) {
 	}
 }
 
+// Bug B21: a suite that counted zero cases proved nothing, whatever it exited.
+func TestACountGateThatCountedZeroCasesFails(t *testing.T) {
+	w := newWorld(t, smallTable)
+	passing(w)
+	w.runner.replies["test-b.bash"] = reply{stdout: "passed: 0 failed: 0\n"}
+	if code := w.main(context.Background()); code != ExitFailed {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.out.String(), "✗ suite-b: exited 0 but counted 0 passed cases ('passed: 0'), so it proved nothing\n") || strings.Contains(w.out.String(), "✓ suite-b") {
+		t.Fatalf("stdout:\n%s", w.out.String())
+	}
+	if !strings.Contains(w.errOut.String(), "passed: 0 failed: 0") {
+		t.Fatalf("the capture belongs on stderr: %q", w.errOut.String())
+	}
+}
+
+// Bug B22: a count line that reports failures fails the gate even when the suite exited 0.
+func TestACountGateWhoseCountLineReportsFailuresFails(t *testing.T) {
+	w := newWorld(t, smallTable)
+	passing(w)
+	w.runner.replies["test-b.bash"] = reply{stdout: "passed: 3 failed: 2\n"}
+	if code := w.main(context.Background()); code != ExitFailed {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.out.String(), "✗ suite-b: exited 0 but its count line reports failed cases: 2 failed\n") || strings.Contains(w.out.String(), "✓ suite-b") {
+		t.Fatalf("stdout:\n%s", w.out.String())
+	}
+}
+
 // Bug B3: a pattern that stops matching is a failed gate, not "summary unreadable".
 func TestADetailGateWhoseSummaryIsNotFoundFails(t *testing.T) {
 	w := newWorld(t, smallTable)
@@ -115,6 +144,27 @@ func TestAGateThatOutlivesItsTimeoutIsAFailureNamingTheLimit(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if !strings.Contains(w.out.String(), "✗ suite-a: suite a failed (timed out after 1m30s)\n") {
+		t.Fatalf("stdout:\n%s", w.out.String())
+	}
+}
+
+// A gate that exited 0 but left a process holding its output open is a failure that keeps what
+// the gate wrote, for a hard gate and for a stage alike.
+func TestAGateThatLeavesAChildBehindIsAFailureThatKeepsItsCapture(t *testing.T) {
+	w := newWorld(t, smallTable)
+	passing(w)
+	w.runner.replies["test-a.bash"] = reply{stdout: "passed: 4 failed: 0\n", leftover: true}
+	w.runner.replies["qa-docs.bash"] = reply{stdout: "✓ docs: 3 files\n", leftover: true}
+	if code := w.main(context.Background()); code != ExitFailed {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.out.String(), "✗ suite-a: suite a failed (left a process running that held its output open)\n") || strings.Contains(w.out.String(), "✓ suite-a") {
+		t.Fatalf("stdout:\n%s", w.out.String())
+	}
+	if !strings.Contains(w.errOut.String(), "passed: 4 failed: 0") {
+		t.Fatalf("the capture belongs on stderr: %q", w.errOut.String())
+	}
+	if !strings.Contains(w.out.String(), "✗ docs: left a process running that held its output open\n") || !strings.Contains(w.out.String(), "1 stage(s) failed: docs") {
 		t.Fatalf("stdout:\n%s", w.out.String())
 	}
 }

@@ -17,7 +17,7 @@
 .semgrep/bash-conventions.bash	69	0	118	-
 .semgrep/ready-wait.bash	84	9	99	-
 CLAUDE/Plan/_planlib.inc.bash	395	25	430	-
-CLAUDE/Plan/meta-deploy.bash	187	0	188	assoc
+CLAUDE/Plan/meta-deploy.bash	184	0	188	assoc
 CLAUDE/Plan/mkplan.bash	619	18	495	-
 extensions/scripts/gnome-shell-extract-js.bash	85	6	105	-
 fedora-install/pull-projects.bash	226	5	249	-

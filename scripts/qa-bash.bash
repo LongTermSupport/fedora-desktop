@@ -16,7 +16,7 @@ JSON_OUT="${QA_JSON_OUT:-/tmp/qa-bash-results.json}"
 # Canonical merged results written by qa-all.bash (where diagnostics survive).
 # QA_JSON_OUT, when set by qa-all.bash, points at a temp file the parent's
 # trap deletes on EXIT — never point users at that. Point them at the merged file.
-MERGED_JSON_OUT="${QA_JSON_OUT_MERGED:-/tmp/qa-results.json}"
+MERGED_JSON_OUT="${QA_RESULTS_JSON:-/tmp/qa-results.json}"
 TMP_RESULTS=$(mktemp)
 TMP_SC=$(mktemp)
 TMP_SC_ERR=$(mktemp)

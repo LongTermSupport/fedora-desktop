@@ -192,6 +192,12 @@ class TestQaGateInventory(unittest.TestCase):
                  "gate\tb\tscripts/test-x.bash\tfailed\tcount\n")
         self.assertEqual(link_check.qa_gates(table), ["test-x.bash"])
 
+    def test_a_script_run_with_arguments_is_still_named_by_its_file(self):
+        """The Go loader passes the words after a script to it as arguments, so this reader
+        must name the gate by the script and not refuse the row."""
+        table = "gate\ta\tscripts/test-x.bash --flag two\tfailed\tcount\n"
+        self.assertEqual(link_check.qa_gates(table), ["test-x.bash"])
+
     def test_a_malformed_row_is_a_crash_not_a_skipped_line(self):
         """A line this check dropped would be a gate the inventory never looked at; the
         Go loader refuses the same rows, so the two readers cannot disagree about which

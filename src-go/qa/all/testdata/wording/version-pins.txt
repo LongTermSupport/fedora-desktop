@@ -1,0 +1,1 @@
+vars/version-pins.yml: VERSION-PINS-OK 11 pin(s), 1 with install state tracked, 10 declared untracked — COVERAGE: 11 of 11 resolve to a live playbook var

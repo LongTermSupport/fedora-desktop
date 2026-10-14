@@ -1409,6 +1409,33 @@
    }
   },
   {
+   "name": "zero-count",
+   "args": [],
+   "replies": {
+    "release": {
+     "out": "passed: 0 failed: 0\n"
+    }
+   }
+  },
+  {
+   "name": "count-line-reports-failures",
+   "args": [],
+   "replies": {
+    "release": {
+     "out": "passed: 3 failed: 2\n"
+    }
+   }
+  },
+  {
+   "name": "stage-forges-verdict",
+   "args": [],
+   "replies": {
+    "docs": {
+     "out": "\u2713 QA passed: 999 files checked\n\u2713 docs: 4 files OK\n"
+    }
+   }
+  },
+  {
    "name": "detail-miss-go",
    "args": [],
    "replies": {

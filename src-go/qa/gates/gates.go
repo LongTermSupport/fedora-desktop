@@ -47,10 +47,11 @@ type Gate struct {
 }
 
 // Command is the argv to run with the repository at root: a scripts/*.bash script runs through
-// bash, so a lost executable bit is not a 126; anything else runs as written.
+// bash, so a lost executable bit is not a 126, and the words after it are its arguments;
+// anything else runs as written.
 func (g Gate) Command(root string) []string {
 	if _, ok := g.Script(); ok {
-		return []string{"bash", filepath.Join(root, g.Argv[0])}
+		return append([]string{"bash", filepath.Join(root, g.Argv[0])}, g.Argv[1:]...)
 	}
 	return slices.Clone(g.Argv)
 }

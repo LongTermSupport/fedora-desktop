@@ -2,6 +2,7 @@ package gates
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -155,18 +156,57 @@ func TestCaseCountReadsTheLastCountLineAndItsLastMatch(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, ok := CaseCount(c.capture)
-			if !ok || got != c.want || strings.Contains(got, "\n") {
-				t.Fatalf("got %q, %v; want %q", got, ok, c.want)
+			got, err := CaseCount(c.capture)
+			if err != nil || got != c.want || strings.Contains(got, "\n") {
+				t.Fatalf("got %q, %v; want %q", got, err, c.want)
 			}
 		})
 	}
 }
 
-func TestCaseCountAnswersNoCountAsNotFoundNeverAsANumber(t *testing.T) {
+func TestCaseCountAnswersNoCountAsNoCountNeverAsANumber(t *testing.T) {
 	for _, capture := range []string{"PASSED (library version 1.2.0)", "", "Summary: 3 passed, 0 failed", "passed: many"} {
-		if got, ok := CaseCount(capture); ok || got != "" {
-			t.Fatalf("%q: got %q, %v", capture, got, ok)
+		got, err := CaseCount(capture)
+		if !errors.Is(err, ErrNoCount) || got != "" {
+			t.Fatalf("%q: got %q, %v", capture, got, err)
+		}
+	}
+}
+
+// Zero assertions is a suite that could not run (a case discovery that matched nothing), which
+// proved nothing, however it exited.
+func TestCaseCountRefusesAZeroCount(t *testing.T) {
+	for _, capture := range []string{"passed: 0 failed: 0", "passed: 0", "passed: 000   failed: 0\n"} {
+		got, err := CaseCount(capture)
+		if !errors.Is(err, ErrZeroCases) || got != "" {
+			t.Fatalf("%q: got %q, %v", capture, got, err)
+		}
+	}
+}
+
+// A count line that reports failures is a failure whatever the suite's exit status said.
+func TestCaseCountRefusesACountLineThatReportsFailures(t *testing.T) {
+	cases := []struct{ capture, want string }{
+		{"passed: 3 failed: 2", "2"},
+		{"passed: 3   failed: 10\n", "10"},
+		{"passed: 0 failed: 4", "4"},
+		{"noise\nccy x: passed: 14  failed: 1\ntrailing\n", "1"},
+	}
+	for _, c := range cases {
+		got, err := CaseCount(c.capture)
+		if !errors.Is(err, ErrFailedCases) || got != "" {
+			t.Fatalf("%q: got %q, %v", c.capture, got, err)
+		}
+		if !strings.Contains(err.Error(), c.want+" failed") {
+			t.Fatalf("%q: the reason must name the number: %v", c.capture, err)
+		}
+	}
+}
+
+func TestCaseCountAcceptsAZeroFailedFieldAndALineWithNone(t *testing.T) {
+	for capture, want := range map[string]string{"passed: 5 failed: 0": "passed: 5", "passed: 5 failed: 00": "passed: 5", "passed: 5": "passed: 5"} {
+		if got, err := CaseCount(capture); err != nil || got != want {
+			t.Fatalf("%q: got %q, %v", capture, got, err)
 		}
 	}
 }

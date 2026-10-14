@@ -22,7 +22,7 @@ func main() {
 func run(args []string) int {
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: qa-all: working directory: %v\n", err)
 		return int(all.ExitCannotRun)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

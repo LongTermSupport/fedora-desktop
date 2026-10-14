@@ -1,0 +1,3 @@
+vars/vm-test-scenarios.yml: scenarios=8 runnable=8 bridge=7 host_only=1 bases=3
+vars/vm-test-scenarios.yml: 8 scenario(s) agree with their guest checker
+vars/vm-test-scenarios.yml: 1 scenario fixture(s) run before a declared reboot

@@ -28,6 +28,10 @@ func (s *session) exec(ctx context.Context, cmd proc.Cmd) (proc.Result, error) {
 	return res, nil
 }
 
+// leftoverReason is what a gate that exited cleanly but left a process holding its output open
+// is reported as.
+const leftoverReason = "left a process running that held its output open"
+
 // bad is a command that was meant to pass and did not: the reason for its stage line and the
 // capture for stderr.
 type bad struct {
@@ -44,6 +48,8 @@ func (s *session) failure(g gates.Gate, res proc.Result, err error) *bad {
 		return &bad{g.Text + " (timed out after " + s.timeout.String() + ")", res.Stdout + res.Stderr}
 	case res.Code != 0:
 		return &bad{g.Text, res.Stdout + res.Stderr}
+	case res.Leftover:
+		return &bad{g.Text + " (" + leftoverReason + ")", res.Stdout + res.Stderr}
 	}
 	return nil
 }
@@ -52,7 +58,7 @@ func (s *session) failure(g gates.Gate, res proc.Result, err error) *bad {
 // the stage line on stdout, which is what the census of a run reads.
 func (s *session) gateFailed(name, reason, capture string) {
 	if trimmed := strings.TrimRight(capture, "\n"); trimmed != "" {
-		s.errf("%s\n", trimmed)
+		s.errf("%s\n", quarantineText(trimmed))
 	}
 	s.outf("✗ %s: %s\n", name, reason)
 	s.failedGates = append(s.failedGates, name)
@@ -64,9 +70,9 @@ func summarise(g gates.Gate, capture string) (string, string) {
 	parts := make([]string, 0, len(g.Readers))
 	for _, r := range g.Readers {
 		if r.Detail == nil {
-			got, ok := gates.CaseCount(capture)
-			if !ok {
-				return "", "exited 0 but printed no 'passed: <n>' line, so it proved nothing"
+			got, err := gates.CaseCount(capture)
+			if err != nil {
+				return "", "exited 0 but " + err.Error()
 			}
 			parts = append(parts, got)
 			continue
@@ -114,7 +120,7 @@ func (s *session) runDrift(ctx context.Context, g gates.Gate) {
 		s.gateFailed(g.Name, "ran, but printed no "+g.Name+" stage line", res.Stdout)
 		return
 	}
-	s.outf("%s\n", strings.TrimRight(res.Stdout, "\n"))
+	s.outf("%s\n", quarantineText(strings.TrimRight(res.Stdout, "\n")))
 }
 
 // stdoutExplanation is shown, above what the helper suite printed, when it wrote to the stream
@@ -164,17 +170,24 @@ func (s *session) runHelpers(ctx context.Context, g gates.Gate) {
 func (s *session) runStage(ctx context.Context, g gates.Gate) (ExitCode, bool) {
 	path, err := s.tempFile()
 	if err != nil {
-		s.errf("ERROR: %v\n", err)
+		s.errf(abortPrefix+"%v\n", err)
 		return ExitCannotRun, true
 	}
+	stdout, stderr := &quarantineWriter{to: s.env.Stdout}, &quarantineWriter{to: s.env.Stderr}
 	res, err := s.exec(ctx, proc.Cmd{
 		Argv: g.Command(s.root), Dir: s.root, Env: []string{"QA_JSON_OUT=" + path},
-		StdoutTo: s.env.Stdout, StderrTo: s.env.Stderr,
+		StdoutTo: stdout, StderrTo: stderr,
 	})
+	for _, w := range []*quarantineWriter{stdout, stderr} {
+		if flushErr := w.Flush(); flushErr != nil {
+			s.errf(abortPrefix+"cannot write %s's output: %v\n", g.Name, flushErr)
+			return ExitCannotRun, true
+		}
+	}
 	if ctx.Err() != nil {
 		return ExitOK, false
 	}
-	clean := err == nil && !res.TimedOut && res.Code == 0
+	clean := err == nil && !res.TimedOut && res.Code == 0 && !res.Leftover
 	switch {
 	case err != nil:
 		s.stageFailed(g.Name, "could not start: "+err.Error())
@@ -185,6 +198,8 @@ func (s *session) runStage(ctx context.Context, g gates.Gate) (ExitCode, bool) {
 		return ExitCannotRun, true
 	case res.Code != 0:
 		s.noteStageFailed(g.Name)
+	case res.Leftover:
+		s.stageFailed(g.Name, leftoverReason)
 	}
 	s.collectReport(g.Name, path, clean)
 	return ExitOK, false

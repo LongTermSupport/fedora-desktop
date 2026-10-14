@@ -148,8 +148,8 @@ def qa_gates(table):
         module = _QA_MODULE_GATE.search(command)
         if module:
             names.add(module.group("name"))
-        elif command.startswith("scripts/") and command.endswith(".bash"):
-            names.add(command.rsplit("/", 1)[-1])
+        elif command.split()[0].startswith("scripts/") and command.split()[0].endswith(".bash"):
+            names.add(command.split()[0].rsplit("/", 1)[-1])
         else:
             raise ValueError(f"scripts/qa-gates.tsv:{number}: cannot name the gate run by {command!r}")
     return sorted(names)

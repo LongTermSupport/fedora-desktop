@@ -135,7 +135,7 @@ elif [[ $rc -ne 0 ]]; then FAILED=$((FAILED + 1)); fi
 - Status 0 passes; **2 aborts the whole run** immediately (the one deliberate abort: a suite that
   cannot run its tools has nothing to accumulate, `QA` L52-54): the message below to stderr, exit 2,
   no JSON, no verdict. Any other non-zero adds one to `FAILED`.
-- `VD` knows the abort (`TOOL_ABORT`: `^ERROR: (?:Missing required tools|[a-z-]+ gate could not produce)`),
+- `VD` knows the abort (`TOOL_ABORT`: `^ERROR: (?:Missing required tools|[a-z-]+ gate could not produce|qa-all: )`, the last for the Go runner's own aborts, B26),
   so the message texts are a contract. They are data in `qa-gates.tsv`:
 
 | stage            | exit 2 message                                                                             |
@@ -354,11 +354,24 @@ reproduced. Items verified by running the bash are marked (reproduced).
 
 | B20 | `HS` L78-202 | The helper-tests counts reader's refusals print `helper_counts_summary: ...` (a function that no longer exists) with bash `%q` quoting, and a token mismatch over two lines. | **Fix** (cosmetic): `helper-tests counts: ...` with Go quoting on one line; every refusal and the failed stage line are unchanged, and every message substring `TH` asserted is kept |
 
-Which bugs the golden shows and which a unit test does: B1-B6, B12, B13 and B20 differ in the
-recorded output and are pinned in `testdata/deviations.json`. B7-B11 (the report path, the
-timeout, the interrupt, the table as data, the working directory) and B14-B19 are not visible
-in a recorded stub run, so each has its own Go test (`run_test.go`, `gate_test.go`,
-`config_test.go`, `report_test.go`, the real-tree tests).
+Found by the review of the port (`subagent-reports/261014-fable-review-qa-all.md`):
+
+| #   | Where                | What the bash did                                                                                                                                                                            | Decision                                                                                                                                                                                                                                          |
+| --- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B21 | `QA` count gates     | A suite that exits 0 after `passed: 0 failed: 0` printed `✓ <name>: passed: 0`: case discovery that matched nothing, the same defect as the missing count line (B2), was a green tick.       | **Fix**: zero cases is "could not run", it proved nothing: `✗ <name>: exited 0 but counted 0 passed cases ('passed: 0'), so it proved nothing`. One reader, `gates.CaseCount`, shared with `qa-changed` (SPEC-qa-changed B31)                     |
+| B22 | `QA` count gates     | A suite that exits 0 while its count line says `failed: 2` (a summary that forgot its `exit 1`) printed `✓ <name>: passed: 3`.                                                               | **Fix**: a `failed: <m>` above zero on the counted line fails the gate: `✗ <name>: exited 0 but its count line reports failed cases: 2 failed`. Same reader (SPEC-qa-changed B32)                                                                 |
+| B23 | `QA` L137-206        | A stage's own output (or a failed gate's capture, or the drift gate's line) can contain a line that opens `✓ QA passed:`, which anything greping stdout for the verdict takes for the run's. | **Fix**: a line from a gate that opens like the run's verdict (`✓`/`✗`/`⚠` then `QA `) is indented two spaces; every other byte, stage lines included, is untouched, so `verdicts.py` still reads them. The closing verdict is the only such line |
+| B24 | `QA` gate invocation | A gate script that is gone was one failed gate (`bash` status 127) and every other gate still ran.                                                                                           | **Fix**: the table is validated before the first gate: a script that is not a file is `ERROR: qa-all: ...`, exit 2, no gate run (section 11.3). A table that names a script that does not exist is a defect to fix, not a gate to report          |
+| B25 | `QA` `$(...)`        | A gate that exited but left a background child holding its output pipe hung `$(...)` for ever, and no limit applied (B8 bounds it only in Go).                                               | **Fix**: after the grace period the output the gate wrote is kept, the child's process group is killed, and the gate fails: `✗ <name>: <text> (left a process running that held its output open)`                                                 |
+| B26 | `QA` exit-2 aborts   | The Go runner's own aborts (`unknown argument`, `cannot write the report`, an unreadable table) printed bare `ERROR: <text>`, which `verdicts.py` did not read as the end of a run.          | **Fix**: each is `ERROR: qa-all: <text>`, and `TOOL_ABORT` matches the prefix                                                                                                                                                                     |
+
+Which bugs the golden shows and which a unit test does: B1-B6, B12, B13, B20-B23 and B26 differ in
+the recorded output and are pinned in `testdata/deviations.json`. B7-B11 (the report path, the
+timeout, the interrupt, the table as data, the working directory), B14-B19, B24 and B25 are not
+visible in a recorded stub run, so each has its own Go test (`run_test.go`, `gate_test.go`,
+`guard_test.go`, `config_test.go`, `report_test.go`, `proc_test.go`, the real-tree tests).
+B7 reaches the stage that names the report: `qa-bash.bash` takes the path from
+`QA_RESULTS_JSON`, as the runner does (`realtable_test.go` pins it).
 
 K1 (**Keep**): a passing gate's capture is discarded, including its warnings. K2: hard-gate status
 1 and 2 are the same failure (the repo's exit-2 convention is for the stages; `qa-changed`'s "could
@@ -411,9 +424,12 @@ kind  <TAB> name <TAB> command <TAB> text <TAB> reader [<TAB> reader ...]
 
 ### 11.3 Behaviour
 
-- Flags as section 2. Loads the table, validates every script exists, clears the report path (B6).
+- Flags as section 2. Loads the table, validates every script exists (B24: exit 2 before any gate
+  runs), clears the report path (B6). A script row's extra words are the script's arguments and
+  reach it, in order.
 - Runs the rows in order; each under the per-gate timeout (B8); each recorded.
-- Hard gate: section 4.1 with B2, B3 and B11. The reader answer is a typed result, never a word.
+- Hard gate: section 4.1 with B2, B3, B11, B21, B22 and B25. The reader answer is a typed result,
+  never a word.
 - Drift: 4.3 with B12. Helpers: 4.4 verbatim. Stage: 4.2 with B4, B5, B8; the exit-2 abort cleans up.
 - Verdict and report as sections 7.3 and 8, with B6, B7, B13, B19.
 - Stdout and stderr stay separate streams end to end.

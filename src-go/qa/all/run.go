@@ -12,6 +12,10 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 )
 
+// abortPrefix opens every line qa-all prints when it ends a run without a verdict. The Python
+// reader (helpers/qa_environment/verdicts.py, TOOL_ABORT) knows a run ended that way by it.
+const abortPrefix = "ERROR: qa-all: "
+
 // session is one run: the gates to run, what has failed so far, and the files it owns.
 type session struct {
 	env     Env
@@ -37,7 +41,7 @@ func Main(ctx context.Context, args []string, env Env) ExitCode {
 	bare := &session{env: env}
 	opts, err := parseArgs(args)
 	if err != nil {
-		bare.errf("ERROR: %v\n", err)
+		bare.errf(abortPrefix+"%v\n", err)
 		if usage, listed := errors.AsType[*usageError](err); listed && usage.listUsage {
 			bare.errf("%s", usageText)
 		}
@@ -49,7 +53,7 @@ func Main(ctx context.Context, args []string, env Env) ExitCode {
 	}
 	s, err := newSession(env, opts)
 	if err != nil {
-		bare.errf("ERROR: %v\n", err)
+		bare.errf(abortPrefix+"%v\n", err)
 		return ExitCannotRun
 	}
 	defer s.cleanup()
@@ -135,7 +139,7 @@ func (s *session) run(ctx context.Context) ExitCode {
 	// A run that ends before the report is written must not leave the last run's report to be
 	// read as its own.
 	if err := os.Remove(s.results); err != nil && !errors.Is(err, os.ErrNotExist) {
-		s.errf("ERROR: cannot clear the previous report %s: %v\n", s.results, err)
+		s.errf(abortPrefix+"cannot clear the previous report %s: %v\n", s.results, err)
 		return ExitCannotRun
 	}
 	for _, g := range s.gates {
@@ -180,7 +184,7 @@ func (s *session) finish() ExitCode {
 		err = writeReport(s.results, body)
 	}
 	if err != nil {
-		s.errf("ERROR: cannot write the report: %v\n", err)
+		s.errf(abortPrefix+"cannot write the report: %v\n", err)
 		return ExitCannotRun
 	}
 	if !failed {

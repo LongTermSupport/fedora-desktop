@@ -10,15 +10,31 @@ import (
 	"strings"
 )
 
-var passedCount = regexp.MustCompile(`passed:[[:space:]]+([0-9]+)`)
+var (
+	passedCount = regexp.MustCompile(`passed:[[:space:]]+([0-9]+)`)
+	failedCount = regexp.MustCompile(`failed:[[:space:]]+([0-9]+)`)
+)
 
-// CaseCount turns a passing suite's output into the text of its stage line: the number from the
-// last line holding "passed: <digits>", the last such match on that line, as "passed: N". A
-// capture with no such line is ("", false): the caller decides, and a suite that exited 0
-// without a count has proved nothing. (The bash reader, qa_gate_case_count, answered the bare
-// word "passed" there, which read as a pass.) A wrong number is the one thing this must never
-// give, which is why it is the last match of the last line and nothing broader.
-func CaseCount(capture string) (string, bool) {
+// The three reasons a suite that exited 0 still has not passed. A caller tells them apart with
+// errors.Is and prints the error's text after its own prefix.
+var (
+	// ErrNoCount: no line holds "passed: <digits>".
+	ErrNoCount = errors.New("printed no 'passed: <n>' line, so it proved nothing")
+	// ErrZeroCases: the count is zero, so no assertion ran.
+	ErrZeroCases = errors.New("counted 0 passed cases ('passed: 0'), so it proved nothing")
+	// ErrFailedCases: the count line itself reports failures.
+	ErrFailedCases = errors.New("its count line reports failed cases")
+)
+
+// CaseCount turns a suite's output into the text of its stage line: the number from the last
+// line holding "passed: <digits>", the last such match on that line, as "passed: N". It is the
+// one reader qa-all and qa-changed share, and a suite that exited 0 passes only if it answers a
+// count: no count line (ErrNoCount, the bash answered the bare word "passed" there), a count of
+// zero (ErrZeroCases: case discovery matched nothing) and a "failed: <m>" with m above zero on
+// that line (ErrFailedCases: a summary that forgot its exit 1) each have proved nothing or
+// failed. A wrong number is the one thing this must never give, which is why it is the last
+// match of the last line and nothing broader.
+func CaseCount(capture string) (string, error) {
 	last := ""
 	for line := range strings.SplitSeq(capture, "\n") {
 		if passedCount.MatchString(line) {
@@ -27,9 +43,18 @@ func CaseCount(capture string) (string, bool) {
 	}
 	matches := passedCount.FindAllStringSubmatch(last, -1)
 	if len(matches) == 0 {
-		return "", false
+		return "", ErrNoCount
 	}
-	return "passed: " + matches[len(matches)-1][1], true
+	count := matches[len(matches)-1][1]
+	for _, m := range failedCount.FindAllStringSubmatch(last, -1) {
+		if strings.Trim(m[1], "0") != "" {
+			return "", fmt.Errorf("%w: %s failed", ErrFailedCases, m[1])
+		}
+	}
+	if strings.Trim(count, "0") == "" {
+		return "", ErrZeroCases
+	}
+	return "passed: " + count, nil
 }
 
 // Detail is the text a gate's pattern matches on the last line of the capture that matches it,

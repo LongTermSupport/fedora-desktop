@@ -41,6 +41,10 @@ type Result struct {
 	// TimedOut is that the context's deadline passed before the command ended; the command's
 	// process group was killed.
 	TimedOut bool
+	// Leftover is that the command ended on its own but a process it started kept its output
+	// open past the grace period. Stdout and Stderr hold what was written; the leftover process
+	// group has been killed. A caller treats it as a failure of the command.
+	Leftover bool
 }
 
 // Runner runs a command. The error is for a command that could not be started at all; a
@@ -78,6 +82,14 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 		return Result{}, fmt.Errorf("proc %s: %w", c.Argv[0], runErr)
 	}
 	res := Result{Stdout: stdout.String(), Stderr: stderr.String(), Code: cmd.ProcessState.ExitCode()}
+	if errors.Is(runErr, exec.ErrWaitDelay) && ctx.Err() == nil {
+		// The command ended; a child of its group still holds the pipe. Keep what was written.
+		res.Leftover = true
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return Result{}, fmt.Errorf("proc %s: cannot end its leftover child: %w", c.Argv[0], err)
+		}
+		runErr = nil
+	}
 	return res.finish(ctx, runErr, c.Argv[0])
 }
 

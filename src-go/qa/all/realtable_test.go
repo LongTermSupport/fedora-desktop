@@ -2,6 +2,7 @@ package all
 
 import (
 	"context"
+	"flag"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,28 +10,73 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
-// realWording is what each detail gate actually prints, one sample per pattern. The runner
-// reads these patterns at run time against the gate's real output and fails the gate if they
-// stop agreeing (bug B3); this test keeps the samples honest against the table, so a pattern
-// changed without its gate being looked at fails here before it fails a full run.
-var realWording = map[string][]string{
-	"toolchain":             {"TOOLCHAIN-OK 6 tools match .qa-versions"},
-	"go":                    {"GO-OK 39 package(s), all tested: fmt, vet, test -race"},
-	"bash-limits":           {"BASH-LIMITS-OK 446 bash files: 109 allowlisted"},
-	"nokill-containerwatch": {"✓ no-kill gate: 3 container-watch file(s) clean — reporting-only confirmed"},
-	"planlib-tests":         {"test-planlib: PASSED (library version 1.2.0)"},
-	"ssh-suspend-guard":     {"VERDICT: PASS"},
-	"extension-compat":      {"All 3 extension(s) cover the GNOME Shell that Fedora 44 ships"},
-	"panel-contract":        {"7 constant(s) agree between the panel and the producer"},
-	"plan-script-logging":   {"12 plan script(s) examined, no offences"},
-	"version-pins":          {"vars/version-pins.yml: VERSION-PINS-OK 20 rows"},
-	"vmtest-manifest": {
-		"vars/vm-test-scenarios.yml: scenarios=8 runnable=8 bridge=6 host_only=2 bases=2",
-		"8 scenario(s) agree with their guest checker",
-		"3 scenario fixture(s) run before a declared reboot",
-	},
+// The real wording of every detail gate is testdata/wording/<gate>.txt: the gate's own output
+// (stdout and stderr merged, the checkout path written as <ROOT>), captured by running the real
+// gate. The runner reads each pattern against the gate's output at run time and fails the gate
+// if they stop agreeing (bug B3); these tests keep the table's patterns honest against that
+// captured wording, so a pattern changed without looking at its gate fails here before it
+// fails a full run. A gate that is reworded is caught by recapturing:
+//
+//	go test ./all -run TestCaptureTheRealWordingOfTheDetailGates -capture-wording -timeout 30m
+//
+// which runs every detail gate for real (the Go gate among them, so it takes minutes), refuses
+// a gate that fails or whose output its pattern does not match, and rewrites the files.
+var captureWording = flag.Bool("capture-wording", false, "run every detail gate for real and rewrite testdata/wording")
+
+const wordingDir = "testdata/wording"
+
+func wordingPath(gate string) string { return filepath.Join(wordingDir, gate+".txt") }
+
+// realWording is the captured output of a detail gate; the test fails if it is missing.
+func realWording(t *testing.T, gate string) string {
+	t.Helper()
+	body, err := os.ReadFile(wordingPath(gate))
+	if err != nil {
+		t.Fatalf("gate %s has detail patterns and no captured wording (%v): run the -capture-wording command described above captureWording", gate, err)
+	}
+	return string(body)
+}
+
+func detailGates(gs []gates.Gate) []gates.Gate {
+	var out []gates.Gate
+	for _, g := range gs {
+		if slices.ContainsFunc(g.Readers, func(r gates.Reader) bool { return r.Detail != nil }) {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+func TestCaptureTheRealWordingOfTheDetailGates(t *testing.T) {
+	if !*captureWording {
+		t.Skip("recaptures the real wording; run with -capture-wording")
+	}
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, gs := realTable(t)
+	for _, g := range detailGates(gs) {
+		t.Run(g.Name, func(t *testing.T) {
+			res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: g.Command(root), Dir: root, Merge: true})
+			if err != nil || res.Code != 0 {
+				t.Fatalf("the gate must pass to have wording worth capturing: %v, status %d\n%s", err, res.Code, res.Stdout)
+			}
+			text := strings.ReplaceAll(res.Stdout, root, "<ROOT>")
+			if _, summary := summarise(g, text); summary != "" {
+				t.Fatalf("the table's patterns do not read the gate's real output: %s\n%s", summary, text)
+			}
+			if err := os.MkdirAll(wordingDir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(wordingPath(g.Name), []byte(text), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func realTable(t *testing.T) (string, []gates.Gate) {
@@ -47,24 +93,22 @@ func realTable(t *testing.T) (string, []gates.Gate) {
 	return string(body), gs
 }
 
-func TestEverySampleOfARealGatesWordingMatchesItsPatternAndNoPatternIsUnsampled(t *testing.T) {
+func TestEveryDetailPatternReadsTheCapturedWordingOfItsGateAndNoCaptureIsOrphaned(t *testing.T) {
 	_, gs := realTable(t)
-	for _, g := range gs {
-		samples, sampled := realWording[g.Name]
-		var patterns []string
-		for _, r := range g.Readers {
-			if r.Detail != nil {
-				patterns = append(patterns, r.Detail.String())
-				if !slices.ContainsFunc(samples, r.Detail.MatchString) {
-					t.Errorf("gate %s: no sample matches %s", g.Name, r.Detail)
-				}
-			}
+	wanted := map[string]bool{}
+	for _, g := range detailGates(gs) {
+		wanted[g.Name+".txt"] = true
+		if _, summary := summarise(g, realWording(t, g.Name)); summary != "" {
+			t.Errorf("gate %s: the captured wording no longer satisfies the table: %s", g.Name, summary)
 		}
-		if len(patterns) > 0 && !sampled {
-			t.Errorf("gate %s has detail patterns %v and no sample", g.Name, patterns)
-		}
-		if len(patterns) == 0 && sampled {
-			t.Errorf("gate %s has a sample but no detail pattern", g.Name)
+	}
+	entries, err := os.ReadDir(wordingDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !wanted[e.Name()] {
+			t.Errorf("%s/%s belongs to no gate with a detail pattern", wordingDir, e.Name())
 		}
 	}
 }
@@ -80,8 +124,8 @@ func newRealWorld(t *testing.T) *world {
 		case gates.KindDrift:
 			w.runner.replies[key] = reply{stdout: "✓ deployed-drift: 4 scripts in sync\n"}
 		case gates.KindGate:
-			if samples, ok := realWording[g.Name]; ok {
-				w.runner.replies[key] = reply{stdout: strings.Join(samples, "\n") + "\n"}
+			if slices.ContainsFunc(g.Readers, func(r gates.Reader) bool { return r.Detail != nil }) {
+				w.runner.replies[key] = reply{stdout: realWording(t, g.Name)}
 			}
 		case gates.KindStage, gates.KindHelpers:
 		}
@@ -98,6 +142,22 @@ func tableOrder(t *testing.T) []string {
 		order[i] = keyOf(g.Command("/r"))
 	}
 	return order
+}
+
+// A stage that tells the user where the merged report is must name the path the runner
+// writes it to: QA_RESULTS_JSON (SPEC-qa-all.md B7), not a variable nothing sets.
+func TestQaBashPointsAtTheReportPathTheRunnerWrites(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "qa-bash.bash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, `MERGED_JSON_OUT="${QA_RESULTS_JSON:-/tmp/qa-results.json}"`) {
+		t.Error("qa-bash.bash must take the merged report path from QA_RESULTS_JSON, as qa-all does")
+	}
+	if strings.Contains(text, "QA_JSON_OUT_MERGED") {
+		t.Error("QA_JSON_OUT_MERGED is set by nothing; qa-bash.bash must not read it")
+	}
 }
 
 func TestTheRealTablePassesEndToEndInOrder(t *testing.T) {

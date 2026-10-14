@@ -129,7 +129,7 @@ func TestHelpIsOnStdoutAndABadCommandLineIsExitTwoOnStderr(t *testing.T) {
 		t.Fatalf("help ran gates: %v", w.runner.log)
 	}
 	if code := w.main(context.Background(), "--typo"); code != ExitCannotRun || w.out.String() != "" ||
-		!strings.Contains(w.errOut.String(), "ERROR: unknown argument '--typo'") || !strings.Contains(w.errOut.String(), "usage: qa-all") {
+		!strings.Contains(w.errOut.String(), "ERROR: qa-all: unknown argument '--typo'") || !strings.Contains(w.errOut.String(), "usage: qa-all") {
 		t.Fatalf("--typo: exit %d, stdout %q, stderr %q", code, w.out.String(), w.errOut.String())
 	}
 	if len(w.runner.log) != 0 {

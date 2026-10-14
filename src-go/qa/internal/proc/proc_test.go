@@ -127,6 +127,42 @@ func TestOSKillsTheWholeProcessGroupOnTimeout(t *testing.T) {
 	t.Fatalf("the child %d outlived the timeout", pid)
 }
 
+// A command that exits but leaves a child holding its output pipe is not a clean run: the
+// capture the command did write is kept, the leftover is reported (Leftover), and the child is
+// ended rather than left running.
+func TestOSKeepsTheCaptureAndReportsAChildLeftHoldingThePipe(t *testing.T) {
+	res, err := OS{}.Run(context.Background(), Cmd{Argv: []string{"sh", "-c", "echo before; sleep 30 & echo $!; exit 0"}, Merge: true})
+	if err != nil {
+		t.Fatalf("a leftover child is a report, not a failure to run: %v", err)
+	}
+	if !res.Leftover || res.TimedOut || res.Code != 0 {
+		t.Fatalf("want Leftover with the command's own status 0: %+v", res)
+	}
+	lines := strings.Fields(res.Stdout)
+	if len(lines) != 2 || lines[0] != "before" {
+		t.Fatalf("the capture was dropped or mangled: %q", res.Stdout)
+	}
+	pid, err := strconv.Atoi(lines[1])
+	if err != nil {
+		t.Fatalf("the child's pid was not printed: %q", res.Stdout)
+	}
+	const polls = 500
+	for range polls {
+		if gone(pid) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the leftover child %d is still running", pid)
+}
+
+func TestOSCleanRunIsNotLeftover(t *testing.T) {
+	res, err := OS{}.Run(context.Background(), Cmd{Argv: []string{"sh", "-c", "echo ok"}})
+	if err != nil || res.Leftover {
+		t.Fatalf("%+v, %v", res, err)
+	}
+}
+
 func TestOSCancelledIsNotATimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
