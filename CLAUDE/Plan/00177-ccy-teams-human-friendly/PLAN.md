@@ -136,6 +136,9 @@ offer to create a team when there is none; think about the UX; do a full critica
 - [ ] **Task 5.1**: meta-deploy (`play-agent-bus.yml`, `play-claude-yolo.yml`), then the
   owner's own test: `ccy-teams create` from a repository (scope, Element, sign-in, the
   offer to start a session), `ccy --teams <team>` choosing a seat, and `cc --teams <team>`.
+  Deployed; the owner finds the Go `ccy-teams` good, but the Element steps (a profile, an
+  account and a password per team) were not clear to them. Explained in conversation;
+  whether the sign-in needs to be simpler is the owner's call.
 
 ## Success Criteria
 
