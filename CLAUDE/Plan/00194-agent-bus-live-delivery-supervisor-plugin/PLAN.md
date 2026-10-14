@@ -56,6 +56,13 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 ### Phase 2: Build
 
+- [x] ✅ **Task 2.0b**: Goodbye on session end. The owner: "when shutting down a ccy
+  session, there should be a goodbye message sent as final message from the agent." Sent by
+  pingbus from the plugin's `SessionEnd` hook, as a fixed-template plain room text from the
+  seat's member (`<handle> left the team: session ended (<reason>)`, reason from the closed
+  set `exit`, `logout`, `other`), not written by the model. Once per session, never on
+  `/clear` or `/resume`, capped at 4 s, a failure is one stderr line. Test first. Docs:
+  `docs/agent-bus-protocol.md`, `docs/agent-bus.md`. Rationale: JOURNAL of the day.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump).
 - [ ] ⬜ **Task 2.1b**: Ship the ccy-agent-bus supervisor plugin in the member kit too, so

@@ -26,6 +26,8 @@ import re
 import socket
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -60,6 +62,7 @@ FIELD_RES = {
     "handle": protocol.HANDLE_PATTERN,
     "handles": rf"{UNNAMED_HANDLE}(?:, {UNNAMED_HANDLE})*",
     "lock": "(?:held|free)",
+    "reason": "(?:exit|logout|other)",
 }
 
 
@@ -352,10 +355,8 @@ class SessionStartTest(HookCase):
             hooks.watch_argv({"PATH": str(self.tmp)})
 
 
-class SessionStartSeatTest(HookCase):
-    """DESIGN.md section 5.5 "Hooks": a line per seat the session holds, its team's other
-    seats with `held` or `free` and their handles, and the `history` pointer when the seat
-    has earlier traffic; read offline through the session home's links."""
+class SeatCase(HookCase):
+    """A session home whose team entry links to seat `dev1`, with a sibling seat `qa2`."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -371,6 +372,12 @@ class SessionStartSeatTest(HookCase):
         member = json.loads((self.own / "member.json").read_text(encoding="utf-8"))
         member["user_id"] = f"@myrepo.qa2+local.podman:{SN}"
         (self.sibling / "member.json").write_text(json.dumps(member), encoding="utf-8")
+
+
+class SessionStartSeatTest(SeatCase):
+    """DESIGN.md section 5.5 "Hooks": a line per seat the session holds, its team's other
+    seats with `held` or `free` and their handles, and the `history` pointer when the seat
+    has earlier traffic; read offline through the session home's links."""
 
     def start(self) -> dict:
         return self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"})
@@ -420,6 +427,126 @@ class SessionStartSeatTest(HookCase):
 
     def test_the_seat_lines_are_offline(self):
         self.start()  # the socket module is replaced: any network use fails the test
+
+
+# ── SessionEnd: the goodbye ────────────────────────────────────────────────────────────
+
+OWN_HANDLE = "myrepo.1+workstation.podman"
+
+
+class GoodbyeTest(SeatCase):
+    """Plan 00194 Task 2.0b: the SessionEnd hook posts one fixed-template goodbye per seat
+    when the session really ends (never on `/clear` or `/resume`, where it goes on), within
+    a few seconds, and reports a failure on one stderr line without blocking."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.posted: list[tuple[str, str]] = []
+        self.post_error: Exception | None = None
+        self.release = threading.Event()
+        self.addCleanup(self.release.set)
+
+    def post(self, team: str, text: str) -> None:
+        if self.post_error is not None:
+            raise self.post_error
+        self.posted.append((team, text))
+
+    def end(self, reason: object = "prompt_input_exit", session: str | None = "sess-1",
+            env: dict[str, str] | None = None) -> tuple[dict, str]:
+        payload: dict = {"hook_event_name": "SessionEnd", "reason": reason}
+        if session is not None:
+            payload["session_id"] = session
+        out, err = io.StringIO(), io.StringIO()
+        runtime = self.runtime()
+        runtime.post = self.post
+        code = cli.main(["hook", "session-end"], environ=env or self.env, stdout=out, stderr=err,
+                        stdin=io.BytesIO(json.dumps(payload).encode("utf-8")), runtime=runtime)
+        self.assertEqual(code, 0, err.getvalue())
+        return json.loads(out.getvalue()), err.getvalue()
+
+    def test_an_exit_posts_one_goodbye_from_the_template(self):
+        result, err = self.end()
+        self.assertEqual((result, err), ({}, ""))
+        self.assertEqual(self.posted, [(TEAM, f"{OWN_HANDLE} left the team: session ended (exit)")])
+        self.assertEqual(self.posted[0][1], hooks.fill("goodbye", handle=OWN_HANDLE, reason="exit"))
+
+    def test_the_hook_firing_twice_for_one_session_posts_once(self):
+        self.end()
+        self.end()
+        self.assertEqual(len(self.posted), 1)
+
+    def test_a_session_ending_straight_after_it_started_posts_at_most_one(self):
+        self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"})
+        self.end()
+        self.end(reason="other")
+        self.assertEqual(len(self.posted), 1)
+
+    def test_a_clear_or_a_resume_posts_nothing_and_a_later_exit_still_does(self):
+        for reason in ("clear", "resume"):
+            self.assertEqual(self.end(reason=reason), ({}, ""))
+        self.assertEqual(self.posted, [])
+        self.end()
+        self.assertEqual(len(self.posted), 1)
+
+    def test_the_reason_is_from_a_closed_set(self):
+        cases = {"prompt_input_exit": "exit", "logout": "logout", "other": "other",
+                 "bypass_permissions_disabled": "other", "<b>free text</b>": "other", 7: "other"}
+        for number, (given, shown) in enumerate(cases.items()):
+            self.posted.clear()
+            self.end(reason=given, session=f"sess-{number}")
+            self.assertEqual(self.posted[0][1], f"{OWN_HANDLE} left the team: session ended ({shown})")
+
+    def test_a_missing_reason_or_session_id_still_posts_once(self):
+        out, err = io.StringIO(), io.StringIO()
+        runtime = self.runtime()
+        runtime.post = self.post
+        cli.main(["hook", "session-end"], environ=self.env, stdout=out, stderr=err,
+                 stdin=io.BytesIO(b"{}"), runtime=runtime)
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(self.posted, [(TEAM, f"{OWN_HANDLE} left the team: session ended (other)")])
+
+    def test_a_plain_bundle_session_posts_nothing(self):
+        (self.home / TEAM).unlink()
+        os.rename(self.own, self.home / TEAM)
+        self.assertEqual(self.end(), ({}, ""))
+        self.assertEqual(self.posted, [])
+
+    def test_a_failure_is_one_stderr_line_and_the_hook_still_answers(self):
+        self.post_error = hooks.GoodbyeFailed("homeserver: unreachable")
+        result, err = self.end()
+        self.assertEqual(result, {})
+        self.assertEqual(err, f"pingbus: hook session-end: goodbye to team {TEAM} not sent: "
+                              "homeserver: unreachable\n")
+
+    def test_an_unexpected_failure_names_only_its_class(self):
+        self.post_error = RuntimeError(f"secret {MARKER}")
+        result, err = self.end()
+        self.assertEqual(result, {})
+        self.assertEqual(err, f"pingbus: hook session-end: goodbye to team {TEAM} not sent: "
+                              "RuntimeError\n")
+
+    def test_a_post_that_hangs_is_given_up_after_the_cap(self):
+        def hang(team: str, text: str) -> None:
+            self.release.wait(30)
+
+        self.post = hang
+        with mock.patch.object(hooks, "GOODBYE_TIMEOUT_S", 0.2):
+            started = time.monotonic()
+            result, err = self.end()
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(result, {})
+        self.assertEqual(err, f"pingbus: hook session-end: goodbye to team {TEAM} not sent: "
+                              "no answer within 0.2 s\n")
+
+    def test_the_cap_is_a_few_seconds(self):
+        self.assertTrue(1 <= hooks.GOODBYE_TIMEOUT_S <= 5)
+
+    def test_a_failed_attempt_is_not_retried_by_a_second_firing(self):
+        self.post_error = hooks.GoodbyeFailed("homeserver: unreachable")
+        self.end()
+        self.post_error = None
+        self.end()
+        self.assertEqual(self.posted, [])
 
 
 # ── Stop ───────────────────────────────────────────────────────────────────────────────

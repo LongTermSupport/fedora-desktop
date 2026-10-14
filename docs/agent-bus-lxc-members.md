@@ -150,8 +150,8 @@ What it does, in order (the script is `files/opt/claude-yolo/optional/agent-bus/
    ```
 
    where `<kit>` is `/usr/local/share/agent-bus/kit`. The plugin supplies the
-   `SessionStart`, `UserPromptSubmit` and `Stop` hooks (`pingbus hook session-start`,
-   `prompt`, `stop`) and the pingbus skill. The settings file holds one setting,
+   `SessionStart`, `UserPromptSubmit`, `Stop` and `SessionEnd` hooks (`pingbus hook session-start`, `prompt`, `stop`, `session-end`) and the pingbus skill. `SessionEnd`
+   posts the goodbye ([agent-bus.md](agent-bus.md)). The settings file holds one setting,
    `"crossSessionInbound": "accept"`, without which a bypass-permissions session holds the
    bus's wake notice instead of starting a turn.
 

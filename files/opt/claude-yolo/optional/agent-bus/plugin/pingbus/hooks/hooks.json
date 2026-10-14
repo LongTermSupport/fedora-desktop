@@ -29,6 +29,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pingbus hook session-end",
+            "timeout": 6
+          }
+        ]
+      }
     ]
   }
 }
