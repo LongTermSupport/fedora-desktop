@@ -36,7 +36,7 @@ Use these Unicode icons in plan documents:
 
 - [00196-team-coordinator-role](00196-team-coordinator-role/) - In Progress. One agent per team is the coordinator: copied on what workers tell humans, addressable with `--to-coordinator`, set from `ccy-teams` and bare `ccy --teams`
 
-- [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
+- [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - In Progress (design written). A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
 
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 

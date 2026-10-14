@@ -1,6 +1,6 @@
 # Plan 00197: agent bus seat broker daemon
 
-**Status**: Not Started
+**Status**: In Progress (design written; Fable review and owner decisions next)
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -61,11 +61,13 @@ ranges, the approval policy.
 
 ### Phase 1: Design
 
-- [ ] ⬜ **Task 1.1**: DESIGN.md: the API (request, poll, approve, refuse, revoke), the pairing
+- [x] ✅ **Task 1.1**: [DESIGN.md](DESIGN.md): the API (request, poll, approve, refuse, revoke), the pairing
   code and request secret, where it listens (only the bridge interfaces a team admits), the
   service user and what it may touch (the registration secret, the registry; not root), the
   approval surfaces (Element room message from the team's admin account, ccy-teams list), the
-  audit log, expiry, rate limits, and how `agent_bus_lxc_members` is retired.
+  audit log, expiry, rate limits, and how `agent_bus_lxc_members` is retired. The handle is
+  derived from the checkout by ccy's rule (owner direction). Its section 13 holds 13 owner
+  decisions; its section 14 is the task list that replaces Phases 2 and 3 once reviewed.
 - [ ] ⬜ **Task 1.2**: Fable adversarial review of the design; findings fixed.
 
 ### Phase 2: Build (Go, spec first, tests first)
