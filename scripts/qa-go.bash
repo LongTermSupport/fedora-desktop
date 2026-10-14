@@ -27,7 +27,7 @@ if [[ ! -f "$GO_DIR/go.mod" ]]; then
     exit 1
 fi
 if ! command -v go > /dev/null; then
-    echo "✗ go: go not installed (install via playbooks/imports/optional/common/play-golang.yml)" >&2
+    echo "✗ go: go not installed (install via playbooks/imports/play-golang.yml)" >&2
     exit 2
 fi
 if ! command -v golangci-lint > /dev/null; then

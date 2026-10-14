@@ -1,8 +1,8 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
-# ccy-teams is a Go binary built here, so the Go toolchain is installed first.
-# play-golang.yml stays its one source of truth.
-- import_playbook: optional/common/play-golang.yml
+# ccy-teams and ccy-sessions are Go binaries built here, so the Go toolchain is installed
+# first. play-golang.yml stays its one source of truth.
+- import_playbook: play-golang.yml
 
 - hosts: desktop
   # One play for both launchers. cc (host Claude Code) runs on ccy's lib, so the two cannot
@@ -836,9 +836,9 @@
     # checkout; it needs no checkout path baked in. Built to a scratch path and installed with
     # `copy`, which compares checksums, so an unchanged source reports ok rather than changed
     # (-trimpath and -buildvcs=false keep the build byte-for-byte reproducible: the
-    # first drops the checkout path, the second the git revision a build otherwise stamps in). A failed build stops the play
-    # before anything is installed. The systemd units, shutdown-with-update and the
-    # self-update cycle call it at this path.
+    # first drops the checkout path, the second the git revision a build otherwise
+    # stamps in). A failed build stops the play before anything is installed. The
+    # systemd units, shutdown-with-update and the self-update cycle call it at this path.
     - name: Ensure the ccy Go Build Directory Exists
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.cache/ccy-go-build"
@@ -886,8 +886,8 @@
     # which play-agent-bus.yml installs. Built to a scratch path and installed with `copy`,
     # which compares checksums, so an unchanged source reports ok rather than changed
     # (-trimpath and -buildvcs=false keep the build byte-for-byte reproducible: the
-    # first drops the checkout path, the second the git revision a build otherwise stamps in). A failed build stops the play
-    # before anything is installed.
+    # first drops the checkout path, the second the git revision a build otherwise
+    # stamps in). A failed build stops the play before anything is installed.
     - name: Build the ccy-teams Command
       ansible.builtin.command:
         cmd: >-
