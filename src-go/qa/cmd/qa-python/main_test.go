@@ -60,7 +60,7 @@ func realRun(t *testing.T, files map[string]string) outcome {
 	}
 	all := map[string]string{
 		".qa-versions":         "RUFF=" + strings.Fields(ver.Stdout)[1] + "\n",
-		"scripts/qa-trees.tsv": "python\t.venv\n",
+		"scripts/qa-trees.tsv": "shell\t.git\npython\t.venv\n",
 		"ruff.toml":            "[lint]\nselect = [\"E4\", \"E7\", \"E9\", \"F\"]\n",
 	}
 	maps.Copy(all, files)

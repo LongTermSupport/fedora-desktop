@@ -5,7 +5,7 @@ Programme P3 of [INVENTORY.md](INVENTORY.md), after [SPEC-qa-patterns.md](SPEC-q
 expectations; `scripts/qa-python.bash` (155 code lines, 270 with comments, an associative array
 and seven `jq` calls, an inline `python -c`) was read only to find the requirements. Where it was
 wrong, the expectation says what is right and section 3 lists the departure. Proof is the Go tests
-in `src-go/qa/python` and `src-go/qa/internal/published` (cited by number) and a run of the Go
+in `src-go/qa/python` (cited by number) and a run of the Go
 tool and the bash over the live tree.
 
 ## 1. Role
@@ -49,30 +49,24 @@ wrapper change (section 4).
   bump it deliberately, exit 1. (A report with no document, or an exit 2, would shift the
   positional merge in qa-all and take every later gate offline.)
 
-### Which files: what git would publish
+### Which files: the shared discovery
 
-- Y7. The candidates are the files in `git ls-files -z --cached --others --exclude-standard` from
-  the root, less those `git ls-files --deleted` names; a gitignored file is never read, counted or
-  reported. `git` failing is `ERROR: cannot list the files git would publish under <root>: <why>`,
-  exit 2. *(Bash used `find`, so ignored files, build output and other checkouts' files were
-  checked, and the coverage guard compared it with git.)*
-- Y8. Excluded trees are the `python` rows of `scripts/qa-trees.tsv` (`python<TAB>dir`): a path is
-  excluded when `/dir/` occurs as whole segments anywhere in `/<path>/`. A malformed row, an
-  unreadable file, or no `python` row is exit 2: an empty exclusion list would check trees that
-  are not ours.
-- Y9. A candidate is a Python file when its name ends `.py`, or, with any other name that is not
-  `.j2`, its first line is `#!` followed by text containing `python`. Mode bits play no part. A
-  candidate that cannot be read is exit 2 naming it. A directory or submodule entry is not a file.
-  A symlink is judged by its target and checked under its own name; one that cannot be followed is
-  exit 2 naming it. A path git lists that the tree lacks and `--deleted` does not name is exit 2
-  (`ERROR: cannot inspect <path>`).
-- Y10. No Python file found is exit 2: this repository always has some, so discovery is broken,
-  and a pass would vouch for code nothing had read.
+- Y7. Which files are checked is defined once, by [SPEC-qa-discovery.md](SPEC-qa-discovery.md),
+  and this gate asks the `qa/discovery` package for its `python` and `python-templates` lists
+  (D2-D13): what git would publish (never a gitignored file), outside the `python` rows of
+  `scripts/qa-trees.tsv`, a file being Python by its `.py` name or a Python shebang whatever its
+  mode, a symlink judged by its target. This gate adds nothing to that definition and does not
+  re-derive it. *(Bash used `find`, so ignored files, build output and other checkouts' files were
+  checked, and its coverage guard compared that with git.)*
+- Y8-Y10. A failure of the discovery (a bad trees table, git failing, an unreadable or
+  unfollowable candidate, no Python file at all) is exit 2 with its message after
+  `ERROR: discovery of <list> failed:`. The tests here cover the consequences for this gate
+  (nothing is checked, no report is written); the definitions are tested in `qa/discovery`.
 
 ### Templates
 
-- Y11. A candidate named `*.j2` outside the excluded trees whose first line is a Python shebang
-  is a Python template. A `.j2` without one is not Python and is ignored here.
+- Y11. A Python template is a `.j2` the discovery lists as `python-templates` (D8); the list may
+  be empty.
 - Y12. A template containing a Jinja statement (`{%`) is exit 2 naming it: its rendered Python
   cannot be reconstructed by substitution, and "this gate cannot check it" must not become "this
   gate passes it". Nothing else is checked first, so one such file stops the run.
@@ -139,12 +133,10 @@ wrapper change (section 4).
 
 ## 4. Go design and cut-over
 
-`src-go/qa/python` (`run.go` command line and flow, `discover.go` classification, `compile.go`
+`src-go/qa/python` (`run.go` command line and flow, `discover.go` the call to the shared discovery, `compile.go`
 the compile step and templates, `ruff.go` the version, the coverage proof and the lint,
-`report.go`) and a thin `src-go/qa/cmd/qa-python`. `src-go/qa/internal/published` holds what the
-next gate to be ported will also need: the files git would publish, the `qa-trees.tsv` reader and
-the exclusion test (the patterns gate still carries its own copies and moves to it when it is next
-touched). Every process (git, ruff, python3) goes through the injected `proc.Runner`, so the tests
+`report.go`) and a thin `src-go/qa/cmd/qa-python`. Discovery is the `qa/discovery` package
+(SPEC-qa-discovery.md), called in-process with the injected runner. Every process (git, ruff, python3) goes through the injected `proc.Runner`, so the tests
 substitute a fake that records argv and answers as the tool would; the real ruff and python3 are
 exercised by `cmd/qa-python`'s tests over a real work tree and by the live-tree run in the journal.
 `scripts/qa-python.bash` becomes a build-and-run wrapper over `lib/go-tool.bash`; its allowlist row

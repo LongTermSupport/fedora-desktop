@@ -100,7 +100,6 @@ scripts/qa-ansible-pause.bash	96	1	71	-
 scripts/qa-ansible-syntax.bash	88	0	81	assoc,data
 scripts/qa-bash.bash	110	0	102	assoc,data
 scripts/qa-deployed-drift.bash	165	1	165	-
-scripts/qa-discovery.bash	158	14	221	-
 scripts/qa-docs.bash	77	0	72	data
 scripts/qa-gh-scopes.bash	67	0	82	data
 scripts/qa-go.bash	72	2	81	-

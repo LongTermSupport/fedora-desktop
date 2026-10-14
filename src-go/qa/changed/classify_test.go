@@ -279,7 +279,7 @@ func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 
 func TestThePythonGateRunsWhenItsToolPinConfigOrTableChange(t *testing.T) {
 	w := newWorld(t)
-	for _, f := range []string{"src-go/qa/python/run.go", "src-go/qa/cmd/qa-python/main.go", "src-go/qa/internal/published/published.go", "ruff.toml"} {
+	for _, f := range []string{"src-go/qa/python/run.go", "src-go/qa/cmd/qa-python/main.go", "src-go/qa/discovery/list.go", "ruff.toml"} {
 		w.touch(f, "// x")
 		p := w.classify([]string{f})
 		if !p.has("python") || len(p.uncovered) != 0 || len(p.skipped) != 0 {

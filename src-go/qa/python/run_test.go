@@ -320,7 +320,7 @@ func TestNoPythonFileIsExitTwo(t *testing.T) {
 
 // Y8: a table with no python row.
 func TestTheTreesTableMustHaveAPythonRow(t *testing.T) {
-	w := newWorld(t, map[string]string{"scripts/qa-trees.tsv": "shell\t.git\n"})
-	wantStderr(t, w.main(), "no 'python' row")
+	w := newWorld(t, map[string]string{"scripts/qa-trees.tsv": "python\t.venv\n"})
+	wantStderr(t, w.main(), "'shell' row and a 'python' row")
 	w.noReport()
 }

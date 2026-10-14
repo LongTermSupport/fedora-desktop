@@ -111,6 +111,11 @@ linters:
       - path: qa/patterns/(discover|semgrep|report)\.go
         linters: [gosec]
         text: "G304|G703"
+      # qa-discovery reads the trees table and each candidate's first line by computed path; the
+      # paths come from git's file list and the command line of the person running it.
+      - path: qa/discovery/(list|trees)\.go
+        linters: [gosec]
+        text: "G304|G703"
       # The command's report writer and the real-tree test read and write by computed path.
       - path: qa/cmd/qa-patterns/(main|real_test)\.go
         linters: [gosec]
@@ -124,12 +129,12 @@ linters:
         linters: [gosec]
         text: "G302|G306"
       # qa-python reads the pin and the first line of each file git lists by computed path
-      # (ruff.go, published.go), and ruff's report is snake_case, its wire format; the report
+      # (ruff.go), and ruff's report is snake_case, its wire format; the report
       # is what qa-all reads. Its tests read back what they wrote under a temporary directory.
-      - path: qa/(python/(ruff|report)|internal/published/published)\.go
+      - path: qa/python/(ruff|report)\.go
         linters: [gosec, tagliatelle]
         text: "G304|ruff_diagnostics"
-      - path: qa/((python|internal/published)/.*|cmd/qa-python/main)_test\.go
+      - path: qa/(python/.*|cmd/qa-python/main)_test\.go
         linters: [gosec, tagliatelle]
         text: "G304|G302|G306|ruff_diagnostics"
   settings:

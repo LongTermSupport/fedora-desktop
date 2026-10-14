@@ -101,7 +101,7 @@ fi
 # yardstick at all, so re-narrowing the content marker at :80 would drop
 # playbooks silently and only move a number nobody diffs. That is not
 # hypothetical — it happened, and the number went UP (Plan 00081 F14).
-qa_tracked_playbook_candidates "$REPO_ROOT"
+qa_discover tracked-playbooks "$REPO_ROOT"
 
 declare -A DISCOVERED_PB=()
 for file in "${PLAYBOOK_FILES[@]}"; do
@@ -109,7 +109,7 @@ for file in "${PLAYBOOK_FILES[@]}"; do
 done
 
 MISSED_PB=()
-for rel in "${QA_TRACKED_PLAYBOOK_CANDIDATES[@]}"; do
+for rel in "${QA_FILES[@]}"; do
     [[ -n "${DISCOVERED_PB[$rel]:-}" ]] || MISSED_PB+=("$rel")
 done
 
@@ -119,7 +119,7 @@ if [[ ${#MISSED_PB[@]} -gt 0 ]]; then
     echo "  Every file in that directory is a playbook this gate should parse." >&2
     echo "  Either the marker at the discovery loop above no longer matches a" >&2
     echo "  legal playbook shape, or a non-playbook was added there and needs an" >&2
-    echo "  explicit exemption in qa_tracked_playbook_candidates — with a reason." >&2
+    echo "  explicit exemption in src-go/qa/discovery (tracked-playbooks) — with a reason." >&2
     exit 2
 fi
 

@@ -29,8 +29,8 @@ ERRORS=0
 # shellcheck source=qa-discovery.bash
 source "$REPO_ROOT/scripts/qa-discovery.bash"
 
-qa_discover_shell_files "$REPO_ROOT"
-BASH_FILES=("${QA_SHELL_FILES[@]}")
+qa_discover shell "$REPO_ROOT"
+BASH_FILES=("${QA_FILES[@]}")
 
 TOTAL=${#BASH_FILES[@]}
 
@@ -51,7 +51,7 @@ fi
 # 27 tracked shell scripts sat in neither branch, never opened by `bash -n` or
 # by the analyser. Nothing noticed, because the number it reported was simply
 # the number it had looked at.
-qa_tracked_shell_scripts "$REPO_ROOT"
+qa_discover tracked-shell "$REPO_ROOT"
 
 declare -A DISCOVERED=()
 for file in "${BASH_FILES[@]}"; do
@@ -59,7 +59,7 @@ for file in "${BASH_FILES[@]}"; do
 done
 
 MISSED=()
-for rel in "${QA_TRACKED_SHELL_FILES[@]}"; do
+for rel in "${QA_FILES[@]}"; do
     [[ -n "${DISCOVERED[$rel]:-}" ]] || MISSED+=("$rel")
 done
 

@@ -29,6 +29,12 @@ const (
 // defaultReportPath is where the machine report goes unless QA_JSON_OUT says otherwise.
 const defaultReportPath = "/tmp/qa-python-results.json"
 
+// The command-line flags that take a value.
+const (
+	flagRoot    = "--root"
+	flagScripts = "--scripts"
+)
+
 // Where the pin and the excluded trees live, relative to the repository root and the scripts
 // directory.
 const (
@@ -87,12 +93,12 @@ func parseArgs(args []string) (options, error) {
 		switch arg := args[i]; arg {
 		case "-h", "--help":
 			opts.help = true
-		case "--root", "--scripts":
+		case flagRoot, flagScripts:
 			if i+1 >= len(args) {
 				return opts, fmt.Errorf("%s needs a value", arg)
 			}
 			i++
-			if arg == "--root" {
+			if arg == flagRoot {
 				opts.root = args[i]
 			} else {
 				opts.scripts = args[i]
@@ -198,7 +204,7 @@ func (g *gate) run() (ExitCode, error) {
 	if ruffVersion != pin {
 		return g.versionMismatch(pin, ruffVersion)
 	}
-	src, err := g.discover(ctx)
+	src, err := g.discover()
 	if err != nil {
 		return ExitCannotRun, err
 	}

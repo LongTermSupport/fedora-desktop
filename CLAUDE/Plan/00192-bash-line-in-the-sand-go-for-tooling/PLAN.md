@@ -157,13 +157,20 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   tree after the fixes: 433 scanned, 17 partial-parse notes, exit 0.
   `qa-python.bash` (P3, fifth gate) on `go-port/qa-python`: ported, not merged; spec
   [SPEC-qa-python.md](SPEC-qa-python.md), expectations Y1-Y21, 16 departures B1-B16; nested
-  `src-go/qa/python`, `qa/cmd/qa-python` and `qa/internal/published` (the files git would publish,
-  the `qa-trees.tsv` reader and the exclusion test, which the discovery port will also need);
+  `src-go/qa/python` and `qa/cmd/qa-python` (the file set comes from `qa/discovery`, called
+  in-process);
   ruff and python3 stay the engines; the Go owns scope, the one-process compile (no `__pycache__`
   written), template substitution, the proof that `ruff --show-files` lists every file, and the
   judgement; the script a build-and-run wrapper, its allowlist row gone; `qa-changed` gains a
   `python` check (the tool, `ruff.toml`, `.qa-versions`, the wrapper or `qa-trees.tsv` change).
   Same 311 files and 1 template as the bash on the live tree, exit 0.
+  `qa-discovery.bash` (P3, the shared library the bash gates source) on `go-port/qa-discovery`:
+  ported, not merged; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D14, 11
+  departures B1-B11; nested `src-go/qa/discovery` and `qa/cmd/qa-discovery`, one list per call,
+  scope what git would publish; the library is now a build-and-run wrapper (`qa_discover <list> <root>` fills `QA_FILES`; the per-file exclusion test stays in bash over the same trees table),
+  its allowlist row gone; `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests` and
+  `qa-ready-wait-rules` call `qa_discover` in place of the seven old functions. The seven lists the
+  old library made on the live tree are identical to the Go tool's.
 
 ### Phase 4: Review
 
