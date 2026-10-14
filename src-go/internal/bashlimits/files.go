@@ -72,6 +72,7 @@ var Exemptions = []Exemption{
 	{"tests/", "test suites and fixtures drive a command or library; a Go port retires them"},
 	{"CLAUDE/Plan/[0-9]*/", "plan-local transient scaffolding that travels with its plan; shared plan tooling sits directly in CLAUDE/Plan/ and is not exempt"},
 	{"CLAUDE/Plan/Completed/", "completed plans' transient scaffolding, kept as history"},
+	{"CLAUDE/Plan/Cancelled/", "cancelled plans' transient scaffolding, kept as history"},
 	{".claude/hooks-daemon/", "vendored upstream hooks-daemon clone"},
 	{".claude/init.sh", "daemon-owned file, replaced on every hooks-daemon upgrade"},
 	{".claude/provision.sh", "daemon-owned file, replaced on every hooks-daemon upgrade"},

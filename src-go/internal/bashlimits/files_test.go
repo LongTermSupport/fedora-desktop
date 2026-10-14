@@ -100,6 +100,7 @@ func TestExemptionFor(t *testing.T) {
 		"tests/helpers/x.bash":                           true,
 		"CLAUDE/Plan/00192-x/triage.bash":                true,
 		"CLAUDE/Plan/Completed/00001-y/a.bash":           true,
+		"CLAUDE/Plan/Cancelled/00066-z/triage.bash":      true,
 		".claude/init.sh":                                true,
 		"scripts/qa-all.bash":                            false,
 		"CLAUDE/Plan/mkplan.bash":                        false,
