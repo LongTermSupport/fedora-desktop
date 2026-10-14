@@ -170,7 +170,7 @@ func TestYardsticksForPlaybooksAndHelperTestsExcludeNothing(t *testing.T) {
 	wantPaths(t, w.main("tracked-helper-tests"), "tests/helpers/untracked/test_x.py")
 }
 
-// The yaml list is the YAML files git would publish outside the shell trees; absolute.
+// D17: the yaml list is the YAML files git would publish outside the shell trees; absolute.
 func TestYamlListIsPublishedYamlOutsideTheExcludedTrees(t *testing.T) {
 	w := newWorld(t)
 	w.track("a.yml", "")
@@ -291,6 +291,16 @@ func TestAnEmptyJSListIsABrokenDiscovery(t *testing.T) {
 	got := w.main("js")
 	wantExit(t, got, ExitCannotRun)
 	wantStderr(t, got, "ERROR: found 0 JavaScript files under "+w.root)
+}
+
+// D17, D13: a yaml list with nothing in it is a broken discovery.
+func TestAnEmptyYamlListIsABrokenDiscovery(t *testing.T) {
+	w := newWorld(t)
+	w.track("a.bash", "")
+	w.track(".semgrep/x.yml", "")
+	got := w.main("yaml")
+	wantExit(t, got, ExitCannotRun)
+	wantStderr(t, got, "ERROR: found 0 YAML files under "+w.root)
 }
 
 // D9

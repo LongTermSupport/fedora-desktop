@@ -16,15 +16,14 @@ sourced bash library so that `qa-bash`, `qa-python` and the others could not dis
 shell script is (Plan 00076, Plan 00081). It is now a Go command, `qa-discovery`, that prints one
 list; the bash library is a thin wrapper that calls it, so the callers keep one mechanism.
 Callers: `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests`, `qa-ready-wait-rules`
-(lists), and `qa-js`, `qa-ansible-syntax` (the exclusion test, which stays in the wrapper over the
-same data file).
+(lists).
 
 ## 2. Expectations
 
 ### Command line and output
 
 - D1. `qa-discovery [--root DIR] [--scripts DIR] LIST`. `LIST` is exactly one of `shell`, `python`,
-  `python-templates`, `tracked-shell`, `tracked-python`, `tracked-playbooks`,
+  `python-templates`, `yaml`, `js`, `tracked-shell`, `tracked-python`, `tracked-playbooks`,
   `tracked-helper-tests`. `--root` names the repository root; `--scripts` the scripts directory
   (the root is its parent); neither: the working directory. `-h`/`--help` prints the usage to
   stdout, exit 0. A missing or extra `LIST`, an unknown list, an unknown flag or a flag without its
@@ -80,12 +79,18 @@ same data file).
 - D12. `tracked-playbooks` is the tracked `*.yml`/`*.yaml` files under `playbooks/`.
   `tracked-helper-tests` is the tracked files under `tests/helpers/` whose base name is
   `test_*.py`. Neither looks inside a file.
-- D13. An empty `shell`, `python`, `tracked-shell`, `tracked-python`, `tracked-playbooks` or
+- D13. An empty `shell`, `python`, `yaml`, `js`, `tracked-shell`, `tracked-python`, `tracked-playbooks` or
   `tracked-helper-tests` list is exit 2 (`ERROR: ... found 0 ...: this repository always has some, so discovery is broken`): a pass over nothing would vouch for code nothing had read.
 - D16. `js` lists the `.js` and `.mjs` files in the published set (D4), outside the `shell` rows of
   `scripts/qa-trees.tsv` (D5; that list has always meant shell, YAML and JavaScript discovery), by
   name only, absolute. A symlink is judged by its target (D11). An empty list is exit 2 (D13):
   `ERROR: found 0 JavaScript files under <root>: ...`. The `qa-js` gate asks for it (SPEC-qa-js.md J5).
+- D17. `yaml` lists the `.yml` and `.yaml` files in the published set (D4), outside the `shell`
+  rows of `scripts/qa-trees.tsv` (D5), by name only, absolute, sorted (D2), under any directory. A
+  symlink is judged by its target (D11). An empty list is exit 2 (D13):
+  `ERROR: found 0 YAML files under <root>: ...`. The `qa-ansible-syntax` gate asks for it to
+  find the playbooks (SPEC-qa-ansible-syntax.md). Proof: `TestYamlListIsPublishedYamlOutsideTheExcludedTrees`,
+  `TestAnEmptyYamlListIsABrokenDiscovery`.
 - D15. `git ls-files --others` does not look inside an untracked nested repository: it prints the
   one entry, ending in `/`. Such an entry that is not in an excluded tree (D5) is exit 2 naming
   it (`ERROR: <path> is a nested repository git will not look into ...`): a file the gates
