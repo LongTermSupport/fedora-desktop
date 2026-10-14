@@ -52,8 +52,19 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 ### Phase 2: Build
 
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
-  enabled for a session launched with `--teams` (CCY version bump).
+  loaded in every supervised ccy session, idle until the session holds a seat (CCY version
+  bump).
 - [ ] ⬜ **Task 2.2**: Fable review; qa-reviewer; meta-deploy; the owner's test from Element.
+
+### Phase 3: A running session joins a team, no restart (for Plan 00177 Phase 8)
+
+- [ ] ⬜ **Task 3.1**: The entrypoint loads the plugin in every supervised session, not only
+  `--teams` ones, with the same supervisor checks, and the plugin writes a heartbeat naming
+  its container so ccy-teams can tell a session that can join from one that cannot.
+- [ ] ⬜ **Task 3.2**: The plugin watches the checkout's seat bundles for a join marker naming
+  its container, runs `pingbus join`, starts the watcher and types the fixed "you have
+  joined" envelope; a withdrawn marker leaves the team. Test first.
+- [ ] ⬜ **Task 3.3**: `pingbus join` and the per-session environment (Plan 00177 Task 8.3).
 
 ## Success Criteria
 

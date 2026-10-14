@@ -424,15 +424,39 @@ relies on that.
     test pins that copy to `helpers/pingbus/cli.py`. It does not import pingbus.
   - The Dockerfile's `COPY` already takes the directory. Its `chmod` and ownership lines
     gain the file.
-- **Enabled only for `--teams` launches.**
-  - When `PINGBUS_SEATS` is set, the entrypoint's AGENT-BUS block adds
-    `--plugin ccy-agent-bus=<file>` to the wrapper.
+- **Loaded in every supervised session; active only with a seat** (Plan 00177 Phase 8 joins
+  running sessions, below). It was first designed for `--teams` launches only.
+  - The entrypoint's AGENT-BUS block adds `--plugin ccy-agent-bus=<file>` to the wrapper
+    whether or not `PINGBUS_SEATS` is set.
   - The supervisor checks are the ones `ccy_lifecycle_extend_wrapper` makes (a supervisor
     is present, the API major matches), factored into one function both plugins use, plus
     API minor ≥ 1.
   - A `--teams` launch without a relay-capable supervisor (`--no-supervise`, a project
     without the hooks daemon, an older daemon) delivers HUMAN items through the socket.
     The envelope says so, and the entrypoint prints a stderr line (decision 3).
+- **Joining a running session** (Plan 00177 Phase 8; no restart).
+  - ccy-teams creates the seat (sudo) and its bundle in the checkout, which every container
+    of the checkout sees through the bind mount, and writes a join marker in the seat's
+    directory naming the session's container.
+  - The plugin, idle in a session with no seat, notices a marker naming its container (the
+    container's hostname). It runs `pingbus join`, which does for a running session what
+    `seat exec` does for a launch: builds a session home linking the team to the seat,
+    takes the seat lock and keeps holding it in a detached holder for the container's life,
+    and writes an env file. It starts the watcher and types one fixed envelope, "you have
+    joined team T as seat S", then how to send: `pingbus` by its full path
+    (`/opt/claude-yolo/optional/agent-bus/pingbus`, not on PATH in a session that did not
+    launch with a seat) with the home from the env file, since a running process cannot gain
+    `PINGBUS_HOME`.
+  - A withdrawn marker is the reverse: the watcher stops, the lock is released, the session
+    is told it has left.
+  - The Claude plugin's skill and the sent echo hook need Claude Code to load the plugin,
+    which happens only at start. A joined session gets them at its next start; until then
+    the typed envelopes carry the rules the skill would.
+  - The plugin writes a heartbeat naming its container, so ccy-teams offers "Add to team"
+    only for a session that can receive. A session without it (older, `--no-supervise`, an
+    old supervisor) is refused with the reason; there is no restart fallback.
+  - The age restart replays the launcher's in-memory arguments, so keeping a joined team
+    across it needs the relaunch to read `--teams` from the record (Plan 00177 Task 8.6).
 - **Configuration is in the environment**, as for `ccy_lifecycle`:
   - `PINGBUS_DELIVERY=relay` (set by the entrypoint only);
   - `PINGBUS_HOME` and `PINGBUS_SEATS`, inherited through `seat exec`, which runs in front

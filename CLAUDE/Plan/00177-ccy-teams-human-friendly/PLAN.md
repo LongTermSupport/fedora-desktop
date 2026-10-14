@@ -170,6 +170,80 @@ quit `ccy-teams` to start Element.
   it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
   owner's host test.
 
+### Phase 8: Add a running ccy session to a team, without restarting it
+
+The owner: "browse running ccy sessions and add them to a team directly" from ccy-teams. A
+restart-based add is out (the owner can restart a session himself): a joining session keeps
+running. **Builds after Plan 00194 Phase 2**, whose `ccy-agent-bus` supervisor plugin types
+into the session, so a session needs no Claude Code plugin to receive. Design: Plan 00194
+DESIGN.md section 3, "Joining a running session".
+
+What was checked (read from the code, not run):
+
+- `pingbus` is in every image (`/opt/claude-yolo/optional/agent-bus/pingbus`, with the Claude
+  plugin and settings), but the entrypoint links it onto PATH and loads the plugin only when
+  the launch passed `PINGBUS_SEATS`. A running non-team session has the files, no PATH entry.
+
+- The environment is fixed at container start. `PINGBUS_HOME=/tmp/pingbus-home` and
+  `PINGBUS_TEAMS` are made by `pingbus seat exec`, which also takes each seat's lock and holds
+  it across the `exec`. A running claude, and every command it runs, has neither, and a
+  running container's environment cannot be changed.
+
+- Claude Code loads plugins and settings at start, so a running session never gains the
+  pingbus plugin (its skill, the sent echo). The supervisor can type, so receiving works
+  without it.
+
+- A supervisor restart (the age restart) replays the launcher's in-memory arguments, not the
+  registry record; a reboot restore replays the record. A team recorded for a joined session
+  survives a reboot but not an age restart unless Task 8.6 is done.
+
+- The ccy supervisor plugin is loaded only for `--max-age/--run-for/--until` today, and
+  Plan 00194 plans it for `--teams` launches.
+
+- [ ] ⬜ **Task 8.1**: The `ccy-agent-bus` plugin is loaded in every supervised ccy session
+  (Plan 00194 Task 3.1) and is idle while the session holds no seat. A session started
+  before it shipped, run `--no-supervise`, or under a supervisor without plugin API 1.1
+  cannot join: ccy-teams says so and does not offer "Add to team" for it.
+
+- [ ] ⬜ **Task 8.2**: How a session is told apart in a checkout whose containers share it.
+  The host writes a join marker in the seat's bundle directory naming the container (its
+  hostname inside is the container id, which the host reads from the engine); the plugin
+  acts on a marker naming its own container. Verify on the host that the plugin sees that
+  hostname and the host can map record to container; if not, key it by Claude session id.
+
+- [ ] ⬜ **Task 8.3**: A running container's commands get the seat's environment without a
+  restart: `pingbus join`, run by the plugin, builds a session home (as `seat exec` does),
+  takes the seat lock and keeps it in a small detached holder for the container's life (a
+  launch into the seat is then refused as held), starts the watcher and writes a per-session
+  env file; the join envelope tells the agent to run `pingbus` by its full path with that
+  home. Test first in `helpers/pingbus` (fake clock, lock, home).
+
+- [ ] ⬜ **Task 8.4**: A Go ccy-teams "Running sessions" view lists live ccy sessions from the
+  registry and tmux (the ccy-sessions listing, not a second one). Each row has the Phase 6
+  Enter menu with "Add to team..." and, for a session already in a team, "Remove from team".
+  Also `ccy-teams add-session <session> <team>[/<seat>]` and `remove-session <session> [<team>]` for scripts. A new package; the picker gains only a row kind and a menu. Test
+  first through the teamtest fakes.
+
+- [ ] ⬜ **Task 8.5**: Add: choose the team, then the seat (lowest free, or new); say what
+  will happen; create the seat (sudo, asked first, as `ccy --teams` does) and its bundle;
+  write the join marker; record `--teams` in the session's record (the `record-seats` path)
+  so a later restore keeps it; then say what the session will see (the "you have joined team
+  T as seat S" envelope, within seconds when idle) and that nothing restarted. Remove is the
+  reverse: marker withdrawn, record updated, the plugin stops the watcher, releases the lock
+  and tells the session. Fail fast: session not found, not a ccy session, no plugin
+  heartbeat, sudo refused; the record is rolled back when the marker cannot be written.
+
+- [ ] ⬜ **Task 8.6**: The age restart keeps a joined team: the relaunch takes `--teams` from
+  the record, by a `ccy-teams` filter on the existing relaunch line in the launcher, with no
+  growth of the files on the bash-limits ratchet.
+
+- [ ] ⬜ **Task 8.7**: Docs and tests: `docs/agent-bus.md` (seats section) and the usage text
+  say a joined session gets the Claude plugin extras (skill, sent echo) at its next start,
+  not at once. Tests in the ccy-teams and session-registry bash suites; CCY version bump if
+  `files/var/local/claude-yolo/` changes.
+
+- [ ] ⬜ **Task 8.8**: The owner tests it on the host with a running session.
+
 ## Success Criteria
 
 - [ ] On the host, `ccy-teams` with no teams offers to create one, and a refused or cancelled
