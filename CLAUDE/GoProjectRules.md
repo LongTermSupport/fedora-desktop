@@ -84,7 +84,19 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   `internal/podfreeze` (pause, unpause, networks: a table entry may list several owners), and the
   `lxc-*` tools and `nmcli` by `internal/lxcfreeze`. Any other program (`wl-copy`, `gh`, `id`, `tput`, `systemd-escape`,
   `python3`, ...) is unowned and free. The owner's own program is trusted: what the owner puts
-  after it is not examined here.
+  after it is not examined here, except behind `lxc-attach`, a wrapper that stays judged even for
+  its owner (`lxc-attach -n X -- prog` is judged as `prog`, so `nmcli` is lxcfreeze's and `git`
+  inside a container is still a finding).
+- A call of a **program runner** is judged as the `Cmd` it would build. `programRunners` lists the
+  entry points that take a program and its arguments with no `Cmd` at the call site:
+  `sudo.Sudo.Capture`, `AsRoot` and `Run`, and lxcfreeze's `runAct` and `probe`. The argument at
+  the table's index is the program, judged by `checkProgram`'s walk (constant, owner table,
+  wrappers, shell `-c`). A spread slice (`Capture(ctx, argv...)`) must show a literal head or the
+  enclosing function needs a `dynamicNames` row (`runAct`, `probe` and agentbus's `rootRun` and
+  `rootShow` have one, with the reason). The callee is resolved through `types.Info`, so an alias
+  does not hide it; a runner method taken as a value (`f := s.Capture`, `(*Sudo).Capture`) is
+  flagged where it is taken, because the later `f(ctx, "lxc-ls")` names its program where no
+  rule can see it.
 - A shell with `-c` (`sh`, `bash`, `dash`, `zsh`), directly or behind a wrapper, is flagged: it is
   the `sh -c` route round the argv the runner shows.
 
@@ -94,7 +106,12 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   neighbours: `wl-copy`, `systemd-escape`, `env PYTHONPATH=... python3`,
   `systemd-run -- setsid gio`, `bash script.bash`; the `_test.go` file clean), the owner
   `sudo`, `other/internal/tmuxccy` (the owner running tmux, directly and under `systemd-run`,
-  clean; running `git` flagged) and `dynamic` (a `dynamicNames` row clean, its neighbour flagged).
+  clean; running `git` flagged), `dynamic` (a `dynamicNames` row clean, its neighbour flagged),
+  `badrun` (a package that is not lxcfreeze running `lxc-ls`, `lxc-freeze`, `nmcli`,
+  `lxc-attach`, `git` behind `env`, `sh -c`, a run-time program, a spread parameter, no program,
+  and the method value and method expression forms, all flagged; unowned programs and the
+  agent-bus path clean) and `lxcfreeze/runs.go` (the owner running its tools clean; `git` and
+  `sh -c` inside `lxc-attach --`, a hidden program and a missing `--` flagged).
 - Red, real tree: `internal/sessions/reboot.go:199` (`systemctl`),
   `internal/teams/takedown.go:105` (`gum`); after the rule was hardened, `busctl` and `ps` run
   from `sessions`, `podman`/`docker` queried from `sessions`, `env` hiding `python3` in `declare`,
@@ -103,8 +120,11 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   `sessprobe.RunningContainerNames` (new, tested), the existing `ui.Gum.Box`; the engine query
   in `sessions` now runs through `sessprobe`; the remaining run-time names (the container engine in
   `sessprobe`, the project's daemon CLI, the launcher, two plays) are six `dynamicNames` rows.
-- Not caught: an `execx.Cmd` built by copying another; the flags and arguments an owner uses
-  (below).
+- Red, real tree (program runners): `internal/lxcfreeze/renew.go` built its `lxc-attach ... nmcli`
+  argv in a variable and spread it into `Capture`; the rule reported both calls, and the argv is
+  now spelled in the call. Zero other findings: every other caller passes a literal program.
+- Not caught: an `execx.Cmd` built by copying another; a program runner reached through an
+  interface; the flags and arguments an owner uses (below).
 
 What the owners do with their program is held by their own tests, not by this rule: `sudo -n` is
 asserted in `internal/sudo`'s tests (`TestAsRootRunsSudoN`, `TestRunAfterReadyUsesSudoN`; the
@@ -171,3 +191,6 @@ leftmost operand is such a constant (`"~" + rest`).
 `project_homeabbrev` finding. The plant was removed. After the rules were hardened a test file
 with `var now = time.Now`, `"~" + rest` and `f := exec.Command` was planted in a package and all
 three were reported; it was removed.
+
+After the program runners were added, `sudo.Capture(ctx, "nmcli", "device")` was planted in
+`internal/freeze`: the rules step reported `"nmcli" is owned by internal/lxcfreeze`. It was removed.

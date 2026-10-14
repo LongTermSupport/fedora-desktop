@@ -18,7 +18,7 @@ func TestSeamExec(t *testing.T) {
 func TestSeamCommands(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SeamCommands,
 		"fix/internal/execx", "fix/internal/sudo", "fix/internal/badcmd", "fix/other/internal/tmuxccy",
-		"fix/internal/podfreeze", "fix/internal/lxcfreeze", "fix/internal/sessprobe")
+		"fix/internal/podfreeze", "fix/internal/lxcfreeze", "fix/internal/sessprobe", "fix/internal/badrun")
 }
 
 func TestSeamCommandsDynamicNames(t *testing.T) {

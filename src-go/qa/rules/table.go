@@ -29,6 +29,8 @@ const (
 	podfreezePkg = "internal/podfreeze"
 	lxcfreezePkg = "internal/lxcfreeze"
 	teamsPkg     = "internal/teams"
+	sudoPkg      = "internal/sudo"
+	agentbusPkg  = "internal/agentbus"
 )
 
 // commandOwners maps a program to the packages that own every use of it, so its flags and
@@ -37,7 +39,7 @@ const (
 // container by sessprobe and driven (pause, unpause, networks) by podfreeze. A program absent
 // from the table is unowned: any package may run it.
 var commandOwners = map[string][]string{
-	"sudo":         {"internal/sudo"},
+	"sudo":         {sudoPkg},
 	"tmux":         {"internal/tmuxccy"},
 	"gum":          {"internal/ui"},
 	"fzf":          {"internal/ui"},
@@ -53,6 +55,28 @@ var commandOwners = map[string][]string{
 	"lxc-unfreeze": {lxcfreezePkg},
 	"lxc-attach":   {lxcfreezePkg},
 	"nmcli":        {lxcfreezePkg},
+}
+
+// programRunner is a function or method that runs the program named by its arguments from
+// argIndex on (the program, then its arguments) without the caller building an execx.Cmd, so
+// the call is judged as the Cmd would be. recv is the receiver type name, "" for a package
+// function.
+type programRunner struct {
+	pkg      string
+	recv     string
+	method   string
+	argIndex int
+}
+
+// programRunners are the entry points that run a program from their arguments. sudo's three
+// run any program as root; lxcfreeze's two helpers are the same shape one level up, so their
+// callers are judged too.
+var programRunners = []programRunner{
+	{pkg: sudoPkg, recv: "Sudo", method: "Capture", argIndex: 1},
+	{pkg: sudoPkg, recv: "Sudo", method: "AsRoot", argIndex: 1},
+	{pkg: sudoPkg, recv: "Sudo", method: "Run", argIndex: 1},
+	{pkg: lxcfreezePkg, recv: "Engine", method: "runAct", argIndex: 1},
+	{pkg: lxcfreezePkg, recv: "Engine", method: "probe", argIndex: 1},
 }
 
 // shells are interpreters that run a string given with -c; handing one to the runner is the
@@ -101,6 +125,26 @@ var dynamicNames = []allowance{
 		pkg:    teamsPkg,
 		fn:     "teamOps.runElementPlay",
 		reason: "the Element play, run by its own shebang; its path is configuration",
+	},
+	{
+		pkg:    lxcfreezePkg,
+		fn:     "Engine.runAct",
+		reason: "runs the lxc command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    lxcfreezePkg,
+		fn:     "Engine.probe",
+		reason: "runs the read-only command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    agentbusPkg,
+		fn:     "Client.rootRun",
+		reason: "runs the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
+	},
+	{
+		pkg:    agentbusPkg,
+		fn:     "Client.rootShow",
+		reason: "streams the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
 	},
 }
 

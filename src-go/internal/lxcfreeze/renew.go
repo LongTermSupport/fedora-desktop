@@ -19,8 +19,7 @@ const ethernet = "ethernet"
 // chowns the file its stderr points at, so both streams are pipes: sudo.Capture hands the runner
 // no writers. The returned text is the reason, in lxcfreeze's own words.
 func (e *Engine) renewDHCP(ctx context.Context, name string) (string, error) {
-	attach := []string{"lxc-attach", "-n", name, "--", "nmcli"}
-	status, err := e.Sudo.Capture(ctx, append(attach, "-t", "-f", "DEVICE,TYPE", "device", "status")...)
+	status, err := e.Sudo.Capture(ctx, "lxc-attach", "-n", name, "--", "nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status")
 	if stop := e.endsBatch(ctx, err); stop != nil {
 		return "", stop
 	}
@@ -32,7 +31,7 @@ func (e *Engine) renewDHCP(ctx context.Context, name string) (string, error) {
 		return "thawed, but the DHCP lease was not renewed — NetworkManager manages no ethernet device", errNotRenewed
 	}
 	for _, dev := range devices {
-		res, connectErr := e.Sudo.Capture(ctx, append(attach, "device", "connect", dev)...)
+		res, connectErr := e.Sudo.Capture(ctx, "lxc-attach", "-n", name, "--", "nmcli", "device", "connect", dev)
 		if stop := e.endsBatch(ctx, connectErr); stop != nil {
 			return "", stop
 		}
