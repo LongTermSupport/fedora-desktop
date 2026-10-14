@@ -272,3 +272,15 @@ func TestErrorTextCarriesStderr(t *testing.T) {
 		t.Fatal("bare error text")
 	}
 }
+
+func TestIsCommandErrorIsAToolThatRanAndRefused(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"sudo", "-n", "/usr/local/bin/agent-bus", "list"}, execx.Result{ExitCode: 78, Stderr: []byte("boom")})
+	_, err := r.c.List(context.Background(), "alpha")
+	if !IsCommandError(err) {
+		t.Fatalf("a tool that exited non-zero: %v", err)
+	}
+	if IsCommandError(errors.New("could not start")) || IsCommandError(nil) {
+		t.Fatal("only a CommandError is one")
+	}
+}

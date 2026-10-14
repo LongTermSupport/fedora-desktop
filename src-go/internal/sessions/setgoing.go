@@ -426,15 +426,8 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		return g.leaveAlone(name, restore.GoingPending, "send-failed")
 	}
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
-		name, going, tokens, g.app.cfg.CompactFloor, yesNo(e.Supervised))
+		name, going, tokens, g.app.cfg.CompactFloor, term.YesNo(e.Supervised))
 	return g.goingSet(name, restore.GoingPending, going, at, strconv.FormatInt(tokens, 10), file)
-}
-
-func yesNo(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
 }
 
 // notReady says why a pending session cannot be typed into yet: reason, and whether it is only

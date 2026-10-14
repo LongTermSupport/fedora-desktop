@@ -1,106 +1,69 @@
 // Package teams is ccy-teams: the host command that creates, applies and removes agent teams.
+// It parses the command line, checks that CCY is installed here and hands the subcommand to the
+// package that owns it:
+//
+//	board   the table of teams, seats and people, and --list
+//	picker  the interactive list (no argument), with the seats, login and create flows it calls
+//	ops     apply, remove, backup and restore
+//	create  the create wizard
+//
+// App only wires them over one host.Host and dispatches.
 package teams
 
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 //go:embed usage.txt
 var usage string
 
-// The two flags of ccy and ccy-teams that several flows spell.
-const (
-	flagTeams = "--teams"
-	flagAll   = "--all"
-)
-
-var errCheckoutGone = errors.New("the fedora-desktop checkout has gone")
-
-// App is one run of ccy-teams. Every external effect goes through Runner, Stdout and Stderr,
-// and each tool is reached through an adapter built over them. A test sets Runner (an
-// execx.Fake) and the streams, may replace any adapter, and wire fills in the rest.
+// App is one run of ccy-teams: the host and the flows built over it.
 type App struct {
-	Config
+	*host.Host
 
-	Runner execx.Runner
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
-	Getenv func(string) string
-
-	Term    *term.Term
-	Sudo    *sudo.Sudo
-	Systemd *systemd.Systemd
-	Tmux    *tmuxccy.Tmux
-	Git     *gitx.Git
-	Declare *declare.Client
-	Bus     *agentbus.Client
-	// Registry finds the session registry, which depends on the environment.
-	Registry func() (*registry.Store, error)
-
-	// Gum asks the questions, Picker is the fzf list every choice is made in.
-	Gum    *ui.Gum
-	Picker *ui.Picker
-	// Ops is the flows the picker calls into; they are written apart from it.
-	Ops teamOperator
-
-	// LookPath finds a tool on PATH. OpenTTY opens the terminal, which a picker reads after
-	// fzf has had the screen. Exec replaces this process with the launcher, in dir.
-	LookPath func(string) (string, error)
-	OpenTTY  func() (io.ReadCloser, error)
-	Exec     func(path string, argv []string, dir string) error
-
-	inContainer func() bool
-	writeErr    error // the first failed write through print
-}
-
-// teamOperator is the flows the picker hands off to: each takes the arguments the command line
-// would, and answers the exit code that command would. applyTeams brings the named teams to
-// what is declared; runElementPlay installs Element and writes the teams' profiles.
-type teamOperator interface {
-	create(ctx context.Context, args []string) term.ExitCode
-	apply(ctx context.Context, args []string) term.ExitCode
-	remove(ctx context.Context, args []string) term.ExitCode
-	applyTeams(ctx context.Context, teams []string) error
-	runElementPlay(ctx context.Context, teams []string) error
+	Board  *board.Collector
+	Ops    *ops.Ops
+	Login  *login.Login
+	Seats  *seats.Seats
+	Create *create.Wizard
+	Picker *picker.Picker
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
-func NewApp(cfg Config) *App {
-	a := &App{
-		Config: cfg, Runner: execx.OS{}, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
-		inContainer: func() bool {
-			info, err := os.Stat("/workspace")
-			return err == nil && info.IsDir()
-		},
+func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
+
+// Wire builds the flows over h, after h has built every adapter it was not given.
+func Wire(h *host.Host) *App {
+	h.Wire()
+	kit := flow.New(h)
+	b := board.New(h)
+	o := ops.New(h, b.Statuses, func() { b.ForgetDevices("") })
+	l := login.New(h, kit, b, o)
+	s := seats.New(h, kit, o)
+	c := create.New(h, o, l)
+	return &App{
+		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c,
+		Picker: picker.New(h, kit, b, o, c, l, s),
 	}
-	a.wire()
-	return a
 }
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
 // not be written turns a success into a failure.
 func (a *App) Run(args []string) term.ExitCode {
-	a.wire()
-	return a.Term.Finish(a.run(args), a.writeErr)
+	return a.Term.Finish(a.run(args), a.Out.Err())
 }
 
 func (a *App) run(args []string) term.ExitCode {
@@ -115,180 +78,41 @@ func (a *App) run(args []string) term.ExitCode {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
 		}
 	case "-h", "--help":
-		a.print(a.Stdout, usage)
+		a.Print(a.Stdout, usage)
 		return term.ExitOK
 	default:
 		return a.usageError(fmt.Sprintf("unknown option '%s'.", sub))
 	}
-	if !a.ccyInstalled() {
+	if !a.CcyInstalled() {
 		return term.ExitFailure
 	}
 	return a.dispatch(context.Background(), sub, args[min(1, len(args)):])
 }
 
-// wire builds every adapter that is not set yet over Runner and the streams. Tools are found
-// by bare name on PATH; only the two sudo targets are absolute.
-func (a *App) wire() {
-	if a.Runner == nil {
-		a.Runner = execx.OS{}
-	}
-	if a.Stdin == nil {
-		a.Stdin = os.Stdin
-	}
-	if a.Stdout == nil {
-		a.Stdout = os.Stdout
-	}
-	if a.Stderr == nil {
-		a.Stderr = os.Stderr
-	}
-	if a.Getenv == nil {
-		a.Getenv = os.Getenv
-	}
-	if a.Term == nil {
-		a.Term = a.freshTerm()
-	}
-	if a.Sudo == nil {
-		a.Sudo = &sudo.Sudo{Runner: a.Runner, Term: a.Term, Stdin: a.Stdin, Stdout: a.Stdout}
-	}
-	if a.Systemd == nil {
-		a.Systemd = &systemd.Systemd{Runner: a.Runner}
-	}
-	if a.Tmux == nil {
-		a.Tmux = &tmuxccy.Tmux{Runner: a.Runner, Term: a.Term, Stdin: a.Stdin, Stdout: a.Stdout, Stderr: a.Stderr}
-	}
-	if a.Git == nil {
-		a.Git = gitx.New(a.Runner)
-	}
-	if a.Declare == nil {
-		a.Declare = &declare.Client{Runner: a.Runner, Root: a.RootDir, File: a.HostVars, Err: a.Stderr}
-	}
-	if a.Bus == nil {
-		a.Bus = &agentbus.Client{Runner: a.Runner, Root: a.Sudo, Err: a.Stderr}
-	}
-	if a.Registry == nil {
-		a.Registry = func() (*registry.Store, error) { return registry.Locate(a.Getenv) }
-	}
-	a.wireAsking()
-}
-
-// wireAsking builds what the questions and the picker are asked through: gum, fzf, the
-// operator the picker hands flows to, and the seams to the terminal and the launcher.
-func (a *App) wireAsking() {
-	if a.Gum == nil {
-		a.Gum = &ui.Gum{Runner: a.Runner, Stdin: a.Stdin, Stderr: a.Stderr}
-	}
-	if a.Picker == nil {
-		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr}
-	}
-	if a.Ops == nil {
-		a.Ops = liveOps{app: a}
-	}
-	if a.LookPath == nil {
-		a.LookPath = exec.LookPath
-	}
-	if a.OpenTTY == nil {
-		a.OpenTTY = openTerminal
-	}
-	if a.Exec == nil {
-		a.Exec = execLauncher
-	}
-}
-
-// dispatch hands the validated subcommand to the file that implements it.
+// dispatch hands the validated subcommand to the package that implements it.
 func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.ExitCode {
 	switch sub {
 	case "create":
-		return a.create(ctx, rest)
+		if err := a.NeedCheckout(); err != nil {
+			return term.ExitFailure
+		}
+		return a.Create.Run(ctx, rest)
 	case "apply":
-		return a.apply(ctx, rest)
+		return a.Ops.Apply(ctx, rest)
 	case "remove":
-		return a.remove(ctx, rest)
+		return a.Ops.Remove(ctx, rest)
 	case "backup":
-		return a.backup(ctx, rest)
+		return a.Ops.Backup(ctx, rest)
 	case "restore":
-		return a.restore(ctx, rest)
+		return a.Ops.Restore(ctx, rest)
 	case "-l", "--list":
-		return a.list(ctx)
+		return a.Board.List(ctx)
 	default:
-		return a.picker(ctx)
+		return a.Picker.Run(ctx)
 	}
-}
-
-// freshTerm is a Term over the App's streams with no steps counted yet: a flow that numbers
-// its steps has one of its own.
-func (a *App) freshTerm() *term.Term {
-	return &term.Term{Err: a.Stderr, IsTerminal: term.FileIsTerminal, Getenv: a.Getenv}
-}
-
-// reportErr prints why something failed, as the tool that failed said it: a "declare: ..."
-// line stays that line, so the "(the reason is above)" of the message after it is true.
-func (a *App) reportErr(err error) {
-	a.print(a.Stderr, err.Error()+"\n")
 }
 
 func (a *App) usageError(msg string) term.ExitCode {
-	a.print(a.Stderr, "ccy-teams: "+msg+" See ccy-teams --help.\n")
+	a.Print(a.Stderr, "ccy-teams: "+msg+" See ccy-teams --help.\n")
 	return term.ExitUsage
-}
-
-// ccyInstalled refuses to go on without the CCY lib, saying why: inside a container ccy-teams
-// is simply in the wrong place.
-func (a *App) ccyInstalled() bool {
-	lib := filepath.Join(a.CcyLib, "tmux-session.bash")
-	if _, err := os.Stat(lib); err == nil {
-		return true
-	}
-	if a.inContainer() {
-		a.print(a.Stderr, "ccy-teams runs on the host, not inside a CCY container.\n")
-		return false
-	}
-	a.print(a.Stderr, "CCY is not installed here ("+lib+" missing). Run playbooks/imports/play-claude-yolo.yml.\n")
-	return false
-}
-
-// needCheckout refuses when the checkout ccy-teams was built from has moved or gone.
-func (a *App) needCheckout() error {
-	if _, err := os.Stat(filepath.Join(a.RootDir, "helpers", "agent_bus", "declare.py")); err == nil {
-		return nil
-	}
-	a.print(a.Stderr, "ERROR: the fedora-desktop checkout ccy-teams was deployed from ("+a.RootDir+
-		") has gone; re-run playbooks/imports/play-claude-yolo.yml from where it is now.\n")
-	return errCheckoutGone
-}
-
-// openTerminal is the controlling terminal, which is read for a keypress after fzf has drawn
-// over the screen; stdin may be a pipe.
-func openTerminal() (io.ReadCloser, error) {
-	tty, err := os.Open("/dev/tty")
-	if err != nil {
-		return nil, fmt.Errorf("open the terminal: %w", err)
-	}
-	return tty, nil
-}
-
-// execLauncher replaces this process with the launcher, started in dir: it does not return
-// unless the launcher cannot be started.
-func execLauncher(path string, argv []string, dir string) error {
-	return launcherVia(execx.OS{}, path, argv, dir)
-}
-
-// launcherVia replaces the process through x, the one seam that may. argv
-// starts with the launcher's own name, which x supplies from path.
-func launcherVia(x execx.Execer, path string, argv []string, dir string) error {
-	var args []string
-	if len(argv) > 1 {
-		args = argv[1:]
-	}
-	if err := x.Exec(execx.Cmd{Name: path, Args: args, Dir: dir}); err != nil {
-		return fmt.Errorf("start the launcher: %w", err)
-	}
-	return nil
-}
-
-// print writes to a stream. The first failed write is kept and Run turns it into a failure
-// exit, so output nobody could read is never reported as success.
-func (a *App) print(w io.Writer, s string) {
-	if _, err := io.WriteString(w, s); err != nil && a.writeErr == nil {
-		a.writeErr = err
-	}
 }
