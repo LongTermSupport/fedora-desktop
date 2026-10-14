@@ -14,8 +14,8 @@
 # exists to remove, in the gate the plan repaired.
 #
 # The fixtures use a SYMLINK to the real `helpers/`, not a copy. A copy cannot notice the
-# thing it is copying changing, which is the argument the coupling gate in
-# test-qa-helper-summary.bash is built on.
+# thing it is copying changing, which is also why qa-all reads each gate's summary from the
+# gate's real output at run time and fails the gate when the two stop agreeing.
 #
 # Exit codes: 0 = every case passed; 1 = at least one case failed.
 
@@ -117,7 +117,7 @@ mkdir -p "$findings/docs" "$findings/CLAUDE" "$findings/playbooks" "$findings/sc
 ln -s "$REPO_ROOT/helpers" "$findings/helpers"
 printf 'CLAUDE.md\n' > "$findings/CLAUDE.md"
 printf '# QA\n' > "$findings/CLAUDE/QA.md"
-printf '# no gates here\n' > "$findings/scripts/qa-all.bash"
+printf '# no gates here\n' > "$findings/scripts/qa-gates.tsv"
 printf -- '- import_playbook: imports/play-example.yml\n' > "$findings/playbooks/playbook-main.yml"
 printf '# Playbooks\n\nplay-example.yml\n' > "$findings/docs/playbooks.md"
 printf '# Architecture\n\nplay-example.yml\n' > "$findings/docs/architecture.md"

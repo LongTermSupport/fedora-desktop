@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -321,18 +322,26 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		}
 		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
 		if o == passed {
-			count, counted := gateCaseCount(res.output)
-			if counted {
-				reasons = count + " " + reasons
-			} else {
-				o = cannotRun
-				res.output = "the suite exited 0 but printed no 'passed: <n>' line, so it proved nothing\n" + res.output
-			}
+			o, reasons, res.output = judgeCount(res.output, reasons)
 		}
 		s.report(name, reasons, res, o)
 		record(name, o)
 	}
 	return s.verdict(failures, cannot)
+}
+
+// judgeCount settles a suite that exited 0 by its count line, the reader qa-all uses: a count
+// carries into the stage line; one that reports failed cases is a failure; no count, or a count
+// of zero, means the suite proved nothing and could not run.
+func judgeCount(output, reasons string) (outcome, string, string) {
+	count, err := gates.CaseCount(output)
+	switch {
+	case err == nil:
+		return passed, count + " " + reasons, output
+	case errors.Is(err, gates.ErrFailedCases):
+		return failed, reasons, "the suite exited 0 but " + err.Error() + "\n" + output
+	}
+	return cannotRun, reasons, "the suite exited 0 but " + err.Error() + "\n" + output
 }
 
 func (s *session) interrupted() ExitCode {
@@ -409,6 +418,10 @@ func (s *session) runCmd(ctx context.Context, cmd proc.Cmd) (proc.Result, error)
 	res, err := s.env.Runner.Run(ctx, cmd)
 	if err != nil {
 		return proc.Result{}, fmt.Errorf("cannot run %s: %w", cmd.Argv[0], err)
+	}
+	if res.Leftover && res.Code == 0 {
+		res.Code = 1
+		res.Stdout += cmd.Argv[0] + " exited, but left a process running that held its output open (killed)\n"
 	}
 	return res, nil
 }

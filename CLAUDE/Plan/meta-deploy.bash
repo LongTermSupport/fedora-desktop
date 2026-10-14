@@ -7,13 +7,13 @@ set -euo pipefail
 # behaviour lives in each plan's own scripts. It exists so the operator types one command
 # instead of four paths.
 #
-#   CLAUDE/Plan/meta-deploy.bash              run everything in PLANS below
+#   CLAUDE/Plan/meta-deploy.bash              run everything in meta-deploy.list
 #   CLAUDE/Plan/meta-deploy.bash --list       show what would run, change nothing
 #
-# THE LIST IS HARD-CODED, on purpose. Deriving it from plan status made the schedule a
+# THE LIST IS WRITTEN BY HAND, on purpose. Deriving it from plan status made the schedule a
 # thing to reason about rather than read: plans stayed in it because nobody had closed
-# them, and the only way to know what a run would do was to run it. Editing one line is
-# the whole interface.
+# them, and the only way to know what a run would do was to run it. Editing one line of
+# meta-deploy.list is the whole interface.
 #
 # There is no way to select a single plan either. To run one plan's deploy, run that
 # plan's deploy.bash — a flag for that is a worse way of typing one path.
@@ -37,52 +37,11 @@ done
 PLAN_ROOT="${scriptDir}"
 
 # --- the list ----------------------------------------------------------------
-# Plan folder names, run in this order. STANDING RULE (CLAUDE/AgentNotes.md): this list
-# is exactly what needs running NOW. Add a run when it is pending, remove it once it has
-# run and is done, leave out what cannot usefully run yet, then ask the owner to run this
-# script. Every step a run needs lives in the plan's own scripts, so this is the only
-# command the owner is handed. The order is by dependency. A plan with none of
-# triage.bash, deploy.bash and acceptance.bash has nothing for this script to do. A triage-only plan is run once, read-only. Words after the
-# folder name are passed to that plan's triage.bash, both runs.
-#
-# An entry may instead be a playbook path under playbooks/, for a change no plan owns. It is
-# run as one unit through its own shebang, which goes through run.bash, exactly as
-# `./playbooks/imports/<play>.yml` does by hand.
-#
-# An entry may also be one plan script, `<plan folder>/<script>.bash`, for a step none of the
-# three fixed names fits. It is run as one unit, like a playbook entry.
-PLANS=(
-    # ccy-teams from the owner's first host run: a checkout no team covers is offered a team,
-    # "repositories you list (one or more)", Element started apart from the terminal with
-    # its output logged, copy-the-password defaults to yes, the terminal's own colours with
-    # one accent in the pickers (CCY 3.95.5) (Plan 00177). Then, from Plan 00191: ccy-teams
-    # is now a Go binary, built from the checkout by this play, which imports play-golang.yml,
-    # now the Go toolchain alone (CCY 3.95.6); ccy-sessions is a Go binary too, installed at
-    # the same path for the boot units, shutdown-with-update and the self-update cycle
-    # (CCY 3.95.7); the bash functions only the old ccy-sessions called are gone (CCY 3.95.8);
-    # builds no longer stamp the git revision, so an unchanged source reports ok. Plan 00192's
-    # deploy.bash runs this play first (its Go builds now go through one shared task file,
-    # same flags and paths), then play-podfreeze.yml and play-lxcfreeze.yml: podfreeze and
-    # lxcfreeze become Go binaries at the old paths and ~/.local/lib/freeze goes. The
-    # deploy saves the old tools' output first and ends by comparing the new tools with it
-    # (acceptance.bash); the freeze-and-thaw look is that plan's ACCEPTANCE-freeze.md. Its
-    # deploy.bash also runs play-agent-bus.yml: agent-bus-install is now a Go binary built from
-    # the checkout and installed root-owned at /usr/local/sbin (it replaces the bash script;
-    # source digest baked in, teams restamped); acceptance.bash checks the installed copy and
-    # records the B12 and B13 probe output; the owner's look is ACCEPTANCE-agent-bus-install.md.
-    # Also from Plan 00177: ccy-teams with no hidden keys (Enter on any row opens a menu of its
-    # actions; Element returns to the board) and bare `ccy --teams` finds the checkout's team,
-    # which Quick Launch remembers (CCY 3.96.2). And the Go sudo helper no longer asks for a
-    # password where root needs none, so the freeze check that timed out on the sudo prompt
-    # (lxcfreeze list) runs again against the baseline the last run saved.
-    00192-bash-line-in-the-sand-go-for-tooling
-    # agent team bus acceptance again: the last run passed every bus check, and failed only
-    # M2.10 because a commit landed in this checkout while it ran
-    00161-agent-team-bus-matrix/acceptance.bash
-    # Plan 00195: play-comms.yml grants Slack /var/lib/lxc:ro, then acceptance checks every
-    # home symlink into an LXC container resolves in a fresh Slack sandbox. Relaunch Slack.
-    00195-slack-reads-lxc-vhosts-through-project-symlinks
-)
+# The queue is data, in meta-deploy.list beside this script: one entry per line, `#` comment
+# lines as the description of the entry below, blank lines ignored. That file explains the
+# entry kinds and the standing rule for what belongs in it. Changing the queue never touches
+# this script, which is on the bash-limits ratchet.
+LIST_FILE="${PLAN_ROOT}/meta-deploy.list"
 
 LIST_ONLY=0
 
@@ -98,47 +57,39 @@ done
 
 # A named plan that is not there is a typo or a rename, and silently skipping it would mean
 # a green run that deployed less than the list says. Checked before anything executes, so
-# the whole list is validated rather than failing partway through a deploy.
+# the whole list is validated rather than failing partway through a deploy. A line that is
+# neither blank, a comment nor an entry is fatal too, naming its line number.
 PLAN_DIRS=()
 declare -A TRIAGE_ARGS=()
-for planEntry in "${PLANS[@]}"; do
+lineNo=0
+ENTRY_RE='^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$'
+UNIT_RE='^(playbooks/.+\.yml|[^/]+/[^/]+\.bash)$'
+while IFS= read -r planEntry || [[ -n "${planEntry}" ]]; do
+    lineNo=$((lineNo + 1))
+    if [[ "${planEntry}" =~ ^[[:space:]]*(#.*)?$ ]]; then
+        continue
+    fi
     read -r -a entryWords <<<"${planEntry}"
     planName="${entryWords[0]}"
-    if [[ "${planName}" == playbooks/*.yml ]]; then
-        if [[ ! -x "${repoRoot}/${planName}" ]]; then
-            printf '[FATAL] no executable playbook at %s\n' "${repoRoot}/${planName}" >&2
-            exit 1
-        fi
-        PLAN_DIRS+=("${repoRoot}/${planName}")
-        TRIAGE_ARGS["${repoRoot}/${planName}"]=""
-        continue
-    fi
-    if [[ "${planName}" == */*.bash ]]; then
-        if [[ ! -x "${PLAN_ROOT}/${planName}" ]]; then
-            printf '[FATAL] no executable plan script at %s\n' "${PLAN_ROOT}/${planName}" >&2
-            exit 1
-        fi
-        PLAN_DIRS+=("${PLAN_ROOT}/${planName}")
-        TRIAGE_ARGS["${PLAN_ROOT}/${planName}"]=""
-        continue
-    fi
-    planDir="${PLAN_ROOT}/${planName}"
-    TRIAGE_ARGS["${planDir}"]="${entryWords[*]:1}"
-    if [[ ! -d "${planDir}" ]]; then
-        printf '[FATAL] no such plan folder: %s\n' "${planDir}" >&2
-        printf '        It may have been archived into Completed/ or renamed. Fix the\n' >&2
-        printf '        PLANS list at the top of this script.\n' >&2
+    if [[ ! "${planName}" =~ ${ENTRY_RE} || "${planEntry}" == *'#'* ]] \
+        || [[ "${planName}" == */* && ( ! "${planName}" =~ ${UNIT_RE} || ${#entryWords[@]} -gt 1 ) ]]; then
+        printf '[FATAL] %s line %d is not an entry: %s (an entry is a plan folder with optional triage words, a playbooks/ path or <plan folder>/<script>.bash; a comment is a whole line starting with #)\n' "${LIST_FILE}" "${lineNo}" "${planEntry}" >&2
         exit 1
     fi
-    if [[ ! -x "${planDir}/deploy.bash" && ! -x "${planDir}/acceptance.bash" && ! -x "${planDir}/triage.bash" ]]; then
-        printf '[FATAL] %s ships no executable triage.bash, deploy.bash or acceptance.bash\n' "${planName}" >&2
+    planDir="${PLAN_ROOT}/${planName}"
+    if [[ "${planName}" == playbooks/* ]]; then
+        planDir="${repoRoot}/${planName}"
+    fi
+    TRIAGE_ARGS["${planDir}"]="${entryWords[*]:1}"
+    if [[ ! -x "${planDir}" || ( -d "${planDir}" && ! -x "${planDir}/deploy.bash" && ! -x "${planDir}/acceptance.bash" && ! -x "${planDir}/triage.bash" ) ]]; then
+        printf '[FATAL] nothing runnable at %s: a plan folder needs an executable triage.bash, deploy.bash or acceptance.bash (it may have been archived into Completed/ or renamed), an entry may also be an executable playbook or plan script. Fix %s.\n' "${planDir}" "${LIST_FILE}" >&2
         exit 1
     fi
     PLAN_DIRS+=("${planDir}")
-done
+done <"${LIST_FILE}"
 
 if [[ ${#PLAN_DIRS[@]} -eq 0 ]]; then
-    printf 'The PLANS list is empty. Nothing to run.\n'
+    printf 'The queue is empty (%s). Nothing to run.\n' "${LIST_FILE}"
     exit 0
 fi
 
@@ -192,11 +143,8 @@ for planDir in "${PLAN_DIRS[@]}"; do
             planName="$(basename "$(dirname "${planDir}")")-${planName}"
         fi
         printf '\n===> %s\n' "${planName}"
-        if "${planDir}" 2>&1 | tee "${CAPTURE_DIR}/${planName}.log"; then
-            status="${PIPESTATUS[0]}"
-        else
-            status="${PIPESTATUS[0]}"
-        fi
+        status=0
+        "${planDir}" 2>&1 | tee "${CAPTURE_DIR}/${planName}.log" || status="${PIPESTATUS[0]}"
         if [[ "${status}" == "0" ]]; then
             RESULTS+=("PASS  ${planName}")
         else
@@ -241,13 +189,10 @@ for planDir in "${PLAN_DIRS[@]}"; do
     deployOk=1
     if [[ -x "${planDir}/deploy.bash" ]]; then
         printf '\n===> %s / deploy.bash\n' "${planName}"
-        # PIPESTATUS[0] is the script's status, not tee's. It is read in both branches
-        # because `if ! cmd` would invert the status before $? could be examined.
-        if "${planDir}/deploy.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-deploy.log"; then
-            status="${PIPESTATUS[0]}"
-        else
-            status="${PIPESTATUS[0]}"
-        fi
+        # PIPESTATUS[0] is the script's status, not tee's; the `||` branch runs only when the
+        # pipeline failed (pipefail), and keeps errexit from ending the batch before the verdict.
+        status=0
+        "${planDir}/deploy.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-deploy.log" || status="${PIPESTATUS[0]}"
         if [[ "${status}" == "0" ]]; then
             RESULTS+=("PASS  ${planName}/deploy.bash")
         else
@@ -271,11 +216,8 @@ for planDir in "${PLAN_DIRS[@]}"; do
     if [[ -x "${planDir}/acceptance.bash" ]]; then
         if [[ "${deployOk}" == "1" ]]; then
             printf '\n===> %s / acceptance.bash\n' "${planName}"
-            if "${planDir}/acceptance.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-acceptance.log"; then
-                status="${PIPESTATUS[0]}"
-            else
-                status="${PIPESTATUS[0]}"
-            fi
+            status=0
+            "${planDir}/acceptance.bash" 2>&1 | tee "${CAPTURE_DIR}/${planName}-acceptance.log" || status="${PIPESTATUS[0]}"
             # EXIT 2 IS A THIRD VERDICT, NOT A FAILURE. An acceptance gate here may answer
             # ACCEPTED (0), REJECTED (1) or COULD NOT ESTABLISH (2) — the last meaning
             # nothing failed but some check had no evidence to judge on. Collapsing it into

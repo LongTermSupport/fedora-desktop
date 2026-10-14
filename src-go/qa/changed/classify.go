@@ -158,22 +158,6 @@ func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) er
 	return s.applyFirst(ctx, rel, deleted)
 }
 
-// applyAlso gives the file every "also" rule that matches it, outside its rule's excluded tree.
-func (s *session) applyAlso(ctx context.Context, rel string, deleted bool) error {
-	for _, r := range s.routing.also {
-		match, err := s.applies(r, rel, deleted)
-		if err != nil {
-			return err
-		}
-		if match && (r.tree == "" || !s.trees.byName(r.tree).excludes(rel)) {
-			if err := s.apply(ctx, r, rel, deleted); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // applyFirst gives the file the first "first" rule that matches it; a match inside the rule's
 // excluded tree skips the file instead.
 func (s *session) applyFirst(ctx context.Context, rel string, deleted bool) error {
@@ -193,6 +177,23 @@ func (s *session) applyFirst(ctx context.Context, rel string, deleted bool) erro
 			s.kinds[r.m.kind]++
 		}
 		return s.apply(ctx, r, rel, deleted)
+	}
+	return nil
+}
+
+// applyAlso gives the file the checks of every additive rule it matches, which never end its
+// classification.
+func (s *session) applyAlso(ctx context.Context, rel string, deleted bool) error {
+	for _, r := range s.routing.also {
+		match, err := s.applies(r, rel, deleted)
+		if err != nil {
+			return err
+		}
+		if match && (r.tree == "" || !s.trees.byName(r.tree).excludes(rel)) {
+			if err := s.apply(ctx, r, rel, deleted); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

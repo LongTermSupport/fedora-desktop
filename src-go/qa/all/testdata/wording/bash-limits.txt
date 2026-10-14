@@ -1,0 +1,1 @@
+BASH-LIMITS-OK 445 bash files: 263 exempt, 182 checked (107 allowlisted, 75 within limits)

@@ -1,0 +1,140 @@
+PASS: find_repo_root resolves the root from a deep plan subdir
+PASS: a nested checkout with no marker FAILS rather than escaping to the outer repo
+PASS: the outer repo path is never returned
+PASS: the nested checkout WITH a marker resolves to itself, not the outer repo
+PASS: a worktree .git FILE bounds the walk (not just a .git dir)
+PASS: no marker and no repo boundary anywhere above => failure
+PASS: plan_init succeeds inside a well-formed repo
+PASS: plan_init exports PLAN_REPO_ROOT
+PASS: plan_init exports PLAN_SCRIPT_DIR (the plan folder, not the cwd)
+PASS: plan_init resolves the same root when invoked from an unrelated cwd
+PASS: plan_init fails when the marker walk finds nothing
+PASS: plan_init failure names the marker it looked for
+PASS: plan_init failure explains the deliberate boundary bound
+PASS: in_container returns 1 when no marker exists
+PASS: in_container returns 0 when any marker exists
+PASS: in_container echoes the marker it found
+PASS: require_host REFUSES when a container marker is present
+PASS: the refusal names the marker found
+PASS: the refusal says a result here would be a wrong answer, not a missing one
+PASS: the refusal tells the operator what to do instead
+PASS: require_host PASSES when no container marker is present
+PASS: the pass is announced, never silent
+PASS: with the REAL markers, require_host refuses inside this container
+PASS: require_container REFUSES when no container marker is present
+PASS: the refusal says a result here would be a wrong answer, not a missing one
+PASS: the refusal tells the operator what to do instead
+PASS: require_container PASSES when a container marker is present
+PASS: the pass names the marker found, never silent
+PASS: with a marker present, require_host and require_container disagree
+PASS: with no marker present, require_host and require_container disagree
+PASS: strip_cr removes a single trailing CR
+PASS: strip_cr is a no-op without a CR
+PASS: strip_cr leaves an interior CR alone
+PASS: mode state machine pairs deploy<->deploy_leg and gather<->gather_leg only
+PASS: plan_mode accepts deploy
+PASS: plan_mode accepts gather
+PASS: plan_mode rejects an unknown mode
+PASS: plan_mode rejection names the legal values
+PASS: prime_sudo is refused after start_log
+PASS: the refusal explains the ordering requirement
+PASS: the refusal says why the ordering matters
+PASS: prime_sudo succeeds on a NOPASSWD host with no terminal
+PASS: it says why it did not prompt
+PASS: and records that sudo is usable
+PASS: prime_sudo still fails when sudo really does need a password and there is no tty
+PASS: the fatal message keeps its remedy
+PASS: the same case only warns in gather mode
+PASS: and the warning is recorded, not swallowed
+PASS: plan_gate_change does not exist (see PlanScriptStandards.md R8)
+PASS: its enforcement backstop does not exist either
+PASS: re-init for the ansible guard tests
+PASS: a missing playbook is refused before ansible is invoked
+PASS: the missing-playbook error names the path
+PASS: a repo-relative playbook is found when the cwd is the plan folder
+PASS: the play runs from the repo root, not the plan folder
+PASS: the play path reaches ansible unchanged
+PASS: a repo-relative playbook that is absent is still refused
+PASS: the refusal names where it looked, the repo root
+PASS: a play that does not exist is refused
+PASS: the refusal names the missing playbook
+PASS: a passing gather leg returns 0
+PASS: a passing gather leg records no failure
+PASS: a failing gather leg CONTINUES (returns 0)
+PASS: a failing gather leg is recorded by name
+PASS: multiple failing gather legs accumulate
+PASS: deploy_leg is refused in gather mode
+PASS: gather_leg is refused in deploy mode
+PASS: a failed deploy leg exits non-zero
+PASS: a failed deploy leg never reaches the next leg
+PASS: a failed deploy leg says it is aborting
+PASS: deploy_leg inside a command substitution does not let the run continue
+PASS: the subshell abort names BASH_SUBSHELL so the cause is obvious
+PASS: deploy_leg misused in a subshell exits non-zero
+PASS: plan_finish exits 0 when every leg passed
+PASS: plan_finish says all legs were OK
+PASS: plan_finish exits non-zero when a leg failed
+PASS: plan_finish names the failed legs
+PASS: --check sets PLAN_CHECK
+PASS: --check populates the ansible --check argv
+PASS: -y sets PLAN_ASSUME_YES
+PASS: unknown args are left for the plan script
+PASS: no args leaves an empty remainder
+PASS: --help exits 0
+PASS: --help prints PLAN_USAGE
+PASS: plan_confirm returns 0 under PLAN_ASSUME_YES with no tty
+PASS: the auto-confirm is announced, never silent
+PASS: plan_confirm with no controlling terminal fails (never hangs)
+PASS: the no-tty failure names the -y escape hatch
+PASS: the no-tty failure is not a raw bash error
+PASS: a script using plan_start_log exits 0
+PASS: the run log path is announced to the operator
+PASS: the run log lands under untracked/, not beside the plan's tracked files
+PASS: the operator is told the log is unscrubbed
+PASS: start_log writes a log file under untracked/plan-runs/<plan>/<script>/<timestamp>/
+PASS: the log captures the first line
+PASS: the log captures the LAST line (deterministic tee drain)
+PASS: the log captures all 400 filler lines
+PASS: the log keeps the coloured line's text
+PASS: the log strips ANSI escapes (logs stay monochrome)
+find: ‘/tmp/tmp.Pv62ZxmRn5/f/repo/CLAUDE/Plan/00007-init/logtest-runs’: No such file or directory
+PASS: start_log leaves no stray fifo in the run dir
+PASS: the operator is told the run log is UNSCRUBBED and gitignored
+PASS: an interrupted run exits non-zero
+PASS: an interrupted run's log is still flushed to disk
+PASS: an interrupted run stops where it was interrupted
+PASS: a script registering cleanups still exits 0
+PASS: a registered cleanup runs, and its output is IN the run log
+PASS: a cleanup after a FAILING cleanup still runs
+PASS: the run log is still complete alongside the cleanups
+PASS: a failing cleanup is NAMED rather than swallowed
+PASS: registering a non-existent cleanup fails the run
+PASS: the refusal names the missing function
+PASS: the script does not continue past the refusal
+PASS: the library code never calls git rev-parse (R1)
+PASS: the library code never hardcodes the container path (R1)
+PASS: the library never discards stdout+stderr
+PASS: the library never discards stderr alone
+PASS: the library never swallows a non-zero exit
+PASS: the library never swallows a non-zero exit via a no-op
+PASS: the library never disables errexit
+PASS: the library carries no linter suppression
+PASS: the library sets no shell options
+PASS: only deploy_leg, finish and --help abort (the documented deviation)
+PASS: start_log arms the finalize handler for EXIT
+PASS: start_log arms the finalize handler for INT
+PASS: start_log arms the finalize handler for TERM
+PASS: start_log arms the finalize handler for HUP
+PASS: finalize waits for the tee drain BEFORE reporting on the log
+PASS: plan_confirm routes the prompt through ordered stdout
+PASS: plan_confirm reads the reply from /dev/tty (ansible drains stdin)
+PASS: plan_confirm re-prompts rather than aborting on the first wrong answer
+PASS: deploy_leg carries the BASH_SUBSHELL guard
+PASS: plan_ansible_playbook cds to PLAN_REPO_ROOT (ansible.cfg paths are relative)
+PASS: plan_ansible_playbook closes stdin so ansible cannot drain it
+PASS: plan_ansible_adhoc cds to PLAN_REPO_ROOT (ansible.cfg paths are relative)
+PASS: plan_ansible_adhoc closes stdin so ansible cannot drain it
+PASS: every array expansion uses the set -u-safe bracket-at-plus form
+
+passed: 136   failed: 0
+test-planlib: PASSED (library version 1.4.0)

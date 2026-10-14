@@ -94,9 +94,14 @@ linters:
       - path: qa/gobuild/.*_test\.go
         linters: [gosec]
         text: "G302|G304|G306"
+      # qa-all and the gate table read the gate scripts and the counts file by computed path,
+      # and write the machine report where the caller says.
+      - path: qa/(all|gates)/
+        linters: [gosec]
+        text: "G304|G703|G306|G302"
       # semgrep's JSON report is snake_case, its wire format; the golden test reads the
       # recorded run of the bash it replaced, whose JSON is camelCase.
-      - path: qa/changed/(checks|golden_test)\.go
+      - path: qa/(changed/checks|(changed|all)/golden_test)\.go
         linters: [tagliatelle]
       # A test writes an executable stub to prove the executable check.
       - path: qa/changed/.*_test\.go

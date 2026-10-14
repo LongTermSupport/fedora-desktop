@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
@@ -27,6 +28,9 @@ type Cmd struct {
 	Env []string
 	// Merge sends stderr into Stdout, in the order the command wrote them.
 	Merge bool
+	// StdoutTo and StderrTo, when set, receive that stream as the command writes it instead of
+	// the Result capturing it: a long gate's output reaches the terminal live and in order.
+	StdoutTo, StderrTo io.Writer
 }
 
 // Result is how a command ended.
@@ -37,6 +41,10 @@ type Result struct {
 	// TimedOut is that the context's deadline passed before the command ended; the command's
 	// process group was killed.
 	TimedOut bool
+	// Leftover is that the command ended on its own but a process it started kept its output
+	// open past the grace period. Stdout and Stderr hold what was written; the leftover process
+	// group has been killed. A caller treats it as a failure of the command.
+	Leftover bool
 }
 
 // Runner runs a command. The error is for a command that could not be started at all; a
@@ -63,18 +71,34 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = killGrace
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	cmd.Stdout = streamOr(c.StdoutTo, &stdout)
 	if c.Merge {
-		cmd.Stderr = &stdout
+		cmd.Stderr = cmd.Stdout
 	} else {
-		cmd.Stderr = &stderr
+		cmd.Stderr = streamOr(c.StderrTo, &stderr)
 	}
 	runErr := cmd.Run()
 	if cmd.ProcessState == nil {
 		return Result{}, fmt.Errorf("proc %s: %w", c.Argv[0], runErr)
 	}
 	res := Result{Stdout: stdout.String(), Stderr: stderr.String(), Code: cmd.ProcessState.ExitCode()}
+	if errors.Is(runErr, exec.ErrWaitDelay) && ctx.Err() == nil {
+		// The command ended; a child of its group still holds the pipe. Keep what was written.
+		res.Leftover = true
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return Result{}, fmt.Errorf("proc %s: cannot end its leftover child: %w", c.Argv[0], err)
+		}
+		runErr = nil
+	}
 	return res.finish(ctx, runErr, c.Argv[0])
+}
+
+// streamOr is the writer a stream goes to: the caller's when given, else the capture buffer.
+func streamOr(to io.Writer, capture *bytes.Buffer) io.Writer {
+	if to != nil {
+		return to
+	}
+	return capture
 }
 
 // finish settles how the run ended: a context that ended first is a kill (a timeout when it was

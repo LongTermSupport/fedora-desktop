@@ -1,0 +1,17 @@
+ssh-suspend-guard: session detection
+  ok    a session on the standard port counts                          yes
+  ok    a session on a NON-STANDARD port counts                        yes
+  ok    modern sshd-session counts                                     yes
+  ok    older bare sshd counts                                         yes
+  ok    an OUTBOUND ssh client does not count                          no
+  ok    unrelated traffic does not count                               no
+  ok    no connections at all                                          no
+  ok    header only, no rows                                           no
+  ok    sshd among other connections                                   yes
+  ok    several non-sshd connections                                   no
+  ok    a process named ssh-agent does not count                       no
+
+passed: 11   failed: 0
+==============================================================
+VERDICT: PASS
+==============================================================

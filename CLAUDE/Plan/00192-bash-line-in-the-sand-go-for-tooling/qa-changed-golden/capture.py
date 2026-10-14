@@ -49,14 +49,14 @@ echo "suite:{name}" >> "$STUB_LOG"
 code=0
 [[ -f "$STUB_DIR/exit-{name}" ]] && code="$(cat "$STUB_DIR/exit-{name}")"
 [[ "$code" == 0 ]] || {{ echo "{name}: stub failure" >&2; exit "$code"; }}
-echo "passed: {count} failed: 0"
+echo "passed: {count} failed: {failed}"
 {mentions}
 """
 
 
-def suite(name, count, mentions=""):
+def suite(name, count, mentions="", failed=0):
     """A stub suite whose text names the given files (a suite is picked by naming a file)."""
-    text = SUITE.format(name=name, count=count, mentions="\n".join(f"# {m}" for m in mentions.split()))
+    text = SUITE.format(name=name, count=count, failed=failed, mentions="\n".join(f"# {m}" for m in mentions.split()))
     return text
 
 
@@ -215,6 +215,8 @@ def run_scenarios():
         scen("run-suite-picked-by-name", [], {"write": {"a.txt": "changed\n"}}),
         scen("run-explicit-files", ["--files", "tools/run.sh", "helpers/pkg/mod.py"]),
         scen("run-go-closure", [], {"write": {"src-go/internal/teams/t.go": "package teams\n\nfunc Run() { _ = 2 }\n"}}),
+        scen("run-suite-zero-count", [], {"write": {"scripts/test-teams.bash": suite("test-teams.bash", 0)}}),
+        scen("run-suite-count-reports-failures", [], {"write": {"scripts/test-teams.bash": suite("test-teams.bash", 9, "", 2)}}),
         scen("run-excluded-only", [], {"write": {"untracked/skip.bash": "#!/usr/bin/bash\n: x\n"}}),
     ]
     return out

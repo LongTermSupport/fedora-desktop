@@ -116,39 +116,42 @@ def missing_mentions(names, haystack):
     return [name for name in names if name not in haystack]
 
 
-#: A gate invoked as a script. Matched by its FILENAME after any variable- or
-#: path-shaped prefix — `$SCRIPT_DIR/x.bash`, `${SCRIPT_DIR}/x.bash` and
-#: `$REPO_ROOT/scripts/x.bash` are all the same gate, and keying on one spelling would
-#: exempt the other two from the inventory without saying so.
-_QA_SCRIPT_GATE = re.compile(
-    r"[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?(?:/[A-Za-z0-9._-]+)*/(?P<name>[A-Za-z0-9._-]+\.bash)"
-)
-#: A gate invoked as a module, e.g. `python3 -m helpers.gnome.check_panel_contract`.
+#: A gate run as a module, e.g. `python3 -m helpers.gnome.check_panel_contract`.
 _QA_MODULE_GATE = re.compile(r"-m\s+(?P<name>helpers[A-Za-z0-9_.]+)")
 
-
-#: A line that loads a library into the current shell instead of running a gate.
-#: `source x` and `. x` are the two spellings.
-_SOURCE_LINE = re.compile(r"^\s*(?:source|\.)\s")
+#: The columns of a row in `scripts/qa-gates.tsv` this check reads: kind, name, command.
+_GATE_TABLE_COLUMNS = 3
 
 
-def qa_gates(content):
-    """Every gate `qa-all.bash` invokes, named as `CLAUDE/QA.md` names it in a row.
+def qa_gates(table):
+    """Every gate `scripts/qa-gates.tsv` runs, named as `CLAUDE/QA.md` names it in a row.
 
     Script gates by filename, module gates by their full dotted path — which is what the
-    table's first cell already writes. Reducing a module gate to its last component
+    document's first cell already writes. Reducing a module gate to its last component
     matched the document by substring in one direction and disagreed with it in the
     other, so the reverse check could never have been clean.
 
-    A `source`d library is not a gate and is skipped. It runs nothing and emits no verdict
-    line, so the table has no true row to give it — and the alternative, adding one to
-    satisfy this check, is how an inventory stops describing what it inventories.
+    The table is the one list of what `qa-all.bash` runs (it is a wrapper over a Go tool
+    that reads the same file), so nothing here scans a script's text for invocations: a
+    row is a gate, and a library is not a row. A malformed row is a crash, not a skipped
+    line: the Go loader refuses the same rows, and a line this check silently dropped
+    would be a gate the inventory never looked at.
     """
-    invocations = "\n".join(
-        line for line in content.splitlines() if not _SOURCE_LINE.match(line)
-    )
-    names = {match.group("name") for match in _QA_SCRIPT_GATE.finditer(invocations)}
-    names |= {match.group("name") for match in _QA_MODULE_GATE.finditer(invocations)}
+    names = set()
+    for number, line in enumerate(table.splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) < _GATE_TABLE_COLUMNS or not fields[2].strip():
+            raise ValueError(f"scripts/qa-gates.tsv:{number}: want <kind> <name> <command> ...")
+        command = fields[2].strip()
+        module = _QA_MODULE_GATE.search(command)
+        if module:
+            names.add(module.group("name"))
+        elif command.split()[0].startswith("scripts/") and command.split()[0].endswith(".bash"):
+            names.add(command.split()[0].rsplit("/", 1)[-1])
+        else:
+            raise ValueError(f"scripts/qa-gates.tsv:{number}: cannot name the gate run by {command!r}")
     return sorted(names)
 
 
@@ -166,8 +169,8 @@ def documented_gates(qa_doc):
     })
 
 
-def check_qa_gate_inventory_in(*, qa_all, qa_doc):
-    """The pure half: every gate in `qa_all` has a row in `qa_doc`.
+def check_qa_gate_inventory_in(*, gate_table, qa_doc):
+    """The pure half: every gate in `gate_table` has a row in `qa_doc`.
 
     DERIVED, not re-enumerated. This table had drifted by roughly five entries while
     stating two counts that were both wrong, and each previous repair swapped one stale
@@ -175,11 +178,11 @@ def check_qa_gate_inventory_in(*, qa_all, qa_doc):
     names the rule: replacing a stale enumeration with a fresher enumeration is not the
     fix; deriving the set is.
     """
-    names = qa_gates(qa_all)
+    names = qa_gates(gate_table)
     if not names:
         return [{
-            "file": "scripts/qa-all.bash", "line": 0, "target": "-",
-            "problem": "parsed 0 gate invocations — discovery is broken, not the doc",
+            "file": "scripts/qa-gates.tsv", "line": 0, "target": "-",
+            "problem": "parsed 0 gates — discovery is broken, not the doc",
         }]
     # Compared against the ROWS, not against the document's text. A substring search
     # over the whole file is satisfied by prose that merely mentions a gate, which is
@@ -209,7 +212,7 @@ def check_qa_gate_inventory_in(*, qa_all, qa_doc):
 def check_qa_gate_inventory(repo_root):
     """Every gate `qa-all.bash` runs must have a row in `CLAUDE/QA.md`."""
     return check_qa_gate_inventory_in(
-        qa_all=_read(os.path.join(repo_root, "scripts/qa-all.bash")),
+        gate_table=_read(os.path.join(repo_root, "scripts/qa-gates.tsv")),
         qa_doc=_read(os.path.join(repo_root, "CLAUDE/QA.md")),
     )
 

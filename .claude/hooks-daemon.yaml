@@ -60,7 +60,7 @@ plan_workflow:
     # Non-plan files allowed at the plan root, on top of the built-in
     # {README.md, CLAUDE.md, mkplan.bash, _TEMPLATE_.md}.
     #
-    # meta-deploy.bash runs a named list of plans' triage/deploy/acceptance scripts in one
+    # meta-deploy.bash runs the plans named in meta-deploy.list' triage/deploy/acceptance scripts in one
     # go. It belongs beside mkplan.bash and _planlib.inc.bash — it is plan-system tooling,
     # not a plan — and it is listed here rather than moved to scripts/ because scripts/ is
     # for repo-wide gates and tools, which this is not.
@@ -69,6 +69,7 @@ plan_workflow:
     # deploy/triage/acceptance script sources.
     extra_root_files:
       - meta-deploy.bash
+      - meta-deploy.list
       - _planlib.inc.bash
     journal:                   # Plan journalling (daemon v3.40.0). All checks advise-only unless mode: block.
       enabled: true

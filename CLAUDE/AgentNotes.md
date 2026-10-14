@@ -81,7 +81,8 @@ several messages, gets lost in the scrollback.
 **Standing rule from the owner:** "META DEPLOY IS PERMANENTLY AND CONTINUOUSLY UPDATED TO
 TRACK PENDING RUNS THAT NEED RUNNING". `CLAUDE/Plan/meta-deploy.bash` is the one command
 the owner runs to execute plan scripts on the host, and "META IS YOUR WAY TO GET ME TO RUN
-STUFF". Its `PLANS` list is, at every commit, exactly what needs running **now**:
+STUFF". Its queue, `CLAUDE/Plan/meta-deploy.list` (one entry per line, `#` comment lines describe the
+entry below), is, at every commit, exactly what needs running **now**:
 
 - **Something needs running: add it,** in dependency order. If a triage needs a flag, put
   it on the plan's line.

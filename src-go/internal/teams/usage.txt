@@ -64,7 +64,7 @@ Usage:
                                    repositories of any owners, each one you can push to),
                                    all on any branch; the name (the repository's or the
                                    owner's, by default); the people in the team room (you,
-                                   by default); other machines' subnets. It shows a
+                                   by default); subnets of other machines (LXC is automatic). It shows a
                                    summary and asks once, then writes the entries and runs
                                    play-agent-bus.yml and play-agent-bus-element.yml, and
                                    says it is done only when both are applied. Then it

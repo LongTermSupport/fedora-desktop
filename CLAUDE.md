@@ -7,12 +7,12 @@
 **IF THE PROJECT PATH IS `/workspace/` — YOU ARE IN A CCY CONTAINER.**
 
 - **NEVER run Ansible playbooks** in the container
-- **Only edit and commit**, then put the host run in `CLAUDE/Plan/meta-deploy.bash` (below)
+- **Only edit and commit**, then put the host run in `CLAUDE/Plan/meta-deploy.list` (below)
 - CCY version bump required when modifying `files/var/local/claude-yolo/claude-yolo`
 
 **Host runs go through `meta-deploy.bash`, never a list of commands.** Whatever needs running
-on the host (a plan's `deploy.bash`, a play no plan owns) is added to the `PLANS` list in
-`CLAUDE/Plan/meta-deploy.bash` in the same commit, and the owner is told "I have updated
+on the host (a plan's `deploy.bash`, a play no plan owns) is added to the queue in
+`CLAUDE/Plan/meta-deploy.list` in the same commit, and the owner is told "I have updated
 meta-deploy; run `./CLAUDE/Plan/meta-deploy.bash`", with what it will do. Never hand over
 individual plays or scripts, and never say `git pull` first: this container works in the
 host's own checkout. Only a reboot, a login, a look at the screen, a decision or another
@@ -210,17 +210,17 @@ So that nothing is missed by not being resident, `.claude/rules/*.md` carry `pat
 and load **on demand** whenever a matching file is touched. Each rule is a thin pointer to
 the topic file that owns the fact — never a copy.
 
-| Touching…                                                    | Loads                  | Which points at                                 |
-| ------------------------------------------------------------ | ---------------------- | ----------------------------------------------- |
-| `playbooks/`, `tasks/`, `vars/`, `environment/`, any `*.yml` | `ansible-editing.md`   | AnsibleStyle, InfrastructureAsCode, helpers     |
-| any `*.bash`, `scripts/`, `files/**/bin/`                    | `bash-scripts.md`      | StderrHygiene, InteractiveScripts, QA           |
-| `files/var/local/claude-yolo/`                               | `ccy-version-bump.md`  | ContainerRules — **the mandatory version bump** |
-| `helpers/`, `tests/helpers/`, any `*.py`                     | `python-helpers.md`    | helpers/CLAUDE.md, the ruff pin                 |
-| `src-go/`, any `*.go`                                        | `go-code.md`           | src-go/CLAUDE.md, the interim Go gate           |
-| `environment/`, `vault.bash`, `*_vars/`                      | `secrets-and-vault.md` | SecurityRules, ExampleValues                    |
-| `extensions/`, gnome-shell dirs                              | `gnome-extensions.md`  | GnomeShell, the ESLint requirement              |
-| `scripts/qa-*.bash`, `ruff.toml`, workflows                  | `qa-gates.md`          | QA.md, and how these gates have failed before   |
-| `untracked/repos/` (private reference clones)                | `reference-repos.md`   | AgentNotes — refresh before reading, never cite |
+| Touching…                                                                                         | Loads                  | Which points at                                 |
+| ------------------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------- |
+| `playbooks/`, `tasks/`, `vars/`, `environment/`, any `*.yml`                                      | `ansible-editing.md`   | AnsibleStyle, InfrastructureAsCode, helpers     |
+| any `*.bash`, `scripts/`, `files/**/bin/`                                                         | `bash-scripts.md`      | StderrHygiene, InteractiveScripts, QA           |
+| `files/var/local/claude-yolo/`                                                                    | `ccy-version-bump.md`  | ContainerRules — **the mandatory version bump** |
+| `helpers/`, `tests/helpers/`, any `*.py`                                                          | `python-helpers.md`    | helpers/CLAUDE.md, the ruff pin                 |
+| `src-go/`, any `*.go`                                                                             | `go-code.md`           | src-go/CLAUDE.md, the interim Go gate           |
+| `environment/`, `vault.bash`, `*_vars/`                                                           | `secrets-and-vault.md` | SecurityRules, ExampleValues                    |
+| `extensions/`, gnome-shell dirs                                                                   | `gnome-extensions.md`  | GnomeShell, the ESLint requirement              |
+| `scripts/qa-*.bash`, the `qa-*.tsv` data, `src-go/qa/{all,gates,changed}`, `ruff.toml`, workflows | `qa-gates.md`          | QA.md, and how these gates have failed before   |
+| `untracked/repos/` (private reference clones)                                                     | `reference-repos.md`   | AgentNotes — refresh before reading, never cite |
 
 **When you add a fact that only matters for certain paths, add it to the rule, not here.**
 `CLAUDE.md` is resident in every session; the rules are not.

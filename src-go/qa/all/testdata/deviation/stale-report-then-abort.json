@@ -1,0 +1,17 @@
+{
+ "stdout": "✓ toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n✓ go: GO-OK 39 package(s)\n✓ bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n✓ bash: 4 files OK\n✓ python: 4 files OK\n✓ patterns: 4 files OK\n✓ ansible: 4 files OK\n✓ ansible-syntax: 4 files OK\n✓ js: 4 files OK\n",
+ "stderr": "ERROR: Missing required tools (node / extensions node_modules). Install them and re-run.\n",
+ "status": 2,
+ "log": [
+  "qa-toolchain ",
+  "qa-go ",
+  "qa-bash-limits ",
+  "qa-bash  json",
+  "qa-python  json",
+  "qa-patterns  json",
+  "qa-ansible  json",
+  "qa-ansible-syntax  json",
+  "qa-js  json"
+ ],
+ "report": null
+}

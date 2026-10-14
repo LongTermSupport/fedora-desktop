@@ -50,8 +50,8 @@ is not a lock against a test: the token is in the same `argv` as the path, so an
 finds the file BY READING ARGV already has the token. Something that reaches it another way —
 a hardcoded path, a stale file from a previous run — does not, which is what this check buys.
 
-Read by `helper_counts_summary` in `scripts/lib/qa-helper-summary.bash`, which refuses
-a file that is missing, short a key, or not all digits.
+Read by `HelperCounts` in `src-go/qa/gates/readers.go`, which refuses a file that is
+missing, empty, short a key, or not all digits.
 """
 
 from __future__ import annotations

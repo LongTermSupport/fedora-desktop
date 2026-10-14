@@ -118,7 +118,7 @@ func TestThePopulationHoldsTheSuitesAFreshReaderWouldExpect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"test-qa-changed.bash", "test-qa-helper-summary.bash"} {
+	for _, want := range []string{"test-qa-changed.bash", "test-qa-docs-exit-codes.bash"} {
 		found := false
 		for _, name := range population {
 			found = found || name == want

@@ -23,12 +23,16 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 ## Goals
 
-- A team message or ping reaches an idle ccy session within seconds, as text the agent reads
-  without running anything, and a busy session gets it at its next idle point.
+- A team message or ping reaches a ccy session within seconds, busy or idle, as text the
+  agent reads without running anything. The supervisor types it at once and Claude Code
+  queues it during a turn; the one wait is a half-typed line in the input box.
 - Human text and agent text stay distinguishable to the receiving agent, as the protocol
   requires; nothing an agent sends gains the authority of the human at the keyboard.
-- One delivery path: the plugin replaces, or is built on, `pingbus watch`'s wake, never a
-  second watcher beside it.
+- One delivery path, fail fast: every kind is typed by the supervisor in one envelope. The
+  Claude Code inbox socket is not used, and a `--teams` launch without a relay-capable
+  supervisor refuses to start. The supervisor plugin owns `pingbus watch`.
+- Harness-agnostic team: the bus (room, `pingbus` CLI, kinds, envelope) is defined by
+  pingbus; delivery into a session is a thin per-harness adapter.
 
 ## Non-Goals
 
@@ -45,22 +49,28 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   hooks daemon defines it), how the plugin gets the session's messages (the inbox, the
   watcher, or the bundle directly), what it injects and how it is framed per sender kind,
   rate and size limits, the failure modes, and how it is tested without a live homeserver.
-  Done: [DESIGN.md](DESIGN.md). It needs hooks-daemon plugin API 1.1 (API 1.0 cannot type
-  text).
+  Done: [DESIGN.md](DESIGN.md), with the owner's decisions of 2026-10-14 recorded in its
+  section 0. It needs hooks-daemon plugin API 1.1 (API 1.0 cannot type text, and types only
+  at idle); filing that issue still awaits the owner.
 - [ ] ⬜ **Task 1.2**: The owner agrees the design.
 
 ### Phase 2: Build
 
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump).
+- [ ] ⬜ **Task 2.1b**: Ship the ccy-agent-bus supervisor plugin in the member kit too, so
+  LXC and other supervised members get the same delivery.
 - [ ] ⬜ **Task 2.2**: Fable review; qa-reviewer; meta-deploy; the owner's test from Element.
 
 ## Success Criteria
 
 - [ ] On the host, a message the owner posts in Element mentioning a seat appears in that
   ccy session within seconds, with the agent running nothing, framed as the human's.
-- [ ] Another agent's message appears framed as a colleague's note.
+- [ ] Another agent's message appears in the same envelope with its own kind and no
+  authority.
+- [ ] A message sent to a busy session is typed mid-turn and run when the turn ends.
 
 ## Delivery & Milestones
 
-- Design: proposed in [DESIGN.md](DESIGN.md), awaiting the owner (Task 1.2).
+- Design: decisions recorded in [DESIGN.md](DESIGN.md); the API 1.1 issue and the final
+  agreement (Task 1.2) await the owner.

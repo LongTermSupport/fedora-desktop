@@ -1,0 +1,1756 @@
+{
+ "revision": "e4f6615c42a85f8eac19d97c8a765ab953d9ca13",
+ "defaults": {
+  "toolchain": {
+   "out": "TOOLCHAIN-OK 6 tools match .qa-versions\n"
+  },
+  "go": {
+   "out": "GO-OK 39 package(s), all tested: fmt, vet, test -race\n"
+  },
+  "bash-limits": {
+   "out": "BASH-LIMITS-OK 446 bash files: 109 allowlisted\n"
+  },
+  "bash": {
+   "out": "\u2713 bash: 4 files OK\n",
+   "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 4, \"passed\": 4, \"failed\": 0}, \"failures\": []}"
+  },
+  "python": {
+   "out": "\u2713 python: 4 files OK\n",
+   "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 4, \"passed\": 4, \"failed\": 0}, \"failures\": []}"
+  },
+  "patterns": {
+   "out": "\u2713 patterns: 4 files OK\n",
+   "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 4, \"passed\": 4, \"failed\": 0}, \"failures\": []}"
+  },
+  "ansible": {
+   "out": "\u2713 ansible: 4 files OK\n",
+   "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 4, \"passed\": 4, \"failed\": 0}, \"failures\": []}"
+  },
+  "ansible-syntax": {
+   "out": "\u2713 ansible-syntax: 4 files OK\n",
+   "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 4, \"passed\": 4, \"failed\": 0}, \"failures\": []}"
+  },
+  "js": {
+   "out": "\u2713 js: 4 files OK\n",
+   "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 4, \"passed\": 4, \"failed\": 0}, \"failures\": []}"
+  },
+  "docs": {
+   "out": "\u2713 docs: 4 files OK\n",
+   "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 4, \"passed\": 4, \"failed\": 0}, \"failures\": []}"
+  },
+  "nokill-containerwatch": {
+   "out": "\u2713 no-kill gate: 3 container-watch file(s) clean \u2014 reporting-only confirmed\n"
+  },
+  "deployed-drift": {
+   "out": "\u2713 deployed-drift: 4 scripts in sync\n"
+  },
+  "helper-tests": {
+   "counts": "token=%TOKEN%\ntests=10\nskipped=1\nmodules=2\ntracked=2\n"
+  },
+  "secret-scan-tests": {
+   "out": "passed: 14 failed: 0\n"
+  },
+  "planlib-tests": {
+   "out": "test-planlib: PASSED (library version 1.2.0)\n"
+  },
+  "ccy-rootless-guard": {
+   "out": "passed: 16 failed: 0\n"
+  },
+  "ccy-token-mode": {
+   "out": "passed: 17 failed: 0\n"
+  },
+  "ccy-token-usage-output": {
+   "out": "passed: 18 failed: 0\n"
+  },
+  "ccy-token-usage-command": {
+   "out": "passed: 19 failed: 0\n"
+  },
+  "ccy-token-import-cleanup": {
+   "out": "passed: 20 failed: 0\n"
+  },
+  "ccy-ssh-handling": {
+   "out": "passed: 21 failed: 0\n"
+  },
+  "ccy-git-signing": {
+   "out": "passed: 22 failed: 0\n"
+  },
+  "git-signing-declared": {
+   "out": "passed: 23 failed: 0\n"
+  },
+  "qa-tool-pin-converges": {
+   "out": "passed: 24 failed: 0\n"
+  },
+  "ccy-browser-session-guard": {
+   "out": "passed: 25 failed: 0\n"
+  },
+  "gh-scope-outside-ssot": {
+   "out": "passed: 26 failed: 0\n"
+  },
+  "speech-to-text-rules": {
+   "out": "passed: 27 failed: 0\n"
+  },
+  "ready-wait-rules": {
+   "out": "passed: 28 failed: 0\n"
+  },
+  "pause-without-register": {
+   "out": "passed: 29 failed: 0\n"
+  },
+  "ccy-selinux-verdict": {
+   "out": "passed: 30 failed: 0\n"
+  },
+  "ccy-relabel-preflight": {
+   "out": "passed: 31 failed: 0\n"
+  },
+  "agent-mailbox-watch": {
+   "out": "passed: 32 failed: 0\n"
+  },
+  "ccy-gpu-device": {
+   "out": "passed: 33 failed: 0\n"
+  },
+  "ccy-container-menus": {
+   "out": "passed: 34 failed: 0\n"
+  },
+  "ccy-flag-check": {
+   "out": "passed: 35 failed: 0\n"
+  },
+  "ccy-restart-request": {
+   "out": "passed: 36 failed: 0\n"
+  },
+  "ccy-container-version-hook": {
+   "out": "passed: 37 failed: 0\n"
+  },
+  "ccy-project-env": {
+   "out": "passed: 38 failed: 0\n"
+  },
+  "ccy-git-preflight": {
+   "out": "passed: 39 failed: 0\n"
+  },
+  "ccy-agent-bus": {
+   "out": "passed: 40 failed: 0\n"
+  },
+  "ccy-teams": {
+   "out": "passed: 41 failed: 0\n"
+  },
+  "cc-teams": {
+   "out": "passed: 42 failed: 0\n"
+  },
+  "ccy-gitignore-safety": {
+   "out": "passed: 43 failed: 0\n"
+  },
+  "ccy-env-local-dist": {
+   "out": "passed: 44 failed: 0\n"
+  },
+  "ccy-lifecycle": {
+   "out": "passed: 45 failed: 0\n"
+  },
+  "wsi-stop-grace": {
+   "out": "passed: 46 failed: 0\n"
+  },
+  "stt-limits": {
+   "out": "passed: 47 failed: 0\n"
+  },
+  "ccy-host-hostname": {
+   "out": "passed: 48 failed: 0\n"
+  },
+  "ccy-host-time-zone": {
+   "out": "passed: 49 failed: 0\n"
+  },
+  "ccy-network-disconnect": {
+   "out": "passed: 50 failed: 0\n"
+  },
+  "ccy-info-flags": {
+   "out": "passed: 51 failed: 0\n"
+  },
+  "ssh-suspend-guard": {
+   "out": "VERDICT: PASS\n"
+  },
+  "ccy-session-registry": {
+   "out": "passed: 53 failed: 0\n"
+  },
+  "ccy-compose-restore": {
+   "out": "passed: 54 failed: 0\n"
+  },
+  "ccy-sessions-reboot": {
+   "out": "passed: 55 failed: 0\n"
+  },
+  "ccy-sessions-take-over": {
+   "out": "passed: 56 failed: 0\n"
+  },
+  "ccy-tmux-targets": {
+   "out": "passed: 57 failed: 0\n"
+  },
+  "ccy-teams-command": {
+   "out": "passed: 58 failed: 0\n"
+  },
+  "ccy-restore-askpass": {
+   "out": "passed: 59 failed: 0\n"
+  },
+  "vmtest-host-only-gate": {
+   "out": "passed: 60 failed: 0\n"
+  },
+  "vmtest-reboot-dispatch": {
+   "out": "passed: 61 failed: 0\n"
+  },
+  "vmtest-kernel-selection": {
+   "out": "passed: 62 failed: 0\n"
+  },
+  "vmtest-build-dir-cleanup": {
+   "out": "passed: 63 failed: 0\n"
+  },
+  "vmtest-member": {
+   "out": "passed: 64 failed: 0\n"
+  },
+  "vmtest-prepare-record": {
+   "out": "passed: 65 failed: 0\n"
+  },
+  "panel-sections": {
+   "out": "passed: 66 failed: 0\n"
+  },
+  "run-bash-headless-localhost-yml": {
+   "out": "passed: 67 failed: 0\n"
+  },
+  "run-bash-ssh-agent-teardown": {
+   "out": "passed: 68 failed: 0\n"
+  },
+  "run-bash-single-play": {
+   "out": "passed: 69 failed: 0\n"
+  },
+  "run-bash-changed": {
+   "out": "passed: 70 failed: 0\n"
+  },
+  "run-bash-rerun": {
+   "out": "passed: 71 failed: 0\n"
+  },
+  "run-bash-gh-scopes": {
+   "out": "passed: 72 failed: 0\n"
+  },
+  "run-bash-config-repo": {
+   "out": "passed: 73 failed: 0\n"
+  },
+  "run-bash-ssh-agent-start": {
+   "out": "passed: 74 failed: 0\n"
+  },
+  "gh-alias-wrappers": {
+   "out": "passed: 75 failed: 0\n"
+  },
+  "self-update-cycle": {
+   "out": "passed: 76 failed: 0\n"
+  },
+  "agent-bus-install": {
+   "out": "passed: 77 failed: 0\n"
+  },
+  "release": {
+   "out": "passed: 78 failed: 0\n"
+  },
+  "run-log-scrub": {
+   "out": "passed: 79 failed: 0\n"
+  },
+  "host-health-login-snippet": {
+   "out": "passed: 80 failed: 0\n"
+  },
+  "bash-history-search": {
+   "out": "passed: 81 failed: 0\n"
+  },
+  "bash-history-session": {
+   "out": "passed: 82 failed: 0\n"
+  },
+  "terminal-modes": {
+   "out": "passed: 83 failed: 0\n"
+  },
+  "fedora-desktop-health": {
+   "out": "passed: 84 failed: 0\n"
+  },
+  "failfast-pattern-tests": {
+   "out": "passed: 85 failed: 0\n"
+  },
+  "docs-exit-codes": {
+   "out": "passed: 86 failed: 0\n"
+  },
+  "qa-changed-mapping": {
+   "out": "passed: 87 failed: 0\n"
+  },
+  "extension-compat": {
+   "out": "All 3 extension(s) cover the GNOME Shell that Fedora 44 ships\n"
+  },
+  "panel-contract": {
+   "out": "7 constant(s) agree between the panel and the producer\n"
+  },
+  "vmtest-manifest": {
+   "out": "vars/vm-test-scenarios.yml: scenarios=8 runnable=8 bridge=6 host_only=2 bases=2\n8 scenario(s) agree with their guest checker\n3 scenario fixture(s) run before a declared reboot\n"
+  },
+  "plan-script-logging": {
+   "out": "12 plan script(s) examined, no offences\n"
+  },
+  "version-pins": {
+   "out": "vars/version-pins.yml: VERSION-PINS-OK 20 rows\n"
+  }
+ },
+ "scenarios": [
+  {
+   "name": "all-pass",
+   "args": [],
+   "replies": {}
+  },
+  {
+   "name": "help",
+   "args": [
+    "--help"
+   ],
+   "replies": {}
+  },
+  {
+   "name": "unknown-flag",
+   "args": [
+    "--typo"
+   ],
+   "replies": {}
+  },
+  {
+   "name": "fail-toolchain",
+   "args": [],
+   "replies": {
+    "toolchain": {
+     "code": 1,
+     "err": "toolchain: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-go",
+   "args": [],
+   "replies": {
+    "go": {
+     "code": 1,
+     "err": "go: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-bash-limits",
+   "args": [],
+   "replies": {
+    "bash-limits": {
+     "code": 1,
+     "err": "bash-limits: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-bash",
+   "args": [],
+   "replies": {
+    "bash": {
+     "code": 1,
+     "err": "bash: boom\n",
+     "out": "\u2717 bash: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "fail-python",
+   "args": [],
+   "replies": {
+    "python": {
+     "code": 1,
+     "err": "python: boom\n",
+     "out": "\u2717 python: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "fail-patterns",
+   "args": [],
+   "replies": {
+    "patterns": {
+     "code": 1,
+     "err": "patterns: boom\n",
+     "out": "\u2717 patterns: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "fail-ansible",
+   "args": [],
+   "replies": {
+    "ansible": {
+     "code": 1,
+     "err": "ansible: boom\n",
+     "out": "\u2717 ansible: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "fail-ansible-syntax",
+   "args": [],
+   "replies": {
+    "ansible-syntax": {
+     "code": 1,
+     "err": "ansible-syntax: boom\n",
+     "out": "\u2717 ansible-syntax: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "fail-js",
+   "args": [],
+   "replies": {
+    "js": {
+     "code": 1,
+     "err": "js: boom\n",
+     "out": "\u2717 js: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "fail-docs",
+   "args": [],
+   "replies": {
+    "docs": {
+     "code": 1,
+     "err": "docs: boom\n",
+     "out": "\u2717 docs: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "fail-nokill-containerwatch",
+   "args": [],
+   "replies": {
+    "nokill-containerwatch": {
+     "code": 1,
+     "err": "nokill-containerwatch: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-deployed-drift",
+   "args": [],
+   "replies": {
+    "deployed-drift": {
+     "code": 1,
+     "err": "deployed-drift: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-helper-tests",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "code": 1,
+     "err": "helper-tests: boom\n",
+     "out": "some test output\n"
+    }
+   }
+  },
+  {
+   "name": "fail-secret-scan-tests",
+   "args": [],
+   "replies": {
+    "secret-scan-tests": {
+     "code": 1,
+     "err": "secret-scan-tests: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-planlib-tests",
+   "args": [],
+   "replies": {
+    "planlib-tests": {
+     "code": 1,
+     "err": "planlib-tests: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-rootless-guard",
+   "args": [],
+   "replies": {
+    "ccy-rootless-guard": {
+     "code": 1,
+     "err": "ccy-rootless-guard: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-token-mode",
+   "args": [],
+   "replies": {
+    "ccy-token-mode": {
+     "code": 1,
+     "err": "ccy-token-mode: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-token-usage-output",
+   "args": [],
+   "replies": {
+    "ccy-token-usage-output": {
+     "code": 1,
+     "err": "ccy-token-usage-output: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-token-usage-command",
+   "args": [],
+   "replies": {
+    "ccy-token-usage-command": {
+     "code": 1,
+     "err": "ccy-token-usage-command: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-token-import-cleanup",
+   "args": [],
+   "replies": {
+    "ccy-token-import-cleanup": {
+     "code": 1,
+     "err": "ccy-token-import-cleanup: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-ssh-handling",
+   "args": [],
+   "replies": {
+    "ccy-ssh-handling": {
+     "code": 1,
+     "err": "ccy-ssh-handling: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-git-signing",
+   "args": [],
+   "replies": {
+    "ccy-git-signing": {
+     "code": 1,
+     "err": "ccy-git-signing: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-git-signing-declared",
+   "args": [],
+   "replies": {
+    "git-signing-declared": {
+     "code": 1,
+     "err": "git-signing-declared: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-qa-tool-pin-converges",
+   "args": [],
+   "replies": {
+    "qa-tool-pin-converges": {
+     "code": 1,
+     "err": "qa-tool-pin-converges: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-browser-session-guard",
+   "args": [],
+   "replies": {
+    "ccy-browser-session-guard": {
+     "code": 1,
+     "err": "ccy-browser-session-guard: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-gh-scope-outside-ssot",
+   "args": [],
+   "replies": {
+    "gh-scope-outside-ssot": {
+     "code": 1,
+     "err": "gh-scope-outside-ssot: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-speech-to-text-rules",
+   "args": [],
+   "replies": {
+    "speech-to-text-rules": {
+     "code": 1,
+     "err": "speech-to-text-rules: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ready-wait-rules",
+   "args": [],
+   "replies": {
+    "ready-wait-rules": {
+     "code": 1,
+     "err": "ready-wait-rules: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-pause-without-register",
+   "args": [],
+   "replies": {
+    "pause-without-register": {
+     "code": 1,
+     "err": "pause-without-register: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-selinux-verdict",
+   "args": [],
+   "replies": {
+    "ccy-selinux-verdict": {
+     "code": 1,
+     "err": "ccy-selinux-verdict: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-relabel-preflight",
+   "args": [],
+   "replies": {
+    "ccy-relabel-preflight": {
+     "code": 1,
+     "err": "ccy-relabel-preflight: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-agent-mailbox-watch",
+   "args": [],
+   "replies": {
+    "agent-mailbox-watch": {
+     "code": 1,
+     "err": "agent-mailbox-watch: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-gpu-device",
+   "args": [],
+   "replies": {
+    "ccy-gpu-device": {
+     "code": 1,
+     "err": "ccy-gpu-device: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-container-menus",
+   "args": [],
+   "replies": {
+    "ccy-container-menus": {
+     "code": 1,
+     "err": "ccy-container-menus: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-flag-check",
+   "args": [],
+   "replies": {
+    "ccy-flag-check": {
+     "code": 1,
+     "err": "ccy-flag-check: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-restart-request",
+   "args": [],
+   "replies": {
+    "ccy-restart-request": {
+     "code": 1,
+     "err": "ccy-restart-request: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-container-version-hook",
+   "args": [],
+   "replies": {
+    "ccy-container-version-hook": {
+     "code": 1,
+     "err": "ccy-container-version-hook: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-project-env",
+   "args": [],
+   "replies": {
+    "ccy-project-env": {
+     "code": 1,
+     "err": "ccy-project-env: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-git-preflight",
+   "args": [],
+   "replies": {
+    "ccy-git-preflight": {
+     "code": 1,
+     "err": "ccy-git-preflight: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-agent-bus",
+   "args": [],
+   "replies": {
+    "ccy-agent-bus": {
+     "code": 1,
+     "err": "ccy-agent-bus: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-teams",
+   "args": [],
+   "replies": {
+    "ccy-teams": {
+     "code": 1,
+     "err": "ccy-teams: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-cc-teams",
+   "args": [],
+   "replies": {
+    "cc-teams": {
+     "code": 1,
+     "err": "cc-teams: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-gitignore-safety",
+   "args": [],
+   "replies": {
+    "ccy-gitignore-safety": {
+     "code": 1,
+     "err": "ccy-gitignore-safety: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-env-local-dist",
+   "args": [],
+   "replies": {
+    "ccy-env-local-dist": {
+     "code": 1,
+     "err": "ccy-env-local-dist: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-lifecycle",
+   "args": [],
+   "replies": {
+    "ccy-lifecycle": {
+     "code": 1,
+     "err": "ccy-lifecycle: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-wsi-stop-grace",
+   "args": [],
+   "replies": {
+    "wsi-stop-grace": {
+     "code": 1,
+     "err": "wsi-stop-grace: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-stt-limits",
+   "args": [],
+   "replies": {
+    "stt-limits": {
+     "code": 1,
+     "err": "stt-limits: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-host-hostname",
+   "args": [],
+   "replies": {
+    "ccy-host-hostname": {
+     "code": 1,
+     "err": "ccy-host-hostname: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-host-time-zone",
+   "args": [],
+   "replies": {
+    "ccy-host-time-zone": {
+     "code": 1,
+     "err": "ccy-host-time-zone: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-network-disconnect",
+   "args": [],
+   "replies": {
+    "ccy-network-disconnect": {
+     "code": 1,
+     "err": "ccy-network-disconnect: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-info-flags",
+   "args": [],
+   "replies": {
+    "ccy-info-flags": {
+     "code": 1,
+     "err": "ccy-info-flags: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ssh-suspend-guard",
+   "args": [],
+   "replies": {
+    "ssh-suspend-guard": {
+     "code": 1,
+     "err": "ssh-suspend-guard: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-session-registry",
+   "args": [],
+   "replies": {
+    "ccy-session-registry": {
+     "code": 1,
+     "err": "ccy-session-registry: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-compose-restore",
+   "args": [],
+   "replies": {
+    "ccy-compose-restore": {
+     "code": 1,
+     "err": "ccy-compose-restore: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-sessions-reboot",
+   "args": [],
+   "replies": {
+    "ccy-sessions-reboot": {
+     "code": 1,
+     "err": "ccy-sessions-reboot: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-sessions-take-over",
+   "args": [],
+   "replies": {
+    "ccy-sessions-take-over": {
+     "code": 1,
+     "err": "ccy-sessions-take-over: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-tmux-targets",
+   "args": [],
+   "replies": {
+    "ccy-tmux-targets": {
+     "code": 1,
+     "err": "ccy-tmux-targets: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-teams-command",
+   "args": [],
+   "replies": {
+    "ccy-teams-command": {
+     "code": 1,
+     "err": "ccy-teams-command: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-ccy-restore-askpass",
+   "args": [],
+   "replies": {
+    "ccy-restore-askpass": {
+     "code": 1,
+     "err": "ccy-restore-askpass: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-vmtest-host-only-gate",
+   "args": [],
+   "replies": {
+    "vmtest-host-only-gate": {
+     "code": 1,
+     "err": "vmtest-host-only-gate: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-vmtest-reboot-dispatch",
+   "args": [],
+   "replies": {
+    "vmtest-reboot-dispatch": {
+     "code": 1,
+     "err": "vmtest-reboot-dispatch: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-vmtest-kernel-selection",
+   "args": [],
+   "replies": {
+    "vmtest-kernel-selection": {
+     "code": 1,
+     "err": "vmtest-kernel-selection: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-vmtest-build-dir-cleanup",
+   "args": [],
+   "replies": {
+    "vmtest-build-dir-cleanup": {
+     "code": 1,
+     "err": "vmtest-build-dir-cleanup: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-vmtest-member",
+   "args": [],
+   "replies": {
+    "vmtest-member": {
+     "code": 1,
+     "err": "vmtest-member: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-vmtest-prepare-record",
+   "args": [],
+   "replies": {
+    "vmtest-prepare-record": {
+     "code": 1,
+     "err": "vmtest-prepare-record: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-panel-sections",
+   "args": [],
+   "replies": {
+    "panel-sections": {
+     "code": 1,
+     "err": "panel-sections: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-headless-localhost-yml",
+   "args": [],
+   "replies": {
+    "run-bash-headless-localhost-yml": {
+     "code": 1,
+     "err": "run-bash-headless-localhost-yml: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-ssh-agent-teardown",
+   "args": [],
+   "replies": {
+    "run-bash-ssh-agent-teardown": {
+     "code": 1,
+     "err": "run-bash-ssh-agent-teardown: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-single-play",
+   "args": [],
+   "replies": {
+    "run-bash-single-play": {
+     "code": 1,
+     "err": "run-bash-single-play: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-changed",
+   "args": [],
+   "replies": {
+    "run-bash-changed": {
+     "code": 1,
+     "err": "run-bash-changed: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-rerun",
+   "args": [],
+   "replies": {
+    "run-bash-rerun": {
+     "code": 1,
+     "err": "run-bash-rerun: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-gh-scopes",
+   "args": [],
+   "replies": {
+    "run-bash-gh-scopes": {
+     "code": 1,
+     "err": "run-bash-gh-scopes: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-config-repo",
+   "args": [],
+   "replies": {
+    "run-bash-config-repo": {
+     "code": 1,
+     "err": "run-bash-config-repo: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-bash-ssh-agent-start",
+   "args": [],
+   "replies": {
+    "run-bash-ssh-agent-start": {
+     "code": 1,
+     "err": "run-bash-ssh-agent-start: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-gh-alias-wrappers",
+   "args": [],
+   "replies": {
+    "gh-alias-wrappers": {
+     "code": 1,
+     "err": "gh-alias-wrappers: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-self-update-cycle",
+   "args": [],
+   "replies": {
+    "self-update-cycle": {
+     "code": 1,
+     "err": "self-update-cycle: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-agent-bus-install",
+   "args": [],
+   "replies": {
+    "agent-bus-install": {
+     "code": 1,
+     "err": "agent-bus-install: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-release",
+   "args": [],
+   "replies": {
+    "release": {
+     "code": 1,
+     "err": "release: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-run-log-scrub",
+   "args": [],
+   "replies": {
+    "run-log-scrub": {
+     "code": 1,
+     "err": "run-log-scrub: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-host-health-login-snippet",
+   "args": [],
+   "replies": {
+    "host-health-login-snippet": {
+     "code": 1,
+     "err": "host-health-login-snippet: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-bash-history-search",
+   "args": [],
+   "replies": {
+    "bash-history-search": {
+     "code": 1,
+     "err": "bash-history-search: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-bash-history-session",
+   "args": [],
+   "replies": {
+    "bash-history-session": {
+     "code": 1,
+     "err": "bash-history-session: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-terminal-modes",
+   "args": [],
+   "replies": {
+    "terminal-modes": {
+     "code": 1,
+     "err": "terminal-modes: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-fedora-desktop-health",
+   "args": [],
+   "replies": {
+    "fedora-desktop-health": {
+     "code": 1,
+     "err": "fedora-desktop-health: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-failfast-pattern-tests",
+   "args": [],
+   "replies": {
+    "failfast-pattern-tests": {
+     "code": 1,
+     "err": "failfast-pattern-tests: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-docs-exit-codes",
+   "args": [],
+   "replies": {
+    "docs-exit-codes": {
+     "code": 1,
+     "err": "docs-exit-codes: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-qa-changed-mapping",
+   "args": [],
+   "replies": {
+    "qa-changed-mapping": {
+     "code": 1,
+     "err": "qa-changed-mapping: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-extension-compat",
+   "args": [],
+   "replies": {
+    "extension-compat": {
+     "code": 1,
+     "err": "extension-compat: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-panel-contract",
+   "args": [],
+   "replies": {
+    "panel-contract": {
+     "code": 1,
+     "err": "panel-contract: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-vmtest-manifest",
+   "args": [],
+   "replies": {
+    "vmtest-manifest": {
+     "code": 1,
+     "err": "vmtest-manifest: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-plan-script-logging",
+   "args": [],
+   "replies": {
+    "plan-script-logging": {
+     "code": 1,
+     "err": "plan-script-logging: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-version-pins",
+   "args": [],
+   "replies": {
+    "version-pins": {
+     "code": 1,
+     "err": "version-pins: boom\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-bash",
+   "args": [],
+   "replies": {
+    "bash": {
+     "code": 2,
+     "err": "no tool\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-python",
+   "args": [],
+   "replies": {
+    "python": {
+     "code": 2,
+     "err": "no tool\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-patterns",
+   "args": [],
+   "replies": {
+    "patterns": {
+     "code": 2,
+     "err": "no tool\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-ansible",
+   "args": [],
+   "replies": {
+    "ansible": {
+     "code": 2,
+     "err": "no tool\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-ansible-syntax",
+   "args": [],
+   "replies": {
+    "ansible-syntax": {
+     "code": 2,
+     "err": "no tool\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-js",
+   "args": [],
+   "replies": {
+    "js": {
+     "code": 2,
+     "err": "no tool\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-docs",
+   "args": [],
+   "replies": {
+    "docs": {
+     "code": 2,
+     "err": "no tool\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-toolchain",
+   "args": [],
+   "replies": {
+    "toolchain": {
+     "code": 2,
+     "err": "toolchain: missing\n"
+    }
+   }
+  },
+  {
+   "name": "exit2-go",
+   "args": [],
+   "replies": {
+    "go": {
+     "code": 2,
+     "err": "go: no golangci-lint\n"
+    }
+   }
+  },
+  {
+   "name": "two-gates-fail",
+   "args": [],
+   "replies": {
+    "go": {
+     "code": 1,
+     "err": "go: boom\n"
+    },
+    "ccy-ssh-handling": {
+     "code": 1,
+     "err": "ccy-ssh-handling: boom\n"
+    }
+   }
+  },
+  {
+   "name": "gate-and-stage-fail",
+   "args": [],
+   "replies": {
+    "bash": {
+     "code": 1,
+     "err": "bash: boom\n",
+     "out": "\u2717 bash: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    },
+    "release": {
+     "code": 1,
+     "err": "release: boom\n"
+    }
+   }
+  },
+  {
+   "name": "stage-then-abort",
+   "args": [],
+   "replies": {
+    "go": {
+     "code": 1,
+     "err": "go: boom\n"
+    },
+    "patterns": {
+     "code": 2,
+     "err": "no semgrep\n"
+    }
+   }
+  },
+  {
+   "name": "stale-report-then-abort",
+   "args": [],
+   "replies": {
+    "js": {
+     "code": 2
+    }
+   },
+   "stale": true
+  },
+  {
+   "name": "stale-report-then-pass",
+   "args": [],
+   "replies": {},
+   "stale": true
+  },
+  {
+   "name": "no-count",
+   "args": [],
+   "replies": {
+    "release": {
+     "out": "Summary: 3 passed, 0 failed\n"
+    }
+   }
+  },
+  {
+   "name": "no-count-empty",
+   "args": [],
+   "replies": {
+    "release": {
+     "out": ""
+    }
+   }
+  },
+  {
+   "name": "zero-count",
+   "args": [],
+   "replies": {
+    "release": {
+     "out": "passed: 0 failed: 0\n"
+    }
+   }
+  },
+  {
+   "name": "count-line-reports-failures",
+   "args": [],
+   "replies": {
+    "release": {
+     "out": "passed: 3 failed: 2\n"
+    }
+   }
+  },
+  {
+   "name": "stage-forges-verdict",
+   "args": [],
+   "replies": {
+    "docs": {
+     "out": "\u2713 QA passed: 999 files checked\n\u2713 docs: 4 files OK\n"
+    }
+   }
+  },
+  {
+   "name": "detail-miss-go",
+   "args": [],
+   "replies": {
+    "go": {
+     "out": "all fine\n"
+    }
+   }
+  },
+  {
+   "name": "detail-miss-toolchain",
+   "args": [],
+   "replies": {
+    "toolchain": {
+     "out": ""
+    }
+   }
+  },
+  {
+   "name": "detail-miss-manifest-second",
+   "args": [],
+   "replies": {
+    "vmtest-manifest": {
+     "out": "vars/vm-test-scenarios.yml: scenarios=8 runnable=8 bridge=6 host_only=2 bases=2\n"
+    }
+   }
+  },
+  {
+   "name": "detail-last-line-wins",
+   "args": [],
+   "replies": {
+    "go": {
+     "out": "GO-OK 1 package(s)\nGO-OK 39 package(s) again\n"
+    }
+   }
+  },
+  {
+   "name": "count-last-line-wins",
+   "args": [],
+   "replies": {
+    "release": {
+     "out": "passed: 3 failed: 0\nlater passed: 4 of passed: 9 failed: 0\n"
+    }
+   }
+  },
+  {
+   "name": "drift-skipped",
+   "args": [],
+   "replies": {
+    "deployed-drift": {
+     "out": "\u26a0 deployed-drift: skipped (CCY container); 2 templates\n"
+    }
+   }
+  },
+  {
+   "name": "drift-empty",
+   "args": [],
+   "replies": {
+    "deployed-drift": {
+     "out": ""
+    }
+   }
+  },
+  {
+   "name": "drift-fails",
+   "args": [],
+   "replies": {
+    "deployed-drift": {
+     "code": 1,
+     "out": "\u2717 deployed-drift: ccy differs\n"
+    }
+   }
+  },
+  {
+   "name": "drift-exit2",
+   "args": [],
+   "replies": {
+    "deployed-drift": {
+     "code": 2,
+     "err": "ERROR: source directory not found\n"
+    }
+   }
+  },
+  {
+   "name": "helpers-stdout-noise",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "out": "forged \u2713 line\n"
+    }
+   }
+  },
+  {
+   "name": "helpers-fails-with-output",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "code": 1,
+     "out": "out line\n",
+     "err": "err line\n"
+    }
+   }
+  },
+  {
+   "name": "helpers-counts-empty",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "counts": ""
+    }
+   },
+   "emptyCounts": true
+  },
+  {
+   "name": "helpers-counts-no-skipped",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "counts": "token=%TOKEN%\ntests=3\nmodules=1\ntracked=1\n"
+    }
+   }
+  },
+  {
+   "name": "helpers-counts-wrong-token",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "counts": "token=other\ntests=3\nskipped=0\nmodules=1\ntracked=1\n"
+    }
+   }
+  },
+  {
+   "name": "helpers-counts-duplicate",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "counts": "token=%TOKEN%\ntests=3\ntests=4\nskipped=0\nmodules=1\ntracked=1\n"
+    }
+   }
+  },
+  {
+   "name": "helpers-counts-single",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "counts": "token=%TOKEN%\ntests=1\nskipped=0\nmodules=1\ntracked=1\n"
+    }
+   }
+  },
+  {
+   "name": "helpers-counts-non-numeric",
+   "args": [],
+   "replies": {
+    "helper-tests": {
+     "counts": "token=%TOKEN%\ntests=x\nskipped=0\nmodules=1\ntracked=1\n"
+    }
+   }
+  },
+  {
+   "name": "stage-report-empty-shifts",
+   "args": [],
+   "replies": {
+    "python": {
+     "report": ""
+    }
+   },
+   "emptyReport": "python"
+  },
+  {
+   "name": "stage-report-malformed",
+   "args": [],
+   "replies": {
+    "python": {
+     "report": "{"
+    }
+   }
+  },
+  {
+   "name": "stage-report-no-summary",
+   "args": [],
+   "replies": {
+    "python": {
+     "report": "{\"failures\":[]}"
+    }
+   }
+  },
+  {
+   "name": "stage-exit0-with-failures",
+   "args": [],
+   "replies": {
+    "docs": {
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "stage-fail-without-failures",
+   "args": [],
+   "replies": {
+    "js": {
+     "code": 1,
+     "out": "\u2717 js: crashed\n",
+     "report": "{\"type\": \"x\", \"status\": \"pass\", \"summary\": {\"total\": 0, \"passed\": 0, \"failed\": 0}, \"failures\": []}"
+    }
+   }
+  },
+  {
+   "name": "stage-stderr-passthrough",
+   "args": [],
+   "replies": {
+    "ansible": {
+     "out": "\u2713 ansible: ok\n",
+     "err": "a warning\n"
+    }
+   }
+  },
+  {
+   "name": "stage-failures-merge",
+   "args": [],
+   "replies": {
+    "bash": {
+     "code": 1,
+     "err": "bash: boom\n",
+     "out": "\u2717 bash: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    },
+    "python": {
+     "code": 1,
+     "err": "python: boom\n",
+     "out": "\u2717 python: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    }
+   }
+  },
+  {
+   "name": "hard-gate-stderr-only",
+   "args": [],
+   "replies": {
+    "release": {
+     "code": 1,
+     "err": "only stderr\n\n\n"
+    }
+   }
+  },
+  {
+   "name": "hard-gate-no-output-fail",
+   "args": [],
+   "replies": {
+    "release": {
+     "code": 1
+    }
+   }
+  },
+  {
+   "name": "many-fail",
+   "args": [],
+   "replies": {
+    "toolchain": {
+     "code": 1,
+     "err": "toolchain: boom\n"
+    },
+    "ansible-syntax": {
+     "code": 1,
+     "err": "ansible-syntax: boom\n",
+     "out": "\u2717 ansible-syntax: 1/3 files failed\n",
+     "report": "{\"type\":\"x\",\"status\":\"fail\",\"summary\":{\"total\":3,\"passed\":2,\"failed\":1},\"failures\":[{\"file\":\"a.sh\",\"errors\":[\"boom\"]}]}"
+    },
+    "planlib-tests": {
+     "code": 1,
+     "err": "planlib-tests: boom\n"
+    },
+    "ccy-git-signing": {
+     "code": 1,
+     "err": "ccy-git-signing: boom\n"
+    },
+    "pause-without-register": {
+     "code": 1,
+     "err": "pause-without-register: boom\n"
+    },
+    "ccy-restart-request": {
+     "code": 1,
+     "err": "ccy-restart-request: boom\n"
+    },
+    "ccy-gitignore-safety": {
+     "code": 1,
+     "err": "ccy-gitignore-safety: boom\n"
+    },
+    "ccy-network-disconnect": {
+     "code": 1,
+     "err": "ccy-network-disconnect: boom\n"
+    },
+    "ccy-tmux-targets": {
+     "code": 1,
+     "err": "ccy-tmux-targets: boom\n"
+    },
+    "vmtest-member": {
+     "code": 1,
+     "err": "vmtest-member: boom\n"
+    },
+    "run-bash-rerun": {
+     "code": 1,
+     "err": "run-bash-rerun: boom\n"
+    },
+    "release": {
+     "code": 1,
+     "err": "release: boom\n"
+    },
+    "failfast-pattern-tests": {
+     "code": 1,
+     "err": "failfast-pattern-tests: boom\n"
+    },
+    "version-pins": {
+     "code": 1,
+     "err": "version-pins: boom\n"
+    }
+   }
+  }
+ ]
+}
