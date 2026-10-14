@@ -85,8 +85,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   1 of 13 planted evasions and Ctrl-C can wedge the terminal; go-qa-ci cannot be adopted (no
   nested-module driver, disabled linters counted as suppressions) and ships one rule. Fixing in
   parallel: the gate on a real bash parser with a versioned ratchet; type-based rules; runtime
-  correctness; go-qa-ci M15 (adoption, gate) and M16 (a bundled rule pack). Then typed state,
-  redraw cost and the `teams` package split. The two ports get their own review before merge.
+  correctness; go-qa-ci M15 (adoption, gate) and M16 (a bundled rule pack). All five are
+  merged (go-qa-ci's on its own remote). Typed state is in progress; redraw cost and the
+  `teams` package split follow. The two ports get their own review before merge.
 - [ ] ⬜ **Task 4.2**: qa-reviewer over the plan.
 
 ## Success Criteria
