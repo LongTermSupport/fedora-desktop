@@ -97,6 +97,20 @@ func TestDispatchListIsTheBoard(t *testing.T) {
 	}
 }
 
+func TestDispatchForCheckoutIsTheFindFlow(t *testing.T) {
+	h := world(t)
+	h.On("git rev-parse --is-inside-work-tree", "true\n", 0)
+	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
+	h.OnDeclare("github-remote", "example-org/proj\n")
+	h.OnDeclare("teams-for", "TEAM\talpha\n")
+	if code := h.app.Run([]string{"for-checkout"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if h.Out.String() != "alpha\n" {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
 func TestSubcommandsReachTheirRealFlowsWithTheirUsageErrors(t *testing.T) {
 	cases := []struct {
 		args []string

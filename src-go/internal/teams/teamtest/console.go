@@ -102,6 +102,9 @@ func (s *Script) runGum(c execx.Cmd) (execx.Result, error) {
 	}
 	answer := s.Gum[0]
 	s.Gum = s.Gum[1:]
+	if choice, ok := strings.CutPrefix(answer, "CHOOSE:"); ok {
+		return execx.Result{Stdout: []byte(choice + "\n")}, nil
+	}
 	switch answer {
 	case "YES":
 		return execx.Result{}, nil
