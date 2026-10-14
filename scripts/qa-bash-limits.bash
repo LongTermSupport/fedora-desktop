@@ -6,8 +6,7 @@
 # Enforces "tooling is Go; bash only for very small helpers" (CLAUDE.md, src-go/CLAUDE.md):
 # the limits, the exemptions and the measure are in the Go package src-go/qa/bashlimits, and
 # scripts/bash-limits.allowlist is the ratchet for the files already over. The command is built
-# here into a private directory under the cache (not /tmp, which can be noexec) so its exit
-# code reaches the caller (go run flattens it to 1).
+# and run by lib/go-tool.bash so its exit code reaches the caller.
 #
 # The allowlist is compared with a base: QA_BASH_LIMITS_BASE if set (CI sets it), else the
 # merge-base of HEAD and origin's default branch, so commits not pushed yet are compared too.
@@ -20,14 +19,9 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if ! command -v go > /dev/null; then
-    echo "✗ bash-limits: go not installed (install via playbooks/imports/play-golang.yml)" >&2
-    exit 2
-fi
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fedora-desktop-qa"
-mkdir -p "$CACHE"
-BIN_DIR="$(mktemp -d -p "$CACHE")"
-trap 'rm -rf "$BIN_DIR"' EXIT
-go build -C "$REPO_ROOT/src-go/qa" -o "$BIN_DIR/qa-bash-limits" ./cmd/qa-bash-limits
-"$BIN_DIR/qa-bash-limits" ${QA_BASH_LIMITS_BASE:+--base "$QA_BASH_LIMITS_BASE"} --root "$REPO_ROOT" "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/go-tool.bash
+source "$SCRIPT_DIR/lib/go-tool.bash"
+run_go_tool qa-bash-limits ${QA_BASH_LIMITS_BASE:+--base "$QA_BASH_LIMITS_BASE"} --root "$REPO_ROOT" "$@"

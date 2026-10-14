@@ -15,27 +15,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# QA_CHANGED_BIN, when set, is the command under test instead of the wrapper: the built Go
-# binary (go build -C src-go/qa -o <dir>/qa-changed ./cmd/qa-changed) gets --scripts so it reads
-# this checkout's tables and suites. Nothing else in the suite changes, so every case runs
-# unmodified against the wrapper or the binary, which is how the Go port was held to the bash
-# it replaced (the Go golden replay, src-go/qa/changed/golden_test.go, is the other half).
+SCRATCH="$(mktemp -d)"
+trap 'rm -rf "$SCRATCH"' EXIT
+
+# The cases run the Go binary, built once here (a build per case made this suite slower than the
+# bash it tests); QA_CHANGED_BIN names a prebuilt one instead. The wrapper itself, which builds
+# and runs the tool, is exercised by its own section at the end ("the wrapper").
 if [[ -n "${QA_CHANGED_BIN:-}" ]]; then
-    TARGET=("$QA_CHANGED_BIN" --scripts "$SCRIPT_DIR")
-    if [[ ! -x "$QA_CHANGED_BIN" ]]; then
-        echo "ERROR: QA_CHANGED_BIN=$QA_CHANGED_BIN is not an executable — nothing to test." >&2
+    BIN="$QA_CHANGED_BIN"
+    if [[ ! -x "$BIN" ]]; then
+        echo "ERROR: QA_CHANGED_BIN=$BIN is not an executable — nothing to test." >&2
         exit 2
     fi
 else
-    TARGET=(bash "$SCRIPT_DIR/qa-changed.bash")
-    if [[ ! -f "$SCRIPT_DIR/qa-changed.bash" ]]; then
-        echo "ERROR: $SCRIPT_DIR/qa-changed.bash not found — nothing to test." >&2
-        exit 2
-    fi
+    BIN="$SCRATCH/qa-changed"
+    go build -C "$SCRIPT_DIR/../src-go/qa" -o "$BIN" ./cmd/qa-changed
 fi
-
-SCRATCH="$(mktemp -d)"
-trap 'rm -rf "$SCRATCH"' EXIT
+TARGET=("$BIN" --scripts "$SCRIPT_DIR")
+if [[ ! -f "$SCRIPT_DIR/qa-changed.bash" ]]; then
+    echo "ERROR: $SCRIPT_DIR/qa-changed.bash not found — nothing to test." >&2
+    exit 2
+fi
 
 PASS=0
 FAIL=0
@@ -327,6 +327,15 @@ expect_lacks "the Go lint config is covered" "$OUT" "not covered by qa-changed: 
 capture "${TARGET[@]}" --plan --files tasks/build-go-command.yml
 expect_has "a task file runs the patterns gate" "$OUT" "check ansible-patterns"
 expect_has "a task file maps to the playbooks that name it" "$OUT" "check ansible-syntax: "
+
+echo
+echo "== the wrapper (the one section that builds and runs the tool through qa-changed.bash) =="
+capture bash "$SCRIPT_DIR/qa-changed.bash" --plan --files scripts/qa-bash.bash
+expect_rc "the wrapper builds the tool and runs it: exit 0" 0
+expect_has "the wrapper passes its arguments through" "$OUT" "check shellcheck: scripts/qa-bash.bash"
+capture env -u HOME -u XDG_CACHE_HOME bash "$SCRIPT_DIR/qa-changed.bash" --plan --files scripts/qa-bash.bash
+expect_rc "no home and no cache directory: exit 2" 2
+expect_has "no home names the missing variable" "$ERR" "neither XDG_CACHE_HOME nor HOME is set"
 
 echo
 echo "=============================================================="
