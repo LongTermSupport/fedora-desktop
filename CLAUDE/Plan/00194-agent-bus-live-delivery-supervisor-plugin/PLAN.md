@@ -68,7 +68,10 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   The spool line format is DESIGN.md section 6. Modules `relay.py` and `sentlog.py` under
   `helpers/pingbus/`. Not yet done, by design, because they land with Task 2.1: the plugin's
   `settings.json` `crossSessionInbound`, the entrypoint, the launcher, the skill's envelope
-  text, and the version bumps.
+  text. Integrated with Task 2.0b on branch `feat/agent-bus-presence`, which carries the
+  one container bump (2.56, CCY 3.97.2) for both; in relay mode the goodbye is still sent
+  and is not entered in the sent log or spool (tests `GoodbyeRelayTest` and
+  `SentLogTest.test_the_goodbye_in_relay_mode_is_posted_and_is_not_a_delivery_to_self`).
 - [x] ✅ **Task 2.0b**: Goodbye on session end. The owner: "when shutting down a ccy
   session, there should be a goodbye message sent as final message from the agent." Sent by
   pingbus from the plugin's `SessionEnd` hook, as a fixed-template plain room text from the
@@ -76,6 +79,9 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   set `exit`, `logout`, `other`), not written by the model. Once per session, never on
   `/clear` or `/resume`, capped at 4 s, a failure is one stderr line. Test first. Docs:
   `docs/agent-bus-protocol.md`, `docs/agent-bus.md`. Rationale: JOURNAL of the day.
+  Integrated with Task 2.0 on `feat/agent-bus-presence` (plugin 1.1.0, container 2.56). Host
+  run for the image: `play-claude-yolo.yml` (meta-deploy note, queued by the coordinator at
+  merge); the goodbye reaches ccy sessions only after the image rebuild.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops

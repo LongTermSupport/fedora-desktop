@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.2 — container 2.56
+
+- **The member kit says goodbye and can relay.** The pingbus plugin (now 1.1.0) registers a
+  `SessionEnd` hook: when a session really ends (not on `/clear` or `/resume`) pingbus posts one
+  fixed-template room message, `<handle> left the team: session ended (<reason>)`, from each
+  seat, within 4 s; a failure is one stderr line. The kit also carries the relay side of Plan
+  00194 (`PINGBUS_DELIVERY=relay`, spool, sent log, `PostToolUse` echo), inert unless a launch
+  sets it; in relay mode the goodbye is still sent and is not echoed back. The kit is in the
+  image, so the container version moves to 2.56 and the image is rebuilt once.
+
 ## 3.97.1 — container 2.55
 
 - **The member kit carries the coordinator role.** `pingbus` takes `--to-coordinator` on `send`
