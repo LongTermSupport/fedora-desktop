@@ -116,6 +116,42 @@ func TestAsRootPasswordWanted(t *testing.T) {
 	}
 }
 
+func TestAsRootOtherSudoFailuresAreNotAPasswordRequest(t *testing.T) {
+	for _, said1 := range []string{
+		"sudo: /usr/local/bin/agent-bus: command not found\n",
+		"sudo: unable to resolve host box: Name or service not known\nsudo: PAM account management error\n",
+		"sudo: sorry, you are not allowed to execute '/x' as root on box.\n",
+	} {
+		f := &execx.Fake{}
+		f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte(said1), ExitCode: 1})
+		s := newSudo(f, true)
+		out, err := s.AsRoot(context.Background(), AgentBus, "list")
+		var exitErr *execx.ExitError
+		if errors.Is(err, ErrNeedsPassword) || !errors.As(err, &exitErr) || out != "" {
+			t.Errorf("%q: out %q err %v", said1, out, err)
+		}
+		if said(s) != said1 {
+			t.Errorf("%q: stderr copied as %q", said1, said(s))
+		}
+	}
+}
+
+func TestAsRootPasswordRequiredBehindAnotherSudoWarning(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte("sudo: unable to resolve host box\nsudo: a password is required\n"), ExitCode: 1})
+	if _, err := newSudo(f, true).AsRoot(context.Background(), AgentBus); !errors.Is(err, ErrNeedsPassword) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAsRootACommandThatMentionsAPasswordItselfIsNotSudoAsking(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte("agent-bus: a password is required for this team\n"), ExitCode: 1})
+	if _, err := newSudo(f, true).AsRoot(context.Background(), AgentBus); errors.Is(err, ErrNeedsPassword) {
+		t.Fatal("the command's own words were taken for sudo's")
+	}
+}
+
 func TestAsRootCommandFailureCopiesStderr(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"sudo", "-n"}, execx.Result{Stderr: []byte("agent-bus: no such team\n"), ExitCode: 1})
