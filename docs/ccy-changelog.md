@@ -17,6 +17,12 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.9 — container 2.54
+
+- **A library comment told the truth.** `lib/tmux-session.bash` said `ccy-sessions` used the
+  take-over helpers; nothing calls them since the Go port. Comment only. The image is
+  unchanged.
+
 ## 3.95.8 — container 2.54
 
 - **The bash library drops what only the old `ccy-sessions` called.** The picker's

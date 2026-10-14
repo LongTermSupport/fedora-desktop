@@ -22,7 +22,10 @@
 # Session names mirror container names: ccy-<project>, then ccy-<project>-2, and so on.
 # Running ccy in a project that has a detached session — the one a dead terminal left
 # behind — offers to re-attach it; a session open in another terminal is never offered
-# there. ccy-sessions can take one over (ccy_tmux_take_over), detaching the other terminal.
+# there. ccy_tmux_take_over (with ccy_tmux_client_words and ccy_tmux_idle_words) can take one
+# over, detaching the other terminal, but nothing calls them now: the Go ccy-sessions does its
+# own take-over. They stay until the owner decides when dead bash goes (decision D8 in
+# ASSESS-ccy-launcher.md of the Go tooling plan).
 #
 # Requires print_error (common-pure.bash, always loaded first) and lib/session-registry.bash:
 # every session started here is recorded so a reboot can be undone, and the record's removal
