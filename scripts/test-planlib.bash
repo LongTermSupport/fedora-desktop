@@ -809,13 +809,6 @@ while IFS= read -r line; do
 done < <(printf '%s\n' "${LIB_CODE}" | grep -F '[@]')
 assert_eq "every array expansion uses the set -u-safe bracket-at-plus form" "" "${UNGUARDED_LINES}"
 
-# ── meta-deploy's queue file ─────────────────────────────────────────────────────────────
-# meta-deploy.bash is plan tooling beside the library; its own suite runs here so qa-all.bash
-# covers it without another gate.
-META_DEPLOY_OUT="$(bash "${HERE}/test-meta-deploy.bash" 2>&1)"
-META_DEPLOY_STATUS=$?
-assert_eq "meta-deploy.list queue tests pass (output: ${META_DEPLOY_OUT##*$'\n'})" "0" "${META_DEPLOY_STATUS}"
-
 # ── summary ──────────────────────────────────────────────────────────────────────────────
 
 printf '\n'

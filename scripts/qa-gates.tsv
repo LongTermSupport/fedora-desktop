@@ -43,6 +43,7 @@ helpers	helper-tests	scripts/qa-helper-tests.bash	the helper unit suite failed
 # The unit suites and rule gates. The count reader wants a 'passed: N' line.
 gate	secret-scan-tests	scripts/test-secret-scan.bash	secret scanner unit tests failed	count
 gate	planlib-tests	scripts/test-planlib.bash	plan-script library regression tests failed	detail:PASSED [(]library version [0-9.]+[)]
+gate	meta-deploy-queue	scripts/test-meta-deploy.bash	meta-deploy.list queue tests failed	count
 gate	ccy-rootless-guard	scripts/test-ccy-rootless-guard.bash	ccy rootless-engine guard unit tests failed	count
 gate	ccy-token-mode	scripts/test-ccy-token-mode.bash	ccy token-mode unit tests failed	count
 gate	ccy-token-usage-output	scripts/test-ccy-token-usage-output.bash	ccy token usage view printed lines that are not part of its display	count

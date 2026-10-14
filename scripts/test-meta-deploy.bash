@@ -13,6 +13,7 @@ REPO_ROOT="$(cd "${HERE}/.." && pwd -P)"
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "${SCRATCH}"' EXIT
 FAILS=0
+PASSED=0
 
 mkdir -p "${SCRATCH}/.git" "${SCRATCH}/CLAUDE/Plan/00001-demo"
 : >"${SCRATCH}/ansible.cfg"
@@ -24,6 +25,7 @@ chmod +x "${SCRATCH}/CLAUDE/Plan/00001-demo/deploy.bash"
 check() {
     if [[ "$4" == "$2" && "$5" == *"$3"* ]]; then
         printf 'PASS  %s\n' "$1"
+        PASSED=$((PASSED + 1))
     else
         printf 'FAIL  %s (exit %s, wanted %s, wanted output containing: %s)\n%s\n' "$1" "$4" "$2" "$3" "$5"
         FAILS=$((FAILS + 1))
@@ -71,4 +73,4 @@ if [[ "${FAILS}" -gt 0 ]]; then
     printf '%d case(s) failed\n' "${FAILS}" >&2
     exit 1
 fi
-printf 'all cases passed\n'
+printf 'passed: %d\n' "${PASSED}"

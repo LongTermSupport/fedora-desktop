@@ -53,221 +53,224 @@
   "planlib-tests": {
    "out": "test-planlib: PASSED (library version 1.2.0)\n"
   },
-  "ccy-rootless-guard": {
+  "meta-deploy-queue": {
    "out": "passed: 16 failed: 0\n"
   },
-  "ccy-token-mode": {
+  "ccy-rootless-guard": {
    "out": "passed: 17 failed: 0\n"
   },
-  "ccy-token-usage-output": {
+  "ccy-token-mode": {
    "out": "passed: 18 failed: 0\n"
   },
-  "ccy-token-usage-command": {
+  "ccy-token-usage-output": {
    "out": "passed: 19 failed: 0\n"
   },
-  "ccy-token-import-cleanup": {
+  "ccy-token-usage-command": {
    "out": "passed: 20 failed: 0\n"
   },
-  "ccy-ssh-handling": {
+  "ccy-token-import-cleanup": {
    "out": "passed: 21 failed: 0\n"
   },
-  "ccy-git-signing": {
+  "ccy-ssh-handling": {
    "out": "passed: 22 failed: 0\n"
   },
-  "git-signing-declared": {
+  "ccy-git-signing": {
    "out": "passed: 23 failed: 0\n"
   },
-  "qa-tool-pin-converges": {
+  "git-signing-declared": {
    "out": "passed: 24 failed: 0\n"
   },
-  "ccy-browser-session-guard": {
+  "qa-tool-pin-converges": {
    "out": "passed: 25 failed: 0\n"
   },
-  "gh-scope-outside-ssot": {
+  "ccy-browser-session-guard": {
    "out": "passed: 26 failed: 0\n"
   },
-  "speech-to-text-rules": {
+  "gh-scope-outside-ssot": {
    "out": "passed: 27 failed: 0\n"
   },
-  "ready-wait-rules": {
+  "speech-to-text-rules": {
    "out": "passed: 28 failed: 0\n"
   },
-  "pause-without-register": {
+  "ready-wait-rules": {
    "out": "passed: 29 failed: 0\n"
   },
-  "ccy-selinux-verdict": {
+  "pause-without-register": {
    "out": "passed: 30 failed: 0\n"
   },
-  "ccy-relabel-preflight": {
+  "ccy-selinux-verdict": {
    "out": "passed: 31 failed: 0\n"
   },
-  "agent-mailbox-watch": {
+  "ccy-relabel-preflight": {
    "out": "passed: 32 failed: 0\n"
   },
-  "ccy-gpu-device": {
+  "agent-mailbox-watch": {
    "out": "passed: 33 failed: 0\n"
   },
-  "ccy-container-menus": {
+  "ccy-gpu-device": {
    "out": "passed: 34 failed: 0\n"
   },
-  "ccy-flag-check": {
+  "ccy-container-menus": {
    "out": "passed: 35 failed: 0\n"
   },
-  "ccy-restart-request": {
+  "ccy-flag-check": {
    "out": "passed: 36 failed: 0\n"
   },
-  "ccy-container-version-hook": {
+  "ccy-restart-request": {
    "out": "passed: 37 failed: 0\n"
   },
-  "ccy-project-env": {
+  "ccy-container-version-hook": {
    "out": "passed: 38 failed: 0\n"
   },
-  "ccy-git-preflight": {
+  "ccy-project-env": {
    "out": "passed: 39 failed: 0\n"
   },
-  "ccy-agent-bus": {
+  "ccy-git-preflight": {
    "out": "passed: 40 failed: 0\n"
   },
-  "ccy-teams": {
+  "ccy-agent-bus": {
    "out": "passed: 41 failed: 0\n"
   },
-  "cc-teams": {
+  "ccy-teams": {
    "out": "passed: 42 failed: 0\n"
   },
-  "ccy-gitignore-safety": {
+  "cc-teams": {
    "out": "passed: 43 failed: 0\n"
   },
-  "ccy-env-local-dist": {
+  "ccy-gitignore-safety": {
    "out": "passed: 44 failed: 0\n"
   },
-  "ccy-lifecycle": {
+  "ccy-env-local-dist": {
    "out": "passed: 45 failed: 0\n"
   },
-  "wsi-stop-grace": {
+  "ccy-lifecycle": {
    "out": "passed: 46 failed: 0\n"
   },
-  "stt-limits": {
+  "wsi-stop-grace": {
    "out": "passed: 47 failed: 0\n"
   },
-  "ccy-host-hostname": {
+  "stt-limits": {
    "out": "passed: 48 failed: 0\n"
   },
-  "ccy-host-time-zone": {
+  "ccy-host-hostname": {
    "out": "passed: 49 failed: 0\n"
   },
-  "ccy-network-disconnect": {
+  "ccy-host-time-zone": {
    "out": "passed: 50 failed: 0\n"
   },
-  "ccy-info-flags": {
+  "ccy-network-disconnect": {
    "out": "passed: 51 failed: 0\n"
+  },
+  "ccy-info-flags": {
+   "out": "passed: 52 failed: 0\n"
   },
   "ssh-suspend-guard": {
    "out": "VERDICT: PASS\n"
   },
   "ccy-session-registry": {
-   "out": "passed: 53 failed: 0\n"
-  },
-  "ccy-compose-restore": {
    "out": "passed: 54 failed: 0\n"
   },
-  "ccy-sessions-reboot": {
+  "ccy-compose-restore": {
    "out": "passed: 55 failed: 0\n"
   },
-  "ccy-sessions-take-over": {
+  "ccy-sessions-reboot": {
    "out": "passed: 56 failed: 0\n"
   },
-  "ccy-tmux-targets": {
+  "ccy-sessions-take-over": {
    "out": "passed: 57 failed: 0\n"
   },
-  "ccy-teams-command": {
+  "ccy-tmux-targets": {
    "out": "passed: 58 failed: 0\n"
   },
-  "ccy-restore-askpass": {
+  "ccy-teams-command": {
    "out": "passed: 59 failed: 0\n"
   },
-  "vmtest-host-only-gate": {
+  "ccy-restore-askpass": {
    "out": "passed: 60 failed: 0\n"
   },
-  "vmtest-reboot-dispatch": {
+  "vmtest-host-only-gate": {
    "out": "passed: 61 failed: 0\n"
   },
-  "vmtest-kernel-selection": {
+  "vmtest-reboot-dispatch": {
    "out": "passed: 62 failed: 0\n"
   },
-  "vmtest-build-dir-cleanup": {
+  "vmtest-kernel-selection": {
    "out": "passed: 63 failed: 0\n"
   },
-  "vmtest-member": {
+  "vmtest-build-dir-cleanup": {
    "out": "passed: 64 failed: 0\n"
   },
-  "vmtest-prepare-record": {
+  "vmtest-member": {
    "out": "passed: 65 failed: 0\n"
   },
-  "panel-sections": {
+  "vmtest-prepare-record": {
    "out": "passed: 66 failed: 0\n"
   },
-  "run-bash-headless-localhost-yml": {
+  "panel-sections": {
    "out": "passed: 67 failed: 0\n"
   },
-  "run-bash-ssh-agent-teardown": {
+  "run-bash-headless-localhost-yml": {
    "out": "passed: 68 failed: 0\n"
   },
-  "run-bash-single-play": {
+  "run-bash-ssh-agent-teardown": {
    "out": "passed: 69 failed: 0\n"
   },
-  "run-bash-changed": {
+  "run-bash-single-play": {
    "out": "passed: 70 failed: 0\n"
   },
-  "run-bash-rerun": {
+  "run-bash-changed": {
    "out": "passed: 71 failed: 0\n"
   },
-  "run-bash-gh-scopes": {
+  "run-bash-rerun": {
    "out": "passed: 72 failed: 0\n"
   },
-  "run-bash-config-repo": {
+  "run-bash-gh-scopes": {
    "out": "passed: 73 failed: 0\n"
   },
-  "run-bash-ssh-agent-start": {
+  "run-bash-config-repo": {
    "out": "passed: 74 failed: 0\n"
   },
-  "gh-alias-wrappers": {
+  "run-bash-ssh-agent-start": {
    "out": "passed: 75 failed: 0\n"
   },
-  "self-update-cycle": {
+  "gh-alias-wrappers": {
    "out": "passed: 76 failed: 0\n"
   },
-  "agent-bus-install": {
+  "self-update-cycle": {
    "out": "passed: 77 failed: 0\n"
   },
-  "release": {
+  "agent-bus-install": {
    "out": "passed: 78 failed: 0\n"
   },
-  "run-log-scrub": {
+  "release": {
    "out": "passed: 79 failed: 0\n"
   },
-  "host-health-login-snippet": {
+  "run-log-scrub": {
    "out": "passed: 80 failed: 0\n"
   },
-  "bash-history-search": {
+  "host-health-login-snippet": {
    "out": "passed: 81 failed: 0\n"
   },
-  "bash-history-session": {
+  "bash-history-search": {
    "out": "passed: 82 failed: 0\n"
   },
-  "terminal-modes": {
+  "bash-history-session": {
    "out": "passed: 83 failed: 0\n"
   },
-  "fedora-desktop-health": {
+  "terminal-modes": {
    "out": "passed: 84 failed: 0\n"
   },
-  "failfast-pattern-tests": {
+  "fedora-desktop-health": {
    "out": "passed: 85 failed: 0\n"
   },
-  "docs-exit-codes": {
+  "failfast-pattern-tests": {
    "out": "passed: 86 failed: 0\n"
   },
-  "qa-changed-mapping": {
+  "docs-exit-codes": {
    "out": "passed: 87 failed: 0\n"
+  },
+  "qa-changed-mapping": {
+   "out": "passed: 88 failed: 0\n"
   },
   "extension-compat": {
    "out": "All 3 extension(s) cover the GNOME Shell that Fedora 44 ships\n"
@@ -467,6 +470,16 @@
     "planlib-tests": {
      "code": 1,
      "err": "planlib-tests: boom\n"
+    }
+   }
+  },
+  {
+   "name": "fail-meta-deploy-queue",
+   "args": [],
+   "replies": {
+    "meta-deploy-queue": {
+     "code": 1,
+     "err": "meta-deploy-queue: boom\n"
     }
    }
   },
@@ -1338,9 +1351,9 @@
      "code": 1,
      "err": "go: boom\n"
     },
-    "ccy-ssh-handling": {
+    "ccy-token-import-cleanup": {
      "code": 1,
-     "err": "ccy-ssh-handling: boom\n"
+     "err": "ccy-token-import-cleanup: boom\n"
     }
    }
   },
@@ -1706,49 +1719,49 @@
      "code": 1,
      "err": "planlib-tests: boom\n"
     },
-    "ccy-git-signing": {
+    "ccy-ssh-handling": {
      "code": 1,
-     "err": "ccy-git-signing: boom\n"
+     "err": "ccy-ssh-handling: boom\n"
     },
-    "pause-without-register": {
+    "ready-wait-rules": {
      "code": 1,
-     "err": "pause-without-register: boom\n"
+     "err": "ready-wait-rules: boom\n"
     },
-    "ccy-restart-request": {
+    "ccy-flag-check": {
      "code": 1,
-     "err": "ccy-restart-request: boom\n"
+     "err": "ccy-flag-check: boom\n"
     },
-    "ccy-gitignore-safety": {
+    "cc-teams": {
      "code": 1,
-     "err": "ccy-gitignore-safety: boom\n"
+     "err": "cc-teams: boom\n"
     },
-    "ccy-network-disconnect": {
+    "ccy-host-time-zone": {
      "code": 1,
-     "err": "ccy-network-disconnect: boom\n"
+     "err": "ccy-host-time-zone: boom\n"
     },
-    "ccy-tmux-targets": {
+    "ccy-sessions-take-over": {
      "code": 1,
-     "err": "ccy-tmux-targets: boom\n"
+     "err": "ccy-sessions-take-over: boom\n"
     },
-    "vmtest-member": {
+    "vmtest-build-dir-cleanup": {
      "code": 1,
-     "err": "vmtest-member: boom\n"
+     "err": "vmtest-build-dir-cleanup: boom\n"
     },
-    "run-bash-rerun": {
+    "run-bash-changed": {
      "code": 1,
-     "err": "run-bash-rerun: boom\n"
+     "err": "run-bash-changed: boom\n"
     },
-    "release": {
+    "agent-bus-install": {
      "code": 1,
-     "err": "release: boom\n"
+     "err": "agent-bus-install: boom\n"
     },
-    "failfast-pattern-tests": {
+    "fedora-desktop-health": {
      "code": 1,
-     "err": "failfast-pattern-tests: boom\n"
+     "err": "fedora-desktop-health: boom\n"
     },
-    "version-pins": {
+    "plan-script-logging": {
      "code": 1,
-     "err": "version-pins: boom\n"
+     "err": "plan-script-logging: boom\n"
     }
    }
   }
