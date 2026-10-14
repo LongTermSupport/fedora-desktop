@@ -40,6 +40,8 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 		return r.p.Seats.AttachSeat(ctx, r.snap, row)
 	case keyCoordinator:
 		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
+	case keyLxc:
+		return r.addLxc(ctx, row.Team)
 	}
 	r.p.Kit.Tell("That key does nothing here. Enter lists what can be done to a row. ? shows every key.")
 	r.p.Kit.BackToList(ctx)
@@ -49,6 +51,16 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 // updateAll brings every team that is out of date or not built up to what is declared.
 func (r *run) updateAll(ctx context.Context) (flow.Result, error) {
 	if err := r.p.Kit.InPicker("ccy-teams apply --all", r.p.Ops.Apply(ctx, []string{ops.FlagAll})); err != nil {
+		return flow.Done, err
+	}
+	r.p.Kit.BackToList(ctx)
+	return flow.Done, nil
+}
+
+// addLxc is the menu's Add an LXC container's agent: the questions, the entry and the apply of
+// ccy-teams lxc-add, for the row's team, then back to the list.
+func (r *run) addLxc(ctx context.Context, team string) (flow.Result, error) {
+	if err := r.p.Kit.InPicker("ccy-teams lxc-add "+team, r.p.Lxc.Run(ctx, []string{team})); err != nil {
 		return flow.Done, err
 	}
 	r.p.Kit.BackToList(ctx)

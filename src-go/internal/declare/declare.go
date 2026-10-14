@@ -371,7 +371,7 @@ func (c *Client) DropLimit(ctx context.Context, team string) (Change, error) {
 
 // Remove declares the team absent; purge also marks its data for deletion.
 func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, error) {
-	args := []string{"--team", team}
+	args := []string{flagTeam, team}
 	if purge {
 		args = append(args, "--purge")
 	}

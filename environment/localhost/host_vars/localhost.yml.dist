@@ -118,13 +118,21 @@ user_email: "yourname@example.com"
 # every present team itself; allow_from need not list it. A joined member is left alone on later runs; state: absent
 # parks its handle, deletes its bundle and takes the team out of its env file. Change
 # seat or host only through state: absent first, as they make the handle.
+# `ccy-teams lxc-add <team>` writes an entry for you; hand-editing works the same.
 #   team       a team declared present in agent_bus_teams
 #   container  the LXC container's name (lxc-ls)
 #   user       the agent user inside it
-#   host       its HOOKS_DAEMON_HOSTNAME, the handle's <host>: a role, never a hostname
-#   checkout   the agent's checkout inside the container, where suggest-handle runs
-#   seat       optional; the handle's <seat>, by default the container's name (letters
-#              first); a member joined by hand keeps its number: seat: <n>
+#   checkout   the agent's checkout inside the container (its top directory). The handle
+#              <repo>.<seat>+<host>.lxc is derived from it as ccy derives a podman seat's:
+#              <repo> from its origin, <host> from the HOOKS_DAEMON_HOSTNAME its
+#              .claude/ccy/ccy.env.local assigns else "local", <seat> the lowest number no
+#              active member of that <repo>+<host>.lxc holds. It is read from the desktop's
+#              side as plain files (no git is run).
+#   host       optional override of <host>: a role, never a hostname. An entry written
+#              before host was derived keeps its handle.
+#   seat       optional override of <seat>. Left out, a member keeps the seat its bundle
+#              names, else the one its container's name gave before seats were derived
+#              (when that member exists), else a new number.
 #   role       optional; worker (the default) or coordinator (at most one per team)
 #   human_text optional; false makes a member that takes pings only
 #   repo       optional; needed only to park the handle of a container already destroyed
@@ -133,12 +141,10 @@ user_email: "yourname@example.com"
 #   - team: <team>
 #     container: <container>
 #     user: <agent-user>
-#     host: <role>
 #     checkout: /home/<agent-user>/<repo>
 #   - team: <old-team>
 #     container: <container>
 #     user: <agent-user>
-#     host: <role>
 #     checkout: /home/<agent-user>/<repo>
 #     state: absent
 

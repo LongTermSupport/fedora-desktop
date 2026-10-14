@@ -22,6 +22,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from collections.abc import Sequence
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -771,6 +772,348 @@ class AddressTest(CommandCase):
         self.path.write_text("agent_bus_address: 192.0.2.10\n")
         self.assertEqual(self.create("--address", "192.0.2.11")[0], 64)
         self.assertEqual(self.path.read_text(), "agent_bus_address: 192.0.2.10\n")
+
+
+LXC_HV = STATUS_HV + """\
+agent_bus_lxc_members:
+  - team: alpha
+    container: container-a
+    user: agent
+    host: worker
+    checkout: /srv/agent/one
+    role: orchestrator
+  - team: alpha
+    container: container-b
+    user: agent
+    host: other
+    checkout: /srv/agent/two
+    state: absent
+  # a comment inside the list
+  - team: beta
+    container: container-a
+    user: agent
+    host: worker
+    checkout: /srv/agent/one
+    role: coordinator
+    state: absent
+other_key: 1
+"""
+
+#: What a hand-written entry needs: host and seat are derived from the checkout.
+LXC_FLAGS = ("--team", "alpha", "--container", "container-c", "--user", "agent",
+             "--checkout", "/srv/agent/three")
+
+
+class LxcMemberTest(CommandCase):
+    """ccy-teams lxc-add writes an agent_bus_lxc_members entry through declare.py, by the rules
+    helpers/agent_bus_lxc/members.py applies to the same entry (Plan 00177 Phase 8)."""
+
+    TEXT = LXC_HV
+
+    def members(self) -> tuple:
+        from helpers.agent_bus_lxc import members
+        entries = [declare.entry_of(m) for m in declare.parse(self.path.read_text(), declare.LXC_KEY).teams]
+        return members.parse_members(entries)
+
+    def test_added_at_the_end_of_the_list_and_the_rest_kept(self) -> None:
+        code, out, err = self.run_cmd("lxc-add", *LXC_FLAGS)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tLXC member agent@container-c in team alpha, in {self.path}\n")
+        text = self.path.read_text(encoding="utf-8")
+        old, after_list = LXC_HV.split("other_key: 1\n")[0], "other_key: 1\n"
+        self.assertTrue(text.startswith(old), text)
+        self.assertTrue(text.endswith(
+            '  - team: alpha\n    container: "container-c"\n    user: "agent"\n'
+            '    checkout: "/srv/agent/three"\n' + after_list))
+        found = self.members()
+        self.assertEqual([(m.team, m.container, m.role) for m in found][-1], ("alpha", "container-c", "worker"))
+        self.assertEqual(len(found), 4)
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+        self.assertIn("kept at", err)
+
+    def test_the_list_made_when_there_is_none(self) -> None:
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS)[0], 0)
+        text = self.path.read_text()
+        self.assertTrue(text.startswith(STATUS_HV))
+        self.assertIn("agent_bus_lxc_members:\n  - team: alpha\n", text)
+        self.assertEqual(len(self.members()), 1)
+
+    def test_a_dry_run_prints_the_entry_and_writes_nothing(self) -> None:
+        code, out, err = self.run_cmd("lxc-add", *LXC_FLAGS, "--dry-run")
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn('    container: "container-c"\n', out)
+        self.assertEqual(self.path.read_text(), LXC_HV)
+        self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
+
+    def test_role_host_and_seat_are_written_only_when_given_and_orchestrator_is_a_coordinator(self) -> None:
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+        code, _, err = self.run_cmd("lxc-add", *LXC_FLAGS, "--role", "orchestrator", "--seat", "boxc",
+                                    "--host", "worker")
+        self.assertEqual(code, 0, err)
+        self.assertIn('    host: "worker"\n    checkout: "/srv/agent/three"\n    role: "coordinator"\n'
+                      '    seat: "boxc"\n', self.path.read_text())
+        self.assertEqual([(m.role, m.host, m.seat) for m in self.members()], [("coordinator", "worker", "boxc")])
+
+    def test_an_entry_without_host_or_seat_is_what_a_hand_written_one_needs(self) -> None:
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS)[0], 0)
+        self.assertNotIn("host:", self.path.read_text().split("agent_bus_lxc_members:")[1])
+        self.assertNotIn("seat:", self.path.read_text().split("agent_bus_lxc_members:")[1])
+        self.assertEqual([(m.host, m.seat) for m in self.members()], [(None, None)])
+        # lxc-add needs only the four a person must say
+        code, _, err = self.run_cmd("lxc-add", "--team", "alpha", "--container", "container-c", "--user", "agent")
+        self.assertEqual(code, 64)
+        self.assertIn("--checkout", err)
+        self.assertNotIn("--host", err)
+
+    def test_a_second_coordinator_is_refused_but_an_absent_one_does_not_count(self) -> None:
+        # alpha's container-a is a present coordinator (read as orchestrator): a second is refused.
+        code, _, err = self.run_cmd("lxc-add", *LXC_FLAGS, "--role", "coordinator")
+        self.assertEqual(code, 64)
+        self.assertIn("coordinator", err)
+        self.assertEqual(self.path.read_text(), LXC_HV)
+        # beta's only coordinator entry is absent, so beta can have one.
+        beta = ("--team", "beta", "--container", "container-d", "--user", "agent",
+                "--checkout", "/srv/agent/four", "--role", "coordinator")
+        self.assertEqual(self.run_cmd("lxc-add", *beta)[0], 0)
+
+    def test_refusals_write_nothing(self) -> None:
+        base = dict(zip(LXC_FLAGS[::2], LXC_FLAGS[1::2], strict=True))
+
+        def flags(**changes: str) -> list[str]:
+            merged = dict(base, **{f"--{k}": v for k, v in changes.items()})
+            return [part for pair in merged.items() for part in pair]
+
+        cases = {
+            "duplicate": flags(container="container-a"),
+            "unknown team": flags(team="nosuch"),
+            "team declared absent": flags(team="gamma"),
+            "bad role": flags(role="boss"),
+            "bad user": flags(user="Not A User"),
+            "bad container": flags(container="-bad"),
+            "host would be rewritten": flags(host="My Host"),
+            "relative checkout": flags(checkout="home/agent/three"),
+            "checkout the file could not hold": flags(checkout="/srv/agent/a #b"),
+            "bad seat": flags(seat="!"),
+        }
+        for name, argv in cases.items():
+            code, out, err = self.run_cmd("lxc-add", *argv)
+            self.assertEqual((code, out), (64, ""), f"{name}: {err}")
+            self.assertTrue(err.startswith("declare: "), f"{name}: {err}")
+            self.assertEqual(self.path.read_text(), LXC_HV, name)
+        missing = self.run_cmd("lxc-add", "--team", "alpha")
+        self.assertEqual(missing[0], 64)
+
+    def test_a_second_user_or_container_of_the_team_is_allowed(self) -> None:
+        self.assertEqual(self.run_cmd("lxc-add", *LXC_FLAGS)[0], 0)
+        other_user = ("--team", "alpha", "--container", "container-c", "--user", "other",
+                      "--checkout", "/srv/other/x")
+        self.assertEqual(self.run_cmd("lxc-add", *other_user)[0], 0)
+        self.assertEqual(len(self.members()), 5)
+
+    def test_an_entry_in_a_form_that_is_not_read_is_refused_and_nothing_is_written(self) -> None:
+        vaulted = STATUS_HV + ("agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n"
+                               "    user: agent\n    host: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n")
+        self.path.write_text(vaulted, encoding="utf-8")
+        code, _, err = self.run_cmd("lxc-add", *LXC_FLAGS)
+        self.assertEqual(code, 78, err)
+        self.assertEqual(self.path.read_text(), vaulted)
+
+    def test_check_judges_what_it_is_given(self) -> None:
+        for argv in (("--role", "worker"), ("--role", "orchestrator"), ("--host", "worker"),
+                     ("--user", "agent"), ("--checkout", "/srv/agent/x"), ("--container", "container-z"),
+                     ("--team", "alpha"), LXC_FLAGS):
+            self.assertEqual(self.run_cmd("lxc-check", *argv)[:2], (0, ""), argv)
+        for argv in (("--role", "boss"), ("--host", "My Host"), ("--user", "A"), ("--checkout", "x"),
+                     ("--container", "-x"), ("--team", "nosuch"), ("--team", "gamma"),
+                     ("--team", "alpha", "--container", "container-a", "--user", "agent"),
+                     ("--team", "alpha", "--role", "coordinator", "--container", "container-z", "--user", "agent")):
+            self.assertEqual(self.run_cmd("lxc-check", *argv)[0], 64, argv)
+        self.assertEqual(self.path.read_text(), LXC_HV)
+
+    def test_listed_with_the_role_as_the_play_reads_it(self) -> None:
+        code, out, _ = self.run_cmd("lxc-members")
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "LXCMEMBER\talpha\tcontainer-a\tagent\tworker\tcoordinator\tpresent\n"
+                              "LXCMEMBER\talpha\tcontainer-b\tagent\tother\tworker\tabsent\n"
+                              "LXCMEMBER\tbeta\tcontainer-a\tagent\tworker\tcoordinator\tabsent\n")
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-members")[:2], (0, ""))
+
+    def test_an_entry_leaving_the_host_out_is_listed_with_a_dash(self) -> None:
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n"
+                             "    user: agent\n    checkout: /srv/agent/one\n", encoding="utf-8")
+        self.assertEqual(self.run_cmd("lxc-members")[:2],
+                         (0, "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\n"))
+
+    def test_a_user_already_in_one_team_is_checkable_for_a_second(self) -> None:
+        """Review F1: the partial check took the template's host and called it a second host."""
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n"
+                             "    user: agent\n    host: worker\n    checkout: /srv/agent/one\n", encoding="utf-8")
+        probe = ("--team", "beta", "--container", "container-a", "--user", "agent")
+        self.assertEqual(self.run_cmd("lxc-check", *probe)[:2], (0, ""))
+        self.assertEqual(self.run_cmd("lxc-check", *probe, "--host", "worker")[:2], (0, ""))
+        code, _, err = self.run_cmd("lxc-check", *probe, "--host", "other")
+        self.assertEqual(code, 64)
+        self.assertIn("two hosts", err)
+        add = (*probe, "--checkout", "/srv/agent/two")
+        self.assertEqual(self.run_cmd("lxc-add", *add)[0], 0)
+        self.assertEqual(len(self.members()), 2)
+
+    def test_a_seat_that_two_containers_would_hold_is_refused_when_both_are_given(self) -> None:
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n"
+                             "    container: container-one\n    user: agent\n    host: worker\n    seat: dev\n"
+                             "    checkout: /srv/agent/one\n", encoding="utf-8")
+        flags = ("--team", "alpha", "--container", "container-two", "--user", "agent", "--host", "worker",
+                 "--checkout", "/srv/agent/two")
+        code, _, err = self.run_cmd("lxc-add", *flags, "--seat", "dev")
+        self.assertEqual(code, 64)
+        self.assertIn("seat dev of team alpha", err)
+
+    def test_the_questions_about_a_host_word_and_a_seat_are_gone(self) -> None:
+        code, out, err = self.run_cmd("lxc-suggest-seat", "--team", "alpha", "--container", "c")
+        self.assertEqual((code, out), (64, ""))
+        self.assertIn("invalid choice", err)
+
+
+class LxcDeriveTest(CommandCase):
+    """The handle `ccy-teams lxc-add` shows before the yes: the rule the play applies, through
+    helpers/agent_bus_lxc/derive.py, over what the caller read from the container."""
+
+    TEXT = LXC_HV
+
+    GIT_CONFIG = '[remote "origin"]\n\turl = https://github.com/Example-Org/Proj.git\n'
+
+    def probe(self, *, env_local: str | None = "export HOOKS_DAEMON_HOSTNAME=worker\n",
+              git_config: str = GIT_CONFIG, path: str = "/srv/agent/three") -> str:
+        return json.dumps({"path": path, "uid": 1000, "git_config": git_config,
+                           "env_uid": None if env_local is None else 1000, "env_local": env_local})
+
+    def derive(self, probe: str, *, roster: str = "", container: str = "container-c", team: str = "alpha",
+               extra: Sequence[str] = ()) -> tuple[int, str, str]:
+        return self.run_cmd("lxc-derive", "--team", team, "--container", container, "--user", "agent",
+                            "--probe", probe, "--roster", roster, *extra)
+
+    def test_the_repo_host_and_seat_the_play_would_give(self) -> None:
+        code, out, err = self.derive(self.probe())
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out, "DERIVED\tproj\tworker\t1\tproj.1+worker.lxc\n")
+
+    def test_no_role_in_the_checkout_is_local(self) -> None:
+        self.assertEqual(self.derive(self.probe(env_local=None))[1], "DERIVED\tproj\tlocal\t1\tproj.1+local.lxc\n")
+
+    def test_the_lowest_seat_no_active_member_holds_and_a_parked_one_returns(self) -> None:
+        active = "proj.1+worker.lxc=active,proj.2+worker.lxc=active"
+        self.assertEqual(self.derive(self.probe(), roster=active)[1], "DERIVED\tproj\tworker\t3\tproj.3+worker.lxc\n")
+        parked = "proj.1+worker.lxc=parked,proj.2+worker.lxc=active"
+        self.assertEqual(self.derive(self.probe(), roster=parked)[1], "DERIVED\tproj\tworker\t1\tproj.1+worker.lxc\n")
+
+    def test_a_seat_a_declared_entry_holds_is_not_given_again(self) -> None:
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n"
+                             "    user: agent\n    host: worker\n    seat: \"1\"\n    checkout: /srv/agent/one\n",
+                             encoding="utf-8")
+        self.assertEqual(self.derive(self.probe())[1], "DERIVED\tproj\tworker\t2\tproj.2+worker.lxc\n")
+
+    def test_the_entrys_own_overrides_are_applied_as_the_play_applies_them(self) -> None:
+        out = self.derive(self.probe(), extra=("--host", "desk", "--seat", "mine"))[1]
+        self.assertEqual(out, "DERIVED\tproj\tdesk\tmine\tproj.mine+desk.lxc\n")
+
+    def test_a_user_whose_other_entry_has_another_host_is_refused_as_the_play_would(self) -> None:
+        # alpha's container-b entry says host "other"; this checkout assigns "worker".
+        code, _, err = self.derive(self.probe(), container="container-b", team="beta")
+        self.assertEqual(code, 64)
+        self.assertIn("two hosts", err)
+
+    def test_what_the_container_printed_is_judged(self) -> None:
+        for label, probe in {"not json": "{", "a control character": self.probe(path="/x\x1b[31m"),
+                             "a url with an escaped quote": self.probe(git_config='[remote "origin"]\n\turl = "a\\"b"\n'),
+                             "a url rewrite": self.probe(git_config=self.GIT_CONFIG + '[url "ssh://h/"]\n\tinsteadOf = https://h/\n'),
+                             "a role needing a shell": self.probe(env_local="export HOOKS_DAEMON_HOSTNAME=$(id)\n")}.items():
+            code, out, err = self.derive(probe)
+            self.assertEqual((code, out), (64, ""), label)
+            self.assertTrue(err.startswith("declare: "), f"{label}: {err}")
+
+    def test_a_roster_that_is_not_handles_is_refused(self) -> None:
+        for roster in ("nonsense", "proj.1+worker.lxc=maybe", "proj.1+worker.lxc"):
+            self.assertEqual(self.derive(self.probe(), roster=roster)[0], 64, roster)
+
+    def test_the_file_is_not_changed(self) -> None:
+        self.derive(self.probe())
+        self.assertEqual(self.path.read_text(), LXC_HV)
+
+
+class LxcCheckoutsTest(CommandCase):
+    """The checkouts offered for the checkout question: those in the user's home with a GitHub
+    remote, from what the host-side reader printed."""
+
+    def scan(self, *items: tuple[str, str | None]) -> str:
+        return json.dumps([{"path": path, "git_config": None if url is None else
+                            f'[remote "origin"]\n\turl = {url}\n'} for path, url in items])
+
+    def test_only_checkouts_with_a_github_remote_are_listed_with_their_repository(self) -> None:
+        scan = self.scan(("/srv/agent/one", "git@github.com:Example-Org/One.git"),
+                         ("/srv/agent/two", "https://github.com/example-org/two"),
+                         ("/srv/agent/other", "https://forge.example.com/example-org/other.git"),
+                         ("/srv/agent/none", None))
+        code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out, "CHECKOUT\t/srv/agent/one\texample-org/one\nCHECKOUT\t/srv/agent/two\texample-org/two\n")
+
+    def test_nothing_found_prints_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("lxc-checkouts", "--scan", "[]")[:2], (0, ""))
+
+    def test_what_the_container_printed_is_judged(self) -> None:
+        for scan in ("{", self.scan(("relative", None)), self.scan(("/srv/\x1b[31m", None))):
+            code, out, err = self.run_cmd("lxc-checkouts", "--scan", scan)
+            self.assertEqual((code, out), (64, ""), scan)
+            self.assertTrue(err.startswith("declare: "), err)
+
+
+class LxcScriptTest(unittest.TestCase):
+    """The script that reads a container's checkout from the host exists once, in derive.py; the
+    Go tool asks for it here instead of carrying a copy."""
+
+    def test_it_prints_the_script_the_play_runs(self) -> None:
+        from helpers.agent_bus_lxc import derive
+        out = io.StringIO()
+        self.assertEqual(declare.main(["lxc-script", "--name", "root-read"], stdout=out), 0)
+        self.assertEqual(out.getvalue(), derive.ROOT_READ_PY)
+
+    def test_an_unknown_script_is_refused(self) -> None:
+        err = io.StringIO()
+        self.assertEqual(declare.main(["lxc-script", "--name", "nosuch"], stdout=io.StringIO(), stderr=err), 64)
+        self.assertIn("invalid choice", err.getvalue())
+
+
+class LxcMemberRemoveTest(CommandCase):
+    TEXT = LXC_HV
+
+    def test_declared_absent_and_every_other_line_kept(self) -> None:
+        code, out, err = self.run_cmd("lxc-remove", "--team", "alpha", "--container", "container-a",
+                                      "--user", "agent")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, f"CHANGED\tLXC member agent@container-a in team alpha declared absent, in {self.path}\n")
+        text = self.path.read_text()
+        # The state line goes under the entry's team line, where `remove` puts a team's.
+        self.assertEqual(text, LXC_HV.replace("  - team: alpha\n    container: container-a\n",
+                                              "  - team: alpha\n    state: absent\n    container: container-a\n", 1))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+
+    def test_an_entry_already_absent_is_unchanged(self) -> None:
+        argv = ("--team", "alpha", "--container", "container-b", "--user", "agent")
+        self.assertEqual(self.run_cmd("lxc-remove", *argv)[:2], (0, "UNCHANGED\tagent@container-b in team alpha\n"))
+        self.assertEqual(self.path.read_text(), LXC_HV)
+
+    def test_dry_run_and_unknown_entries(self) -> None:
+        code, out, _ = self.run_cmd("lxc-remove", "--team", "alpha", "--container", "container-a",
+                                    "--user", "agent", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("state: absent", out)
+        self.assertEqual(self.path.read_text(), LXC_HV)
+        for argv in (("--team", "alpha", "--container", "nosuch", "--user", "agent"),
+                     ("--team", "nosuch", "--container", "container-a", "--user", "agent")):
+            self.assertEqual(self.run_cmd("lxc-remove", *argv)[0], 64, argv)
 
 
 if __name__ == "__main__":

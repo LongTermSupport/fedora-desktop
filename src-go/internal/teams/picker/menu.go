@@ -3,6 +3,7 @@ package picker
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,6 +28,8 @@ const (
 	keyAttach   = "attach"
 	// keyCoordinator, like keyAttach, has no shortcut: it is what the menu of a seat offers.
 	keyCoordinator = "coordinator"
+	// keyLxc is the same: adding an LXC container's agent has no shortcut, only its menu line.
+	keyLxc = "lxc-add"
 )
 
 // backToList is the last line of every menu: leaving it does nothing and shows the list.
@@ -43,7 +46,7 @@ type action struct {
 // shown is the shortcut as a person reads it ("Ctrl-E"); empty when there is none.
 func (a action) shown() string {
 	switch a.key {
-	case keyAttach, keyCoordinator:
+	case keyAttach, keyCoordinator, keyLxc:
 		return ""
 	case keyHelp:
 		return "?"
@@ -67,8 +70,16 @@ func (a action) footerPart() string {
 	return a.shown() + " " + a.short
 }
 
-// actionsFor is everything that can be done to row, the likeliest first.
+// actionsFor is everything that can be done to row, the likeliest first. Every row offers
+// adding an LXC container's agent to its team, just after starting a ccy session in it.
 func (r *run) actionsFor(row board.Row) []action {
+	acts := r.kindActions(row)
+	lxc := action{keyLxc, "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
+	return slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.key == keyNew })+1, lxc)
+}
+
+// kindActions is what can be done to row because of what it is.
+func (r *run) kindActions(row board.Row) []action {
 	team := row.Team
 	open := action{keyElement, "Open " + team + " in Element", "open " + team + " in Element"}
 	start := action{keyNew, "Start a ccy session in " + team + ", in this folder", "start a session in " + team}

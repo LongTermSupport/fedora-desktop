@@ -10,6 +10,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -39,7 +40,7 @@ func newRig(t *testing.T) rig {
 	s := seats.New(h, kit, o)
 	w.On(h.Play, "", 0)
 	w.OnDeclare("element-teams", "")
-	return rig{World: w, Console: c, b: b, o: o, p: New(h, kit, b, o, create.New(h, o, l), l, s)}
+	return rig{World: w, Console: c, b: b, o: o, p: New(h, kit, b, o, create.New(h, o, l), l, s, lxcadd.New(h, kit, o))}
 }
 
 // run1 is one collection of the machine, and the picker state the key handlers act on.

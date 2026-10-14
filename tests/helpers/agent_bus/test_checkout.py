@@ -263,6 +263,30 @@ class EnvLocalFileTest(CheckoutTestCase):
             checkout.checkout_host(self.top, os.getuid())
 
 
+class PureDerivationTest(unittest.TestCase):
+    """`<host>` and `<repo>` from text already read (the LXC flow reads them inside a
+    container): the same rule `checkout_host` and `take` apply to a file and a remote."""
+
+    def test_no_file_is_local(self):
+        self.assertEqual(checkout.host_from_env_local(None), "local")
+
+    def test_the_text_gives_the_normalised_role_else_local(self):
+        self.assertEqual(checkout.host_from_env_local("export HOOKS_DAEMON_HOSTNAME=Desk.Top\n"), "desk-top")
+        self.assertEqual(checkout.host_from_env_local("# nothing assigned\n"), "local")
+
+    def test_a_form_needing_the_shell_is_refused(self):
+        with self.assertRaises(checkout.CheckoutError):
+            checkout.host_from_env_local("export HOOKS_DAEMON_HOSTNAME=$(hostname)\n")
+
+    def test_repo_is_the_remote_last_component_else_the_directory(self):
+        self.assertEqual(checkout.repo_from_origin("git@github.com:Owner/My-Repo.git", "/x/dir"), "my-repo")
+        self.assertEqual(checkout.repo_from_origin(None, "/x/Some-Dir"), "some-dir")
+
+    def test_a_repo_that_is_empty_once_normalised_is_refused(self):
+        with self.assertRaises(checkout.CheckoutError):
+            checkout.repo_from_origin("https://github.com/o/%%%.git", "/x")
+
+
 class BusAddressTest(unittest.TestCase):
     def test_the_one_address(self):
         data = [{"ifname": "agentbus0", "addr_info": [{"family": "inet", "local": BUS_IP, "scope": "global"}]}]

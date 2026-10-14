@@ -5,11 +5,12 @@ to teams what ccy-sessions is to sessions (Plan 00161, Plan 00177; docs/agent-bu
 
 A team is declared in the untracked host_vars localhost.yml (agent_bus_teams) and made by
 play-agent-bus.yml. A ccy session joins one with `ccy --teams <seat>@<team>`, an LXC
-container's agent through agent_bus_lxc_members. ccy-teams holds no team logic of its own:
+container's agent through agent_bus_lxc_members (ccy-teams lxc-add writes the entry). ccy-teams holds no team logic of its own:
 it acts through agent-bus, agent-bus-install, ccy and the session registry. It edits the
 host_vars only to add a team (create) or to declare one absent (remove), and every such
 change is applied at once: it runs play-agent-bus.yml for that team alone (its own
 shebang, through run.bash's single-play mode), so no team is left declared but not built.
+An LXC container's agent is added the same way (lxc-add), with no hand edit of the host_vars.
 
 Each team is a row (its homeserver up, down or not installed yet, its port, and APPLIED:
 whether what runs is what the host_vars declare, DESIGN.md D65), followed by its members:
@@ -41,6 +42,8 @@ to the workers and is copied on what workers tell humans. Its seat's MEMBER show
 shortcut): it asks first, names the current coordinator, who becomes a worker, and runs
 agent-bus set-role as root.
   Esc, q   leave
+Every row's menu also has Add an LXC container's agent to <team> (no shortcut): the same as
+`ccy-teams lxc-add <team>` below.
 With no team on this machine, the picker offers to create one; with a team out of date, it
 offers to update it first; with a team still holding the old default path_prefixes, it
 offers once to remove them. Run in a checkout of a team's repositories, with no session of
@@ -77,6 +80,26 @@ Usage:
                                    checkout of the team's, starts a ccy session there.
                                    --yes asks and offers nothing: give --org or --repo,
                                    --team and --human. The port is chosen for you
+  ccy-teams lxc-add <team>         add an LXC container's agent to a team, on a terminal only,
+                                   with no hand edit of the host_vars. It lists this host's
+                                   running containers (as root: sudo asks), then asks, with
+                                   gum, for the container, its user (the container's ordinary
+                                   users are suggested), the checkout inside it (those in the
+                                   user's home with a GitHub remote are suggested) and the role
+                                   (worker; coordinator only when the team has none). The
+                                   handle's repo, host and seat are never asked: they come from
+                                   the checkout as ccy derives them (repo from its origin, host
+                                   from .claude/ccy/ccy.env.local else local, the next free
+                                   seat), read from this host's side as plain files, no git run.
+                                   Each answer is checked by declare.py as it is given, and
+                                   asked again when refused. It shows a summary with the
+                                   derived handle and asks once, then writes the
+                                   agent_bus_lxc_members entry and runs play-agent-bus.yml for
+                                   the team, which joins the member (the user must already
+                                   exist and be logged in to gh in the container; the play
+                                   stops, naming it, when not). It ends by printing what is
+                                   left inside the container: ccy --teams <team> as that user
+                                   in the checkout. Hand-editing agent_bus_lxc_members still works
   ccy-teams apply <team> | --all   run play-agent-bus.yml for the team (or every team
                                    out of date or not built), and play-agent-bus-element.yml
                                    for those with an Element profile, then check each now
