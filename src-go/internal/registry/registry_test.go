@@ -265,6 +265,32 @@ func TestSetRestoreFailures(t *testing.T) {
 	}
 }
 
+func TestSetTeamsReplacesTheRecordedTeamsAndKeepsTheRest(t *testing.T) {
+	s := newStore(t)
+	rec := sample()
+	rec.Args = []string{"--token", "t", "--teams", "old@x", "--no-ssh", "--teams=more@y"}
+	if err := s.Write(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTeams(rec.Name, "dev1@team-a"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(rec.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--token", "t", "--no-ssh", "--teams", "dev1@team-a"}
+	if !slices.Equal(got.Args, want) || got.Compose != rec.Compose || got.Dir != rec.Dir || got.Restore != rec.Restore {
+		t.Fatalf("got %+v, want args %v", got, want)
+	}
+}
+
+func TestSetTeamsWithNoRecordIsAnError(t *testing.T) {
+	if err := newStore(t).SetTeams("ghost", "a@b"); !errors.Is(err, ErrNoRecord) {
+		t.Fatalf("missing: %v", err)
+	}
+}
+
 func TestRemoveIsIdempotent(t *testing.T) {
 	s := newStore(t)
 	if err := s.Remove("ghost"); err != nil {

@@ -85,6 +85,17 @@ Usage:
   ccy-teams restore <team> [<n>] [--yes]
                                    restore backup <n> after a yes/no (--yes: none);
                                    without <n>, choose one from the list
+  ccy-teams for-checkout [--choose]
+                                   print the team(s) that work on this checkout's GitHub
+                                   OWNER/REPO (an organisation team by its owner), one per
+                                   line on stdout, the rest on stderr. --choose prints exactly
+                                   one: the only match, or the one you pick of several (with
+                                   nobody to ask, it fails naming them). With none, it fails
+                                   saying so. ccy --teams with no value calls it
+  ccy-teams record-seats <seats>   put the seats (a canonical --teams list) into the record of
+                                   the ccy session this runs in (from TMUX), so its restore
+                                   replays them. ccy calls it when Quick Launch brings a saved
+                                   team back; it fails if the session cannot be named
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

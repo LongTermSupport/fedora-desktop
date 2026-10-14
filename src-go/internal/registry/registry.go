@@ -222,6 +222,29 @@ func (s *Store) SetRestore(name string, restore bool) error {
 	return s.Write(rec)
 }
 
+// SetTeams makes seats (the canonical --teams list) the only --teams in session name's record,
+// keeping everything else, so a restore or restart of the session replays the seats it was
+// launched into. A session with no record is an error.
+func (s *Store) SetTeams(name, seats string) error {
+	rec, err := s.Get(name)
+	if err != nil {
+		return err
+	}
+	kept := make([]string, 0, len(rec.Args)+2)
+	for i := 0; i < len(rec.Args); i++ {
+		switch {
+		case rec.Args[i] == "--teams":
+			i++
+		case strings.HasPrefix(rec.Args[i], "--teams="):
+		default:
+			kept = append(kept, rec.Args[i])
+		}
+	}
+	kept = append(kept, "--teams", seats)
+	rec.Args = kept
+	return s.Write(rec)
+}
+
 // Remove deletes a session's record. An absent record is not an error: the session may have
 // been started before the registry existed.
 func (s *Store) Remove(name string) error {
