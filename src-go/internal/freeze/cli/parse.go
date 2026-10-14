@@ -9,13 +9,17 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze"
 )
 
+// Mode is which target the command line chose: the menu (empty), one of a tool's target flags
+// (the flag's own spelling), or container names.
+type Mode string
+
 // ModeNames is the target mode of container names given on the command line.
-const ModeNames = "names"
+const ModeNames Mode = "names"
 
 // Flag is a target flag a tool accepts. Needs is empty for a flag with no value; otherwise it
 // is what the missing value is called in the error ("a network name").
 type Flag struct {
-	Name  string
+	Name  Mode
 	Needs string
 }
 
@@ -30,7 +34,7 @@ type Parsed struct {
 	Help   bool     // -h/--help was reached; nothing after it was read
 	DryRun bool     // -n/--dry-run
 	Verb   string   // "", "list", "freeze" or "thaw"
-	Mode   string   // "" (the menu), a Flag name, or ModeNames
+	Mode   Mode     // "" (the menu), a Flag name, or ModeNames
 	Value  string   // the value of a Mode flag that takes one
 	Names  []string // container names, in order, repeats kept (selection de-duplicates)
 }
@@ -94,7 +98,7 @@ func (s Spec) consume(p *Parsed, tok string, rest []string) ([]string, error) {
 	flag, ok := s.flag(tok)
 	switch {
 	case ok:
-		if err := setMode(p, tok); err != nil {
+		if err := setMode(p, flag.Name); err != nil {
 			return nil, err
 		}
 		if flag.Needs == "" {
@@ -114,14 +118,14 @@ func (s Spec) consume(p *Parsed, tok string, rest []string) ([]string, error) {
 
 func (s Spec) flag(tok string) (Flag, bool) {
 	for _, f := range s.Flags {
-		if f.Name == tok {
+		if string(f.Name) == tok {
 			return f, true
 		}
 	}
 	return Flag{}, false
 }
 
-func setMode(p *Parsed, mode string) error {
+func setMode(p *Parsed, mode Mode) error {
 	if p.Mode != "" {
 		return freeze.Die("choose one target only — '%s' and '%s' are mutually exclusive.", p.Mode, mode)
 	}

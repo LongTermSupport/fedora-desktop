@@ -11,6 +11,16 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/cli"
 )
 
+// The target flags this tool accepts, as the command line spells them.
+const (
+	modeAll     cli.Mode = "--all"
+	modeCCY     cli.Mode = "--ccy"
+	modeNetwork cli.Mode = "--network"
+	modeGitHub  cli.Mode = "--github"
+	modeToken   cli.Mode = "--token"
+	modeSSHKey  cli.Mode = "--ssh-key"
+)
+
 const (
 	keyCCY     = "ccy"
 	keyAll     = "all"
@@ -70,18 +80,18 @@ func (e *Engine) selectKey(ctx context.Context, inv freeze.Inventory[record], ke
 // SelectTarget resolves the one-shot command line to a selection: a mode (the target flag, or
 // cli.ModeNames), its value, and the names given. A vanished network or identity value is fatal
 // here, with the same words the menu path says.
-func (e *Engine) SelectTarget(ctx context.Context, inv freeze.Inventory[record], mode, value string, names []string) ([]string, error) {
+func (e *Engine) SelectTarget(ctx context.Context, inv freeze.Inventory[record], mode cli.Mode, value string, names []string) ([]string, error) {
 	var selected []string
 	var err error
 	switch mode {
-	case "--all":
+	case modeAll:
 		selected = inv.SelectAll()
-	case "--ccy":
+	case modeCCY:
 		selected = ccyNames(inv)
-	case "--network":
+	case modeNetwork:
 		selected, err = e.selectNetwork(ctx, inv, value)
-	case "--github", "--token", "--ssh-key":
-		selected, err = e.selectIdentity(inv, strings.TrimPrefix(mode, "--"), value)
+	case modeGitHub, modeToken, modeSSHKey:
+		selected, err = e.selectIdentity(inv, strings.TrimPrefix(string(mode), "--"), value)
 	case cli.ModeNames:
 		selected, err = inv.SelectNames(names)
 	default:

@@ -23,8 +23,8 @@ var usageText string
 var spec = cli.Spec{
 	Tool: tool,
 	Flags: []cli.Flag{
-		{Name: "--all"},
-		{Name: "--bridge", Needs: "a bridge name"},
+		{Name: modeAll},
+		{Name: modeBridge, Needs: "a bridge name"},
 	},
 }
 
@@ -51,7 +51,7 @@ func (a *App) Run(args []string) term.ExitCode {
 
 // RunContext is Run on a caller-supplied context.
 func (a *App) RunContext(ctx context.Context, args []string) term.ExitCode {
-	return freeze.ExitCode(a.Env.Err, tool, app.Execute(ctx, a.Env, a.Chooser, a.tool(), args))
+	return app.RunContext(ctx, a.Env, a.Chooser, a.tool(), args)
 }
 
 // plain is the environment as sudo's prompts see it: NO_COLOR is always set, because no freeze tool

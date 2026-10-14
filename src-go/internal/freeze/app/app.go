@@ -21,7 +21,7 @@ import (
 // the menu says when it re-prompts.
 type TargetEngine[R any] interface {
 	freeze.Engine[R]
-	SelectTarget(ctx context.Context, inv freeze.Inventory[R], mode, value string, names []string) ([]string, error)
+	SelectTarget(ctx context.Context, inv freeze.Inventory[R], mode cli.Mode, value string, names []string) ([]string, error)
 }
 
 // Tool is everything that differs between the freeze tools.
@@ -41,6 +41,11 @@ type ChooserFactory func() (freeze.Chooser, func() error)
 func Run[R any](env freeze.Env, chooser freeze.Chooser, tool Tool[R], args []string) term.ExitCode {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	return RunContext(ctx, env, chooser, tool, args)
+}
+
+// RunContext is Run on a caller-supplied context, and without installing a signal handler.
+func RunContext[R any](ctx context.Context, env freeze.Env, chooser freeze.Chooser, tool Tool[R], args []string) term.ExitCode {
 	return freeze.ExitCode(env.Err, tool.Cfg.Tool, Execute(ctx, env, chooser, tool, args))
 }
 
@@ -57,6 +62,9 @@ func Execute[R any](ctx context.Context, env freeze.Env, chooser freeze.Chooser,
 // ExecuteClosing is Execute with the chooser made only once the run needs one, and closed when it
 // ends; a failure to close is joined to the run's own result.
 func ExecuteClosing[R any](ctx context.Context, env freeze.Env, newChooser ChooserFactory, tool Tool[R], args []string) error {
+	if err := tool.Cfg.Validate(); err != nil {
+		return err
+	}
 	parsed, err := cli.Parse(tool.Spec, args)
 	if err != nil {
 		return err

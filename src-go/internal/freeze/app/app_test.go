@@ -29,7 +29,7 @@ type engine struct {
 	preflight   error
 	entries     []freeze.Entry[none]
 	selected    []string
-	gotMode     string
+	gotMode     cli.Mode
 	gotValue    string
 	gotNames    []string
 	selectedErr error
@@ -54,7 +54,7 @@ func (e *engine) Select(_ context.Context, inv freeze.Inventory[none], _ string)
 	return inv.Names(), nil
 }
 
-func (e *engine) SelectTarget(_ context.Context, _ freeze.Inventory[none], mode, value string, names []string) ([]string, error) {
+func (e *engine) SelectTarget(_ context.Context, _ freeze.Inventory[none], mode cli.Mode, value string, names []string) ([]string, error) {
 	*e.order = append(*e.order, "select")
 	e.gotMode, e.gotValue, e.gotNames = mode, value, names
 	return e.selected, e.selectedErr
@@ -127,6 +127,17 @@ func TestHelpPrintsUsageOnStdoutAndTouchesNothing(t *testing.T) {
 	}
 	if r.out.String() != usage || r.errb.Len() != 0 || len(r.order) != 0 {
 		t.Fatalf("stdout %q stderr %q order %v", r.out, r.errb, r.order)
+	}
+}
+
+// An engine that left a required Config setting blank is refused before anything runs, rather
+// than comparing every state against the empty string.
+func TestAnIncompleteConfigIsRefusedBeforeAnythingRuns(t *testing.T) {
+	r := newRig(t)
+	r.tool.Cfg.StateFrozen = ""
+	err := r.run(nil, "list")
+	if err == nil || !strings.Contains(err.Error(), "Config.StateFrozen is not set") || len(r.order) != 0 {
+		t.Fatalf("got %v, order %v", err, r.order)
 	}
 }
 
@@ -229,6 +240,23 @@ func TestNamesReachTheEngineInTheNamesMode(t *testing.T) {
 	}
 	if strings.Join(r.eng.acted, ",") != "thaw bravo" {
 		t.Fatalf("the derived verb thaws a paused set: %v", r.eng.acted)
+	}
+}
+
+// RunContext is Execute with the exit status: the one line each tool's App hands its context to.
+func TestRunContextTurnsTheResultIntoTheExitStatus(t *testing.T) {
+	r := newRig(t)
+	if got := RunContext(context.Background(), r.env, nil, r.tool, []string{"--bogus"}); got != term.ExitFailure {
+		t.Fatalf("a usage mistake exits %d", got)
+	}
+	if !strings.Contains(r.errb.String(), "testfreeze: unknown option '--bogus'") {
+		t.Fatalf("the fatal line is printed once: %q", r.errb)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r.eng.selected = []string{"alpha"}
+	if got := RunContext(ctx, r.env, nil, r.tool, []string{"--all"}); got != term.ExitCancelled {
+		t.Fatalf("a cancelled run exits %d", got)
 	}
 }
 

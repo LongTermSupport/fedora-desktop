@@ -23,12 +23,12 @@ const needsValue = "a value"
 var spec = cli.Spec{
 	Tool: tool,
 	Flags: []cli.Flag{
-		{Name: "--ccy"},
-		{Name: "--all"},
-		{Name: "--network", Needs: "a network name"},
-		{Name: "--github", Needs: needsValue},
-		{Name: "--token", Needs: needsValue},
-		{Name: "--ssh-key", Needs: needsValue},
+		{Name: modeCCY},
+		{Name: modeAll},
+		{Name: modeNetwork, Needs: "a network name"},
+		{Name: modeGitHub, Needs: needsValue},
+		{Name: modeToken, Needs: needsValue},
+		{Name: modeSSHKey, Needs: needsValue},
 	},
 }
 
@@ -53,7 +53,7 @@ func (a *App) Run(args []string) term.ExitCode {
 
 // RunContext is Run on a caller-supplied context.
 func (a *App) RunContext(ctx context.Context, args []string) term.ExitCode {
-	return freeze.ExitCode(a.Env.Err, tool, app.Execute(ctx, a.Env, a.Chooser, a.tool(), args))
+	return app.RunContext(ctx, a.Env, a.Chooser, a.tool(), args)
 }
 
 func (a *App) tool() app.Tool[record] {

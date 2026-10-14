@@ -15,6 +15,12 @@ const (
 	keyBridge = "bridge:"
 )
 
+// The target flags this tool accepts, as the command line spells them.
+const (
+	modeAll    cli.Mode = "--all"
+	modeBridge cli.Mode = "--bridge"
+)
+
 // bridgeNames are the bridges in use, sorted bytewise: the two non-bridge labels are not bridges.
 func bridgeNames(inv freeze.Inventory[record]) []string {
 	var bridges []string
@@ -71,13 +77,13 @@ func (e *Engine) Select(_ context.Context, inv freeze.Inventory[record], key str
 // SelectTarget resolves the one-shot command line to a selection: a mode (--all, --bridge, or
 // cli.ModeNames), its value, and the names given. A vanished bridge is fatal here, with the same
 // words the menu path says.
-func (e *Engine) SelectTarget(_ context.Context, inv freeze.Inventory[record], mode, value string, names []string) ([]string, error) {
+func (e *Engine) SelectTarget(_ context.Context, inv freeze.Inventory[record], mode cli.Mode, value string, names []string) ([]string, error) {
 	var selected []string
 	var err error
 	switch mode {
-	case "--all":
+	case modeAll:
 		selected = inv.SelectAll()
-	case "--bridge":
+	case modeBridge:
 		selected, err = selectBridge(inv, value)
 	case cli.ModeNames:
 		selected, err = inv.SelectNames(names)

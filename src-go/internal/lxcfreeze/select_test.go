@@ -190,9 +190,10 @@ func TestSelectTargetResolvesEachKindOfTarget(t *testing.T) {
 	e, inv := fixture(t)
 	ctx := context.Background()
 	cases := []struct {
-		mode, value string
-		names       []string
-		want        []string
+		mode  cli.Mode
+		value string
+		names []string
+		want  []string
 	}{
 		{"--all", "", nil, []string{"zulu", "mike", "alpha", "kilo", "bravo"}},
 		{"--bridge", "virbr1", nil, []string{"mike", "bravo"}},
@@ -205,7 +206,7 @@ func TestSelectTargetResolvesEachKindOfTarget(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.mode, err)
 		}
-		eqStrings(t, c.mode, got, c.want)
+		eqStrings(t, string(c.mode), got, c.want)
 	}
 }
 
