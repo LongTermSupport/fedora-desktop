@@ -1,4 +1,31 @@
 {
+ "lxc-help": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: the usage text no longer promises one password prompt per run, because sudo is readied again before each load and act batch",
+  "streams": [
+   "stdout"
+  ]
+ },
+ "lxc-help-short": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: the usage text no longer promises one password prompt per run, because sudo is readied again before each load and act batch",
+  "streams": [
+   "stdout"
+  ]
+ },
+ "lxc-help-inside-container": {
+  "bugs": [
+   6
+  ],
+  "why": "bug 6: the usage text no longer promises one password prompt per run, because sudo is readied again before each load and act batch",
+  "streams": [
+   "stdout"
+  ]
+ },
  "pod-list-label-record-too-short": {
   "bugs": [
    14

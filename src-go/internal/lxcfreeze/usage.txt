@@ -17,7 +17,7 @@ Usage: lxcfreeze [list|freeze|thaw] [target] [options]
   do NOT survive a reboot.
 
   Every operation needs root, including the read-only inventory:
-  /var/lib/lxc is root-only. You will be prompted once per run.
+  /var/lib/lxc is root-only. sudo is asked again if its timestamp has expired.
 
 Verbs (optional — omit to let the state decide):
   list               Show running and frozen containers, then exit.

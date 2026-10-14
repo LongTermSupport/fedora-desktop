@@ -3,19 +3,22 @@ package lxcfreeze
 import (
 	"strings"
 	"testing"
-
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/freeze/freezetest"
 )
 
-// The usage text is the bash tool's usage() function, not its header comment, so the embedded
-// file must equal what the shipped tool prints. This parity test reads the shipped bash and is
-// retired with it at cut-over; the anchor test below is what stays.
-func TestUsageEqualsWhatTheBashToolPrints(t *testing.T) {
-	if want := freezetest.BashUsage(t, tool); usageText != want {
-		t.Fatalf("embedded usage differs from the bash usage():\n--- embedded\n%s\n--- bash\n%s", usageText, want)
+// sudo is re-readied before each load and each freeze or thaw (the idle menu may outlive sudo's
+// timestamp), so the usage text must not promise one prompt per run.
+func TestUsageSaysWhenSudoIsAsked(t *testing.T) {
+	if strings.Contains(usageText, "once per run") {
+		t.Error("usage promises one password prompt per run; sudo is asked again after its timestamp expires")
+	}
+	want := "  /var/lib/lxc is root-only. sudo is asked again if its timestamp has expired.\n"
+	if !strings.Contains(usageText, want) {
+		t.Errorf("usage lost %q", want)
 	}
 }
 
+// The embedded usage text was checked byte for byte against the bash tool's usage() function; the
+// golden replay (internal/freeze/golden) keeps that record, and these anchors stay.
 func TestUsageAnchors(t *testing.T) {
 	for _, want := range []string{
 		"Usage: lxcfreeze [list|freeze|thaw] [target] [options]\n",
