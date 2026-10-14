@@ -51,13 +51,29 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   rate and size limits, the failure modes, and how it is tested without a live homeserver.
   Done: [DESIGN.md](DESIGN.md), with the owner's decisions of 2026-10-14 recorded in its
   section 0. It needs hooks-daemon plugin API 1.1 (API 1.0 cannot type text, and types only
-  at idle); filing that issue still awaits the owner.
+  at idle); decision G is filed as
+  [claude-code-hooks-daemon#119](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/issues/119).
 - [ ] ⬜ **Task 1.2**: The owner agrees the design.
 
 ### Phase 2: Build
 
+- [x] ✅ **Task 2.0**: The pingbus side of relay delivery, which needs no hooks-daemon API,
+  test first. `PINGBUS_DELIVERY=relay` (set by the launch only) switches `pingbus watch` to
+  spool each re-fetched, re-validated item as a line for the plugin (`relay/spool/…`),
+  consuming it only on the plugin's confirmation (`relay/relayed/…`), withdrawn when `recv`
+  reads it first, with no socket write and `relay=stalled` after 120 s; `pingbus status`
+  shows `relay=on|stalled|off`; `send` and `say` log to `sent.jsonl`; the hooks echo it as
+  the `SENT` `systemMessage` (`hook post-tool`, and the Stop drain), count only unspooled
+  items, do not block Stop on pending items and spawn no watcher; unset, nothing changes.
+  The spool line format is DESIGN.md section 6. Modules `relay.py` and `sentlog.py` under
+  `helpers/pingbus/`. Not yet done, by design, because they land with Task 2.1: the plugin's
+  `settings.json` `crossSessionInbound`, the entrypoint, the launcher, the skill's envelope
+  text, and the version bumps.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
-  enabled for a session launched with `--teams` (CCY version bump).
+  enabled for a session launched with `--teams` (CCY version bump). Waits on the
+  hooks-daemon release that carries plugin API 1.1 (#119); it also drops
+  `crossSessionInbound`, wires the entrypoint (`PINGBUS_DELIVERY=relay`, the refusal without
+  a relay-capable supervisor) and updates the skill.
 - [ ] ⬜ **Task 2.1b**: Ship the ccy-agent-bus supervisor plugin in the member kit too, so
   LXC and other supervised members get the same delivery.
 - [ ] ⬜ **Task 2.2**: Fable review; qa-reviewer; meta-deploy; the owner's test from Element.
@@ -72,5 +88,6 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
 
 ## Delivery & Milestones
 
-- Design: decisions recorded in [DESIGN.md](DESIGN.md); the API 1.1 issue and the final
-  agreement (Task 1.2) await the owner.
+- Design: decisions recorded in [DESIGN.md](DESIGN.md); the API 1.1 issue is filed (#119)
+  and the final agreement (Task 1.2) awaits the owner.
+- The pingbus side (Task 2.0) is built; the plugin (Task 2.1) waits on the upstream release.

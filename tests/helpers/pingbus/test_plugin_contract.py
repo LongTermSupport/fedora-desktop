@@ -42,7 +42,11 @@ LAUNCHER = KIT / "agent-bus-claude"
 
 #: The hooks whose subcommand does something. `session-end` is not registered: it does
 #: nothing (DESIGN.md section 6), which `test_session_end_is_a_no_op` holds it to.
-REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "Stop": "stop"}
+REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "Stop": "stop",
+              "PostToolUse": "post-tool"}
+#: The one hook that is matched to a tool: the `SENT` echo follows `pingbus say` and `send`,
+#: which are Bash commands.
+MATCHERS = {"PostToolUse": "Bash"}
 
 #: The commands an agent runs by hand, each of which the skill must name.
 AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
@@ -101,7 +105,10 @@ class HooksJsonTest(unittest.TestCase):
         for event, groups in self.hooks.items():
             self.assertIsInstance(groups, list)
             for group in groups:
-                self.assertEqual(set(group), {"hooks"}, f"{event}: no matcher is needed")
+                if event in MATCHERS:
+                    self.assertEqual(group.get("matcher"), MATCHERS[event], event)
+                else:
+                    self.assertEqual(set(group), {"hooks"}, f"{event}: no matcher is needed")
                 for entry in group["hooks"]:
                     self.assertEqual(set(entry), {"type", "command"})
                     self.assertEqual(entry["type"], "command")

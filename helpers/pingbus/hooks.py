@@ -23,6 +23,14 @@ event, a stored file or an exception carried reaches the output: every text is o
   hooks daemon's own Stop handlers.
 - `session-end` does nothing: the watcher exits when the session's socket goes, which also
   keeps it running across a `/clear`, where SessionEnd fires and the session goes on.
+- `post-tool` (PostToolUse) is the `SENT` echo (relay mode only; nothing otherwise).
+
+With `PINGBUS_DELIVERY=relay` (Plan 00194) a supervisor plugin owns the watcher and types
+the messages: `session-start` spawns nothing and names no wake path, the counts leave out
+what is already spooled, `stop` does not block on pending items or on a missing waker, and
+`post-tool` and `stop` return the `SENT` echo of what the session sent as `systemMessage`
+(`sentlog`). A stalled relay is the exception: the counts and the Stop block come back, and
+Stop names the stall once per window. Unset, every hook is as it was.
 """
 
 from __future__ import annotations
@@ -32,19 +40,21 @@ import hashlib
 import json
 import os
 import pathlib
+import secrets
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from typing import TextIO
 
-from helpers.pingbus import config, inbox, notify, protocol, seat
+from helpers.pingbus import config, inbox, notify, protocol, relay, seat, sentlog
 
-EVENTS = ("session-start", "prompt", "stop", "session-end")
+EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool")
 HOOK_EVENT_NAMES = {
     "session-start": "SessionStart",
     "prompt": "UserPromptSubmit",
     "stop": "Stop",
     "session-end": "SessionEnd",
+    "post-tool": "PostToolUse",
 }
 GUARD_FILE = "stop-guard.json"
 WATCH_LOG = "watch.log"
@@ -93,9 +103,11 @@ TEMPLATES = {
     "state": "agent-bus: a pingbus state file is unreadable. Run `pingbus status`.",
     "untrusted": "agent-bus: a team room is not trusted, or not verified yet. Run `pingbus status`.",
     "internal": "agent-bus: pingbus failed inside a hook. Run `pingbus status`.",
+    "relay": ("agent-bus: relay delivery has stalled, so pending items are not being typed into this "
+              "session. Run `pingbus status`, then `pingbus recv`."),
 }
 #: Failure classes, worst first: the one a hook names when several apply.
-FAILURE_CLASSES = ("internal", "config", "state", "untrusted")
+FAILURE_CLASSES = ("internal", "config", "state", "untrusted", "relay")
 
 
 class _Failure(Exception):
@@ -177,6 +189,14 @@ class TeamView:
 @dataclasses.dataclass(frozen=True)
 class Survey:
     teams: tuple[TeamView, ...]
+    #: Relay delivery is on (`PINGBUS_DELIVERY=relay`), and whether it has stalled.
+    relaying: bool = False
+    stalled: bool = False
+
+    @property
+    def relay_active(self) -> bool:
+        """The plugin is delivering: what is spooled is its to type, not the agent's to read."""
+        return self.relaying and not self.stalled
 
     def counts(self) -> tuple[int, int, int, int]:
         """(total, from humans, from agents, pings) pending over every surveyed team."""
@@ -188,6 +208,8 @@ class Survey:
 
     def failure(self) -> str | None:
         found = {view.failure for view in self.teams if view.failure is not None}
+        if self.relaying and self.stalled:
+            found.add("relay")
         return next((cls for cls in FAILURE_CLASSES if cls in found), None)
 
     def digest(self) -> str:
@@ -200,7 +222,7 @@ class Survey:
         return sum(1 for view in self.teams if not view.waker)
 
 
-def _team_view(member: config.Member) -> TeamView:
+def _team_view(member: config.Member, spool: relay.Spool | None) -> TeamView:
     state = inbox.TeamState.for_member(member)
     try:
         holder = inbox.probe_lock(state)
@@ -210,6 +232,10 @@ def _team_view(member: config.Member) -> TeamView:
         record = inbox.load_cached_record(member)
         pending = state.pending(record.context(member.server_name), member.user_id,
                                 human_text=member.human_text)
+        if spool is not None:
+            spooled = spool.ids(member.team)
+            pending = inbox.Pending(tuple(item for item in pending.items if item.event_id not in spooled),
+                                    pending.rejected)
     except protocol.Untrusted:
         return TeamView(member.team, holder, None, "untrusted")
     except inbox.StateError:
@@ -222,10 +248,14 @@ def _team_view(member: config.Member) -> TeamView:
 def survey(environ: Mapping[str, str]) -> Survey:
     """Every active team, offline. `_Failure` when the bundles themselves are refused."""
     try:
+        relaying = relay.enabled(environ)
+        spool = relay.Spool(config.resolve_home(environ)) if relaying else None
         members = config.load_active(environ)
     except (config.ConfigError, config.UsageError):
         raise _Failure("config") from None
-    return Survey(tuple(_team_view(member) for member in members))
+    stalled = spool is not None and spool.stalled()
+    return Survey(tuple(_team_view(member, None if stalled else spool) for member in members),
+                  relaying, stalled)
 
 
 # ── starting the watcher ─────────────────────────────────────────────────────────────────
@@ -357,6 +387,20 @@ class _Hook:
 
     def session_start(self) -> dict:
         surveyed = survey(self.environ)
+        lines = [] if surveyed.relaying else self._wake_lines(surveyed)
+        seat_failure = None
+        try:
+            lines += seat_lines(self.environ, tuple(view.team for view in surveyed.teams))
+        except (config.ConfigError, inbox.StateError, OSError) as exc:
+            self.err.write(f"pingbus: hook session-start: the seats cannot be read: {exc}\n")
+            seat_failure = "state"
+        lines += role_lines(surveyed.teams)
+        lines += self._pending_and_failure(surveyed, seat_failure)
+        return _context(self.event, lines)
+
+    def _wake_lines(self, surveyed: Survey) -> list[str]:
+        """Start the watcher when the session has a socket and some team has no waker, and
+        say which wake path the session has. (Relay mode has none of this: the plugin owns it.)"""
         lines: list[str] = []
         try:
             session = notify.session_socket(self.environ)
@@ -377,15 +421,7 @@ class _Hook:
                 lines.append(TEMPLATES["watcher_started"])
         if held:
             lines.append(TEMPLATES["seat_held"].format(held=held, teams=teams))
-        seat_failure = None
-        try:
-            lines += seat_lines(self.environ, tuple(view.team for view in surveyed.teams))
-        except (config.ConfigError, inbox.StateError, OSError) as exc:
-            self.err.write(f"pingbus: hook session-start: the seats cannot be read: {exc}\n")
-            seat_failure = "state"
-        lines += role_lines(surveyed.teams)
-        lines += self._pending_and_failure(surveyed, seat_failure)
-        return _context(self.event, lines)
+        return lines
 
     def prompt(self) -> dict:
         return _context(self.event, self._pending_and_failure(survey(self.environ)))
@@ -401,7 +437,31 @@ class _Hook:
             lines.append(TEMPLATES[failure])
         return lines
 
+    def echo(self) -> str | None:
+        """The `SENT` echo of what this session sent since the last one (relay mode), or None."""
+        try:
+            if not relay.enabled(self.environ):
+                return None
+            home = config.resolve_home(self.environ)
+            handles = {member.team: member.handle for member in config.load_active(self.environ)}
+        except (config.ConfigError, config.UsageError):
+            raise _Failure("config") from None
+        problems: list[str] = []
+        text = sentlog.drain(home, handles, secrets.token_hex(4), problems)
+        for problem in problems:
+            self.err.write(f"pingbus: hook {self.event}: {problem}\n")
+        return text
+
+    def post_tool(self) -> dict:
+        text = self.echo()
+        return {} if text is None else {"systemMessage": text}
+
     def stop(self) -> dict:
+        echoed = self.echo()
+        decision = self.stop_decision()
+        return decision if echoed is None else {**decision, "systemMessage": echoed}
+
+    def stop_decision(self) -> dict:
         if self.payload is None or self.payload.get("stop_hook_active") is not False:
             return {}
         guard = _Guard.load(self.environ, self.err)
@@ -410,6 +470,8 @@ class _Hook:
         except _Failure as failure:
             return self.stop_failure(failure.cls, guard)
         total, humans, peers, pings = surveyed.counts()
+        if surveyed.relay_active:
+            total = 0  # the plugin types these; blocking would only duplicate
         if total:
             digest = surveyed.digest()
             if guard.values["pending"] != digest:
@@ -425,7 +487,7 @@ class _Hook:
         failure = surveyed.failure()
         if failure is not None:
             return self.stop_failure(failure, guard)
-        free = surveyed.without_waker()
+        free = 0 if surveyed.relaying else surveyed.without_waker()
         if free and guard.allow("no_waker_ms", self.now_ms, NO_WAKER_EVERY_S):
             return _block(TEMPLATES["no_waker"].format(free=free, teams=len(surveyed.teams)))
         return {}
@@ -443,6 +505,8 @@ class _Hook:
             return self.stop_failure(cls)
         if self.event == "session-end":
             return {}
+        if self.event == "post-tool":
+            return {"systemMessage": TEMPLATES[cls]}
         return _context(self.event, [TEMPLATES[cls]])
 
 
@@ -459,6 +523,8 @@ def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
             return hook.session_start()
         if event == "prompt":
             return hook.prompt()
+        if event == "post-tool":
+            return hook.post_tool()
         return hook.stop()
     except _Failure as failure:
         cls = failure.cls
