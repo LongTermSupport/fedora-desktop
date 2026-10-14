@@ -55,8 +55,8 @@ today; rewriting them is out of scope.
   (`.claude/ccy/Dockerfile`, `.qa-versions` GOLANGCI_LINT), checksum-verified; installed in
   the running container now (golangci-lint under `untracked/tools/bin` until the image is
   rebuilt).
-- [x] ✅ **Task 1.2**: Host and CI. `playbooks/imports/optional/common/play-golang.yml`
-  installs `golang`, all a build needs. `play-python.yml`, the one play that installs the QA
+- [x] ✅ **Task 1.2**: Host and CI. `playbooks/imports/play-golang.yml` (moved out of
+  `optional/` once two core plays imported it) installs `golang`, all a build needs. `play-python.yml`, the one play that installs the QA
   tools, imports it and installs the Go QA toolchain itself: `gcc` (what `go test -race` links
   against) and golangci-lint at the `.qa-versions` pin (checksum-verified from the release's
   checksums file, probed so it is idempotent and a pin change is applied). `scripts/qa-toolchain.bash` asserts golangci-lint at the pin and
@@ -68,7 +68,8 @@ today; rewriting them is out of scope.
 - [x] ✅ **Task 1.4**: `scripts/qa-go.bash` exists and is wired into `qa-all.bash` (a
   hard gate) and `qa-changed.bash` (any `src-go/` change): `golangci-lint fmt --diff` (any
   diff fails), `go vet`, `go test -race` with a whole-module statement coverage floor of 90%
-  (measured 94.2%), `golangci-lint run`, whole module, a missing tool a hard failure.
+  (measured 94.2%) and every package tested, `golangci-lint run`, whole module, a missing
+  tool a hard failure.
   Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
   go-qa-ci already runs it.
 
