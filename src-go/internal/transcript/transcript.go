@@ -1,7 +1,7 @@
 // Package transcript reads a Claude conversation's transcript: where a session's transcripts
 // live, which one a restored session resumes, how big its context is, and whether it took
-// input or finished a compaction after a given moment. It is the Go side of the transcript
-// functions in lib/session-registry.bash and replaces their dependency on jq.
+// input or finished a compaction after a given moment. lib/session-registry.bash keeps the
+// context, input and compaction readings, uncalled, as the reference the tests compare with.
 package transcript
 
 import (

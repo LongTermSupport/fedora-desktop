@@ -783,21 +783,6 @@ fi
 host_tz_summary=$(qa_gate_case_count "$host_tz_out")
 qa_pass_line ccy-host-time-zone "$host_tz_summary"
 
-# The ccy-sessions network column: a tmux session and a container know nothing about each
-# other, so the picker joins them through the process tree. Get the walk wrong and a row
-# labels a session with ANOTHER session's network — worse than showing nothing, because a
-# reader would act on it. Driven across both engines, `--name` in both spellings, podman's
-# re-exec, a non-engine process carrying `--name`, a container outside every session tree,
-# and both engines' renderings of an empty network list.
-session_network_out=""
-if ! session_network_out="$(bash "$SCRIPT_DIR/test-ccy-session-network.bash" 2>&1)"; then
-    qa_hard_gate_failed ccy-session-network \
-        "ccy session-network unit tests failed" \
-        "$session_network_out"
-fi
-session_network_summary=$(qa_gate_case_count "$session_network_out")
-qa_pass_line ccy-session-network "$session_network_summary"
-
 # `ccy --disconnect`, the undo for a wrong `--connect`. --connect also saves the network as
 # the project's default, which every later launch reconnects to, so the undo must clear
 # that default exactly when it names the network: every case checks the saved default as

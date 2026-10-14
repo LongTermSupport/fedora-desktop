@@ -240,13 +240,13 @@ echo "== the Go packages that carry the library's take-over, idle words and atta
 go_unit="$(cd "$REPO_ROOT/src-go" && PATH="${PATH#"$BIN":}" go test -count=1 ./internal/tmuxccy/ 2>&1)"
 check "tmuxccy's tests pass" "ok" "$([[ "$go_unit" == ok* ]] && echo ok || echo "$go_unit")"
 
-# ── the library, sourced; the launchers still use it ──────────────────────────────────────────────────────────────
+# ── the library, sourced: the bash take-over the Go port was written from ──────────────────────────────────────
 # shellcheck source=/dev/null
 source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/tmux-session.bash"
 
-for fn in ccy_tmux_idle_words ccy_tmux_client_words ccy_tmux_other_terminals ccy_tmux_take_over; do
+for fn in ccy_tmux_idle_words ccy_tmux_client_words ccy_tmux_take_over; do
     if ! declare -F "$fn" >/dev/null; then
         echo "FAIL: $fn is not defined after sourcing the libraries" >&2
         exit 1
@@ -265,13 +265,6 @@ check "one terminal" "/dev/pts/3 (idle 3 h)" \
     "$(ccy_tmux_client_words "/dev/pts/3 1000" $((1000 + 3 * 3600)))"
 check "two terminals" "/dev/pts/3 (idle 3 h), /dev/pts/7 (idle 2 min)" \
     "$(ccy_tmux_client_words $'/dev/pts/3 1000\n/dev/pts/7 11680' $((1000 + 3 * 3600)))"
-
-reset "ccy-a:/dev/pts/3"
-check "asked of tmux for a live session" "/dev/pts/3 (idle 3 h)" "$(ccy_tmux_other_terminals ccy-a)"
-reset
-err="$(ccy_tmux_other_terminals ccy-gone 2>&1)"
-check "a session that has ended is return 2, not a failure" "2" "$?"
-check "and says nothing about it: the caller words that" "" "$err"
 
 echo "== take over: the other terminal is detached, this one attached, nothing killed"
 reset "ccy-a:/dev/pts/3"

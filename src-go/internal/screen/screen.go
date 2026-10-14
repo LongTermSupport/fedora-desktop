@@ -1,8 +1,7 @@
 // Package screen reads what a ccy or cc pane shows: the text with its terminal escapes
 // removed, whether Claude's input box is drawn, busy or holding typed text, and which launcher
-// prompt (if any) the pane is waiting at. It is the Go side of lib/session-registry.bash's
-// screen functions and lib/common-pure.bash's prompt table, which stay the owner of the
-// prompt texts while the launchers are bash.
+// prompt (if any) the pane is waiting at. The screen reading lives only here; the launchers'
+// prompt table in lib/common-pure.bash stays the owner of the prompt texts while they are bash.
 package screen
 
 import (
@@ -76,7 +75,7 @@ var sgr = regexp.MustCompile(`^\x1b\[([0-9;:]*)m`)
 
 // Plain is the screen with its CSI escape sequences removed. tmux capture-pane -e writes
 // attributes into the text; everything but the input box's placeholder test reads the plain
-// text. Removal repeats until none is left, as the bash loop does.
+// text. Removal repeats until none is left.
 func Plain(s string) string {
 	for {
 		next := csi.ReplaceAllString(s, "")

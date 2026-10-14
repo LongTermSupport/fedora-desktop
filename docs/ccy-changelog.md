@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.8 — container 2.54
+
+- **The bash library drops what only the old `ccy-sessions` called.** The picker's
+  confirm question, the CPU, network, token and key probe with its column heading, the
+  terminals-on-a-session lookup, the Claude screen-state reader and the transcript lookup
+  by resume id are gone: the Go binary reads all of them itself (`src-go/internal/sessprobe`,
+  `internal/screen`, `internal/transcript`), and `ccy` and `cc` never called them. The
+  picker row keeps its name, state, optional extra column and directory. The image is
+  unchanged.
+
 ## 3.95.7 — container 2.54
 
 - **`ccy-sessions` is now a Go binary.** The command moves from a bash script to
@@ -24,8 +34,9 @@ Two version numbers move independently — see
   and installed at the same path with the same mode, so the boot restore unit, the
   set-going unit, `shutdown-with-update` and the self-update cycle call it as before. The
   picker, `--list`, `notify`, `reboot`, `restore`, `set-going` and `verify-restore` keep
-  their output and exit codes. The bash libraries stay: `ccy` and `cc` still use them. The
-  image is unchanged.
+  their output and exit codes. The bash libraries stay for the launchers' own use (the tmux
+  insulation, the session registry); 3.95.8 removed the functions only the old command
+  called. The image is unchanged.
 
 ## 3.95.6 — container 2.54
 

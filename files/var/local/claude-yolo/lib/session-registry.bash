@@ -1100,86 +1100,13 @@ ccy_restore_verdict() {
 # A session restored with --continue comes back at an empty prompt with its conversation
 # reloaded and a cold prompt cache. `ccy-sessions set-going` types the first thing into it:
 # `/compact` when its context is at or above the floor, so the first cold turn is the one
-# that shrinks it, else `continue`. What follows reads the two things that decision needs:
-# whether Claude's prompt has drawn (the pane) and how big the context is (the transcript).
-# The reasoning, and what each was measured against, is in Plan 00135's journal (26-10-08).
-
-# ccy_screen_plain <screen> — the screen with its escape sequences removed, printed. PURE.
-# set-going captures the pane with `capture-pane -e`, so the input box's placeholder can be
-# told from typed text by its attributes; everything else reads the plain text.
-ccy_screen_plain() {
-    local text="$1" csi=$'\e\\[[0-9;:?]*[A-Za-z]'
-    while [[ "$text" =~ $csi ]]; do
-        text="${text//"${BASH_REMATCH[0]}"/}"
-    done
-    printf '%s\n' "$text"
-}
-
-# _ccy_input_line_empty <raw-input-line> — whether the input box line holds no typed text.
-# Claude draws `❯`, a (no-break) space, and when the box is empty a placeholder in dim (SGR 2),
-# which tmux -e reproduces as an SGR sequence carrying a 2. Typed text has no dim on it.
-_ccy_input_line_empty() {
-    local rest="${1#*❯}" sgr=$'^\e\\[([0-9;:]*)m'
-    while [[ -n "$rest" ]]; do
-        case "$rest" in
-        " "* | $'\xc2\xa0'*)
-            rest="${rest#" "}"
-            rest="${rest#$'\xc2\xa0'}"
-            ;;
-        $'\e'*)
-            [[ "$rest" =~ $sgr ]] || return 1
-            if [[ ";${BASH_REMATCH[1]};" == *";2;"* ]]; then
-                return 0
-            fi
-            rest="${rest#"${BASH_REMATCH[0]}"}"
-            ;;
-        *) return 1 ;;
-        esac
-    done
-    return 0
-}
-
-# ccy_claude_screen_state <screen> — "ready", "busy", "typed" or "not-drawn". PURE.
-# <screen> is `capture-pane -p -e` output (plain text works too, minus the placeholder test).
-# Claude Code's input box is a line beginning with ❯ framed by rule lines of ─ above and
-# below it. The same ❯ marks the cursor in Claude's selection dialogs, which are not framed
-# that way, so only a framed ❯ counts.
-#   busy    "esc to interrupt" in the few lines just above the box, where Claude's spinner
-#           sits while a turn or a compaction runs: typing then would queue behind it. The
-#           conversation above can quote the phrase; only the status area counts.
-#   typed   the box already holds text someone typed: Enter would submit it with ours.
-ccy_claude_screen_state() {
-    local screen="$1" i j k seen plain
-    local -a lines=() raw=()
-    # Ten rule characters as a literal prefix, not a regex repeat: in the C locale a unit may
-    # run in, a repeat would apply to the last byte of the three-byte ─ only.
-    local rule='──────────'
-    plain="$(ccy_screen_plain "$screen")"
-    mapfile -t lines <<<"$plain"
-    mapfile -t raw <<<"$screen"
-    for ((i = 1; i < ${#lines[@]}; i++)); do
-        [[ "${lines[i]}" == ❯* && "${lines[i - 1]}" == "$rule"* ]] || continue
-        for ((j = i + 1; j < ${#lines[@]}; j++)); do
-            [[ "${lines[j]}" == "$rule"* ]] || continue
-            seen=0
-            for ((k = i - 2; k >= 0 && seen < 4; k--)); do
-                [[ -n "${lines[k]// /}" ]] || continue
-                seen=$((seen + 1))
-                if [[ "${lines[k]}" == *"esc to interrupt"* ]]; then
-                    printf 'busy\n'
-                    return 0
-                fi
-            done
-            if [[ "${#raw[@]}" -eq "${#lines[@]}" ]] && ! _ccy_input_line_empty "${raw[i]}"; then
-                printf 'typed\n'
-            else
-                printf 'ready\n'
-            fi
-            return 0
-        done
-    done
-    printf 'not-drawn\n'
-}
+# that shrinks it, else `continue`. The reasoning, and what each was measured against, is in
+# Plan 00135's journal (26-10-08).
+#
+# The binary does the reading (src-go/internal/transcript, internal/screen); nothing here
+# calls the functions below. They stay only as the reference
+# src-go/internal/transcript/transcript_test.go (TestAgreesWithTheBashLibrary) compares the
+# Go reading against, and ccy_transcript_dir is the path calculation the shell suites share.
 
 # ccy_transcript_dir <prefix> <dir> <config-home> — the directory holding a session's
 # Claude transcripts, printed. PURE. ccy runs claude in its container at /workspace with
@@ -1196,49 +1123,6 @@ ccy_transcript_dir() {
         return 1
         ;;
     esac
-}
-
-# ccy_transcript_newest <transcript-dir> — the newest *.jsonl directly in it, printed: the
-# conversation `claude --continue` resumes. Subdirectories hold sub-agent transcripts and
-# are not looked in. None there is a failure, with the reason on stderr.
-ccy_transcript_newest() {
-    local tdir="$1" newest="" file
-    if [[ ! -d "$tdir" ]]; then
-        print_error "there is no transcript directory $tdir"
-        return 1
-    fi
-    for file in "$tdir"/*.jsonl; do
-        [[ -f "$file" ]] || continue
-        if [[ -z "$newest" || "$file" -nt "$newest" ]]; then
-            newest="$file"
-        fi
-    done
-    if [[ -z "$newest" ]]; then
-        print_error "there is no transcript in $tdir"
-        return 1
-    fi
-    printf '%s\n' "$newest"
-}
-
-# ccy_transcript_for <transcript-dir> <resume-id> — the conversation a restored session
-# resumes, printed: <id>.jsonl for a launch with --resume <id>, else the newest
-# (ccy_transcript_newest). An id that is not a plain conversation id, or whose file is not
-# there, is a failure: reading another conversation would decide on the wrong one.
-ccy_transcript_for() {
-    local tdir="$1" id="$2"
-    if [[ -z "$id" ]]; then
-        ccy_transcript_newest "$tdir"
-        return
-    fi
-    if [[ ! "$id" =~ ^[A-Za-z0-9-]+$ ]]; then
-        print_error "the resumed conversation id '$id' is not a conversation id."
-        return 1
-    fi
-    if [[ ! -f "$tdir/$id.jsonl" ]]; then
-        print_error "the resumed conversation $tdir/$id.jsonl is not there."
-        return 1
-    fi
-    printf '%s\n' "$tdir/$id.jsonl"
 }
 
 # ccy_transcript_context_tokens <file> — the conversation's context size in tokens, printed:
