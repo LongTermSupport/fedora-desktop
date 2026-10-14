@@ -1,5 +1,5 @@
 ---
-# Fixture for scripts/qa-ansible-pause.bash: nothing here may be reported.
+# Fixture for src-go/qa/ansiblepause tests: nothing here may be reported.
 # A task list, not a play, so no gate syntax-checks it.
 
 - name: A prompt whose answer the play uses
