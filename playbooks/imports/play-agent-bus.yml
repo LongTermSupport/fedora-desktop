@@ -143,6 +143,14 @@
         # The one place a team's effective allow_from is computed (helpers/agent_bus/bridge.py):
         # the declared list plus the LXC bridge's subnet. The team files rendered below carry
         # it, so the installer's firewall rule, unit drop-in and validation all see the same list.
+        # ansible.cfg caches facts (gathering = smart, jsonfile), so the bridge's entry may
+        # predate LXC's install, or play-lxc-install-config.yml creating the bridge earlier in
+        # this same run, and would wrongly read as "no bridge". Network facts are re-read from
+        # the live host here so the decision is always made on what exists now.
+        - name: Refresh the network facts the LXC bridge is read from
+          ansible.builtin.setup:
+            gather_subset: ['!all', '!min', 'network']
+
         - name: Add the LXC bridge's subnet to every team's allow_from
           ansible.builtin.command:
             argv:
