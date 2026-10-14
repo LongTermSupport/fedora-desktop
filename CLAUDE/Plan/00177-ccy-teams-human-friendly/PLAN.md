@@ -160,9 +160,12 @@ quit `ccy-teams` to start Element.
   checkout's GitHub `owner/repo` (an organisation team by its owner, a repository team by
   the repository), choosing alone when exactly one matches and saying so when none does.
   The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
-  ratchet, only calls it and must not grow.
+  ratchet, only calls it and must not grow. Built (`ccy-teams for-checkout [--choose]`, CCY
+  3.96.0), awaiting the owner's host test.
 - [ ] 🔄 **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
-  `.last-launch.conf` keeps the `--teams` list, and reusing it launches into the same team.
+  `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
+  it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
+  owner's host test.
 
 ## Success Criteria
 

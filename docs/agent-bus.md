@@ -54,10 +54,14 @@ that play.
    It shows it once, with the homeserver and username, and offers it to the clipboard; your
    other Element sessions are signed out ([The human's account](#the-humans-account)).
    Ctrl-E opens the team in Element.
-3. **Add ccy sessions.** `ccy --teams <team>` (no seat) shows this checkout's seats in the
-   team and launches a session into the one you choose: the lowest free seat, or a new one.
-   ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the
-   seat instead. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
+3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
+   finds the team for you (`ccy-teams for-checkout`): the one team that works on that
+   `owner/repo` (an organisation team by its owner), or you choose of several; with none it
+   says so and stops. It then goes on as `ccy --teams <team>` (no seat), which shows this
+   checkout's seats in the team and launches a session into the one you choose: the lowest
+   free seat, or a new one. ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
+   configuration" at the Quick Launch prompt (or a restore) launches into them again, and an
+   explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
    covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
    `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
@@ -305,6 +309,7 @@ plugin and settings. Its arguments are passed on to `claude`. An agent driven by
 A ccy session is in a team only when it is launched with it, and in no team otherwise:
 
 ```bash
+ccy --teams                                     # find the team from this checkout's GitHub repository
 ccy --teams <team>                              # choose the seat
 ccy --teams <seat>@<team>[,<seat>@<team>...]    # name it
 ```

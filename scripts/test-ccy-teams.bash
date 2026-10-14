@@ -138,6 +138,18 @@ esac
 FAKE
 chmod 755 "$bus_bin/gum"
 export FAKE_GUM_LOG="$work/gum.log"
+# The fake ccy-teams: `for-checkout --choose` is one line in $FAKE_BUS_LOG (after agent-bus's own
+# calls, in order); it prints FAKE_FIND_OUT (default team-a) and exits FAKE_FIND_RC.
+cat >"$bus_bin/ccy-teams" <<'FAKE'
+#!/usr/bin/env bash
+printf 'ccy-teams %s\n' "$*" >>"$FAKE_BUS_LOG"
+if [ "${FAKE_FIND_RC:-0}" -ne 0 ]; then
+    echo "ccy-teams: no team works on this checkout (fake)" >&2
+    exit "$FAKE_FIND_RC"
+fi
+printf '%s\n' "${FAKE_FIND_OUT-team-a}"
+FAKE
+chmod 755 "$bus_bin/ccy-teams"
 # A PATH with the fake agent-bus but no gum at all (the ccy image ships a real one).
 nogum_bin="$work/nogum-bin"
 mkdir -p "$nogum_bin"
@@ -372,15 +384,26 @@ nothing_ran() {
 }
 no_session_tools() { if grep -q '^podman run\|^ssh' "$work/tools.log"; then echo no; else echo yes; fi; }
 
-run_ccy with-bus --headless --teams
-check "--teams with no value: 64" "64" "$RC"
-check "  it says --teams needs a list" "yes" "$(has "--teams needs" "$work/ccy.err")"
-check "  nothing ran" "yes" "$(nothing_ran)"
-run_ccy with-bus --teams --headless
-check "--teams followed directly by another option: 64" "64" "$RC"
-check "  nothing ran" "yes" "$(nothing_ran)"
-run_ccy with-bus --teams= --headless
-check "--teams= (empty): 64" "64" "$RC"
+# A bare --teams asks ccy-teams which team works on this checkout, and the answer is then the
+# team named alone (nobody to choose a seat here, so the check refuses it: 64).
+find_then_check="ccy-teams for-checkout --choose|seat check team-a --resolved"
+for bare in "--headless --teams" "--teams --headless" "--teams= --headless" "--headless --teams --prompt go"; do
+    # shellcheck disable=SC2086  # the words are the case
+    run_ccy with-bus $bare
+    check "bare '$bare': ccy-teams finds the team, a team alone is then checked" "$find_then_check" "$(bus_calls)"
+    check "  a team alone with nobody to choose: 64" "64" "$RC"
+done
+FAKE_FIND_OUT=team-b run_ccy with-bus --headless --teams
+check "bare --teams: the team ccy-teams printed is the one checked" \
+    "ccy-teams for-checkout --choose|seat check team-b --resolved" "$(bus_calls)"
+FAKE_FIND_RC=1 run_ccy with-bus --headless --teams
+check "bare --teams, no team found: ccy-teams' exit code is the launch's" "1" "$RC"
+check "  it says why, and nothing but the question ran" "ccy-teams for-checkout --choose" "$(bus_calls)"
+check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
+FAKE_FIND_RC=130 run_ccy with-bus --teams --headless
+check "bare --teams, the person cancelled the choice: 130" "130" "$RC"
+FAKE_FIND_RC=1 run_ccy with-bus --teams dev1@team-a --headless
+check "an explicit --teams never asks ccy-teams" "no" "$(has 'for-checkout' "$FAKE_BUS_LOG")"
 run_ccy with-bus --teams dev1@team-a --teams qa2@team-b --headless
 check "--teams given twice: 64" "64" "$RC"
 check "  it says one flag carries every seat" "yes" "$(has "once" "$work/ccy.err")"
@@ -444,11 +467,14 @@ quick() {
         print_error() { printf "ERROR: %s\n" "$*" >&2; }
         token_expiry_label() { :; }
         read() { if [ "$1" = -rp ]; then echo PROMPT >>"$PROMPT_LOG"; return 1; fi; builtin read "$@"; }
-        CONFIG_VERSION=1 CCY_VERSION=9.9.9 CCY_HASH=h TOKEN_DIR=/nonexistent CCY_PROMPT_QUICK_LAUNCH="?"
-        HEADLESS_MODE="$1" SESSION_RESTORE=false NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
+        ccy_launch_teams() { printf "%s\n" "$TEAMS_LIST" >"$TEAMS_LOG"; CCY_SEATS="$TEAMS_LIST"; }
+        CONFIG_VERSION=2 CCY_VERSION=9.9.9 CCY_HASH=h TOKEN_DIR=/nonexistent CCY_PROMPT_QUICK_LAUNCH="?"
+        HEADLESS_MODE="$1" SESSION_RESTORE="${QUICK_RESTORE:-false}" NO_SSH_MODE=false SSH_KEYS=() SPECIFIED_TOKEN=""
         SPECIFIED_NETWORK="" NO_NETWORK_MODE=false NETWORK_FROM_CONFIG=false
+        TEAMS_GIVEN="${QUICK_TEAMS_GIVEN:-false}" TEAMS_LIST="${QUICK_TEAMS_LIST:-}" CCY_SEATS="" CCY_ORIG_ARGS=(--orig)
         [ "${2:-}" = --no-ssh ] && NO_SSH_MODE=true
         . "$0" >"$QUICK_OUT"
+        printf "%s|%s" "$TEAMS_LIST" "${CCY_ORIG_ARGS[*]}" >"$TEAMS_END"
         printf "token=%s keys=%s no_ssh=%s net=%s no_net=%s" "$SPECIFIED_TOKEN" "${SSH_KEYS[*]}" \
             "$NO_SSH_MODE" "$SPECIFIED_NETWORK" "$NO_NETWORK_MODE"' "$work/quick.bash" "$headless" "$@" \
         2>"$work/quick.err")
@@ -457,10 +483,19 @@ quick() {
 export PROMPT_LOG="$work/prompt.log"
 # What the block printed on stdout: a headless session's stdout is its output (StderrHygiene).
 export QUICK_OUT="$work/quick.out"
+export TEAMS_LOG="$work/teams-launched.log" TEAMS_END="$work/teams-end.txt"
+# save <token> <keys> <network> [teams]: a format-2 file, as the launcher writes it.
 save() {
     : >"$PROMPT_LOG"
-    printf 'SAVED_CONFIG_VERSION=1\nSAVED_CCY_VERSION="9.9.9"\nSAVED_CCY_HASH="h"\nLAST_TOKEN="%s"\nLAST_SSH_KEYS="%s"\nLAST_NETWORK="%s"\n' \
-        "$1" "$2" "$3" >"$proj/.claude/ccy/.last-launch.conf"
+    printf 'SAVED_CONFIG_VERSION=2\nSAVED_CCY_VERSION="9.9.9"\nSAVED_CCY_HASH="h"\nLAST_TOKEN="%s"\nLAST_SSH_KEYS="%s"\nLAST_NETWORK="%s"\nLAST_TEAMS="%s"\n' \
+        "$1" "$2" "$3" "${4:-}" >"$proj/.claude/ccy/.last-launch.conf"
+}
+# teams_after <quick output args...>: whether the team launch ran, for what list, and the
+# arguments a restart would replay.
+teams_after() {
+    : >"$TEAMS_LOG"
+    quick "$@" >/dev/null
+    printf 'ran=%s end=%s' "$(tr -d '\n' <"$TEAMS_LOG")" "$(cat "$TEAMS_END")"
 }
 
 save personal /keys/id_a proj_net
@@ -487,44 +522,78 @@ check "  it says how to launch instead" "yes" "$(has "--token" "$work/quick.err"
 check "headless with a launch-choice flag: the block is not entered" \
     "token= keys= no_ssh=true net= no_net=false rc=0 prompt=no" "$(quick true --no-ssh)"
 
+echo "=== Quick Launch remembers the team ==="
+
+save personal /keys/id_a proj_net dev1@team-a
+check "headless, a saved team: it is launched into, and a restart would replay it" \
+    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(teams_after true)"
+save personal /keys/id_a proj_net dev1@team-a
+check "  the summary shows the team" "yes" "$(has "Team:    dev1@team-a" "$work/quick.err")"
+save personal /keys/id_a proj_net dev1@team-a,qa2@team-b
+check "  several seats are kept together" "ran=dev1@team-a,qa2@team-b end=dev1@team-a,qa2@team-b|--orig --teams dev1@team-a,qa2@team-b" \
+    "$(teams_after true)"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive, the previous configuration accepted: the team comes with it" \
+    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(teams_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "a session restore takes the saved team as it takes the rest" \
+    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_RESTORE=true teams_after false)"
+save personal /keys/id_a proj_net ""
+check "saved with no team: none is launched into" "ran= end=|--orig" "$(teams_after true)"
+check "  the summary says none" "yes" "$(has "Team:    none" "$work/quick.err")"
+save personal /keys/id_a proj_net dev1@team-a
+check "an explicit --teams overrides the saved team" "ran= end=other-team|--orig" \
+    "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team teams_after true)"
+check "  the summary shows the team given, not the saved one" "yes" "$(has "Team:    other-team" "$work/quick.err")"
+check "  the saved one is not shown" "no" "$(has "dev1@team-a" "$work/quick.err")"
+save personal /keys/id_a proj_net dev1@team-a
+check "only --teams given: the Quick Launch offer still runs (token, keys and network from the file)" \
+    "token=personal keys=/keys/id_a no_ssh=false net=proj_net no_net=false rc=0 prompt=no" \
+    "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team quick true)"
+check "the launcher saves the team it launched into" "1" \
+    "$(grep -c -F "LAST_TEAMS=\"\${CCY_SEATS}\"" "$LAUNCHER")"
+
 echo "=== Quick Launch across ccy versions: kept while the file's format is unchanged ==="
 
 conf="$proj/.claude/ccy/.last-launch.conf"
 # save_as <format line, or ""> <ccy version> <hash> [key line to leave out]: a saved file as
-# another ccy wrote it. The harness's own ccy is 9.9.9, hash h, format 1.
+# another ccy wrote it. The harness's own ccy is 9.9.9, hash h, format 2.
 save_as() {
     : >"$PROMPT_LOG"
     {
         [ -z "$1" ] || printf '%s\n' "$1"
         printf 'SAVED_CCY_VERSION="%s"\nSAVED_CCY_HASH="%s"\n' "$2" "$3"
-        printf '%s\n' 'LAST_TOKEN="personal"' 'LAST_SSH_KEYS="/keys/id_a"' 'LAST_NETWORK="proj_net"'
+        printf '%s\n' 'LAST_TOKEN="personal"' 'LAST_SSH_KEYS="/keys/id_a"' 'LAST_NETWORK="proj_net"' 'LAST_TEAMS=""'
     } | grep -v "^${4:-NOTHING}=" >"$conf"
 }
 kept_choices="token=personal keys=/keys/id_a no_ssh=false net=proj_net no_net=false rc=0 prompt=no"
 refused="rc=1 prompt=no"
 file_left() { if [ -f "$conf" ]; then echo kept; else echo removed; fi; }
 
-save_as SAVED_CONFIG_VERSION=1 3.80.0 old
+save_as SAVED_CONFIG_VERSION=2 3.80.0 old
 check "another ccy version, same format: the saved choices are taken headless" "$kept_choices" "$(quick true)"
 check "  the file is kept" "kept" "$(file_left)"
 check "  no version-change discard is announced" "no" "$(has "version changed" "$work/quick.err")"
-save_as SAVED_CONFIG_VERSION=1 3.80.0 old
+save_as SAVED_CONFIG_VERSION=2 3.80.0 old
 check "another ccy version, same format: interactive still offers them" "yes" \
     "$(quick false | grep -q 'prompt=yes' && echo yes || echo no)"
-save_as SAVED_CONFIG_VERSION=1 9.9.9 other-hash
+save_as SAVED_CONFIG_VERSION=2 9.9.9 other-hash
 check "same version, another hash (an unbumped change): warned, choices kept" "$kept_choices" "$(quick true)"
 check "  the warning names the developer error" "yes" "$(has "without version bump" "$work/quick.err")"
 
-save_as SAVED_CONFIG_VERSION=2 9.9.9 h
+save_as SAVED_CONFIG_VERSION=3 9.9.9 h
 check "another format: discarded, so headless is refused" "$refused" "$(quick true | grep -o 'rc=.*')"
 check "  the file is removed" "removed" "$(file_left)"
 check "  the discard names the format" "yes" "$(has "format" "$work/quick.err")"
 save_as "" 3.80.0 old
 check "no format line: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
-save_as SAVED_CONFIG_VERSION=1 3.80.0 old LAST_NETWORK
-check "a format-1 file missing a key: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
+save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_NETWORK
+check "a format-2 file missing a key: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
 check "  it names the missing key" "yes" "$(has "LAST_NETWORK" "$work/quick.err")"
-save_as SAVED_CONFIG_VERSION=1 3.80.0 old LAST_TOKEN
+save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_TEAMS
+check "a format-2 file without LAST_TEAMS: discarded" "$refused removed" "$(quick true | grep -o 'rc=.*') $(file_left)"
+check "  it names the missing key" "yes" "$(has "LAST_TEAMS" "$work/quick.err")"
+save_as SAVED_CONFIG_VERSION=2 3.80.0 old LAST_TOKEN
 check "a missing key is not filled from the environment" "$refused removed" \
     "$(LAST_TOKEN=leaked quick true | grep -o 'rc=.*') $(file_left)"
 
@@ -575,9 +644,11 @@ check "the chooser runs once, before the rewrite (so the chosen seat is what is 
     "$([ "$(grep -c -F "$resolve_call" "$LAUNCHER")" = 1 ] && [ -n "$rewrite_line" ] \
         && [ "$resolve_line" -lt "$rewrite_line" ] && echo yes || echo no)"
 check "a restore, a restart, headless and no terminal count as nobody to choose" "yes" \
-    "$(grep -A2 '^    _ccy_teams_attended=false' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
+    "$(grep -A2 '^    ccy_nobody_to_ask || \[ ! -t 2 \]' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
         | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION' \
-        | grep -qF '|| _ccy_teams_attended=true' && echo yes || echo no)"
+        | grep -qF '|| attended=true' && echo yes || echo no)"
+check "the flag and the Quick Launch team go through the one function (definition and two calls)" "3" \
+    "$(grep -c -E '^ *ccy_launch_teams' "$LAUNCHER")"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"

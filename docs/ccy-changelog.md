@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.96.0 — container 2.54
+
+- **`ccy --teams` with no value finds the team.** It asks `ccy-teams for-checkout` which team
+  works on this checkout's GitHub `owner/repo`: the one match is used (and said), several are
+  chosen between, none is an error. Then it goes on as `--teams <team>`, with the seat chooser.
+- **Quick Launch remembers the team.** The saved configuration holds the launch's seats
+  (`LAST_TEAMS`, so its format is now 2: an older file is discarded with the usual message).
+  Using the previous configuration, or a session restore, launches into them again; an explicit
+  `--teams` overrides them. `save_launch_config` is inlined at its one call. The image is
+  unchanged.
+
 ## 3.95.10 — container 2.54
 
 - **The single-attach hook quotes the session name.** `ccy_tmux_single_attach_hook` put a bare
