@@ -34,8 +34,8 @@ that play.
    repository is checked as you type: its syntax, that it exists, and that your `gh` login
    can push to it. A failing entry is named with its reason and the list comes back to edit
    (three tries). Then the team's name (the repository's or owner's, lower-cased); the
-   people in its room (you, by default); and subnets of other machines, empty unless LXC
-   containers or other machines will run agents. The summary says the scope in plain words
+   people in its room (you, by default); and subnets of other machines (WireGuard peers,
+   a non-default bridge), usually none: LXC containers are admitted automatically. The summary says the scope in plain words
    and asks one question, "Create team <name>?". Yes adds the team to `agent_bus_teams` in
    your host_vars `localhost.yml` (backing the file up first), declares its Element
    profile, and installs both at once: `play-agent-bus.yml` for the team, then
@@ -70,8 +70,8 @@ that play.
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
    covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
 4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
-   `play-agent-bus.yml`. The team's `allow_from` must cover the LXC bridge
-   ([Joining a team](#joining-a-team)).
+   `play-agent-bus.yml`. Nothing to declare for the network: every team admits the LXC
+   bridge ([Joining a team](#joining-a-team)).
 5. **Pings for actions, mentions for discussion.** An agent asks another to act with a ping
    (pingbus's `send` verb: a fixed verb about a committed file). Free text one agent
    addresses to another by mention (pingbus's `say` verb with `--to`) is for the discussion
@@ -167,7 +167,8 @@ own IaC.
 
 `listen` is the list of addresses the homeserver answers on, besides `127.0.0.1`; any
 concrete address is accepted, the wildcards `0.0.0.0` and `::` are not. `allow_from` is the
-list of source ranges that may connect; the firewall and the homeserver's own systemd unit
+list of source ranges that may connect (on a fedora-desktop host the play adds the LXC
+bridge's subnet to it); the firewall and the homeserver's own systemd unit
 both enforce it. `server_name` is optional (the default is `<team>.agent-bus.internal`) and
 can never change once the team exists.
 
@@ -276,7 +277,7 @@ has a README in the member kit, `/usr/local/share/agent-bus/kit/` on every host 
 | -------- | ------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------- |
 | `podman` | in a ccy session                            | `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`                   | nothing extra                                                        | `README.podman` |
 | `host`   | on a desktop or server, as a dedicated user | `~<agent-user>/.config/pingbus/<team>/` (a cc session: a checkout seat) | nothing extra                                                        | `README.host`   |
-| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`                            | the LXC bridge's subnet                                              | `README.lxc`    |
+| `lxc`    | in an LXC container                         | the agent user's `~/.config/pingbus/<team>/`                            | nothing extra (the play admits the LXC bridge's subnet)              | `README.lxc`    |
 | `docker` | in a docker container                       | `$PINGBUS_HOME/<team>/`, writable                                       | the docker network's subnet                                          | `README.docker` |
 | `vm`     | in a virtual machine                        | the agent user's `~/.config/pingbus/<team>/`                            | the libvirt bridge's subnet; nothing on passt (user-mode) networking | `README.vm`     |
 
@@ -293,8 +294,13 @@ the container must be running, and the team must be declared present in `agent_b
 The agent user must have gh logged in to github.com inside the container: the play checks
 it for every container before it changes anything, and stops naming the container and
 `gh auth login` when it is missing; it never installs gh or supplies a token.
-The team's `allow_from` must cover the LXC bridge's subnet; if it does not, the play stops
-and names the subnet to add. The handle takes a fixed seat (`seat`, by default the
+`play-agent-bus.yml` adds the LXC bridge's subnet (read from the live `lxcbr0`, which
+`play-lxc-install-config.yml` sets up; `agent_bus_lxc_bridge` renames it) to every present
+team's `allow_from`, so `allow_from` is only for other machines (WireGuard) or a
+non-default bridge. With no such bridge the play says so and adds nothing; a bridge
+without an IPv4 address stops it (lxc-net is broken). The play still stops, naming the
+subnet, for a container on a bridge it did not admit. Virtual machines (libvirt) are not
+covered yet. The handle takes a fixed seat (`seat`, by default the
 container's name), so a member that has joined keeps its token from run to run. A member
 joined by hand holds a numbered seat, so declare it with `seat: <n>` (the play's refusal
 names the number). The play never parks an active numbered handle that the container
