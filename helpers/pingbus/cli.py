@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import dataclasses
+import functools
 import hashlib
 import io
 import json
@@ -36,7 +38,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
-from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify, protocol, syncer
+from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify, protocol, relay, sentlog, syncer
 from helpers.pingbus import seat as seating
 
 PROG = "pingbus"
@@ -254,6 +256,19 @@ def timeout_line(
 
 def sent_line(team: str, event_id: str) -> str:
     return format_line("SENT", _team(team), _event_id(event_id))
+
+
+def relay_line(team: str, server_name: str, outcome: protocol.Outcome) -> str:
+    """The spool line of an accepted item: its §15 line with the text capped to
+    `relay.BODY_MAX_BYTES`, and one final field, `cut`: `-` or `shown/total` bytes."""
+    cut = relay.CUT_NONE
+    if outcome.human is not None:
+        text, cut = relay.cap_text(outcome.human.text)
+        outcome = dataclasses.replace(outcome, human=dataclasses.replace(outcome.human, text=text))
+    elif outcome.peer is not None:
+        text, cut = relay.cap_text(outcome.peer.text)
+        outcome = dataclasses.replace(outcome, peer=dataclasses.replace(outcome.peer, text=text))
+    return f"{item_line(team, server_name, outcome)}\t{cut}"
 
 
 def history_line(team: str, server_name: str, item: syncer.HistoryItem) -> str:
@@ -596,7 +611,9 @@ class Runtime:
     notices; `spawn` starts the watcher from the SessionStart hook; `seats_root` is the
     checkout's seats (`SEAT` lines, the claim), `session_home` the home a claim builds, and
     `execvpe` replaces the process with the session once its seats are claimed;
-    `upstream` is the working directory's checkout and the branch it tracks (`send`)."""
+    `upstream` is the working directory's checkout and the branch it tracks (`send`);
+    `stopping`, once set, ends a relay-mode `watch` (the plugin that owns it otherwise
+    stops it by signal)."""
 
     forge_for: Callable[
         [config.Member, Mapping[str, str]], Callable[[protocol.TeamRecord], forge.Forge]
@@ -613,6 +630,9 @@ class Runtime:
     session_home: pathlib.Path = seating.SESSION_HOME
     execvpe: Callable[[str, list[str], dict[str, str]], object] = os.execvpe
     upstream: Callable[[], tuple[str, str] | None] = lambda: checkout_upstream(os.getcwd())
+    stopping: threading.Event = dataclasses.field(default_factory=threading.Event)
+    #: Posts a session-end goodbye `(team, text)`; None is the real one (`post_goodbye`).
+    post: Callable[[str, str], object] | None = None
 
 
 class _LockedStream:
@@ -702,6 +722,7 @@ def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: c
 def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """§9 on send, steps 1-7, in order; the first failure sends nothing."""
     rt: Runtime = args.runtime
+    relaying = relay.enabled(environ)
     member = _one_member(environ, args.team)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
@@ -718,8 +739,25 @@ def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     event_id = seat.client.send_message(member.room, content)
     with seat.state.outbox() as box:
         box.record_sent(event_id, args.verb, ref, ping.to, now)
+    if relaying:
+        _record_sent(environ, err, sentlog.ping_entry(
+            member.team, event_id, now, _localparts(ping.to, member.server_name), args.verb, ref, args.re))
     emit(sent_line(member.team, event_id), out, err)
     return EXIT_OK
+
+
+def _localparts(user_ids: Sequence[str], server_name: str) -> list[str]:
+    return [_localpart(user_id, server_name) for user_id in user_ids]
+
+
+def _record_sent(environ: Mapping[str, str], err: TextIO, entry: dict) -> None:
+    """Append a send the homeserver accepted to the sent log (relay mode). The send
+    stands whatever happens here, so a failure is said loudly on stderr, not raised."""
+    try:
+        sentlog.append(config.resolve_home(environ), entry)
+    except (OSError, ValueError) as exc:
+        err.write(f"{PROG}: the send went through but could not be recorded in {sentlog.SENT_LOG}, "
+                  f"so it will not be echoed: {getattr(exc, 'strerror', None) or exc}\n")
 
 
 def _read_text(stdin: BinaryIO) -> str:
@@ -739,22 +777,52 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     """§9 on send for an agent text: steps 1 and 2, §7's rules and the role in place of
     3, 4 and 6, the member's own token refused as `secret`, then 5 and 7."""
     rt: Runtime = args.runtime
+    relaying = relay.enabled(environ)
     member = _one_member(environ, args.team)
     text = _read_text(args.stdin)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
     to = protocol.with_coordinator_copy(_addressees(args, record, member), member.user_id, ctx)
+    event_id, now, said_to = _send_text(seat, ctx, to, text, rt)
+    if relaying:
+        _record_sent(environ, err, sentlog.say_entry(
+            member.team, event_id, now, _localparts(said_to, member.server_name), text))
+    emit(sent_line(member.team, event_id), out, err)
+    return EXIT_OK
+
+
+def _send_text(seat: _Seat, ctx: protocol.Context, to: list[str], text: str, rt: Runtime) -> tuple[str, int, list[str]]:
+    """§9 steps from the build of an agent text to its send; the event ID, the send time
+    and the validated addressees."""
+    member = seat.member
     content = protocol.build_text(to, text)
     said = protocol.validate_text_content(content, ctx)
     if config.read_token(member) in text:
         raise protocol.Refusal("secret")
     protocol.check_text_sender(member.user_id, ctx)
     digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
-    seat.state.admit_send(member.limits, SAY_GATE_VERB, digest, None, said.to, rt.clock_ms())
-    event_id = seat.client.send_message(member.room, content)
-    emit(sent_line(member.team, event_id), out, err)
-    return EXIT_OK
+    now = rt.clock_ms()
+    seat.state.admit_send(member.limits, SAY_GATE_VERB, digest, None, said.to, now)
+    return seat.client.send_message(member.room, content), now, said.to
+
+
+def post_goodbye(rt: Runtime, environ: Mapping[str, str], err: TextIO, team: str, text: str) -> None:
+    """The session-end goodbye as a plain room text from this member, to the team's listed
+    humans and its coordinator(s) (at most `MAX_TEXT_TO`, humans first), not to every agent:
+    each agent addressed costs a model turn, and the seat lock already tells agents the seat
+    is free. A refusal or homeserver failure is `hooks.GoodbyeFailed` with the command's own one-line message.
+    It is never written to the sent log: a goodbye is not an echo the session is owed."""
+    try:
+        member = _one_member(environ, team)
+        seat = _seat(member, environ, rt, err)
+        record = seat.syncer.verify_room()
+        ctx = record.context(member.server_name)
+        coordinators = [user for user in protocol.coordinators(ctx.roles) if user != member.user_id]
+        to = list(dict.fromkeys([*sorted(ctx.humans), *coordinators]))[:protocol.MAX_TEXT_TO]
+        _send_text(seat, ctx, to, text, rt)
+    except FAILURES as exc:
+        raise hooks.GoodbyeFailed(failure(exc)[1]) from None
 
 
 def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protocol.Outcome, object]:
@@ -773,31 +841,104 @@ def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protoco
     return outcome, event.get("sender")
 
 
+def _held(spool: relay.Spool | None) -> contextlib.AbstractContextManager[None]:
+    """The spool's exclusive lock, or nothing where there is no spool (relay off)."""
+    return contextlib.nullcontext() if spool is None else spool.exclusive()
+
+
+def _timeout_key(member: config.Member, timeout: inbox.Timeout) -> str:
+    """The spool key of one silent target of a ping: a ping can owe several TIMEOUTs."""
+    return relay.key(timeout.event_id, _localpart(timeout.target, member.server_name))
+
+
 def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
-             err: TextIO) -> tuple[int, collections.Counter[str]]:
+             err: TextIO, spool: relay.Spool | None = None,
+             relaying: bool = False) -> tuple[int, collections.Counter[str]]:
     """Print and consume every pending item from its re-fetched copy, then every TIMEOUT
-    due. (lines, what failed on re-fetch: the caller adds it to the batch's DROPPED line)"""
+    due. (lines, what failed on re-fetch: the caller adds it to the DROPPED line)
+
+    Whatever it consumes is withdrawn from `spool`, so relay never types what was read.
+    With `relaying` it prints nothing and consumes only what fails re-validation: each
+    accepted item and each TIMEOUT is spooled instead, once, and stays owed until the
+    plugin confirms it (`_relay_confirm`). (lines spooled, in that case)
+
+    `recv` and the watcher run in different processes. The re-fetch is a network round
+    trip, so it happens outside the spool lock; after it each takes the lock and finds out
+    whether the item is still in the inbox. Only the one that finds it there delivers it."""
     member, state = seat.member, seat.state
     ctx = record.context(member.server_name)
     now = rt.clock_ms()
     printed = 0
     drops: collections.Counter[str] = collections.Counter()
     for item in state.pending(ctx, member.user_id, human_text=member.human_text).items:
+        if relaying and spool.has(member.team, item.event_id):
+            continue
         outcome, sender = _refetch(seat, ctx, item.event_id)
-        if outcome.kind == protocol.ACCEPT:
-            emit(item_line(member.team, member.server_name, outcome), out, err)
-            printed += 1
-        elif outcome.kind == protocol.DROP:
-            state.log_drop(member.team, item.event_id, sender, outcome.reason, now)
-            drops[outcome.reason] += 1
-        state.consume(item.event_id)
-    with state.outbox() as box:
+        with _held(spool):
+            if not state.in_inbox(item.event_id):
+                continue
+            if outcome.kind == protocol.ACCEPT:
+                if relaying:
+                    spool.write(member.team, item.event_id, relay_line(member.team, member.server_name, outcome))
+                    printed += 1
+                    continue
+                emit(item_line(member.team, member.server_name, outcome), out, err)
+                printed += 1
+            elif outcome.kind == protocol.DROP:
+                state.log_drop(member.team, item.event_id, sender, outcome.reason, now)
+                drops[outcome.reason] += 1
+            state.consume(item.event_id)
+            if spool is not None:
+                spool.withdraw(member.team, item.event_id)
+    with _held(spool), state.outbox() as box:
         due = box.due_timeouts(now, member.limits)
         for timeout in due:
-            emit(timeout_line(member.team, member.server_name, timeout.event_id, timeout.target,
-                              timeout.verb, timeout.ref), out, err)
-        box.mark_reported(due)
-    return printed + len(due), drops
+            line = timeout_line(member.team, member.server_name, timeout.event_id, timeout.target,
+                                timeout.verb, timeout.ref)
+            if not relaying:
+                emit(line, out, err)
+                if spool is not None:
+                    spool.withdraw(member.team, _timeout_key(member, timeout))
+            elif spool.has(member.team, _timeout_key(member, timeout)):
+                continue
+            else:
+                spool.write(member.team, _timeout_key(member, timeout), f"{line}\t{relay.CUT_NONE}")
+            printed += 1
+        if not relaying:
+            box.mark_reported(due)
+    return printed, drops
+
+
+def _relay_confirm(seat: _Seat, spool: relay.Spool, rt: Runtime) -> int:
+    """Finish what the plugin confirmed typing: consume the inbox item (or report the
+    TIMEOUT for that one target) exactly once, then remove its line and marker. A marker
+    whose line `recv` already withdrew only has its marker removed. (confirmations handled)"""
+    member, state = seat.member, seat.state
+    if not spool.confirmed(member.team):
+        return 0
+    with spool.exclusive():
+        confirmed = spool.confirmed(member.team)
+        owed = [name for name in confirmed if spool.has(member.team, name)]
+        silent: list[tuple[str, str]] = []
+        for name in owed:
+            event_id, target = relay.split_key(name)
+            if target is None:
+                state.consume(event_id)
+            else:
+                silent.append((event_id, target))
+        if silent:
+            with state.outbox() as box:
+                box.mark_reported([t for t in box.due_timeouts(rt.clock_ms(), member.limits)
+                                   if (t.event_id, _localpart(t.target, member.server_name)) in silent])
+        for name in confirmed:
+            spool.finish(member.team, name)
+    return len(owed)
+
+
+def _spool_if_relaying(environ: Mapping[str, str]) -> relay.Spool | None:
+    """The relay spool when this session delivers by relay; with relay off there is no spool
+    to withdraw from or lock, and nothing relay-shaped is touched."""
+    return relay.Spool(config.resolve_home(environ)) if relay.enabled(environ) else None
 
 
 def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
@@ -817,7 +958,7 @@ def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
             batch = seat.syncer.sync_once(0)
         record = seat.syncer.record
         drops.update(batch.drops)
-    printed, refetched = _deliver(seat, record, rt, out, err)
+    printed, refetched = _deliver(seat, record, rt, out, err, _spool_if_relaying(environ))
     drops.update(refetched)
     if drops:
         emit(dropped_line(drops), out, err)
@@ -912,7 +1053,7 @@ def _emit_drops(pending: _Drops, out: TextIO, err: TextIO) -> None:
 
 
 def _deliver_all(seats: Sequence[_Seat], pending: _Drops, rt: Runtime, out: TextIO,
-                 err: TextIO) -> int:
+                 err: TextIO, spool: relay.Spool | None = None) -> int:
     """One pass of `wait` over its teams: deliver each trusted team's items, then one
     DROPPED line per team for its synced and re-fetched drops together. Each record is
     read once: a long-poll thread may lose trust (record None) at any moment. (lines)"""
@@ -921,7 +1062,7 @@ def _deliver_all(seats: Sequence[_Seat], pending: _Drops, rt: Runtime, out: Text
         record = seat.syncer.record
         if record is None:
             continue
-        lines, refetched = _deliver(seat, record, rt, out, err)
+        lines, refetched = _deliver(seat, record, rt, out, err, spool)
         printed += lines
         if refetched:
             pending.setdefault(seat.member.team, collections.Counter()).update(refetched)
@@ -945,6 +1086,7 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
         except limits.LimitsError as exc:
             raise config.UsageError(f"wait --timeout: {exc}") from None
     waiting = _Waiting(rt.monotonic() + timeout)
+    spool = _spool_if_relaying(environ)
     held: list[tuple[_Seat, inbox.Lock]] = []
     pending: _Drops = {}
     handed_over: set[str] = set()
@@ -964,7 +1106,7 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
             batch = seat.syncer.sync_once(0)
             if batch.drops:
                 pending.setdefault(seat.member.team, collections.Counter()).update(batch.drops)
-        if _deliver_all(seats, pending, rt, out, err):
+        if _deliver_all(seats, pending, rt, out, err, spool):
             return EXIT_OK
         until = rt.clock_ms() + timeout * 1000
         for seat in seats:
@@ -987,7 +1129,7 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
                 code, message = failure(exc)
                 err.write(f"{PROG}: team {team}: {message}\n")
                 return code
-            if _deliver_all(seats, pending, rt, out, err):
+            if _deliver_all(seats, pending, rt, out, err, spool):
                 return EXIT_OK
             if rt.monotonic() >= waiting.deadline:
                 err.write(f"{PROG}: nothing within {timeout} s: run wait again to re-arm\n")
@@ -1046,6 +1188,48 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, s
         lock.release()
 
 
+#: After a relay pass fails (the homeserver is down), how long before it tries again.
+RELAY_RETRY_S = 10.0
+
+
+@dataclasses.dataclass
+class _RelayLedger:
+    """What a relay-mode watcher keeps between passes."""
+
+    spool: relay.Spool
+    stall: relay.Stall
+    retry_at: float = 0.0
+
+
+def _relay_pass(seats: Sequence[_Seat], ledger: _RelayLedger, rt: Runtime, pending: _Drops,
+                err: TextIO) -> None:
+    """One relay pass over the trusted teams: finish what the plugin confirmed, spool every
+    pending item and TIMEOUT not yet spooled (each from its re-fetched, re-validated copy),
+    then record whether relay has stalled. A team whose pass fails is reported and tried
+    again after `RELAY_RETRY_S`: a homeserver that is down delays messages, never loses one."""
+    confirmed = 0
+    for seat in seats:
+        record = seat.syncer.record
+        if record is None:
+            continue
+        confirmed += _relay_confirm(seat, ledger.spool, rt)
+        if rt.monotonic() < ledger.retry_at:
+            continue
+        try:
+            _, refetched = _deliver(seat, record, rt, io.StringIO(), err, ledger.spool, relaying=True)
+        except FAILURES as exc:
+            _, message = failure(exc)
+            err.write(f"{PROG}: team {seat.member.team}: {message}: relay retries in {RELAY_RETRY_S:.0f} s\n")
+            ledger.retry_at = rt.monotonic() + RELAY_RETRY_S
+            continue
+        if refetched:
+            pending.setdefault(seat.member.team, collections.Counter()).update(refetched)
+    stalled = ledger.stall.observe(waiting=ledger.spool.waiting(), confirmed=confirmed)
+    if stalled != ledger.spool.stalled():
+        ledger.spool.set_stalled(stalled)
+        err.write(f"{PROG}: relay {'stalled: no relay was confirmed in time' if stalled else 'delivers again'}\n")
+
+
 def _session_socket(environ: Mapping[str, str]) -> tuple[str, str]:
     try:
         session = notify.session_socket(environ)
@@ -1067,9 +1251,10 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
     on; once no team is left, it exits with the first failure's code."""
     rt: Runtime = args.runtime
     err = _LockedStream(err)
-    path, token = _session_socket(environ)
+    relaying = relay.enabled(environ)
+    path, token = ("", "") if relaying else _session_socket(environ)
     members = config.load_active(environ, team=args.team)
-    if not notify.socket_present(path):
+    if not relaying and not notify.socket_present(path):
         err.write(f"{PROG}: the session socket is gone: nothing to wake\n")
         return EXIT_OK
     waiting = _Waiting(float("inf"))
@@ -1078,7 +1263,7 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
     handed_over: set[str] = set()
     try:
         for member in members:
-            seat = _seat(member, environ, rt, err)
+            seat = _seat(member, environ, rt, err, reads=relaying)
             try:
                 held.append((seat, _take_waiter_lock(seat.state, rt, "watch")))
             except inbox.Busy as busy:
@@ -1096,9 +1281,10 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
         status_ms = rt.clock_ms()
         for seat in seats:
             seat.syncer.publish_status(status_ms + WATCH_STATUS_TTL_MS)
-        notifier = notify.Notifier(lambda text: notify.send_notice(path, token, text),
-                                   first_number=max(1, rt.clock_ms()), clock=rt.monotonic,
-                                   min_interval_s=rt.notice_interval_s)
+        notifier = None if relaying else notify.Notifier(
+            lambda text: notify.send_notice(path, token, text), first_number=max(1, rt.clock_ms()),
+            clock=rt.monotonic, min_interval_s=rt.notice_interval_s)
+        ledger = _RelayLedger(relay.Spool(config.resolve_home(environ)), relay.Stall(rt.monotonic))
         for seat, lock in held:
             thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, status_ms),
                                       daemon=True, name=f"pingbus-watch-{seat.member.team}")
@@ -1108,17 +1294,23 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
         reported = 0
         first_failure: int | None = None
         while True:
-            if not notify.socket_present(path):
+            if relaying:
+                if rt.stopping.is_set():
+                    return EXIT_OK
+            elif not notify.socket_present(path):
                 err.write(f"{PROG}: the session socket is gone: the watcher exits\n")
                 return EXIT_OK
-            try:
-                notifier.observe(*_pending_view(seats))
-            except notify.SocketGone as gone:
-                err.write(f"{PROG}: {gone}: the watcher exits\n")
-                return EXIT_OK
+            if not relaying:
+                try:
+                    notifier.observe(*_pending_view(seats))
+                except notify.SocketGone as gone:
+                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    return EXIT_OK
             waiting.woke.wait(rt.tick_s)
             waiting.woke.clear()
             _collect_drops(waiting, pending)
+            if relaying:
+                _relay_pass(seats, ledger, rt, pending, err)
             _emit_drops(pending, out, err)
             while len(waiting.failures) > reported:
                 team, exc = waiting.failures[reported]
@@ -1180,7 +1372,9 @@ def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     """A Claude Code hook: stdin hook JSON, stdout hook JSON, always exit 0 (§13)."""
     rt: Runtime = args.runtime
     raw = args.stdin.read(HOOK_INPUT_MAX + 1)
-    result = hooks.run(args.event, raw, environ, now_ms=rt.clock_ms(), spawn=rt.spawn, err=err)
+    post = rt.post or functools.partial(post_goodbye, rt, environ, err)
+    result = hooks.run(args.event, raw, environ, now_ms=rt.clock_ms(), spawn=rt.spawn, err=err,
+                       post=post)
     out.write(json.dumps(result, ensure_ascii=True) + "\n")
     return EXIT_OK
 
@@ -1252,7 +1446,15 @@ def _overdue(state: inbox.TeamState, member: config.Member, now_ms: int) -> int:
     return len(box.due_timeouts(now_ms, member.limits))
 
 
-def _status_team(member: config.Member, now_ms: int, out: TextIO) -> None:
+def relay_state(environ: Mapping[str, str]) -> str:
+    """`off` without relay delivery, else `stalled` while the watcher recorded that no
+    relay was confirmed in time, else `on`."""
+    if not relay.enabled(environ):
+        return "off"
+    return "stalled" if relay.Spool(config.resolve_home(environ)).stalled() else "on"
+
+
+def _status_team(member: config.Member, now_ms: int, relay_field: str, out: TextIO) -> None:
     state = inbox.TeamState.for_member(member)
     wake = WAKE_NAMES.get(inbox.probe_lock(state) or "", "none")
     members, statuses = state.room_view()
@@ -1272,7 +1474,8 @@ def _status_team(member: config.Member, now_ms: int, out: TextIO) -> None:
         known = set(record.humans) | set(record.roles) | {member.admin}
         unexpected = sorted(uid for uid in members if uid not in known)
     fields += [f"overdue={overdue}", f"dropped={dropped}",
-               "unexpected=-" if record is None else f"unexpected={len(unexpected)}"]
+               "unexpected=-" if record is None else f"unexpected={len(unexpected)}",
+               f"relay={relay_field}"]
     trust = "trust=trusted" if record is not None else "trust=untrusted"
     out.write(report_line("TEAM", _team(member.team), member.handle, trust, *fields) + "\n")
     if record is None:
@@ -1297,11 +1500,12 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
     fails is reported and prints nothing; the others still run."""
     rt: Runtime = args.runtime
     now = rt.clock_ms()
+    relay_field = relay_state(environ)
     first_failure: int | None = None
     for member in config.load_active(environ, team=args.team):
         lines = io.StringIO()
         try:
-            _status_team(member, now, lines)
+            _status_team(member, now, relay_field, lines)
         except FAILURES as exc:
             code, message = failure(exc)
             err.write(f"{PROG}: team {member.team}: {message}\n")

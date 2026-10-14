@@ -38,7 +38,7 @@ LINE_RES = {
     "TEAM": re.compile(
         rf"TEAM\t{TEAM_RE}\t{protocol.HANDLE_PATTERN}\ttrust=(?:trusted|untrusted)"
         rf"\twake=(?:watcher|waiter|none)\tpending={COUNT_RE}\thumans={COUNT_RE}\tpeers={COUNT_RE}\tpings={COUNT_RE}"
-        rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}"),
+        rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}\trelay=(?:on|stalled|off)"),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
     "MEMBER": re.compile(
         rf"MEMBER\t{TEAM_RE}\t{LOCALPART_RE}\t(?:human|coordinator|worker)\t(?:listening|stale|-)"),
