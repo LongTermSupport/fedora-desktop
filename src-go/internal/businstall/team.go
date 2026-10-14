@@ -32,6 +32,9 @@ func (a *App) team(args []string) error {
 		return err
 	}
 	file := opts["team-file"]
+	if a.cfg.SourceDigest == "" {
+		return failf("this installer was built without a source digest to stamp (build it with -ldflags \"-X main.SourceDigest=<digest>\")")
+	}
 	if err = a.requireRoot(); err != nil {
 		return err
 	}
@@ -504,9 +507,6 @@ func (a *App) convergeUnits(team string, restart bool) error {
 // stamp is world-readable on purpose, so ccy-teams can tell a team is out of date without
 // sudo; it holds no secret.
 func (a *App) stampTeam(name string, canonical []byte) error {
-	if a.cfg.SourceDigest == "" {
-		return failf("this installer was built without a source digest to stamp (build it with -ldflags \"-X main.SourceDigest=<digest>\")")
-	}
 	running, err := os.Readlink(a.path(usrLocalDir + "/" + libRel + "/tuwunel"))
 	if err != nil {
 		return failf("%v", err)

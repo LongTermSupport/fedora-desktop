@@ -9,35 +9,27 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
 	"time"
 )
 
-// Write puts the state of the team directory dir into a tar on w: secrets/ (every file and
+// Write puts the state of the team directory root into a tar on w: secrets/ (every file and
 // directory below it), team.json, and registry.json and room_id when present. The
-// directory belongs to the agent-bus user, so it is read as hostile: through an os.Root,
-// never following a symlink, and a member that is anything but a plain file or directory
-// is an error ("backup: <path> is a <kind>, not a regular file"), not a stored link.
+// directory belongs to the agent-bus user, so it is read as hostile: through root, an
+// os.Root the caller opened once and used for every other look at the directory (so the name
+// cannot be swapped for a symlink between the checks and this read), never following a
+// symlink, and a member that is anything but a plain file or directory is an error ("backup:
+// <path> is a <kind>, not a regular file"), not a stored link. The caller closes root.
 //
 // Members are written 0600 / 0700 with no owner, and the finished tar is passed through
 // Read with the same limits before any byte reaches w, so Write cannot produce a tar that
 // Read would refuse.
-func Write(w io.Writer, dir string, limits Limits) error {
-	lim := limits.withDefaults()
-	root, err := os.OpenRoot(filepath.Clean(dir))
-	if err != nil {
-		return fmt.Errorf("backup: %w", err)
-	}
+func Write(w io.Writer, root *os.Root, limits Limits) error {
 	var buf bytes.Buffer
-	buildErr := assemble(&buf, root, lim)
-	if closeErr := root.Close(); closeErr != nil {
-		return errors.Join(buildErr, fmt.Errorf("backup: closing %s: %w", dir, closeErr))
-	}
-	if buildErr != nil {
-		return buildErr
+	if err := assemble(&buf, root, limits.withDefaults()); err != nil {
+		return err
 	}
 	if _, err := w.Write(buf.Bytes()); err != nil {
 		return fmt.Errorf("backup: %w", err)

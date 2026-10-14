@@ -22,6 +22,10 @@ func (f *FS) Sub(name string) (*FS, error) {
 	return &FS{root: root, display: f.shown(name), out: f.out, pid: f.pid}, nil
 }
 
+// Root is the directory this FS writes below, for a reader that takes an os.Root so it looks
+// at the directory through the same descriptor. The FS still owns it: do not close it.
+func (f *FS) Root() *os.Root { return f.root }
+
 // Display is the absolute path of name as messages show it.
 func (f *FS) Display(name string) string { return f.shown(name) }
 

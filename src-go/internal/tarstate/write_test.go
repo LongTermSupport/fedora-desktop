@@ -71,7 +71,7 @@ func teamDir(t *testing.T) string {
 func writeTar(t *testing.T, dir string) ([]byte, error) {
 	t.Helper()
 	var buf bytes.Buffer
-	err := Write(&buf, dir, DefaultLimits())
+	err := writeDir(&buf, dir, DefaultLimits())
 	return buf.Bytes(), err
 }
 
@@ -93,6 +93,37 @@ func TestWriteThenReadRoundTrips(t *testing.T) {
 	}
 	if got := fileData(t, s, "team.json"); got != `{"team":"a"}` {
 		t.Fatalf("team.json = %q", got)
+	}
+}
+
+// The directory is read through the descriptor the caller holds: a name swapped for a symlink
+// after the caller's checks does not redirect the read.
+func TestWriteReadsThroughTheRootNotTheName(t *testing.T) {
+	dir := teamDir(t)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := root.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	moved := dir + ".moved"
+	if err = os.Rename(dir, moved); err != nil {
+		t.Fatal(err)
+	}
+	decoy := teamDir(t)
+	putFile(t, filepath.Join(decoy, "team.json"), `{"team":"decoy"}`, 0o600)
+	if err = os.Symlink(decoy, dir); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err = Write(&buf, root, DefaultLimits()); err != nil {
+		t.Fatal(err)
+	}
+	if got := fileData(t, stateOf(t, buf.Bytes()), "team.json"); got != `{"team":"a"}` {
+		t.Fatalf("team.json = %q: the swapped name was read", got)
 	}
 }
 
@@ -235,7 +266,7 @@ func refuses(t *testing.T, setup func(d string) error, want string) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	err := Write(&buf, dir, DefaultLimits())
+	err := writeDir(&buf, dir, DefaultLimits())
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("error %v, want %q", err, want)
 	}
@@ -280,7 +311,7 @@ func TestWriteRequiresTeamJSONAndSecrets(t *testing.T) {
 			dir := teamDir(t)
 			remove(t, filepath.Join(dir, name))
 			var buf bytes.Buffer
-			err := Write(&buf, dir, DefaultLimits())
+			err := writeDir(&buf, dir, DefaultLimits())
 			if err == nil || !strings.Contains(err.Error(), "backup: "+name) {
 				t.Fatalf("error %v", err)
 			}
@@ -288,7 +319,7 @@ func TestWriteRequiresTeamJSONAndSecrets(t *testing.T) {
 	}
 	t.Run("directory missing", func(t *testing.T) {
 		var buf bytes.Buffer
-		if err := Write(&buf, filepath.Join(t.TempDir(), "absent"), DefaultLimits()); err == nil {
+		if err := writeDir(&buf, filepath.Join(t.TempDir(), "absent"), DefaultLimits()); err == nil {
 			t.Fatal("wrote a tar of nothing")
 		}
 	})
@@ -300,7 +331,7 @@ func TestWriteHonoursTheFileSizeLimit(t *testing.T) {
 	lim := DefaultLimits()
 	lim.MaxFileSize = 1024
 	var buf bytes.Buffer
-	err := Write(&buf, dir, lim)
+	err := writeDir(&buf, dir, lim)
 	if err == nil || !strings.Contains(err.Error(), "backup: secrets/big") {
 		t.Fatalf("error %v", err)
 	}
@@ -311,7 +342,7 @@ func TestWriteHonoursTheDepthLimit(t *testing.T) {
 	mkdir(t, filepath.Join(d, "secrets", "a", "b", "c", "d"), 0o700)
 	lim := DefaultLimits()
 	lim.MaxDepth = 3
-	if err := Write(io.Discard, d, lim); err == nil {
+	if err := writeDir(io.Discard, d, lim); err == nil {
 		t.Fatal("wrote a tree deeper than the limit")
 	}
 }
@@ -323,12 +354,12 @@ func TestWriteHonoursTheEntryAndTotalLimits(t *testing.T) {
 	}
 	lim := DefaultLimits()
 	lim.MaxEntries = 4
-	if err := Write(io.Discard, d, lim); err == nil || !strings.Contains(err.Error(), "more than 4 members") {
+	if err := writeDir(io.Discard, d, lim); err == nil || !strings.Contains(err.Error(), "more than 4 members") {
 		t.Fatalf("entries: %v", err)
 	}
 	lim = DefaultLimits()
 	lim.MaxTotal = 250
-	if err := Write(io.Discard, d, lim); err == nil || !strings.Contains(err.Error(), "total limit") {
+	if err := writeDir(io.Discard, d, lim); err == nil || !strings.Contains(err.Error(), "total limit") {
 		t.Fatalf("total: %v", err)
 	}
 }
@@ -338,7 +369,7 @@ func TestWriteRefusesANameTheReaderWouldRefuse(t *testing.T) {
 	dir := teamDir(t)
 	putFile(t, filepath.Join(dir, "secrets", "bad\nname"), "x", 0o600)
 	var buf bytes.Buffer
-	err := Write(&buf, dir, DefaultLimits())
+	err := writeDir(&buf, dir, DefaultLimits())
 	if !errors.Is(err, ErrRefused) {
 		t.Fatalf("error %v", err)
 	}
@@ -354,7 +385,7 @@ var errBoom = errors.New("boom")
 func (failWriter) Write([]byte) (int, error) { return 0, errBoom }
 
 func TestWriteReturnsAWriterError(t *testing.T) {
-	if err := Write(failWriter{}, teamDir(t), DefaultLimits()); !errors.Is(err, errBoom) {
+	if err := writeDir(failWriter{}, teamDir(t), DefaultLimits()); !errors.Is(err, errBoom) {
 		t.Fatalf("error %v", err)
 	}
 }
@@ -433,4 +464,13 @@ func TestListDirRefusesASymlink(t *testing.T) {
 	if err != nil || len(names) != 0 {
 		t.Fatalf("%q, %v", names, err)
 	}
+}
+
+// writeDir opens dir as the root Write takes, as the installer does for a team directory.
+func writeDir(w io.Writer, dir string, limits Limits) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	return errors.Join(Write(w, root, limits), root.Close())
 }

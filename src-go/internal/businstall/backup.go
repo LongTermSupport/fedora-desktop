@@ -114,7 +114,7 @@ func (a *App) signalForBackup(teamFS *fsx.FS, unit string) (int, error) {
 // tars of backups Tuwunel has pruned.
 func (a *App) keepState(team string, teamFS *fsx.FS, n int) error {
 	var buf bytes.Buffer
-	if err := tarstate.Write(&buf, a.path(stateDir+"/"+team), tarstate.Limits{}); err != nil {
+	if err := tarstate.Write(&buf, teamFS.Root(), tarstate.Limits{}); err != nil {
 		return failf("%v", err)
 	}
 	root, err := a.rootOwner()

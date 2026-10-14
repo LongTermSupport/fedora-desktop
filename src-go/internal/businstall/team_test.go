@@ -530,6 +530,12 @@ func TestTeamNeedsASourceDigestToStamp(t *testing.T) {
 	if h.exists("var/lib/agent-bus-applied/alpha.json") {
 		t.Fatal("a stamp was written")
 	}
+	if len(h.sim.log) != 0 {
+		t.Fatalf("a build that cannot stamp ran host programs first: %v", h.sim.log)
+	}
+	if h.exists("var/lib/agent-bus/alpha") || h.exists("etc/systemd/system/agent-bus-hs@alpha.service.d") {
+		t.Fatal("a build that cannot stamp changed the host")
+	}
 }
 
 func TestTeamPassesThePreviousInstalledTeamJSONToTheCheck(t *testing.T) {

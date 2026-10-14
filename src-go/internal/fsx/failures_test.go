@@ -153,6 +153,17 @@ func TestSettleDirRefusesAMissingDirectoryAndOneThatChangedUnderIt(t *testing.T)
 	}
 }
 
+// A directory made a moment ago is opened without following a link: a name swapped for a
+// symlink to another directory below the root is refused, not settled.
+func TestSettleDirDoesNotFollowASymlinkInPlaceOfTheDirectory(t *testing.T) {
+	e := newEnv(t, "/r")
+	e.mkdir("real")
+	e.symlink("real", "swapped")
+	if err := e.fs.settleDir("swapped", nil, 0o755, e.self); err == nil {
+		t.Fatal("settleDir followed a symlink")
+	}
+}
+
 func TestFixOpenedRefusesAFileThatIsNotTheOneSeenAndAClosedOne(t *testing.T) {
 	e := newEnv(t, "/r")
 	e.write("a", "x", 0o600)

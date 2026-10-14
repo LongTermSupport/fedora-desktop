@@ -171,7 +171,7 @@ func (f *FS) fixDir(name string, info fs.FileInfo, mode fs.FileMode, own Owner) 
 // the directory cannot be swapped for a symlink between the check and the change. before,
 // when not nil, is the lstat the opened directory must still match.
 func (f *FS) settleDir(name string, before fs.FileInfo, mode fs.FileMode, own Owner) (err error) {
-	d, err := f.root.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY, 0)
+	d, err := f.root.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return fmt.Errorf("%s: %w", f.shown(name), err)
 	}

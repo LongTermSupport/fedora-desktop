@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/businstall"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -18,13 +17,15 @@ import (
 // the digest of the checkout.
 var SourceDigest string
 
-// ownerOnly is the umask of the installer: modes are explicit everywhere, and this keeps a
-// file made by a child from being more open than its maker meant.
-const ownerOnly = 0o077
-
 func main() {
-	syscall.Umask(ownerOnly)
-	os.Exit(int(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr)))
+	os.Exit(int(execute()))
+}
+
+// execute is main without the exit, so a test can see what the process looks like afterwards.
+// It sets no umask: every file the installer writes carries an explicit mode on its own
+// descriptor, and a process-wide umask would reach the programs it runs.
+func execute() term.ExitCode {
+	return run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
 }
 
 // run builds the configuration (loadConfig is the one place the test build differs), resets
