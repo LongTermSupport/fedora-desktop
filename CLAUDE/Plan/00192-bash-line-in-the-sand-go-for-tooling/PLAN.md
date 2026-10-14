@@ -75,9 +75,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (`tasks/build-go-command.yml`); the bash tools, library, suites and gates deleted. The Fable
   review's fixes are in (sudo asks on `/dev/tty`, Ctrl-C and a lapsed sudo timestamp end an act
   batch cleanly, the sudo `-n true` probe, the inventory generic over the engine's record).
-  Waiting on the owner's host check in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md), run through
-  `meta-deploy.bash` (`deploy.bash` saves the bash tools' output first and ends with
-  `acceptance.bash`, which compares the Go tools with it), with the sudo fix.
+  Host acceptance: deployed by `meta-deploy.bash`. Output parity with the bash tools is
+  established: the first run matched byte for byte on three of the four commands (the fourth
+  stopped on a sudo prompt the Go sudo probe raised wrongly, now fixed), and the second run,
+  with no prompt, differed only by the containers started between the runs, every common row
+  identical. A live comparison against a saved baseline cannot repeat on a machine whose
+  containers change, so `acceptance.bash` is retired from the queue. Left for the owner: the
+  freeze, thaw and menu look in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) steps 3 and 4.
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
   `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
   It runs as root and changes behaviour (its D7), so it merges only after the owner's host test

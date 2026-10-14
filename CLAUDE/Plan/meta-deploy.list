@@ -20,19 +20,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00192's deploy.bash runs play-claude-yolo.yml, then play-podfreeze.yml and
-# play-lxcfreeze.yml, then its acceptance.bash. From Plan 00177, through
-# play-claude-yolo.yml: ccy-teams with no hidden keys (Enter on any row opens a menu of its
-# actions; a signed-in person is offered Element first, a new password asks first; Element
-# returns to the board), and bare `ccy --teams` finds the checkout's team, which Quick
-# Launch remembers (CCY 3.96.2). From Plan 00192: the Go sudo helper no longer asks for a
-# password where root needs none, so the freeze check that timed out on the sudo prompt
-# (lxcfreeze list) runs again against the baseline the last run saved; the plays report ok
-# where nothing changed.
-00192-bash-line-in-the-sand-go-for-tooling
-# agent team bus acceptance again: the last run passed every bus check, and failed only
-# M2.10 because a commit landed in this checkout while it ran
+# Plan 00161 follow-up: every team admits the LXC bridge's subnet, read from the live lxcbr0,
+# so an LXC container's agent can join with no allow_from entry; the play prints the subnet
+# it added, or one line saying there is no bridge.
+playbooks/imports/play-agent-bus.yml
+# agent team bus acceptance again. BEFORE running meta, launch `ccy` interactively once in
+# this checkout and choose the token and SSH keys (Quick Launch saves them; CCY 3.96 changed
+# the saved file's format, so the earlier choices were discarded); U20 reuses them.
 00161-agent-team-bus-matrix/acceptance.bash
-# Plan 00195: play-comms.yml grants Slack /var/lib/lxc:ro, then acceptance checks every
-# home symlink into an LXC container resolves in a fresh Slack sandbox. Relaunch Slack.
-00195-slack-reads-lxc-vhosts-through-project-symlinks

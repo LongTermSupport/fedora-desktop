@@ -45,7 +45,7 @@ to stderr.
 | The agent user exists (`getent passwd` gives a home)                                                                                              | `lxc-attach`                                                            | `LXC container <container> has no user <agent-user>: make the agent user in the container first`                            |
 | gh is installed and logged in to github.com as the agent user                                                                                     | `gh auth token --hostname github.com`, as the agent user                | `LXC container <container>: gh is required and must be logged in for <agent-user>: install gh in the container and run ...` |
 | The container reaches the homeserver host's bus address through an LXC bridge of the desktop                                                      | The container's source address towards the bus address                  | `... is on no network of this host` or `... reaches <bus> through <dev>, which is not a bridge of this host`                |
-| The team's `allow_from` covers that source address                                                                                                | The team file                                                           | `team <team>'s allow_from (...) does not cover LXC container ... add "<cidr>" to allow_from ...`                            |
+| The team admits that source address (the default LXC bridge always is; another bridge needs `agent_bus_lxc_bridge` or `allow_from`)               | The team file                                                           | `team <team>'s allow_from (...) does not cover LXC container ... set agent_bus_lxc_bridge ... or add "<cidr>" ...`          |
 | `python3` 3.11 or later, on `/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin` for root (the play runs `python3 -I` in the container) | The kit sync, as root                                                   | `pingbus needs Python 3.11 or later; this container has <version>`                                                          |
 | `runuser` (util-linux) and GNU `env` with `-C` (coreutils 8.28 or later)                                                                          | Every command run as the agent user is `runuser -u <user> -- env -i -C` | The failing command's own error, as `container <container>: ... failed (exit N)`; there is no separate version probe        |
 | `git`, and a checkout of a GitHub repository (an `origin` remote on github.com) at the declared `checkout` path                                   | `pingbus suggest-handle`, run as the agent user in the checkout         | `suggest-handle` refuses with its own message; a checkout that is not the declared `repo` is refused naming both            |
@@ -69,17 +69,11 @@ Notes on the table:
 
 ## The desktop side
 
-1. **Declare the team** in `agent_bus_teams` in the desktop's `localhost.yml`, with
-   `allow_from` listing the subnet of the LXC bridge the container is on. Find it on the
-   desktop:
-
-   ```bash
-   ip -4 addr show <bridge> | cat
-   ```
-
-   The `inet` line gives the address and prefix, for example `192.0.2.1/24`; the subnet to
-   list is its network, `192.0.2.0/24`. If the list is missing the subnet, the play stops
-   and names the one to add, so you can also let it tell you. Then apply the team:
+1. **Declare the team** in `agent_bus_teams` in the desktop's `localhost.yml` (or with
+   `ccy-teams create`). Nothing in it is needed for LXC: the team play reads the subnet of
+   the LXC bridge this repository sets up (`lxcbr0`, or `agent_bus_lxc_bridge` when it is
+   renamed) from the live host and admits it for every team, so `allow_from` stays for other
+   machines reached over WireGuard. Then apply the team:
 
    ```bash
    ccy-teams apply <team>
