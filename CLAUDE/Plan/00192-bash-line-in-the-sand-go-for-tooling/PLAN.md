@@ -135,6 +135,26 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   limit in the spec, no code change; F9 fixed as routing data plus a `nokill-containerwatch` check
   in `qa/changed` (`scripts/qa-routing.tsv`: the watchdog, its two panel files and the gate's own
   files run the gate).
+  `qa-patterns.bash` (P3, fourth orchestrator) on `go-port/qa-patterns`: ported, not merged; spec
+  [SPEC-qa-patterns.md](SPEC-qa-patterns.md), expectations P1-P18, 14 departures B1-B14; nested
+  `src-go/qa/patterns` and `qa/cmd/qa-patterns`; semgrep stays the engine for the rules, which stay
+  data in `.semgrep/bash-conventions.yml`; the Go owns scope (what git would publish), the rule
+  self-test, the mirror and the coverage assertions; the script a build-and-run wrapper, its
+  allowlist row gone; `qa-changed` gains a `patterns` check (SPEC-qa-changed B33). Same result and
+  same 433 scanned files as the bash on the live tree. Fable review
+  (subagent-reports/261014-fable-review-qa-patterns.md) dispositions, all fixed spec first and
+  test first on `go-port/qa-patterns`: F1 the rule id is the bare id (rules copied beside the
+  mirror, `--config ../rules.yml`), proven against real semgrep on the printed line and the report
+  (P11, B13); F2 CRLF normalised to LF in the mirror, proven for both `$`-anchored rules (P10, B13);
+  F3 a symlink whose target is not among the scanned scripts is scanned under its own name and
+  named in the coverage line, which claims only what was checked (P8, P16, B14); F4 an empty
+  `.semgrepignore` and `--max-target-bytes=0` keep `tests/`, `vendor/` and files over 1 MB in the
+  scan (P10, P11, B13); F5 `qa-changed` runs `patterns` when the wrapper, `go-tool.bash` or
+  `qa-trees.tsv` change, and a rules file change no longer prints `skipped (excluded tree)` beside
+  `check patterns` (B33 pins updated); F6 SPEC section 1 now agrees with section 4; F7 the dead
+  branch in `fail()` is gone, B7 reworded, an error with no path prints `(no path)`, and the gosec
+  exclusion is narrowed from the whole package to the files that read by computed path. Live
+  tree after the fixes: 433 scanned, 17 partial-parse notes, exit 0.
 
 ### Phase 4: Review
 

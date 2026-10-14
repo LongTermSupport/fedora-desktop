@@ -36,6 +36,11 @@ also	helpers/agent_bus/declare.py	go	-
 also	*.bash,*.sh,*.j2	bash-limits	-
 also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/proc/*	bash-limits	-
 also	scripts/bash-limits.allowlist	bash-limits	covered
+# The bash-convention gate runs whole when its rules, their fixture or the tool that applies them change.
+also	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	patterns	covered
+also	src-go/qa/patterns/*,src-go/qa/cmd/qa-patterns/*	patterns	-
+# The wrapper that builds and runs the gate, the library it runs through and the table of excluded trees it reads.
+also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patterns	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
@@ -43,6 +48,14 @@ also	@listed:bash-limits.allowlist	bash-limits	-
 # runs whole when its own script or Go package changes (so it is not also picked as a suite).
 also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-nokill-containerwatch/*,helpers/containerwatch/*,extensions/fedora-desktop@fedora-desktop/containerReport.js,extensions/fedora-desktop@fedora-desktop/sections/containers.js	nokill-containerwatch	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
+# Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
+# excluded shell tree, so the rows below would only report it skipped). These rows end the search
+# with no check and no cover: the patterns row above, or the suite that names the file in
+# scripts/qa-gates.tsv (selected by name), covers it.
+first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*	-	-
+# Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
+first	.semgrep/*	-	-
 first	*.md	docs	covered
 first	*.js,*.mjs	node-check	covered,tree:shell
 first	src-go/*	go	covered,closure

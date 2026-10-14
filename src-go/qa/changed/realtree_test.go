@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -168,6 +169,76 @@ func TestEverySelectableSuitePrintsTheCanonicalCountLine(t *testing.T) {
 		}
 		if !printsCount.Match(text) {
 			t.Errorf("%s can be selected by qa-changed but prints no 'passed: <n> failed: <m>' line, so qa-changed would call it a suite that proved nothing", name)
+		}
+	}
+}
+
+// Every file under .semgrep/ is read by the gate or suite listed here; a change to one must run
+// it, and none may be called covered when nothing checked it (SPEC-qa-changed B33).
+var semgrepReaders = map[string]string{
+	".semgrep/bash-conventions.yml":  "check:patterns",
+	".semgrep/bash-conventions.bash": "check:patterns",
+	".semgrep/gh-scopes.yml":         "scripts/qa-gh-scopes.bash",
+	".semgrep/gh-scopes.fixture":     "scripts/qa-gh-scopes.bash",
+	".semgrep/ready-wait.yml":        "scripts/qa-ready-wait-rules.bash",
+	".semgrep/ready-wait.py":         "scripts/qa-ready-wait-rules.bash",
+	".semgrep/ready-wait.bash":       "scripts/qa-ready-wait-rules.bash",
+	".semgrep/speech-to-text.yml":    "scripts/qa-speech-to-text-rules.bash",
+	".semgrep/speech-to-text.js":     "scripts/qa-speech-to-text-rules.bash",
+	".semgrep/speech-to-text.py":     "scripts/qa-speech-to-text-rules.bash",
+}
+
+func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, ".semgrep"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if _, ok := semgrepReaders[".semgrep/"+e.Name()]; !ok {
+			t.Errorf(".semgrep/%s is in the tree but has no reader in this test: name the gate that reads it, or delete the file", e.Name())
+		}
+	}
+	for rel, reader := range semgrepReaders {
+		checkSemgrepRoute(t, root, rel, reader)
+	}
+}
+
+func checkSemgrepRoute(t *testing.T, root, rel, reader string) {
+	t.Helper()
+	{
+		s := &session{
+			env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+			root:    root,
+			scripts: filepath.Join(root, "scripts"),
+			opts:    options{base: "HEAD"},
+		}
+		if err := s.load(); err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		if err := s.classify(ctx, collected{existing: []string{rel}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.selectSuites(ctx); err != nil {
+			t.Fatal(err)
+		}
+		p := s.plan
+		if id, isCheck := strings.CutPrefix(reader, "check:"); isCheck {
+			if !p.has(id) {
+				t.Errorf("%s does not run the %s check: %v", rel, id, keys(p))
+			}
+		} else if !slices.ContainsFunc(p.suites, func(ps pickedSuite) bool { return ps.name == reader }) {
+			t.Errorf("%s does not run %s: suites %+v", rel, reader, p.suites)
+		}
+		if len(p.uncovered) != 0 || len(p.skipped) != 0 {
+			t.Errorf("%s: uncovered %v skipped %v", rel, p.uncovered, p.skipped)
+		}
+		if !p.covered[rel] {
+			t.Errorf("%s is not covered by the check or suite that reads it", rel)
 		}
 	}
 }

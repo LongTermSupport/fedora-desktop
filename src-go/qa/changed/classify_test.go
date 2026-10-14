@@ -253,6 +253,30 @@ func TestSrcGoRoutingIncludingTheLintConfigAndTheNestedModule(t *testing.T) {
 	}
 }
 
+func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{".semgrep/bash-conventions.yml", ".semgrep/bash-conventions.bash", "src-go/qa/patterns/run.go", "src-go/qa/cmd/qa-patterns/main.go"} {
+		w.touch(f, "// x")
+		p := w.classify([]string{f})
+		if !p.has("patterns") || len(p.uncovered) != 0 || len(p.skipped) != 0 {
+			t.Errorf("%s: checks %v uncovered %v skipped %v", f, keys(p), p.uncovered, p.skipped)
+		}
+	}
+	// The wrapper, the library it runs and the table it reads change what the gate does.
+	for _, f := range []string{"scripts/qa-patterns.bash", "scripts/lib/go-tool.bash", "scripts/qa-trees.tsv"} {
+		if f != "scripts/qa-trees.tsv" {
+			w.touch(f, "#!/usr/bin/bash")
+		}
+		if p := w.classify([]string{f}); !p.has("patterns") {
+			t.Errorf("%s: checks %v", f, keys(p))
+		}
+	}
+	w.touch(".semgrep/gh-scopes.yml", "# x")
+	if p := w.classify([]string{".semgrep/gh-scopes.yml"}); p.has("patterns") {
+		t.Fatalf("another rule file: %v", keys(p))
+	}
+}
+
 func TestParityReferencesRunTheGoGateAndStillClassify(t *testing.T) {
 	w := newWorld(t)
 	w.touch("files/var/local/claude-yolo/lib/common-pure.bash", "#!/usr/bin/bash")
@@ -329,6 +353,20 @@ func TestUnmatchedFileIsUncovered(t *testing.T) {
 	p := w.classify([]string{".github/workflows/ci.txt"})
 	if !reflect.DeepEqual(p.uncovered, []string{".github/workflows/ci.txt"}) {
 		t.Fatalf("uncovered: %v", p.uncovered)
+	}
+}
+
+// A .semgrep/ file that no gate reads is reported uncovered, not called covered and not hidden
+// as an excluded tree (SPEC-qa-changed B33).
+func TestASemgrepFileNothingReadsIsUncovered(t *testing.T) {
+	w := newWorld(t)
+	w.touch(".semgrep/unread.yml", "rules: []")
+	w.touch(".semgrep/unread.py", "# x")
+	for _, f := range []string{".semgrep/unread.yml", ".semgrep/unread.py"} {
+		p := w.classify([]string{f})
+		if !reflect.DeepEqual(p.uncovered, []string{f}) || len(p.skipped) != 0 || len(keys(p)) != 0 {
+			t.Errorf("%s: uncovered %v skipped %v checks %v", f, p.uncovered, p.skipped, keys(p))
+		}
 	}
 }
 

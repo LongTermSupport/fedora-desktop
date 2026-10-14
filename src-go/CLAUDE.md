@@ -142,5 +142,11 @@ script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwa
 (expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
 `git ls-files` it needs is run by the command through the seam.
 
+`qa/patterns` + `qa/cmd/qa-patterns` (same nested module) are `scripts/qa-patterns.bash`, the
+bash-convention gate: semgrep stays the engine and `.semgrep/bash-conventions.yml` the data; the Go
+owns scope (what git would publish), the rule self-test against its fixture, the scan mirror and
+the refusal to pass over a script semgrep did not read or parse. git and semgrep go through
+`qa/internal/proc`, faked in the unit tests; `SPEC-qa-patterns.md` (P1-P18) is the specification.
+
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).
