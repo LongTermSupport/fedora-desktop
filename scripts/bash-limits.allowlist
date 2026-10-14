@@ -98,7 +98,6 @@ scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/nvidia-status.bash	430	4	519	-
 scripts/qa-ansible-pause.bash	96	1	71	-
 scripts/qa-ansible-syntax.bash	88	0	81	assoc,data
-scripts/qa-ansible.bash	351	1	284	data
 scripts/qa-bash.bash	110	0	102	assoc,data
 scripts/qa-deployed-drift.bash	165	1	165	-
 scripts/qa-discovery.bash	158	14	221	-
