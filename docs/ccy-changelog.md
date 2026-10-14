@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.95.7 — container 2.54
+
+- **`ccy-sessions` is now a Go binary.** The command moves from a bash script to
+  `src-go/cmd/ccy-sessions` (Plan 00191), built by `play-claude-yolo.yml` from this checkout
+  and installed at the same path with the same mode, so the boot restore unit, the
+  set-going unit, `shutdown-with-update` and the self-update cycle call it as before. The
+  picker, `--list`, `notify`, `reboot`, `restore`, `set-going` and `verify-restore` keep
+  their output and exit codes. The bash libraries stay: `ccy` and `cc` still use them. The
+  image is unchanged.
+
 ## 3.95.6 — container 2.54
 
 - **`ccy-teams` is now a Go binary.** The command moves from a bash template to

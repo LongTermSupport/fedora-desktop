@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit-test taking over a CCY session that is open in another terminal: the library's
 # ccy_tmux_take_over and its helpers (files/var/local/claude-yolo/lib/tmux-session.bash),
-# and the Ctrl-T key in the ccy-sessions picker (files/home/.local/bin/ccy-sessions).
+# and the Ctrl-T key in the ccy-sessions picker (the Go binary, src-go/cmd/ccy-sessions).
 #
 # WHY THIS EXISTS. A session can be attached from one terminal only, so a terminal that
 # dropped without letting go — an SSH connection that died while its tmux client stayed
@@ -21,11 +21,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TOOL="$REPO_ROOT/files/home/.local/bin/ccy-sessions"
 LIB_DIR="$REPO_ROOT/files/var/local/claude-yolo/lib"
-# CCY_SESSIONS_IMPL=go drives the picker cases against the Go port's binary (Plan 00191); the
-# library cases, which test the bash library itself, are then answered by the Go packages' tests.
-IMPL="${CCY_SESSIONS_IMPL:-bash}"
 
 for lib in common-pure.bash tmux-session.bash; do
     if [ ! -f "$LIB_DIR/$lib" ]; then
@@ -64,14 +60,12 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/untracked/scratch/sessions-take-over-test.XXXXX
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
-if [ "$IMPL" = go ]; then
-    TOOL="$SCRATCH/ccy-sessions"
-    echo "== the Go binary"
-    check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
-    if [ ! -x "$TOOL" ]; then
-        echo "FAIL: the Go binary was not built" >&2
-        exit 1
-    fi
+TOOL="$SCRATCH/ccy-sessions"
+echo "== the Go binary"
+check "the Go binary builds" "" "$(cd "$REPO_ROOT/src-go" && go build -trimpath -o "$TOOL" ./cmd/ccy-sessions 2>&1)"
+if [ ! -x "$TOOL" ]; then
+    echo "FAIL: the Go binary was not built" >&2
+    exit 1
 fi
 
 # ── the fakes ─────────────────────────────────────────────────────────────────────────
@@ -237,19 +231,16 @@ detaches() { grep -c '^detach-client' "$LOG"; }
 # where it never lets go. The binary reads it too.
 export CCY_TMUX_TAKE_OVER_WAIT_TENTHS=3
 
-if [ "$IMPL" = go ]; then
-# ── the library cases, answered by the Go packages ────────────────────────────────────
-# The cases below source lib/tmux-session.bash and call its functions: they test the bash
-# library, which the launchers still use, and cannot test a binary. The same behaviour in the
-# Go port (idle words, client words, other terminals, take over, attach, with the same
-# scenarios) is tested by internal/tmuxccy's tests, and the picker cases further down drive
-# the binary through the same fake tmux.
-echo "== the Go packages that replace the library's take-over, idle words and attach"
+# ── the Go packages the binary uses ───────────────────────────────────────────────────
+# The same behaviour as the library cases below (idle words, client words, other terminals,
+# take over, attach) is tested in the Go port by internal/tmuxccy's tests; the picker cases
+# further down drive the binary through the same fake tmux.
+echo "== the Go packages that carry the library's take-over, idle words and attach"
 # Without the fake tmux first on PATH: those tests run a real tmux of their own.
 go_unit="$(cd "$REPO_ROOT/src-go" && PATH="${PATH#"$BIN":}" go test -count=1 ./internal/tmuxccy/ 2>&1)"
 check "tmuxccy's tests pass" "ok" "$([[ "$go_unit" == ok* ]] && echo ok || echo "$go_unit")"
-else
-# ── the library, sourced ──────────────────────────────────────────────────────────────
+
+# ── the library, sourced; the launchers still use it ──────────────────────────────────────────────────────────────
 # shellcheck source=/dev/null
 source "$LIB_DIR/common-pure.bash"
 # shellcheck source=/dev/null
@@ -372,8 +363,6 @@ reset "ccy-a"
 check "inside a user's own tmux: nothing, and tmux is not asked" ":0" \
     "$(TMUX="/tmp/tmux-1000/default,123,0" TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session):$(grep -c '^display-message' "$LOG")"
 check "outside tmux: nothing" "" "$(env -u TMUX TEST_TMUX_CURRENT=ccy-a bash -c "$(printf 'source %q; source %q; ccy_tmux_current_session' "$LIB_DIR/common-pure.bash" "$LIB_DIR/tmux-session.bash")")"
-
-fi
 
 # ── the picker: ccy-sessions under a terminal ─────────────────────────────────────────
 # run_picker <answers...> — run the real ccy-sessions in the scratch directory with the

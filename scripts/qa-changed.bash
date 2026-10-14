@@ -21,8 +21,9 @@
 #   markdown, playbooks yml    the docs gate (qa-docs.bash, whole: it is fast)
 #   src-go/ (any file)         the interim Go gate (qa-go.bash, whole: it is fast)
 #   js/mjs                     node --check; extensions/ files also get the project's eslint
-#   src-go/ in ccy-teams'      the ccy-teams command suite (test-ccy-teams-command.bash) too: a file
-#   build closure              in cmd/ccy-teams or a package it imports (go list -deps), go.mod, go.sum
+#   src-go/ in a command's     that command's suites too (ccy-teams: test-ccy-teams-command.bash;
+#   build closure              ccy-sessions: its four test-ccy-* suites): a file in cmd/<name> or a
+#                              package it imports (go list -deps), go.mod, go.sum
 #   any non-markdown file      every scripts/test-*.bash suite (and hard gate script) that
 #                              qa-all.bash runs and whose text names it by path or basename,
 #                              plus any suite that itself changed
@@ -322,30 +323,43 @@ for pat in "${!PATTERN_OWNER[@]}"; do
     printf '%s\n' "$pat" >> "$PATTERN_FILE"
 done
 
-# The deployed ccy-teams binary is built from cmd/ccy-teams and the packages it imports, so a
-# change to any of them is exercised by the command suite although the suite names none of
-# these files. The closure comes from the go tool, so it cannot drift from the imports.
-TEAMS_SUITE="scripts/test-ccy-teams-command.bash"
-TEAMS_OWNERS=()
+# A deployed Go binary is built from its cmd/<name> and the packages it imports, so a change
+# to any of them is exercised by the binary's suites although the suites name none of these
+# files. The closure comes from the go tool, so it cannot drift from the imports. Each entry
+# is "<command>: <suites that build and drive it>".
+GO_BINARY_SUITES=(
+    "ccy-teams: scripts/test-ccy-teams-command.bash"
+    "ccy-sessions: scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash"
+)
+declare -A GO_SUITE_OWNERS=()
 if [[ ${#SRCGO_FILES[@]} -gt 0 ]]; then
-    if ! teams_dirs="$(cd "$REPO_ROOT/src-go" && go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' ./cmd/ccy-teams)"; then
-        echo "ERROR: go list -deps ./cmd/ccy-teams failed; cannot map src-go/ changes to the ccy-teams suite." >&2
-        exit 2
-    fi
-    for rel in "${SRCGO_FILES[@]}"; do
-        case "$rel" in
-            src-go/go.mod | src-go/go.sum)
-                TEAMS_OWNERS+=("$rel")
-                continue
-                ;;
-        esac
-        while IFS= read -r dir; do
-            [[ -n "$dir" ]] || continue
-            if [[ "$REPO_ROOT/$rel" == "$dir"/* ]]; then
-                TEAMS_OWNERS+=("$rel")
-                break
+    for entry in "${GO_BINARY_SUITES[@]}"; do
+        cmd="${entry%%:*}"
+        read -r -a cmd_suites <<<"${entry#*: }"
+        if ! cmd_dirs="$(cd "$REPO_ROOT/src-go" && go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' "./cmd/$cmd")"; then
+            echo "ERROR: go list -deps ./cmd/$cmd failed; cannot map src-go/ changes to the $cmd suites." >&2
+            exit 2
+        fi
+        for rel in "${SRCGO_FILES[@]}"; do
+            owned=0
+            case "$rel" in
+                src-go/go.mod | src-go/go.sum) owned=1 ;;
+                *)
+                    while IFS= read -r dir; do
+                        [[ -n "$dir" ]] || continue
+                        if [[ "$REPO_ROOT/$rel" == "$dir"/* ]]; then
+                            owned=1
+                            break
+                        fi
+                    done <<<"$cmd_dirs"
+                    ;;
+            esac
+            if [[ $owned -eq 1 ]]; then
+                for cmd_suite in "${cmd_suites[@]}"; do
+                    GO_SUITE_OWNERS[$cmd_suite]+="$rel"$'\n'
+                done
             fi
-        done <<<"$teams_dirs"
+        done
     done
 fi
 
@@ -355,11 +369,10 @@ if [[ -s "$PATTERN_FILE" ]]; then
     for suite in "${SUITES[@]}"; do
         why=()
         declare -A named=()
-        if [[ "$suite" == "$TEAMS_SUITE" && ${#TEAMS_OWNERS[@]} -gt 0 ]]; then
-            for owner in "${TEAMS_OWNERS[@]}"; do
-                why+=("builds from $owner")
-            done
-        fi
+        while IFS= read -r owner; do
+            [[ -n "$owner" ]] || continue
+            why+=("builds from $owner")
+        done <<<"${GO_SUITE_OWNERS[$suite]:-}"
         # The suite itself changed.
         if [[ -n "${PATTERN_OWNER[$suite]:-}" ]]; then
             why+=("the suite itself changed")

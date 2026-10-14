@@ -179,6 +179,21 @@ plan="$(plan_for src-go/internal/transcript/transcript.go)"
 expect_lacks "teams: a package it does not import leaves the suite out" "$plan" "test-ccy-teams-command.bash"
 
 echo
+echo "== src-go -> the ccy-sessions suites =="
+plan="$(plan_for src-go/internal/sessions/notify.go)"
+expect_has "sessions: the package picks the reboot suite" "$plan" "suite scripts/test-ccy-sessions-reboot.bash: builds from src-go/internal/sessions/notify.go"
+expect_has "sessions: the package picks the take-over suite" "$plan" "suite scripts/test-ccy-sessions-take-over.bash: builds from src-go/internal/sessions/notify.go"
+expect_has "sessions: the package picks the restore-askpass suite" "$plan" "suite scripts/test-ccy-restore-askpass.bash: builds from src-go/internal/sessions/notify.go"
+plan="$(plan_for src-go/cmd/ccy-sessions/main.go)"
+expect_has "sessions: the command picks the suites" "$plan" "suite scripts/test-ccy-sessions-reboot.bash"
+plan="$(plan_for src-go/internal/tmuxccy/panes.go)"
+expect_has "sessions: a package it imports picks the suites" "$plan" "suite scripts/test-ccy-sessions-take-over.bash"
+plan="$(plan_for src-go/go.mod)"
+expect_has "sessions: go.mod picks the suites" "$plan" "suite scripts/test-ccy-sessions-reboot.bash"
+plan="$(plan_for src-go/internal/agentbus/agentbus.go)"
+expect_lacks "sessions:a package it does not import leaves the suites out" "$plan" "test-ccy-sessions-reboot.bash"
+
+echo
 echo "=============================================================="
 printf 'passed: %d   failed: %d\n' "$PASS" "$FAIL"
 if [[ "$FAIL" -gt 0 ]]; then
