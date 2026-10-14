@@ -79,6 +79,12 @@ linters:
       min-complexity: 20
     nestif:
       min-complexity: 4
+    tagliatelle:
+      case:
+        rules:
+          # The JSON this module reads is the Python admin tool's team.json (server_name,
+          # allow_from) and iproute2's output (addr_info): snake_case, owned elsewhere.
+          json: snake
     revive:
       enable-all-rules: false
     errcheck:

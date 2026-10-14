@@ -17,7 +17,7 @@ func TestSeamExec(t *testing.T) {
 
 func TestSeamCommands(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), SeamCommands,
-		"fix/internal/execx", "fix/internal/sudo", "fix/internal/badcmd")
+		"fix/internal/execx", "fix/internal/sudo", "fix/internal/hostnet", "fix/internal/badcmd")
 }
 
 func TestTestClock(t *testing.T) {

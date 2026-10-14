@@ -15,7 +15,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// The two root-owned programs the sudoers rule covers; the rule matches the exact argv.
+// The two root-owned programs ccy-teams runs through sudo, by absolute path. The sudoers rule
+// (read-only agent-bus commands) matches the exact argv of AgentBus only: InstallTool is reached
+// through password sudo, so a run with no terminal and a lapsed credential fails with sudo's words.
 const (
 	AgentBus    = "/usr/local/bin/agent-bus"
 	InstallTool = "/usr/local/sbin/agent-bus-install"

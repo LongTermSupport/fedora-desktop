@@ -26,6 +26,10 @@ const (
 // Systemd runs systemctl and systemd-run through a Runner.
 type Systemd struct {
 	Runner execx.Runner
+	// Chatter receives what the unit operations (enable, start, daemon-reload, systemd-run)
+	// print, on both streams; nil keeps it for the error text. The installer sends it to
+	// its stderr so a caller reading stdout never sees it.
+	Chatter io.Writer
 }
 
 // Unit is one line of "systemctl list-units": the unit, its load, active and sub states,

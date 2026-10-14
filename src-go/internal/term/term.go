@@ -10,11 +10,14 @@ import (
 	"strings"
 )
 
-// Exit codes shared by ccy-teams, ccy-sessions and ccy.
+// Exit codes shared by ccy-teams, ccy-sessions and ccy, and by agent-bus-install, whose
+// 77 (not root) and 78 (configuration) ccy-teams reads to tell a refusal from a failure.
 const (
 	ExitOK        = 0
 	ExitFailure   = 1
 	ExitUsage     = 64
+	ExitNotRoot   = 77
+	ExitConfig    = 78
 	ExitCancelled = 130
 )
 

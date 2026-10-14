@@ -46,6 +46,16 @@ func Combined(ctx context.Context, r Runner, c Cmd) (string, error) {
 	return out, err
 }
 
+// ExitOf is the exit status of a program that ran and refused. It is false for success, for
+// a program that could not start and for any other error.
+func ExitOf(err error) (int, bool) {
+	exitErr, ok := errors.AsType[*ExitError](err)
+	if !ok || exitErr == nil {
+		return 0, false
+	}
+	return exitErr.Code, true
+}
+
 // ChildEnv is the environment of a child: base with every variable named in unset removed,
 // then the KEY=VALUE entries of add appended, so an added entry wins over an inherited one.
 func ChildEnv(base, add, unset []string) []string {

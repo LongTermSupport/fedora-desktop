@@ -14,11 +14,13 @@ var SeamCommands = &analysis.Analyzer{
 	Name: "project_seam_commands",
 	Doc: `project_seam_commands forbids naming an owned program as a command outside its package.
 
-An execx.Cmd whose Name is sudo, tmux, gum, fzf, systemctl or git (a literal or a constant,
-in a composite literal or assigned to .Name) may be built only in the package that owns the
-program: internal/sudo, internal/tmuxccy, internal/ui, internal/systemd, internal/gitx. The
-owner decides the flags and target forms once: sudo only with -n; tmux targets as =name:, not
-bare =name (fedora-desktop#69). Test files are exempt: a test spells out the argv it expects.
+An execx.Cmd whose Name is an owned program (a literal or a constant, in a composite literal
+or assigned to .Name) may be built only in the package that owns it; the commandOwners table
+in table.go lists every program and its owner (sudo, tmux, gum, fzf, systemctl, git and the
+installer's firewall-cmd, ip, ss, nmcli, curl, rpm, dnf, getent, useradd, uname and zstd
+among them). The owner decides the flags and target forms once: sudo only with -n;
+tmux targets as =name:, not bare =name (fedora-desktop#69). Test files are exempt: a test
+spells out the argv it expects.
 exec.LookPath and other text naming the program are not commands and are not flagged.
 
 How to fix: call the owner's method; add the operation to the owner if it is missing.`,

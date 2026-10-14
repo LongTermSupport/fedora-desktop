@@ -26,14 +26,40 @@ const homeOwner = "internal/term"
 
 // commandOwners maps a program to the package that owns every use of it, so its flags and
 // target forms are decided once (sudo -n; tmux's =name: target; the gum and fzf prompts).
+//
+// The installer's programs are owned by the package that knows their flags and outputs:
+// the unit tools by systemd, firewall-cmd by firewalld, the network tools (and curl, which
+// only ever fetches over the network) by hostnet, the package, account and architecture
+// tools by hostsys. systemd-run is not here: ccy's tmux
+// launcher starts a transient scope with it too. agent-bus is not here either: the ccy
+// client and the installer's admin adapter both run it, each through its own configured path.
 var commandOwners = map[string]string{
-	"sudo":      "internal/sudo",
-	"tmux":      "internal/tmuxccy",
-	"gum":       "internal/ui",
-	"fzf":       "internal/ui",
-	"systemctl": "internal/systemd",
-	"git":       "internal/gitx",
+	"sudo":         "internal/sudo",
+	"tmux":         "internal/tmuxccy",
+	"gum":          "internal/ui",
+	"fzf":          "internal/ui",
+	"systemctl":    "internal/systemd",
+	"journalctl":   "internal/systemd",
+	"git":          "internal/gitx",
+	"firewall-cmd": "internal/firewalld",
+	"ip":           netOwner,
+	"ss":           netOwner,
+	"nmcli":        netOwner,
+	"curl":         netOwner,
+	"rpm":          sysOwner,
+	"dnf":          sysOwner,
+	"getent":       sysOwner,
+	"useradd":      sysOwner,
+	"uname":        sysOwner,
+	"zstd":         sysOwner,
 }
+
+const (
+	// netOwner owns the network tools and curl.
+	netOwner = "internal/hostnet"
+	// sysOwner owns the package, account, architecture and decompression tools.
+	sysOwner = "internal/hostsys"
+)
 
 // clockAllowance excuses one test function from the fixed-clock rule. It is data, with the
 // reason it needs wall time, never a comment in the test.

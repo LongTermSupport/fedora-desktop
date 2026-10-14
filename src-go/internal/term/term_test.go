@@ -22,6 +22,14 @@ func newTerm(tty bool, noColor string) (*Term, *bytes.Buffer) {
 	}, buf
 }
 
+// ccy-teams classifies agent-bus-install by these numbers (agentbus.kindOf), so they are
+// part of the contract between the two tools.
+func TestExitCodesAreTheInstallersContract(t *testing.T) {
+	if ExitUsage != 64 || ExitNotRoot != 77 || ExitConfig != 78 {
+		t.Fatalf("usage %d, not root %d, config %d", ExitUsage, ExitNotRoot, ExitConfig)
+	}
+}
+
 func TestColourOnNeedsTerminalAndNoNoColor(t *testing.T) {
 	cases := []struct {
 		tty     bool

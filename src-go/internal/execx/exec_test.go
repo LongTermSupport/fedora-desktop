@@ -65,6 +65,17 @@ func TestCombinedPropagatesRunnerFailures(t *testing.T) {
 	}
 }
 
+func TestExitOfReadsTheStatusOfAProgramThatRanAndRefused(t *testing.T) {
+	if code, ok := ExitOf(errors.Join(errors.New("wrapped"), &ExitError{Name: "x", Code: 78})); !ok || code != 78 {
+		t.Fatalf("got %d, %v", code, ok)
+	}
+	for _, err := range []error{nil, errors.New("cannot start"), &NotInstalledError{Name: "x"}} {
+		if code, ok := ExitOf(err); ok || code != 0 {
+			t.Errorf("ExitOf(%v) = %d, %v", err, code, ok)
+		}
+	}
+}
+
 func TestChildEnvAddsAndRemoves(t *testing.T) {
 	got := ChildEnv([]string{"A=1", "B=2", "C=3"}, []string{"D=4", "A=9"}, []string{"B", "C"})
 	want := []string{"A=1", "D=4", "A=9"}

@@ -52,7 +52,11 @@ pages are not written, this catalogue stands in until adoption.
 An `execx.Cmd` whose `Name` is a constant (literal, named constant, keyed or unkeyed literal,
 or `.Name =` assignment) equal to an owned program, outside its owner. The owners are the
 `commandOwners` table: `sudo` to `internal/sudo`, `tmux` to `internal/tmuxccy`, `gum` and
-`fzf` to `internal/ui`, `systemctl` to `internal/systemd`, `git` to `internal/gitx`. A
+`fzf` to `internal/ui`, `systemctl` and `journalctl` to `internal/systemd`, `git` to
+`internal/gitx`, and the installer's programs: `firewall-cmd` to `internal/firewalld`, `ip`,
+`ss`, `nmcli` and `curl` to `internal/hostnet`, `rpm`, `dnf`, `getent`, `useradd`, `uname` and
+`zstd` to `internal/hostsys` (`systemd-run` stays unowned: the ccy tmux launcher uses it
+too; `agent-bus` stays unowned: the ccy client and the installer's admin adapter both run it). A
 `LookPath("gum")` presence check and text that merely contains the name are not commands and
 are not flagged; test files are exempt (a test spells out the argv it expects).
 

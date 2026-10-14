@@ -1,0 +1,26 @@
+Usage: agent-bus-install COMMAND [OPTIONS]
+
+Build an agent team bus homeserver host (Tuwunel under a hardened systemd unit) on Fedora.
+Run as root. Options take a value as --opt VALUE or --opt=VALUE.
+
+Commands:
+  software --source DIR [--bus-address IP]
+      Packages, the agent-bus user, the pinned Tuwunel binary, the zipapps, the units.
+      --source is a fedora-desktop checkout; --bus-address puts IP/32 (or /128) on a
+      NetworkManager dummy interface agentbus0, the address local guests reach.
+  team --team-file FILE
+      Install or update the team the file declares; restart only on a change.
+  remove --team TEAM [--purge]
+      Stop and disable the team's units, remove its drop-in and firewalld rules;
+      --purge also deletes its data.
+  backup-now --team TEAM
+      Back the homeserver up now (what the daily timer runs).
+  restore --team TEAM --backup ID
+      Restore the database and state from backup ID.
+  backups --team TEAM
+      Read-only: one BACKUP<TAB>ID<TAB>TIME line per backup that restore can use.
+  check --team TEAM
+      Read-only: print the construction facts the privacy checks rely on.
+
+stdout: CHANGED<TAB>... lines (and CHECK lines for check); diagnostics on stderr.
+Exit: 0 done, 1 failed, 64 usage, 77 not root, 78 configuration.
