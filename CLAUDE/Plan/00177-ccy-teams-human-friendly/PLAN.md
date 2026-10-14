@@ -154,6 +154,16 @@ quit `ccy-teams` to start Element.
   board, which then reads the person's sessions again.
 - [ ] ⬜ **Task 6.4**: The owner tests it again on the host.
 
+### Phase 7: `ccy --teams` finds the team (the owner's host test)
+
+- [ ] 🔄 **Task 7.1**: `ccy --teams` with no value offers the teams whose scope covers this
+  checkout's GitHub `owner/repo` (an organisation team by its owner, a repository team by
+  the repository), choosing alone when exactly one matches and saying so when none does.
+  The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
+  ratchet, only calls it and must not grow.
+- [ ] 🔄 **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
+  `.last-launch.conf` keeps the `--teams` list, and reusing it launches into the same team.
+
 ## Success Criteria
 
 - [ ] On the host, `ccy-teams` with no teams offers to create one, and a refused or cancelled
