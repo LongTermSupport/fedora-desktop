@@ -185,7 +185,7 @@ func perPass(run func(*analysis.Pass)) func(*analysis.Pass) (any, error) {
 
 // All is every rule, in the order the driver registers them.
 func All() []*analysis.Analyzer {
-	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets}
+	return []*analysis.Analyzer{SeamExec, SeamCommands, TestClock, HomeAbbrev, TmuxTargets, WaitDelay}
 }
 
 // ownedBy is whether the package path (the test variants of it included) is owner, matched

@@ -46,10 +46,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
 
 - [x] ✅ **Task 1.1**: Inventory of tracked bash and Python with sizes, invokers, tests and a
   port/keep class: [INVENTORY.md](INVENTORY.md).
-- [x] ✅ **Task 1.2**: Thresholds chosen from the inventory's counts (60 code lines, 4
-  functions, no associative arrays, no interactive UI, no data parsing past one `jq -r`); the
+- [x] ✅ **Task 1.2**: Thresholds chosen from the inventory's counts (60 code lines, 90
+  statements, 4 functions, no associative arrays, no interactive UI, no data parsing past one `jq -r`); the
   rule in `CLAUDE.md` and `README.md`; `src-go/CLAUDE.md` linked from the root `CLAUDE.md`.
-- [x] ✅ **Task 1.3**: The gate, in Go (`cmd/qa-bash-limits`, `internal/bashlimits`), with its
+- [x] ✅ **Task 1.3**: The gate, in Go (`src-go/qa/cmd/qa-bash-limits`, `src-go/qa/bashlimits`), with its
   ratchet allowlist `scripts/bash-limits.allowlist` (records only move down; `--base` refuses
   an added entry or a raised record), wired into `qa-all.bash`, `qa-changed.bash` and CI;
   controls (over-long, too many functions, `declare -A`, `fzf`, growth, an added entry) fail.
@@ -60,48 +60,42 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   recorded gaps; its bundled rule set is one analyzer; this repo had no project rules.
 - [x] ✅ **Task 2.2**: Project DBF rules as `go/analysis` analyzers in the nested module
   `src-go/qa` (so the shipped binaries stay dependency-free), run by `qa-go.bash`: one process
-  seam, owned programs (sudo, tmux, gum, fzf, systemctl, git), no wall clock in tests, one home
-  abbreviation; catalogue [GoProjectRules.md](../../GoProjectRules.md). Each red on a fixture of
+  seam, owned programs (sudo, tmux, gum, fzf, systemctl, git), tmux target forms, no wall clock in
+  tests, one home abbreviation, a `WaitDelay` that names its error (six rules); catalogue [GoProjectRules.md](../../GoProjectRules.md). Each red on a fixture of
   the historical defect, green on the tree after fixing the real instances; on landing they
   caught the bash-limits gate running git outside `gitx`.
 
 ### Phase 3: Rewrites, one feature branch each
 
-- [ ] ⬜ **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
-  Branch `go-port/freeze` (P7): functional spec written, [SPEC-freeze.md](SPEC-freeze.md); Go
-  port in waves: library (`internal/freeze`) and podfreeze (`internal/podfreeze`,
-  `cmd/podfreeze`, shared `internal/freeze/cli`) and lxcfreeze (`internal/lxcfreeze`,
-  `cmd/lxcfreeze`, shared flow in `internal/freeze/app`) done; cut-over (wave 4) done on the
-  branch: golden replay of the bash tools' recorded output (`internal/freeze/golden`), one task
-  file builds any Go command (`tasks/build-go-command.yml`), the bash tools, library, suites and
-  gates deleted, the host check in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md) with the owner
-  (via `deploy.bash` in `meta-deploy.bash`: it saves the bash tools' output first and ends with
-  `acceptance.bash`, which compares the Go tools with it). The Fable review's fixes are in:
-  sudo asks on `/dev/tty`, Ctrl-C and a lapsed sudo timestamp end an act batch cleanly, the
-  sudo seam methods are judged by `project_seam_commands`, the inventory is generic over the
-  engine's record.
-- [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`:
-  its spec `SPEC-agent-bus-install.md` is on the branch; wave 1 (root-guarding
-  validation) running. Runs as root and changes behaviour (its D7), so it merges only after
-  review and the owner's host test.
-- [ ] ⬜ **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
-  waits on Plan 00191's D1-D10. `qa-changed.bash` (P3, first of the QA orchestrators) on
-  `go-port/qa-changed`: functional spec written, [SPEC-qa-changed.md](SPEC-qa-changed.md); the Go
-  port done on the branch with the coordinator's defaults for D1-D6 (nested `src-go/qa/changed`,
-  routing and excluded trees as data, one process seam shared with the bash-limits gate), golden
-  replay of the bash over 118 scenarios with 19 numbered deviations, the script now a
-  build-and-run wrapper and its allowlist entry gone. Fable review fixed (B27-B29, the rules
-  over the nested module, one shared wrapper lib) and merged into F44; the push waits on a
-  full QA run, which needs the CCY image rebuilt with golangci-lint (`ccy --rebuild`).
-  `qa-all.bash` (P3, the second orchestrator) on `go-port/qa-all`: functional spec
-  [SPEC-qa-all.md](SPEC-qa-all.md); the Go port done on the branch (nested `src-go/qa/all`,
-  `qa/gates`, `qa/cmd/qa-all`): the gate list is data (`scripts/qa-gates.tsv`, 92 rows) read by
-  the runner, by `qa-changed` (its suite population no longer scans `qa-all.bash`) and by the
-  QA.md inventory gate; the three stage-line readers are Go and a reader that finds nothing now
-  fails its gate; golden replay of the bash over 138 scenarios with 29 pinned deviations
-  (B1-B6, B12, B13, B20); the script now a build-and-run wrapper, its allowlist entry and the
-  `qa-helper-summary` library, its suite and the call-site parser gone (their cases are Go
-  tests). Awaits the coordinator's full QA run and review before the merge into F44.
+- [ ] 🔄 **Task 3.1**: Programmes from the inventory, ranked; each its own branch.
+  `go-port/freeze` (P7), podfreeze and lxcfreeze: merged into F44 and pushed (`f0284848`). Spec
+  [SPEC-freeze.md](SPEC-freeze.md); the library (`internal/freeze`), the two engines and the
+  shared flow in Go; golden replay of the bash tools' recorded output
+  (`internal/freeze/golden`); one task file builds any Go command
+  (`tasks/build-go-command.yml`); the bash tools, library, suites and gates deleted. The Fable
+  review's fixes are in (sudo asks on `/dev/tty`, Ctrl-C and a lapsed sudo timestamp end an act
+  batch cleanly, the sudo `-n true` probe, the inventory generic over the engine's record).
+  Waiting on the owner's host check in [ACCEPTANCE-freeze.md](ACCEPTANCE-freeze.md), run through
+  `meta-deploy.bash` (`deploy.bash` saves the bash tools' output first and ends with
+  `acceptance.bash`, which compares the Go tools with it), with the sudo fix.
+- [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`: spec
+  `SPEC-agent-bus-install.md` on the branch; built, reviewed and its review fixed, not merged.
+  It runs as root and changes behaviour (its D7), so it merges only after the owner's host test
+  as root (the branch's `ACCEPTANCE-agent-bus-install.md`).
+- [ ] 🔄 **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
+  waits on Plan 00191's D1-D10. `qa-changed.bash` (P3, first of the QA orchestrators): done,
+  merged into F44 and pushed (`de85afbc`); spec [SPEC-qa-changed.md](SPEC-qa-changed.md), nested
+  `src-go/qa/changed`, routing and excluded trees as data, one process seam shared with the
+  bash-limits gate, golden replay of the bash over 118 scenarios with 19 numbered deviations,
+  the script a build-and-run wrapper. `qa-all.bash` (P3, the second orchestrator) on
+  `go-port/qa-all`: ported, reviewed, its review fixed, and merging into F44 together with the
+  other pending branches through that one integration branch; spec
+  [SPEC-qa-all.md](SPEC-qa-all.md); nested `src-go/qa/all`, `qa/gates`, `qa/cmd/qa-all`; the
+  gate list is data (`scripts/qa-gates.tsv`), read by the runner, by `qa-changed` and by the
+  QA.md inventory gate; a reader that finds nothing fails its gate; golden replay of the bash
+  over 142 scenarios with 32 pinned deviations (B1-B6, B12, B13, B20-B23, B26); the script a
+  build-and-run wrapper, its allowlist entry, the `qa-helper-summary` library, its suite and the
+  call-site parser gone (their cases are Go tests). The full `qa-all` run comes before the merge.
 
 ### Phase 4: Review
 
@@ -113,15 +107,28 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   parallel: the gate on a real bash parser with a versioned ratchet; type-based rules; runtime
   correctness; go-qa-ci M15 (adoption, gate) and M16 (a bundled rule pack). All five are
   merged (go-qa-ci's on its own remote), and so are typed state, the ccy-sessions and
-  ccy-teams redraw cost, and the `teams` package split. The two ports get their own review
-  before merge: freeze's found two blockers, being fixed on its branch.
-- [ ] ⬜ **Task 4.2**: qa-reviewer over the plan.
+  ccy-teams redraw cost, and the `teams` package split. The ports get their own review before
+  merge: freeze's found two blockers, fixed and merged; qa-changed's and qa-all's findings are
+  fixed; agent-bus-install's are fixed on its branch.
+- [ ] 🔄 **Task 4.2**: qa-reviewer over the plan: done once
+  ([subagent-reports/261014-qa-reviewer-plan.md](subagent-reports/261014-qa-reviewer-plan.md));
+  its fixes are on `go-port/qa-all` ([the fix report](subagent-reports/261014-qa-reviewer-fixes-sonnet.md)).
+  Runs again over the finished plan.
 
 ## Success Criteria
 
 - [ ] A new bash file over the thresholds fails QA; an allowlisted one that grows fails QA.
 - [ ] Every port in Phase 3 passes its existing suite against the Go binary before cut-over.
-- [ ] Each defect class found in the ports has a rule, or a recorded reason it cannot.
+  Where the bash tool and its suites were deleted, the oracle was replaced, not dropped: the
+  freeze tools' white-box bash suites are replaced by a golden replay of the shipped bash tools'
+  recorded output (stdout, stderr, status and commands over a scenario corpus) plus Go tests, and
+  qa-all's by a golden replay of the legacy script plus the Go tests that took over the cases of
+  the deleted `qa-helper-summary` suite. That meets the criterion because the replay compares the
+  Go with the bash byte for byte, and a difference is allowed only as a numbered bug pinned with
+  its reason, which a suite of a deleted tool could no longer do.
+- [ ] Each defect class found in the ports has a rule, or a recorded reason it cannot
+  ([GoProjectRules.md](../../GoProjectRules.md): `project_waitdelay` for the dropped capture
+  (B25); the `sudo -n -v` probe is recorded as not a rule, with what holds it).
 
 ## Delivery & Milestones
 

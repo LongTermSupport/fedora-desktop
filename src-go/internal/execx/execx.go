@@ -107,6 +107,10 @@ func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
 		return res, &ExitError{Name: c.Name, Code: res.ExitCode, Stderr: errBuf.String()}
+	case errors.Is(err, exec.ErrWaitDelay):
+		// The command ended but a child still held its pipe: what it wrote is complete, so
+		// the Result is returned with the error.
+		return res, fmt.Errorf("run %s: a process it started still held its output: %w", c.Name, err)
 	case errors.Is(err, exec.ErrNotFound):
 		return res, &NotInstalledError{Name: c.Name}
 	default:

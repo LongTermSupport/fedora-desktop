@@ -37,6 +37,7 @@ pages are not written, this catalogue stands in until adoption.
 | `project_seam_commands` | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`) | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style` |
 | `project_tmux_targets`  | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                            | the bash library, before the port                                              |
 | `project_testclock`     | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                  | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                   |
+| `project_waitdelay`     | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped            | `qa/internal/proc`: bug B25 of the qa-all port                                 |
 | `project_homeabbrev`    | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                        | `teams` tests: `strings.Replace(..., "~", 1)` twice                            |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
@@ -184,6 +185,44 @@ leftmost operand is such a constant (`"~" + rest`).
 - Not caught: a `~` assembled from non-constant pieces (`string(rune(126))`, a variable). A
   legitimate "does the answer begin with `~`" check has no exit but `internal/term`; add an
   allowance table of the same shape as the others when one is needed.
+
+### project_waitdelay
+
+A function that assigns `(*os/exec.Cmd).WaitDelay` and never names `exec.ErrWaitDelay`. Setting
+the field makes `Run` and `Wait` return `ErrWaitDelay` when the command has exited but a child
+still holds its output pipe; the output written until then is complete. A runner that treats
+every error but an exit status as a failed run drops it. The function that sets the delay must
+decide what the error means, so it must name it.
+
+- Red, fixture: `testdata/src/fix/internal/badwait` (`bad.go`: the qa-all runner's original shape,
+  a capture returned only on success, and a delay set in a function that leaves the decision to
+  its caller; `good.go`: the same run with an `errors.Is(err, exec.ErrWaitDelay)` branch, and a
+  command with no delay, clean).
+- Red, real tree: `execx.OS.Run` set the delay and named the error nowhere (its default branch
+  happened to keep the capture); `qa/internal/proc` had the bug itself, fixed as B25 of
+  `SPEC-qa-all.md`.
+- Green: `execx.OS.Run` has its own `ErrWaitDelay` branch that returns the capture with the
+  error; `proc.OS.Run` keeps the capture, flags the leftover and ends its process group.
+- Not caught: a function that names the error and still drops the output (the proofs of the two
+  runners hold that), and a delay set by a function that does not itself run the command.
+
+## Defect classes that cannot be a rule
+
+A class is listed here, with what holds it instead, when no analyzer can judge it without
+guessing; the catalogue claims no more than the code does.
+
+- **A readiness probe read as a verdict on something it does not test** (the `sudo -n -v` probe,
+  fixed in `internal/sudo`: a failing `-n -v` was read as "a password is needed", but `-v` fails
+  on a host where only some sudoers entries are NOPASSWD while the commands that follow run
+  unprompted). What an exit status means is a fact about one program on one host, not a shape in
+  the syntax tree: a rule could pin that `-n -v` is not used, and would then say nothing about
+  the next probe read wrongly. What holds it: `project_seam_commands` keeps every `sudo` argv in
+  `internal/sudo`, so the meaning is decided in one place; that package's tests run the world
+  where `-n -v` fails and `-n true` passes (no prompt, no `sudo -v`) and the world where `-n -v`
+  passes (no second probe); and the freeze acceptance on the host (`acceptance.bash`) is the only
+  check against a real sudoers file. A known gap: a passing `sudo -n true` shows that `true` runs
+  unprompted, not the commands after it, so a host whose NOPASSWD entries cover `true` but not
+  the tools would skip the prompt and then fail.
 
 ## Control
 
