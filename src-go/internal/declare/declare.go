@@ -333,8 +333,8 @@ func (c *Client) Remove(ctx context.Context, team string, purge bool) (Change, e
 }
 
 func (c *Client) run(ctx context.Context, sub string, args ...string) (string, error) {
-	argv := slices.Concat([]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)
-	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: argv})
+	res, err := c.Runner.Run(ctx, execx.Cmd{Name: "env", Args: slices.Concat(
+		[]string{"PYTHONPATH=" + c.Root, "python3", "-P", "-m", "helpers.agent_bus.declare", sub}, args)})
 	if err != nil {
 		if exit, ok := errors.AsType[*execx.ExitError](err); ok {
 			return "", &Error{Code: exit.Code, Stderr: strings.TrimSpace(exit.Stderr), cause: err}

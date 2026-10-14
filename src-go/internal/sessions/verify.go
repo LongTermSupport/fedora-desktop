@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/restore"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/transcript"
 )
@@ -217,19 +217,11 @@ func (a *App) stateOf(ctx context.Context, e restore.Entry, view hostView) (stri
 
 // runningContainers is the names of the running CCY containers of each engine, engines sorted.
 func (a *App) runningContainers(ctx context.Context, engines []string) (map[string]bool, error) {
-	running := map[string]bool{}
 	slices.Sort(engines)
-	for _, engine := range engines {
-		out, err := execx.Combined(ctx, a.Runner, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", "--format", "{{.Names}}"}})
-		if err != nil {
-			a.fail(engine + " ps failed: " + strings.TrimSpace(out))
-			return nil, errReported
-		}
-		for line := range strings.SplitSeq(out, "\n") {
-			if name := strings.TrimSpace(line); name != "" {
-				running[name] = true
-			}
-		}
+	running, err := sessprobe.RunningContainerNames(ctx, a.Runner, engines)
+	if err != nil {
+		a.fail(err.Error())
+		return nil, errReported
 	}
 	return running, nil
 }

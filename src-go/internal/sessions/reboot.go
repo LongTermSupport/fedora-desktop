@@ -52,10 +52,7 @@ func parseReboot(args []string) (rebootParams, string) {
 // warned twice. So it is asked first. "yes" is the only answer that reboots unattended;
 // anything else is a refusal that names the way round it.
 func (a *App) rebootPermitted(ctx context.Context) bool {
-	out, err := execx.Combined(ctx, a.Runner, execx.Cmd{Name: "busctl", Args: []string{
-		"--system", "call", "org.freedesktop.login1", "/org/freedesktop/login1",
-		"org.freedesktop.login1.Manager", "CanReboot",
-	}})
+	out, err := (&systemd.Systemd{Runner: a.Runner}).CanReboot(ctx)
 	out = strings.TrimRight(out, "\n")
 	if err != nil {
 		if out == "" {
