@@ -9,6 +9,12 @@
 #   lxcfreeze from this checkout (Go binaries, src-go/cmd/<tool>), install them at the paths the
 #   bash tools had, and remove the retired ~/.local/lib/freeze library. fzf stays installed.
 #
+#   play-agent-bus.yml — builds agent-bus-install (a Go binary, src-go/cmd/agent-bus-install)
+#   from this checkout as the login user through the same shared task, with the installer's
+#   source digest baked in, installs a root-owned copy at /usr/local/sbin/agent-bus-install
+#   (0755) in place of the bash installer, then runs it: `software`, and `remove`/`team` for
+#   the teams localhost.yml declares. Root runs only that installed copy, never a checkout file.
+#
 #   Before any play, while the bash freeze tools are still installed, it saves what they print
 #   for `list` and `freeze --all -n` under untracked/freeze-acceptance/before-*; the plays then
 #   replace them. It ends by running acceptance.bash, which runs the Go tools through the same
@@ -38,8 +44,9 @@ plan_init "${BASH_SOURCE[0]}"
 PLAN_USAGE="usage: deploy.bash [--check] [-y|--yes] [-h|--help]
 
 Saves what the bash podfreeze and lxcfreeze print (while they are still installed), runs
-play-claude-yolo.yml, play-podfreeze.yml and play-lxcfreeze.yml on the HOST, then runs
-acceptance.bash to compare the Go tools with that baseline. Then follow ACCEPTANCE-freeze.md."
+play-claude-yolo.yml, play-agent-bus.yml, play-podfreeze.yml and play-lxcfreeze.yml on the HOST,
+then runs acceptance.bash to compare the Go tools with that baseline and to check the installed
+agent-bus-install. Then follow ACCEPTANCE-freeze.md and ACCEPTANCE-agent-bus-install.md."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -50,7 +57,7 @@ if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
     exit 64
 fi
 
-plan_require_host "it runs Ansible plays that build Go commands into ~/.local/bin and remove ~/.local/lib/freeze"
+plan_require_host "it runs Ansible plays that build Go commands into ~/.local/bin and /usr/local/sbin and remove ~/.local/lib/freeze"
 
 # Before the run log, so a password prompt is not flooded by the tee (R3).
 plan_prime_sudo
@@ -107,6 +114,8 @@ fi
 
 plan_deploy_leg "play-claude-yolo.yml" \
     plan_ansible_playbook playbooks/imports/play-claude-yolo.yml
+plan_deploy_leg "play-agent-bus.yml" \
+    plan_ansible_playbook playbooks/imports/play-agent-bus.yml
 plan_deploy_leg "play-podfreeze.yml" \
     plan_ansible_playbook playbooks/imports/optional/common/play-podfreeze.yml
 plan_deploy_leg "play-lxcfreeze.yml" \
@@ -119,7 +128,8 @@ else
 fi
 
 printf '\n'
-printf 'Deploy done. podfreeze and lxcfreeze are Go binaries now.\n'
-printf 'Next: the freeze and menu checks in %s/ACCEPTANCE-freeze.md.\n' "${PLAN_SCRIPT_DIR}"
+printf 'Deploy done. podfreeze, lxcfreeze and agent-bus-install are Go binaries now.\n'
+printf 'Next: the freeze and menu checks in %s/ACCEPTANCE-freeze.md and the installer checks in\n' "${PLAN_SCRIPT_DIR}"
+printf '%s/ACCEPTANCE-agent-bus-install.md.\n' "${PLAN_SCRIPT_DIR}"
 
 plan_finish

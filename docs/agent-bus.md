@@ -189,20 +189,30 @@ when `agent_bus_address` is set (`ccy-teams create` asks for it the first time a
 declares it with the team), and installs or removes each team in `agent_bus_teams`
 (see [playbooks.md](playbooks.md)).
 
-**From another project.** Any Fedora desktop or server can be a homeserver host. Its own
-IaC clones this repository at a pinned commit and runs the installer from the clone, as
-root:
+**From another project.** Any Fedora desktop or server can be a homeserver host. The
+installer is a Go program in this repository (`src-go/cmd/agent-bus-install`), so the
+project's own IaC clones this repository at a pinned commit, builds the installer from the
+clone with the Go toolchain as an ordinary user, installs the result as a root-owned file
+and runs that file as root, never a file the user can write:
 
 ```bash
-sudo <clone>/files/usr/local/sbin/agent-bus-install software --source <clone> --bus-address <bus_ip>
+cd <clone>/src-go
+go build -trimpath -buildvcs=false \
+  -ldflags "-X main.SourceDigest=$(cd .. && python3 -m helpers.agent_bus.installer_digest --source .)" \
+  -o <clone>/agent-bus-install.bin ./cmd/agent-bus-install
+sudo install -o root -g root -m 0755 <clone>/agent-bus-install.bin /usr/local/sbin/agent-bus-install
+sudo agent-bus-install software --source <clone> --bus-address <bus_ip>
 sudo agent-bus-install team --team-file <team-file>
 sudo agent-bus-install check --team <team>
 ```
 
-`--bus-address` is optional (leave it out on a server reached only over WireGuard).
+The `-ldflags` value is the digest of the installer's source that `team` stamps on every team
+it applies (`ccy-teams` compares it with the checkout to show a team as out of date); an
+installer built without it refuses `team`. `--bus-address` is optional (leave it out on a
+server reached only over WireGuard).
 `software` installs the packages, the `agent-bus` system user, the pinned homeserver
 binary, the `agent-bus`, `pingbus` and `agent-bus-claude` commands and the member kit, and
-copies the installer to `/usr/local/sbin`. `team` creates or updates the team: its
+copies the running installer to `/usr/local/sbin` (a no-op when it runs from there). `team` creates or updates the team: its
 configuration, firewall rules and unit, its admin account, room and human accounts. Both
 are idempotent and print a `CHANGED` line only when something changed, and the homeserver
 is restarted only then. `check` prints, read-only, the facts the privacy checks rely on.

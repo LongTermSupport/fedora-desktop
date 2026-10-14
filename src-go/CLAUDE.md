@@ -1,8 +1,8 @@
 # src-go — the Go module
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
-interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze` and
-`lxcfreeze` live here; their bash originals are gone.
+interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`, `lxcfreeze` and
+`agent-bus-install` live here; their bash originals are gone.
 
 ## Layout
 
@@ -24,7 +24,7 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
-  `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container).
+  `sessprobe`, `fsx` (file writes: the plain atomic `WriteAtomic`, and the installer's `os.Root` writer), `ccyenv` (is CCY installed, is this a container).
   Reuse these; a second way to run a command or prompt the user is a defect.
 - The installer `agent-bus-install` (`cmd/agent-bus-install`, flows in `internal/businstall`)
   runs host programs only through their owners: `hostnet` (the network tools and curl),
@@ -32,7 +32,12 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   `busadmin` (the Python admin tool and bundler). `fsx` does every root write through
   `os.Root`; `tarstate` reads and writes the state tar; `busaddr`, `pin` and `netprobe`
   parse. Its test prefix (`AGENT_BUS_INSTALL_TEST_PREFIX`) exists only in a binary built with
-  `-tags agentbustest`.
+  `-tags agentbustest`. It runs as root, so `businstall` and `fsx` are held to 90% coverage each,
+  and the play runs only a root-owned installed copy. The binary carries a source digest
+  (`-X main.SourceDigest=`) that `team` stamps; `helpers/agent_bus/installer_digest.py` defines
+  and computes it (the sorted build-closure files of the command plus `go.mod`, each hashed) and
+  `declare.py` recomputes it, with `internal/businstall/digest_agree_test.go` proving the Go
+  and Python sides agree.
 
 ## Rules
 
@@ -60,8 +65,8 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 The bash suites that tested the bash tools now drive the Go binaries and remain the
 behaviour oracle: `scripts/test-ccy-teams-command.bash`, the four
 `scripts/test-ccy-sessions-*.bash` / `test-ccy-tmux-targets.bash` suites, and
-`scripts/test-agent-bus-install.bash` (`AGENT_BUS_INSTALL_SUITE=go|bash` picks the Go binary or
-the bash original; the cases under "Go port" run in Go mode only). Some Go tests run
+`scripts/test-agent-bus-install.bash` (it builds the Go binary with and without the test tag;
+the cases under "Go port" pin the deliberate changes over the bash installer it replaced). Some Go tests run
 the real bash libraries and Python helpers and compare results, so a change to those files
 reruns the Go gate. A behaviour change that a suite pins is changed in the suite in the same
 commit, with the reason.
@@ -85,7 +90,9 @@ optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both c
 (`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain). Each binary
-lands at its old path. A new deployed command takes a row in `scripts/go-binary-suites.tsv`. Never
+lands at its old path. `play-agent-bus.yml` imports it for `agent-bus-install` too, with
+`go_command_owner: root` and `go_command_become: true` so only the install is elevated and the
+build stays the login user's; its ldflags carry the source digest. A new deployed command takes a row in `scripts/go-binary-suites.tsv`. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 

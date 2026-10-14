@@ -14,8 +14,15 @@
 # A tool with no saved baseline is NOT ESTABLISHED, not passed: the comparison needs the bash
 # output, which cannot be made once the bash tool is gone.
 #
+# It also checks the installed agent-bus-install: a compiled program, root-owned, mode 0755, whose
+# --version is the source digest this checkout would bake in (helpers/agent_bus/installer_digest.py),
+# and that the bash installer is gone from the tree. It records the raw output of the two host
+# probes the installer's spec left to measure (B12 firewalld zone of an unzoned interface, B13
+# nmcli terse addresses) into the run directory, unjudged: ACCEPTANCE-agent-bus-install.md says
+# how to read them.
+#
 # NOT COVERED (the owner, ACCEPTANCE-freeze.md steps 3 and 4): freezing and thawing a real
-# container and the menu.
+# container and the menu; ACCEPTANCE-agent-bus-install.md: a team on the host and the two probes.
 #
 # Usage: ./acceptance.bash [-h|--help]
 #
@@ -46,7 +53,8 @@ PLAN_USAGE="usage: acceptance.bash [-h|--help]
 Compares, on the HOST after deploy.bash, what the Go podfreeze and lxcfreeze print for 'list'
 and 'freeze --all -n' with what the bash tools printed before deploy.bash replaced them
 (untracked/freeze-acceptance/before-*). Also checks both tools are compiled programs and
-~/.local/lib/freeze is gone."
+~/.local/lib/freeze is gone. Also checks the installed agent-bus-install: a compiled, root-owned
+0755 program carrying this checkout's source digest."
 
 plan_mode gather
 plan_parse_common_flags "$@"
@@ -142,6 +150,38 @@ for tool in podfreeze lxcfreeze; do
         fi
     done
 done
+
+printf '=== the installed agent-bus-install ===\n'
+installer=/usr/local/sbin/agent-bus-install
+if [[ -x "${installer}" ]] && is_elf "${installer}"; then
+    check "${installer} is a compiled program" yes
+    check "${installer} is root-owned, mode 0755" "$(yes_if test "$(stat -c '%U:%G %a' "${installer}")" = 'root:root 755')"
+    want="$(cd "${PLAN_REPO_ROOT}" && python3 -m helpers.agent_bus.installer_digest --source "${PLAN_REPO_ROOT}")"
+    have="$("${installer}" --version)" || have="(--version failed)"
+    check "${installer} --version is the digest this checkout builds (${want})" "$(yes_if test "${have}" = "${want}")"
+else
+    check "${installer} is a compiled program" no
+fi
+check "the bash installer is gone from the checkout" "$(yes_if test ! -e "${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install")"
+
+# Evidence for ACCEPTANCE-agent-bus-install.md, B12 and B13: recorded, not judged.
+probes="${PLAN_RUN_DIR}/agent-bus-install-probes.txt"
+links="$(ip -o link show)"
+interfaces="$(awk -F': ' '{print $2}' <<<"${links}" | cut -d@ -f1)"
+{
+    printf '# B13: nmcli terse addresses of agentbus0 (empty when the connection is not there)\n'
+    if nmcli -t -f NAME connection show | grep -qx agentbus0; then
+        nmcli -g ipv4.addresses,ipv6.addresses connection show agentbus0
+    fi
+    printf '# B12: firewalld zone of each interface; exit status first, then the text\n'
+    while read -r iface; do
+        zone=""
+        status=0
+        zone="$(firewall-cmd --get-zone-of-interface="${iface}" 2>&1)" || status=$?
+        printf '%s\t%s\t%s\n' "${iface}" "${status}" "${zone}"
+    done <<<"${interfaces}"
+} >"${probes}"
+printf 'recorded the B12 and B13 probe output in %s\n' "${probes}"
 
 printf '\nCOVERAGE: %d of %d checks passed\n' "${passed}" "${total}"
 if [[ "${#notEstablished[@]}" -gt 0 ]]; then

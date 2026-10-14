@@ -69,7 +69,11 @@ PLANS=(
     # same flags and paths), then play-podfreeze.yml and play-lxcfreeze.yml: podfreeze and
     # lxcfreeze become Go binaries at the old paths and ~/.local/lib/freeze goes. The
     # deploy saves the old tools' output first and ends by comparing the new tools with it
-    # (acceptance.bash); the freeze-and-thaw look is that plan's ACCEPTANCE-freeze.md
+    # (acceptance.bash); the freeze-and-thaw look is that plan's ACCEPTANCE-freeze.md. Its
+    # deploy.bash also runs play-agent-bus.yml: agent-bus-install is now a Go binary built from
+    # the checkout and installed root-owned at /usr/local/sbin (it replaces the bash script;
+    # source digest baked in, teams restamped); acceptance.bash checks the installed copy and
+    # records the B12 and B13 probe output; the owner's look is ACCEPTANCE-agent-bus-install.md
     00192-bash-line-in-the-sand-go-for-tooling
     # Element: may reach the keyring (no "No encryption support" question on a profile's
     # first start); launchers named "<team> team (Element)" (Plan 00177)

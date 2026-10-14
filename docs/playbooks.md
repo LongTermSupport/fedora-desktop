@@ -742,7 +742,11 @@ nmcli connection down vpn-name
 **Purpose**: Agent team bus homeserver host (Plan 00161)\
 **Actions**:
 
-- Runs `files/usr/local/sbin/agent-bus-install software` on every run: the pinned Tuwunel
+- Builds `agent-bus-install` (a Go program, `src-go/cmd/agent-bus-install`) from the checkout
+  as the login user, with the source digest `helpers/agent_bus/installer_digest.py` computes
+  baked in, and installs a root-owned copy at `/usr/local/sbin/agent-bus-install` (0755)
+  through the shared `tasks/build-go-command.yml`; root runs only that installed copy
+- Runs `agent-bus-install software` on every run: the pinned Tuwunel
   homeserver, its system user and units, the `agent-bus` and `pingbus` commands, and the
   `agentbus0` bus address when `agent_bus_address` is set
 - Installs each team declared in `agent_bus_teams` (host_vars), and removes each one
