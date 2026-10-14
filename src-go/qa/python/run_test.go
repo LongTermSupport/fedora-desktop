@@ -73,6 +73,28 @@ func TestRootComesFromTheFlagsOrTheWorkingDirectory(t *testing.T) {
 	wantStderr(t, w.main("--root", t.TempDir()), ".qa-versions")
 }
 
+// Y1: the root is made absolute and cleaned once, so '.' and a trailing slash behave as the
+// absolute path does (the ruff selection proof compares absolute paths).
+func TestARelativeOrTrailingSlashRootIsTheSameRoot(t *testing.T) {
+	w := newWorld(t, nil)
+	wantExit(t, w.main("--root", "."), ExitOK)
+	wantExit(t, w.main("--root", w.root+"/"), ExitOK)
+	wantExit(t, w.main("--scripts", "scripts"), ExitOK)
+	wantExit(t, w.main("--scripts", w.root+"/scripts/"), ExitOK)
+	for _, d := range w.run.dirs {
+		if d != w.root {
+			t.Fatalf("a command ran in %q, not the root", d)
+		}
+	}
+	for _, c := range w.run.argv("ruff") {
+		for _, a := range c {
+			if strings.Contains(a, "//") {
+				t.Fatalf("ruff was given an unclean path: %v", c)
+			}
+		}
+	}
+}
+
 // Y2
 func TestTheReportPathDefaultsAndAnUnwritableOneIsExitTwo(t *testing.T) {
 	w := newWorld(t, nil)

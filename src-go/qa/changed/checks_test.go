@@ -152,7 +152,7 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 	}
 	want := []string{
 		"shellcheck --external-sources --severity=warning a.bash b.bash",
-		"ruff check x.py",
+		"ruff check --config " + filepath.Join(s.root, "ruff.toml") + " --no-cache x.py",
 		"python3 -m unittest tests.helpers.test_a",
 	}
 	got := runner.argv()

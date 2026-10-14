@@ -327,6 +327,21 @@ func TestTemplatesRunTheCheapGateButAreNotCovered(t *testing.T) {
 	}
 }
 
+// A Python template is compiled by the python gate, so an edit to one runs it; another template
+// still only asks the cheap gate.
+func TestAPythonTemplateRunsThePythonGate(t *testing.T) {
+	w := newWorld(t)
+	w.touch("files/home/tool.j2", "#!/usr/bin/env python3")
+	p := w.classify([]string{"files/home/tool.j2"})
+	if !p.has("python") || p.has("ruff") || p.covered["files/home/tool.j2"] {
+		t.Fatalf("a Python template: %v", keys(p))
+	}
+	w.touch("files/home/other.j2", "#!/usr/bin/bash")
+	if p := w.classify([]string{"files/home/other.j2"}); p.has("python") {
+		t.Fatalf("a shell template runs the python gate: %v", keys(p))
+	}
+}
+
 func TestExcludedShellIsSkippedButStillAsksTheBashLimitsGateLikeBefore(t *testing.T) {
 	w := newWorld(t)
 	w.touch("untracked/x.bash", "#!/usr/bin/bash")

@@ -95,7 +95,7 @@ func (g *gate) ruff(ctx context.Context, files []string) ([]diagnostic, error) {
 	if err := g.proveSelected(ctx, abs, rel); err != nil {
 		return nil, err
 	}
-	argv := append([]string{toolRuff, "check", "--no-cache", "--output-format", "json"}, abs...)
+	argv := append(g.ruffBase("--no-cache", "--ignore-noqa", "--output-format", "json"), abs...)
 	res, err := g.runRuff(ctx, argv)
 	if err != nil {
 		return nil, err
@@ -115,6 +115,13 @@ func (g *gate) ruff(ctx context.Context, files []string) ([]diagnostic, error) {
 	return out, nil
 }
 
+// ruffBase is the start of every ruff command: the root's ruff.toml named explicitly, which turns
+// off ruff's discovery of a closer pyproject.toml or ruff.toml that would swap the ruleset for a
+// subtree while --show-files still listed its files.
+func (g *gate) ruffBase(flags ...string) []string {
+	return append([]string{toolRuff, "check", "--config", filepath.Join(g.root, "ruff.toml")}, flags...)
+}
+
 // runRuff runs ruff; status 0 and 1 are data, anything else is a failure to run.
 func (g *gate) runRuff(ctx context.Context, argv []string) (proc.Result, error) {
 	res, err := g.runTool(ctx, ruffTimeout, g.root, argv...)
@@ -127,7 +134,7 @@ func (g *gate) runRuff(ctx context.Context, argv []string) (proc.Result, error) 
 // proveSelected is the independent proof that ruff read every Python file: it lists the files it
 // would check among those given, and each must be listed.
 func (g *gate) proveSelected(ctx context.Context, abs []string, rel map[string]string) error {
-	argv := append([]string{toolRuff, "check", "--show-files", "--no-cache"}, abs...)
+	argv := append(g.ruffBase("--show-files", "--no-cache"), abs...)
 	res, err := g.runRuff(ctx, argv)
 	if err != nil {
 		return err

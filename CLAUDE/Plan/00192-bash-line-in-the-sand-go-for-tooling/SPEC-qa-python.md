@@ -25,13 +25,15 @@ wrapper change (section 4).
 
 - Y1. No argument is needed. `--root DIR` names the repository root; `--scripts DIR` names the
   scripts directory and the root is its parent (the wrapper passes this); neither: the working
-  directory. `-h`/`--help` prints the usage to stdout, exit 0. Any other argument, or a flag
+  directory. The root is made absolute and cleaned once, so `--root .`, a relative `--scripts` and a
+  trailing slash all behave as the absolute path does. `-h`/`--help` prints the usage to stdout, exit 0. Any other argument, or a flag
   missing its value, is exit 2 with `ERROR:` and the usage on stderr. *(Bash ignored arguments.)*
 - Y2. `QA_JSON_OUT` is the report path; unset or empty is `/tmp/qa-python-results.json`. A report
   that cannot be written: `ERROR: cannot write the report <path>: <why>`, exit 2.
 - Y3. Exit codes: 0 no finding, 1 at least one, 2 the run could not complete. Every exit-2
   message is on stderr and starts `ERROR:`; no report is written on exit 2. A failed write to
-  stdout or stderr is exit 2.
+  stdout or stderr is exit 2, and so is a closed stdout (`>&-`): the write fails with EBADF, it
+  must not be lost silently.
 
 ### The tools and the pin
 
@@ -39,6 +41,10 @@ wrapper change (section 4).
   `ERROR: ruff not installed` with the play that installs it (`./playbooks/imports/play-python.yml`,
   and that Fedora's dnf package is the wrong one), exit 2. `python3` must run
   (`python3 --version` exits 0), else `ERROR: python3 not installed`, exit 2.
+  **Stated limit:** only ruff is pinned. The compile verdict is the host's `python3`, so syntax newer
+  than that interpreter (`type X = int` is a SyntaxError before 3.12) fails on an older host and
+  passes on a newer one. `.qa-versions` holds tool pins (`RUFF=`), not interpreter minimums, and
+  has no natural place for one; the interpreter is whatever the OS provides.
 - Y5. `.qa-versions` under the root must exist and hold exactly one `RUFF=<version>` line with a
   non-empty value (surrounding whitespace ignored), else exit 2 naming the file: with no pin the
   gate cannot say which gate it is.
@@ -69,10 +75,12 @@ wrapper change (section 4).
   be empty.
 - Y12. A template containing a Jinja statement (`{%`) is exit 2 naming it: its rendered Python
   cannot be reconstructed by substitution, and "this gate cannot check it" must not become "this
-  gate passes it". Nothing else is checked first, so one such file stops the run.
+  gate passes it". Nothing else is checked first, so one such file stops the run. The check is a
+  substring test, so a Python string holding `{%` in a template is exit 2 as well (fail-safe).
 - Y13. Any other template has every `{{ … }}` (shortest match, across lines) replaced with `None`
   and the result is compiled as Python. A failure is the template's own: `None` is an expression
-  wherever an expression may appear.
+  wherever an expression may appear. A Jinja comment (`{# … #}`) is not substituted and fails the
+  compile: a false failure, never a false pass (fail-safe, stated limit).
 
 ### Compiling, and the proof ruff read everything
 
@@ -81,14 +89,21 @@ wrapper change (section 4).
   `✗ python: <path>: <message>` on stdout (`<path> (rendered)` for a template), the message being
   Python's own text with the checkout's path never in it. `python3` failing, or not answering for a
   file it was given, or answering in anything but the expected form, is exit 2.
-- Y15. ruff must have read every Python file: `ruff check --show-files --no-cache <files>` is run
+- Y15. ruff must have read every Python file: `ruff check --config <root>/ruff.toml --show-files --no-cache <files>` is run
   with the same arguments as the lint and each file must be listed, else `ERROR: ruff did not select <N> of the Python file(s) it was given:` and the list, exit 2. (ruff drops a file its
   own exclude rules name, and a gate that vouches for a file ruff skipped is lying.) Templates are
   compiled, never linted, and are not given to ruff.
 
 ### Ruff
 
-- Y16. `ruff check --no-cache --output-format json <absolute paths>` runs from the root. `--no-cache`
+- Y22. Every ruff call (lint and `--show-files`) is given `--config <root>/ruff.toml`, so ruff's
+  hierarchical discovery is off: a `pyproject.toml [tool.ruff]`, `ruff.toml` or `.ruff.toml`
+  nested under the root cannot replace the repository's ruleset for its subtree. qa-changed's
+  per-file ruff is given the same flag and `--no-cache`.
+- Y23. The lint is given `--ignore-noqa`: `# noqa` and `# ruff: noqa` cannot hide a finding
+  (CLAUDE/QA.md bans suppression directives; the gate enforces it).
+
+- Y16. `ruff check --config <root>/ruff.toml --no-cache --ignore-noqa --output-format json <absolute paths>` runs from the root. `--no-cache`
   keeps the check read-only (no `.ruff_cache` written). Status 0 or 1 is data; 2 or more, or no
   status, or a timeout, is `ERROR: ruff invocation failed (status N):` with its stderr, exit 2. Its
   stdout must be a JSON array, else exit 2; an empty stdout is not an array.
@@ -100,7 +115,8 @@ wrapper change (section 4).
 
 - Y18. A file is *failed* when it has a compile error or at least one ruff diagnostic. Its
   `error` is the compile message, then its diagnostics as `<code>:<line> <message>`, joined by `; `
-  (a diagnostic without a code, a syntax error, prints `syntax-error`).
+  (a diagnostic without a code prints `syntax-error`; the pinned ruff gives syntax errors the code
+  `invalid-syntax`, so this fallback is reached only by an older ruff).
 - Y19. Order is files sorted by path, then templates sorted by path, in `results` and in stdout.
   The coverage and failure lines are, in order: each compile failure line (Y14); when ruff found
   anything, `✗ python: ruff: <N> issues in <F> file(s) (see <report> .ruff_diagnostics)`.
@@ -129,6 +145,7 @@ wrapper change (section 4).
 | B13 | failed stdout write unchecked                                                | exit 2                                                                | Y3          |
 | B14 | a dangling `*.py` symlink invisible to `find -type f`                        | exit 2 naming it                                                      | Y9          |
 | B15 | the error text of a failed compile carried a temporary file's path           | the template's own path                                               | Y14         |
+| B17 | a nested ruff config could swap the ruleset; `# noqa` hid findings          | `--config` to the root file, `--ignore-noqa`                          | Y22, Y23    |
 | B16 | exclusion list read by `lib/qa-trees.bash`; an empty list checked everything | no `python` row is exit 2                                             | Y8          |
 
 ## 4. Go design and cut-over
@@ -142,5 +159,6 @@ exercised by `cmd/qa-python`'s tests over a real work tree and by the live-tree 
 `scripts/qa-python.bash` becomes a build-and-run wrapper over `lib/go-tool.bash`; its allowlist row
 is removed. Routing: the gate row (`stage python`) and the `perfile-gate` list keep naming the
 script; qa-changed gains a `python` check, run whole when the tool, its wrapper, `ruff.toml`,
-`.qa-versions` or `scripts/qa-trees.tsv` change. CI runs `qa-all`, which runs the wrapper, so it
+`.qa-versions` or `scripts/qa-trees.tsv` change, or when a Python template (the `@pytemplate`
+predicate: a `.j2` with a Python shebang) changes, ahead of the generic `*.j2` row. CI runs `qa-all`, which runs the wrapper, so it
 needs `go` and `python3` and `ruff` (all already installed there).

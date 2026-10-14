@@ -184,18 +184,19 @@ func TestRuffIsGivenTheSameFilesBothTimes(t *testing.T) {
 	w := newWorld(t, map[string]string{"a.py": "x = 1\n", "tpl/t.j2": "#!/usr/bin/env python3\ny = {{ q }}\n"})
 	wantExit(t, w.main(), ExitOK)
 	var show, lint []string
+	cfg := w.root + "/ruff.toml"
 	for _, c := range w.run.argv("ruff") {
 		switch {
 		case slices.Contains(c, "--show-files"):
-			if !slices.Equal(c[:4], []string{"ruff", "check", "--show-files", "--no-cache"}) {
+			if !slices.Equal(c[:6], []string{"ruff", "check", "--config", cfg, "--show-files", "--no-cache"}) {
 				t.Fatalf("show-files argv %v", c)
 			}
-			show = c[4:]
+			show = c[6:]
 		case slices.Contains(c, "json"):
-			if !slices.Equal(c[:5], []string{"ruff", "check", "--no-cache", "--output-format", "json"}) {
+			if !slices.Equal(c[:8], []string{"ruff", "check", "--config", cfg, "--no-cache", "--ignore-noqa", "--output-format", "json"}) {
 				t.Fatalf("lint argv %v", c)
 			}
-			lint = c[5:]
+			lint = c[8:]
 		}
 	}
 	want := []string{w.root + "/a.py", w.root + "/tool.py"}

@@ -110,15 +110,24 @@ func parseArgs(args []string) (options, error) {
 	return opts, nil
 }
 
+// absolute makes a path absolute against cwd and cleans it, so a relative path or a trailing
+// slash cannot make the paths handed to ruff and python3 differ from the ones they print.
+func absolute(cwd, path string) string {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(cwd, path)
+	}
+	return filepath.Clean(path)
+}
+
 // rootDir resolves the repository root.
 func (o options) rootDir(cwd string) string {
 	switch {
 	case o.root != "":
-		return o.root
+		return absolute(cwd, o.root)
 	case o.scripts != "":
-		return filepath.Dir(filepath.Clean(o.scripts))
+		return filepath.Dir(absolute(cwd, o.scripts))
 	}
-	return cwd
+	return absolute(cwd, cwd)
 }
 
 // scriptsDir resolves the scripts directory under a root.
@@ -150,7 +159,7 @@ func Main(args []string, env Env) ExitCode {
 	}
 	g := &gate{env: env}
 	g.root = opts.rootDir(env.Cwd)
-	g.scripts = opts.scriptsDir(g.root)
+	g.scripts = absolute(env.Cwd, opts.scriptsDir(g.root))
 	g.report = env.Getenv("QA_JSON_OUT")
 	if g.report == "" {
 		g.report = defaultReportPath

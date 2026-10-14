@@ -188,7 +188,7 @@ func runShellcheck(ctx context.Context, s *session, cp *checkPlan) (checkResult,
 }
 
 func runRuff(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	return s.exec(ctx, nil, append([]string{"ruff", "check"}, cp.items...)...)
+	return s.exec(ctx, nil, append([]string{"ruff", "check", "--config", filepath.Join(s.root, "ruff.toml"), "--no-cache"}, cp.items...)...)
 }
 
 func runUnitTests(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {

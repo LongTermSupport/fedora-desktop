@@ -49,6 +49,12 @@ type outcome struct {
 // gate's own message, as the gate itself would.
 func realRun(t *testing.T, files map[string]string) outcome {
 	t.Helper()
+	return realRunWith(t, files, func(root string) []string { return []string{"--root", root} })
+}
+
+// realRunWith is realRun with the command line chosen by the test from the root.
+func realRunWith(t *testing.T, files map[string]string, args func(root string) []string) outcome {
+	t.Helper()
 	root := t.TempDir()
 	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"git", "init", "-q"}, Dir: root})
 	if err != nil || res.Code != 0 {
@@ -84,7 +90,7 @@ func realRun(t *testing.T, files map[string]string) outcome {
 		},
 		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, TempDir: t.TempDir(), WriteFile: writeReport,
 	}
-	code := python.Main([]string{"--root", root}, env)
+	code := python.Main(args(root), env)
 	got := outcome{code: code, root: root, stdout: stdout.String(), stderr: stderr.String()}
 	if data, readErr := os.ReadFile(reportPath); readErr == nil {
 		got.report = string(data)
