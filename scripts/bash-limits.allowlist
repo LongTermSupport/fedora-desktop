@@ -98,7 +98,6 @@ scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/nvidia-status.bash	430	4	519	-
 scripts/qa-ansible-pause.bash	96	1	71	-
 scripts/qa-docs.bash	77	0	72	data
-scripts/qa-gh-scopes.bash	67	0	82	data
 scripts/qa-go.bash	72	2	81	-
 scripts/qa-helper-tests.bash	90	0	88	assoc
 scripts/qa-plan-script-logging.bash	64	1	77	-
