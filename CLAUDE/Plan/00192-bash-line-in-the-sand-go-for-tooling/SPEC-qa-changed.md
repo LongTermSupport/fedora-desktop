@@ -1,0 +1,767 @@
+# qa-changed: functional specification for the Go port
+
+Programme P3 of [INVENTORY.md](INVENTORY.md) (the QA orchestrators; `qa-all.bash` is the next
+port). Method: Plan 00191's `SPEC-ccy-teams.md` and this plan's [SPEC-freeze.md](SPEC-freeze.md):
+the spec states what the bash does today, numbers the latent bugs, and says which a Go port fixes
+deliberately and which it keeps. No Go code is written in this step.
+
+Sources, all read at the branch point (`F44` after the freeze merge). `L<n>` is a line of the file
+named by its prefix:
+
+| prefix | file                                 | lines |
+| ------ | ------------------------------------ | ----- |
+| `QC`   | `scripts/qa-changed.bash`            | 660   |
+| `TQ`   | `scripts/test-qa-changed.bash`       | 253   |
+| `GB`   | `scripts/go-binary-suites.tsv`       | 13    |
+| `QD`   | `scripts/qa-discovery.bash`          | 395   |
+| `HS`   | `scripts/lib/qa-helper-summary.bash` | 286   |
+| `QA`   | `scripts/qa-all.bash`                | 1446  |
+| `QL`   | `scripts/qa-bash-limits.bash`        | 31    |
+
+`QC` is on the bash-limits ratchet allowlist at 543 code lines, 18 functions, an associative
+array (`scripts/bash-limits.allowlist`): the largest orchestrator the rule leaves in bash, and the
+one every contributor and agent runs before every commit.
+
+"stdout" below means the tool's stdout. Today's contract: stdout carries the plan and the report
+(one line per check, the verdict); stderr carries `ERROR:` lines and the captured detail of a
+failing check. There is no colour. Every glyph (`✓ ✗ ⚠`) is plain UTF-8.
+
+---
+
+## 1. What it is, who calls it, and what depends on its output
+
+`./scripts/qa-changed.bash` is the per-commit, diff-scoped QA. It collects the changed files,
+classifies each (shell, Python, playbook, task/vars, Markdown, JavaScript, Go, other), chooses the
+checks and the `test-*.bash` suites those files need, runs them all, and prints one verdict.
+`qa-all.bash` stays the gate before a push; `qa-changed.bash` says so in its last line.
+
+Callers, found by searching the tree (the list is complete; none was found in `.claude/hooks`,
+`.claude/agents`, `.githooks`, `.github/workflows` or `.claude/hooks-daemon.yaml`):
+
+- **People and agents**, by documentation: `CLAUDE.md` (QA Mandatory Before Commits),
+  `CLAUDE/QA.md` (L8, L13-16, the `qa-changed.bash` section L1026-1052, the When-to-Run table),
+  `docs/development.md` L317, and the path rules `.claude/rules/{bash-scripts,ansible-editing, python-helpers,ccy-version-bump,go-code}.md`. They read stdout and the exit status.
+- **`qa-all.bash` L1303-1312**: runs `test-qa-changed.bash` as the hard gate `qa-changed-mapping`
+  and reads its case count with `qa_gate_case_count`. It never runs `qa-changed.bash` itself.
+- **`TQ`**: drives `QC` through `--plan` only (section 9).
+- **CI** (`.github/workflows/qa.yml`) runs `qa-all.bash` only; `qa-changed.bash` is not in CI.
+- **Comments that name it** and must be kept true: `qa-go.bash` L8, `src-go/CLAUDE.md` (QA
+  section), `internal/freeze/golden/golden_test.go` L103 and `golden-capture/capture.py` L45 (both
+  say a changed file reaches the suites that mention its name: this is section 5 rule S2).
+
+What parses its output: **nothing machine-reads `qa-changed.bash`'s stdout.** The brief's
+`test-qa-helper-summary.bash` parses `qa-all.bash`'s gate output (it reads each reader pattern out
+of `qa-all.bash`), not this tool's. The dependency runs the other way: `QC` calls
+`qa_gate_case_count` (`HS`) to turn a passing suite's capture into the `passed: N` text in its own
+report line, so the `passed: <digits>` line contract of the suites is relied on here as well
+(section 7.4). The hooks daemon has a stop rule on QA failure (`R-STOP-QA-FAILURE`: "the last QA
+tool run's own output indicated failure"); which tokens it keys on was not verifiable from inside
+this container, so the port treats the tokens as a contract: the exit status, the `✗` prefix, the
+words `qa-changed FAILED` and `qa-changed passed`. Section 7 pins them verbatim.
+
+---
+
+## 2. The command line
+
+```
+qa-changed.bash                 files changed vs HEAD, plus untracked (not ignored)
+qa-changed.bash --base <ref>    files changed vs <ref>, plus untracked
+qa-changed.bash --plan          print the plan, run nothing
+qa-changed.bash --files F...    use exactly these repo-relative files (no git)
+qa-changed.bash -h | --help
+```
+
+### 2.1 Argument parsing (`QC` L61-95)
+
+A `while` over `$@` with a `case`:
+
+- `--base <ref>`: needs a value; none gives `ERROR: --base needs a ref` on stderr, exit 2. The
+  value is taken blindly (bug B4).
+- `--plan`: sets plan-only.
+- `--files`: takes **every remaining argument** as a file and stops parsing (`break`). Flags after
+  it are files (bug B3). Zero files is accepted (bug B2).
+- `-h`, `--help`: prints the header comment (the lines from line 2 to the first non-comment line,
+  `#` and one space stripped) to **stderr**, exit 0 (bug B15).
+- anything else: `ERROR: unknown argument '<arg>'` on stderr, then the usage text on stderr, exit 2.
+
+No positional arguments. The flags combine freely when ordered before `--files`.
+
+### 2.2 Order of operations (`QC` L106-486)
+
+1. `cd "$REPO_ROOT"` (section 6).
+2. Collect (section 3). Nothing changed: print the no-op line, exit 0.
+3. Classify (section 4), choose suites (section 5), compute uncovered files.
+4. Print the plan (section 7.1). With `--plan`: exit 0 here. Plan mode runs no preflight and needs
+   no tool except `git`, `grep` and (for src-go) `go`.
+5. Preflight tools for the planned checks (section 8.1), exit 2 on the first missing.
+6. Run every planned check in the fixed order of section 8.2, never stopping at the first failure.
+7. Print the summary lines and exit (section 8.4).
+
+---
+
+## 3. Collecting the changed files (`QC` L108-131)
+
+Default (no `--files`): the union, NUL-separated, de-duplicated by `sort -zu`, of
+
+```
+git diff --name-only -z --diff-filter=d <BASE> --        # tracked, changed vs BASE, deletions dropped
+git ls-files -z --others --exclude-standard              # untracked and not ignored
+```
+
+with `BASE` = `HEAD` unless `--base`. `git diff <BASE>` (no second ref) compares the **working
+tree** with `BASE`, so staged, unstaged and (for a non-HEAD base) committed changes all appear.
+Renames report the new name (no `-M` flag, so git's default diff rename detection applies; a pure
+rename lists the new path only).
+
+`--files F...`: the arguments, verbatim, no git at all.
+
+Then every candidate is kept only if `[[ -f "$f" ]]` (a regular file, symlinks followed, relative to
+the repo root cwd). A deleted path, a directory, a submodule gitlink and a dangling symlink are
+dropped **without a word** (bug B6, B21). Order: git's order from `sort -zu` (byte order); explicit
+files keep the argument order; duplicates in `--files` are kept (bug B5).
+
+No changed file: stdout `qa-changed: no changed files (vs <BASE>, plus untracked) — nothing to check.`
+(`BASE` is printed even under `--files`, bug B16), exit 0.
+
+A failing `git diff` (a bad `--base`, a repository with no commit) is **not detected**: the
+command runs inside a process substitution, whose status the script never reads, so git's
+`fatal: bad revision` appears on stderr and the run goes on with an empty list, reporting "nothing
+to check", exit 0. Reproduced: `qa-changed.bash --base nosuchref --plan` (bug B1).
+
+---
+
+## 4. Classification: every pattern, as data
+
+The order of the rules is the contract: the pre-rules add checks and never stop; then the first
+matching rule in the list classifies the file and stops (`continue`). The Go table is this table.
+
+Vocabulary. `glob` has **bash `case` semantics**: `*` matches any run of characters including `/`
+(so `*.bash` matches at any depth and `src-go/*` matches everything below). Go's `path.Match`
+differs (a `*` stops at `/`), so the port ships its own matcher and a test for each row.
+`@playbook` is a content test: the file has a line matching `^\s*-\s+(hosts|import_playbook):`.
+`@sh` is `.sh` or `.bash` extension or a shell shebang; `@py` is `.py` or a Python shebang;
+`qa_is_excluded`/`qa_py_is_excluded` are section 4.3. A file that is not `.md`, `.yml/.yaml`,
+`.js/.mjs`, `src-go/*` or `.j2` has its first line read (the shebang), which exits 2 if the file
+is unreadable (`QD` `_qa_first_line`).
+
+### 4.1 Pre-rules (additive, never terminal; `QC` L212-231, L449)
+
+| id  | match                                                                                                                                                                             | adds                                      | marks covered                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------- |
+| P1  | exactly `files/var/local/claude-yolo/lib/common-pure.bash`, `.../lib/session-registry.bash`, `helpers/agent_bus/declare.py` (the files the Go tests execute as parity references) | `go` (Go gate)                            | no (the file is classified again below) |
+| P2  | glob `*.bash`, `*.sh`, `*.j2`, `src-go/qa/bashlimits/*`, `src-go/qa/cmd/qa-bash-limits/*`                                                                                         | `bash-limits`                             | no                                      |
+| P3  | exactly `scripts/bash-limits.allowlist`                                                                                                                                           | `bash-limits`                             | yes                                     |
+| P4  | a path that begins a line of `scripts/bash-limits.allowlist` (path, then a tab) and is a collected file                                                                           | `bash-limits`                             | no                                      |
+| P5  | after the loop: at least one file classified as shell (R7 below)                                                                                                                  | `bash-limits` (extensionless shell tools) | no                                      |
+| P6  | after the loop: at least one shell file or at least one Python file                                                                                                               | `toolchain`                               | no                                      |
+
+P2 sends every Jinja template to the cheap bash-limits gate whether or not it is a shell template
+(the gate decides); kept (B18). P4's comment says the rule applies "even when deleted"; it does not
+(B6).
+
+### 4.2 Terminal rules, first match wins (`QC` L232-304)
+
+| id  | match, in this order   | action                                                                                                              | covered   |
+| --- | ---------------------- | ------------------------------------------------------------------------------------------------------------------- | --------- |
+| R1  | glob `*.md`            | `docs`                                                                                                              | yes       |
+| R2  | glob `*.yml`, `*.yaml` | excluded tree: report as skipped. Else the YAML rules in 4.2.1                                                      | per 4.2.1 |
+| R3  | glob `*.js`, `*.mjs`   | excluded tree: skipped. Else `node-check`; and under `extensions/`, also `eslint` (files relative to `extensions/`) | yes       |
+| R4  | glob `src-go/*`        | `go` (the interim Go gate, whole); the file joins the closure list (section 5.3)                                    | yes       |
+| R5  | glob `*.j2`            | nothing (a template is not shell or Python until rendered); only a suite naming it can cover it                     | no        |
+| R6  | `@py`                  | excluded Python tree: skipped. Else `ruff`, plus unit modules (4.2.2). `NOTES` if no mirrored test                  | yes       |
+| R7  | `@sh`                  | excluded shell tree: skipped. Else `bash-syntax`, `shellcheck`, `semgrep`                                           | yes       |
+| -   | none of the above      | stays uncovered unless a suite names it (section 5)                                                                 | no        |
+
+R4 sits **after** R2, so `src-go/.golangci.yml` never reaches it and is reported uncovered while
+the code comment says the lint config runs the Go gate (bug B7, reproduced). R1 precedes R4, so
+`src-go/**/*.md` is a docs change, not a Go change. R6 is before R7, so a Python script with a
+shell word in its shebang is Python.
+
+#### 4.2.1 YAML (`classify_yaml`, `QC` L178-210)
+
+1. `@playbook` content: the file is a playbook. Adds `ansible-syntax` (itself), `ansible-patterns`,
+   `docs`. Covered.
+2. Else, a path whose glob is `playbooks/*`, `tasks/*`, `vars/*`, `environment/*` or `roles/*`:
+   adds `ansible-patterns`; `docs` too if `playbooks/*`; covered; and **every tracked,
+   non-excluded playbook whose text contains the changed file's basename (`grep -F`, substring)** is
+   added to `ansible-syntax` (one level; B19). If none names it: `note: <path>: no playbook names '<basename>', so no ansible-syntax target (patterns gate only)`.
+3. Else: nothing; uncovered unless a suite names it.
+
+The playbook list is `git ls-files '*.yml' '*.yaml'` filtered by the `@playbook` content test and
+the shell exclusion list, computed once, lazily. A grep failure (status 2 or more) is exit 2.
+
+#### 4.2.2 Python tests (`QC` L271-296)
+
+A non-excluded Python file adds `ruff` (the file). Unit modules:
+
+- `tests/helpers/<dir>/test_*.py` or `tests/helpers/test_*.py` (glob `tests/helpers/*/test_*.py`,
+  `tests/helpers/test_*.py`): the file is its own module, `tests.helpers.x.test_y`.
+- `helpers/*.py`: mirror = `tests/helpers/` + the path under `helpers/` with the basename replaced
+  by `test_<basename>`. If the mirror exists the module is added; else, unless the file is
+  `__init__.py`, `note: <path>: no mirrored unit test (<mirror>)`.
+- other Python: ruff only.
+
+Modules are de-duplicated, first-seen order (`uniq_array`).
+
+### 4.3 Excluded trees (`QD` L30-85)
+
+Two lists of directory names, matched as `/<dir>/` substrings of `/<path>/` (so the name matches
+at any depth, not just the root):
+
+- **shell and generic list** (`QA_EXCLUDE_DIRS`, applied to shell, YAML, JS): `.git`, `.ansible`,
+  `.claude/hooks-daemon`, `.claude/hooks-daemon-backups`, `.claude/ccy`, `.claude/skills`,
+  `.claude/worktrees`, `roles/vendor`, `.semgrep`, `node_modules`, `untracked`.
+- **Python list** (`QA_PY_EXCLUDE_DIRS`, narrower inside `.claude/ccy`): `.git`, `.ansible`,
+  `.claude/hooks-daemon`, `.claude/ccy/plugins`, `.claude/ccy/file-history`,
+  `.claude/ccy/projects`, `.claude/worktrees`, `roles/vendor`, `node_modules`, `untracked`,
+  `__pycache__`, `.venv`, `venv`.
+
+Shebangs (`QD` L125-155): shell = first line matches `^#!/.*bash` (but **not** `^#!/.*bash\s+-c\s`,
+the playbooks' inline-script form) or is exactly `#!/bin/sh` or `#!/usr/bin/sh`; Python = first line
+matches `^#!.*python`. An empty file or one with no first line is not a script. An unreadable file
+is exit 2 ("Refusing to classify a file this gate could not open").
+
+---
+
+## 5. Selecting suites
+
+### 5.1 The population (`QC` L325-340)
+
+The suites that may run are the `test-*.bash` and `qa-*.bash` scripts that `qa-all.bash` invokes,
+found by text, not by running anything: take `qa-all.bash` minus its comment-only lines, extract
+every match of `[$]SCRIPT_DIR/(test|qa)-[A-Za-z0-9._-]+[.]bash`, strip the directory, de-duplicate
+keeping first-seen order. Drop the **per-file gates** (names, without `.bash`): `qa-bash`,
+`qa-python`, `qa-patterns`, `qa-ansible`, `qa-ansible-syntax`, `qa-js`, `qa-docs`, `qa-go`,
+`qa-bash-limits`, `qa-toolchain`, `qa-deployed-drift`, `qa-helper-tests`, `qa-discovery` (these
+are either run per file by the checks above, run whole as a gate, or inspect the host). Drop names
+that do not exist as files. Today `qa-all.bash` names 91 distinct scripts; the rest is the
+population. Zero found: `ERROR: found no suites in qa-all.bash — its invocation shape changed; fix this script.`, exit 2.
+
+This is a **textual coupling** to `qa-all.bash`: a suite invoked another way is invisible, and a
+mention inside a string or `echo` counts (B9). It is the first thing the `qa-all` port replaces
+with data (section 12).
+
+### 5.2 Naming rules (`QC` L342-430)
+
+For every collected file that is not `*.md`, two patterns are made: the repo-relative path and its
+basename. `PATTERN_OWNER[pattern]` is the file; two files with the same basename overwrite each
+other, last in iteration order wins (bug B8). A suite is picked if any of these holds; each gives
+one reason, in this order:
+
+- **S1** (Go closure, 5.3): `builds from <file>` once per owned `src-go/` file.
+- **S2** (self): the suite is itself a changed file: `the suite itself changed`.
+- **S3** (named): `grep -oFf <patterns> <suite text>` finds a pattern. `-o` prints non-overlapping
+  matches, leftmost then longest, so a basename inside a path hit hides the basename (and a
+  shorter changed name inside a longer one is hidden: bug B8). One `names <file>` reason per owner;
+  a suite naming itself is S2 only.
+
+The match is a raw substring, deliberately loose (`app.go` also matches `webapp.go`): a suite is
+over-selected rather than missed. Kept (B22). A file is marked covered when a suite names it or is
+itself.
+
+The plan lists picked suites in population order with `; ` joined reasons.
+
+### 5.3 The Go closure (`QC` L356-390, `GB`)
+
+`GB` is `command <TAB> suites`, `#` comments, suites space-separated or the word `qa-go`:
+
+```
+ccy-teams     scripts/test-ccy-teams-command.bash
+ccy-sessions  scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash
+              scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash   (one line)
+podfreeze     qa-go
+lxcfreeze     qa-go
+```
+
+Only when at least one collected file is under `src-go/` (rule R4). For each row whose suites are not
+`qa-go`: run `go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' ./cmd/<command>` in `src-go`
+(a failure is exit 2: `ERROR: go list -deps ./cmd/<c> failed; cannot map src-go/ changes to the <c> suites.`). A file is owned if it is `src-go/go.mod` or `src-go/go.sum`, or its absolute path is
+under one of the listed directories (dir prefix, so a `_test.go`, a `testdata` file or an embedded
+asset in a closure directory is owned too). Each owned file adds the row's suites a `builds from`
+reason. The nested module `src-go/qa/...` is never in a command's closure, so it picks nothing but
+the Go gate. A command with no row, or a row whose suite is not in the population, selects
+nothing, silently (bug B10; `TQ` pins the no-row case only as a control).
+
+---
+
+## 6. Environment and files
+
+| name                                                   | read by                                              | meaning                                                                                                                                                                                                                 |
+| ------------------------------------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QA_CHANGED_ROOT`                                      | `QC` L48                                             | Overrides the repository root: git collection, `cd`, every relative path. The suites, gates, `qa-discovery.bash` and `.semgrep` still come from the checkout holding the script. Used by `TQ` for scratch repositories. |
+| `QA_JSON_OUT`                                          | set by `QC` for `qa-ansible.bash` and `qa-docs.bash` | A `mktemp` file the gate writes its machine report to; discarded. Required by those gates.                                                                                                                              |
+| `ANSIBLE_CONFIG`                                       | set by `QC` for `ansible-syntax` only                | `$REPO_ROOT/ansible.cfg`. Set inside the check's subshell, so it does not leak to later checks.                                                                                                                         |
+| `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` | set by `QC` for `unit-tests`                         | Unit tests must not read the user's git configuration.                                                                                                                                                                  |
+| `QA_BASH_LIMITS_BASE`                                  | `qa-bash-limits.bash` (inherited)                    | The ratchet base; the wrapper passes the environment through unchanged.                                                                                                                                                 |
+| `XDG_CACHE_HOME`, `HOME`                               | `qa-bash-limits.bash` (inherited)                    | Where that gate builds its binary. Not read by `QC`.                                                                                                                                                                    |
+| `TMPDIR`                                               | `mktemp`                                             | Scratch for the semgrep mirror and the gate JSON; removed on exit by the `EXIT` trap.                                                                                                                                   |
+
+Files read: `scripts/qa-all.bash`, `scripts/go-binary-suites.tsv`, `scripts/bash-limits.allowlist`,
+`scripts/qa-discovery.bash` (sourced), `scripts/lib/qa-helper-summary.bash` (sourced),
+`.semgrep/bash-conventions.yml`, `ansible.cfg`, `extensions/node_modules/.bin/eslint`. Files
+written: temporaries only. It never writes to the repository.
+
+---
+
+## 7. Output contract
+
+### 7.1 The plan (stdout; printed always, before any check runs)
+
+In this order; a line is omitted when its set is empty. `<list>` is the files space-joined in
+collection order.
+
+```
+plan: <N> changed file(s) vs <BASE>
+check toolchain
+check bash-syntax: <list>
+check shellcheck: <list>
+check semgrep: <list>
+check ruff: <list>
+check unit-tests: <modules>
+check ansible-syntax: <playbooks>
+check ansible-patterns
+check docs
+check go
+check bash-limits
+check node-check: <list>
+check eslint: <list>
+suite scripts/<name>.bash: <reason>[; <reason>...]       (one per picked suite)
+skipped (excluded tree): <path>                           (one per skipped file)
+note: <text>                                              (one per note)
+⚠ not covered by qa-changed: <path>                       (one per uncovered file)
+```
+
+`TQ` asserts these lines by fixed substring, so each line's text is a contract. `<BASE>` is `HEAD`
+unless `--base` (and, today, also under `--files`: B16).
+
+### 7.2 The run (stdout), one line per check in the order of 8.2
+
+```
+✓ <name>: <summary>
+✗ <name>: <summary>          then the check's captured output (stdout and stderr merged) on stderr
+```
+
+| name                                   | summary                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------- |
+| `toolchain`                            | `QA tool versions match .qa-versions`                                   |
+| `bash-syntax`, `shellcheck`, `semgrep` | `<n> file(s)`                                                           |
+| `ruff`                                 | `<n> file(s)`                                                           |
+| `unit-tests`                           | `<n> module(s)`                                                         |
+| `ansible-syntax`                       | `<n> playbook(s)`                                                       |
+| `ansible-patterns`                     | `fail-fast patterns, whole gate`                                        |
+| `docs`                                 | `whole gate`                                                            |
+| `go`                                   | `whole gate (interim qa-go.bash)`                                       |
+| `bash-limits`                          | `whole gate (tooling is Go; allowlist ratchet)`                         |
+| `node-check`, `eslint`                 | `<n> file(s)`                                                           |
+| `suite <name>.bash`                    | pass: `<passed: N or the word passed> (<reasons>)`; fail: `(<reasons>)` |
+
+A passing check's output is discarded entirely (B23). The count after a passing suite is
+`qa_gate_case_count` of its merged output (section 7.4).
+
+### 7.3 The ending (stdout)
+
+1. If uncovered files: `⚠ <n> changed file(s) not covered by qa-changed — qa-all.bash is the only check`
+   (a warning; it does not change the status).
+2. If any check failed: `✗ qa-changed FAILED: <names space-joined>` where a suite's name is
+   `suite <name>.bash`; exit 1.
+3. Else: `✓ qa-changed passed: <n> changed file(s). Run ./scripts/qa-all.bash before pushing.`; exit 0.
+
+### 7.4 What it reads from suites
+
+`qa_gate_case_count` (`HS` L248-264): the last line of the capture containing `passed: <digits>`,
+then the last such match on that line, printed `passed: N`; no match prints the word `passed`. The
+port reproduces this exactly (it is documented as degrading to a word rather than a wrong number)
+and tests it against the same corpus `test-qa-helper-summary.bash` uses.
+
+### 7.5 stderr
+
+`ERROR: ...` lines (usage, missing tool, grep or go-list failure), the usage text, the git
+diagnostics (B1), and the captured output of each failing check after its `✗` line. Nothing else.
+
+---
+
+## 8. Execution
+
+### 8.1 Preflight (`QC` L488-508)
+
+Before any check, for the planned checks only (each failure is exit 2, message
+`ERROR: <tool> not found — a planned check needs it.`, then the fix line, then `  Do NOT install it by hand.`):
+
+| planned      | tool                                             | fix text                                                                                            |
+| ------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| shell files  | `shellcheck`                                     | `ansible-playbook playbooks/imports/play-devtools.yml`                                              |
+| shell files  | `semgrep`                                        | `ansible-playbook playbooks/imports/play-python.yml`                                                |
+| Python files | `ruff`                                           | `ansible-playbook playbooks/imports/play-python.yml`                                                |
+| playbooks    | `ansible-playbook`                               | `Install ansible (sudo dnf install ansible) via the repo's IaC.`                                    |
+| JS files     | `node`                                           | `ansible-playbook playbooks/imports/play-nvm-install.yml`                                           |
+| eslint files | `extensions/node_modules/.bin/eslint` executable | `ERROR: eslint for extensions/ is not set up (cd extensions && npm ci).` (no fix line, no "Do NOT") |
+
+Not preflighted although used: `jq` (semgrep), `python3` (unit tests), `go` and `golangci-lint`
+(inside `qa-go.bash`), `go` (inside `qa-bash-limits.bash`), `bash`. Their absence surfaces as a check
+failure (status 1) or, for `jq`, as a silent semgrep pass (B11, B12).
+
+### 8.2 The checks and their order (`QC` L510-651)
+
+Sequential, in this order; every selected check runs even after a failure (so one run names
+everything broken). The check's command and cwd:
+
+| order | check              | command (cwd = repo root)                                                                                                                                                                                                                                                                                                                                                                        |
+| ----- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | `toolchain`        | `bash scripts/qa-toolchain.bash`                                                                                                                                                                                                                                                                                                                                                                 |
+| 2     | `bash-syntax`      | `bash -n` on each shell file; fails if any does                                                                                                                                                                                                                                                                                                                                                  |
+| 3     | `shellcheck`       | `shellcheck --severity=warning <files>` (the same bar as `qa-bash.bash`; duplicated here, B25)                                                                                                                                                                                                                                                                                                   |
+| 4     | `semgrep`          | copy each file into a temp tree (extensionless ones get `.bash` appended, so semgrep's language detection sees shell); `semgrep --config <repo>/.semgrep/bash-conventions.yml --json-output <f> --metrics=off --quiet .` from that tree; exit 2 or more is a failure ("semgrep failed (rc=N)"); else each result becomes `<path>:<line> <check_id> <message>` via `jq`, any finding is a failure |
+| 5     | `ruff`             | `ruff check <files>`                                                                                                                                                                                                                                                                                                                                                                             |
+| 6     | `unit-tests`       | `python3 -m unittest <modules>` with the two git environment variables                                                                                                                                                                                                                                                                                                                           |
+| 7     | `ansible-syntax`   | `ansible-playbook --syntax-check <pb>` per playbook, stdout discarded, failures print `^^ <pb>`; all are tried                                                                                                                                                                                                                                                                                   |
+| 8     | `ansible-patterns` | `QA_JSON_OUT=<tmp> bash scripts/qa-ansible.bash`                                                                                                                                                                                                                                                                                                                                                 |
+| 9     | `docs`             | `QA_JSON_OUT=<tmp> bash scripts/qa-docs.bash`                                                                                                                                                                                                                                                                                                                                                    |
+| 10    | `go`               | `bash scripts/qa-go.bash`                                                                                                                                                                                                                                                                                                                                                                        |
+| 11    | `bash-limits`      | `bash scripts/qa-bash-limits.bash`                                                                                                                                                                                                                                                                                                                                                               |
+| 12    | `node-check`       | `node --check` per file; all are tried                                                                                                                                                                                                                                                                                                                                                           |
+| 13    | `eslint`           | `(cd extensions && ./node_modules/.bin/eslint <files relative to extensions/>)`                                                                                                                                                                                                                                                                                                                  |
+| 14+   | suites             | `bash scripts/<name>.bash` in population order                                                                                                                                                                                                                                                                                                                                                   |
+
+Each check's pass or fail is its command's exit status (non-zero is a fail; the distinction
+between 1 and 2 is lost, B13). No check has a timeout (B14). No check runs in parallel. Checks do
+not read each other's results.
+
+### 8.3 Concurrency and state
+
+None: one process, sequential children, temporaries removed by an `EXIT` trap (`rm -rf`). Two
+runs at once share only the build cache of `qa-go.bash` and `qa-bash-limits.bash`.
+
+### 8.4 Exit codes
+
+| code | when                                                                                                                                                                                                      |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | nothing changed; `--plan` completed; all checks passed (uncovered files only warn); `--help`                                                                                                              |
+| 1    | at least one check failed; also a sub-gate that itself exited 2 (B13); an unhandled shell error, as in the `cd` failure for an unreadable `QA_CHANGED_ROOT` (reproduced: exit 1 with a bare bash message) |
+| 2    | bad usage; a missing preflight tool; an unreadable file during classification; a `grep` or `go list` failure; no suites found in `qa-all.bash`                                                            |
+
+---
+
+## 9. The oracle: `scripts/test-qa-changed.bash` (`TQ`)
+
+73 cases (the suite prints `passed: 73   failed: 0` today), all **black-box**: they call the
+script by path with `--plan`, and assert fixed substrings of its stdout or its exit status. They
+never run a check. That makes the oracle usable against any implementation of the same command
+line, unlike the white-box freeze suites (SPEC-freeze 9.1). Two helpers (`expect_has`,
+`expect_lacks`), one hand-counted exit-status case.
+
+| `TQ` lines | group                                               | cases | covers                                                                                                     | disposition                                               |
+| ---------- | --------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| 55-106     | file -> check mapping on real repo paths            | 23    | R1, R3, R6, R7, 4.2.1, 4.2.2, 5.2 S2/S3, the uncovered line, a nonexistent file dropped                    | port to Go table tests; keep in bash as the black-box leg |
+| 108-155    | git collection in a scratch repository              | 8     | section 3: modified, untracked, deleted dropped, ignored dropped, clean tree (stdout and exit 0), `--base` | port + keep                                               |
+| 157-176    | `src-go/` -> the Go gate                            | 11    | R4, P1, nested module, no suite for `qa-go`                                                                | port + keep                                               |
+| 178-196    | bash files, allowlist, its Go source -> bash-limits | 12    | P2-P5, shebang-vs-extension                                                                                | port + keep                                               |
+| 198-209    | ccy-teams closure                                   | 5     | 5.3                                                                                                        | port + keep                                               |
+| 211-224    | ccy-sessions closure                                | 7     | 5.3                                                                                                        | port + keep                                               |
+| 226-243    | every binary has a suite entry                      | 7     | 5.3 table completeness; one control per command with a row; a no-row control                               | port + keep; loops over the real `src-go/cmd/*`           |
+| total      |                                                     | 73    |                                                                                                            |                                                           |
+
+### 9.1 What the oracle does not cover (new cases the Go port must add)
+
+None of these has a case today; the first four are the spec's own bugs.
+
+01. Run mode at all: every `✓/✗` line, the ending lines, exit 0/1/2, failure detail on stderr.
+    Needs fake tools on `PATH` (section 10.3).
+02. `--help` (stream, exit 0), unknown argument (exit 2), `--base` with no value (exit 2).
+03. A bad `--base` (B1), `--files` with zero files (B2), `--files F --plan` order (B3), `./x` and
+    absolute paths (B5), duplicates (B5).
+04. A deleted allowlisted file, a deleted Go file, a deleted file a suite names (B6).
+05. `src-go/.golangci.yml` plans the Go gate (B7). Two changed files with the same basename are
+    both credited (B8).
+06. A task or vars file mapped to the playbooks that name it, and the "no playbook names it" note.
+07. A tsv suite name that is not in `qa-all.bash` (B10).
+08. Preflight: each missing tool is exit 2 with the fix line; `jq` is no longer a dependency (B11, B12).
+09. Check ordering and that every check runs after a failure; a timeout (B14).
+10. The covered/uncovered accounting for `*.j2`, excluded trees, and "skipped" lines.
+11. The matcher: `*` crossing `/`; the two exclusion lists; shebang forms (`bash -c`, `/bin/sh`,
+    `python`).
+12. The `qa_gate_case_count` port against `HS`'s own test corpus.
+
+---
+
+## 10. Latent bugs
+
+Numbered for the plan and the golden deviation file. **Fix** means the Go port changes behaviour on
+purpose (the cut-over commit lists each as a deviation with its case); **Keep** means reproduced.
+Items verified by running the script are marked (reproduced).
+
+| #   | where                             | defect                                                                                                                                                                                                                                                                                                                                                              | disposition                                                                                                                                                                                        |
+| --- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | `QC` L113-121                     | A failing `git diff` (bad `--base`, repository without a commit) is lost in a process substitution: git's error goes to stderr, the file list is empty, the verdict is "nothing to check", exit 0. The commit loop that most needs the check then passes without running anything. (reproduced)                                                                     | **Fix**: git failure is exit 2 with git's message and `ERROR: cannot list changed files vs <ref>`                                                                                                  |
+| B2  | `QC` L79-83                       | `--files` with no files means "no changed files", exit 0.                                                                                                                                                                                                                                                                                                           | **Fix**: exit 2, `--files needs at least one file`                                                                                                                                                 |
+| B3  | `QC` L79-83                       | `--files` swallows every later argument, flags included: `--files a --plan` treats `--plan` as a file, drops it as nonexistent, and runs the real checks. (reproduced)                                                                                                                                                                                              | **Fix**: flags are recognised anywhere; the files are the arguments that are not flags, and `--` ends flags (`--files a b --plan` plans). An unknown `-x` is a usage error.                        |
+| B4  | `QC` L67-73                       | `--base` takes the next argument blindly: `--base --plan` uses `--plan` as the ref (and then B1 hides the git error).                                                                                                                                                                                                                                               | **Fix**: a value that starts with `-` is a usage error                                                                                                                                             |
+| B5  | `QC` L110-126                     | Explicit paths are not normalised: `./x.bash` and `x.bash` classify as two files (and the suites are matched with the `./`), absolute paths and `..` are accepted verbatim, duplicates count twice. (reproduced: the plan prints `./scripts/qa-bash.bash`)                                                                                                          | **Fix**: clean to a repo-relative path; outside the repo is exit 2; duplicates collapse                                                                                                            |
+| B6  | `QC` L123-126, L148-151, L228-231 | Deleted paths are dropped before classification. The comment on the allowlist rule says an allowlisted path "counts as bash even when deleted", and `TQ` pins only that a deleted file is dropped from per-file checks. A deleted allowlisted script (the ratchet needs `--update`), a deleted Go file, or a deleted file a suite names therefore run **nothing**.  | **Fix**: collect deletions as a separate list; a deleted path triggers the whole-gate rules (P2, P4, `go` for `src-go/`, the Go closure by directory) and S3 naming; per-file checks still skip it |
+| B7  | `QC` L238, L256-264               | `src-go/*.yml` (the `.golangci.yml` lint config) is matched by the YAML rule first, so it never reaches the rule whose comment says "Go files, go.mod and the lint config" run the Go gate; it is reported uncovered. (reproduced)                                                                                                                                  | **Fix**: the src-go rule precedes the YAML rule in the table                                                                                                                                       |
+| B8  | `QC` L342-352, L408-423           | Pattern ownership is a map keyed by pattern (the last of two files with one basename wins), and `grep -oFf` reports non-overlapping matches only (a path hides its basename, a name inside a longer name is hidden). Two changed `main.go`, or `ccy` and `ccy-teams`, credit one file, leave the other "not covered", and the "names" reason cites the wrong owner. | **Fix**: each pattern is tested independently by substring; every owner is credited and listed                                                                                                     |
+| B9  | `QC` L326-340                     | The suite population is a regex over `qa-all.bash`'s text: a name in a string, an `echo` or a `# ` trailing comment counts; an invocation built any other way is missed; the per-file-gate list is a hard-coded string.                                                                                                                                             | **Keep** for the parity step, with a test that the population equals the set `qa-all.bash` actually runs; **replaced by data** in the `qa-all` port (section 12)                                   |
+| B10 | `QC` L361-390                     | A `go-binary-suites.tsv` suite that is misspelt, deleted, or not in the population is silently never picked.                                                                                                                                                                                                                                                        | **Fix**: each tsv suite must be in the population, else exit 2 at load; a test over the real files                                                                                                 |
+| B11 | `QC` L498-508                     | The preflight omits `jq`, `python3`, `go`, `golangci-lint`, `bash`. A host without them gets exit 1 (a failed check) where the contract says exit 2, or B12.                                                                                                                                                                                                        | **Fix**: each check declares its tools; one preflight, exit 2, same message format                                                                                                                 |
+| B12 | `QC` L559                         | `findings="$(jq ...)"` inside a function that runs in an `if` context: `set -e` is off there, so a missing `jq` or a malformed JSON file leaves `findings` empty and **semgrep passes**.                                                                                                                                                                            | **Fix**: the Go port decodes the semgrep JSON itself; a decode error is a failure of the check                                                                                                     |
+| B13 | `QC` L520-529                     | A check's status is pass or fail; a gate that exits 2 (a missing tool, an unusable base) is reported as an ordinary failure and the run exits 1.                                                                                                                                                                                                                    | **Fix**: the report line says `could not run (exit 2)`; the final status is 1 if any check failed, else 2 if any could not run; both listed in the `FAILED` line                                   |
+| B14 | whole file                        | No check has a timeout: a hung suite, a prompt waiting on a tty, or a stuck `go list` stops the run for ever; a session cannot tell it from a slow check.                                                                                                                                                                                                           | **Fix**: a per-check timeout (default 30 minutes, `QA_CHANGED_TIMEOUT` to override, `0` disables) kills the process group and reports `timed out after <d>`; decision D1                           |
+| B15 | `QC` L57-59, L85-88               | `--help` prints the usage to stderr (stdout is the payload of a help command); the text is the script's own header comment extracted with `awk`, which breaks when the script is a wrapper.                                                                                                                                                                         | **Fix**: usage to stdout, exit 0; usage after an error stays on stderr, exit 2                                                                                                                     |
+| B16 | `QC` L129, L452                   | The plan and the no-op line say `vs HEAD` under `--files`, which diffs against nothing.                                                                                                                                                                                                                                                                             | **Fix**: `plan: <n> file(s) (explicit)` and `no files — nothing to check`; the substring `no changed files` that `TQ` asserts is kept in both forms                                                |
+| B17 | `QC` L48, L106                    | An unreadable `QA_CHANGED_ROOT` is a bare bash `cd` error, exit 1 (not 2).                                                                                                                                                                                                                                                                                          | **Fix**: exit 2 with `ERROR: root <path> is not a directory`                                                                                                                                       |
+| B18 | `QC` L223                         | Every `*.j2` runs the bash-limits gate whether or not it is a shell template.                                                                                                                                                                                                                                                                                       | **Keep**: the gate is about 0.5s and decides by content                                                                                                                                            |
+| B19 | `QC` L192-208                     | Task and vars files are mapped to playbooks by basename substring and one level: `main.yml` matches any playbook text containing `main.yml`, and a task reached only through another task's include is missed (reported only if no playbook at all names it).                                                                                                       | **Keep** in this port; a transitive map over `include_tasks`/`import_tasks`/`vars_files` is a later change and needs a YAML dependency (the nested module may have one); decision D5               |
+| B20 | `QC` L442                         | A change that only touches files nothing covers (a workflow, an unnamed `.j2`) passes with exit 0 and a warning.                                                                                                                                                                                                                                                    | **Keep**: the warning text is a contract; making it fail would make every workflow edit fail the per-commit run                                                                                    |
+| B21 | `QC` L125                         | `[[ -f ]]` silently drops directories, submodule gitlinks and dangling symlinks.                                                                                                                                                                                                                                                                                    | **Fix** for the explicit-file path (a named non-file is exit 2); **keep** for git-collected paths, with one `note:` line                                                                           |
+| B22 | `QC` L352                         | Suite selection by raw substring over-selects (`app.go` in `webapp.go`) and a suite that merely names a file counts as covering it.                                                                                                                                                                                                                                 | **Keep**: documented over-approximation; a miss would be a silent gap                                                                                                                              |
+| B23 | `QC` L518-529                     | A passing check's output is discarded, including a passing suite's warnings.                                                                                                                                                                                                                                                                                        | **Keep**; no verbose flag (YAGNI)                                                                                                                                                                  |
+| B24 | `QC` L645                         | A suite's output is `2>&1` merged for the count, and the detail on failure goes to stderr whole.                                                                                                                                                                                                                                                                    | **Keep**                                                                                                                                                                                           |
+| B25 | `QC` L611, L552                   | The `shellcheck` severity and the `semgrep` config are copies of what `qa-bash.bash` and `qa-patterns.bash` run; the two can drift and nothing checks it.                                                                                                                                                                                                           | **Fix** in the `qa-all` port by sharing the check definitions (section 12); in this port a test asserts the arguments equal those scripts'                                                         |
+| B26 | `QC` L216-219, L223, L363         | Rules that are really data (the three parity-reference files, the bash-limits source paths, the per-file-gate list, the `qa-go` marker) are literals in code.                                                                                                                                                                                                       | **Fix**: they move to the routing table (section 11.2)                                                                                                                                             |
+
+---
+
+## 11. Go design
+
+### 11.1 Where it lives: the nested `src-go/qa` module
+
+`qa-changed` is QA tooling, never deployed, built by the person or agent about to commit: exactly
+what `src-go/qa` holds (`bashlimits`, `driver`, `rules`). The main module `src-go/go.mod` is
+dependency-free so the shipped binaries build on a host with plain `go build`; `qa-changed` has no
+host build to protect, and the nested module is allowed dependencies (it carries `mvdan.cc/sh` and
+`golang.org/x/tools`). The port needs none to start (standard library: `os/exec`, `encoding/json`,
+`context`), but B19's transitive mapping (a YAML parser) and the `qa-all` port's JSON report will,
+and the nested module is where they may land. The command also needs `qa/bashlimits`' file
+discovery, which already lives there. The cost: a QA tool that runs `go list` into the *main*
+module and shells out to the host's tools, so it has no place in the shipped build path; that is
+the same cost `qa-bash-limits` bears.
+
+Layout, mirroring `bashlimits`:
+
+```
+src-go/qa/changed/           the package (no main)
+    config.go                flags and the Env the command runs in (Getenv, stdout, stderr, runner, root)
+    collect.go               git collection, explicit files, normalisation, deletions
+    discover.go              the exclusion trees and shebang tests (QD)
+    route.go                 the routing table: load, validate, match (the glob matcher)
+    classify.go              rules -> per-check file sets, notes, skipped, uncovered
+    suites.go                the population, naming rules, the Go closure
+    checks.go                the registry: id, summary, tools, how to run
+    run.go                   preflight, ordered execution, timeouts, the report
+    summary.go               qa_gate_case_count and the ending lines
+    *_test.go                table tests
+src-go/qa/cmd/qa-changed/    main.go: os.Exit(changed.Main(os.Args[1:], env))
+scripts/qa-routing.tsv       the classification data (11.2)
+scripts/qa-trees.tsv         the excluded trees, one source for QD and Go (11.2)
+scripts/go-binary-suites.tsv unchanged
+```
+
+Process seam: one `Runner` interface (`Run(ctx, dir, env, argv) (output, status)`) wrapping
+`os/exec`, faked in tests; the same shape as `bashlimits/gitrun.go`, which exists because the
+`src-go/qa` module cannot import `src-go/internal/execx`'s seam without a `require` cycle with the
+dependency-free module. Whether `project_seam_exec` and `project_seam_commands` judge the nested
+module (the vettool runs over `src-go`) is checked at the start of the port; the package is
+written to pass them either way (all processes through the Runner, `git`, `go`, `bash`, and the
+tools named in the registry). A new tool in the registry is a table row, not a call site.
+
+### 11.2 One source of truth for the classification
+
+Two data files, read at run time from the checkout (as `go-binary-suites.tsv` is today; the
+nested module cannot `go:embed` a file outside its directory):
+
+`scripts/qa-routing.tsv`, tab-separated, `#` comments, strict parse (a short row, an unknown
+check, an unknown predicate is exit 2 with the line number):
+
+```
+# phase  glob-or-predicate                                   checks        flags
+also     files/var/local/claude-yolo/lib/common-pure.bash    go            -
+also     files/var/local/claude-yolo/lib/session-registry.bash go          -
+also     helpers/agent_bus/declare.py                        go            -
+also     *.bash                                              bash-limits   -
+also     *.sh                                                bash-limits   -
+also     *.j2                                                bash-limits   -
+also     src-go/qa/bashlimits/*                              bash-limits   -
+also     src-go/qa/cmd/qa-bash-limits/*                      bash-limits   -
+also     scripts/bash-limits.allowlist                       bash-limits   covered
+also     @listed:scripts/bash-limits.allowlist               bash-limits   -
+first    *.md                                                docs          covered
+first    src-go/*                                            go            covered,closure
+first    *.yml,*.yaml                                        @yaml         -
+first    *.js,*.mjs                                          node-check    covered,tree:shell
+first    extensions/*.js,extensions/*.mjs                    eslint        covered,tree:shell,rel:extensions
+first    *.j2                                                -             -
+first    @py                                                 ruff,unit     covered,tree:python
+first    @sh                                                 bash-syntax,shellcheck,semgrep  covered,tree:shell
+post     any:@sh                                             bash-limits   -
+post     any:@sh,any:@py                                     toolchain     -
+perfile-gate qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery
+```
+
+(The `src-go` rule's position before `*.yml` is B7's fix; `@yaml` names the playbook /
+task-or-vars sub-rules of 4.2.1, which stay code because they compute the playbook set.) `flags`
+say whether the file is marked covered, whether it enters the Go closure, which exclusion list it
+honours, and which prefix is stripped for the tool.
+
+`scripts/qa-trees.tsv`: `<list> <TAB> <dir>` with list `shell` or `python`; `qa-discovery.bash`
+is changed in the port to read it (a short loop replacing its two arrays), so `qa-bash.bash`,
+`qa-python.bash`, `qa-patterns.bash` and the Go port share one list; a test asserts the bash
+reader and the Go reader return the same set (the case that would catch a hand edit to one).
+
+The registry of checks (id, summary, tools, how to run, order) is Go code: it is behaviour, not
+classification. The routing table names checks by id, and loading fails on an id the registry does
+not know.
+
+### 11.3 Behaviour
+
+- Flags: as 2.1, with B2-B4, B15 fixed, plus `--root <dir>` and `--scripts <dir>` (internal; the
+  wrapper sets them; `QA_CHANGED_ROOT` remains the documented override and maps to `--root`).
+- Collect with the runner: `git diff --name-only -z --diff-filter=d <base> --` and `git diff --name-only -z --diff-filter=D <base> --` (deletions, B6) and `git ls-files -z --others --exclude-standard`, each with its status checked (B1).
+- Classify by the table. Every file ends covered, skipped, or uncovered; nothing is dropped
+  without one of those (B21).
+- Suites per 5, with independent naming (B8), tsv validation (B10), and `go list` through the
+  runner, once per tsv row.
+- Execute **sequentially** in the order of 8.2 for this port, so the report is byte-comparable with
+  the bash. Each check is a function `func(ctx, env) Result{status, output}`; the executor wraps it
+  with the timeout (B14) and the report line. Parallelism is a designed seam, not built: the checks
+  that read only their own files (`ruff`, `node-check`, `bash-syntax`, `shellcheck`, and the suites
+  that run under their own `mktemp` sandboxes) could run concurrently with ordered output, but
+  `qa-go.bash` and `qa-bash-limits.bash` share a build cache and the suites are not audited for
+  shared ports or files; that audit is the precondition and decision D2.
+- Report, summary, exit codes exactly per 7 and 8.4.
+- Process group per check so a timeout or Ctrl-C kills the children (`Setpgid`, signal the group);
+  Ctrl-C on the wrapper reaches the binary because they share the foreground group.
+- Stdout and stderr stay separate streams end to end (no `2>&1` of the binary's own streams); the
+  captured detail of a failing check is one merged buffer, as today (B24).
+
+### 11.4 Tests
+
+Go tests live beside the code and run under `qa-go.bash` (the nested module is checked first, with
+the coverage floor). One table test per row of 4.1/4.2, the matcher, the exclusion lists,
+the shebang forms, 5.1-5.3 over a fake `qa-all.bash` text and a fake `go list`, the executor with
+fake tools (order, every check runs after a failure, 0/1/2 precedence, timeout, preflight), the
+report text byte for byte, and `qa_gate_case_count` against `HS`'s corpus. Two tests read the
+real tree: every `src-go/cmd/*` has a tsv row; every tsv suite is in the real population.
+
+---
+
+## 12. Parity strategy and cut-over
+
+### 12.1 Parity (the oracle is black-box, so three legs, in this order)
+
+1. **The bash oracle drives the Go binary.** `scripts/test-qa-changed.bash` gains one variable,
+   `QA_CHANGED_BIN`: when set, `TARGET` is that command instead of the sibling script; nothing else
+   in the suite changes, so all 73 cases run unmodified against `go build`'s output (built into a
+   temp dir by the suite, as `qa-bash-limits.bash` builds its command). During the port both
+   targets pass the same 73 cases. After the cut-over the suite's default target is the wrapper,
+   so it exercises wrapper plus binary end to end.
+2. **Golden capture of the bash, from a git revision, before it is deleted** (the freeze method,
+   `golden-capture/capture.py`: record from a revision, never from a copy that stays in the tree,
+   because a retained legacy script would itself breach the bash limits). A corpus: every `TQ`
+   input, every tracked file alone (`--plan --files <f>`), and generated groups (one of each kind,
+   same-basename pairs, deleted/renamed cases in a scratch repository, a Go change under each
+   command's closure). Recorded: stdout, stderr, status of `--plan`. Run mode is recorded under
+   fakes: a directory of stub tools on `PATH` (`shellcheck`, `semgrep`, `ruff`, `jq`,
+   `ansible-playbook`, `node`, `python3`, `go`, `golangci-lint`) that log their argv to a file and
+   exit as scripted, and a scratch checkout whose `scripts/` has stub `qa-*.bash` gates and two
+   suites printing `passed: N`; a record is stdout, stderr, status and the argv log per scenario
+   (all-pass, one fail each, two fail, missing tool each, uncovered only). The Go test replays
+   the corpus through the real executor with the fake runner and compares bytes; every difference
+   must be a numbered bug of section 10 pinned in `testdata/deviations.json` with the reason
+   (`-update-deviations` rewrites only listed entries), as `internal/freeze/golden` does.
+3. **Real-tree acceptance, no host needed.** `acceptance.bash` in the plan folder runs the old
+   revision's script and the new binary with `--plan` over the last N commits of `F44` (`git diff --name-only <c>~1 <c>` as `--files`) and prints any difference not covered by a deviation, and
+   runs the new `qa-changed.bash` on the working tree. This tool is not deployed, so it does not
+   go into `meta-deploy.bash`.
+
+### 12.2 Cut-over (one feature branch, one merge, after full QA and review)
+
+1. Add the package, command, tests, the two data files; `scripts/qa-go.bash` green (the nested
+   module is checked first); golden replay green; the 73 bash cases green against the binary.
+2. Replace `scripts/qa-changed.bash` by the wrapper, modelled on `qa-bash-limits.bash` (about 20
+   lines, well inside the limits): require `go` (exit 2 with the play-golang hint if absent), build
+   `./cmd/qa-changed` from `src-go/qa` into a private directory under
+   `${XDG_CACHE_HOME:-$HOME/.cache}/fedora-desktop-qa`, run it with `--scripts "$SCRIPT_DIR"` and the
+   caller's arguments, remove the directory on exit, and exit with the binary's status. A literal
+   `exec` is not used because the private directory needs the `EXIT` trap (a cached binary under a
+   shared name races when two sessions build at once); a build failure is exit 2 with the compiler
+   output. Callers, the path, flags, streams and exit codes are unchanged: **agents, docs, hooks
+   and humans keep calling `./scripts/qa-changed.bash`**.
+3. `scripts/bash-limits.allowlist`: `qa-bash-limits.bash --update` removes the `qa-changed.bash`
+   entry (a shrinking record, which the ratchet allows); `qa-discovery.bash` shrinks as it reads
+   `qa-trees.tsv` and its allowlist entry is lowered the same way.
+4. `scripts/test-qa-changed.bash` default target stays the wrapper; add the new cases of 9.1; its
+   `qa-all.bash` hard gate (`qa-changed-mapping`) is unchanged.
+5. Docs in the same commit: `CLAUDE/QA.md` (the `qa-changed.bash` section L1026-1052, the file
+   table rows for `qa-go.bash`, `qa-bash-limits.bash` and the `test-qa-changed.bash` row L135,
+   describing the table-driven mapping, exit codes and the new flags behaviour), `src-go/CLAUDE.md`
+   (QA section: the nested module also holds `qa/changed`), `.claude/rules/go-code.md` if it names
+   the suites, the stale comments in `qa-go.bash` L8 and `internal/freeze/golden/golden_test.go`
+   L103 stay true as written.
+6. `CLAUDE/Plan/00192-.../PLAN.md` and the journal in the same commit. No `meta-deploy.bash`
+   entry: nothing is installed on a host; the binary is built per run, so there is no deploy step
+   and no version bump (it is not `claude-yolo`).
+7. Rollback is `git revert` of the merge. There is no retained bash fallback by design.
+
+### 12.3 Risks the port must hold
+
+- The tool that gates every commit becomes unavailable if the nested module does not build. The
+  wrapper says so loudly (exit 2, the compiler output) and `qa-go.bash` stays a separate script, so
+  a broken `qa/changed` is still diagnosable by the gate that checks it.
+- `go build` per run costs a cache lookup (about a second when unchanged). Measure it against the
+  bash's own startup (it sources 400 lines and forks) before cut-over; the bash-limits wrapper is
+  the precedent.
+- Do not widen the contract: the tokens of 7.2-7.3, the `--plan` lines of 7.1 and the three exit
+  codes are what callers read.
+
+---
+
+## 13. What the port unlocks
+
+- **`qa-all.bash` (the next port) shares the data.** `qa-all` is 1446 lines, 91 distinct scripts,
+  and each stage is the same four things: run a script, require status 0, read a summary with
+  `qa_gate_case_count` or `qa_gate_detail <pattern>`, print a pass line. That is a row, and
+  `qa-changed`'s population is the same rows filtered by "per-file" or "needs the changed files".
+  The follow-on adds `kind` (hard gate, suite, per-file) and `summary` (case-count, or a detail
+  pattern) to one `scripts/qa-gates.tsv`: `qa-all` runs every row, `qa-changed` picks rows (B9
+  disappears: no text scan), `test-qa-helper-summary.bash` shrinks to a loader test (it today reads
+  the patterns out of `qa-all.bash`), and the qa-all/qa-changed split between per-file tool
+  arguments and the gate scripts' own (B25) is one definition.
+- **One discovery.** `qa/changed/discover.go` and `qa/bashlimits/files.go` both decide what a bash
+  file is, from different rules (the gate also counts `.j2` templates by their first non-Jinja line);
+  after this port a single `qa/discover` package can serve both and the remaining `qa-*.bash`
+  gates (`qa-bash`, `qa-python`, `qa-patterns`).
+- **A machine report.** With the registry typed, `--json` (checks, status, files, durations) is a
+  small addition for the daemon and agents; not built here (YAGNI), but the report structure is
+  produced before it is rendered so adding it is a renderer.
+- **Parallel checks** become an audit away (D2), cutting the per-commit wait where it is longest
+  (the suites).
+- **A ratchet-visible bash shrink**: two more entries leave the allowlist (`qa-changed.bash`, and
+  `qa-discovery.bash` shrinking), and the QA tooling the rule exempted for being "most churned"
+  starts being tested in Go.
+
+---
+
+## 14. Decisions for the owner
+
+- **D1** A default per-check timeout of 30 minutes (B14), `QA_CHANGED_TIMEOUT=0` to disable. The
+  longest suite and the Go gate should be measured first; the default must exceed them with margin.
+- **D2** Parallel execution: not in this port. Approve an audit of the suites for shared state as a
+  separate step after `qa-all`?
+- **D3** Exit status when a check failed and another could not run (B13): this spec says 1.
+- **D4** `scripts/qa-trees.tsv` replaces the two arrays in `qa-discovery.bash` (a change to the
+  shared library every gate sources), or stays a Go-side copy guarded by a parity test? This spec
+  recommends the shared file.
+- **D5** B19 (transitive task mapping with a YAML parser): in this port or the next? Recommended: next.
+- **D6** Deleted files select suites that name them (B6): recommended, but it makes a deletion
+  commit run more suites than today.
+
+## 15. Behaviour the port must not lose (checklist for review)
+
+- A changed file that maps to no check is named, never silently skipped.
+- Every selected check runs after a failure; one run names everything broken.
+- `--plan` runs nothing and needs no tool except `git`, `go list` and file reads.
+- The preflight runs before the first check, once, for the planned checks only.
+- The suites chosen are over-approximated by name, never under; the Go closure is from the `go`
+  tool and cannot drift from the imports.
+- The gates the iteration loop does not run whole (`qa-deployed-drift`, the helper-test counts,
+  extension-compat, panel-contract) stay with `qa-all.bash`, and the final line still says to run it.
+- Nothing is written to the repository, and the temporaries are removed on every exit path.

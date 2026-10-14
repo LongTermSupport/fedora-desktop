@@ -85,7 +85,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   validation) running. Runs as root and changes behaviour (its D7), so it merges only after
   review and the owner's host test.
 - [ ] ⬜ **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
-  waits on Plan 00191's D1-D10.
+  waits on Plan 00191's D1-D10. `qa-changed.bash` (P3, first of the QA orchestrators) on
+  `go-port/qa-changed`: functional spec written, [SPEC-qa-changed.md](SPEC-qa-changed.md); the Go
+  port (nested `src-go/qa` module, shared routing data for the `qa-all` port) waits on its
+  decisions D1-D6.
 
 ### Phase 4: Review
 
