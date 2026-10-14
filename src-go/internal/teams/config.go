@@ -15,6 +15,10 @@ type Config struct {
 	AppliedDir  string
 	StateDir    string // <XDG_STATE_HOME or ~/.local/state>/ccy-teams
 	Home        string
+	// TrustPlays lets Play and ElementPlay name a program outside the checkout (the test
+	// suites' stubs). Off, a play runs only from inside RootDir: it runs under Ansible with the
+	// user's sudo, so an environment variable must not be able to substitute another program.
+	TrustPlays bool
 }
 
 // LoadConfig resolves the configuration from root and the environment (getenv).
@@ -36,5 +40,6 @@ func LoadConfig(root string, getenv func(string) string) Config {
 		AppliedDir:  or("CCY_TEAMS_APPLIED_DIR", "/var/lib/agent-bus-applied"),
 		StateDir:    filepath.Join(or("XDG_STATE_HOME", filepath.Join(home, ".local/state")), "ccy-teams"),
 		Home:        home,
+		TrustPlays:  getenv("CCY_TEAMS_TRUST_PLAYS") == "1",
 	}
 }
