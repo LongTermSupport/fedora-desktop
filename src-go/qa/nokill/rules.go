@@ -42,20 +42,35 @@ const (
 	lifecycleVerbs = `(?:stop|kill|rm|pause|unpause|restart)`
 	// killNames are the programs that deliver a signal.
 	killNames = `(?:kill|pkill|killall)`
-	quoted    = `["']`
+	// importedSignalNames are the names whose bare use after an import has no `os.` to key on.
+	importedSignalNames = `(?:kill|killpg|abort|pthread_kill|raise_signal|SIG[A-Z_0-9]*)`
+	quoted              = `["']`
+	// gap is what may stand between two tokens of an argv: blanks, newlines and comments
+	// (`#` for Python, `//` for JavaScript), so a wrapped, commented argv is still one call.
+	gap = `(?:\s|#[^\n]*|//[^\n]*)*`
+	// engineOptions are the options an engine takes before its verb (`--remote`, `--url x`,
+	// `--connection=c`): each a quoted element starting with a dash and at most one quoted value.
+	engineOptions = `(?:` + quoted + `-[^"'\n]*` + quoted + gap + `,` + gap + `(?:` + quoted + `[^"'\n]*` + quoted + gap + `,` + gap + `)?)*`
+	// containerWord is the optional `container` subcommand after the options.
+	containerWord = `(?:` + quoted + `container` + quoted + gap + `,` + gap + `)?`
 )
 
 // signalRules apply to every file, containment.py included: it may ask an engine to stop a
 // container and may never signal a process itself.
 var signalRules = []rule{
 	newRule("os-kill", `\bos\.(?:kill|killpg|abort)\s*\(`),
-	newRule("os-import-kill", `(?m)^[ \t]*from[ \t]+(?:os|signal)[ \t]+import\b[^\n#]*\b(?:kill|killpg|abort|pthread_kill|raise_signal|SIG[A-Z_0-9]*)\b`),
+	newRule("os-import-kill",
+		`(?m)^[ \t]*from[ \t]+(?:os|signal)[ \t]+import\b[^\n#]*\b`+importedSignalNames+`\b`,
+		`(?m)^[ \t]*from[ \t]+(?:os|signal)[ \t]+import[ \t]*\([^)]*\b`+importedSignalNames+`\b`),
 	newRule("signal-const", `\bsignal\.(?:SIG[A-Z]|raise_signal\b|pthread_kill\b)`),
 	newRule("send-signal", `\.(?:pidfd_)?send_signal\s*\(`),
 	newRule("force-exit", `\.force_exit\s*\(`),
 	newRule("proc-kill", `\.(?:kill|terminate)\s*\(`),
+	newRule("unit-kill",
+		quoted+`systemctl`+quoted+gap+`,`+gap+engineOptions+quoted+`(?:stop|kill)`+quoted,
+		quoted+`machinectl`+quoted+gap+`,`+gap+engineOptions+quoted+`(?:terminate|kill)`+quoted),
 	newRule("argv-kill",
-		`[\[(]\s*(?P<at>`+quoted+killNames+quoted+`)`,
+		`[\[(]`+gap+`(?P<at>`+quoted+killNames+quoted+`)`,
 		`(?m)(?:^|,)\s*(?P<at>`+quoted+killNames+quoted+`)\s*[,\])]`),
 	newRule("shell-kill", `\b(?:pkill|killall)[ \t]|\bkill[ \t]+-`),
 }
@@ -65,9 +80,9 @@ var signalRules = []rule{
 // argv would force the advice out of the report to stay green.
 var lifecycleRules = []rule{
 	newRule("engine-literal",
-		`(?P<at>`+quoted+`(?:[^"'\n]*/)?(?:podman|docker)`+quoted+`)\s*,\s*(?:`+quoted+`container`+quoted+`\s*,\s*)?`+quoted+lifecycleVerbs+quoted),
+		`(?P<at>`+quoted+`(?:[^"'\n]*/)?(?:podman|docker)`+quoted+`)`+gap+`,`+gap+engineOptions+containerWord+quoted+lifecycleVerbs+quoted),
 	newRule("engine-variable",
-		`\b(?P<at>(?:\w+\.)*\w*engine)\s*,\s*(?:`+quoted+`container`+quoted+`\s*,\s*)?`+quoted+lifecycleVerbs+quoted),
+		`\b(?P<at>(?:\w+\.)*\w*(?i:engine))`+gap+`,`+gap+engineOptions+containerWord+quoted+lifecycleVerbs+quoted),
 }
 
 // containmentRules are what the one exception may not name at all: each verb is a different harm
@@ -78,6 +93,10 @@ var containmentRules = []rule{
 	newRule("containment-verb", quoted+`(?:kill|rm|pause|unpause|restart)`+quoted),
 	newRule("containment-force", `--force|`+quoted+`-f`+quoted),
 	newRule("containment-signal", `--signal`),
+	// A zero timeout turns the graceful stop into an immediate kill.
+	newRule("containment-timeout",
+		quoted+`(?:-t|--time)=0+`+quoted,
+		quoted+`(?:-t|--time)`+quoted+gap+`,`+gap+quoted+`?0+(?:`+quoted+`|[ \t]*[,\])])`),
 }
 
 // Judge finds the forbidden call sites of one file's text, in line order, each line once under

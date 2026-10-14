@@ -88,6 +88,14 @@ func TestE10LifecycleRules(t *testing.T) {
 		{"report advice prose", `return "  Stop it, or fix why it exits:  podman stop <container>"`, ""},
 		{"podman ps is fine", `run(["podman", "ps", "--format", "json"])`, ""},
 		{"docker inspect", `run(["docker", "inspect", cid])`, ""},
+		{"global flag", `subprocess.run(["podman", "--remote", "stop", cid])`, "engine-literal"},
+		{"global flag with value", `run(["podman", "--url", "ssh://h", "stop", cid])`, "engine-literal"},
+		{"flag=value", `run(["docker", "--context=x", "rm", cid])`, "engine-literal"},
+		{"flags then container", `run(["podman", "--remote", "container", "rm", cid])`, "engine-literal"},
+		{"variable with flag", `run([engine, "--remote", "stop", cid])`, "engine-variable"},
+		{"upper-case constant", `run([ENGINE, "stop", cid])`, "engine-variable"},
+		{"mixed-case suffix", `run([self.containerEngine, "rm", cid])`, "engine-variable"},
+		{"flag only, no verb", `run(["podman", "--remote", "ps"])`, ""},
 		{"engines is another name", `x = [engines, "stopped"]`, ""},
 	})
 }
@@ -121,8 +129,58 @@ func TestE11ContainmentException(t *testing.T) {
 		{"os.kill still bars", `os.kill(pid, signal.SIGKILL)`, "os-kill"},
 		{"pkill still bars", `subprocess.run(["pkill", "-f", name], check=False)`, "argv-kill"},
 		{"signal methods still bar", `proc.terminate()`, "proc-kill"},
+		{"time 0 as two elements", `return [engine, "stop", "--time", "0", cid]`, "containment-timeout"},
+		{"short time 0", `return [engine, "stop", "-t", "0", cid]`, "containment-timeout"},
+		{"time=0", `return [engine, "stop", "--time=0", cid]`, "containment-timeout"},
+		{"short t=0", `return [engine, "stop", "-t=0", cid]`, "containment-timeout"},
+		{"time integer zero", `return [engine, "stop", "--time", 0, cid]`, "containment-timeout"},
+		{"time 00", `return [engine, "stop", "--time", "00", cid]`, "containment-timeout"},
+		{"time 10 passes", `return [engine, "stop", "--time", "10", cid]`, ""},
+		{"time=30 passes", `return [engine, "stop", "--time=30", cid]`, ""},
+		{"t 0.5 is not zero", `return [engine, "stop", "-t", "0.5", cid]`, ""},
 		{"prose naming stop", `"""one file may stop a container, every other file still may not."""`, ""},
 	})
+}
+
+// E9, review F2: a wrapped parenthesised import is seen, and the finding is its first line.
+func TestE9ParenthesisedImportOfKillIsSeen(t *testing.T) {
+	text := "x = 1\nfrom os import (\n    getpid,\n    kill,\n)\nkill(pid, 9)\n"
+	got := Judge("f.py", text, false)
+	if len(got) != 1 || got[0].Rule != "os-import-kill" || got[0].Line != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	checkCases(t, false, []ruleCase{
+		{"wrapped import of signal names", "from signal import (\n    SIGTERM,\n)", "os-import-kill"},
+		{"wrapped import without kill", "from os import (\n    getpid,\n    path,\n)\nx = (kill_count)", ""},
+	})
+}
+
+// E9, review F6: ending a unit or a machine is a termination.
+func TestE9UnitAndMachineTermination(t *testing.T) {
+	checkCases(t, false, []ruleCase{
+		{"unit stop", `run(["systemctl", "stop", unit])`, "unit-kill"},
+		{"unit user kill", `run(["systemctl", "--user", "kill", unit])`, "unit-kill"},
+		{"machine terminate", `run(["machinectl", "terminate", m])`, "unit-kill"},
+		{"machine kill", `run(['machinectl', 'kill', m])`, "unit-kill"},
+		{"unit status is fine", `run(["systemctl", "status", unit])`, ""},
+		{"unit show is fine", `run(["systemctl", "--user", "show", unit])`, ""},
+		{"machine list is fine", `run(["machinectl", "list"])`, ""},
+	})
+	checkCases(t, true, []ruleCase{
+		{"containment.py may not end a unit either", `run(["systemctl", "stop", unit])`, "unit-kill"},
+	})
+}
+
+// E10, review F8: a comment inside a wrapped argv does not hide it.
+func TestE10CommentsInsideAWrappedArgvAreSkipped(t *testing.T) {
+	got := Judge("f.py", "run([\"podman\",   # the engine\n    \"stop\", cid])\n", false)
+	if len(got) != 1 || got[0].Rule != "engine-literal" || got[0].Line != 1 {
+		t.Fatalf("got %+v", got)
+	}
+	got = Judge("f.py", "run([  # argv\n    \"kill\", pid])\n", false)
+	if len(got) != 1 || got[0].Rule != "argv-kill" || got[0].Line != 2 {
+		t.Fatalf("got %+v", got)
+	}
 }
 
 // E11: the containment rules belong to the exception alone.

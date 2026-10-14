@@ -66,7 +66,8 @@ several rules is reported once (with the first rule's name, in the order below).
 - E9. **Signal rules (every file, containment.py included).** Each is forbidden:
   - `os-kill`: `os.kill(`, `os.killpg(`, `os.abort(` (whitespace allowed before the paren);
   - `os-import-kill`: `from os import ... kill|killpg`, `from signal import ... pthread_kill|raise_signal|SIG...`
-    (the bare `kill(pid, 9)` that follows has no `os.` to key on);
+    (the bare `kill(pid, 9)` that follows has no `os.` to key on), including the parenthesised form
+    that a formatter wraps over several lines, `from os import (\n getpid,\n kill,\n)`;
   - `signal-const`: `signal.SIG<A-Z>`, `signal.raise_signal(`, `signal.pthread_kill(`
     (`signal.SIG_IGN` and `SIG_DFL` are dispositions, not deliveries, and pass);
   - `send-signal`: `.send_signal(` and `.pidfd_send_signal(` (so `os.pidfd_send_signal(`);
@@ -78,6 +79,9 @@ several rules is reported once (with the first rule's name, in the order below).
     of an argv list (`["sudo", "kill", pid]`);
   - `shell-kill`: the word `pkill` or `killall` followed by a space or tab (`\bpkill `), and
     `kill` followed by blanks and `-` (`kill -9`); same line only.
+  - `unit-kill`: ending a service or machine, which is the termination route of the watchdog's own
+    domain (transient systemd units): an argv `"systemctl"` or `"machinectl"`, any options between
+    (`--user`, `--machine x`), then `stop` or `kill` (systemctl), `terminate` or `kill` (machinectl).
     Not matched, by design: `kill` or `pkill` in prose without those shapes (`kill <pid>`), `skill -`,
     `signal.signal(`, `"--signal"` in an unrelated argv (a `dbus-send` argument is legal outside
     containment.py).
@@ -85,9 +89,12 @@ several rules is reported once (with the first rule's name, in the order below).
   an engine program, then optionally `"container"`, then one of `stop kill rm pause unpause restart`,
   all as quoted elements:
   - `engine-literal`: program `"podman"` or `"docker"`, or a path ending `/podman` or `/docker`;
-  - `engine-variable`: a variable or attribute whose name ends in `engine` (`engine`, `container_engine`, `self.engine`)
-    followed by `,` and the quoted verb.
-    Whitespace (newlines included) is allowed around the commas. Prose that tells a human
+  - `engine-variable`: a variable or attribute whose name ends in `engine`, in any case (`engine`,
+    `container_engine`, `self.engine`, `ENGINE`) followed by `,` and the quoted verb.
+    Between the program and the verb any options may stand, each a quoted element starting `-`
+    with at most one quoted value after it (`"--remote"`, `"--url", "x"`, `"--connection=c"`), and
+    then optionally `"container"`. Whitespace (newlines included) and `#` or `//` comments are
+    allowed around the commas, so a commented wrapped argv is seen. Prose that tells a human
     `podman stop <container>` is not an argv and passes. *(B4: the variable form required a space or
     `(` before `engine`, so `[engine, "stop", cid]` passed the bash; its own fixture was green only
     because a second line matched. B7: spacing before the comma, `"container"`, `unpause`, a program path.)*
@@ -95,7 +102,8 @@ several rules is reported once (with the first rule's name, in the order below).
   lifecycle rules, and from nothing else. It is judged by the signal rules plus these, each forbidden:
   `containment-verb`: a quoted `kill`, `rm`, `pause`, `unpause`, `restart`; `containment-force`:
   `--force` and a quoted `-f`; `containment-signal`: `--signal` (it turns a graceful stop into a
-  kill). A file of the same base name elsewhere (`sub/containment.py`) has no exemption: it is
+  kill); `containment-timeout`: a stop with a zero timeout, which is a kill at once (`--time 0`,
+  `-t 0`, `--time=0`, `-t=0`, the zero quoted or not). A file of the same base name elsewhere (`sub/containment.py`) has no exemption: it is
   judged as any other. The file being absent is not an error (nothing to hold); *(B14: the bash did
   the same silently; stated now.)* `build_stop_argv` building `[engine, "stop", "--time", n, id]`
   passes.
@@ -136,6 +144,11 @@ several rules is reported once (with the first rule's name, in the order below).
 | B13 | grep "Binary file matches" for a NUL-bearing file                                                  | text (E8)                                            |
 | B14 | missing containment.py skipped without a word                                                      | stated as allowed (E11)                              |
 | B15 | an unreadable file: grep rc 2 aborted mid-scan                                                     | exit 2 naming it (E7)                                |
+
+Stated limits (review of this port, F7 and F8): `kill` followed by a space and no dash in a shell
+string (`"kill %d" % pid`, `f"kill {pid}"`, a JavaScript template) is not matched, because it cannot
+be told from prose by text, and `killall5` is not a name the rules know. Neither is a departure
+from the bash, which had the same holes.
 
 Known limit (not a departure): the rules see text, not syntax. `getattr(os, "ki" + "ll")`, a command
 built by string concatenation, or `eval` evade any text rule; the watchdog's own review keeps those
