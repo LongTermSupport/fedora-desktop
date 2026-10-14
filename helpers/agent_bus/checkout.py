@@ -531,15 +531,26 @@ def _seat_tree(top: pathlib.Path, uid: int, teams: Sequence[str]) -> list[pathli
     return tree
 
 
+def repo_from_origin(remote: str | None, top: str) -> str:
+    """The `<repo>` of a seat in the checkout `top` whose `origin` is `remote` (None: it has
+    none): the forge remote's last component, else the directory's name."""
+    try:
+        return registry.repo_from_remote(remote, top)
+    except registry.HandleError as exc:
+        raise CheckoutError(str(exc)) from None
+
+
 def _repo(top: pathlib.Path) -> str:
     remote = _git(top, "remote", "get-url", "origin")
     if remote.returncode not in (0, 2):  # git: 2 is "no such remote"
         raise CheckoutError(f"git remote get-url origin failed: {remote.stderr.strip()}")
-    try:
-        return registry.repo_from_remote(remote.stdout.strip() if remote.returncode == 0 else None,
-                                         str(top))
-    except registry.HandleError as exc:
-        raise CheckoutError(str(exc)) from None
+    return repo_from_origin(remote.stdout.strip() if remote.returncode == 0 else None, str(top))
+
+
+def host_from_env_local(text: str | None) -> str:
+    """The `<host>` of a seat from the text of the checkout's `ccy.env.local` (None: there is
+    none): the role it assigns, else `local`. Reading the file safely is the caller's."""
+    return DEFAULT_HOST if text is None else seat_host(role_from_env_local(text))
 
 
 def checkout_host(top: pathlib.Path, uid: int) -> str:
@@ -560,7 +571,7 @@ def checkout_host(top: pathlib.Path, uid: int) -> str:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         raise CheckoutError(f"{path} is not UTF-8 text") from None
-    return seat_host(role_from_env_local(text))
+    return host_from_env_local(text)
 
 
 def _observe(root: pathlib.Path, refs: Sequence[seat.SeatRef], uid: int) -> tuple[Observed, ...]:

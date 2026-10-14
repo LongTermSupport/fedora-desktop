@@ -33,7 +33,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from helpers.agent_bus import teamfile
-from helpers.agent_bus_lxc import members
+from helpers.agent_bus_lxc import derive, members
 
 TEAM = "team-a"
 OTHER_TEAM = "team-b"
@@ -56,9 +56,11 @@ ROOT_SCRIPTS = (members.KIT_SYNC_PY, members.SOURCE_PY)
 
 
 def entry(**overrides: object) -> dict:
-    base = {"team": TEAM, "container": "devbox", "user": "agent", "host": "box",
-            "checkout": CHECKOUT}
+    # The explicit host and seat are the overrides that entries written before they were
+    # derived carry; the derivation tests drop them (host=None, seat=None).
+    base = {"team": TEAM, "container": "devbox", "user": "agent", "host": "box", "checkout": CHECKOUT}
     base.update(overrides)
+    base.setdefault("seat", "".join(ch for ch in str(base["container"]).lower() if ch.isalnum()))
     return {key: value for key, value in base.items() if value is not None}
 
 
@@ -157,7 +159,7 @@ class FakeGuest:
 
     def _run(self, argv: Sequence[str], what: str, stdin: bytes, env: Sequence[str]) -> bytes:
         if list(argv) == ["pingbus", "suggest-handle"]:
-            assert "HOOKS_DAEMON_HOSTNAME=box" in env
+            assert any(item.startswith("HOOKS_DAEMON_HOSTNAME=") for item in env)
             return (self.suggest + "\n").encode()
         if argv[0] == "sh":
             if not self.config_ok:
@@ -194,6 +196,10 @@ class Fixture(unittest.TestCase):
         self.bridge = True
         self.active = {TEAM, OTHER_TEAM}
         self.changed: list[str] = []
+        self.reads: list[tuple[str, str, str]] = []
+        self.unreadable: str | None = None
+        self.remote_config = '[remote "origin"]\n\turl = https://github.com/Example-Org/Proj.git\n'
+        self.env_local: str | None = "export HOOKS_DAEMON_HOSTNAME=box\n"
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -209,7 +215,16 @@ class Fixture(unittest.TestCase):
             team_file=lambda team: team_file(self.allow_from, team),
             kit_tar=lambda: members.kit_tar(self.kit_parent),
             guest=lambda name: self.guest,
+            read_checkout=self.read_checkout,
         )
+
+    def read_checkout(self, container: str, user: str, path: str) -> str:
+        """What the root-side reader prints for the checkout (its script is tested in test_derive)."""
+        self.reads.append((container, user, path))
+        if self.unreadable:
+            raise members.MemberError(self.unreadable)
+        return json.dumps({"path": path, "uid": 1000, "git_config": self.remote_config,
+                           "env_uid": 1000 if self.env_local else None, "env_local": self.env_local})
 
     def run_phase(self, phase: str, entries: Sequence[dict], teams_present: Sequence[str] = (TEAM,)) -> list[str]:
         self.changed = []
@@ -229,11 +244,18 @@ class Fixture(unittest.TestCase):
 
 class ParseMembersTest(unittest.TestCase):
     def test_defaults(self) -> None:
-        (member,) = members.parse_members([entry(container="Dev-Box_1", host="Build Box")])
-        self.assertEqual(member.seat, "devbox1")
+        (member,) = members.parse_members([entry(host="Build Box", seat=None)])
         self.assertEqual(member.host, "build-box")
+        self.assertIsNone(member.seat)
         self.assertEqual((member.role, member.human_text, member.state, member.repo),
                          ("worker", True, "present", None))
+
+    def test_host_and_seat_are_optional_overrides_so_they_are_left_to_be_derived(self) -> None:
+        (member,) = members.parse_members([{"team": TEAM, "container": "devbox", "user": "agent",
+                                            "checkout": CHECKOUT}])
+        self.assertEqual((member.host, member.seat), (None, None))
+        with self.assertRaisesRegex(members.MemberError, "derived"):
+            member.handle("proj")
 
     def test_seat_and_repo_given(self) -> None:
         (member,) = members.parse_members([entry(seat=2, repo="Owner-Proj", role="coordinator",
@@ -280,8 +302,7 @@ class ParseMembersTest(unittest.TestCase):
             "human_text not a boolean": [entry(human_text="yes")],
             "present without checkout": [entry(checkout=None)],
             "relative checkout": [entry(checkout="proj")],
-            "seat a container name cannot give": [entry(container="1box")],
-            "a number is never a default seat": [entry(container="42")],
+            "a host that is not a string": [entry(host=5)],
             "declared twice": [entry(), entry(seat="other")],
             "one user, two hosts": [entry(), entry(team=OTHER_TEAM, host="other")],
             "one seat, two containers": [entry(seat="dev"), entry(container="box2", seat="dev")],
@@ -567,6 +588,147 @@ class PresentPhaseTest(Fixture):
         self.assertEqual(self.bus.calls, [])
 
 
+class ResolveMembersTest(unittest.TestCase):
+    """Host and seat left out of an entry are derived, in file order, as ccy derives them."""
+
+    IDENTITY = derive.Identity("proj", "box")
+
+    def resolve(self, entries: Sequence[dict], *, roster: dict[str, bool] | None = None,
+                bundles: dict[str, str] | None = None) -> tuple[members.Member, ...]:
+        return members.resolve_members(
+            members.parse_members(list(entries)),
+            identify=lambda member: self.IDENTITY,
+            roster=lambda team: roster or {},
+            bundle=lambda member: (bundles or {}).get(member.container))
+
+    def test_an_entry_with_both_is_untouched_and_never_asks_for_the_checkout(self) -> None:
+        found = members.parse_members([entry()])
+        resolved = members.resolve_members(found, identify=lambda member: self.fail("read the checkout"),
+                                           roster=lambda team: self.fail("read the roster"),
+                                           bundle=lambda member: self.fail("read the bundle"))
+        self.assertEqual(resolved, found)
+
+    def test_host_and_seat_come_from_the_checkout_and_the_team(self) -> None:
+        (member,) = self.resolve([entry(host=None, seat=None)])
+        self.assertEqual((member.host, member.seat), ("box", "1"))
+        self.assertEqual(member.handle("proj"), "proj.1+box.lxc")
+
+    def test_two_containers_of_one_repo_get_the_next_seats_in_file_order(self) -> None:
+        one, two = self.resolve([entry(host=None, seat=None, container="box-a"),
+                                 entry(host=None, seat=None, container="box-b")])
+        self.assertEqual((one.seat, two.seat), ("1", "2"))
+
+    def test_an_explicit_seat_is_kept_and_not_given_to_another(self) -> None:
+        one, two = self.resolve([entry(host=None, seat=None, container="box-a"),
+                                 entry(host=None, seat="1", container="box-b")])
+        self.assertEqual((one.seat, two.seat), ("2", "1"))
+
+    def test_the_team_decides_not_the_file(self) -> None:
+        one, two = self.resolve([entry(host=None, seat=None, container="box-a"),
+                                 entry(host=None, seat=None, container="box-b", team=OTHER_TEAM)])
+        self.assertEqual((one.seat, two.seat), ("1", "1"))
+
+    def test_an_explicit_host_overrides_what_the_checkout_assigns(self) -> None:
+        (member,) = self.resolve([entry(host="desk", seat=None)])
+        self.assertEqual(member.host, "desk")
+
+    def test_an_explicit_seat_overrides_the_derivation(self) -> None:
+        (member,) = self.resolve([entry(host=None, seat="mine")])
+        self.assertEqual((member.host, member.seat), ("box", "mine"))
+
+    def test_a_member_already_joined_keeps_its_bundles_seat(self) -> None:
+        (member,) = self.resolve([entry(host=None, seat=None)], bundles={"devbox": "proj.devbox+box.lxc"},
+                                 roster={"proj.devbox+box.lxc": False})
+        self.assertEqual(member.seat, "devbox")
+
+    def test_a_container_joined_when_its_name_was_the_seat_keeps_that_handle(self) -> None:
+        # An entry written before seats were derived: host given, seat omitted, joined by name.
+        (member,) = self.resolve([entry(seat=None)], roster={"proj.devbox+box.lxc": False})
+        self.assertEqual((member.host, member.seat), ("box", "devbox"))
+
+    def test_an_active_seat_is_skipped_and_a_parked_one_returns(self) -> None:
+        (active,) = self.resolve([entry(host=None, seat=None)], roster={"proj.1+box.lxc": False})
+        (parked,) = self.resolve([entry(host=None, seat=None)], roster={"proj.1+box.lxc": True})
+        self.assertEqual((active.seat, parked.seat), ("2", "1"))
+
+    def test_absent_entries_are_left_for_their_bundle_to_name(self) -> None:
+        (member,) = self.resolve([entry(host=None, seat=None, state="absent")])
+        self.assertEqual((member.host, member.seat), (None, None))
+
+    def test_one_user_whose_checkouts_assign_two_hosts_is_refused(self) -> None:
+        hosts = iter(["box", "desk"])
+        with self.assertRaisesRegex(members.MemberError, "two hosts"):
+            members.resolve_members(
+                members.parse_members([entry(host=None, seat=None), entry(host=None, seat=None, team=OTHER_TEAM)]),
+                identify=lambda member: derive.Identity("proj", next(hosts)), roster=lambda team: {},
+                bundle=lambda member: None)
+
+    def test_an_unusable_checkout_is_refused_naming_the_entry(self) -> None:
+        def broken(member: members.Member) -> derive.Identity:
+            raise derive.DeriveError("no origin")
+
+        with self.assertRaisesRegex(members.MemberError, "agent@devbox.*no origin"):
+            members.resolve_members(members.parse_members([entry(host=None, seat=None)]), identify=broken,
+                                    roster=lambda team: {}, bundle=lambda member: None)
+
+
+class DerivedPresentPhaseTest(Fixture):
+    """The play, for entries that leave host and seat out."""
+
+    def derived(self, **overrides: object) -> dict:
+        return entry(host=None, seat=None, **overrides)
+
+    def test_the_handle_is_derived_from_the_checkout_and_joined(self) -> None:
+        self.run_phase("present", [self.derived()])
+        self.assertEqual(self.reads, [("devbox", "agent", CHECKOUT)])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc"])
+        self.assertEqual(self.env_file().read_text(), f"PINGBUS_TEAMS={TEAM}\nHOOKS_DAEMON_HOSTNAME=box\n")
+
+    def test_a_checkout_assigning_no_role_is_local(self) -> None:
+        self.env_local = None
+        self.guest.suggest = "--repo=proj --host=local --type=lxc"
+        self.run_phase("present", [self.derived()])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+local.lxc"])
+
+    def test_a_second_run_changes_nothing_and_keeps_the_seat(self) -> None:
+        self.run_phase("present", [self.derived()])
+        self.assertEqual(self.run_phase("present", [self.derived()]), [])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc"])
+        self.assertEqual(self.bus.minted, 1)
+
+    def test_another_containers_seat_in_the_repo_is_not_taken(self) -> None:
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        self.run_phase("present", [self.derived()])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc", "proj.2+box.lxc"])
+
+    def test_an_entry_with_host_and_seat_does_not_read_the_checkout(self) -> None:
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.reads, [])
+        self.assertEqual(sorted(self.bus.members), [HANDLE])
+
+    def test_a_container_joined_under_its_name_before_seats_were_derived_keeps_its_handle(self) -> None:
+        self.run_phase("present", [entry()])
+        self.assertEqual(self.run_phase("present", [entry(seat=None)]), [])
+        self.assertEqual(sorted(self.bus.members), [HANDLE])
+
+    def test_a_checkout_that_cannot_be_read_is_refused_before_anything_changes(self) -> None:
+        self.unreadable = "container devbox is unprivileged"
+        with self.assertRaisesRegex(members.MemberError, "unprivileged"):
+            self.run_phase("present", [self.derived()])
+        self.assertEqual(self.bus.members, {})
+        self.assertFalse(self.env_file().exists())
+
+    def test_what_the_reader_printed_is_judged(self) -> None:
+        self.remote_config = "[remote \"origin\"]\n\turl = https://h/o/\x1b[31mred.git\n"
+        with self.assertRaisesRegex(members.MemberError, "plain text"):
+            self.run_phase("present", [self.derived()])
+
+    def test_suggest_handle_must_agree_with_the_derived_host(self) -> None:
+        self.guest.suggest = "--repo=proj --host=other --type=lxc"
+        with self.assertRaisesRegex(members.MemberError, "suggest-handle gives --host=other"):
+            self.run_phase("present", [self.derived()])
+
+
 class AbsentPhaseTest(Fixture):
     def test_parks_and_clears(self) -> None:
         self.run_phase("present", [entry(), entry(team=OTHER_TEAM)], (TEAM, OTHER_TEAM))
@@ -686,6 +848,36 @@ class LxcGuestTest(unittest.TestCase):
         self.assertEqual(self.guest.home("agent"), "/home/<user>")
         self.answer = (2, b"", b"")
         self.assertIsNone(self.guest.home("agent"))
+
+
+class ReadCheckoutTest(unittest.TestCase):
+    """The real reader: the host's own python3 runs the shared script as an argument list, so no
+    shell and no file the container or the user could change is loaded."""
+
+    def test_it_runs_the_script_with_an_argument_list_in_isolated_mode(self) -> None:
+        calls = []
+
+        def run(argv: Sequence[str], stdin: bytes = b"") -> tuple[int, bytes, bytes]:
+            calls.append(list(argv))
+            return (0, b"/var/lib/lxc\n", b"") if argv[0] == "lxc-config" else (0, b'{"x": 1}', b"")
+
+        with mock.patch.object(members, "_run", run):
+            self.assertEqual(members.read_checkout("devbox", "agent", CHECKOUT), '{"x": 1}')
+        self.assertEqual(calls[0], ["lxc-config", "lxc.lxcpath"])
+        self.assertEqual(calls[1], ["python3", "-I", "-c", derive.ROOT_READ_PY, "probe", "/var/lib/lxc",
+                                    "devbox", "agent", CHECKOUT])
+
+    def test_a_failing_reader_is_refused_with_its_reason(self) -> None:
+        def run(argv: Sequence[str], stdin: bytes = b"") -> tuple[int, bytes, bytes]:
+            return (0, b"/var/lib/lxc\n", b"") if argv[0] == "lxc-config" else (1, b"", b"symbolic link")
+
+        with mock.patch.object(members, "_run", run), self.assertRaisesRegex(members.MemberError, "symbolic link"):
+            members.read_checkout("devbox", "agent", CHECKOUT)
+
+    def test_a_lxc_path_that_is_not_a_path_is_refused(self) -> None:
+        with mock.patch.object(members, "_run", lambda argv, stdin=b"": (0, b"relative\n", b"")), \
+                self.assertRaises(members.MemberError):
+            members.read_checkout("devbox", "agent", CHECKOUT)
 
 
 class MainTest(unittest.TestCase):
