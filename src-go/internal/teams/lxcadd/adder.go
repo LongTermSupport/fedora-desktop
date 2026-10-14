@@ -33,6 +33,10 @@ const (
 	// readWhy is what sudo is asked for: LXC is rootful on this host.
 	readWhy = "LXC here is rootful, so listing the containers and reading who lives in one is done as root."
 
+	// suggestedHost is the host word offered: the role word, because a container's name is
+	// install-specific and handles appear in public forge text.
+	suggestedHost = "worker"
+
 	roleWorker      = "worker"
 	roleCoordinator = "coordinator"
 	usageText       = "'lxc-add' takes one team: ccy-teams lxc-add <team>."
@@ -87,11 +91,11 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Adder {
 
 // answers is what the questions collect.
 type answers struct {
-	team, container, user, checkout, host, role string
+	team, container, user, checkout, host, role, seat string
 }
 
 func (a answers) entry() declare.LxcEntry {
-	e := declare.LxcEntry{Team: a.team, Container: a.container, User: a.user, Host: a.host, Checkout: a.checkout}
+	e := declare.LxcEntry{Team: a.team, Container: a.container, User: a.user, Host: a.host, Checkout: a.checkout, Seat: a.seat}
 	if a.role == roleCoordinator {
 		e.Role = a.role
 	}
@@ -253,6 +257,9 @@ func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held co
 	if err := a.askContainer(ctx, ans, running); err != nil {
 		return err
 	}
+	if err := a.askSeat(ctx, ans); err != nil {
+		return err
+	}
 	if err := a.askUser(ctx, ans); err != nil {
 		return err
 	}
@@ -283,6 +290,30 @@ func (a *Adder) askContainer(ctx context.Context, ans *answers, running []string
 	return nil
 }
 
+// askSeat asks for the handle's seat only when the container's name gives none the play would
+// take: no letter first, or another container of the team already holds it.
+func (a *Adder) askSeat(ctx context.Context, ans *answers) error {
+	advice, err := a.Declare.LxcSuggestSeat(ctx, ans.team, ans.container)
+	if err != nil || !advice.Needed {
+		return err
+	}
+	a.term.Steps++
+	hint := "The <seat> part of the member's handle. The container's name does not give one the play can take " +
+		"(a letter first, then letters and digits, at most 12, not held by another container of " + ans.team + "): name one."
+	if err = a.step(ctx, "Seat", hint); err != nil {
+		return err
+	}
+	seat, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
+		return a.checked(a.Declare.LxcCheckSeat(ctx, ans.team, ans.container, answer))
+	}, "Seat for "+ans.container, "e.g. boxa", advice.Suggestion)
+	if err != nil {
+		return err
+	}
+	ans.seat = seat
+	a.term.Answered(seat)
+	return nil
+}
+
 func (a *Adder) askUser(ctx context.Context, ans *answers) error {
 	users, err := a.Lister.Users(ctx, ans.container)
 	suggestion, hint := "", "The login user the agent runs as in the container, which must already exist."
@@ -301,7 +332,7 @@ func (a *Adder) askUser(ctx context.Context, ans *answers) error {
 			a.problem("name the user", true)
 			return false, nil
 		}
-		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{Team: ans.team, Container: ans.container, User: answer}))
+		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{Team: ans.team, Container: ans.container, User: answer, Seat: ans.seat}))
 	}, "User in "+ans.container, "e.g. agent", suggestion)
 	if err != nil {
 		return err
@@ -329,18 +360,16 @@ func (a *Adder) askCheckout(ctx context.Context, ans *answers) error {
 }
 
 func (a *Adder) askHost(ctx context.Context, ans *answers) error {
-	suggestion, err := a.Declare.LxcSuggestHost(ctx, ans.container)
-	if err != nil {
-		return err
-	}
 	hint := "The <host> part of the member's handle: a role word such as worker, never a machine's hostname, " +
 		"because handles appear in public forge text. Lower-case letters, digits and -."
-	if err = a.step(ctx, "Handle host word", hint); err != nil {
+	if err := a.step(ctx, "Handle host word", hint); err != nil {
 		return err
 	}
 	word, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
-		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{Host: answer}))
-	}, "Host word", "e.g. worker", suggestion)
+		return a.checked(a.Declare.LxcCheck(ctx, declare.LxcEntry{
+			Team: ans.team, Container: ans.container, User: ans.user, Host: answer, Seat: ans.seat,
+		}))
+	}, "Host word", "e.g. worker", suggestedHost)
 	if err != nil {
 		return err
 	}
@@ -426,6 +455,10 @@ func (a *Adder) checked(err error) (bool, error) {
 // be written, and asks the one yes that covers writing it and applying the team.
 func (a *Adder) summary(ctx context.Context, ans answers) error {
 	if _, err := a.Declare.LxcAddDryRun(ctx, ans.entry()); err != nil {
+		if de, ok := errors.AsType[*declare.Error](err); ok {
+			a.term.Printf("%s\nRefused; nothing was changed.\n", de.Error())
+			return &stop{term.ExitCode(de.Code)}
+		}
 		return err
 	}
 	body := strings.Join([]string{

@@ -925,10 +925,49 @@ class LxcMemberTest(CommandCase):
         self.path.write_text(STATUS_HV, encoding="utf-8")
         self.assertEqual(self.run_cmd("lxc-members")[:2], (0, ""))
 
-    def test_suggested_host_is_the_container_name_when_it_will_do(self) -> None:
-        self.assertEqual(self.run_cmd("lxc-suggest-host", "--container", "Container_A")[1], "container-a\n")
-        self.assertEqual(self.run_cmd("lxc-suggest-host", "--container", "container-a")[1], "container-a\n")
-        self.assertEqual(self.run_cmd("lxc-suggest-host", "--container", "...")[:2], (0, ""))
+    def test_a_user_already_in_one_team_is_checkable_for_a_second(self) -> None:
+        """Review F1: the partial check took the template's host and called it a second host."""
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n    container: container-a\n"
+                             "    user: agent\n    host: worker\n    checkout: /srv/agent/one\n", encoding="utf-8")
+        probe = ("--team", "beta", "--container", "container-a", "--user", "agent")
+        self.assertEqual(self.run_cmd("lxc-check", *probe)[:2], (0, ""))
+        self.assertEqual(self.run_cmd("lxc-check", *probe, "--host", "worker")[:2], (0, ""))
+        code, _, err = self.run_cmd("lxc-check", *probe, "--host", "other")
+        self.assertEqual(code, 64)
+        self.assertIn("two hosts", err)
+        add = (*probe, "--host", "worker", "--checkout", "/srv/agent/two")
+        self.assertEqual(self.run_cmd("lxc-add", *add)[0], 0)
+        self.assertEqual(len(self.members()), 2)
+
+    def test_a_seat_is_asked_for_only_when_the_container_name_will_not_give_one(self) -> None:
+        def seat(container: str, team: str = "beta") -> str:
+            return self.run_cmd("lxc-suggest-seat", "--team", team, "--container", container)[1]
+
+        self.assertEqual(seat("container-d"), "SEAT\tdefault\n")
+        # No letter first: no default seat; the suggestion is one the play accepts.
+        self.assertEqual(seat("2024box"), "SEAT\tneeded\tc2024box\n")
+        self.assertEqual(self.run_cmd("lxc-check", "--team", "beta", "--container", "2024box", "--user", "agent",
+                                      "--seat", "c2024box")[:2], (0, ""))
+
+    def test_a_seat_collision_is_found_before_the_summary_and_a_free_seat_suggested(self) -> None:
+        self.path.write_text(STATUS_HV + "agent_bus_lxc_members:\n  - team: alpha\n"
+                             "    container: longcontainername-one\n    user: agent\n    host: worker\n"
+                             "    checkout: /srv/agent/one\n", encoding="utf-8")
+        out = self.run_cmd("lxc-suggest-seat", "--team", "alpha", "--container", "longcontainername-two")[1]
+        self.assertEqual(out, "SEAT\tneeded\tlongcontain2\n")
+        asked = ("lxc-suggest-seat", "--team", "alpha", "--container", "longcontainername-two", "--seat")
+        code, _, err = self.run_cmd(*asked, "longcontaine")
+        self.assertEqual(code, 64)
+        self.assertIn("seat longcontaine of team alpha", err)
+        self.assertEqual(self.run_cmd(*asked, "!")[0], 64)
+        self.assertEqual(self.run_cmd(*asked, "longcontain2")[:2], (0, ""))
+        flags = ("--team", "alpha", "--container", "longcontainername-two", "--user", "agent", "--host", "worker",
+                 "--checkout", "/srv/agent/two")
+        self.assertEqual(self.run_cmd("lxc-add", *flags)[0], 64)
+        self.assertEqual(self.run_cmd("lxc-add", *flags, "--seat", out.split("\t")[2].strip())[0], 0)
+        # another team is another seat space
+        self.assertEqual(self.run_cmd("lxc-suggest-seat", "--team", "beta",
+                                      "--container", "longcontainername-two")[1], "SEAT\tdefault\n")
 
 
 class LxcMemberRemoveTest(CommandCase):

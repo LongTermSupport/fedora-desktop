@@ -3,6 +3,7 @@ package lxcfreeze
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,7 +20,15 @@ const (
 	firstOrdinaryUID = 1000
 	nobodyUID        = 65534
 	passwdFields     = 7
+	// guestPath is the PATH the play gives every command it runs in a container (members.py
+	// GUEST_PATH): lxc-attach --clear-env leaves none.
+	guestPath = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
+
+// userName is the grammar of a user the play accepts (members.py _USER_RE). A name read from
+// inside a container that does not fit it is never shown, so a container cannot write to the
+// terminal.
+var userName = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 
 // Lister reads which containers the host has and who lives in them, for a tool that has to
 // name one (ccy-teams adds a container's agent to a team). LXC here is rootful, so every
@@ -60,7 +69,8 @@ func (l *Lister) Users(ctx context.Context, container string) ([]string, error) 
 	if err := l.preflight(); err != nil {
 		return nil, err
 	}
-	res, err := l.Sudo.Capture(ctx, "lxc-attach", "-n", container, "--clear-env", "--", "getent", "passwd")
+	res, err := l.Sudo.Capture(ctx, "lxc-attach", "-n", container, "--clear-env", "--", "env", "-i",
+		"PATH="+guestPath, "HOME=/root", "getent", "passwd")
 	if err != nil {
 		return nil, fmt.Errorf("the users of %s could not be read: %s", container, failureWords(string(res.Stderr), err))
 	}
@@ -118,7 +128,7 @@ func ordinaryUser(line string) (string, bool) {
 	if strings.HasSuffix(fields[6], "/nologin") || strings.HasSuffix(fields[6], "/false") || fields[6] == "" {
 		return "", false
 	}
-	return fields[0], true
+	return fields[0], userName.MatchString(fields[0])
 }
 
 // failureWords is a command's own stderr, else the error that ended it.

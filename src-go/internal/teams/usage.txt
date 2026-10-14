@@ -83,10 +83,11 @@ Usage:
   ccy-teams lxc-add <team>         add an LXC container's agent to a team, on a terminal only,
                                    with no hand edit of the host_vars. It lists this host's
                                    running containers (as root: sudo asks), then asks, with
-                                   gum, for the container, its user (the container's ordinary
-                                   users are suggested), the checkout inside it (an absolute
-                                   path), the handle's host word (a role word such as worker,
-                                   suggested from the container's name) and the role (worker;
+                                   gum, for the container, its seat (only when the container's
+                                   name gives none the play can take), its user (the
+                                   container's ordinary users are suggested), the checkout
+                                   inside it (an absolute path), the handle's host word (a
+                                   role word; worker is suggested) and the role (worker;
                                    coordinator only when the team has none). Each answer is
                                    checked by declare.py as it is given, and asked again when
                                    refused. It shows a summary and asks once, then writes the

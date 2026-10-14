@@ -68,13 +68,32 @@ const passwd = "root:x:0:0:root:/root:/bin/bash\n" +
 
 func TestListerUsersAreTheOrdinaryOnesWithAShell(t *testing.T) {
 	f := &execx.Fake{}
-	f.On([]string{"sudo", "-n", "lxc-attach", "-n", "box-a", "--clear-env", "--", "getent", "passwd"},
-		execx.Result{Stdout: []byte(passwd)})
+	f.On([]string{
+		"sudo", "-n", "lxc-attach", "-n", "box-a", "--clear-env", "--", "env", "-i",
+		"PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin", "HOME=/root", "getent", "passwd",
+	}, execx.Result{Stdout: []byte(passwd)})
 	got, err := newLister(f).Users(context.Background(), "box-a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	eqStrings(t, "users", got, []string{"agent", "other"})
+}
+
+func TestListerUsersOnlyNamesThePlayAcceptsReachTheTerminal(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-attach", "-n", "box-a"}, execx.Result{Stdout: []byte(
+		"ok:x:1003:1003::/h:/bin/bash\n" +
+			"Upper:x:1004:1004::/h:/bin/bash\n" +
+			"esc\x1b[2J:x:1005:1005::/h:/bin/bash\n" +
+			"two words:x:1006:1006::/h:/bin/bash\n" +
+			"-lead:x:1007:1007::/h:/bin/bash\n" +
+			strings.Repeat("a", 33) + ":x:1008:1008::/h:/bin/bash\n" +
+			"_under-score9:x:1009:1009::/h:/bin/bash\n")})
+	got, err := newLister(f).Users(context.Background(), "box-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eqStrings(t, "users", got, []string{"ok", "_under-score9"})
 }
 
 func TestListerUsersSkipsMalformedLinesAndFailsOnAFailedRead(t *testing.T) {

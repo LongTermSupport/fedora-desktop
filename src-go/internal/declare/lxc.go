@@ -3,6 +3,7 @@ package declare
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/marker"
 )
@@ -81,14 +82,32 @@ func (c *Client) LxcAddDryRun(ctx context.Context, e LxcEntry) (string, error) {
 	return c.runFile(ctx, "lxc-add", append(e.args(), "--dry-run")...)
 }
 
-// LxcRemove declares the member absent, which the play applies by parking it and deleting its
-// bundle; Changed is false when it already was.
-func (c *Client) LxcRemove(ctx context.Context, team, container, user string) (Change, error) {
-	return c.edit(ctx, "lxc-remove", "--team", team, "--container", container, "--user", user)
+// SeatAdvice says whether the container's name gives its seat. When it does not (no letter
+// first, or another container of the team holds it) the seat is to be asked for, with a
+// suggestion the play accepts, or none.
+type SeatAdvice struct {
+	Needed     bool
+	Suggestion string
 }
 
-// LxcSuggestHost is the container's name as a handle host word, or "" when it will not do.
-func (c *Client) LxcSuggestHost(ctx context.Context, container string) (string, error) {
-	out, err := c.runFile(ctx, "lxc-suggest-host", "--container", container)
-	return plain(out), err
+// LxcSuggestSeat is the seat advice for the container in the team.
+func (c *Client) LxcSuggestSeat(ctx context.Context, team, container string) (SeatAdvice, error) {
+	out, err := c.runFile(ctx, "lxc-suggest-seat", "--team", team, "--container", container)
+	if err != nil {
+		return SeatAdvice{}, err
+	}
+	fields := strings.Split(strings.TrimRight(out, "\r\n"), "\t")
+	switch {
+	case len(fields) == 2 && fields[0] == "SEAT" && fields[1] == "default":
+		return SeatAdvice{}, nil
+	case len(fields) == 3 && fields[0] == "SEAT" && fields[1] == "needed":
+		return SeatAdvice{Needed: true, Suggestion: fields[2]}, nil
+	}
+	return SeatAdvice{}, fmt.Errorf("declare lxc-suggest-seat: unreadable answer %q", out)
+}
+
+// LxcCheckSeat refuses (ErrUsage) a seat the play would not take for the container in the team.
+func (c *Client) LxcCheckSeat(ctx context.Context, team, container, seat string) error {
+	_, err := c.runFile(ctx, "lxc-suggest-seat", "--team", team, "--container", container, "--seat", seat)
+	return err
 }

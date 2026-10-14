@@ -91,9 +91,12 @@ Notes on the table:
    ```
 
    It asks for sudo (LXC is rootful), lists the host's running containers and asks for the
-   container, the agent user (the container's ordinary users are suggested), the checkout
-   inside it, the handle's host word (suggested from the container's name) and the role
-   (`worker`; `coordinator` only while the team has none). Each answer is checked as it is
+   container, the seat (only when the container's name gives none the play can take, because
+   it has no letter first or another container of the team holds it; a free one is
+   suggested), the agent user (the container's ordinary users are suggested; a user already
+   in another team is fine), the checkout inside it, the handle's host word (`worker` is
+   suggested: a role word, never the container's name, because handles appear in public forge
+   text) and the role (`worker`; `coordinator` only while the team has none). Each answer is checked as it is
    given by the rules the play applies, and asked again when refused (a duplicate, a second
    coordinator, a relative checkout). It then shows a summary, asks once, writes the
    `agent_bus_lxc_members` entry (the file as it was is kept beside it as

@@ -75,8 +75,11 @@ trusted reference may name any path in the team's repositories (a team narrows i
             --user U [--dry-run]
         sets the entry's state: absent, which the play applies by parking the member and
         deleting its bundle: CHANGED<TAB>...; UNCHANGED<TAB>... when it already is
-    python3 -m helpers.agent_bus.declare lxc-suggest-host --file <localhost.yml> --container C
-        the container's name as a handle host word, or nothing when it will not do
+    python3 -m helpers.agent_bus.declare lxc-suggest-seat --file <localhost.yml> --team T --container C
+            [--seat S]
+        SEAT<TAB>default when the container's name gives a seat no other container of the team
+        holds; else SEAT<TAB>needed<TAB><a seat the play accepts, or nothing> and the seat is
+        to be asked for. With --seat: nothing when the play would take S, else exit 64
 
 Nothing here prompts: ccy-teams asks the questions and passes the answers as flags, each
 checked by `check` as it is given. Exit 0 done, 64 usage, 78 refused, 130 Ctrl-C (nothing
@@ -900,10 +903,51 @@ def check_lxc(text: str, given: dict) -> None:
     if "checkout" in given and not _CHECKOUT_RE.fullmatch(given["checkout"]):
         raise UsageError("--checkout: an absolute path of letters, digits and . _ / + @ : - only")
     context = all(key in given for key in ("team", "container", "user"))
+    existing = _lxc_existing(text) if context else []
+    template = dict(_LXC_TEMPLATE, **given)
+    if context and "host" not in given:
+        # One user of one container has one host in every team (they share an env file), so
+        # the host not yet asked for is the one it already has.
+        template["host"] = next((e["host"] for e in existing if (e.get("container"), e.get("user"))
+                                 == (given["container"], given["user"]) and "host" in e), template["host"])
     try:
-        members.parse_members([*(_lxc_existing(text) if context else []), dict(_LXC_TEMPLATE, **given)])
+        members.parse_members([*existing, template])
     except members.MemberError as exc:
         raise UsageError(_ENTRY_PREFIX_RE.sub("", str(exc))) from None
+
+
+def suggest_lxc_seat(text: str, team: str, container: str) -> tuple[bool, str]:
+    """(True, "") when the container's name gives its seat; else (False, a seat the play accepts
+    or ""). A seat is taken when any entry of the team holds it, whatever its host, because the
+    host is not known yet when this is asked."""
+    existing = _lxc_existing(text)
+    hosts = {e["host"] for e in existing if e.get("team") == team and isinstance(e.get("host"), str)} | {"template"}
+    try:
+        members.parse_members(existing)
+    except members.MemberError as exc:
+        raise DeclareError(str(exc)) from None
+
+    def free(seat: str | None) -> bool:
+        return _seat_refusal(existing, hosts, team, container, seat) is None
+
+    if free(None):
+        return True, ""
+    base = re.sub(r"[^a-z0-9]", "", container.lower())
+    base = (base if base[:1].isalpha() else "c" + base)[:12]
+    candidates = [base, *(base[:12 - len(str(n))] + str(n) for n in range(2, 100))]
+    return False, next((seat for seat in candidates if free(seat)), "")
+
+
+def _seat_refusal(existing: list[dict], hosts: set[str], team: str, container: str, seat: str | None) -> str | None:
+    """Why the play would not take `seat` (None: the container's name gives it) for the
+    container in the team under any of `hosts`, or None when it would."""
+    probe = dict(_LXC_TEMPLATE, team=team, container=container, **({} if seat is None else {"seat": seat}))
+    try:
+        for host in sorted(hosts):
+            members.parse_members([*existing, dict(probe, host=host)])
+    except members.MemberError as exc:
+        return _ENTRY_PREFIX_RE.sub("", str(exc))
+    return None
 
 
 def render_lxc_entry(entry: dict, item_indent: int, key_indent: int) -> list[str]:
@@ -955,7 +999,7 @@ def mark_lxc_absent(text: str, team: str, container: str, user: str) -> str | No
 
 
 def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
-    """lxc-add, lxc-check, lxc-members, lxc-remove, lxc-suggest-host."""
+    """lxc-add, lxc-check, lxc-members, lxc-remove, lxc-suggest-seat."""
     path = pathlib.Path(args.file)
     text = _read(path)
     if args.command == "lxc-check":
@@ -968,11 +1012,16 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
             raise DeclareError(str(exc)) from None
         out.writelines(f"LXCMEMBER\t{m.team}\t{m.container}\t{m.user}\t{m.host}\t{m.role}\t{m.state}\n" for m in found)
         return EXIT_OK
-    if args.command == "lxc-suggest-host":
-        try:
-            out.write(f"{registry.resolve_host(args.container, None)}\n")
-        except registry.HandleError:
-            pass  # nothing to suggest: the person types a word
+    if args.command == "lxc-suggest-seat":
+        if args.seat is not None:
+            existing = _lxc_existing(text)
+            hosts = {e["host"] for e in existing if e.get("team") == args.team and isinstance(e.get("host"), str)}
+            why = _seat_refusal(existing, hosts | {"template"}, args.team, args.container, args.seat)
+            if why:
+                raise UsageError(f"--seat: {why}")
+            return EXIT_OK
+        named, seat = suggest_lxc_seat(text, args.team, args.container)
+        out.write("SEAT\tdefault\n" if named else f"SEAT\tneeded\t{seat}\n")
         return EXIT_OK
     if args.command == "lxc-add":
         new, entry = add_lxc(text, _lxc_values(args))
@@ -985,7 +1034,7 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     else:
         team, container, user = args.team, args.container, args.user
         label = f"{user}@{container} in team {team}"
-        new =mark_lxc_absent(text, team, container, user)
+        new = mark_lxc_absent(text, team, container, user)
         if new is None:
             out.write(f"UNCHANGED\t{label}\n")
             return EXIT_OK
@@ -1146,9 +1195,11 @@ def _lxc_parsers(commands: argparse._SubParsersAction) -> None:
     for flag in ("team", "container", "user"):
         gone.add_argument(f"--{flag}", required=True)
     gone.add_argument("--dry-run", action="store_true", help="print the edited file; write nothing")
-    host = commands.add_parser("lxc-suggest-host", help="a container's name as a handle host word, or nothing")
-    host.add_argument("--file", required=True)
-    host.add_argument("--container", required=True)
+    seat = commands.add_parser("lxc-suggest-seat", help="whether the container's name gives its seat, or a seat to ask for")
+    seat.add_argument("--file", required=True)
+    seat.add_argument("--team", required=True)
+    seat.add_argument("--container", required=True)
+    seat.add_argument("--seat", help="check this seat instead of suggesting one")
 
 
 def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _ss,

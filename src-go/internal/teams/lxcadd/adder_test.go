@@ -69,7 +69,7 @@ func newRig(t *testing.T) *rig {
 	}
 	w.On(w.DeclarePrefix("declared"), teamtest.DeclaredAlpha, 0)
 	w.OnDeclare("lxc-members", "")
-	w.OnDeclare("lxc-suggest-host", "container-a\n")
+	w.OnDeclare("lxc-suggest-seat", "SEAT\tdefault\n")
 	w.OnDeclare("lxc-check", "")
 	w.OnDeclare("lxc-add", "CHANGED\tLXC member agent@container-a in team alpha, in "+w.Host.HostVars+"\n")
 	return r
@@ -84,7 +84,7 @@ func choose(s string) string { return "CHOOSE:" + s }
 
 // happy is every question answered for container-a, then the yes.
 func (r *rig) happy() {
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("container-a"), choose("worker"), "YES")
+	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), choose("worker"), "YES")
 }
 
 func (r *rig) addLine() string {
@@ -103,7 +103,7 @@ func TestHappyPathAsksEachThingThenWritesAndAppliesAndSaysWhatIsLeft(t *testing.
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
 	want := r.DeclarePrefix("lxc-add") + " --file " + r.Host.HostVars +
-		" --team alpha --container container-a --user agent --host container-a --checkout /srv/agent/one"
+		" --team alpha --container container-a --user agent --host worker --checkout /srv/agent/one"
 	if got := r.addLine(); got != want {
 		t.Fatalf("lxc-add ran as\n%q\nwant\n%q", got, want)
 	}
@@ -163,7 +163,7 @@ func TestCoordinatorIsOfferedOnlyWhenTheTeamHasNone(t *testing.T) {
 		r := newRig(t)
 		r.OnDeclare("lxc-members", tc.members)
 		r.roster = tc.roster
-		r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("container-a"))
+		r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"))
 		if tc.offered {
 			r.Script.Gum = append(r.Script.Gum, choose("coordinator"))
 		}
@@ -190,7 +190,7 @@ func TestAnUnreadableRosterOffersWorkerOnlyAndSaysWhy(t *testing.T) {
 	r := newRig(t)
 	r.rosterE = errors.New("agent-bus list failed")
 	r.happy()
-	r.Script.Gum = []string{choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("container-a"), "YES"}
+	r.Script.Gum = []string{choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "YES"}
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
@@ -202,7 +202,7 @@ func TestAnUnreadableRosterOffersWorkerOnlyAndSaysWhy(t *testing.T) {
 func TestTheUserIsSuggestedFromTheContainerAndAskedAgainWhenRefused(t *testing.T) {
 	r := newRig(t)
 	r.lxc.users = []string{"agent", "other"}
-	r.answers(choose("container-a"), choose("Bad User"), choose("agent"), choose("/srv/agent/one"), choose("container-a"), choose("worker"), "YES")
+	r.answers(choose("container-a"), choose("Bad User"), choose("agent"), choose("/srv/agent/one"), choose("worker"), choose("worker"), "YES")
 	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-check")), func(c execx.Cmd) (execx.Result, error) {
 		if slices.Contains(c.Args, "Bad User") {
 			return execx.Result{ExitCode: 64, Stderr: []byte("declare: user must be a user name\n")}, nil
@@ -239,15 +239,115 @@ func TestAnUnreadableUserListIsSaidAndTheUserIsTyped(t *testing.T) {
 	}
 }
 
-func TestTheHostWordIsSuggestedFromTheContainerName(t *testing.T) {
+func TestTheHostWordSuggestedIsTheRoleWordNeverTheContainerName(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-suggest-host", "box-word\n")
 	r.happy()
 	if code := r.run("alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
-	if !strings.Contains(r.Script.GumLog[3], "--value box-word") {
-		t.Fatalf("the host question was %q", r.Script.GumLog[3])
+	hostQuestion := r.Script.GumLog[3]
+	if !strings.Contains(hostQuestion, "--value worker") || strings.Contains(hostQuestion, "container-a") {
+		t.Fatalf("the host question was %q", hostQuestion)
+	}
+}
+
+// existingMember declares agent@container-a in another team with the host, and makes lxc-check
+// judge as declare.py does: one user of one container has one host in every team.
+func (r *rig) existingMember(host string) {
+	r.OnDeclare("lxc-members", "LXCMEMBER\tbeta\tcontainer-a\tagent\t"+host+"\tworker\tpresent\n")
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-check")), func(c execx.Cmd) (execx.Result, error) {
+		if i := slices.Index(c.Args, "--host"); i >= 0 && c.Args[i+1] != host {
+			return execx.Result{ExitCode: 64, Stderr: []byte("declare: agent_bus_lxc_members gives agent@container-a two hosts\n")}, nil
+		}
+		return execx.Result{}, nil
+	})
+}
+
+func TestAUserAlreadyInOneTeamIsAddedToASecond(t *testing.T) {
+	r := newRig(t)
+	r.existingMember("worker")
+	r.happy()
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	for _, c := range r.Fake.Calls() {
+		line := c.Line()
+		if strings.Contains(line, "lxc-check") && strings.Contains(line, "--user agent") && strings.Contains(line, "--host") &&
+			!strings.Contains(line, "--host worker") {
+			t.Fatalf("the user was checked with another host: %q", line)
+		}
+	}
+	if strings.Contains(r.ErrOut.String(), "two hosts") || !strings.Contains(r.addLine(), "--user agent --host worker") {
+		t.Fatalf("stderr %s; add %q", r.ErrOut.String(), r.addLine())
+	}
+}
+
+func TestTheHostIsCheckedAgainstTheUserAtTheHostQuestion(t *testing.T) {
+	r := newRig(t)
+	r.existingMember("worker")
+	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("other"), choose("worker"), choose("worker"), "YES")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if !strings.Contains(r.ErrOut.String(), "two hosts. Try again.") || !strings.Contains(r.addLine(), "--host worker") {
+		t.Fatalf("stderr %s; add %q", r.ErrOut.String(), r.addLine())
+	}
+}
+
+func TestASeatIsAskedForWhenTheContainerNameGivesNone(t *testing.T) {
+	r := newRig(t)
+	r.lxc.running = []string{"2024box"}
+	r.OnDeclare("lxc-suggest-seat", "SEAT\tneeded\tc2024box\n")
+	r.answers(choose("2024box"), choose("c2024box"), choose("agent"), choose("/srv/agent/one"), choose("worker"), choose("worker"), "YES")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	seatQuestion := r.Script.GumLog[1]
+	if !strings.Contains(seatQuestion, "--value c2024box") {
+		t.Fatalf("the seat question was %q", seatQuestion)
+	}
+	if !strings.HasSuffix(r.addLine(), "--seat c2024box") {
+		t.Fatalf("add %q", r.addLine())
+	}
+}
+
+func TestASeatCollisionIsCaughtAtTheSeatQuestionAndAskedAgain(t *testing.T) {
+	r := newRig(t)
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-suggest-seat")), func(c execx.Cmd) (execx.Result, error) {
+		i := slices.Index(c.Args, "--seat")
+		switch {
+		case i < 0:
+			return execx.Result{Stdout: []byte("SEAT\tneeded\tlongcontain2\n")}, nil
+		case c.Args[i+1] == "longcontaine":
+			return execx.Result{ExitCode: 64, Stderr: []byte("declare: --seat: seat longcontaine of team alpha to two containers\n")}, nil
+		}
+		return execx.Result{}, nil
+	})
+	r.answers(choose("container-a"), choose("longcontaine"), choose("longcontain2"), choose("agent"), choose("/srv/agent/one"),
+		choose("worker"), choose("worker"), "YES")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if !strings.Contains(r.ErrOut.String(), "seat longcontaine of team alpha to two containers. Try again.") ||
+		!strings.HasSuffix(r.addLine(), "--seat longcontain2") {
+		t.Fatalf("stderr %s; add %q", r.ErrOut.String(), r.addLine())
+	}
+}
+
+func TestASeatRefusedThreeTimesEndsTheRunWithNothingWritten(t *testing.T) {
+	r := newRig(t)
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("lxc-suggest-seat")), func(c execx.Cmd) (execx.Result, error) {
+		if slices.Contains(c.Args, "--seat") {
+			return execx.Result{ExitCode: 64, Stderr: []byte("declare: --seat: taken\n")}, nil
+		}
+		return execx.Result{Stdout: []byte("SEAT\tneeded\t\n")}, nil
+	})
+	r.answers(choose("container-a"), choose("x"), choose("x"), choose("x"))
+	if code := r.run("alpha"); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if r.addLine() != "" || !strings.Contains(r.ErrOut.String(), "Giving up after 3 tries; nothing was changed.") {
+		t.Fatalf("add %q: %s", r.addLine(), r.ErrOut.String())
 	}
 }
 
@@ -270,7 +370,7 @@ func TestARefusedAnswerIsAskedThreeTimesThenTheRunEndsWithNothingWritten(t *test
 
 func TestDecliningTheSummaryWritesNothing(t *testing.T) {
 	r := newRig(t)
-	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("container-a"), choose("worker"), "NO")
+	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), choose("worker"), "NO")
 	if code := r.run("alpha"); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}

@@ -1,6 +1,6 @@
 # Plan 00177: ccy-teams, human friendly
 
-**Status**: In Progress (Phase 4 built and reviewed; Phase 8 built; waiting on the owner's host tests, Tasks 5.1 and 8.5)
+**Status**: In Progress (Phase 4 built and reviewed; Phase 9 built and reviewed; waiting on the owner's host tests, Tasks 5.1 and 9.5)
 **Created**: 2026-10-13
 **Owner**: joseph
 **Priority**: High
@@ -170,7 +170,7 @@ quit `ccy-teams` to start Element.
   it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
   owner's host test.
 
-### Phase 8: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
+### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 
 To put an LXC container's agent in a team the owner had to hand-edit
 `environment/localhost/host_vars/localhost.yml` (an `agent_bus_lxc_members` entry: team,
@@ -178,33 +178,54 @@ container, user, host, checkout, role) and then run `ccy-teams apply <team>`. Te
 already declared without a hand edit (`ccy-teams create` through `declare.py`); members now
 are too, by the same route.
 
-- [x] ✅ **Task 8.1**: `helpers/agent_bus/declare.py` gains `lxc-add` (with `--dry-run`),
+- [x] ✅ **Task 9.1**: `helpers/agent_bus/declare.py` gains `lxc-add` (with `--dry-run`),
   `lxc-check`, `lxc-members`, `lxc-remove` (sets `state: absent`, which the play applies by
-  parking the member) and `lxc-suggest-host`. The entry is judged by
+  parking the member) and `lxc-suggest-seat`. The entry is judged by
   `helpers/agent_bus_lxc/members.py`'s own `parse_members`, imported not copied, as the last
   of the entries already there: a duplicate (team, container, user), a second present
   coordinator and a bad role or user are refused (exit 64) by the play's rule. Declare adds
   that the team must be declared present, that the host is written as the play reads it, and
   that the checkout is a path the line reader keeps whole. Red 13 failures, green 77 tests.
-- [x] ✅ **Task 8.2**: The Go client (`internal/declare`: `LxcAdd`, `LxcAddDryRun`, `LxcCheck`,
-  `LxcMembers`, `LxcRemove`, `LxcSuggestHost`), and `lxcfreeze.Lister` (the one owner of the
+- [x] ✅ **Task 9.2**: The Go client (`internal/declare`: `LxcAdd`, `LxcAddDryRun`, `LxcCheck`,
+  `LxcMembers`, `LxcSuggestSeat`, `LxcCheckSeat`), and `lxcfreeze.Lister` (the one owner of the
   `lxc-*` tools: the host's running containers, and a container's ordinary users from
   `getent passwd`, both as root through the sudo seam, failing with the play to run when LXC
   is not installed).
-- [x] ✅ **Task 8.3**: `ccy-teams lxc-add <team>` and a menu line on every row, *Add an LXC
+- [x] ✅ **Task 9.3**: `ccy-teams lxc-add <team>` and a menu line on every row, *Add an LXC
   container's agent to `<team>`* (no hidden key; in the menu, the footer, the help and the
   usage text): package `internal/teams/lxcadd`. It asks, on a terminal, for the container
-  (running ones), the user (suggested from the container), the checkout, the handle's host
-  word (suggested from the container's name) and the role (coordinator only while the team
+  (running ones), the seat (only when the container's name gives none the play can take, or
+  another container of the team holds it), the user (suggested from the container), the
+  checkout, the handle's host word (`worker` suggested, never the container's name) and the role (coordinator only while the team
   has none, declared or live), each checked by `declare.py` and asked again up to three
   times; a summary and one yes; then `declare.py lxc-add` and the apply of that team; then
   what is left inside the container (`ccy --teams <team>` as that user in the checkout, and
   `gh auth login` if needed; a failed apply says the same with the command to run).
-- [x] ✅ **Task 8.4**: `docs/agent-bus-lxc-members.md`, `docs/agent-bus.md`,
+- [x] ✅ **Task 9.4**: `docs/agent-bus-lxc-members.md`, `docs/agent-bus.md`,
   `localhost.yml.dist` and the usage text say to use the action; hand-editing stays
   documented as the alternative.
-- [ ] ⬜ **Task 8.5**: The owner tests it on the host (meta-deploy of `play-claude-yolo.yml`
+- [ ] ⬜ **Task 9.5**: The owner tests it on the host (meta-deploy of `play-claude-yolo.yml`
   builds the new `ccy-teams`): `ccy-teams lxc-add <team>` for a real container.
+- [x] ✅ **Task 9.6**: The review of `lxc-add`
+  ([report](subagent-reports/261014-fable-review-lxc-add.md)) is answered; each finding, in
+  the order of the report:
+  - F1 fixed: with no host given, `check_lxc` takes the host the same container and user
+    already has, so a user in one team can be added to a second (Python and Go tests, the
+    report's probe included).
+  - F2, F3 fixed: `declare.py lxc-suggest-seat` says whether the container's name gives a
+    seat the team does not already hold (any host, because the host is not yet known); when it
+    does not, the flow asks for the seat with a free one suggested, checked at that question
+    and asked again up to three times. A dry-run refusal at the summary now ends with
+    "Refused; nothing was changed."
+  - F4 fixed: the host word suggested is `worker`; `lxc-suggest-host` is gone.
+  - F5 done: this branch's phase is 9 (Phase 8 belongs to `feat/ccy-teams-hot-add`).
+  - F6 done: `meta-deploy.list` has the `play-claude-yolo.yml` entry before the 00161
+    acceptance (00196 has already run, so nothing else builds this `ccy-teams`).
+  - F7 resolved: the host question is checked with team, container and user.
+  - F8 fixed: names read from a container are shown only if the play's user pattern accepts
+    them, and the read runs `env -i PATH=... HOME=/root`, as `members.py` does.
+  - F9 done: the unused `LxcRemove` is gone (the Python `lxc-remove` stays for the play's
+    `state: absent` route), and the spacing is fixed.
 
 ## Success Criteria
 
