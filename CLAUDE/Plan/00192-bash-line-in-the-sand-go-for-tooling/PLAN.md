@@ -72,7 +72,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   wave 2 (`podfreeze`) running; then `lxcfreeze`, golden capture and cut-over.
 - [ ] 🔄 **Task 3.2**: `agent-bus-install` on `go-port/agent-bus-install`:
   its spec `SPEC-agent-bus-install.md` is on the branch; wave 1 (root-guarding
-  validation) running. Runs as root and changes behaviour (its D7), so it merges only after
+  validation) and wave 2 (every subcommand, the host adapters, the Go binary and the suite in
+  both modes) done; the cut-over wave (play build and install, declare digest, deleting the
+  bash installer) is next. Runs as root and changes behaviour (its D7), so it merges only after
   review and the owner's host test.
 - [ ] ⬜ **Task 3.3**: The rest of the inventory's programmes, ranked there; the `ccy` launcher
   waits on Plan 00191's D1-D10.

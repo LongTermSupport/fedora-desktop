@@ -60,9 +60,6 @@ func (a *App) software(args []string) error {
 	if err = a.requireFedora(); err != nil {
 		return err
 	}
-	if !filepath.IsAbs(in.source) {
-		return fail(term.ExitUsage, "--source must be an absolute path")
-	}
 	if err = requireCheckout(in.source); err != nil {
 		return err
 	}
@@ -112,6 +109,9 @@ func softwareInputs(args []string) (softwareFlags, error) {
 	addr, hasAddr, err := busAddress(opts)
 	if err != nil {
 		return softwareFlags{}, err
+	}
+	if !filepath.IsAbs(opts["source"]) {
+		return softwareFlags{}, fail(term.ExitUsage, "--source must be an absolute path")
 	}
 	return softwareFlags{source: opts["source"], addr: addr, hasAddr: hasAddr}, nil
 }

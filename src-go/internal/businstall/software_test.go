@@ -198,6 +198,7 @@ func TestSoftwareRefusesAHostThatIsNotFedora(t *testing.T) {
 
 func TestSoftwareRefusesARelativeSource(t *testing.T) {
 	h := newHarness(t)
+	h.write(h.rel("etc/os-release"), "ID=debian\n", 0o644) // usage errors come before the host is looked at
 	if code := h.run("software", "--source", "relative/checkout"); code != term.ExitUsage {
 		t.Fatalf("exit %d", code)
 	}

@@ -14,6 +14,13 @@ are gone.
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
   `sessprobe`. Reuse these; a second way to run a command or prompt the user is a defect.
+- The installer `agent-bus-install` (`cmd/agent-bus-install`, flows in `internal/businstall`)
+  runs host programs only through their owners: `hostnet` (the network tools and curl),
+  `hostsys` (packages, accounts, architecture, zstd), `firewalld`, `systemd` (units) and
+  `busadmin` (the Python admin tool and bundler). `fsx` does every root write through
+  `os.Root`; `tarstate` reads and writes the state tar; `busaddr`, `pin` and `netprobe`
+  parse. Its test prefix (`AGENT_BUS_INSTALL_TEST_PREFIX`) exists only in a binary built with
+  `-tags agentbustest`.
 
 ## Rules
 
@@ -38,8 +45,10 @@ are gone.
 ## Parity oracles
 
 The bash suites that tested the bash tools now drive the Go binaries and remain the
-behaviour oracle: `scripts/test-ccy-teams-command.bash` and the four
-`scripts/test-ccy-sessions-*.bash` / `test-ccy-tmux-targets.bash` suites. Some Go tests run
+behaviour oracle: `scripts/test-ccy-teams-command.bash`, the four
+`scripts/test-ccy-sessions-*.bash` / `test-ccy-tmux-targets.bash` suites, and
+`scripts/test-agent-bus-install.bash` (`AGENT_BUS_INSTALL_SUITE=go|bash` picks the Go binary or
+the bash original; the cases under "Go port" run in Go mode only). Some Go tests run
 the real bash libraries and Python helpers and compare results, so a change to those files
 reruns the Go gate. A behaviour change that a suite pins is changed in the suite in the same
 commit, with the reason.

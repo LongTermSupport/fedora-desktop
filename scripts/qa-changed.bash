@@ -357,7 +357,7 @@ done
 # files. The closure comes from the go tool, so it cannot drift from the imports. Each entry
 # is "<command>: <suites that build and drive it>".
 GO_BINARY_SUITES=(
-    "ccy-teams: scripts/test-ccy-teams-command.bash"
+    "ccy-teams: scripts/test-ccy-teams-command.bash" "agent-bus-install: scripts/test-agent-bus-install.bash"
     "ccy-sessions: scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash"
 )
 declare -A GO_SUITE_OWNERS=()

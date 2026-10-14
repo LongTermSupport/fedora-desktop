@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Drive the real files/usr/local/sbin/agent-bus-install against a temporary root
-# (Plan 00161, DESIGN.md sections 3.2-3.7, unit U16).
+# Drive the real agent-bus-install against a temporary root
+# (Plan 00161, DESIGN.md sections 3.2-3.7, unit U16; Plan 00192 for the Go port).
+#
+# TWO MODES, ONE SUITE. AGENT_BUS_INSTALL_SUITE=go (the default) builds src-go/cmd/agent-bus-install
+# with the agentbustest tag and drives that binary; AGENT_BUS_INSTALL_SUITE=bash drives
+# files/usr/local/sbin/agent-bus-install, the original, which stays the behaviour oracle until
+# the cut-over deletes it. Every case that both satisfy runs in both modes. The cases at the
+# end headed "Go port" pin deliberate changes (SPEC-agent-bus-install.md section 11, bugs B2,
+# B3, B4, B6, B7, B10, B11) and gaps the bash suite never covered; they run in Go mode only.
 #
 # WHY THIS EXISTS. The installer is the one place a homeserver host is built: the binary
 # behind its pinned hash, the units, the firewalld rules, the drop-in, the restart rule and
-# the readiness step. Its decisions only show on a real host, so this runs the real script
+# the readiness step. Its decisions only show on a real host, so this runs the real program
 # under AGENT_BUS_INSTALL_TEST_PREFIX, which roots every path it writes under a scratch
 # directory and skips the root check, with stub systemctl, firewall-cmd, nmcli, curl, ip,
 # ss, dnf, rpm, getent, useradd, zstd, uname, systemd-run, journalctl and agent-bus first on PATH. The
@@ -18,13 +25,19 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TOOL="$REPO_ROOT/files/usr/local/sbin/agent-bus-install"
+BASH_TOOL="$REPO_ROOT/files/usr/local/sbin/agent-bus-install"
 
-if [[ ! -x $TOOL ]]; then
-    echo "FAIL: $TOOL is missing or not executable" >&2
-    exit 1
-fi
-for tool in python3 jq sha256sum tar; do
+MODE="${AGENT_BUS_INSTALL_SUITE:-go}"
+case $MODE in
+    go | bash) ;;
+    *)
+        echo "FAIL: AGENT_BUS_INSTALL_SUITE must be go or bash, not '$MODE'" >&2
+        exit 1
+        ;;
+esac
+needed=(python3 jq sha256sum tar)
+[[ $MODE == bash ]] || needed+=(go)
+for tool in "${needed[@]}"; do
     if ! command -v "$tool" >/dev/null; then
         echo "FAIL: $tool is not on PATH; this test needs it" >&2
         exit 1
@@ -58,6 +71,35 @@ if ! SCRATCH="$(mktemp -d)"; then
     exit 1
 fi
 trap 'rm -rf "$SCRATCH"' EXIT
+
+# The program under test. Go mode builds two binaries from one source: the test binary
+# (agentbustest tag: honours the test prefix) drives every case, and the production binary
+# (no tag: never reads the prefix) answers the non-root cases, as the deployed one would.
+TOOL=$BASH_TOOL
+PROD=$BASH_TOOL
+if [[ $MODE == go ]]; then
+    TOOL="$SCRATCH/agent-bus-install-test"
+    PROD="$SCRATCH/agent-bus-install"
+    SOURCE_DIGEST=$(printf '%064d' 7)
+    build_go() {
+        local out=$1 build_out build_rc
+        shift
+        build_out="$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false "$@" \
+            -ldflags "-X main.SourceDigest=$SOURCE_DIGEST" -o "$out" ./cmd/agent-bus-install 2>&1)"
+        build_rc=$?
+        check "the Go binary builds ($(basename "$out"))" "0" "$build_rc"
+        if [[ $build_rc -ne 0 ]]; then
+            echo "$build_out" >&2
+            exit 1
+        fi
+    }
+    build_go "$TOOL" -tags agentbustest
+    build_go "$PROD"
+fi
+if [[ ! -x $TOOL ]]; then
+    echo "FAIL: $TOOL is missing or not executable" >&2
+    exit 1
+fi
 STUBS="$SCRATCH/stubs"
 mkdir -p "$STUBS"
 OUT="$SCRATCH/out"
@@ -75,7 +117,8 @@ cp "$REPO_ROOT/files/usr/local/share/agent-bus/resolv.conf" "$SOURCE/files/usr/l
 cp "$REPO_ROOT/files/usr/local/bin/agent-bus" "$SOURCE/files/usr/local/bin/"
 mkdir -p "$SOURCE/files/opt/claude-yolo/optional"
 cp -r "$REPO_ROOT/files/opt/claude-yolo/optional/agent-bus" "$SOURCE/files/opt/claude-yolo/optional/"
-cp "$TOOL" "$SOURCE/files/usr/local/sbin/"
+# The bash installer installs itself from the checkout; the Go one installs the binary running.
+[[ $MODE == go ]] || cp "$TOOL" "$SOURCE/files/usr/local/sbin/"
 ASSET="$SCRATCH/asset.zst"
 printf 'not really tuwunel, a test fixture\n' >"$ASSET"
 ASSET_SHA=$(sha256sum "$ASSET" | awk '{print $1}')
@@ -215,6 +258,7 @@ esac
 EOF
 
 stub curl <<'EOF'
+[[ ! -e $STUB_DIR/curl-exit ]] || exit "$(cat "$STUB_DIR/curl-exit")"
 out="" url="" prev=""
 for a in "$@"; do
     [[ $prev != -o ]] || out=$a
@@ -399,15 +443,28 @@ if [[ $EUID -eq 0 ]]; then
         exit 1
     fi
     chmod 755 "$OUTSIDE"
-    install -m 755 "$TOOL" "$OUTSIDE/agent-bus-install"
+    install -m 755 "$PROD" "$OUTSIDE/agent-bus-install"
     runuser -u nobody -- "$OUTSIDE/agent-bus-install" check --team alpha >"$OUT" 2>"$ERR"
     RC=$?
+    if [[ $MODE == go ]]; then
+        # The production binary never reads the test prefix: even with it set, it is not root.
+        runuser -u nobody -- env AGENT_BUS_INSTALL_TEST_PREFIX="$ROOT" "$OUTSIDE/agent-bus-install" \
+            check --team alpha >"$OUT" 2>"$ERR"
+        PROD_PREFIX_RC=$?
+    fi
     rm -rf "$OUTSIDE"
 else
-    env -u AGENT_BUS_INSTALL_TEST_PREFIX "$TOOL" check --team alpha >"$OUT" 2>"$ERR"
+    env -u AGENT_BUS_INSTALL_TEST_PREFIX "$PROD" check --team alpha >"$OUT" 2>"$ERR"
     RC=$?
+    if [[ $MODE == go ]]; then
+        AGENT_BUS_INSTALL_TEST_PREFIX="$ROOT" "$PROD" check --team alpha >"$OUT" 2>"$ERR"
+        PROD_PREFIX_RC=$?
+    fi
 fi
 check "a non-root caller is refused (77)" "77" "$RC"
+if [[ $MODE == go ]]; then
+    check "the production binary ignores the test prefix (still 77)" "77" "$PROD_PREFIX_RC"
+fi
 
 # ================================================================ software
 echo "== software"
@@ -425,6 +482,9 @@ check "the agent-bus zipapp runs" "agent-bus" "$(python3 -I "$L/agent-bus.pyz" v
 check "/usr/local/bin/pingbus points at the zipapp" "$L/pingbus.pyz" "$(readlink -f "$ROOT/usr/local/bin/pingbus")"
 check "the admin wrapper is installed" "yes" "$(same "$ROOT/usr/local/bin/agent-bus" "$REPO_ROOT/files/usr/local/bin/agent-bus")"
 check "the installer installs itself" "755" "$(mode "$ROOT/usr/local/sbin/agent-bus-install")"
+if [[ $MODE == go ]]; then
+    check "  and it is the running binary" "yes" "$(same "$ROOT/usr/local/sbin/agent-bus-install" "$TOOL")"
+fi
 check "the kit carries pingbus" "yes" "$(same "$ROOT/usr/local/share/agent-bus/kit/pingbus" "$L/pingbus.pyz")"
 KIT_SRC=$REPO_ROOT/files/opt/claude-yolo/optional/agent-bus
 KIT=$ROOT/usr/local/share/agent-bus/kit
@@ -871,6 +931,82 @@ check "a second remove succeeds" "0" "$RC"
 check "  and changes nothing" "" "$(cat "$OUT")"
 run remove --team alpha --purge
 check "--purge removes the data" "no" "$(exists "$ROOT/var/lib/agent-bus/alpha")"
+
+# ================================================================ Go port only
+# Deliberate changes (SPEC-agent-bus-install.md section 11) and gaps the bash suite never
+# covered. The bash installer does not satisfy these, so they run in Go mode only.
+if [[ $MODE == go ]]; then
+    echo "== Go port: B2, B11, B3 (refused input, order of checks, leaked child statuses)"
+    new_root gob
+    for bad in '2001:db8::1%eth0' '::ffff:192.0.2.10'; do
+        run software --source "$SOURCE" --bus-address="$bad"
+        check "B2: --bus-address '$bad' (zone id, IPv4-mapped) is refused (64)" "64" "$RC"
+    done
+    printf 'ID=debian\n' >"$ROOT/etc/os-release"
+    run software --source "$SOURCE" --bus-address=0.0.0.0
+    check "B11: a bad --bus-address is a usage error before the host is looked at (64)" "64" "$RC"
+    run software --source relative/dir
+    check "a relative --source is refused (64)" "64" "$RC"
+    printf 'ID=fedora\n' >"$ROOT/etc/os-release"
+    echo 78 >"$STUB_DIR/curl-exit"
+    run software --source "$SOURCE"
+    check "B3: a curl that exits 78 fails the run with 1, not 78" "1" "$RC"
+    check "  and the message names curl" "yes" "$(says 'curl' "$ERR")"
+    rm -f "$STUB_DIR/curl-exit"
+
+    echo "== Go port: forms the bash suite never drove"
+    new_root gof
+    run help
+    check "help is accepted (B15, kept)" "0" "$RC"
+    run check --team alpha -h
+    check "-h after a subcommand is an unexpected argument (B15, kept)" "64" "$RC"
+    run software --source="$SOURCE" --bus-address=192.0.2.10
+    check "--name=value forms work" "0" "$RC"
+    rm "$ROOT/usr/local/bin/agent-bus"
+    ln -s "$SCRATCH/victim" "$ROOT/usr/local/bin/agent-bus"
+    printf 'unchanged\n' >"$SCRATCH/victim"
+    run software --source "$SOURCE"
+    check "a symlink planted where a program is installed fails the run" "1" "$RC"
+    check "  and what it pointed at is untouched" "unchanged" "$(cat "$SCRATCH/victim")"
+
+    echo "== Go port: B7, B10, B6, B4 (a team on a host)"
+    new_root gol
+    run software --source "$SOURCE"
+    team_file alpha '["192.0.2.10"]' '[]' >"$TF"
+    run team --team-file "$TF"
+    check "install for the Go-only life-cycle cases" "0" "$RC"
+    SECRET_FILE=$ROOT/var/lib/agent-bus/alpha/secrets/registration_shared_secret
+    SECRET_BEFORE=$(cat "$SECRET_FILE")
+    chmod 644 "$SECRET_FILE"
+    run team --team-file "$TF"
+    check "B7: a wrong-mode shared secret is repaired to 0600" "600" "$(mode "$SECRET_FILE")"
+    check "  its content untouched" "$SECRET_BEFORE" "$(cat "$SECRET_FILE")"
+    check "  and the repair says CHANGED" "yes" "$(says $'^CHANGED\tregistration shared secret mode and owner' "$OUT")"
+    mkdir -p "$ROOT/var/lib/agent-bus/beta"
+    printf '{' >"$ROOT/var/lib/agent-bus/beta/team.json"
+    run team --team-file "$TF"
+    check "B10: another team's malformed team.json fails the run with 78" "78" "$RC"
+    check "  and the message names the file" "yes" "$(says 'beta/team.json: not readable JSON' "$ERR")"
+    rm -r "$ROOT/var/lib/agent-bus/beta"
+    run backup-now --team alpha
+    check "backup-now before any plant" "0" "$RC"
+    ln -s /etc/passwd "$ROOT/var/lib/agent-bus/alpha/secrets/planted"
+    run backup-now --team alpha
+    check "B6: a symlink planted in secrets/ fails backup-now" "1" "$RC"
+    check "  naming the file and what it is" "yes" "$(says 'secrets/planted is a symlink, not a regular file' "$ERR")"
+    check "  and no second state tar is written" "1" "$(find "$ROOT/var/lib/agent-bus-install/alpha/backups" -name '*.tar' | wc -l)"
+    rm "$ROOT/var/lib/agent-bus/alpha/secrets/planted"
+    TRAP="$SCRATCH/tmpdir-trap"
+    mkdir -p "$TRAP"
+    TMPDIR="$TRAP" run restore --team alpha --backup 1
+    check "restore succeeds" "0" "$RC"
+    [[ $RC -eq 0 ]] || cat "$ERR" >&2
+    check "B4: the restore stage is not made under TMPDIR" "0" "$(find "$TRAP" -mindepth 1 | wc -l)"
+    check "  and no stage is left under the installer's own state" "0" \
+        "$(find "$ROOT/var/lib/agent-bus-install" -name '.work-*' | wc -l)"
+else
+    echo "== Go port: cases skipped (Go mode only)"
+fi
 
 echo
 printf 'passed: %d failed: %d\n' "$passed" "$failed"
