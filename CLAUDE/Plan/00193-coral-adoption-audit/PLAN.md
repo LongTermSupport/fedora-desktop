@@ -31,7 +31,7 @@ adopt it as is, fork it, borrow ideas from it, or leave it.
 
 ### Phase 1: Audit
 
-- [ ] 🔄 **Task 1.1**: Audit coral from a reference clone under `untracked/repos/`: its
+- [x] ✅ **Task 1.1**: Audit coral from a reference clone under `untracked/repos/`: its
   architecture, language and dependencies, licence, maintenance health, security model, how
   opinionated it is, and an overlap/gap map against ccy, ccy-sessions, ccy-teams, the agent
   bus and the hooks daemon. Write `AUDIT-coral.md`.
@@ -43,4 +43,6 @@ adopt it as is, fork it, borrow ideas from it, or leave it.
 
 ## Delivery & Milestones
 
-- Audit: pending.
+- Audit: delivered in [`AUDIT-coral.md`](AUDIT-coral.md). Recommendation: leave coral, and
+  borrow its task-dependency, wait-don't-poll, cost-rollup and idle-escalation ideas into
+  `ccy-teams` and the agent bus. Waiting on the owner's decision (Task 1.2).
