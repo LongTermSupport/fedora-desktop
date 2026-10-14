@@ -2,7 +2,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -22,7 +21,8 @@ func main() {
 // plain `go build` or `go install` run inside another checkout would act on that checkout.
 func run(args []string, getenv func(string) string, root string, stderr io.Writer) int {
 	if root == "" {
-		fmt.Fprintln(stderr, "ERROR: ccy-teams was built without -ldflags \"-X main.RootDir=<checkout>\"; "+
+		t := &term.Term{Err: stderr, IsTerminal: term.FileIsTerminal, Getenv: getenv}
+		t.PrintError("ccy-teams was built without -ldflags \"-X main.RootDir=<checkout>\"; " +
 			"build it with playbooks/imports/play-claude-yolo.yml, which bakes the checkout in")
 		return term.ExitFailure
 	}
