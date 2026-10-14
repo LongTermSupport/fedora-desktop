@@ -5,7 +5,6 @@
 package transcript
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,24 +163,6 @@ const (
 	modelSynthetic  = "<synthetic>"
 )
 
-// entries reads the file's JSON objects, skipping every line that is not one: the last line
-// can be half-written while Claude appends to it.
-func entries(path string) ([]entry, error) {
-	raw, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("the transcript %s could not be read: %w", path, err)
-	}
-	var out []entry
-	for line := range bytes.SplitSeq(raw, []byte("\n")) {
-		var e entry
-		if json.Unmarshal(line, &e) != nil {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out, nil
-}
-
 func mainThread(e entry) bool { return !bool(e.IsSidechain) }
 
 // count is a usage count, with absent and null counting as 0.
@@ -196,30 +177,9 @@ func count(f field[float64], name string) (float64, error) {
 // entry carrying one. An assistant message's input, cache-write and cache-read tokens together
 // are what the next turn re-sends; a compaction boundary's postTokens is the size a compaction
 // left. Sub-agent entries are another context, and a <synthetic> assistant message is an error
-// placeholder with zero usage, so neither counts.
-func ContextTokens(path string) (int64, error) {
-	all, err := entries(path)
-	if err != nil {
-		return 0, err
-	}
-	last, found := 0.0, false
-	for _, e := range all {
-		if !mainThread(e) {
-			continue
-		}
-		size, ok, sizeErr := contextOf(e)
-		if sizeErr != nil {
-			return 0, fmt.Errorf("the transcript %s could not be read: %w", path, sizeErr)
-		}
-		if ok {
-			last, found = size, true
-		}
-	}
-	if !found || last < 0 || last != float64(int64(last)) {
-		return 0, fmt.Errorf("the transcript %s records no context size", path)
-	}
-	return int64(last), nil
-}
+// placeholder with zero usage, so neither counts. A Cache answers the same from what it has
+// already read; this reads the whole file.
+func ContextTokens(path string) (int64, error) { return NewCache().ContextTokens(path) }
 
 // contextOf is the context size one entry records, if it records one.
 func contextOf(e entry) (float64, bool, error) {
@@ -256,38 +216,13 @@ func contextOf(e entry) (float64, bool, error) {
 // it is taken (a typed /compact, its expansion, or `continue`); a line left sitting in the
 // input box writes nothing. Meta entries are Claude's own notes, not input.
 func TookInputSince(path string, since int64) (bool, error) {
-	return anySince(path, since, func(e entry) bool {
-		return e.Type.Value == typeUser && !bool(e.IsMeta)
-	})
+	return NewCache().TookInputSince(path, since)
 }
 
 // CompactedSince reports whether a compaction of the conversation finished at or after the
 // Unix time since (a main-thread compact_boundary entry).
 func CompactedSince(path string, since int64) (bool, error) {
-	return anySince(path, since, func(e entry) bool {
-		return e.Type.Value == typeSystem && e.Subtype.Value == subtypeBoundary
-	})
-}
-
-func anySince(path string, since int64, wanted func(entry) bool) (bool, error) {
-	all, err := entries(path)
-	if err != nil {
-		return false, err
-	}
-	found := false
-	for _, e := range all {
-		if !mainThread(e) || !wanted(e) || !e.Timestamp.Present {
-			continue
-		}
-		at, parseErr := epoch(e.Timestamp.Value)
-		if parseErr != nil {
-			return false, fmt.Errorf("the transcript %s could not be read: %w", path, parseErr)
-		}
-		if at >= since {
-			found = true
-		}
-	}
-	return found, nil
+	return NewCache().CompactedSince(path, since)
 }
 
 // epoch is a transcript timestamp as Unix seconds: UTC, the fraction dropped.

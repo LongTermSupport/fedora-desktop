@@ -288,7 +288,7 @@ If the container map is empty the probe still takes both samples and sleeps (whe
   1. `Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit` (the keys line; prefixed `↑↓ choose   `)
   2. `new_line`
   3. `"open elsewhere" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running` (the quotes are literal)
-  4. `CPU: over the last second, 100% is one core`
+  4. `CPU: since the list last redrew ("-" until it has), 100% is one core` (the bash original sampled one second per redraw; Plan 00192 measures against the previous redraw instead)
   5. `network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`
 
   `ui.Header(keys, lines...)` (picker.go L114-121) is the same builder (empty lines dropped, joined by `\n`).

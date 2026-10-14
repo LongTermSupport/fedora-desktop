@@ -56,6 +56,7 @@ func (a *App) picker(ctx context.Context) term.ExitCode {
 		return term.ExitFailure
 	}
 	st := a.newPickState(ctx)
+	a.Probe.KeepSamples = true
 	attempt := 1
 	for {
 		rows, err := a.rows(ctx)
@@ -108,7 +109,7 @@ func (a *App) newPickState(ctx context.Context) *pickState {
 	st.header = ui.Header("Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit",
 		newLine,
 		`"open elsewhere" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running`,
-		"CPU: over the last second, 100% is one core",
+		`CPU: since the list last redrew ("-" until it has), 100% is one core`,
 		`network, token, SSH key: what its container is on and was started with — "no container" and "-" mean nothing to ask`)
 	return st
 }

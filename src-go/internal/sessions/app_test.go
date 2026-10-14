@@ -137,7 +137,7 @@ func TestWireFillsEverySeam(t *testing.T) {
 		"Runner": app.Runner != nil, "Execer": app.Execer != nil, "Stdin": app.Stdin != nil, "Stdout": app.Stdout != nil,
 		"Stderr": app.Stderr != nil, "Getenv": app.Getenv != nil, "Unsetenv": app.Unsetenv != nil, "Term": app.Term != nil,
 		"Tmux": app.Tmux != nil, "Git": app.Git != nil, "Picker": app.Picker != nil, "Now": app.Now != nil,
-		"Pause": app.Pause != nil, "Signals": app.Signals != nil, "IsTerminal": app.IsTerminal != nil,
+		"Transcripts": app.Transcripts != nil, "Pause": app.Pause != nil, "Signals": app.Signals != nil, "IsTerminal": app.IsTerminal != nil,
 		"InContainer": app.InContainer != nil, "Executable": app.Executable != nil, "Getuid": app.Getuid != nil,
 	}
 	for name, ok := range set {
