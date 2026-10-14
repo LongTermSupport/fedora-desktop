@@ -899,6 +899,18 @@ fi
 sessions_take_over_summary=$(qa_gate_case_count "$sessions_take_over_out")
 qa_pass_line ccy-sessions-take-over "$sessions_take_over_summary"
 
+# The tmux targets the ccy library and ccy-sessions' Go pane code build, run against a REAL
+# tmux on a private socket: a pane command needs "=name:", a session command "=name", and
+# the bare "=name" pane form must be refused (fedora-desktop#69: fakes had hidden it).
+tmux_targets_out=""
+if ! tmux_targets_out="$(bash "$SCRIPT_DIR/test-ccy-tmux-targets.bash" 2>&1)"; then
+    qa_hard_gate_failed ccy-tmux-targets \
+        "ccy tmux exact-target tests failed" \
+        "$tmux_targets_out"
+fi
+tmux_targets_summary=$(qa_gate_case_count "$tmux_targets_out")
+qa_pass_line ccy-tmux-targets "$tmux_targets_summary"
+
 # The ccy-teams command (Plan 00161): the template renders with no Jinja left and its
 # rendering is lint-clean; the REAL --list and picker under fakes for tmux, fzf, systemctl, sudo,
 # agent-bus and agent-bus-install show each team, seat, member and human as those sources
