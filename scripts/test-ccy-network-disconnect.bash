@@ -135,7 +135,7 @@ reset() {
     rm -rf .claude "$CCY_STATE_DIR"
 }
 
-# The Quick Launch config, in the shape the launcher's save_launch_config writes it. A plain
+# The Quick Launch config, in the shape the launcher writes it at the end of a launch. A plain
 # ccy offers it (and a session restore takes it unasked), joining LAST_NETWORK.
 QL=".claude/ccy/.last-launch.conf"
 write_quick_launch() {

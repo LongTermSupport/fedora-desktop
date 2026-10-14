@@ -1082,6 +1082,7 @@ variable, naming each one. pingbus checks references at GitHub with the session'
 login, which the container sets up at start; it reads no credential variable.
 
 ```bash
+ccy --teams                                  # find the team from this checkout's GitHub repository
 ccy --teams dev-team                         # choose the seat
 ccy --teams dev1@dev-team,qa2@other-team    # name the seats; quote a list written with spaces
 ```

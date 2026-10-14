@@ -155,6 +155,12 @@ func (s *session) classifyFile(ctx context.Context, rel string, deleted bool) er
 	if err := s.applyAlso(ctx, rel, deleted); err != nil {
 		return err
 	}
+	return s.applyFirst(ctx, rel, deleted)
+}
+
+// applyFirst gives the file the first "first" rule that matches it; a match inside the rule's
+// excluded tree skips the file instead.
+func (s *session) applyFirst(ctx context.Context, rel string, deleted bool) error {
 	for _, r := range s.routing.first {
 		match, err := s.applies(r, rel, deleted)
 		if err != nil {

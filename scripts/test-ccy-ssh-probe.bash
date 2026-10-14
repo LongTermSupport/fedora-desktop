@@ -20,8 +20,9 @@ REPO_PATH="${1:-$REPO_ROOT}"
 TMP_ERR=$(mktemp)
 trap 'rm -f "$TMP_ERR"' EXIT
 
-pass() { echo "  PASS: $*"; }
-fail() { echo "  FAIL: $*"; exit 1; }
+passed=0
+pass() { passed=$((passed + 1)); echo "  PASS: $*"; }
+fail() { echo "  FAIL: $*"; echo "passed: $passed   failed: 1"; exit 1; }
 hdr()  { echo ""; echo "=== $* ==="; }
 
 hdr "0. Library sourceable from repo"
@@ -122,6 +123,7 @@ if [ -z "$working" ]; then
             while IFS= read -r line; do echo "    $line"; done < "$f"
         done
     fi
+    echo "passed: $passed   failed: 1"
     exit 1
 fi
 echo "$working" | while IFS= read -r line; do echo "    match: $line"; done
@@ -130,3 +132,4 @@ pass "$match_count key(s) have push access to $owner_repo"
 
 echo ""
 echo "ALL CHECKS PASSED — probe is functional on this host."
+echo "passed: $passed   failed: 0"

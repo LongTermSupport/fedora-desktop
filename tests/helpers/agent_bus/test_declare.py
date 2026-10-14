@@ -259,7 +259,7 @@ class CreateTest(unittest.TestCase):
         self.assertEqual(self.run_create(self.FLAGS), 0, self.stderr.getvalue())
         self.assertNotIn("meta-deploy", self.stderr.getvalue())
         said = self.next_steps("beta")
-        for text in ("password", "Element", "Ctrl-E", "ccy --teams beta", "any repository of example-org"):
+        for text in ("password", "Element", "Open in Element", "ccy --teams beta", "any repository of example-org"):
             self.assertIn(text, said)
         for text in ("meta-deploy", "localhost.yml", "agent_bus_element_teams", "1@beta"):
             self.assertNotIn(text, said)

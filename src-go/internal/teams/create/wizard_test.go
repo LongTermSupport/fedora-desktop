@@ -170,10 +170,10 @@ func newWzHarness(t *testing.T) *wzHarness {
 	f.On(wzDP("element"), wzOK("CHANGED\tteam proj Element profile\n"))
 	f.On(wzDP("teams-for"), wzOK("TEAM\tproj\n"))
 	f.On(wzDP("next-steps"), wzOK("Team proj is up. Later, in ccy-teams:\n"+
-		"  Sign in      Enter on your name under the team sets a new Element password and shows it.\n"+
-		"  Element      Ctrl-E on the team opens it in Element.\n"+
+		"  Sign in      Enter on your name under the team, then choose Sign in: it sets a password and shows it.\n"+
+		"  Element      Enter on the team, then choose Open in Element.\n"+
 		"  Agents       in a checkout of any repository of example-org, run ccy --teams proj\n"+
-		"               (ccy-teams run there offers it; Ctrl-N on the team does it too).\n"))
+		"               (ccy-teams run there offers it; Enter on the team, then Start a ccy session, does it too).\n"))
 
 	client := declare.NewClient(h.run, wzRoot, wzHostVars)
 	client.Err = h.declErr
@@ -967,14 +967,14 @@ func TestTheNextStepsDoNotRepeatTheOffersJustMade(t *testing.T) {
 	wzCode(t, h.invoke(), 0, h)
 	e := h.err()
 	wzContain(t, "stderr", e, "Team proj is up.", "run ccy --teams proj", "(ccy-teams run there offers it")
-	wzLack(t, "stderr", e, "  Sign in      Enter on your name", "  Element      Ctrl-E")
+	wzLack(t, "stderr", e, "  Sign in      Enter on your name", "  Element      Enter on the team")
 }
 
 func TestTheNextStepsKeepEveryLineWhenNothingWasOffered(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
-	wzContain(t, "stderr", h.err(), "  Sign in      Enter on your name", "  Element      Ctrl-E on the team")
+	wzContain(t, "stderr", h.err(), "  Sign in      Enter on your name", "  Element      Enter on the team, then choose Open in Element")
 }
 
 func TestNextStepsThatCannotBeReadEndTheRun(t *testing.T) {

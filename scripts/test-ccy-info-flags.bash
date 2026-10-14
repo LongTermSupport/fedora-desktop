@@ -137,7 +137,8 @@ check "no case reached a container engine beyond --help's image probe" \
     "" "$(grep -v '^image inspect claude-yolo:latest$' "$ENGINE_CALLS")"
 
 echo ""
-echo "passed: $passed failed: $failed"
+echo "Summary: $passed passed, $failed failed"
+echo "passed: $passed   failed: $failed"
 if [ "$failed" -gt 0 ]; then
     exit 1
 fi

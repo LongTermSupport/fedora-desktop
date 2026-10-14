@@ -194,6 +194,32 @@ func TestCollectMembers(t *testing.T) {
 	}
 }
 
+func TestCollectMembersKeepsEachKnownSessionCount(t *testing.T) {
+	h := populated(t)
+	s := NewSnapshot()
+	h.c.collectMembers(t.Context(), s, "alpha")
+	want := map[string]int{"alpha|owner": 0, "alpha|guest": 2, "alpha|ghost": 1}
+	if !reflect.DeepEqual(s.Sessions, want) {
+		t.Fatalf("sessions %v", s.Sessions)
+	}
+	if n, known := s.SessionsOf("alpha", "guest"); !known || n != 2 {
+		t.Fatalf("guest: %d %v", n, known)
+	}
+
+	h = populated(t)
+	h.OnErr(teamtest.SudoBus+"human devices alpha owner", "sudo: a password is required", 1)
+	s = NewSnapshot()
+	h.c.collectMembers(t.Context(), s, "alpha")
+	if _, known := s.SessionsOf("alpha", "owner"); known {
+		t.Fatal("a count that could not be read is not a count of none")
+	}
+	again := NewSnapshot()
+	h.c.collectMembers(t.Context(), again, "alpha")
+	if n, known := again.SessionsOf("alpha", "guest"); !known || n != 2 {
+		t.Fatalf("a kept read still counts: %d %v", n, known)
+	}
+}
+
 func TestCollectBuildsTheRows(t *testing.T) {
 	h := populated(t)
 	checkout := h.Checkout()
@@ -208,9 +234,9 @@ func TestCollectBuildsTheRows(t *testing.T) {
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
 		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-"},
 		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-"},
-		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "guest", Kind: "human", State: "invited", Applied: "-", Session: "2 signed in", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "ghost", Kind: "human", State: "not in room", Applied: "-", Session: "1 signed in", Restore: "-", Where: "Element; Enter: new password", Handle: "-", Dir: "-"},
+		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
+		{Team: "alpha", Member: "guest", Kind: "human", State: "invited", Applied: "-", Session: "2 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
+		{Team: "alpha", Member: "ghost", Kind: "human", State: "not in room", Applied: "-", Session: "1 signed in", Restore: "-", Where: "Element; Enter for choices", Handle: "-", Dir: "-"},
 	}
 	if !reflect.DeepEqual(s.Rows, want) {
 		for i := range s.Rows {

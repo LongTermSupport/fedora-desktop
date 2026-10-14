@@ -46,7 +46,7 @@ type Collector struct {
 
 	// devices is who is signed in to Element, by "<team>|<person>", read once and kept until
 	// ForgetDevices: one sudo process per person is too much to pay on every redraw.
-	devices map[string]string
+	devices map[string]int
 	// workTree is what git said of the folder the command was run in, asked once.
 	workTree struct {
 		asked, inside bool
@@ -122,11 +122,11 @@ func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 	return s, nil
 }
 
-func (c *Collector) keepDevices(key, word string) {
+func (c *Collector) keepDevices(key string, count int) {
 	if c.devices == nil {
-		c.devices = map[string]string{}
+		c.devices = map[string]int{}
 	}
-	c.devices[key] = word
+	c.devices[key] = count
 }
 
 // teamsListOf is the --teams value in a launcher's arguments, up to a bare "--"; the last wins.
@@ -300,15 +300,15 @@ func (c *Collector) collectMembers(ctx context.Context, s *Snapshot, team string
 	}
 	for _, h := range roster.Humans {
 		key := team + "|" + h.Name
-		if word, kept := c.devices[key]; kept {
-			s.SignedIn[key] = word
+		if count, kept := c.devices[key]; kept {
+			s.setSessions(key, count)
 			continue
 		}
 		devices, err := c.Bus.HumanDevices(ctx, team, h.Name)
 		switch {
 		case err == nil:
-			s.SignedIn[key] = signedInWord(len(devices))
-			c.keepDevices(key, s.SignedIn[key])
+			s.setSessions(key, len(devices))
+			c.keepDevices(key, len(devices))
 		case errors.Is(err, sudo.ErrNeedsPassword):
 			s.SignedIn[key] = WordNeedSudo
 			s.NeedSudo += " " + team

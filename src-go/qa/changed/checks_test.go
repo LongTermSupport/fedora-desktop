@@ -147,7 +147,7 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		}
 	}
 	want := []string{
-		"shellcheck --severity=warning a.bash b.bash",
+		"shellcheck --external-sources --severity=warning a.bash b.bash",
 		"ruff check x.py",
 		"python3 -m unittest tests.helpers.test_a",
 	}

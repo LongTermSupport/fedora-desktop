@@ -79,9 +79,11 @@ fi
 source "$FUNCS"
 
 FAILED=0
+PASSED=0
 is() {
     local label="$1" got="$2" want="$3"
     if [ "$got" = "$want" ]; then
+        PASSED=$((PASSED + 1))
         printf '  ok    %-62s %s\n' "$label" "$got"
     else
         printf '  FAIL  %-62s got=%s want=%s\n' "$label" "$got" "$want"
@@ -134,6 +136,7 @@ is "a process named ssh-agent does not count" \
     "$(active '0 0 192.0.2.5:44323 192.0.2.9:99 users:(("ssh-agent",pid=3003,fd=3))')" "no"
 
 echo
+echo "passed: $PASSED   failed: $FAILED"
 if [ "$FAILED" -ne 0 ]; then
     echo "=============================================================="
     echo "VERDICT: FAIL — $FAILED assertion(s)"

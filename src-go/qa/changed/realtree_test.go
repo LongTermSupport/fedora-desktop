@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -141,5 +142,32 @@ func TestRoutingAndShellcheckArgumentsMatchTheGatesTheyDuplicate(t *testing.T) {
 	}
 	if !strings.Contains(readReal(t, "qa-patterns.bash"), ".semgrep/bash-conventions.yml") {
 		t.Error("qa-patterns.bash no longer uses .semgrep/bash-conventions.yml; qa-changed's copy has drifted")
+	}
+}
+
+// qa-changed treats a suite that exits 0 without a "passed: <n>" line as having proved
+// nothing, so a suite it can select must print one. This reads each suite's source (it runs
+// nothing) for a printed "passed: <counter>" line.
+func TestEverySelectableSuitePrintsTheCanonicalCountLine(t *testing.T) {
+	r, err := loadRouting(filepath.Join(realScripts, "qa-routing.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	population, err := loadPopulation(realScripts, r.perFileGates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	printsCount := regexp.MustCompile(`passed:[[:space:]]*(%[ds]|[$][{(]?[A-Za-z_])`)
+	for _, name := range population {
+		if !strings.HasPrefix(name, "test-") {
+			continue
+		}
+		text, err := os.ReadFile(filepath.Join(realScripts, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !printsCount.Match(text) {
+			t.Errorf("%s can be selected by qa-changed but prints no 'passed: <n> failed: <m>' line, so qa-changed would call it a suite that proved nothing", name)
+		}
 	}
 }
