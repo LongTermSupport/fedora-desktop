@@ -34,6 +34,15 @@ type Unit struct {
 	Name, Team, Load, Active, Sub, Description string
 }
 
+// CanReboot asks logind whether this account may reboot with nobody to authenticate. It is
+// busctl's reply as printed (s "yes"), together with busctl's error and its words on failure.
+func (s *Systemd) CanReboot(ctx context.Context) (string, error) {
+	return execx.Combined(ctx, s.Runner, execx.Cmd{Name: "busctl", Args: []string{
+		"--system", "call", "org.freedesktop.login1", "/org/freedesktop/login1",
+		"org.freedesktop.login1.Manager", "CanReboot",
+	}})
+}
+
 // Reboot asks systemd to reboot, streaming systemctl's own words to out. The runner's error
 // comes back as it is, so a caller can read the exit code of a refusal.
 func (s *Systemd) Reboot(ctx context.Context, out io.Writer) error {

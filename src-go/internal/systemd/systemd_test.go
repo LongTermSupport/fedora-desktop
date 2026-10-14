@@ -34,6 +34,27 @@ func TestRebootReturnsTheRunnersErrorUnwrappedForItsExitCode(t *testing.T) {
 	}
 }
 
+func TestCanRebootAsksLogindAndReturnsItsReplyAndError(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{
+		"busctl", "--system", "call", "org.freedesktop.login1", "/org/freedesktop/login1",
+		"org.freedesktop.login1.Manager", "CanReboot",
+	}, execx.Result{Stdout: []byte("s \"yes\"\n")})
+	out, err := (&Systemd{Runner: f}).CanReboot(context.Background())
+	if err != nil || out != "s \"yes\"\n" {
+		t.Fatalf("got %q, %v", out, err)
+	}
+}
+
+func TestCanRebootReturnsTheRefusalWithItsText(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"busctl"}, execx.Result{ExitCode: 1, Stderr: []byte("no bus")})
+	out, err := (&Systemd{Runner: f}).CanReboot(context.Background())
+	if err == nil || !strings.Contains(out, "no bus") {
+		t.Fatalf("got %q, %v", out, err)
+	}
+}
+
 const listPrefix = "systemctl list-units --all --plain --no-legend --type=service agent-bus-hs@*"
 
 func TestHomeserverUnitsParsesListUnits(t *testing.T) {
