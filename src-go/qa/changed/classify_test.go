@@ -356,6 +356,20 @@ func TestUnmatchedFileIsUncovered(t *testing.T) {
 	}
 }
 
+// A .semgrep/ file that no gate reads is reported uncovered, not called covered and not hidden
+// as an excluded tree (SPEC-qa-changed B33).
+func TestASemgrepFileNothingReadsIsUncovered(t *testing.T) {
+	w := newWorld(t)
+	w.touch(".semgrep/unread.yml", "rules: []")
+	w.touch(".semgrep/unread.py", "# x")
+	for _, f := range []string{".semgrep/unread.yml", ".semgrep/unread.py"} {
+		p := w.classify([]string{f})
+		if !reflect.DeepEqual(p.uncovered, []string{f}) || len(p.skipped) != 0 || len(keys(p)) != 0 {
+			t.Errorf("%s: uncovered %v skipped %v checks %v", f, p.uncovered, p.skipped, keys(p))
+		}
+	}
+}
+
 func TestPlaybookListFailureIsAnError(t *testing.T) {
 	w := newWorld(t)
 	w.touch("tasks/t.yml", "- name: x")

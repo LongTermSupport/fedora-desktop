@@ -45,8 +45,14 @@ also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patt
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
-# The semgrep rules and their fixtures are checked by the patterns gate above (or are fixtures nothing runs); the excluded-tree rows below would report them skipped as well.
-first	.semgrep/*	-	covered
+# Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
+# excluded shell tree, so the rows below would only report it skipped). These rows end the search
+# with no check and no cover: the patterns row above, or the suite that names the file in
+# scripts/qa-gates.tsv (selected by name), covers it.
+first	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	-	-
+first	.semgrep/gh-scopes.*,.semgrep/ready-wait.*,.semgrep/speech-to-text.*	-	-
+# Any other .semgrep/ file is read by nothing: it ends here uncovered, never called covered.
+first	.semgrep/*	-	-
 first	*.md	docs	covered
 first	*.js,*.mjs	node-check	covered,tree:shell
 first	src-go/*	go	covered,closure
