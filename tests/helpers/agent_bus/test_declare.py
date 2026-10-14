@@ -1027,7 +1027,8 @@ class LxcDeriveTest(CommandCase):
 
     def test_what_the_container_printed_is_judged(self) -> None:
         for label, probe in {"not json": "{", "a control character": self.probe(path="/x\x1b[31m"),
-                             "a url with a quote": self.probe(git_config='[remote "origin"]\n\turl = "a b"\n'),
+                             "a url with an escaped quote": self.probe(git_config='[remote "origin"]\n\turl = "a\\"b"\n'),
+                             "a url rewrite": self.probe(git_config=self.GIT_CONFIG + '[url "ssh://h/"]\n\tinsteadOf = https://h/\n'),
                              "a role needing a shell": self.probe(env_local="export HOOKS_DAEMON_HOSTNAME=$(id)\n")}.items():
             code, out, err = self.derive(probe)
             self.assertEqual((code, out), (64, ""), label)

@@ -241,6 +241,25 @@ class ProbeScriptTest(unittest.TestCase):
         run = self.lxc.probe(f"/home/{USER}/projects/app")
         self.assertIn("symbolic link", run.stderr)
 
+    def test_an_optional_bind_whose_source_is_missing_is_skipped_cleanly(self) -> None:
+        # LXC mounts nothing there, so the container sees its own rootfs directory.
+        missing = self.lxc.outside / "absent"
+        self.lxc.config_lines.append(f"lxc.mount.entry = {missing} home/{USER}/work none bind,optional 0 0")
+        self.lxc.write_config()
+        run = self.lxc.probe()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn("Traceback", run.stderr)
+        self.assertEqual(derive.parse_probe(run.stdout).origin, REMOTE)
+
+    def test_a_required_bind_whose_source_is_missing_is_refused_naming_it(self) -> None:
+        missing = self.lxc.outside / "absent"
+        self.lxc.config_lines.append(f"lxc.mount.entry = {missing} home/{USER}/work none bind,create=dir 0 0")
+        self.lxc.write_config()
+        run = self.lxc.probe()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn("Traceback", run.stderr)
+        self.assertIn(str(missing), run.stderr)
+
     def test_a_mount_that_is_not_a_bind_is_not_followed(self) -> None:
         self.lxc.config_lines.append(f"lxc.mount.entry = tmpfs home/{USER}/work tmpfs defaults 0 0")
         self.lxc.write_config()
@@ -274,7 +293,7 @@ class ParseProbeTest(unittest.TestCase):
                                             "env_local": "x" * (derive.FILE_MAX_BYTES + 1)}),
             "a file with no owner": json.dumps({**self.GOOD, "env_local": "x"}),
             "an owner that is another user": json.dumps({**self.GOOD, "env_uid": 0, "env_local": "x"}),
-            "a quoted url": json.dumps({**self.GOOD, "git_config": '[remote "origin"]\n\turl = "a b"\n'}),
+            "a quoted url with an escape": json.dumps({**self.GOOD, "git_config": '[remote "origin"]\n\turl = "a\\"b"\n'}),
         }
         for label, text in cases.items():
             with self.subTest(label), self.assertRaises(derive.DeriveError):
@@ -308,6 +327,37 @@ class OriginTest(unittest.TestCase):
         with self.assertRaises(derive.DeriveError):
             derive.origin_from_git_config('[remote "origin"]\n\turl = https://h/o/r\\\n')
 
+    def test_section_names_are_not_case_sensitive_but_the_subsection_is(self) -> None:
+        # git reads [Remote "origin"] as the origin remote, and [remote "Origin"] as another one.
+        self.assertEqual(derive.origin_from_git_config('[Remote "origin"]\n\turl = https://h/o/r.git\n'),
+                         "https://h/o/r.git")
+        self.assertEqual(derive.origin_from_git_config('[REMOTE   "origin"]\n\turl = https://h/o/r.git\n'),
+                         "https://h/o/r.git")
+        self.assertIsNone(derive.origin_from_git_config('[remote "Origin"]\n\turl = https://h/o/r.git\n'))
+
+    def test_a_url_rewrite_is_refused_because_git_would_apply_it(self) -> None:
+        for header, key in (('[url "https://mirror/o/"]', "insteadOf"), ('[URL "ssh://git@h/"]', "INSTEADOF")):
+            text = f'[remote "origin"]\n\turl = https://h/o/alpha.git\n{header}\n\t{key} = https://h/o/\n'
+            with self.subTest(header), self.assertRaisesRegex(derive.DeriveError, "insteadOf"):
+                derive.origin_from_git_config(text)
+
+    def test_a_rewrite_is_harmless_when_there_is_no_origin_url(self) -> None:
+        text = '[url "https://mirror/o/"]\n\tinsteadOf = https://h/o/\n'
+        self.assertIsNone(derive.origin_from_git_config(text))
+
+    def test_a_push_only_rewrite_does_not_change_the_url_git_prints(self) -> None:
+        text = '[remote "origin"]\n\turl = https://h/o/r.git\n[url "ssh://git@h/"]\n\tpushInsteadOf = https://h/\n'
+        self.assertEqual(derive.origin_from_git_config(text), "https://h/o/r.git")
+
+    def test_a_fully_quoted_url_is_read_as_git_reads_it(self) -> None:
+        self.assertEqual(derive.origin_from_git_config('[remote "origin"]\n\turl = "https://h/o/q.git"\n'),
+                         "https://h/o/q.git")
+
+    def test_a_quote_with_an_escape_or_in_the_middle_is_refused(self) -> None:
+        for value in ('"a\\"b"', 'a"b"', '"ab', '"a" "b"'):
+            with self.subTest(value), self.assertRaises(derive.DeriveError):
+                derive.origin_from_git_config(f'[remote "origin"]\n\turl = {value}\n')
+
 
 class SeatTest(unittest.TestCase):
     IDENTITY = derive.Identity("proj", "box")
@@ -321,10 +371,23 @@ class SeatTest(unittest.TestCase):
 
     def test_the_lowest_number_no_active_member_holds(self) -> None:
         roster = {"proj.1+box.lxc": False, "proj.3+box.lxc": False}
-        self.assertEqual(self.seat(roster), "2")
+        self.assertEqual(self.seat(roster, taken=("1", "3")), "2")
 
     def test_a_parked_seat_returns(self) -> None:
-        self.assertEqual(self.seat({"proj.1+box.lxc": True, "proj.2+box.lxc": False}), "1")
+        self.assertEqual(self.seat({"proj.1+box.lxc": True, "proj.2+box.lxc": False}, taken=("2",)), "1")
+
+    def test_an_active_number_no_entry_holds_is_refused_not_skipped(self) -> None:
+        # Its bundle may be the one this container lost: a new handle would leave it live and unheld.
+        with self.assertRaisesRegex(derive.DeriveError, r"proj\.1\+box\.lxc.*state: absent.*`seat` explicitly"):
+            self.seat({"proj.1+box.lxc": False})
+
+    def test_an_active_number_may_be_skipped_when_the_caller_says_it_cannot_tell(self) -> None:
+        self.assertEqual(derive.derive_seat(self.IDENTITY, "devbox", {"proj.1+box.lxc": False}, None, set(),
+                                            unheld_ok=True), "2")
+
+    def test_an_active_named_seat_is_not_a_lost_bundle(self) -> None:
+        # Not a number: a seat another container was given by name is not this container's to reclaim.
+        self.assertEqual(self.seat({"proj.other+box.lxc": False}), "1")
 
     def test_another_repo_host_or_type_does_not_count(self) -> None:
         roster = {"other.1+box.lxc": False, "proj.1+desk.lxc": False, "proj.1+box.podman": False}
@@ -409,6 +472,15 @@ class CheckoutsScriptTest(unittest.TestCase):
         run = self.lxc.checkouts()
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("symbolic link", run.stderr)
+
+    def test_error_text_naming_a_hostile_directory_carries_no_control_character(self) -> None:
+        hostile = self.home / "\x1b[31mred"
+        (hostile / ".git").mkdir(parents=True)
+        (hostile / ".git" / "config").symlink_to(self.lxc.outside)
+        run = self.lxc.checkouts()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("symbolic link", run.stderr)
+        self.assertNotIn("\x1b", run.stderr)
 
     def test_what_the_script_printed_is_validated(self) -> None:
         good = json.dumps([{"path": "/home/a/p", "git_config": '[remote "origin"]\n\turl = ' + REMOTE + "\n"}])

@@ -20,6 +20,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import stat
 import subprocess
 import sys
@@ -646,10 +647,35 @@ class ResolveMembersTest(unittest.TestCase):
         (member,) = self.resolve([entry(seat=None)], roster={"proj.devbox+box.lxc": False})
         self.assertEqual((member.host, member.seat), ("box", "devbox"))
 
-    def test_an_active_seat_is_skipped_and_a_parked_one_returns(self) -> None:
-        (active,) = self.resolve([entry(host=None, seat=None)], roster={"proj.1+box.lxc": False})
+    def test_a_parked_seat_returns(self) -> None:
         (parked,) = self.resolve([entry(host=None, seat=None)], roster={"proj.1+box.lxc": True})
-        self.assertEqual((active.seat, parked.seat), ("2", "1"))
+        self.assertEqual(parked.seat, "1")
+
+    def test_an_active_seat_nobody_declared_is_refused_as_a_possible_lost_bundle(self) -> None:
+        with self.assertRaisesRegex(members.MemberError, r"agent@devbox in team .*proj\.1\+box\.lxc.*state: absent.*`seat` explicitly"):
+            self.resolve([entry(host=None, seat=None)], roster={"proj.1+box.lxc": False})
+
+    def test_an_active_seat_another_declared_container_holds_by_its_bundle_is_skipped(self) -> None:
+        # The holder is later in the file than the entry being derived: its bundle still claims the seat.
+        new, held = self.resolve([entry(host=None, seat=None, container="box-b"),
+                                  entry(host=None, seat=None, container="box-a")],
+                                 roster={"proj.1+box.lxc": False}, bundles={"box-a": "proj.1+box.lxc"})
+        self.assertEqual((new.seat, held.seat), ("2", "1"))
+
+    def test_the_preview_cannot_see_bundles_so_it_skips_an_active_seat(self) -> None:
+        (member,) = members.resolve_members(members.parse_members([entry(host=None, seat=None)]),
+                                            identify=lambda member: self.IDENTITY,
+                                            roster=lambda team: {"proj.1+box.lxc": False},
+                                            bundle=lambda member: None, unheld_ok=True)
+        self.assertEqual(member.seat, "2")
+
+    def test_the_derived_repo_is_carried_on_the_resolved_entry(self) -> None:
+        (member,) = self.resolve([entry(host=None, seat=None)])
+        self.assertEqual(member.repo, "proj")
+
+    def test_a_declared_repo_that_differs_from_the_checkouts_is_refused(self) -> None:
+        with self.assertRaisesRegex(members.MemberError, "repo: other.*proj"):
+            self.resolve([entry(host=None, seat=None, repo="other")])
 
     def test_absent_entries_are_left_for_their_bundle_to_name(self) -> None:
         (member,) = self.resolve([entry(host=None, seat=None, state="absent")])
@@ -676,7 +702,7 @@ class DerivedPresentPhaseTest(Fixture):
     """The play, for entries that leave host and seat out."""
 
     def derived(self, **overrides: object) -> dict:
-        return entry(host=None, seat=None, **overrides)
+        return entry(**{"host": None, "seat": None, **overrides})
 
     def test_the_handle_is_derived_from_the_checkout_and_joined(self) -> None:
         self.run_phase("present", [self.derived()])
@@ -696,10 +722,44 @@ class DerivedPresentPhaseTest(Fixture):
         self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc"])
         self.assertEqual(self.bus.minted, 1)
 
-    def test_another_containers_seat_in_the_repo_is_not_taken(self) -> None:
+    def test_an_active_seat_nobody_declared_is_not_taken_and_not_skipped(self) -> None:
+        # It may be this container's, whose bundle is gone, or another's joined by hand: unknowable.
         self.bus.members["proj.1+box.lxc"] = ["worker", False]
-        self.run_phase("present", [self.derived()])
+        with self.assertRaisesRegex(members.MemberError, r"proj\.1\+box\.lxc.*state: absent.*`seat` explicitly"):
+            self.run_phase("present", [self.derived()])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc"])
+
+    def test_an_active_seat_is_passed_by_naming_another_one(self) -> None:
+        self.bus.members["proj.1+box.lxc"] = ["worker", False]
+        self.run_phase("present", [self.derived(seat="2")])
         self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc", "proj.2+box.lxc"])
+
+    def test_a_lost_bundle_does_not_silently_give_the_member_a_new_handle(self) -> None:
+        self.run_phase("present", [self.derived()])
+        shutil.rmtree(self.bundle_dir())
+        with self.assertRaisesRegex(members.MemberError, r"proj\.1\+box\.lxc.*state: absent.*`seat` explicitly"):
+            self.run_phase("present", [self.derived()])
+        self.assertEqual(sorted(self.bus.members), ["proj.1+box.lxc"])
+        self.assertEqual(self.bus.minted, 1)
+
+    def test_a_lost_bundle_is_refused_the_same_way_with_the_seat_named(self) -> None:
+        self.run_phase("present", [self.derived()])
+        shutil.rmtree(self.bundle_dir())
+        with self.assertRaisesRegex(members.MemberError, "holds no bundle"):
+            self.run_phase("present", [self.derived(seat="1")])
+
+    def test_the_container_cannot_choose_the_repo_of_the_handle(self) -> None:
+        # Its pingbus says --repo=other; the checkout, read from the host's side, says proj.
+        self.guest.suggest = "--repo=other --host=box --type=lxc"
+        with self.assertRaisesRegex(members.MemberError, "is repo other, and the entry says proj"):
+            self.run_phase("present", [self.derived()])
+        self.assertEqual(self.bus.members, {})
+        self.assertEqual(self.bus.minted, 0)
+
+    def test_the_handle_is_minted_with_the_derived_repo(self) -> None:
+        self.run_phase("present", [self.derived()])
+        (add,) = [call for call in self.bus.calls if call[0] == "add-member"]
+        self.assertIn("--repo=proj", add)
 
     def test_an_entry_with_host_and_seat_does_not_read_the_checkout(self) -> None:
         self.run_phase("present", [entry()])

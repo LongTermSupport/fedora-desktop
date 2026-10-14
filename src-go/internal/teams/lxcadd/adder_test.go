@@ -616,6 +616,99 @@ func TestLxcFailuresStopTheRunBeforeAnythingIsWritten(t *testing.T) {
 	}
 }
 
+// minted makes the play's apply add a member to the team, as a real apply would.
+func (r *rig) minted(handles ...string) {
+	r.a.ApplyTeams = func(_ context.Context, teams ...string) error {
+		r.applied = append(r.applied, teams...)
+		for _, h := range handles {
+			r.roster.Members = append(r.roster.Members, agentbus.Member{Handle: h})
+		}
+		return nil
+	}
+}
+
+func TestTheHandleSaidAfterTheApplyIsTheOneThePlayMintedNotThePreview(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	r.roster = agentbus.Roster{Members: []agentbus.Member{{Handle: handle}, {Handle: "other.1+worker.lxc"}}}
+	r.minted("proj.2+worker.lxc")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	said := r.ErrOut.String()
+	if !strings.Contains(said, "is a member of alpha as proj.2+worker.lxc.") || strings.Contains(said, "as "+handle+".") {
+		t.Fatalf("the handle said is not the one the play minted:\n%s", said)
+	}
+}
+
+func TestAParkedHandleTheApplyBroughtBackIsTheOneReported(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	r.roster = agentbus.Roster{Members: []agentbus.Member{{Handle: "proj.2+worker.lxc", Parked: true}}}
+	r.a.ApplyTeams = func(context.Context, ...string) error {
+		r.roster.Members[0].Parked = false
+		return nil
+	}
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if said := r.ErrOut.String(); !strings.Contains(said, "is a member of alpha as proj.2+worker.lxc.") {
+		t.Fatalf("the returned handle is not reported:\n%s", said)
+	}
+}
+
+func TestWhenTheApplyShowsNoNewMemberTheExpectedHandleIsSaidToBeOnlyExpected(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	said := r.ErrOut.String()
+	if strings.Contains(said, "is a member of alpha as") || !strings.Contains(said, "expected handle "+handle) {
+		t.Fatalf("an unconfirmed handle is said as a result:\n%s", said)
+	}
+}
+
+func TestWhenTheRosterCannotBeReadBackTheExpectedHandleIsSaidToBeOnlyExpected(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	r.a.ApplyTeams = func(context.Context, ...string) error {
+		r.rosterE = errors.New("agent-bus list failed")
+		return nil
+	}
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	said := r.ErrOut.String()
+	if strings.Contains(said, "is a member of alpha as") || !strings.Contains(said, "expected handle "+handle) ||
+		!strings.Contains(said, "agent-bus list failed") {
+		t.Fatalf("a failed read-back is not said:\n%s", said)
+	}
+}
+
+func TestSeveralNewMembersMeanTheHandleCannotBeTold(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	r.minted("proj.2+worker.lxc", "proj.3+worker.lxc")
+	if code := r.run("alpha"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if said := r.ErrOut.String(); strings.Contains(said, "is a member of alpha as") || !strings.Contains(said, "expected handle "+handle) {
+		t.Fatalf("an ambiguous read-back is said as a result:\n%s", said)
+	}
+}
+
+func TestTheSummaryCallsTheHandleExpectedBecauseThePlayMintsIt(t *testing.T) {
+	r := newRig(t)
+	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose("worker"), "NO")
+	if code := r.run("alpha"); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if shown := strings.Join(r.Script.Styled, "\n"); !strings.Contains(shown, "Handle (expected)") {
+		t.Fatalf("the summary does not say the handle is expected:\n%s", shown)
+	}
+}
+
 func TestRefusalFromDeclarePyThatIsNotATypedAnswerEndsTheRunWithItsCode(t *testing.T) {
 	r := newRig(t)
 	r.happy()

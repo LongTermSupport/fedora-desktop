@@ -247,6 +247,36 @@ are too, by the same route.
   `declare.py` gains `lxc-derive`, `lxc-checkouts` and `lxc-script`. The users listing keeps
   `getent passwd` through `lxc-attach` (it needs the running container anyway, and the
   names it returns are already validated by the play's pattern).
+- [x] ✅ **Task 9.8**: The review of the derivation
+  ([report](subagent-reports/261014-fable-review-lxc-derive.md)) is answered; each finding, in
+  the order of the report (every test written and seen to fail first, journalled):
+  - F1 fixed: `resolve_members` returns a derived entry with `repo` set to the checkout's
+    (`member.repo or identity.repo`), `_join` mints the handle and passes `--repo` from that
+    value, and `_suggest` (which now has a repo to compare) refuses a container whose
+    `pingbus suggest-handle` names another repo. A declared `repo:` that disagrees with the
+    checkout's is refused too. `[Remote "origin"]` is read (section names are case-insensitive,
+    the subsection is not). `insteadOf`: a config that has a `url.<base>.insteadOf` and an origin
+    url is REFUSED, not applied. Why: applying it as git does needs every `url.*.insteadOf` value,
+    longest prefix first, over includes and the global config the host cannot see; refusing is a
+    dozen lines, cannot read the name wrongly, and a rewrite only in the agent's `~/.gitconfig`
+    is caught by the agreement check above. The derive.py comment and the docs are corrected.
+  - F2 fixed: an active numbered member of the identity that no entry holds (explicit seat, or
+    the bundle of a declared entry anywhere in the file) is refused with the two ways out (state
+    absent then present again, or another explicit `seat`), as the explicit-seat path refuses.
+    A hand-joined member looks the same, so it is refused the same way; the `lxc-derive`
+    preview cannot see bundles and skips such a number (`unheld_ok`). The review's suggestion of
+    `seat: <n>` to reclaim is not offered: the explicit path itself refuses that, and the
+    remedy it names is state absent then present.
+  - F3 fixed: after the apply `ccy-teams lxc-add` reads the team back and reports the one new
+    active handle of that repo and host; when it cannot name exactly one (none, several, or the
+    read fails) it says the handle is only the expected one and where to look. The summary says
+    "Handle (expected)".
+  - F4 fixed: an `optional` bind with a missing source is skipped (LXC mounts nothing); any
+    other missing source, or rootfs, is refused by name, with no traceback.
+  - F5 fixed: a url wholly inside one pair of quotes with no escape is read as git reads it;
+    any other quote, escape or continuation is refused.
+  - F6 fixed: the root reader's refusal text has every non-printable character replaced.
+  - F7 accepted as the review says; F8 fixed (`scripts/test-ccy-teams-command.bash` is mode 755).
 
 ## Success Criteria
 

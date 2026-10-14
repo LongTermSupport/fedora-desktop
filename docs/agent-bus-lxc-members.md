@@ -142,7 +142,12 @@ podman seat's ([agent-bus.md](agent-bus.md)), reading the checkout in the contai
   assigns, else the literal `local`; never the machine's hostname, because handles appear in
   public forge text;
 - `<seat>` is the lowest number that no active member of the same `<repo>+<host>.lxc` holds in
-  the team; a parked member's number is offered again, so it returns.
+  the team; a parked member's number is offered again, so it returns. An active numbered
+  member that no entry holds is not skipped: see **A lost bundle**, below.
+
+The host reads `<repo>` and `<host>` and the play mints the handle from them. The container's
+own `pingbus suggest-handle` is only held to the same answer: if it names another repo or
+host, the play refuses and mints nothing.
 
 The checkout is read from the host's side, as root, through the container's LXC config (its
 rootfs and the bind mounts the config declares), so it also works for a container that is
@@ -150,7 +155,13 @@ stopped. Nothing is run there: `.git/config` and `ccy.env.local` are read as pla
 git is started (a repository config can name programs to run), every path component is opened
 without following a link and a link anywhere is refused, and each file is capped at 64 KiB. A
 container with an `lxc.idmap` (unprivileged) or a rootfs that is not a directory is refused.
-`git`'s `insteadOf` rewrites are not applied; only the last path component matters.
+Git section names are read without regard to case (`[Remote "origin"]`), and a url may be
+quoted as a whole. `git` would apply a `url.<base>.insteadOf` rewrite to the origin, which
+can change the repository's name; this does not apply it, so a checkout whose `.git/config`
+has one is refused (remove the rewrite, or give the entry `repo`, `host` and `seat`). A rewrite
+in the agent's own `~/.gitconfig` cannot be seen from the host; it shows as a disagreement with
+the container's `pingbus suggest-handle`, which is refused too. An `optional` bind mount whose
+source is absent is skipped, as LXC skips it; any other missing source is refused by name.
 
 **The handle stays fixed.** A member that has joined is left alone on later runs, so its token
 does not change; a lost bundle is replaced with a new token for the same handle. An entry that
@@ -163,8 +174,16 @@ An entry that gives `host` but not `seat` keeps the seat its bundle names; with 
 seat the container's name gave before (lower case, letters and digits, at most 12, a letter
 first) when a member of that handle is already in the team; otherwise it is derived like a new
 one. `host` and `seat` stay valid as overrides. They are part of the handle: to change either,
-set the entry `state: absent`, run the play, then declare it again. If a member's bundle is
-lost while it is still active, give its `seat`, or the derivation will not find it.
+set the entry `state: absent`, run the play, then declare it again.
+
+**A lost bundle.** If a member's bundle is gone while it is still active, the play does not
+give the container a new handle: that would leave the old one active with a token nobody
+holds. It refuses, naming the handle, whenever an active numbered member of the same
+`<repo>+<host>.lxc` is held by no entry (by an explicit `seat`, or by a bundle in another
+declared container). To take that handle back, set the entry `state: absent`, run the play
+(which parks it), then declare it present again: it returns with a new token. To leave it
+alone, give the entry another `seat`. An explicit `seat` equal to that handle is refused the
+same way. A member joined by hand looks the same as a lost bundle, so it is refused the same way.
 
 **Leaving.** `state: absent` parks the member's handle in the team, deletes the bundle from
 the container and takes the team out of `PINGBUS_TEAMS`. A container that is already gone

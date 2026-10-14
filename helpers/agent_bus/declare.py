@@ -930,8 +930,9 @@ def parse_roster(text: str) -> dict[str, bool]:
 def derive_lxc(text: str, args: argparse.Namespace) -> tuple[str, str, str, str]:
     """(repo, host, seat, handle) the play would give the entry: the container's checkout as
     the caller read it (`--probe`), the team's members (`--roster`), and the entries already
-    declared, by derive.py's rule. Entries still to be derived are not counted, and the
-    entry has no bundle yet, so this is the handle as of now."""
+    declared, by derive.py's rule. This is a PREVIEW of the handle, not the handle: entries
+    still to be derived are not counted, and bundles are not read, so a seat an active member
+    holds is skipped here where the play, which sees the bundles, may claim or refuse it."""
     try:
         probe = derive.parse_probe(args.probe)
         identity = derive.identity_of(probe)
@@ -941,7 +942,8 @@ def derive_lxc(text: str, args: argparse.Namespace) -> tuple[str, str, str, str]
         kept = [e for e in _lxc_existing(text) if e.get("state") == "absent" or (e.get("host") and e.get("seat"))]
         roster = parse_roster(args.roster)
         resolved = members.resolve_members(members.parse_members([*kept, new]), identify=lambda member: identity,
-                                           roster=lambda team: roster, bundle=lambda member: None)
+                                           roster=lambda team: roster, bundle=lambda member: None,
+                                           unheld_ok=True)
         member = resolved[-1]
         return identity.repo, member.host, member.seat, member.handle(identity.repo)
     except (derive.DeriveError, members.MemberError) as exc:

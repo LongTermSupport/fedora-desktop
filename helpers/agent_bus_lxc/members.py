@@ -393,12 +393,16 @@ def _check_between(found: Sequence[Member]) -> None:
 
 def resolve_members(found: Sequence[Member], *, identify: Callable[[Member], derive.Identity],
                     roster: Callable[[str], Mapping[str, bool]],
-                    bundle: Callable[[Member], str | None]) -> tuple[Member, ...]:
+                    bundle: Callable[[Member], str | None],
+                    unheld_ok: bool = False) -> tuple[Member, ...]:
     """The present entries with the host and seat they leave out derived, in file order, by
     derive.py's rule. `identify` reads the member's checkout (asked only for an entry that
     leaves one out), `roster` is a team's members (handle -> parked) and `bundle` the handle
     the member's bundle in its container names. An absent entry is left as it is: its bundle
-    names its handle. An entry that gives both is untouched, so a run of it changes nothing."""
+    names its handle. An entry that gives both is untouched, so a run of it changes nothing.
+
+    A derived entry comes back with `repo` set to the checkout's: the one `<repo>` of its
+    handle, which `_suggest` then holds the container's own claim to. `unheld_ok` is derive_seat's."""
     def derived(member: Member, step: Callable[[], T]) -> T:
         try:
             return step()
@@ -409,14 +413,26 @@ def resolve_members(found: Sequence[Member], *, identify: Callable[[Member], der
     identities: dict[int, derive.Identity] = {}
     for member in needy:
         read = derived(member, lambda member=member: identify(member))
+        if member.repo is not None and member.repo != read.repo:
+            raise MemberError(f"{member.label} in team {member.team}: the entry says repo: {member.repo}, "
+                              f"and its checkout's origin gives {read.repo}")
         identities[id(member)] = derive.Identity(read.repo, member.host or read.host)
-    # What other entries of a team already hold: explicit seats first, then each derived one.
+    # What other entries of a team already hold: explicit seats first, then the seat each derived
+    # entry's bundle names (whatever its place in the file), then each seat derived below.
     claimed: list[tuple[str, str, str | None, str]] = []
     for member in found:
         if member.state == "present" and member.seat is not None:
             known = identities.get(id(member))
             claimed.append((member.team, known.host if known else str(member.host),
                             known.repo if known else member.repo, member.seat))
+    bundles: dict[int, str | None] = {}
+    for member in needy:
+        if member.seat is None:
+            bundles[id(member)] = bundle(member)
+            held = protocol.parse_handle(bundles[id(member)] or "")
+            identity = identities[id(member)]
+            if held is not None and (held.repo, held.host, held.type) == (identity.repo, identity.host, MEMBER_TYPE):
+                claimed.append((member.team, identity.host, identity.repo, held.seat))
     resolved = []
     for member in found:
         identity = identities.get(id(member))
@@ -428,9 +444,9 @@ def resolve_members(found: Sequence[Member], *, identify: Callable[[Member], der
             taken = {s for team, h, repo, s in claimed
                      if team == member.team and h == identity.host and repo in (None, identity.repo)}
             seat = derived(member, lambda member=member, identity=identity, taken=taken: derive.derive_seat(
-                identity, member.container, roster(member.team), bundle(member), taken))
+                identity, member.container, roster(member.team), bundles[id(member)], taken, unheld_ok=unheld_ok))
             claimed.append((member.team, identity.host, identity.repo, seat))
-        resolved.append(dataclasses.replace(member, host=identity.host, seat=seat))
+        resolved.append(dataclasses.replace(member, host=identity.host, seat=seat, repo=identity.repo))
     result = tuple(resolved)
     _check_between(result)
     return result
@@ -720,8 +736,11 @@ def _check_route(host: Host, guest, members: Sequence[Member], bus: str) -> None
 
 
 def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable[[str], None]) -> None:
-    repo = _suggest(guest, member, home)
-    handle = member.handle(registry.normalise_repo(repo))
+    suggested = _suggest(guest, member, home)
+    # A derived entry carries the repo the host read from the checkout; the container's own
+    # claim was only held to it (_suggest), so the handle is never minted from what it says.
+    repo = member.repo if member.repo is not None else registry.normalise_repo(suggested)
+    handle = member.handle(repo)
     found, _ = _observe(guest, member, home)
     registered = parse_list(host.agent_bus(["list", member.team]).decode()).get(handle)
     plan = present_plan(handle, base_url(bus, host.team_file(member.team).port), member, found, registered)

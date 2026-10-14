@@ -85,6 +85,8 @@ type Adder struct {
 	// script is the host-side reader, fetched from declare.py once per run; roster is the
 	// team's members as declare.py reads them, for the seat.
 	script, roster string
+	// before is the team as it was when the questions began: what the apply is read back against.
+	before agentbus.Roster
 }
 
 // New is the Adder over a host and the flows it hands the work to: apply joins the member.
@@ -261,6 +263,7 @@ func (a *Adder) teamRoster(ctx context.Context, team string) (agentbus.Roster, e
 		parts = append(parts, m.Handle+"="+state)
 	}
 	a.roster = strings.Join(parts, ",")
+	a.before = agentbus.Roster{Members: slices.Clone(roster.Members)}
 	return roster, nil
 }
 
@@ -486,14 +489,15 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 		line("Container", ans.container),
 		line("User", ans.user),
 		line("Checkout", ans.checkout),
-		line("Handle", ans.derived.Handle),
+		line("Handle (expected)", ans.derived.Handle),
 		line("Role", ans.role),
 	}, "\n")
 	a.term.Printf("\n")
 	if err := a.Gum.Box(ctx, false, ans.label()+" joins "+ans.team, "", body); err != nil {
 		return err
 	}
-	a.term.Printf("The handle is derived from the checkout as ccy derives it: repo %s, host %s, seat %s.\n",
+	a.term.Printf("The expected handle is derived from the checkout as ccy derives it: repo %s, host %s, seat %s. "+
+		"The play makes the final choice and the result is reported after it.\n",
 		ans.derived.Repo, ans.derived.Host, ans.derived.Seat)
 	question := "Add " + ans.label() + " to " + ans.team + "? (saved to " + term.AbbrevHome(a.HostVars, a.Home) +
 		", then " + ans.team + " is applied: sudo asks for your password)"
@@ -508,7 +512,37 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 	return nil
 }
 
-func line(label, value string) string { return fmt.Sprintf("%-10s %s", label, value) }
+func line(label, value string) string { return fmt.Sprintf("%-18s %s", label, value) }
+
+// joined says the handle the play gave the member, read back from the team after the apply: the one
+// active handle of the derived repo and host that was not active before. The summary's handle is only
+// a preview (it cannot see bundles or the entries still to be derived), so when the read-back cannot
+// name exactly one it is said to be the expected handle, never the result.
+func (a *Adder) joined(ctx context.Context, ans answers) string {
+	d := ans.derived
+	unsure := func(why string) string {
+		return ans.label() + " is joined to " + ans.team + ", but " + why + ": the expected handle " + d.Handle +
+			" is the summary's preview, so check the handle in ccy-teams --list."
+	}
+	roster, err := a.Roster(ctx, ans.team)
+	if err != nil {
+		return unsure("the team's members could not be read back (" + err.Error() + ")")
+	}
+	was := map[string]bool{}
+	for _, m := range a.before.Members {
+		was[m.Handle] = !m.Parked
+	}
+	var fresh []string
+	for _, m := range roster.Members {
+		if !m.Parked && !was[m.Handle] && strings.HasPrefix(m.Handle, d.Repo+".") && strings.HasSuffix(m.Handle, "+"+d.Host+".lxc") {
+			fresh = append(fresh, m.Handle)
+		}
+	}
+	if len(fresh) != 1 {
+		return unsure(fmt.Sprintf("%d new active members of %s on %s were found", len(fresh), d.Repo, d.Host))
+	}
+	return ans.label() + " is a member of " + ans.team + " as " + fresh[0] + "."
+}
 
 // write declares the member, applies the team, and says what is left to do in the container.
 func (a *Adder) write(ctx context.Context, ans answers) error {
@@ -529,7 +563,7 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 			"  sudo lxc-attach -n " + ans.container + " -- su - " + ans.user + "     (then gh auth login, and exit)\n" +
 			"Once the cause is fixed, ccy-teams apply " + ans.team + " joins it.")
 	}
-	a.term.Say(ans.label() + " is a member of " + ans.team + " as " + ans.derived.Handle + ".")
+	a.term.Say(a.joined(ctx, ans))
 	a.term.Printf("What is left is inside the container:\n"+
 		"  Agent    as %s, in %s: ccy --teams %s\n"+
 		"  GitHub   the play checked that %s is logged in to GitHub there; if it is ever logged out, gh auth login as %s.\n",
