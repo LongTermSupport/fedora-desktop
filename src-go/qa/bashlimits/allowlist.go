@@ -220,7 +220,8 @@ func shrankBelow(m, rec Measurement) string {
 // when it may: its file was measured (it is within limits, or is judged on its own), or it is
 // gone and nothing exempt looks like its new home. A file that still exists but is not a
 // checked bash file, or that went away next to an exempt file of the same name, has been
-// moved out of the gate's sight, not ported.
+// moved out of the gate's sight, not ported; unless a Go command of the file's name
+// (src-go/cmd/<name>/main.go) exists, which is where a ported tool's suite stays exempt.
 func removalProblem(p string, scan Scan) string {
 	if _, measured := scan.Measured[p]; measured {
 		return ""
@@ -230,6 +231,9 @@ func removalProblem(p string, scan Scan) string {
 		return p + " still exists and is exempt"
 	case scan.Present[p]:
 		return p + " still exists but is not a bash file the gate checks"
+	}
+	if scan.Present["src-go/cmd/"+strings.TrimSuffix(path.Base(p), path.Ext(p))+"/main.go"] {
+		return "" // a Go command carries its name: the file was ported, its suite stays beside it
 	}
 	if twin := exemptTwin(p, scan); twin != "" {
 		return p + " is gone but " + twin + " is exempt and has its name: a file moved into an exempt path is not ported"

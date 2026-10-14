@@ -1,12 +1,12 @@
-// Package tarstate reads, writes and extracts the state tar of a team: team.json,
-// registry.json, room_id and the secrets/ tree, nothing else.
+// Package tarstate reads and writes the state tar of a team: team.json, registry.json,
+// room_id and the secrets/ tree, nothing else.
 //
-// The tar lives in root's own directory and is extracted as root, so it is treated as
+// The tar lives in root's own directory and is restored as root, so it is treated as
 // hostile input. There is exactly one parser: Read validates every member and keeps the
-// validated bytes in a State, and Extract writes that State, never the tar again. The
-// thing that was checked is the thing that is written, so a header two parsers would read
-// differently (a pax path over a ustar name, a GNU long name) cannot pass one and reach
-// the other.
+// validated bytes in a State, and the caller writes that State's members, never the tar
+// again. The thing that was checked is the thing that is written, so a header two parsers
+// would read differently (a pax path over a ustar name, a GNU long name) cannot pass one
+// and reach the other.
 package tarstate
 
 import (

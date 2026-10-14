@@ -244,6 +244,27 @@ func TestRemeasureIsTheSeedUnlessItWouldHideAFile(t *testing.T) {
 	wantKinds(t, "twin", refused, "scripts/gone.bash:"+KindOrphan)
 }
 
+func TestAFileGoneBesideAnExemptSuiteIsPortedWhenAGoCommandHasItsName(t *testing.T) {
+	scan := scanOf(map[string]Measurement{})
+	scan.Exempt["scripts/test-gone.bash"] = true
+	scan.Present["scripts/test-gone.bash"] = true
+	list := Allowlist{"files/usr/local/sbin/gone": {Code: 80}}
+	_, refused := Remeasure(list, scan)
+	wantKinds(t, "no Go command", refused, "files/usr/local/sbin/gone:"+KindOrphan)
+	scan.Present["src-go/cmd/gone/main.go"] = true
+	got, refused := Remeasure(list, scan)
+	if len(refused) != 0 || len(got) != 0 {
+		t.Fatalf("a ported file may leave the allowlist: %v, %v", got, refused)
+	}
+	if problem := removalProblem("files/usr/local/sbin/gone", scan); problem != "" {
+		t.Fatalf("removalProblem: %s", problem)
+	}
+	scan.Present["scripts/gone.bash"] = true
+	if problem := removalProblem("scripts/gone.bash", scan); problem == "" {
+		t.Fatal("a file that still exists is not ported, whatever Go command has its name")
+	}
+}
+
 func fileOf(version int, list Allowlist) File { return File{Version: version, Records: list} }
 
 func TestCompareBase(t *testing.T) {

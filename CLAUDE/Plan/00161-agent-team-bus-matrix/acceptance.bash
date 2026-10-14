@@ -179,7 +179,11 @@ resolve_bus_address || exit $?
 plan_prime_sudo
 plan_start_log auto
 
-readonly INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
+readonly INSTALLER="/usr/local/sbin/agent-bus-install"
+if [[ ! -x "${INSTALLER}" ]]; then
+    printf '[FATAL] %s is not installed: play-agent-bus.yml builds and installs it (Plan 00192); run that play first\n' "${INSTALLER}" >&2
+    exit 1
+fi
 readonly AGENT_BUS="/usr/local/bin/agent-bus"
 readonly PINGBUS="/usr/local/bin/pingbus"
 readonly CHECK=(python3 -I "${PLAN_SCRIPT_DIR}/acceptance_check.py")

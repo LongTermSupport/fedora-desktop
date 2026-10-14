@@ -2,14 +2,21 @@
 ---
 # Agent team bus homeserver host (Plan 00161, DESIGN.md sections 3.1 and 3.4).
 #
-# A thin caller of files/usr/local/sbin/agent-bus-install, which is the single source of
-# truth for what a homeserver host looks like; other projects run the same installer from
-# their own IaC, so nothing here may re-implement a step of it. The play:
+# A thin caller of agent-bus-install, which is the single source of truth for what a
+# homeserver host looks like; other projects run the same installer from their own IaC, so
+# nothing here may re-implement a step of it. agent-bus-install is a Go binary (Plan 00192,
+# src-go/cmd/agent-bus-install). The play first builds it from this checkout as the login
+# user through the shared tasks/build-go-command.yml and installs a root-owned copy at
+# /usr/local/sbin/agent-bus-install (0755): root never executes a file the user can write,
+# and every step below runs that installed copy. The build bakes in the source digest that
+# helpers/agent_bus/installer_digest.py computes; `team` stamps it and declare.py recomputes
+# it, so ccy-teams shows a team as out of date until this play has rebuilt the installer.
+# Then the play:
 #
 #   1. `software --source <this checkout>` on every run, with `--bus-address` when the
 #      host sets agent_bus_address: packages, the agent-bus user, the pinned Tuwunel, the
-#      zipapps, the units, and the installer itself under /usr/local/sbin. Every desktop
-#      carries the software; an instance exists only where a team is declared.
+#      zipapps and the units. Every desktop carries the software; an instance exists only
+#      where a team is declared.
 #   2. `remove --team` (plus `--purge` when asked) for each agent_bus_teams entry with
 #      state absent, before any team is installed, so a port a removed team held is free.
 #   3. `team --team-file` for each entry with state present (the default), from a team
@@ -36,13 +43,18 @@
 # is the team file of DESIGN.md section 3.4, validated by the installer, and an absent
 # entry needs only `team`, `state: absent` and optionally `purge: true`. The LXC members
 # are declared there too.
+
+# The installer is built here, so the Go toolchain is installed first; play-golang.yml stays
+# its one source of truth.
+- import_playbook: play-golang.yml
+
 - hosts: desktop
   name: Agent team bus homeserver (agent-bus-install)
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
-    agent_bus_installer: "{{ root_dir }}/files/usr/local/sbin/agent-bus-install"
+    agent_bus_installer: /usr/local/sbin/agent-bus-install
     agent_bus_team_list: "{{ agent_bus_teams | default([]) }}"
     agent_bus_present: "{{ agent_bus_team_list | rejectattr('state', 'defined') | list
       + agent_bus_team_list | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | list }}"
@@ -83,6 +95,35 @@
           and purge (true or false) only on an absent team; agent_bus_only_teams, when given,
           a list of declared team names. See localhost.yml.dist.
         quiet: true
+      tags: [agent-bus]
+
+    # The digest is computed from this checkout's Go sources by the helper declare.py also
+    # uses, so the value the binary stamps is the value declare compares it with. It only
+    # reads files, so it runs under --check as well.
+    - name: Compute the installer source digest
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.agent_bus.installer_digest
+          - --source
+          - "{{ root_dir }}"
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: agent_bus_installer_digest
+      changed_when: false
+      check_mode: false
+      become: false
+      tags: [agent-bus]
+
+    - name: Build and install the agent-bus-install command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: agent-bus-install
+        go_command_dest: "{{ agent_bus_installer }}"
+        go_command_mode: "0755"
+        go_command_owner: root
+        go_command_become: true
+        go_command_ldflags: "-X main.SourceDigest={{ agent_bus_installer_digest.stdout | trim }}"
       tags: [agent-bus]
 
     - name: Install the agent-bus homeserver software

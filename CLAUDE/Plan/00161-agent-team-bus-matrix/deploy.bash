@@ -17,7 +17,9 @@
 #      it or a route other than a default route covers it (deploy_check.py);
 #   2. remove a throwaway team an interrupted earlier run left (a no-op otherwise);
 #   3. `agent-bus-install software --source <this checkout> --bus-address <ip>`, run from
-#      this checkout, since the installed copy does not exist before the first run;
+#      the installed copy /usr/local/sbin/agent-bus-install: since Plan 00192 the installer is
+#      a Go binary that play-agent-bus.yml builds and installs, so run that play (meta-deploy
+#      runs it through Plan 00192's deploy.bash) before this script, which refuses without it;
 #   4. `team` for the throwaway team zz-deploy-check, from a team file of example values in
 #      the run directory: the bus address, a free port, allow_from 192.0.2.0/24, human owner;
 #   5. `software` and `team` again: any CHANGED line fails the run;
@@ -120,7 +122,11 @@ checker=(python3 -I "${PLAN_SCRIPT_DIR}/deploy_check.py")
 plan_prime_sudo
 plan_start_log auto
 
-INSTALLER="${PLAN_REPO_ROOT}/files/usr/local/sbin/agent-bus-install"
+INSTALLER="/usr/local/sbin/agent-bus-install"
+if [[ ! -x "${INSTALLER}" ]]; then
+    printf '[FATAL] %s is not installed: play-agent-bus.yml builds and installs it (Plan 00192); run that play first\n' "${INSTALLER}" >&2
+    exit 1
+fi
 TEAM_FILE="${PLAN_RUN_DIR}/${TEAM}.team.json"
 PLAY_VARS_PRESENT="${PLAN_RUN_DIR}/play-vars-present.json"
 PLAY_VARS_ABSENT="${PLAN_RUN_DIR}/play-vars-absent.json"

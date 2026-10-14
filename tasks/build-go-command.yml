@@ -9,6 +9,8 @@
 #       go_command_dest: "/home/{{ user_login }}/.local/bin/foo"
 #       go_command_mode: "0755"
 #       go_command_ldflags: "-X main.RootDir={{ root_dir }}"   # optional
+#       go_command_owner: root                                   # optional, with go_command_become
+#       go_command_become: true                                  # optional
 #     tags:
 #       - foo
 #
@@ -24,15 +26,20 @@
 # build otherwise stamps in). A failed build stops the play before anything is installed, and
 # nothing is ever installed by hand ([InfrastructureAsCode.md](CLAUDE/InfrastructureAsCode.md)).
 #
-# Every task runs as the login user (become: false) whatever the importing play does: the Go
-# build cache and the scratch directory are the user's, and a build run as root would leave
-# root-owned files in them.
+# The scratch directory and the build run as the login user (become: false) whatever the
+# importing play does: the Go build cache and the scratch directory are the user's, and a build
+# run as root would leave root-owned files in them, and root must not run a toolchain over a
+# checkout the user can write. Only the install may be elevated, for a command that belongs
+# under /usr/local/sbin: go_command_become runs the `copy` as root and go_command_owner names
+# the owner it leaves.
 #
 # Inputs
 #   go_command_name     required; the directory under src-go/cmd and the scratch binary's name
 #   go_command_dest     required; where the binary is installed
 #   go_command_mode     required; the installed file's mode
 #   go_command_ldflags  optional; one -ldflags value, omitted when unset or empty
+#   go_command_owner    optional; the installed file's owner and group, the login user by default
+#   go_command_become   optional; true installs as root (for an owner other than the login user)
 #
 # The scratch directory predates its second user and keeps its first user's name; every command
 # built through this file lands there.
@@ -70,7 +77,7 @@
     src: "/home/{{ user_login }}/.cache/ccy-go-build/{{ go_command_name }}"
     remote_src: true
     dest: "{{ go_command_dest }}"
-    owner: "{{ user_login }}"
-    group: "{{ user_login }}"
+    owner: "{{ go_command_owner | default(user_login) }}"
+    group: "{{ go_command_owner | default(user_login) }}"
     mode: "{{ go_command_mode }}"
-  become: false
+  become: "{{ go_command_become | default(false) }}"

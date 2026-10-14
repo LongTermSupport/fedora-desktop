@@ -139,7 +139,7 @@ func (b *builder) addFile(rel string) error {
 	if b.total > b.lim.MaxTotal {
 		return fmt.Errorf("backup: the files are over the %d byte total limit", b.lim.MaxTotal)
 	}
-	hdr := &tar.Header{Name: rel, Typeflag: tar.TypeReg, Mode: extractedFileMode, Size: int64(len(got.data)), ModTime: got.modTime}
+	hdr := &tar.Header{Name: rel, Typeflag: tar.TypeReg, Mode: tarFileMode, Size: int64(len(got.data)), ModTime: got.modTime}
 	if err = b.tw.WriteHeader(hdr); err != nil {
 		return fmt.Errorf("backup: %s: %w", rel, err)
 	}
@@ -148,6 +148,13 @@ func (b *builder) addFile(rel string) error {
 	}
 	return nil
 }
+
+// The modes every member is written with, whatever the file system says: a restore applies its
+// own and ignores the tar's.
+const (
+	tarFileMode = 0o600
+	tarDirMode  = 0o700
+)
 
 // tree adds the directory rel and everything below it.
 func (b *builder) tree(rel string) error {
@@ -161,7 +168,7 @@ func (b *builder) tree(rel string) error {
 	if err = b.count(rel); err != nil {
 		return err
 	}
-	hdr := &tar.Header{Name: rel, Typeflag: tar.TypeDir, Mode: extractedDirMode, ModTime: info.ModTime().UTC().Truncate(time.Second)}
+	hdr := &tar.Header{Name: rel, Typeflag: tar.TypeDir, Mode: tarDirMode, ModTime: info.ModTime().UTC().Truncate(time.Second)}
 	if err = b.tw.WriteHeader(hdr); err != nil {
 		return fmt.Errorf("backup: %s: %w", rel, err)
 	}

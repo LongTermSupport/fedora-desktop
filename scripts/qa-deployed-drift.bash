@@ -209,10 +209,14 @@ done
 # base certified against a recipe the repo no longer has, with QA green — the same
 # hole as above, one directory over.
 #
-# THE AGENT BUS (Plan 00161). agent-bus-install copies itself, the admin wrapper, its
-# units, the Tuwunel pin, the resolver stub and the member kit (launcher, settings,
-# plugin; from files/opt/claude-yolo/optional/agent-bus/) out of the checkout; a repo change to any
-# of them is not live until play-agent-bus.yml runs the installer again.
+# THE AGENT BUS (Plan 00161). agent-bus-install copies the admin wrapper, its units, the
+# Tuwunel pin, the resolver stub and the member kit (launcher, settings, plugin; from
+# files/opt/claude-yolo/optional/agent-bus/) out of the checkout; a repo change to any
+# of them is not live until play-agent-bus.yml runs the installer again. The installer itself
+# is a Go binary the play builds (Plan 00192), so it is not a byte-comparable file and has
+# no pair here. Its drift is the source digest it carries: `agent-bus-install --version` is
+# compared with helpers/agent_bus/installer_digest.py by that plan's acceptance.bash, and
+# ccy-teams shows every team stamped by an older build as out of date.
 #
 # Each entry is "repo glob | deployed directory | the play that deploys it". As
 # above, a file is compared only when its deployed copy exists.
@@ -221,7 +225,6 @@ EXTRA_PAIRS=(
     "fedora-install/ks-vm-*.cfg|$HOME/.local/share/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
     "files/home/.config/systemd/user/vmtest-*|$HOME/.config/systemd/user|playbooks/imports/optional/common/play-vm-test-lab.yml"
     "helpers/vmtest/*.py|/usr/local/lib/ccy-helpers/helpers/vmtest|playbooks/imports/optional/common/play-vm-test-lab.yml"
-    "files/usr/local/sbin/agent-bus-install|/usr/local/sbin|playbooks/imports/play-agent-bus.yml"
     "files/usr/local/bin/agent-bus|/usr/local/bin|playbooks/imports/play-agent-bus.yml"
     "files/usr/local/share/agent-bus/*|/usr/local/share/agent-bus|playbooks/imports/play-agent-bus.yml"
     "files/etc/systemd/system/agent-bus-*|/etc/systemd/system|playbooks/imports/play-agent-bus.yml"

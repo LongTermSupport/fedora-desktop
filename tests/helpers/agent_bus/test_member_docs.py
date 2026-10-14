@@ -17,7 +17,6 @@ import io
 import pathlib
 import re
 import shlex
-import subprocess
 import sys
 import unittest
 
@@ -31,7 +30,13 @@ from helpers.pingbus import config, protocol
 
 KIT = REPO_ROOT / "files" / "opt" / "claude-yolo" / "optional" / "agent-bus"
 DOC = REPO_ROOT / "docs" / "agent-bus.md"
-INSTALLER = REPO_ROOT / "files" / "usr" / "local" / "sbin" / "agent-bus-install"
+#: The installer is a Go program (Plan 00192). Its `--help` prints the embedded usage text
+#: byte for byte (internal/businstall's tests pin that), so this test reads the file instead of
+#: building a binary; the kit and its directory are Go constants read from the source.
+INSTALLER_DIR = REPO_ROOT / "src-go" / "internal" / "businstall"
+INSTALLER_USAGE = INSTALLER_DIR / "usage.txt"
+INSTALLER_SOFTWARE = INSTALLER_DIR / "software.go"
+INSTALLER_HOST = INSTALLER_DIR / "host.go"
 DOCS_INDEX = REPO_ROOT / "docs" / "README.md"
 
 #: The topics DESIGN.md's U21 row gives docs/agent-bus.md, each as the heading it is under.
@@ -70,7 +75,7 @@ def invocations(text: str, command: str) -> list[list[str]]:
     """The arguments of every `command` in the code, up to a shell operator, with the
     synopsis brackets (`[--opt]`) read as the arguments they hold. A name inside a path
     (`~/.config/pingbus/env`, `.claude/ccy/pingbus/`) is not an invocation, but the
-    installer is run by its path (`<clone>/files/usr/local/sbin/agent-bus-install`)."""
+    installer is run by its path (`/usr/local/sbin/agent-bus-install`)."""
     found = []
     before = r"[\w.~$-]" if command == "agent-bus-install" else r"[\w/.~$-]"
     pattern = rf"(?<!{before}){re.escape(command)}(?![\w/.-])[ \t]+(\S{_STOP})"
@@ -105,9 +110,8 @@ def agent_bus_parses(argv: list[str]) -> bool:
 
 
 def installer_synopsis() -> dict[str, set[str]]:
-    """Each installer command and the options its `--help` line names."""
-    usage = subprocess.run(["bash", str(INSTALLER), "--help"], capture_output=True, text=True,
-                           check=True).stdout
+    """Each installer command and the options its `--help` line names (usage.txt)."""
+    usage = INSTALLER_USAGE.read_text(encoding="utf-8")
     commands: dict[str, set[str]] = {}
     for line in usage.splitlines():
         match = re.match(r"^  ([a-z][a-z-]*)( .*)?$", line)
@@ -145,20 +149,20 @@ class KitReadmeTest(unittest.TestCase):
             self.assertIn("docs/agent-bus.md", text, member_type)
 
     def test_the_installer_ships_every_readme(self) -> None:
-        source = INSTALLER.read_text(encoding="utf-8")
-        match = re.search(r"^readonly KIT_FILES=\((.*?)\)", source, flags=re.M | re.S)
+        source = INSTALLER_SOFTWARE.read_text(encoding="utf-8")
+        match = re.search(r"^var kitFiles = \[\]string\{(.*?)^\}", source, flags=re.M | re.S)
         self.assertIsNotNone(match)
-        kit_files = match.group(1).replace("\\\n", " ").split()
+        kit_files = re.findall(r'"([^"]+)"', match.group(1))
         for member_type in protocol.HANDLE_TYPES:
             self.assertIn(f"README.{member_type}", kit_files)
 
     def test_the_installer_kit_dir_is_the_one_bundles_name(self) -> None:
-        source = INSTALLER.read_text(encoding="utf-8")
-        share = re.search(r"^readonly SHARE_DIR=\$PREFIX(\S+)$", source, flags=re.M)
-        kit = re.search(r"^readonly KIT_DIR=\$SHARE_DIR(\S+)$", source, flags=re.M)
-        self.assertIsNotNone(share)
+        source = INSTALLER_HOST.read_text(encoding="utf-8")
+        usr_local = re.search(r'^\s*usrLocalDir\s*=\s*"([^"]+)"$', source, flags=re.M)
+        kit = re.search(r'^\s*kitRel\s*=\s*"([^"]+)"$', source, flags=re.M)
+        self.assertIsNotNone(usr_local)
         self.assertIsNotNone(kit)
-        self.assertEqual(share.group(1) + kit.group(1), admin.KIT_DIR)
+        self.assertEqual(f"{usr_local.group(1)}/{kit.group(1)}", admin.KIT_DIR)
 
 
 class BundleReadmeTest(unittest.TestCase):
@@ -230,7 +234,7 @@ class CommandsExistTest(unittest.TestCase):
         text = "`~/.config/pingbus/env` and `/usr/local/bin/pingbus` and `sudo agent-bus list t`"
         self.assertEqual(invocations(text, "pingbus"), [])
         self.assertEqual(invocations(text, "agent-bus"), [["list", "t"]])
-        by_path = "`sudo <clone>/files/usr/local/sbin/agent-bus-install software --source <clone>`"
+        by_path = "`sudo /usr/local/sbin/agent-bus-install software --source <clone>`"
         self.assertEqual(invocations(by_path, "agent-bus-install"),
                          [["software", "--source", "<clone>"]])
         self.assertEqual(invocations(by_path, "agent-bus"), [])

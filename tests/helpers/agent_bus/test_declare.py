@@ -25,7 +25,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.agent_bus import declare, teamfile
+from helpers.agent_bus import declare, installer_digest, teamfile
 from helpers.pingbus import bundle
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -547,15 +547,22 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(code, 0, stderr.getvalue())
         return [line.split("\t") for line in stdout.getvalue().splitlines()]
 
-    def test_the_software_digest_is_the_zipapp_the_pinned_tuwunel_and_the_installer(self) -> None:
+    def test_the_software_digest_is_the_zipapp_the_pinned_tuwunel_and_the_installer_source(self) -> None:
         zipapp = bundle.build("agent-bus", REPO_ROOT)
         pin = (REPO_ROOT / declare.PIN_FILE).read_text()
         version = next(line.split(":", 1)[1].strip() for line in pin.splitlines()
                        if line.startswith("tuwunel_version:"))
-        installer = hashlib.sha256((REPO_ROOT / declare.INSTALLER_FILE).read_bytes()).hexdigest()
+        installer = installer_digest.source_digest(REPO_ROOT)
         want = hashlib.sha256(
             f"{hashlib.sha256(zipapp).hexdigest()}\n{version.lstrip('v')}\n{installer}\n".encode()).hexdigest()
         self.assertEqual(self.software, want)
+
+    def test_a_checkout_without_the_installer_source_is_a_declare_error_naming_the_file(self) -> None:
+        pin = self.tmp / declare.PIN_FILE
+        pin.parent.mkdir(parents=True)
+        pin.write_text("tuwunel_version: v1.0.0\n", encoding="utf-8")
+        with self.assertRaisesRegex(declare.DeclareError, "go.mod"):
+            declare.declared_software(self.tmp)
 
     def test_all_states(self) -> None:
         self.stamp("alpha")
