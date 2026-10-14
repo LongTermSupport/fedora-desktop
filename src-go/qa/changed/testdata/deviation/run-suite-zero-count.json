@@ -4,7 +4,7 @@
  "status": 2,
  "log": [
   "gate:qa-toolchain.bash json=",
-  "shellcheck --external-sources --severity=warning scripts/test-teams.bash",
+  "shellcheck --norc --external-sources --severity=warning scripts/test-teams.bash",
   "semgrep --config \u003cROOT\u003e/.semgrep/bash-conventions.yml --json-output \u003cJSON\u003e --metrics=off --quiet . | mirror: ./scripts/test-teams.bash ",
   "gate:qa-bash-limits.bash json=",
   "suite:test-teams.bash"

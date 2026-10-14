@@ -4,7 +4,7 @@
  "status": 2,
  "log": [
   "gate:qa-toolchain.bash json=",
-  "shellcheck --external-sources --severity=warning tools/run.sh",
+  "shellcheck --norc --external-sources --severity=warning tools/run.sh",
   "semgrep --config \u003cROOT\u003e/.semgrep/bash-conventions.yml --json-output \u003cJSON\u003e --metrics=off --quiet . | mirror: ./tools/run.sh ",
   "ruff check --config \u003cROOT\u003e/ruff.toml --no-cache helpers/pkg/mod.py",
   "python3 -m unittest tests.helpers.pkg.test_mod | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1",

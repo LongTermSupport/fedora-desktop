@@ -138,8 +138,15 @@ func TestThePopulationHoldsTheSuitesAFreshReaderWouldExpect(t *testing.T) {
 }
 
 func TestRoutingAndShellcheckArgumentsMatchTheGatesTheyDuplicate(t *testing.T) {
-	if !strings.Contains(readReal(t, "qa-bash.bash"), `select(.level == "error" or .level == "warning")`) {
-		t.Errorf("qa-bash.bash no longer gates on error and warning; qa-changed's %s has drifted", shellcheckSeverity)
+	gate, err := os.ReadFile(filepath.Join(realScripts, "..", "src-go", "qa", "bash", "shellcheck.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gate), `d.level == "error" || d.level == "warning"`) {
+		t.Errorf("the shell gate no longer gates on error and warning; qa-changed's %s has drifted", shellcheckSeverity)
+	}
+	if !strings.Contains(string(gate), `"--external-sources"`) {
+		t.Errorf("the shell gate no longer follows sources; qa-changed's %s has drifted", shellcheckFollow)
 	}
 	if !strings.Contains(readReal(t, "qa-patterns.bash"), ".semgrep/bash-conventions.yml") {
 		t.Error("qa-patterns.bash no longer uses .semgrep/bash-conventions.yml; qa-changed's copy has drifted")

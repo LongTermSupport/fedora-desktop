@@ -145,18 +145,19 @@ func tableOrder(t *testing.T) []string {
 }
 
 // A stage that tells the user where the merged report is must name the path the runner
-// writes it to: QA_RESULTS_JSON (SPEC-qa-all.md B7), not a variable nothing sets.
+// writes it to: QA_RESULTS_JSON (SPEC-qa-all.md B7), not a variable nothing sets. The stage is
+// the Go tool; its source names the variable.
 func TestQaBashPointsAtTheReportPathTheRunnerWrites(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "..", "scripts", "qa-bash.bash"))
+	body, err := os.ReadFile(filepath.Join("..", "bash", "run.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(body)
-	if !strings.Contains(text, `MERGED_JSON_OUT="${QA_RESULTS_JSON:-/tmp/qa-results.json}"`) {
-		t.Error("qa-bash.bash must take the merged report path from QA_RESULTS_JSON, as qa-all does")
+	if !strings.Contains(text, `env.Getenv("QA_RESULTS_JSON")`) {
+		t.Error("qa-bash must take the merged report path from QA_RESULTS_JSON, as qa-all does")
 	}
 	if strings.Contains(text, "QA_JSON_OUT_MERGED") {
-		t.Error("QA_JSON_OUT_MERGED is set by nothing; qa-bash.bash must not read it")
+		t.Error("QA_JSON_OUT_MERGED is set by nothing; qa-bash must not read it")
 	}
 }
 

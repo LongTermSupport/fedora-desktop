@@ -66,7 +66,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "semgrep", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "patterns", "python", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
+		"ansible-patterns", "patterns", "bash", "python", "docs", "go", "bash-limits", "nokill-containerwatch", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -92,6 +92,7 @@ func TestSummaries(t *testing.T) {
 		"ansible-syntax":   "2 playbook(s)",
 		"ansible-patterns": "fail-fast patterns, whole gate",
 		"patterns":         "bash-convention rules, whole gate",
+		"bash":             "bash -n and shellcheck, whole gate",
 		"python":           "compile and ruff, whole gate",
 		"docs":             "whole gate",
 		"go":               "whole gate (interim qa-go.bash)",
@@ -151,7 +152,7 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		}
 	}
 	want := []string{
-		"shellcheck --external-sources --severity=warning a.bash b.bash",
+		"shellcheck --norc --external-sources --severity=warning a.bash b.bash",
 		"ruff check --config " + filepath.Join(s.root, "ruff.toml") + " --no-cache x.py",
 		"python3 -m unittest tests.helpers.test_a",
 	}
@@ -162,6 +163,9 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 	for _, c := range runner.calls {
+		if c.Argv[0] == "shellcheck" && !slices.Contains(c.Env, "SHELLCHECK_OPTS=") {
+			t.Fatalf("shellcheck must not read options from the environment: %v", c.Env)
+		}
 		if c.Argv[0] == "python3" && !reflect.DeepEqual(c.Env, []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}) {
 			t.Fatalf("unit tests must not read the git configuration: %v", c.Env)
 		}

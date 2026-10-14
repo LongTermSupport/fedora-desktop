@@ -47,6 +47,9 @@ also	ruff.toml	python	covered
 # A Python template is compiled by the python gate once rendered, so an edit to one runs it.
 also	@pytemplate	python	-
 also	scripts/qa-python.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,.qa-versions	python	-
+# The shell gate runs whole when its tool, the shared discovery, its wrapper or the table of excluded trees change.
+also	src-go/qa/bash/*,src-go/qa/cmd/qa-bash/*,src-go/qa/discovery/*	bash	-
+also	scripts/qa-bash.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	bash	-
 # The discovery wrapper and the table reader it sources are run by the Go tests, over a real work tree.
 also	scripts/qa-discovery.bash,scripts/lib/qa-trees.bash	go	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).

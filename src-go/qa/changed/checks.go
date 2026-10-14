@@ -67,6 +67,7 @@ var checkDefs = []checkDef{
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
 	{id: "ansible-patterns", fixed: "fail-fast patterns, whole gate", gate: true, tools: []string{toolBash}, run: runAnsiblePatterns},
 	{id: "patterns", fixed: "bash-convention rules, whole gate", gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runPatterns},
+	{id: "bash", fixed: "bash -n and shellcheck, whole gate", gate: true, tools: []string{toolBash, toolGo, toolShellcheck}, run: runBash},
 	{id: "python", fixed: "compile and ruff, whole gate", gate: true, tools: []string{toolBash, toolGo, toolRuff, toolPython}, run: runPython},
 	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash}, run: runDocs},
 	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
@@ -141,6 +142,10 @@ func runPatterns(ctx context.Context, s *session, _ *checkPlan) (checkResult, er
 	return s.gateWithReport(ctx, "qa-patterns.bash")
 }
 
+func runBash(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.gateWithReport(ctx, "qa-bash.bash")
+}
+
 func runPython(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.gateWithReport(ctx, "qa-python.bash")
 }
@@ -174,17 +179,22 @@ func runNodeCheck(ctx context.Context, s *session, cp *checkPlan) (checkResult, 
 	return s.eachFile(ctx, cp.items, func(f string) []string { return []string{"node", "--check", f} })
 }
 
-// shellcheckSeverity is the bar qa-bash.bash gates on: error and warning.
+// shellcheckSeverity is the bar the shell gate (qa-bash) gates on: error and warning.
 const shellcheckSeverity = "--severity=warning"
 
-// shellcheckFollow lets shellcheck read the files a script sources. qa-bash.bash passes every
-// bash file at once, so shellcheck sees a sourced library there; a diff passes only the changed
-// files, and without this a variable a script sets for its library reads as unused (SC2034),
-// failing here what the full gate passes.
+// shellcheckNoRc, with an empty SHELLCHECK_OPTS, leaves the rules to shellcheck's defaults: no
+// .shellcheckrc beside a script, above it or in the home directory, and no environment option, can
+// disable a check, exactly as the shell gate runs it.
+const shellcheckNoRc = "--norc"
+
+// shellcheckFollow lets shellcheck read the files a script sources. The shell gate passes the
+// same flag and every bash file at once; a diff passes only the changed files, and without this a
+// variable a script sets for its library reads as unused (SC2034), failing here what the full
+// gate passes.
 const shellcheckFollow = "--external-sources"
 
 func runShellcheck(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	return s.exec(ctx, nil, append([]string{"shellcheck", shellcheckFollow, shellcheckSeverity}, cp.items...)...)
+	return s.exec(ctx, []string{"SHELLCHECK_OPTS="}, append([]string{"shellcheck", shellcheckNoRc, shellcheckFollow, shellcheckSeverity}, cp.items...)...)
 }
 
 func runRuff(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {

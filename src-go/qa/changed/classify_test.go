@@ -277,6 +277,29 @@ func TestThePatternsGateRunsWhenItsRulesFixtureOrToolChange(t *testing.T) {
 	}
 }
 
+func TestTheShellGateRunsWhenItsToolDiscoveryWrapperOrTableChange(t *testing.T) {
+	w := newWorld(t)
+	for _, f := range []string{"src-go/qa/bash/run.go", "src-go/qa/cmd/qa-bash/main.go", "src-go/qa/discovery/list.go"} {
+		w.touch(f, "// x")
+		p := w.classify([]string{f})
+		if !p.has("bash") || len(p.uncovered) != 0 || len(p.skipped) != 0 {
+			t.Errorf("%s: checks %v uncovered %v skipped %v", f, keys(p), p.uncovered, p.skipped)
+		}
+	}
+	for _, f := range []string{"scripts/qa-bash.bash", "scripts/lib/go-tool.bash", "scripts/qa-trees.tsv"} {
+		if f != "scripts/qa-trees.tsv" {
+			w.touch(f, "#!/usr/bin/bash")
+		}
+		if p := w.classify([]string{f}); !p.has("bash") {
+			t.Errorf("%s: checks %v", f, keys(p))
+		}
+	}
+	w.touch("scripts/other.bash", "#!/usr/bin/bash")
+	if p := w.classify([]string{"scripts/other.bash"}); p.has("bash") {
+		t.Fatalf("an ordinary shell script runs the whole shell gate: %v", keys(p))
+	}
+}
+
 func TestThePythonGateRunsWhenItsToolPinConfigOrTableChange(t *testing.T) {
 	w := newWorld(t)
 	for _, f := range []string{"src-go/qa/python/run.go", "src-go/qa/cmd/qa-python/main.go", "src-go/qa/discovery/list.go", "ruff.toml"} {

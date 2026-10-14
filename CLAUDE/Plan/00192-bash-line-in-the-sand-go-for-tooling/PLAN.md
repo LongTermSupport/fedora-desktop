@@ -174,6 +174,14 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   command); findings 6-8 recorded in the spec (python3 version unpinned and `.qa-versions` holds
   tool pins only; template false positives are fail-safe; the `syntax-error` text is reached only
   by an older ruff); finding 9 no change.
+  `qa-bash.bash` (P3, sixth gate) on `go-port/qa-bash`: ported, not merged; spec
+  [SPEC-qa-bash.md](SPEC-qa-bash.md), expectations S1-S15, 12 departures B1-B12; nested
+  `src-go/qa/bash` and `qa/cmd/qa-bash` (the file set and the `tracked-shell` yardstick come from
+  `qa/discovery`); bash and shellcheck stay the engines, shellcheck pinned to `--norc --external-sources` and an empty `SHELLCHECK_OPTS` so a nested `.shellcheckrc` or the
+  environment cannot change the rules; the script a build-and-run wrapper, its allowlist row
+  gone; `qa-changed` gains a `bash` check (tool, discovery, wrapper or `qa-trees.tsv` change) and
+  its per-file shellcheck the same `--norc` (SPEC-qa-changed B35). Live tree: the same 433 files as
+  the bash, exit 0; 5 fewer advisory findings (SC1091 info, resolved by `--external-sources`).
   `qa-discovery.bash` (P3, the shared library the bash gates source) on `go-port/qa-discovery`:
   ported, not merged; spec [SPEC-qa-discovery.md](SPEC-qa-discovery.md), expectations D1-D15, 11
   departures B1-B11; nested `src-go/qa/discovery` and `qa/cmd/qa-discovery`, one list per call,
