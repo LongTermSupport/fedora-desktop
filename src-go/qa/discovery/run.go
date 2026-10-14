@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // ExitCode is the status qa-discovery exits with.
@@ -106,17 +107,6 @@ func parseArgs(args []string) (options, error) {
 	return opts, nil
 }
 
-// rootDir resolves the repository root.
-func (o options) rootDir(cwd string) string {
-	switch {
-	case o.root != "":
-		return strings.TrimRight(o.root, "/")
-	case o.scripts != "":
-		return filepath.Dir(filepath.Clean(o.scripts))
-	}
-	return cwd
-}
-
 // scriptsDir resolves the scripts directory under a root.
 func (o options) scriptsDir(root string) string {
 	if o.scripts != "" {
@@ -189,7 +179,10 @@ func Main(args []string, env Env) ExitCode {
 	if opts.help {
 		return write(env, usageText)
 	}
-	root := opts.rootDir(env.Cwd)
+	root, err := rootpath.Root(env.Cwd, opts.root, opts.scripts)
+	if err != nil {
+		return fail(env, err, false)
+	}
 	paths, err := list(context.Background(), env, root, opts.scriptsDir(root), listings[opts.list])
 	if err != nil {
 		return fail(env, err, false)

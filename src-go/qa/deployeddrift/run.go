@@ -18,6 +18,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // ExitCode is the status qa-deployed-drift exits with.
@@ -145,19 +147,10 @@ type options struct {
 // downstream depends on how the path was spelled (E1). A scripts directory is normalised
 // first and its parent taken, so a trailing slash cannot make the parent the directory itself.
 func normalise(opts options, env Env) (string, error) {
-	p := opts.root
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(env.Cwd, p)
-	}
-	p = filepath.Clean(p)
 	if opts.scripts {
-		p = filepath.Dir(p)
+		return rootpath.RootVia(env.Resolve, env.Cwd, "", opts.root)
 	}
-	resolved, err := env.Resolve(p)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve the repository root %s: %w", p, err)
-	}
-	return filepath.Clean(resolved), nil
+	return rootpath.RootVia(env.Resolve, env.Cwd, opts.root, "")
 }
 
 // pair is one entry of the extra table (E10): files matching pattern in a repo directory, where

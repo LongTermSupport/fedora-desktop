@@ -184,5 +184,11 @@ command. It reads the repo and the host through `fs.FS`; the one git question (i
 worktree) is asked by the command through the seam. `SPEC-qa-deployed-drift.md` (E1-E18) is the
 specification, proven by unit tests over in-memory trees.
 
+`qa/internal/rootpath` is the one place a gate turns `--root`/`--scripts` into its root: absolute,
+clean, symlink-free, an unresolvable root being exit 2. No gate resolves a root on its own; each
+carries a symlinked-root test, because an engine that prints realpaths leaks the checkout path
+when the root is stripped unresolved. A gate whose tests run on a fake tree takes the resolver as
+a field (`rootpath.RootVia`).
+
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).

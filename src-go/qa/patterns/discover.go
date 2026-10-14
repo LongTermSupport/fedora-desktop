@@ -83,10 +83,6 @@ func (g *gate) placeSymlinks(scripts []script, symlinks []string) ([]script, lin
 	if len(symlinks) == 0 {
 		return scripts, links, nil
 	}
-	rootReal, err := filepath.EvalSymlinks(g.root)
-	if err != nil {
-		return nil, links, fmt.Errorf("cannot resolve %s: %w", g.root, err)
-	}
 	scanned := make(map[string]bool, len(scripts))
 	for _, s := range scripts {
 		scanned[s.rel] = true
@@ -97,7 +93,7 @@ func (g *gate) placeSymlinks(scripts []script, symlinks []string) ([]script, lin
 			return nil, links, fmt.Errorf("the symlink %s cannot be followed: %w", rel, linkErr)
 		}
 		shown := target
-		if inRoot, relErr := filepath.Rel(rootReal, target); relErr == nil && inRoot != ".." && !strings.HasPrefix(inRoot, "../") {
+		if inRoot, relErr := filepath.Rel(g.root, target); relErr == nil && inRoot != ".." && !strings.HasPrefix(inRoot, "../") {
 			shown = filepath.ToSlash(inRoot)
 			if scanned[shown] {
 				links.covered++

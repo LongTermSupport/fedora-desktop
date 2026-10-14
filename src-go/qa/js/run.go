@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // ExitCode is the status qa-js exits with.
@@ -111,25 +112,6 @@ func absolute(cwd, path string) string {
 	return filepath.Clean(path)
 }
 
-// rootDir resolves the repository root: absolute, cleaned and with every symlink resolved, because
-// node prints a file's real path and the gate strips the root from what it prints.
-func (o options) rootDir(cwd string) (string, error) {
-	var root string
-	switch {
-	case o.root != "":
-		root = absolute(cwd, o.root)
-	case o.scripts != "":
-		root = filepath.Dir(absolute(cwd, o.scripts))
-	default:
-		root = absolute(cwd, cwd)
-	}
-	resolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve the repository root %s: %w", root, err)
-	}
-	return filepath.Clean(resolved), nil
-}
-
 // scriptsDir resolves the scripts directory under a root.
 func (o options) scriptsDir(root string) string {
 	if o.scripts != "" {
@@ -157,7 +139,7 @@ func Main(args []string, env Env) ExitCode {
 		return write(env, usageText)
 	}
 	g := &gate{env: env}
-	if g.root, err = opts.rootDir(env.Cwd); err != nil {
+	if g.root, err = rootpath.Root(env.Cwd, opts.root, opts.scripts); err != nil {
 		return fail(env, err, false)
 	}
 	g.scripts = absolute(env.Cwd, opts.scriptsDir(g.root))

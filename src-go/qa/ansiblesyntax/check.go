@@ -56,7 +56,7 @@ func (g *gate) check(ctx context.Context, rel string) (entry, error) {
 	out := entry{File: rel, Type: reportType, Status: statusPass}
 	if res.Code != 0 {
 		out.Status = statusFail
-		out.Error = strings.TrimRight(res.Stderr, " \t\r\n")
+		out.Error = strings.ReplaceAll(strings.TrimRight(res.Stderr, " \t\r\n"), g.root+string(filepath.Separator), "")
 		if out.Error == "" {
 			out.Error = fmt.Sprintf("ansible-playbook exited %d with no output", res.Code)
 		}

@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"path/filepath"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // ExitCode is the status qa-ansible exits with.
@@ -152,7 +153,7 @@ func run(args []string, env Env, out, errOut *emitter) ExitCode {
 		out.text(usageText)
 		return ExitOK
 	}
-	root, err := rootDir(opts, env.Cwd)
+	root, err := rootpath.Root(env.Cwd, opts.root, opts.scripts)
 	if err != nil {
 		errOut.line("ERROR: " + err.Error())
 		return ExitCannotRun
@@ -190,23 +191,6 @@ func finish(findings Findings, path string, write func(string, []byte) error, ou
 		return ExitFailed
 	}
 	return ExitOK
-}
-
-// rootDir is the repository root: --root, else the parent of --scripts, else the working
-// directory, made absolute.
-func rootDir(opts options, cwd string) (string, error) {
-	root := cwd
-	switch {
-	case opts.root != "":
-		root = opts.root
-	case opts.scripts != "":
-		root = filepath.Join(opts.scripts, "..")
-	}
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve the root %s: %w", root, err)
-	}
-	return abs, nil
 }
 
 // Scan runs the six checks over the tree and returns what they found. An error is a run that

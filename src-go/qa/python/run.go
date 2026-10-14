@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // ExitCode is the status qa-python exits with.
@@ -119,17 +120,6 @@ func absolute(cwd, path string) string {
 	return filepath.Clean(path)
 }
 
-// rootDir resolves the repository root.
-func (o options) rootDir(cwd string) string {
-	switch {
-	case o.root != "":
-		return absolute(cwd, o.root)
-	case o.scripts != "":
-		return filepath.Dir(absolute(cwd, o.scripts))
-	}
-	return absolute(cwd, cwd)
-}
-
 // scriptsDir resolves the scripts directory under a root.
 func (o options) scriptsDir(root string) string {
 	if o.scripts != "" {
@@ -157,8 +147,11 @@ func Main(args []string, env Env) ExitCode {
 	if opts.help {
 		return write(env, usageText)
 	}
-	g := &gate{env: env}
-	g.root = opts.rootDir(env.Cwd)
+	root, err := rootpath.Root(env.Cwd, opts.root, opts.scripts)
+	if err != nil {
+		return fail(env, err, false)
+	}
+	g := &gate{env: env, root: root}
 	g.scripts = absolute(env.Cwd, opts.scriptsDir(g.root))
 	g.report = env.Getenv("QA_JSON_OUT")
 	if g.report == "" {

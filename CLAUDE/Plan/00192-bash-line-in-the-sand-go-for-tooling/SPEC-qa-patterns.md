@@ -28,6 +28,7 @@ change (section 4, B33), besides its own per-file semgrep check.
   scripts directory and the root is its parent (the wrapper passes this); neither: the working
   directory. `-h`/`--help` prints the usage to stdout, exit 0. Any other argument, or a flag
   missing its value, is exit 2 with `ERROR:` and the usage on stderr. *(Bash ignored arguments.)*
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), and a symlinked-root test pins that no checkout path reaches stdout or the report.
 - P2. `QA_JSON_OUT` is the report path; unset or empty is `/tmp/qa-patterns-results.json`. The
   report cannot be written: `ERROR: cannot write the report <path>: <why>`, exit 2.
 - P3. Exit codes: 0 no finding, 1 at least one, 2 the run could not complete. Every exit-2

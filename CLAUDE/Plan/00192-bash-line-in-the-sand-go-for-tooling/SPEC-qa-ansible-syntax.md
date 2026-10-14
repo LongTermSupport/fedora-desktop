@@ -25,6 +25,7 @@ call this gate.
   directory. The root is made absolute and cleaned. `-h`/`--help` prints the usage to stdout, exit
   0\. Any other argument, or a flag missing its value, is exit 2 with `ERROR:` and the usage on
   stderr.
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), and a symlinked-root test pins that no checkout path reaches stdout or the report. The root is also stripped from the engine's error text (S10).
 - S2. `QA_JSON_OUT` is the report path; unset or empty is `/tmp/qa-ansible-syntax-results.json`.
   A report that cannot be written: `ERROR: cannot write the report <path>: <why>`, exit 2.
 - S3. Exit codes: 0 every playbook parses, 1 at least one does not, 2 the run could not complete.

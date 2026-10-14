@@ -29,6 +29,7 @@ same pins (section 4).
   the report (default `/tmp/qa-js-results.json`). The root is also symlink-resolved (a root that
   cannot be resolved is exit 2): node prints a file's real path, and J7 and J16 strip and forbid
   the root as the gate spells it.
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), and a symlinked-root test pins that no checkout path reaches stdout or the report.
 - J2. Exit codes: 0 no finding, 1 at least one, 2 the run could not complete (a missing tool, a
   failed discovery, ESLint or node failing to run, an ESLint that did not read a file). Exit 2
   writes no report and prints nothing on stdout. Stdout closed (`>&-`) is exit 2.

@@ -28,6 +28,7 @@ change.
   `--scripts` and a trailing slash behave as the absolute path does. `-h`/`--help` prints the usage
   to stdout, exit 0. Any other argument, or a flag missing its value, is exit 2 with `ERROR:` and
   the usage on stderr. *(Bash ignored arguments.)*
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), and a symlinked-root test pins that no checkout path reaches stdout or the report.
 - S2. `QA_JSON_OUT` is the report path; unset or empty is `/tmp/qa-bash-results.json`. A report
   that cannot be written: `ERROR: cannot write the report <path>: <why>`, exit 2. The report file has mode 0644, as the bash's
   umask gave it: another account reading it with `jq` must not be refused.

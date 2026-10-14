@@ -62,10 +62,11 @@ func (w *world) env() Env {
 		mem[p] = &fstest.MapFile{Data: []byte(text)}
 	}
 	return Env{
-		Stdout: &w.out,
-		Stderr: &w.err,
-		Cwd:    "/repo",
-		Open:   func(string) fs.FS { return mem },
+		Stdout:  &w.out,
+		Stderr:  &w.err,
+		Cwd:     "/repo",
+		Resolve: func(p string) (string, error) { return p, nil },
+		Open:    func(string) fs.FS { return mem },
 		Published: func(string) ([]string, error) {
 			return w.published, w.gitErr
 		},

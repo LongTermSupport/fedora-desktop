@@ -29,6 +29,7 @@ same data file).
   (the root is its parent); neither: the working directory. `-h`/`--help` prints the usage to
   stdout, exit 0. A missing or extra `LIST`, an unknown list, an unknown flag or a flag without its
   value is exit 2 with `ERROR:` and the usage on stderr.
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), so the absolute paths printed are under the real root, which a gate strips from what an engine prints.
 - D2. stdout is the payload and nothing else: the paths, each ended by NUL, sorted, no duplicates.
   `shell`, `python` and `python-templates` print absolute paths (the root as given, then `/`, then
   the repository-relative path); the four `tracked-` lists print repository-relative paths. A list

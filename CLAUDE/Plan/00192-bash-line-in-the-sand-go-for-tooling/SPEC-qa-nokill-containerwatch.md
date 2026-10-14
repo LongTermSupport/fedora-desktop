@@ -31,6 +31,7 @@ Numbers are cited by the tests.
   `ERROR: unknown argument '<arg>'` and the usage on stderr; a flag missing its value is exit 2.
   *(B11: the bash accepted `--self-test`; its cases are Go tests now, so the flag is an unknown
   argument.)*
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), and a symlinked-root test pins that no checkout path reaches stdout or the report.
 - E2. Exit codes: 0 clean, 1 at least one forbidden call site, 2 the run could not complete. Every
   exit-2 message is on stderr and starts `ERROR:`. A failed write to stdout is exit 2 with
   `ERROR: cannot write to stdout: <why>`; a failed write to stderr is exit 2.

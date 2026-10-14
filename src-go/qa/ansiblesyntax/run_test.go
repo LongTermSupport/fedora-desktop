@@ -351,7 +351,7 @@ func TestAFailingPlaybookIsReportedWithTheEnginesStderr(t *testing.T) {
 	w.addFile("b.yml", "- hosts: all\n  SYNTAX_ERROR\n")
 	got := w.main()
 	wantExit(t, got, ExitFailed)
-	wantOut := "✗ ansible-syntax: b.yml\nERROR! bad syntax in " + filepath.Join(w.root, "b.yml") + "\n" +
+	wantOut := "✗ ansible-syntax: b.yml\nERROR! bad syntax in b.yml\n" +
 		"✗ ansible-syntax: 1/3 playbooks failed → " + w.out + "\n"
 	if got.stdout != wantOut {
 		t.Fatalf("stdout:\n%s\nwant:\n%s", got.stdout, wantOut)

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // ExitCode is the status qa-nokill-containerwatch exits with.
@@ -47,6 +48,9 @@ type Env struct {
 	Stderr io.Writer
 	// Cwd is the default root when neither --root nor --scripts is given.
 	Cwd string
+	// Resolve makes a root free of symlinks (filepath.EvalSymlinks; a test on a fake tree gives
+	// its own).
+	Resolve rootpath.Eval
 	// Open returns the file system rooted at a directory.
 	Open func(root string) fs.FS
 	// Published lists the files git would publish (tracked, or untracked and not ignored) under
@@ -146,7 +150,7 @@ func run(args []string, env Env, out, errOut *emitter) ExitCode {
 		out.line(strings.TrimSuffix(usageText, "\n"))
 		return ExitOK
 	}
-	root, err := rootDir(opts, env.Cwd)
+	root, err := rootpath.RootVia(env.Resolve, env.Cwd, opts.root, opts.scripts)
 	if err != nil {
 		errOut.line("ERROR: " + err.Error())
 		return ExitCannotRun
@@ -165,23 +169,6 @@ func run(args []string, env Env, out, errOut *emitter) ExitCode {
 		return ExitCannotRun
 	}
 	return report(findings, targets, out, errOut)
-}
-
-// rootDir is the repository root: --root, else the parent of --scripts, else the working
-// directory, made absolute.
-func rootDir(opts options, cwd string) (string, error) {
-	root := cwd
-	switch {
-	case opts.root != "":
-		root = opts.root
-	case opts.scripts != "":
-		root = filepath.Join(opts.scripts, "..")
-	}
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve the root %s: %w", root, err)
-	}
-	return abs, nil
 }
 
 // collectTargets is the files to judge, in path order: every published .py below the watchdog

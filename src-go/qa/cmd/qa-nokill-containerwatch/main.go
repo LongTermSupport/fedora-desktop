@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ func run(args []string) int {
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
 		Cwd:       cwd,
+		Resolve:   filepath.EvalSymlinks,
 		Open:      os.DirFS,
 		Published: published,
 	}

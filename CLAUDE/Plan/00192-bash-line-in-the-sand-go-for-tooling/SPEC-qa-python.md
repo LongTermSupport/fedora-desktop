@@ -28,6 +28,7 @@ wrapper change (section 4).
   directory. The root is made absolute and cleaned once, so `--root .`, a relative `--scripts` and a
   trailing slash all behave as the absolute path does. `-h`/`--help` prints the usage to stdout, exit 0. Any other argument, or a flag
   missing its value, is exit 2 with `ERROR:` and the usage on stderr. *(Bash ignored arguments.)*
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), and a symlinked-root test pins that no checkout path reaches stdout or the report.
 - Y2. `QA_JSON_OUT` is the report path; unset or empty is `/tmp/qa-python-results.json`. A report
   that cannot be written: `ERROR: cannot write the report <path>: <why>`, exit 2.
 - Y3. Exit codes: 0 no finding, 1 at least one, 2 the run could not complete. Every exit-2
