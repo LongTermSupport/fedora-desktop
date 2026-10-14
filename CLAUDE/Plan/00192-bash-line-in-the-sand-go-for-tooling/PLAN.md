@@ -86,8 +86,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   nested-module driver, disabled linters counted as suppressions) and ships one rule. Fixing in
   parallel: the gate on a real bash parser with a versioned ratchet; type-based rules; runtime
   correctness; go-qa-ci M15 (adoption, gate) and M16 (a bundled rule pack). All five are
-  merged (go-qa-ci's on its own remote). Typed state is in progress; redraw cost and the
-  `teams` package split follow. The two ports get their own review before merge.
+  merged (go-qa-ci's on its own remote), and so are typed state, the ccy-sessions and
+  ccy-teams redraw cost, and the `teams` package split. The two ports get their own review
+  before merge: freeze's found two blockers, being fixed on its branch.
 - [ ] ⬜ **Task 4.2**: qa-reviewer over the plan.
 
 ## Success Criteria
