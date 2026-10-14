@@ -1,6 +1,6 @@
 {
  "stdout": "✓ toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n✓ go: GO-OK 39 package(s)\n✓ bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n✓ bash: 4 files OK\n✓ python: 4 files OK\n✓ patterns: 4 files OK\n✓ ansible: 4 files OK\n✓ ansible-syntax: 4 files OK\n✓ js: 4 files OK\n",
- "stderr": "ERROR: Missing required tools (node / extensions node_modules). Install them and re-run.\n",
+ "stderr": "ERROR: js gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).\n",
  "status": 2,
  "log": [
   "qa-toolchain ",
