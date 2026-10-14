@@ -165,6 +165,11 @@ expect_lacks "go: qa-go is not also picked as a suite" "$plan" "suite scripts/qa
 plan="$(plan_for scripts/qa-bash.bash)"
 expect_lacks "go: untouched when no src-go file changed" "$plan" "check go"
 
+for ref in files/var/local/claude-yolo/lib/session-registry.bash files/var/local/claude-yolo/lib/common-pure.bash helpers/agent_bus/declare.py; do
+    plan="$(plan_for "$ref")"
+    expect_has "go: parity reference $ref runs the Go gate" "$plan" "check go"
+done
+
 echo
 echo "== src-go -> the ccy-teams command suite =="
 plan="$(plan_for src-go/internal/teams/app.go)"

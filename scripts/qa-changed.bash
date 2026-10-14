@@ -201,6 +201,13 @@ classify_yaml() {
 }
 
 for rel in "${CHANGED[@]}"; do
+    # The Go tests execute these files as parity references, so a change to one must run the Go
+    # gate. No continue: the file is still classified (bash, Python) below.
+    case "$rel" in
+        files/var/local/claude-yolo/lib/common-pure.bash | files/var/local/claude-yolo/lib/session-registry.bash | helpers/agent_bus/declare.py)
+            NEED_GO=1
+            ;;
+    esac
     case "$rel" in
         *.md)
             NEED_DOCS=1
