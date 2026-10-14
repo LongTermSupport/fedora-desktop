@@ -1213,9 +1213,13 @@ NordVPN OpenVPN manager:
 `lxcfreeze` — freeze and thaw LXC containers. The LXC counterpart to `podfreeze`
 below:
 
-- Deploys `~/.local/bin/lxcfreeze` **and `~/.local/lib/freeze/freeze-common.bash`**,
-  the library it and `podfreeze` both source. No packages: every `lxc-*` binary it
-  calls comes from `play-lxc-install-config.yml`, a core play
+- Builds `~/.local/bin/lxcfreeze` from this checkout (a Go binary, `src-go/cmd/lxcfreeze`;
+  the play imports `play-golang.yml` first for the toolchain) and installs it with
+  the shared `tasks/deploy-freeze.yml`. It also removes the old bash tool's
+  `~/.local/lib/freeze` library, which nothing reads now. No LXC packages: every
+  `lxc-*` binary it calls comes from `play-lxc-install-config.yml`, a core play.
+  `fzf` comes with the tool, so either play alone gives both the same picker (it is
+  optional, a plain numbered menu is used without it)
 - Targets a container by name, a whole bridge (`--bridge BR`), or everything
   (`--all`). No target opens a menu of groups, each row saying what choosing it does
   right now (`FREEZE 3`, `THAW 1`), and choosing one opens it — same menu, same
@@ -1224,7 +1228,9 @@ below:
   nothing running is thawed, so the same choice twice toggles it. `-n` previews
 - **Rootful, unlike `podfreeze`** — `/var/lib/lxc` is root-only, so even the
   read-only inventory escalates. It says so before prompting, and a refused `sudo` is
-  a named failure rather than an empty machine
+  a named failure rather than an empty machine. `sudo` is readied again before each
+  inventory load and each freeze or thaw, so an idle menu that outlives sudo's
+  timestamp asks again, with the reason, rather than prompting from inside a capture
 - A `STOPPED` container is not listed: it can be neither frozen nor thawed
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do not
   survive a reboot
@@ -1247,8 +1253,8 @@ below:
   address comes back on thaw; the connections do not, so reconnect
 - Separate from `play-podfreeze.yml` because this repo's LXC is rootful and Podman is
   not, so one tool would prompt for root on every menu open. What the two genuinely
-  share — the menu and the decisions — is one library, deployed by one task file both
-  plays include (Plan 00122 Phase 4)
+  share is one Go package (`src-go/internal/freeze`: the menu and the decisions) and
+  one deployment task file both plays import (Plan 00122 Phase 4, Plan 00192)
 - Works on desktop and server (`scope: general`)
 
 #### play-podfreeze.yml
@@ -1256,8 +1262,10 @@ below:
 `podfreeze` — freeze (pause) and thaw (unpause) Podman containers. The LXC
 counterpart is `play-lxcfreeze.yml` above:
 
-- Deploys `~/.local/bin/podfreeze` and the `~/.local/lib/freeze/freeze-common.bash`
-  library it and `lxcfreeze` both source. `fzf` comes with the library, so either
+- Builds `~/.local/bin/podfreeze` from this checkout (a Go binary,
+  `src-go/cmd/podfreeze`; the play imports `play-golang.yml` first for the toolchain)
+  and installs it with the shared `tasks/deploy-freeze.yml`, which also removes the old
+  bash tool's `~/.local/lib/freeze` library. `fzf` comes with the tool, so either
   play alone gives both tools the same picker (it is optional — a plain numbered
   menu is used without it)
 - Targets a container by name, a whole network (`--network NET`), every CCY
@@ -1295,8 +1303,8 @@ counterpart is `play-lxcfreeze.yml` above:
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do
   not survive a reboot. The reboot-surviving equivalent (`podman container checkpoint`, CRIU) needs root and is unavailable on this rootless setup
 - The menu, the drill-down, the derived verb, the dry run and the act loop are the
-  shared library, so `lxcfreeze` behaves identically; only the inventory, the group
-  axes and the two state words are podman's (Plan 00122 Phase 4)
+  shared Go package, so `lxcfreeze` behaves identically; only the inventory, the group
+  axes and the two state words are podman's (Plan 00122 Phase 4, Plan 00192)
 - Works on desktop and server (`scope: general`)
 
 #### play-photography.yml

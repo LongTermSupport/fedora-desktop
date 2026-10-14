@@ -1,6 +1,8 @@
 package podfreeze
 
-// Case accounting for the port of scripts/test-podfreeze.bash (187 cases), kept here so the
+// Case accounting for the port of scripts/test-podfreeze.bash (187 cases; the suite went with the
+// bash tool, last at commit 67c20b7f, and the golden replay in internal/freeze/golden holds what the
+// bash printed), kept here so the
 // disposition of every bash case is recorded next to the tests that replace it. The suite is
 // white-box: it filled bash globals and called functions, so every case here drives the same
 // decision through the Go engine, with the inventory built by the real Load from a scripted

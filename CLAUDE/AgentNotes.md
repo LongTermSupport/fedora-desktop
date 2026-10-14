@@ -463,7 +463,7 @@ a comment explaining why zero would be misleading — and no guard for the
 | 1   | a `grep` read through `head -n 30` (00080)   | —                         | output cut at the line limit    |
 | 2   | `triage.bash` P4 session filter (00080)      | zero sessions labelled    | *some* sessions labelled        |
 | 3   | `acceptance.bash` check 9 (00079)            | the wrong label chosen    | the non-label path entirely     |
-| 4   | `podfreeze` `select_identity` (00079)        | zero sessions labelled    | *some* sessions labelled        |
+| 4   | `podfreeze` `selectIdentity` (00079)         | zero sessions labelled    | *some* sessions labelled        |
 | 5   | `pre-commit --diff-filter=ACM` (00081)       | —                         | renames (`git mv` + edit)       |
 | 6   | whitelists filtering whole LINES (00081)     | —                         | a real leak sharing that line   |
 | 7   | `commit-msg` static patterns only (00081)    | —                         | the whole denylist              |
@@ -472,7 +472,7 @@ a comment explaining why zero would be misleading — and no guard for the
 | 9b  | `CCY_HASH` = launcher + `CCY_LIBS` (00081)   | six named libraries       | the seventh file in `lib/`      |
 | 10  | `qa-ansible-syntax` population (00081)       | —                         | playbooks outside `imports/`    |
 | 11  | `qa-deployed-drift` basename match (00081)   | file not deployed here    | file deployed under a NEW name  |
-| 12  | `podfreeze` identity-axis offer (00079)      | zero values on the axis   | one value covering *some* of it |
+| 12  | `podfreeze` `discriminates` offer (00079)    | zero values on the axis   | one value covering *some* of it |
 | 13  | `acceptance.bash` check 13/13b (00079)       | the resolvable state      | unexercised branches as passes  |
 | 14  | `unit-test-selection.bash` axis test (00079) | the predicate's answer    | whether the TOOL computes it    |
 | 15  | I1 token search, `without-match` (00092)     | zero files enumerated     | 38% enumerated but never opened |
@@ -1031,7 +1031,9 @@ A probe such as `sudo lxc-attach -n NAME -- cmd | cat` with stderr left on the h
 capture file hands that file to root: the harness then cannot read its own output back
 and reports it as missing. Three triage probes were lost to this in Plan 00122 before
 the cause was seen. Every `lxc-attach` in a script or a probe goes through `2>&1 | cat`
-or a `{ ...; } 2>&1 | cat` group, so both streams are a pipe.
+or a `{ ...; } 2>&1 | cat` group, so both streams are a pipe. In Go (`lxcfreeze`'s DHCP
+renewal) the call goes through `sudo.Capture`, which hands the runner no writers, so both
+streams are captured pipes; never pass `os.Stderr` to it.
 
 ---
 

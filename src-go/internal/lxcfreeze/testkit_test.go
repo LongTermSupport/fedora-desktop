@@ -1,6 +1,8 @@
 package lxcfreeze
 
-// Case accounting for the port of scripts/test-lxcfreeze.bash (116 cases), kept here so the
+// Case accounting for the port of scripts/test-lxcfreeze.bash (116 cases; the suite went with the
+// bash tool, last at commit 67c20b7f, and the golden replay in internal/freeze/golden holds what the
+// bash printed), kept here so the
 // disposition of every bash case is recorded next to the tests that replace it. The suite was
 // white-box: it filled bash globals and called functions. Every case here drives the same
 // decision through the Go engine, the inventory built by the real Load from a scripted
