@@ -67,7 +67,7 @@ func (r *scriptedRunner) argv() []string {
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
 		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "deployed-drift", "node-check", "eslint",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -109,6 +109,7 @@ func TestSummaries(t *testing.T) {
 		"ansible-pause":         "whole gate (every pause registers its answer or says why it waits)",
 		"gh-scopes":             "gh-scope-outside-ssot rule, whole gate",
 		"ready-wait":            "whole gate (no wait ignores the exit of the process it waits for)",
+		"plan-script-logging":   "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)",
 	} {
 		if got := lookupCheck(id).summaryFor(two); got != want {
 			t.Errorf("%s: %q, want %q", id, got, want)
@@ -326,12 +327,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)

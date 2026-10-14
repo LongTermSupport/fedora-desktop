@@ -234,3 +234,41 @@ func checkSemgrepRoute(t *testing.T, root, rel, reader string) {
 		}
 	}
 }
+
+// Every active plan script of the tree, and the gate's own files, run the plan-script-logging
+// check against the repository's own routing table. The scripts are read from the tree, so a plan
+// script this test has not met is still routed.
+func TestEveryRealActivePlanScriptRunsThePlanScriptLoggingCheck(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := regexp.MustCompile(`^CLAUDE/Plan/[0-9]+-[^/]+/.*\.(bash|sh)$`)
+	inputs := []string{"scripts/qa-plan-script-logging.bash", "src-go/qa/planscriptlogging/scan.go", "src-go/qa/cmd/qa-plan-script-logging/main.go"}
+	for _, rel := range publishedUnder(t, root, "CLAUDE/Plan") {
+		if active.MatchString(rel) {
+			inputs = append(inputs, rel)
+		}
+	}
+	if len(inputs) < 10 {
+		t.Fatalf("found only %d inputs; the tree walk matched nothing: %v", len(inputs), inputs)
+	}
+	s := &session{
+		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		root:    root,
+		scripts: filepath.Join(root, "scripts"),
+		opts:    options{base: "HEAD"},
+	}
+	if err := s.load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range inputs {
+		s.plan = &plan{checks: map[string]*checkPlan{}, covered: map[string]bool{}}
+		if err := s.classify(context.Background(), collected{existing: []string{rel}}); err != nil {
+			t.Fatal(err)
+		}
+		if !s.plan.has("plan-script-logging") {
+			t.Errorf("%s does not run the plan-script-logging check: %v", rel, keys(s.plan))
+		}
+	}
+}

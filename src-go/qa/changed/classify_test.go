@@ -588,6 +588,39 @@ func TestAReadyWaitGateEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// A change to an active plan's shell script or to a file under a plan's logs/ directory, or to the
+// plan-script-logging gate's own script, Go package, command or the shared discovery, runs the whole
+// gate; so does the deletion of such a script (the gate judges what remains). A Completed plan's
+// non-shell file, a playbook and an ordinary Markdown file do not.
+func TestAPlanScriptLoggingEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		"CLAUDE/Plan/00130-x/run.bash", "CLAUDE/Plan/00130-x/sub/deep.sh", "CLAUDE/Plan/00130-x/logs/run.txt",
+		"scripts/qa-plan-script-logging.bash", "src-go/qa/planscriptlogging/scan.go",
+		"src-go/qa/cmd/qa-plan-script-logging/main.go", "src-go/qa/discovery/shebang.go",
+	} {
+		w := newWorld(t)
+		w.touch(f, "#!/usr/bin/bash\n")
+		p := w.classify([]string{f})
+		if !p.has("plan-script-logging") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+		if f == "scripts/qa-plan-script-logging.bash" && len(p.suites) != 0 {
+			t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, "CLAUDE/Plan/00130-x/gone.bash"); !p.has("plan-script-logging") {
+		t.Errorf("a deleted plan script owes the gate: %v", keys(p))
+	}
+	for _, f := range []string{"CLAUDE/Plan/00130-x/PLAN.md", "playbooks/imports/play-x.yml", "helpers/other.py"} {
+		w = newWorld(t)
+		w.touch(f, "x")
+		if p := w.classify([]string{f}); p.has("plan-script-logging") {
+			t.Errorf("%s must not run the plan-script-logging gate: %v", f, keys(p))
+		}
+	}
+}
+
 // Review F9: an edit to the container-watch watchdog or its two panel files runs the no-kill gate
 // before the commit, not only at the push; a deletion does too (the gate judges what remains).
 func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
