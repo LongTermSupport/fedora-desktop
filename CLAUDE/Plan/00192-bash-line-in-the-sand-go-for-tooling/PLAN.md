@@ -115,6 +115,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (E6a, B15); F4 `CLAUDE/QA.md` updated; F5 stdout write failure now an `ERROR:` line (E3, B17);
   F6 (`-x` is root's view, any execute bit) and F7 (four passes over each file) are info only,
   accepted, no change.
+  `qa-nokill-containerwatch.bash` (P3) on `go-port/qa-nokill-containerwatch`: ported, not merged;
+  spec [SPEC-qa-nokill-containerwatch.md](SPEC-qa-nokill-containerwatch.md) (E1-E15, 15 departures
+  B1-B15: recursive Python scope, no pass on no Python, what git would publish, the `[engine, "stop"`
+  hole, multi-line argv, `.kill(`/`.terminate(`/`killall` rules, containment judged with everything
+  else reported); nested `src-go/qa/nokill`, `qa/cmd/qa-nokill-containerwatch`; the script a
+  build-and-run wrapper, its allowlist row gone; same verdict as the bash on the live tree (7 files
+  counted against 6: containment.py is counted now). The cut-over also fixed a latent `qa-changed`
+  defect: a changed gate script whose row reads a detail line was judged by the case-count reader
+  and failed as "proved nothing"; it is now judged by its own reader (`qa/changed` `judgeSuite`).
 
 ### Phase 4: Review
 

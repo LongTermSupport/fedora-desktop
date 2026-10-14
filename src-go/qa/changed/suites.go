@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -17,6 +18,31 @@ import (
 type pickedSuite struct {
 	name string // scripts/<name>.bash
 	why  []string
+	// detail is the row's detail reader when the gate answers a line of its own rather than a
+	// case count; nil for a count gate.
+	detail *regexp.Regexp
+}
+
+// detailReaders maps each gate script of scripts/qa-gates.tsv whose row reads a detail line to
+// that reader: such a gate, picked as a suite, is judged by it (it prints no "passed: <n>").
+func detailReaders(scripts string) (map[string]*regexp.Regexp, error) {
+	table, err := gates.Load(filepath.Join(scripts, "qa-gates.tsv"))
+	if err != nil {
+		return nil, err
+	}
+	readers := map[string]*regexp.Regexp{}
+	for _, g := range table {
+		name, ok := g.Script()
+		if !ok {
+			continue
+		}
+		for _, r := range g.Readers {
+			if r.Detail != nil {
+				readers[name] = r.Detail
+			}
+		}
+	}
+	return readers, nil
 }
 
 // loadPopulation is the suites that may run: the scripts of the rows of scripts/qa-gates.tsv,
@@ -153,6 +179,10 @@ func (s *session) selectSuites(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	details, err := detailReaders(s.scripts)
+	if err != nil {
+		return err
+	}
 	changed := slices.Concat(s.plan.existing, s.plan.deleted)
 	for _, name := range population {
 		suite := "scripts/" + name
@@ -175,7 +205,7 @@ func (s *session) selectSuites(ctx context.Context) error {
 			}
 		}
 		if len(why) > 0 {
-			s.plan.suites = append(s.plan.suites, pickedSuite{name: suite, why: why})
+			s.plan.suites = append(s.plan.suites, pickedSuite{name: suite, why: why, detail: details[name]})
 		}
 	}
 	s.settleUncovered()

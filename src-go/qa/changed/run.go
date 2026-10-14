@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -322,12 +323,26 @@ func (s *session) execute(ctx context.Context) ExitCode {
 		}
 		name, reasons := "suite "+strings.TrimPrefix(suite.name, "scripts/"), "("+strings.Join(suite.why, "; ")+")"
 		if o == passed {
-			o, reasons, res.output = judgeCount(res.output, reasons)
+			o, reasons, res.output = judgeSuite(res.output, reasons, suite.detail)
 		}
 		s.report(name, reasons, res, o)
 		record(name, o)
 	}
 	return s.verdict(failures, cannot)
+}
+
+// judgeSuite settles a suite that exited 0: by the row's detail line when its gate reads one
+// (that line carries into the stage line; none matching means it proved nothing), else by its
+// case count.
+func judgeSuite(output, reasons string, detail *regexp.Regexp) (outcome, string, string) {
+	if detail == nil {
+		return judgeCount(output, reasons)
+	}
+	text, found := gates.Detail(output, detail)
+	if !found {
+		return cannotRun, reasons, "the suite exited 0 but its detail pattern matched no line, so it proved nothing\n" + output
+	}
+	return passed, text + " " + reasons, output
 }
 
 // judgeCount settles a suite that exited 0 by its count line, the reader qa-all uses: a count
