@@ -327,6 +327,10 @@ class EmojiSequenceTest(unittest.TestCase):
             ("\U0001f525\u200d\u200d\U0001f525", '"\U0001f525\\u200d\\u200d\U0001f525"'),
             ("\U0001f525\u200d\u2764", '"\U0001f525\u200d\u2764"'),
             ("\u27a4\u200d\U0001f525", '"\\u27a4\\u200d\U0001f525"'),  # an escaped base
+            # A follower in a pictograph block that is itself escaped (outside the allow-list).
+            ("\U0001f469\u200d\u2b08", '"\U0001f469\\u200d\\u2b08"'),
+            ("\U0001f469\u200d\U0001f0a1", '"\U0001f469\\u200d\\ud83c\\udca1"'),
+            ("\U0001f469\u200d\U0001f650", '"\U0001f469\\u200d\\ud83d\\ude50"'),
             ("1\ufe0f", '"1\\ufe0f"'), ("1\ufe0fx", '"1\\ufe0fx"'),
             ("a\ufe0f\u20e3", '"a\\ufe0f\\u20e3"'),
         ):

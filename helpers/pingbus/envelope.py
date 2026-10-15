@@ -260,10 +260,13 @@ def _shown(char: str, previous: str | None, marks: int) -> bool:
 
 
 def _pictograph(char: str | None) -> bool:
-    """Whether `char` is an emoji pictograph an emoji sequence may join."""
-    if char is None or unicodedata.category(char) != "So" or ord(char) in _ESCAPED:
+    """Whether `char` is an emoji pictograph an emoji sequence may join: a `So` symbol of the
+    pictograph blocks that is itself shown, so a joiner never sits bare beside an escape."""
+    if char is None or unicodedata.category(char) != "So":
         return False
-    return any(low <= ord(char) <= high for low, high in _PICTOGRAPH_BLOCKS)
+    if not any(low <= ord(char) <= high for low, high in _PICTOGRAPH_BLOCKS):
+        return False
+    return _shown(char, None, 0)
 
 
 def _in_sequence(char: str, previous: str | None, in_emoji: bool, following: str | None) -> bool:
