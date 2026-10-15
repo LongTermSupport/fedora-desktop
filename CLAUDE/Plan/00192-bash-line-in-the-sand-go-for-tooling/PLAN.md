@@ -355,6 +355,13 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   go-qa-ci toolchain is to replace. Owner's decision (2026-10-15): not ported; the owner makes
   `go-qa-ci` public, then Plan 00191 Task 3.3 pins it and retires `scripts/qa-go.bash`, which
   closes this task. Blocked on that owner action.
+  `vmtest` (P5) on `go-port/vmtest`: ported and cut over, not merged; spec
+  [SPEC-vmtest.md](SPEC-vmtest.md) (E1-E60, B1-B17), `src-go/cmd/vmtest` and
+  `src-go/internal/vmtest`, the Python helpers kept behind one seam; the lab play builds the
+  binary, the bash CLI and its four suites are gone (their cases are Go tests), and the qa-all
+  golden restores their rows (`retiredAfterPort`). Booting is proven only on the host (SPEC
+  section 7, H1-H6, queued in `meta-deploy.list`); report
+  `subagent-reports/261015-vmtest-port-opus.md`.
 
 ### Phase 4: Review
 
