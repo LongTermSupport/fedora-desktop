@@ -362,6 +362,14 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   golden restores their rows (`retiredAfterPort`). Booting is proven only on the host (SPEC
   section 7, H1-H6, queued in `meta-deploy.list`); report
   `subagent-reports/261015-vmtest-port-opus.md`.
+  `ftp-camera` (P8, the ftp-camera part; `wsi` and `watermark` not started) on
+  `go-port/ftp-camera`: ported and cut over, not merged; spec
+  [SPEC-ftp-camera.md](SPEC-ftp-camera.md) (E1-E65, B1-B23), `src-go/cmd/ftp-camera` and
+  `src-go/internal/ftpcamera`, with `internal/rclonerc` (the Go twin of `rclone-rc-auth.bash`,
+  which stays for the bash rclone helpers) and root systemctl verbs in `internal/systemd`;
+  `play-ftp-camera.yml` builds the binary, the bash script and its allowlist row are gone.
+  Proven only on the host with a camera (SPEC section 7, H1-H5, queued in `meta-deploy.list`);
+  report `subagent-reports/261015-ftp-camera-port-opus.md`.
 
 ### Phase 4: Review
 

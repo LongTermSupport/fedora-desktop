@@ -39,6 +39,7 @@ const (
 	agentbusPkg  = "internal/agentbus"
 	hostPkg      = "internal/teams/host"
 	opsPkg       = "internal/teams/ops"
+	ftpcameraPkg = "internal/ftpcamera"
 )
 
 // commandOwners maps a program to the packages that own every use of it, so its flags and
@@ -62,7 +63,7 @@ var commandOwners = map[string][]string{
 	"lxc-freeze":   {lxcfreezePkg},
 	"lxc-unfreeze": {lxcfreezePkg},
 	"lxc-attach":   {lxcfreezePkg},
-	"nmcli":        {lxcfreezePkg},
+	"nmcli":        {lxcfreezePkg, ftpcameraPkg},
 }
 
 // programRunner is a function or method that runs the program named by its arguments from
@@ -88,6 +89,8 @@ var programRunners = []programRunner{
 	{pkg: sudoPkg, recv: sudoType, method: "Run", argIndex: 1},
 	{pkg: lxcfreezePkg, recv: "Engine", method: "runAct", argIndex: 1},
 	{pkg: lxcfreezePkg, recv: "Engine", method: "probe", argIndex: 1},
+	{pkg: ftpcameraPkg, recv: "cli", method: "asRoot", argIndex: 1},
+	{pkg: ftpcameraPkg, recv: "cli", method: "rootCapture", argIndex: 1},
 }
 
 // shells are interpreters that run a string given with -c; handing one to the runner is the
@@ -156,6 +159,21 @@ var dynamicNames = []allowance{
 		pkg:    agentbusPkg,
 		fn:     "Client.rootShow",
 		reason: "streams the root tool its caller names; the callers pass the sudo.AgentBus and sudo.InstallTool paths",
+	},
+	{
+		pkg:    ftpcameraPkg,
+		fn:     "cli.asRoot",
+		reason: "runs the root command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    ftpcameraPkg,
+		fn:     "cli.rootCapture",
+		reason: "runs the root command its caller names; every caller is itself judged as a program runner",
+	},
+	{
+		pkg:    ftpcameraPkg,
+		fn:     "cli.execVault",
+		reason: "the checkout's vault.bash, whose path is REPO_PATH in /etc/ftp-camera/config",
 	},
 }
 
