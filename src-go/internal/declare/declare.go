@@ -87,7 +87,19 @@ type Team struct {
 	URL        string // empty when the entry has no address to reach it on
 	// Description is what the team is for; empty when the entry sets none (or a vaulted one).
 	Description string
+	// DescriptionState is set when the entry has a description that cannot be shown: it is
+	// vaulted, or fails the team file's grammar. Description is then empty.
+	DescriptionState DescriptionState
 }
+
+// DescriptionState says why a team's description is not shown.
+type DescriptionState string
+
+// The two states declare.py marks with !vaulted and !invalid.
+const (
+	DescriptionVaulted DescriptionState = "vaulted"
+	DescriptionInvalid DescriptionState = "invalid"
+)
 
 // Status is a STATUS line: whether a team is applied as declared.
 type Status struct {
@@ -199,7 +211,13 @@ func parseTeams(out string) ([]Team, error) {
 				return nil, fmt.Errorf("declare declared: team %s: port %q is not a number", f[1], f[2])
 			}
 		}
-		if f[6] != "-" {
+		switch f[6] {
+		case "-":
+		case "!vaulted":
+			team.DescriptionState = DescriptionVaulted
+		case "!invalid":
+			team.DescriptionState = DescriptionInvalid
+		default:
 			if err = json.Unmarshal([]byte(f[6]), &team.Description); err != nil {
 				return nil, fmt.Errorf("declare declared: team %s: description %q is not a JSON string", f[1], f[6])
 			}

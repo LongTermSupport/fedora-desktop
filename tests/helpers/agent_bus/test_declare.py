@@ -759,15 +759,27 @@ class DescriptionFieldTest(unittest.TestCase):
             self.assertEqual(declare.entry_of(declare.parse(path.read_text(encoding="utf-8")).teams[0])["description"],
                              "A # b")
 
-    def test_a_vaulted_description_shows_as_none_and_does_not_end_the_listing(self) -> None:
-        text = STATUS_HV.replace("  - team: gamma\n", "  - team: gamma\n    description: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n", 1)
+    def listing(self, injected: str) -> list[list[str]]:
+        text = STATUS_HV.replace("  - team: gamma\n", "  - team: gamma\n" + injected, 1)
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "localhost.yml"
             path.write_text(text, encoding="utf-8")
             stdout = io.StringIO()
             self.assertEqual(declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=io.StringIO()), 0)
-        self.assertIn("\t-\t-\n", stdout.getvalue())
-        self.assertEqual(len(stdout.getvalue().splitlines()), 5)
+        rows = [line.split("\t") for line in stdout.getvalue().splitlines()]
+        self.assertEqual(len(rows), 5)
+        self.assertTrue(all(len(r) == 7 for r in rows))
+        return rows
+
+    def test_a_vaulted_description_is_marked_vaulted_not_none(self) -> None:
+        rows = self.listing("    description: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n")
+        self.assertEqual(rows[2][6], "!vaulted")
+
+    def test_a_description_that_fails_the_grammar_never_reaches_the_listing(self) -> None:
+        for bad in ('"a\\tb"', '"x\\ny"', '" padded"', '"' + "x" * 121 + '"', '"a\\u202eb"'):
+            with self.subTest(bad=bad):
+                rows = self.listing(f"    description: {bad}\n")
+                self.assertEqual(rows[2][6], "!invalid")
 
 
 class CommandCase(unittest.TestCase):

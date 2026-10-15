@@ -134,9 +134,8 @@ A team is a group of agents and humans working around one project. It has:
 - a description, one line of up to 120 characters saying what the team is for. `ccy-teams create`
   asks for it, and `ccy-teams` offers once to add one to a team made without. It is shown wherever
   teams are listed or chosen, and to its agents (`pingbus status`, the session's start-up
-  context) and in Element as the room topic. Setting or changing it restarts no homeserver, but
-  every member must have the current pingbus first (an older one reads the team record as
-  untrusted);
+  context) and in Element, all through the room topic. Setting or changing it restarts no
+  homeserver, and an older pingbus simply shows none;
 - what it trusts: the GitHub owner (`org`, an organisation or a user) whose repositories
   pings may refer to, on any branch but never in a fork; and, or instead, repositories of
   any owner (`repos`), each on any branch, or only at the `branches` its entry lists. Any

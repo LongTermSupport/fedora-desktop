@@ -302,8 +302,7 @@ class SessionStartTest(HookCase):
 
     def test_a_team_with_a_description_says_what_it_is_for(self):
         """Plan 00201 S-A11: one line per team that has a description."""
-        record = dict(self.record(TEAM, SN), description="Builds the example site")
-        self.state.save_team_record(record)
+        self.state.save_about("Builds the example site")
         context = self.context(self.start())
         self.assertIn(hooks.fill("team_about", team=TEAM, description="Builds the example site"), context)
         self.assertIn(f"agent-bus: team {TEAM} is for: Builds the example site", context)

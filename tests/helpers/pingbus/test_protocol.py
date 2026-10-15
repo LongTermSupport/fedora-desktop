@@ -1471,21 +1471,12 @@ class TestTeamRecord(unittest.TestCase):
                 self.parse(body)
         self.parse(dict(good, repos=listed, exclude=["hidden"]))
 
-    def test_description(self) -> None:
-        """Plan 00201: an optional `description`, what the team is for (1 to 120 characters,
-        one line); None when absent."""
-        good = self.good()
-        self.assertIsNone(self.parse(good).description)
-        self.assertEqual(self.parse(dict(good, description="Builds the example site")).description,
-                         "Builds the example site")
-        self.parse(dict(good, description="x" * p.DESCRIPTION_MAX))
-        for label, bad in (("empty", ""), ("too long", "x" * (p.DESCRIPTION_MAX + 1)),
-                           ("leading space", " lead"), ("trailing space", "trail "),
-                           ("newline", "two\nlines"), ("tab", "a\tb"), ("bidi override", "a‮b"),
-                           ("zero width", "a​b"), ("not a string", 5), ("null", None), ("list", ["a"])):
-            with self.subTest(case=label), self.assertRaises(p.Untrusted) as caught:
-                self.parse(dict(good, description=bad))
-            self.assertEqual(str(caught.exception), "description")
+    def test_a_description_key_is_not_part_of_the_record(self) -> None:
+        """Plan 00201: the description travels in the room topic, so an unknown `description`
+        key still makes the record untrusted and the key set is the one every release reads."""
+        self.assertNotIn("description", p.TEAM_KEYS)
+        with self.assertRaises(p.Untrusted):
+            self.parse(dict(self.good(), description="Builds the example site"))
 
     def test_refusals(self) -> None:
         good = self.good()

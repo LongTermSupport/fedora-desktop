@@ -261,6 +261,20 @@ func TestATeamRowsMemberCellIsItsDescription(t *testing.T) {
 	}
 }
 
+func TestAVaultedOrInvalidDescriptionIsSaidNotShownAsNone(t *testing.T) {
+	for state, want := range map[string]string{"!vaulted": "(description vaulted)", "!invalid": "(description invalid)"} {
+		h := populated(t)
+		h.OnDeclare("declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t"+state+"\n")
+		s, err := h.c.Collect(t.Context())
+		if err != nil {
+			t.Fatalf("%v: %s", err, h.ErrOut.String())
+		}
+		if got := s.Rows[0].Member; got != want {
+			t.Fatalf("%s: team row says %q, want %q", state, got, want)
+		}
+	}
+}
+
 func TestCollectGivesASeatRowItsMembersRole(t *testing.T) {
 	h := populated(t)
 	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,

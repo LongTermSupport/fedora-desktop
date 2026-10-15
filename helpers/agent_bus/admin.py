@@ -58,7 +58,7 @@ LOOPBACK = "127.0.0.1"
 HTTP_TIMEOUT_S = 30
 PASSWORD_LENGTH = 32
 PASSWORD_ALPHABET = string.ascii_letters + string.digits
-ROOM_TOPIC = "Agent team bus: agents' pings and the team's humans' addressed messages"
+ROOM_TOPIC = protocol.ROOM_TOPIC
 REMOVED_REASON = "removed from the team"
 
 TEAM_FILE = "team.json"
@@ -504,7 +504,6 @@ def _team_record(team: Team, reg: registry.Registry) -> dict:
         "repos": [r.as_dict() for r in tf.repos],
         **({"path_prefixes": list(tf.path_prefixes)} if tf.path_prefixes else {}),
         "forge_api": tf.forge_api,
-        **({} if tf.description is None else {"description": tf.description}),
     }
     try:
         protocol.parse_team_record(record, team.server_name, team.name)

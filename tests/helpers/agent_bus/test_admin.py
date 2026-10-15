@@ -240,20 +240,22 @@ class BootstrapTest(AdminTestCase):
         self.assertEqual(status, 200)
         return content["topic"]
 
-    def test_the_record_carries_the_description_and_a_change_is_applied(self) -> None:
-        """Plan 00201 S-A8: `description` reaches the team record; the key leaves with it."""
+    #: The record keys every release before the description read (spec section 8).
+    OLD_RECORD_KEYS = frozenset({"v", "team", "humans", "roles", "org", "exclude", "repos",
+                                 "path_prefixes", "forge_api"})
+
+    def test_the_record_never_carries_the_description_so_an_old_reader_is_unaffected(self) -> None:
+        """Plan 00201: the description travels in the room topic. A record written by this admin
+        for a team that has one uses only the old key set and validates under it."""
         self.write_team(team_data(description="Builds the example site"))
         self.bootstrap()
         _, record_event = self.state(protocol.EVENT_TEAM, event=True)
-        self.assertEqual(record_event["content"]["description"], "Builds the example site")
-        record = protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
-        self.assertEqual(record.description, "Builds the example site")
-        self.write_team(team_data(description="Reviews the example site"))
-        self.assertIn("team record", self.bootstrap())
-        self.write_team(team_data())
-        self.assertIn("team record", self.bootstrap())
-        _, record_event = self.state(protocol.EVENT_TEAM, event=True)
-        self.assertNotIn("description", record_event["content"])
+        content = record_event["content"]
+        self.assertLessEqual(set(content), self.OLD_RECORD_KEYS)
+        self.assertNotIn("description", content)
+        old_keys = tuple(k for k in protocol.TEAM_KEYS if k in self.OLD_RECORD_KEYS)
+        self.assertEqual(old_keys, protocol.TEAM_KEYS)
+        protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
 
     def test_the_room_topic_is_the_description_or_the_fixed_sentence(self) -> None:
         """S-A9: set on every apply, only when it differs; `CHANGED topic` when it was set."""

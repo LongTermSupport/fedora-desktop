@@ -176,7 +176,7 @@ class TeamView:
     #: and empty where the record could not be read: `failure` says why).
     role: str | None = None
     coordinators: tuple[str, ...] = ()
-    #: What the team is for, from the cached team record (None where it has none).
+    #: What the team is for, from the cached room topic (None where it has none).
     description: str | None = None
 
     @property
@@ -226,8 +226,12 @@ def _team_view(member: config.Member) -> TeamView:
         return TeamView(member.team, holder, None, "state")
     handles = tuple(protocol.parse_user_id(user, member.server_name)
                     for user in protocol.coordinators(record.roles))
+    try:
+        description = state.about()
+    except inbox.StateError:
+        return TeamView(member.team, holder, None, "state")
     return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles,
-                    record.description)
+                    description)
 
 
 def survey(environ: Mapping[str, str]) -> Survey:

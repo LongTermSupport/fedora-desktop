@@ -17,16 +17,18 @@ Two version numbers move independently — see
 
 ---
 
-## 3.97.3 — container 2.57
+## 3.97.4 — container 2.57
 
-- **A team's description reaches its agents.** The team record gains an optional `description`
-  (a version-1 widening like `exclude`: a pingbus built before it reads a record carrying one as
-  untrusted, so every member takes this image before any team sets a description). `pingbus
-  status` prints an `ABOUT` line after a trusted team's `TEAM` line, and SessionStart adds
-  "agent-bus: team TEAM is for: ..." per team that has one. The team room's Element topic is
-  set to the description on every apply (the fixed sentence when there is none); a description
-  change restarts no homeserver. The client and skill are in the image, so the container version
-  moves to 2.57 and the image is rebuilt once.
+- **A team's description reaches its agents, through the room topic.** The admin sets the
+  team room's `m.room.topic` to the team's description on every apply (the fixed sentence when
+  there is none); the syncer reads it (only from an event the admin sent, and only if it passes
+  the 1 to 120 character grammar) into `about.json`. `pingbus status` prints an `ABOUT` line
+  after a trusted team's `TEAM` line, and SessionStart adds "agent-bus: team TEAM is for: ..."
+  per team that has one. The trusted team record is unchanged and old readers ignore the topic,
+  so there is no upgrade-first hazard: a member on an older image or an older host zipapp (the
+  agent-bus play updates that one) simply shows no description. A description change restarts no
+  homeserver. The client and skill are in the image, so the container version moves to 2.57 and
+  the image is rebuilt once.
 
 ## 3.97.2 — container 2.56
 

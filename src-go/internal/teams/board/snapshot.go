@@ -28,9 +28,11 @@ type Snapshot struct {
 	Server map[string]string
 	// Description is what each declared team is for; empty for a team that has none.
 	Description map[string]string
-	Loaded      map[string]bool   // the team has a homeserver unit
-	Active      map[string]string // the unit's ACTIVE word from the one list-units pass
-	Status      map[string]declare.Status
+	// DescriptionState says a team's description cannot be shown (vaulted, invalid).
+	DescriptionState map[string]declare.DescriptionState
+	Loaded           map[string]bool   // the team has a homeserver unit
+	Active           map[string]string // the unit's ACTIVE word from the one list-units pass
+	Status           map[string]declare.Status
 
 	Live        map[string]int    // tmux session name -> attached clients
 	SeatSession map[string]string // "<dir>|<seat>@<team>" -> registry session name
@@ -54,7 +56,8 @@ type Snapshot struct {
 func NewSnapshot() *Snapshot {
 	return &Snapshot{
 		Port: map[string]string{}, URL: map[string]string{}, Server: map[string]string{}, Description: map[string]string{},
-		Loaded: map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
+		DescriptionState: map[string]declare.DescriptionState{},
+		Loaded:           map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
 		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{},
 		Members: map[string]agentbus.Roster{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
 		Sessions: map[string]int{},
@@ -124,6 +127,9 @@ func (s *Snapshot) HoldsLiveSeat(top, team string) bool {
 
 // aboutTeam is the team row's MEMBER cell: what the team is for, whole.
 func (s *Snapshot) aboutTeam(team string) string {
+	if state := s.DescriptionState[team]; state != "" {
+		return "(description " + string(state) + ")"
+	}
 	if about := s.Description[team]; about != "" {
 		return about
 	}
@@ -143,6 +149,7 @@ func (s *Snapshot) addDeclared(seen map[string]bool, declared []declare.Team) {
 		}
 		s.Server[t.Name] = t.ServerName
 		s.Description[t.Name] = t.Description
+		s.DescriptionState[t.Name] = t.DescriptionState
 		if t.URL != "" {
 			s.URL[t.Name] = t.URL
 		}

@@ -71,6 +71,11 @@ class StatusCase(bus.BusCase):
     def members(self, rows: list[list[str]]) -> dict[str, tuple[str, str]]:
         return {r[2]: (r[3], r[4]) for r in rows if r[0] == "MEMBER"}
 
+    def set_topic(self, text: str) -> None:
+        a = self.a
+        a.call(a.admin, "PUT", f"/_matrix/client/v3/rooms/{bus.q(a.room)}/state/m.room.topic/",
+               {"topic": text, "m.topic": {"m.text": [{"body": text}]}})
+
     def put_status(self, uid: str, until_ms: int, key: str | None = None) -> None:
         a = self.a
         a.call(uid, "PUT", f"/_matrix/client/v3/rooms/{bus.q(a.room)}/state/"
@@ -103,7 +108,7 @@ class StatusTest(StatusCase):
     def test_about_line_carries_the_description_after_the_team_line(self):
         """Plan 00201 S-A10: a trusted team whose record has a description prints
         `ABOUT 1 <team> <description as a JSON string>` right after its TEAM line."""
-        self.a.set_record(dict(self.a.record, description='Builds the "example" site é'))
+        self.set_topic('Builds the "example" site é')
         self.joined()
         code, rows, _ = self.report()
         self.assertEqual(code, cli.EXIT_OK)
@@ -115,6 +120,29 @@ class StatusTest(StatusCase):
         self.assertTrue(about[3].isascii())
 
     def test_no_about_line_without_a_description(self):
+        self.joined()
+        self.assertNotIn("ABOUT", [r[0] for r in self.report()[1]])
+
+    def test_the_fixed_topic_sentence_is_no_description(self):
+        self.set_topic(protocol.ROOM_TOPIC)
+        self.joined()
+        self.assertNotIn("ABOUT", [r[0] for r in self.report()[1]])
+
+    def test_a_topic_that_fails_the_grammar_is_ignored_and_costs_no_trust(self):
+        self.set_topic("two\nlines")
+        self.joined()
+        code, rows, _ = self.report()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(self.team_line(rows)["trust"], "trusted")
+        self.assertNotIn("ABOUT", [r[0] for r in rows])
+
+    def test_a_changed_topic_replaces_the_cached_description(self):
+        self.set_topic("First")
+        self.joined()
+        self.set_topic("Second")
+        self.joined()
+        self.assertEqual(json.loads(self.report()[1][1][3]), "Second")
+        self.set_topic(protocol.ROOM_TOPIC)
         self.joined()
         self.assertNotIn("ABOUT", [r[0] for r in self.report()[1]])
 

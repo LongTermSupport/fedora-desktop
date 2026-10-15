@@ -176,18 +176,20 @@ func TestARefusedDescriptionIsAskedAgainWithWhatWasTyped(t *testing.T) {
 	}
 }
 
-func TestADescriptionThatCannotBeAppliedIsSaidAndGoesOn(t *testing.T) {
+func TestADescriptionWhoseApplyFailsFailsTheFlowAndNamesTheRetry(t *testing.T) {
 	h := newRig(t)
 	h.OnDeclare("undescribed", undescribedAlpha)
 	h.OnDeclare("check", "")
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
 	h.OnErr(h.Host.Play, "play failed", 1)
 	h.Script.Gum = []string{"YES", "CHOOSE:Builds the example site"}
-	if err := h.p.offerDescriptions(context.Background()); err != nil {
-		t.Fatalf("a failed apply does not end the picker: %v", err)
+	err := h.p.offerDescriptions(context.Background())
+	code, left := flow.ExitCodeOf(err)
+	if !left || code != term.ExitFailure {
+		t.Fatalf("a failed apply must end the flow with a failure, got %v", err)
 	}
-	if !strings.Contains(h.ErrOut.String(), "(ccy-teams apply alpha failed: see above.)\n") {
-		t.Fatalf("stderr %q", h.ErrOut.String())
+	if !strings.Contains(h.ErrOut.String(), "ccy-teams apply alpha") {
+		t.Fatalf("stderr %q lacks the retry", h.ErrOut.String())
 	}
 }
 

@@ -72,7 +72,9 @@ func TestDeclared(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds: the \\\"site\\\"\"\n"+
 		"TEAM\told\t-\tabsent\told.agent-bus.internal\t-\t-\n"+
-		"TEAM\tdash\t-\tabsent\tdash.agent-bus.internal\t-\t\"-\"\n")
+		"TEAM\tdash\t-\tabsent\tdash.agent-bus.internal\t-\t\"-\"\n"+
+		"TEAM\tsafe\t-\tabsent\tsafe.agent-bus.internal\t-\t!vaulted\n"+
+		"TEAM\tbad\t-\tabsent\tbad.agent-bus.internal\t-\t!invalid\n")
 	teams, err := newClient(f).Declared(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +86,8 @@ func TestDeclared(t *testing.T) {
 		},
 		{Name: "old", ServerName: "old.agent-bus.internal"},
 		{Name: "dash", ServerName: "dash.agent-bus.internal", Description: "-"},
+		{Name: "safe", ServerName: "safe.agent-bus.internal", DescriptionState: DescriptionVaulted},
+		{Name: "bad", ServerName: "bad.agent-bus.internal", DescriptionState: DescriptionInvalid},
 	}
 	if !reflect.DeepEqual(teams, want) {
 		t.Fatalf("got %+v", teams)

@@ -21,7 +21,7 @@ trusted reference may name any path in the team's repositories (a team narrows i
 
     python3 -m helpers.agent_bus.declare declared --file <localhost.yml>
         TEAM<TAB><team><TAB><port or -><TAB><present|absent><TAB><server_name><TAB><url or -><TAB>
-        <description as a JSON string, or -> per entry; the URL is http://<first listen address,
+        <description as a JSON string; - none, !vaulted, !invalid> per entry; the URL is http://<first listen address,
         or agent_bus_address>:<port>
     python3 -m helpers.agent_bus.declare create --file <localhost.yml> --team T --human NAME...
             (--org ORG | --repo OWNER/REPO...) --description TEXT [--allow-from CIDR]... [--dry-run]
@@ -946,14 +946,19 @@ def _read(path: pathlib.Path) -> str:
 
 
 def _description_field(team: Declared) -> str:
-    """The description as a JSON string, or a bare `-` for none (so a description that is
-    itself `-` stays distinct). A value ccy-teams cannot read (vaulted) shows as none: the
-    team's `status` row already says it is unreadable, and one entry must not end the listing."""
+    """The description as a JSON string, `-` for none (so a description that is itself `-`
+    stays distinct), `!vaulted` for one ccy-teams cannot read, or `!invalid` for one the team
+    file would refuse (it never reaches a table row). One entry must not end the listing:
+    the team's `status` row already says it is unreadable."""
     try:
         found = _raw_value(team, "description")
     except DeclareError:
+        return "!vaulted"
+    if found is None:
         return "-"
-    return json.dumps(found, ensure_ascii=False) if isinstance(found, str) else "-"
+    if not protocol.is_description(found):
+        return "!invalid"
+    return json.dumps(found, ensure_ascii=False)
 
 
 def declared(args: argparse.Namespace, out: TextIO) -> int:

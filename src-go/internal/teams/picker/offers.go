@@ -163,7 +163,9 @@ func (p *Picker) askDescription(ctx context.Context, team declare.Undescribed, m
 		return flow.Leave(term.ExitFailure)
 	}
 	if err := p.Ops.ApplyTeams(ctx, []string{team.Team}); err != nil {
-		p.Kit.Tell("(ccy-teams apply " + team.Team + " failed: see above.)")
+		p.Kit.Term.PrintError("team " + team.Team + " now has its description in the host_vars but is not applied as declared. " +
+			"Once the cause above is fixed, ccy-teams apply " + team.Team + " applies it.")
+		return flow.Leave(term.ExitFailure)
 	}
 	return nil
 }
