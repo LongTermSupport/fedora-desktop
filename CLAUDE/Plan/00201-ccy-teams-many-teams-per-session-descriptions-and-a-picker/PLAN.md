@@ -45,28 +45,32 @@ change the bus protocol unless the research shows it must.
 
 ### Phase 1: Research and spec
 
-- [ ] 🔄 **Task 1.1**: Map the current design. Cover:
+- [x] ✅ **Task 1.1**: Map the current design and record, for each piece, whether it assumes
+  one team per session: [RESEARCH-current-design.md](RESEARCH-current-design.md). Several
+  teams already work end to end through `ccy --teams 1@alpha,2@beta` (unit-tested, never run
+  live); the one-team assumptions are the bare-`--teams` chooser and the picker's
+  join offer. `cc --teams` has drifted from ccy (one team, no chooser).
 
-  - how `ccy --teams` picks a team (`src-go/internal/teams/find`, the ccy launcher);
-  - seats and the seat registry;
-  - the member client's per-team state (`pingbus --team`, `status` already lists teams);
-  - the inbox watcher and wake path;
-  - the plugin and the hooks;
-  - the trust check.
+- [ ] 🔄 **Task 1.2**: [SPEC-many-teams.md](SPEC-many-teams.md): numbered expectations for
+  descriptions, the shared chooser (no-cover, several-cover, scope widening), several teams
+  per session, replying to a peer, and `cc` on the same flow. **Waiting on the owner's
+  decisions Q1-Q10** in the spec.
 
-  For each, record whether it assumes one team per session.
+### Phase 2: Build (tests first; milestones M1-M7 of the spec)
 
-- [ ] ⬜ **Task 1.2**: `SPEC-many-teams.md`: numbered expectations for multi-team seats, team
-  descriptions (where declared, validated, shown), and the picker (no-cover, several-cover,
-  scope widening), with fail-fast cases. Owner reviews the decisions it raises.
-
-### Phase 2: Build (tests first)
-
-- [ ] ⬜ **Task 2.1**: Team descriptions, end to end.
-- [ ] ⬜ **Task 2.2**: The picker for an uncovered checkout, with scope widening.
-- [ ] ⬜ **Task 2.3**: Several teams per session.
-- [ ] ⬜ **Task 2.4**: Host run through `meta-deploy.bash`; the owner launches a session on two
-  teams from an uncovered checkout. qa-reviewer over the plan.
+- [ ] ⬜ **Task 2.1**: M1, descriptions declared and shown on the host.
+- [ ] ⬜ **Task 2.2**: M2, descriptions reach agents (team record, room topic, `pingbus status`,
+  SessionStart); container bump.
+- [ ] ⬜ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's
+  short name.
+- [ ] ⬜ **Task 2.4**: M4, the shared chooser in Go (`ccy-teams choose-teams`), scope widening,
+  ccy wired.
+- [ ] ⬜ **Task 2.5**: M5, several teams per session: multi-select, launch block, status line,
+  `send`/`say` team inference.
+- [ ] ⬜ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it.
+- [ ] ⬜ **Task 2.7**: M7, host run through `meta-deploy.bash`; the owner launches a session on
+  two teams from an uncovered checkout; the two-team acceptance leg. qa-reviewer over the
+  plan.
 
 ## Success Criteria
 
