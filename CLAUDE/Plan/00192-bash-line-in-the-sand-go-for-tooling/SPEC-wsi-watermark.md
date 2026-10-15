@@ -280,7 +280,7 @@ Python and are run from the directory the binary is in.
   `<key> must be <kind>, got '<value>'`, exit 2.
 - M8. The image must be a regular file (`no such file: <path>`), named `.jpg`, `.jpeg` or
   `.png` in any case (`unsupported extension (JPEG and PNG only): <path>`), and its content a
-  JPEG or PNG (`input mime type '<type>' is not image/jpeg or image/png: <path>`); exit 2.
+  JPEG or PNG by its signature (`input content is not a JPEG or PNG image: <path>`); exit 2.
 - M9. Already watermarked, unless `--force`: a name ending `.watermarked.<ext>` (any case), or
   `exiftool -config <cfg> -s3 -XMP-wm:Applied -- <image>` printing `True`: stderr
   `watermark: skip (<reason>): <absolute image path>`, the absolute path on stdout, exit 3. A

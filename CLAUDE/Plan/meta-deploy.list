@@ -23,3 +23,10 @@
 # Redeploys ssh-suspend-guard with its startup trap and "started" log moved below the
 # test cut marker. Host behaviour is unchanged; the deployed script matches the repo again.
 playbooks/imports/play-prevent-ssh-suspend.yml
+# Plan 00192 (watermark port): the watermarking play now builds /usr/local/bin/watermark from
+# src-go/cmd/watermark (installing the Go toolchain first) in place of the bash script, and
+# redeploys the example config whose comments now say the files are read, not sourced. After
+# it runs, `watermark --profile <name> photo.jpg` twice (the second exits 3) proves the binary
+# (SPEC-wsi-watermark.md section 7, H3). A config file that relied on being sourced (a `$`
+# expansion, an unquoted space) is now refused with its file and line.
+playbooks/imports/optional/common/play-image-watermarking.yml

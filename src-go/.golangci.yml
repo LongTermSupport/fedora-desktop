@@ -171,6 +171,11 @@ linters:
       - path: internal/vmtest/
         linters: [gosec]
         text: "G304|G703|G301|G302|G306"
+      # watermark's job is the one image the person names: it reads its signature from the
+      # path given on the command line (SPEC-wsi-watermark.md M8).
+      - path: internal/watermark/image\.go
+        linters: [gosec]
+        text: "G304"
   settings:
     cyclop:
       max-complexity: 15

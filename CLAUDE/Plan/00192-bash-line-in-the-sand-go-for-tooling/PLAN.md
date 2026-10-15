@@ -362,6 +362,11 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   golden restores their rows (`retiredAfterPort`). Booting is proven only on the host (SPEC
   section 7, H1-H6, queued in `meta-deploy.list`); report
   `subagent-reports/261015-vmtest-port-opus.md`.
+  `watermark` and `wsi` (P8, the rest after ftp-camera) on `go-port/wsi-watermark`: spec
+  [SPEC-wsi-watermark.md](SPEC-wsi-watermark.md) (W1-W35, M1-M14, B1-B30). `watermark` ported
+  and cut over: `src-go/cmd/watermark`, `internal/watermark` (config files read as data, never
+  sourced), shared `internal/shellword`; the play builds it root-owned into `/usr/local/bin`
+  (`build-go-command.yml` gains `go_command_owner`); the bash and its allowlist row are gone.
 
 ### Phase 4: Review
 

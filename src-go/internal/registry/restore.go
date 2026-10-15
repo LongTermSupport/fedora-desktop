@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/screen"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/shellword"
 )
 
 const (
@@ -194,7 +195,7 @@ func Supervised(prefix string, args []string) bool {
 // kills the pane's bash before it gets here, and the record stays. That asymmetry is the whole
 // feature.
 func Trampoline(recordPath, prefix string) string {
-	return `"$@"; rc=$?; rm -f -- ` + shellQuote(recordPath) +
+	return `"$@"; rc=$?; rm -f -- ` + shellword.Quote(recordPath) +
 		`; if [ "$rc" -ne 0 ]; then printf '\n` + formatInSingleQuotes(prefix) + ` exited with status %s. ` + screen.EndedText +
 		`\n' "$rc"; read -r; fi; exit "$rc"`
 }
@@ -206,14 +207,6 @@ func formatInSingleQuotes(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, "%", "%%")
 	return strings.ReplaceAll(s, "'", `'\''`)
-}
-
-// shellQuote quotes s for a POSIX shell, leaving a plain path as it is.
-func shellQuote(s string) string {
-	if s != "" && strings.Trim(s, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_@%+=:./-") == "" {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Problem is a record file that could not be read, with the reader's reason.

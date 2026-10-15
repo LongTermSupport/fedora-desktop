@@ -60,7 +60,6 @@ files/usr/local/bin/agent-bus	119	9	124	-
 files/usr/local/bin/compress	96	2	63	-
 files/usr/local/bin/shutdown-with-update	290	10	298	-
 files/usr/local/bin/uncompress	106	2	80	-
-files/usr/local/bin/watermark	311	6	288	-
 files/usr/local/sbin/agent-bus-install	995	62	1158	assoc,data
 files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	183	2	196	-
