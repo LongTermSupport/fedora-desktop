@@ -53,8 +53,10 @@ change the bus protocol unless the research shows it must.
 
 - [ ] 🔄 **Task 1.2**: [SPEC-many-teams.md](SPEC-many-teams.md): numbered expectations for
   descriptions, the shared chooser (no-cover, several-cover, scope widening), several teams
-  per session, replying to a peer, and `cc` on the same flow. **Waiting on the owner's
-  decisions Q1-Q10** in the spec.
+  per session, replying to a peer, and `cc` on the same flow. Decisions Q1-Q10: the spec's
+  recommendations are taken, by the coordinator, on the owner's instruction of 2026-10-15
+  ("DO NOT GATE ON ME - get this all done properly and pragmatically"). The owner may
+  overrule any of them.
 
 ### Phase 2: Build (tests first; milestones M1-M7 of the spec)
 
