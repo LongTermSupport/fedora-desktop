@@ -31,8 +31,12 @@ playbooks/imports/play-claude-yolo.yml
 # team, homeserver or firewall rule changes. Then SPEC-inject.md section 7, H1-H7, in a
 # relaunched `ccy --teams` session (H4 measures the socket's largest message).
 playbooks/imports/play-agent-bus.yml
-# Plan 00161: its acceptance again, since its M2 leg now reads the delivery envelope's first
-# line and accepts an answer by `pingbus send` as well as `pingbus recv`.
+# Plan 00161: its triage, deploy and acceptance again. Triage now reads the bus address from
+# agent_bus_address in host_vars, as deploy and acceptance do, so H1 and H2 test agentbus0; the
+# deploy's throwaway team zz-deploy-check now names GitHub's API as forge_api, the only one
+# agent-bus-install accepts (it is installed, checked and removed, nothing is contacted); the
+# acceptance's M2 leg reads the delivery envelope's first line and accepts an answer by
+# `pingbus send` as well as `pingbus recv`.
 00161-agent-team-bus-matrix
 # Plan 00201: the automated two-team acceptance again on the new pingbus.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
