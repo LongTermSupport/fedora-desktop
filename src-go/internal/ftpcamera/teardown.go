@@ -33,7 +33,7 @@ func (s *session) teardown(ctx context.Context) error {
 		}
 		return nil
 	}
-	if err := c.sortPass(ctx); err != nil {
+	if err := c.sortPass(ctx); err != nil && !errors.Is(err, errRefused) {
 		c.err.f("note: the sort pass did not complete — continuing with teardown.\n")
 	}
 	return nil
@@ -171,8 +171,8 @@ func (s *session) asyncSummary(ctx context.Context) {
 	t := &s.tally
 	o.f("\n%sAsync summary:%s\n", o.b, o.n)
 	o.f("  Sorted: %s%d%s  Skipped: %s%d%s  Sort errors: %s%d%s\n", o.c, t.moved, o.n, o.c, t.skipped, o.n, o.c, t.errored, o.n)
-	if t.unsorted > 0 {
-		o.f("  %s%d completed upload(s) not sorted — run ftp-camera --sort%s\n", o.y, t.unsorted, o.n)
+	if len(t.unsorted) > 0 {
+		o.f("  %s%d completed upload(s) not sorted — run ftp-camera --sort%s\n", o.y, len(t.unsorted), o.n)
 	}
 	if t.truncated > 0 {
 		o.f("  %sTruncated (rejected): %d%s\n", o.r, t.truncated, o.n)

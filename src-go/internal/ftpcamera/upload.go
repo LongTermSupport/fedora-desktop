@@ -16,9 +16,11 @@ import (
 
 // asyncTally is the per-session count of what the handler did (E57, E59-E63).
 type asyncTally struct {
-	mu                                                            sync.Mutex
-	moved, skipped, errored, copied, copyErr, truncated, unsorted int
-	failed                                                        []string
+	mu                                                  sync.Mutex
+	moved, skipped, errored, copied, copyErr, truncated int
+	failed                                              []string
+	// unsorted holds the files left for --sort by the interrupt, once each (E66).
+	unsorted map[string]bool
 }
 
 func (t *asyncTally) add(field *int) {
@@ -35,6 +37,7 @@ const (
 	sortUnsupported
 	sortNoDate
 	sortFailed
+	sortDuplicate
 	sortVanished
 )
 
@@ -50,12 +53,11 @@ func (s *session) stamp() string { return s.c.env.Now().Format("15:04:05") }
 // stopping, an upload is counted as not sorted rather than handled (E66).
 func (s *session) handle(ctx context.Context, u upload) error {
 	c := s.c
-	rel := c.rel(u.path)
-	if strings.HasPrefix(rel, photoDir+"/") || strings.HasPrefix(rel, videoDir+"/") {
+	if s.inLibrary(u.path) {
 		return nil
 	}
 	if stopping(ctx) {
-		s.notSorted()
+		s.notSorted(u.path)
 		return nil
 	}
 	name := filepath.Base(u.path)
@@ -79,11 +81,24 @@ func stopping(ctx context.Context) bool {
 	}
 }
 
-// notSorted counts a completed upload the async handler did not get to (E66).
-func (s *session) notSorted() {
-	if s.c.opts.async {
-		s.tally.add(&s.tally.unsorted)
+// inLibrary is whether path is under photos/ or videos/, which the handler leaves alone (E59).
+func (s *session) inLibrary(path string) bool {
+	rel := s.c.rel(path)
+	return strings.HasPrefix(rel, photoDir+"/") || strings.HasPrefix(rel, videoDir+"/")
+}
+
+// notSorted records a completed upload the async handler did not get to (E66): only a file
+// still in the upload root, and each file once however often it arrived.
+func (s *session) notSorted(path string) {
+	if !s.c.opts.async || s.inLibrary(path) || !isRegular(path) {
+		return
 	}
+	s.tally.mu.Lock()
+	defer s.tally.mu.Unlock()
+	if s.tally.unsorted == nil {
+		s.tally.unsorted = map[string]bool{}
+	}
+	s.tally.unsorted[path] = true
 }
 
 // file screens, sorts, shows and copies one arrival. An outcome the interrupt caused (a check
@@ -93,7 +108,7 @@ func (s *session) file(ctx context.Context, path, name string) error {
 	ts := s.stamp()
 	v := completeness(ctx, c.env.Runner, c.onPath, path)
 	if stopping(ctx) {
-		s.notSorted()
+		s.notSorted(path)
 		return nil
 	}
 	if !s.screen(v, path, name, ts) {
@@ -101,7 +116,7 @@ func (s *session) file(ctx context.Context, path, name string) error {
 	}
 	sorted, outcome := s.sortOne(ctx, path)
 	if outcome != sortMoved && stopping(ctx) {
-		s.notSorted()
+		s.notSorted(path)
 		return nil
 	}
 	if !s.sorted(outcome, sorted, name, ts) {
@@ -157,6 +172,9 @@ func (s *session) sorted(outcome sortOutcome, sorted, name, ts string) bool {
 	case sortFailed:
 		e.f("  [%s%s%s] %sfail%s  %s  (sort error, left in place)\n", e.c, ts, e.n, e.r, e.n, name)
 		s.tally.add(&s.tally.errored)
+	case sortDuplicate:
+		o.f("  [%s%s%s] %sdup%s  %s  (already in the library — left in place)\n", o.c, ts, o.n, o.y, o.n, name)
+		s.tally.add(&s.tally.skipped)
 	case sortVanished:
 	}
 	return false
@@ -191,6 +209,9 @@ func (s *session) sortOne(ctx context.Context, path string) (string, sortOutcome
 	}
 	dest := filepath.Join(c.upload, classDir(class), date, typeDir(extOf(path)))
 	if err := c.moveAsRoot(ctx, path, dest); err != nil {
+		if taken, ok := errors.AsType[*collision](err); ok && taken != nil && taken.identical {
+			return "", sortDuplicate
+		}
 		return "", sortFailed
 	}
 	return filepath.Join(dest, filepath.Base(path)), sortMoved

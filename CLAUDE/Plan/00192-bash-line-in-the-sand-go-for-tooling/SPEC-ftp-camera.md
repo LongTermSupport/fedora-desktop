@@ -137,9 +137,15 @@ The tests cite these numbers.
 - E21. A dated file is moved, as root, with `mkdir -p <upload>/<photos|videos>/<date>/<TYPE>`
   and `mv <file> <that dir>/`, where TYPE is the extension upper-cased and ARW is RAW; it prints
   `  move  <name>  → <photos|videos>/<date>/<TYPE>/`. A failed mkdir or mv ends the pass with
-  an error. A file of the same name already in that directory is never replaced: the move is
-  refused (`<relative path> is already in the library — rename one of them, then sort again`),
-  the new file stays in the upload root, and the pass ends with that error (B24).
+  an error. A file of the same name already in that directory is never replaced (B24), and the
+  upload stays in the upload root. With the same bytes it is a duplicate (a camera re-send):
+  `  dup  <name>  (already in the library as <relative path> — left in place)` on stdout, not
+  an error. With different bytes the move is refused:
+  `  fail  <name>  (<relative path> is a different file of the same name — left in place)` on
+  stderr, and the pass goes on. The summary line then adds `, <n> duplicate(s)` and
+  `, <n> refused` when nonzero, and refused files end the pass with
+  `ERROR: <n> file(s) left in place: a different file of the same name is already in the library — rename the upload, then sort again` (exit 1 for `--sort`; at the end of a default
+  session the exit is unchanged and no `did not complete` note is added).
 - E22. Then, as root, `find <upload> -mindepth 1 -type d -empty -delete`; its failure ends the
   pass with an error. Then a blank line; when files were truncated, the four-line truncation
   block, a blank line and the weak-link advisory (E58) for `<n> file(s) arrived truncated during this session`; and `Sort complete: <moved> moved, <skipped> skipped`. `--sort` exits 0 when the
@@ -345,7 +351,8 @@ The tests cite these numbers.
   `<name> arrived truncated — the data connection dropped mid-transfer`. An unverifiable file
   prints `  [<ts>] unverified  <name>  (no completeness check for this type)` and goes on.
 - E62. Sorting one file (E20, E21 as root): unsupported type `skip ... (unsupported type, left in place)`, no date `skip ... (no EXIF date, left in place)`, both counted skipped; a failed
-  move (including a refused one, E21) `fail ... (sort error, left in place)` on stderr, counted as a sort error; moved
+  move (including one refused for a different file of the same name, E21) `fail ... (sort error, left in place)` on stderr, counted as a sort error; an identical file already
+  there `  [<ts>] dup  <name>  (already in the library — left in place)`, counted skipped; moved
   `  [<ts>] sort  <name>  → <relative dir>/`, counted, then shown when it matches the viewer
   class.
 - E63. `--async-copy` then copies the sorted file into the mount: the mount path must still be
@@ -360,8 +367,9 @@ The tests cite these numbers.
   it is counted the same way. No root command is started, so no password is asked for. A file
   already moved is reported as moved; with `--async-copy`, one not yet copied is listed with
   the failed copies. The async summary then prints
-  `  <n> completed upload(s) not sorted — run ftp-camera --sort`. The files stay in the upload
-  root.
+  `  <n> completed upload(s) not sorted — run ftp-camera --sort`, where n counts distinct files
+  still in the upload root as regular files (a file that has vanished, or a name logged twice,
+  adds nothing). The files stay in the upload root.
 
 ### Shared
 
@@ -374,33 +382,33 @@ The tests cite these numbers.
 
 ## 4. Where the Go departs from the bash
 
-| #   | bash behaviour                                                                                                                                     | Go                                                                         | exp.     |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------- |
-| B1  | `/etc/ftp-camera/config` was `source`d (any shell in it ran) and an unset key fell back to the environment                                         | read as `KEY=VALUE` data; the environment is not consulted                 | E11      |
-| B2  | the JPEG trailer search matched `ffd9` in the hex dump, so a nibble-misaligned `x f f d 9 x` passed                                                | byte-aligned `FF D9`                                                       | E14      |
-| B3  | the strip check folded exiftool's stderr into the numbers it parsed                                                                                | stdout only                                                                | E15      |
-| B4  | an arrival that had vanished (the camera's retry moved it) was reported as `partial ... truncated at ? bytes`: the "vanished" code was unreachable | a quiet no-op, as intended                                                 | E60      |
-| B5  | `--help` and usage errors needed the `camera` account                                                                                              | not needed                                                                 | E1, E7   |
-| B6  | a tunable that was not a number made `[ -ge ]` fail inside an `if`, silently disabling the check                                                   | refused at start, exit 2                                                   | E6       |
-| B7  | the default route's device was field 5 of the line, wrong for `default dev <x> ...`                                                                | the word after `dev`                                                       | E47      |
-| B8  | a device with no IPv4 address advertised `pasv_address=` (empty)                                                                                   | an error                                                                   | E47      |
-| B9  | with neither gum nor fzf, the suspend-inhibit re-exec passed no flags, so the re-entry printed the launcher note a second time                     | passes `--no-tui`                                                          | E9       |
-| B10 | the launcher replaced the process with itself; gum and fzf were called with their own flags                                                        | continues in-process; the shared `ui` gum and fzf forms                    | E8, D4   |
-| B11 | colour escapes were written even to a pipe                                                                                                         | only to a terminal, never with `NO_COLOR`                                  | E10      |
-| B12 | the per-session summary lost the two-space indent and collapsed spaces in names (awk field rebuild)                                                | `  <path>  <size>`                                                         | E57      |
-| B13 | a monitor that ended by itself (tail or inotifywait dying) ended the session with its status, often 0                                              | `ERROR`, exit 1                                                            | E55      |
-| B14 | a `firewall-cmd --query` that failed for any reason read as "absent"                                                                               | 1 is absent, other failures are errors                                     | E56      |
-| B15 | `--copy` needed `python3` to read the RC stats                                                                                                     | read in Go; not needed                                                     | E30, D3  |
-| B16 | a command that failed under `set -e` exited silently with its own status                                                                           | `ERROR: <what> failed: ...`, exit 1                                        | E64      |
-| B17 | plain `sudo`; a credential that expired during a long session prompted from a background job                                                       | `sudo.Ready` (reason, then the prompt) before each root command; `sudo -n` | D5       |
-| B18 | the `--debug-ftp` note named the triage script at its old path (the plan was cancelled and moved)                                                  | `CLAUDE/Plan/Cancelled/00066-.../triage.bash`                              | E48      |
-| B19 | session counters, the arrival log and the start marker were temporary files                                                                        | in memory; the start is a timestamp                                        | E57, E59 |
-| B20 | files were considered in directory order                                                                                                           | name order                                                                 | E18      |
-| B21 | a second ERROR path checked the mount source twice; the first answer was already the source                                                        | read once                                                                  | E24      |
-| B22 | the log was followed by up to three `sudo tail` processes (printer, async monitor, viewer)                                                         | one follower feeding the printer, the handler and the viewer               | E55      |
-| B23 | the RC-address lookup's reason was printed before the ERROR line, prefixed with a bash function name                                               | after it, indented                                                         | E30      |
-| B24 | `mv <file> <dir>/` replaced a sorted file of the same name with no notice (cameras number files in a cycle, so it was a different shot): data loss | the move is refused and reported; the new file stays in the upload root    | E21, E62 |
-| B25 | Ctrl+C killed the async handler with its backlog; the unsorted uploads were not mentioned                                                          | the backlog is counted and named in the async summary; none is misreported | E66      |
+| #   | bash behaviour                                                                                                                                     | Go                                                                                                                                            | exp.     |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| B1  | `/etc/ftp-camera/config` was `source`d (any shell in it ran) and an unset key fell back to the environment                                         | read as `KEY=VALUE` data; the environment is not consulted                                                                                    | E11      |
+| B2  | the JPEG trailer search matched `ffd9` in the hex dump, so a nibble-misaligned `x f f d 9 x` passed                                                | byte-aligned `FF D9`                                                                                                                          | E14      |
+| B3  | the strip check folded exiftool's stderr into the numbers it parsed                                                                                | stdout only                                                                                                                                   | E15      |
+| B4  | an arrival that had vanished (the camera's retry moved it) was reported as `partial ... truncated at ? bytes`: the "vanished" code was unreachable | a quiet no-op, as intended                                                                                                                    | E60      |
+| B5  | `--help` and usage errors needed the `camera` account                                                                                              | not needed                                                                                                                                    | E1, E7   |
+| B6  | a tunable that was not a number made `[ -ge ]` fail inside an `if`, silently disabling the check                                                   | refused at start, exit 2                                                                                                                      | E6       |
+| B7  | the default route's device was field 5 of the line, wrong for `default dev <x> ...`                                                                | the word after `dev`                                                                                                                          | E47      |
+| B8  | a device with no IPv4 address advertised `pasv_address=` (empty)                                                                                   | an error                                                                                                                                      | E47      |
+| B9  | with neither gum nor fzf, the suspend-inhibit re-exec passed no flags, so the re-entry printed the launcher note a second time                     | passes `--no-tui`                                                                                                                             | E9       |
+| B10 | the launcher replaced the process with itself; gum and fzf were called with their own flags                                                        | continues in-process; the shared `ui` gum and fzf forms                                                                                       | E8, D4   |
+| B11 | colour escapes were written even to a pipe                                                                                                         | only to a terminal, never with `NO_COLOR`                                                                                                     | E10      |
+| B12 | the per-session summary lost the two-space indent and collapsed spaces in names (awk field rebuild)                                                | `  <path>  <size>`                                                                                                                            | E57      |
+| B13 | a monitor that ended by itself (tail or inotifywait dying) ended the session with its status, often 0                                              | `ERROR`, exit 1                                                                                                                               | E55      |
+| B14 | a `firewall-cmd --query` that failed for any reason read as "absent"                                                                               | 1 is absent, other failures are errors                                                                                                        | E56      |
+| B15 | `--copy` needed `python3` to read the RC stats                                                                                                     | read in Go; not needed                                                                                                                        | E30, D3  |
+| B16 | a command that failed under `set -e` exited silently with its own status                                                                           | `ERROR: <what> failed: ...`, exit 1                                                                                                           | E64      |
+| B17 | plain `sudo`; a credential that expired during a long session prompted from a background job                                                       | `sudo.Ready` (reason, then the prompt) before each root command; `sudo -n`                                                                    | D5       |
+| B18 | the `--debug-ftp` note named the triage script at its old path (the plan was cancelled and moved)                                                  | `CLAUDE/Plan/Cancelled/00066-.../triage.bash`                                                                                                 | E48      |
+| B19 | session counters, the arrival log and the start marker were temporary files                                                                        | in memory; the start is a timestamp                                                                                                           | E57, E59 |
+| B20 | files were considered in directory order                                                                                                           | name order                                                                                                                                    | E18      |
+| B21 | a second ERROR path checked the mount source twice; the first answer was already the source                                                        | read once                                                                                                                                     | E24      |
+| B22 | the log was followed by up to three `sudo tail` processes (printer, async monitor, viewer)                                                         | one follower feeding the printer, the handler and the viewer                                                                                  | E55      |
+| B23 | the RC-address lookup's reason was printed before the ERROR line, prefixed with a bash function name                                               | after it, indented                                                                                                                            | E30      |
+| B24 | `mv <file> <dir>/` replaced a sorted file of the same name with no notice (cameras number files in a cycle, so it was a different shot): data loss | never replaced: identical bytes are a reported duplicate, different bytes a per-file refusal (the pass goes on, exit 1); the upload stays put | E21, E62 |
+| B25 | Ctrl+C killed the async handler with its backlog; the unsorted uploads were not mentioned                                                          | the backlog is counted and named in the async summary; none is misreported                                                                    | E66      |
 
 Kept as they were, and accepted: the capture date is used as exiftool prints it (an odd value
 makes an odd folder name, as before); the prune prompt treats anything but `y` as no, the

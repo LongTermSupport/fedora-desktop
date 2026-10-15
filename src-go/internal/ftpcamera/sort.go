@@ -1,6 +1,7 @@
 package ftpcamera
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -87,14 +88,46 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// collision is a move refused because the library already holds a file of the same name
+// (E21, B24): identical when its bytes are the upload's (a camera re-send), else a different
+// shot under a recycled number.
+type collision struct {
+	rel       string
+	identical bool
+}
+
+func (e *collision) Error() string {
+	if e.identical {
+		return "already in the library as " + e.rel
+	}
+	return e.rel + " is a different file of the same name"
+}
+
+// sameBytes is whether two files hold the same bytes.
+func sameBytes(a, b string) (bool, error) {
+	da, err := os.ReadFile(a)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", a, err)
+	}
+	db, err := os.ReadFile(b)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", b, err)
+	}
+	return bytes.Equal(da, db), nil
+}
+
 // moveAsRoot files path into dest, as root (E21). A file of the same name already there is
-// never replaced (B24): cameras number their files in a cycle, so it is a different shot.
+// never replaced (B24): the move is refused with a *collision.
 func (c *cli) moveAsRoot(ctx context.Context, path, dest string) error {
 	target := filepath.Join(dest, filepath.Base(path))
-	if _, err := os.Lstat(target); err == nil {
-		return fmt.Errorf("%s is already in the library — rename one of them, then sort again", c.rel(target))
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("check %s: %w", c.rel(target), err)
+	if _, statErr := os.Lstat(target); statErr == nil {
+		same, err := sameBytes(path, target)
+		if err != nil {
+			return err
+		}
+		return &collision{rel: c.rel(target), identical: same}
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
+		return fmt.Errorf("check %s: %w", c.rel(target), statErr)
 	}
 	if err := c.asRoot(ctx, "mkdir", "-p", dest); err != nil {
 		return err
@@ -119,7 +152,11 @@ func failureText(res execx.Result, err error) string {
 	return err.Error()
 }
 
-type sortTally struct{ moved, skipped, truncated int }
+type sortTally struct{ moved, skipped, truncated, dups, refused int }
+
+// errRefused is a pass that completed with files refused for a name already in the library
+// (E21): reported, exit 1, but not a pass that stopped.
+var errRefused = errors.New("files refused for a name already in the library")
 
 // sortPass sorts the upload root (E17-E22).
 func (c *cli) sortPass(ctx context.Context) error {
@@ -155,7 +192,18 @@ func (c *cli) sortPass(ctx context.Context) error {
 		o.f("  from a normal end-of-file. They were NOT added to the library.\n\n")
 		c.warnWeakLink(fmt.Sprintf("%d file(s) arrived truncated during this session", tally.truncated))
 	}
-	o.f("%sSort complete:%s %s%d%s moved, %s%d%s skipped\n", o.b, o.n, o.c, tally.moved, o.n, o.c, tally.skipped, o.n)
+	o.f("%sSort complete:%s %s%d%s moved, %s%d%s skipped", o.b, o.n, o.c, tally.moved, o.n, o.c, tally.skipped, o.n)
+	if tally.dups > 0 {
+		o.f(", %s%d%s duplicate(s)", o.c, tally.dups, o.n)
+	}
+	if tally.refused > 0 {
+		o.f(", %s%d%s refused", o.r, tally.refused, o.n)
+	}
+	o.f("\n")
+	if tally.refused > 0 {
+		c.err.f("ERROR: %d file(s) left in place: a different file of the same name is already in the library — rename the upload, then sort again\n", tally.refused)
+		return errRefused
+	}
 	return nil
 }
 
@@ -174,7 +222,18 @@ func (c *cli) sortListed(ctx context.Context, path string, tally *sortTally) err
 		return nil
 	}
 	rel := classDir(class) + "/" + date + "/" + typeDir(extOf(path))
-	if err := c.moveAsRoot(ctx, path, filepath.Join(c.upload, rel)); err != nil {
+	err := c.moveAsRoot(ctx, path, filepath.Join(c.upload, rel))
+	if taken, ok := errors.AsType[*collision](err); ok && taken != nil {
+		if taken.identical {
+			c.out.f("  %sdup%s  %s  (%s — left in place)\n", c.out.y, c.out.n, name, taken.Error())
+			tally.dups++
+			return nil
+		}
+		c.err.f("  %sfail%s  %s  (%s — left in place)\n", c.err.r, c.err.n, name, taken.Error())
+		tally.refused++
+		return nil
+	}
+	if err != nil {
 		return c.failErr("could not move %s: %v", name, err)
 	}
 	c.out.f("  %smove%s  %s  → %s/\n", c.out.g, c.out.n, name, rel)

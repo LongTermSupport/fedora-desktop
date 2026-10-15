@@ -101,7 +101,9 @@ func TestAsyncInterruptWithBacklog(t *testing.T) {
 	for _, n := range []string{"A.JPG", "B.JPG", "C.JPG"} {
 		k.put(n, jpegBytes(), testStart)
 	}
-	k.feedOn(true, tailArgv, okUpload("A.JPG", 6, "900"), okUpload("B.JPG", 6, "900"), okUpload("C.JPG", 6, "900"))
+	// GONE.JPG is no longer there and B.JPG arrives twice: neither adds to the count.
+	k.feedOn(true, tailArgv, okUpload("A.JPG", 6, "900"), okUpload("B.JPG", 6, "900"), okUpload("GONE.JPG", 6, "900"),
+		okUpload("B.JPG", 6, "900"), okUpload("C.JPG", 6, "900"))
 	k.wantCode(k.runCtx(ctx, "--async"), term.ExitOK)
 	for _, n := range []string{"A.JPG", "B.JPG", "C.JPG"} {
 		if !exists(t, filepath.Join(k.upload, n)) {

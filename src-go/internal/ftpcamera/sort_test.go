@@ -94,35 +94,74 @@ func TestSortPassRootFailures(t *testing.T) {
 	k2.wantErr("ERROR: could not remove the empty directories under " + k2.upload + ": find: busy\n")
 }
 
-// E21, B24: a sorted file of the same name is never replaced: the pass stops with the new
-// file left in place and nothing moved.
-func TestSortPassRefusesToOverwrite(t *testing.T) {
+// differentJPEG is a complete JPEG whose bytes differ from jpegBytes.
+func differentJPEG() []byte { return []byte{0xFF, 0xD8, 0x07, 0xFF, 0xD9} }
+
+// E21, B24: a sorted file of the same name is never replaced. A different file is refused for
+// itself and the pass goes on, ending with exit 1; an identical one is a duplicate, reported
+// and left in place, not an error.
+func TestSortPassNameCollisions(t *testing.T) {
 	k := newKit(t)
 	k.path("exiftool")
 	k.realRoot()
-	k.exifDates(map[string]string{"DSC00001.JPG": "2026/01/02"})
-	k.put("DSC00001.JPG", []byte{0xFF, 0xD8, 0x07, 0xFF, 0xD9}, testStart)
+	k.exifDates(map[string]string{"DSC00001.JPG": "2026/01/02", "DSC00002.JPG": "2026/01/02", "DSC00003.JPG": "2026/01/02"})
+	k.put("DSC00001.JPG", differentJPEG(), testStart)
 	k.put("photos/2026/01/02/JPG/DSC00001.JPG", jpegBytes(), testStart)
+	k.put("DSC00002.JPG", jpegBytes(), testStart)
+	k.put("photos/2026/01/02/JPG/DSC00002.JPG", jpegBytes(), testStart)
+	k.put("DSC00003.JPG", jpegBytes(), testStart)
 	k.wantCode(k.run("--sort"), term.ExitFailure)
-	k.wantErr("ERROR: could not move DSC00001.JPG: photos/2026/01/02/JPG/DSC00001.JPG is already in the library — rename one of them, then sort again\n")
-	k.wantNotRan("sudo -n mv")
+	k.wantErr(
+		"  fail  DSC00001.JPG  (photos/2026/01/02/JPG/DSC00001.JPG is a different file of the same name — left in place)\n",
+		"ERROR: 1 file(s) left in place: a different file of the same name is already in the library — rename the upload, then sort again\n",
+	)
+	k.wantOut(
+		"  dup  DSC00002.JPG  (already in the library as photos/2026/01/02/JPG/DSC00002.JPG — left in place)\n",
+		"  move  DSC00003.JPG  → photos/2026/01/02/JPG/\n",
+		"Sort complete: 1 moved, 0 skipped, 1 duplicate(s), 1 refused\n",
+	)
+	k.wantRan("sudo -n find " + k.upload + " -mindepth 1 -type d -empty -delete")
 	if data, err := os.ReadFile(filepath.Join(k.upload, "photos/2026/01/02/JPG/DSC00001.JPG")); err != nil || string(data) != string(jpegBytes()) {
 		t.Errorf("the sorted file was touched: %q %v", data, err)
 	}
-	if !exists(t, filepath.Join(k.upload, "DSC00001.JPG")) {
-		t.Error("the new file was not left in place")
+	for _, n := range []string{"DSC00001.JPG", "DSC00002.JPG"} {
+		if !exists(t, filepath.Join(k.upload, n)) {
+			t.Errorf("%s was not left in place", n)
+		}
+	}
+	if strings.Contains(k.err.String(), "DSC00002") {
+		t.Errorf("a duplicate was reported as an error:\n%s", k.err.String())
 	}
 }
 
-// E62, B24: in async mode the same collision is a sort error, and the session goes on.
-func TestAsyncRefusesToOverwrite(t *testing.T) {
+// E21: a pass whose only collisions are duplicates succeeds.
+func TestSortPassDuplicatesOnly(t *testing.T) {
+	k := newKit(t)
+	k.path("exiftool")
+	k.realRoot()
+	k.exifDates(map[string]string{"DSC00002.JPG": "2026/01/02"})
+	k.put("DSC00002.JPG", jpegBytes(), testStart)
+	k.put("photos/2026/01/02/JPG/DSC00002.JPG", jpegBytes(), testStart)
+	k.wantCode(k.run("--sort"), term.ExitOK)
+	k.wantOut("Sort complete: 0 moved, 0 skipped, 1 duplicate(s)\n")
+}
+
+// E62, B24: in async mode a different file of the same name is a sort error and an identical
+// one a duplicate; the session goes on.
+func TestAsyncNameCollisions(t *testing.T) {
 	k := serverKit(t)
-	k.exifDates(map[string]string{"DSC00001.JPG": "2026/10/15"})
-	k.put("DSC00001.JPG", jpegBytes(), testStart)
+	k.exifDates(map[string]string{"DSC00001.JPG": "2026/10/15", "DSC00002.JPG": "2026/10/15"})
+	k.put("DSC00001.JPG", differentJPEG(), testStart)
 	k.put("photos/2026/10/15/JPG/DSC00001.JPG", jpegBytes(), testStart)
-	k.feedOn(false, tailArgv, okUpload("DSC00001.JPG", 6, "900"))
+	k.put("DSC00002.JPG", jpegBytes(), testStart)
+	k.put("photos/2026/10/15/JPG/DSC00002.JPG", jpegBytes(), testStart)
+	k.feedOn(false, tailArgv, okUpload("DSC00001.JPG", 6, "900"), okUpload("DSC00002.JPG", 6, "900"))
 	k.wantCode(k.runCtx(interruptAt(k), "--async"), term.ExitOK)
 	k.wantErr("  [09:30:00] fail  DSC00001.JPG  (sort error, left in place)\n")
+	k.wantOut(
+		"  [09:30:00] dup  DSC00002.JPG  (already in the library — left in place)\n",
+		"Sorted: 0  Skipped: 1  Sort errors: 1\n",
+	)
 	k.wantNotRan("sudo -n mv")
 }
 

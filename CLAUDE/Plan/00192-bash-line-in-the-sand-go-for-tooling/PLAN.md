@@ -375,7 +375,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   context as `execx.OS` does, a same-named sorted file is never overwritten (B24, the bash lost
   it), the upload root's own read error is reported, an unreadable log line stops the follower
   at once, the docs and comments no longer describe the bash, and `--copy`/`--push` shipping
-  root fragments is recorded as kept (spec section 4).
+  root fragments is recorded as kept (spec section 4). Fable's re-review said MERGE with three
+  Lows; two are fixed: a name collision no longer halts `--sort` (identical bytes are a
+  reported duplicate, a different file a per-file refusal, exit 1 at the end), and the
+  not-sorted count holds only distinct files still in the upload root.
 
 ### Phase 4: Review
 

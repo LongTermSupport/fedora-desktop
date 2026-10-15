@@ -531,7 +531,7 @@ func (s *session) follow(bg context.Context) {
 				select {
 				case queue <- u:
 				case <-bg.Done():
-					s.notSorted()
+					s.notSorted(u.path)
 				}
 			}
 		})
@@ -564,7 +564,7 @@ func (s *session) worker(bg context.Context, workers *sync.WaitGroup, who string
 		failed := false
 		for u := range q {
 			if failed {
-				s.notSorted()
+				s.notSorted(u.path)
 				continue
 			}
 			if err := handle(bg, u); err != nil {
