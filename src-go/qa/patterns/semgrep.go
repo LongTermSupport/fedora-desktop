@@ -18,7 +18,7 @@ import (
 func (g *gate) requireSemgrep(ctx context.Context) error {
 	res, err := g.runTool(ctx, gitTimeout, g.root, "semgrep", "--version")
 	if err != nil || res.Code != 0 {
-		return errors.New("semgrep not found. Install with: pipx install semgrep")
+		return errors.New("semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)")
 	}
 	return nil
 }

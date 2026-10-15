@@ -463,8 +463,7 @@ different number of files depending on whether galaxy content has landed.
 `qa-bash.bash` and `qa-python.bash` (and the coverage yardsticks of
 `qa-ansible-syntax.bash`, `qa-helper-tests.bash` and `qa-ready-wait-rules.bash`)
 share one discovery, the Go tool `src-go/qa/discovery` (spec
-`SPEC-qa-discovery.md`), reached through the sourced wrapper
-`scripts/qa-discovery.bash` (`qa_discover <list> <root>` fills `QA_FILES`). It
+`SPEC-qa-discovery.md`), imported by each Go gate (`discovery.Main` with a list name and the root). It
 lists what git would publish, never gitignored files, and stops (exit 2) at an
 untracked nested repository, whose files git will not list. `qa-patterns` calls the
 same exported shell predicate (`discovery.ShellShebang`; a `-c` or a combined flag group

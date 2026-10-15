@@ -214,7 +214,7 @@ func TestSemgrepMissingIsExitTwo(t *testing.T) {
 	w := newWorld(t, nil)
 	w.fake.versionEr = exec.ErrNotFound
 	w.wantExit(ExitCannotRun, w.run())
-	w.wantStderr("ERROR: semgrep not found. Install with: pipx install semgrep")
+	w.wantStderr("ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)")
 }
 
 // R4: a semgrep that is there but does not answer says why, and is not called "not found".

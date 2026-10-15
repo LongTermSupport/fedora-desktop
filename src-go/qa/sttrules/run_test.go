@@ -108,7 +108,7 @@ func TestSemgrepThatCannotRunIsExitTwoSayingWhyAndNothingElseRuns(t *testing.T) 
 			w := newWorld(t, map[string]string{ruleFile: ""})
 			c.set(w.fake)
 			w.wantExit(ExitCannotRun, w.run())
-			w.wantStderr("ERROR: semgrep not found. Install with: pipx install semgrep (", c.want)
+			w.wantStderr("ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand) (", c.want)
 			if len(w.fake.calls) != 1 {
 				t.Fatalf("something ran after the failed --version: %v", w.fake.calls)
 			}

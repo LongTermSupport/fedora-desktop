@@ -30,7 +30,7 @@ func TestARealMissingSemgrepIsNamedNotFound(t *testing.T) {
 	if code := sttrules.Main(nil, env); code != sttrules.ExitCannotRun {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(stderr.String(), "ERROR: semgrep not found. Install with: pipx install semgrep") {
+	if !strings.Contains(stderr.String(), "ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)") {
 		t.Fatalf("stderr:\n%s", stderr.String())
 	}
 }

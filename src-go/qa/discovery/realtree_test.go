@@ -12,7 +12,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
-// These tests run the real git and the real wrapper, scripts/qa-discovery.bash, over a real work
+// These tests run the real git and the repository's own scripts directory over a real work
 // tree: what the fake git of the other tests cannot show.
 
 // repoScripts is the repository's scripts directory (the tests run in src-go/qa/discovery).
@@ -22,7 +22,7 @@ func repoScripts(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "qa-discovery.bash")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, treesFile)); err != nil {
 		t.Fatalf("the repository's scripts directory is not at %s: %v", dir, err)
 	}
 	return dir
@@ -67,19 +67,23 @@ func gitTree(t *testing.T) string {
 	return root
 }
 
-// sourceWrapper runs a bash snippet after sourcing the real wrapper.
-func sourceWrapper(t *testing.T, snippet string) proc.Result {
+// listOver runs the command over a root with the repository's own scripts directory (so its
+// real qa-trees.tsv) and returns the exit code, the paths and stderr.
+func listOver(t *testing.T, root, list string) (ExitCode, []string, string) {
 	t.Helper()
-	script := "set -euo pipefail\nsource \"$1/qa-discovery.bash\"\n" + snippet
-	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: []string{"bash", "-c", script, "bash", repoScripts(t)}})
-	if err != nil {
-		t.Fatal(err)
+	var out, errOut bytes.Buffer
+	code := Main([]string{"--root", root, "--scripts", repoScripts(t), list}, Env{Stdout: &out, Stderr: &errOut, Cwd: root, Runner: proc.OS{}})
+	var paths []string
+	for p := range strings.SplitSeq(out.String(), "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
 	}
-	return res
+	return code, paths, errOut.String()
 }
 
 // D14
-func TestTheWrapperFillsQAFilesFromTheToolOverARealTree(t *testing.T) {
+func TestTheCommandListsARealTree(t *testing.T) {
 	root := gitTree(t)
 	for list, want := range map[string]string{
 		"shell":                root + "/a.bash\n" + root + "/tool",
@@ -91,37 +95,36 @@ func TestTheWrapperFillsQAFilesFromTheToolOverARealTree(t *testing.T) {
 		"tracked-helper-tests": "tests/helpers/test_h.py",
 	} {
 		t.Run(list, func(t *testing.T) {
-			res := sourceWrapper(t, "qa_discover "+list+" \""+root+"\"\nprintf '%s\\n' \"${QA_FILES[@]}\"\n")
-			if res.Code != 0 || strings.TrimSpace(res.Stdout) != want {
-				t.Fatalf("exit %d\nstdout %q\nstderr %s\nwant %q", res.Code, res.Stdout, res.Stderr, want)
+			code, paths, stderr := listOver(t, root, list)
+			if got := strings.Join(paths, "\n"); code != ExitOK || got != want {
+				t.Fatalf("exit %d\nstdout %q\nstderr %s\nwant %q", code, got, stderr, want)
 			}
 		})
 	}
 }
 
-func TestTheWrapperKeepsSpacesAndLeavesAnEmptyListEmpty(t *testing.T) {
+func TestTheCommandKeepsSpacesAndLeavesAnEmptyListEmpty(t *testing.T) {
 	root := gitTree(t)
 	if err := os.WriteFile(filepath.Join(root, "sp ace.bash"), []byte("x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res := sourceWrapper(t, "qa_discover shell \""+root+"\"\nprintf '[%s]' \"${QA_FILES[@]}\"\n")
-	if res.Code != 0 || !strings.Contains(res.Stdout, "["+root+"/sp ace.bash]") {
-		t.Fatalf("%+v", res)
+	code, paths, stderr := listOver(t, root, "shell")
+	if code != ExitOK || !slices.Contains(paths, root+"/sp ace.bash") {
+		t.Fatalf("exit %d %q %s", code, paths, stderr)
 	}
 	if err := os.Remove(filepath.Join(root, "files/t.j2")); err != nil {
 		t.Fatal(err)
 	}
-	res = sourceWrapper(t, "qa_discover python-templates \""+root+"\"\necho \"${#QA_FILES[@]}\"\n")
-	if res.Code != 0 || strings.TrimSpace(res.Stdout) != "0" {
-		t.Fatalf("%+v", res)
+	code, paths, stderr = listOver(t, root, "python-templates")
+	if code != ExitOK || len(paths) != 0 {
+		t.Fatalf("exit %d %q %s", code, paths, stderr)
 	}
 }
 
-func TestTheWrapperExitsTheCallerWhenTheListCannotBeMade(t *testing.T) {
-	notGit := t.TempDir()
-	res := sourceWrapper(t, "qa_discover shell \""+notGit+"\"\necho reached\n")
-	if res.Code != 2 || strings.Contains(res.Stdout, "reached") || !strings.Contains(res.Stderr, "ERROR: cannot list the files git would publish") {
-		t.Fatalf("%+v", res)
+func TestTheCommandCannotRunWhenTheListCannotBeMade(t *testing.T) {
+	code, paths, stderr := listOver(t, t.TempDir(), "shell")
+	if code != ExitCannotRun || len(paths) != 0 || !strings.Contains(stderr, "ERROR: cannot list the files git would publish") {
+		t.Fatalf("exit %d %q %s", code, paths, stderr)
 	}
 }
 

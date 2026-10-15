@@ -128,3 +128,20 @@ suites, and each change auto-merged and takes effect through the Go tools as dat
 
 The host run is queued in `CLAUDE/Plan/meta-deploy.list` as `play-agent-bus.yml` followed by
 `play-claude-yolo.yml`. It is due once this branch reaches F44.
+
+## Review fixes
+
+The qa-reviewer review of `1d32570d` (`261015-133755-qa-reviewer-ab980f684fa6110fe.md`):
+
+- **Finding 1.** F44 was merged in. 00161's PLAN.md now records that its acceptance passed on
+  the host at F44 70ef1d02 (every leg) before this merge, and runs again after it against the
+  goodbye-aware message counts. `meta-deploy.list` queues `00161-.../acceptance.bash` after the
+  two plays.
+- **Finding 2.** `scripts/qa-discovery.bash` is deleted with its routing row (and the stale
+  `perfile-gate` name). The real-tree wrapper tests are now Go tests of `discovery.Main`
+  over the same trees. QA.md and `src-go/CLAUDE.md` describe the direct import.
+- **Finding 3.** The ansible stage row uses the "could not produce a result" wording; the
+  golden and SPEC-qa-all follow.
+- **Finding 4.** The four semgrep-not-found messages point to `play-python.yml`; their tests
+  pin the new text.
+- **Finding 5.** Fixed by the merge.

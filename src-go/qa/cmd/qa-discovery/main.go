@@ -1,7 +1,7 @@
 // Command qa-discovery prints the files a QA gate reads: the repo-owned shell scripts, Python
 // files and Python templates git would publish, and the tracked files a gate measures its
-// coverage against. It is a QA tool, not deployed anywhere; scripts/qa-discovery.bash builds and
-// runs it.
+// coverage against. It is a QA tool, not deployed anywhere; the gates import
+// src-go/qa/discovery directly.
 package main
 
 import (

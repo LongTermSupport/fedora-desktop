@@ -143,7 +143,7 @@ func TestP4SemgrepMissingOrBrokenIsExit2WithTheInstallHint(t *testing.T) {
 		set(w.run)
 		got := w.main()
 		wantExit(t, got, ExitCannotRun)
-		wantStderr(t, got, "ERROR: semgrep not found. Install with: pipx install semgrep")
+		wantStderr(t, got, "ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)")
 		noReport(t, w)
 		if w.run.called("git") {
 			t.Fatalf("%s: ran git before knowing semgrep works", name)

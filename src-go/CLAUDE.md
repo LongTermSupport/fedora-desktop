@@ -260,7 +260,7 @@ empty `SHELLCHECK_OPTS`, so nothing beside a script changes the rules); the Go o
 shebang; `--directives FILE...` runs only this, for `qa-changed`) and the judgement.
 `SPEC-qa-bash.md` (S1-S20) is the specification.
 `qa/discovery` + `qa/cmd/qa-discovery` (same nested module) are the shared source-file discovery
-the bash gates source through `scripts/qa-discovery.bash` (`qa_discover <list> <root>`; the exclusion
+every Go gate imports (`qa/discovery`, `discovery.Main` with a list name; no bash wrapper; the exclusion
 trees are `scripts/qa-trees.tsv`, read by the Go tools only): what git would publish, one predicate per
 language, and the tracked yardsticks each gate measures its coverage against.
 `SPEC-qa-discovery.md` (D1-D19) is the specification; the `markdown` and `tracked-files` lists are

@@ -32,7 +32,7 @@ gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in sr
 stage	bash	scripts/qa-bash.bash	ERROR: bash gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	python	scripts/qa-python.bash	ERROR: python gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	patterns	scripts/qa-patterns.bash	ERROR: patterns gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
-stage	ansible	scripts/qa-ansible.bash	ERROR: Missing required tools for ansible check. Install them and re-run.
+stage	ansible	scripts/qa-ansible.bash	ERROR: ansible gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: ansible-syntax gate could not produce a result (prerequisites missing or the tool failed: see the ERROR line above).
 stage	js	scripts/qa-js.bash	ERROR: js gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
 stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (an empty scope, an unread or unparsed file, a broken discovery, or the tool failed: see the ERROR line above).

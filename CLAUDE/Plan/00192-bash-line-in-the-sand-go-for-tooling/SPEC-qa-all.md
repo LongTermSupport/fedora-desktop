@@ -143,7 +143,7 @@ elif [[ $rc -ne 0 ]]; then FAILED=$((FAILED + 1)); fi
 | `bash`           | `ERROR: bash gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).` (B28) |
 | `python`         | the same, naming `python` (B29)                                                            |
 | `patterns`       | the same, naming `patterns` (B30)                                                          |
-| `ansible`        | `ERROR: Missing required tools for ansible check. Install them and re-run.`                |
+| `ansible`        | the same, naming `ansible`|
 | `ansible-syntax` | `ERROR: ansible-syntax gate could not produce a result (prerequisites missing or the tool failed: see the ERROR line above).` (B27) |
 | `js`             | the same, naming `js` (B31)                                                                |
 | `docs`           | `ERROR: docs gate could not produce a result (zero-file scan or checker crash).`           |

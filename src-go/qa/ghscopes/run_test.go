@@ -64,7 +64,7 @@ func TestSemgrepThatCannotRunIsExitTwoAndNothingElseRuns(t *testing.T) {
 		set(w.run)
 		got := w.main()
 		wantExit(t, got, ExitCannotRun)
-		wantIn(t, "stderr", got.stderr, "ERROR: semgrep not found. Install with: pipx install semgrep")
+		wantIn(t, "stderr", got.stderr, "ERROR: semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)")
 		if w.run.called("git") {
 			t.Fatal("git ran before semgrep was found")
 		}

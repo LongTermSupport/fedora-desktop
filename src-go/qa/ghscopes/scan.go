@@ -16,7 +16,7 @@ import (
 
 // requireSemgrep is that semgrep runs at all; the reason it does not is part of the error.
 func (g *gate) requireSemgrep(ctx context.Context) error {
-	const hint = "semgrep not found. Install with: pipx install semgrep"
+	const hint = "semgrep not found: run ./playbooks/imports/play-python.yml (it installs the pinned semgrep; do not install it by hand)"
 	res, err := g.runTool(ctx, versionTimeout, "semgrep", "--version")
 	switch {
 	case err != nil:
