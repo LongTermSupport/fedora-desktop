@@ -19,29 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Plan 00201 final review fixes: deploys the ccy launcher 3.98.11, which requires container
-# 2.66, so the next ccy launch rebuilds the image once. Element shows an agent's avatar under a
-# human's message only once the delivery is in the agent's conversation; the skill and delivery
-# frame say to JSON-decode the history text before comparing (plugin 1.2.3). Rebuilds
-# ccy-teams: while the Clipboard Indicator extension is on, a new password is not offered to
-# the clipboard (the extension would use up the paste and keep the password); it says why.
-# Every team session must then be relaunched.
-playbooks/imports/play-claude-yolo.yml
-# The applied stamps' group: play-agent-bus.yml now records the desktop user's primary group in
-# /etc/agent-bus/stamp-group, and agent-bus-install team reads it on every run (with no record
-# it fails rather than fall back to root's group). This run puts /var/lib/agent-bus-applied
-# back in that group, so `ccy-teams --list` reads the stamps again without sudo. Also the
-# final review fixes: the pre-swap backup also runs when this checkout renders a running
-# team's tuwunel.toml differently, and agent-bus-install software puts the new pingbus in the
-# kit for `cc --teams` sessions and LXC members. Each team is applied again; a homeserver
-# restarts only if its configuration or software changed, and then after a backup. No
-# firewall rule changes.
-playbooks/imports/play-agent-bus.yml
-# Plan 00161: its triage, deploy and acceptance again. M1.2 now expects the REPLY command pingbus
-# recv prints today, with --re naming the human message it answers. Its throwaway teams no longer
-# put the stamp directory back in root's group.
-00161-agent-team-bus-matrix
-# Plan 00201: the automated two-team acceptance again; D1 (ccy-teams --list as the desktop user)
-# reads the stamps after the earlier runs.
-00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
