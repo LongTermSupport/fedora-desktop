@@ -1,6 +1,6 @@
 # Plan 00199: quick markdown viewer
 
-**Status**: In Progress (md-viewer M0 to M11 merged in its own project; install play written, host run pending; owner's decisions pending)
+**Status**: In Progress (md-viewer M0 to M12 merged in its own project; install play written, host run pending; owner's decisions pending)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: Medium
@@ -61,8 +61,10 @@ on Gio with goldmark (Task 1.2).
   over D-Bus).
 
 - [x] ✅ **Task 2.1c**: md-viewer is its own ccy project, with its own hooks daemon, on one
-  team with this session. All its milestones, M0 to M11, are merged on its `main` (M10: the
-  binary opens a Gio window; M11: speed fixtures, benchmarks and measurement).
+  team with this session. All its milestones, M0 to M12, are merged on its `main` (M10: the
+  binary opens a Gio window; M11: speed fixtures, benchmarks and measurement; M12: non-regular
+  files never block the viewer, and the tracked-files-only label test). The pin is md-viewer's
+  `main` tip at M12, `bafafc8e4ff9`.
 
 - [ ] 🔄 **Task 2.2**: A play installs md-viewer on the host (with Gio's runtime libraries) and
   makes it the default for `text/markdown`. Startup is measured on the host with `--time`.

@@ -35,3 +35,7 @@ playbooks/imports/play-agent-bus.yml
 # `pingbus status-line` in the session's container (the checkout's own status line, then
 # `bus: A,B`). Then the owner's steps in ACCEPTANCE-owner.md, from another project's checkout.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
+
+# Plan 00199: rebuilds md-viewer at the M12 commit (non-regular files never block, tracked-files-only
+# label test); nothing else changes.
+playbooks/imports/optional/common/play-md-viewer.yml
