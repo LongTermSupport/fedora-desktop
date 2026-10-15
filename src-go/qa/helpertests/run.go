@@ -356,6 +356,12 @@ func judge(status int, counts, token string, modules, tracked int, errOut *emitt
 	}
 	if problem != "" {
 		errOut.line(fmt.Sprintf("ERROR: the runner ended %d, but %s", status, problem))
+		if status == 1 {
+			// The runner said red and its counts are readable: the suite failed, and the
+			// disagreement is a second fact about that failure, not a reason to hide it.
+			errOut.line(fmt.Sprintf("ERROR: helper tests failed (%d run, %d skipped)", n.Tests, n.Skipped))
+			return ExitFailed
+		}
 		return ExitCannotRun
 	}
 	if status == 1 {

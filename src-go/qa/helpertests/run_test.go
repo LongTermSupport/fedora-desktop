@@ -535,26 +535,37 @@ func TestH12TheCountsMustAgreeWithTheRequest(t *testing.T) {
 	good := func(tests, modules, tracked string) string {
 		return "token=" + testToken + "\ntests=" + tests + "\nskipped=0\nmodules=" + modules + "\ntracked=" + tracked + "\n"
 	}
-	cases := []struct{ name, counts, want string }{
-		{"zero tests", good("0", "2", "2"), "ran 0 tests"},
-		{"fewer modules than asked", good("5", "1", "2"), "collected 1 module(s), asked for 2"},
-		{"more modules than asked", good("5", "3", "2"), "collected 3 module(s), asked for 2"},
-		{"another tracked count", good("5", "2", "9"), "tracked=9, expected 2"},
-		{"another token", "token=other\ntests=5\nskipped=0\nmodules=2\ntracked=2\n", "carries token"},
-		{"no token", "tests=5\nskipped=0\nmodules=2\ntracked=2\n", "carries token"},
-		{"not a number", "token=" + testToken + "\ntests=many\nskipped=0\nmodules=2\ntracked=2\n", "tests= is missing or not a number"},
-		{"a missing key", "token=" + testToken + "\ntests=5\nskipped=0\nmodules=2\n", "tracked= is missing"},
-		{"a repeated key", good("5", "2", "2") + "tests=6\n", "duplicate tests="},
+	cases := []struct {
+		name, counts, want string
+		// disagrees is a file that reads fine but contradicts the request: a red run stays red.
+		disagrees bool
+	}{
+		{"zero tests", good("0", "2", "2"), "ran 0 tests", true},
+		{"fewer modules than asked", good("5", "1", "2"), "collected 1 module(s), asked for 2", true},
+		{"more modules than asked", good("5", "3", "2"), "collected 3 module(s), asked for 2", true},
+		{"another tracked count", good("5", "2", "9"), "tracked=9, expected 2", true},
+		{"another token", "token=other\ntests=5\nskipped=0\nmodules=2\ntracked=2\n", "carries token", false},
+		{"no token", "tests=5\nskipped=0\nmodules=2\ntracked=2\n", "carries token", false},
+		{"not a number", "token=" + testToken + "\ntests=many\nskipped=0\nmodules=2\ntracked=2\n", "tests= is missing or not a number", false},
+		{"a missing key", "token=" + testToken + "\ntests=5\nskipped=0\nmodules=2\n", "tracked= is missing", false},
+		{"a repeated key", good("5", "2", "2") + "tests=6\n", "duplicate tests=", false},
 	}
 	for _, c := range cases {
 		for _, code := range []int{0, 1} {
 			t.Run(c.name+" with runner status "+strconv.Itoa(code), func(t *testing.T) {
 				w := goodWorld(t)
 				w.counts, w.code = c.counts, code
-				if got := w.runWith(); got != ExitCannotRun {
-					t.Fatalf("exit %d: %s", got, w.err.String())
+				want := ExitCannotRun
+				if c.disagrees && code == 1 {
+					want = ExitFailed
+				}
+				if got := w.runWith(); got != want {
+					t.Fatalf("exit %d, want %d: %s", got, want, w.err.String())
 				}
 				mustContain(t, "stderr", w.err.String(), "ERROR: ", c.want)
+				if want == ExitFailed {
+					mustContain(t, "stderr", w.err.String(), "ERROR: helper tests failed")
+				}
 			})
 		}
 	}

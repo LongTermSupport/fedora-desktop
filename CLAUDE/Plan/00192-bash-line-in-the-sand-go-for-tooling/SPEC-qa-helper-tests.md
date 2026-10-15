@@ -88,18 +88,22 @@ Numbers are cited by the tests.
 - H12. After the runner ends with 0 or 1, the counts file must be read (G1) and must agree with what
   was asked: it carries the given token, `tests` is at least 1, `modules` equals the number of
   modules passed, `tracked` equals the tracked count. A missing, empty, repeated, non-numeric,
-  wrong-token or disagreeing file is exit 2 saying which: the numbers `qa-all` compares two machines
-  on must come from this run or the run is not trusted. The verdict of a red suite is not softened:
-  this applies to 1 as well, because a runner that reports failure and no counts is a runner that
-  did not finish.
-- H13. On exit 0, one stderr line `HELPER-TESTS-OK: Ran <tests> tests in <modules> modules (<tracked> tracked), <skipped> skipped`. On exit 1, `ERROR: helper tests failed (<tests> run, <skipped> skipped)`.
+  wrong-token file is exit 2 saying which: the numbers `qa-all` compares two machines on must come
+  from this run or the run is not trusted. A file that reads fine but disagrees with the request
+  (zero tests, another module or tracked count) is exit 2 after a runner status 0, because a pass
+  cannot be vouched for; after a runner status 1 it is exit 1: the runner said the suite failed,
+  that verdict is not softened into "could not run", and the disagreement is named on stderr
+  beside the failure line (H13). A status-1 run whose counts cannot be read at all stays exit 2: a
+  runner that reports failure and no counts did not finish.
+- H13. On exit 0, one stderr line `HELPER-TESTS-OK: Ran <tests> tests in <modules> modules (<tracked> tracked), <skipped> skipped`. On exit 1, `ERROR: helper tests failed (<tests> run, <skipped> skipped)`, preceded by the disagreement when H12 found one.
 
 ### The reader (qa/gates)
 
-- G1. `gates.HelperRun(path, token)` returns the four numbers as integers under the same refusals as
-  `HelperCounts` (missing file, empty file, unknown key, repeated key, token other than asked,
-  missing or non-numeric count; numbers too large for an `int` are refused). `HelperCounts` formats
-  the same values and its output and error texts are unchanged.
+- G1. `gates.HelperRun(path, token)` returns the four numbers as integers (missing file, empty file,
+  unknown key, repeated key, token other than asked, missing or non-numeric count, a number too
+  large for an `int` are refused). `HelperCounts` is built on it, so the two share one refusal set;
+  its output is unchanged for what the runner writes (it formats integers, so a hand-written
+  `tests=007` prints as 7).
 
 ## 3. Departures from the bash (B)
 

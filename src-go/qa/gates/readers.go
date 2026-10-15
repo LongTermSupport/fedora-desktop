@@ -134,14 +134,14 @@ var digits = regexp.MustCompile(`^[0-9]+$`)
 // concurrent run); it is not a lock against a test that reads argv, and write ordering is what
 // defeats a clobber from inside the suite.
 func HelperCounts(path, wantToken string) (string, error) {
-	values, err := readCounts(path, wantToken)
+	n, err := HelperRun(path, wantToken)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Ran %s %s in %s %s (%s tracked), %s skipped",
-		values["tests"], plural(values["tests"], "test", "tests"),
-		values["modules"], plural(values["modules"], "module", "modules"),
-		values["tracked"], values["skipped"]), nil
+	return fmt.Sprintf("Ran %d %s in %d %s (%d tracked), %d skipped",
+		n.Tests, plural(n.Tests, "test", "tests"),
+		n.Modules, plural(n.Modules, "module", "modules"),
+		n.Tracked, n.Skipped), nil
 }
 
 // HelperNumbers are the four numbers of a helper-tests counts file.
@@ -222,8 +222,8 @@ func parseCounts(body, path string) (map[string]string, error) {
 }
 
 // plural is the singular only for exactly one.
-func plural(count, singular, many string) string {
-	if n, err := strconv.Atoi(count); err == nil && n == 1 {
+func plural(count int, singular, many string) string {
+	if count == 1 {
 		return singular
 	}
 	return many

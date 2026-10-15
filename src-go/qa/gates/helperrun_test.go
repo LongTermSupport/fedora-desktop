@@ -51,6 +51,18 @@ func TestG1HelperRunRefusesANumberTooLargeForAnInt(t *testing.T) {
 	}
 }
 
+// One reader, one refusal set: HelperCounts is built on HelperRun, so a number no int holds is
+// refused by both, and a leading zero is printed as the number it is.
+func TestG1HelperCountsRefusesWhatHelperRunRefuses(t *testing.T) {
+	if got, err := HelperCounts(countsFile(t, goodCounts("99999999999999999999999999", "0", "1", "1")), token); err == nil {
+		t.Fatalf("accepted %q", got)
+	}
+	got, err := HelperCounts(countsFile(t, goodCounts("007", "0", "1", "1")), token)
+	if err != nil || got != "Ran 7 tests in 1 module (1 tracked), 0 skipped" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
 func TestG1HelperRunWithNoTokenWantsNoToken(t *testing.T) {
 	if _, err := HelperRun(countsFile(t, "tests=1\nskipped=0\nmodules=1\ntracked=1\n"), ""); err != nil {
 		t.Fatal(err)
