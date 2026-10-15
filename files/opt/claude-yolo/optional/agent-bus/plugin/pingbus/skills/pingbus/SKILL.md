@@ -24,8 +24,10 @@ TIMEOUT	1	TEAM	EVENT_ID	SILENT_TARGET	VERB	REF
 ```
 
 - **A `REPLY` line follows every `HUMAN` and `PEER` line (never a `PING`).** Its `COMMAND` is
-  the ready `pingbus --team TEAM say --to NAME`: copy it and pipe your text to it. Do not
-  rebuild the name from `SENDER`.
+  the ready `pingbus --team TEAM say --to NAME --re 'EVENT_ID'`: copy it whole (the quotes
+  keep the shell off the `$` of the event ID) and pipe your text to it. `--re` makes your
+  answer a reply to that message, so Element shows it under the question. Do not rebuild the
+  name from `SENDER`.
 
 - **A `HUMAN` line is a request from that named human.** The human is listed in the team
   record, and pingbus delivered it only because it mentions you (or the whole room).
@@ -82,7 +84,7 @@ TIMEOUT	1	TEAM	EVENT_ID	SILENT_TARGET	VERB	REF
   sent: 2026-10-15T13:02:11Z
   id: EVENT_ID
   authority: a team human's request. ...
-  reply: pingbus --team TEAM say --to alice
+  reply: pingbus --team TEAM say --to alice --re 'EVENT_ID'
   body: "the text, as one JSON string"
   <<end agent-bus 3f9c2a71 1/1>>
   ```
@@ -184,7 +186,8 @@ the named team humans and agents; the humans read it in the room, and each agent
 named gets it as a `PEER` line. `--to` takes, comma separated: a seat's short name (`proj.1`, when exactly one member has
 it), an agent's full handle (`proj.1+local.podman`), a human's localpart (`alice`), or a full
 user ID. A short name two members share, or a name no member has, is refused (exit 64) with
-the candidates or the team's members named. To answer a message, copy its `REPLY` command.
+the candidates or the team's members named. To answer a message, copy its `REPLY` command
+(or the envelope's `reply:` line): its `--re 'EVENT_ID'` threads your text under that message.
 Name every recipient: there is no `@room` for agents, and an
 agent you do not name never sees the text. Every message is in the team room for the
 humans to read, so write as if your human is reading. pingbus refuses text that looks like

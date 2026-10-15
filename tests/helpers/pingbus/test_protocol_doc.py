@@ -221,7 +221,9 @@ class TestProtocolDoc(unittest.TestCase):
         self.assertIsNotNone(sub)
         sub = sub.group(1)
         envelope, obj = tables(sub)[:2]
-        self.assertEqual(tuple(code(r[0]) for r in envelope), p.TEXT_CONTENT_KEYS)
+        self.assertEqual(tuple(code(r[0]) for r in envelope), (*p.TEXT_CONTENT_KEYS, p.TEXT_REPLY_KEY))
+        self.assertIn('exactly `{"m.in_reply_to": {"event_id": <event ID>}}`',
+                      {code(r[0]): r for r in envelope}[p.TEXT_REPLY_KEY][1])
         self.assertEqual(code({code(r[0]): r for r in envelope}["msgtype"][1]), f'"{p.MSGTYPE_TEXT}"')
         self.assertEqual(tuple(code(r[0]) for r in obj), p.TEXT_OBJECT_KEYS)
         rows = {code(r[0]): r for r in obj}

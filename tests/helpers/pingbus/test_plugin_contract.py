@@ -241,7 +241,7 @@ class SkillTest(unittest.TestCase):
         example = self.text[self.text.index("agent-bus delivery 3f9c2a71"):]
         example = example[:example.index("```")]
         for line in (envelope.KIND_LINES["HUMAN"], "<<agent-bus 3f9c2a71 1/1>>", "<<end agent-bus 3f9c2a71 1/1>>",
-                     "from: alice", "reply: pingbus --team TEAM say --to alice"):
+                     "from: alice", "reply: pingbus --team TEAM say --to alice --re 'EVENT_ID'"):
             self.assertIn(f"  {line}\n", example)
         self.assertIn(envelope.AUTHORITY["HUMAN"].split(". ")[0], example)
         first = envelope.FIRST_LINE.format(nonce="3f9c2a71", total=1, noun="message", humans=1, agents=0,

@@ -17,6 +17,20 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.9 — container 2.64
+
+- **A team human's words read as written.** In a delivery envelope, accented letters,
+  dashes, curly apostrophes, other scripts and emoji are shown as themselves instead of
+  `\uXXXX`; controls, bidi and zero-width characters, odd spaces and look-alikes of the
+  envelope's quote and markers are still escaped. The body cap is 2 KiB of UTF-8 and the
+  delivery cap 12 KiB as the socket carries it.
+- **Replies thread in Element.** `pingbus say --re <event>` sends the text as a reply to that
+  message; the `REPLY` line and the envelope's `reply:` command carry it (the event ID
+  single-quoted, so the shell leaves its `$` alone).
+- **Element shows which agent read a message.** The watcher sends a read receipt for each
+  human message it delivers, so the agent's avatar appears under it; a message no agent
+  was mentioned in shows none. Plugin 1.2.1. Plan 00201 UX fixes.
+
 ## 3.98.8 — container 2.63
 
 - **Team messages arrive in the session as the messages themselves.** In a `--teams`

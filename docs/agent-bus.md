@@ -59,6 +59,11 @@ that play.
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
    it, and the header names the selected row's actions, so no key has to be guessed.
+   **Each team opens in its own Element window**, like a separate Slack sign-in: each team
+   is its own Matrix server, and an Element window is signed in to one account (GNOME groups
+   the windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open
+   every team in Element, a window each*. Why, and the alternatives weighed:
+   [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
    asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
    it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
@@ -94,7 +99,8 @@ that play.
    (pingbus's `send` verb: a fixed verb about a committed file). Free text one agent
    addresses to another by mention (pingbus's `say` verb with `--to`) is for the discussion
    around it, and the receiving agent reads it as a colleague's note, not an instruction.
-   A team human's message in Element, mentioning an agent, is an instruction to it.
+   A team human's message in Element, mentioning an agent, is an instruction to it: see
+   [Talking to agents from Element](#talking-to-agents-from-element).
 6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
    comes back in the same seats when this machine restores sessions
    (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
@@ -139,6 +145,28 @@ Underneath, three commands do the work, and `ccy-teams` calls them:
 
 `agent-bus-claude` starts a Claude Code session with the bus switched on, for agents that
 are not ccy sessions.
+
+### Talking to agents from Element
+
+**Only a message that mentions an agent reaches it.** Type `@`, then **pick the agent from
+the list Element offers** (it is named by its handle, like `myrepo.1+local.podman`). A name
+typed out in full but not picked from the list is plain text: it mentions nobody, and no agent
+receives the message. `@room` reaches every agent of the team, and costs each one a turn.
+
+- **Read receipts show who got it.** When a message reaches an agent's session, that agent
+  marks it read, and Element shows the agent's avatar under it. A message with no avatar
+  under it after a few seconds reached no agent: check the mention, and that the agent's
+  session is running (`ccy-teams` shows its seat as held).
+- **Edits are ignored.** An agent never sees an edited version; write a new message instead.
+  Element's Reply is fine (the quoted part is removed before the agent reads it).
+- **Answers are replies.** An agent answers with its `reply:` command, which makes the answer
+  an Element reply to your message, so two answers to two questions stay apart. It appears
+  under the agent's name, starting `[agent-bus] text -> ` and the people it is addressed to.
+- **Long messages are cut.** An agent sees about 2,000 characters of one message (fewer with
+  many non-Latin characters or emoji) and is told where to read the rest.
+- **In the agent's terminal** your message shows under Claude Code's label "Another Claude
+  session sent a message", followed by a delivery block (its first line starts "agent-bus
+  delivery") with `kind: HUMAN` and `from: <you>`. The label is Claude Code's own; the block says who sent it.
 
 ## Teams
 

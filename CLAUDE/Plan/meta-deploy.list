@@ -20,21 +20,31 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00194 Task 2.0c: deploys the ccy launcher 3.98.8, which requires container 2.63, so the
-# next ccy launch rebuilds the image once. Its pingbus watcher writes each team message into the
-# session as an `agent-bus delivery` envelope (who sent it, human or agent, team, and the reply
-# command) instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). Running ccy
-# sessions keep their old image until each is relaunched.
+# Plan 00194 Task 2.0c and Plan 00201's UX fixes: deploys the ccy launcher 3.98.9, which
+# requires container 2.64, so the next ccy launch rebuilds the image once. Its pingbus watcher
+# writes each team message into the session as an `agent-bus delivery` envelope (who sent it,
+# human or agent, team, and the reply command) instead of the "N pending, run pingbus recv"
+# notice; a human's accents, other scripts and emoji read as written; the agent's answer is an
+# Element reply to the message, and Element shows the agent's avatar under each message it
+# received (plugin 1.2.1). Rebuilds ccy-teams: Enter on a team row has "Open every team in
+# Element, a window each". Running ccy sessions keep their old image until each is
+# relaunched.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Task 2.0c: agent-bus-install software puts the same pingbus and kit in
-# /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get envelopes too. No
-# team, homeserver or firewall rule changes. Then SPEC-inject.md section 7, H1-H7, in a
-# relaunched `ccy --teams` session (H4 measures the socket's largest message).
+# Plan 00194 Task 2.0c and Plan 00201's UX fixes: agent-bus-install software puts the same
+# pingbus and kit in /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members
+# get the same envelopes, replies and read receipts; and the agent-bus seat commands ccy and
+# cc launch through, so a launch naming a stopped team says `ccy-teams apply <team>` and an
+# unknown one lists the teams here. No team, homeserver or firewall rule
+# changes; every team then reads "out of date: software" until applied (ccy-teams offers it).
+# The owner's checks, SPEC-inject.md section 7 H1-H7 among them, are in Plan 00201's
+# ACCEPTANCE-owner.md, after its "Morning start".
 playbooks/imports/play-agent-bus.yml
 # Plan 00161: its acceptance again, since its M2 leg now reads the delivery envelope's first
 # line and accepts an answer by `pingbus send` as well as `pingbus recv`.
 00161-agent-team-bus-matrix
-# Plan 00201: the automated two-team acceptance again on the new pingbus.
+# Plan 00201: the automated two-team acceptance again on the new pingbus (it saves and puts
+# back the Quick Launch record). Then the owner's steps: ACCEPTANCE-owner.md, from its
+# "Morning start".
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
 # Plan 00199: rebuilds md-viewer at the M12 commit (non-regular files never block, tracked-files-only
 # label test); nothing else changes.
