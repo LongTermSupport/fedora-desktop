@@ -18,23 +18,37 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 # revision, to prove a test fails on the defect it guards (a control run)
 BIN = pathlib.Path(os.environ.get("STT_TEST_BIN", REPO_ROOT / "files" / "home" / ".local" / "bin"))
 
-FAKE_PW_RECORD = r'''#!/usr/bin/env python3
+STOP_PROLOGUE = r'''#!/usr/bin/env python3
 import json, os, signal, sys, time
 events = os.environ["STUB_EVENTS"]
 written = 0
+stop_requested = False
+# The handler only sets a flag. Writing the burst from inside it re-enters
+# sys.stdout.buffer whenever the signal lands in a write blocked on a full pipe
+# (a loaded host), which raises RuntimeError and exits without a result file.
 def stopped(signum, frame):
+    global stop_requested
+    stop_requested = True
+signal.signal(signal.SIGTERM, stopped)
+signal.signal(signal.SIGINT, stopped)
+def finish():
     global written
     burst = b"\x01\x00" * 16384
     sys.stdout.buffer.write(burst)
     sys.stdout.buffer.flush()
     written += len(burst)
-    with open(os.path.join(events, "pw-record.json"), "w") as f:
+    tmp = os.path.join(events, "pw-record.json.tmp")
+    with open(tmp, "w") as f:
         json.dump({"stopped_at": time.monotonic(), "written": written}, f)
+    os.replace(tmp, os.path.join(events, "pw-record.json"))
     sys.exit(0)
-signal.signal(signal.SIGTERM, stopped)
-signal.signal(signal.SIGINT, stopped)
+'''
+
+FAKE_PW_RECORD = STOP_PROLOGUE + r'''
 chunk = b"\x02\x00" * 1024
 while True:
+    if stop_requested:
+        finish()
     sys.stdout.buffer.write(chunk)
     sys.stdout.buffer.flush()
     written += len(chunk)
@@ -47,31 +61,19 @@ while True:
 # time; STUB_EXIT_AFTER, if set, makes it die with exit code 3 after that many seconds of
 # wall time, as a pw-record that loses its device would. Speech samples are 2, silence 0,
 # and the stop burst 1, so a test can tell where every sample came from.
-FAKE_PATTERN_MIC = r'''#!/usr/bin/env python3
-import json, os, signal, sys, time
-events = os.environ["STUB_EVENTS"]
+FAKE_PATTERN_MIC = STOP_PROLOGUE + r'''
 pattern = [(kind, float(secs)) for kind, secs in
            (p.split("=") for p in os.environ.get("STUB_PATTERN", "speech=1").split(","))]
 speed = float(os.environ.get("STUB_SPEED", "4"))
 exit_after = os.environ.get("STUB_EXIT_AFTER")
-written = 0
-def stopped(signum, frame):
-    global written
-    burst = b"\x01\x00" * 16384
-    sys.stdout.buffer.write(burst)
-    sys.stdout.buffer.flush()
-    written += len(burst)
-    with open(os.path.join(events, "pw-record.json"), "w") as f:
-        json.dump({"stopped_at": time.monotonic(), "written": written}, f)
-    sys.exit(0)
-signal.signal(signal.SIGTERM, stopped)
-signal.signal(signal.SIGINT, stopped)
 started = time.monotonic()
 chunk_samples = 512
 while True:
     for kind, secs in pattern:
         level = b"\x02\x00" if kind == "speech" else b"\x00\x00"
         for _ in range(int(secs * 16000 / chunk_samples)):
+            if stop_requested:
+                finish()
             if exit_after and time.monotonic() - started > float(exit_after):
                 sys.exit(3)
             sys.stdout.buffer.write(level * chunk_samples)
