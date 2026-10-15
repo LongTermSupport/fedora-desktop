@@ -130,7 +130,8 @@ Callers: `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests`, `qa-rea
 | B8  | a missing `python` row in the table scanned everything                                                  | exit 2                                           | D5          |
 | B9  | only an empty shell/python list was checked, by each caller                                             | every list but templates, by the tool            | D13         |
 | B10 | seven `qa_*` list functions and seven arrays                                                            | one `qa_discover LIST ROOT` and `QA_FILES`       | D14         |
-| B11 | an excluded name in an ancestor of the root: handled for the list, not for the per-file test           | the relative path only, everywhere               | D5          |
+| B11 | an excluded name in an ancestor of the root: handled for the list, not for the per-file test            | the relative path only, everywhere               | D5          |
+| B12 | an unreadable file: the `exit 2` ran inside `$(…)`, so it printed ✗, was taken as not a script, passed  | exit 2 naming it                                 | D10         |
 
 B10 changes the callers: `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests` and
 `qa-ready-wait-rules` call `qa_discover` in place of the old functions.
