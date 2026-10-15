@@ -9,8 +9,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from helpers.pingbus import cli, protocol
-from tests.helpers.pingbus.test_cli import PEER_LP, TEAM_A, BusCase
+from helpers.pingbus import cli, inbox, protocol
+from tests.helpers.pingbus.test_cli import ORCH_LP, PEER_LP, TEAM_A, BusCase
 
 TWIN_LP = "peer.1+lab.host"
 
@@ -58,6 +58,21 @@ class ReplyLineTest(BusCase):
         self.assertEqual(code, cli.EXIT_OK, err)
         self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.peer], "done")])
 
+    def test_recv_while_a_watcher_holds_the_lock_still_prints_the_reply(self):
+        """The inbox-read path (no sync, the cached record) prints REPLY after PEER too."""
+        self.joined()
+        text = protocol.build_text([self.a.me], "synced by the watcher")
+        event = self.a.send(self.a.peer, text)
+        self.a.state.commit_batch([{"type": "m.room.message", "event_id": event, "sender": self.a.peer,
+                                    "origin_server_ts": 0, "content": text}], self.a.state.sync_token())
+        with inbox.acquire_lock(self.a.state, "watch"):
+            code, out, err = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertIn("not syncing: a watch process holds the sync lock; reading the inbox", err)
+        self.assertEqual([line.split("\t")[0] for line in out.splitlines()], ["PEER", "REPLY"])
+        self.assertEqual(self.lines(out, "REPLY"),
+                         [["REPLY", "1", TEAM_A, event, f"pingbus --team {TEAM_A} say --to peer.1"]])
+
     def test_history_prints_no_reply_line(self):
         self.joined()
         self.a.human()
@@ -103,6 +118,43 @@ class ShortNameTest(BusCase):
         code, _, err = self.run_cli("say", "--to", "admin", stdin="hello")
         self.assertEqual(code, cli.EXIT_REFUSED)
         self.assertIn("target", err)
+
+    def test_a_short_name_with_team_named_and_two_teams_active(self):
+        """The live case: `say --team <team> --to <repo>.<seat>` on a session with two teams."""
+        self.add_team()
+        self.joined()
+        code, _, err = self.run_cli("say", "--team", TEAM_A, "--to", "peer.1", stdin="hello")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.peer], "hello")])
+
+    def test_a_target_refusal_names_what_it_got_and_who_may_be_addressed(self):
+        self.joined()
+        for to in ("admin", "orch.1,admin"):
+            code, out, err = self.run_cli("say", "--to", to, stdin="hello")
+            self.assertEqual((code, out), (cli.EXIT_REFUSED, ""), to)
+            self.assertIn("refused: target: --to admin cannot be addressed by say", err)
+            self.assertIn(f"Agents: {ORCH_LP}, {PEER_LP}", err)
+            self.assertIn("Humans: alice", err)
+        code, _, err = self.run_cli("send", "halt", "--to", "admin")
+        self.assertEqual(code, cli.EXIT_REFUSED)
+        self.assertIn("refused: target: --to admin cannot be addressed by send halt", err)
+        self.assertIn("Humans: -", err, "halt does not go to humans")
+        code, _, err = self.run_cli("say", "--to", "@room", stdin="hello")
+        self.assertEqual(code, cli.EXIT_REFUSED)
+        self.assertIn("refused: target: --to @room cannot be addressed by say", err)
+        self.assertEqual(self.a.messages_from_me(), [])
+
+    def test_a_target_refusal_for_too_many_counts_the_coordinator_copy(self):
+        """A worker writing to a human copies the coordinator: the count is what was checked."""
+        self.joined()
+        extra = [f"extra.{n}+workstation.podman" for n in range(1, protocol.MAX_TEXT_TO - 1)]
+        users = {self.a.fake.add_user(handle): "worker" for handle in extra}
+        self.a.set_record(dict(self.a.record, roles=dict(self.a.record["roles"], **users)))
+        to = ",".join([*extra, PEER_LP, "alice"])
+        code, _, err = self.run_cli("say", "--to", to, stdin="hello")
+        self.assertEqual(code, cli.EXIT_REFUSED, err)
+        self.assertIn(f"say takes at most {protocol.MAX_TEXT_TO} addressees, not {protocol.MAX_TEXT_TO + 1} "
+                      "(the coordinator is copied on a worker's message to a human)", err)
 
     def test_the_help_shows_the_forms(self):
         for command in ("say", "send"):

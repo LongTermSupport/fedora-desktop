@@ -19,3 +19,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00201 (pingbus fix): deploys the ccy launcher 3.98.6, which requires container 2.61, so
+# the next ccy launch rebuilds the image with the pingbus whose target refusals name what was
+# refused and who can be addressed. Running ccy sessions keep their old image (and their old
+# pingbus: no short --to, no REPLY lines if older than 2.56) until each is relaunched.
+playbooks/imports/play-claude-yolo.yml
