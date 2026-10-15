@@ -20,6 +20,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# ccy play: rebuilds ccy-teams (every apply now offers the Element sign-in, or says how to
+# sign in later; the create wizard says "not applied as declared") and installs CCY 3.97.2
+# (pingbus recv prints a REPLY command; --to takes a seat's short name).
+playbooks/imports/play-claude-yolo.yml
+
 # GNOME settings play: now also writes a per-user GNOME Text Editor desktop file (copied from
 # the system one) with D-Bus activation off and --new-window, so a file opened from Nautilus
 # opens in a new window on the current workspace (Plan 00198).
