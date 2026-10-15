@@ -25,7 +25,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.agent_bus import declare, teamfile
+from helpers.agent_bus import bridge, declare, teamfile
 from helpers.pingbus import bundle
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -543,7 +543,8 @@ class StatusTest(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         flags = [f for team in installed for f in ("--installed", team)]
         code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
-                             "--applied", str(self.applied), *flags], stdout=stdout, stderr=stderr)
+                             "--applied", str(self.applied), *flags], stdout=stdout, stderr=stderr,
+                            bridge_cidr=lambda: None)
         self.assertEqual(code, 0, stderr.getvalue())
         return [line.split("\t") for line in stdout.getvalue().splitlines()]
 
@@ -590,15 +591,78 @@ class StatusTest(unittest.TestCase):
         for command in ("declared", "status", "overview"):
             stdout = io.StringIO()
             args = argv if command != "declared" else argv[:2]
-            self.assertEqual(declare.main([command, *args], stdout=stdout, stderr=io.StringIO()), 0)
+            self.assertEqual(declare.main([command, *args], stdout=stdout, stderr=io.StringIO(),
+                                         bridge_cidr=lambda: None), 0)
             out[command] = stdout.getvalue()
         self.assertEqual(out["overview"], out["declared"] + out["status"])
 
     def test_a_malformed_stamp_is_refused(self) -> None:
         (self.applied / "alpha.json").write_text('{"v": 1}', encoding="utf-8")
         code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
-                             "--applied", str(self.applied)], stdout=io.StringIO(), stderr=io.StringIO())
+                             "--applied", str(self.applied)], stdout=io.StringIO(), stderr=io.StringIO(),
+                            bridge_cidr=lambda: None)
         self.assertEqual(code, 78)
+
+
+class BridgeStatusTest(unittest.TestCase):
+    """The play stamps the digest of the team file it rendered, bridge subnet included; the
+    status must compute that same digest (the regression: every team read `outdated: config`)."""
+
+    CIDR = "198.51.100.0/24"
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.path = self.tmp / "localhost.yml"
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+        self.applied = self.tmp / "applied"
+        self.applied.mkdir()
+        self.software = declare.declared_software(REPO_ROOT)
+        self.alpha = next(t for t in declare.parse(STATUS_HV).teams if t.team == "alpha")
+
+    def play_stamp(self, cidr: str | None) -> None:
+        """What the installer stamps: the digest of the team file the play rendered."""
+        entry = dict(declare.entry_of(self.alpha))
+        entry["allow_from"] = bridge.effective(entry.get("allow_from"), cidr)
+        config = teamfile.config_digest(teamfile.parse_team_file(dict(entry, state="present")))
+        (self.applied / "alpha.json").write_text(json.dumps(
+            {"v": 1, "team": "alpha", "config": config, "software": self.software}), encoding="utf-8")
+
+    def alpha_row(self, cidr: str | None) -> list[str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
+                             "--applied", str(self.applied)], stdout=stdout, stderr=stderr,
+                            bridge_cidr=lambda: cidr)
+        self.assertEqual(code, 0, stderr.getvalue())
+        return next(line.split("\t") for line in stdout.getvalue().splitlines() if "\talpha\t" in line)
+
+    def test_a_stamp_from_the_bridge_augmented_file_reads_back_current(self) -> None:
+        self.play_stamp(self.CIDR)
+        self.assertEqual(self.alpha_row(self.CIDR), ["STATUS", "alpha", "current", "-"])
+
+    def test_a_bare_digest_is_outdated_once_the_bridge_exists(self) -> None:
+        self.play_stamp(None)
+        self.assertEqual(self.alpha_row(self.CIDR)[2:], ["outdated", "config"])
+
+    def test_no_bridge_is_the_bare_entry(self) -> None:
+        self.play_stamp(None)
+        self.assertEqual(self.alpha_row(None), ["STATUS", "alpha", "current", "-"])
+        self.assertEqual(declare.declared_config(self.alpha), declare.declared_config(self.alpha, None))
+
+    def test_a_declared_bridge_cidr_is_not_doubled(self) -> None:
+        hv = STATUS_HV.replace("allow_from: []", f'allow_from: ["{self.CIDR}"]', 1)
+        self.assertNotEqual(hv, STATUS_HV)
+        team = next(t for t in declare.parse(hv).teams if t.team == "alpha")
+        self.assertEqual(declare.declared_config(team, self.CIDR), declare.declared_config(team))
+
+    def test_a_broken_bridge_refuses_the_status(self) -> None:
+        def broken() -> str | None:
+            raise bridge.BridgeError("bridge lxcbr0 exists but has no IPv4 address: lxc-net is broken")
+        stderr = io.StringIO()
+        code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
+                             "--applied", str(self.applied)], stdout=io.StringIO(), stderr=stderr,
+                            bridge_cidr=broken)
+        self.assertEqual(code, 78)
+        self.assertIn("lxc-net", stderr.getvalue())
 
 
 class RemoveTest(unittest.TestCase):

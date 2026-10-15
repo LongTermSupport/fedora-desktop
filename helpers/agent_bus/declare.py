@@ -80,7 +80,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
-from helpers.agent_bus import teamfile
+from helpers.agent_bus import bridge, teamfile
 from helpers.pingbus import bundle, protocol
 
 TEAMS_KEY = "agent_bus_teams"
@@ -389,9 +389,11 @@ def declared_software(source: pathlib.Path) -> str:
     return teamfile.software_digest(bundle.build("agent-bus", source), versions[0], installer)
 
 
-def declared_config(team: Declared) -> str:
-    """The config digest of the team file the play would render from this entry."""
+def declared_config(team: Declared, bridge_cidr: str | None = None) -> str:
+    """The config digest of the team file the play would render from this entry: its
+    allow_from is the declared list plus the live LXC bridge's subnet (`bridge_cidr`)."""
     entry = {k: v for k, v in entry_of(team).items() if k != "purge"}
+    entry["allow_from"] = bridge.effective(entry.get("allow_from"), bridge_cidr)
     try:
         return teamfile.config_digest(teamfile.parse_team_file(dict(entry, state="present")))
     except teamfile.TeamFileError as exc:
@@ -415,7 +417,7 @@ def read_stamps(applied: pathlib.Path) -> dict[str, dict]:
 
 
 def team_states(hv: HostVars, stamps: dict[str, dict], software: str,
-                installed: Sequence[str]) -> list[tuple[str, str, str]]:
+                installed: Sequence[str], bridge_cidr: str | None = None) -> list[tuple[str, str, str]]:
     """(team, state, detail) per declared team, then per applied team no longer declared."""
     rows = []
     for team in hv.teams:
@@ -424,7 +426,7 @@ def team_states(hv: HostVars, stamps: dict[str, dict], software: str,
             rows.append((team.team, DECIDE, "absent") if stamp else (team.team, REMOVED, "-"))
             continue
         try:
-            config = declared_config(team)
+            config = declared_config(team, bridge_cidr)
         except DeclareError as exc:
             rows.append((team.team, UNREADABLE, str(exc).replace("\t", " ")))
             continue
@@ -438,17 +440,21 @@ def team_states(hv: HostVars, stamps: dict[str, dict], software: str,
     return rows
 
 
-def status(args: argparse.Namespace, out: TextIO) -> int:
+def status(args: argparse.Namespace, out: TextIO, live_bridge: Callable[[], str | None] = bridge.live_subnet) -> int:
     hv = parse(_read(pathlib.Path(args.file)))
+    try:
+        cidr = live_bridge()
+    except bridge.BridgeError as exc:
+        raise DeclareError(str(exc)) from None
     rows = team_states(hv, read_stamps(pathlib.Path(args.applied)), declared_software(pathlib.Path(args.source)),
-                       args.installed or [])
+                       args.installed or [], cidr)
     out.writelines(f"STATUS\t{team}\t{state}\t{detail}\n" for team, state, detail in rows)
     return EXIT_OK
 
 
-def overview(args: argparse.Namespace, out: TextIO) -> int:
+def overview(args: argparse.Namespace, out: TextIO, live_bridge: Callable[[], str | None] = bridge.live_subnet) -> int:
     declared(args, out)
-    return status(args, out)
+    return status(args, out, live_bridge)
 
 
 def mark_absent(hv: HostVars, name: str, purge: bool) -> str:
@@ -967,7 +973,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _ss,
-         stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
+         stdout: TextIO | None = None, stderr: TextIO | None = None,
+         bridge_cidr: Callable[[], str | None] = bridge.live_subnet) -> int:
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     try:
@@ -997,9 +1004,9 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
         if args.command in ("element", "drop-limit", "element-teams", "limited", "teams-for"):
             return _listing_or_edit(args, out, err)
         if args.command == "status":
-            return status(args, out)
+            return status(args, out, bridge_cidr)
         if args.command == "overview":
-            return overview(args, out)
+            return overview(args, out, bridge_cidr)
         if args.command == "remove":
             return remove(args, out, err)
         if args.command == "github-remote":

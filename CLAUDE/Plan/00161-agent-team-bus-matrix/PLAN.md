@@ -112,6 +112,11 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
       acceptance.bash.
   - [x] ✅ Applied state and team changes by the play (DESIGN.md D65): built and deployed
     26-10-13; the owner created a real team with `ccy-teams create` on 26-10-13 and it worked.
+  - [x] ✅ Defect: `ccy-teams apply` always read every team "out of date: config" where lxcbr0
+    exists, because the play stamped the digest of the bridge-augmented team file and
+    `declare.py status` digested the bare entry. Fixed 26-10-15: `bridge.py` owns the bridge
+    name and a live `ip` probe; `status` digests `bridge.effective(...)` too; `agent_bus_lxc_bridge`
+    and the facts path are gone. The create wizard's failure line no longer claims "not installed".
 
 ## Success Criteria
 

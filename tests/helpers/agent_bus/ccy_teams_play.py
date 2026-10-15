@@ -4,7 +4,8 @@
 
 For each team the extra vars' `agent_bus_only_teams` names, it does what the play and the
 installer leave behind: a team declared present gets the stamp `agent-bus-install team`
-writes (its digests by the same functions, `declare.declared_config` over the entry and
+writes (its digests by the same functions, `declare.declared_config` over the entry plus the live
+bridge subnet, and
 `declare.declared_software` over this checkout); a team declared absent loses its stamp.
 """
 
@@ -14,7 +15,7 @@ import json
 import pathlib
 import sys
 
-from helpers.agent_bus import declare, teamfile
+from helpers.agent_bus import bridge, declare, teamfile
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 
@@ -29,7 +30,7 @@ def main(argv: list[str]) -> int:
         if team.state == "absent":
             stamp.unlink(missing_ok=True)
             continue
-        body = {"v": teamfile.STAMP_VERSION, "team": name, "config": declare.declared_config(team),
+        body = {"v": teamfile.STAMP_VERSION, "team": name, "config": declare.declared_config(team, bridge.live_subnet()),
                 "software": software}
         stamp.write_text(json.dumps(body, sort_keys=True) + "\n", encoding="utf-8")
     return 0

@@ -656,9 +656,8 @@ def _check_route(host: Host, guest, members: Sequence[Member], bus: str) -> None
         if not covered(source, allow):
             raise MemberError(
                 f"team {member.team}'s allow_from ({', '.join(allow) or 'empty'}) does not cover LXC "
-                f"container {container} at {source} on bridge {dev}. The play admits the bridge named by "
-                f"agent_bus_lxc_bridge (lxcbr0 by default) itself; {dev} is another bridge, so either set "
-                f"agent_bus_lxc_bridge to {dev}, or add \"{cidr}\" to allow_from of "
+                f"container {container} at {source} on bridge {dev}. The play admits the lxcbr0 "
+                f"bridge itself; {dev} is another bridge, so add \"{cidr}\" to allow_from of "
                 f"team {member.team} in agent_bus_teams ({VARS_FILE}), and run the play again")
 
 
