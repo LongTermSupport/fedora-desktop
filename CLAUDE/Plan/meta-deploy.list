@@ -24,3 +24,13 @@
 # files and D-Bus activation, the default handler for text files, its settings. Collected so
 # Plan 00198 can make a file opened from Nautilus open in a new window on the current workspace.
 00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace
+
+# Element Desktop profiles for the agent teams. It refused the owner after they accepted
+# cc --teams (Plan 00177 Task 7.3); the check now passes that acceptance on its own.
+playbooks/imports/optional/common/play-agent-bus-element.yml
+
+# agent team bus acceptance, now with the coordinator role (Plan 00196 is deployed), after the
+# bridge-subnet status fix: ccy-teams apply now reads a team applied on a host with lxcbr0
+# as up to date. BEFORE running meta, launch `ccy` interactively once in this checkout and
+# choose the token and SSH keys: U20 refuses to start until Quick Launch saves them.
+00161-agent-team-bus-matrix/acceptance.bash
