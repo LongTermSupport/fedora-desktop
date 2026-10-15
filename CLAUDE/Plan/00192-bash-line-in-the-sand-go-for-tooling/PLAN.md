@@ -302,6 +302,31 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (STT-3), no "aborts the whole run" wording left in the toolchain spec, wrapper or package doc
   (TC-2), and a test for a symlink named `logs` in `qa/planscriptlogging` (PSL-2). The remaining
   LOW findings (PSL-4, TC-3, TC-4, TC-6, STT-4 to STT-6) were not re-checked here.
+  `qa-version-pins.bash` (P3) on `go-port/qa-version-pins`: ported, merged on the integration branch; spec
+  [SPEC-qa-version-pins.md](SPEC-qa-version-pins.md), expectations V1-V25; nested
+  `src-go/qa/versionpins` and `qa/cmd/qa-version-pins`; the manifest is parsed in Go, with a
+  cross-check test against the Python manifest validator the host tools still read (review VP-2,
+  `src-go/qa/cmd/qa-version-pins/crosscheck_test.go`); the script a build-and-run wrapper, its
+  allowlist row gone; `qa-changed` gets a `version-pins` whole-gate check (B45).
+  `qa-vmtest-manifest.bash` (P3) on `go-port/qa-vmtest-manifest`: ported, merged on the integration branch; spec
+  [SPEC-qa-vmtest-manifest.md](SPEC-qa-vmtest-manifest.md), expectations V1-V16; nested
+  `src-go/qa/vmtestmanifest` and `qa/cmd/qa-vmtest-manifest`; the manifest is read strictly in Go,
+  the Python validator the host runs stays the one definition of a valid manifest, and the guest
+  checkers are cross-checked in Go; the script a build-and-run wrapper, its allowlist row gone;
+  `qa-changed` gets a `vmtest-manifest` whole-gate check (B46).
+  `qa-helper-tests.bash` (P3) on `go-port/qa-helper-tests`: ported, merged on the integration branch; spec
+  [SPEC-qa-helper-tests.md](SPEC-qa-helper-tests.md), expectations H1-H13; nested
+  `src-go/qa/helpertests` and `qa/cmd/qa-helper-tests`, with a second reader of the counts file in
+  `qa/gates`; the script a build-and-run wrapper, its allowlist row gone; `qa-changed` gets no
+  check for it (spec B9: the suite is about 4.5 minutes, so `qa-all` owns it and `qa-changed`
+  runs the mirrored unit-test module of each changed helper). Fable review of the three
+  (`subagent-reports/261015-fable-review-pins-vmtest-helpers.md`) found no blocker. Checked in the
+  merged tree: the cross-check test for VP-2 exists and "task or vars file" is gone from the
+  version-pins spec (VP-1). The LOW findings (VP-3, VM-1 to VM-3, HT-2, HT-3, X-1) were not
+  re-checked here.
+  Still on `scripts/bash-limits.allowlist`: `qa-go.bash` and `qa-docs.bash`. Per the coordinator,
+  `qa-go` waits on Plan 00191's go-qa-ci decisions and `qa-docs` is in progress; I did not verify
+  either state.
 
 ### Phase 4: Review
 
