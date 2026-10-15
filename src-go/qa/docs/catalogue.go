@@ -172,9 +172,13 @@ func (g *gate) checkTopicIndex(population []string) ([]finding, error) {
 // moduleGate is a gate run as a module, which the QA document names by its dotted path.
 var moduleGate = regexp.MustCompile(`-m\s+(helpers[A-Za-z0-9_.]+)`)
 
+// toolGate is the one gate run as an installed tool, go-qa (go-qa-ci), which the QA document
+// names by the tool. Another tool gate is another name here and in gateName (markdown.go).
+var toolGate = regexp.MustCompile(`^go-qa$`)
+
 // gateNames are the names the QA document uses for the gates the table runs: a module by its
-// dotted path, a script by its file name. A command that is neither is an error: a row the
-// inventory cannot name is a gate it never looked at.
+// dotted path, a script by its file name, an installed tool by its name. A command that is none
+// of these is an error: a row the inventory cannot name is a gate it never looked at.
 func gateNames(table []gates.Gate) ([]string, error) {
 	var names []string
 	for _, row := range table {
@@ -185,6 +189,8 @@ func gateNames(table []gates.Gate) ([]string, error) {
 			names = append(names, module[1])
 		case isScript:
 			names = append(names, script)
+		case toolGate.MatchString(row.Argv[0]):
+			names = append(names, row.Argv[0])
 		default:
 			return nil, fmt.Errorf("%s:%d: cannot name the gate run by %q", gateTable, row.Line, command)
 		}

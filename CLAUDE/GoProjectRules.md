@@ -1,7 +1,7 @@
 # src-go project rules (Defence Before Fix)
 
 Defect classes the `ccy-teams` and `ccy-sessions` ports actually hit, each held by a
-`go/analysis` analyzer in `src-go/qa/rules`. They run from `scripts/qa-go.bash` as a hard
+`go/analysis` analyzer in `src-go/qa/rules`. They run from `go-qa` (the `analyzers` tool of go-qa-ci, `src-go/qa/go-qa.toml`) as a hard
 step: the driver (`src-go/qa/driver`) is built once and used as `go vet -vettool` over
 `src-go`. Every finding fails the gate. There is no inline suppression: the only excuse is a
 row in a table in `src-go/qa/rules/table.go`, with its reason.
@@ -14,20 +14,18 @@ spelling of the defect is documentation, not a gate.
 
 The rules live in their own module (`src-go/qa`, its own `go.mod`, depending on
 `golang.org/x/tools`) because the shipped binaries are built on the host with plain `go build`
-and `src-go/go.mod` must stay dependency-free. `qa-go.bash` checks that module too (format,
-vet, test, coverage, lint). This file is under `CLAUDE/` because the markdown guard allows no
+and `src-go/go.mod` must stay dependency-free. go-qa checks that module too (format, test,
+coverage, lint, vulnerabilities, dead code, the bundled analyzers and these rules). This file is under `CLAUDE/` because the markdown guard allows no
 `.md` beside the Go code.
 
 ## Fit with go-qa-ci
 
-go-qa-ci documents project analyzers as a project driver package, analyzers proven with
-`analysistest`, and one page per analyzer under its `docs_dir`. The analyzers and their
-`analysistest` proofs match, and the names are identifier-only (`project_*`), so adopting it is
-a change of driver (`driver.Main(rules.All()...)` in place of `unitchecker.Main`). Gaps, because
-of the dependency-free constraint on `src-go/go.mod`: go-qa-ci expects the driver in the
-project's own module (`[analyzers] driver`) and here it sits in the nested `src-go/qa` module,
-which its per-module run (`modules` in `qa/go-qa.toml`) must be told about; and the per-rule
-pages are not written, this catalogue stands in until adoption.
+go-qa-ci runs these rules: `src-go/qa/driver` calls its `driver.Main(rules.All()...)`, which
+registers go-qa-ci's bundled analyzers beside them, and `src-go/qa/go-qa.toml` names the nested
+module (`[analyzers] module = "qa"`, `driver = "./driver"`, and `modules = ["qa"]` so the
+per-module tools run over it too). The analyzers are proven with `analysistest`, and the names are
+identifier-only (`project_*`). Gap: go-qa-ci expects one page per analyzer under its `docs_dir`
+and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
@@ -226,7 +224,7 @@ guessing; the catalogue claims no more than the code does.
 
 ## Control
 
-`scripts/qa-go.bash` was run with `strings.HasPrefix(p, "~")` planted in a package outside
+The Go gate (then `scripts/qa-go.bash`, now `go-qa`) was run with `strings.HasPrefix(p, "~")` planted in a package outside
 `internal/term`: every earlier step passed and the gate failed at the rules step with a
 `project_homeabbrev` finding. The plant was removed. After the rules were hardened a test file
 with `var now = time.Now`, `"~" + rest` and `f := exec.Command` was planted in a package and all

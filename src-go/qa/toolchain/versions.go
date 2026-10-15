@@ -23,6 +23,17 @@ var pinnedTools = []pinnedTool{
 	{"semgrep", "SEMGREP", func(s string) string { return field(firstLine(s), 0) }},
 	{"shellcheck", "SHELLCHECK", shellcheckVersion},
 	{"golangci-lint", "GOLANGCI_LINT", func(s string) string { return field(firstLine(s), 3) }},
+	{"go-qa", "GO_QA_CI", goQAVersion},
+}
+
+// goQAVersion is the commit go-qa was built from: its --version is the module's pseudo-version
+// (v0.0.0-<time>-<12-character commit>), and the pin in .qa-versions is that commit.
+func goQAVersion(stdout string) string {
+	version := firstLine(stdout)
+	if i := strings.LastIndex(version, "-"); i >= 0 {
+		return version[i+1:]
+	}
+	return ""
 }
 
 func firstLine(s string) string {

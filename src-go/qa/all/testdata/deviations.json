@@ -14,225 +14,874 @@
  },
  "zero-count": {
   "bugs": [
-   "B21"
+   "B21",
+   "B33"
   ],
-  "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion; the bash ticked it, the Go fails the gate"
+  "reason": "a suite that exits 0 after counting 'passed: 0' ran no assertion; the bash ticked it, the Go fails the gate; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "count-line-reports-failures": {
   "bugs": [
-   "B22"
+   "B22",
+   "B33"
   ],
-  "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite; the bash ticked it, the Go fails the gate"
+  "reason": "a suite that exits 0 while its count line says 'failed: 2' is a failed suite; the bash ticked it, the Go fails the gate; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-forges-verdict": {
   "bugs": [
-   "B23"
+   "B23",
+   "B33"
   ],
-  "reason": "a stage's own line that opens like the run's verdict is indented so the closing verdict is the only such line"
+  "reason": "a stage's own line that opens like the run's verdict is indented so the closing verdict is the only such line; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "fail-bash": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "fail-python": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "fail-patterns": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "fail-ansible": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "fail-ansible-syntax": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "fail-js": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "fail-docs": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "gate-and-stage-fail": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-fail-without-failures": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-failures-merge": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "many-fail": {
   "bugs": [
-   "B13"
+   "B13",
+   "B33"
   ],
-  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged"
+  "reason": "a failed stage is named in a second line of the FAILED block; the existing lines are unchanged; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stale-report-then-abort": {
   "bugs": [
    "B6",
-   "B30"
+   "B30",
+   "B33"
   ],
-  "reason": "the previous run's report is removed before the first gate, so a run that aborts leaves none; the patterns stage's exit-2 text is the B30 wording"
+  "reason": "the previous run's report is removed before the first gate, so a run that aborts leaves none; the patterns stage's exit-2 text is the B30 wording; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "no-count": {
   "bugs": [
-   "B2"
+   "B2",
+   "B33"
   ],
-  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed"
+  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "no-count-empty": {
   "bugs": [
-   "B2"
+   "B2",
+   "B33"
   ],
-  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed"
+  "reason": "a suite that exits 0 without a 'passed: <n>' line is a failed gate, not a green tick over the word passed; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "detail-miss-go": {
   "bugs": [
-   "B3"
+   "B3",
+   "B33"
   ],
-  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "detail-miss-toolchain": {
   "bugs": [
-   "B3"
+   "B3",
+   "B33"
   ],
-  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "detail-miss-manifest-second": {
   "bugs": [
-   "B3"
+   "B3",
+   "B33"
   ],
-  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'"
+  "reason": "a detail pattern that matches nothing is a failed gate, not a green tick over 'summary unreadable'; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "drift-empty": {
   "bugs": [
-   "B12"
+   "B12",
+   "B33"
   ],
-  "reason": "deployed-drift passing with no stage line is a failed gate, not a blank line"
+  "reason": "deployed-drift passing with no stage line is a failed gate, not a blank line; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "helpers-counts-empty": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "helpers-counts-no-skipped": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "helpers-counts-wrong-token": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "helpers-counts-duplicate": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "helpers-counts-non-numeric": {
   "bugs": [
-   "B20"
+   "B20",
+   "B33"
   ],
-  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same"
+  "reason": "the counts reader's diagnostics carry the gate name and Go quoting; the refusal and the failed stage line are the same; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-report-empty-shifts": {
   "bugs": [
-   "B4"
+   "B4",
+   "B33"
   ],
-  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero); the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-report-malformed": {
   "bugs": [
-   "B4"
+   "B4",
+   "B33"
   ],
-  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero); the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-report-no-summary": {
   "bugs": [
-   "B4"
+   "B4",
+   "B33"
   ],
-  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero)"
+  "reason": "each stage's report is read by name: an empty, malformed or wrong-shape report fails that stage in its own slot (the bash shifted the later stages down one, aborted in jq, or counted a null as zero); the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-exit0-with-failures": {
   "bugs": [
-   "B5"
+   "B5",
+   "B33"
   ],
-  "reason": "a stage that exits 0 while its report counts failures is a failed stage"
+  "reason": "a stage that exits 0 while its report counts failures is a failed stage; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "exit2-ansible-syntax": {
   "bugs": [
-   "B27"
+   "B27",
+   "B33"
   ],
-  "reason": "ansible-syntax exits 2 for six causes (a missing engine, ansible.cfg or vault password file, an unusable config dump, a broken playbook discovery, an unwritable report), but its stage text only told the reader to install a tool; it now covers every cause and points at the ERROR line above"
+  "reason": "ansible-syntax exits 2 for six causes (a missing engine, ansible.cfg or vault password file, an unusable config dump, a broken playbook discovery, an unwritable report), but its stage text only told the reader to install a tool; it now covers every cause and points at the ERROR line above; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "exit2-bash": {
   "bugs": [
-   "B28"
+   "B28",
+   "B33"
   ],
-  "reason": "qa-bash exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B28), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+  "reason": "qa-bash exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B28), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "exit2-python": {
   "bugs": [
-   "B29"
+   "B29",
+   "B33"
   ],
-  "reason": "qa-python exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B29), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+  "reason": "qa-python exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B29), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "exit2-patterns": {
   "bugs": [
-   "B30"
+   "B30",
+   "B33"
   ],
-  "reason": "qa-patterns exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B30), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+  "reason": "qa-patterns exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B30), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "exit2-js": {
   "bugs": [
-   "B31"
+   "B31",
+   "B33"
   ],
-  "reason": "qa-js exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B31), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+  "reason": "qa-js exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B31), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "exit2-docs": {
   "bugs": [
-   "B32"
+   "B32",
+   "B33"
   ],
-  "reason": "qa-docs exits 2 for causes that are not a zero-file scan or a checker crash (see SPEC-qa-all.md B32), but its stage text said only that; it now covers every cause and points at the ERROR line above"
+  "reason": "qa-docs exits 2 for causes that are not a zero-file scan or a checker crash (see SPEC-qa-all.md B32), but its stage text said only that; it now covers every cause and points at the ERROR line above; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  },
  "stage-then-abort": {
   "bugs": [
-   "B30"
+   "B30",
+   "B33"
   ],
-  "reason": "the patterns stage's exit-2 text names the failure and points at the ERROR line above instead of telling the reader to install semgrep"
+  "reason": "the patterns stage's exit-2 text names the failure and points at the ERROR line above instead of telling the reader to install semgrep; the go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "all-pass": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-toolchain": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-go": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-bash-limits": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-nokill-containerwatch": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-deployed-drift": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-helper-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-secret-scan-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-planlib-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-rootless-guard": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-token-mode": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-token-usage-output": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-token-usage-command": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-token-import-cleanup": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-ssh-handling": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-git-signing": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-git-signing-declared": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-qa-tool-pin-converges": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-browser-session-guard": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-gh-scope-outside-ssot": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-speech-to-text-rules": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ready-wait-rules": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-pause-without-register": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-selinux-verdict": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-relabel-preflight": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-agent-mailbox-watch": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-gpu-device": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-container-menus": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-flag-check": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-restart-request": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-container-version-hook": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-project-env": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-git-preflight": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-agent-bus": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-teams": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-cc-teams": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-gitignore-safety": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-env-local-dist": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-lifecycle": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-wsi-stop-grace": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-stt-limits": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-host-hostname": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-host-time-zone": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-network-disconnect": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-info-flags": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ssh-suspend-guard": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-session-registry": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-compose-restore": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-sessions-reboot": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-sessions-take-over": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-tmux-targets": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-teams-command": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-ccy-restore-askpass": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-vmtest-host-only-gate": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-vmtest-reboot-dispatch": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-vmtest-kernel-selection": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-vmtest-build-dir-cleanup": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-vmtest-member": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-vmtest-prepare-record": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-panel-sections": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-headless-localhost-yml": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-ssh-agent-teardown": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-single-play": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-changed": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-rerun": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-gh-scopes": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-config-repo": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-bash-ssh-agent-start": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-gh-alias-wrappers": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-self-update-cycle": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-agent-bus-install": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-release": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-run-log-scrub": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-host-health-login-snippet": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-bash-history-search": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-bash-history-session": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-terminal-modes": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-fedora-desktop-health": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-failfast-pattern-tests": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-docs-exit-codes": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-qa-changed-mapping": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-extension-compat": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-panel-contract": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-vmtest-manifest": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-plan-script-logging": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "fail-version-pins": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "exit2-ansible": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "exit2-toolchain": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "exit2-go": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "two-gates-fail": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "stale-report-then-pass": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "detail-last-line-wins": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "count-last-line-wins": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "drift-skipped": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "drift-fails": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "drift-exit2": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "helpers-stdout-noise": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "helpers-fails-with-output": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "helpers-counts-single": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "stage-stderr-passthrough": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "hard-gate-stderr-only": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
+ },
+ "hard-gate-no-output-fail": {
+  "bugs": [
+   "B33"
+  ],
+  "reason": "The go gate is go-qa-ci (go-qa --root <root>/src-go run), not the interim qa-go.bash: its stage text and its pass line (the coverage step of go-qa's summary, read in place of the GO-OK line) are different (SPEC-qa-all B33)"
  }
 }

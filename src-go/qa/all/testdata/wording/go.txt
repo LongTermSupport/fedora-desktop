@@ -1,1 +1,8 @@
-GO-OK 40 package(s), all tested: fmt, vet, test -race, coverage 94.8% (floor 90%), golangci-lint clean; qa module 10 package(s) at 94.4%; project rules clean
+
+go-qa summary:
+  format     fmt          passed
+  detectors  record       passed
+  detectors  golangci     passed
+  runners    mod          passed
+  runners    test         passed
+  runners    coverage     passed

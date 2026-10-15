@@ -121,6 +121,22 @@ func TestCommandPassesAScriptsArgumentsThrough(t *testing.T) {
 	}
 }
 
+// A tool that wants the repository root as a path, not as the directory it runs in, is given it
+// by writing {root} in the row; a script row is untouched, and so is a row without the word.
+func TestCommandSubstitutesTheRootForTheRootPlaceholder(t *testing.T) {
+	gs, err := Load(writeTable(t, "gate\ttool\tgo-qa --root {root}/src-go run\ttool failed\tdetail:passed\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := gs[0].Command("/r")
+	if want := []string{"go-qa", "--root", "/r/src-go", "run"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if gs[0].Argv[2] != "{root}/src-go" {
+		t.Fatalf("the row itself was rewritten: %v", gs[0].Argv)
+	}
+}
+
 func TestPopulationIsTheScriptRowsMinusThePerFileGatesInOrder(t *testing.T) {
 	gs, err := Load(writeTable(t, goodTable+"gate\tsuite-b\tscripts/test-b.bash\tb\tcount\ngate\tsuite-a-again\tscripts/test-a.bash\ta\tcount\n"))
 	if err != nil {

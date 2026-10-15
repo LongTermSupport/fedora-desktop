@@ -9,7 +9,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/toolchain"
 )
 
-const pins = "RUFF=0.16.8\nSEMGREP=1.177.0\nSHELLCHECK=0.11.0\nGOLANGCI_LINT=2.14.0\n"
+const pins = "RUFF=0.16.8\nSEMGREP=1.177.0\nSHELLCHECK=0.11.0\nGOLANGCI_LINT=2.14.0\nGO_QA_CI=803b122ce526\n"
 
 // ownerExec is the one bit a fake tool needs beyond a private file.
 var ownerExec = os.FileMode(0o100)
@@ -80,6 +80,7 @@ func TestRealToolsAreReadFromPathAndMatch(t *testing.T) {
 		"ruff": "ruff 0.16.8", "semgrep": "1.177.0",
 		"shellcheck":    "ShellCheck - x\nversion: 0.11.0\nlicense: y",
 		"golangci-lint": "golangci-lint has version 2.14.0 built with go1.26 from abc",
+		"go-qa":         "v0.0.0-20261014082313-803b122ce526",
 	})
 	if code := run([]string{"--root", root}); code != int(toolchain.ExitOK) {
 		t.Fatalf("exit %d", code)
@@ -98,7 +99,7 @@ func TestADriftedOrAbsentToolIsExitOneNotTwo(t *testing.T) {
 // T10: a non-zero exit is not a match even when the number it printed is the pin.
 func TestAToolThatFailsItsVersionRunIsNotAMatch(t *testing.T) {
 	root := machine(t)
-	bin := toolsOnPath(t, map[string]string{"semgrep": "1.177.0", "shellcheck": "version: 0.11.0", "golangci-lint": "golangci-lint has version 2.14.0"})
+	bin := toolsOnPath(t, map[string]string{"semgrep": "1.177.0", "shellcheck": "version: 0.11.0", "golangci-lint": "golangci-lint has version 2.14.0", "go-qa": "v0.0.0-20261014082313-803b122ce526"})
 	fakeTool(t, bin, "ruff", "echo 'ruff 0.16.8'; echo broken >&2; exit 3")
 	if code := run([]string{"--root", root}); code != int(toolchain.ExitFailed) {
 		t.Fatalf("a tool exiting 3 after printing the pinned version: exit %d, want 1", code)
@@ -114,6 +115,7 @@ func TestARealGoBelowTheFloorFails(t *testing.T) {
 	toolsOnPath(t, map[string]string{
 		"ruff": "ruff 0.16.8", "semgrep": "1.177.0", "shellcheck": "version: 0.11.0",
 		"golangci-lint": "golangci-lint has version 2.14.0",
+		"go-qa":         "v0.0.0-20261014082313-803b122ce526",
 	})
 	if code := run([]string{"--root", root}); code != int(toolchain.ExitFailed) {
 		t.Fatalf("exit %d, want 1", code)

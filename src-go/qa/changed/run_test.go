@@ -34,7 +34,7 @@ func newRunWorld(t *testing.T) *runWorld {
 	writeFile(t, w.scripts, "qa-gates.tsv", "gate\tone\tscripts/test-one.bash\tone failed\tcount\ngate\ttwo\tscripts/test-two.bash\ttwo failed\tcount\n")
 	writeFile(t, w.scripts, "test-one.bash", "#!/usr/bin/bash\nkept.bash\n")
 	writeFile(t, w.scripts, "test-two.bash", "#!/usr/bin/bash\nkept.bash\n")
-	writeFile(t, w.scripts, "go-binary-suites.tsv", "frz\tqa-go\n")
+	writeFile(t, w.scripts, "go-binary-suites.tsv", "frz\tgo-qa\n")
 	writeFile(t, w.scripts, "bash-limits.allowlist", "# none\n")
 	for _, suite := range []string{"test-one.bash", "test-two.bash"} {
 		w.runner.replies["bash "+filepath.Join(w.scripts, suite)] = proc.Result{Stdout: "passed: 1 failed: 0\n"}
@@ -383,6 +383,9 @@ func TestPreflightKnowsEveryToolAChecksNeeds(t *testing.T) {
 		"python3":          "play-python.yml",
 		"go":               "play-golang.yml",
 		"golangci-lint":    "play-python.yml",
+		"go-qa":            "play-python.yml",
+		"deadcode":         "play-python.yml",
+		"govulncheck":      "play-python.yml",
 		"bash":             "bash",
 	}
 	for tool, fix := range cases {

@@ -103,9 +103,9 @@ today; rewriting them is out of scope.
   for Go: it names no consumer. Milestones M0-M14 each passed an independent verifier; its
   conformance is declared with recorded gaps, never claimed in full. The verifiers' deferred
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
-- [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Waits on the owner
-  making go-qa-ci public (CI and the host cannot fetch a private module); until then the
-  interim `scripts/qa-go.bash` gates `src-go/`. Ready on go-qa-ci's side since M15/M16 (Plan
+- [ ] 🔄 **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Built on branch
+  `go-qa-ci/adopt`; merges once go-qa-ci is public (CI and the host cannot fetch a private
+  module); until then the interim `scripts/qa-go.bash` gates `src-go/` on the integration branch. Ready on go-qa-ci's side since M15/M16 (Plan
   00192): it builds a project driver from a nested module (`src-go/qa`), counts disabled linters
   as the chosen defence set rather than suppressions, and ships nine bundled analyzers. When
   adopted, its pinned tools (ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint)

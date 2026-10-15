@@ -82,7 +82,7 @@ func TestT15AMatchingMachinePassesWithOneStdoutLine(t *testing.T) {
 	if code := w.run(); code != ExitOK {
 		t.Fatalf("exit %d\n%s", code, w.err.String())
 	}
-	if got, want := w.out.String(), "TOOLCHAIN-OK 5 tool(s) match .qa-versions\n"; got != want {
+	if got, want := w.out.String(), "TOOLCHAIN-OK 6 tool(s) match .qa-versions\n"; got != want {
 		t.Fatalf("stdout %q, want %q", got, want)
 	}
 	if w.err.Len() != 0 {
@@ -96,13 +96,14 @@ func TestT8EveryToolIsAssertedInOrderAndAllMismatchesAreReported(t *testing.T) {
 	w.replies["semgrep --version"] = reply{stdout: "0.2.0\n"}
 	delete(w.tools, "shellcheck")
 	w.replies["golangci-lint --version"] = reply{stdout: "golangci-lint has version 0.3.0 built\n"}
+	w.replies["go-qa --version"] = reply{stdout: "v0.0.0-20260101000000-aaaaaaaaaaaa\n"}
 	w.replies["go env GOVERSION"] = reply{stdout: "go1.20.1\n"}
 	if code := w.run(); code != ExitFailed {
 		t.Fatalf("exit %d", code)
 	}
 	got := w.err.String()
 	last := -1
-	for _, want := range []string{"ruff version mismatch", "semgrep version mismatch", "shellcheck is not installed", "golangci-lint version mismatch", "go is older"} {
+	for _, want := range []string{"ruff version mismatch", "semgrep version mismatch", "shellcheck is not installed", "golangci-lint version mismatch", "go-qa version mismatch", "go is older"} {
 		at := strings.Index(got, want)
 		if at < 0 || at < last {
 			t.Fatalf("%q missing or out of order in:\n%s", want, got)
@@ -135,6 +136,7 @@ func TestT10TheVersionIsReadPerToolInItsOwnFormat(t *testing.T) {
 		"semgrep --version":       {stdout: "1.177.0\n"},
 		"shellcheck --version":    {stdout: "ShellCheck - shell script analysis tool\nversion: 0.11.0\n"},
 		"golangci-lint --version": {stdout: "golangci-lint has version 2.14.0 built with go1.26.2\n"},
+		"go-qa --version":         {stdout: "v0.0.0-20261014082313-803b122ce526\n"},
 	}
 	for argv, r := range cases {
 		w := goodWorld()
@@ -183,7 +185,7 @@ func TestT10EachRunIsBoundedAndRunsInTheRoot(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
 	spy, ok := env.Runner.(*deadlineSpy)
-	if !ok || spy.calls != 5 || spy.unbounded != 0 {
+	if !ok || spy.calls != 6 || spy.unbounded != 0 {
 		t.Fatalf("runs %d, unbounded %d", spy.calls, spy.unbounded)
 	}
 	for _, c := range w.ran {

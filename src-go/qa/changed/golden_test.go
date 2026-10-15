@@ -313,6 +313,10 @@ func envOf(env []string, key string) string {
 // exit is the Result of a stub that prints a failure message when told to fail.
 func (r *goldenRunner) exit(c proc.Cmd, name string) proc.Result {
 	res := proc.Result{Code: r.exits[name]}
+	if name == "go-qa" {
+		// go-qa-ci took the place of qa-go.bash, so the recorded exit of that stub is its exit.
+		res.Code = r.exits["qa-go.bash"]
+	}
 	if res.Code != 0 {
 		if c.Merge {
 			res.Stdout = name + ": stub failure\n"

@@ -49,12 +49,21 @@ func newFakeRunner(t *testing.T) *fakeRunner {
 	return &fakeRunner{t: t, replies: map[string]reply{}}
 }
 
-// keyOf names a command: a bash script by its file name, anything else by its words.
+// keyOf names a command: a bash script by its file name, anything else by its words, an
+// absolute path (the repository root a {root} word became) by its last element, so the key does
+// not depend on which temporary directory the world was built in.
 func keyOf(argv []string) string {
 	if argv[0] == "bash" {
 		return filepath.Base(argv[1])
 	}
-	return strings.Join(argv, " ")
+	words := make([]string, len(argv))
+	for i, word := range argv {
+		words[i] = word
+		if filepath.IsAbs(word) {
+			words[i] = filepath.Base(word)
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 func envOf(env []string, key string) string {

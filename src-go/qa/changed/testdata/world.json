@@ -27,7 +27,7 @@
  "playbooks/imports/play-a.yml": "- hosts: all\n  tasks:\n    - include_tasks: ../../tasks/step.yml\n",
  "playbooks/play-main.yml": "- import_playbook: imports/play-a.yml\n",
  "scripts/bash-limits.allowlist": "# none\nfiles/home/.local/bin/listed-tool\t10\t1\t10\t-\n",
- "scripts/go-binary-suites.tsv": "teams\tscripts/test-teams.bash\nfrz\tqa-go\n",
+ "scripts/go-binary-suites.tsv": "teams\tscripts/test-teams.bash\nfrz\tgo-qa\n",
  "scripts/qa-all.bash": "#!/usr/bin/bash\n# bash \"$SCRIPT_DIR/test-commented.bash\"\nrun bash \"$SCRIPT_DIR/test-alpha.bash\"\nrun bash \"$SCRIPT_DIR/test-beta.bash\"\nrun bash \"$SCRIPT_DIR/test-teams.bash\"\nrun bash \"$SCRIPT_DIR/qa-docs.bash\"\n",
  "scripts/qa-ansible.bash": "#!/usr/bin/bash\necho \"gate:qa-ansible.bash json=${QA_JSON_OUT:+1}\" >> \"$STUB_LOG\"\ncode=0\n[[ -f \"$STUB_DIR/exit-qa-ansible.bash\" ]] && code=\"$(cat \"$STUB_DIR/exit-qa-ansible.bash\")\"\n[[ \"$code\" == 0 ]] || echo \"qa-ansible.bash: stub failure\" >&2\nexit \"$code\"\n",
  "scripts/qa-bash-limits.bash": "#!/usr/bin/bash\necho \"gate:qa-bash-limits.bash json=${QA_JSON_OUT:+1}\" >> \"$STUB_LOG\"\ncode=0\n[[ -f \"$STUB_DIR/exit-qa-bash-limits.bash\" ]] && code=\"$(cat \"$STUB_DIR/exit-qa-bash-limits.bash\")\"\n[[ \"$code\" == 0 ]] || echo \"qa-bash-limits.bash: stub failure\" >&2\nexit \"$code\"\n",

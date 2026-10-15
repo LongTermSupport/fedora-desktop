@@ -102,7 +102,7 @@ func TestSummaries(t *testing.T) {
 		"python":              "compile and ruff, whole gate",
 		"js":                  "node --check and ESLint, whole gate",
 		"docs":                "whole gate",
-		"go":                  "whole gate (interim qa-go.bash)",
+		"go":                  "go-qa run --changed (go-qa-ci)",
 		"bash-limits":         "whole gate (tooling is Go; allowlist ratchet)",
 		"eslint":              "2 file(s)",
 
@@ -344,12 +344,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "version-pins", "vmtest-manifest"} {
+	for _, id := range []string{"toolchain", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "version-pins", "vmtest-manifest"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)
@@ -358,15 +358,33 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 			t.Fatalf("call %d: output must be merged", i)
 		}
 	}
-	for _, i := range []int{3, 4, 6} {
+	for _, i := range []int{2, 3, 5} {
 		env := runner.calls[i].Env
 		if len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
 			t.Fatalf("the JSON-report gates need QA_JSON_OUT: %v", env)
 		}
 	}
 	s.cleanup()
-	if _, err := os.Stat(strings.TrimPrefix(runner.calls[3].Env[0], "QA_JSON_OUT=")); !os.IsNotExist(err) {
+	if _, err := os.Stat(strings.TrimPrefix(runner.calls[2].Env[0], "QA_JSON_OUT=")); !os.IsNotExist(err) {
 		t.Fatalf("the report file must be removed on cleanup: %v", err)
+	}
+}
+
+// The go check is go-qa-ci in its diff mode over src-go, given the root as an absolute path and
+// the ref the run compares with; it is not a script of the scripts directory.
+func TestTheGoCheckRunsGoQAInDiffModeAgainstTheBase(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	s.opts.base = "origin/F44"
+	if _, err := lookupCheck("go").run(context.Background(), s, &checkPlan{}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"go-qa", "--root", filepath.Join(s.root, "src-go"), "run", "--changed", "--base", "origin/F44"}
+	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].Argv, want) || !runner.calls[0].Merge {
+		t.Fatalf("calls %+v, want one merged run of %v", runner.calls, want)
+	}
+	if got := lookupCheck("go").tools; !slices.Contains(got, "go-qa") || !slices.Contains(got, "deadcode") || !slices.Contains(got, "govulncheck") {
+		t.Fatalf("the preflight must name go-qa and the tools it runs: %v", got)
 	}
 }
 

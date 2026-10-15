@@ -13,7 +13,8 @@
 #            drift    like gate, but its own output is the stage line (no summary to read)
 #            helpers  the helper unit suite: counts travel in a file, not in text
 #   name     the stage-line name, [a-z0-9-]+ (helpers/qa_environment/verdicts.py parses it)
-#   command  words relative to the repository root; scripts/x.bash runs through bash
+#   command  words relative to the repository root; scripts/x.bash runs through bash; in any other
+#            command {root} in a word is the absolute repository root
 #   text     gate/drift/helpers: the reason on the failed stage line; stage: the exit-2 message
 #   reader   gate rows, one or more, joined with "; " on the pass line:
 #              count          the last "passed: N" the suite printed
@@ -24,8 +25,9 @@
 # Toolchain first: every verdict below is a property of the binary that produced it. It does
 # not abort, because a drifted toolchain makes the verdicts unreliable, not unrunnable.
 gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
-# src-go/: format, vet, race tests, golangci-lint, project rules.
-gate	go	scripts/qa-go.bash	Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)	detail:GO-OK [0-9]+ package[(]s[)]
+# src-go/: go-qa-ci (pinned as GO_QA_CI in .qa-versions) runs format, the project rules and its
+# bundled analyzers, golangci-lint, deadcode, govulncheck, go mod, race tests and the coverage floor.
+gate	go	go-qa --root {root}/src-go run	go-qa failed (Go format, a project rule, golangci-lint, deadcode, a vulnerability, go mod, a test or the coverage floor), or go-qa or one of its tools is missing	detail:coverage +passed
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
 # The seven report stages. Their reports are merged into the machine report.

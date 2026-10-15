@@ -185,6 +185,9 @@ func replay(t *testing.T, defaults map[string]stubReply, sc goldenScenario) gold
 			continue
 		}
 		runner.replies[g.Name] = defaults[g.Name].over(sc.Replies[g.Name])
+		if g.Name == "go" {
+			runner.replies[g.Name] = asGoQA(runner.replies[g.Name])
+		}
 	}
 	var out, errOut bytes.Buffer
 	env := Env{
@@ -212,6 +215,20 @@ func replay(t *testing.T, defaults map[string]stubReply, sc goldenScenario) gold
 		t.Fatal(err)
 	}
 	return record
+}
+
+// goQASummary is the summary go-qa prints when every step passed: the go gate's reader looks for
+// the coverage line in it.
+const goQASummary = "\ngo-qa summary:\n  format     fmt          passed\n  detectors  record       passed\n  runners    test         passed\n  runners    coverage     passed\n"
+
+// asGoQA gives the go gate's passing stub the output go-qa-ci prints, where the capture recorded
+// the output of the qa-go.bash it replaced (SPEC-qa-all.md B33); a failing stub is left as it was.
+func asGoQA(r stubReply) stubReply {
+	if r.Out != nil && strings.HasPrefix(*r.Out, "GO-OK ") {
+		summary := goQASummary
+		r.Out = &summary
+	}
+	return r
 }
 
 // goldenRunner stands in for the stub gates of the capture: each logs its name and arguments and

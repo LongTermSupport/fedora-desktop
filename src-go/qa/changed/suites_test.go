@@ -74,7 +74,7 @@ func TestPopulationRefusesASuiteWhoseFileIsGone(t *testing.T) {
 func TestGoRowsAreValidatedAgainstThePopulation(t *testing.T) {
 	dir := t.TempDir()
 	population := []string{"test-alpha.bash", "test-beta.bash"}
-	good := writeFile(t, dir, "good.tsv", "# c\nteams\tscripts/test-alpha.bash\nsess\tscripts/test-alpha.bash scripts/test-beta.bash\nfrz\tqa-go\n")
+	good := writeFile(t, dir, "good.tsv", "# c\nteams\tscripts/test-alpha.bash\nsess\tscripts/test-alpha.bash scripts/test-beta.bash\nfrz\tgo-qa\n")
 	rows, err := loadGoRows(good, population)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestGoRowsAreValidatedAgainstThePopulation(t *testing.T) {
 		"deleted suite":   "teams\tscripts/test-gone.bash\n",
 		"no suites":       "teams\t\n",
 		"no tab":          "teams scripts/test-alpha.bash\n",
-		"qa-go with more": "teams\tqa-go scripts/test-alpha.bash\n",
+		"go-qa with more": "teams\tgo-qa scripts/test-alpha.bash\n",
 	} {
 		_, err := loadGoRows(writeFile(t, dir, "bad.tsv", body), population)
 		if err == nil || !strings.Contains(err.Error(), ":1:") {
@@ -104,7 +104,7 @@ func suiteWorld(t *testing.T) *world {
 	t.Helper()
 	w := newWorld(t)
 	writeFile(t, w.root, "scripts/qa-gates.tsv", fakeGates)
-	writeFile(t, w.root, "scripts/go-binary-suites.tsv", "teams\tscripts/test-alpha.bash\nfrz\tqa-go\n")
+	writeFile(t, w.root, "scripts/go-binary-suites.tsv", "teams\tscripts/test-alpha.bash\nfrz\tgo-qa\n")
 	for name, body := range map[string]string{
 		"test-alpha.bash":               "#!/usr/bin/bash\nuses scripts/lib/helper.bash and tool.py\n",
 		"qa-gate-one.bash":              "#!/usr/bin/bash\nmentions main.go\n",
@@ -247,13 +247,13 @@ func TestGoListIsNotRunWithoutSrcGoFilesOrForGoTestRows(t *testing.T) {
 		}
 	}
 	w.touch("src-go/internal/frz/f.go", "// x")
-	writeFile(t, w.root, "scripts/go-binary-suites.tsv", "frz\tqa-go\n")
+	writeFile(t, w.root, "scripts/go-binary-suites.tsv", "frz\tgo-qa\n")
 	if _, err := w.selectSuites([]string{"src-go/internal/frz/f.go"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range w.runner.calls {
 		if c.Argv[0] == "go" {
-			t.Fatalf("a qa-go row needs no closure: %v", c.Argv)
+			t.Fatalf("a go-qa row needs no closure: %v", c.Argv)
 		}
 	}
 }

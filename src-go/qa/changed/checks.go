@@ -55,6 +55,9 @@ const (
 	toolNode       = "node"
 	toolGo         = "go"
 	toolGolangci   = "golangci-lint"
+	toolGoQA       = "go-qa"
+	toolDeadcode   = "deadcode"
+	toolGovuln     = "govulncheck"
 	nounFiles      = "file(s)"
 )
 
@@ -77,7 +80,7 @@ var checkDefs = []checkDef{
 	{id: "python", fixed: "compile and ruff, whole gate", gate: true, tools: []string{toolBash, toolGo, toolRuff, toolPython}, run: runPython},
 	{id: "js", fixed: "node --check and ESLint, whole gate", gate: true, tools: []string{toolBash, toolGo, toolNode}, run: runJS},
 	{id: "docs", fixed: "whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runDocs},
-	{id: "go", fixed: "whole gate (interim qa-go.bash)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolGolangci}, run: runGoGate},
+	{id: "go", fixed: "go-qa run --changed (go-qa-ci)", gate: true, whole: true, tools: []string{toolGoQA, toolGo, toolGolangci, toolDeadcode, toolGovuln}, run: runGoGate},
 	{id: "bash-limits", fixed: "whole gate (tooling is Go; allowlist ratchet)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runBashLimits},
 	{id: "nokill-containerwatch", fixed: "whole gate (the container-watch watchdog never signals a process)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runNoKillContainerWatch},
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
@@ -132,8 +135,11 @@ func runToolchain(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 	return s.script(ctx, nil, "qa-toolchain.bash")
 }
 
+// runGoGate is go-qa-ci over src-go in its diff mode: the packages the change touches and their
+// importers, with the repository-wide defences always, and the whole tree when a configuration
+// or a rule moved. The full run is the go gate of qa-all.
 func runGoGate(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.script(ctx, nil, "qa-go.bash")
+	return s.exec(ctx, nil, toolGoQA, "--root", filepath.Join(s.root, "src-go"), "run", "--changed", "--base", s.opts.base)
 }
 
 func runBashLimits(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

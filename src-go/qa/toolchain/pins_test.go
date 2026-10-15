@@ -53,7 +53,7 @@ func TestT3AMissingPinFileIsExitTwo(t *testing.T) {
 func TestT3ThePinFileIsParsedNeverExecuted(t *testing.T) {
 	w := goodWorld()
 	w.files[".qa-versions"] = goodPins + "touch /tmp/should-not-run\n"
-	cannotRun(t, w, ".qa-versions:6")
+	cannotRun(t, w, ".qa-versions:7")
 }
 
 func TestT4OnlyPlainAssignmentsAreAccepted(t *testing.T) {
@@ -75,16 +75,16 @@ func TestT4OnlyPlainAssignmentsAreAccepted(t *testing.T) {
 	}
 	for name, line := range bad {
 		w := goodWorld()
-		w.files[".qa-versions"] = "SEMGREP=1.177.0\nSHELLCHECK=0.11.0\nGOLANGCI_LINT=2.14.0\n" + line
-		cannotRun(t, w, ".qa-versions:4")
+		w.files[".qa-versions"] = "SEMGREP=1.177.0\nSHELLCHECK=0.11.0\nGOLANGCI_LINT=2.14.0\nGO_QA_CI=803b122ce526\n" + line
+		cannotRun(t, w, ".qa-versions:5")
 		_ = name
 	}
 }
 
-func TestT5TheKeysAreExactlyTheFourPins(t *testing.T) {
+func TestT5TheKeysAreExactlyTheFivePins(t *testing.T) {
 	cases := map[string]struct{ file, want string }{
-		"missing key": {"RUFF=1\nSEMGREP=1\nSHELLCHECK=1\n", "GOLANGCI_LINT"},
-		"empty value": {"RUFF=\nSEMGREP=1\nSHELLCHECK=1\nGOLANGCI_LINT=1\n", "RUFF"},
+		"missing key": {"RUFF=1\nSEMGREP=1\nSHELLCHECK=1\nGOLANGCI_LINT=1\n", "GO_QA_CI"},
+		"empty value": {"RUFF=\nSEMGREP=1\nSHELLCHECK=1\nGOLANGCI_LINT=1\nGO_QA_CI=1\n", "RUFF"},
 		"duplicate":   {goodPins + "RUFF=0.1\n", "RUFF"},
 		"unknown key": {goodPins + "BLACK=1.0\n", "BLACK"},
 	}
@@ -99,7 +99,7 @@ func TestT7AnEmptyOrCommentOnlyPinFileNeverPasses(t *testing.T) {
 	for _, text := range []string{"", "# nothing here\n\n"} {
 		w := goodWorld()
 		w.files[".qa-versions"] = text
-		cannotRun(t, w, "RUFF", "SEMGREP", "SHELLCHECK", "GOLANGCI_LINT")
+		cannotRun(t, w, "RUFF", "SEMGREP", "SHELLCHECK", "GOLANGCI_LINT", "GO_QA_CI")
 	}
 }
 

@@ -1,10 +1,10 @@
 {
- "stdout": "✓ toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n✓ go: GO-OK 39 package(s)\n✓ bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n✓ bash: 4 files OK\n✓ python: 4 files OK\n✓ patterns: 4 files OK\n✓ ansible: 4 files OK\n✓ ansible-syntax: 4 files OK\n",
+ "stdout": "✓ toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n✓ go: coverage     passed\n✓ bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n✓ bash: 4 files OK\n✓ python: 4 files OK\n✓ patterns: 4 files OK\n✓ ansible: 4 files OK\n✓ ansible-syntax: 4 files OK\n",
  "stderr": "no tool\nERROR: ansible-syntax gate could not produce a result (prerequisites missing or the tool failed: see the ERROR line above).\n",
  "status": 2,
  "log": [
   "qa-toolchain ",
-  "qa-go ",
+  "go-qa --root \u003cROOT\u003e/src-go run",
   "qa-bash-limits ",
   "qa-bash  json",
   "qa-python  json",

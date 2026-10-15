@@ -30,3 +30,9 @@ playbooks/imports/play-agent-bus.yml
 # when it really ends. Then try: ccy-teams lxc-add <team>, and end a team session with
 # `ccy stop` to see its goodbye in Element.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00191 Task 3.3 (lands with the merge of the go-qa-ci/adopt branch, once go-qa-ci is
+# public; it cannot run before, the module is private): installs go-qa (go-qa-ci at the
+# GO_QA_CI commit) and the tools it runs (ast-grep, gremlins, deadcode, govulncheck, gitleaks,
+# actionlint) at go-qa-ci's own pins, and checks the toolchain. Then ./scripts/qa-all.bash
+# runs the go gate through go-qa.
+playbooks/imports/play-python.yml

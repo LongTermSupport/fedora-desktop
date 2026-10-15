@@ -35,7 +35,8 @@
           - make
           - cmake
           - gcc-c++
-          - gcc # also what `go test -race` links against (cgo); without it qa-go cannot run
+          - gcc # also what `go test -race` links against (cgo); without it go-qa cannot run
+          - unzip # go-qa-ci's tool installer unpacks ast-grep, which ships as a zip
           - patch
           - zlib-ng-compat-devel # F44+: zlib-devel was dropped; zlib-ng-compat-devel provides the same headers/lib (pyenv wiki)
           - bzip2
@@ -208,6 +209,59 @@
       ansible.builtin.file:
         path: "/tmp/{{ golangci_lint_archive }}"
         state: absent
+
+    # go-qa-ci (the go gate, `go-qa run`) at the GO_QA_CI commit of .qa-versions, the same pin the
+    # CCY image and CI install. go-qa is built by `go install` from that commit; the module
+    # download holds the commit's scripts/install-tools.sh and tools.lock, so the tools go-qa runs
+    # (ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint, golangci-lint) are
+    # installed at go-qa-ci's own pins with its sha256-verified archives, not listed again here.
+    - name: Check the installed go-qa version
+      ansible.builtin.command:
+        cmd: go-qa --version
+      register: go_qa_installed
+      changed_when: false
+      failed_when: false # FAIL-FAST-OK: probe — absence is the normal first-run state
+
+    - name: Install go-qa at the pinned commit
+      become: true
+      ansible.builtin.command:
+        argv:
+          - go
+          - install
+          - "github.com/LongTermSupport/go-qa-ci/cmd/go-qa@{{ qa_versions.GO_QA_CI }}"
+      environment:
+        GOBIN: /usr/local/bin
+      changed_when: true
+      when: >-
+        go_qa_installed.rc != 0
+        or not go_qa_installed.stdout.strip().endswith('-' ~ qa_versions.GO_QA_CI)
+
+    - name: Find the go-qa-ci checkout in the module cache
+      become: true
+      ansible.builtin.command:
+        argv:
+          - go
+          - list
+          - -m
+          - -f
+          - "{{ '{{.Dir}}' }}"
+          - "github.com/LongTermSupport/go-qa-ci@{{ qa_versions.GO_QA_CI }}"
+      register: go_qa_ci_dir
+      changed_when: false
+
+    # install-tools.sh reports "installed <tool>" on stdout for each tool it put in place and
+    # "ok <tool>" for one already at its pin, and exits 1 when the binary found first on PATH is
+    # not the pinned one, so an unchanged host reports ok and a shadowed tool fails the play.
+    - name: Install the tools go-qa runs at go-qa-ci's pins
+      become: true
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ go_qa_ci_dir.stdout | trim }}/scripts/install-tools.sh"
+      environment:
+        GOBIN: /usr/local/bin
+      register: go_qa_ci_tools
+      changed_when: "'installed ' in go_qa_ci_tools.stdout"
 
     # The installs above are not self-verifying: pipx can succeed while the binary
     # on PATH stays the old one (another install site shadowing it), which is the

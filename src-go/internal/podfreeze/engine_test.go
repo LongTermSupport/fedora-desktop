@@ -3,6 +3,8 @@ package podfreeze
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,12 +48,14 @@ func TestLoadMarksCCYByNamePattern(t *testing.T) {
 		"yolo": false, "_yolo": false, "proj_yolo_x": false, "proj_yoloo": false,
 		"proj_browser_": false, "plain": false,
 	}
+	names := slices.Sorted(maps.Keys(cases))
 	var ps strings.Builder
-	for name := range cases {
+	for _, name := range names {
 		ps.WriteString(name + "|running|none\n")
 	}
 	_, inv := load(t, ps.String(), "", "")
-	for name, want := range cases {
+	for _, name := range names {
+		want := cases[name]
 		if got := recordFor(t, inv, name).ccy; got != want {
 			t.Errorf("%s: ccy %v, want %v", name, got, want)
 		}

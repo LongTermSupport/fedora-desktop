@@ -1,10 +1,10 @@
 {
- "stdout": "✓ toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n✗ go: Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)\n✓ bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n✓ bash: 4 files OK\n✓ python: 4 files OK\n✓ patterns: 4 files OK\n",
- "stderr": "GO-OK 39 package(s), all tested: fmt, vet, test -race\ngo: boom\nno semgrep\nERROR: patterns gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).\n",
+ "stdout": "✓ toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n✗ go: go-qa failed (Go format, a project rule, golangci-lint, deadcode, a vulnerability, go mod, a test or the coverage floor), or go-qa or one of its tools is missing\n✓ bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n✓ bash: 4 files OK\n✓ python: 4 files OK\n✓ patterns: 4 files OK\n",
+ "stderr": "\ngo-qa summary:\n  format     fmt          passed\n  detectors  record       passed\n  runners    test         passed\n  runners    coverage     passed\ngo: boom\nno semgrep\nERROR: patterns gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).\n",
  "status": 2,
  "log": [
   "qa-toolchain ",
-  "qa-go ",
+  "go-qa --root \u003cROOT\u003e/src-go run",
   "qa-bash-limits ",
   "qa-bash  json",
   "qa-python  json",

@@ -26,7 +26,7 @@
 #     tree:shell|python   skip (a first row reports "skipped") a file in that excluded tree
 #     rel:<dir>     the tool is given the path with this prefix stripped
 # Order is the contract. The src-go row precedes the YAML row so src-go/.golangci.yml runs the
-# Go gate; a Python script with a shell word in its shebang is Python because @py precedes @sh.
+# go check (go-qa run --changed); a Python script with a shell word in its shebang is Python because @py precedes @sh.
 #
 # The Go tests execute these files as parity references, so a change to one must run the Go gate.
 also	files/var/local/claude-yolo/lib/common-pure.bash	go	-
@@ -153,4 +153,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest

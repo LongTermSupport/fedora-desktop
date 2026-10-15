@@ -1,0 +1,9 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck go\nsuite scripts/test-teams.bash: builds from src-go/internal/teams/t.go\n✓ go: go-qa run --changed (go-qa-ci)\n✓ suite test-teams.bash: passed: 9 (builds from src-go/internal/teams/t.go)\n✓ qa-changed passed: 1 changed file(s). Run ./scripts/qa-all.bash before pushing.\n",
+ "stderr": "",
+ "status": 0,
+ "log": [
+  "go-qa --root \u003cROOT\u003e/src-go run --changed --base HEAD",
+  "suite:test-teams.bash"
+ ]
+}

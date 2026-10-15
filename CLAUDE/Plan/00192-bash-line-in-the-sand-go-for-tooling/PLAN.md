@@ -354,7 +354,8 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   Still on `scripts/bash-limits.allowlist`: `qa-go.bash`, the interim Go gate that Plan 00191's
   go-qa-ci toolchain is to replace. Owner's decision (2026-10-15): not ported; the owner makes
   `go-qa-ci` public, then Plan 00191 Task 3.3 pins it and retires `scripts/qa-go.bash`, which
-  closes this task. Blocked on that owner action.
+  closes this task. Built on branch `go-qa-ci/adopt` (it deletes `qa-go.bash` and its allowlist
+  row); merges once go-qa-ci is public. Blocked on that owner action.
 
 ### Phase 4: Review
 

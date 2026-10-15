@@ -139,13 +139,14 @@ func TestD19NoTopicFileIsABrokenDiscovery(t *testing.T) {
 }
 
 // D20
-func TestD20AGateIsNamedByItsScriptOrItsModule(t *testing.T) {
+func TestD20AGateIsNamedByItsScriptItsModuleOrItsTool(t *testing.T) {
 	w := newWorld(t, map[string]string{
 		"scripts/qa-gates.tsv": gatesText +
 			"gate\tmod\tpython3 -m helpers.gnome.check_panel_contract .\ttext\tcount\n" +
 			"stage\tst\tscripts/qa-st.bash\ttext\n" +
-			"gate\targs\tscripts/with-args.bash --flag x\ttext\tcount\n",
-		"CLAUDE/QA.md": "# QA\n\n| a | b |\n| - | - |\n| `g1.bash` | x |\n| `helpers.gnome.check_panel_contract` | x |\n| `qa-st.bash` | x |\n| `with-args.bash` | x |\n",
+			"gate\targs\tscripts/with-args.bash --flag x\ttext\tcount\n" +
+			"gate\ttool\tgo-qa --root {root}/src-go run\ttext\tdetail:passed\n",
+		"CLAUDE/QA.md": "# QA\n\n| a | b |\n| - | - |\n| `g1.bash` | x |\n| `helpers.gnome.check_panel_contract` | x |\n| `qa-st.bash` | x |\n| `with-args.bash` | x |\n| `go-qa` | x |\n",
 	})
 	w.wantFindings()
 }

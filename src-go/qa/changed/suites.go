@@ -61,14 +61,14 @@ func loadPopulation(scripts string, perFileGates []string) ([]string, error) {
 }
 
 // goRow is one command of scripts/go-binary-suites.tsv: the suites that drive the binary, or
-// none when its oracle is a Go test the Go gate runs whole (the word qa-go).
+// none when its oracle is a Go test the Go gate runs whole (the word go-qa).
 type goRow struct {
 	command string
 	suites  []string // scripts/<name>.bash
 }
 
 // goTestOracle is the suites column of a command whose oracle is a Go test.
-const goTestOracle = "qa-go"
+const goTestOracle = "go-qa"
 
 // loadGoRows reads the table of deployed Go commands. A suite that is misspelt, deleted or
 // not in the population would never be picked, silently, so each is an error here.

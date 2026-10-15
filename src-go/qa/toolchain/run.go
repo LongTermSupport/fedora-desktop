@@ -1,6 +1,6 @@
 // Package toolchain is the gate "the QA tools on this machine are the versions the repository
 // pins". A gate's verdict belongs to the binary that produced it, so .qa-versions pins ruff,
-// semgrep, shellcheck and golangci-lint, and the go directive of src-go/go.mod is a floor for go.
+// semgrep, shellcheck, golangci-lint and go-qa (go-qa-ci, by commit), and the go directive of src-go/go.mod is a floor for go.
 // Exit 1 says the machine is wrong (a tool absent, unreadable or drifted); exit 2 says the gate
 // could not judge (its pins, go.mod or command line). Under qa-all either fails only this gate.
 // The specification is the plan's SPEC-qa-toolchain.md.
@@ -55,7 +55,7 @@ type Env struct {
 
 const usageText = `usage: qa-toolchain [--root DIR] [--scripts DIR]
 
-Asserts that ruff, semgrep, shellcheck and golangci-lint are the versions pinned in .qa-versions
+Asserts that ruff, semgrep, shellcheck, golangci-lint and go-qa (go-qa-ci, by its commit) are the versions pinned in .qa-versions
 and that go is not older than the go directive of src-go/go.mod.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
@@ -139,6 +139,6 @@ func judge(env Env, root string, pins map[string]string, floor string, out, errO
 var remedy = []string{
 	"  These gates are version-dependent, so this machine would report a",
 	"  different verdict from the CCY container and from CI. Bring it into line:",
-	"    host      ./playbooks/imports/play-python.yml   (installs golangci-lint; go via the play-golang.yml it imports)",
+	"    host      ./playbooks/imports/play-python.yml   (installs golangci-lint, go-qa and the tools it runs; go via the play-golang.yml it imports)",
 	"    container ccy --rebuild   (the image bakes .qa-versions at build time)",
 }

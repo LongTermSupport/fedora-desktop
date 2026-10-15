@@ -109,8 +109,8 @@ func rowOf(row *extast.TableRow, src []byte, lines []int) (tableRow, bool) {
 }
 
 // gateName is what a documented gate's name looks like, the shape D20 gives a gate it can name: a
-// script file name or a dotted module path under helpers.
-var gateName = regexp.MustCompile(`^(?:[A-Za-z0-9_-]+\.bash|helpers(?:\.[A-Za-z0-9_]+)+)$`)
+// script file name, a dotted module path under helpers, or the go-qa tool.
+var gateName = regexp.MustCompile(`^(?:[A-Za-z0-9_-]+\.bash|helpers(?:\.[A-Za-z0-9_]+)+|go-qa)$`)
 
 // rawText is the text of a node's descendants exactly as written.
 func rawText(n ast.Node, src []byte) string {

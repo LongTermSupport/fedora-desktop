@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	goodPins = "# pins\nRUFF=0.16.8\nSEMGREP=1.177.0\nSHELLCHECK=0.11.0\nGOLANGCI_LINT=2.14.0\n"
+	goodPins = "# pins\nRUFF=0.16.8\nSEMGREP=1.177.0\nSHELLCHECK=0.11.0\nGOLANGCI_LINT=2.14.0\nGO_QA_CI=803b122ce526\n"
 	goodMod  = "module example.test/m\n\ngo 1.26\n"
 )
 
@@ -41,13 +41,14 @@ func goodWorld() *world {
 		files: map[string]string{".qa-versions": goodPins, "src-go/go.mod": goodMod},
 		tools: map[string]string{
 			"ruff": "/bin/ruff", "semgrep": "/bin/semgrep", "shellcheck": "/bin/shellcheck",
-			"golangci-lint": "/bin/golangci-lint", "go": "/bin/go",
+			"golangci-lint": "/bin/golangci-lint", "go-qa": "/bin/go-qa", "go": "/bin/go",
 		},
 		replies: map[string]reply{
 			"ruff --version":          {stdout: "ruff 0.16.8\n"},
 			"semgrep --version":       {stdout: "1.177.0\n"},
 			"shellcheck --version":    {stdout: "ShellCheck - shell script analysis tool\nversion: 0.11.0\nlicense: GNU General Public License, version 3\n"},
 			"golangci-lint --version": {stdout: "golangci-lint has version 2.14.0 built with go1.26.2 from abc on 2026-01-01\n"},
+			"go-qa --version":         {stdout: "v0.0.0-20261014082313-803b122ce526\n"},
 			"go env GOVERSION":        {stdout: "go1.26.2\n"},
 		},
 	}

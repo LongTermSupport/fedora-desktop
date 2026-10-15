@@ -46,11 +46,13 @@ jobs:
         with:
           node-version: "20"
 
-      # The Go version is src-go/go.mod's own; golangci-lint is installed at the pin below.
+      # The Go version is the one go-qa-ci needs, which src-go/qa/go.mod records (the project
+      # rules build against go-qa-ci's driver); golangci-lint and go-qa-ci's tools are installed
+      # at the pins below.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: src-go/go.mod
+          go-version-file: src-go/qa/go.mod
 
       # Every QA tool is pinned from the single source of truth (.qa-versions),
       # the same file the host playbook and the CCY image read. A gate's verdict
@@ -83,6 +85,16 @@ jobs:
           (cd /tmp/golangci-lint && grep " ${GL}\$" checksums.txt | sha256sum -c -)
           tar -xzf "/tmp/golangci-lint/${GL}" -C /tmp/golangci-lint
           sudo install -m 0755 "/tmp/golangci-lint/golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint
+          # go-qa-ci at the GO_QA_CI commit: go-qa is built by `go install`, and the module
+          # download holds that commit's scripts/install-tools.sh and tools.lock, so ast-grep,
+          # gremlins, deadcode, govulncheck, gitleaks and actionlint are installed at go-qa-ci's
+          # own pins (release archives checked against its sha256 pins), not listed again here.
+          # They go to a user directory that is put on PATH for this step and the ones after it.
+          export GOBIN="${HOME}/.local/bin"
+          export PATH="${GOBIN}:${PATH}"
+          echo "${GOBIN}" >> "${GITHUB_PATH}"
+          go install "github.com/LongTermSupport/go-qa-ci/cmd/go-qa@${GO_QA_CI}"
+          bash "$(go list -m -f '{{.Dir}}' "github.com/LongTermSupport/go-qa-ci@${GO_QA_CI}")/scripts/install-tools.sh"
           # Asserts the whole toolchain at once, so CI fails on a drifted pin
           # here rather than reporting a verdict nobody else can reproduce.
           ./scripts/qa-toolchain.bash

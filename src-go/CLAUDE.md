@@ -98,9 +98,14 @@ install a binary by hand: the play is the only route
 
 ## QA
 
-`scripts/qa-go.bash` (fmt, vet, `go test -race` with a coverage floor, golangci-lint) is the
-interim gate, run by `qa-all.bash` and by `qa-changed.bash` for a `src-go/` change, until the
-go-qa-ci toolchain replaces it. Details: [QA.md](../CLAUDE/QA.md).
+`go-qa` (go-qa-ci, pinned as `GO_QA_CI` in `/.qa-versions`) is the Go gate: `go-qa --root src-go run`
+as the `go` row of `scripts/qa-gates.tsv`, and `go-qa run --changed --base <ref>` from
+`qa-changed.bash` for a `src-go/` change. It is configured by `qa/go-qa.toml`, and every exception
+to a defence (the exclusions of `.golangci.yml`, a finding of a project rule) is a signed entry of
+`qa/record.toml`: a new one is the owner's decision, not a fix. The nested `qa` module requires
+go-qa-ci (its `driver` calls go-qa-ci's `driver.Main`), so this module's `go.mod` stays
+dependency-free. `qa/.golangci.yml` is a symlink to `../.golangci.yml`: go-qa-ci looks for the
+configuration in each module's own directory only. Details: [QA.md](../CLAUDE/QA.md).
 
 `qa/bashlimits` + `qa/cmd/qa-bash-limits` (in the nested `qa` module, which holds the
 `mvdan.cc/sh` parser dependency) are the QA gate that holds every bash file to the tooling-is-Go
@@ -114,7 +119,7 @@ of a changed file to checks is data (`scripts/qa-routing.tsv`, `scripts/qa-trees
 checks are a registry in `changed/checks.go`, and the proofs are its Go tests, a golden replay of
 the bash it replaced (`changed/golden_test.go`, difference only as a numbered bug pinned in
 `testdata/deviations.json`) and the black-box suite `scripts/test-qa-changed.bash`. The project
-rules run over this nested module too (`qa-go.bash` runs the driver a second time over it):
+rules run over this nested module too (go-qa runs the driver over it as a further module):
 every process it starts goes through the one seam `qa/internal/proc` (shared with
 `qa/bashlimits`' git runner), faked in tests, and its tests read no wall clock.
 
