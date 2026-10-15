@@ -655,6 +655,82 @@ func TestAPlanScriptLoggingEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// A changed JavaScript or Python file (by name, or a Python shebang) runs the speech-to-text rules
+// over that file only; other files do not, and a deleted file has nothing to judge.
+func TestAChangedScriptRunsTheSpeechToTextRulesOnThatFile(t *testing.T) {
+	w := newWorld(t)
+	w.touch("helpers/one.py", "x = 1")
+	w.touch("extensions/panel.js", "// x")
+	w.touch("tools/plain.mjs", "// x")
+	w.touch("files/home/.local/bin/py-tool", "#!/usr/bin/env python3")
+	for _, f := range []string{"helpers/one.py", "extensions/panel.js", "tools/plain.mjs", "files/home/.local/bin/py-tool"} {
+		p := w.classify([]string{f})
+		if got := p.items("stt-rules-files"); !reflect.DeepEqual(got, []string{f}) {
+			t.Errorf("%s: stt-rules-files items %v", f, got)
+		}
+		if p.has("stt-rules") {
+			t.Errorf("%s ran the whole speech-to-text gate: %v", f, keys(p))
+		}
+	}
+	p := w.classify([]string{"helpers/one.py", "extensions/panel.js"})
+	if got := p.items("stt-rules-files"); !reflect.DeepEqual(got, []string{"helpers/one.py", "extensions/panel.js"}) {
+		t.Errorf("both files: %v", got)
+	}
+	w.touch("scripts/two.bash", "#!/usr/bin/bash")
+	w.touch("docs/a.md", "# a")
+	for _, f := range []string{"scripts/two.bash", "docs/a.md"} {
+		if p = w.classify([]string{f}); p.has("stt-rules-files") {
+			t.Errorf("%s ran the speech-to-text rules: %v", f, keys(p))
+		}
+	}
+	if p = w.classify(nil, "helpers/gone.py", "extensions/gone.js"); p.has("stt-rules-files") {
+		t.Errorf("a deleted file has nothing for stt-rules-files: %v", keys(p))
+	}
+}
+
+// A vendored skill payload is an excluded tree for Python as it is for shell and JavaScript: the
+// per-file speech-to-text check is never handed one, so the commit check is no stricter than the
+// push gate (review STT-3).
+func TestAVendoredSkillPythonFileIsSkippedNotJudgedBySpeechToText(t *testing.T) {
+	w := newWorld(t)
+	w.touch(".claude/skills/s/run.py", "x = 1")
+	p := w.classify([]string{".claude/skills/s/run.py"})
+	if p.has("stt-rules-files") || !reflect.DeepEqual(p.skipped, []string{".claude/skills/s/run.py"}) {
+		t.Fatalf("checks %v skipped %v", keys(p), p.skipped)
+	}
+}
+
+// An edit to the speech-to-text rules, their fixtures, the wrapper, Go package or command runs
+// the whole gate (and a deletion owes it), the .semgrep files count as covered, and the wrapper is
+// not also picked as a suite.
+func TestASpeechToTextGateEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		".semgrep/speech-to-text.yml", ".semgrep/speech-to-text.js", ".semgrep/speech-to-text.py",
+		"src-go/qa/sttrules/scan.go", "src-go/qa/cmd/qa-speech-to-text-rules/main.go", "scripts/qa-speech-to-text-rules.bash",
+	} {
+		w := newWorld(t)
+		w.touch(f, "x")
+		p := w.classify([]string{f})
+		if !p.has("stt-rules") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+		if p.has("stt-rules-files") {
+			t.Errorf("%s was also judged as a changed script: %v", f, keys(p))
+		}
+		if len(p.suites) != 0 && (f == "scripts/qa-speech-to-text-rules.bash" || f == ".semgrep/speech-to-text.yml") {
+			t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, ".semgrep/speech-to-text.js", "src-go/qa/sttrules/gone.go"); !p.has("stt-rules") {
+		t.Errorf("a deleted fixture or Go file owes the whole gate: %v", keys(p))
+	}
+	w.touch("helpers/other.py", "x = 1\n")
+	if p := w.classify([]string{"helpers/other.py"}); p.has("stt-rules") {
+		t.Errorf("an ordinary Python file must not run the whole gate: %v", keys(p))
+	}
+}
+
 // Review F9: an edit to the container-watch watchdog or its two panel files runs the no-kill gate
 // before the commit, not only at the push; a deletion does too (the gate judges what remains).
 func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {

@@ -461,7 +461,7 @@ func TestSemgrepParseErrorsAreExitTwoListingThem(t *testing.T) {
 		return reportFor(t, handed(argv), nil, []map[string]string{{"path": "helpers/mod.py", "message": "syntax error"}})
 	}
 	w.wantExit(ExitCannotRun, w.run())
-	w.wantStderr("ERROR: semgrep could not parse some Python files, so the rule did not run on them:", "    helpers/mod.py: syntax error")
+	w.wantStderr("ERROR: semgrep could not parse some Python files, so no rule ran on them:", "    helpers/mod.py: syntax error")
 }
 
 // R12

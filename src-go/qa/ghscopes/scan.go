@@ -10,6 +10,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // requireSemgrep is that semgrep runs at all; the reason it does not is part of the error.
@@ -33,7 +35,7 @@ func (g *gate) proveRule(ctx context.Context) (ExitCode, error) {
 	if err != nil {
 		return ExitCannotRun, fmt.Errorf("cannot read %s: %w", fixtureFile, err)
 	}
-	if !strings.Contains(string(fixture), "ruleid:") {
+	if len(semgrepreport.Annotated(string(fixture))) == 0 {
 		return ExitCannotRun, fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixtureFile)
 	}
 	res, err := g.runTool(ctx, semgrepTimeout, "semgrep", "--test", "--config", g.path(ruleFile), g.path(fixtureFile), "--metrics=off")

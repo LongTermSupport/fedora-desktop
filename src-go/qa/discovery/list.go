@@ -33,8 +33,8 @@ type language struct {
 
 var (
 	shellLang    = language{exts: []string{".sh", ".bash"}, shebang: ShellShebang}
-	pythonLang   = language{exts: []string{".py"}, shebang: pythonShebang}
-	templateLang = language{shebang: pythonShebang, template: true}
+	pythonLang   = language{exts: []string{".py"}, shebang: PythonShebang}
+	templateLang = language{shebang: PythonShebang, template: true}
 )
 
 // finder lists and classifies files for one run.

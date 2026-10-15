@@ -46,7 +46,8 @@ func hasCFlag(arg string) bool {
 	return ok && !strings.HasPrefix(flags, "-") && strings.Contains(flags, "c")
 }
 
-// pythonShebang is a first line whose interpreter is python, python3, python3.12 and the like.
-func pythonShebang(line string) bool {
+// PythonShebang is a first line whose interpreter is python, python3, python3.12 and the like. It
+// is the one Python predicate, as ShellShebang is the shell one.
+func PythonShebang(line string) bool {
 	return strings.HasPrefix(parseShebang(line).name, "python")
 }

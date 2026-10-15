@@ -151,9 +151,9 @@ var semgrepReaders = map[string]string{
 	".semgrep/ready-wait.yml":        "check:ready-wait",
 	".semgrep/ready-wait.py":         "check:ready-wait",
 	".semgrep/ready-wait.bash":       "check:ready-wait",
-	".semgrep/speech-to-text.yml":    "scripts/qa-speech-to-text-rules.bash",
-	".semgrep/speech-to-text.js":     "scripts/qa-speech-to-text-rules.bash",
-	".semgrep/speech-to-text.py":     "scripts/qa-speech-to-text-rules.bash",
+	".semgrep/speech-to-text.yml":    "check:stt-rules",
+	".semgrep/speech-to-text.js":     "check:stt-rules",
+	".semgrep/speech-to-text.py":     "check:stt-rules",
 }
 
 func TestEverySemgrepFileRoutesToTheGateThatReadsIt(t *testing.T) {

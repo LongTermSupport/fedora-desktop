@@ -66,6 +66,7 @@ var checkDefs = []checkDef{
 	{id: "shell-directives", listed: true, noun: nounFiles, tools: []string{toolBash, toolGo}, run: runShellDirectives},
 	{id: "semgrep", listed: true, noun: nounFiles, tools: []string{toolSemgrep}, run: runSemgrep},
 	{id: "ready-wait-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWaitFiles},
+	{id: "stt-rules-files", listed: true, noun: nounFiles, gate: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRulesFiles},
 	{id: "ruff", listed: true, noun: nounFiles, tools: []string{toolRuff}, run: runRuff},
 	{id: "unit-tests", listed: true, noun: "module(s)", tools: []string{toolPython}, run: runUnitTests},
 	{id: "ansible-syntax", listed: true, noun: "playbook(s)", tools: []string{toolAnsible}, run: runAnsibleSyntax},
@@ -83,6 +84,7 @@ var checkDefs = []checkDef{
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
 	{id: "plan-script-logging", fixed: "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runPlanScriptLogging},
+	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
@@ -119,6 +121,11 @@ func (s *session) script(ctx context.Context, env []string, name string) (checkR
 	return s.exec(ctx, env, "bash", filepath.Join(s.scripts, name))
 }
 
+// scriptOver runs one of the repository's gate scripts over the named files only.
+func (s *session) scriptOver(ctx context.Context, name string, files []string) (checkResult, error) {
+	return s.exec(ctx, nil, slices.Concat([]string{toolBash, filepath.Join(s.scripts, name)}, files)...)
+}
+
 func runToolchain(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-toolchain.bash")
 }
@@ -145,8 +152,7 @@ func runGhScopes(ctx context.Context, s *session, _ *checkPlan) (checkResult, er
 
 // runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.
 func runReadyWaitFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	argv := append([]string{toolBash, filepath.Join(s.scripts, "qa-ready-wait-rules.bash")}, cp.items...)
-	return s.exec(ctx, nil, argv...)
+	return s.scriptOver(ctx, "qa-ready-wait-rules.bash", cp.items)
 }
 
 func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
@@ -155,6 +161,15 @@ func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 
 func runPlanScriptLogging(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-plan-script-logging.bash")
+}
+
+// runSttRulesFiles runs the speech-to-text rules gate over the changed JavaScript and Python files only.
+func runSttRulesFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
+	return s.scriptOver(ctx, "qa-speech-to-text-rules.bash", cp.items)
+}
+
+func runSttRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-speech-to-text-rules.bash")
 }
 
 // gateWithReport runs a gate that requires QA_JSON_OUT, a file for its machine report, which

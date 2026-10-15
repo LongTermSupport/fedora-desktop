@@ -42,7 +42,7 @@ func (g *gate) proveRules(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("cannot read %s: %w", fixture, err)
 	}
-	if !strings.Contains(string(body), "ruleid:") {
+	if len(semgrepreport.Annotated(string(body))) == 0 {
 		return fmt.Errorf("%s marks no ruleid line; the self-test proves nothing", fixturePath)
 	}
 	res, err := g.runTool(ctx, semgrepTimeout, g.root, "semgrep", "--test", "--config", rules, fixture, "--metrics=off")

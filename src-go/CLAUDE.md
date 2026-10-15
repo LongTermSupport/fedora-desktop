@@ -191,6 +191,14 @@ an unparseable or unreadable file is exit 2. It starts no process.
 `SPEC-qa-plan-script-logging.md` (L1-L14) is the specification, proven by unit tests over in-memory
 trees and a real-file-system test in the command package.
 
+`qa/sttrules` + `qa/cmd/qa-speech-to-text-rules` (same nested module) are
+`scripts/qa-speech-to-text-rules.bash`, the gate for the rules in `.semgrep/speech-to-text.yml`:
+semgrep stays the engine and the rule file the data (decoded as YAML and written out again, one
+rule file per language, so an extensionless Python script never meets a JavaScript rule); the Go
+owns scope (the `js` and `python` lists of `qa/discovery`, or the named files), the proof that
+every rule has a `ruleid:` line in its language's fixture and matches it, and the refusal to pass
+over a file semgrep did not read. `SPEC-qa-speech-to-text-rules.md` (S1-S17) is the specification.
+
 `qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:
 ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
 name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the

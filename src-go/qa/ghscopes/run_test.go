@@ -123,6 +123,12 @@ func TestAFixtureThatMarksNoRuleidLineProvesNothingAndIsExitTwo(t *testing.T) {
 	}
 }
 
+// G6: a todoruleid line certifies nothing.
+func TestATodoruleidLineProvesNothingAndIsExitTwo(t *testing.T) {
+	w := newWorld(t, map[string]string{fixtureFile: "# todoruleid: gh-scope-outside-ssot\n"})
+	wantExit(t, w.main(), ExitCannotRun)
+}
+
 // G6, G10
 func TestAProcessThatTimesOutIsExitTwo(t *testing.T) {
 	for _, which := range []string{"test", "scan"} {

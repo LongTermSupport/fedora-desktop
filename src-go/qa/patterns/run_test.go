@@ -159,6 +159,13 @@ func TestP5AFixtureThatMarksNoRuleidLineProvesNothingAndIsExit2(t *testing.T) {
 	}
 }
 
+func TestP5ATodoruleidLineProvesNothingAndIsExit2(t *testing.T) {
+	w := newWorld(t, map[string]string{".semgrep/bash-conventions.bash": "# todoruleid: bash-x\n"})
+	got := w.main()
+	wantExit(t, got, ExitCannotRun)
+	wantStderr(t, got, "marks no ruleid line; the self-test proves nothing")
+}
+
 func TestP5SelfTestRunsOnRulesAndFixtureAndItsFailureIsExit2WithItsOutput(t *testing.T) {
 	w := oneScript(t)
 	w.run.testCode = 1
