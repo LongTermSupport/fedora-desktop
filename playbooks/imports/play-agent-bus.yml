@@ -87,6 +87,18 @@
         quiet: true
       tags: [agent-bus]
 
+    - name: Refuse agent_bus_lxc_bridge, which nothing reads
+      ansible.builtin.assert:
+        that:
+          - agent_bus_lxc_bridge is not defined
+        fail_msg: >-
+          agent_bus_lxc_bridge is set, but nothing reads it: the LXC bridge is always lxcbr0,
+          read live by helpers/agent_bus/bridge.py. Remove it from
+          environment/localhost/host_vars/localhost.yml; admit another bridge's subnet
+          through a team's allow_from.
+        quiet: true
+      tags: [agent-bus]
+
     - name: Install the agent-bus homeserver software
       ansible.builtin.command:
         argv: >-

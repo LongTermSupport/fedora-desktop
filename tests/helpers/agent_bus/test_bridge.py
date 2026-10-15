@@ -81,6 +81,12 @@ class EffectiveAllowFrom(unittest.TestCase):
     def test_missing_declared_is_empty(self):
         self.assertEqual(bridge.effective(None, "192.0.2.0/24"), ["192.0.2.0/24"])
 
+    def test_a_declared_duplicate_is_kept_for_the_validator_to_refuse(self):
+        # Dropping it here would let the play apply what declare.py status refuses.
+        twice = ["198.51.100.0/24", "198.51.100.0/24"]
+        self.assertEqual(bridge.effective(twice, None), twice)
+        self.assertEqual(bridge.effective(twice, "192.0.2.0/24"), [*twice, "192.0.2.0/24"])
+
 
 class Apply(unittest.TestCase):
     def teams(self):

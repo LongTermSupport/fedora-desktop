@@ -69,8 +69,9 @@ def live_subnet(run: Runner = _run) -> str | None:
 
 
 def effective(declared: Sequence[str] | None, bridge_cidr: str | None) -> list[str]:
-    """Declared `allow_from` then the bridge subnet, once each."""
-    out = list(dict.fromkeys(declared or []))
+    """Declared `allow_from` as written, then the bridge subnet unless it is declared. A
+    declared duplicate is kept, for the team file's validator to refuse."""
+    out = list(declared or [])
     if bridge_cidr and bridge_cidr not in out:
         out.append(bridge_cidr)
     return out

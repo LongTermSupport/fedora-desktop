@@ -393,8 +393,7 @@ def declared_config(team: Declared, bridge_cidr: str | None = None) -> str:
     """The config digest of the team file the play would render from this entry: its
     allow_from is the declared list plus the live LXC bridge's subnet (`bridge_cidr`)."""
     entry = {k: v for k, v in entry_of(team).items() if k != "purge"}
-    if bridge_cidr:
-        entry["allow_from"] = bridge.effective(entry.get("allow_from"), bridge_cidr)
+    entry["allow_from"] = bridge.effective(entry.get("allow_from"), bridge_cidr)
     try:
         return teamfile.config_digest(teamfile.parse_team_file(dict(entry, state="present")))
     except teamfile.TeamFileError as exc:
