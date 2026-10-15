@@ -35,3 +35,9 @@ playbooks/imports/optional/common/play-ftp-camera.yml
 # longer name the deleted bash ftp-camera; behaviour unchanged. Without it the deployed-drift
 # check reports the old copy.
 playbooks/imports/optional/common/play-rclone.yml
+# Plan 00199 (md-viewer): installs Gio's build libraries (dnf), builds md-viewer from its own
+# repository at the pinned commit into ~/.local/bin/md-viewer (installing the Go toolchain
+# first), checks `md-viewer --version` names that commit, adds a desktop file and makes it
+# your default for text/markdown. Afterwards double-click a PLAN.md in Nautilus, and run
+# `md-viewer --time <file>.md` for the start-up timings.
+playbooks/imports/optional/common/play-md-viewer.yml

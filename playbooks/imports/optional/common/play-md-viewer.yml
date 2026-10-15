@@ -1,0 +1,167 @@
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
+---
+# md-viewer: a fast Markdown viewer (Go on Gio) from its own repository,
+# github.com/LongTermSupport/md-viewer (Plan 00199). This play builds it from source at the
+# pinned commit below, installs it to ~/.local/bin, adds a desktop file, and makes it the
+# login user's default application for text/markdown, so a double-click on a .md file in
+# Nautilus opens it rendered.
+#
+# The Go toolchain comes from play-golang.yml, its one source of truth. md-viewer's go.mod
+# names the Go release it needs, and the build runs with GOTOOLCHAIN=local, so a Fedora golang
+# older than that fails the build with Go's own message rather than downloading a toolchain.
+- import_playbook: ../../play-golang.yml
+
+- hosts: desktop
+  name: Install md-viewer and Make It the Markdown Default
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # md-viewer publishes no tags yet, so the pin is a full commit hash on its main. Its
+    # pseudo-version, which `md-viewer --version` prints, carries the first 12 characters.
+    md_viewer_version: b2d1f942fcdd8508f93a5ca40807a387032b02ae
+    md_viewer_bin: "/home/{{ user_login }}/.local/bin/md-viewer"
+    md_viewer_desktop_dir: "/home/{{ user_login }}/.local/share/applications"
+  tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
+    # Gio's window code is cgo. Each -devel package below provides a pkg-config module that a
+    # `#cgo linux pkg-config:` line in Gio v0.10.3 names, or headers it includes; installing
+    # them also installs the shared libraries the binary loads at run time.
+    - name: Install the md-viewer Build and Runtime Dependencies
+      ansible.builtin.dnf:
+        name:
+          - gcc                     # cgo compiler
+          - pkgconf-pkg-config      # pkg-config, which Gio's cgo lines call
+          - wayland-devel           # wayland-client, wayland-cursor, wayland-egl
+          - libxkbcommon-devel      # xkbcommon
+          - libxkbcommon-x11-devel  # xkbcommon-x11
+          - libX11-devel            # x11, x11-xcb
+          - libXcursor-devel        # xcursor
+          - libXfixes-devel         # xfixes
+          - libglvnd-devel          # egl (EGL headers and libEGL)
+          - vulkan-headers          # vulkan/vulkan.h, which Gio's Vulkan backend includes
+          - desktop-file-utils      # desktop-file-validate, update-desktop-database
+        state: present
+      tags:
+        - packages
+        - md-viewer
+
+    - name: Build and Install md-viewer at the Pinned Commit
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: md-viewer
+        go_command_module: "github.com/LongTermSupport/md-viewer/cmd/md-viewer@{{ md_viewer_version }}"
+        go_command_dest: "{{ md_viewer_bin }}"
+        go_command_mode: "0755"
+      tags:
+        - md-viewer
+
+    # --version needs no display, so this proves the installed binary runs and is the pinned
+    # build, on any host.
+    - name: Read the Installed md-viewer Version
+      become: false
+      ansible.builtin.command:
+        argv:
+          - "{{ md_viewer_bin }}"
+          - --version
+      register: md_viewer_version_line
+      changed_when: false
+      check_mode: false
+      tags:
+        - md-viewer
+
+    - name: Assert the Installed md-viewer Is the Pinned Commit
+      ansible.builtin.assert:
+        that:
+          - md_viewer_version_line.stdout is search(md_viewer_version[:12])
+        fail_msg: >-
+          {{ md_viewer_bin }} --version printed "{{ md_viewer_version_line.stdout }}", which does
+          not carry the pinned commit {{ md_viewer_version[:12] }}.
+      tags:
+        - md-viewer
+
+    - name: Create the Per-User Applications Directory
+      become: false
+      ansible.builtin.file:
+        path: "{{ md_viewer_desktop_dir }}"
+        state: directory
+        mode: "0755"
+      tags:
+        - md-viewer
+
+    # NoDisplay: md-viewer shows one file and has nothing to show without one, so it is offered
+    # in "Open With" and as the Markdown default, not in the app grid. StartupWMClass matches
+    # the Wayland app_id Gio sets from the binary's name (md-viewer SPEC WIN-6).
+    - name: Deploy the md-viewer Desktop File
+      become: false
+      ansible.builtin.copy:
+        dest: "{{ md_viewer_desktop_dir }}/md-viewer.desktop"
+        mode: "0644"
+        validate: desktop-file-validate %s
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Name=Markdown Viewer
+          Comment=View a Markdown file rendered
+          Exec={{ md_viewer_bin }} %f
+          Icon=text-x-generic
+          Terminal=false
+          NoDisplay=true
+          MimeType=text/markdown;text/x-markdown;
+          Categories=Utility;Viewer;
+          StartupWMClass=md-viewer
+      register: md_viewer_desktop_file
+      tags:
+        - md-viewer
+
+    - name: Refresh the Per-User Desktop Database
+      become: false
+      ansible.builtin.command:
+        argv:
+          - update-desktop-database
+          - "{{ md_viewer_desktop_dir }}"
+      when: md_viewer_desktop_file is changed
+      changed_when: true
+      tags:
+        - md-viewer
+
+    # mimeapps.list in ~/.config is the per-user default that GNOME, Nautilus and xdg-open all
+    # read. Setting the one key declaratively leaves every other default as it is.
+    - name: Make md-viewer the Default for text/markdown
+      become: false
+      community.general.ini_file:
+        path: "/home/{{ user_login }}/.config/mimeapps.list"
+        section: Default Applications
+        option: text/markdown
+        value: md-viewer.desktop
+        no_extra_spaces: true
+        create: true
+        mode: "0644"
+      tags:
+        - md-viewer
+
+    - name: Show How to Use md-viewer
+      ansible.builtin.debug:
+        msg: |
+          md-viewer {{ md_viewer_version[:12] }} is installed at {{ md_viewer_bin }}
+          and is the default for Markdown files.
+
+            Double-click a .md file in Nautilus, or run:  md-viewer FILE.md
+            Dark palette:                                 md-viewer --dark FILE.md
+            Start-up timings (prints, then exits):        md-viewer --time FILE.md
+      tags:
+        - md-viewer
