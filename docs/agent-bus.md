@@ -412,7 +412,7 @@ load-bearing: without it the goodbye would be cut off at 1.5 s. The test in
 
 **How messages reach the session.** A session in a team gets each message in its
 conversation as the message itself, where the person watching sees it: the watcher writes
-it through Claude Code's inbox socket as an `agent-bus delivery` envelope that names the
+it through Claude Code's inbox socket as a delivery envelope (its first line starts "agent-bus delivery") that names the
 sender, whether a human or an agent sent it (`kind: HUMAN`, `PEER`, `PING`), the team, the
 time and the `reply:` command, with the sender's words as one quoted string below. Claude
 Code shows it under its own label "Another Claude session sent a message"; the SessionStart
