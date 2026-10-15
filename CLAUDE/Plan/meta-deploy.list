@@ -24,9 +24,3 @@
 # files and D-Bus activation, the default handler for text files, its settings. Collected so
 # Plan 00198 can make a file opened from Nautilus open in a new window on the current workspace.
 00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace
-
-# agent team bus acceptance, now with the coordinator role (Plan 00196 is deployed). BEFORE
-# running meta, launch `ccy` interactively once in this checkout and choose the token and SSH
-# keys: the saved choices are still in the format before CCY 3.96, which a headless launch
-# discards, so U20 refuses to start until Quick Launch saves them again.
-00161-agent-team-bus-matrix/acceptance.bash
