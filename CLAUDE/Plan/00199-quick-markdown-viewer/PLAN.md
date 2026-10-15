@@ -1,6 +1,6 @@
 # Plan 00199: quick markdown viewer
 
-**Status**: In Progress (md-viewer planned; waiting on the owner's decisions and its own ccy project)
+**Status**: In Progress (md-viewer M0 to M11 merged in its own project; install play written, host run pending; owner's decisions pending)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: Medium
@@ -60,18 +60,20 @@ on Gio with goldmark (Task 1.2).
   fonts draw ✅ ⬜ 🔄 as boxes) and dark mode (a `--dark` flag, or the desktop setting read
   over D-Bus).
 
-- [ ] ⬜ **Task 2.1c**: md-viewer becomes its own ccy project, owner's host steps:
+- [x] ✅ **Task 2.1c**: md-viewer is its own ccy project, with its own hooks daemon, on one
+  team with this session. All its milestones, M0 to M11, are merged on its `main` (M10: the
+  binary opens a Gio window; M11: speed fixtures, benchmarks and measurement).
 
-  1. clone it into the projects directory and run `ccy` there;
-  2. run `/hooks-daemon install` there and commit what it writes;
-  3. run `gh auth setup-git` there;
-  4. join both sessions to one team with `ccy-teams`.
-
-  Its session then has Haiku build the milestones, tests first. Its go-qa-ci step fails until
-  go-qa-ci is public.
-
-- [ ] ⬜ **Task 2.2**: A play installs md-viewer on the host (with Gio's runtime libraries) and
+- [ ] 🔄 **Task 2.2**: A play installs md-viewer on the host (with Gio's runtime libraries) and
   makes it the default for `text/markdown`. Startup is measured on the host with `--time`.
+  The play is written:
+  [play-md-viewer.yml](../../../playbooks/imports/optional/common/play-md-viewer.yml). It
+  builds md-viewer with `go install` at the commit pinned in `md_viewer_version` (through
+  `tasks/build-go-command.yml`, which now takes an external `go_command_module`), after
+  upgrading golang and asserting it meets md-viewer's `go.mod`. It checks `--version` names
+  that commit, installs a desktop file and sets the `text/markdown` (and `text/x-markdown`)
+  default in `~/.config/mimeapps.list`. It is queued in `meta-deploy.list`; the host run and the
+  `--time` measurement remain.
 
 - [ ] ⬜ **Task 2.3**: Host run through `meta-deploy.bash`; the owner opens a plan's `PLAN.md`
   from Nautilus and confirms it renders and opens quickly. qa-reviewer over the plan.

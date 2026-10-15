@@ -25,3 +25,11 @@
 # refused and who can be addressed. Running ccy sessions keep their old image (and their old
 # pingbus: no short --to, no REPLY lines if older than 2.56) until each is relaunched.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00199 (md-viewer): installs Gio's build libraries (dnf), upgrades golang to Fedora's
+# newest build (md-viewer's go.mod needs Go 1.26.9 or newer; the play stops before building if
+# Fedora has nothing that new), builds md-viewer from its own repository at the pinned commit
+# into ~/.local/bin/md-viewer, checks `md-viewer --version` names that commit, adds a desktop
+# file and makes it your default for text/markdown (and its alias text/x-markdown). Afterwards
+# double-click a PLAN.md in Nautilus, and run `md-viewer --time <file>.md` for the start-up
+# timings.
+playbooks/imports/optional/common/play-md-viewer.yml
