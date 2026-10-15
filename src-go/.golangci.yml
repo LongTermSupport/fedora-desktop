@@ -163,6 +163,14 @@ linters:
       - path: qa/(bash/.*|cmd/qa-bash/main)_test\.go
         linters: [gosec, tagliatelle]
         text: "G304|G302|G306|shellcheck_diagnostics"
+      # vmtest works in the lab tree under the user's own home: every path it opens is the lab
+      # directory joined with a fixed name or a validated base, member or run id. It keeps the
+      # modes the lab has always had (SPEC-vmtest.md section 5): run directories and records
+      # 0755/0644 because the run spool and the desktop bridge read them, base images 0444 so
+      # nothing writes a base by mistake. Its tests build that tree.
+      - path: internal/vmtest/
+        linters: [gosec]
+        text: "G304|G703|G301|G302|G306"
   settings:
     cyclop:
       max-complexity: 15

@@ -12,6 +12,7 @@ the operator's view.
 
 | Piece                                | Where                                                    | Job                                                                                                                                             |
 | ------------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Host CLI (`vmtest`)                  | `src-go/cmd/vmtest`, `src-go/internal/vmtest`            | Fetches and builds bases, runs and judges scenarios, keeps members; a Go binary the lab play builds into `~/.local/bin/vmtest`                  |
 | Scenario manifest                    | `vars/vm-test-scenarios.yml`                             | The bases, the scenarios, which base each scenario needs, guest sizing, freshness backstops                                                     |
 | Manifest parser and check accounting | `helpers/vmtest/scenarios.py`                            | Validates the manifest; derives the bridge allowlist and the disjoint host-only list; decides `pass`/`fail`/`error` from a run's check counters |
 | Upstream signal parsers              | `helpers/vmtest/upstream.py`                             | Parses `COMPOSE_ID`, `.treeinfo`, `releases.json`, Bodhi and `repomd.xml` into a media identity and a revision                                  |
@@ -26,7 +27,8 @@ the operator's view.
 | Response contract                    | `helpers/vmtest/verdict.py`                              | The response state machine, HMAC signing, the heartbeat document and its assessment                                                             |
 | Container-side requester             | `scripts/vmtest-request.bash`                            | Writes a request, waits, maps the answer to a distinct exit code; never claims to verify the signature                                          |
 
-The play deploys everything the lab runs from: the CLI, the guest scripts, the
+The play deploys everything the lab runs from: the CLI (built from the checkout,
+so the play installs the Go toolchain first), the guest scripts, the
 two VM kickstarts, the manifest and the bridge. The three bases (`server-fast`,
 `server-full`, `desktop`) are built on the host by `vmtest build-base`, never
 by the play.

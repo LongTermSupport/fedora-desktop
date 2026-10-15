@@ -566,7 +566,7 @@ func TestAVmtestManifestInputEditRunsTheGate(t *testing.T) {
 			t.Errorf("a deleted %s owes the gate: %v", f, keys(p))
 		}
 	}
-	for _, f := range []string{"vars/other.yml", "helpers/vmtest/freshness.py", "files/home/.local/bin/vmtest", "files/home/.local/share/vmtest/guest-cleanup.bash", "docs/vm-acceptance-testing.md"} {
+	for _, f := range []string{"vars/other.yml", "helpers/vmtest/freshness.py", "src-go/internal/vmtest/run.go", "files/home/.local/share/vmtest/guest-cleanup.bash", "docs/vm-acceptance-testing.md"} {
 		w := newWorld(t)
 		w.touch(f, "x = 1\n")
 		if p := w.classify([]string{f}); p.has("vmtest-manifest") {

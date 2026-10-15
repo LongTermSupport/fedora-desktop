@@ -46,7 +46,6 @@ files/home/.local/bin/ssh-copy-id-with-key	73	2	77	-
 files/home/.local/bin/ssh-keys-rekey	228	5	252	-
 files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/ssh-with-key	87	2	98	-
-files/home/.local/bin/vmtest	1231	67	1467	data
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
 files/home/.local/bin/wsi	1000	26	1030	-
 files/home/.local/bin/wsi-claude-process	125	3	138	-

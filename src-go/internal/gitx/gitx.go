@@ -119,6 +119,35 @@ func (g *Git) DefaultBranch(ctx context.Context, url string) (string, error) {
 	return "", fmt.Errorf("%s names no default branch (git ls-remote --symref gave no symbolic HEAD)", url)
 }
 
+// RemoteBranchTip is the commit refs/heads/<branch> points at on the remote at url, read from
+// `git ls-remote`. Anything but exactly one full sha is an error: nothing is guessed.
+func (g *Git) RemoteBranchTip(ctx context.Context, url, branch string) (string, error) {
+	ref := "refs/heads/" + branch
+	res, err := g.run(ctx, "", "ls-remote", url, ref)
+	if err != nil {
+		return "", err
+	}
+	found := lines(res.Stdout)
+	if len(found) == 1 {
+		if sha, name, ok := strings.Cut(found[0], "\t"); ok && name == ref && fullSHA(sha) {
+			return sha, nil
+		}
+	}
+	return "", fmt.Errorf("%s gave no single commit for %s (git ls-remote printed %d line(s))", url, ref, len(found))
+}
+
+func fullSHA(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // CloneBranch clones one branch of url into dest.
 func (g *Git) CloneBranch(ctx context.Context, url, branch, dest string) error {
 	_, err := g.run(ctx, "", "clone", "--branch", branch, "--single-branch", url, dest)

@@ -169,7 +169,7 @@ var (
 // replay builds the scenario's world and runs the Go over it.
 func replay(t *testing.T, defaults map[string]stubReply, sc goldenScenario) goldenRecord {
 	t.Helper()
-	body, gs := realTable(t)
+	body, gs := tableAsRecorded(t)
 	w := newWorld(t, body)
 	results := w.env["QA_RESULTS_JSON"]
 	if sc.Stale {

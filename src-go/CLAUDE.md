@@ -1,8 +1,8 @@
 # src-go — the Go module
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
-interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze` and
-`lxcfreeze` live here; their bash originals are gone.
+interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
+`lxcfreeze` and `vmtest` live here; their bash originals are gone.
 
 ## Layout
 
@@ -20,6 +20,9 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   derived verb, dry run and act loop (`freeze`), the command-line grammar (`freeze/cli`), the
   flow in spec order (`freeze/app`), and the golden replay (`freeze/golden`, test only). An
   engine implements `freeze.Engine`; never an `if` on the engine in the shared half.
+- `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E60): every verb,
+  through `execx` to virsh, virt-install, qemu-img, ssh and curl, and through one seam
+  (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python.
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -91,7 +94,8 @@ installs it with a checksum-compared `copy`; it takes the command name, install 
 optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
 (`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
-`play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain). Each binary
+`play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
+`play-vm-test-lab.yml` for `vmtest` (which imports `play-golang.yml` too). Each binary
 lands at its old path. A new deployed command takes a row in `scripts/go-binary-suites.tsv`. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).

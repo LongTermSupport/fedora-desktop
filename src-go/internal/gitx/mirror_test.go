@@ -41,6 +41,31 @@ func TestDefaultBranchFailureIsAnError(t *testing.T) {
 	}
 }
 
+func TestRemoteBranchTipReadsOneSha(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"git", "ls-remote", repoURL, "refs/heads/F44"}, execx.Result{Stdout: []byte(sha1 + "\trefs/heads/F44\n")})
+	got, err := gitx.New(f).RemoteBranchTip(context.Background(), repoURL, "F44")
+	if err != nil || got != sha1 {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestRemoteBranchTipRefusesAnythingButOneSha(t *testing.T) {
+	for name, reply := range map[string]execx.Result{
+		"no branch":  {},
+		"two lines":  {Stdout: []byte(sha1 + "\trefs/heads/F44\n" + sha2 + "\trefs/heads/F44\n")},
+		"not a sha":  {Stdout: []byte("main\trefs/heads/F44\n")},
+		"a short id": {Stdout: []byte("1111111\trefs/heads/F44\n")},
+		"a failure":  gitFail("fatal: could not read from remote repository"),
+	} {
+		f := &execx.Fake{}
+		f.On([]string{"git", "ls-remote"}, reply)
+		if got, err := gitx.New(f).RemoteBranchTip(context.Background(), repoURL, "F44"); err == nil {
+			t.Fatalf("%s: accepted %q", name, got)
+		}
+	}
+}
+
 func TestCloneBranch(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"git", "clone"}, execx.Result{})

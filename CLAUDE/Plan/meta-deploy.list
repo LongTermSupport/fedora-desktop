@@ -25,3 +25,10 @@
 # identical behaviour (Plan 00192), and `ccy --help` describes the shared team chooser
 # (Plan 00201).
 playbooks/imports/play-claude-yolo.yml
+# Plan 00192 (vmtest port): the lab play now builds ~/.local/bin/vmtest from src-go/cmd/vmtest
+# (installing the Go toolchain first) in place of the bash CLI, deploys the scrubber's command
+# front beside run-log-scrub.bash, and deploys the bridge runner that now marks the vmtest it
+# starts as the bridge's. After it runs, `vmtest freshness-status` and one
+# `vmtest run server-fast-provision` on the host are what prove the binary against real
+# libvirt (SPEC-vmtest.md section 7, H1-H6).
+playbooks/imports/optional/common/play-vm-test-lab.yml
