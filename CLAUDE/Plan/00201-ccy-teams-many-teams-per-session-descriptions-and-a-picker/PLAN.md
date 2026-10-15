@@ -1,6 +1,6 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (M1-M6 built; M7 host run and acceptance next)
+**Status**: In Progress (M1-M6 built and deployed on the host at 397ca234; M7 two-team acceptance and the owner's try next)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
