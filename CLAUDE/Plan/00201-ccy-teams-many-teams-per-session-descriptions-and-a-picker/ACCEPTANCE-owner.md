@@ -21,8 +21,10 @@ Use two of your own teams, here called A and B, and a GitHub checkout neither co
 08. In a host checkout, run `cc --teams` and mark A and B. If
     `~/.config/pingbus/element-accepted` does not exist, the consent question names both
     handles: answer No once (nothing is started or recorded), then run it again and answer Yes.
-09. The cc session shows the launch block, and its status line shows `bus: A,B`. End it: the
-    status line record goes with it (no `bus:` segment in the next plain session).
+09. The cc session shows the launch block, and its status line shows `bus: A,B`. End it, then
+    check that the per-session record is gone: `ls /tmp/pingbus-sessions-$(id -u)/` must not
+    list the ended session's ID (the directory is `$PINGBUS_SESSIONS_DIR` when that is set).
+    A file still there means SessionEnd did not remove it: this step fails.
 10. If the scope added in step 2 should not stay, remove the repository from A's `repos` in
     the host_vars and run `ccy-teams apply A`.
 

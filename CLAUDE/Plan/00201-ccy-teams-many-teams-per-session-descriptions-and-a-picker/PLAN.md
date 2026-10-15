@@ -51,12 +51,12 @@ change the bus protocol unless the research shows it must.
   live); the one-team assumptions are the bare-`--teams` chooser and the picker's
   join offer. `cc --teams` has drifted from ccy (one team, no chooser).
 
-- [ ] 🔄 **Task 1.2**: [SPEC-many-teams.md](SPEC-many-teams.md): numbered expectations for
+- [x] ✅ **Task 1.2**: [SPEC-many-teams.md](SPEC-many-teams.md): numbered expectations for
   descriptions, the shared chooser (no-cover, several-cover, scope widening), several teams
   per session, replying to a peer, and `cc` on the same flow. Decisions Q1-Q10: the spec's
   recommendations are taken, by the coordinator, on the owner's instruction of 2026-10-15
   not to wait for him and to decide properly and pragmatically. The owner may
-  overrule any of them.
+  overrule any of them. The spec is written and Q1-Q10 are decided.
 
 ### Phase 2: Build (tests first; milestones M1-M7 of the spec)
 
@@ -80,7 +80,7 @@ a repository is no longer offered for a checkout of it. Report:
   `subagent-reports/261015-m1-m2-sonnet.md`.
 - [x] ✅ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's
   short name. Built test-first in `helpers/pingbus` (S-D1 to S-D6); Q8 taken as the spec
-  recommends (REPLY after HUMAN and PEER only, not PING), pending the owner's confirmation.
+  recommends (REPLY after HUMAN and PEER only, not PING): taken, the owner may overrule.
   Report: `subagent-reports/261015-m3-reply-sonnet.md`.
 - [x] ✅ **Task 2.4**: M4, the shared chooser in Go (`ccy-teams choose-teams`), scope widening,
   ccy wired (CCY 3.97.6). Single team (S-B1 to S-B15 without multi-select): `declare.py choices`
@@ -98,7 +98,7 @@ a repository is no longer offered for a checkout of it. Report:
   Reports: `subagent-reports/261015-m5-many-teams-sonnet.md`, review
   `subagent-reports/261015-m5-review-fable.md`.
 - [x] ✅ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it (S-E1 to S-E6),
-  CCY 3.97.10 / container 2.58. `cc` takes ccy's list grammar and, on a terminal, calls
+  CCY 3.97.10 / container 2.58 as first built, 3.97.11 / 2.59 after the M6 review fixes, and 3.98.2 / 2.60 once the integration merge joined the goodbye and relay line. `cc` takes ccy's list grammar and, on a terminal, calls
   `ccy-teams choose-teams --type=host`; the Element consent is Go (`chooser/consent.go`), asked after
   the seats are chosen and before any is made, reading and writing `~/.config/pingbus/element-accepted`
   with the old rules. `agent-bus seat check`, `seat take --type=host`, then the launch block (M5 F6)
@@ -132,4 +132,10 @@ a repository is no longer offered for a checkout of it. Report:
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00201-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- <!-- milestone or delivery commit hash -->
+- Research and spec: 15e34376; `teams_for` exclude fix: 1f30360e
+- M3 (replying): 23f3021d
+- M1+M2 (descriptions): c38787c5
+- M4 (shared chooser, scope widening): 718b8067
+- M5 (several teams per session): 202b254f; integrated with F44 in daae0612
+- M6 (`cc --teams` on the shared flow): 397ca234; integrated in c95036bb
+- M7 (two-team acceptance): 3c137fa4; the REPLY pairing check: 6affbfec
