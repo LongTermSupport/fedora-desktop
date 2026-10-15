@@ -13,10 +13,12 @@ other stream of every command is checked for every secret the run created.
 
 from __future__ import annotations
 
+import grp
 import io
 import json
 import os
 import pathlib
+import pwd
 import secrets
 import sys
 import tarfile
@@ -315,6 +317,20 @@ class RenderCommandsTest(CliTestCase):
         run = self.run_cli(["render", "dropin"], stdin=self.team_json())
         self.assertEqual(run.code, 78)
         self.assertEqual(run.out, b"")
+
+    def test_stamp_group_prints_the_recorded_group(self) -> None:
+        record = self.root / "stamp-group"
+        group = grp.getgrgid(os.getgid()).gr_name
+        owner = pwd.getpwuid(os.getuid()).pw_name
+        record.write_text(f"{group}\n", encoding="utf-8")
+        record.chmod(0o644)
+        run = self.ok(["render", "stamp-group", f"--file={record}", f"--owner={owner}"])
+        self.assertEqual(run.text, f"{group}\n")
+        record.unlink()
+        missing = self.run_cli(["render", "stamp-group", f"--file={record}", f"--owner={owner}"])
+        self.assertEqual(missing.code, 78)
+        self.assertEqual(missing.out, b"")
+        self.assertIn("play-agent-bus.yml", missing.err)
 
     def test_renders_need_no_team_dir_or_homeserver(self) -> None:
         self.ok(["render", "toml"], stdin=self.team_json(team="other"))

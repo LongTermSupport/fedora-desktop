@@ -192,6 +192,12 @@ def cmd_render_stamp(args: argparse.Namespace, io: _Io) -> int:
     return EXIT_OK
 
 
+def cmd_render_stamp_group(args: argparse.Namespace, io: _Io) -> int:
+    """The stamps' group as play-agent-bus.yml recorded it in `--file`, owned by `--owner`."""
+    io.stdout.write(f"{teamfile.read_stamp_group(pathlib.Path(args.file), args.owner)}\n".encode())
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------- a ccy checkout's seats
 
 
@@ -305,6 +311,10 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     stamp.add_argument("--installer-sha256", required=True, metavar="HEX",
                        help="the sha256 of the agent-bus-install that ran")
     stamp.set_defaults(handler=cmd_render_stamp)
+    stamp_group = renders.add_parser("stamp-group", help="the stamps' group, as the play recorded it")
+    stamp_group.add_argument("--file", required=True, metavar="PATH", help="the record, /etc/agent-bus/stamp-group")
+    stamp_group.add_argument("--owner", required=True, metavar="USER", help="the record's only writer")
+    stamp_group.set_defaults(handler=cmd_render_stamp_group)
     commands.add_parser("version", help="print the versions").set_defaults(handler=cmd_version)
 
     seat_parser = commands.add_parser(
@@ -378,7 +388,8 @@ def main(
     except admin.Unreachable as exc:
         io.say(str(exc))
         return EXIT_UNREACHABLE
-    except (admin.ConfigError, teamfile.TeamFileError, render.RenderError, registry.RegistryError) as exc:
+    except (admin.ConfigError, teamfile.TeamFileError, teamfile.StampGroupError, render.RenderError,
+            registry.RegistryError) as exc:
         io.say(str(exc))
         return EXIT_CONFIG
     except admin.AdminError as exc:

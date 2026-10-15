@@ -255,11 +255,12 @@ def _text_item(text: str, kind: str) -> tuple[tuple[str, ...] | None, tuple[str,
     return fields, reply, []
 
 
-def _reply_problems(kind: str, reply: Sequence[str], team: str, sender: str) -> list[str]:
-    """The REPLY command is `pingbus --team TEAM say --to NAME`, NAME being the sender: a
-    human's localpart, an agent's handle or the short name before the handle separator."""
+def _reply_problems(kind: str, reply: Sequence[str], team: str, sender: str, event: str) -> list[str]:
+    """The REPLY command is `pingbus --team TEAM say --to NAME --re 'EVENT'`, NAME being the
+    sender (a human's localpart, an agent's handle or the short name before the handle
+    separator) and EVENT the `kind` line's own event, so the answer threads under it."""
     names = sorted({sender, sender.partition(protocol.HANDLE_SEP)[0]})
-    want = [f"{cli.PROG} --team {team} say --to {name}" for name in names]
+    want = [f"{cli.PROG} --team {team} say --to {name} --re '{event}'" for name in names]
     if reply[2] in want:
         return []
     return [f"the {kind} line's REPLY command {reply[2]!r} is not one of {want}"]
@@ -271,7 +272,7 @@ def _expect_text(kind: str, text: str, team: str, event: str, sender: str, body:
     if fields is None or reply is None:
         return problems
     problems = _compare(kind, fields, (team, event, sender, None, None))
-    problems += _reply_problems(kind, reply, team, sender)
+    problems += _reply_problems(kind, reply, team, sender, fields[1])
     if not fields[3].isdigit():
         problems.append(f"{kind} origin_server_ts {fields[3]!r} is not a non-negative integer")
     try:

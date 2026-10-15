@@ -65,15 +65,13 @@ if [[ -n $PREFIX ]]; then
     ADMIN_TOOL=agent-bus
     ROOT_OWNER=$(id -un)
     ROOT_GROUP=$(id -gn)
-    SVC_OWNER=$ROOT_OWNER
-    SVC_GROUP=$ROOT_GROUP
+    SVC_OWNER=$ROOT_OWNER SVC_GROUP=$ROOT_GROUP
 else
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
     ADMIN_TOOL=/usr/local/bin/agent-bus
     ROOT_OWNER=root
     ROOT_GROUP=root
-    SVC_OWNER=$SVC_NAME
-    SVC_GROUP=$SVC_NAME
+    SVC_OWNER=$SVC_NAME SVC_GROUP=$SVC_NAME
 fi
 readonly PREFIX ADMIN_TOOL ROOT_OWNER ROOT_GROUP SVC_OWNER SVC_GROUP
 readonly LIB_DIR=$PREFIX/usr/local/lib/agent-bus
@@ -87,10 +85,11 @@ readonly STATE_ROOT=$PREFIX/var/lib/agent-bus
 # agent-bus user's directory so the homeserver cannot steer what root later removes.
 readonly INSTALL_STATE_ROOT=$PREFIX/var/lib/agent-bus-install
 # What `team` last applied for each team (<team>.json: config and software digests, no
-# secret), readable by AGENT_BUS_STAMP_GROUP (default root's group), so ccy-teams, run by
-# a member of it, tells an out-of-date team without sudo (D65) and no other user learns a
-# team's name: the directory is 0750 and each stamp 0640, root:<that group>.
-readonly APPLIED_ROOT=$PREFIX/var/lib/agent-bus-applied STAMP_GROUP=${AGENT_BUS_STAMP_GROUP:-$ROOT_GROUP}
+# secret), readable by the group play-agent-bus.yml records in STAMP_GROUP_FILE (root's,
+# 0644; no record is a failure, never a default), so ccy-teams, run by a member of it, tells
+# an out-of-date team without sudo (D65) and no other user learns a team's name: the
+# directory is 0750 and each stamp 0640, root:<that group>, whoever runs `team`.
+readonly APPLIED_ROOT=$PREFIX/var/lib/agent-bus-applied STAMP_GROUP_FILE=$PREFIX/etc/agent-bus/stamp-group
 readonly OS_RELEASE=$PREFIX/etc/os-release
 
 WORK_DIR=""
@@ -756,11 +755,13 @@ converge_units() {
 cmd_team() {
     parse_options "team-file:value" "$@"
     require_option team-file team
-    local file=${OPT[team-file]}
+    local file=${OPT[team-file]} stamp_group
     require_root
     require_fedora
     [[ -f $file && -r $file ]] || die "$EXIT_USAGE" "--team-file $file is not a readable file"
     require_software
+    stamp_group=$(admin_tool render stamp-group --file "$STAMP_GROUP_FILE" --owner "$ROOT_OWNER")
+    ensure_dir "$APPLIED_ROOT" 0750 "$ROOT_OWNER" "$stamp_group"
     require_running firewalld.service NetworkManager.service
     make_work_dir
 
@@ -812,10 +813,7 @@ cmd_team() {
     sync_firewall "$team" "$port" "${allow[@]}"
     ensure_dir "$(dropin_dir "$team")" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
     put_file "team $team unit drop-in" "$WORK_DIR/network.conf" "$(dropin_dir "$team")/network.conf" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
-    if ((PUT_CHANGED)); then
-        restart=1
-        reload=1
-    fi
+    ((PUT_CHANGED == 0)) || restart=1 reload=1
     readlink -f -- "$LIB_DIR/tuwunel" >"$WORK_DIR/binary"
     put_file "team $team binary $(<"$WORK_DIR/binary")" "$WORK_DIR/binary" "$INSTALL_STATE_ROOT/$team/binary" 0600 "$ROOT_OWNER" "$ROOT_GROUP"
     ((PUT_CHANGED == 0)) || restart=1
@@ -840,8 +838,7 @@ cmd_team() {
     admin_tool render stamp --zipapp "$LIB_DIR/agent-bus.pyz" --tuwunel "${running#tuwunel-}" \
         --installer-sha256 "${self_sha%% *}" \
         <"$WORK_DIR/team.json" >"$WORK_DIR/stamp.json"
-    ensure_dir "$APPLIED_ROOT" 0750 "$ROOT_OWNER" "$STAMP_GROUP"
-    put_file "team $team applied stamp" "$WORK_DIR/stamp.json" "$APPLIED_ROOT/$team.json" 0640 "$ROOT_OWNER" "$STAMP_GROUP"
+    put_file "team $team applied stamp" "$WORK_DIR/stamp.json" "$APPLIED_ROOT/$team.json" 0640 "$ROOT_OWNER" "$stamp_group"
 }
 
 # ---------------------------------------------------------------- remove

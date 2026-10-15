@@ -296,8 +296,13 @@ and unique on the host. `humans` uses `[a-z][a-z0-9_-]{0,31}`.
    installer's or the play's output. Re-running after a team-file change adds new humans,
    deactivates removed ones, and republishes the team record.
 7. Writes the applied stamp `/var/lib/agent-bus-applied/<team>.json` (0640 in a 0750
-   directory, root and `AGENT_BUS_STAMP_GROUP`, which the play sets to the desktop user's
-   group, so no other user learns a team's name; no secret): the digests of what now runs (D65).
+   directory, root and the group recorded in `/etc/agent-bus/stamp-group`, which the play
+   writes, root's and 0644, naming the desktop user's primary group, so no other user learns
+   a team's name; no secret): the digests of what now runs (D65). The record is read and
+   checked (`agent-bus render stamp-group`: a regular file, root's, writable by no one else,
+   one existing group) before anything else is changed, and the directory is put back in
+   that group, so a `team` run outside the play, whoever runs it, keeps the play's group;
+   with no record `team` fails rather than fall back to root's group.
 
 `remove --team <team>` stops and disables both units, removes the drop-in, the firewalld
 rules and the applied stamp; data stays unless `--purge`. `check --team <team>` is read-only and prints each

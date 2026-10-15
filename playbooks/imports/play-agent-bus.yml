@@ -253,6 +253,8 @@
         # directory: ccy-teams, run by that user, reads them without sudo, and no other user
         # learns a team's name from them. The group is looked up, not assumed to share the
         # login's name; a user or group that cannot be found fails here, before any team.
+        # It is recorded in /etc/agent-bus/stamp-group, which every `agent-bus-install team`
+        # reads (with no record it fails), so a run outside this play keeps the same group.
         - name: Look up the desktop user's primary group ID
           ansible.builtin.getent:
             database: passwd
@@ -263,6 +265,22 @@
             database: group
             key: "{{ ansible_facts.getent_passwd[user_login][2] }}"
 
+        - name: Create the agent-bus configuration directory
+          ansible.builtin.file:
+            path: /etc/agent-bus
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Record the applied stamps' group
+          ansible.builtin.copy:
+            content: "{{ ansible_facts.getent_group | list | first }}\n"
+            dest: /etc/agent-bus/stamp-group
+            owner: root
+            group: root
+            mode: "0644"
+
         - name: Install or update each team
           ansible.builtin.command:
             argv:
@@ -270,8 +288,6 @@
               - team
               - --team-file
               - "{{ agent_bus_team_dir.path }}/{{ item.team }}.json"
-          environment:
-            AGENT_BUS_STAMP_GROUP: "{{ ansible_facts.getent_group | list | first }}"
           loop: "{{ agent_bus_apply_present }}"
           loop_control:
             label: "{{ item.team }}"

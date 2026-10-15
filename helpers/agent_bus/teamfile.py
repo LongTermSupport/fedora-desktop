@@ -12,11 +12,14 @@ the shape rules that hold on every host.
 
 from __future__ import annotations
 
+import grp
 import hashlib
 import ipaddress
 import json
 import pathlib
+import pwd
 import re
+import stat
 import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -392,6 +395,33 @@ def software_digest(zipapp: bytes, tuwunel_version: str, installer_sha256: str) 
 def stamp(team_file: TeamFile, software: str) -> dict:
     return {"v": STAMP_VERSION, "team": team_file.team, "config": config_digest(team_file),
             "software": software}
+
+
+class StampGroupError(ValueError):
+    """The stamps' group record is missing or not to be trusted; the message says why."""
+
+
+def read_stamp_group(path: pathlib.Path, owner: str) -> str:
+    """The group the stamps belong to, as play-agent-bus.yml records it in `path`: a regular
+    file owned by `owner` and writable by no one else, holding one existing group's name.
+    There is no default, so a `team` run by anyone but the play keeps the play's group."""
+    where = f"{path} (play-agent-bus.yml records the stamps' group there)"
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        raise StampGroupError(f"{where} is missing") from None
+    if not stat.S_ISREG(info.st_mode):
+        raise StampGroupError(f"{where} is not a regular file")
+    if info.st_uid != pwd.getpwnam(owner).pw_uid or info.st_mode & 0o022:
+        raise StampGroupError(f"{where} must be owned by {owner} and writable by no one else")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if len(lines) != 1 or not lines[0]:
+        raise StampGroupError(f"{where} must hold one group name")
+    try:
+        grp.getgrnam(lines[0])
+    except KeyError:
+        raise StampGroupError(f"{where} names group {lines[0]!r}, which does not exist") from None
+    return lines[0]
 
 
 def parse_stamp(text: str) -> dict:

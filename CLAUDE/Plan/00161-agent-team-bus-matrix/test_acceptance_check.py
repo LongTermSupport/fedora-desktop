@@ -40,8 +40,9 @@ def line(*fields: str) -> str:
     return "\t".join(fields)
 
 
-def reply_line(event: str, name: str) -> str:
-    return line("REPLY", "1", TEAM, event, f"pingbus --team {TEAM} say --to {name}")
+def reply_line(event: str, name: str, re: str | None = None) -> str:
+    """`recv`'s REPLY line: the command threads the answer under the message (`--re`)."""
+    return line("REPLY", "1", TEAM, event, f"pingbus --team {TEAM} say --to {name} --re '{re or event}'")
 
 
 def human_item(event: str, body: str) -> str:
@@ -276,10 +277,18 @@ class LinesTest(unittest.TestCase):
 
     def test_a_reply_for_another_event_team_or_sender_fails(self) -> None:
         for reply in (reply_line(EV2, "tester"), reply_line(EV1, "other"),
-                      line("REPLY", "1", "other", EV1, f"pingbus --team {TEAM} say --to tester")):
+                      line("REPLY", "1", "other", EV1, f"pingbus --team {TEAM} say --to tester --re '{EV1}'")):
             text = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi")) + "\n" + reply + "\n"
             with self.subTest(reply=reply):
                 self.assertTrue(ac.expect_human(text, TEAM, EV1, "tester", "hi"))
+
+    def test_a_reply_must_thread_under_the_message_it_answers(self) -> None:
+        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi")) + "\n"
+        self.assertEqual(ac.expect_human(human + reply_line(EV1, "tester") + "\n", TEAM, EV1, "tester", "hi"), [])
+        for reply in (reply_line(EV1, "tester", re=EV2),
+                      line("REPLY", "1", TEAM, EV1, f"pingbus --team {TEAM} say --to tester")):
+            with self.subTest(reply=reply):
+                self.assertTrue(ac.expect_human(human + reply + "\n", TEAM, EV1, "tester", "hi"))
 
     def test_a_ping_has_no_reply_line_and_a_reply_after_it_fails(self) -> None:
         ping = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-", "-") + "\n"

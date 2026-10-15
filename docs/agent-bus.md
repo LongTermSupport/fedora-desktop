@@ -264,6 +264,7 @@ root:
 
 ```bash
 sudo <clone>/files/usr/local/sbin/agent-bus-install software --source <clone> --bus-address <bus_ip>
+echo <group> | sudo install -D -m 0644 /dev/stdin /etc/agent-bus/stamp-group  # who may read the applied stamps
 sudo agent-bus-install team --team-file <team-file>
 sudo agent-bus-install check --team <team>
 ```
