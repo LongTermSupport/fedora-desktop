@@ -43,7 +43,9 @@ session-side part of the team system recover by itself.
 
 - [ ] 🔄 **Task 1.1**: Robustness audit of the whole team system, server and session side
   (`subagent-reports/261016-robustness-audit-opus.md`).
-- [ ] 🔄 **Task 1.2**: Hot control design and spec (`SPEC-hot-control.md`).
+- [x] ✅ **Task 1.2**: Hot control design and spec ([SPEC-hot-control.md](SPEC-hot-control.md),
+  H1-H33, milestones M0-M7). Four owner decisions are open: see
+  [subagent-reports/261016-hot-control-design-opus.md](subagent-reports/261016-hot-control-design-opus.md) §7.
 - [ ] ⬜ **Task 1.3**: Milestones for the build, from 1.1 and 1.2, each one shippable.
 
 ## Success Criteria
