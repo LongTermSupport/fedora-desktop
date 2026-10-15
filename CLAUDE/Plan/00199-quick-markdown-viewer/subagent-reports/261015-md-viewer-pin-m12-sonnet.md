@@ -1,0 +1,1 @@
+Pin bumped to bafafc8e4ff973fd168b8877bc00bf0d432738ef (md-viewer main tip, M12). Proxy: v0.0.0-20261015180651-bafafc8e4ff9 served. go.mod go 1.26.9 unchanged. CI: "Build, test, artifact" success; "go-qa (go-qa-ci)" failure. vars/version-pins.yml names the var only, no hash.
