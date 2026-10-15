@@ -298,3 +298,17 @@ func TestUncoveredIsWhatNeitherARuleNorASuiteCovers(t *testing.T) {
 		t.Fatalf("uncovered: %v", p.uncovered)
 	}
 }
+
+func TestNamesFileMatchesTheBasenameAsATokenNotInsideAWord(t *testing.T) {
+	const rel = "files/var/local/claude-yolo/cc"
+	for _, text := range []string{"we accept it", "will succeed", "cc_extra", "my-cc", "occ"} {
+		if namesFile(text, rel) {
+			t.Errorf("%q names %s only inside a word", text, rel)
+		}
+	}
+	for _, text := range []string{"run cc now", "bash\n/usr/local/bin/cc\n", "files/var/local/claude-yolo/cc", `"cc"`, "cc."} {
+		if !namesFile(text, rel) {
+			t.Errorf("%q really names %s", text, rel)
+		}
+	}
+}

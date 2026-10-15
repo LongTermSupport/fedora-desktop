@@ -214,7 +214,27 @@ func (s *session) settleUncovered() {
 	}
 }
 
-// namesFile is whether the text mentions the file by path or by basename.
+// namesFile is whether the text mentions the file by path or by basename as a token: a basename
+// inside a longer word ("cc" in "accept") is not a mention.
 func namesFile(text, rel string) bool {
-	return strings.Contains(text, rel) || strings.Contains(text, filepath.Base(rel))
+	if strings.Contains(text, rel) {
+		return true
+	}
+	base := filepath.Base(rel)
+	for from := 0; ; {
+		i := strings.Index(text[from:], base)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(base)
+		if (start == 0 || !isNameByte(text[start-1])) && (end == len(text) || !isNameByte(text[end])) {
+			return true
+		}
+		from = start + 1
+	}
+}
+
+// isNameByte is a byte that continues a word or a file or command name.
+func isNameByte(b byte) bool {
+	return b == '_' || b == '-' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
