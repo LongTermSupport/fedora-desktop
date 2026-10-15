@@ -12,11 +12,13 @@
 #   H2  the same from docker, LXC and libvirt guests, where installed (a libvirt guest's own
 #       connection needs a guest shell, so it is an owner step, listed, not a failure);
 #   H1 and H2 never create the dummy bus address (nothing persistent): they test the host's
-#   primary address and, with --bus-address=, an address already assigned. Without it they
-#   report the dummy address as not tested and fail, since a dummy's firewalld zone and
-#   routing can differ from the primary address's. --reach-only runs just H1 and H2 against
-#   the agentbus0 address, which is how deploy.bash settles the dummy leg once U16 has
-#   created the interface.
+#   primary address and the bus address, which must already be assigned (deploy.bash puts it
+#   on agentbus0), since a dummy's firewalld zone and routing can differ from the primary
+#   address's. The bus address is --bus-address=, or else agent_bus_address from the
+#   untracked host_vars localhost.yml (_bus-address.inc.bash, as deploy.bash and
+#   acceptance.bash resolve it); with neither, the run stops before its log opens.
+#   --reach-only runs just H1 and H2, which is how deploy.bash settles the dummy leg once
+#   U16 has created the interface.
 #   H6  Element Desktop under pasta with a packet capture.
 # H7 (the phone) and the login legs are the owner's; the report lists them.
 # Unit U01, the Claude Code probes (DESIGN.md sections 6 and 13), run as the last legs, on
@@ -38,7 +40,7 @@
 #       [--docker-image=<ref>] [--element-seconds=<n>] [--claude-only | --reach-only]
 # It never prompts. sudo is primed before the log opens (R3); the H3 unit, LXC and
 # firewalld legs need it, and fail by name without it. --claude-only runs just the U01
-# legs, which need no sudo. --reach-only runs just H1 and H2 and needs --bus-address=.
+# legs, which need no sudo and no bus address. --reach-only runs just H1 and H2.
 #
 # EFFECT ON THE HOST: nothing persistent. It downloads the pinned Tuwunel release into a
 # scratch directory under this run's directory and removes it on the way out (the scrubbed
@@ -54,9 +56,10 @@
 # named by each session's fresh UUID remove them from the Claude config directory.
 #
 # EXIT CODES: 0 every leg established its facts; 1 at least one leg did not (the failing leg
-# names itself; the fact-finding is incomplete, the system is not judged; H1 and H2 always
-# give 1 without --bus-address); 64 usage (including --reach-only without --bus-address=,
-# or with --claude-only).
+# names itself; the fact-finding is incomplete, the system is not judged; H1 and H2 give 1
+# when the bus address is not assigned on this host); 64 usage (including --reach-only with
+# --claude-only, and no bus address or a malformed one), 1 also when the inventory cannot
+# be read.
 set -euo pipefail
 
 # ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
@@ -80,19 +83,23 @@ plan_init "${BASH_SOURCE[0]}"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=_h2-docker-image.inc.bash
 source "${PLAN_SCRIPT_DIR}/_h2-docker-image.inc.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_bus-address.inc.bash
+source "${PLAN_SCRIPT_DIR}/_bus-address.inc.bash"
 
 PLAN_USAGE="usage: triage.bash [--bus-address=<ip>] [--docker-image=<ref>] [--element-seconds=<n>] [--claude-only | --reach-only] [-h|--help]
 
 Host probes H1-H6 and the Claude Code probes (U01) for Plan 00161 (agent team bus).
 Host-only, read-only, never prompts.
-  --bus-address=<ip>     an address already assigned on this host (the future agentbus0
-                         address); H1, H2 and the H3 unit also try it
+  --bus-address=<ip>     the agentbus0 address, already assigned on this host; H1, H2 and
+                         the H3 unit also try it (default: ${BUS_ADDRESS_VAR} from the
+                         host_vars localhost.yml)
   --docker-image=<ref>   a locally present image with sh and nc for H2's docker leg
                          (default ${H2_DOCKER_IMAGE%%@*}, pinned by digest; nothing is
                          pulled here, deploy.bash pulls it)
   --element-seconds=<n>  how long H6 runs Element under pasta (default 60)
   --claude-only          only the U01 Claude Code legs (no sudo)
-  --reach-only           only H1 and H2, against --bus-address (which it needs)
+  --reach-only           only H1 and H2
 Writes triage-report.md, fixtures/tuwunel/ and u01/ (each session's evidence) into its run
 directory and names them."
 
@@ -126,10 +133,6 @@ if [[ "${reachOnly}" -eq 1 ]]; then
         printf '[FATAL] --reach-only and --claude-only select different legs; give one\n' >&2
         exit 64
     fi
-    if [[ -z "${busAddress}" ]]; then
-        printf '[FATAL] --reach-only tests the bus address, so it needs --bus-address=<ip>\n' >&2
-        exit 64
-    fi
 fi
 
 plan_require_host "it probes the host's systemd, podman, bridges and firewalld, and runs Tuwunel and Element on the host"
@@ -138,6 +141,9 @@ if [[ "${EUID}" -eq 0 ]]; then
     exit 1
 fi
 if [[ "${claudeOnly}" -eq 0 ]]; then
+    BUS_ADDRESS="${busAddress}"
+    resolve_bus_address || exit $?
+    busAddress="${BUS_ADDRESS}"
     plan_prime_sudo
 fi
 plan_start_log auto
@@ -156,10 +162,7 @@ printf '# Plan 00161 triage (U00): host probes\n\n' >"${REPORT}"
 
 probe=(python3 "${PLAN_SCRIPT_DIR}/triage_probe.py")
 common=(--report "${REPORT}" --scratch "${SCRATCH}")
-busArgs=()
-if [[ -n "${busAddress}" ]]; then
-    busArgs=(--bus-address "${busAddress}")
-fi
+busArgs=(--bus-address "${busAddress}")
 
 if [[ "${reachOnly}" -eq 1 ]]; then
     plan_gather_leg "H1 ccy-image containers" \
@@ -177,11 +180,11 @@ if [[ "${claudeOnly}" -eq 0 ]]; then
         "${probe[@]}" h4 "${common[@]}" --fixtures "${FIXTURES}"
     plan_gather_leg "H5 backup and restore" "${probe[@]}" h5 "${common[@]}"
     plan_gather_leg "H3 sandboxed transient unit and resolver stub" \
-        "${probe[@]}" h3-unit "${common[@]}" "${busArgs[@]+"${busArgs[@]}"}"
+        "${probe[@]}" h3-unit "${common[@]}" "${busArgs[@]}"
     plan_gather_leg "H1 ccy-image containers" \
-        "${probe[@]}" h1 "${common[@]}" "${busArgs[@]+"${busArgs[@]}"}"
+        "${probe[@]}" h1 "${common[@]}" "${busArgs[@]}"
     plan_gather_leg "H2 docker, LXC and libvirt guests" \
-        "${probe[@]}" h2 "${common[@]}" --docker-image "${dockerImage}" "${busArgs[@]+"${busArgs[@]}"}"
+        "${probe[@]}" h2 "${common[@]}" --docker-image "${dockerImage}" "${busArgs[@]}"
     plan_gather_leg "H6 Element Desktop under pasta" \
         "${probe[@]}" h6 "${common[@]}" --element-seconds "${elementSeconds}"
     plan_gather_leg "owner steps" "${probe[@]}" owner "${common[@]}"

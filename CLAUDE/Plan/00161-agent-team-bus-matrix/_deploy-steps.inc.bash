@@ -23,8 +23,12 @@ run_installer() {
         printf '%s\n' "${output}"
     fi
     if [[ "${status}" -ne 0 ]]; then
-        printf '[FAIL] agent-bus-install %s exited %d (sudo saying a password is required means its timestamp lapsed: run again)\n' \
-            "$1" "${status}" >&2
+        printf '[FAIL] agent-bus-install %s exited %d\n' "$1" "${status}" >&2
+        # Only a lapsed timestamp earns the hint: sudo -n failing now is that, and its own
+        # message follows in the log.
+        if ! sudo -n true; then
+            printf '[FAIL] sudo now needs a password, so its timestamp lapsed: run again\n' >&2
+        fi
         return 1
     fi
 }
@@ -49,14 +53,17 @@ free_loopback_port() {
     python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
 }
 
-# The throwaway team: example values only (CLAUDE/ExampleValues.md), the bus address, and a
-# port free on loopback now. The team file's shape is acceptance_check.py's team-file, the
+# The throwaway team: the bus address, a port free on loopback now, and example values
+# (CLAUDE/ExampleValues.md) wherever the team file allows one. forge_api must be GitHub's
+# API (D66), so "-" takes team-file's default. The org "example" passes the owner rule and is
+# only stored in the team's policy: the installer contacts no forge, and this team has no
+# members to check a reference against it. The team file's shape is acceptance_check.py's team-file, the
 # one the acceptance team is built from too.
 write_team_file() {
     local port
     port="$(free_loopback_port)" || return 1
     python3 -I "${PLAN_SCRIPT_DIR}/acceptance_check.py" team-file "${TEAM}" "${port}" "${BUS_ADDRESS}" \
-        owner - - CLAUDE/Plan/ https://api.example.com example >"${TEAM_FILE}" || return 1
+        owner - - CLAUDE/Plan/ - example >"${TEAM_FILE}" || return 1
     printf '==> team file %s:\n' "${TEAM_FILE}"
     cat -- "${TEAM_FILE}"
 }

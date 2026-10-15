@@ -19,7 +19,8 @@
 #   3. `agent-bus-install software --source <this checkout> --bus-address <ip>`, run from
 #      this checkout, since the installed copy does not exist before the first run;
 #   4. `team` for the throwaway team zz-deploy-check, from a team file of example values in
-#      the run directory: the bus address, a free port, allow_from 192.0.2.0/24, human owner;
+#      the run directory: the bus address, a free port, allow_from 192.0.2.0/24, human owner,
+#      org example, and GitHub's API as forge_api, the only one the installer accepts;
 #   5. `software` and `team` again: any CHANGED line fails the run;
 #   6. `check --team`, printed: any FAIL fact fails the run;
 #   7. `remove --team --purge`; after a failure once the team is in, the same removal runs on

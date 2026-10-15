@@ -20,3 +20,10 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Plan 00161: its triage, deploy and acceptance again. Triage now reads the bus address from
+# agent_bus_address in host_vars, as deploy and acceptance do, so H1 and H2 test agentbus0; the
+# deploy's throwaway team zz-deploy-check now names GitHub's API as forge_api, the only one
+# agent-bus-install accepts (it is installed, checked and removed, nothing is contacted); the
+# acceptance's M2 leg reads the delivery envelope's first line and accepts an answer by
+# `pingbus send` as well as `pingbus recv`.
+00161-agent-team-bus-matrix
