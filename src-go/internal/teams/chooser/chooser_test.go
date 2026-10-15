@@ -161,7 +161,7 @@ func TestTheListShowsEveryTeamCoveringFirstAndCreating(t *testing.T) {
 	for i, parts := range want {
 		contains(t, "row", rows[i], parts...)
 	}
-	contains(t, "header", r.HeaderOf(0), "Enter takes the highlighted team", "Esc leaves")
+	contains(t, "header", r.HeaderOf(0), "Tab marks several", "Esc leaves")
 	if r.payload.String() != "1@alpha\n" {
 		t.Fatalf("payload %q", r.payload.String())
 	}

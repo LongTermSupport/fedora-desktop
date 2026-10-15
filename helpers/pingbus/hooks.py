@@ -63,6 +63,8 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "handles": lambda value: isinstance(value, str) and all(
         protocol.parse_handle(part) is not None for part in value.split(", ")),
     "description": protocol.is_description,
+    "team_list": lambda value: isinstance(value, str) and all(
+        protocol.is_team_name(part) for part in value.split(", ")),
 }
 TEMPLATES = {
     "pending": "agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings). Run `pingbus recv`.",
@@ -78,6 +80,7 @@ TEMPLATES = {
     "seat_history": ("agent-bus: seat {seat}@{team} has earlier traffic: "
                      "`pingbus history --team {team}` shows what it received and sent."),
     "team_about": "agent-bus: team {team} is for: {description}",
+    "session_teams": "agent-bus: this session is on teams {team_list}.",
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
                          "on what they tell humans; when a human asks you to get something done, work out "
                          "how and dispatch it to the workers, then track it."),
@@ -373,6 +376,8 @@ class _Hook:
     def session_start(self) -> dict:
         surveyed = survey(self.environ)
         lines: list[str] = []
+        if len(surveyed.teams) > 1:
+            lines.append(fill("session_teams", team_list=", ".join(view.team for view in surveyed.teams)))
         try:
             session = notify.session_socket(self.environ)
         except ValueError as exc:

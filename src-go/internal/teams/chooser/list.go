@@ -15,23 +15,25 @@ import (
 // Words of the list.
 const (
 	noDescription = "(no description)"
-	listHeader    = "Enter takes the highlighted team, Esc leaves"
+	listHeader    = "Tab marks several, Enter takes them (or the highlighted one), Esc leaves"
 	nothingChosen = "No team chosen; nothing started."
 	notGitHub     = "not a GitHub checkout"
 	createPrefix  = "+ Create a team"
 )
 
-// take shows the list and returns the team the person chose. again is true when nothing was
-// taken and the list should be shown once more; otherwise an empty result ends the run with
-// the code (leaving the list succeeds).
-func (c *Chooser) take(ctx context.Context, repo string, entries []entry, first bool) ([]entry, term.ExitCode, bool) {
+// take shows the list, with several teams markable, and returns the teams the person took in
+// list order, the held ones (marked in an earlier round) among them. again is true when the list
+// should be shown once more, and the teams returned are then the marks to keep; otherwise an empty
+// result ends the run with the code (leaving the list succeeds).
+func (c *Chooser) take(ctx context.Context, repo string, entries []entry, first bool, held []entry) ([]entry, term.ExitCode, bool) {
 	if first && len(entries) == 1 && entries[0].Standing == declare.StandingCovers && !entries[0].down {
 		only := entries[0]
 		c.say("Team " + only.Team + " works on " + repo + " (this checkout): " + describe(only.Choice) + ".")
 		return entries, term.ExitOK, false
 	}
-	rows := listRows(repo, entries)
-	answer, err := c.Picker.Choose(ctx, ui.ChooseSpec{Prompt: "Team> ", Header: listHeader, Height: "50%", Rows: rows})
+	shown := slices.DeleteFunc(slices.Clone(entries), func(e entry) bool { return inTeams(held, e.Team) })
+	rows := listRows(repo, shown)
+	answer, err := c.Picker.Choose(ctx, ui.ChooseSpec{Prompt: "Team> ", Header: listHeader, Height: "50%", Multi: true, Rows: rows})
 	switch {
 	case errors.Is(err, ui.ErrLeave):
 		c.say(nothingChosen)
@@ -39,24 +41,76 @@ func (c *Chooser) take(ctx context.Context, repo string, entries []entry, first 
 	case err != nil:
 		c.Host.ReportErr(err)
 		return nil, term.ExitFailure, false
-	case len(answer) != 1:
-		c.say(fmt.Sprintf("ccy-teams: the list returned %d rows for one choice.", len(answer)))
+	case len(answer) == 0:
+		c.say("ccy-teams: the list returned no row.")
 		return nil, term.ExitFailure, false
 	}
-	at := slices.Index(rows, answer[0])
-	if at < 0 {
-		c.say("ccy-teams: fzf returned a row that was not offered: " + answer[0])
+	j, ok := c.judge(repo, shown, rows, answer, held)
+	if !ok {
 		return nil, term.ExitFailure, false
 	}
-	if at == len(entries) {
-		return c.created(ctx, repo)
+	taken, blockedAny := j.taken, j.blockedAny
+	slices.SortStableFunc(taken, func(a, b entry) int {
+		return slices.IndexFunc(entries, func(e entry) bool { return e.Team == a.Team }) -
+			slices.IndexFunc(entries, func(e entry) bool { return e.Team == b.Team })
+	})
+	if j.wantCreate {
+		made, code, again := c.created(ctx, repo)
+		if code != term.ExitOK {
+			return nil, code, false
+		}
+		blockedAny = blockedAny || again
+		taken = append(taken, made...)
 	}
-	picked := entries[at]
-	if reason := blocked(repo, picked); reason != "" {
-		c.say(reason)
-		return nil, term.ExitOK, true
+	if blockedAny {
+		if len(taken) > 0 {
+			c.say("Keeping " + teamNames(taken) + " marked; choose more, or Esc to leave.")
+		}
+		return taken, term.ExitOK, true
 	}
-	return []entry{picked}, term.ExitOK, false
+	return taken, term.ExitOK, false
+}
+
+// judge reads the marked rows: the teams that can be taken (after the held ones), whether the
+// create row was marked, and whether any mark was blocked (its reason is said). ok is false when
+// fzf returned a row that was not offered.
+func (c *Chooser) judge(repo string, shown []entry, rows, answer []string, held []entry) (judgement, bool) {
+	j := judgement{taken: slices.Clone(held)}
+	for _, line := range answer {
+		at := slices.Index(rows, line)
+		switch {
+		case at < 0:
+			c.say("ccy-teams: fzf returned a row that was not offered: " + line)
+			return judgement{}, false
+		case at == len(shown):
+			j.wantCreate = true
+		case blocked(repo, shown[at]) != "":
+			c.say(blocked(repo, shown[at]))
+			j.blockedAny = true
+		default:
+			j.taken = append(j.taken, shown[at])
+		}
+	}
+	return j, true
+}
+
+// judgement is what the marked rows came to.
+type judgement struct {
+	taken      []entry
+	wantCreate bool
+	blockedAny bool
+}
+
+func inTeams(list []entry, team string) bool {
+	return slices.ContainsFunc(list, func(e entry) bool { return e.Team == team })
+}
+
+func teamNames(list []entry) string {
+	names := make([]string, len(list))
+	for i, e := range list {
+		names[i] = e.Team
+	}
+	return strings.Join(names, ", ")
 }
 
 // created runs the create wizard, then reads the checkout's standing again: the wizard lets the

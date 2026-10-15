@@ -124,6 +124,10 @@ Usage:
                                    print each seat of a --teams list followed by its role,
                                    (coordinator) or (worker), on one line after TEXT: what
                                    Quick Launch shows as the previous team. ccy calls it
+  ccy-teams describe-seats --block <list>
+                                   print "This session is on N teams:" and, per seat, its
+                                   team, seat, role and what the team is for: the block a
+                                   launch shows once its seats are taken
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

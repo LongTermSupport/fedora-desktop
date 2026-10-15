@@ -121,6 +121,10 @@ bus_calls() { if [ -s "$FAKE_BUS_LOG" ]; then paste -sd'|' "$FAKE_BUS_LOG"; else
 cat >"$bus_bin/ccy-teams" <<'FAKE'
 #!/usr/bin/env bash
 printf 'ccy-teams %s\n' "$*" >>"$FAKE_BUS_LOG"
+if [ "$1 $2" = "describe-seats --block" ]; then
+    printf 'This session is on teams (fake block): %s\n' "$3"
+    exit "${FAKE_BLOCK_RC:-0}"
+fi
 [ "${FAKE_CHOOSE_TEAMS_RC:-0}" -eq 0 ] || exit "$FAKE_CHOOSE_TEAMS_RC"
 [ -z "${FAKE_CHOOSE_TEAMS-x}" ] || printf '%s\n' "${FAKE_CHOOSE_TEAMS-2@team-a}"
 FAKE
@@ -168,13 +172,18 @@ check "  with --resolved" "seat check team-a --resolved" "$(bus_calls)"
 check "take with a list: called with it, the container's arguments filled" \
     "-e|PINGBUS_SEATS=dev1@team-a,qa2@team-b|--label|ccy-seats=dev1@team-a,qa2@team-b|rc=0" \
     "$(lib_run take_and_show dev1@team-a,qa2@team-b false)"
-check "take, interactive: no --no-prompt" "seat take dev1@team-a,qa2@team-b" "$(bus_calls)"
+check "take, interactive: no --no-prompt, then the launch block for the list" \
+    "seat take dev1@team-a,qa2@team-b|ccy-teams describe-seats --block dev1@team-a,qa2@team-b" "$(bus_calls)"
 check "take's CHANGED lines go to stderr, never stdout" "rc=0" "$(lib_run ccy_seats_take dev1@team-a false)"
 check "they are shown" "yes" "$(has "CHANGED seat dev1@team-a" "$work/lib.err")"
+check "the launch block is shown on stderr" "yes" "$(has "This session is on teams (fake block): dev1@team-a" "$work/lib.err")"
 lib_run ccy_seats_take dev1@team-a true >/dev/null
-check "take, unattended: --no-prompt" "seat take dev1@team-a --no-prompt" "$(bus_calls)"
+check "take, unattended: --no-prompt" "seat take dev1@team-a --no-prompt|ccy-teams describe-seats --block dev1@team-a" "$(bus_calls)"
 check "take's 75 (a held seat) is passed on, no arguments for the container" "|rc=75" \
     "$(FAKE_TAKE_RC=75 lib_run take_and_show dev1@team-a false)"
+check "  and no block is shown for seats that were not taken" "seat take dev1@team-a" "$(bus_calls)"
+check "a launch block that cannot be made stops the launch with its code" "rc=70" \
+    "$(FAKE_BLOCK_RC=70 lib_run ccy_seats_take dev1@team-a false)"
 check "take's 78 is passed on" "rc=78" "$(FAKE_TAKE_RC=78 lib_run ccy_seats_take dev1@team-a true)"
 check "no list (a plain launch): agent-bus not called, no arguments for the container" "|rc=0" \
     "$(lib_run take_and_show "" false)"

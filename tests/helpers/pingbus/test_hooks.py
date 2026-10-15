@@ -59,6 +59,7 @@ FIELD_RES = {
     "team": protocol.TEAM_NAME_PATTERN,
     "handle": protocol.HANDLE_PATTERN,
     "handles": rf"{UNNAMED_HANDLE}(?:, {UNNAMED_HANDLE})*",
+    "team_list": rf"{protocol.TEAM_NAME_PATTERN}(?:, {protocol.TEAM_NAME_PATTERN})*",
     "lock": "(?:held|free)",
     "description": r"[^\x00-\x1f\x7f\u200b-\u200f\u202a-\u202e]{1,120}",
 }
@@ -306,6 +307,22 @@ class SessionStartTest(HookCase):
         context = self.context(self.start())
         self.assertIn(hooks.fill("team_about", team=TEAM, description="Builds the example site"), context)
         self.assertIn(f"agent-bus: team {TEAM} is for: Builds the example site", context)
+
+    def test_a_session_on_several_teams_says_so_in_its_first_line(self):
+        """Plan 00201 S-C5: two or more teams: the first line names them all, in order."""
+        self.env["PINGBUS_TEAMS"] = f"{TEAM},{TEAM_B}"
+        self.bundle(TEAM_B, SN_B)
+        lines = self.context(self.start()).splitlines()
+        self.assertEqual(lines[0], f"agent-bus: this session is on teams {TEAM}, {TEAM_B}.")
+        self.assertEqual(lines[0], hooks.fill("session_teams", team_list=f"{TEAM}, {TEAM_B}"))
+
+    def test_a_session_on_one_team_has_no_such_line(self):
+        self.assertNotIn("this session is on teams", self.context(self.start()))
+
+    def test_the_team_list_is_checked_before_it_is_filled(self):
+        for bad in ("two\nlines", "a, ", "", "A_B, c", 5, "a,b"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                hooks.fill("session_teams", team_list=bad)
 
     def test_a_team_without_a_description_adds_no_line(self):
         self.assertNotIn("is for:", self.context(self.start()))

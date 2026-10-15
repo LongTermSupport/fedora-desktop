@@ -655,8 +655,12 @@ which inherits the locks: they are released when the last process of the session
 - `PINGBUS_TEAMS`: comma-separated team names, each with a bundle; the **active** teams.
   Unset or empty: pingbus refuses every command but `version`, `validate` and
   `suggest-handle` (exit 78). A listed team with no valid bundle: exit 78.
-- `--team NAME` selects one active team. `send` needs it when more than one team is active
-  (exit 64 otherwise). `recv`, `wait`, `watch`, `inbox` and `status` cover every active
+- `--team NAME` selects one active team. `send` and `say` need it when more than one team is
+  active, unless the team can be inferred: it is the one team whose inbox or `consumed/` holds
+  the event named by `--re` (`send` only), or else the one team in whose verified record every
+  `--to` name resolves (a full user ID counts for the team whose server it names). Otherwise
+  exit 64 with `several teams are active and --to/--re fit more than one (or none): name one with --team:` and one `  TEAM  DESCRIPTION` line per active team (`(no description)` when it
+  has none). SessionStart's first line, with two or more teams, is `agent-bus: this session is on teams A, B.` `recv`, `wait`, `watch`, `inbox` and `status` cover every active
   team unless `--team` is given; `wait` and `watch` long-poll every team at once, one
   thread per team, and a team whose lock another process holds is reported busy on its own
   (exit 75 only when every team is busy). `wait` gives a `recv` holder up to 5 s to finish
