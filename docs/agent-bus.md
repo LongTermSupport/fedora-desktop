@@ -60,9 +60,13 @@ that play.
    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
    it, and the header names the selected row's actions, so no key has to be guessed.
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
-   finds the team for you (`ccy-teams for-checkout`): the one team that works on that
-   `owner/repo` (an organisation team by its owner), or you choose of several; with none it
-   says so and stops. It then goes on as `ccy --teams <team>` (no seat), which shows this
+   asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
+   it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
+   excludes it), covering teams first, and a row to create a team. A single covering team is
+   taken without a list. Choosing a team that does not cover the checkout offers to add the
+   repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
+   no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
+   It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
    free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
    no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous

@@ -265,27 +265,25 @@ func (r *run) offerJoinHere(ctx context.Context) error {
 		p.Kit.ReportErr(err)
 		return nil
 	}
-	if len(teams) == 0 {
-		return p.offerCreateHere(ctx, repo)
-	}
 	top, err := p.Git.TopLevel(ctx, "")
 	if err != nil {
 		p.Kit.ReportErr(err)
 		return flow.Leave(term.ExitFailure)
 	}
-	for _, team := range teams {
-		if !r.snap.Loaded[team] || r.snap.StateOf(team) != systemd.HomeserverUp || r.snap.HoldsLiveSeat(top, team) {
-			continue
-		}
-		if err := p.offerJoin(ctx, top, team); err != nil {
-			return err
-		}
+	if len(teams) == 0 {
+		return p.offerCreateHere(ctx, repo, top)
 	}
-	return nil
+	free := func(team string) bool {
+		return r.snap.Loaded[team] && r.snap.StateOf(team) == systemd.HomeserverUp && !r.snap.HoldsLiveSeat(top, team)
+	}
+	if !slices.ContainsFunc(teams, free) {
+		return nil
+	}
+	return p.offerStart(ctx, top, "Start a ccy session in "+p.Kit.Abbrev(top)+"?")
 }
 
 // offerCreateHere says that no team works on this checkout's repository, and offers one.
-func (p *Picker) offerCreateHere(ctx context.Context, repo string) error {
+func (p *Picker) offerCreateHere(ctx context.Context, repo, top string) error {
 	if err := p.Kit.NeedGum(); err != nil {
 		return err
 	}
@@ -297,19 +295,20 @@ func (p *Picker) offerCreateHere(ctx context.Context, repo string) error {
 	}
 	if !yes {
 		p.Kit.Tell(nothingCreated)
-		return nil
+		return p.offerStart(ctx, top, "Start a ccy session in "+p.Kit.Abbrev(top)+" (choose its teams)?")
 	}
 	return flow.Leave(p.Create.Run(ctx, nil))
 }
 
-// offerJoin offers to start a session in top as a member of team.
-func (p *Picker) offerJoin(ctx context.Context, top, team string) error {
+// offerStart offers a bare `ccy --teams` in top, which lists the teams and lets the person choose
+// (adding this repository to a team's scope when the team does not cover it).
+func (p *Picker) offerStart(ctx context.Context, top, question string) error {
 	if err := p.Kit.NeedGum(); err != nil {
 		return err
 	}
-	yes, err := p.Kit.AskYes(ctx, "Start a ccy session in "+p.Kit.Abbrev(top)+" as a member of "+team+"?", true)
+	yes, err := p.Kit.AskYes(ctx, question, true)
 	if err != nil || !yes {
 		return err
 	}
-	return p.Seats.StartCcy(top, team)
+	return p.Seats.StartCcy(top, "")
 }

@@ -838,26 +838,94 @@ def set_element(text: str, name: str) -> str | None:
     return new
 
 
-def teams_for(hv: HostVars, repo: str) -> list[str]:
-    """The teams declared present whose trust covers the repository: its owner is their
-    org, or they list it. An org team's `exclude` is applied by the bus's own rule
-    (`protocol.is_excluded`), so a repository it refuses is not offered."""
+COVERS, WIDEN, EXCLUDED, UNREADABLE_SCOPE = "covers", "widen", "excluded", "unreadable"
+
+
+def _checked_repo(repo: str) -> protocol.Ref:
     if not protocol.is_owner_repo(repo):
         raise UsageError(f"--repo: {repo!r} is not a lower-case OWNER/REPO")
-    owner = repo.partition("/")[0]
     ref = protocol.parse_ref(f"issue:{repo}#1")
     if ref is None:
         raise UsageError(f"--repo: {repo!r} is not a repository the bus can name")
+    return ref
+
+
+def _standing(team: Declared, ref: protocol.Ref) -> str:
+    """How the team stands to the repository: COVERS when it lists it, or its org owns it and
+    does not exclude it (the bus's own rule, `protocol.is_excluded`); EXCLUDED when its org owns
+    it and excludes it; else WIDEN: a scope edit would make the team cover it."""
+    listed = [r.get("repo") for r in _raw_value(team, "repos") or [] if isinstance(r, dict)]
+    if ref.repo_full in listed:
+        return COVERS
+    org = _raw_value(team, "org")
+    if org != ref.owner:
+        return WIDEN
+    return EXCLUDED if protocol.is_excluded(ref, org, _raw_value(team, "exclude") or ()) else COVERS
+
+
+def teams_for(hv: HostVars, repo: str) -> list[str]:
+    """The teams declared present whose trust covers the repository."""
+    ref = _checked_repo(repo)
+    return [t.team for t in hv.teams if t.state == "present" and _standing(t, ref) == COVERS]
+
+
+def choices(hv: HostVars, repo: str) -> list[tuple[str, str, str]]:
+    """Every present team as (name, standing, description field). A team whose scope cannot
+    be read (vaulted) stands UNREADABLE_SCOPE: one entry must not end the listing."""
+    ref = _checked_repo(repo)
     out = []
     for team in hv.teams:
         if team.state != "present":
             continue
-        listed = [r.get("repo") for r in _raw_value(team, "repos") or [] if isinstance(r, dict)]
-        org = _raw_value(team, "org")
-        excluded = protocol.is_excluded(ref, org, _raw_value(team, "exclude") or ())
-        if (org == owner and not excluded) or repo in listed:
-            out.append(team.team)
+        try:
+            standing = _standing(team, ref)
+        except DeclareError:
+            standing = UNREADABLE_SCOPE
+        out.append((team.team, standing, _description_field(team)))
     return out
+
+
+def add_repo(text: str, name: str, repo: str) -> str:
+    """The file's text with the present team's `repos` extended by `repo` (any branch), every
+    other line as it was. UsageError when the team already trusts it; DeclareError (nothing
+    written) when it excludes it, is at the repos limit, or the entry cannot be edited safely."""
+    ref = _checked_repo(repo)
+    hv = parse(text)
+    team = _present(hv, name)
+    standing = _standing(team, ref)
+    if standing == COVERS:
+        raise UsageError(f"--repo: team {name} already trusts {repo}")
+    if standing == EXCLUDED:
+        raise DeclareError(f"team {name} excludes {repo} on purpose; edit its exclude in {TEAMS_KEY} to change that")
+    repos = _raw_value(team, "repos") or []
+    if len(repos) >= protocol.REPOS_MAX:
+        raise DeclareError(f"team {name} already lists {protocol.REPOS_MAX} repos, the most a team may; "
+                           "remove one by hand first")
+    found = [(index, rest, more) for key, rest, index, more in team.raw if key == "repos"]
+    lines = list(hv.lines)
+    if not found:
+        line = f"{' ' * hv.key_indent}repos: {json.dumps([{'repo': repo}])}\n"
+        lines.insert(next(index for key, _, index, _ in team.raw if key == "team") + 1, line)
+    else:
+        index, rest, more = found[0]
+        if more:
+            end, left = index + 1, len(more)
+            while left:
+                if lines[end].strip() and not lines[end].lstrip().startswith("#"):
+                    left -= 1
+                end += 1
+            first = more[0]
+            lines.insert(end, f"{first[:len(first) - len(first.lstrip(' '))]}- repo: {json.dumps(repo)}\n")
+        else:
+            if "#" in rest:
+                raise DeclareError(f"team {name}'s repos on line {index + 1} has a comment; add {repo} by hand")
+            lines[index] = f"{' ' * hv.key_indent}repos: {json.dumps([*repos, {'repo': repo}])}\n"
+    new = "".join(lines)
+    after = parse(new)
+    expected = {**entry_of(team), "repos": [*repos, {"repo": repo}]}
+    if entry_of(_present(after, name)) != expected or [t.team for t in after.teams] != [t.team for t in hv.teams]:
+        raise DeclareError("the edited file does not read back with only the repository added; nothing was written")
+    return new
 
 
 def drop_limit(text: str, name: str) -> str:
@@ -1000,6 +1068,15 @@ def _listing_or_edit(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
     if args.command == "teams-for":
         out.writelines(f"TEAM\t{name}\n" for name in teams_for(parse(text), args.repo))
         return EXIT_OK
+    if args.command == "choices":
+        for name, standing, about in choices(parse(text), args.repo):
+            out.write(f"CHOICE\t{name}\t{standing}\t{about}\n")
+        return EXIT_OK
+    if args.command == "add-repo":
+        backup = write(path, add_repo(text, args.team, args.repo))
+        out.write(f"CHANGED\tteam {args.team} trusts {args.repo}\n")
+        err.write(f"The file as it was is kept at {backup}.\n")
+        return EXIT_OK
     if args.command == "describe":
         new = set_description(text, args.team, args.description)
         if new is None:
@@ -1062,6 +1139,13 @@ def build_parser() -> argparse.ArgumentParser:
     describing.add_argument("--file", required=True)
     describing.add_argument("--team", required=True)
     describing.add_argument("--description", required=True)
+    adding = commands.add_parser("add-repo", help="add a repository to a present team's repos (any branch)")
+    adding.add_argument("--file", required=True)
+    adding.add_argument("--team", required=True)
+    adding.add_argument("--repo", required=True)
+    options = commands.add_parser("choices", help="every present team: covers, widen or excluded for a repository")
+    options.add_argument("--file", required=True)
+    options.add_argument("--repo", required=True)
     covering = commands.add_parser("teams-for", help="the present teams a repository belongs to")
     covering.add_argument("--file", required=True)
     covering.add_argument("--repo", required=True)
@@ -1117,7 +1201,8 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
         if args.command == "next-steps":
             out.write(next_steps(parse(_read(pathlib.Path(args.file))), args.team))
             return EXIT_OK
-        if args.command in ("describe", "element", "drop-limit", "element-teams", "limited", "teams-for", "undescribed"):
+        if args.command in ("describe", "element", "drop-limit", "element-teams", "limited", "teams-for", "undescribed",
+                            "choices", "add-repo"):
             return _listing_or_edit(args, out, err)
         if args.command == "status":
             return status(args, out, bridge_cidr)

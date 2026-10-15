@@ -922,6 +922,129 @@ class TeamsForTest(CommandCase):
                          "TEAM\talpha\nTEAM\tbeta\nTEAM\tdelta\nTEAM\tvaulted\n")
 
 
+class ChoicesTest(CommandCase):
+    """S-B4: every present team with how it stands to a repository: covers, widen (a scope
+    edit would make it cover), or excluded (it refuses the repository on purpose)."""
+
+    def test_each_present_team_with_its_standing(self) -> None:
+        self.assertEqual(self.run_cmd("choices", "--repo", "example-org/two")[1],
+                         "CHOICE\talpha\tcovers\t-\nCHOICE\tbeta\twiden\t-\n"
+                         "CHOICE\tdelta\tcovers\t-\nCHOICE\tvaulted\tcovers\t-\n")
+        self.assertEqual(self.run_cmd("choices", "--repo", "other/tool")[1],
+                         "CHOICE\talpha\twiden\t-\nCHOICE\tbeta\twiden\t-\n"
+                         "CHOICE\tdelta\twiden\t-\nCHOICE\tvaulted\twiden\t-\n")
+
+    def test_a_listed_repository_covers(self) -> None:
+        self.assertIn("CHOICE\tbeta\tcovers\t-\n", self.run_cmd("choices", "--repo", "example-org/one")[1])
+
+    def test_an_org_team_that_excludes_the_repository_is_excluded_not_covering(self) -> None:
+        self.path.write_text(STATUS_HV.replace('    org: "example-org"\n',
+                                               '    org: "example-org"\n    exclude: ["two"]\n', 1))
+        out = self.run_cmd("choices", "--repo", "example-org/two")[1]
+        self.assertIn("CHOICE\talpha\texcluded\t-\n", out)
+        self.assertIn("CHOICE\tdelta\tcovers\t-\n", out)
+        # teams-for and choices agree on who covers.
+        self.assertNotIn("alpha", self.run_cmd("teams-for", "--repo", "example-org/two")[1])
+
+    def test_the_description_is_a_json_string_as_declared_prints_it(self) -> None:
+        self.run_cmd("describe", "--team", "beta", "--description", "Builds the site")
+        self.assertIn('CHOICE\tbeta\twiden\t"Builds the site"\n', self.run_cmd("choices", "--repo", "other/tool")[1])
+
+    def test_a_team_whose_scope_cannot_be_read_is_unreadable_and_does_not_end_the_listing(self) -> None:
+        self.path.write_text(STATUS_HV.replace("    org: example-org\n    path_prefixes: [\"docs/\"]\n"
+                                               "    forge_api: https://api.github.com\n  - team: vaulted",
+                                               "    org: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n"
+                                               "    forge_api: https://api.github.com\n  - team: vaulted", 1))
+        out = self.run_cmd("choices", "--repo", "example-org/two")[1]
+        self.assertIn("CHOICE\tdelta\tunreadable\t-\n", out)
+        self.assertIn("CHOICE\talpha\tcovers\t-\n", out)
+
+    def test_a_repository_that_is_not_owner_slash_repo_is_refused(self) -> None:
+        code, out, err = self.run_cmd("choices", "--repo", "Example-Org/two")
+        self.assertEqual((code, out), (64, ""))
+        self.assertIn("--repo", err)
+
+
+class AddRepoTest(CommandCase):
+    """S-B8: add-repo appends one repository to a present team's `repos`, every other line as it
+    was, read back or refused."""
+
+    def test_made_where_the_team_had_no_repos_and_nothing_else_changed(self) -> None:
+        before = declare.entry_of(declare.parse(STATUS_HV).teams[0])
+        code, out, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam alpha trusts other/tool\n")
+        text = self.path.read_text()
+        self.assertEqual(text, STATUS_HV.replace("  - team: alpha\n",
+                                                 '  - team: alpha\n    repos: [{"repo": "other/tool"}]\n', 1))
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[0]),
+                         dict(before, repos=[{"repo": "other/tool"}]))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+        self.assertIn("CHOICE\talpha\tcovers\t-\n", self.run_cmd("choices", "--repo", "other/tool")[1])
+
+    def test_appended_to_a_one_line_list(self) -> None:
+        self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/more")[0], 0)
+        self.assertIn('    repos: [{"repo": "other/tool"}, {"repo": "other/more"}]\n', self.path.read_text())
+
+    def test_appended_to_a_block_list_after_its_last_item(self) -> None:
+        code, out, err = self.run_cmd("add-repo", "--team", "beta", "--repo", "other/tool")
+        self.assertEqual(code, 0, err)
+        text = self.path.read_text()
+        self.assertEqual(text, STATUS_HV.replace('        branches: ["main"]\n',
+                                                 '        branches: ["main"]\n      - repo: "other/tool"\n', 1))
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[1])["repos"],
+                         [{"repo": "example-org/one", "branches": ["main"]}, {"repo": "other/tool"}])
+
+    def test_already_trusted_is_a_usage_error_and_writes_nothing(self) -> None:
+        for team, repo in (("beta", "example-org/one"), ("alpha", "example-org/two")):
+            code, _, err = self.run_cmd("add-repo", "--team", team, "--repo", repo)
+            self.assertEqual(code, 64, err)
+            self.assertIn("already trusts", err)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+
+    def test_a_repository_the_team_excludes_is_refused_naming_the_exclude(self) -> None:
+        self.path.write_text(STATUS_HV.replace('    org: "example-org"\n',
+                                               '    org: "example-org"\n    exclude: ["two"]\n', 1))
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "example-org/two")
+        self.assertEqual(code, 78)
+        self.assertIn("exclude", err)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_the_repos_limit_is_refused_with_78(self) -> None:
+        many = ", ".join('{"repo": "o/r%d"}' % i for i in range(declare.protocol.REPOS_MAX))
+        self.path.write_text(STATUS_HV.replace("  - team: alpha\n", f"  - team: alpha\n    repos: [{many}]\n", 1))
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 78)
+        self.assertIn(str(declare.protocol.REPOS_MAX), err)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_a_vaulted_scope_is_refused_naming_the_line(self) -> None:
+        vaulted = STATUS_HV.replace("  - team: alpha\n", "  - team: alpha\n    repos: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n", 1)
+        self.path.write_text(vaulted)
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 78)
+        self.assertIn("line 4", err)
+        self.assertEqual(self.path.read_text(), vaulted)
+
+    def test_a_list_line_with_a_comment_is_refused_not_rewritten(self) -> None:
+        text = STATUS_HV.replace("  - team: alpha\n", '  - team: alpha\n    repos: [{"repo": "o/r"}]   # mine\n', 1)
+        self.path.write_text(text)
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 78)
+        self.assertIn("comment", err)
+        self.assertEqual(self.path.read_text(), text)
+
+    def test_usage_refusals_write_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("add-repo", "--team", "nosuch", "--repo", "other/tool")[0], 64)
+        self.assertEqual(self.run_cmd("add-repo", "--team", "gamma", "--repo", "other/tool")[0], 64)
+        self.assertEqual(self.run_cmd("add-repo", "--team", "alpha", "--repo", "Other/Tool")[0], 64)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
+
+
 class PathLimitTest(CommandCase):
     """Task 4.7's follow-up: an entry written with the old path_prefixes default is offered
     its removal, which ccy-teams applies through drop-limit."""

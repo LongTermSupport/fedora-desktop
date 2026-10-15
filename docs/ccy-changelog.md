@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.7 — container 2.57 (unchanged)
+
+- A headless bare `--teams` is refused with the reason: choosing a team needs a terminal, so
+  name the seat with `--teams <seat>@<team>`.
+
+## 3.97.6 — container 2.57 (unchanged)
+
+- **`ccy --teams` with no value (or a team alone) is answered by `ccy-teams choose-teams`.**
+  It replaces the hard stop "No team on this machine works on OWNER/REPO". It lists every team
+  with what it is for and whether it covers the checkout, offers creating one, and for a team
+  that does not cover the checkout offers to add the repository to its scope (host_vars edit and
+  one play run, no homeserver restart) before the seat and role are chosen. With nobody to ask,
+  a bare `--teams` is refused (64). `ccy-teams for-checkout --choose` and `ccy_seats_resolve`
+  are gone.
+
 ## 3.97.5 — container 2.57
 
 - No behaviour change; a two-assignment command that semgrep's bash grammar rejects is

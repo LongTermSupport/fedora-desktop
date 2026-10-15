@@ -233,6 +233,54 @@ func TestTeamsFor(t *testing.T) {
 	}
 }
 
+func TestChoicesParsesStandingAndDescription(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "choices", "CHOICE\talpha\tcovers\t\"Builds the site\"\nCHOICE\tbeta\twiden\t-\n"+
+		"CHOICE\tgamma\texcluded\t!vaulted\nCHOICE\tdelta\tunreadable\t!invalid\n")
+	got, err := newClient(f).Choices(context.Background(), "example-org/proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Choice{
+		{Team: "alpha", Standing: StandingCovers, Description: "Builds the site"},
+		{Team: "beta", Standing: StandingWiden},
+		{Team: "gamma", Standing: StandingExcluded, DescriptionState: DescriptionVaulted},
+		{Team: "delta", Standing: StandingUnreadable, DescriptionState: DescriptionInvalid},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+	if line := lastLine(t, f); line != prefix+" choices --file /hv.yml --repo example-org/proj" {
+		t.Fatalf("ran %q", line)
+	}
+}
+
+func TestChoicesRefusesWhatItDoesNotKnow(t *testing.T) {
+	for name, out := range map[string]string{
+		"a standing it does not know": "CHOICE\talpha\tmaybe\t-\n",
+		"a short line":                "CHOICE\talpha\tcovers\n",
+		"a description not JSON":      "CHOICE\talpha\tcovers\tplain\n",
+	} {
+		f := &execx.Fake{}
+		script(f, "choices", out)
+		if _, err := newClient(f).Choices(context.Background(), "example-org/proj"); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestAddRepo(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "add-repo", "CHANGED\tteam beta trusts example-org/proj\n")
+	got, err := newClient(f).AddRepo(context.Background(), "beta", "example-org/proj")
+	if err != nil || !got.Changed || got.Text != "team beta trusts example-org/proj" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if line := lastLine(t, f); line != prefix+" add-repo --file /hv.yml --team beta --repo example-org/proj" {
+		t.Fatalf("ran %q", line)
+	}
+}
+
 func TestPlainValueSubcommands(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "github-remote", "example-org/proj\n")

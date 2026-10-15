@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.97.5"  # Container 2.57: no behaviour change; the patterns gate scans the launcher again. See docs/ccy-changelog.md.
+CCY_VERSION="3.97.7"  # ccy --teams is answered by ccy-teams choose-teams: every team with its description, scope widening. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -218,7 +218,9 @@ Options:
                          (sudo agent-bus add-member) and is held by one session at a
                          time. Without --teams a session is in no team. Needs
                          play-agent-bus.yml.
-                         Bare --teams finds the team and asks the seat's role; Quick Launch keeps both.
+                         Bare --teams lists every team with what it is for, offers to add
+                         this repository to a team that does not cover it (or to create
+                         one), then asks the seat and its role; Quick Launch keeps both.
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -831,35 +833,32 @@ done
 # and prints the canonical list; its exit code is the launch's. A team named alone gets its
 # seat from the owner, in a chooser, here and before tmux; a launch with nobody to choose
 # (headless, no terminal, a restore, a restart) is refused one. A bare --teams (TEAMS_LIST
-# empty) asks `ccy-teams for-checkout` which team works on this checkout, and goes on with it
-# as a team alone. The canonical list then replaces the one given in this launch's arguments,
-# so tmux's session record (a restore) and a restart replay the seat. Without --teams nothing
-# here runs and agent-bus is never called. The Quick Launch (below) calls this too, for the
-# team it saved.
+# empty) or a team named alone is answered by `ccy-teams choose-teams` (Go: it lists the
+# teams with what they are for, offers the repository to a team that does not cover this
+# checkout, then asks for the seat and role) and prints the seats. The canonical list then
+# replaces the one given in this launch's arguments, so tmux's session record (a restore) and
+# a restart replay the seat. Without --teams nothing here runs and agent-bus is never called.
+# The Quick Launch (below) calls this too, for the team it saved.
 CCY_SEATS=""
 ccy_launch_teams() {
     local rc=0 attended=false next
-    if [ -z "$TEAMS_LIST" ]; then
-        TEAMS_LIST=$(ccy-teams for-checkout --choose) || exit $?
-    fi
     # Attended only when none of these holds. Not written as `if ccy_nobody_to_ask`: that
     # shape marks a question's own guard, and this decides between ccy_seats_check's two modes.
     ccy_nobody_to_ask || [ ! -t 2 ] || [ -n "${CCY_SESSION_RESTORE:-}" ] \
         || [ -n "$CCY_RESTART_RELAUNCH_SESSION" ] || attended=true
+    if [ "$attended" = true ] && { [ -z "$TEAMS_LIST" ] || [[ ",$TEAMS_LIST" =~ ,[^@,]+(,|$) ]]; }; then
+        TEAMS_LIST=$(ccy-teams choose-teams --type=podman "$TEAMS_LIST") || exit $?
+        # Empty: the owner left the chooser, and said so is already on stderr.
+        [ -n "$TEAMS_LIST" ] || exit 0
+    fi
     CCY_SEATS=$(ccy_seats_check "$TEAMS_LIST" "$attended") || rc=$?
     if [ "$rc" -ne 0 ]; then
         # An unquoted `--teams a@x, b@y` reaches ccy as `a@x,` and a separate word.
         next="${*:$((TEAMS_VALUE_POS + 1)):1}"
-        if [[ "$TEAMS_LIST" =~ ,[[:space:]]*$ ]] && [ -n "$next" ]; then
-            echo "  The shell split the list at a space. Write it without the space, or quote it:" >&2
-            echo "    --teams '${TEAMS_LIST} ${next}'" >&2
-        fi
+        [[ "$TEAMS_LIST" =~ ,[[:space:]]*$ && -n "$next" ]] \
+            && printf '%s\n' "  The shell split the list at a space. Write it without the space, or quote it:" "    --teams '${TEAMS_LIST} ${next}'" >&2
+        if [ -z "$TEAMS_LIST" ]; then echo "  Choosing a team needs a terminal: name the seat instead, --teams <seat>@<team>." >&2; fi
         exit "$rc"
-    fi
-    if [ "$attended" = true ]; then
-        CCY_SEATS=$(ccy_seats_resolve "$CCY_SEATS") || exit $?
-        # Empty: the owner left the chooser, and said so is already on stderr.
-        [ -n "$CCY_SEATS" ] || exit 0
     fi
 }
 if [ "$TEAMS_GIVEN" = true ]; then

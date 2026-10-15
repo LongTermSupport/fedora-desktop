@@ -288,11 +288,12 @@ func TestOfferJoinHereAsksForTeamsThatCoverTheCheckout(t *testing.T) {
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitOK {
 		t.Fatalf("starting the session ends the picker: %v", err)
 	}
-	want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + " as a member of alpha?"
+	// S-B15: one question for the checkout, and ccy --teams (bare) shows the teams
+	want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + "?"
 	if len(h.Script.GumLog) != 1 || h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
-	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams", "alpha"}) {
+	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams"}) {
 		t.Fatalf("execs %+v", h.Execs)
 	}
 }
@@ -303,7 +304,7 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) 
 	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	h.OnDeclare("github-remote", "example-org/proj\n")
 	h.OnDeclare("teams-for", "")
-	h.Script.Gum = []string{"NO"}
+	h.Script.Gum = []string{"NO", "NO"}
 	r := &run{p: h.p, snap: board.NewSnapshot()}
 	if err := r.offerJoinHere(context.Background()); err != nil {
 		t.Fatal(err)
@@ -318,6 +319,13 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) 
 	}
 	if want := "gum confirm --default=true Create a team for example-org/proj now?"; h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	// S-B15: when no team covers the checkout, a session can still be started and choose its teams
+	if want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + " (choose its teams)?"; len(h.Script.GumLog) != 2 || h.Script.GumLog[1] != want {
+		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	if len(h.Execs) != 0 {
+		t.Fatalf("declined, yet started: %+v", h.Execs)
 	}
 
 	h = newRig(t)
@@ -370,5 +378,22 @@ func TestOfferJoinHereSkipsWhatItCannotDecide(t *testing.T) {
 	r = &run{p: h.p, snap: board.NewSnapshot()}
 	if err := r.offerJoinHere(context.Background()); err != nil || !strings.Contains(h.ErrOut.String(), "declare: nope") {
 		t.Fatalf("%v %q", err, h.ErrOut.String())
+	}
+}
+
+func TestOfferJoinHereWithNoTeamForTheRepositoryCanStartASessionThatChoosesItsTeams(t *testing.T) {
+	h := newRig(t)
+	h.inProject()
+	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
+	h.OnDeclare("github-remote", "example-org/proj\n")
+	h.OnDeclare("teams-for", "")
+	h.Script.Gum = []string{"NO", "YES"}
+	r := &run{p: h.p, snap: board.NewSnapshot()}
+	err := r.offerJoinHere(context.Background())
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitOK {
+		t.Fatalf("starting the session ends the picker: %v", err)
+	}
+	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams"}) {
+		t.Fatalf("execs %+v", h.Execs)
 	}
 }

@@ -403,3 +403,14 @@ func TestRemoveOrParkCancelledRemoveEndsWith130(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestStartCcyWithNoSeatsRunsABareTeamsLaunch(t *testing.T) {
+	h := newRig(t)
+	err := h.s.StartCcy(h.Checkout(), "")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitOK {
+		t.Fatalf("%v", err)
+	}
+	if len(h.Execs) != 1 || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams"}) {
+		t.Fatalf("execs %+v", h.Execs)
+	}
+}
