@@ -4,7 +4,7 @@ description: Scan the watch list of external public repositories for ideas, tool
 argument-hint: "[<owner>/<repo> | add <url>]"
 disable-model-invocation: false
 user-invocable: true
-allowed-tools: Agent, Bash, Read
+allowed-tools: Agent, Bash, Read, Edit
 ---
 
 # Watch list

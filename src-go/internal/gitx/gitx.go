@@ -127,20 +127,35 @@ func (g *Git) CloneBranch(ctx context.Context, url, branch, dest string) error {
 
 // FetchBranch brings origin's branch in the clone at dir up to date as refs/remotes/origin/<branch>.
 func (g *Git) FetchBranch(ctx context.Context, dir, branch string) error {
-	_, err := g.run(ctx, dir, "fetch", "origin", "+refs/heads/"+branch+":"+remoteRef(branch))
+	_, err := g.run(ctx, dir, "fetch", "origin", "+refs/heads/"+branch+":"+RemoteRef(branch))
 	return err
 }
 
 // RemoteHead is the commit refs/remotes/origin/<branch> points at in the clone at dir.
 func (g *Git) RemoteHead(ctx context.Context, dir, branch string) (string, error) {
-	res, err := g.run(ctx, dir, "rev-parse", "--verify", remoteRef(branch))
+	res, err := g.run(ctx, dir, "rev-parse", "--verify", RemoteRef(branch))
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(res.Stdout)), nil
 }
 
-func remoteRef(branch string) string { return "refs/remotes/origin/" + branch }
+// RemoteRef is the local name FetchBranch gives origin's branch.
+func RemoteRef(branch string) string { return "refs/remotes/origin/" + branch }
+
+// IsAncestor reports whether commit ancestor is reachable from descendant (a commit is its own
+// ancestor). Git answering "no" (exit 1) is false; any other refusal, such as an unknown
+// object, or git being unable to start, is an error: nothing is guessed.
+func (g *Git) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
+	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); ok && exitErr.Code == 1 {
+		return false, nil
+	}
+	return false, err
+}
 
 // HasCommit reports whether the clone at dir holds the commit sha. Git refusing is false; git
 // being unable to start is an error.

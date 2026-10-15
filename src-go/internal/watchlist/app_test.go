@@ -60,7 +60,7 @@ func (w *world) list(t *testing.T) string {
 func (w *world) mirror(t *testing.T, repo string) string {
 	t.Helper()
 	dir := filepath.Join(w.root, "untracked", "watchlist", repo)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -167,7 +167,7 @@ func TestAddAppendsARowWithTheDefaultBranch(t *testing.T) {
 func TestAddRefusesBadURLsAndDuplicatesWithoutRunningGit(t *testing.T) {
 	for _, u := range []string{
 		"http://github.com/example-org/beta", "git@github.com:example-org/beta.git",
-		"/srv/local/repo", urlAlpha, "https://github.com/Example-Org/Alpha",
+		"/srv/local/repo", "https://gitlab.com/example-org/beta", urlAlpha, "https://github.com/Example-Org/Alpha",
 	} {
 		w := newWorld(t, row(urlAlpha, "main", "-", "-"))
 		before := w.list(t)
@@ -248,7 +248,7 @@ func TestSyncFetchesAnExistingMirrorAndReportsUnchanged(t *testing.T) {
 	if code := w.run("sync"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
-	want := "== example-org/alpha (main)\nlast-checked: " + shaA + " (run run-1)\nhead: " + shaA + "\nunchanged\n"
+	want := "== example-org/alpha (main)\nlast-checked: " + shaA + " (run run-1)\nhead: " + shaA + "\nmirror: " + dir + "\nunchanged\n"
 	if w.out.String() != want {
 		t.Fatalf("out %q", w.out.String())
 	}
@@ -264,15 +264,16 @@ func TestSyncFetchesAnExistingMirrorAndReportsUnchanged(t *testing.T) {
 // W18
 func TestSyncListsTheCommitsAndPathsSinceTheLastReview(t *testing.T) {
 	w := newWorld(t, row(urlAlpha, "main", shaA, "run-1"))
-	w.mirror(t, "example-org__alpha")
+	dir := w.mirror(t, "example-org__alpha")
 	w.head(shaB)
 	w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
+	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaA, shaB}, ok(""))
 	w.git.On([]string{"git", "log", "--format=%h %s", shaA + ".." + shaB}, ok("bbb2222 second\naaa1111 first\n"))
 	w.git.On([]string{"git", "diff", "--name-only", shaA, shaB}, ok("src/x.go\nREADME.md\n"))
 	if code := w.run("sync", "example-org/alpha"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
-	want := "== example-org/alpha (main)\nlast-checked: " + shaA + " (run run-1)\nhead: " + shaB + "\n" +
+	want := "== example-org/alpha (main)\nlast-checked: " + shaA + " (run run-1)\nhead: " + shaB + "\nmirror: " + dir + "\n" +
 		"commits (2):\n  bbb2222 second\n  aaa1111 first\nchanged paths (2):\n  src/x.go\n  README.md\n"
 	if w.out.String() != want {
 		t.Fatalf("out %q\nwant %q", w.out.String(), want)
@@ -281,7 +282,7 @@ func TestSyncListsTheCommitsAndPathsSinceTheLastReview(t *testing.T) {
 
 // W13: a repository is named by owner/repo or by URL, in any case.
 func TestSyncAcceptsTheNameInEitherFormAndSelectsOnlyThatRepo(t *testing.T) {
-	for _, name := range []string{"Example-Org/Beta", urlBeta} {
+	for _, name := range []string{"Example-Org/Beta", urlBeta, "https://github.com/EXAMPLE-ORG/BETA"} {
 		w := newWorld(t, row(urlAlpha, "main", "-", "-"), row(urlBeta, "main", "-", "-"))
 		w.mirror(t, "example-org__beta")
 		w.head(shaA)
@@ -291,6 +292,28 @@ func TestSyncAcceptsTheNameInEitherFormAndSelectsOnlyThatRepo(t *testing.T) {
 		if !strings.Contains(w.out.String(), "== example-org/beta") || strings.Contains(w.out.String(), "alpha") {
 			t.Fatalf("%s: out %q", name, w.out.String())
 		}
+	}
+}
+
+// W19: the mirror still holds the reviewed commit (git keeps rewritten-away commits until a gc)
+// but the head does not descend from it: the remote rewrote its history.
+func TestSyncAfterAForcePushIsAnErrorEvenWhileTheMirrorHoldsTheOldCommit(t *testing.T) {
+	w := newWorld(t, row(urlAlpha, "main", shaA, "run-1"))
+	w.mirror(t, "example-org__alpha")
+	w.head(shaB)
+	w.git.On([]string{"git", "cat-file", "-e", shaA + "^{commit}"}, ok(""))
+	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaA, shaB}, execx.Result{ExitCode: 1})
+	w.git.On([]string{"git", "log"}, ok("bbb2222 replacement\n"))
+	w.git.On([]string{"git", "diff"}, ok("x\n"))
+	if code := w.run("sync"); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.err.String(), "rewrote") || !strings.Contains(w.err.String(), shaA) ||
+		!strings.Contains(w.err.String(), "example-org/alpha") {
+		t.Fatalf("err %q", w.err.String())
+	}
+	if strings.Contains(w.out.String(), "commits (") || w.ranGit("log") || w.ranGit("diff") {
+		t.Fatalf("a range was listed across a rewrite: %q", w.out.String())
 	}
 }
 
@@ -324,11 +347,18 @@ func TestSyncAbortsOnTheFirstGitFailureAndNeverWritesTheList(t *testing.T) {
 		"log": func(w *world) {
 			w.head(shaB)
 			w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
+			w.git.On([]string{"git", "merge-base"}, ok(""))
 			w.git.On([]string{"git", "log"}, refuse("fatal: bad revision"))
+		},
+		"merge-base": func(w *world) {
+			w.head(shaB)
+			w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
+			w.git.On([]string{"git", "merge-base"}, refuse("fatal: Not a valid commit name"))
 		},
 		"diff": func(w *world) {
 			w.head(shaB)
 			w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
+			w.git.On([]string{"git", "merge-base"}, ok(""))
 			w.git.On([]string{"git", "log"}, ok(""))
 			w.git.On([]string{"git", "diff"}, refuse("fatal"))
 		},
@@ -356,6 +386,50 @@ func TestSyncAbortsOnTheFirstGitFailureAndNeverWritesTheList(t *testing.T) {
 	}
 }
 
+// W14: git's progress and chatter never reach the payload stream.
+func TestSyncKeepsGitChatterOffStdout(t *testing.T) {
+	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
+	w.git.On([]string{"git", "clone"}, execx.Result{
+		Stdout: []byte("Cloning into 'x'...\nremote: Counting objects\n"),
+		Stderr: []byte("progress: 100%\n"),
+	})
+	w.git.On([]string{"git", "rev-parse", "--verify", "refs/remotes/origin/main"}, ok(shaA+"\n"))
+	if code := w.run("sync"); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, w.err.String())
+	}
+	for _, chatter := range []string{"Cloning", "Counting", "progress"} {
+		if strings.Contains(w.out.String(), chatter) || strings.Contains(w.err.String(), chatter) {
+			t.Fatalf("git chatter %q leaked: out %q err %q", chatter, w.out.String(), w.err.String())
+		}
+	}
+}
+
+// W14: a directory left by a killed clone is named, not left to git's "not a repository".
+func TestSyncNamesAnInterruptedCloneDirectory(t *testing.T) {
+	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
+	dir := filepath.Join(w.root, "untracked", "watchlist", "example-org__alpha")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	w.head(shaA)
+	if code := w.run("sync"); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(w.err.String(), "not a git clone") || !strings.Contains(w.err.String(), dir) || w.ranGit("fetch") {
+		t.Fatalf("err %q, calls %v", w.err.String(), w.git.Calls())
+	}
+}
+
+// W21: a fetch that fails because the branch moved says what to edit.
+func TestSyncFetchFailureHintsAtARenamedBranch(t *testing.T) {
+	w := newWorld(t, row(urlAlpha, "master", shaA, "run-1"))
+	w.mirror(t, "example-org__alpha")
+	w.git.On([]string{"git", "fetch"}, refuse("fatal: couldn't find remote ref refs/heads/master"))
+	if code := w.run("sync"); code != term.ExitFailure || !strings.Contains(w.err.String(), "branch column") {
+		t.Fatalf("exit %d, err %q", code, w.err.String())
+	}
+}
+
 func TestSyncFailsLoudlyOnAFailedClone(t *testing.T) {
 	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
 	w.git.On([]string{"git", "clone"}, refuse("fatal: could not read"))
@@ -369,6 +443,7 @@ func TestMarkRecordsTheReviewAtomically(t *testing.T) {
 	w := newWorld(t, row(urlAlpha, "main", "-", "-"), row(urlBeta, "main", shaA, "run-1"))
 	w.mirror(t, "example-org__alpha")
 	w.git.On([]string{"git", "cat-file", "-e", shaC + "^{commit}"}, ok(""))
+	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaC, "refs/remotes/origin/main"}, ok(""))
 	if code := w.run("mark", "example-org/alpha", shaC, "--run", "scan-7"); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, w.err.String())
 	}
@@ -408,6 +483,39 @@ func TestMarkRefusesBadInputsAndLeavesTheListAlone(t *testing.T) {
 		if w.list(t) != before {
 			t.Errorf("%s: the list changed", name)
 		}
+	}
+}
+
+// W23: the sha must be on the branch the mirror tracks.
+func TestMarkRefusesAShaThatIsNotOnTheBranch(t *testing.T) {
+	w := newWorld(t, row(urlAlpha, "main", "-", "-"))
+	w.mirror(t, "example-org__alpha")
+	before := w.list(t)
+	w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
+	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaC, "refs/remotes/origin/main"}, execx.Result{ExitCode: 1})
+	if code := w.run("mark", "example-org/alpha", shaC, "--run", "r"); code != term.ExitFailure ||
+		!strings.Contains(w.err.String(), "origin/main") {
+		t.Fatalf("exit %d, err %q", code, w.err.String())
+	}
+	if w.list(t) != before {
+		t.Fatal("the list changed")
+	}
+}
+
+// W23: a review never moves backwards.
+func TestMarkRefusesAShaOlderThanTheLastReview(t *testing.T) {
+	w := newWorld(t, row(urlAlpha, "main", shaB, "run-1"))
+	w.mirror(t, "example-org__alpha")
+	before := w.list(t)
+	w.git.On([]string{"git", "cat-file", "-e"}, ok(""))
+	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaC, "refs/remotes/origin/main"}, ok(""))
+	w.git.On([]string{"git", "merge-base", "--is-ancestor", shaB, shaC}, execx.Result{ExitCode: 1})
+	if code := w.run("mark", "example-org/alpha", shaC, "--run", "r"); code != term.ExitFailure ||
+		!strings.Contains(w.err.String(), "last-checked") {
+		t.Fatalf("exit %d, err %q", code, w.err.String())
+	}
+	if w.list(t) != before {
+		t.Fatal("the list changed")
 	}
 }
 

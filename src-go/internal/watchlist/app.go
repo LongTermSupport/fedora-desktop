@@ -197,7 +197,7 @@ func (a *App) syncOne(ctx context.Context, e Entry) error {
 		a.p.Print(a.out, fmt.Sprintf("initial: full review\nhead: %s\nmirror: %s\n", head, dir))
 		return nil
 	}
-	a.p.Print(a.out, fmt.Sprintf("last-checked: %s (run %s)\nhead: %s\n", e.LastSHA, e.Run, head))
+	a.p.Print(a.out, fmt.Sprintf("last-checked: %s (run %s)\nhead: %s\nmirror: %s\n", e.LastSHA, e.Run, head, dir))
 	if head == e.LastSHA {
 		a.p.Print(a.out, "unchanged\n")
 		return nil
@@ -210,7 +210,13 @@ func (a *App) refresh(ctx context.Context, e Entry, dir string) error {
 	_, statErr := os.Stat(dir)
 	switch {
 	case statErr == nil:
-		return a.git.FetchBranch(ctx, dir, e.Branch)
+		if _, gitErr := os.Stat(filepath.Join(dir, ".git")); gitErr != nil {
+			return fmt.Errorf("%s exists but is not a git clone (an interrupted clone?); delete it and sync again", dir)
+		}
+		if err := a.git.FetchBranch(ctx, dir, e.Branch); err != nil {
+			return fmt.Errorf("%w (if the remote renamed its default branch, correct the branch column of the watch list)", err)
+		}
+		return nil
 	case errors.Is(statErr, os.ErrNotExist):
 		if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil {
 			return fmt.Errorf("cannot create the mirror directory: %w", err)
@@ -226,8 +232,16 @@ func (a *App) printRange(ctx context.Context, dir, last, head string) error {
 	if err != nil {
 		return err
 	}
-	if !held {
-		return fmt.Errorf("the last-checked commit %s is not in the mirror (the remote rewrote its history); review it again in full with a fresh mirror", last)
+	// The mirror keeps commits a rewrite removed from the branch until a gc, so holding the
+	// object proves nothing: the head must descend from it.
+	reachable := false
+	if held {
+		if reachable, err = a.git.IsAncestor(ctx, dir, last, head); err != nil {
+			return err
+		}
+	}
+	if !reachable {
+		return fmt.Errorf("the last-checked commit %s is not an ancestor of the head (the remote rewrote its history); review the repository in full again from a fresh mirror", last)
 	}
 	commits, err := a.git.CommitsBetween(ctx, dir, last, head)
 	if err != nil {
@@ -244,6 +258,30 @@ func (a *App) printRange(ctx context.Context, dir, last, head string) error {
 	a.p.Print(a.out, fmt.Sprintf("changed paths (%d):\n", len(paths)))
 	for _, p := range paths {
 		a.p.Print(a.out, "  "+p+"\n")
+	}
+	return nil
+}
+
+// checkMarkable is the second half of W23: sha is on the branch the mirror tracks, and a review
+// never moves backwards from the last one.
+func (a *App) checkMarkable(ctx context.Context, dir string, e Entry, sha string) error {
+	ref := gitx.RemoteRef(e.Branch)
+	onBranch, err := a.git.IsAncestor(ctx, dir, sha, ref)
+	if err != nil {
+		return err
+	}
+	if !onBranch {
+		return fmt.Errorf("%s is not on %s in the mirror of %s; mark a commit sync reported", sha, ref, e.Name())
+	}
+	if e.LastSHA == "" {
+		return nil
+	}
+	forward, err := a.git.IsAncestor(ctx, dir, e.LastSHA, sha)
+	if err != nil {
+		return err
+	}
+	if !forward {
+		return fmt.Errorf("%s does not descend from the last-checked commit %s of %s; a review does not move backwards", sha, e.LastSHA, e.Name())
 	}
 	return nil
 }
@@ -274,6 +312,9 @@ func (a *App) mark(ctx context.Context, repo, sha, run string) error {
 	}
 	if !held {
 		return fmt.Errorf("%s is not in the mirror of %s; marking it would record a review of nothing", sha, entries[i].Name())
+	}
+	if err := a.checkMarkable(ctx, dir, entries[i], sha); err != nil {
+		return err
 	}
 	entries[i].LastSHA, entries[i].Run = sha, run
 	if err := a.save(entries); err != nil {

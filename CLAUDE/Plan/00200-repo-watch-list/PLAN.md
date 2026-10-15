@@ -53,8 +53,15 @@ that do the reviewing and the filing.
   commit `AUDIT-coral.md` read; indexed in CLAUDE.md.
 - [x] ✅ **Task 2.2**: `.claude/agents/watchlist-scout.md`.
 - [x] ✅ **Task 2.3**: `.claude/skills/watchlist/SKILL.md`.
-- [ ] ⬜ **Task 2.4**: First live use: `/watchlist` on coral (changes since the audit), after the
-  owner has seen this plan.
+- [x] ✅ **Task 2.4**: The adversarial review
+  ([subagent-reports/261015-fable-review-watchlist.md](subagent-reports/261015-fable-review-watchlist.md))
+  is fixed: force-push detection and `mark` ancestry (W19, W23), the scout's definition of a
+  clear win, issue cap, label, text scan and the recorded standing request, the qa-changed route
+  for the list, tools, tests for W5, W13, W14, host pinned to github.com, hints for the two dead
+  ends, comment note, go-binary-suites header.
+- [ ] ⬜ **Task 2.5**: First live use: `/watchlist` on coral (changes since the audit), after the
+  owner has seen this plan. It is a large first diff (the audit's commit is hundreds of commits
+  behind coral's head), so expect the cap of 3 issues to bind.
 
 ### Phase 3: Recurrence (owner decision)
 
@@ -67,7 +74,7 @@ that do the reviewing and the filing.
 - [x] `go test -race` and `golangci-lint` pass for `src-go`, with a test per expectation.
 - [x] The shipped list loads under the strict rules (W25).
 - [x] `watchlist add` against a real remote read the default branch and refused a duplicate.
-- [ ] A scan has produced at least one issue or plan, or a report saying why not (task 2.4).
+- [ ] A scan has produced at least one issue or plan, or a report saying why not (task 2.5).
 - [ ] The recurrence mechanism is chosen (task 3.1).
 
 ## Delivery & Milestones

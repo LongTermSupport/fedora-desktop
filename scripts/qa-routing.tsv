@@ -38,6 +38,7 @@ also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/pr
 also	scripts/bash-limits.allowlist	bash-limits	covered
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
+also	CLAUDE/Watchlist.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 first	*.md	docs	covered

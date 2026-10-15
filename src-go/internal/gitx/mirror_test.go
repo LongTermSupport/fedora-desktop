@@ -102,6 +102,39 @@ func TestHasCommit(t *testing.T) {
 	}
 }
 
+func TestIsAncestor(t *testing.T) {
+	cases := []struct {
+		name    string
+		res     execx.Result
+		want    bool
+		wantErr bool
+	}{
+		{"is an ancestor", execx.Result{}, true, false},
+		{"is not an ancestor", execx.Result{ExitCode: 1}, false, false},
+		{"git cannot judge (bad object)", gitFail("fatal: Not a valid commit name"), false, true},
+	}
+	for _, c := range cases {
+		f := &execx.Fake{}
+		f.On([]string{"git", "merge-base", "--is-ancestor", sha1, sha2}, c.res)
+		got, err := gitx.New(f).IsAncestor(context.Background(), dir, sha1, sha2)
+		if got != c.want || (err != nil) != c.wantErr {
+			t.Fatalf("%s: got %v, %v", c.name, got, err)
+		}
+		if f.Calls()[0].Dir != dir {
+			t.Fatalf("%s: dir %q", c.name, f.Calls()[0].Dir)
+		}
+	}
+	if _, err := gitx.New(errRunner{}).IsAncestor(context.Background(), dir, sha1, sha2); err == nil {
+		t.Fatal("git being unrunnable was read as not-an-ancestor")
+	}
+}
+
+func TestRemoteRefNamesTheFetchedBranch(t *testing.T) {
+	if got := gitx.RemoteRef("main"); got != "refs/remotes/origin/main" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestCommitsBetweenAndChangedPaths(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"git", "log", "--format=%h %s", sha1 + ".." + sha2},

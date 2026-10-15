@@ -216,6 +216,10 @@ for ref in files/var/local/claude-yolo/lib/session-registry.bash files/var/local
     expect_has "go: parity reference $ref runs the Go gate" "$plan" "check go"
 done
 
+plan="$(plan_for CLAUDE/Watchlist.tsv)"
+expect_has "the watch list: its strict-load test runs the Go gate" "$plan" "check go"
+expect_lacks "the watch list: it is covered" "$plan" "not covered by qa-changed: CLAUDE/Watchlist.tsv"
+
 echo
 echo "== bash files, the allowlist and its Go source -> the bash-limits gate =="
 for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/qa/bashlimits/measure.go src-go/qa/cmd/qa-bash-limits/main.go files/home/.local/bin/ftp-camera files/home/.local/bin/fedora-desktop-health.j2; do

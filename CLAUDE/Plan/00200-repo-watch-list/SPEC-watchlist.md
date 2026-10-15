@@ -24,8 +24,10 @@ Process calls go through `execx` (git through `gitx`), faked in the tests.
   exactly four tab-separated fields: `url`, `branch`, `last_sha`, `run`. A line that does not is an
   error naming the file and line number. A missing file is an error (it is tracked; absence is a
   fault, never an empty list).
-- W5. `url` is `https://<host>/<owner>/<repo>` with no userinfo, port, query, fragment, `.git`
-  suffix or trailing slash; `http://`, `ssh://`, `git@` and local paths are errors.
+- W5. `url` is `https://github.com/<owner>/<repo>` (the host is pinned: the mirror directory and
+  the names drop the host, so two hosts would collide) with no userinfo, port, query, fragment,
+  `.git` suffix or trailing slash; `http://`, `ssh://`, `git@`, other hosts and local paths are
+  errors.
 - W6. `branch` is non-empty and holds no whitespace.
 - W7. `last_sha` is 40 lowercase hex digits, or `-` for "never reviewed". `run` is a token with no
   whitespace naming the run that recorded the sha, or `-`; it is `-` exactly when `last_sha` is.
@@ -48,17 +50,23 @@ Process calls go through `execx` (git through `gitx`), faked in the tests.
 - W14. The mirror of a row is `<root>/untracked/watchlist/<owner>__<repo>`. When the directory is
   absent it is cloned: `git clone --branch <branch> --single-branch <url> <dir>`. When present
   it is fetched: `git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>`. Clone
-  progress and git's own chatter are not passed to stdout.
+  progress and git's own chatter are not passed to stdout. A directory that exists without a
+  `.git` inside (a killed clone) is an error telling the user to delete it; a failed fetch adds
+  that a renamed default branch is fixed in the branch column.
 - W15. The new head is the commit `refs/remotes/origin/<branch>` names in the mirror.
 - W16. A row with no `last_sha` prints, under its heading, `initial: full review`, `head: <sha>`
   and `mirror: <dir>`. It lists no commits or paths.
 - W17. A row whose `last_sha` equals the head prints `last-checked: <sha> (run <run>)`,
-  `head: <sha>` and `unchanged`.
-- W18. Otherwise it prints `last-checked`, `head`, then `commits (N):` with one `  <short sha> <subject>`
+  `head: <sha>`, `mirror: <dir>` and `unchanged`.
+- W18. Otherwise it prints `last-checked`, `head`, `mirror`, then `commits (N):` with one `  <short sha> <subject>`
   line per commit of `last_sha..head` and `changed paths (M):` with one `  <path>` line per path
   of `git diff --name-only last_sha head`.
-- W19. A `last_sha` the mirror does not hold (the remote rewrote history) is an error naming the
-  repository and the sha. The command never falls back to a full review on its own.
+- W19. A `last_sha` that is not an ancestor of the head (`git merge-base --is-ancestor`) is an
+  error naming the repository and the sha: the remote rewrote its history. This includes a
+  `last_sha` the mirror no longer holds, and one it still holds, because git keeps commits a
+  rewrite removed until a gc. No range is listed and the command never falls back to a full
+  review on its own. *(First draft tested only whether the mirror held the object; a real
+  force-push showed that is true for weeks after the rewrite.)*
 - W20. Each repository's report starts with a heading line `== <owner>/<repo> (<branch>)`.
 - W21. Any git failure (clone, fetch, rev-parse, log, diff) aborts the run: exit 1, `ERROR:` naming
   the repository and git's message, no later repository attempted. A failed fetch is never a skip.
@@ -69,7 +77,10 @@ Process calls go through `execx` (git through `gitx`), faked in the tests.
 - W22. `mark <repo> <sha> --run ID` records a review: `<repo>` as in W13; `sha` is 40 lowercase hex
   (W7); `ID` a token (W7).
 - W23. The mirror must exist and hold the commit; either missing is an error and the file is
-  untouched. (Marking a commit nobody fetched would record a review of nothing.)
+  untouched. (Marking a commit nobody fetched would record a review of nothing.) The commit must
+  also be an ancestor of (or equal to) `refs/remotes/origin/<branch>`, and, when the row has a
+  `last_sha`, descend from it: a review never moves backwards and never lands off the branch.
+  Each failure is an error naming the reason and leaves the file untouched.
 - W24. On success the row's `last_sha` and `run` are replaced, the file is written atomically (W9),
   and `marked <owner>/<repo> at <sha> (run <ID>)` is printed.
 

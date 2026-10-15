@@ -20,14 +20,14 @@ const header = `# The watch list: public repositories scanned at intervals for i
 # Edited by the watchlist command (add, mark); read strictly, a malformed row is an error.
 #
 # url <TAB> branch <TAB> last_sha <TAB> run
-#   url       https://<host>/<owner>/<repo>, no .git suffix
+#   url       https://github.com/<owner>/<repo>, no .git suffix
 #   branch    the branch that is reviewed (the remote's default branch when added)
 #   last_sha  the commit last reviewed (40 hex digits), or - when never reviewed
 #   run       the run or document that recorded last_sha (no spaces), or - with it
 `
 
 var (
-	urlPattern = regexp.MustCompile(`^https://[A-Za-z0-9.-]+/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)$`)
+	urlPattern = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)$`)
 	shaPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	runPattern = regexp.MustCompile(`^\S+$`)
 )
@@ -67,7 +67,7 @@ func splitURL(url string) (string, string) {
 func validateURL(url string) error {
 	m := urlPattern.FindStringSubmatch(url)
 	if m == nil || strings.HasSuffix(m[2], ".git") {
-		return fmt.Errorf("%q is not an https://<host>/<owner>/<repo> URL (no .git suffix, no slash, query or credentials)", url)
+		return fmt.Errorf("%q is not an https://github.com/<owner>/<repo> URL (no .git suffix, no slash, query or credentials)", url)
 	}
 	return nil
 }
