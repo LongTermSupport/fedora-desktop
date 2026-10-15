@@ -667,6 +667,9 @@ host) never read each other's:
   transcript once the session was quiet for 180 s (or within an hour); cleared when a later
   delivery appears.
 
+A starting watcher clears the session's `stalled` and `missing` marks; the SessionEnd hook
+removes all three files when the session really ends (not on `/clear` or `/resume`).
+
 A team entry of `PINGBUS_HOME` is normally the bundle directory itself; a symlink is
 accepted only onto a real directory (not itself a link) owned by the user, with mode 0700,
 and refused (exit 78) otherwise.

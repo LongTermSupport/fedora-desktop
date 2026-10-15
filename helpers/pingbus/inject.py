@@ -80,6 +80,11 @@ class Marks:
     def set_missing(self, value: bool) -> None:
         self._set("missing", value)
 
+    def forget(self) -> None:
+        """Remove this session's files: it ended, and its socket path may be reused."""
+        for name in ("stalled", "missing", "transcript"):
+            self._path(name).unlink(missing_ok=True)
+
     def record_transcript(self, path: object) -> None:
         """Write the session's transcript path atomically. ValueError for a bad path."""
         text = _transcript_path(path)

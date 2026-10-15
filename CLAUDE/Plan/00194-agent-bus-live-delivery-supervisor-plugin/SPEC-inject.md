@@ -99,14 +99,15 @@ Each is numbered so a test, a review finding or a host check can name it.
   reported) before letting go. An item that fails re-validation is dropped and consumed as
   today (a `DROPPED` line in the watch log), never delivered.
 - **E11. What counts as sent.** The payload written in full by `sendall` is sent. The
-  socket's close is waited for up to 5 s; a close that does not come in time is a stderr
-  note, and the items are consumed all the same, so a slow close never turns into a second
+  socket's close is waited for up to 5 s; a close that does not come in time, or a reset or
+  broken pipe on the close path, is a stderr note, and the items are consumed all the same, so a slow close never turns into a second
   copy with a new nonce (Fable M1). A connect or write error is not sent: nothing is
   consumed.
 - **E12. `recv` and the watcher exclude each other.** `recv` and `wait` take the same lock in
   socket mode as in relay mode, around print-and-consume, and re-check the inbox under it.
   An item is shown by one of them, never both, and `recv` after a delivery prints nothing for
-  it. The lock is held across the local socket write (at most the 5 s timeout), so the
+  it. The lock is held across the local socket write: its connect, write and close wait each
+  carry the 5 s timeout, so about 15 s at worst, which `recv` and `wait` wait out; so the
   `Spool.exclusive` rule "no network call inside" becomes "no homeserver call inside".
 - **E13. Pacing and the socket's own filters.** At most one delivery per 2 s
   (`NOTICE_MIN_INTERVAL_S`), so the socket's bucket (30, refilling at 0.5 a second) is never
@@ -125,7 +126,9 @@ Each is numbered so a test, a review finding or a host check can name it.
   with no successful send (`relay.Stall`), the watcher marks delivery stalled for this
   session; the prompt hook and the Stop hook then show the pending count and a fixed
   "cannot be delivered" line, and Stop blocks once per window, so the agent reads the items
-  with `recv`.
+  with `recv`. A re-fetch that fails counts what waits too, so it stalls the same way. A
+  watcher clears the stall and missing marks when it starts, and the SessionEnd hook removes
+  the session's `inject/` files when the session really ends (not on `/clear` or `/resume`).
 - **E16. A held delivery is detected (Fable M2).** Claude Code records a socket message in
   the session transcript, as a user entry or, when it arrives during a turn, a
   `queued_command` attachment of origin `peer` (`u20_check.py`, M2). The SessionStart and
@@ -343,7 +346,9 @@ The trust root is the admin-written team record on the homeserver (Plan 00161 §
   consumed on the write and are then in `history` only. E16 makes that loud within about
   three minutes of the session going quiet; it does not bring them back to `recv`.
 - **R3. A crash between the write and the consume** delivers the items again with the same
-  `id` and a new nonce. The skill says a repeated `id` is a repeat.
+  `id` and a new nonce. The skill says a repeated `id` is a repeat. Held-back counts (E19) live in the
+  watcher's memory and their items are consumed before the next send, so a watcher crash
+  before that send loses the "held back" line: those messages are then only in `history`.
 - **R4. A sibling container can consume.** The seat inbox is under the shared checkout; a
   sibling container cannot plant an item, but it can move another seat's item into
   `consumed/` and so silence it. This predates this spec and is unchanged by it; it is

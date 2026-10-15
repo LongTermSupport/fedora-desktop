@@ -322,6 +322,21 @@ class SocketDeliveryHookTest(HookCase):
         self.assertEqual(result["reason"], hooks.TEMPLATES["missing"])
         self.assertFalse(self.blocked(self.stop()))
 
+    def test_the_session_end_removes_this_sessions_marks_only(self):
+        """Fable L1: a reused socket path must not inherit a missing mark."""
+        self.marks().set_stalled(True)
+        self.marks().set_missing(True)
+        self.marks().record_transcript("/t.jsonl")
+        other = self.marks(str(self.tmp / "other.sock"))
+        other.set_missing(True)
+        self.hook("session-end", {"hook_event_name": "SessionEnd", "reason": "clear"})
+        self.assertTrue(self.marks().missing(), "/clear: the session goes on")
+        self.hook("session-end", {"hook_event_name": "SessionEnd", "reason": "prompt_input_exit"})
+        self.assertFalse(self.marks().stalled())
+        self.assertFalse(self.marks().missing())
+        self.assertIsNone(self.marks().transcript())
+        self.assertTrue(other.missing())
+
     def test_another_sessions_marks_are_not_this_ones(self):
         self.hold("watch")
         self.plant_human(1)

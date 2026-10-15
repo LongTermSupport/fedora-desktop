@@ -75,6 +75,16 @@ class MarksTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.marks.record_transcript(bad)
 
+    def test_forget_removes_every_file_of_this_session(self):
+        self.marks.set_stalled(True)
+        self.marks.set_missing(True)
+        self.marks.record_transcript("/t.jsonl")
+        inject.Marks(self.home, OTHER).set_missing(True)
+        self.marks.forget()
+        self.assertEqual([p.name for p in (self.home / inject.INJECT_DIR).iterdir()],
+                         [f"{inject.session_key(OTHER)}.missing"])
+        self.marks.forget()
+
     def test_a_tampered_record_reads_as_none(self):
         self.marks.record_transcript("/t.jsonl")
         (path,) = (self.home / inject.INJECT_DIR).iterdir()

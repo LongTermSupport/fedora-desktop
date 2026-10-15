@@ -1596,6 +1596,13 @@ def _inject_pass(seats: Sequence[_Seat], inj: _Injector, rt: Runtime, pending: _
             _, message = failure(exc)
             err.write(f"{PROG}: {message}: delivery retries in {rt.delivery.retry_s:g} s\n")
             inj.retry_at = now + rt.delivery.retry_s
+            # What waits is still owed: the stall clock must run (Fable M1). Counting is local;
+            # if even that fails, something is owed all the same.
+            try:
+                owed = len(_candidates(seats, rt))
+            except FAILURES:
+                owed = 1
+            inj.waiting = max(inj.waiting, owed)
         else:
             delivered = _send_delivery(batch, inj, rt, pending, err)
     stalled = inj.stall.observe(waiting=inj.waiting, confirmed=1 if delivered else 0)
@@ -1660,6 +1667,9 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
         home = config.resolve_home(environ)
         ledger = _RelayLedger(relay.Spool(home), relay.Stall(rt.monotonic))
         marks = inject.Marks(home, path)
+        if not relaying:
+            marks.set_stalled(False)  # nothing is outstanding yet: old marks are not this watcher's
+            marks.set_missing(False)
         injector = None if relaying else _Injector(
             path, token, relay.Spool(home), marks, relay.Stall(rt.monotonic, rt.delivery.stall_after_s),
             inject.DeliveryCheck(marks, rt.monotonic, quiet_s=rt.delivery.missing_quiet_s,

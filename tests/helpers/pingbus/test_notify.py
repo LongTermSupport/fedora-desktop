@@ -31,7 +31,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, inject, notify, protocol
+from helpers.pingbus import cli, inbox, inject, matrix, notify, protocol
 from tests.helpers.pingbus import test_cli as bus
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
@@ -142,6 +142,25 @@ class WireTest(SocketCase):
         self.addCleanup(slow.close)
         self.assertFalse(notify.send_notice(str(slow.path), SESSION_TOKEN, "hello", timeout_s=0.2))
         self.assertEqual(slow.wait_for(1), ["hello"])
+
+    def test_an_error_on_the_close_path_after_a_full_write_is_still_sent(self):
+        """Fable M2: once `sendall` returned, a reset or a broken pipe while closing is not
+        a failed write."""
+        for error in (ConnectionResetError(errno.ECONNRESET, "reset"), BrokenPipeError(errno.EPIPE, "pipe")):
+            with self.subTest(error=error):
+                fake = mock.MagicMock()
+                fake.__enter__.return_value = fake
+                fake.shutdown.side_effect = error
+                with mock.patch.object(notify.socket, "socket", return_value=fake):
+                    self.assertFalse(notify.send_notice(str(self.path), SESSION_TOKEN, "hello"))
+                fake.sendall.assert_called_once()
+
+    def test_an_error_before_the_write_finished_is_not_sent(self):
+        fake = mock.MagicMock()
+        fake.__enter__.return_value = fake
+        fake.sendall.side_effect = BrokenPipeError(errno.EPIPE, "pipe")
+        with mock.patch.object(notify.socket, "socket", return_value=fake), self.assertRaises(OSError):
+            notify.send_notice(str(self.path), SESSION_TOKEN, "hello")
 
     def test_a_token_is_required(self):
         with self.assertRaises(ValueError):
@@ -397,6 +416,29 @@ class WatchDeliveryTest(WatchCase):
         code, out, _ = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK)
         self.assertIn('"stuck"', out)
+
+    def test_a_re_fetch_that_keeps_failing_stalls_and_recv_still_reads_the_item(self):
+        """Fable M1: a homeserver that will not serve the event must not leave the hooks
+        quiet with the item unannounced."""
+        self.joined()
+        failing = mock.patch.object(cli, "_refetch", side_effect=matrix.MatrixError("event", 502))
+        with failing:
+            self.a.human("refetch fails")
+            self.start_watch()
+            self.until(self.marks().stalled, "a failing re-fetch never stalled")
+            self.assertEqual(self.pending(), 1)
+        self.end_session()
+        code, out, _ = self.run_cli("recv")
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertIn('"refetch fails"', out)
+
+    def test_the_watcher_clears_old_marks_at_start(self):
+        """Fable L1: nothing is outstanding when a watcher starts."""
+        self.marks().set_stalled(True)
+        self.marks().set_missing(True)
+        self.joined()
+        self.start_watch()
+        self.until(lambda: not self.marks().stalled() and not self.marks().missing(), "old marks kept")
 
     def test_a_late_close_is_one_delivery_and_consumes(self):
         """E11, Fable M1: no second copy with a new nonce after a slow close."""

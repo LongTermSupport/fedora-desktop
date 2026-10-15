@@ -70,7 +70,8 @@ def send_notice(path: str, token: str, text: str, *, timeout_s: float = SEND_TIM
     """Write one message and wait up to `timeout_s` for the socket to close the connection.
     `SocketGone` when nothing listens at `path`; any other error before the payload was
     written in full propagates, and the message is not sent. Once it was written in full it
-    is sent: True when the close came in time, False when it did not (SPEC-inject.md E11)."""
+    is sent: True when the close came in time, False when it did not or the close path
+    failed (SPEC-inject.md E11)."""
     payload = frames(token, text)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(timeout_s)
@@ -85,6 +86,8 @@ def send_notice(path: str, token: str, text: str, *, timeout_s: float = SEND_TIM
             sock.shutdown(socket.SHUT_WR)
             while sock.recv(4096):
                 pass
-        except TimeoutError:
+        except OSError:
+            # Written in full is sent (SPEC-inject.md E11): a timeout, a reset or a broken pipe
+            # on the close path only means the close was not seen.
             return False
     return True

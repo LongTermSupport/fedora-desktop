@@ -655,7 +655,10 @@ class _Hook:
 
     def session_end(self, post: Callable[[str, str], object] | None) -> dict:
         reason = self.payload.get("reason") if self.payload is not None else None
-        if post is None or reason in GOODBYE_NONE:
+        if reason in GOODBYE_NONE:
+            return {}
+        self._forget_marks()
+        if post is None:
             return {}
         shown = GOODBYE_REASONS.get(reason, GOODBYE_OTHER) if isinstance(reason, str) else GOODBYE_OTHER
         home = config.resolve_home(self.environ)
@@ -665,6 +668,17 @@ class _Hook:
         if goodbyes and self._first_goodbye(home / GOODBYE_FILE):
             self._post_all(post, goodbyes)
         return {}
+
+    def _forget_marks(self) -> None:
+        """Socket delivery: the session ended, so its marks go with it (a reused socket path
+        must not inherit a missing mark). A failure is one stderr line."""
+        path = _socket_path(self.environ)
+        if path is None:
+            return
+        try:
+            inject.Marks(config.resolve_home(self.environ), path).forget()
+        except (config.ConfigError, OSError) as exc:
+            self.err.write(f"pingbus: hook session-end: the delivery marks were not removed: {exc}\n")
 
     def _first_goodbye(self, path: pathlib.Path) -> bool:
         """Whether this session has not tried to say goodbye yet. The attempt is recorded
