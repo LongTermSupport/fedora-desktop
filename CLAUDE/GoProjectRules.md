@@ -84,18 +84,20 @@ assignment to `.Name`; test files are exempt, a test spells out the argv it expe
   and `busctl` by `internal/systemd`, `git` by `internal/gitx`, `ps` and `docker` by
   `internal/sessprobe`, `podman` by `internal/sessprobe` (a session's container) and
   `internal/podfreeze` (pause, unpause, networks: a table entry may list several owners), and the
-  `lxc-*` tools and `nmcli` by `internal/lxcfreeze`. Any other program (`wl-copy`, `gh`, `id`, `tput`, `systemd-escape`,
+  `lxc-*` tools by `internal/lxcfreeze`, and `nmcli` by `internal/lxcfreeze` (inside a
+  container) and `internal/ftpcamera` (the hotspot). Any other program (`wl-copy`, `gh`, `id`, `tput`, `systemd-escape`,
   `python3`, ...) is unowned and free. The owner's own program is trusted: what the owner puts
   after it is not examined here, except behind `lxc-attach`, a wrapper that stays judged even for
   its owner (`lxc-attach -n X -- prog` is judged as `prog`, so `nmcli` is lxcfreeze's and `git`
   inside a container is still a finding).
 - A call of a **program runner** is judged as the `Cmd` it would build. `programRunners` lists the
   entry points that take a program and its arguments with no `Cmd` at the call site:
-  `sudo.Sudo.Capture`, `AsRoot` and `Run`, and lxcfreeze's `runAct` and `probe`. The argument at
+  `sudo.Sudo.Capture`, `AsRoot` and `Run`, lxcfreeze's `runAct` and `probe`, and ftpcamera's
+  `asRoot` and `rootCapture`. The argument at
   the table's index is the program, judged by `checkProgram`'s walk (constant, owner table,
   wrappers, shell `-c`). A spread slice (`Capture(ctx, argv...)`) must show a literal head or the
-  enclosing function needs a `dynamicNames` row (`runAct`, `probe` and agentbus's `rootRun` and
-  `rootShow` have one, with the reason). The callee is resolved through `types.Info`, so an alias
+  enclosing function needs a `dynamicNames` row (`runAct`, `probe`, agentbus's `rootRun` and
+  `rootShow`, and ftpcamera's `asRoot` and `rootCapture` have one, with the reason). The callee is resolved through `types.Info`, so an alias
   does not hide it; a runner method taken as a value (`f := s.Capture`, `(*Sudo).Capture`) is
   flagged where it is taken, because the later `f(ctx, "lxc-ls")` names its program where no
   rule can see it.

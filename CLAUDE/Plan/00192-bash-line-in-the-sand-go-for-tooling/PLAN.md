@@ -362,6 +362,23 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   golden restores their rows (`retiredAfterPort`). Booting is proven only on the host (SPEC
   section 7, H1-H6, queued in `meta-deploy.list`); report
   `subagent-reports/261015-vmtest-port-opus.md`.
+  `ftp-camera` (P8, the ftp-camera part; `wsi` and `watermark` not started) on
+  `go-port/ftp-camera`: ported and cut over, not merged; spec
+  [SPEC-ftp-camera.md](SPEC-ftp-camera.md) (E1-E66, B1-B25), `src-go/cmd/ftp-camera` and
+  `src-go/internal/ftpcamera`, with `internal/rclonerc` (the Go twin of `rclone-rc-auth.bash`,
+  which stays for the bash rclone helpers) and root systemctl verbs in `internal/systemd`;
+  `play-ftp-camera.yml` builds the binary, the bash script and its allowlist row are gone.
+  Proven only on the host with a camera (SPEC section 7, H1-H5, queued in `meta-deploy.list`);
+  report `subagent-reports/261015-ftp-camera-port-opus.md`. Fable's review (FIX FIRST: 2
+  Medium, 5 Low) is fixed on the branch, test first: Ctrl+C no longer drains the async backlog
+  under the cancelled context (E66, B25), the test runner refuses a command under a finished
+  context as `execx.OS` does, a same-named sorted file is never overwritten (B24, the bash lost
+  it), the upload root's own read error is reported, an unreadable log line stops the follower
+  at once, the docs and comments no longer describe the bash, and `--copy`/`--push` shipping
+  root fragments is recorded as kept (spec section 4). Fable's re-review said MERGE with three
+  Lows; two are fixed: a name collision no longer halts `--sort` (identical bytes are a
+  reported duplicate, a different file a per-file refusal, exit 1 at the end), and the
+  not-sorted count holds only distinct files still in the upload root.
   `watermark` and `wsi` (P8, the rest after ftp-camera) on `go-port/wsi-watermark`: spec
   [SPEC-wsi-watermark.md](SPEC-wsi-watermark.md) (W1-W35, M1-M14, B1-B30). `watermark` ported
   and cut over: `src-go/cmd/watermark`, `internal/watermark` (config files read as data, never

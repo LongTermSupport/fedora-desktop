@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# ftp-camera is a Go binary built from this checkout (src-go/cmd/ftp-camera), so the Go
+# toolchain is installed first. play-golang.yml stays its one source of truth.
+- import_playbook: ../../play-golang.yml
+
 - hosts: desktop
   name: Install Camera FTP Server (Sony A7V)
   become: true
@@ -100,7 +104,7 @@
       ansible.builtin.package:
         name:
           - vsftpd         # FTP server
-          - inotify-tools  # File system event monitoring (used by ftp-camera wrapper)
+          - inotify-tools  # File system event monitoring (used by the ftp-camera command)
           - gum            # Two-step launcher TUI for argument-free `ftp-camera` invocation
           - tcpdump        # FTP control-channel capture for triage (see CLAUDE/PlanTriage.md)
         state: present
@@ -206,7 +210,7 @@
         state: true
         persistent: true
 
-    - name: Disable vsftpd auto-start (managed manually via ftp-camera script)
+    - name: Disable vsftpd auto-start (started and stopped by the ftp-camera command)
       ansible.builtin.systemd:
         name: vsftpd
         enabled: false
@@ -214,22 +218,22 @@
       failed_when: false  # FAIL-FAST-OK: vsftpd may not be running on first install
 
     # CROSS-PLAY DEPENDENCY (Plan 00099): ftp-camera's --copy / --async-copy
-    # modes source files/home/.local/bin/rclone-rc-auth.bash, which is deployed
-    # by play-rclone.yml, NOT by this play. The library is deliberately owned
-    # there because every other consumer of it is an rclone helper; duplicating
-    # the copy task here would give two plays a claim on one file.
+    # modes authenticate to the rclone remote control with the credential file
+    # play-rclone.yml writes (~/.config/rclone/rc-auth.env), NOT this play.
     #
     # This play does not assert its presence: the FTP-server, --sort and --pass
     # modes never touch the rclone RC and must keep working on a machine with no
-    # rclone at all. ftp-camera therefore carries a stub that fails, naming
-    # play-rclone.yml, only when a copy mode actually needs the library.
-    - name: Install ftp-camera wrapper script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/ftp-camera"
-        dest: "/home/{{ user_login }}/.local/bin/ftp-camera"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # rclone at all. ftp-camera fails, naming play-rclone.yml, only when a copy
+    # mode actually needs the credential.
+    #
+    # The command is a Go binary (src-go/cmd/ftp-camera, Plan 00192), built and
+    # installed at its old path by the shared build-go-command.yml.
+    - name: Build and Install the ftp-camera Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: ftp-camera
+        go_command_dest: "/home/{{ user_login }}/.local/bin/ftp-camera"
+        go_command_mode: "0755"
 
     - name: Create /etc/ftp-camera config directory
       ansible.builtin.file:
@@ -242,7 +246,7 @@
     - name: Deploy ftp-camera config (records repo path, rclone destination, hotspot profile)
       # REPO_PATH lets `ftp-camera --pass` find vault.bash and decrypt
       # ftp_camera_password from the user's clone of this repo without
-      # hardcoding the path in the script.
+      # hardcoding the path in the command.
       # RCLONE_REMOTE is consumed by `ftp-camera --push` to know where to
       # upload sorted files. Empty value disables --push with a clear error.
       # HOTSPOT_CONNECTION names the NetworkManager profile that --hotspot
@@ -482,7 +486,7 @@
             photos/YYYY/MM/DD/{JPG,RAW}/<file>
             videos/YYYY/MM/DD/{MP4,MOV}/<file>
 
-          The script will print your PC's IP address and the exact
+          ftp-camera will print your PC's IP address and the exact
           camera menu path when it starts.
 
           Sony A7V camera setup (one-time, manual):

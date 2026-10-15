@@ -2,7 +2,7 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest` and `watermark` live here; their bash originals are gone.
+`lxcfreeze`, `vmtest`, `ftp-camera` and `watermark` live here; their bash originals are gone.
 
 ## Layout
 
@@ -23,6 +23,11 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 - `internal/vmtest/` — the VM lab's host CLI (spec `SPEC-vmtest.md`, E1-E60): every verb,
   through `execx` to virsh, virt-install, qemu-img, ssh and curl, and through one seam
   (`python3 -P -m helpers.vmtest.<module>`) to the lab's Python helpers, which stay Python.
+- `internal/ftpcamera/` — the camera FTP session tool (spec `SPEC-ftp-camera.md`, E1-E66): the
+  launcher, the sort, push, copy and prune modes, and the vsftpd session with its log
+  followers and teardown; root through `sudo`, systemctl through `systemd`, and the rclone
+  remote control through `rclonerc` (the Go twin of `rclone-rc-auth.bash`, for the rclone
+  helpers when they are ported).
 - `internal/<package>/` — shared adapters, each behind an interface with a fake: `execx`
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
@@ -98,9 +103,11 @@ optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both c
 (`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
-`play-vm-test-lab.yml` for `vmtest` (which imports `play-golang.yml` too), and
-`play-image-watermarking.yml` for `watermark`, installed root-owned in `/usr/local/bin`
-(`go_command_owner: root`; only that copy runs as root). Each binary lands at its old path. A new deployed command takes a row in `scripts/go-binary-suites.tsv`. Never
+`play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera` and
+`play-image-watermarking.yml` for `watermark` (each imports `play-golang.yml` too);
+`watermark` is installed root-owned in `/usr/local/bin` (`go_command_owner: root`; only that
+copy runs as root). Each binary lands at its old path. A new deployed command takes a row in
+`scripts/go-binary-suites.tsv`. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 

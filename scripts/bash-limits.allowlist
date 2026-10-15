@@ -27,7 +27,6 @@ files/etc/profile.d/zz_lts-fedora-desktop.bash	82	8	89	-
 files/home/.local/bin/bash-history-rank	68	1	46	-
 files/home/.local/bin/ccdt	144	6	117	-
 files/home/.local/bin/fedora-desktop-health.j2	108	2	88	-
-files/home/.local/bin/ftp-camera	1627	33	1669	ui,data
 files/home/.local/bin/gshell-nested	95	2	97	-
 files/home/.local/bin/lan-scan	190	10	214	-
 files/home/.local/bin/nord	505	18	502	-

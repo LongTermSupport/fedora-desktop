@@ -1,0 +1,112 @@
+Usage: ftp-camera [PRIMARY-MODE] [MODIFIER]
+
+Primary modes (pick at most one; default = full FTP server):
+  (none)        Start FTP server, sort at end on Ctrl+C
+  --async       Run FTP server, sorting each file the moment it arrives
+  --async-copy  Run FTP server with instant sort AND per-file copy into
+                the local rclone mount (VFS uploads to the remote in the
+                background; requires ftp_camera_rclone_remote)
+  --sort        Sort already-uploaded files by EXIF date and exit
+  --pass        Print the camera FTP password to stdout and exit
+  --push        Direct push to rclone remote (reliable, synchronous)
+  --copy        Copy via rclone mount (caches locally) then verify on remote
+  --copy-preflight
+                Run --copy's checks and stop. Read-only: copies nothing, starts
+                nothing. Prints the RC address it resolved for the mount.
+  --prune       Remove RAW files whose corresponding JPG has been deleted
+
+Modifiers (apply to FTP-server modes only; combinable):
+  --view        Live single-window preview of each ARW arrival via geeqie
+                (geeqie's implicit single-instance handles window-reuse —
+                second invocation routes the new file into the running window,
+                no IPC).
+  --view-jpg    Same, but preview JPG arrivals instead of ARW.
+                (--view and --view-jpg are mutually exclusive.)
+  --hotspot     Bring up the NetworkManager 'Hotspot' profile (or whichever
+                profile HOTSPOT_CONNECTION points to in /etc/ftp-camera/config)
+                at start, tear it down on exit. Camera connects directly to
+                the laptop — bypasses any public WiFi. Fail-fast if the named
+                profile doesn't exist (it is created by play-ftp-camera.yml).
+                If the hotspot is already up when ftp-camera starts, the flag
+                uses it as-is and leaves it alone on exit.
+                NOTE: on Intel CNVi cards the radio cannot be client and AP at
+                the same time, so the laptop loses its own internet while the
+                hotspot is up. --async-copy still works: files land in the
+                local rclone VFS cache and drain to the remote once you
+                reconnect.
+  --debug-ftp   Diagnostic. Adds log_ftp_protocol=YES to the runtime vsftpd
+                config so /var/log/vsftpd.log records every FTP verb the
+                camera sends and every reply it gets. Use this when uploads
+                appear to succeed but the camera keeps re-sending the same
+                frame — the verb stream shows whether the camera is checking
+                the file back (SIZE/LIST/MLSD) after storing it. Verbose;
+                not for routine runs.
+
+Launcher:
+  Invoked with no arguments, ftp-camera opens a two-step TUI (gum or fzf) to
+  pick the primary mode and the viewer option. Pass --no-tui to suppress the
+  launcher and run in default FTP-server mode.
+
+  -h, --help    Show this help
+
+When run with --view / --view-jpg the source folder watched depends on the
+primary mode:
+  --async / --async-copy → photos/$(date +%Y/%m/%d)/{RAW,JPG}/  (sorted tree)
+  default (no sort)      → upload root, filtered by extension
+The viewer always loads from the LOCAL ftp tree — never the rclone mount
+destination. Pre-warm runs only in async modes (default mode may have stale
+files in the root we don't want to surface).
+
+Async modes do the same EXIF-based sort the closing pass does, but as soon
+as each upload completes — no end-of-session bulk move.
+
+Completeness: every file is structurally verified before it is sorted or
+copied, in ALL modes. vsftpd's "OK UPLOAD" is NOT proof the file arrived
+whole — in FTP the client signals end-of-file on STOR by closing the data
+connection, so a link that drops that connection mid-transfer looks exactly
+like a clean finish and gets logged OK with whatever bytes arrived. JPEGs
+are checked for their SOI/EOI markers; ARW and video are validated with
+exiftool. A fragment is left in the upload root and never enters the
+library. If the camera re-sends the same frame endlessly, truncation is
+why — it has never managed to complete one.
+
+Weak-link advisory: when transfers truncate, the same frame keeps arriving,
+or throughput drops below LINK_SLOW_KBS (default 500 KB/s), ftp-camera says
+so once and tells you to move the camera next to the router. Camera
+transmitters are much weaker than a laptop's, so a link that looks fine on
+the laptop can still be too weak for the camera. Tune with the environment
+variables LINK_SLOW_KBS, LINK_REPEAT_THRESHOLD and LINK_RATE_MIN_BYTES.
+--async-copy then copies each sorted file into the local rclone mount
+(same write-through path --copy uses) via a tmp-then-rename so a crash
+mid-copy can't leave a truncated file masquerading as complete; the VFS
+uploads to the remote in the background, so losing rclone progress mid-
+session never costs you data — the file lives in the upload tree, the
+mount cache, and (eventually) the remote. Crash recovery: rerun
+`ftp-camera --push` to ship anything still missing on the remote.
+
+Sort layout (mirrors the photo library):
+  photos/YYYY/MM/DD/JPG/<name>.jpg
+  photos/YYYY/MM/DD/RAW/<name>.arw
+  videos/YYYY/MM/DD/MP4/<name>.mp4
+  videos/YYYY/MM/DD/MOV/<name>.mov
+
+ftp_camera_rclone_remote must point at the LIBRARY ROOT (the parent of
+photos/ and videos/), not at a media subfolder. Push, copy, and
+async-copy ship into the matching subtree on the remote automatically.
+
+Typical workflow:
+  1. ftp-camera           # receive uploads from camera (Ctrl+C to stop, auto-sorts)
+  2. ftp-camera --copy    # copy via mount + verify (files cached for instant browse)
+     OR
+  2. ftp-camera --push    # direct push (prints rclone-cache-warm hint after)
+  3. (manually delete unwanted JPGs from the upload tree)
+  4. ftp-camera --prune   # delete RAW files orphaned by JPG removal (photos/ only)
+
+Async workflow (drop step 2 entirely):
+  1. ftp-camera --async-copy   # sort + push each file as it arrives
+  2. (manually delete unwanted JPGs from the upload tree)
+  3. ftp-camera --prune        # delete RAW files orphaned by JPG removal
+
+Async + live preview:
+  ftp-camera --async-copy --view   # rare; only when you want to spot-check
+                                   # ARW exposure live as the camera shoots
