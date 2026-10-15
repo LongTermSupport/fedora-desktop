@@ -46,3 +46,8 @@ playbooks/imports/play-agent-bus.yml
 # LXC and goodbye: run ccy-teams lxc-add <team>; end a team session with `ccy stop` and see its
 # goodbye in Element.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00161: the agent-team bus acceptance, run again after the merge. It first passed on the
+# host at F44 70ef1d02 (every leg: M1.1-M1.7, M2.0-M2.10, U23 lxc, docker and vm), before the
+# goodbye existed. Its message counts now expect the goodbye, so this run proves them against
+# the branch. Run it after the two plays above.
+CLAUDE/Plan/00161-agent-team-bus-matrix/acceptance.bash
