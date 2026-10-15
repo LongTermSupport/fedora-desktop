@@ -43,8 +43,7 @@ change (section 4, B33), besides its own per-file semgrep check.
   otherwise `ERROR: semgrep rule self-tests failed (see .semgrep/bash-conventions.bash)` followed
   by semgrep's own output, exit 2. A rule that stops matching is worse than a missing tool.
   `semgrep --test` exits 0 on a fixture with no annotations, so a fixture with no `ruleid:` line
-  is exit 2 as well (`ERROR: .semgrep/bash-conventions.bash marks no ruleid line; the self-test
-  proves nothing`).
+  is exit 2 as well (`ERROR: .semgrep/bash-conventions.bash marks no ruleid line; the self-test proves nothing`).
 
 ### Which files: what git would publish
 
@@ -101,8 +100,10 @@ change (section 4, B33), besides its own per-file semgrep check.
   the files (`ERROR: semgrep could not parse <N> file(s), so NO rule ran on them:`). There is no
   list of tolerated files. *(Bash carried an always-empty `SEMGREP_CANNOT_PARSE` list that had to
   be kept in step in both directions; YAGNI, deleted. A file that cannot be parsed is fixed.)*
-- P14. `PartialParsing` errors are reported, not gating (every rule is a regex over raw text, so
-  skipped parse ranges cost nothing today): per file, the lines outside the parse tree as the
+- P14. `PartialParsing` errors are reported, and gate only through the parse ratchet: a file with
+  more than half its lines outside the parse tree fails unless `scripts/patterns-partial.allowlist`
+  lists it at no less and no more than that count (a missing or malformed allowlist is exit 2; a
+  row for a file no longer mostly unparsed fails). Per file, the lines outside the parse tree as the
   union of the reported ranges, the file's total lines, and the first and last line of the gaps.
   Any other error type (a timeout, a rule error, ...) is exit 2 naming the type and file (`(no path)` for an error semgrep gives no file), because
   the file was not fully analysed. *(Bash counted such errors into the partial-parse note and never gated on them.)*
@@ -124,23 +125,23 @@ change (section 4, B33), besides its own per-file semgrep check.
 
 ## 3. Where the Go departs from the bash
 
-| #   | bash behaviour                                                   | Go                             | expectation |
-| --- | ---------------------------------------------------------------- | ------------------------------ | ----------- |
-| B1  | arguments ignored                                                | usage / exit 2                 | P1          |
-| B2  | scope by `find`: ignored files and build output scanned          | what git would publish         | P6          |
-| B3  | a dangling `*.sh`/`*.bash` symlink invisible to `find -type f`   | exit 2 naming it               | P8          |
-| B4  | `#!/usr/bin/env sh` missed; `#!/…/bashful` matched               | interpreter parsed             | P8          |
-| B5  | symlinks skipped silently                                        | counted in the coverage line   | P8, P16     |
-| B6  | semgrep exit 1 accepted                                          | any non-zero is exit 2         | P11         |
-| B7  | non-`Syntax error` semgrep errors only counted, never gating     | other types exit 2             | P14         |
-| B8  | `SEMGREP_CANNOT_PARSE` exemption list (empty, two-way assertion) | deleted; unparseable is exit 2 | P13         |
-| B9  | deterministic only by semgrep's order                            | sorted                         | P15         |
-| B10 | exclusion list read by `lib/qa-trees.bash`; empty list scans all | no `shell` row is exit 2       | P7          |
-| B11 | unwritable report: shell error exit 1                            | message, exit 2                | P2          |
-| B12 | failed stdout write unchecked                                    | exit 2                         | P3          |
-| B13 | rule id printed with the checkout path; `tests/`, `vendor/` scripts and files over 1 MB dropped by semgrep, CRLF evading `$` rules | bare rule id; ignore list emptied, no size limit, LF in the mirror | P10, P11 |
-| B14 | symlink coverage claimed a target scanned without checking       | target checked; otherwise the link is scanned and named | P8, P16 |
-| B15 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage | P1 |
+| #   | bash behaviour                                                                                                                                                                             | Go                                                                 | expectation |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | ----------- |
+| B1  | arguments ignored                                                                                                                                                                          | usage / exit 2                                                     | P1          |
+| B2  | scope by `find`: ignored files and build output scanned                                                                                                                                    | what git would publish                                             | P6          |
+| B3  | a dangling `*.sh`/`*.bash` symlink invisible to `find -type f`                                                                                                                             | exit 2 naming it                                                   | P8          |
+| B4  | `#!/usr/bin/env sh` missed; `#!/…/bashful` matched                                                                                                                                         | interpreter parsed                                                 | P8          |
+| B5  | symlinks skipped silently                                                                                                                                                                  | counted in the coverage line                                       | P8, P16     |
+| B6  | semgrep exit 1 accepted                                                                                                                                                                    | any non-zero is exit 2                                             | P11         |
+| B7  | non-`Syntax error` semgrep errors only counted, never gating                                                                                                                               | other types exit 2                                                 | P14         |
+| B8  | `SEMGREP_CANNOT_PARSE` exemption list (empty, two-way assertion)                                                                                                                           | deleted; unparseable is exit 2                                     | P13         |
+| B9  | deterministic only by semgrep's order                                                                                                                                                      | sorted                                                             | P15         |
+| B10 | exclusion list read by `lib/qa-trees.bash`; empty list scans all                                                                                                                           | no `shell` row is exit 2                                           | P7          |
+| B11 | unwritable report: shell error exit 1                                                                                                                                                      | message, exit 2                                                    | P2          |
+| B12 | failed stdout write unchecked                                                                                                                                                              | exit 2                                                             | P3          |
+| B13 | rule id printed with the checkout path; `tests/`, `vendor/` scripts and files over 1 MB dropped by semgrep, CRLF evading `$` rules                                                         | bare rule id; ignore list emptied, no size limit, LF in the mirror | P10, P11    |
+| B14 | symlink coverage claimed a target scanned without checking                                                                                                                                 | target checked; otherwise the link is scanned and named            | P8, P16     |
+| B15 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage                 | P1          |
 
 ## 4. Go design and cut-over
 
