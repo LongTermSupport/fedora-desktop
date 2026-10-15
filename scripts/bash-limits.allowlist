@@ -69,7 +69,6 @@ files/var/local/claude-code/cc-teams.bash	170	9	217	ui
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
 files/var/local/claude-yolo/claude-yolo	2828	12	2747	-
 files/var/local/claude-yolo/entrypoint.sh	443	5	448	data
-files/var/local/claude-yolo/lib/agent-bus-seats.bash	61	4	75	-
 files/var/local/claude-yolo/lib/common-pure.bash	324	15	318	-
 files/var/local/claude-yolo/lib/common.bash	719	21	752	assoc
 files/var/local/claude-yolo/lib/docker-health.bash	454	9	477	-

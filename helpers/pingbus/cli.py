@@ -763,14 +763,17 @@ def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: c
     return list(dict.fromkeys(to))
 
 
-def _fits(member: config.Member, names: list[str]) -> bool:
-    """Whether every `--to` name resolves in this team's verified record (`_user_id`); a full
-    user ID fits only the team whose server it names. A team whose record cannot be trusted
-    fits nothing."""
+def _cached_record(member: config.Member) -> protocol.TeamRecord | None:
+    """The team's verified record, or None while it has none (not synced yet, or untrusted)."""
     try:
-        record = load_cached_record(member)
+        return load_cached_record(member)
     except protocol.Untrusted:
-        return False
+        return None
+
+
+def _fits(member: config.Member, record: protocol.TeamRecord, names: list[str]) -> bool:
+    """Whether every `--to` name resolves in this team's verified record (`_user_id`); a full
+    user ID fits only the team whose server it names."""
     for name in names:
         if name.startswith("@"):
             if not name.endswith(f":{member.server_name}"):
@@ -783,8 +786,12 @@ def _fits(member: config.Member, names: list[str]) -> bool:
     return True
 
 
-def _choices_line(member: config.Member) -> str:
-    """One active team with what it is for, for the message that asks which to name."""
+def _choices_line(member: config.Member, unknown: bool) -> str:
+    """One active team with what it is for (or why it cannot be judged), for the message that
+    asks which to name."""
+    if unknown:
+        return (f"  {member.team}  (no verified team record yet: run pingbus recv or name it "
+                "with --team)")
     try:
         about = inbox.TeamState.for_member(member).about()
     except inbox.StateError:
@@ -805,12 +812,17 @@ def _sending_member(args: argparse.Namespace, environ: Mapping[str, str]) -> con
         member for member in members if re_id in inbox.TeamState.for_member(member).known_event_ids()]
     if len(holders) == 1:
         return holders[0]
-    fitting = [] if args.to is None else [member for member in members if _fits(member, args.to.split(","))]
-    if len(fitting) == 1:
-        return fitting[0]
+    records = {member.team: _cached_record(member) for member in members}
+    # A team whose record is not verified yet cannot be judged, so `--to` cannot pick between
+    # teams: guessing would put a message in the wrong room.
+    if args.to is not None and all(record is not None for record in records.values()):
+        fitting = [member for member in members
+                   if _fits(member, records[member.team], args.to.split(","))]
+        if len(fitting) == 1:
+            return fitting[0]
     raise config.UsageError(
         "several teams are active and --to/--re fit more than one (or none): name one with --team:\n"
-        + "\n".join(_choices_line(member) for member in members))
+        + "\n".join(_choices_line(member, records[member.team] is None) for member in members))
 
 
 def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:

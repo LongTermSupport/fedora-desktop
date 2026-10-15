@@ -96,6 +96,25 @@ class InferTeamTest(BusCase):
         self.assertEqual(code, cli.EXIT_USAGE)
         self.assertIn(NOT_INFERABLE, err)
 
+    def test_a_team_with_no_verified_record_is_unknown_so_nothing_is_inferred(self):
+        self.two_teams()
+        self.b.state.forget_team_record()
+        code, out, err = self.run_cli("say", "--to", "peer.1", stdin="hello")
+        self.assertEqual((code, out), (cli.EXIT_USAGE, ""))
+        self.assertIn(NOT_INFERABLE, err)
+        self.assertIn(f"  {TEAM_B}  (no verified team record yet: run pingbus recv or name it with --team)", err)
+        self.assertIn(f"  {TEAM_A}  Builds the example site", err)
+        self.assertEqual(self.a.messages_from_me(), [])
+
+    def test_an_unknown_team_does_not_stop_re_inference(self):
+        self.two_teams()
+        event = self.a.ping(self.a.orch, "halt")
+        self.run_cli("recv")
+        self.b.state.forget_team_record()
+        code, out, err = self.run_cli("send", "ack", "--to", "orch.1", "--re", event)
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertTrue(out.startswith(f"SENT\t1\t{TEAM_A}\t"), out)
+
     def test_team_always_wins(self):
         self.two_teams()
         code, out, err = self.run_cli("--team", TEAM_A, "say", "--to", "peer.1", stdin="hello")

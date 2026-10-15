@@ -184,6 +184,7 @@ check "take's 75 (a held seat) is passed on, no arguments for the container" "|r
 check "  and no block is shown for seats that were not taken" "seat take dev1@team-a" "$(bus_calls)"
 check "a launch block that cannot be made stops the launch with its code" "rc=70" \
     "$(FAKE_BLOCK_RC=70 lib_run ccy_seats_take dev1@team-a false)"
+check "  and says so, with the code" "yes" "$(has "Not starting: ccy-teams describe-seats --block failed (exit 70" "$work/lib.err")"
 check "take's 78 is passed on" "rc=78" "$(FAKE_TAKE_RC=78 lib_run ccy_seats_take dev1@team-a true)"
 check "no list (a plain launch): agent-bus not called, no arguments for the container" "|rc=0" \
     "$(lib_run take_and_show "" false)"

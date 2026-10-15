@@ -69,23 +69,20 @@ ccy_seats_check() {
 # session is on, with its seat, role and what the team is for; a failure of it stops the launch).
 #   status 0   the seats are ready
 #   otherwise  agent-bus seat take's code (75 a held seat, 78 a seat that cannot be made), or
-#              78 when agent-bus is missing; the reason on stderr
+#              78 when agent-bus is missing, or ccy-teams describe-seats --block's own code
+#              (the seats are then already taken); the reason on stderr
 ccy_seats_take() {
     local canonical="${1?ccy_seats_take requires the canonical list, or an empty one}"
-    local unattended="${2:?ccy_seats_take requires true or false}" rc=0
+    local unattended="${2:?ccy_seats_take requires true or false}" rc
     CCY_SEAT_RUN_ARGS=()
     [ -n "$canonical" ] || return 0
     _ccy_seats_need_agent_bus || return
     local take=("$CCY_AGENT_BUS_COMMAND" seat take "$canonical")
     [ "$unattended" != true ] || take+=(--no-prompt)
-    "${take[@]}" >&2 || rc=$?
-    if [ "$rc" -ne 0 ]; then
-        print_error "Not starting: agent-bus seat take could not seat this session in $canonical (exit $rc; the reason is above).
-  End the session that holds a seat, choose another seat, or launch without --teams."
-        return "$rc"
-    fi
+    "${take[@]}" >&2 || { rc=$?; print_error "Not starting: agent-bus seat take could not seat this session in $canonical (exit $rc; the reason is above).
+  End the session that holds a seat, choose another seat, or launch without --teams."; return "$rc"; }
     CCY_SEAT_RUN_ARGS+=(-e "PINGBUS_SEATS=$canonical" --label "ccy-seats=$canonical")
-    ccy-teams describe-seats --block "$canonical" >&2
+    ccy-teams describe-seats --block "$canonical" >&2 || { rc=$?; print_error "Not starting: ccy-teams describe-seats --block failed (exit $rc; the reason is above)."; return "$rc"; }
 }
 
 # ccy_teams_canonical_args <flag-pos> <value-pos> <canonical> [args...] — the launcher's

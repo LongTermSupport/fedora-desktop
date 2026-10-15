@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.9 — container 2.58 (unchanged)
+
+- A failing launch block (`ccy-teams describe-seats --block`) now stops the launch with a
+  "Not starting" line naming its exit code; the seats were already taken.
+
 ## 3.97.8 — container 2.58
 
 - **A session can be on several teams, and it is fully clear which** (Plan 00201 M5).
@@ -30,8 +35,10 @@ Two version numbers move independently — see
 - Container 2.58: SessionStart adds `agent-bus: this session is on teams A, B.` as its first line
   for two or more teams. `pingbus send` and `say` infer the team on a several-team session: from
   `--re` (an event held by exactly one team's inbox) or from `--to` (every name fits exactly one
-  team's record); otherwise they exit 64 and list the active teams with their descriptions, and
-  `--team` always wins. A status-line segment shows `bus: A,B` from `PINGBUS_TEAMS`.
+  team's record; a team with no verified record yet blocks inference); otherwise they exit 64 and
+  list the active teams with their descriptions, and `--team` always wins. A status-line segment
+  shows `bus: A,B` from a per-session record the SessionStart hook writes (mode 0600, removed at
+  SessionEnd), never from the shared hooks daemon's environment.
 
 ## 3.97.7 — container 2.57 (unchanged)
 

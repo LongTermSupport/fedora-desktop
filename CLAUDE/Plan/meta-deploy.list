@@ -20,13 +20,15 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy play: installs CCY 3.97.8 (container 2.58, a one-time image rebuild) and rebuilds
+# ccy play: installs CCY 3.97.9 (container 2.58, a one-time image rebuild) and rebuilds
 # ccy-teams (Plan 00201 M4, M5). `ccy --teams` in a checkout no team covers now offers every
 # team with its description, or creating one, and on your yes adds this repository to the
 # chosen team's scope and applies it. The list is a multi-select: Tab marks several teams and
 # one session joins them all, with its launch block, SessionStart line, status line and
 # pingbus send/say naming them. Afterwards, try it: run `ccy --teams` in a checkout no team
-# covers, and mark two teams.
+# covers, and mark two teams. The status-line segment `bus: A,B` is a project hooks-daemon
+# handler: restart the daemon (hooks-daemon skill, restart then health) and look at a two-team
+# session's status line.
 playbooks/imports/play-claude-yolo.yml
 
 # agent team bus acceptance again. M2.9 and M2.10 now pass on the host. U23.lxc is fixed: the

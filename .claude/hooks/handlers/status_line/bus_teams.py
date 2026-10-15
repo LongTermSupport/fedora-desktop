@@ -1,15 +1,19 @@
-"""BusTeamsHandler - the agent-bus teams this session is on, in the status line.
+"""BusTeamsHandler - the agent-bus teams THIS session is on, in the status line.
 
-A ccy or cc session launched with `--teams` has `PINGBUS_TEAMS` in its environment, the comma
-separated names of every team it belongs to. The status line is the one place that stays in view
-for the whole session, so it names them: `bus: alpha,beta`. A session on no team shows nothing.
+The hooks daemon is one process shared by every session of the project, started by whichever
+session came first, so its environment says nothing about this session. The pingbus SessionStart
+hook, which runs in the session, writes the session's teams to `<sessions dir>/<session_id>`
+(helpers/pingbus/hooks.py); this handler reads that file for the `session_id` in the status
+payload. No file, an unusable file or an id that is not a plain name shows nothing, never another
+session's teams.
 
-The value reaches a terminal, so only a well-formed team list is shown: lower-case names of the
-agent-bus grammar, no duplicates. Anything else renders nothing rather than a half-trusted string.
+The default directory and the variable that moves it are copies of helpers/pingbus/hooks.py's
+(this process cannot import that package); a pingbus test keeps them equal.
 """
 
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,26 +24,48 @@ from claude_code_hooks_daemon.core import AdvisoryResult
 from claude_code_hooks_daemon.core.handler_bases import StatusLineHandlerBase
 from claude_code_hooks_daemon.core.segment_explanation import SegmentExplanation
 
-ENV_TEAMS = "PINGBUS_TEAMS"
+ENV_SESSIONS_DIR = "PINGBUS_SESSIONS_DIR"
+SESSIONS_DIR_TEMPLATE = "/tmp/pingbus-sessions-{uid}"
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _TEAM_NAME = re.compile(r"[a-z][a-z0-9-]{0,23}")
+_MAX_RECORD_BYTES = 4096
 _COLOR_CYAN = "\033[36m"
 _COLOR_RESET = "\033[0m"
 _GLYPH = "bus:"
 
 
-def teams_from_environment() -> list[str]:
-    """The session's teams in order, or [] when the variable is unset, empty or not a team list."""
-    raw = os.environ.get(ENV_TEAMS, "")
-    teams = raw.split(",")
-    if not raw or len(set(teams)) != len(teams):
+def default_sessions_dir() -> Path:
+    return Path(os.environ.get(ENV_SESSIONS_DIR) or SESSIONS_DIR_TEMPLATE.format(uid=os.getuid()))
+
+
+def sessions_dir() -> Path:
+    return default_sessions_dir()
+
+
+def session_teams(session_id: object) -> list[str]:
+    """The teams recorded for this session, or [] when there is no usable record: no id, an id that
+    is not a plain name, no file, a file that is not this user's alone, or contents that are not a
+    list of distinct team names."""
+    if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
         return []
-    if not all(_TEAM_NAME.fullmatch(team) for team in teams):
+    path = sessions_dir() / session_id
+    try:
+        found = os.lstat(path)
+        if not stat.S_ISREG(found.st_mode) or found.st_uid != os.getuid() or found.st_mode & 0o077:
+            return []
+        if found.st_size > _MAX_RECORD_BYTES:
+            return []
+        raw = path.read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError):
+        return []
+    teams = raw.split(",")
+    if len(set(teams)) != len(teams) or not all(_TEAM_NAME.fullmatch(team) for team in teams):
         return []
     return teams
 
 
 class BusTeamsHandler(StatusLineHandlerBase):
-    """Show `bus: alpha,beta` for the teams named in PINGBUS_TEAMS."""
+    """Show `bus: alpha,beta` for the teams recorded for this session."""
 
     def __init__(self) -> None:
         super().__init__(name="bus-teams", priority=25, terminal=False)
@@ -48,25 +74,22 @@ class BusTeamsHandler(StatusLineHandlerBase):
         return True
 
     def handle(self, hook_input: dict[str, Any]) -> AdvisoryResult:
-        teams = teams_from_environment()
+        teams = session_teams(hook_input.get("session_id"))
         if not teams:
             return AdvisoryResult(context=[])
         return AdvisoryResult(context=[f"| {_COLOR_CYAN}{_GLYPH} {','.join(teams)}{_COLOR_RESET}"])
 
     def explain_segment(self) -> SegmentExplanation:
-        teams = teams_from_environment()
-        current = f"Currently shows: {_GLYPH} {','.join(teams)}" if teams else (
-            f"Not shown now: {ENV_TEAMS} is unset, empty or not a team list.")
         return SegmentExplanation(
             glyphs=(_GLYPH,),
             name="Bus Teams",
             what_it_is="The agent-bus teams this session is on.",
             how_to_read=(
-                f"bus: A,B lists every team in ${ENV_TEAMS}, in the order the session was launched "
-                "with. A session on no team shows nothing. A value that is not a list of team "
-                "names is not shown."
+                "bus: A,B lists every team this session was launched with, from the record the "
+                "pingbus SessionStart hook wrote for this session id. A session on no team, or one "
+                "whose record is missing, shows nothing; it never shows another session's teams."
             ),
-            current_value=current,
+            current_value="Per session: shown only when this session has a record.",
         )
 
     def get_claude_md(self) -> str | None:

@@ -84,6 +84,24 @@ func TestABlockedMarkIsExplainedAndTheOtherMarksAreKept(t *testing.T) {
 	}
 }
 
+// An answer the owner gave is kept: a team left out at the scope question is not silently held for
+// the next round.
+func TestATeamLeftOutAfterAHeldRoundIsNotHeldAgain(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden+gammaExclude+deltaWiden)
+	r.Script.Fzf = []string{"|beta&&gamma", "|delta", "|alpha"}
+	r.Script.Gum = []string{"CHOOSE:Leave beta out", "CHOOSE:Leave delta out"}
+	exit(t, r.run("--type=podman"), term.ExitOK, r)
+	if len(r.Script.Rows) != 3 {
+		t.Fatalf("rounds %d", len(r.Script.Rows))
+	}
+	if !strings.Contains(strings.Join(r.Script.Rows[2], "\n"), "beta ") {
+		t.Fatalf("beta, which was left out, is not offered again: %q", r.Script.Rows[2])
+	}
+	if r.payload.String() != "1@alpha\n" || len(r.Script.GumLog) != 2 {
+		t.Fatalf("payload %q gum %v", r.payload.String(), r.Script.GumLog)
+	}
+}
+
 func TestEscAfterMarksWereKeptTakesNothing(t *testing.T) {
 	r := newRig(t, alphaCovers+betaWiden+gammaExclude)
 	r.Script.Fzf = []string{"|alpha&&gamma", "|ABORT"}

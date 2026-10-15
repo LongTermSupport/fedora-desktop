@@ -189,6 +189,7 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 		}
 		final, code, again := c.settle(ctx, repo, taken)
 		if again {
+			held = nil // every team was left out: that answer stands, nothing is held
 			continue
 		}
 		if len(final) == 0 {
