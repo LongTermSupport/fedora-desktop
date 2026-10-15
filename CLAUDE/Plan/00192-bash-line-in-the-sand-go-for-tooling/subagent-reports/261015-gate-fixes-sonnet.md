@@ -46,18 +46,21 @@ same line and statement counts (a `printf` merging two adjacent `echo` lines pay
 `scripts/test-ccy-restart-request.bash` looked for the old one-line `exec`; it now looks for the
 dup half. qa-changed passes.
 
-## Making the patterns gate fail on a mostly-unparsed file: design, not built
+## The parse ratchet (built in the follow-up commit)
 
-Today `printPartial` (src-go/qa/patterns/report.go) only warns. A bare threshold would fail the
-gate at once on any file still over it, so it needs a ratchet:
+`src-go/qa/patterns/ratchet.go`: a shell file with more than half of its lines outside the parse
+tree fails the patterns gate unless it is on `scripts/patterns-partial.allowlist` (rows: path,
+unparsed lines, the construct). A listed file above its record fails (grew), below it fails
+(lower the record), and no longer mostly unparsed fails (delete the row). A missing or malformed
+allowlist is exit 2. There is no `--update` and no merge-base comparison, unlike bash-limits: a
+record is lowered by hand, and a record raised by hand is not caught. Tests in `ratchet_test.go`
+were seen red before the code. SPEC-qa-patterns.md P14 says so.
 
-1. A tracked `scripts/patterns-partial.allowlist`, rows `<path> <max-unparsed-lines>`, like
-   `bash-limits.allowlist`.
-2. A file fails if its unparsed line union (already computed by `unionOf`) exceeds half its lines
-   and is not listed, or exceeds its listed maximum; a listed file now below its record fails
-   as "tighten the record", with an `--update` flag.
-3. Today's allowlist would hold one row, `session-lifecycle.bash`, until the `10#` form is
-   resolved. Spec expectation P14 of SPEC-qa-patterns.md changes from warn to fail, with tests
-   for over, listed, under-record and unlisted, and a QA.md note.
+Findings when the real tree was first scanned: `files/home/.local/bin/ftp-camera` was 1973 of
+2569 lines unparsed because of `-FileSize#` (a `#` inside a word in `$( )` starts a comment for
+the grammar); quoting it as `"-FileSize#"` fixed it. The one listed file is the completed plan's
+`reproduce-pipx-uv.bash` (348 lines, a heredoc in an `if` condition).
 
-The loader, update mode and spec edit are more than a small change, so they are not built.
+Correction to the section above: `lib/session-lifecycle.bash` is not unparsed under the gate. It
+failed only under a `--lang bash --pattern` probe; the gate's own scan of it, with the rules,
+reports no parse error, so it is not on the allowlist (a row for it would fail as stale).
