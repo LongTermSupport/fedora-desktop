@@ -680,6 +680,12 @@ func TestAVersionPinsEditRunsTheGate(t *testing.T) {
 	if p := w.classify([]string{"vars/version-pins.yml"}); !p.covered["vars/version-pins.yml"] {
 		t.Errorf("the manifest must count as covered by the gate: %+v", p.covered)
 	}
+	// The Python validator is pinned to the gate's shape by a Go test, so a change to it runs the go check.
+	w = newWorld(t)
+	w.touch("helpers/version_pins/manifest.py", "x = 1\n")
+	if p := w.classify([]string{"helpers/version_pins/manifest.py"}); !p.has("go") {
+		t.Errorf("the Python manifest validator must run the go check: %v", keys(p))
+	}
 	w = newWorld(t)
 	if p := w.classify(nil, "playbooks/imports/play-gone.yml"); !p.has("version-pins") {
 		t.Errorf("a deleted playbook owes the gate: %v", keys(p))

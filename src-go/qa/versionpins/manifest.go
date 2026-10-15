@@ -87,7 +87,7 @@ func check(fsys fs.FS) report {
 	if !ok {
 		return r
 	}
-	if len(r.findings) == 0 && r.tracked == 0 {
+	if r.pins > 0 && r.tracked == 0 {
 		r.findf(1, "no pin tracks the installed version: %d pin(s) declared, 0 tracked, so the installed-against-pinned "+
 			"check compares nothing and cannot fail; give at least one pin an installed: block that is not untracked", r.pins)
 	}
@@ -158,13 +158,13 @@ func (r *report) readRows(rows *yaml.Node) []pin {
 		} else {
 			first[key] = i
 		}
+		if p.tracked {
+			r.tracked++
+		}
 		if len(r.findings) != before {
 			continue
 		}
 		r.wellFormed++
-		if p.tracked {
-			r.tracked++
-		}
 		pins = append(pins, p)
 	}
 	return pins

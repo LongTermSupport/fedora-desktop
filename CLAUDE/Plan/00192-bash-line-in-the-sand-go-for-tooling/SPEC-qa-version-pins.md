@@ -72,7 +72,8 @@ A finding is `vars/version-pins.yml:<line>: <what>` and names the row as `versio
   `kind`, `name`, `why`; `kind` is one of `dkms`, `rpm`, `command`, `untracked` (never defaulted);
   `untracked` needs a `why`; the other three need a `name`.
 - V16. A tracked pin is one whose `kind` is `dkms`, `rpm` or `command`. With **no** tracked pin the
-  installed-against-pinned check compares nothing and cannot fail: a finding naming the pin count.
+  installed-against-pinned check compares nothing and cannot fail: a finding naming the pin count,
+  reported alongside any other finding (a row with another finding still counts as tracked).
 
 ### Every row still resolves (exit 1 for a wrong row, exit 2 for a file the gate cannot read)
 
@@ -126,11 +127,16 @@ A finding is `vars/version-pins.yml:<line>: <what>` and names the row as `versio
 ## 4. Stated limits
 
 - The shape of a row is stated twice: here (Go, for the gate) and in `helpers/version_pins/manifest.py`
-  (Python, for the host-side consumers). The Python helper's own tests pin the Python side; a real-tree
-  test here runs the Go side over the live manifest. A rule added to one is added to the other.
+  (Python, for the host-side consumers). `TestGoAndPythonAgreeOnTheShapeOfTheManifest` in
+  `src-go/qa/cmd/qa-version-pins` pins the two to the same verdict over a table of manifests (the
+  good one and one per shape rule) and over the live manifest. The rules only the Go enforces, B9
+  (other top-level keys) and V16 (a tracked pin), are named in that test, which asserts the Python
+  accepts them so a rule later added to the Python is noticed. A repeated key (V8) cannot reach the
+  Python, since the YAML library will not decode it into JSON; the test asserts that too.
 - Only the first `var:` line is read, as the consumer does; a later declaration of the same var in the
   same file is not compared with it.
-- `qa-changed` runs the gate whole when the manifest, a playbook or task or vars file, the `.pin` file
-  under `files/usr/local/share/agent-bus/`, or the gate's own script, Go package or command changes or
-  is deleted. A pin may name any repository file, so a change to a file the manifest names that is
-  outside those trees is judged by `qa-all`.
+- `qa-changed` runs the gate whole when the manifest, a playbook under `playbooks/`, the
+  `tuwunel.pin` file under `files/usr/local/share/agent-bus/`, or the gate's own script, Go package
+  or command changes or is deleted. A pin may name any repository file, so a change to a file the
+  manifest names that is outside those paths (a `tasks/` or other `vars/` file) is judged by
+  `qa-all`.

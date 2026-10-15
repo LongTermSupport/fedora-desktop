@@ -110,6 +110,9 @@ also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa
 also	vars/version-pins.yml	version-pins	covered
 also	files/usr/local/share/agent-bus/tuwunel.pin	version-pins	covered
 also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
+# The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
+# to it runs the go check.
+also	helpers/version_pins/manifest.py	go	-
 also	scripts/qa-version-pins.bash,src-go/qa/versionpins/*,src-go/qa/cmd/qa-version-pins/*,scripts/lib/go-tool.bash	version-pins	-
 # The speech-to-text rules gate runs over each changed JavaScript and Python file by name (the
 # *.js, *.mjs and @py rows below), and runs whole over every published file when its rules,

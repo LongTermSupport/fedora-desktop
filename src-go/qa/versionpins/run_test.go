@@ -306,6 +306,20 @@ func TestV16AtLeastOnePinMustBeTracked(t *testing.T) {
 	mustContain(t, "one tracked", w.out.String(), "2 pin(s), 1 with install state tracked, 1 declared untracked")
 }
 
+// V16, V24: the floor is reported alongside any other finding, not held back until it is fixed.
+func TestV16TheFloorIsReportedAlongsideOtherFindings(t *testing.T) {
+	typo := strings.Replace(untrackedRow("playbooks/a.yml", "a_version"), "github:", "githug:", 1)
+	w := expectExit(t, "typo and no tracked pin", withManifest(manifestOf(typo)), ExitFailed)
+	mustContain(t, "typo", w.err.String(), "unknown key 'githug'")
+	mustContain(t, "floor", w.err.String(), "no pin tracks the installed version")
+	// A tracked pin whose row has another finding still counts as tracked.
+	broken := strings.Replace(trackedRow, "github:", "githug:", 1)
+	w = expectExit(t, "tracked but typo", withManifest(manifestOf(broken)), ExitFailed)
+	if strings.Contains(w.err.String(), "no pin tracks") {
+		t.Errorf("a tracked pin was not counted:\n%s", w.err.String())
+	}
+}
+
 // V17
 func TestV17PlaybookPathsStayInsideTheRepository(t *testing.T) {
 	for _, bad := range []string{"/etc/passwd", "../outside.yml", "playbooks/../../x", "./playbooks/a.yml", "playbooks//a.yml", "playbooks/", "."} {
