@@ -19,9 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00201 Morning start fixes: rebuilds ccy-teams only (no ccy launcher or image change, so
-# no image rebuild and no session relaunch for this). After a first password, Open in Element
-# says to sign in with the password shown above instead of "Copy it now"; a person who has never
-# signed in gets a password on Enter (someone already signed in still defaults to No); and run
-# in a checkout no team covers, "Create a team for ... now?" defaults to No.
-playbooks/imports/play-claude-yolo.yml

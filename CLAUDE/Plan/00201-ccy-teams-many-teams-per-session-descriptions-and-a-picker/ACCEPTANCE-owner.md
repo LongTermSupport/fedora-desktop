@@ -4,10 +4,9 @@
 
 Do these in order, once. Each step names what you should see.
 
-1. **Deploy the new ccy-teams.** The host already runs F44 at df548372 (ccy 3.98.11, image
-   2.66, pingbus plugin 1.2.3, Tuwunel 1.9.4); that deploy also applied every team. The queue
-   holds one run, `play-claude-yolo.yml`, which rebuilds ccy-teams with the sign-in fixes
-   (no ccy or image change): run `./CLAUDE/Plan/meta-deploy.bash`.
+1. **Nothing to deploy.** The host already runs F44 at 8ce5e95d (ccy 3.98.11, image 2.66,
+   pingbus plugin 1.2.3, Tuwunel 1.9.4, ccy-teams with the sign-in fixes); those deploys also
+   applied every team. The deploy queue is empty, so do not run `meta-deploy.bash`.
 2. **Look at the teams.** In a terminal, `cd ~` first, then `ccy-teams`. Run it from your home
    folder: inside a checkout it may offer to start a session there (default Yes), or to create
    a team for it (default No). Every team row should read **up** and **up to date**. If it opens
