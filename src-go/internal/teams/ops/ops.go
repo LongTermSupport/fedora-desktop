@@ -200,14 +200,16 @@ func (o *Ops) Apply(ctx context.Context, args []string) term.ExitCode {
 }
 
 // signInAfter looks at who of the applied teams cannot sign in to Element yet: the play made
-// their accounts whether or not the apply then passed. The apply's own result stands; only a
-// cancelled question changes it.
+// their accounts whether or not the apply then passed. The apply's own result stands; a flow
+// that itself failed is said and fails a passed apply.
 func (o *Ops) signInAfter(ctx context.Context, teams []string, result term.ExitCode) term.ExitCode {
 	if o.SignInGap == nil {
 		return result
 	}
-	if err := o.SignInGap(ctx, teams, o.interactive()); errors.Is(err, ui.ErrCancelled) {
-		return o.cancelled()
+	o.changed() // who is signed in was read before the play; read it again
+	if err := o.SignInGap(ctx, teams, o.interactive()); err != nil {
+		o.Term.PrintError(err.Error())
+		return term.ExitFailure
 	}
 	return result
 }

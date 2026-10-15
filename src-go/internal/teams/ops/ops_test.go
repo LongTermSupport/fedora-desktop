@@ -498,14 +498,17 @@ func TestApplyLooksAtSignInAfterAPassedAndAFailedApply(t *testing.T) {
 	}
 }
 
-func TestApplyCancelledAtTheSignInOfferIsCancelled(t *testing.T) {
+func TestApplyThatCannotFinishTheSignInOfferFailsEvenWhenTheApplyPassed(t *testing.T) {
 	r := newOpsRig(t)
 	r.on(opsPlay, execx.Result{})
 	r.on(opsDeclare+"element-teams", execx.Result{})
 	r.statuses = []map[string]declare.Status{{"t": st("unbuilt", "")}, {"t": st("current", "")}}
-	r.ops.SignInGap = func(context.Context, []string, bool) error { return ui.ErrCancelled }
-	if code := r.ops.Apply(context.Background(), []string{"t"}); code != term.ExitCancelled {
+	r.ops.SignInGap = func(context.Context, []string, bool) error { return errors.New("gum broke") }
+	if code := r.ops.Apply(context.Background(), []string{"t"}); code != term.ExitFailure {
 		t.Errorf("code %d", code)
+	}
+	if !strings.Contains(r.said(), "gum broke") || strings.Contains(r.said(), "nothing was changed") {
+		t.Errorf("said %q", r.said())
 	}
 }
 

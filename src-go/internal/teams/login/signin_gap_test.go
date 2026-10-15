@@ -62,6 +62,36 @@ func TestSignInGapThatCannotReadSessionsSaysSoWithTheCommand(t *testing.T) {
 	}
 }
 
+func TestSignInGapCancelledAtTheQuestionIsANoThatSaysHowLater(t *testing.T) {
+	h := newRig(t)
+	h.Script.Gum = []string{"CANCEL"}
+	if err := h.l.SignInGap(t.Context(), []string{"alpha"}, true); err != nil {
+		t.Fatalf("a cancelled offer is a no, not a failure: %v", err)
+	}
+	if !strings.Contains(h.ErrOut.String(), wantHow) || strings.Contains(h.ErrOut.String(), "nothing was changed") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+func TestSignInGapAcceptedButNoPasswordSetSaysHowLater(t *testing.T) {
+	h := newRig(t)
+	h.Script.Gum = []string{"YES"}
+	h.OnErr("sudo -n -v", "a password is required", 1)
+	if err := h.l.SignInGap(t.Context(), []string{"alpha"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(h.ErrOut.String(), "Password ") || !strings.Contains(h.ErrOut.String(), wantHow) {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+func TestSignInGapOfNoTeamsDoesNothing(t *testing.T) {
+	h := newRig(t)
+	if err := h.l.SignInGap(t.Context(), nil, false); err != nil || h.ErrOut.String() != "" {
+		t.Fatalf("%v %q", err, h.ErrOut.String())
+	}
+}
+
 func TestSignInGapWhenTheRosterCannotBeReadSaysSoWithTheCommand(t *testing.T) {
 	h := newRig(t)
 	h.OnErr(teamtest.SudoBus+"list alpha", "homeserver is down", 1)

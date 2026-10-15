@@ -791,8 +791,8 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 	if err = c.ApplyTeams(ctx, o.team); err != nil {
 		// The play ran before it failed, so the person's account exists with a password
 		// nobody was shown: the sign-in is offered (or said) here, the failure still stands.
-		if signErr := c.SignInGap(ctx, []string{o.team}, !o.yes); errors.Is(signErr, ui.ErrCancelled) {
-			return c.cancelled()
+		if signErr := c.SignInGap(ctx, []string{o.team}, !o.yes); signErr != nil {
+			c.term.PrintError(signErr.Error())
 		}
 		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
 			" but not applied as declared. Once the cause above is fixed, ccy-teams apply " + o.team + " applies it.")

@@ -812,6 +812,17 @@ func TestAnInteractiveFailedInstallOffersTheSignInBeforeItsFailure(t *testing.T)
 	}
 }
 
+// A sign-in offer that breaks is said, and the failed apply keeps its own message and exit.
+func TestAFailedInstallKeepsItsMessageAndExitWhenTheSignInOfferBreaks(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	h.applyErr = errors.New("play failed")
+	h.c.SignInGap = func(context.Context, []string, bool) error { return errors.New("gum broke") }
+	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
+	wzContain(t, "stderr", h.err(), "gum broke", "ccy-teams apply beta applies it.")
+	wzLack(t, "stderr", h.err(), "nothing was changed")
+}
+
 func TestAPassedInstallLeavesTheSignInToItsOwnOffer(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()

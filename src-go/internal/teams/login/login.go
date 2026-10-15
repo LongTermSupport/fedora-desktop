@@ -199,6 +199,9 @@ func (l *Login) NewPassword(ctx context.Context, team, human string) error {
 // What cannot be read (the homeserver may not be up after a failed apply) is said too, with
 // the same way, never skipped.
 func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
+	if len(teams) == 0 {
+		return nil
+	}
 	snap, err := l.Board.Collect(ctx)
 	if err != nil {
 		l.Kit.ReportErr(err)
@@ -255,17 +258,30 @@ func (l *Login) signInGapOf(ctx context.Context, snap *board.Snapshot, team stri
 func (l *Login) offerSignIn(ctx context.Context, snap *board.Snapshot, team, name string, ask bool) error {
 	l.Kit.Tell(name + " has never signed in to " + team + ".")
 	if ask {
-		yes, err := l.Kit.AskYes(ctx, "Sign "+name+" in to Element now? A password is set and shown here once.", true)
-		if err != nil {
-			return err
-		}
-		if yes {
-			_, err = l.IssuePassword(ctx, snap, team, name)
+		set, err := l.askSignIn(ctx, snap, team, name)
+		if err != nil || set {
 			return err
 		}
 	}
 	l.Kit.Tell(howToSignIn(team))
 	return nil
+}
+
+// askSignIn asks, then sets the password. Leaving the question (Ctrl-C) is a no, said without
+// "nothing was changed": the apply ran. It says whether a password was set.
+func (l *Login) askSignIn(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
+	yes, err := l.Kit.Gum.Confirm(ctx, "Sign "+name+" in to Element now? A password is set and shown here once.", true)
+	if errors.Is(err, ui.ErrCancelled) || (err == nil && !yes) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	set, err := l.IssuePassword(ctx, snap, team, name)
+	if errors.Is(offerResult(err), ui.ErrCancelled) {
+		return set, nil // left the copy offer; the password was shown
+	}
+	return set, err
 }
 
 // ensureProfile is Done when the team has an Element profile, setting one up when it has none.
