@@ -87,9 +87,10 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   merge); the goodbye reaches ccy sessions only after the image rebuild.
 - [ ] 🔄 **Task 2.0c**: Inject the message itself through today's inbox socket (the owner's
   decision of 2026-10-15, journal 17:10), until Task 2.1 can replace it: a nonce-marked
-  envelope with kind and sender from pingbus, the body as escaped data, caps, delivered once,
-  attested by the UserPromptSubmit hook. Spec: [SPEC-inject.md](SPEC-inject.md), awaiting
-  review before the build. Branch `feat/bus-inject-message`.
+  envelope with kind and sender from pingbus, the body as escaped data capped after escaping
+  (the rest in `pingbus history`), a flood limit per agent sender, delivered once, a held
+  delivery detected from the transcript. Spec: [SPEC-inject.md](SPEC-inject.md), amended
+  after Fable's review. Branch `feat/bus-inject-message`.
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops
