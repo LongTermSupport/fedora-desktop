@@ -29,7 +29,7 @@
 # covers, and mark two teams.
 playbooks/imports/play-claude-yolo.yml
 
-# agent team bus acceptance again. M2.9 and M2.10 now pass on the host; this run waits on the
-# U23.lxc fix (pingbus could not be executed inside an LXC member). U20 needs the saved Quick
-# Launch choices that are already in place from the last run.
+# agent team bus acceptance again. M2.9 and M2.10 now pass on the host. U23.lxc is fixed: the
+# LXC kit is unpacked with explicit 0755 directories, so a run under umask 077 still lets the
+# agent user run pingbus. U20 needs the saved Quick Launch choices already in place.
 00161-agent-team-bus-matrix/acceptance.bash
