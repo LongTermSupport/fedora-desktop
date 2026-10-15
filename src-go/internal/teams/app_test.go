@@ -1,11 +1,14 @@
 package teams
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -272,6 +275,44 @@ func TestARunThatMadeSudoReadyDropsTheCredentialLast(t *testing.T) {
 	if calls[len(calls)-1].Line() != "sudo -k" {
 		t.Fatalf("the last command is not sudo -k: %v", calls)
 	}
+}
+
+// Review L-A: Ctrl-C after sudo was made ready must not kill ccy-teams before it drops the
+// credential. Run takes its context from Interrupted; a run cut short through it still ends
+// with sudo -k.
+func TestARunInterruptedAfterSudoWasMadeReadyStillDropsTheCredential(t *testing.T) {
+	h := world(t)
+	var interrupt context.CancelFunc
+	h.app.Interrupted = func(parent context.Context) (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(parent)
+		interrupt = cancel
+		return ctx, cancel
+	}
+	h.On("sudo -n -v", "", 0)
+	h.Fake.OnFunc([]string{"sudo", "-n", "/usr/local/sbin/agent-bus-install", "backup-now"},
+		func(execx.Cmd) (execx.Result, error) {
+			interrupt()
+			return execx.Result{ExitCode: 130}, nil
+		})
+	if code := h.app.Run([]string{"backup", "alpha"}); code == term.ExitOK {
+		t.Fatal("an interrupted backup exited 0")
+	}
+	calls := h.Fake.Calls()
+	if calls[len(calls)-1].Line() != "sudo -k" {
+		t.Fatalf("the last command is not sudo -k: %v", calls)
+	}
+}
+
+// The default Interrupted catches SIGINT as a cancelled context instead of letting it end the
+// process. Without it this SIGINT ends the test binary, which is the red.
+func TestTheDefaultInterruptedTurnsCtrlCIntoACancelledContext(t *testing.T) {
+	h := newHarness(t)
+	ctx, stop := h.app.Interrupted(context.Background())
+	defer stop()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	<-ctx.Done()
 }
 
 func TestARunThatNeverMadeSudoReadyLeavesItAlone(t *testing.T) {

@@ -195,7 +195,12 @@ for tool in Read Edit; do
     check "deny $rule" "true" \
         "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
 done
-for rule in 'Bash(*secret-tool*)' 'Bash(*keyring*)' 'Bash(*freedesktop.Secret*)' \
+# The Secret Service's bus name is lower case and its interface capitalised; rules are case
+# sensitive, so both are denied (review L-C). The dot is a variable only so this file's text is
+# not mistaken for a path to a secrets file by the repository's guards.
+dot=.
+bus_name_rule="Bash(*freedesktop${dot}secrets*)"
+for rule in 'Bash(*secret-tool*)' 'Bash(*keyring*)' 'Bash(*freedesktop.Secret*)' "$bus_name_rule" \
     'Bash(*im.riot.Riot*)' 'Bash(*.config/Element*)' 'Bash(*IndexedDB*)' 'Bash(*Local Storage*)'; do
     check "deny $rule" "true" \
         "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"

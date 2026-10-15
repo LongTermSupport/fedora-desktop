@@ -146,7 +146,7 @@ a repository is no longer offered for a checkout of it. Report:
   drops it before exiting (`sudo.Forget`); the `sudo -v` advice is gone. H2: cc's settings deny
   Bash the plain routes to the keyring and Element's profile, and the consent says ccy is the
   safe choice. M2, M3, permission laundering and L7 in the skill and the delivery frame; L1 in
-  the consent and the launch block; L4: a copied password is cleared after 45 seconds; M1, H2,
+  the consent and the launch block; L4: a copied password serves one paste (`wl-copy --paste-once`); M1, H2,
   L1 in the docs' Limits. Host run pending (meta-deploy). Report:
   `subagent-reports/261015-security-client-opus.md`.
 

@@ -258,12 +258,6 @@ if [ -n "${TEST_WLCOPY_FAIL:-}" ]; then
     echo "wl-copy: failed to connect to a Wayland server" >&2
     exit 1
 fi
-# The clear a user timer runs later (the fake systemd-run runs it at once): kept apart, so the
-# clipboard's content can still be checked.
-if [ "${1:-}" = "--clear" ]; then
-    touch "$TEST_STATE/clipboard-cleared"
-    exit 0
-fi
 cat >"$TEST_STATE/clipboard"
 EOF
 cat >"$BIN/launcher" <<'EOF'
@@ -465,7 +459,7 @@ reset() {
     : >"$TEST_FZF_RAW"
     printf '0\n' >"$STATE/fzf-calls"
     touch "$STATE/sudo-cached"
-    rm -f "$STATE/clipboard" "$STATE/clipboard-cleared"
+    rm -f "$STATE/clipboard"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
     rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/seats/"*.unreadable
@@ -847,10 +841,9 @@ out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" 
 check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
     "$(cat "$STATE/clipboard" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
-check "  and a user timer clears the clipboard after 45 seconds" "yes" \
-    "$(logged 'systemd-run --user --quiet --collect --on-active=45 --setenv=WAYLAND_DISPLAY=wayland-test')"
-check "    with wl-copy --clear" "yes" "$([ -e "$STATE/clipboard-cleared" ] && echo yes || echo no)"
-check_has "    which the person is told" "for 45 seconds, then the clipboard is cleared" "$out"
+check "  and served to one paste only" "yes" "$(logged 'wl-copy --paste-once')"
+check "    with no timer that could wipe a later copy" "no" "$(logged 'systemd-run --user --quiet --collect --on-active')"
+check_has "    which the person is told" "for one paste; after that it is gone from the clipboard" "$out"
 copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
 check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"

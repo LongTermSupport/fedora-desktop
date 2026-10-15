@@ -400,7 +400,9 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 }
 
 // offerCopy, in a Wayland session, offers to put the password on the clipboard. It goes to
-// wl-copy on stdin, never in its arguments, which any process can read.
+// wl-copy on stdin, never in its arguments, which any process can read, and is served to one
+// paste only (security audit L4): nothing clears the clipboard later, so nothing the person
+// copies afterwards is wiped. Outside Wayland nothing is offered; the password is on screen.
 func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 	if l.Getenv("WAYLAND_DISPLAY") == "" {
 		return nil
@@ -411,8 +413,8 @@ func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 		return nil
 	}
 	yes, err := l.Kit.Confirm(ctx, "Copy the password?",
-		"Put "+name+"'s new password on the clipboard, to paste into Element. It is cleared after "+
-			strconv.Itoa(clipboardSeconds)+" seconds; a clipboard manager may keep a copy.",
+		"Put "+name+"'s new password on the clipboard for one paste, into Element; after that it is gone "+
+			"from the clipboard. A clipboard manager may keep a copy.",
 		"copy the password", true)
 	if err != nil || !yes {
 		return err
@@ -421,31 +423,13 @@ func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 		l.Kit.Term.PrintError("wl-copy failed (above), so the password is not on the clipboard; copy it from above.")
 		return nil
 	}
-	if !l.clearClipboardLater(ctx) {
-		l.Kit.Term.PrintError("the clipboard could not be set to clear itself (above), so the password stays on it until you copy something else.")
-		return nil
-	}
-	l.Kit.Tell("The password is on the clipboard for " + strconv.Itoa(clipboardSeconds) + " seconds, then the clipboard is cleared.")
+	l.Kit.Tell("The password is on the clipboard for one paste; after that it is gone from the clipboard.")
 	return nil
 }
 
-// clipboardSeconds is how long a copied password stays on the clipboard (security audit L4).
-const clipboardSeconds = 45
-
-// clearClipboardLater starts a user timer that clears the clipboard, apart from this process so
-// it fires after ccy-teams has gone; it says whether systemd took it. wl-copy is given this
-// session's display, which the user manager may not have.
-func (l *Login) clearClipboardLater(ctx context.Context) bool {
-	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "systemd-run", Args: []string{
-		"--user", "--quiet", "--collect", "--on-active=" + strconv.Itoa(clipboardSeconds),
-		"--setenv=WAYLAND_DISPLAY=" + l.Getenv("WAYLAND_DISPLAY"), "--", "wl-copy", "--clear",
-	}, Stderr: l.Kit.Stderr})
-	return err == nil
-}
-
-// copyToClipboard puts text on the clipboard; it says whether wl-copy took it.
+// copyToClipboard puts text on the clipboard for one paste; it says whether wl-copy took it.
 func (l *Login) copyToClipboard(ctx context.Context, text string) bool {
-	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Stdin: strings.NewReader(text), Stderr: l.Kit.Stderr})
+	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Args: []string{"--paste-once"}, Stdin: strings.NewReader(text), Stderr: l.Kit.Stderr})
 	return err == nil
 }
 

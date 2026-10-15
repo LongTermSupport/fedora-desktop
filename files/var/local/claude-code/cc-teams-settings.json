@@ -13,6 +13,7 @@
       "Bash(*secret-tool*)",
       "Bash(*keyring*)",
       "Bash(*freedesktop.Secret*)",
+      "Bash(*freedesktop.secrets*)",
       "Bash(*im.riot.Riot*)",
       "Bash(*.config/Element*)",
       "Bash(*IndexedDB*)",

@@ -102,7 +102,7 @@ func consentWords(handles []string) string {
 		"  commands that reach them. That is guidance, not a wall: an agent\n" +
 		"  beside Element can still reach your session by other routes.\n" +
 		"  ccy --teams is the safe choice: its agent runs in a container\n" +
-		"  that cannot reach Element at all.\n\n" +
+		"  that cannot reach your Element sign-in.\n\n" +
 		"  Any human listed in a team can direct its agents as you can.\n" +
 		"  You are asked once, for every cc --teams seat.\n"
 }

@@ -168,7 +168,6 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	h.passwordable()
 	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
 	h.On("wl-copy", "", 0)
-	h.On("systemd-run", "", 0)
 	h.Script.Fzf = []string{"|YES", "|EXIT"}
 	snap := h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
@@ -180,18 +179,19 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 			copyCall = c
 		}
 	}
-	if copyCall.Name == "" || len(copyCall.Args) != 0 {
+	if copyCall.Name == "" || !slices.Equal(copyCall.Args, []string{"--paste-once"}) {
 		t.Fatalf("wl-copy call %+v: the password is never an argument", copyCall)
 	}
 	in, err := io.ReadAll(copyCall.Stdin)
 	if err != nil || string(in) != "a-new-password" {
 		t.Fatalf("stdin %q %v", in, err)
 	}
-	// Security audit L4: the password does not stay on the clipboard; a user timer clears it.
-	if !h.Fake.Called("systemd-run --user --quiet --collect --on-active=45 --setenv=WAYLAND_DISPLAY=wayland-test -- wl-copy --clear") {
-		t.Fatalf("no clear timer: %v", h.Fake.Calls())
+	// Security audit L4: the password serves one paste and is gone; nothing clears the clipboard
+	// later, so what the person copies afterwards is never wiped.
+	if h.Fake.Called("systemd-run") {
+		t.Fatalf("a timer was started: %v", h.Fake.Calls())
 	}
-	if !strings.Contains(h.ErrOut.String(), "The password is on the clipboard for 45 seconds, then the clipboard is cleared.\n") {
+	if !strings.Contains(h.ErrOut.String(), "The password is on the clipboard for one paste; after that it is gone from the clipboard.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
@@ -205,19 +205,20 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	}
 }
 
-func TestPasswordClipboardThatCannotBeClearedSaysHowLongItStays(t *testing.T) {
+func TestPasswordOutsideWaylandOffersNoClipboard(t *testing.T) {
 	h := newRig(t)
 	h.passwordable()
-	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
-	h.On("wl-copy", "", 0)
-	h.OnErr("systemd-run", "Failed to connect to bus", 1)
-	h.Script.Fzf = []string{"|YES", "|EXIT"}
+	h.Script.Fzf = []string{"|EXIT"}
 	snap := h.pass(t)
 	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(h.ErrOut.String(), "ERROR: the clipboard could not be set to clear itself (above), so the password stays on it until you copy something else.\n") ||
-		strings.Contains(h.ErrOut.String(), "for 45 seconds") {
+	for _, c := range h.Fake.Calls() {
+		if c.Name == "wl-copy" || c.Name == "xclip" || c.Name == "xsel" {
+			t.Fatalf("a clipboard tool ran outside Wayland: %+v", c)
+		}
+	}
+	if strings.Contains(h.ErrOut.String(), "on the clipboard") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }

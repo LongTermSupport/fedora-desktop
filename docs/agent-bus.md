@@ -53,7 +53,7 @@ that play.
    `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
    words. Until you have signed in, the first choice is "Sign in: set a password (shown
    once)"; it shows the password with the homeserver and username, offers it to the
-   clipboard (cleared again after 45 seconds), and then offers to open Element. Once you are signed in, the first choice is
+   clipboard (for one paste, then gone), and then offers to open Element. Once you are signed in, the first choice is
    "Open the team in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
