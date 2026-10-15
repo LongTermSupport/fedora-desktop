@@ -31,9 +31,9 @@ SHELLCHECK=0.11.0
 GOLANGCI_LINT=2.14.0
 
 # go-qa-ci (github.com/LongTermSupport/go-qa-ci), the Go QA toolchain: the commit that `go install`
-# builds go-qa from, and the checkout whose tools.lock pins ast-grep, gremlins, deadcode,
-# govulncheck, gitleaks and actionlint. Those six are installed by the same three consumers from
-# that tools.lock, so go-qa is the one version to bump; the sha256 of the release archives are
-# pinned inside go-qa-ci, not here. src-go/qa/go.mod requires the same commit (the project rules
-# build against go-qa-ci's driver), so a bump changes both.
+# builds go-qa from, and the checkout whose tools.lock pins deadcode and govulncheck. Those two
+# are installed by the same three consumers from that tools.lock, so go-qa is the one version to
+# bump (golangci-lint stays pinned here, above, and is not taken from tools.lock). src-go/qa/go.mod
+# requires the same commit (the project rules build against go-qa-ci's driver), so a bump changes
+# both; the toolchain gate fails when they differ.
 GO_QA_CI=803b122ce526

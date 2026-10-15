@@ -114,6 +114,22 @@ today; rewriting them is out of scope.
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to
   everything. This repository's `qa-changed.bash` calls it with Task 3.3.
+- [ ] ⬜ **Task 3.5**: Merge day, before merging `go-qa-ci/adopt`: the owner reads
+  `go-qa --root src-go record list`, chooses the trust tier in `src-go/qa/go-qa.toml`'s
+  `[record.trust.models]` (the branch carries go-qa-ci's own default, medium: 30 days, three
+  entries) and the caps, and re-signs the ratchet and every entry in their own commit. The branch
+  ships the record unsigned (`decided_by` names the agent), so the `record` step, and with it the
+  go gate, is red until then; that is the pending state. The ratchet's `decided_on` must be the
+  owner's, dated that day: go-qa-ci accepts a record created or raised only while it is at most
+  14 days old, so a signature given earlier than two weeks before the merge fails
+  `gqaci.record.ratchet`. `history_base` in `src-go/qa/go-qa.toml` is `origin/F44`, the current
+  default branch; it must name the default branch whenever it changes (CLAUDE/Release.md).
+- [ ] ⬜ **Task 3.6**: Pin the go-qa-ci tools the branch does not yet install, once something
+  starts them: `ast-grep` when a project rule exists in `sgconfig.yml` (until then go-qa skips
+  the step, so a missing binary would never be noticed), and `gremlins` with
+  `mutants.mode = "diff"` and a threshold in `src-go/qa/go-qa.toml` (the mode is `off`, the
+  default nobody chose). Add both to the installer's name list in the Dockerfile, `play-python.yml`
+  and `qa.yml`, and to the toolchain gate.
 
 ### Phase 4: ccy-sessions, then ccy
 

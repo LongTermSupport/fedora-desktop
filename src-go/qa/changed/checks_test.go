@@ -379,7 +379,7 @@ func TestTheGoCheckRunsGoQAInDiffModeAgainstTheBase(t *testing.T) {
 	if _, err := lookupCheck("go").run(context.Background(), s, &checkPlan{}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"go-qa", "--root", filepath.Join(s.root, "src-go"), "run", "--changed", "--base", "origin/F44"}
+	want := []string{"go-qa", "--root", filepath.Join(s.root, "src-go"), "run", "--no-fix", "--changed", "--base", "origin/F44"}
 	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].Argv, want) || !runner.calls[0].Merge {
 		t.Fatalf("calls %+v, want one merged run of %v", runner.calls, want)
 	}

@@ -114,12 +114,14 @@ func TestT6TheGoFloorComesFromGoMod(t *testing.T) {
 		"bad version":  {true, "module m\ngo one.two\n"},
 	}
 	for name, c := range cases {
-		w := goodWorld()
-		delete(w.files, "src-go/go.mod")
-		if c.set {
-			w.files["src-go/go.mod"] = c.text
+		for _, file := range []string{"src-go/go.mod", "src-go/qa/go.mod"} {
+			w := goodWorld()
+			delete(w.files, file)
+			if c.set {
+				w.files[file] = c.text
+			}
+			t.Run(name+" "+file, func(t *testing.T) { cannotRun(t, w, file) })
 		}
-		t.Run(name, func(t *testing.T) { cannotRun(t, w, "src-go/go.mod") })
 	}
 }
 
@@ -128,11 +130,59 @@ func TestT6TheGoFloorComesFromGoMod(t *testing.T) {
 // today, so this pins the accepted forms; the branch itself is defence.
 func TestT6TheFloorIsValidatedWhereItIsRead(t *testing.T) {
 	for _, floor := range []string{"1.26", "1.26.4", "1.26rc1"} {
-		got, err := readGoFloor(fstest.MapFS{goModFile: {Data: []byte("module m\n\ngo " + floor + "\n")}})
-		if err != nil || got != floor {
+		got, err := readGoFloor(fstest.MapFS{
+			"src-go/go.mod":    {Data: []byte("module m\n\ngo " + floor + "\n")},
+			"src-go/qa/go.mod": {Data: []byte("module m\n\ngo 1.1\n")},
+		})
+		if err != nil || got.version != floor || got.file != "src-go/go.mod" {
 			t.Errorf("%s: got %q, %v", floor, got, err)
 		}
 	}
+}
+
+// go is floored on the higher of the two modules' go directives, and the failure names the
+// file that set it, so a host that can build src-go but not the QA module is a drifted machine.
+func TestT6TheFloorIsTheHigherOfTheTwoModules(t *testing.T) {
+	cases := map[string]struct{ root, qa, wantFile, wantVersion string }{
+		"the qa module is higher":   {"1.26", "1.26.9", "src-go/qa/go.mod", "1.26.9"},
+		"the root module is higher": {"1.27", "1.26.9", "src-go/go.mod", "1.27"},
+		"equal: the root module":    {"1.26.9", "1.26.9", "src-go/go.mod", "1.26.9"},
+	}
+	for name, c := range cases {
+		got, err := readGoFloor(fstest.MapFS{
+			"src-go/go.mod":    {Data: []byte("module m\n\ngo " + c.root + "\n")},
+			"src-go/qa/go.mod": {Data: []byte("module m\n\ngo " + c.qa + "\n")},
+		})
+		if err != nil || got.version != c.wantVersion || got.file != c.wantFile {
+			t.Errorf("%s: got %+v, %v", name, got, err)
+		}
+	}
+}
+
+func TestT6AGoOlderThanTheQAModuleNeedsFailsTheGate(t *testing.T) {
+	w := goodWorld()
+	w.replies["go env GOVERSION"] = reply{stdout: "go1.26.2\n"}
+	if code := w.run(); code != ExitFailed {
+		t.Fatalf("exit %d\n%s", code, w.err.String())
+	}
+	mustContain(t, "stderr", w.err.String(), "go is older than src-go/qa/go.mod requires")
+}
+
+// The go-qa binary (GO_QA_CI) and the go-qa-ci the project rules are built against
+// (src-go/qa/go.mod) are one commit; two commits is a drifted repository.
+func TestT5GoQACIAndTheQAModuleRequireAgree(t *testing.T) {
+	w := goodWorld()
+	w.files["src-go/qa/go.mod"] = "module m\n\ngo 1.26.9\n\nrequire github.com/LongTermSupport/go-qa-ci v0.0.0-20260101000000-aaaaaaaaaaaa\n"
+	if code := w.run(); code != ExitFailed {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitFailed, w.err.String())
+	}
+	mustContain(t, "stderr", w.err.String(), "GO_QA_CI", "aaaaaaaaaaaa", "803b122ce526", "src-go/qa/go.mod")
+}
+
+func TestT5AQAModuleWithoutTheGoQACIRequireCannotBeJudged(t *testing.T) {
+	w := goodWorld()
+	w.files["src-go/qa/go.mod"] = "module m\n\ngo 1.26.9\n"
+	cannotRun(t, w, "src-go/qa/go.mod", "go-qa-ci")
 }
 
 func TestT6AGoLineInsideABlockIsNotTheDirective(t *testing.T) {

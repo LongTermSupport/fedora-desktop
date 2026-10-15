@@ -13,9 +13,13 @@ import (
 )
 
 const (
-	pinFile   = ".qa-versions"
-	goModFile = "src-go/go.mod"
+	pinFile     = ".qa-versions"
+	rootGoMod   = "src-go/go.mod"
+	qaGoModFile = "src-go/qa/go.mod"
 )
+
+// goModFiles are the modules whose go directives floor go.
+var goModFiles = []string{rootGoMod, qaGoModFile}
 
 // readPins parses .qa-versions (never executes it) into key -> version. Each problem is a line of
 // the error; the file must pin exactly the keys of pinnedTools.
@@ -109,21 +113,56 @@ func isPinned(key string) bool {
 	return false
 }
 
-// readGoFloor is the go directive of src-go/go.mod.
-func readGoFloor(fsys fs.FS) (string, error) {
-	data, err := fs.ReadFile(fsys, goModFile)
+// goFloor is the go version a machine needs, and the go.mod that says so.
+type goFloor struct{ version, file string }
+
+// readGoFloor is the higher of the go directives of the two modules (the root one wins a tie):
+// a host that can build src-go but not the QA module is not a host the gates can run on.
+func readGoFloor(fsys fs.FS) (goFloor, error) {
+	var floor goFloor
+	for _, file := range goModFiles {
+		mod, err := readGoMod(fsys, file)
+		if err != nil {
+			return goFloor{}, err
+		}
+		if mod.Go == nil || mod.Go.Version == "" {
+			return goFloor{}, fmt.Errorf("%s has no go directive", file)
+		}
+		if !version.IsValid("go" + mod.Go.Version) {
+			return goFloor{}, fmt.Errorf("%s names the Go floor %q, which is not a Go version", file, mod.Go.Version)
+		}
+		if floor.file == "" || version.Compare("go"+mod.Go.Version, "go"+floor.version) > 0 {
+			floor = goFloor{version: mod.Go.Version, file: file}
+		}
+	}
+	return floor, nil
+}
+
+func readGoMod(fsys fs.FS, file string) (*modfile.File, error) {
+	data, err := fs.ReadFile(fsys, file)
 	if err != nil {
-		return "", fmt.Errorf("cannot read %s, which holds the Go floor: %w", goModFile, err)
+		return nil, fmt.Errorf("cannot read %s, which holds a Go floor: %w", file, err)
 	}
-	mod, err := modfile.ParseLax(goModFile, data, nil)
+	mod, err := modfile.ParseLax(file, data, nil)
 	if err != nil {
-		return "", fmt.Errorf("cannot parse %s: %w", goModFile, err)
+		return nil, fmt.Errorf("cannot parse %s: %w", file, err)
 	}
-	if mod.Go == nil || mod.Go.Version == "" {
-		return "", fmt.Errorf("%s has no go directive", goModFile)
+	return mod, nil
+}
+
+// goQACIModule is the module the QA module requires and the go-qa binary is built from.
+const goQACIModule = "github.com/LongTermSupport/go-qa-ci"
+
+// readGoQACIRequire is the version of go-qa-ci the QA module's go.mod requires.
+func readGoQACIRequire(fsys fs.FS) (string, error) {
+	mod, err := readGoMod(fsys, qaGoModFile)
+	if err != nil {
+		return "", err
 	}
-	if !version.IsValid("go" + mod.Go.Version) {
-		return "", fmt.Errorf("%s names the Go floor %q, which is not a Go version", goModFile, mod.Go.Version)
+	for _, r := range mod.Require {
+		if r.Mod.Path == goQACIModule {
+			return r.Mod.Version, nil
+		}
 	}
-	return mod.Go.Version, nil
+	return "", fmt.Errorf("%s does not require %s, the module the project rules are built against", qaGoModFile, goQACIModule)
 }

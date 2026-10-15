@@ -14,7 +14,7 @@
   "ansible-playbook --syntax-check playbooks/imports/play-a.yml | ANSIBLE_CONFIG=\u003cROOT\u003e/ansible.cfg",
   "gate:qa-ansible.bash json=1",
   "gate:qa-docs.bash json=1",
-  "go-qa --root \u003cROOT\u003e/src-go run --changed --base HEAD",
+  "go-qa --root \u003cROOT\u003e/src-go run --no-fix --changed --base HEAD",
   "gate:qa-bash-limits.bash json=",
   "gate:qa-ansible-pause.bash json=",
   "gate:qa-version-pins.bash json=",

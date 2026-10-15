@@ -146,12 +146,12 @@ func (a *assertion) pinned(t pinnedTool, expected string) {
 	}
 }
 
-// goFloor asserts go is present and not older than the floor.
-func (a *assertion) goFloor(floor string) {
+// goFloorCheck asserts go is present and not older than the floor.
+func (a *assertion) goFloorCheck(floor goFloor) {
 	a.checked++
 	path, err := a.env.LookPath("go")
 	if err != nil {
-		a.fail(fmt.Sprintf("✗ toolchain: go is not installed (need >= %s, %s)", floor, goModFile))
+		a.fail(fmt.Sprintf("✗ toolchain: go is not installed (need >= %s, %s)", floor.version, floor.file))
 		return
 	}
 	got := a.read(path, "env", "GOVERSION")
@@ -161,12 +161,23 @@ func (a *assertion) goFloor(floor string) {
 		got.ok = false
 	}
 	if !got.ok {
-		a.unreadable("go", "need >= "+floor, got.evidence)
+		a.unreadable("go", "need >= "+floor.version, got.evidence)
 		return
 	}
-	if version.Compare("go"+floor, "go"+found) > 0 {
-		a.fail("✗ toolchain: go is older than "+goModFile+" requires",
-			fmt.Sprintf("    need >= : %s  (%s)", floor, goModFile),
+	if version.Compare("go"+floor.version, "go"+found) > 0 {
+		a.fail("✗ toolchain: go is older than "+floor.file+" requires",
+			fmt.Sprintf("    need >= : %s  (%s)", floor.version, floor.file),
 			fmt.Sprintf("    found   : %s  (%s)", found, path))
 	}
+}
+
+// goQACIAgree asserts that the commit go-qa is pinned to is the go-qa-ci the QA module requires:
+// the binary and the driver it builds from that module must be one version of one toolchain.
+func (a *assertion) goQACIAgree(pin, required string) {
+	if strings.HasSuffix(required, "-"+pin) {
+		return
+	}
+	a.fail("✗ toolchain: GO_QA_CI and the go-qa-ci the QA module requires are different commits",
+		fmt.Sprintf("    expected : ...-%s  (GO_QA_CI in %s)", pin, pinFile),
+		fmt.Sprintf("    found    : %s  (%s)", required, qaGoModFile))
 }

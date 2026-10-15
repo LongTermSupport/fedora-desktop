@@ -1,7 +1,9 @@
 # go-qa-ci (pinned as GO_QA_CI in /.qa-versions) over this Go tree. The root is src-go, the
 # directory of the module; the nested module qa holds the project rules (src-go/qa/rules,
 # CLAUDE/GoProjectRules.md), which run through the driver below beside go-qa-ci's bundled
-# analyzers. The go gate (scripts/qa-gates.tsv) runs it.
+# analyzers. The go gate (scripts/qa-gates.tsv) runs it with --no-fix: outside CI go-qa's fmt
+# rewrites files by default, and a gate that rewrites what it judges passes the defect it ran to
+# find. In CI (the CI variable) go-qa fails on any rewrite by itself.
 modules = ["qa"]
 
 [analyzers]
@@ -21,6 +23,6 @@ deciders = ["repository-owner"]
 history_base = "origin/F44"
 
 [record.trust.models]
-# Which tier an entry's author belongs to sets its review horizon (90 days for high); the owner
-# may tighten it.
-claude = "high"
+# The tier of the agent that wrote the entries, go-qa-ci's own choice for this model family
+# (30-day review, at most three entries): the owner decides the tier on the merge day.
+claude-sonnet = "medium"

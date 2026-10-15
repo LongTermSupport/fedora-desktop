@@ -4,7 +4,7 @@
  "status": 2,
  "log": [
   "qa-toolchain ",
-  "go-qa --root \u003cROOT\u003e/src-go run",
+  "go-qa --root \u003cROOT\u003e/src-go run --no-fix",
   "qa-bash-limits ",
   "qa-bash  json",
   "qa-python  json",

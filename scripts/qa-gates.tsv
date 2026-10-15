@@ -27,7 +27,7 @@
 gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
 # src-go/: go-qa-ci (pinned as GO_QA_CI in .qa-versions) runs format, the project rules and its
 # bundled analyzers, golangci-lint, deadcode, govulncheck, go mod, race tests and the coverage floor.
-gate	go	go-qa --root {root}/src-go run	go-qa failed (Go format, a project rule, golangci-lint, deadcode, a vulnerability, go mod, a test or the coverage floor), or go-qa or one of its tools is missing	detail:coverage +passed
+gate	go	go-qa --root {root}/src-go run --no-fix	go-qa failed (Go format, a project rule, golangci-lint, deadcode, a vulnerability, go mod, a test or the coverage floor), or go-qa or one of its tools is missing	detail:coverage +passed
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
 # The seven report stages. Their reports are merged into the machine report.

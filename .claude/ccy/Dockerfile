@@ -29,7 +29,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         tmux \
         gcc \
         libc6-dev \
-        unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # tmux serves scripts/test-ccy-tmux-targets.bash, which checks the session targets ccy and
@@ -38,8 +37,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # under it: ccy starts its tmux sessions on the host.
 
 # gcc and libc6-dev serve `go test -race` on src-go/: the race detector needs cgo.
-
-# unzip serves go-qa-ci's tool installer (ast-grep ships as a zip archive).
 
 # gawk serves scripts/test-bash-history-search.bash: the bash-history ranker it tests
 # is gawk, and the base image carries only mawk. play-basic-configs.yml installs it on
@@ -174,16 +171,18 @@ RUN set -eux; \
 
 # go-qa-ci is the Go QA toolchain (`go-qa run`, the go gate). GO_QA_CI in /.qa-versions is the
 # commit go-qa is built from. The module download that `go install` makes also holds that
-# commit's scripts/install-tools.sh and tools.lock, so the tools go-qa runs (ast-grep, gremlins,
-# deadcode, govulncheck, gitleaks, actionlint, golangci-lint) are installed at go-qa-ci's own
-# pins, release archives verified against its sha256 pins, and are not listed a second time here.
+# commit's scripts/install-tools.sh and tools.lock, so the two tools go-qa runs here that this
+# image does not otherwise carry, deadcode and govulncheck, are installed at go-qa-ci's own pins
+# (the installer is given those two names: golangci-lint stays pinned by /.qa-versions alone).
+# ast-grep and gremlins are left out until a rule or a mutation threshold makes go-qa start them
+# (Plan 00191 Task 3.6), and gitleaks and actionlint are go-qa-ci's own CI tools, not go-qa's.
 # GOBIN puts them beside the other QA tools.
 COPY .qa-versions /tmp/.qa-versions
 RUN set -eux; \
     . /tmp/.qa-versions; \
     export GOBIN=/usr/local/bin; \
     go install "github.com/LongTermSupport/go-qa-ci/cmd/go-qa@${GO_QA_CI}"; \
-    bash "$(go list -m -f '{{.Dir}}' "github.com/LongTermSupport/go-qa-ci@${GO_QA_CI}")/scripts/install-tools.sh"; \
+    bash "$(go list -m -f '{{.Dir}}' "github.com/LongTermSupport/go-qa-ci@${GO_QA_CI}")/scripts/install-tools.sh" deadcode govulncheck; \
     go clean -modcache; \
     rm -f /tmp/.qa-versions; \
     go-qa --version

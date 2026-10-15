@@ -3,7 +3,7 @@
  "stderr": "",
  "status": 0,
  "log": [
-  "go-qa --root \u003cROOT\u003e/src-go run --changed --base HEAD",
+  "go-qa --root \u003cROOT\u003e/src-go run --no-fix --changed --base HEAD",
   "suite:test-teams.bash"
  ]
 }

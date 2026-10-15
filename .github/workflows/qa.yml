@@ -86,15 +86,16 @@ jobs:
           tar -xzf "/tmp/golangci-lint/${GL}" -C /tmp/golangci-lint
           sudo install -m 0755 "/tmp/golangci-lint/golangci-lint-${GOLANGCI_LINT}-linux-amd64/golangci-lint" /usr/local/bin/golangci-lint
           # go-qa-ci at the GO_QA_CI commit: go-qa is built by `go install`, and the module
-          # download holds that commit's scripts/install-tools.sh and tools.lock, so ast-grep,
-          # gremlins, deadcode, govulncheck, gitleaks and actionlint are installed at go-qa-ci's
-          # own pins (release archives checked against its sha256 pins), not listed again here.
+          # download holds that commit's scripts/install-tools.sh and tools.lock, so deadcode and
+          # govulncheck are installed at go-qa-ci's own pins. golangci-lint stays pinned by
+          # .qa-versions alone (the installer is given those two names); ast-grep and gremlins wait
+          # for a rule or a mutation threshold (Plan 00191 Task 3.6); gitleaks has its own job.
           # They go to a user directory that is put on PATH for this step and the ones after it.
           export GOBIN="${HOME}/.local/bin"
           export PATH="${GOBIN}:${PATH}"
           echo "${GOBIN}" >> "${GITHUB_PATH}"
           go install "github.com/LongTermSupport/go-qa-ci/cmd/go-qa@${GO_QA_CI}"
-          bash "$(go list -m -f '{{.Dir}}' "github.com/LongTermSupport/go-qa-ci@${GO_QA_CI}")/scripts/install-tools.sh"
+          bash "$(go list -m -f '{{.Dir}}' "github.com/LongTermSupport/go-qa-ci@${GO_QA_CI}")/scripts/install-tools.sh" deadcode govulncheck
           # Asserts the whole toolchain at once, so CI fails on a drifted pin
           # here rather than reporting a verdict nobody else can reproduce.
           ./scripts/qa-toolchain.bash

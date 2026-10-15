@@ -139,7 +139,7 @@ func runToolchain(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 // importers, with the repository-wide defences always, and the whole tree when a configuration
 // or a rule moved. The full run is the go gate of qa-all.
 func runGoGate(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
-	return s.exec(ctx, nil, toolGoQA, "--root", filepath.Join(s.root, "src-go"), "run", "--changed", "--base", s.opts.base)
+	return s.exec(ctx, nil, toolGoQA, "--root", filepath.Join(s.root, "src-go"), "run", "--no-fix", "--changed", "--base", s.opts.base)
 }
 
 func runBashLimits(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

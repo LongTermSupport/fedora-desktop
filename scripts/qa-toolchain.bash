@@ -3,8 +3,8 @@
 #
 # A gate's verdict belongs to the binary that produced it (two shellchecks four minor releases
 # apart reported 141 and 173 issues on one tree), so .qa-versions is the single source of truth
-# for ruff, semgrep, shellcheck, golangci-lint and go-qa, and the go directive of src-go/go.mod is the
-# floor for go. Reasoning and how to fix a mismatch: CLAUDE/QA.md, "toolchain".
+# for ruff, semgrep, shellcheck, golangci-lint and go-qa, and the higher go directive of src-go/go.mod and
+# src-go/qa/go.mod is the floor for go, and the go-qa-ci the QA module requires is the GO_QA_CI commit. Reasoning and how to fix a mismatch: CLAUDE/QA.md, "toolchain".
 #
 # The tool is Go (src-go/qa/toolchain, command src-go/qa/cmd/qa-toolchain); lib/go-tool.bash
 # builds it into a private directory under the cache and runs it, so the exit code reaches the

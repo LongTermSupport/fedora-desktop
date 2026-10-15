@@ -429,7 +429,7 @@ gh-personal issue list
 
 - Golang compiler and standard tools from DNF repositories
 - The toolchain only: no QA tooling, because `play-claude-yolo.yml` imports this play and runs unattended on self-update
-- `golangci-lint`, `go-qa` (go-qa-ci) and the tools it runs, and `gcc` (for `go test -race`), are installed by `play-python.yml`, the QA toolchain play, which also imports this one so its toolchain check finds `go`
+- `golangci-lint`, `go-qa` (go-qa-ci), `deadcode`, `govulncheck`, and `gcc` (for `go test -race`), are installed by `play-python.yml`, the QA toolchain play, which also imports this one so its toolchain check finds `go`
 
 ### play-python.yml
 
@@ -442,7 +442,7 @@ gh-personal issue list
 - **pipx** for isolated CLI tool installations
 - **Hugging Face Hub CLI** for ML model management
 - Development dependencies: SDK headers, compression libs, cryptography support
-- The QA toolchain at the `.qa-versions` pins (ruff, semgrep, shellcheck, golangci-lint, go-qa at the `GO_QA_CI` commit with the tools its `tools.lock` pins: ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint; with the gcc `go test -race` needs and unzip); the Go toolchain comes from the `play-golang.yml` it imports
+- The QA toolchain at the `.qa-versions` pins (ruff, semgrep, shellcheck, golangci-lint, go-qa at the `GO_QA_CI` commit with deadcode and govulncheck from its `tools.lock`; with the gcc `go test -race` needs); the Go toolchain comes from the `play-golang.yml` it imports
 
 **What you get**:
 

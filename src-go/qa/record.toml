@@ -1,186 +1,187 @@
-# The exceptions to the defences go-qa-ci runs. Every entry is a configuration exception in
-# src-go/.golangci.yml, recorded here one for one because go-qa-ci requires each to be a signed
-# record entry; `go-qa record list` enumerates them. The entries were written by a model: the
-# owner re-decides them by their review date.
+# UNSIGNED. The exceptions to the defences go-qa-ci runs, written by an agent (decided_by names it,
+# not the owner) and waiting for the owner: on the merge day the owner reads `go-qa --root src-go
+# record list`, chooses the trust tier in go-qa.toml and re-signs in their own commit (Plan
+# 00191 Task 3.5). Every entry is a configuration exception in src-go/.golangci.yml,
+# or a finding of a project rule, recorded one for one.
 
 [ratchet]
 high_water = 19
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 decided_on = 2026-10-15
-reason = "adopting go-qa-ci: the record is the existing exclusions of the golangci configuration, recorded one for one with no new exception"
+reason = "UNSIGNED, written by an agent: the ceiling is the number of exceptions transcribed from the existing golangci configuration and the findings of the new analyzers; the owner signs it on the merge day"
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::goconst+dupword"
 path = ".golangci.yml"
 justification = "every _test.go in the module and the qa module: a test spells out the argv it expects, so naming each repeated literal as a constant, or flagging a list like 'A A B', would hide what is asserted; production code is still held to both linters"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G204"
 path = ".golangci.yml"
 justification = "internal/execx and qa/internal/proc, the two process seams (one per module): the runner exists to launch a command from a variable, so a command-injection finding there is the design; every other package reaches a program through a seam and is still held to G204"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle"
 path = ".golangci.yml"
 justification = "internal/transcript/transcript.go, qa/changed/checks.go, qa/ansible/report.go and qa/patterns/semgrep.go: the JSON keys are the snake_case wire format of the transcript, semgrep and the QA machine report, not ours to rename; no other file is exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304|G703"
 path = ".golangci.yml"
 justification = "qa/changed, qa/patterns, qa/discovery, qa/ansiblesyntax, qa/bash and the qa-patterns command read repository files by a path the file listing or the person running the tool gave; the hazard is path traversal, accepted because the tool only reads the tree it is run in, and only the named files are exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304|G703|G306|G302"
 path = ".golangci.yml"
 justification = "qa/all and qa/gates read the gate scripts and the counts file by computed path and write the machine report where the caller says; the hazard is a path or permission the caller chooses, accepted because the caller is the person running QA on their own checkout"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304|G302|G306"
 path = ".golangci.yml"
 justification = "qa/ansible test files only: they build trees, set the execute bit the hygiene check looks for and read the report back by computed path, inside a per-test temporary directory; production code in qa/ansible is still held to all three"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G304"
 path = ".golangci.yml"
 justification = "two test files (qa/patterns/helpers_test.go and qa/cmd/qa-patterns/main_test.go) that read back a file they wrote under a per-test temporary directory; the hazard of reading a variable path does not arise from a path the test just built"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G302|G306"
 path = ".golangci.yml"
 justification = "qa/changed test files only: a test writes an executable stub (a mode wider than 0600) into a per-test temporary directory to prove the executable check; no production file is exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec+tagliatelle/G304|ruff_diagnostics"
 path = ".golangci.yml"
 justification = "qa/python/ruff.go and qa/python/report.go: they read the pin and each listed file's first line by a path the file listing gave, and ruff's report is snake_case, its wire format that qa-all reads; only these two files are exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec+tagliatelle/G304|G302|G306|ruff_diagnostics"
 path = ".golangci.yml"
 justification = "qa/python test files and the qa-python command test: they read back what they wrote under a per-test temporary directory and decode ruff's snake_case report; no production file is exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle/shellcheck_diagnostics"
 path = ".golangci.yml"
 justification = "qa/bash/report.go only: the report carries shellcheck's findings under the snake_case key qa-all reads, a wire format fixed by that reader; every other field in the file is still checked"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::tagliatelle/check_id"
 path = ".golangci.yml"
 justification = "qa/internal/semgrepreport/report.go only: the one shared type for a semgrep result, whose keys (check_id and others) are semgrep's snake_case wire format"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec+tagliatelle/G304|G302|G306|shellcheck_diagnostics"
 path = ".golangci.yml"
 justification = "qa/bash test files and the qa-bash command test: they read back what they wrote under a per-test temporary directory and decode the snake_case shellcheck key; no production file is exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::exclusions.rules::gosec/G306|G302"
 path = ".golangci.yml"
 justification = "qa/cmd/qa-bash/main.go only: the machine report it writes is mode 0644 on purpose, readable by other accounts (SPEC-qa-bash.md S2); the hazard is a report other users can read, accepted because it holds findings, never a secret"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "golangci.yml::govet.disable::fieldalignment"
 path = ".golangci.yml"
 justification = "the whole module: struct field order is chosen for readability, and the padding bytes fieldalignment would reclaim are unmeasurable in a command-line tool that holds no memory-heavy struct; every other govet analyzer is enabled"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 
 [[exception]]
 rule = "gqaci_exit_outside_main"
 path = "qa/cmd/*/*_test.go"
 justification = "a test that proves the closed-stdout refusal re-runs its own test binary as the command with stdout closed, and the child must end with the command's exit code for the parent to read it; the hazard is skipped deferred calls, accepted because the child does nothing after the call; the test files of the qa-* commands are exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 covers = "findings"
 policy = true
 
 [[exception]]
 rule = "gqaci_exit_outside_main"
 path = "qa/internal/cmdmain/cmdmain_test.go"
-justification = "a test that proves the closed-stdout refusal re-runs its own test binary as the command with stdout closed, and the child must end with the command's exit code for the parent to read it; the hazard is skipped deferred calls, accepted because the child does nothing after the call; only this file are exempt"
-decided_by = "repository-owner"
+justification = "a test that proves the closed-stdout refusal re-runs its own test binary as the command with stdout closed, and the child must end with the command's exit code for the parent to read it; the hazard is skipped deferred calls, accepted because the child does nothing after the call; no other file is exempt"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 covers = "findings"
 
 [[exception]]
 rule = "gqaci_exit_outside_main"
 path = "qa/internal/cmdmaintest/cmdmaintest.go"
-justification = "the shared helper that every command's test calls to prove the closed-stdout refusal re-runs its own test binary as the command with stdout closed, and the child must end with the command's exit code for the parent to read it; the hazard is skipped deferred calls, accepted because the child does nothing after the call; only this helper are exempt"
-decided_by = "repository-owner"
+justification = "the shared helper that every command's test calls to prove the closed-stdout refusal re-runs its own test binary as the command with stdout closed, and the child must end with the command's exit code for the parent to read it; the hazard is skipped deferred calls, accepted because the child does nothing after the call; no other file is exempt are exempt"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 covers = "findings"
 
 [[exception]]
 rule = "gqaci_test_clock"
 path = "internal/tmuxccy/takeover_test.go"
 justification = "one test proves that the take-over defaults to the real clock and the real sleep, so it must read the wall clock to see the sleep happen; the hazard is a slow or flaky time assertion, accepted because the bound is a lower one (90ms of a 100ms wait) and only this test is exempt"
-decided_by = "repository-owner"
+decided_by = "agent-claude-sonnet-5-5-unsigned"
 added_by_model = "claude-sonnet-5-5"
 decided_on = 2026-10-15
-review_by = 2027-01-13
+review_by = 2026-11-14
 covers = "findings"

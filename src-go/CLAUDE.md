@@ -98,8 +98,8 @@ install a binary by hand: the play is the only route
 
 ## QA
 
-`go-qa` (go-qa-ci, pinned as `GO_QA_CI` in `/.qa-versions`) is the Go gate: `go-qa --root src-go run`
-as the `go` row of `scripts/qa-gates.tsv`, and `go-qa run --changed --base <ref>` from
+`go-qa` (go-qa-ci, pinned as `GO_QA_CI` in `/.qa-versions`) is the Go gate: `go-qa --root src-go run --no-fix`
+as the `go` row of `scripts/qa-gates.tsv`, and `go-qa run --no-fix --changed --base <ref>` from
 `qa-changed.bash` for a `src-go/` change. It is configured by `qa/go-qa.toml`, and every exception
 to a defence (the exclusions of `.golangci.yml`, a finding of a project rule) is a signed entry of
 `qa/record.toml`: a new one is the owner's decision, not a fix. The nested `qa` module requires
@@ -174,7 +174,7 @@ tests over real temporary git repositories with a fake validator and by the real
 `qa/cmd/qa-vmtest-manifest`.
 
 `qa/toolchain` + `qa/cmd/qa-toolchain` (same nested module) are `scripts/qa-toolchain.bash`, the
-gate that the QA tools are the versions `.qa-versions` pins (go: not older than `src-go/go.mod`):
+gate that the QA tools are the versions `.qa-versions` pins (go: not older than the higher directive of `src-go/go.mod` and `src-go/qa/go.mod`; `GO_QA_CI` is the go-qa-ci commit `src-go/qa/go.mod` requires):
 the script only builds and runs the command. The pin file is parsed with the `mvdan.cc/sh` parser
 and `go.mod` with `x/mod/modfile`, never sourced or awk-ed; tool drift is exit 1 (the machine is
 wrong), an unreadable pin file or go.mod exit 2 (the gate cannot judge). Version runs go through `qa/internal/proc`, faked in the

@@ -175,11 +175,50 @@ func TestTheRealTablePassesEndToEndInOrder(t *testing.T) {
 	}
 }
 
+// The go gate judges the tree and never writes to it: run with the real row's own words, over a
+// module holding an unformatted file, go-qa's fmt step fails and the file is left as it was. A row
+// without --no-fix would rewrite the file, print "passed" and mask the defect it was run to find.
+// This runs the real go-qa and golangci-lint, so it fails where either is missing.
+func TestTheGoGateFailsAnUnformattedFileAndDoesNotRewriteIt(t *testing.T) {
+	_, gs := realTable(t)
+	i := slices.IndexFunc(gs, func(g gates.Gate) bool { return g.Name == "go" })
+	if i < 0 {
+		t.Fatal("no go gate in the table")
+	}
+	mod := t.TempDir()
+	const unformatted = "package m\n\nfunc   F( )  int {return  1}\n"
+	for name, body := range map[string]string{"go.mod": "module example.test/m\n\ngo 1.26\n", "m.go": unformatted} {
+		if err := os.WriteFile(filepath.Join(mod, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	argv := gs[i].Command("/unused")
+	root := slices.Index(argv, "--root")
+	if root < 0 || root+1 >= len(argv) {
+		t.Fatalf("the go gate names no --root: %v", argv)
+	}
+	argv[root+1] = mod
+	res, err := proc.OS{}.Run(context.Background(), proc.Cmd{Argv: append(argv, "-t", "fmt"), Dir: mod, Env: []string{"CI="}, Merge: true})
+	if err != nil {
+		t.Fatalf("go-qa could not run: %v", err)
+	}
+	if res.Code == 0 {
+		t.Fatalf("an unformatted file passed the go gate:\n%s", res.Stdout)
+	}
+	after, err := os.ReadFile(filepath.Join(mod, "m.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != unformatted {
+		t.Fatalf("the go gate rewrote the file it judged:\n%s", after)
+	}
+}
+
 // go-qa absent from PATH is a failed go gate that says it could not start, and the run fails:
 // never a skipped gate and never a pass.
 func TestAGoQAMissingFromPathFailsTheRunLoudly(t *testing.T) {
 	w := newRealWorld(t)
-	w.runner.replies["go-qa --root src-go run"] = reply{err: errors.New(`exec: "go-qa": executable file not found in $PATH`)}
+	w.runner.replies["go-qa --root src-go run --no-fix"] = reply{err: errors.New(`exec: "go-qa": executable file not found in $PATH`)}
 	if code := w.main(context.Background()); code != ExitFailed {
 		t.Fatalf("exit %d, want %d\n%s", code, ExitFailed, w.out.String())
 	}

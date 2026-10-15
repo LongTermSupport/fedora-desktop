@@ -1,6 +1,6 @@
 // Package toolchain is the gate "the QA tools on this machine are the versions the repository
 // pins". A gate's verdict belongs to the binary that produced it, so .qa-versions pins ruff,
-// semgrep, shellcheck, golangci-lint and go-qa (go-qa-ci, by commit), and the go directive of src-go/go.mod is a floor for go.
+// semgrep, shellcheck, golangci-lint and go-qa (go-qa-ci, by commit), and the higher go directive of src-go/go.mod and src-go/qa/go.mod is a floor for go.
 // Exit 1 says the machine is wrong (a tool absent, unreadable or drifted); exit 2 says the gate
 // could not judge (its pins, go.mod or command line). Under qa-all either fails only this gate.
 // The specification is the plan's SPEC-qa-toolchain.md.
@@ -56,7 +56,8 @@ type Env struct {
 const usageText = `usage: qa-toolchain [--root DIR] [--scripts DIR]
 
 Asserts that ruff, semgrep, shellcheck, golangci-lint and go-qa (go-qa-ci, by its commit) are the versions pinned in .qa-versions
-and that go is not older than the go directive of src-go/go.mod.
+and that go is not older than the higher go directive of src-go/go.mod and
+src-go/qa/go.mod, and that the go-qa-ci the QA module requires is the commit GO_QA_CI pins.
 
   --root DIR      the repository root (default: the parent of --scripts, else the current directory)
   --scripts DIR   the scripts directory; the root is its parent
@@ -115,16 +116,22 @@ func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
-	return judge(env, root, pins, floor, out, errOut)
+	required, err := readGoQACIRequire(fsys)
+	if err != nil {
+		errOut.Line("ERROR: " + err.Error())
+		return ExitCannotRun
+	}
+	return judge(env, root, pins, floor, required, out, errOut)
 }
 
 // judge asserts every tool, then answers: all mismatches are reported, not the first.
-func judge(env Env, root string, pins map[string]string, floor string, out, errOut *emit.Emitter) ExitCode {
+func judge(env Env, root string, pins map[string]string, floor goFloor, required string, out, errOut *emit.Emitter) ExitCode {
 	a := &assertion{env: env, root: root, errOut: errOut}
 	for _, t := range pinnedTools {
 		a.pinned(t, pins[t.key])
 	}
-	a.goFloor(floor)
+	a.goFloorCheck(floor)
+	a.goQACIAgree(pins["GO_QA_CI"], required)
 	if a.mismatches > 0 {
 		errOut.Line("")
 		for _, line := range remedy {

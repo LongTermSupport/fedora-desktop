@@ -16,3 +16,7 @@ by `scripts/release.bash` (see [docs/releases.md](../docs/releases.md)).
   signed by GitHub and the self-update would refuse it. Design:
   [CLAUDE/Plan/00153-release-tags-fedora-major-semver/DESIGN-self-update-tags.md](Plan/00153-release-tags-fedora-major-semver/DESIGN-self-update-tags.md).
 - The release command's tests are `scripts/test-release.bash`, a hard gate in `qa-all.bash`.
+- When the default branch moves to a new Fedora major, edit `history_base` in
+  `src-go/qa/go-qa.toml` to the new default branch (`origin/F<major>`) in the same change:
+  go-qa-ci judges a growing exception record against the merge base with that ref, and a ref that
+  no longer resolves fails `gqaci.record.ratchet` in CI.

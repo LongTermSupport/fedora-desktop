@@ -124,7 +124,7 @@ func TestT9AnAbsentToolIsAMismatchNeverASkip(t *testing.T) {
 	}
 	mustContain(t, "stderr", w.err.String(),
 		"✗ toolchain: ruff is not installed (expected 0.16.8)",
-		"✗ toolchain: go is not installed (need >= 1.26, src-go/go.mod)")
+		"✗ toolchain: go is not installed (need >= 1.26.9, src-go/qa/go.mod)")
 	if strings.Contains(w.out.String(), "TOOLCHAIN-OK") {
 		t.Fatalf("passed with tools absent: %q", w.out.String())
 	}
@@ -211,7 +211,7 @@ func TestT11TheVersionsMustBeEqualStrings(t *testing.T) {
 }
 
 func TestT12GoFloor(t *testing.T) {
-	pass := map[string]string{"go1.26.2\n": "", "go1.26\n": "", "go1.27.0\n": "", "go1.26.2 X:nocoverageredesign\n": ""}
+	pass := map[string]string{"go1.26.9\n": "", "go1.27.0\n": "", "go1.26.9 X:nocoverageredesign\n": ""}
 	for out := range pass {
 		w := goodWorld()
 		w.replies["go env GOVERSION"] = reply{stdout: out}
@@ -225,8 +225,8 @@ func TestT12GoFloor(t *testing.T) {
 		t.Fatalf("1.25.9: exit %d", code)
 	}
 	mustContain(t, "stderr", w.err.String(),
-		"✗ toolchain: go is older than src-go/go.mod requires",
-		"    need >= : 1.26  (src-go/go.mod)",
+		"✗ toolchain: go is older than src-go/qa/go.mod requires",
+		"    need >= : 1.26.9  (src-go/qa/go.mod)",
 		"    found   : 1.25.9  (/bin/go)")
 	for _, r := range []reply{{stdout: "devel garbage\n"}, {stdout: ""}, {stdout: "go1.26.2\n", code: 1, stderr: "go: broken\n"}, {timedOut: true}, {startErr: errFake}} {
 		w = goodWorld()
@@ -235,13 +235,14 @@ func TestT12GoFloor(t *testing.T) {
 			t.Errorf("%+v: exit %d", r, code)
 			continue
 		}
-		mustContain(t, "stderr", w.err.String(), "✗ toolchain: go is installed but its version could not be read (need >= 1.26)")
+		mustContain(t, "stderr", w.err.String(), "✗ toolchain: go is installed but its version could not be read (need >= 1.26.9)")
 	}
 }
 
 func TestT12ThreeComponentFloorIsTakenFromGoMod(t *testing.T) {
 	w := goodWorld()
 	w.files["src-go/go.mod"] = "module m\n\ngo 1.26.4\n"
+	w.files["src-go/qa/go.mod"] = goodQAMod[:len("module example.test/m/qa\n\n")] + "go 1.26.4" + goodQAMod[len("module example.test/m/qa\n\ngo 1.26.9"):]
 	w.replies["go env GOVERSION"] = reply{stdout: "go1.26.2\n"}
 	if code := w.run(); code != ExitFailed {
 		t.Fatalf("1.26.2 satisfied 1.26.4: exit %d", code)
