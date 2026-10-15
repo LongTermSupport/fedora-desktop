@@ -40,7 +40,9 @@ the session ran and what they printed. Commands (stdout is the payload; reasons 
   expect-new-members BEFORE AFTER HANDLE=ROLE[,...]  `agent-bus list` gained exactly these,
                                      active, with those roles
   other-coordinators LIST HANDLE     the members other than HANDLE holding the coordinator role
-  expect-member LIST HANDLE ROLE active|parked      that MEMBER line is there
+  expect-refusal-names ERRFILE H[,H]  set-role's stderr refused a second coordinator, naming each H
+  expect-sole-coordinator LIST HANDLE  HANDLE is the team's only coordinator
+  expect-member LIST HANDLE ROLE active|parked     that MEMBER line is there
   expect-same-handles BEFORE AFTER   the same members, none added or gone
   watcher-pids                       stdin "PID<TAB>argv": the PIDs running `pingbus watch`
   seat-containers TEAM               stdin "ID<TAB>ccy-seats label": those holding a TEAM seat
@@ -548,6 +550,21 @@ def other_coordinators(text: str, handle: str) -> list[str]:
     return [h for h, found in members(text).items() if found[0] == "coordinator" and h != handle]
 
 
+def expect_refusal_names(stderr: str, holders: Sequence[str]) -> list[str]:
+    """A refused second coordinator: the message says so and names every current holder."""
+    if "already has a coordinator" not in stderr:
+        return [f"set-role did not refuse a second coordinator; it said {stderr!r}"]
+    return [f"the refusal does not name the holder {h}" for h in holders if h not in stderr]
+
+
+def expect_sole_coordinator(text: str, handle: str) -> list[str]:
+    """HANDLE is a coordinator and no other member is."""
+    found = members(text).get(handle)
+    if found is None or found[0] != "coordinator":
+        return [f"member {handle} is not the coordinator"]
+    return [f"{h} is also a coordinator" for h in other_coordinators(text, handle)]
+
+
 def expect_member(text: str, handle: str, role: str, state: str) -> list[str]:
     found = members(text).get(handle)
     if found is None:
@@ -746,6 +763,8 @@ COMMANDS = {
     "seat-permissions": (1, lambda a: _verdict(seat_permissions(pathlib.Path(a[0]), os.getuid()))),
     "expect-new-members": (3, lambda a: _verdict(expect_new_members(_read(a[0]), _read(a[1]), _roles(a[2])))),
     "other-coordinators": (2, lambda a: _print_lines(other_coordinators(_read(a[0]), a[1]))),
+    "expect-refusal-names": (2, lambda a: _verdict(expect_refusal_names(_read(a[0]), a[1].split(",")))),
+    "expect-sole-coordinator": (2, lambda a: _verdict(expect_sole_coordinator(_read(a[0]), a[1]))),
     "expect-member": (4, lambda a: _verdict(expect_member(_read(a[0]), a[1], a[2], a[3]))),
     "expect-same-handles": (2, lambda a: _verdict(expect_same_handles(_read(a[0]), _read(a[1])))),
     "watcher-pids": (0, lambda a: _print_lines(watcher_pids(sys.stdin.read()))),

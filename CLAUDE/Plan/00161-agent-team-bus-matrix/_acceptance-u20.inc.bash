@@ -514,16 +514,29 @@ u20_launch_seats() {
 }
 
 # u20_hand_over_coordinator <handle> — a team has at most one coordinator (Plan 00196) and
-# member a holds the role from the M1 legs, so a steps down before <handle> takes it.
+# member a holds the role from the M1 legs. Proves the rule first (a second coordinator is
+# refused, the holder named), then a steps down, then <handle> takes the role; the outcome is
+# checked on a fresh listing (<handle> the sole coordinator, a a worker).
 u20_hand_over_coordinator() {
-    local holder listing
+    local holder holders csv refusal listing
     listing="$(u20_ev members-before-handover)"
+    refusal="$(u20_ev second-coordinator-refused)"
     u20_member_list "${listing}" || return 1
+    holders="$("${U20[@]}" other-coordinators "${listing}" "$1")" || return 1
+    [[ -n "${holders}" ]] || { printf '[FAIL] no member holds the coordinator role before the hand-over\n' >&2; return 1; }
+    csv="${holders//$'\n'/,}"
+    if sudo -n "${AGENT_BUS}" set-role "${TEAM}" "$1" --role coordinator 2>"${refusal}"; then
+        printf '[FAIL] set-role made %s a second coordinator beside %s\n' "$1" "${csv}" >&2
+        return 1
+    fi
+    "${U20[@]}" expect-refusal-names "${refusal}" "${csv}" || return 1
     while IFS= read -r holder; do
-        [[ -n "${holder}" ]] || continue
         sudo -n "${AGENT_BUS}" set-role "${TEAM}" "${holder}" --role worker || return 1
-    done < <("${U20[@]}" other-coordinators "${listing}" "$1")
+    done <<<"${holders}"
     sudo -n "${AGENT_BUS}" set-role "${TEAM}" "$1" --role coordinator || return 1
+    u20_member_list "$(u20_ev members-after-handover)" || return 1
+    "${U20[@]}" expect-sole-coordinator "$(u20_ev members-after-handover)" "$1" || return 1
+    "${U20[@]}" expect-member "$(u20_ev members-after-handover)" "${A_HANDLE}" worker active || return 1
 }
 
 # M2.0 — ccy.env.local unchanged; each seat's directory the owner's own (0700, files 0600) and
