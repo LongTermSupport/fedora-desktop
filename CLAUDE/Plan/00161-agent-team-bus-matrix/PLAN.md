@@ -90,6 +90,7 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
     2026-10-12). Built: `agent_bus_lxc_members` (`localhost.yml.dist`), applied by
     `play-agent-bus.yml` through `helpers/agent_bus_lxc/members.py`, `test_members.py`.
     Pending: a host run with a real container declared (journal 26-10-12).
+  - [x] ✅ Defect: the 26-10-15 acceptance run at 14058c62 failed M1.2, "expected exactly one HUMAN line, got ['HUMAN', 'REPLY']". Cause: Plan 00201 M3 made `recv` print a REPLY line after every HUMAN and PEER line; the host ran an older pingbus at 70ef1d02, so the check never met it. `acceptance_check.py` now requires each HUMAN or PEER line followed by its own REPLY (same team and event, command `say --to` the sender); a PING has none. Its test fixtures also lacked the `copy` field of PING and PEER lines (Plan 00196) and are fixed. Pending: a host re-run.
   - [ ] 🔄 Defect: the 26-10-15 acceptance re-run failed U23.lxc, `env: 'pingbus': Permission denied` (exit 126). Cause: the host run had umask 077 (its run directories turned 0700 on
     26-10-15); sudo and lxc-attach carried it into the member, where the acceptance's kit
     copy made `/usr/local/share/agent-bus` and `kit/` 0700. The installer and `members.py`
