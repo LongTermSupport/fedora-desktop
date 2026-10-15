@@ -1,6 +1,6 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (M1-M6 built and deployed on the host at 397ca234; M7 two-team acceptance and the owner's try next)
+**Status**: In Progress (M1-M7 built and deployed; the automated two-team acceptance passed on the host; waiting on the owner's steps in ACCEPTANCE-owner.md and the final qa-reviewer)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -108,14 +108,14 @@ a repository is no longer offered for a checkout of it. Report:
   `subagent-reports/261015-m6-cc-teams-sonnet.md`.
 - [ ] 🔄 **Task 2.7**: M7, host run through `meta-deploy.bash`; the owner launches a session on
   two teams from an uncovered checkout; the two-team acceptance leg. qa-reviewer over the
-  plan. Automated part written, not yet run on the host: [acceptance.bash](acceptance.bash)
+  plan. Automated part passed on the host at F44 6affbfec (D1-D3, M1-M4, R1-R2, P1, C1):
+  [acceptance.bash](acceptance.bash)
   (legs in `_acceptance-m7.inc.bash`, judgements in `m7_check.py`, tested by
   `test_m7_check.py`) makes two throwaway teams declared only in a run-directory host_vars
   (`CCY_TEAMS_HOST_VARS`), checks descriptions (`ccy-teams --list`, room topic, `ABOUT`), one
   headless session on both (launch block, per-session record, the bus-teams handler called by
   the daemon's venv python, `say` inference and refusal, SessionEnd), a plain session, then
-  purges and checks the firewalld rules are gone. Queued in `meta-deploy.list` after 00161's
-  acceptance. The interactive steps (chooser, scope widening, cc consent) are the owner's:
+  purges and checks the firewalld rules are gone. The interactive steps (chooser, scope widening, cc consent) are the owner's:
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md). Report:
   `subagent-reports/261015-m7-acceptance-opus.md`.
 
