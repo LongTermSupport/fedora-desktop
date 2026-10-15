@@ -175,6 +175,15 @@ Go owns scope (what git would publish, handed by name), the rule self-test again
 the refusal to pass over a file semgrep did not read (the rule's own `paths.exclude` globs say
 which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification.
 
+`qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are
+`scripts/qa-plan-script-logging.bash`, the Plan 00130 gate: the script only builds and runs the
+command. It walks the active plan folders on disk (an ignored `logs/` directory must be seen, so
+not a git listing), finds plan scripts by name or shell shebang (`discovery.ShellShebang`), parses
+each with `mvdan.cc/sh` and reports a bare `exec` redirected into an output process substitution;
+an unparseable or unreadable file is exit 2. It starts no process.
+`SPEC-qa-plan-script-logging.md` (L1-L14) is the specification, proven by unit tests over in-memory
+trees and a real-file-system test in the command package.
+
 `qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:
 ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
 name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the

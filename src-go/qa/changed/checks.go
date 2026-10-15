@@ -82,6 +82,7 @@ var checkDefs = []checkDef{
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
+	{id: "plan-script-logging", fixed: "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runPlanScriptLogging},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
@@ -150,6 +151,10 @@ func runReadyWaitFiles(ctx context.Context, s *session, cp *checkPlan) (checkRes
 
 func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-ready-wait-rules.bash")
+}
+
+func runPlanScriptLogging(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-plan-script-logging.bash")
 }
 
 // gateWithReport runs a gate that requires QA_JSON_OUT, a file for its machine report, which

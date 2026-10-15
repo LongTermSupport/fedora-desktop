@@ -99,7 +99,6 @@ scripts/nvidia-status.bash	430	4	519	-
 scripts/qa-docs.bash	77	0	72	data
 scripts/qa-go.bash	72	2	81	-
 scripts/qa-helper-tests.bash	90	0	88	assoc
-scripts/qa-plan-script-logging.bash	64	1	77	-
 scripts/qa-speech-to-text-rules.bash	105	1	106	data
 scripts/qa-toolchain.bash	92	3	113	-
 scripts/qa-version-pins.bash	111	4	146	data
