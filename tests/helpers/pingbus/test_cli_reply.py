@@ -144,6 +144,18 @@ class ShortNameTest(BusCase):
         self.assertIn("refused: target: --to @room cannot be addressed by say", err)
         self.assertEqual(self.a.messages_from_me(), [])
 
+    def test_a_target_refusal_for_too_many_counts_the_coordinator_copy(self):
+        """A worker writing to a human copies the coordinator: the count is what was checked."""
+        self.joined()
+        extra = [f"extra.{n}+workstation.podman" for n in range(1, protocol.MAX_TEXT_TO - 1)]
+        users = {self.a.fake.add_user(handle): "worker" for handle in extra}
+        self.a.set_record(dict(self.a.record, roles=dict(self.a.record["roles"], **users)))
+        to = ",".join([*extra, PEER_LP, "alice"])
+        code, _, err = self.run_cli("say", "--to", to, stdin="hello")
+        self.assertEqual(code, cli.EXIT_REFUSED, err)
+        self.assertIn(f"say takes at most {protocol.MAX_TEXT_TO} addressees, not {protocol.MAX_TEXT_TO + 1} "
+                      "(the coordinator is copied on a worker's message to a human)", err)
+
     def test_the_help_shows_the_forms(self):
         for command in ("say", "send"):
             code, out, _ = self.run_cli(command, "--help")

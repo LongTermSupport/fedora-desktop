@@ -788,7 +788,10 @@ def _explained_targets(args: argparse.Namespace, verb: str | None, record: proto
             what = f"--to-coordinator: team {member.team} has no coordinator but this agent"
         else:
             limit = protocol.MAX_TEXT_TO if verb is None else protocol.MAX_TO
-            what = f"{command} takes at most {limit} addressees, not {len(to)}"
+            checked = protocol.with_coordinator_copy(to, member.user_id, ctx)
+            what = f"{command} takes at most {limit} addressees, not {len(checked)}"
+            if len(checked) > len(to):
+                what += " (the coordinator is copied on a worker's message to a human)"
         users = [user for user in (*record.roles, *sorted(record.humans))
                  if user != member.user_id and protocol.addressable(user, verb, ctx)]
         agents = [_localpart(user, server) for user in users if protocol.is_agent_user_id(user, server)]
