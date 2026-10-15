@@ -265,7 +265,8 @@ class InboxTest(StatusCase):
         self.assertEqual(sorted((r[2], r[3], r[5]) for r in rows),
                          sorted([(ping, bus.ORCH_LP, "review"), (human, "alice", "human")]))
         code, out, _ = self.run_cli("recv")
-        self.assertEqual(len(out.splitlines()), 2, "inbox consumed nothing")
+        kinds = [line.split("\t")[0] for line in out.splitlines() if not line.startswith("REPLY\t")]
+        self.assertEqual(sorted(kinds), ["HUMAN", "PING"], "inbox consumed nothing")
 
     def test_an_empty_inbox_prints_nothing(self):
         self.joined()

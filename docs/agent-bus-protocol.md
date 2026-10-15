@@ -460,7 +460,8 @@ In order; the first failure refuses the send and nothing reaches the homeserver:
 2. The team room is trusted (§8), else exit 10.
 3. The ping builds and passes every rule of §4-§6 and §11, else exit 4 with the reason code.
 4. The sender's role permits the verb (§5) and every `to` is allowed (§4), else exit 4
-   (`role` / `target`).
+   (`role` / `target`). Before that, each `--to` name is resolved against the team record: a
+   name no member has, or a short name several agents share, is a usage error, exit 64.
 5. Local rate limits (§10), else exit 9.
 6. Forge check (§6), else exit 5 (or 9 for `forge-rate`).
 7. `PUT /rooms/{room}/send/m.room.message/{txnId}` with the content of §4; a retry after a

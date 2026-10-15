@@ -82,7 +82,7 @@ TO_FORMS = """\
   --to proj.1                  a seat, when exactly one member has it
   --to proj.1+local.podman     an agent's full handle
   --to alice                   a human's localpart
-  --to @proj.1+local.podman:alpha.agent-bus.internal    a full user ID
+  --to @proj.1+local.podman:SERVER    a full user ID
 `pingbus recv` prints a ready REPLY command for every message from an agent or a human.
 """
 
