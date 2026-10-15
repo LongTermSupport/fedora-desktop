@@ -89,7 +89,7 @@ must not grow: the logic goes into Go.
 ## Success Criteria
 
 - [ ] A team record naming `orchestrator` still validates and reads as `coordinator`
-- [ ] A second coordinator is refused with the holder named
+- [ ] A second coordinator is refused with the holder named (Plan 00161's U20 now proves it on the host; tick after that run passes)
 - [ ] A worker's `say` to a human reaches the coordinator marked as a copy, and the same event
   passes every receiving check unchanged
 - [ ] Bare `ccy --teams` changes the role, and the next bare `ccy` offers the previous

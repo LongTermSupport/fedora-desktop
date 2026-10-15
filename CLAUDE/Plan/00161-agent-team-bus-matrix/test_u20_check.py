@@ -548,6 +548,40 @@ class MembersTest(unittest.TestCase):
         self.assertEqual(uc.expect_same_handles(self.AFTER, parked), [])
         self.assertTrue(uc.expect_same_handles(self.BEFORE, self.AFTER))
 
+    def test_other_coordinators_are_the_ones_to_step_down(self) -> None:
+        listing = (f"MEMBER\t{A_HANDLE}\tcoordinator\tjoin\tactive\n"
+                   f"MEMBER\t{B_HANDLE}\tworker\tjoin\tactive\n")
+        self.assertEqual(uc.other_coordinators(listing, C_HANDLE), [A_HANDLE])
+        self.assertEqual(uc.other_coordinators(listing, A_HANDLE), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "list", listing)
+            code, out, _ = run_main("other-coordinators", str(path), C_HANDLE)
+        self.assertEqual((code, out), (0, A_HANDLE + "\n"))
+
+    def test_a_second_coordinator_is_refused_naming_the_holder(self) -> None:
+        said = f"agent-bus: team t: team t already has a coordinator: {A_HANDLE}; it must stop being coordinator first\n"
+        self.assertEqual(uc.expect_refusal_names(said, [A_HANDLE]), [])
+        self.assertTrue(uc.expect_refusal_names(said, [B_HANDLE]))
+        self.assertTrue(uc.expect_refusal_names("", [A_HANDLE]))
+        self.assertTrue(uc.expect_refusal_names(f"set {A_HANDLE}\n", [A_HANDLE]))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "err", said)
+            self.assertEqual(run_main("expect-refusal-names", str(path), A_HANDLE)[0], 0)
+            self.assertEqual(run_main("expect-refusal-names", str(path), B_HANDLE)[0], 1)
+
+    def test_sole_coordinator(self) -> None:
+        listing = (f"MEMBER\t{A_HANDLE}\tworker\tjoin\tactive\n"
+                   f"MEMBER\t{B_HANDLE}\tcoordinator\tjoin\tactive\n")
+        self.assertEqual(uc.expect_sole_coordinator(listing, B_HANDLE), [])
+        self.assertTrue(uc.expect_sole_coordinator(listing, A_HANDLE))
+        both = listing.replace(f"{A_HANDLE}\tworker", f"{A_HANDLE}\tcoordinator")
+        self.assertTrue(uc.expect_sole_coordinator(both, B_HANDLE))
+        self.assertTrue(uc.expect_sole_coordinator("", B_HANDLE))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "list", listing)
+            self.assertEqual(run_main("expect-sole-coordinator", str(path), B_HANDLE)[0], 0)
+            self.assertEqual(run_main("expect-sole-coordinator", str(path), A_HANDLE)[0], 1)
+
     def test_cli(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             before, after = write(tmp, "before", self.BEFORE), write(tmp, "after", self.AFTER)
