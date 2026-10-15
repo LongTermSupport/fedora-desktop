@@ -44,10 +44,9 @@ POWER_LEVELS = "m.room.power_levels"
 TOPIC = "m.room.topic"
 MEMBER = "m.room.member"
 #: A change to any of these re-verifies the room (§8).
-TRUST_TYPES = (CREATE, POWER_LEVELS, protocol.EVENT_TEAM)
-#: The filter probe H4 recorded against Tuwunel 1.9.3 (fixtures 040, 044, 071).
-STATE_TYPES = (CREATE, POWER_LEVELS, MEMBER, protocol.EVENT_TEAM, protocol.EVENT_STATUS)
-TIMELINE_TYPES = (protocol.EVENT_MESSAGE, MEMBER, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_STATUS)
+TRUST_TYPES = (CREATE, POWER_LEVELS, protocol.EVENT_TEAM)#: The filter probe H4 recorded against Tuwunel 1.9.3 (fixtures 040, 044, 071).
+STATE_TYPES = (CREATE, POWER_LEVELS, MEMBER, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC)
+TIMELINE_TYPES = (protocol.EVENT_MESSAGE, MEMBER, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC)
 TIMELINE_LIMIT = 50
 #: A limited timeline's gap is read forward with `/messages` (fixture 072).
 GAP_FILTER = {"types": [protocol.EVENT_MESSAGE]}
@@ -278,11 +277,17 @@ class Syncer:
         member = self.member
         try:
             event = self.client.get_state(member.room, TOPIC, "", as_event=True)
-        except matrix.NotFound:
+        except (matrix.NotFound, matrix.Forbidden):
             return None
-        content = event.get("content") if isinstance(event, dict) else None
+        return self._about_of(event)
+
+    def _about_of(self, event: object) -> str | None:
+        """The description a room-topic event gives, or None for anything else."""
+        if not isinstance(event, dict):
+            return None
+        content = event.get("content")
         topic = content.get("topic") if isinstance(content, dict) else None
-        if (event.get("sender") != member.admin or not protocol.is_description(topic)
+        if (event.get("sender") != self.member.admin or not protocol.is_description(topic)
                 or topic == protocol.ROOM_TOPIC):
             return None
         return topic
@@ -341,6 +346,8 @@ class Syncer:
             self.verify_room()
         if limited:
             events = self._fill_gap(since, timeline.get("prev_batch")) + events
+        elif any(_type_of(e) == TOPIC for e in state_events + events):
+            self.state.save_about(self._read_about())
         self._read_room_state(state_events + events)
         return self._receive(events, next_batch)
 

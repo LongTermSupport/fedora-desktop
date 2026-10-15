@@ -122,6 +122,10 @@ class DeclareError(Exception):
     """Refused: the message says why, and never quotes a value of the file."""
 
 
+class VaultedError(DeclareError):
+    """A value is vault-encrypted (tagged), so ccy-teams cannot read it."""
+
+
 class UsageError(Exception):
     """A flag is wrong: exit 64."""
 
@@ -152,7 +156,7 @@ def _scalar(rest: str, where: str) -> str:
     """A plain or quoted one-line scalar, its comment removed; a tag is refused."""
     value = re.sub(r"(^|\s)#.*$", "", rest).strip()
     if value.startswith("!"):
-        raise DeclareError(f"{where} is tagged (vault-encrypted?); ccy-teams reads only plain values")
+        raise VaultedError(f"{where} is tagged (vault-encrypted?); ccy-teams reads only plain values")
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         value = value[1:-1]
     return value
@@ -952,8 +956,10 @@ def _description_field(team: Declared) -> str:
     the team's `status` row already says it is unreadable."""
     try:
         found = _raw_value(team, "description")
-    except DeclareError:
+    except VaultedError:
         return "!vaulted"
+    except DeclareError:
+        return "!invalid"
     if found is None:
         return "-"
     if not protocol.is_description(found):

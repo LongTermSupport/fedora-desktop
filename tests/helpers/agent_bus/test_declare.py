@@ -775,6 +775,11 @@ class DescriptionFieldTest(unittest.TestCase):
         rows = self.listing("    description: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n")
         self.assertEqual(rows[2][6], "!vaulted")
 
+    def test_only_the_vault_error_is_vaulted_every_other_unreadable_value_is_invalid(self) -> None:
+        for odd in ("    description: [\"a\"]\n", "    description:\n", "    description: a\n      b\n"):
+            with self.subTest(odd=odd):
+                self.assertEqual(self.listing(odd)[2][6], "!invalid", odd)
+
     def test_a_description_that_fails_the_grammar_never_reaches_the_listing(self) -> None:
         for bad in ('"a\\tb"', '"x\\ny"', '" padded"', '"' + "x" * 121 + '"', '"a\\u202eb"'):
             with self.subTest(bad=bad):
