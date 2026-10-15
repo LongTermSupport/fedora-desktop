@@ -46,6 +46,8 @@ Use these Unicode icons in plan documents:
 
 - [00200-repo-watch-list](00200-repo-watch-list/) - In Progress. A list of external public repositories scanned at intervals for ideas, with a `watchlist` Go command, a scout agent and a `/watchlist` skill; findings become issues or plans
 
+- [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - Not Started. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX: teams and pingbus, container awareness, status line, `/ccy doctor`; research and owner decisions, nothing built yet
+
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 
 - [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - Not Started. The ouch tarball is checked against a pinned sha256 (#63)
