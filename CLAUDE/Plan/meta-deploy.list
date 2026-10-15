@@ -30,8 +30,3 @@
 # handler: restart the daemon (hooks-daemon skill, restart then health) and look at a two-team
 # session's status line.
 playbooks/imports/play-claude-yolo.yml
-
-# agent team bus acceptance again. M2.9 and M2.10 now pass on the host. U23.lxc is fixed: the
-# LXC kit is unpacked with explicit 0755 directories, so a run under umask 077 still lets the
-# agent user run pingbus. U20 needs the saved Quick Launch choices already in place.
-00161-agent-team-bus-matrix/acceptance.bash

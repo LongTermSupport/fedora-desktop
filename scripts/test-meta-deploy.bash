@@ -66,8 +66,21 @@ rm -f "${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
 out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" --list 2>&1)"
 check "missing list file is fatal" 1 "meta-deploy.list" "$?" "${out}"
 
+: >"${SCRATCH}/CLAUDE/Plan/meta-deploy.list"
+out="$("${SCRATCH}/CLAUDE/Plan/meta-deploy.bash" --list 2>&1)"
+check "an empty list says nothing to run" 0 "Nothing to run" "$?" "${out}"
+
+# The real queue is valid in either state. An entry present must show the --list summary; an
+# empty queue must say it has nothing to run. The state is read with the script's own rule:
+# a line that is not blank and not a whole-line comment is an entry.
+REAL_LIST="${REPO_ROOT}/CLAUDE/Plan/meta-deploy.list"
+if grep -qvE '^[[:space:]]*(#.*)?$' "${REAL_LIST}"; then
+    REAL_WANT="--list changed nothing"
+else
+    REAL_WANT="Nothing to run"
+fi
 out="$("${REPO_ROOT}/CLAUDE/Plan/meta-deploy.bash" --list 2>&1)"
-check "the real list validates" 0 "--list changed nothing" "$?" "${out}"
+check "the real list validates" 0 "${REAL_WANT}" "$?" "${out}"
 
 if [[ "${FAILS}" -gt 0 ]]; then
     printf '%d case(s) failed\n' "${FAILS}" >&2
