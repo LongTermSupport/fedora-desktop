@@ -120,6 +120,9 @@ func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
 	if len(args) > 0 && args[0] == "--block" {
 		return c.block(ctx, args[1:])
 	}
+	if len(args) > 0 && args[0] == "--sentence" {
+		return c.sentence(ctx, args[1:])
+	}
 	prefix := ""
 	if len(args) > 0 && args[0] == "--prefix" {
 		if len(args) < 2 {
@@ -149,21 +152,13 @@ func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
 // taken, naming every team the session is on with its seat, the seat's role and what the team is
 // for. LIST is the canonical SEAT@TEAM list; anything else is a usage mistake.
 func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
-	if len(args) != 1 || args[0] == "" {
-		c.say("ccy-teams: 'describe-seats --block' takes the seat list. See ccy-teams --help.")
+	seats, ok := c.seatItems("--block", args)
+	if !ok {
 		return term.ExitUsage
 	}
-	type seatTeam struct{ seat, team string }
-	var seats []seatTeam
 	width := 0
-	for item := range strings.SplitSeq(args[0], ",") {
-		seat, team, ok := strings.Cut(strings.TrimSpace(item), "@")
-		if !ok {
-			c.say("ccy-teams: 'describe-seats --block' takes SEAT@TEAM items; '" + item + "' is not one. See ccy-teams --help.")
-			return term.ExitUsage
-		}
-		seats = append(seats, seatTeam{seat, team})
-		width = max(width, len(team))
+	for _, st := range seats {
+		width = max(width, len(st.team))
 	}
 	d := &describer{c: c, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
 	noun := "teams"
@@ -180,6 +175,58 @@ func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
 		fmt.Fprintf(&b, "  %-*s  seat %s (%s)  %s\n", width, st.team, st.seat, d.roleWords(ctx, st.seat, st.team), about)
 	}
 	c.Host.Print(c.Host.Stdout, b.String())
+	return term.ExitOK
+}
+
+type seatTeam struct{ seat, team string }
+
+// seatItems reads the one canonical SEAT@TEAM list a describe-seats mode takes; anything else is
+// a usage mistake, said on stderr.
+func (c *Choose) seatItems(mode string, args []string) ([]seatTeam, bool) {
+	if len(args) != 1 || args[0] == "" {
+		c.say("ccy-teams: 'describe-seats " + mode + "' takes the seat list. See ccy-teams --help.")
+		return nil, false
+	}
+	var seats []seatTeam
+	for item := range strings.SplitSeq(args[0], ",") {
+		seat, team, ok := strings.Cut(strings.TrimSpace(item), "@")
+		if !ok {
+			c.say("ccy-teams: 'describe-seats " + mode + "' takes SEAT@TEAM items; '" + item + "' is not one. See ccy-teams --help.")
+			return nil, false
+		}
+		seats = append(seats, seatTeam{seat, team})
+	}
+	return seats, true
+}
+
+// sentence is `describe-seats --sentence LIST`: on stdout, "You are <handle> in <team>, ... and
+// <handle> in <team>." for a session that holds those seats, which cc adds to a host session's
+// system prompt. A seat of this checkout that does not exist is a failure (the seats are taken
+// first), and nothing is printed.
+func (c *Choose) sentence(ctx context.Context, args []string) term.ExitCode {
+	seats, ok := c.seatItems("--sentence", args)
+	if !ok {
+		return term.ExitUsage
+	}
+	d := &describer{c: c, rosters: map[string]rosterResult{}}
+	parts := make([]string, len(seats))
+	for i, st := range seats {
+		handle, found, err := d.handle(ctx, st.seat, st.team)
+		if err != nil {
+			c.Kit.ReportErr(err)
+			return exitConfig
+		}
+		if !found {
+			c.say("ccy-teams: seat " + st.seat + "@" + st.team + " is not a seat of this checkout, so its handle cannot be named.")
+			return exitConfig
+		}
+		parts[i] = handle + " in " + st.team
+	}
+	text := strings.Join(parts, ", ")
+	if last := len(parts) - 1; last > 0 {
+		text = strings.Join(parts[:last], ", ") + " and " + parts[last]
+	}
+	c.Host.Print(c.Host.Stdout, "You are "+text+".\n")
 	return term.ExitOK
 }
 

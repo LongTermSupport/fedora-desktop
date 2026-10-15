@@ -21,8 +21,9 @@ event, a stored file or an exception carried reaches the output: every text is o
   window, for a failure class or for an active team with no waker. The windows are kept in
   `PINGBUS_HOME/stop-guard.json`, so a guard that keeps blocking cannot loop against the
   hooks daemon's own Stop handlers.
-- `session-end` does nothing: the watcher exits when the session's socket goes, which also
-  keeps it running across a `/clear`, where SessionEnd fires and the session goes on.
+- `session-end` removes the session's teams record and nothing else: the watcher exits when the
+  session's socket goes, which also keeps it running across a `/clear`, where SessionEnd fires
+  and the session goes on (SessionStart then writes the record again).
 """
 
 from __future__ import annotations

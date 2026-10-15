@@ -17,6 +17,36 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.11 — container 2.59
+
+- Container 2.59: the pingbus plugin registers its `SessionEnd` hook, so the per-session teams
+  record the status line reads is removed when a session ends (it was never removed before).
+- `cc --teams` always asks `ccy-teams choose-teams`, which now refuses (78), before any seat is
+  made, when there is no terminal and no consent record; the `--resolved` path in cc is gone.
+  A consent record is counted as pingbus counts it (yours, no group or other access, in a folder
+  that is yours and closed to others); a record or folder that is not is refused with how to put it
+  right, instead of seats being made for a session pingbus would then refuse.
+
+## 3.97.10 — container 2.58
+
+- **`cc --teams` is on the same flow as `ccy --teams`** (Plan 00201 M6). It takes the same list:
+  bare `--teams`, a team alone, or `SEAT@TEAM[,...]` for several teams. On a terminal
+  `ccy-teams choose-teams --type=host` shows the teams with what they are for, offers a team that
+  does not cover the checkout its scope, and chooses the seat and role of each (cc no longer takes
+  the default seat silently). Then `agent-bus seat check` validates the list, the seats are taken
+  as `host` members, and the launch block (`This session is on N teams:`) is printed. With no
+  terminal a team alone or a bare `--teams` is refused (64).
+- The Element consent is asked inside that flow, by ccy-teams, after the seats are chosen and
+  before any is made: the same words naming every handle, default No, recorded once per user in
+  `~/.config/pingbus/element-accepted` (folder 0700, record 0600, no symlink followed, never
+  overwritten). Declining prints `Not started. Nothing was recorded; cc --teams asks again next time.` and exits 1. With no terminal it cannot be asked, so pingbus refuses the session until an
+  attended launch has recorded it.
+- The session's prompt line names every handle and team (`ccy-teams describe-seats --sentence`).
+  The pingbus SessionStart hook of the kit plugin cc passes writes the per-session record the
+  `bus: A,B` status-line segment reads, as in a ccy session.
+- `cc-teams.bash` is rewritten and shrinks (113 code lines, from 170): the seat and consent code
+  moved to Go.
+
 ## 3.97.9 — container 2.58 (unchanged)
 
 - A failing launch block (`ccy-teams describe-seats --block`) now stops the launch with a

@@ -75,8 +75,9 @@ set -- "${CC_ARGS[@]}"
 # restore.
 unset CCY_SESSION_RESTORE
 
-# `--teams <team>` is cc's own and never reaches claude: the session joins the team as a
-# `host` member in a seat of this checkout (cc-teams.bash, Plan 00177 Task 4.10).
+# `--teams [<team>|<seat>@<team>[,...]]` is cc's own and never reaches claude: the session joins
+# the teams as a `host` member in a seat of this checkout each, chosen as ccy does it
+# (cc-teams.bash, Plan 00177 Task 4.10, Plan 00201).
 # shellcheck source=cc-teams.bash
 source "/var/local/claude-code/cc-teams.bash"
 cc_teams_split_args "$@" || exit $?
@@ -185,10 +186,10 @@ trap cc_cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# The team's seat is taken before the token chooser, so a launch that cannot be seated
+# The teams' seats are taken before the token chooser, so a launch that cannot be seated
 # stops before anything else is asked. The private directory holds the session's settings
 # file and its pingbus home, and goes when cc exits.
-if [ -n "$CC_TEAM" ]; then
+if [ "$CC_TEAMS_GIVEN" = true ]; then
     CC_TEAMS_TMP=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/cc-teams.XXXXXX")
     cc_teams_prepare "$CC_TEAMS_TMP" "$@" || exit $?
 fi
@@ -374,7 +375,7 @@ fi
 # after the session to restore the Desktop credential. A lingering parent shell
 # is a negligible cost for guaranteed cleanup. `set -e` still propagates claude's
 # exit status (the trap's mv does not overwrite it).
-if [ -n "$CC_TEAM" ]; then
+if [ "$CC_TEAMS_GIVEN" = true ]; then
     # pingbus claims the seat and becomes claude; the hooks run the kit's pingbus.
     PATH="$CC_TEAMS_KIT:$PATH" "${CC_TEAMS_CMD[@]}"
 else
