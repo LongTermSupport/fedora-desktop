@@ -253,6 +253,19 @@ class WatchCase(bus.BusCase):
     def status_event(self):
         return self.a.fake.rooms[self.a.room].state.get((protocol.EVENT_STATUS, self.a.me))
 
+    def with_transcript(self) -> pathlib.Path:
+        """The session's transcript, recorded for the delivery check (E16)."""
+        transcript = self.tmp / "t.jsonl"
+        transcript.write_text("{}\n", encoding="utf-8")
+        self.marks().record_transcript(str(transcript))
+        return transcript
+
+    @staticmethod
+    def into_transcript(transcript: pathlib.Path, text: str) -> None:
+        """Claude Code writing a delivered message into the session's transcript."""
+        with transcript.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"type": "user", "message": {"content": text}}) + "\n")
+
     def runtime(self, *args, **kwargs) -> cli.Runtime:
         rt = super().runtime(*args, **kwargs)
         rt.notice_interval_s = 0.0
@@ -292,13 +305,34 @@ class WatchTest(WatchCase):
 
     def test_a_delivered_human_message_gets_a_read_receipt(self):
         """Plan 00201 UX fixes: Element shows the agent's avatar under a message that reached
-        its session, and none under one that reached no agent."""
+        its session, and none under one that reached no agent. The receipt waits for the
+        delivery to be found in the transcript (review N1): a written socket is not a read."""
+        transcript = self.with_transcript()
+        self.timing.missing_quiet_s = 5.0
         self.joined()
         self.start_watch()
         event = self.a.human("please look at the QA run")
-        self.sock.wait_for(1)
+        (text,) = self.sock.wait_for(1)
+        self.until(lambda: self.pending() == 0, "the delivered message was not consumed")
+        time.sleep(0.3)
+        self.assertEqual(self.a.fake.receipts, [], "a receipt before the transcript has the delivery")
+        self.into_transcript(transcript, text)
         self.until(lambda: self.a.fake.receipts, "no read receipt was sent")
         self.assertEqual(self.a.fake.receipts, [(self.a.me, self.a.room, "m.read", event)])
+
+    def test_a_delivery_missing_from_the_transcript_gets_no_read_receipt(self):
+        """Review N1: a delivery reported missing has reached no model, so Element must not
+        show the agent's avatar under it."""
+        self.with_transcript()
+        self.joined()
+        self.start_watch()
+        self.a.human("please look at the QA run")
+        self.sock.wait_for(1)
+        self.until(self.marks().missing, "the held delivery was never marked missing")
+        time.sleep(0.2)
+        code, _, err = self.end_session()
+        self.assertIn("missing", err)
+        self.assertEqual(self.a.fake.receipts, [])
 
     def test_an_agents_note_gets_no_read_receipt(self):
         self.joined()
@@ -311,13 +345,18 @@ class WatchTest(WatchCase):
 
     def test_a_refused_receipt_is_said_and_the_delivery_stands(self):
         self.joined()
+        transcript = self.with_transcript()
+        self.timing.missing_quiet_s = 5.0
         self.a.fake.inject("POST", r"/receipt/", 500, {"errcode": "M_UNKNOWN", "error": "boom"}, times=99)
         self.start_watch()
         self.a.human("first")
-        self.sock.wait_for(1)
+        (first,) = self.sock.wait_for(1)
+        self.into_transcript(transcript, first)
         self.until(lambda: self.pending() == 0, "the delivered message was not consumed")
         self.a.human("second")
-        self.sock.wait_for(2)
+        second = self.sock.wait_for(2)[1]
+        self.into_transcript(transcript, second)
+        time.sleep(0.3)
         code, _, err = self.end_session()
         self.assertIn("read receipt", err)
         self.assertEqual(self.a.fake.receipts, [])

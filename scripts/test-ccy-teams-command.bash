@@ -260,6 +260,12 @@ if [ -n "${TEST_WLCOPY_FAIL:-}" ]; then
 fi
 cat >"$TEST_STATE/clipboard"
 EOF
+# gsettings: GNOME Shell's enabled extensions, without Clipboard Indicator unless the test says.
+cat >"$BIN/gsettings" <<'EOF'
+#!/usr/bin/env bash
+printf 'gsettings %s\n' "$*" >>"$TEST_LOG"
+printf '%s\n' "${TEST_ENABLED_EXTENSIONS:-['blur-my-shell@aunetx']}"
+EOF
 cat >"$BIN/launcher" <<'EOF'
 #!/usr/bin/env bash
 printf 'launcher %s (in %s)\n' "$*" "$(basename "$PWD")" >>"$TEST_LOG"
@@ -847,6 +853,11 @@ check_has "    which the person is told" "for one paste; after that it is gone f
 copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
 check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"
+reset
+out="$(TEST_ENABLED_EXTENSIONS="['clipboard-indicator@tudmotu.com']" WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|EXIT" "|ABORT")"
+check "with Clipboard Indicator on, the clipboard is not offered" "no" "$(logged 'wl-copy')"
+check_has "  and the person is told why" "the Clipboard Indicator extension is on" "$out"
+check_lacks "  and never that it is on the clipboard" "The password is on the clipboard" "$out"
 reset
 out="$(TEST_WLCOPY_FAIL=1 WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" "|EXIT" "|ABORT")"
 check_has "a failed wl-copy says the password is not on the clipboard" "not on the clipboard" "$out"

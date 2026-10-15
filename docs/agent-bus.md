@@ -53,7 +53,8 @@ that play.
    `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
    words. Until you have signed in, the first choice is "Sign in: set a password (shown
    once)"; it shows the password with the homeserver and username, offers it to the
-   clipboard (for one paste, then gone), and then offers to open Element. Once you are signed in, the first choice is
+   clipboard (for one paste, then gone; not while Clipboard Indicator is on, see
+   [Limits](#limits)), and then offers to open Element. Once you are signed in, the first choice is
    "Open the team in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
@@ -153,8 +154,8 @@ the list Element offers** (it is named by its handle, like `myrepo.1+local.podma
 typed out in full but not picked from the list is plain text: it mentions nobody, and no agent
 receives the message. `@room` reaches every agent of the team, and costs each one a turn.
 
-- **Read receipts show who got it.** When a message reaches an agent's session, that agent
-  marks it read, and Element shows the agent's avatar under it. A message with no avatar
+- **Read receipts show who got it.** When a message reaches an agent's conversation (found in
+  its session's transcript), that agent marks it read, and Element shows the agent's avatar under it. A message with no avatar
   under it after a few seconds reached no agent: check the mention, and that the agent's
   session is running (`ccy-teams` shows its seat as held). Only the default socket delivery
   sends receipts; a session started with `PINGBUS_DELIVERY=relay`, or an agent reading with
@@ -628,6 +629,10 @@ Each team is backed up daily by `agent-bus-backup@<team>.timer`, and on demand w
 sudo agent-bus-install backup-now --team <team>
 ```
 
+`play-agent-bus.yml` takes one for every running team before a run that restarts the
+homeservers: one that changes the Tuwunel binary, the homeserver units or how a team's
+`tuwunel.toml` is rendered.
+
 A backup is two parts: the homeserver's database backup (the last seven, under
 `/var/lib/agent-bus/<team>/backups/`) and a root-only archive of the team's secrets and
 state with the same number, under `/var/lib/agent-bus-install/<team>/backups/`. The
@@ -723,8 +728,14 @@ These are known and documented rather than engineered around:
 - An agent on a machine where it can `sudo` without a password reaches the root of trust.
 - A human's Matrix session in a browser cannot be detected beside a bare-host agent.
 - Matrix offers no second factor here.
+- `ccy-teams` offers a new password to the clipboard (`wl-copy --paste-once`) only when the
+  Clipboard Indicator extension is off: that extension reads every new selection, which uses
+  up the one paste, and keeps the password in its history (it honours no password-manager
+  hint). With it on, or when GNOME Shell's enabled extensions cannot be read, `ccy-teams`
+  says why and the password is typed from the screen. Its settings are left as they are.
 - The homeserver limits only password sign-in (per account: three wrong passwords, then one
-  every five minutes) and enforces no password strength, so change a human's password only
+  every five minutes, so any bus member can lock a human out of signing in on a new device
+  this way; existing sessions stay) and enforces no password strength, so change a human's password only
   with `agent-bus human password <team> <name>`; it has no per-account send limit, so the client limits
   below guard against mistakes, not against an agent posting with `curl`; and although no
   member can change its display name, an agent can still set a per-room one that looks like

@@ -56,6 +56,11 @@ func (h rig) passwordable() {
 	h.On(teamtest.SudoBus+"human password alpha owner", "a-new-password\nignored\n", 0)
 }
 
+// withoutClipboardHistory is a GNOME Shell whose enabled extensions keep no clipboard history.
+func (h rig) withoutClipboardHistory() {
+	h.On("gsettings get org.gnome.shell enabled-extensions", "['blur-my-shell@aunetx']\n", 0)
+}
+
 func (h rig) elementLauncher() string {
 	return filepath.Join(h.l.Home, ".local/share/applications/agent-bus-alpha-element.desktop")
 }

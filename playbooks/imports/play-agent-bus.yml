@@ -7,8 +7,9 @@
 # their own IaC, so nothing here may re-implement a step of it. The play:
 #
 #   0. `backup-now --team` for every running team, only when this checkout's Tuwunel pin or
-#      homeserver units differ from the installed ones, so a swap that goes wrong has a
-#      restore point minutes old. A failed backup fails the run before anything changes.
+#      homeserver units differ from the installed ones, or it renders a team's tuwunel.toml
+#      differently (each a homeserver restart), so a swap that goes wrong has a restore
+#      point minutes old. A failed backup fails the run before anything changes.
 #   1. `software --source <this checkout>` on every run, with `--bus-address` when the
 #      host sets agent_bus_address: packages, the agent-bus user, the pinned Tuwunel, the
 #      zipapps, the units, and the installer itself under /usr/local/sbin. Every desktop
@@ -107,9 +108,10 @@
         quiet: true
       tags: [agent-bus]
 
-    # A restore point before the Tuwunel binary or the homeserver units change: `software`
-    # replaces them and the next `team` run restarts every homeserver. Taken only when the
-    # checkout's pin or a unit differs from the installed one, since each backup pushes the
+    # A restore point before the Tuwunel binary, the homeserver units or a team's config
+    # change: `software` replaces the first two and the next `team` run restarts the
+    # homeservers. Taken only when the checkout's pin, a unit or a rendered config differs
+    # from the installed one, since each backup pushes the
     # oldest of Tuwunel's seven out; a homeserver that is not running has nothing new to save.
     # A failed backup fails the run before anything is swapped.
     - name: Read the installed Tuwunel pin and homeserver units
@@ -128,15 +130,29 @@
       register: agent_bus_source_files
       tags: [agent-bus]
 
-    # True when an installed file differs from this checkout's copy; a host with none of them
-    # installed yet runs no homeserver, so it has nothing to back up.
-    - name: Decide whether this run swaps the binary or the units
+    # A release that changes only how tuwunel.toml is rendered swaps no file above, yet
+    # `team` restarts every homeserver whose rendered config differs. The helper renders each
+    # installed team's team.json with this checkout's code; read-only, so it runs in --check.
+    - name: Find the installed teams whose tuwunel.toml this checkout renders differently
+      ansible.builtin.command:
+        argv: "{{ ['python3', '-m', 'helpers.agent_bus.config_restart', '--state-root', '/var/lib/agent-bus']
+                  + (agent_bus_present | map(attribute='team') | list) }}"
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: agent_bus_config_restart
+      changed_when: false
+      check_mode: false
+      tags: [agent-bus]
+
+    # True when an installed file differs from this checkout's copy, or a team's config does;
+    # a host with none of them installed yet runs no homeserver, so it has nothing to back up.
+    - name: Decide whether this run swaps the binary, the units or a team's config
       ansible.builtin.set_fact:
         agent_bus_swap: >-
           {{ agent_bus_installed_files.results | selectattr('stat.exists') | map(attribute='stat.checksum') | list
              != agent_bus_source_files.results
                 | selectattr('item', 'in', agent_bus_installed_files.results | selectattr('stat.exists') | map(attribute='item') | list)
-                | map(attribute='stat.checksum') | list }}
+                | map(attribute='stat.checksum') | list
+             or agent_bus_config_restart.stdout_lines | select('match', '^CONFIG-CHANGED ') | list | length > 0 }}
       tags: [agent-bus]
 
     - name: Read which homeservers are running
@@ -144,7 +160,7 @@
       when: agent_bus_swap | bool
       tags: [agent-bus]
 
-    - name: Back up every running team before the binary or units change
+    - name: Back up every running team before the binary, units or a config change
       ansible.builtin.command:
         argv: ["{{ agent_bus_installer }}", backup-now, --team, "{{ item.team }}"]
       loop: "{{ agent_bus_present }}"

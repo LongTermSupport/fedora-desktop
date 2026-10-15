@@ -664,10 +664,11 @@ only `relay/lock` exists, which `recv`, `wait` and the socket-mode watcher share
 
 **Socket delivery** (Plan 00194 `SPEC-inject.md`). With `PINGBUS_DELIVERY` unset, `watch`
 writes each pending item into the session through its inbox socket as a delivery envelope
-(§15), and consumes it once the payload was written in full. It then sends a public `m.read`
-receipt for each `HUMAN` item of that delivery (its one homeserver write besides the status
-event), so Element shows the agent's avatar under the message; a failed receipt is one
-stderr line and the delivery stands. Only this path sends receipts: relay mode, `recv` and
+(§15), and consumes it once the payload was written in full. Once the delivery is found in
+the session's transcript (the missing check below), it sends a public `m.read` receipt for
+each `HUMAN` item of it (its one homeserver write besides the status event), so Element
+shows the agent's avatar under the message; a delivery found missing gets none, and a
+failed receipt is one stderr line and the delivery stands. Only this path sends receipts: relay mode, `recv` and
 `wait` send none. Its per-session files are in
 `inject/`, each named `<key>.<what>`, `<key>` the first 16 hex digits of the SHA-256 of the
 session's `CLAUDE_CODE_MESSAGING_SOCKET` path, so sessions sharing one `PINGBUS_HOME` (the

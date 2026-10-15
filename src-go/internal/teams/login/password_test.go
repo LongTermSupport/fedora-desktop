@@ -167,6 +167,7 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	h := newRig(t)
 	h.passwordable()
 	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
+	h.withoutClipboardHistory()
 	h.On("wl-copy", "", 0)
 	h.Script.Fzf = []string{"|YES", "|EXIT"}
 	snap := h.pass(t)
@@ -227,6 +228,7 @@ func TestPasswordClipboardFailureIsNotCalledSuccess(t *testing.T) {
 	h := newRig(t)
 	h.passwordable()
 	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
+	h.withoutClipboardHistory()
 	h.OnErr("wl-copy", "no display", 1)
 	h.Script.Fzf = []string{"|YES", "|EXIT"}
 	snap := h.pass(t)
@@ -236,6 +238,73 @@ func TestPasswordClipboardFailureIsNotCalledSuccess(t *testing.T) {
 	if !strings.Contains(h.ErrOut.String(), "ERROR: wl-copy failed (above), so the password is not on the clipboard; copy it from above.\n") ||
 		strings.Contains(h.ErrOut.String(), "The password is on the clipboard.") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+// Review S1: the Clipboard Indicator extension reads every new selection, which uses up the
+// one paste and keeps the password in its history; it honours no password-manager hint. With
+// it on, the clipboard is not offered, and the person is told why in one line.
+func TestPasswordIsNotOfferedForTheClipboardWhileClipboardIndicatorIsOn(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
+	h.On("gsettings get org.gnome.shell enabled-extensions", "['blur-my-shell@aunetx', 'clipboard-indicator@tudmotu.com']\n", 0)
+	h.Script.Fzf = []string{"|EXIT"} // the Element offer only: no copy question
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if h.Fake.Called("wl-copy") {
+		t.Fatalf("wl-copy ran: %v", h.Fake.Calls())
+	}
+	want := "The password is not offered for the clipboard: the Clipboard Indicator extension is on, " +
+		"and it would use up the one paste and keep the password in its history. Type it from above.\n"
+	if !strings.Contains(h.ErrOut.String(), want) || strings.Contains(h.ErrOut.String(), "is on the clipboard") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	for _, args := range h.Script.FzfArgs {
+		if slices.Contains(args, "--border-label= Copy the password? ") {
+			t.Fatal("the copy question was asked")
+		}
+	}
+}
+
+func TestPasswordIsNotOfferedForTheClipboardWhenTheExtensionsCannotBeRead(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
+	h.OnErr("gsettings get org.gnome.shell enabled-extensions", "No such schema", 1)
+	h.Script.Fzf = []string{"|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if h.Fake.Called("wl-copy") {
+		t.Fatalf("wl-copy ran: %v", h.Fake.Calls())
+	}
+	if !strings.Contains(h.ErrOut.String(), "ERROR: whether the Clipboard Indicator extension is on could not be read, so the password is not offered for the clipboard; type it from above.\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+func TestPasswordIsOfferedForTheClipboardWhereGNOMEShellIsNot(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.Env["WAYLAND_DISPLAY"] = "wayland-test"
+	h.l.Kit.LookPath = func(name string) (string, error) {
+		if name == "gsettings" {
+			return "", errors.New("not found")
+		}
+		return "/usr/bin/" + name, nil
+	}
+	h.On("wl-copy", "", 0)
+	h.Script.Fzf = []string{"|YES", "|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Fake.Called("wl-copy --paste-once") {
+		t.Fatalf("calls %v", h.Fake.Calls())
 	}
 }
 

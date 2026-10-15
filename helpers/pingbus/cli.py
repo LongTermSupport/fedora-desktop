@@ -1436,6 +1436,9 @@ class _Injector:
     check: inject.DeliveryCheck
     budget: envelope.SenderBudget
     held: dict[tuple[str, str], int] = dataclasses.field(default_factory=dict)
+    # The human messages of each delivery written but not yet found in the transcript: their
+    # read receipts wait for it (E16), so none is sent for a delivery that is missing.
+    unread: dict[str, list[_Candidate]] = dataclasses.field(default_factory=dict)
     last_sent: float | None = None
     held_sent: float | None = None
     retry_at: float = 0.0
@@ -1579,18 +1582,20 @@ def _send_delivery(batch: _Batch, inj: _Injector, rt: Runtime, pending: _Drops, 
         inj.held_sent = inj.last_sent = now
         inj.waiting = batch.more
         inj.check.sent(nonce, before)
+        humans = [c for c in live if c.entry.kind == "HUMAN"]
+        if humans:
+            inj.unread[nonce] = humans
     if not closed:
         err.write(f"{PROG}: delivery {nonce} was written in full but the socket did not close within "
                   f"{rt.delivery.send_timeout_s:g} s: counted as sent\n")
-    _read_receipts([c for c in live if c.entry.kind == "HUMAN"], err)
     return True
 
 
 def _read_receipts(delivered: Sequence[_Candidate], err: TextIO) -> None:
-    """A read receipt for each human message just delivered, so Element shows this agent's
-    avatar under it (and none under a message that reached no agent). Outside the spool lock:
-    a homeserver call. The delivery stands whatever happens here, so a failure is one stderr
-    line, never raised."""
+    """A read receipt for each human message of a delivery found in the transcript, so Element
+    shows this agent's avatar under it (and none under a message that reached no model).
+    Outside the spool lock: a homeserver call. The delivery stands whatever happens here, so a
+    failure is one stderr line, never raised."""
     for candidate in delivered:
         member = candidate.seat.member
         try:
@@ -1601,11 +1606,15 @@ def _read_receipts(delivered: Sequence[_Candidate], err: TextIO) -> None:
 
 
 def _inject_pass(seats: Sequence[_Seat], inj: _Injector, rt: Runtime, pending: _Drops, err: TextIO) -> None:
-    """One socket-mode pass: report deliveries found missing from the transcript (E16), then,
-    once the pacing interval and any retry allow (E13, E15), build and write the next
-    delivery, and keep the stall mark (E15)."""
-    for nonce in inj.check.poll()[1]:
-        err.write(f"{PROG}: delivery {nonce} is missing: it is not in the session's transcript; "
+    """One socket-mode pass: send the read receipts of deliveries found in the transcript and
+    report those found missing from it (E16), then, once the pacing interval and any retry
+    allow (E13, E15), build and write the next delivery, and keep the stall mark (E15)."""
+    found, missing = inj.check.poll()
+    for nonce in found:
+        _read_receipts(inj.unread.pop(nonce, []), err)
+    for nonce in missing:
+        unread = " (no read receipt was sent for it)" if inj.unread.pop(nonce, None) else ""
+        err.write(f"{PROG}: delivery {nonce} is missing{unread}: it is not in the session's transcript; "
                   "Claude Code may be holding socket messages. Its items are in `pingbus history`\n")
     now = rt.monotonic()
     paced = inj.last_sent is not None and now - inj.last_sent < rt.notice_interval_s

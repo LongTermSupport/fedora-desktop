@@ -5,8 +5,8 @@
 Do these in order, once. Each step names what you should see.
 
 1. **Deploy.** In a terminal on the desktop, in this checkout:
-   `./CLAUDE/Plan/meta-deploy.bash`. Answer sudo when asked. It installs ccy 3.98.9 (image
-   2.64) and rebuilds `ccy-teams`, installs the new bus software for `cc` and LXC members, then
+   `./CLAUDE/Plan/meta-deploy.bash`. Answer sudo when asked. It installs ccy 3.98.11 (image
+   2.66) and rebuilds `ccy-teams`, installs the new bus software for `cc` and LXC members, then
    runs the two bus self-tests (Plan 00161's and this plan's `acceptance.bash`). If a step
    fails, stop and send its output.
 2. **Relaunch every team session.** `/exit` in every session that is on a team (ccy, `cc --teams`,
@@ -53,7 +53,7 @@ If something is off:
 team inference, SessionEnd, a plain session). These steps need a terminal and your answers.
 
 **Before you start:** the Morning start above is done (deploy run, every team session
-relaunched on image 2.64, every team up to date). You need two of your own teams, here A and B,
+relaunched on image 2.66, every team up to date). You need two of your own teams, here A and B,
 each with your Element sign-in and **one other running agent** (a ccy session in another
 checkout will do), and a GitHub checkout of another project (not fedora-desktop) that neither
 team covers, whose own status line is a hooks daemon's.
@@ -85,6 +85,14 @@ team covers, whose own status line is a hooks daemon's.
     not remove it: this step fails.
 10. If the scope added in step 02 should not stay, remove the repository from A's `repos` in
     the host_vars and run `ccy-teams apply A`.
+11. One real Ctrl-P paste (a new password signs out your Element sessions of A, so do this
+    last and keep the new password). In `ccy-teams`, Ctrl-P on your row under A, answer Yes.
+    With the Clipboard Indicator extension on (this repo's default), no copy is offered: one
+    line says the extension would use up the paste and keep the password, and the password is
+    typed from the screen; its menu in the top bar must not list the password. Then, in the
+    Extensions app, switch Clipboard Indicator off, Ctrl-P again and answer "Yes, copy the
+    password": paste it into Element's sign-in (Ctrl-V) and sign in; a second Ctrl-V anywhere
+    pastes nothing. Switch Clipboard Indicator back on.
 
 **Messages from Element (Plan 00194 SPEC-inject.md section 7).** In a relaunched `ccy --teams`
 session on A and B (the one from step 01 will do):

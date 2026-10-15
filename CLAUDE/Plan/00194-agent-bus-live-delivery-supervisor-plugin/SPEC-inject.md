@@ -54,8 +54,12 @@ Each is numbered so a test, a review finding or a host check can name it.
   record, `PEER` only for an agent's text that names this member, `PING` only for a
   validated ping. Nothing in a body can change a header line.
 - **E2. The body is data.** It is one JSON string on one `body:` line. A quote, a newline,
-  a tab, NUL, DEL, ESC, `ESC[201~`, a bidi override, a zero-width character, U+2028/2029, a
-  lone surrogate or a look-alike bracket arrives escaped. `formatted_body` is never used.
+  a tab, NUL, DEL, ESC, `ESC[201~`, a bidi override, a zero-width character, U+2028/2029 or a
+  lone surrogate arrives escaped. `formatted_body` is never used. Containment is that the body
+  cannot leave its line and the marker nonce (E4), drawn after the bodies, which a body
+  cannot know: real `<` and `>` are shown as themselves, so a body may hold a literal
+  `<<end agent-bus 00000000 1/1>>` on its `body:` line, and it closes nothing. Escaping the
+  look-alike brackets (below) is tidiness, not the defence (Plan 00201 final review N4).
   *Amended by Plan 00201's UX fixes:* a non-ASCII letter or number is shown as itself (was
   `ensure_ascii`, which showed `café` as `caf\u00e9`); a combining mark on a shown base, at
   most `MARKS_MAX` (4) in a row; punctuation and symbols only from the allow-listed blocks
@@ -163,7 +167,10 @@ Each is numbered so a test, a review finding or a host check can name it.
   then show a fixed line ("a delivery did not reach the conversation; Claude Code may be
   holding socket messages; read them with `pingbus history`"), Stop blocking once per
   window. A later delivery found in the transcript clears the mark. The items stay consumed:
-  they are in `history`, and the hooks say so.
+  they are in `history`, and the hooks say so. *Amended by Plan 00201 (UX fixes, then final
+  review N1):* the public `m.read` receipt for each `HUMAN` item is sent when its delivery is
+  found in the transcript, never on the socket write alone, so a missing delivery gets none
+  and its stderr line says so; with no transcript recorded, no receipt is sent.
 - **E17. The hooks stop asking for `recv` while delivery works.** UserPromptSubmit announces
   no pending count, and Stop does not block on pending items, while socket delivery is
   active: this session has a socket, every active team's lock is held by a `watch`, and

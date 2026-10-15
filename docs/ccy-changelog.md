@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.11 — container 2.66
+
+- **Teams final review fixes** (Plan 00201). The agent's avatar appears under a human's
+  message in Element only once the delivery is in the session's conversation (found in its
+  transcript), never on the socket write alone, so a delivery Claude Code held shows none.
+  The pingbus skill and delivery frame say to JSON-decode the `history` line's text (and the
+  envelope's `body:`) before comparing, since `history` escapes non-ASCII characters
+  (plugin 1.2.3). `ccy-teams` no longer offers a new password to the clipboard while the
+  Clipboard Indicator extension is on: it would use up the one paste and keep the password
+  in its history; it says so, and the password is typed from the screen. The image carries
+  the new skill and pingbus, so it is rebuilt once.
+
 ## 3.98.10 — container 2.65
 
 - **Teams security fixes** (Plan 00201, from the end-to-end security audit). Every seat launch
