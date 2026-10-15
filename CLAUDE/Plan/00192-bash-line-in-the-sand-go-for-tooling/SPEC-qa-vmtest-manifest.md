@@ -45,7 +45,7 @@ Numbers are cited by the tests.
   unresolvable is exit 2).
 - V2. Exit codes: 0 the manifest is valid and agrees with its guest scripts, 1 the manifest or a
   guest script is wrong (V6, V10-V12), 2 the run could not complete (V1, V3-V5, V7, V9, V13,
-  V14, V17, a failed write). Every exit-2 message is on stderr and starts `ERROR:`. A failed
+  V14, a failed write). Every exit-2 message is on stderr and starts `ERROR:`. A failed
   write to stdout is exit 2 with `ERROR: cannot write to stdout: <why>`. All exit-1 findings of
   the cross-checks are reported, not the first.
 
