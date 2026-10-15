@@ -20,34 +20,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plans 00177 and 00194: the agent bus kit and LXC members. Re-stages the member kit (the
-# pingbus plugin registers SessionEnd for the goodbye and the teams record) and applies the LXC
-# rule that derives a member's handle from its checkout; existing members keep their handles.
-playbooks/imports/play-agent-bus.yml
-# ccy play: installs CCY 3.98.2 (container 2.60, a one-time image rebuild), rebuilds ccy-teams
-# and installs the new cc and cc-teams.bash (Plan 00201 M4, M5, M6; Plans 00177 and 00194).
-#
-# ccy: `ccy --teams` in a checkout no team covers now offers every team with its description,
-# or creating one, and on your yes adds this repository to the chosen team's scope and applies
-# it. The list is a multi-select: Tab marks several teams and one session joins them all, with
-# its launch block, SessionStart line, status line and pingbus send/say naming them. Try it:
-# run `ccy --teams` in a checkout no team covers, and mark two teams.
-#
-# cc: `cc --teams` takes the same list and chooser (bare, a team alone, or SEAT@TEAM,...) and
-# prints the launch block. The Element consent is asked inside it, once per user, naming every
-# handle; with no terminal and no record it refuses before any seat is made. Try it from a host
-# checkout: `cc --teams`, mark two teams, answer the consent (an existing
-# ~/.config/pingbus/element-accepted answers it), and look at the status line for `bus: A,B`.
-#
-# Status line: `bus: A,B` is a project hooks-daemon handler. Restart the daemon (hooks-daemon
-# skill, restart then health) and look at a two-team session's status line; the pingbus plugin
-# writes its per-session record at SessionStart and removes it at SessionEnd.
-#
-# LXC and goodbye: run ccy-teams lxc-add <team>; end a team session with `ccy stop` and see its
-# goodbye in Element.
-playbooks/imports/play-claude-yolo.yml
-# Plan 00161: the agent-team bus acceptance, run again after the merge. It first passed on the
-# host at F44 70ef1d02 (every leg: M1.1-M1.7, M2.0-M2.10, U23 lxc, docker and vm), before the
-# goodbye existed. Its message counts now expect the goodbye, so this run proves them against
-# the branch. Run it after the two plays above.
+# Plan 00161: the agent-team bus acceptance again. Both plays passed at 14058c62; this run failed
+# at M1.2 because its checks did not expect the REPLY line recv prints after HUMAN and PEER
+# (Plan 00201 M3). The checks now pair each REPLY with its message.
 00161-agent-team-bus-matrix/acceptance.bash
