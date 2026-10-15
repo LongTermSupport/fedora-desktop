@@ -761,6 +761,24 @@ class TeamsForTest(CommandCase):
                          "TEAM\talpha\nTEAM\tbeta\nTEAM\tdelta\nTEAM\tvaulted\n")
         self.assertEqual(self.run_cmd("teams-for", "--repo", "other/tool")[1], "")
 
+    def test_a_repository_that_is_not_owner_slash_repo_is_refused(self) -> None:
+        for bad in ("example-org", "Example-Org/two", "example-org/two/x", ""):
+            code, out, err = self.run_cmd("teams-for", "--repo", bad)
+            self.assertEqual((code, out), (64, ""), bad)
+            self.assertIn(repr(bad), err)
+
+    def test_an_org_team_does_not_cover_a_repository_it_excludes(self) -> None:
+        self.path.write_text(STATUS_HV.replace('    org: "example-org"\n',
+                                               '    org: "example-org"\n    exclude: ["two"]\n', 1))
+        # alpha trusts the org but excludes example-org/two: the bus would refuse a ping naming it.
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/two")[1],
+                         "TEAM\tdelta\nTEAM\tvaulted\n")
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/other")[1],
+                         "TEAM\talpha\nTEAM\tdelta\nTEAM\tvaulted\n")
+        # A team that lists the repository (beta) is unaffected by another team's exclude.
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/one")[1],
+                         "TEAM\talpha\nTEAM\tbeta\nTEAM\tdelta\nTEAM\tvaulted\n")
+
 
 class PathLimitTest(CommandCase):
     """Task 4.7's follow-up: an entry written with the old path_prefixes default is offered
