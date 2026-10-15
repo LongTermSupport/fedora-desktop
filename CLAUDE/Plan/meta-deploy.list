@@ -30,10 +30,6 @@ playbooks/imports/play-gsettings.yml
 # workspaces and confirm each opens where you are.
 00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace
 
-# Element Desktop profiles for the agent teams. It refused the owner after they accepted
-# cc --teams (Plan 00177 Task 7.3); the check now passes that acceptance on its own.
-playbooks/imports/optional/common/play-agent-bus-element.yml
-
 # agent team bus acceptance, now with the coordinator role (Plan 00196 is deployed), after the
 # bridge-subnet status fix: ccy-teams apply now reads a team applied on a host with lxcbr0
 # as up to date. BEFORE running meta, launch `ccy` interactively once in this checkout and
