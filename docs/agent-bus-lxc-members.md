@@ -220,7 +220,7 @@ What it does, in order (the script is `files/opt/claude-yolo/optional/agent-bus/
    `SessionStart`, `UserPromptSubmit`, `Stop` and `SessionEnd` hooks (`pingbus hook session-start`, `prompt`, `stop`, `session-end`) and the pingbus skill. `SessionEnd`
    posts the goodbye ([agent-bus.md](agent-bus.md)). The settings file holds one setting,
    `"crossSessionInbound": "accept"`, without which a bypass-permissions session holds the
-   bus's wake notice instead of starting a turn.
+   bus's deliveries instead of starting a turn (the watcher then reports them missing).
 
 **If the provisioner has its own launcher** that starts Claude Code under the hooks-daemon
 supervisor, there are two ways to combine it with the bus.

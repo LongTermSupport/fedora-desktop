@@ -59,8 +59,10 @@ def run_main(*argv: str, stdin: str = "") -> tuple[int, str, str]:
 
 
 def notice(total: int, humans: int, pings: int, number: int) -> str:
-    return (f"agent-bus: {total} pending ({humans} from humans, 0 from agents, {pings} pings), notice {number}. "
-            "Run `pingbus recv`.")
+    """The first line of a watcher delivery (Plan 00194 SPEC-inject.md), its nonce `number`."""
+    noun = "message" if total == 1 else "messages"
+    return (f"agent-bus delivery {number:08x}: {total} {noun} ({humans} from humans, 0 from agents, {pings} "
+            f"pings, 0 timeouts): orch.1+workstation.podman (PING, team-a)\n<<agent-bus {number:08x} 1/1>>")
 
 
 def peer_line(content: str) -> str:
@@ -324,6 +326,9 @@ class NoticesTest(unittest.TestCase):
         self.assertTrue(uc.expect_notice_before_recv(unprompted))
         self.assertTrue(uc.expect_notice_before_recv([peer_line(notice(1, 0, 1, 1)), bash_use("pingbus status")]))
         self.assertTrue(uc.expect_notice_before_recv([bash_use("pingbus recv")]))
+        answered = [typed_line("orders"), peer_line(notice(1, 0, 1, 1)),
+                    bash_use("pingbus send ack --re '$x' --to orch.1+workstation.podman")]
+        self.assertEqual(uc.expect_notice_before_recv(answered), [])
 
     def test_the_no_waker_block_is_found_in_any_entry(self) -> None:
         block = ("Stop hook feedback:\nagent-bus: 1 of 1 active teams have no watcher or waiter, so "

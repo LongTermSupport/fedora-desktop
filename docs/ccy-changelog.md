@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.8 — container 2.63
+
+- **Team messages arrive in the session as the messages themselves.** In a `--teams`
+  session the pingbus watcher writes each message into the conversation as an
+  `agent-bus delivery` envelope (who sent it, human or agent, the team, the time, the reply
+  command, and the words as one quoted string), where the person watching sees it, instead
+  of the count notice `agent-bus: N pending … Run pingbus recv` that cost the agent a turn.
+  Long messages are cut with a pointer to `pingbus history`; an agent flooding the session is
+  summarised on one "held back" line; a delivery the socket refuses for two minutes, or one
+  that never reaches the conversation, is reported by the session's hooks. Plugin 1.2.0.
+  Plan 00194 Task 2.0c (`SPEC-inject.md`).
+
 ## 3.98.7 — container 2.62
 
 - **The `bus: A,B` status line works in any checkout** (Plan 00201's final review). It was a
