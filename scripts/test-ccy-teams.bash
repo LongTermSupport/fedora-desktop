@@ -432,8 +432,18 @@ quick() {
     (cd "$proj" && bash -c '
         print_error() { printf "ERROR: %s\n" "$*" >&2; }
         token_expiry_label() { :; }
-        read() { if [ "$1" = -rp ]; then echo PROMPT >>"$PROMPT_LOG"; return 1; fi; builtin read "$@"; }
+        # The Quick Launch prompt answers QUICK_ANSWER as typed (empty is a bare Enter); with
+        # QUICK_ANSWER unset it is end of input (Ctrl-D), so read fails and sets nothing.
+        read() {
+            if [ "$1" = -rp ]; then
+                echo PROMPT >>"$PROMPT_LOG"
+                [ -n "${QUICK_ANSWER+set}" ] || return 1
+                printf -v "$3" "%s" "$QUICK_ANSWER"; return 0
+            fi
+            builtin read "$@"
+        }
         ccy_launch_teams() { printf "%s\n" "$TEAMS_LIST" >"$TEAMS_LOG"; CCY_SEATS="$TEAMS_LIST"; }
+        ccy_nobody_to_ask() { [ "${QUICK_NOBODY:-false}" = true ]; }
         ccy-teams() {
             if [ "$1" = describe-seats ]; then printf "%s%s%s\n" "$3" "${4:-none}" "${4:+ (worker)}"; return 0; fi
             printf "%s\n" "$*" >>"$TEAMS_REC"; return "${FAKE_RECORD_RC:-0}"
@@ -501,33 +511,59 @@ check "headless with a launch-choice flag: the block is not entered" \
 
 echo "=== Quick Launch remembers the team ==="
 
+# Plan 00161 M2.9: a plain launch is on no team. Only --teams, or a person answering the
+# Quick Launch offer that shows the team, may put a session in one; nobody answers a headless
+# launch, a launch with no terminal or a restore, so their saved seats are never taken.
 save personal /keys/id_a proj_net dev1@team-a
-check "headless, a saved team: it is launched into, and a restart would replay it" \
-    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(teams_after true)"
+check "headless, a saved team: not launched into, a restart would replay none (M2.9)" \
+    "ran= end=|--orig" "$(teams_after true)"
+check "  the rest of the saved choices are still taken" "yes" \
+    "$(save personal /keys/id_a proj_net dev1@team-a; quick true | grep -q 'token=personal keys=/keys/id_a' && echo yes || echo no)"
+check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
+check "  and it records nothing" "none" "$(save personal /keys/id_a proj_net dev1@team-a; recorded_after true)"
 save personal /keys/id_a proj_net dev1@team-a
-check "  the summary shows the team, its seat and its role" "yes" \
-    "$(has "Team:    dev1@team-a (worker)" "$work/quick.err")"
+check "no terminal to ask on, a saved team: not launched into" \
+    "ran= end=|--orig" "$(QUICK_NOBODY=true teams_after false)"
+check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
+save personal /keys/id_a proj_net dev1@team-a
+check "  the summary says no team, never the saved one's seat and role" "yes no" \
+    "$(has "Team:    none" "$work/quick.err") $(has "(worker)" "$work/quick.err")"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive: the summary shows the team, its seat and its role" "yes" \
+    "$(QUICK_ANSWER=y quick false >/dev/null; has "Team:    dev1@team-a (worker)" "$work/quick.err")"
 save personal /keys/id_a proj_net dev1@team-a,qa2@team-b
 check "  several seats are kept together" "ran=dev1@team-a,qa2@team-b end=dev1@team-a,qa2@team-b|--orig --teams dev1@team-a,qa2@team-b" \
-    "$(teams_after true)"
+    "$(QUICK_ANSWER=y teams_after false)"
 save personal /keys/id_a proj_net dev1@team-a
-check "interactive, the previous configuration accepted: the team comes with it" \
-    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(teams_after false)"
+check "interactive, y typed: the team comes with it" \
+    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER=y teams_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive, a bare Enter (the default yes): the team comes with it" \
+    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER='' teams_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive, n typed: no team, and no saved choice is taken" \
+    "ran= end=|--orig token= keys=" \
+    "$(QUICK_ANSWER=n teams_after false) $(save personal /keys/id_a proj_net dev1@team-a; QUICK_ANSWER=n quick false | grep -o 'token=[^ ]* keys=[^ ]*')"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive, end of input (Ctrl-D) is not a yes: no team" \
+    "ran= end=|--orig" "$(teams_after false)"
+check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
+check "  and it records nothing" "none" "$(save personal /keys/id_a proj_net dev1@team-a; recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "a session restore never takes the saved team: it is in a team only if its own record says so" \
     "ran= end=|--orig" "$(QUICK_RESTORE=true teams_after false)"
 check "  and it records nothing" "none" "$(QUICK_RESTORE=true recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "a quick-launched team goes into the session's own record, as an explicit --teams does" \
-    "record-seats dev1@team-a" "$(recorded_after false)"
+    "record-seats dev1@team-a" "$(QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "  a record that cannot be written stops the launch" "yes" \
-    "$(FAKE_RECORD_RC=1 quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
+    "$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
 save personal /keys/id_a proj_net dev1@team-a
 check "an explicit --teams records nothing here (the launch's arguments carry it)" "none" \
-    "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team recorded_after false)"
+    "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net ""
-check "a launch with no saved team records nothing" "none" "$(recorded_after false)"
+check "a launch with no saved team records nothing" "none" "$(QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 save personal /keys/id_a proj_net ""
 check "saved with no team: none is launched into" "ran= end=|--orig" "$(teams_after true)"

@@ -69,6 +69,12 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
   [MILESTONES-DONE.md](MILESTONES-DONE.md).
 - [x] ✅ **M2 ccy members, the idle session woken**: U12, U18-U20, U29-U33. Accepted on the
   host 26-10-09 (M2.0-M2.10). Detail: [MILESTONES-DONE.md](MILESTONES-DONE.md).
+  - [ ] 🔄 Defect: the 26-10-15 acceptance re-run failed M2.9, a plain headless `ccy` carrying
+    the seat of the checkout's previous `--teams` session. Cause: Quick Launch replayed the
+    saved team on a launch nobody answered (Plan 00177 Task 7.2), against D38. Fixed 26-10-15
+    test first (CCY 3.97.3): only a person's yes to the offer, or `--teams`, takes a team.
+    Pending: the ccy play and acceptance.bash on the host.
+    [report](subagent-reports/261015-m29-seat-leak-opus.md)
 - [ ] 🔄 **M3 other encapsulations on this host, the play**: U21-U23. U24 (a team on another
   machine over WireGuard) is a later phase (DESIGN.md D46). U21, U22 and U23 (LXC, docker,
   VM) are built and accepted on the host (U23.vm 26-10-12); `play-agent-bus.yml` passed its

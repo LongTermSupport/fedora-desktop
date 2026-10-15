@@ -857,7 +857,7 @@ are forwarded unchanged.
 | `ccy`                            | Start a session in the current directory                                                                                                                                                                                                                                                                            |
 | `ccy "task"`                     | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                            |
 | `--prompt "text"`                | Start with a preseeded prompt                                                                                                                                                                                                                                                                                       |
-| `--headless`                     | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
+| `--headless`                     | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices (never the saved team) without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
 | `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: a team alone asks which seat (`--teams dev-team`), or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                  |
 | `--supervise`                    | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                        |
 | `--no-restore`                   | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                           |
@@ -1097,7 +1097,11 @@ into the launch's arguments. For a seat that exists it then asks the seat's role
 make it the team's coordinator (naming the current one, who becomes a worker) or, for the
 coordinator, stop it being one; sudo runs only when the role changes, and the role is kept in
 the team record, so the Quick Launch that reuses the seat brings it back and shows it in its
-summary. A seat that is new joins as a worker. A launch with nobody to answer (headless, no terminal, a
+summary. Quick Launch reuses the seat only when you answer yes to that summary (end of input
+is not a yes): a headless launch, a launch with no terminal and a restore take the saved token,
+keys and network but never the saved team, and the summary shows their team as none. A restore
+takes `--teams` from the session's own registry record instead, so a restored team session
+keeps its team and a session launched without one restores without one. A seat that is new joins as a worker. A launch with nobody to answer (headless, no terminal, a
 restore, a restart) must name the seat, and is refused (64) otherwise. Just before the container starts, `agent-bus seat take` creates any seat that does
 not exist yet (one `sudo agent-bus add-member`; a headless launch, a restore or a restart
 uses only sudo's cached credential) and refuses a seat another session holds (75). The
