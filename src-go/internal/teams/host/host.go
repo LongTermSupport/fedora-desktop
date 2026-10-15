@@ -40,7 +40,10 @@ type Host struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
-	Getenv func(string) string
+	// Payload is where a command prints the one value its caller captures. It is Stdout unless the
+	// host was diverted (NewDiverted), when every other flow's output goes to Stderr instead.
+	Payload io.Writer
+	Getenv  func(string) string
 	// IsTerminal says whether a stream is a terminal: where colour is used and questions asked.
 	IsTerminal func(any) bool
 	// Out keeps the first output that could not be written, so the run does not end in success.
@@ -76,6 +79,15 @@ func New(cfg config.Config) *Host {
 	return h
 }
 
+// NewDiverted is a Host for a command whose stdout is a value its caller captures: the process's
+// stdout is kept for Payload, and everything the flows and the tools they run print on stdout
+// (an Ansible play's output among it) goes to stderr.
+func NewDiverted(cfg config.Config) *Host {
+	h := &Host{Config: cfg, Runner: execx.OS{}, Stdin: os.Stdin, Stdout: os.Stderr, Stderr: os.Stderr, Payload: os.Stdout}
+	h.Wire()
+	return h
+}
+
 // Wire builds every adapter that is not set yet over Runner and the streams. Tools are found
 // by bare name on PATH; only the two sudo targets are absolute.
 func (h *Host) Wire() {
@@ -90,6 +102,9 @@ func (h *Host) Wire() {
 	}
 	if h.Stderr == nil {
 		h.Stderr = os.Stderr
+	}
+	if h.Payload == nil {
+		h.Payload = h.Stdout
 	}
 	if h.Getenv == nil {
 		h.Getenv = os.Getenv

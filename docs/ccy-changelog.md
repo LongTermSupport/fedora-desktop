@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.6 — container 2.57 (unchanged)
+
+- **`ccy --teams` with no value (or a team alone) is answered by `ccy-teams choose-teams`.**
+  It replaces the hard stop "No team on this machine works on OWNER/REPO". It lists every team
+  with what it is for and whether it covers the checkout, offers creating one, and for a team
+  that does not cover the checkout offers to add the repository to its scope (host_vars edit and
+  one play run, no homeserver restart) before the seat and role are chosen. With nobody to ask,
+  a bare `--teams` is refused (64). `ccy-teams for-checkout --choose` and `ccy_seats_resolve`
+  are gone.
+
 ## 3.97.4 — container 2.57
 
 - **A team's description reaches its agents, through the room topic.** The admin sets the
@@ -29,6 +39,7 @@ Two version numbers move independently — see
   agent-bus play updates that one) simply shows no description. A description change restarts no
   homeserver. The client and skill are in the image, so the container version moves to 2.57 and
   the image is rebuilt once.
+
 ## 3.97.3 — container 2.56
 
 - **A plain launch is on no team.** Quick Launch takes the saved team only when a person

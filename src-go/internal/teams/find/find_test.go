@@ -27,23 +27,20 @@ func newRig(t *testing.T, covering string) rig {
 	return rig{World: w, Console: c, f: New(w.Host)}
 }
 
-func TestOneMatchIsPrintedAndSaidOnStderr(t *testing.T) {
+func TestOneMatchIsPrintedOnStdoutAloneAndAsksNothing(t *testing.T) {
 	h := newRig(t, "TEAM\talpha\n")
-	if code := h.f.Run(t.Context(), []string{"--choose"}); code != term.ExitOK {
+	if code := h.f.Run(t.Context(), nil); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	if h.Out.String() != "alpha\n" {
 		t.Fatalf("stdout %q", h.Out.String())
 	}
-	if !strings.Contains(h.ErrOut.String(), "alpha") || !strings.Contains(h.ErrOut.String(), "example-org/proj") {
-		t.Fatalf("stderr %q", h.ErrOut.String())
-	}
 	if len(h.Script.GumLog) != 0 {
-		t.Fatalf("one match asks nothing: %v", h.Script.GumLog)
+		t.Fatalf("for-checkout asks nothing: %v", h.Script.GumLog)
 	}
 }
 
-func TestSeveralMatchesAreAllPrintedWithoutChoose(t *testing.T) {
+func TestSeveralMatchesAreAllPrinted(t *testing.T) {
 	h := newRig(t, "TEAM\talpha\nTEAM\tbeta\n")
 	if code := h.f.Run(t.Context(), nil); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
@@ -53,46 +50,20 @@ func TestSeveralMatchesAreAllPrintedWithoutChoose(t *testing.T) {
 	}
 }
 
-func TestSeveralMatchesWithChooseAskTheHumanAndPrintTheChoice(t *testing.T) {
+// Q10: choosing is choose-teams now; for-checkout --choose is gone.
+func TestChooseIsNoLongerAnOption(t *testing.T) {
 	h := newRig(t, "TEAM\talpha\nTEAM\tbeta\n")
-	h.Script.Gum = []string{"CHOOSE:beta"}
-	if code := h.f.Run(t.Context(), []string{"--choose"}); code != term.ExitOK {
-		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
-	}
-	if h.Out.String() != "beta\n" {
-		t.Fatalf("stdout %q", h.Out.String())
-	}
-	if len(h.Script.GumLog) != 1 || !strings.Contains(h.Script.GumLog[0], "alpha beta") {
-		t.Fatalf("gum %v", h.Script.GumLog)
-	}
-}
-
-func TestChoosingNothingIsCancelled(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\nTEAM\tbeta\n")
-	h.Script.Gum = []string{"CANCEL"}
-	if code := h.f.Run(t.Context(), []string{"--choose"}); code != term.ExitCancelled {
+	if code := h.f.Run(t.Context(), []string{"--choose"}); code != term.ExitUsage {
 		t.Fatalf("exit %d", code)
 	}
-	if h.Out.String() != "" {
-		t.Fatalf("stdout %q", h.Out.String())
-	}
-}
-
-func TestSeveralMatchesWithNobodyToAskNameThemAndFail(t *testing.T) {
-	h := newRig(t, "TEAM\talpha\nTEAM\tbeta\n")
-	h.Host.IsTerminal = func(any) bool { return false }
-	h.Host.Term.IsTerminal = h.Host.IsTerminal
-	if code := h.f.Run(t.Context(), []string{"--choose"}); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
-	}
-	if h.Out.String() != "" || !strings.Contains(h.ErrOut.String(), "alpha, beta") {
+	if h.Out.String() != "" || !strings.Contains(h.ErrOut.String(), "takes no arguments") {
 		t.Fatalf("stdout %q stderr %q", h.Out.String(), h.ErrOut.String())
 	}
 }
 
 func TestNoMatchSaysSoAndFails(t *testing.T) {
 	h := newRig(t, "")
-	if code := h.f.Run(t.Context(), []string{"--choose"}); code != term.ExitFailure {
+	if code := h.f.Run(t.Context(), nil); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
 	for _, want := range []string{"No team", "example-org/proj", "ccy-teams"} {

@@ -126,7 +126,17 @@ func (c *Client) SeatList(ctx context.Context, dir string) ([]Seat, bool, error)
 // SeatChoose is "agent-bus seat choose <team>" run as the user in the working directory: the
 // seats of the team this checkout can take, and the one to start on.
 func (c *Client) SeatChoose(ctx context.Context, team string) (Choices, error) {
-	res, err := c.userRun(ctx, "", "seat", "choose", team)
+	return c.SeatChooseAs(ctx, team, "")
+}
+
+// SeatChooseAs is SeatChoose for the member type of the launcher asking ("podman" or "host");
+// "" leaves it to agent-bus's default.
+func (c *Client) SeatChooseAs(ctx context.Context, team, memberType string) (Choices, error) {
+	args := []string{"seat", "choose", team}
+	if memberType != "" {
+		args = append(args, "--type="+memberType)
+	}
+	res, err := c.userRun(ctx, "", args...)
 	if err != nil {
 		return Choices{}, err
 	}

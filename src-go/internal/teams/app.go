@@ -7,7 +7,8 @@
 //	ops     apply, remove, backup and restore
 //	create  the create wizard
 //	find    for-checkout: the teams that work on this checkout's repository
-//	choose  choose-seat and describe-seats: the launcher's seat and role chooser
+//	choose  choose-seat and describe-seats: the launcher's seat and role questions
+//	chooser choose-teams: which team the launcher's session joins, then its seat through choose
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -19,6 +20,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/choose"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/chooser"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/find"
@@ -45,11 +47,26 @@ type App struct {
 	Create *create.Wizard
 	Find   *find.Find
 	Choose *choose.Choose
-	Picker *picker.Picker
+	// Chooser is choose-teams.
+	Chooser *chooser.Chooser
+	Picker  *picker.Picker
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
 func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
+
+// NewAppFor is NewApp for the command line args: a command whose stdout is a value its caller
+// captures (choose-teams) is given a host that prints everything else on stderr, so a play's
+// output cannot reach the value.
+func NewAppFor(cfg config.Config, args []string) *App {
+	if len(args) > 0 && args[0] == subChooseTeams {
+		return Wire(host.NewDiverted(cfg))
+	}
+	return NewApp(cfg)
+}
+
+// subChooseTeams is the subcommand whose stdout is its payload.
+const subChooseTeams = "choose-teams"
 
 // Wire builds the flows over h, after h has built every adapter it was not given.
 func Wire(h *host.Host) *App {
@@ -61,9 +78,11 @@ func Wire(h *host.Host) *App {
 	o.SignInGap = l.SignInGap
 	s := seats.New(h, kit, o)
 	c := create.New(h, o, l)
+	pick := choose.New(h, kit, s)
 	return &App{
-		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Find: find.New(h), Choose: choose.New(h, kit, s),
-		Picker: picker.New(h, kit, b, o, c, l, s),
+		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Find: find.New(h), Choose: pick,
+		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
+		Picker:  picker.New(h, kit, b, o, c, l, s),
 	}
 }
 
@@ -80,7 +99,7 @@ func (a *App) run(args []string) term.ExitCode {
 	}
 	switch sub {
 	case "", "create", "apply", "remove", "backup", "restore", "for-checkout", "record-seats",
-		"choose-seat", "describe-seats":
+		"choose-seat", "describe-seats", subChooseTeams:
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -117,6 +136,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Find.Run(ctx, rest)
 	case "record-seats":
 		return a.Find.RecordSeats(ctx, rest)
+	case subChooseTeams:
+		return a.Chooser.Run(ctx, rest)
 	case "choose-seat":
 		return a.Choose.Seat(ctx, rest)
 	case "describe-seats":

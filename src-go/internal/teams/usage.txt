@@ -90,13 +90,24 @@ Usage:
   ccy-teams restore <team> [<n>] [--yes]
                                    restore backup <n> after a yes/no (--yes: none);
                                    without <n>, choose one from the list
-  ccy-teams for-checkout [--choose]
-                                   print the team(s) that work on this checkout's GitHub
-                                   OWNER/REPO (an organisation team by its owner), one per
-                                   line on stdout, the rest on stderr. --choose prints exactly
-                                   one: the only match, or the one you pick of several (with
-                                   nobody to ask, it fails naming them). With none, it fails
-                                   saying so. ccy --teams with no value calls it
+  ccy-teams for-checkout           print the team(s) that work on this checkout's GitHub
+                                   OWNER/REPO (an organisation team by its owner, unless
+                                   it excludes the repository), one per line on stdout, the
+                                   rest on stderr. With none, it fails saying so. For scripts;
+                                   ccy chooses with choose-teams
+  ccy-teams choose-teams --type=podman|host [<list>]
+                                   the launcher's team chooser, on a terminal only. With a
+                                   <list> (SEAT@TEAM or a team alone, comma-separated) it
+                                   chooses the seat of each team named alone and prints the
+                                   canonical list. With none, it shows every team on this
+                                   machine with what it is for and whether it covers this
+                                   checkout (covers, would add, excludes), and offers
+                                   creating one. A team that does not cover the checkout is
+                                   offered the repository in its scope (edits the host_vars,
+                                   runs play-agent-bus.yml for it, no homeserver restart), or
+                                   joined as it is, or left out. Then the seat. Prints
+                                   SEAT@TEAM[,...] on stdout, the rest on stderr. Leaving any
+                                   screen prints nothing and succeeds. ccy --teams calls it
   ccy-teams record-seats <seats>   put the seats (a canonical --teams list) into the record of
                                    the ccy session this runs in (from TMUX), so its restore
                                    replays them. ccy calls it when Quick Launch brings a saved
@@ -106,8 +117,8 @@ Usage:
                                    stops being the coordinator; prints SEAT@TEAM on stdout, the
                                    rest on stderr. Leaving the chooser prints nothing and
                                    succeeds. The role is asked only for a seat that exists, and
-                                   sudo only when you change it. ccy --teams with a team alone
-                                   calls it
+                                   sudo only when you change it. choose-teams uses the same
+                                   chooser for each team named alone
   ccy-teams describe-seats [--prefix TEXT] <list>
                                    print each seat of a --teams list followed by its role,
                                    (coordinator) or (worker), on one line after TEXT: what

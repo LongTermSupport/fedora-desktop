@@ -147,6 +147,19 @@ func TestSeatChooseRunsAsTheUserAndParsesWhatItOffers(t *testing.T) {
 	}
 }
 
+func TestSeatChooseAsAsksForTheMemberTypeOfTheLauncher(t *testing.T) {
+	r := newRig()
+	r.fake.On([]string{"agent-bus", "seat", "choose", "alpha", "--type=host"},
+		execx.Result{Stdout: []byte("CHOICE\t1\tfree\th.1+b.host\tw\nDEFAULT\t1\n")})
+	got, err := r.c.SeatChooseAs(context.Background(), "alpha", "host")
+	if err != nil || got.Default != "1" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if c := r.last(t); c.Line() != "agent-bus seat choose alpha --type=host" {
+		t.Fatalf("ran %q", c.Line())
+	}
+}
+
 func TestSeatChooseFailureIsTheWrappersExit(t *testing.T) {
 	r := newRig()
 	r.fake.On([]string{"agent-bus", "seat", "choose", "alpha"}, execx.Result{ExitCode: 78, Stderr: []byte("not running")})
