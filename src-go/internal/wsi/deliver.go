@@ -21,12 +21,12 @@ func (r *run) copyText(ctx context.Context, selection, text string, exact bool) 
 	if !exact {
 		text += "\n"
 	}
-	cmd := execx.Cmd{Name: "wl-copy"}
+	cmd := execx.Cmd{Name: wlCopyBin}
 	if selection == selectionPrimary {
 		cmd.Args = []string{"-p"}
 	}
-	if r.session == "x11" {
-		cmd = execx.Cmd{Name: "xsel", Args: []string{"-ib"}}
+	if r.session == sessionX11 {
+		cmd = execx.Cmd{Name: xselBin, Args: []string{"-ib"}}
 		if selection == selectionPrimary {
 			cmd.Args = []string{"-ip"}
 		}
@@ -46,7 +46,7 @@ func (r *run) copyOrFail(ctx context.Context, selection, text string, exact bool
 }
 
 // knownSession is a session type the clipboard tools serve.
-func (r *run) knownSession() bool { return r.session == "wayland" || r.session == "x11" }
+func (r *run) knownSession() bool { return r.session == sessionWayland || r.session == sessionX11 }
 
 // deliver is W25-W35.
 func (r *run) deliver(ctx context.Context, text string) error {

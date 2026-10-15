@@ -99,7 +99,7 @@ func (r *run) debugChecks(ctx context.Context) error {
 		r.log.errorLine("Unknown window manager: " + r.session)
 		failed++
 	}
-	deps = append(deps, dep{transcriber, "faster-whisper (pip install --user faster-whisper)", "Speech transcription"})
+	deps = append(deps, dep{transcriber, "faster-whisper", "Speech transcription"})
 	failed += r.missingDeps(deps)
 	if !r.env.Writable(r.env.TempDir) {
 		r.log.errorLine("  Temp directory: " + r.env.TempDir + " (not writable)")
@@ -124,7 +124,11 @@ func (r *run) missingDeps(deps []dep) int {
 		}
 		r.log.errorLine("  " + d.cmd + ": NOT FOUND")
 		r.log.errorLine("    Purpose: " + d.purpose)
-		r.log.errorLine("    Install: sudo dnf install " + d.pkg)
+		hint := "sudo dnf install " + d.pkg
+		if d.cmd == transcriber {
+			hint = "pip install --user faster-whisper"
+		}
+		r.log.errorLine("    Install: " + hint)
 		missing++
 	}
 	return missing

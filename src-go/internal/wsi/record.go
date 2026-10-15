@@ -134,12 +134,12 @@ func (r *run) prepared(ctx context.Context, s *recordingState) {
 		return
 	default:
 	}
+	s.limit = r.env.After(maxRecording)
 	if s.pending {
 		r.log.debug("Stop requested while preparing: the grace runs, RECORDING is not sent")
 		return
 	}
 	r.panel.notifyState(ctx, "RECORDING", "Recording... (Insert to stop)", "")
-	s.limit = r.env.After(maxRecording)
 	r.log.debug(fmt.Sprintf("%d-second timer started", maxRecordingSeconds))
 }
 

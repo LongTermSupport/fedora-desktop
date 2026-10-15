@@ -84,8 +84,9 @@ Python and are run from the directory the binary is in.
   is overwritten later. `$USER` empty: the account's name.
 - W6. From then on every exit runs the cleanup: the PID file is removed only while it names
   this process (another client's PID is left in place, and an unreadable file is left with a
-  stderr line); a recorder still running is stopped; the audio files
-  `/dev/shm/wfile-$USER.wav` and its `.resampled.wav` and `.padded` siblings are removed; then
+  stderr line); a recorder still running is stopped; once recording has started, the audio files
+  `/dev/shm/wfile-$USER.wav` and its `.resampled.wav` and `.padded` siblings are removed (a run
+  that failed before recording leaves them alone); then
   `IDLE` is signalled (dropped when the session already ended, W8).
 
 ### Log and panel

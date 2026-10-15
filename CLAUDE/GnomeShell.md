@@ -382,7 +382,7 @@ fails on an unmapped Fedora version by design — see
 
 **Workflow (batch mode):**
 
-1. User presses Insert key → extension calls `GLib.spawn_command_line_async('wsi ...')`
+1. User presses Insert key → extension starts `wsi` through `/usr/bin/setsid` (its own process group) with `spawnWatched` from `recorderLaunch.js`
 2. `wsi` records audio via `pw-record`, resamples with `sox` to 16 kHz WAV in `/dev/shm`
 3. `wsi` calls `faster-whisper-transcribe` (the `WHISPERFILE` binary) and obtains the transcript
 4. `wsi` sends a DBus `StateChanged` signal; the extension receives it and, if auto-paste is enabled, uses `ydotool` to type the text into the active window
