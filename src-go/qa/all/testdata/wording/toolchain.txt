@@ -1,1 +1,1 @@
-TOOLCHAIN-OK 5 tool(s) match .qa-versions
+TOOLCHAIN-OK 6 tool(s) match .qa-versions

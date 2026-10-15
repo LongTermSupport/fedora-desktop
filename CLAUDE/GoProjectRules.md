@@ -29,14 +29,15 @@ and the per-rule pages are not written; this catalogue stands in for them.
 
 ## The rules
 
-| Rule                    | Defect class                                                                                                                        | Found in                                                                       |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `project_seam_exec`     | a process started outside the runner, so no fake sees it                                                                            | `teams`: `syscall.Exec` in the launcher hand-over                              |
-| `project_seam_commands` | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`) | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style` |
-| `project_tmux_targets`  | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                            | the bash library, before the port                                              |
-| `project_testclock`     | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                  | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                   |
-| `project_waitdelay`     | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped            | `qa/internal/proc`: bug B25 of the qa-all port                                 |
-| `project_homeabbrev`    | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                        | `teams` tests: `strings.Replace(..., "~", 1)` twice                            |
+| Rule                    | Defect class                                                                                                                        | Found in                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `project_seam_exec`     | a process started outside the runner, so no fake sees it                                                                            | `teams`: `syscall.Exec` in the launcher hand-over                               |
+| `project_seam_commands` | a program run outside the package that owns it, or a command the rule cannot judge (run-time name, hidden wrapper argv, shell `-c`) | `sessions`: `systemctl reboot`; `teams`: the take-down heading via `gum style`  |
+| `project_tmux_targets`  | a tmux `-t` target in the wrong form for its command (fedora-desktop#69)                                                            | the bash library, before the port                                               |
+| `project_testclock`     | wall-clock reads in tests (date-dependent tests failed in the hour after midnight)                                                  | `transcript` and `sessprobe` tests: 23 `time.Now()` fixtures                    |
+| `project_waitdelay`     | a function that sets `exec.Cmd.WaitDelay` and never names `exec.ErrWaitDelay`, so a finished command's output is dropped            | `qa/internal/proc`: bug B25 of the qa-all port                                  |
+| `project_package_tests` | a package with no `_test.go` file, whose code the module-wide coverage floor can hide behind the rest of the module                 | the old Go gate's every-package-has-tests check, kept when go-qa-ci replaced it |
+| `project_homeabbrev`    | a hand-rolled `~` home abbreviation (a bare prefix replace turned `/home/<user>X` into `~X`)                                        | `teams` tests: `strings.Replace(..., "~", 1)` twice                             |
 
 Each rule's doc string (`go vet -vettool=<driver> help project_<name>`) says what it does and
 does not catch; the sections below are the same facts with their proofs. Anything a rule does

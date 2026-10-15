@@ -13,7 +13,7 @@ func TestDriverRegistersEveryRule(t *testing.T) {
 	}
 	want := map[string]bool{
 		"project_seam_exec": true, "project_seam_commands": true,
-		"project_testclock": true, "project_homeabbrev": true,
+		"project_testclock": true, "project_homeabbrev": true, "project_package_tests": true,
 	}
 	for _, a := range as {
 		delete(want, a.Name)

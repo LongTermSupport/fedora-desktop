@@ -2,6 +2,7 @@ package all
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -171,6 +172,23 @@ func TestTheRealTablePassesEndToEndInOrder(t *testing.T) {
 	}
 	if !strings.Contains(w.out.String(), "✓ QA passed: ") {
 		t.Fatalf("no verdict:\n%s", w.out.String())
+	}
+}
+
+// go-qa absent from PATH is a failed go gate that says it could not start, and the run fails:
+// never a skipped gate and never a pass.
+func TestAGoQAMissingFromPathFailsTheRunLoudly(t *testing.T) {
+	w := newRealWorld(t)
+	w.runner.replies["go-qa --root src-go run"] = reply{err: errors.New(`exec: "go-qa": executable file not found in $PATH`)}
+	if code := w.main(context.Background()); code != ExitFailed {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitFailed, w.out.String())
+	}
+	out := w.out.String()
+	if !strings.Contains(out, "✗ go: ") || !strings.Contains(out, "cannot run go-qa") || !strings.Contains(out, "✗ QA FAILED: ") {
+		t.Fatalf("the missing go-qa was not reported as a failed go gate:\n%s", out)
+	}
+	if !slices.Equal(w.runner.log, tableOrder(t)) {
+		t.Fatalf("a missing go-qa stopped or skipped other gates: %v", w.runner.log)
 	}
 }
 

@@ -46,12 +46,16 @@ func TestWaitDelay(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), WaitDelay, "fix/internal/badwait")
 }
 
+func TestPackageTests(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), PackageTests, "fix/internal/notests", "fix/internal/withtests")
+}
+
 func TestAllIsValid(t *testing.T) {
 	if err := analysis.Validate(All()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(All()); got != 6 {
-		t.Fatalf("want 6 rules, got %d", got)
+	if got := len(All()); got != 7 {
+		t.Fatalf("want 7 rules, got %d", got)
 	}
 }
 
