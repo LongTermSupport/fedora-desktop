@@ -170,7 +170,8 @@ quit `ccy-teams` to start Element.
 - [ ] 🔄 **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
   `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
   it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
-  owner's host test.
+  owner's host test. Only a person's yes to the offer takes the team: a headless, no-terminal
+  or restore launch never does (CCY 3.97.3, Plan 00161 M2.9 defect).
 - [ ] 🔄 **Task 7.3**: The owner's host run found `play-agent-bus-element.yml` refusing them
   after they accepted `cc --teams`. The reason: "~/.config/pingbus exists: this user holds
   pingbus bundles". Task 4.10's acceptance record lives in that folder, so the Element
