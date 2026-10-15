@@ -1,8 +1,14 @@
 # Integration branch catch-up with F44 (Opus)
 
 `integration/261014` was 125 commits ahead of F44 and 76 behind. F44 was merged into it, not
-rebased, in two merges: `daae0612` holds every conflict resolution, and `62cf4c0b` takes
-`9c0c48e0`, one doc commit that landed on F44 during the work. After both, the branch holds all of F44.
+rebased. F44 kept moving during the work, so there are three merges:
+
+- `daae0612` holds the first round of conflict resolutions.
+- `62cf4c0b` takes `9c0c48e0`, one doc commit, with no conflicts.
+- `c95036bb` takes Plan 00201 M6 and Plan 00191's `qa-go.bash` change, with a second round of
+  conflicts (below).
+
+After `c95036bb` the branch holds all of F44 as of `397ca234`.
 
 The work was done in a detached worktree at `.claude/worktrees/integration-catchup`, because
 `integration/261014` is checked out in another agent worktree. That worktree was clean and level
@@ -24,8 +30,22 @@ None of the conflicts were in the QA ports. The integration branch also carries 
 | `src-go/internal/teams/app.go`                                                  | Wires both `Lxc` (lxc-add) and `Chooser` (choose-teams), and accepts both subcommands. The two `NeedCheckout` checks became one `inCheckout` helper, which keeps `dispatch` within cyclop 15.                                                                                                                                                                                                                           |
 | `tests/helpers/pingbus/test_hooks.py`, `test_cli_status.py`                     | The union: the `reason` and `description` field patterns; the `relay=` field and the `ABOUT` line.                                                                                                                                                                                                                                                                                                                      |
 | `docs/agent-bus-protocol.md`                                                    | The §13 table takes the branch's rows (relay, goodbye, `post-tool`), with F44's `ABOUT` line added to `status`.                                                                                                                                                                                                                                                                                                         |
-| `files/var/local/claude-yolo/{claude-yolo,Dockerfile}`, `docs/ccy-changelog.md` | CCY is now **3.98.1** with container **2.59**. Both lines changed the image after 2.55: F44 reached 2.58, the branch 2.56. The commit hook required a bump above the branch's 3.98.0. A new 3.98.1 changelog entry explains the join; the entries for 3.98.0 (2.56) and 3.97.x (2.58) are unchanged.                                                                                                                    |
+| `files/var/local/claude-yolo/{claude-yolo,Dockerfile}`, `docs/ccy-changelog.md` | In this round CCY became **3.98.1** with container **2.59**; the second round superseded this. Both lines changed the image after 2.55: F44 reached 2.58, the branch 2.56. The commit hook required a bump above the branch's 3.98.0. A new 3.98.1 changelog entry explains the join; the entries for 3.98.0 (2.56) and 3.97.x (2.58) are unchanged.                                                                    |
 | `CLAUDE/Plan/meta-deploy.list`                                                  | The `play-agent-bus.yml` entry (Plans 00177/00194) is followed by one `play-claude-yolo.yml` entry, which describes CCY 3.98.1 / 2.59 with both lines' try-it steps. The note "assumes the 00161 acceptance ran from F44's list" was dropped, because F44's list no longer holds 00161.                                                                                                                                 |
+
+Second round, `c95036bb` (7 files):
+
+- `pingbus/hooks/hooks.json`: kept the branch's file. It already registers `SessionEnd`, with
+  the goodbye's `timeout: 6`, and the relay `PostToolUse` echo. F44's M6 registration of
+  `SessionEnd` would have duplicated it.
+- `hooks.py` docstring, `test_plugin_contract.py`, and the protocol §13 `session-end` cell:
+  session-end removes the teams record and posts the goodbye.
+- Versions: F44 independently took container **2.59** for its `SessionEnd` registration. The
+  joined image therefore needed a new number, and is **CCY 3.98.2, container 2.60**. The
+  changelog's join entry is rewritten as 3.98.2, which drops the branch-only 3.98.1 entry. F44's
+  3.97.10 and 3.97.11 entries are kept.
+- `meta-deploy.list`: one `play-claude-yolo.yml` entry now covers M4 to M6 and Plans 00177 and
+  00194\. It comes after the `play-agent-bus.yml` entry.
 
 Two branch tests were updated for F44 behaviour:
 
@@ -35,8 +55,11 @@ Two branch tests were updated for F44 behaviour:
 
 ## Carried QA changes
 
-`git log` over F44 since the merge base shows **no change to any `scripts/qa-*.bash`**. There
-was nothing to carry into a Go port's code, golden or spec. F44 did change some QA data and
+`git log` over F44 since the merge base shows one change to a `scripts/qa-*.bash`. It is
+`d6b21f1c` (Plan 00191), in which `qa-go.bash` builds each module without its test files. That
+script is the one gate the branch did not port, so the change arrives as is and there is no Go
+port to carry it into. No ported script changed, so nothing was carried into a Go port's code,
+golden or spec. F44 did change some QA data and
 suites, and each change auto-merged and takes effect through the Go tools as data:
 
 - `scripts/qa-routing.tsv`: `also CLAUDE/Watchlist.tsv go covered`. The Go `qa-changed`
@@ -73,6 +96,14 @@ suites, and each change auto-merged and takes effect through the Go tools as dat
 
   Suites that passed include `test-ccy-teams-command` (344), `test-ccy-agent-bus` (59),
   `test-agent-bus-install` (283), `test-qa-changed` (114) and `test-qa-docs-exit-codes` (6).
+
+- After the second merge (`c95036bb`), everything was run again:
+
+  - `src-go`: `go build`, `go vet`, `go test -race ./...` and `golangci-lint` pass.
+  - Python: the same 1863 tests pass.
+  - `qa-changed --base F44` (459 files): 68 checks and suites pass, including
+    `test-cc-teams` (57), `test-ccy-teams-command` (344) and `test-agent-bus-install` (283).
+    `ansible-syntax-gate` again could not run, for the vault-file reason above.
 
 - qa-all was not run; the coordinator runs it.
 
