@@ -55,7 +55,7 @@ that play.
    once)"; it shows the password with the homeserver and username, offers it to the
    clipboard (for one paste, then gone; not while Clipboard Indicator is on, see
    [Limits](#limits)), and then offers to open Element. Once you are signed in, the first choice is
-   "Open the team in Element", and a new password is a separate choice that says how many of
+   "Open `<team>` in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside

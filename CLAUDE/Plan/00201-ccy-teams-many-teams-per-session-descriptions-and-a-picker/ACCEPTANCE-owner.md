@@ -4,42 +4,66 @@
 
 Do these in order, once. Each step names what you should see.
 
-1. **Deploy.** In a terminal on the desktop, in this checkout:
-   `./CLAUDE/Plan/meta-deploy.bash`. Answer sudo when asked. It installs ccy 3.98.11 (image
-   2.66) and rebuilds `ccy-teams`, installs the new bus software for `cc` and LXC members, then
-   runs the two bus self-tests (Plan 00161's and this plan's `acceptance.bash`). If a step
-   fails, stop and send its output.
-2. **Relaunch every team session.** `/exit` in every session that is on a team (ccy, `cc --teams`,
-   LXC). Old sessions keep the old delivery until they restart, and an old session silently
-   drops an answer from a new one (a reply, refused as an edit), so relaunch all of them. The first ccy launch after the
-   deploy rebuilds the image once, which takes a few minutes.
-3. **Bring the teams up to date.** Run `ccy-teams`. Every team will say "out of date:
-   software"; answer **yes** to "Update them now (play-agent-bus.yml)?". Every team should then
-   read **up** and **up to date**. Leave with `q`.
-4. **Sign in to Element, once per team.** In `ccy-teams`, Enter on your name under a team,
-   then **Sign in: set a password (shown once)**. Put the password in your password manager: a
-   new password later signs out all your Element sessions of that team. Let it open Element.
-   Each team is its own Element window (each team is its own Matrix server). Next time, Enter
-   on any team row, **Open every team in Element, a window each**.
-5. **Start the agents.** In each project checkout: `ccy --teams`. Tab marks teams, Enter takes
-   them; take the suggested seat for each. For an existing seat you are asked its role:
-   **Keep as is**, or **Make coordinator** for the agent that should take your requests (one
-   per team). A **new** seat is not asked: it starts as a worker. To make it the coordinator,
-   in `ccy-teams` press Enter on its seat, then **Make coordinator**.
-6. **Check the session.** The launch prints "This session is on N teams:" with each seat, and
-   the status line ends `bus: <teams>`. Next time in that checkout, plain `ccy` shows the team
-   under **Quick Launch Available**; Enter takes the same seats.
-7. **Talk to an agent.** In Element type `@`, **pick the agent from the list**, write, send. A
-   name not picked from the list reaches nobody; edits are ignored (send a new message). Within
-   seconds the agent's avatar appears under your message (it was delivered); its answer comes
-   as a reply to your message. In the agent's terminal your message shows as "Another Claude
-   session sent a message" and a block with `kind: HUMAN` and `from: <you>`. More:
+1. **Nothing to deploy.** The host already runs F44 at df548372 (ccy 3.98.11, image 2.66,
+   pingbus plugin 1.2.3, Tuwunel 1.9.4); that deploy also applied every team. The deploy
+   queue is empty: do not run `meta-deploy.bash`.
+2. **Look at the teams.** In a terminal, `cd ~` first, then `ccy-teams`. Run it from your home
+   folder: inside a checkout it may offer to start a session there, or to create a team for it
+   (both default to Yes). Every team row should read **up** and **up to date**. If it opens
+   with "Not as declared: ..." and "Update them now (play-agent-bus.yml)?", answer Yes. If it
+   asks "Team ... has no description. Write one now?", write one line or answer No. Note every
+   **held** seat: each is a running session to relaunch in step 3. Leave with `q`.
+3. **Relaunch every team session.** In every session on a team (ccy, `cc --teams`, an LXC
+   container's agent), let it finish its turn, then `/exit` and start it again. Why: a
+   session loads the bus software (pingbus, its plugin and hooks, the ccy image) only when it
+   starts, so an old one keeps the old delivery. And an old session silently drops a threaded
+   answer from a new one, reading the reply as an edit (seen live). So relaunch every one of
+   them, not just some. A ccy session: in its checkout run `ccy`; under **Quick Launch
+   Available** the **Team:** line shows its seats; press Enter at "Use same configuration?
+   [Y/n]" and they are taken again. If that line says `none`, press Ctrl-C and run `ccy --teams` instead (step 5). A `cc --teams` session: start it again as `ccy --teams` (step 5), not `cc`. An LXC
+   agent: inside the container, as its user, in its checkout, run `ccy --teams <team>`. The
+   first ccy launch may rebuild the image to 2.66, which takes a few minutes.
+4. **Sign in to Element, once per team.** In `ccy-teams`, press Enter on your name under a
+   team (KIND `human`), then choose **Sign in: set a password (shown once)**. If you have
+   signed in before, that line is not there: choose **Open `<team>` in Element** and skip the
+   password. Sudo may ask for your password. It prints the Homeserver, Username and Password
+   once. With the Clipboard Indicator extension on (this repo's default), it says the password
+   is not offered for the clipboard: **type the password into Element; do not paste it.**
+   Answer Yes to "Open `<team>` in Element now?". The Element window already knows the
+   homeserver, so type the Username and Password and sign in. A new password later signs
+   out all your Element sessions of that team, so keep this one. Each team is **its own
+   Element window**, because each team is its own Matrix server and one Element window holds
+   one account. Why, and the options: [RESEARCH-one-element-window.md](RESEARCH-one-element-window.md).
+   Next time, press Enter on any team row and choose **Open every team in Element, a window each**.
+5. **Start the agents with `ccy`, not `cc --teams`.** `cc` runs as you on the desktop, beside
+   your Element sign-in, so a misbehaving agent there could post as you. A ccy session runs
+   in a container. In each project checkout run `ccy --teams`. If only one team covers the
+   checkout, it says "Team ... works on ..." and takes it without a list. Otherwise, Tab marks
+   teams and Enter takes them. For each team, "Team `<team>`: which seat does this session
+   take?": take the default. For a seat that already exists you are asked its role: the first
+   line, **Keep as is: ...**, or **Make coordinator** for the agent that should take your
+   requests (one per team; sudo asks). A **new** seat is not asked: it joins as a worker. To
+   make it the coordinator later, in `ccy-teams` press Enter on its seat, then **Make
+   coordinator**, then Yes.
+6. **Check the session.** The launch prints "This session is on 1 team:" (or "on N teams:"),
+   one line per seat with its role and the team's description. The status line ends
+   `bus: <team>` (several teams: `bus: <team>,<team>`); a red `bus: no record ...` is a
+   fault (below). Next time in that checkout, plain `ccy` shows the seats on the **Team:**
+   line under **Quick Launch Available**, and Enter takes them again.
+7. **Talk to an agent.** In the team's Element window type `@`, **pick the agent from the
+   list** (its handle, like `myrepo.1+local.podman`), write, send. A name you typed without
+   picking it from the list reaches nobody. Edits are ignored: send a new message instead.
+   Within seconds the agent's avatar appears under your message, which means it was
+   delivered. Its answer comes as a reply to your message, starting `[agent-bus] text -> `.
+   In the agent's terminal your message shows under "Another Claude session sent a message"
+   (Claude Code's own label), then a block starting "agent-bus delivery" with `kind: HUMAN` and
+   `from: <you>`. More:
    [Talking to agents from Element](../../../docs/agent-bus.md#talking-to-agents-from-element).
 
 If something is off:
 
 - No avatar under your message: you did not pick the agent from the `@` list, or its session is
-  not running (`ccy-teams` shows the seat as held when it is).
+  not running (`ccy-teams` shows the seat as held when it is), or it was not relaunched.
 - Status line `bus: no record ...` in red, or the agent says a delivery is "missing" or
   "stalled": type `! pingbus status` in that session and send the output.
 - "is built on this host but its homeserver is not running": `ccy-teams apply <team>`. "there
@@ -52,8 +76,8 @@ If something is off:
 `acceptance.bash` covers what runs unattended (descriptions, a headless session on two teams,
 team inference, SessionEnd, a plain session). These steps need a terminal and your answers.
 
-**Before you start:** the Morning start above is done (deploy run, every team session
-relaunched on image 2.66, every team up to date). You need two of your own teams, here A and B,
+**Before you start:** the Morning start above is done (every team up to date, every team
+session relaunched on image 2.66). You need two of your own teams, here A and B,
 each with your Element sign-in and **one other running agent** (a ccy session in another
 checkout will do), and a GitHub checkout of another project (not fedora-desktop) that neither
 team covers, whose own status line is a hooks daemon's.
