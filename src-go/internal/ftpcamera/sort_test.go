@@ -1,10 +1,13 @@
 package ftpcamera
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -188,6 +191,50 @@ func TestExifDateIgnoresExiftoolsStatusButNotItsAbsence(t *testing.T) {
 	k.fake.OnError([]string{"exiftool"}, &execx.NotInstalledError{Name: "exiftool"})
 	if got := c.exifDate(t.Context(), "/x/a.arw", "photo"); got != "" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// E21: the duplicate check streams both files in chunks, whatever sizes the reads return, so
+// a large video is never held in memory whole.
+func TestSameReaders(t *testing.T) {
+	long := strings.Repeat("0123456789", 20000)
+	diffAtEnd := long[:len(long)-1] + "X"
+	cases := []struct {
+		name string
+		a, b io.Reader
+		want bool
+	}{
+		{"equal, uneven reads", iotest.OneByteReader(strings.NewReader(long)), iotest.HalfReader(strings.NewReader(long)), true},
+		{"differ in the last byte", strings.NewReader(long), iotest.HalfReader(strings.NewReader(diffAtEnd)), false},
+		{"one is a prefix", strings.NewReader(long), strings.NewReader(long[:100]), false},
+		{"both empty", strings.NewReader(""), strings.NewReader(""), true},
+	}
+	for _, tc := range cases {
+		got, err := sameReaders(tc.a, tc.b)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: %v %v, want %v", tc.name, got, err, tc.want)
+		}
+	}
+	if _, err := sameReaders(iotest.ErrReader(os.ErrPermission), strings.NewReader("x")); !errors.Is(err, os.ErrPermission) {
+		t.Errorf("a read error: %v", err)
+	}
+}
+
+// E21: files of different sizes are not identical; equal ones are.
+func TestSameBytes(t *testing.T) {
+	dir := t.TempDir()
+	a, b, c := filepath.Join(dir, "a"), filepath.Join(dir, "b"), filepath.Join(dir, "c")
+	writeFile(t, a, "same bytes")
+	writeFile(t, b, "same bytes")
+	writeFile(t, c, "same bytes, longer")
+	if same, err := sameBytes(a, b); err != nil || !same {
+		t.Errorf("a, b: %v %v", same, err)
+	}
+	if same, err := sameBytes(a, c); err != nil || same {
+		t.Errorf("a, c: %v %v", same, err)
+	}
+	if _, err := sameBytes(a, filepath.Join(dir, "gone")); err == nil {
+		t.Error("a missing file compared")
 	}
 }
 

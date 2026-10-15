@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -103,17 +104,59 @@ func (e *collision) Error() string {
 	return e.rel + " is a different file of the same name"
 }
 
-// sameBytes is whether two files hold the same bytes.
+// compareChunk is how much of each file the duplicate check holds at once.
+const compareChunk = 64 * 1024
+
+// sameBytes is whether two files hold the same bytes: different sizes are not, and equal
+// sizes are compared a chunk at a time, so a large video is never read whole.
 func sameBytes(a, b string) (bool, error) {
-	da, err := os.ReadFile(a)
+	fa, err := os.Open(a)
+	if err != nil {
+		return false, fmt.Errorf("open %s: %w", a, err)
+	}
+	defer closeQuietly(fa)
+	fb, err := os.Open(b)
+	if err != nil {
+		return false, fmt.Errorf("open %s: %w", b, err)
+	}
+	defer closeQuietly(fb)
+	ia, err := fa.Stat()
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", a, err)
 	}
-	db, err := os.ReadFile(b)
+	ib, err := fb.Stat()
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", b, err)
 	}
-	return bytes.Equal(da, db), nil
+	if ia.Size() != ib.Size() {
+		return false, nil
+	}
+	same, err := sameReaders(fa, fb)
+	if err != nil {
+		return false, fmt.Errorf("compare %s with %s: %w", a, b, err)
+	}
+	return same, nil
+}
+
+// sameReaders is whether a and b yield the same bytes, read a chunk at a time.
+func sameReaders(a, b io.Reader) (bool, error) {
+	ba, bb := make([]byte, compareChunk), make([]byte, compareChunk)
+	for {
+		na, errA := io.ReadFull(a, ba)
+		if errA != nil && !errors.Is(errA, io.EOF) && !errors.Is(errA, io.ErrUnexpectedEOF) {
+			return false, errA
+		}
+		nb, errB := io.ReadFull(b, bb)
+		if errB != nil && !errors.Is(errB, io.EOF) && !errors.Is(errB, io.ErrUnexpectedEOF) {
+			return false, errB
+		}
+		if na != nb || !bytes.Equal(ba[:na], bb[:nb]) {
+			return false, nil
+		}
+		if na < compareChunk {
+			return true, nil
+		}
+	}
 }
 
 // moveAsRoot files path into dest, as root (E21). A file of the same name already there is
