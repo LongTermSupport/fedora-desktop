@@ -19,16 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# ccy play: installs CCY 3.98.5 (container unchanged at 2.60, no image rebuild). The launcher
-# and its libraries are rewritten where semgrep's bash grammar could not parse them, with
-# identical behaviour (Plan 00192), and `ccy --help` describes the shared team chooser
-# (Plan 00201).
-playbooks/imports/play-claude-yolo.yml
-# Plan 00192 (vmtest port): the lab play now builds ~/.local/bin/vmtest from src-go/cmd/vmtest
-# (installing the Go toolchain first) in place of the bash CLI, deploys the scrubber's command
-# front beside run-log-scrub.bash, and deploys the bridge runner that now marks the vmtest it
-# starts as the bridge's. After it runs, `vmtest freshness-status` and one
-# `vmtest run server-fast-provision` on the host are what prove the binary against real
-# libvirt (SPEC-vmtest.md section 7, H1-H6).
-playbooks/imports/optional/common/play-vm-test-lab.yml
