@@ -52,9 +52,16 @@ func New(h *host.Host, kit *flow.Kit, o *ops.Ops) *Seats {
 }
 
 // StartCcy replaces this process with the launcher, run in top with the given seat refs.
+// With no refs it is a bare `ccy --teams`, which lists the teams and lets the person choose.
 func (s *Seats) StartCcy(top, refs string) error {
-	s.Kit.Tell("Starting ccy --teams " + refs + " in " + s.Kit.Abbrev(top) + ".")
-	if err := s.Exec(s.Launcher, []string{s.Launcher, ccyenv.FlagTeams, refs}, top); err != nil {
+	argv := []string{s.Launcher, ccyenv.FlagTeams}
+	said := "Starting ccy --teams"
+	if refs != "" {
+		argv = append(argv, refs)
+		said += " " + refs
+	}
+	s.Kit.Tell(said + " in " + s.Kit.Abbrev(top) + ".")
+	if err := s.Exec(s.Launcher, argv, top); err != nil {
 		s.Kit.Term.PrintError(err.Error())
 		return flow.Leave(term.ExitFailure)
 	}

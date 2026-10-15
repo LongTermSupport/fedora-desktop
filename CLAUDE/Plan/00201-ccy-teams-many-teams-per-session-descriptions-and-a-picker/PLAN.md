@@ -82,8 +82,10 @@ a repository is no longer offered for a checkout of it. Report:
   short name. Built test-first in `helpers/pingbus` (S-D1 to S-D6); Q8 taken as the spec
   recommends (REPLY after HUMAN and PEER only, not PING), pending the owner's confirmation.
   Report: `subagent-reports/261015-m3-reply-sonnet.md`.
-- [ ] ⬜ **Task 2.4**: M4, the shared chooser in Go (`ccy-teams choose-teams`), scope widening,
-  ccy wired.
+- [x] ✅ **Task 2.4**: M4, the shared chooser in Go (`ccy-teams choose-teams`), scope widening,
+  ccy wired (CCY 3.97.6). Single team (S-B1 to S-B15 without multi-select): `declare.py choices`
+  and `add-repo`, the Go chooser, the wizard's chooser mode, `for-checkout --choose` and
+  `ccy_seats_resolve` deleted. Report: `subagent-reports/261015-m4-chooser-sonnet.md`.
 - [ ] ⬜ **Task 2.5**: M5, several teams per session: multi-select, launch block, status line,
   `send`/`say` team inference.
 - [ ] ⬜ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it.

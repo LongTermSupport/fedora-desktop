@@ -82,26 +82,35 @@ func (c *Choose) Seat(ctx context.Context, args []string) term.ExitCode {
 		c.say("ccy-teams: 'choose-seat' takes one team. See ccy-teams --help.")
 		return term.ExitUsage
 	}
-	team := args[0]
-	choices, err := c.Bus.SeatChoose(ctx, team)
+	ref, code := c.PickSeat(ctx, args[0], "")
+	if ref != "" {
+		c.Host.Print(c.Host.Stdout, ref+"\n")
+	}
+	return code
+}
+
+// PickSeat chooses the seat this session takes in team, for a launcher of memberType ("" for
+// agent-bus's default), then offers its role. The ref is SEAT@TEAM; it is empty with ExitOK when
+// the person left a question, and nothing is started.
+func (c *Choose) PickSeat(ctx context.Context, team, memberType string) (string, term.ExitCode) {
+	choices, err := c.Bus.SeatChooseAs(ctx, team, memberType)
 	if err != nil {
-		return c.listFailed(team, err)
+		return "", c.listFailed(team, err)
 	}
 	if !c.Kit.HasTool("gum") {
 		c.say("--teams " + team + " asks which seat to take, and gum is not installed: play-claude-yolo.yml installs it.")
 		c.say("  Or name the seat yourself: --teams " + choices.Default + "@" + team)
-		return exitConfig
+		return "", exitConfig
 	}
 	picked, ok, code := c.pickSeat(ctx, team, choices)
 	if !ok {
-		return code
+		return "", code
 	}
 	c.say("Taking seat " + picked.Seat + "@" + team + ": " + picked.Handle + " (" + picked.Words + ").")
 	if code := c.offerRole(ctx, team, picked); code != term.ExitOK {
-		return code
+		return "", code
 	}
-	c.Host.Print(c.Host.Stdout, picked.Seat+"@"+team+"\n")
-	return term.ExitOK
+	return picked.Seat + "@" + team, term.ExitOK
 }
 
 // Describe is `ccy-teams describe-seats [--prefix TEXT] LIST`: each seat of a launch's --teams

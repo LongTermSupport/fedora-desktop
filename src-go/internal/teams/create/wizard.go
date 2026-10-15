@@ -74,6 +74,9 @@ type Wizard struct {
 	ExecLauncher func(dir string, argv []string) error
 
 	term *term.Term
+	// forChooser is a run for `choose-teams`; created is the team that run made.
+	forChooser bool
+	created    string
 }
 
 // New is the Wizard over a host and the flows it hands the work after the entry is written to:
@@ -129,6 +132,20 @@ func nonEmpty(in []string) []string {
 // Run is ccy-teams create with the arguments after "create". It returns the exit code:
 // 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
 func (c *Wizard) Run(ctx context.Context, args []string) term.ExitCode {
+	c.forChooser, c.created = false, ""
+	return c.run(ctx, args)
+}
+
+// RunForChooser is the wizard for `ccy-teams choose-teams`, with this checkout's repository as
+// the scope's default: it offers no session of its own and prints nothing on stdout (the
+// chooser's payload), and returns the team it made, empty when it made none.
+func (c *Wizard) RunForChooser(ctx context.Context) (string, term.ExitCode) {
+	c.forChooser, c.created = true, ""
+	code := c.run(ctx, nil)
+	return c.created, code
+}
+
+func (c *Wizard) run(ctx context.Context, args []string) term.ExitCode {
 	c.term = c.NewTerm()
 	err := c.create(ctx, args)
 	if err == nil {
@@ -817,7 +834,9 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 	if change.Changed {
 		marker = "CHANGED"
 	}
-	if _, err = fmt.Fprintf(c.Stdout, "%s\t%s\n", marker, change.Text); err != nil {
+	if c.forChooser {
+		c.term.Printf("%s\t%s\n", marker, change.Text)
+	} else if _, err = fmt.Fprintf(c.Stdout, "%s\t%s\n", marker, change.Text); err != nil {
 		return fmt.Errorf("write the result: %w", err)
 	}
 	// Element is set up with the team: its profile is declared beside it, and apply runs its play.
@@ -833,10 +852,14 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
 			" but not applied as declared. Once the cause above is fixed, ccy-teams apply " + o.team + " applies it.")
 	}
+	c.created = o.team
 	if !o.yes {
 		if err = c.afterCreate(ctx, o); err != nil {
 			return err
 		}
+	}
+	if c.forChooser {
+		return nil
 	}
 	steps, err := c.Declare.NextSteps(ctx, o.team)
 	if err != nil {

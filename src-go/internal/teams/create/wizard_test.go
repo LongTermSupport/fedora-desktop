@@ -336,6 +336,41 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	wzContain(t, "stdout", h.stdout.String(), "CHANGED\tteam proj, port 6169")
 }
 
+// S-B11: the chooser runs the wizard for this checkout and takes the team it made; the wizard
+// neither offers a session of its own nor prints on stdout, which is the chooser's payload.
+func TestWizardForTheChooserReturnsTheTeamAndStartsNothing(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
+	team, code := h.c.RunForChooser(context.Background())
+	wzCode(t, code, term.ExitOK, h)
+	if team != "proj" {
+		t.Fatalf("team %q", team)
+	}
+	if len(h.applied) != 1 || !slices.Equal(h.applied[0], []string{"proj"}) {
+		t.Errorf("applied %v", h.applied)
+	}
+	if len(h.execd) != 0 || h.run.called("gum confirm --default=true Start a ccy session") {
+		t.Errorf("a session was offered or started: %v", h.execd)
+	}
+	if h.stdout.Len() != 0 {
+		t.Errorf("stdout is the chooser's payload, got %q", h.stdout.String())
+	}
+	wzContain(t, "stderr", h.err(), "CHANGED\tteam proj, port 6169")
+	wzLack(t, "stderr", h.err(), "run ccy --teams")
+}
+
+func TestWizardForTheChooserCancelledReturnsNoTeam(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzExit(130))
+	team, code := h.c.RunForChooser(context.Background())
+	wzCode(t, code, term.ExitCancelled, h)
+	if team != "" || len(h.applied) != 0 {
+		t.Fatalf("team %q applied %v", team, h.applied)
+	}
+}
+
 func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()

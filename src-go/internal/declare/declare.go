@@ -211,16 +211,8 @@ func parseTeams(out string) ([]Team, error) {
 				return nil, fmt.Errorf("declare declared: team %s: port %q is not a number", f[1], f[2])
 			}
 		}
-		switch f[6] {
-		case "-":
-		case "!vaulted":
-			team.DescriptionState = DescriptionVaulted
-		case "!invalid":
-			team.DescriptionState = DescriptionInvalid
-		default:
-			if err = json.Unmarshal([]byte(f[6]), &team.Description); err != nil {
-				return nil, fmt.Errorf("declare declared: team %s: description %q is not a JSON string", f[1], f[6])
-			}
+		if team.Description, team.DescriptionState, err = parseDescription(f[6]); err != nil {
+			return nil, fmt.Errorf("declare declared: team %s: %w", f[1], err)
 		}
 		switch f[3] {
 		case "present":
@@ -232,6 +224,24 @@ func parseTeams(out string) ([]Team, error) {
 		teams = append(teams, team)
 	}
 	return teams, nil
+}
+
+// parseDescription reads declare.py's description field: a JSON string, "-" for none, or
+// !vaulted / !invalid for one that cannot be shown.
+func parseDescription(field string) (string, DescriptionState, error) {
+	switch field {
+	case "-":
+		return "", "", nil
+	case "!vaulted":
+		return "", DescriptionVaulted, nil
+	case "!invalid":
+		return "", DescriptionInvalid, nil
+	}
+	var text string
+	if err := json.Unmarshal([]byte(field), &text); err != nil {
+		return "", "", fmt.Errorf("description %q is not a JSON string", field)
+	}
+	return text, "", nil
 }
 
 // Status compares each team's applied stamp in appliedDir with the declaration and the
@@ -352,6 +362,57 @@ func (c *Client) TeamsFor(ctx context.Context, repo string) ([]string, error) {
 	return names, nil
 }
 
+// Standing is how a present team stands to a repository, the word declare.py choices prints.
+type Standing string
+
+// The standings of declare.py choices.
+const (
+	// StandingCovers: the team trusts the repository now.
+	StandingCovers Standing = "covers"
+	// StandingWiden: it does not, and adding the repository to its scope would make it.
+	StandingWiden Standing = "widen"
+	// StandingExcluded: the team's org owns it and excludes it on purpose.
+	StandingExcluded Standing = "excluded"
+	// StandingUnreadable: the team's scope cannot be read (vaulted), so nothing can be said.
+	StandingUnreadable Standing = "unreadable"
+)
+
+// Choice is a CHOICE line: a present team, how it stands to the repository, what it is for.
+type Choice struct {
+	Team             string
+	Standing         Standing
+	Description      string
+	DescriptionState DescriptionState
+}
+
+// Choices is every present team with its standing to the repository (OWNER/REPO), in file
+// order. Unlike TeamsFor it also names the teams that would need their scope widened.
+func (c *Client) Choices(ctx context.Context, repo string) ([]Choice, error) {
+	out, err := c.runFile(ctx, "choices", "--repo", repo)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := marker.Fields(out, "CHOICE", 4)
+	if err != nil {
+		return nil, fmt.Errorf("declare choices: %w", err)
+	}
+	choices := make([]Choice, 0, len(rows))
+	for _, f := range rows {
+		standing := Standing(f[2])
+		switch standing {
+		case StandingCovers, StandingWiden, StandingExcluded, StandingUnreadable:
+		default:
+			return nil, fmt.Errorf("declare choices: team %s: standing %q is not one this build knows", f[1], f[2])
+		}
+		choice := Choice{Team: f[1], Standing: standing}
+		if choice.Description, choice.DescriptionState, err = parseDescription(f[3]); err != nil {
+			return nil, fmt.Errorf("declare choices: team %s: %w", f[1], err)
+		}
+		choices = append(choices, choice)
+	}
+	return choices, nil
+}
+
 // GithubRemote is the lower-case OWNER/REPO a GitHub remote URL names, or "" when it names none.
 func (c *Client) GithubRemote(ctx context.Context, url string) (string, error) {
 	out, err := c.run(ctx, "github-remote", "--url", url)
@@ -417,6 +478,11 @@ func (c *Client) CreateDryRun(ctx context.Context, e Entry) (string, error) {
 // already that.
 func (c *Client) Describe(ctx context.Context, team, description string) (Change, error) {
 	return c.edit(ctx, "describe", "--team", team, "--description", description)
+}
+
+// AddRepo adds the repository (OWNER/REPO, any branch) to the present team's scope.
+func (c *Client) AddRepo(ctx context.Context, team, repo string) (Change, error) {
+	return c.edit(ctx, "add-repo", "--team", team, "--repo", repo)
 }
 
 // Element adds or updates the team's Element profile entry; Changed is false when it was right.

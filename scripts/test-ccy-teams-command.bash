@@ -1148,12 +1148,14 @@ agent_bus_teams:
     forge_api: https://api.github.com
 EOF
 printf '|ABORT\n' >"$TEST_ANSWERS"
-# Answers: no to updating the team (not built here), no to creating one for the checkout.
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' NO NO)")"
+# Answers: no to updating the team (not built here), no to creating one for the checkout, no to
+# starting a session there that chooses its teams (S-B15).
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' NO NO NO)")"
 check_has "a checkout no team covers is named as such" "No team on this machine works on example-org/proj (this checkout)" "$out"
 check_has "  so the other teams are not mistaken for its own" "The teams listed next are for other repositories" "$out"
 check "  and creating one is offered, default yes" "yes" "$(logged 'gum confirm --default=true Create a team for example-org/proj now?')"
 check_has "  declined, it says how to create one later" "ccy-teams create starts one whenever you like" "$out"
+check "  and a session that chooses its teams is offered too" "yes" "$(logged '(choose its teams)?')"
 check "  and the picker still opens" "rc=0" "$(rc_of "$out")"
 printf '|ABORT\n' >"$TEST_ANSWERS"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "")"
