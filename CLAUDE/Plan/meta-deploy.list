@@ -19,3 +19,7 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Redeploys ssh-suspend-guard with its startup trap and "started" log moved below the
+# test cut marker. Host behaviour is unchanged; the deployed script matches the repo again.
+playbooks/imports/play-prevent-ssh-suspend.yml

@@ -57,11 +57,12 @@ ssh_session_active() {
     [[ "${1}" == *'"sshd'* ]]
 }
 
+# --- main loop (scripts/test-ssh-suspend-guard.bash cuts the file here) ---
+# Everything below runs the daemon; everything above must be definitions only.
 trap release_lock EXIT TERM INT
 
 logger -t ssh-suspend-guard "started"
 
-# --- main loop (scripts/test-ssh-suspend-guard.bash cuts the file here) ---
 while true; do
     # No `|| true`: if `ss` fails we cannot tell whether a session is live, and guessing
     # either way is worse than stopping. `set -e` ends the run, the EXIT trap releases the

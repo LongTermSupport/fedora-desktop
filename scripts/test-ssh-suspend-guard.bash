@@ -59,7 +59,8 @@ fi
 CUT_LINE="$(grep -n "$MARKER" "$GUARD" | cut -d: -f1)"
 
 FUNCS="$(mktemp -t ssh-suspend-guard-funcs.XXXXXX.bash)"
-cleanup() { rm -f "$FUNCS"; }
+STUBS="$(mktemp -d -t ssh-suspend-guard-stubs.XXXXXX)"
+cleanup() { rm -f "$FUNCS"; rm -rf "$STUBS"; }
 trap cleanup EXIT
 
 awk -v n="$CUT_LINE" 'NR < n' "$GUARD" > "$FUNCS"
@@ -68,6 +69,17 @@ awk -v n="$CUT_LINE" 'NR < n' "$GUARD" > "$FUNCS"
 # symptom would be a confusing syntax error rather than one named failure.
 if ! bash -n "$FUNCS"; then
     echo "FAIL: the extracted region does not parse — the marker cut mid-construct." >&2
+    exit 1
+fi
+
+# The region must define functions and do nothing else: no logger, no trap, no lock. A stub
+# `logger` that always fails stands in for a host with no /dev/log (a container); if sourcing
+# touches it, errexit would end this shell silently, so probe in a child and name the cause.
+printf '#!/bin/sh\necho "logger stub called: $*" >&2\nexit 1\n' > "${STUBS}/logger"
+chmod 755 "${STUBS}/logger"
+if ! PATH="${STUBS}:${PATH}" bash -c 'source "$1"' _ "$FUNCS"; then
+    echo "FAIL: sourcing the guard's function region has side effects (it ran logger or" >&2
+    echo "  failed). Startup actions belong BELOW the main-loop marker in $GUARD." >&2
     exit 1
 fi
 
