@@ -38,6 +38,13 @@ type machineReport struct {
 // finish prints the coverage notes and the verdict and writes the report.
 func (g *gate) finish(scripts []script, res scanResult) (ExitCode, error) {
 	g.printPartial(res.partial)
+	ratchet, err := g.parseRatchet(res.partial)
+	if err != nil {
+		return ExitCannotRun, err
+	}
+	for file, found := range ratchet {
+		res.findings[file] = append(res.findings[file], found...)
+	}
 	rep := machineReport{Type: "patterns", Scanned: make([]string, 0, len(scripts)), Failures: []failure{}}
 	for _, s := range scripts {
 		rep.Scanned = append(rep.Scanned, s.rel)
@@ -98,11 +105,20 @@ func (g *gate) printPartial(partial map[string][]lineRange) {
 
 // lineCount is the number of newlines in a file, or ? when it cannot be read.
 func (g *gate) lineCount(rel string) string {
-	data, err := os.ReadFile(filepath.Join(g.root, filepath.FromSlash(rel)))
+	n, err := g.lineTotal(rel)
 	if err != nil {
 		return "?"
 	}
-	return strconv.Itoa(strings.Count(string(data), "\n"))
+	return strconv.Itoa(n)
+}
+
+// lineTotal is the number of newlines in a file.
+func (g *gate) lineTotal(rel string) (int, error) {
+	data, err := os.ReadFile(filepath.Join(g.root, filepath.FromSlash(rel)))
+	if err != nil {
+		return 0, fmt.Errorf("cannot count the lines of %s: %w", rel, err)
+	}
+	return strings.Count(string(data), "\n"), nil
 }
 
 // unionOf is how many lines the ranges cover together (touching ranges merge), and the first and

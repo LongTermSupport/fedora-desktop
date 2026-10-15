@@ -355,7 +355,7 @@ plugin and settings. Its arguments are passed on to `claude`. An agent driven by
 A ccy session is in a team only when it is launched with it, and in no team otherwise:
 
 ```bash
-ccy --teams                                     # find the team from this checkout's GitHub repository
+ccy --teams                                     # choose teams from a list, with descriptions (Tab marks several)
 ccy --teams <team>                              # choose the seat
 ccy --teams <seat>@<team>[,<seat>@<team>...]    # name it
 ```

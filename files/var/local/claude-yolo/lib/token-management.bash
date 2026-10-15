@@ -78,7 +78,7 @@ colorize_expiry() {
     local expiry_epoch today_epoch days_remaining
     expiry_epoch=$(date -d "$expiry_date" +%s 2>/dev/null) || { echo "$expiry_date"; return; }
     today_epoch=$(date -d "$today" +%s)
-    days_remaining=$(( (expiry_epoch - today_epoch) / 86400 ))
+    days_remaining=$(( $(( expiry_epoch - today_epoch )) / 86400 ))
 
     local RED='\033[31m'
     local YELLOW='\033[33m'
@@ -185,11 +185,11 @@ _usage_human_reset() {
     fi
 
     if [ "$delta" -lt 5400 ]; then
-        n=$(( (delta + 30) / 60 )); unit="minute"
+        n=$(( $(( delta + 30 )) / 60 )); unit="minute"
     elif [ "$delta" -lt 172800 ]; then
-        n=$(( (delta + 1800) / 3600 )); unit="hour"
+        n=$(( $(( delta + 1800 )) / 3600 )); unit="hour"
     else
-        n=$(( (delta + 43200) / 86400 )); unit="day"
+        n=$(( $(( delta + 43200 )) / 86400 )); unit="day"
     fi
     [ "$n" -eq 1 ] || unit="${unit}s"
     printf 'resets in %d %s' "$n" "$unit"
@@ -231,7 +231,7 @@ _usage_bar() {
     [ "$p" -le 100 ] || p=100
 
     local filled
-    filled=$(( (p * width + 50) / 100 ))
+    filled=$(( $(( p * width + 50 )) / 100 ))
     [ "$filled" -le "$width" ] || filled="$width"
 
     local colour="$GREEN"

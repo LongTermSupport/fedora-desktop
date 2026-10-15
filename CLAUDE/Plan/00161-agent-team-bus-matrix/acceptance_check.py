@@ -25,8 +25,8 @@ payload; every reason goes to stderr):
                                      OUT is exactly that PING line, with that trust and branch
   refused-as STATUS ERR CODE         a `pingbus send` refused with that code (a forge refusal,
                                      exit 5, or a validator's, exit 4)
-  expect-human OUT TEAM EVENT SENDER TEXT           OUT is exactly that HUMAN line
-  expect-peer OUT TEAM EVENT SENDER TEXT            OUT is exactly that PEER line
+  expect-human OUT TEAM EVENT SENDER TEXT           OUT is exactly that HUMAN line, then its REPLY
+  expect-peer OUT TEAM EVENT SENDER TEXT            OUT is exactly that PEER line, then its REPLY
   expect-timeout OUT TEAM EVENT TARGET VERB REF     OUT is exactly that TIMEOUT line
   expect-absent OUT EVENT            no line in OUT names EVENT, and none is HUMAN or PEER
   room-refusal OUT                   OUT, a member's createRoom probe (JSON), is 403 M_FORBIDDEN;
@@ -239,12 +239,39 @@ def refused_as(status: int, stderr: str, code: str) -> list[str]:
     return problems
 
 
+def _text_item(text: str, kind: str) -> tuple[tuple[str, ...] | None, tuple[str, ...] | None, list[str]]:
+    """OUT is exactly one `kind` line followed by the one REPLY line that belongs to it
+    (same team, same event): (the line's fields, the REPLY's fields, problems)."""
+    try:
+        lines = parse_lines(text)
+    except ValueError as exc:
+        return None, None, [str(exc)]
+    kinds = [k for k, _ in lines]
+    if kinds != [kind, "REPLY"]:
+        return None, None, [f"expected exactly one {kind} line then its REPLY line, got {kinds or 'none'}"]
+    fields, reply = lines[0][1], lines[1][1]
+    if reply[:2] != fields[:2]:
+        return None, None, [f"the REPLY line {reply[:2]} does not belong to the {kind} line {fields[:2]}"]
+    return fields, reply, []
+
+
+def _reply_problems(kind: str, reply: Sequence[str], team: str, sender: str) -> list[str]:
+    """The REPLY command is `pingbus --team TEAM say --to NAME`, NAME being the sender: a
+    human's localpart, an agent's handle or the short name before the handle separator."""
+    names = sorted({sender, sender.partition(protocol.HANDLE_SEP)[0]})
+    want = [f"{cli.PROG} --team {team} say --to {name}" for name in names]
+    if reply[2] in want:
+        return []
+    return [f"the {kind} line's REPLY command {reply[2]!r} is not one of {want}"]
+
+
 def _expect_text(kind: str, text: str, team: str, event: str, sender: str, body: str) -> list[str]:
-    """OUT is exactly one `kind` line (`HUMAN` or `PEER`) carrying `body`."""
-    fields, problems = _only(text, kind)
-    if fields is None:
+    """OUT is exactly one `kind` line (`HUMAN` or `PEER`) carrying `body`, then its REPLY line."""
+    fields, reply, problems = _text_item(text, kind)
+    if fields is None or reply is None:
         return problems
     problems = _compare(kind, fields, (team, event, sender, None, None))
+    problems += _reply_problems(kind, reply, team, sender)
     if not fields[3].isdigit():
         problems.append(f"{kind} origin_server_ts {fields[3]!r} is not a non-negative integer")
     try:

@@ -33,9 +33,10 @@ type world struct {
 func newWorld(t *testing.T, files map[string]string) *world {
 	t.Helper()
 	all := map[string]string{
-		".semgrep/bash-conventions.yml":  "rules: []\n",
-		".semgrep/bash-conventions.bash": "# fixture\n# ruleid: bash-x\n",
-		"scripts/qa-trees.tsv":           defaultTrees,
+		".semgrep/bash-conventions.yml":   "rules: []\n",
+		".semgrep/bash-conventions.bash":  "# fixture\n# ruleid: bash-x\n",
+		"scripts/qa-trees.tsv":            defaultTrees,
+		"scripts/" + partialAllowlistFile: "# no file may be mostly outside the parse tree\n",
 	}
 	for k, v := range files {
 		if v == "" {

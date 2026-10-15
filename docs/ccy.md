@@ -858,7 +858,7 @@ are forwarded unchanged.
 | `ccy "task"`                     | Start an interactive session with an opening instruction                                                                                                                                                                                                                                                            |
 | `--prompt "text"`                | Start with a preseeded prompt                                                                                                                                                                                                                                                                                       |
 | `--headless`                     | Run non-interactively — requires `--prompt` (not the positional form). With no launch-choice flag it takes the saved Quick Launch choices (never the saved team) without asking, or is refused when there are none; a key that needs a passphrase is refused unless your ssh-agent holds it (`ssh-add` it; that one key is then forwarded) |
-| `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: a team alone asks which seat (`--teams dev-team`), or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                  |
+| `--teams`, `--teams T` or `--teams S@T[,…]` | Put this session in agent team bus teams, one seat per team: bare, choose the teams from a list with their descriptions; a team alone asks which seat (`--teams dev-team`), or name them (`--teams dev1@dev-team,qa2@other-team`) (see [the agent team bus](#--teams--the-agent-team-bus)); without it a session is in no team                                                  |
 | `--supervise`                    | Wrap `claude` in the in-container supervisor                                                                                                                                                                                                                                                                        |
 | `--no-restore`                   | Do not bring this session back after a reboot (see [restore](#sessions-survive-a-reboot))                                                                                                                                                                                                                           |
 | `--top`                          | Container manager: list and stop running CCY containers                                                                                                                                                                                                                                                             |
@@ -1082,10 +1082,19 @@ variable, naming each one. pingbus checks references at GitHub with the session'
 login, which the container sets up at start; it reads no credential variable.
 
 ```bash
-ccy --teams                                  # find the team from this checkout's GitHub repository
+ccy --teams                                  # choose teams from a list, with descriptions (Tab marks several)
 ccy --teams dev-team                         # choose the seat
 ccy --teams dev1@dev-team,qa2@other-team    # name the seats; quote a list written with spaces
 ```
+
+Bare `--teams` opens the shared chooser (`ccy-teams choose-teams`), which `cc --teams` uses
+too. It lists every team on the machine with a description of what it is for, covering teams
+first, and a row to create a team; Tab marks several, and each marked team gets its own seat
+question, so one session can be on several teams. Choosing a team that does not cover this
+checkout widens its scope to the repository only when you answer yes. The launch ends with a
+block naming each team with its seat, role and description, and the status line shows
+`bus: A,B`. The chooser's rules are step 3 of
+[Getting started in agent-bus.md](agent-bus.md#getting-started).
 
 The launcher checks the list on the host (`agent-bus seat check`, exit 64 for a malformed
 list, 78 for a team whose homeserver is not running on this machine) before anything else

@@ -216,6 +216,8 @@ check "a restore replays --teams=<list>" "--teams=a@x|" "$(reg ccy_registry_repl
 check "a plain launch's restore has no --teams" "--no-ssh|" "$(reg ccy_registry_replay_args ccy --no-ssh)"
 check "a restart keeps --teams and its list" "--teams|a@x|--resume|$SID|" \
     "$(reg ccy_restart_relaunch_args "$SID" --teams a@x --token t)"
+check "a restart keeps two teams together" "--teams|a@x,b@y|--resume|$SID|" \
+    "$(reg ccy_restart_relaunch_args "$SID" --teams a@x,b@y --token t)"
 check "a plain launch's restart has no --teams" "--resume|$SID|" \
     "$(reg ccy_restart_relaunch_args "$SID" --token t)"
 
@@ -529,6 +531,9 @@ check "  and it records nothing" "none" "$(QUICK_RESTORE=true recorded_after fal
 save personal /keys/id_a proj_net dev1@team-a
 check "a quick-launched team goes into the session's own record, as an explicit --teams does" \
     "record-seats dev1@team-a" "$(QUICK_ANSWER=y recorded_after false)"
+save personal /keys/id_a proj_net dev1@team-a,qa2@team-b
+check "  two quick-launched teams go into the record together" \
+    "record-seats dev1@team-a,qa2@team-b" "$(QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "  a record that cannot be written stops the launch" "yes" \
     "$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"

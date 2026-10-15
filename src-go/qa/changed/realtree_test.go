@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -113,8 +114,14 @@ func TestEverySelectableSuitePrintsTheCanonicalCountLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	printsCount := regexp.MustCompile(`passed:[[:space:]]*(%[ds]|[$][{(]?[A-Za-z_])`)
+	rows, err := rowsByScript(realScripts)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range population {
-		if !strings.HasPrefix(name, "test-") {
+		if !strings.HasPrefix(name, "test-") || !slices.ContainsFunc(rows[name], func(g gates.Gate) bool {
+			return slices.ContainsFunc(g.Readers, func(r gates.Reader) bool { return r.Detail == nil })
+		}) {
 			continue
 		}
 		text, err := os.ReadFile(filepath.Join(realScripts, name))
@@ -123,6 +130,15 @@ func TestEverySelectableSuitePrintsTheCanonicalCountLine(t *testing.T) {
 		}
 		if !printsCount.Match(text) {
 			t.Errorf("%s can be selected by qa-changed but prints no 'passed: <n> failed: <m>' line, so qa-changed would call it a suite that proved nothing", name)
+		}
+	}
+}
+
+// A change to the cc launcher must not select the suites that only contain "cc" inside a word.
+func TestACcChangeDoesNotSelectScriptsThatOnlyHaveCcInsideAWord(t *testing.T) {
+	for _, name := range []string{"qa-nokill-containerwatch.bash", "qa-vmtest-manifest.bash", "qa-version-pins.bash"} {
+		if namesFile(readReal(t, name), "files/var/local/claude-yolo/cc") {
+			t.Errorf("%s is selected by a cc change only through a word that contains cc", name)
 		}
 	}
 }

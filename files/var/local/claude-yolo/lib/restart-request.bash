@@ -189,7 +189,7 @@ ccy_restart_budget_take() {
     fi
 
     local tmp="$file.tmp.$$"
-    if ! { printf '%s\n' "${kept[@]}" "$now" | grep -v '^$' >"$tmp"; }; then
+    if ! printf '%s\n' "${kept[@]}" "$now" | grep -v '^$' >"$tmp"; then
         rm -f -- "$tmp"
         printf 'restart budget: could not write %s.\n' "$file" >&2
         return 1

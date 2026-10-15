@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.5 — container 2.60
+
+- Merge of 3.98.3's parse rewrites with 3.98.4's help text; no further change.
+
+## 3.98.4 — container 2.60
+
+- **`ccy --help` and the docs describe the shared chooser.** Bare `--teams` is documented as
+  the list of teams with descriptions (Tab marks several), scope widening only on a yes, the
+  launch block and the `bus:` status line; the old "finds the team from this checkout" line is
+  gone. No image change.
+
+## 3.98.3 — container 2.60
+
+- **The launcher and its libraries parse for semgrep.** Behaviour is unchanged. The bash
+  grammar semgrep uses stopped at a named-descriptor redirect (`exec <&"$FD" {FD}<&-`), a
+  parenthesis inside a `${var:+...}` or `${var:-...}` word, a parenthesised operand before `/`
+  or `%` in `$(( ))`, `! { ...; }` as an `if` condition and a heredoc in an `if` condition, so
+  the rules covered almost none of the launcher. Each is now written in an equivalent form.
+
+
 ## 3.98.2 — container 2.60
 
 - **The two 3.97/3.98 lines meet.** 3.98.0 (goodbye, relay, `ccy-teams lxc-add`) was built

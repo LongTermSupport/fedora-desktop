@@ -42,9 +42,10 @@ func realRun(t *testing.T, files map[string]string) realOutcome {
 		t.Fatalf("git init: %v %+v", err, res)
 	}
 	all := map[string]string{
-		"scripts/qa-trees.tsv":           "shell\t.semgrep\n",
-		".semgrep/bash-conventions.yml":  projectFile(t, ".semgrep/bash-conventions.yml"),
-		".semgrep/bash-conventions.bash": projectFile(t, ".semgrep/bash-conventions.bash"),
+		"scripts/qa-trees.tsv":               "shell\t.semgrep\n",
+		"scripts/patterns-partial.allowlist": "# none\n",
+		".semgrep/bash-conventions.yml":      projectFile(t, ".semgrep/bash-conventions.yml"),
+		".semgrep/bash-conventions.bash":     projectFile(t, ".semgrep/bash-conventions.bash"),
 	}
 	maps.Copy(all, files)
 	for rel, text := range all {

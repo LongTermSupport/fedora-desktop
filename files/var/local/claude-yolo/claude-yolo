@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.98.2"  # Container 2.60: the many-teams line (3.97.x) and the goodbye and relay line (3.98.0) in one. See docs/ccy-changelog.md.
+CCY_VERSION="3.98.5"  # Container 2.60: the many-teams line (3.97.x) and the goodbye and relay line (3.98.0) in one. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -207,20 +207,18 @@ Options:
                          takes this checkout's saved Quick Launch choices without asking,
                          and is refused when there are none; a key that needs a
                          passphrase is refused unless your ssh-agent holds it (ssh-add it)
-  --teams TEAM | SEAT@TEAM[,SEAT@TEAM...]
+  --teams [TEAM | SEAT@TEAM[,SEAT@TEAM...]]
                          Put this session in agent team bus teams, one seat in each.
-                         With a team alone (e.g. --teams long-term-support) ccy shows
-                         this checkout's seats in it, free or held, and takes the one
-                         you choose (the lowest free seat, else a new number, is the
-                         default). Name the seat to skip the question; a launch with
-                         nobody to answer must (e.g. --teams 1@dev-team,qa2@other-team;
-                         quote a list with spaces). A seat is created on its first use
-                         (sudo agent-bus add-member) and is held by one session at a
-                         time. Without --teams a session is in no team. Needs
-                         play-agent-bus.yml.
-                         Bare --teams lists every team with what it is for, offers to add
-                         this repository to a team that does not cover it (or to create
-                         one), then asks the seat and its role; Quick Launch keeps both.
+                         Bare --teams chooses teams from a list with what each is for
+                         (Tab marks several); a team not covering this repository is
+                         widened only on a yes. The launch prints each team's seat, role
+                         and description; the status line shows bus: A,B. With a team
+                         alone ccy asks the seat (lowest free is the default); name it
+                         (--teams 1@dev-team,qa2@other-team; quote a list with spaces)
+                         to skip the question, as a launch with nobody to ask must. A
+                         seat is created on first use (sudo agent-bus add-member) and
+                         held by one session. Without --teams a session is in no team.
+                         Needs play-agent-bus.yml; Quick Launch keeps seats and roles.
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -449,8 +447,7 @@ fi
 if [ -d ".claude/ccy/sessions" ] && [ -z "$CCY_RESTART_RELAUNCH_SESSION" ]; then
     session_count=$(find .claude/ccy/sessions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)  # FAIL-FAST-OK: wc always yields a number, and 0 means "no migration needed" — the safe default
     if [ "$session_count" -gt 0 ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
+        printf '\n%s\n' "════════════════════════════════════════════════════════════════════════════════"
         echo "Migration: Old session directories detected"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
@@ -1245,7 +1242,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
             [ -n "$quick_unasked" ] || read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config ||
                 quick_unasked="No answer (end of input)"
             if [ -n "$quick_unasked" ]; then
-                echo "$quick_unasked: using the previous configuration${LAST_TEAMS:+ but not its team (only --teams joins one)}."
+                echo "$quick_unasked: using the previous configuration${LAST_TEAMS:+" but not its team (only --teams joins one)"}."
                 use_config=unasked
             fi
             echo ""
@@ -3586,7 +3583,7 @@ fi
 # Every launch-time prompt is behind us: a restart gets its terminal back for the session
 # itself (stdin was /dev/null since ccy_restart_marker_take).
 if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
-    exec <&"$CCY_RESTART_TTY_FD" {CCY_RESTART_TTY_FD}<&-
+    exec <&"$CCY_RESTART_TTY_FD"; exec {CCY_RESTART_TTY_FD}<&-
 fi
 
 # Disable CTRL+Z (suspend) for this terminal session. Inside a CCY container

@@ -640,7 +640,7 @@ verify_file_complete() {
             # cannot false-positive on a valid file, because a valid file's
             # strips are all inside it.
             local sizes
-            if sizes=$(exiftool -s3 -a -FileSize# -StripOffsets -StripByteCounts "$file" 2>&1); then
+            if sizes=$(exiftool -s3 -a "-FileSize#" -StripOffsets -StripByteCounts "$file" 2>&1); then
                 if printf '%s\n' "$sizes" | awk '
                     NR == 1 { fsize = $1 + 0; next }
                     # Offsets and byte-counts arrive as parallel space- or
