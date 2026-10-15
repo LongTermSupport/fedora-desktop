@@ -43,8 +43,29 @@ session-side part of the team system recover by itself.
 
 - [ ] 🔄 **Task 1.1**: Robustness audit of the whole team system, server and session side
   (`subagent-reports/261016-robustness-audit-opus.md`).
-- [ ] 🔄 **Task 1.2**: Hot control design and spec (`SPEC-hot-control.md`).
+- [x] ✅ **Task 1.2**: Hot control design and spec ([SPEC-hot-control.md](SPEC-hot-control.md),
+  revision 2, H1-H35, milestones M0-M7). Revised after the Fable review
+  ([subagent-reports/261016-hot-control-spec-review-fable.md](subagent-reports/261016-hot-control-spec-review-fable.md)).
+  Notes: [subagent-reports/261016-hot-control-design-opus.md](subagent-reports/261016-hot-control-design-opus.md).
 - [ ] ⬜ **Task 1.3**: Milestones for the build, from 1.1 and 1.2, each one shippable.
+
+## Decisions
+
+These were settled by the coordinator under the owner's standing "do not gate on me". **The owner
+may reverse any of them.** Full detail: SPEC-hot-control.md section 8.
+
+1. The bus kit is loaded in every ccy session started through ccy's tmux, with a `--no-bus`
+   opt-out. This holds only if the inert contract is met and tested in M2:
+   - a flag-file guard in `hooks.json`;
+   - no per-second Python status line;
+   - no `crossSessionInbound` accept unless the session is on a team;
+   - exactly one resident process, the keeper.
+2. Hot control is control, not isolation, within a checkout. **A remove does not revoke the
+   token.** `--revoke` is deferred behind audit F7.
+3. cc's weaker authority is accepted (the session can write its own membership file), and so
+   is the new `cc --bus`.
+4. `PINGBUS_SEATS` and the `ccy-seats` label are retired in M2, together with the explicit
+   `PINGBUS_MEMBERSHIP` marker.
 
 ## Success Criteria
 
