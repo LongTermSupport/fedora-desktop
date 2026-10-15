@@ -19,14 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# ccy play: installs CCY 3.97.7 and rebuilds ccy-teams (Plan 00201 M4). `ccy --teams` in a
-# checkout no team covers now offers every team with its description, or creating one, and on
-# your yes adds this repository to the chosen team's scope and applies it. Afterwards, try it:
-# run `ccy --teams` in a checkout no team covers.
-playbooks/imports/play-claude-yolo.yml
-
-# agent team bus acceptance again. M2.9 and M2.10 now pass on the host. U23.lxc is fixed: the
-# LXC kit is unpacked with explicit 0755 directories, so a run under umask 077 still lets the
-# agent user run pingbus. U20 needs the saved Quick Launch choices already in place.
-00161-agent-team-bus-matrix/acceptance.bash
