@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import unicodedata
 from collections.abc import Container, Iterable, Mapping, Sequence
 
 PROTOCOL_VERSION = 1
@@ -145,6 +146,8 @@ REPOS_MIN = 0
 REPOS_MAX = 32
 #: The same bound as `repos`: both are lists of the team's repositories (spec §11).
 EXCLUDE_MAX = REPOS_MAX
+#: A team's `description` (what the team is for): at most this many characters.
+DESCRIPTION_MAX = 120
 BRANCHES_MAX = 8
 PATH_PREFIXES_MAX = 32
 STATUS_KEYS = ("v", "state", "until")
@@ -404,6 +407,13 @@ def is_seat_name(value: object) -> bool:
 
 def is_team_name(value: object) -> bool:
     return _full(_TEAM_RE, value) is not None
+
+
+def is_description(value: object) -> bool:
+    """A team's description: 1 to DESCRIPTION_MAX characters, already stripped, with no
+    control or format character (so no newline, tab or bidi override)."""
+    return (isinstance(value, str) and 1 <= len(value) <= DESCRIPTION_MAX and value == value.strip()
+            and not any(unicodedata.category(c) in ("Cc", "Cf") for c in value))
 
 
 def is_human_localpart(value: object) -> bool:

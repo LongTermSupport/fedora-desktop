@@ -65,7 +65,12 @@ honours a team's `exclude` through the bus's own `protocol.is_excluded`, so a te
 a repository is no longer offered for a checkout of it. Report:
 `subagent-reports/261015-teams-for-exclude-sonnet.md`.
 
-- [ ] ⬜ **Task 2.1**: M1, descriptions declared and shown on the host.
+- [x] ✅ **Task 2.1**: M1, descriptions declared and shown on the host (S-A1 to S-A7, S-A13 to
+  S-A16). Built test-first: team file `description`, `declare.py` create/check/describe/
+  `undescribed` and the 7-field `TEAM` line, the board's MEMBER cell, the create wizard's question,
+  the picker's one-time offer, Quick Launch's `Team:` line, and an installer case proving a
+  description-only change restarts nothing. Q1 (required at create, optional in the file) taken as
+  the spec recommends. Report: `subagent-reports/261015-m1-m2-sonnet.md`.
 - [ ] ⬜ **Task 2.2**: M2, descriptions reach agents (team record, room topic, `pingbus status`,
   SessionStart); container bump.
 - [x] ✅ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's

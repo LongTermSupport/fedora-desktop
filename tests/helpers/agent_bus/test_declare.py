@@ -224,7 +224,8 @@ class CreateTest(unittest.TestCase):
     """create takes every value as a flag and prompts for nothing: ccy-teams asks the
     questions (with gum) and calls it with the answers."""
 
-    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org")
+    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org",
+             "--description", "Builds the example site")
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -267,7 +268,8 @@ class CreateTest(unittest.TestCase):
     def test_repositories_instead_of_an_org(self) -> None:
         """Task 4.9: a team of one or several repositories, of any owners, each on any branch
         (no `branches`), and no org."""
-        flags = ("--team", "beta", "--human", "owner", "--repo", "example-org/one", "--repo", "other/tool")
+        flags = ("--team", "beta", "--human", "owner", "--repo", "example-org/one", "--repo", "other/tool",
+                 "--description", "Builds the site")
         self.assertEqual(self.run_create(flags), 0, self.stderr.getvalue())
         text = self.path.read_text(encoding="utf-8")
         self.assertIn('repos: [{"repo": "example-org/one"}, {"repo": "other/tool"}]', text)
@@ -277,8 +279,26 @@ class CreateTest(unittest.TestCase):
         said = self.next_steps("beta")
         self.assertIn("example-org/one or other/tool", said)
 
+    def test_the_description_is_required_and_written_as_a_json_string(self) -> None:
+        """S-A5: create needs --description; the entry carries it, flow style as the other keys."""
+        flags = [f for f in self.FLAGS[:6]]
+        self.assertEqual(self.run_create(flags), 64)
+        self.assertIn("create needs --description", self.stderr.getvalue())
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+        self.assertEqual(self.run_create(self.FLAGS), 0, self.stderr.getvalue())
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn('    description: "Builds the example site"\n', text)
+        beta = declare.entry_of(next(t for t in declare.parse(text).teams if t.team == "beta"))
+        self.assertEqual(teamfile.parse_team_file(beta).description, "Builds the example site")
+
+    def test_a_bad_description_is_refused_naming_the_rule(self) -> None:
+        for bad in ("", " padded ", "two\nlines", "x" * 121):
+            self.assertEqual(self.run_create([*self.FLAGS[:6], "--description", bad]), 64, repr(bad))
+        self.assertIn("description", self.stderr.getvalue())
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+
     def test_org_or_repos_is_required(self) -> None:
-        self.assertEqual(self.run_create(("--team", "beta", "--human", "owner")), 64)
+        self.assertEqual(self.run_create(("--team", "beta", "--human", "owner", "--description", "d")), 64)
         self.assertIn("--org or --repo", self.stderr.getvalue())
 
     def test_allow_from(self) -> None:
@@ -294,7 +314,7 @@ class CreateTest(unittest.TestCase):
         self.assertNotIn("CHANGED", self.stdout.getvalue())
 
     def test_every_value_is_required(self) -> None:
-        for missing in ("--team", "--human", "--org"):
+        for missing in ("--team", "--human", "--org", "--description"):
             flags = list(self.FLAGS)
             at = flags.index(missing)
             del flags[at:at + 2]
@@ -369,6 +389,13 @@ class CheckTest(unittest.TestCase):
             self.assertEqual(code, 64, value)
             self.assertIn(said, err)
 
+    def test_description_alone_is_checked(self) -> None:
+        self.assertEqual(self.check("--description", "Builds the example site"), (0, ""))
+        for bad in ("", " padded", "a\nb", "x" * 121):
+            code, err = self.check("--description", bad)
+            self.assertEqual(code, 64, repr(bad))
+            self.assertIn("description", err)
+
     def test_too_many_repositories(self) -> None:
         flags = [arg for i in range(declare.protocol.REPOS_MAX + 1) for arg in ("--repo", f"o/r{i}")]
         code, err = self.check(*flags)
@@ -426,8 +453,8 @@ class DeclaredTest(unittest.TestCase):
             code = declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=stderr)
         self.assertEqual(code, 0)
         self.assertEqual(stdout.getvalue(),
-                         "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\n"
-                         "TEAM\told\t-\tabsent\told.agent-bus.internal\t-\n")
+                         "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t-\n"
+                         "TEAM\told\t-\tabsent\told.agent-bus.internal\t-\t-\n")
 
     def test_a_missing_file_is_refused(self) -> None:
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -701,6 +728,48 @@ class RemoveTest(unittest.TestCase):
         self.assertEqual(self.remove("--team", "nosuch")[0], 64)
 
 
+class DescriptionFieldTest(unittest.TestCase):
+    """S-A7: the seventh TEAM field is the description as a JSON string, or a bare `-`."""
+
+    def test_json_string_or_dash(self) -> None:
+        text = WITH_TEAMS.replace("    port: 6167\n", '    port: 6167\n    description: "Builds: the \\"site\\""\n', 1)
+        text = text.replace("  - team: \"old\"\n", '  - team: "old"\n    description: "-"\n', 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "localhost.yml"
+            path.write_text(text, encoding="utf-8")
+            stdout = io.StringIO()
+            self.assertEqual(declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=io.StringIO()), 0)
+        rows = [line.split("\t") for line in stdout.getvalue().splitlines()]
+        self.assertEqual(len(rows[0]), 7)
+        self.assertEqual(json.loads(rows[0][6]), 'Builds: the "site"')
+        self.assertEqual(rows[1][6], '"-"')
+
+    def test_a_hash_inside_the_quotes_is_not_a_comment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "localhost.yml"
+            path.write_text(STATUS_HV, encoding="utf-8")
+            for said in ('Fix bug #5 "now"', "Café \\ team"):
+                out, err = io.StringIO(), io.StringIO()
+                self.assertEqual(declare.main(["describe", "--file", str(path), "--team", "alpha",
+                                               "--description", said], stdout=out, stderr=err), 0, err.getvalue())
+                alpha = declare.parse(path.read_text(encoding="utf-8")).teams[0]
+                self.assertEqual(declare.entry_of(alpha)["description"], said)
+            path.write_text(STATUS_HV.replace("  - team: alpha\n", '  - team: alpha\n    description: "A # b"  # note\n', 1),
+                            encoding="utf-8")
+            self.assertEqual(declare.entry_of(declare.parse(path.read_text(encoding="utf-8")).teams[0])["description"],
+                             "A # b")
+
+    def test_a_vaulted_description_shows_as_none_and_does_not_end_the_listing(self) -> None:
+        text = STATUS_HV.replace("  - team: gamma\n", "  - team: gamma\n    description: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "localhost.yml"
+            path.write_text(text, encoding="utf-8")
+            stdout = io.StringIO()
+            self.assertEqual(declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=io.StringIO()), 0)
+        self.assertIn("\t-\t-\n", stdout.getvalue())
+        self.assertEqual(len(stdout.getvalue().splitlines()), 5)
+
+
 class CommandCase(unittest.TestCase):
     TEXT = STATUS_HV
 
@@ -713,6 +782,62 @@ class CommandCase(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         code = declare.main([argv[0], "--file", str(self.path), *argv[1:]], stdout=stdout, stderr=stderr)
         return code, stdout.getvalue(), stderr.getvalue()
+
+
+class DescribeTest(CommandCase):
+    """S-A6: describe sets or replaces a present team's description, nothing else touched."""
+
+    def test_set_where_there_was_none_and_nothing_else_changed(self) -> None:
+        before = declare.entry_of(declare.parse(STATUS_HV).teams[0])
+        code, out, err = self.run_cmd("describe", "--team", "alpha", "--description", "Builds the site")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam alpha description\n")
+        text = self.path.read_text()
+        self.assertEqual(text, STATUS_HV.replace("  - team: alpha\n",
+                                                 '  - team: alpha\n    description: "Builds the site"\n', 1))
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[0]), dict(before, description="Builds the site"))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+
+    def test_replaced_in_place_and_unchanged_when_equal(self) -> None:
+        self.run_cmd("describe", "--team", "beta", "--description", "First")
+        self.assertEqual(self.run_cmd("describe", "--team", "beta", "--description", "First")[:2],
+                         (0, "UNCHANGED\tbeta\n"))
+        code, out, _ = self.run_cmd("describe", "--team", "beta", "--description", "Second")
+        self.assertEqual((code, out), (0, "CHANGED\tteam beta description\n"))
+        text = self.path.read_text()
+        self.assertEqual(text.count("description:"), 1)
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[1])["description"], "Second")
+
+    def test_refusals_write_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("describe", "--team", "nosuch", "--description", "d")[0], 64)
+        self.assertEqual(self.run_cmd("describe", "--team", "gamma", "--description", "d")[0], 64)
+        self.assertEqual(self.run_cmd("describe", "--team", "alpha", "--description", " bad")[0], 64)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
+
+    def test_a_vaulted_description_is_refused_naming_the_line(self) -> None:
+        vaulted = STATUS_HV.replace("  - team: alpha\n", "  - team: alpha\n    description: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n", 1)
+        self.path.write_text(vaulted, encoding="utf-8")
+        code, _, err = self.run_cmd("describe", "--team", "alpha", "--description", "d")
+        self.assertEqual(code, 78)
+        self.assertIn("line 4", err)
+        self.assertEqual(self.path.read_text(), vaulted)
+
+
+class UndescribedTest(CommandCase):
+    """S-A15: the present teams that still have no description, with what they trust in words."""
+
+    def test_listed_with_their_scope(self) -> None:
+        org = "any repository of example-org"
+        self.assertEqual(self.run_cmd("undescribed")[1],
+                         f"UNDESCRIBED\talpha\t{org}\nUNDESCRIBED\tbeta\texample-org/one\n"
+                         f"UNDESCRIBED\tdelta\t{org}\nUNDESCRIBED\tvaulted\t{org}\n")
+
+    def test_a_described_team_is_left_out(self) -> None:
+        self.assertEqual(self.run_cmd("describe", "--team", "beta", "--description", "Second")[0], 0)
+        out = self.run_cmd("undescribed")[1]
+        self.assertNotIn("\tbeta\t", out)
+        self.assertEqual(out.count("UNDESCRIBED"), 3)
 
 
 class ElementTest(CommandCase):
@@ -815,7 +940,7 @@ class AddressTest(CommandCase):
     sets it through declare.py, so nobody edits the host_vars for it."""
     TEXT = "user_login: someone\n"
 
-    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org")
+    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org", "--description", "Builds the site")
 
     def create(self, *extra: str) -> tuple[int, str, str]:
         stdout, stderr = io.StringIO(), io.StringIO()

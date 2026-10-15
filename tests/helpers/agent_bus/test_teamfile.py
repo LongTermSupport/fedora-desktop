@@ -263,6 +263,36 @@ class OrgTest(unittest.TestCase):
         self.assertIsNone(teamfile.parse_team_file(VALID).org)
 
 
+class DescriptionTest(unittest.TestCase):
+    """Plan 00201 S-A1 to S-A3: an optional `description`, what the team is for."""
+
+    def test_parses_dumps_and_moves_the_config_digest(self) -> None:
+        plain = teamfile.parse_team_file(VALID)
+        tf = teamfile.parse_team_file(_with(description="Builds the example site"))
+        self.assertEqual(tf.description, "Builds the example site")
+        self.assertIsNone(plain.description)
+        self.assertEqual(teamfile.parse_team_file(json.loads(teamfile.dump_team_file(tf))), tf)
+        self.assertEqual(tf.as_dict()["description"], "Builds the example site")
+        self.assertNotEqual(teamfile.config_digest(tf), teamfile.config_digest(plain))
+
+    def test_without_one_the_canonical_file_is_unchanged(self) -> None:
+        """An applied stamp's config digest must not move for a team that sets none."""
+        self.assertNotIn("description", teamfile.parse_team_file(VALID).as_dict())
+
+    def test_the_grammar_is_the_protocols(self) -> None:
+        self.assertEqual(protocol.DESCRIPTION_MAX, 120)
+        self.assertTrue(protocol.is_description("x" * 120))
+        self.assertFalse(protocol.is_description("x" * 121))
+        for bad in ("", " lead", "trail ", "two\nlines", "tab\there", "bidi‮control", "zero​width", 7, None):
+            self.assertFalse(protocol.is_description(bad), repr(bad))
+
+    def test_refusals_name_the_key(self) -> None:
+        for bad in ("", " lead", "two\nlines", "x" * 121, 7, ["a"]):
+            with self.subTest(bad), self.assertRaises(teamfile.TeamFileError) as caught:
+                teamfile.parse_team_file(_with(description=bad))
+            self.assertIn("description", str(caught.exception))
+
+
 class ExcludeTest(unittest.TestCase):
     """D64: an optional `exclude`, repository names of the team's `org` it never trusts."""
 

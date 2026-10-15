@@ -43,6 +43,7 @@ func newRig(t *testing.T) rig {
 		"CHOICE\t3\tnew\t"+handleNew+"\ta ccy seat\n"+
 		"DEFAULT\t1\n", 0)
 	w.On(teamtest.SudoBus+"list alpha", roster("worker", "worker"), 0)
+	w.On(w.DeclarePrefix("declared"), teamtest.DeclaredAlpha, 0)
 	w.On("sudo -n -v", "", 0)
 	w.On(setRole, "", 0)
 	return rig{World: w, Console: console, c: New(w.Host, kit, seats.New(w.Host, kit, o))}
@@ -270,6 +271,33 @@ func TestDescribeNamesTheSeatAndItsRole(t *testing.T) {
 	}
 	if h.Fake.Called("sudo -n -v") {
 		t.Fatal("asked for a password to describe a launch")
+	}
+}
+
+func TestDescribeFollowsEachSeatWithItsTeamsDescription(t *testing.T) {
+	h := newRig(t)
+	h.On(h.DeclarePrefix("declared"), "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the example site\"\n"+
+		"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\t-\n", 0)
+	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\n", 0)
+	h.On(teamtest.SudoBus+"list alpha", roster("worker", "worker"), 0)
+	if code := h.c.Describe(t.Context(), []string{"1@alpha,3@beta"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	want := "1@alpha (worker): Builds the example site, 3@beta (new seat: it joins as a worker)\n"
+	if h.stdout() != want {
+		t.Fatalf("stdout %q, want %q", h.stdout(), want)
+	}
+}
+
+func TestDescribeStillNamesTheSeatsWhenTheDescriptionsCannotBeRead(t *testing.T) {
+	h := newRig(t)
+	h.OnErr(h.DeclarePrefix("declared"), "declare: cannot read", 78)
+	h.On("agent-bus seat list", "SEAT\talpha\t1\theld\tself\t"+handleOne+"\n", 0)
+	if code := h.c.Describe(t.Context(), []string{"1@alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.HasPrefix(h.stdout(), "1@alpha (") || strings.Contains(h.stdout(), ": ") || !strings.Contains(h.ErrOut.String(), "declare: cannot read") {
+		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
 	}
 }
 

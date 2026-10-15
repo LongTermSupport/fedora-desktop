@@ -37,6 +37,23 @@ func TestRowTextUsesTheColumnWidths(t *testing.T) {
 	}
 }
 
+func TestALongDescriptionIsCutOnATerminalAndWholeWhenPiped(t *testing.T) {
+	long := "Coordinates the release of every example service across all regions"
+	r := Row{Team: "alpha", Member: long, Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"}
+	if !strings.Contains(r.Text(), long) {
+		t.Fatalf("the plain row (--list piped) keeps it whole: %q", r.Text())
+	}
+	painted := ansi.ReplaceAllString(r.Painted(), "")
+	cut := long[:35] + "…"
+	if !strings.Contains(painted, cut+"  team ") || strings.Contains(painted, long) {
+		t.Fatalf("the painted row (a terminal, the picker) cuts it to 36 characters with an ellipsis: %q", painted)
+	}
+	r.Member = "Short one"
+	if ansi.ReplaceAllString(r.Painted(), "") != r.Text() {
+		t.Fatal("a description that fits is not cut")
+	}
+}
+
 func TestPaintedRowTextEqualsThePlainRow(t *testing.T) {
 	rows := []Row{
 		{Team: "alpha", Member: "-", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"},

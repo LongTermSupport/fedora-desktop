@@ -58,6 +58,19 @@ func TestEnterOnAPersonWithSessionsOffersElementFirstAndNamesWhatAPasswordEnds(t
 	}
 }
 
+func TestATeamsMenuHeaderShowsItsWholeDescription(t *testing.T) {
+	h := newRig(t)
+	long := "Coordinates the release of every example service across all regions"
+	h.OnDeclare("declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\""+long+"\"\n")
+	h.Script.Fzf = []string{"|Coordinates the release", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if !strings.Contains(h.HeaderOf(1), "What to do with team alpha:") || !strings.Contains(h.HeaderOf(1), long) {
+		t.Fatalf("header %q", h.HeaderOf(1))
+	}
+}
+
 func TestEscInTheMenuGoesBackToTheListAndNothingIsAsked(t *testing.T) {
 	h := newRig(t)
 	h.Script.Fzf = []string{"|guest", "|ABORT", "|ABORT"}
@@ -129,7 +142,7 @@ func TestEveryKeyIsInTheMenuOfTheRowsItActsOn(t *testing.T) {
 			t.Fatalf("%s is in no row's menu", key)
 		}
 	}
-	team := h.row(t, r.snap, "-")
+	team := h.row(t, r.snap, board.NoDescription)
 	if labels := h.labels(r, team); !slices.Contains(labels, "Take alpha down   (Ctrl-X)") {
 		t.Fatalf("team menu %q", labels)
 	}

@@ -14,8 +14,8 @@ import (
 func TestCollectTeamsOrdersDeclaredThenUnitsThenStamps(t *testing.T) {
 	h := newRig(t)
 	h.OnDeclare("declared", teamtest.DeclaredAlpha+
-		"TEAM\tbeta\t-\tpresent\tbeta.agent-bus.internal\t-\n"+
-		"TEAM\tgone\t6169\tabsent\tgone.agent-bus.internal\t-\n")
+		"TEAM\tbeta\t-\tpresent\tbeta.agent-bus.internal\t-\t\"Second team\"\n"+
+		"TEAM\tgone\t6169\tabsent\tgone.agent-bus.internal\t-\t-\n")
 	h.On("systemctl list-units", teamtest.UnitAlpha+"agent-bus-hs@gamma.service loaded failed failed Homeserver gamma\nother.service loaded active running x\n", 0)
 	teamtest.MustWrite(t, filepath.Join(h.c.AppliedDir, "delta.json"), "{}")
 	teamtest.MustWrite(t, filepath.Join(h.c.AppliedDir, "alpha.json"), "{}")
@@ -229,7 +229,7 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	}
 	shown := term.AbbrevHome(checkout, h.c.Home)
 	want := []Row{
-		{Team: "alpha", Member: "-", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
+		{Team: "alpha", Member: "(no description)", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
 		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev"},
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
 		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-", Role: "dev"},
@@ -243,6 +243,21 @@ func TestCollectBuildsTheRows(t *testing.T) {
 			t.Logf("got  %+v", s.Rows[i])
 		}
 		t.Fatalf("rows differ from the %d expected", len(want))
+	}
+}
+
+func TestATeamRowsMemberCellIsItsDescription(t *testing.T) {
+	h := populated(t)
+	h.OnDeclare("declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds the example site\"\n")
+	s, err := h.c.Collect(t.Context())
+	if err != nil {
+		t.Fatalf("%v: %s", err, h.ErrOut.String())
+	}
+	if got := s.Rows[0]; got.Kind != KindTeam || got.Member != "Builds the example site" {
+		t.Fatalf("team row %+v", got)
+	}
+	if !strings.Contains(s.Rows[0].Text(), "Builds the example site") {
+		t.Fatalf("the plain row shows it: %q", s.Rows[0].Text())
 	}
 }
 
@@ -289,7 +304,7 @@ func TestCollectReadsEachSourceOncePerPass(t *testing.T) {
 
 func TestCollectNotInstalledAndDownTeams(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", teamtest.DeclaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\n")
+	h.OnDeclare("declared", teamtest.DeclaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\t-\n")
 	h.OnDeclare("status", "STATUS\talpha\tdecide\tabsent\nSTATUS\tbeta\tunbuilt\t-\nSTATUS\tgamma\tunreadable\tbad\n")
 	h.On("systemctl list-units", "agent-bus-hs@alpha.service loaded inactive dead x\nagent-bus-hs@gamma.service loaded failed failed x\n", 0)
 	h.On("tmux -L ccy list-sessions", "", 0)

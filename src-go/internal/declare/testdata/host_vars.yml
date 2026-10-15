@@ -4,6 +4,7 @@ agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: alpha
     port: 6167
+    description: "Builds the example site"
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]

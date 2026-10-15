@@ -59,7 +59,7 @@ Usage:
   ccy-teams -l|--list              print the same table, with a heading, and exit
                                    (colour only on a terminal, and never with NO_COLOR)
   ccy-teams create [--org ORG | --repo OWNER/REPO...] [--team T] [--human NAME]...
-                   [--allow-from CIDR]... [--yes]
+                   [--allow-from CIDR]... [--description TEXT] [--yes]
                                    add a team to agent_bus_teams in the host_vars, with
                                    its Element profile in agent_bus_element_teams, and
                                    install both. On a terminal it asks (with gum) for what

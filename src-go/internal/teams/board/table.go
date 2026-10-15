@@ -48,6 +48,19 @@ type Row struct {
 	Role string
 }
 
+// memberWidth is the MEMBER column's width, which a team row's description is cut to on a
+// terminal (piped, --list prints it whole).
+const memberWidth = 36
+
+// cut is text shortened to width characters, ending in an ellipsis when it was longer.
+func cut(text string, width int) string {
+	runes := []rune(text)
+	if len(runes) <= width {
+		return text
+	}
+	return string(runes[:width-1]) + "…"
+}
+
 // coordinatorMark follows the seat of the team's coordinator in the MEMBER column.
 const coordinatorMark = " (coordinator)"
 
@@ -65,10 +78,12 @@ func (r Row) Text() string {
 // colour codes it is the plain row.
 func (r Row) Painted() string {
 	team := fmt.Sprintf("%-24s", r.Team)
+	member := r.memberCell()
 	if r.Kind == KindTeam {
 		team = term.Bold + team + term.Reset
+		member = cut(member, memberWidth)
 	}
-	return fmt.Sprintf("%s  %-36s  %-6s  %s  %s  %s  %s  %s", team, r.memberCell(), r.Kind,
+	return fmt.Sprintf("%s  %-36s  %-6s  %s  %s  %s  %s  %s", team, member, r.Kind,
 		paint(13, r.State), paint(18, r.Applied), paint(26, r.Session), paint(7, r.Restore), r.Where)
 }
 
