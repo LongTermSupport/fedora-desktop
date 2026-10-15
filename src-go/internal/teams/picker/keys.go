@@ -30,6 +30,8 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 	case keyElement:
 		return r.p.Login.OpenElement(ctx, r.snap, row.Team)
 	case keyElementAll:
+		// Unlike one team's Ctrl-E, this can name several teams with no profile, so it waits
+		// for Enter before the list is redrawn over what it said.
 		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
 		if err == nil {
 			r.p.Kit.BackToList(ctx)

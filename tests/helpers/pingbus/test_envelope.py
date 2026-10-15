@@ -212,7 +212,12 @@ class HostileBodyTest(unittest.TestCase):
                "\U000e0100", "͏", "ᅟ", "ㅤ", "ﾠ", "⠀", "“", "”",
                "„", "«", "»", "‹", "›", "＂", "＼", "＜",
                "＞", "﹤", "⟨", "⟫", "〈", "〈", "《", "≪",
-               "≫", "˂", "ᐸ", "″", "ʺ", "〃", "〝", "∖")
+               "≫", "˂", "ᐸ", "″", "ʺ", "〃", "〝", "∖",
+               # Fable's review of the deny-list: look-alikes it missed, now escaped because
+               # punctuation and symbols are shown only from an allow-list of blocks.
+               "⧼", "⧽", "≺", "≻", "⋘", "⋙", "⦑", "⦖",
+               "⩽", "⩾", "〔", "〕", "❝", "❞", "\U0001f676",
+               "\U0001f677", "⟍", "╲", "⑊")
 
     def test_a_forged_close_and_header_stay_inside_the_body(self):
         text = envelope.render([peer(self.FORGERY, sender=QA)], "e90f3b12")
@@ -265,6 +270,25 @@ class ReadableTextTest(unittest.TestCase):
                             ("\ń", '"\\n\\u0301"'), (" ⃝", '" \\u20dd"')):
             with self.subTest(text=repr(text)):
                 self.assertEqual(envelope.cap_body(text)[0], shown)
+
+    def test_marks_sit_on_a_shown_symbol_and_stack_only_a_few_deep(self):
+        self.assertEqual(envelope.cap_body("❤̸")[0], '"❤̸"')
+        self.assertEqual(envelope.cap_body("ẹ́")[0], '"ẹ́"')
+        shown = "̀" * envelope.MARKS_MAX
+        rendered = envelope.cap_body("a" + "̀" * 50)[0]
+        self.assertTrue(rendered.startswith('"a' + shown + "\\u0300"), rendered[:20])
+        self.assertEqual(rendered.count("̀"), envelope.MARKS_MAX)
+        self.assertEqual(envelope.cap_body("a" + "̀" * 50 + "b́")[0][-3:], 'b́"')
+
+    def test_punctuation_and_symbols_come_from_an_allow_list(self):
+        for char in ("∀", "⨀", "─", "⑀", "⌀", "\U0001f650", "⸮"):
+            with self.subTest(char=repr(char)):
+                self.assertEqual(envelope.cap_body(char)[0], json.dumps(char))
+        for char in ("§", "°", "×", "→", "≠", "≤", "€", "™",
+                     "、", "。", "！", "،", "।", "⭐", "⌚",
+                     "\U0001f44d", "\U0001f1ec", "\U0001f9e1", "♥"):
+            with self.subTest(char=repr(char)):
+                self.assertEqual(envelope.cap_body(char)[0], f'"{char}"')
 
     def test_a_variation_selector_is_shown_only_singly_after_a_symbol(self):
         self.assertEqual(envelope.cap_body("✅️")[0], '"✅️"')

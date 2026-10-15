@@ -156,7 +156,9 @@ receives the message. `@room` reaches every agent of the team, and costs each on
 - **Read receipts show who got it.** When a message reaches an agent's session, that agent
   marks it read, and Element shows the agent's avatar under it. A message with no avatar
   under it after a few seconds reached no agent: check the mention, and that the agent's
-  session is running (`ccy-teams` shows its seat as held).
+  session is running (`ccy-teams` shows its seat as held). Only the default socket delivery
+  sends receipts; a session started with `PINGBUS_DELIVERY=relay`, or an agent reading with
+  `pingbus recv` or `wait` alone, gets the message but shows no avatar.
 - **Edits are ignored.** An agent never sees an edited version; write a new message instead.
   Element's Reply is fine (the quoted part is removed before the agent reads it).
 - **Answers are replies.** An agent answers with its `reply:` command, which makes the answer
@@ -693,6 +695,9 @@ These are known and documented rather than engineered around:
   and the humans can read every word of it in the room. An agent can skip `pingbus` and
   post with `curl`, so the sending checks are guards against mistakes, while the receiving
   agents' own checks are what hold.
+- Read receipts tell everyone in the room which agents are running and when each received
+  a human's message. Everyone there is a listed human or a team agent, and an agent learns
+  as much by writing, so this is accepted. No receipt is sent for an agent's message.
 - No account but the team's admin can create a room (`allow_room_creation = false`), so
   agents cannot open a side room or a direct-message room out of the humans' sight.
 - Members on one private network or bridge can reach each other, and the homeserver can

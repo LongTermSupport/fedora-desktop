@@ -7,9 +7,11 @@ An entry is built from the §15 line pingbus printed for a re-fetched, re-valida
 kind and sender are pingbus's, never the sender's text. Every header value is checked again
 here and must be printable ASCII; the one untrusted part, the body, is one JSON string on one
 `body:` line, capped after escaping, so it can neither start a line nor end the string. A
-visible letter, digit, mark, punctuation or symbol is shown as itself (`shown`); everything
-else, and every look-alike of the string's quote, the backslash or a marker's angle brackets,
-is a JSON escape. The nonce in the markers is drawn by the caller after every body was written;
+letter or number of any script is shown as itself, a combining mark on a shown base (at most
+`MARKS_MAX` in a row), and punctuation or a symbol only from the allow-listed blocks
+(`_PS_ALLOWED`, less `_ESCAPED`); everything else is a JSON escape, so no control, format or
+separator character, and no quote, backslash or angle-bracket look-alike from outside those
+blocks, appears as itself. The nonce in the markers is drawn by the caller after every body was written;
 it is shown in the thread and is not a secret.
 """
 
@@ -78,19 +80,45 @@ HELD_BACK_OTHERS = "held back: {count} more from other senders"
 MORE_LINE = "{count} more pending: they follow in the next delivery"
 PING_REPLY = "pingbus --team {team} send <VERB> --to {sender} --re '{event_id}'"
 
-#: Non-ASCII categories a body may show as themselves: letters, marks, numbers, punctuation
-#: and symbols. Never Cc, Cf (bidi, zero-width, tags), Cs, Co, Cn, Zs, Zl or Zp.
-_SHOWN_CATEGORIES = frozenset(("Lu", "Ll", "Lt", "Lm", "Lo", "Mn", "Mc", "Me", "Nd", "Nl", "No",
-                               "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po", "Sm", "Sc", "Sk", "So"))
-#: Shown categories that are escaped all the same: invisible fillers and joiners, variation
+#: Letters and numbers of any script are shown; marks are shown on a shown base, at most
+#: `MARKS_MAX` in a row; punctuation and symbols only from `_PS_ALLOWED`. Every other category
+#: (Cc, Cf: bidi, zero-width, tags; Cs, Co, Cn, Zs, Zl, Zp) is escaped.
+_WORD_CATEGORIES = frozenset(("Lu", "Ll", "Lt", "Lm", "Lo", "Nd", "Nl", "No"))
+_MARK_CATEGORIES = frozenset(("Mn", "Mc", "Me"))
+_PS_CATEGORIES = frozenset(("Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po", "Sm", "Sc", "Sk", "So"))
+#: Combining marks shown on one base; more are escaped, so a stack cannot spill over the
+#: header line above or the marker below. Every real script's pointing fits.
+MARKS_MAX = 4
+#: The blocks whose punctuation and symbols are shown (inclusive ranges): an allow-list, so a
+#: look-alike in a block nobody listed (mathematical brackets, box drawing, OCR, ornamental
+#: quotes) is escaped without being named. `_ESCAPED` removes what these blocks still hold.
+_PS_ALLOWED = (
+    (0x00A1, 0x00BF),  # Latin-1 punctuation and signs
+    (0x00D7, 0x00D7), (0x00F7, 0x00F7),  # times, divide
+    (0x0370, 0x1FFF),  # the scripts' own punctuation (Greek to Mongolian, Greek extended)
+    (0x2010, 0x2027), (0x2030, 0x205E),  # General Punctuation: dashes, quotes, ellipsis, primes
+    (0x20A0, 0x20CF),  # currency
+    (0x2100, 0x214F),  # letterlike: trade mark, degree, numero
+    (0x2190, 0x21FF),  # arrows
+    (0x2212, 0x2212), (0x221E, 0x221E), (0x2248, 0x2248), (0x2260, 0x2260), (0x2264, 0x2265),
+    (0x231A, 0x231B), (0x2328, 0x2328), (0x23CF, 0x23CF), (0x23E9, 0x23F3), (0x23F8, 0x23FA),
+    (0x2600, 0x27BF),  # Miscellaneous Symbols and Dingbats
+    (0x2B05, 0x2B07), (0x2B1B, 0x2B1C), (0x2B50, 0x2B50), (0x2B55, 0x2B55),  # emoji
+    (0x3001, 0x3007), (0x3012, 0x3013), (0x3020, 0x303F),  # CJK punctuation, not its brackets
+    (0xFF01, 0xFF60), (0xFFE0, 0xFFEE),  # fullwidth forms (NFKC still refuses the structural)
+    (0x1F004, 0x1F004), (0x1F0CF, 0x1F0CF), (0x1F18E, 0x1F18E), (0x1F191, 0x1F19A),
+    (0x1F1E6, 0x1F1FF),  # regional indicators (flags)
+    (0x1F300, 0x1F64F), (0x1F680, 0x1F6FF), (0x1F7E0, 0x1F7EB), (0x1F900, 0x1F9FF),
+    (0x1FA70, 0x1FAFF),  # emoji, pictographs, skin tones
+)
+#: Escaped although their category or block is shown: invisible fillers and joiners, variation
 #: selectors (shown only as one U+FE0E/U+FE0F after a symbol), and look-alikes of the quote,
-#: the backslash and the markers' angle brackets that NFKC does not map to them.
+#: the backslash and the markers' angle brackets inside the allowed blocks.
 _ESCAPED = frozenset(
     [0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F, 0x2800, 0x3164, 0xFFA0,
      0x00AB, 0x00BB, 0x02BA, 0x02C2, 0x02C3, 0x02DD, 0x02EE, 0x05F4, 0x1433, 0x1438, 0x201C, 0x201D,
-     0x201E, 0x201F, 0x2033, 0x2036, 0x2039, 0x203A, 0x2216, 0x226A, 0x226B, 0x2329, 0x232A, 0x29F5,
-     0x29F9, 0x2AA1, 0x2AA2, 0x3003, 0x301D, 0x301E, 0x301F]
-    + list(range(0x276C, 0x2772)) + list(range(0x27E8, 0x27EC)) + list(range(0x3008, 0x300C))
+     0x201E, 0x201F, 0x2033, 0x2036, 0x2039, 0x203A, 0x3003]
+    + list(range(0x275B, 0x275F)) + list(range(0x276C, 0x2772))
     + list(range(0xFE00, 0xFE10)) + list(range(0xE0100, 0xE01F0)))
 _TEXT_PRESENTATION = (0xFE0E, 0xFE0F)
 _STRUCTURAL = frozenset('"\\<>')
@@ -196,33 +224,46 @@ def _bytes(text: str) -> int:
     return len(text.encode("utf-8", "surrogatepass"))
 
 
-def _shown(char: str, previous: str | None) -> bool:
-    """Whether a non-ASCII `char` after `previous` (the code point before it, when that was
-    shown as itself) is shown as itself."""
+def _ps_allowed(point: int) -> bool:
+    return any(low <= point <= high for low, high in _PS_ALLOWED)
+
+
+def _shown(char: str, previous: str | None, marks: int) -> bool:
+    """Whether a non-ASCII `char` is shown as itself, after `previous` (the code point before
+    it, when that was shown as itself) and `marks` combining marks shown on it in a row."""
     point = ord(char)
     if point in _TEXT_PRESENTATION:
         return previous is not None and unicodedata.category(previous) in ("So", "Sk")
     category = unicodedata.category(char)
-    if category not in _SHOWN_CATEGORIES or point in _ESCAPED:
+    if point in _ESCAPED:
         return False
-    if category[0] == "M":
-        return previous is not None and (previous.isalnum() or ord(previous) > 0x7E)
+    if category in _MARK_CATEGORIES:
+        return (previous is not None and (previous.isalnum() or ord(previous) > 0x7E)
+                and marks < MARKS_MAX)
+    if category in _PS_CATEGORIES:
+        if not _ps_allowed(point):
+            return False
+    elif category not in _WORD_CATEGORIES:
+        return False
     folded = unicodedata.normalize("NFKC", char)
     return not any(c in _STRUCTURAL or not c.isprintable() for c in folded)
 
 
 def _render(text: str) -> str:
     """`text` as one JSON string: printable ASCII but the quote and backslash, and `_shown`
-    characters, as themselves; everything else escaped as `json.dumps` escapes it."""
+    characters, as themselves; everything else escaped as `json.dumps` escapes it. A code
+    point's rendering depends only on those before it."""
     parts = ['"']
     previous: str | None = None
+    marks = 0
     for char in text:
-        if (" " <= char <= "~" and char not in '"\\') or (char > "~" and _shown(char, previous)):
+        if (" " <= char <= "~" and char not in '"\\') or (char > "~" and _shown(char, previous, marks)):
             parts.append(char)
+            marks = marks + 1 if unicodedata.category(char) in _MARK_CATEGORIES else 0
             previous = char
         else:
             parts.append(json.dumps(char, ensure_ascii=True)[1:-1])
-            previous = None
+            previous, marks = None, 0
     parts.append('"')
     return "".join(parts)
 

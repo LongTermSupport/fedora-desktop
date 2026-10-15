@@ -56,8 +56,11 @@ Each is numbered so a test, a review finding or a host check can name it.
 - **E2. The body is data.** It is one JSON string on one `body:` line. A quote, a newline,
   a tab, NUL, DEL, ESC, `ESC[201~`, a bidi override, a zero-width character, U+2028/2029, a
   lone surrogate or a look-alike bracket arrives escaped. `formatted_body` is never used.
-  *Amended by Plan 00201's UX fixes:* a visible non-ASCII letter, digit, mark, punctuation or
-  symbol is shown as itself (was `ensure_ascii`, which showed `café` as `caf\u00e9`). Still
+  *Amended by Plan 00201's UX fixes:* a non-ASCII letter or number is shown as itself (was
+  `ensure_ascii`, which showed `café` as `caf\u00e9`); a combining mark on a shown base, at
+  most `MARKS_MAX` (4) in a row; punctuation and symbols only from the allow-listed blocks
+  `envelope._PS_ALLOWED` (every other P/S code point escaped, so look-alikes in unlisted
+  blocks need no naming; added after Fable's review found eleven a deny-list missed). Still
   escaped: every control (C0, DEL, C1), format character (Cf: bidi, zero-width, tags, soft
   hyphen, BOM), separator other than U+0020 (Zs, Zl, Zp), surrogate, private-use and
   unassigned code point; a variation selector except one U+FE0E/U+FE0F after a symbol; a

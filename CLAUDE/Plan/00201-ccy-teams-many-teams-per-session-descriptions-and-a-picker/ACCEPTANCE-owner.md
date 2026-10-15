@@ -10,7 +10,8 @@ Do these in order, once. Each step names what you should see.
    runs the two bus self-tests (Plan 00161's and this plan's `acceptance.bash`). If a step
    fails, stop and send its output.
 2. **Relaunch every team session.** `/exit` in every session that is on a team (ccy, `cc --teams`,
-   LXC). Old sessions keep the old delivery until they restart. The first ccy launch after the
+   LXC). Old sessions keep the old delivery until they restart, and an old session silently
+   drops an answer from a new one (a reply, refused as an edit), so relaunch all of them. The first ccy launch after the
    deploy rebuilds the image once, which takes a few minutes.
 3. **Bring the teams up to date.** Run `ccy-teams`. Every team will say "out of date:
    software"; answer **yes** to "Update them now (play-agent-bus.yml)?". Every team should then
