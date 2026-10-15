@@ -324,9 +324,21 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   merged tree: the cross-check test for VP-2 exists and "task or vars file" is gone from the
   version-pins spec (VP-1). The LOW findings (VP-3, VM-1 to VM-3, HT-2, HT-3, X-1) were not
   re-checked here.
-  Still on `scripts/bash-limits.allowlist`: `qa-go.bash` and `qa-docs.bash`. Per the coordinator,
-  `qa-go` waits on Plan 00191's go-qa-ci decisions and `qa-docs` is in progress; I did not verify
-  either state.
+  `qa-docs.bash` (P3) on `go-port/qa-docs`: ported, merged on the integration branch; spec
+  [SPEC-qa-docs.md](SPEC-qa-docs.md), expectations D1-D25; nested `src-go/qa/docs` and
+  `qa/cmd/qa-docs`, with the Markdown parsed by goldmark (v1.8.6 in `src-go/qa/go.mod`) and new
+  `markdown` and `tracked-files` lists in `qa/discovery` (D18, D19); `helpers/docs` (the Python
+  link checker) is gone and the script a build-and-run wrapper; `scripts/test-qa-docs-exit-codes.bash`
+  drives the wrapper. `qa-changed` gets a whole `docs` check that every deleted file owes
+  (SPEC-qa-changed B47; the branch numbered it B48, renumbered here to keep the rows sequential,
+  so the journal entries of that branch still say B48). Fable review
+  (`subagent-reports/261015-fable-review-docs.md`) found no blocker. Checked in the merged tree:
+  the `docs` stage row in `scripts/qa-gates.tsv` no longer names a checker crash, with SPEC-qa-all
+  B32 (F1); anchors are compared verbatim (F2); `extension.Footnote` is enabled (F5); the rule in
+  `.claude/rules/qa-gates.md` names `src-go/qa/docs/**` (F7); a test pins that any deleted file
+  owes the docs check (F4); goldmark is v1.8.6 (F9). F3, F6, F8 and F10 were not re-checked here.
+  Still on `scripts/bash-limits.allowlist`: `qa-go.bash`. Per the coordinator it waits on Plan
+  00191's go-qa-ci decisions; I did not verify that.
 
 ### Phase 4: Review
 
