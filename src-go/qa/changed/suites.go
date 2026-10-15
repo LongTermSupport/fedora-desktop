@@ -157,8 +157,8 @@ func (s *session) buildOwners(ctx context.Context, rows []goRow) (map[string][]s
 
 // selectSuites picks the suites the changed files need, in population order: a suite that
 // builds from a changed file, that changed itself, or whose text names a changed file by path
-// or basename (a raw substring, deliberately loose: over-selected rather than missed). Naming
-// covers the file. It then settles which changed files nothing covers.
+// or basename (the path as a substring, the basename as a token: not inside a longer word or
+// name). Naming covers the file. It then settles which changed files nothing covers.
 func (s *session) selectSuites(ctx context.Context) error {
 	population, err := loadPopulation(s.scripts, s.routing.perFileGates)
 	if err != nil {
