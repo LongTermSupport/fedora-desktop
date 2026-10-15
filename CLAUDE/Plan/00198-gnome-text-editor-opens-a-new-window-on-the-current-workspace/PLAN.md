@@ -1,6 +1,6 @@
 # Plan 00198: gnome text editor opens a new window on the current workspace
 
-**Status**: In Progress (triage queued in meta-deploy; waiting on its report)
+**Status**: In Progress (fix implemented in play-gsettings.yml; deploy and the owner's workspace check queued in meta-deploy)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: Medium
@@ -31,25 +31,43 @@ desktop files in play.
 
 ## Non-Goals
 
+- A file already open in another editor window: the editor ignores the new-window hint for it
+  and raises that window, so GNOME still switches to its workspace. The owner's check in
+  Task 2.2 must use files that are not already open.
+
 - Changing the editor, or how GNOME Shell places windows in general.
+
 - Other editors or file types beyond those GNOME Text Editor handles.
 
 ## Tasks
 
 ### Phase 1: Facts
 
-- [ ] 🔄 **Task 1.1**: `triage.bash` on the host (queued in `meta-deploy.list`): RPM or Flatpak,
-  `--help-all`, every `org.gnome.TextEditor.desktop` with its `Exec` and `DBusActivatable`, the
-  default handler for `text/plain` and `text/markdown`, the editor's GSettings and mutter's
-  workspace settings.
+- [x] ✅ **Task 1.1**: `triage.bash` on the host. Facts established:
+  - GNOME Text Editor is the RPM (`gnome-text-editor` 50.1, Fedora 44); the Flatpak is not
+    installed, so the override path is `~/.local/share/applications/`.
+  - `--help-all` has `-n, --new-window` (open the provided files in a new window), `-s, --standalone` (a new instance, implies `--ignore-session`) and `-i, --ignore-session`.
+  - The one desktop file is `/usr/share/applications/org.gnome.TextEditor.desktop`:
+    `DBusActivatable=true`, `Exec=gnome-text-editor %U`, `MimeType=text/plain;application/x-zerosize;`,
+    and a `new-window` action whose Exec is `gnome-text-editor --new-window`.
+  - `text/plain` and `text/markdown` both default to `org.gnome.TextEditor.desktop`.
+  - The editor's GSettings have no window-placement or open-in-new-window key
+    (`restore-session` is already false). `org.gnome.mutter` has no workspace-switch-on-activate
+    key (`dynamic-workspaces` false, `workspaces-only-on-primary` false). The only related
+    setting is `org.gnome.desktop.wm.preferences focus-new-windows` = `smart`, which concerns
+    focus of new windows, not which window receives a file.
+  - So no setting can do this; the workspace switch is the shell activating the existing
+    window the D-Bus call targeted.
 
 ### Phase 2: The fix
 
-- [ ] ⬜ **Task 2.1**: From the triage: choose the flag (`--new-window` or `--standalone`) and
-  the override's path (RPM or Flatpak export). Add the task to the play that owns desktop
-  settings, generating the override from the system desktop file so an upgrade's other changes
-  are kept, and refresh the desktop database.
-- [ ] ⬜ **Task 2.2**: Host run through `meta-deploy.bash`; the owner opens files from Nautilus on
+- [x] ✅ **Task 2.1**: Decision: `--new-window` (it keeps the running instance, so no second
+  process per file, unlike `--standalone`). `playbooks/imports/play-gsettings.yml` slurps the
+  system desktop file, asserts it still has the two lines to change, writes the per-user copy
+  with `DBusActivatable=false` and `Exec=gnome-text-editor --new-window %U` on every run (so
+  upgrades are kept), and refreshes the desktop database when it changed. `acceptance.bash`
+  checks the file and the `text/plain` default.
+- [ ] 🔄 **Task 2.2**: Host run through `meta-deploy.bash`; the owner opens files from Nautilus on
   two workspaces and confirms each opens where they are. qa-reviewer over the plan.
 
 ## Success Criteria

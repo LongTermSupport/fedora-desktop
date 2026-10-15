@@ -26,6 +26,8 @@
       ansible.builtin.dnf:
         name:
           - gnome-tweaks.noarch
+          # play-gsettings.yml builds its per-user desktop file from this package's own.
+          - gnome-text-editor
           # `notify-send`, and this play owns it because this play owns the desktop.
           # Three things in the repo send desktop notifications — the DisplayLink
           # recovery, the kernel-version manager and the login health report — and
