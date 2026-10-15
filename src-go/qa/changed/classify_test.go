@@ -590,8 +590,9 @@ func TestAReadyWaitGateEditRunsTheGate(t *testing.T) {
 
 // A change to an active plan's shell script or to a file under a plan's logs/ directory, or to the
 // plan-script-logging gate's own script, Go package, command or the shared discovery, runs the whole
-// gate; so does the deletion of such a script (the gate judges what remains). A Completed plan's
-// non-shell file, a playbook and an ordinary Markdown file do not.
+// gate; so does the deletion of such a script (the gate judges what remains). The glob is
+// deliberately wider than the gate's scope, so a shell file under Completed/ or the plan tooling
+// runs it too (pinned below). A plan's Markdown file, a playbook and an ordinary Python file do not.
 func TestAPlanScriptLoggingEditRunsTheGate(t *testing.T) {
 	for _, f := range []string{
 		"CLAUDE/Plan/00130-x/run.bash", "CLAUDE/Plan/00130-x/sub/deep.sh", "CLAUDE/Plan/00130-x/logs/run.txt",
@@ -606,6 +607,13 @@ func TestAPlanScriptLoggingEditRunsTheGate(t *testing.T) {
 		}
 		if f == "scripts/qa-plan-script-logging.bash" && len(p.suites) != 0 {
 			t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+		}
+	}
+	for _, f := range []string{"CLAUDE/Plan/Completed/00099-x/run.bash", "CLAUDE/Plan/_planlib.inc.bash", "CLAUDE/Plan/mkplan.bash"} {
+		w := newWorld(t)
+		w.touch(f, "#!/usr/bin/bash\n")
+		if p := w.classify([]string{f}); !p.has("plan-script-logging") {
+			t.Errorf("%s: the over-match is pinned, it must run the gate: %v", f, keys(p))
 		}
 	}
 	w := newWorld(t)

@@ -44,7 +44,7 @@ reads the file system and starts no process.
 - L5. Each active folder is walked recursively, whatever the file's git status (an ignored or
   untracked file is examined: that is where run logs hide). Only regular files are looked at. A
   symlink below a plan folder is left out: a link's target is examined in its own place or is not
-  plan content. A directory or file that cannot be read is exit 2 naming it, after the rest has been
+  plan content. The one exception is a symlink named `logs` (L11). A directory or file that cannot be read is exit 2 naming it, after the rest has been
   judged.
 - L6. A **plan script** is a regular file named `*.bash` or `*.sh`, or whatever it is called, one
   whose first line is a bash or sh shebang (`qa/discovery`'s `ShellShebang`, the one shell
@@ -67,7 +67,9 @@ reads the file system and starts no process.
   process substitution); `exec cmd > >(tee f)` (the shell is replaced, nothing is left to wait);
   `foo > >(tee f)` where the command is not `exec`.
 - L11. **The paired offence** is a directory named `logs` at any depth under an active plan folder,
-  whether or not git would publish it.
+  whether or not git would publish it. A **symlink** named `logs` is refused, exit 2
+  `ERROR: <path> is a symlink named logs; ...`: a link is how a plan would keep a run-log location
+  while hiding it from this gate, and it is not followed.
 
 ### Output
 
@@ -102,4 +104,7 @@ reads the file system and starts no process.
   must be seen, which a git listing would hide.
 - `qa-changed` runs the gate whole when an active plan's shell file or a file under a `logs/`
   directory in a plan changes or is deleted, or the wrapper, the tool or the shared discovery
-  change. It is a file-system walk of about a hundred folders, cheap enough to run whole.
+  change. It is a file-system walk of about a hundred folders, cheap enough to run whole. The
+  routing glob is deliberately wider than the gate's scope: the matcher's `*` crosses `/`, so a
+  change under `Completed/` or to the plan tooling (`mkplan.bash`, `_planlib.inc.bash`) also runs
+  the gate, which reads none of them. That is a pinned over-match, not a bug.

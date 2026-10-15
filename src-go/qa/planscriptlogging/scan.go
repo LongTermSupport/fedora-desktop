@@ -87,6 +87,10 @@ func (r *result) walkFolder(fsys fs.FS, folder string) {
 		case walkErr != nil:
 			r.problems = append(r.problems, fmt.Sprintf("cannot read %s: %v", p, walkErr))
 			return fs.SkipDir
+		case d.Type()&fs.ModeSymlink != 0:
+			if d.Name() == "logs" {
+				r.problems = append(r.problems, p+" is a symlink named logs; it hides a run-log location the gate cannot follow")
+			}
 		case d.IsDir():
 			if d.Name() == "logs" {
 				r.dirHits = append(r.dirHits, p+": plan-local run-log directory")

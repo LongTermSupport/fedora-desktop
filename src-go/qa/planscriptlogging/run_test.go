@@ -267,6 +267,21 @@ func TestL11ALogsDirectoryAtAnyDepthIsAnOffence(t *testing.T) {
 	}
 }
 
+// L11: a symlink named logs is a way to keep a run-log location while hiding it, so it is refused
+// (exit 2), never skipped without a word.
+func TestL11ASymlinkNamedLogsIsExitTwo(t *testing.T) {
+	w := newWorld(planScript("true\n"))
+	w.mem["CLAUDE/Plan/00001-x/deep/logs"] = &fstest.MapFile{Mode: fs.ModeSymlink, Data: []byte("../../../../untracked/anything")}
+	w.mem["CLAUDE/Plan/00001-x/blogs"] = &fstest.MapFile{Mode: fs.ModeSymlink, Data: []byte("elsewhere")}
+	if got := w.run(); got != ExitCannotRun {
+		t.Fatalf("exit %d\n%s", got, w.err.String())
+	}
+	mustContain(t, "link", w.err.String(), "ERROR: CLAUDE/Plan/00001-x/deep/logs is a symlink named logs")
+	if strings.Contains(w.err.String(), "blogs") {
+		t.Errorf("a link not named logs was refused:\n%s", w.err.String())
+	}
+}
+
 func TestL11ALogsDirectoryInACompletedPlanIsNotExamined(t *testing.T) {
 	files := planScript("true\n")
 	files["CLAUDE/Plan/Completed/00002-y/logs/run.txt"] = "x"
