@@ -655,6 +655,34 @@ func TestAPlanScriptLoggingEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// A change to the docs gate's own script, Go package or command, to the gate table or the trees table
+// it reads, to the shared discovery or gate loader it calls, or to the QA module's dependencies,
+// runs the whole docs check (SPEC-qa-docs D4, D20); an ordinary Python file does not.
+func TestADocsGateInputEditRunsTheDocsCheck(t *testing.T) {
+	for _, f := range []string{
+		"scripts/qa-docs.bash", "scripts/qa-gates.tsv", "scripts/qa-trees.tsv", "src-go/qa/docs/links.go",
+		"src-go/qa/cmd/qa-docs/main.go", "src-go/qa/discovery/run.go", "src-go/qa/gates/gates.go",
+		"src-go/qa/go.mod", "src-go/qa/go.sum", "scripts/lib/go-tool.bash",
+	} {
+		w := newWorld(t)
+		if f != "scripts/qa-trees.tsv" { // the world's own table is read by the session, so it stays valid
+			w.touch(f, "x")
+		}
+		if p := w.classify([]string{f}); !p.has("docs") {
+			t.Errorf("%s does not run the docs check: %v", f, keys(p))
+		}
+	}
+	w := newWorld(t)
+	w.touch("helpers/other.py", "x = 1\n")
+	if p := w.classify([]string{"helpers/other.py"}); p.has("docs") {
+		t.Errorf("an ordinary Python file must not run the docs check: %v", keys(p))
+	}
+	w = newWorld(t)
+	if p := w.classify(nil, "docs/gone.md"); !p.has("docs") {
+		t.Errorf("a deleted document owes the docs check: %v", keys(p))
+	}
+}
+
 // A changed JavaScript or Python file (by name, or a Python shebang) runs the speech-to-text rules
 // over that file only; other files do not, and a deleted file has nothing to judge.
 func TestAChangedScriptRunsTheSpeechToTextRulesOnThatFile(t *testing.T) {

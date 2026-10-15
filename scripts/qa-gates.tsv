@@ -3,7 +3,7 @@
 # failure never stops the gates after it. src-go/qa/gates loads this file strictly (a short row,
 # an unknown kind or reader, a bad name or pattern, a duplicate, or a missing script is exit 2
 # with the line number); qa-changed reads its suite population from it and the QA.md inventory
-# gate (helpers/docs/link_check.py) checks the documentation against it. SPEC-qa-all.md section 11.
+# gate (src-go/qa/docs) checks the documentation against it. SPEC-qa-all.md section 11.
 #
 #   kind    name    command    text    [reader ...]
 #

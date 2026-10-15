@@ -470,6 +470,29 @@ func TestTheToolchainCheckIsAWholeGateNeedingGo(t *testing.T) {
 	}
 }
 
+// The docs check is a whole gate (a deleted document or playbook may ask for it) and needs bash and
+// go, because its wrapper builds the Go command; it is run through the wrapper with the report.
+func TestTheDocsCheckIsAWholeGateNeedingGoAndRunsItsWrapper(t *testing.T) {
+	d := lookupCheck("docs")
+	if !d.gate || !d.whole {
+		t.Errorf("docs: gate %v whole %v", d.gate, d.whole)
+	}
+	if !slices.Contains(d.tools, toolBash) || !slices.Contains(d.tools, toolGo) {
+		t.Errorf("docs needs bash and go, has %v", d.tools)
+	}
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := d.run(context.Background(), s, &checkPlan{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0].Argv[0] != "bash" || runner.calls[0].Argv[1] != filepath.Join(s.scripts, "qa-docs.bash") {
+		t.Fatalf("calls: %+v", runner.calls)
+	}
+	if env := runner.calls[0].Env; len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
+		t.Fatalf("the docs gate writes a report: %v", env)
+	}
+}
+
 type failingRunner struct{}
 
 func (failingRunner) Run(context.Context, proc.Cmd) (proc.Result, error) {

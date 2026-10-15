@@ -96,7 +96,6 @@ scripts/lib/run-log-scrub.bash	130	4	70	data
 scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/nvidia-status.bash	430	4	519	-
-scripts/qa-docs.bash	77	0	72	data
 scripts/qa-go.bash	72	2	81	-
 scripts/qa-helper-tests.bash	90	0	88	assoc
 scripts/qa-version-pins.bash	111	4	146	data

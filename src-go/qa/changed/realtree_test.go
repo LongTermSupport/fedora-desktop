@@ -250,6 +250,42 @@ func checkSemgrepRoute(t *testing.T, root, rel, reader string) {
 	}
 }
 
+// The docs gate's inputs, read from the repository's own tree, run the docs check against the
+// repository's own routing table: every document the gate scans, and every file it reads or is
+// built from.
+func TestEveryRealDocsGateInputRunsTheDocsCheck(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := []string{
+		"scripts/qa-docs.bash", "scripts/qa-gates.tsv", "scripts/qa-trees.tsv", "playbooks/playbook-main.yml",
+		"src-go/qa/docs/run.go", "src-go/qa/cmd/qa-docs/main.go", "src-go/qa/discovery/run.go", "src-go/qa/gates/gates.go",
+		"CLAUDE/QA.md", "CLAUDE.md", "docs/playbooks.md", "docs/architecture.md",
+	}
+	if len(publishedUnder(t, root, "docs")) == 0 {
+		t.Fatal("found no document under docs/: the tree walk matched nothing")
+	}
+	s := &session{
+		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		root:    root,
+		scripts: filepath.Join(root, "scripts"),
+		opts:    options{base: "HEAD"},
+	}
+	if err := s.load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range inputs {
+		s.plan = &plan{checks: map[string]*checkPlan{}, covered: map[string]bool{}}
+		if err := s.classify(context.Background(), collected{existing: []string{rel}}); err != nil {
+			t.Fatal(err)
+		}
+		if !s.plan.has("docs") {
+			t.Errorf("%s does not run the docs check: %v", rel, keys(s.plan))
+		}
+	}
+}
+
 // Every active plan script of the tree, and the gate's own files, run the plan-script-logging
 // check against the repository's own routing table. The scripts are read from the tree, so a plan
 // script this test has not met is still routed.
