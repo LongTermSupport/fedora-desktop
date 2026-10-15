@@ -17,11 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.3 — container 2.60
+
+- **The launcher and its libraries parse for semgrep.** Behaviour is unchanged. The bash
+  grammar semgrep uses stopped at a named-descriptor redirect (`exec <&"$FD" {FD}<&-`), a
+  parenthesis inside a `${var:+...}` or `${var:-...}` word, a parenthesised operand before `/`
+  or `%` in `$(( ))`, `! { ...; }` as an `if` condition and a heredoc in an `if` condition, so
+  the rules covered almost none of the launcher. Each is now written in an equivalent form.
+
 ## 3.98.2 — container 2.60
 
 - **The two 3.97/3.98 lines meet.** 3.98.0 (goodbye, relay, `ccy-teams lxc-add`) was built
-  beside 3.97.2 to 3.97.11 (several teams per session, team descriptions, `REPLY` lines, `cc
-  --teams` on the shared chooser); this version holds both. A session's team list and
+  beside 3.97.2 to 3.97.11 (several teams per session, team descriptions, `REPLY` lines, `cc --teams` on the shared chooser); this version holds both. A session's team list and
   status-line record are written in relay mode too, `recv` prints `REPLY` lines when it is not
   relaying, and SessionEnd (registered once, with the goodbye's 6 s timeout) removes the
   status-line record before the goodbye. Both lines changed the image (2.56 and 2.59), so the

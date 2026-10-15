@@ -491,7 +491,7 @@ show_container_top() {
                     local remaining remaining_out
                     if ! remaining_out="$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>&1)"; then
                         echo "⚠ Could not list containers — cannot confirm they stopped." >&2
-                        echo "  ${CONTAINER_ENGINE} said: ${remaining_out:-(no output)}" >&2
+                        echo "  ${CONTAINER_ENGINE} said: ${remaining_out:-"(no output)"}" >&2
                         return 1
                     fi
                     # Not `grep -c .`: grep exits 1 on zero matches, so under

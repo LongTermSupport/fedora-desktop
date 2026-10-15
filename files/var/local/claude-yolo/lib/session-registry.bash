@@ -944,7 +944,7 @@ ccy_restore_manifest_read() {
         detail) RM_DETAIL+=("$value") ;;
         transcript) RM_TRANSCRIPT+=("$value") ;;
         esac
-        expect_at=$(((expect_at + 1) % width))
+        expect_at=$(($((expect_at + 1)) % width))
         expect="${CCY_RESTORE_MANIFEST_KEYS[expect_at]}"
     done <"$path"
     if [[ "$first" == true ]]; then
