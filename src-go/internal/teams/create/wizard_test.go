@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -126,6 +127,7 @@ type wzHarness struct {
 	applied  [][]string
 	applyErr error
 	pwd      []string
+	signIn   []string // "team ask=bool", one per look at the sign-in after a failed apply
 	pwdErr   error
 	element  []string
 	elemErr  error
@@ -195,6 +197,10 @@ func newWzHarness(t *testing.T) *wzHarness {
 		ApplyTeams: func(_ context.Context, teams ...string) error {
 			h.applied = append(h.applied, teams)
 			return h.applyErr
+		},
+		SignInGap: func(_ context.Context, teams []string, ask bool) error {
+			h.signIn = append(h.signIn, strings.Join(teams, " ")+" ask="+strconv.FormatBool(ask))
+			return nil
 		},
 		NewPassword: func(_ context.Context, team, human string) error {
 			h.pwd = append(h.pwd, team+"/"+human)
@@ -773,6 +779,45 @@ func TestAFailedInstallSaysHowToRetry(t *testing.T) {
 		"ERROR: team beta is declared in ~/fd/localhost.yml but not applied as declared. Once the cause above is fixed, ccy-teams apply beta applies it.")
 	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare next-steps") {
 		t.Error("next steps after a failed install")
+	}
+}
+
+// The play made the person's account before the apply failed, so the sign-in is still looked
+// at (asked on a terminal, said otherwise) and the failure still stands.
+func TestAFailedInstallStillLooksAtTheSignInOfThePeopleMade(t *testing.T) {
+	for _, tty := range []bool{false, true} {
+		h := newWzHarness(t)
+		h.tty = tty
+		h.applyErr = errors.New("play failed")
+		wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
+		if len(h.signIn) != 1 || h.signIn[0] != "beta ask=false" {
+			t.Errorf("tty %v: sign-in looked at %v", tty, h.signIn)
+		}
+		wzContain(t, "stderr", h.err(), "ccy-teams apply beta applies it.")
+	}
+}
+
+func TestAnInteractiveFailedInstallOffersTheSignInBeforeItsFailure(t *testing.T) {
+	h := newWzHarness(t)
+	h.applyErr = errors.New("play failed")
+	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzOK(""))
+	wzCode(t, h.invoke(), 1, h)
+	if len(h.signIn) != 1 || h.signIn[0] != "proj ask=true" {
+		t.Errorf("sign-in looked at %v", h.signIn)
+	}
+	if h.pwd != nil {
+		t.Errorf("the success path's offer ran as well: %v", h.pwd)
+	}
+}
+
+func TestAPassedInstallLeavesTheSignInToItsOwnOffer(t *testing.T) {
+	h := newWzHarness(t)
+	h.happyAnswers()
+	wzCode(t, h.invoke(), 0, h)
+	if len(h.signIn) != 0 {
+		t.Errorf("sign-in looked at twice: %v", h.signIn)
 	}
 }
 

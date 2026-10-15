@@ -64,6 +64,11 @@ type Ops struct {
 	// Changed is told when a flow that may have changed a team ran (even one that failed
 	// part way), so what was read of the machine and kept is read again.
 	Changed func()
+
+	// SignInGap, when set, is told which teams were applied (the apply passed or not) and
+	// whether a question may be asked: it offers, or says how to do, the sign-in of each
+	// person of them who has no Element session.
+	SignInGap func(ctx context.Context, teams []string, ask bool) error
 }
 
 // ElementLauncher is the desktop file the Element play writes for a team.
@@ -189,9 +194,22 @@ func (o *Ops) Apply(ctx context.Context, args []string) term.ExitCode {
 	if err := o.ApplyTeams(ctx, targets); err != nil {
 		o.Term.PrintError("not applied: " + strings.Join(targets, " ") +
 			". Their entries stay as declared; once the cause above is fixed, ccy-teams apply runs the play again.")
-		return term.ExitFailure
+		return o.signInAfter(ctx, targets, term.ExitFailure)
 	}
-	return term.ExitOK
+	return o.signInAfter(ctx, targets, term.ExitOK)
+}
+
+// signInAfter looks at who of the applied teams cannot sign in to Element yet: the play made
+// their accounts whether or not the apply then passed. The apply's own result stands; only a
+// cancelled question changes it.
+func (o *Ops) signInAfter(ctx context.Context, teams []string, result term.ExitCode) term.ExitCode {
+	if o.SignInGap == nil {
+		return result
+	}
+	if err := o.SignInGap(ctx, teams, o.interactive()); errors.Is(err, ui.ErrCancelled) {
+		return o.cancelled()
+	}
+	return result
 }
 
 func (o *Ops) changed() {

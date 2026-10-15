@@ -193,9 +193,79 @@ func (l *Login) NewPassword(ctx context.Context, team, human string) error {
 	return offerResult(err)
 }
 
+// SignInGap is, after teams were applied (whether or not the apply passed: the play creates
+// each person's account with a password nobody is shown), the sign-in of everyone declared in
+// them who has no Element session: offered when ask, else said with the exact way to do it.
+// What cannot be read (the homeserver may not be up after a failed apply) is said too, with
+// the same way, never skipped.
+func (l *Login) SignInGap(ctx context.Context, teams []string, ask bool) error {
+	snap, err := l.Board.Collect(ctx)
+	if err != nil {
+		l.Kit.ReportErr(err)
+		l.Kit.Tell("Whether the people of " + strings.Join(teams, " ") + " can sign in to Element could not be read (above).")
+		l.Kit.Tell(howToSignIn(teams[0]))
+		return nil
+	}
+	for _, team := range teams {
+		if err = l.signInGapOf(ctx, snap, team, ask); err != nil {
+			return offerResult(err)
+		}
+	}
+	return nil
+}
+
+// howToSignIn is the way a person who has no session gets a password, for the first one of
+// team's people (the picker offers each person who has never signed in).
+func howToSignIn(team string) string {
+	return "To sign in: ccy-teams, Enter on " + team + ", choose Open " + team +
+		" in Element: it offers each person who has never signed in a password."
+}
+
 // Open is Element opened straight after a team is made, with the same answers as NewPassword.
 func (l *Login) Open(ctx context.Context, team string) error {
 	return offerResult(l.LaunchElement(ctx, team))
+}
+
+func (l *Login) signInGapOf(ctx context.Context, snap *board.Snapshot, team string, ask bool) error {
+	if why := snap.MembersUnknown[team]; why != "" {
+		l.Kit.Tell("Who is signed in to " + team + " could not be read (" + why + ").")
+		l.Kit.Tell(howToSignIn(team))
+		return nil
+	}
+	for _, row := range snap.Rows {
+		if row.Team != team || row.Kind != board.KindHuman {
+			continue
+		}
+		var err error
+		switch word := snap.SignedIn[team+"|"+row.Member]; {
+		case word == board.WordNeverSignedIn:
+			err = l.offerSignIn(ctx, snap, team, row.Member, ask)
+		case strings.HasSuffix(word, " signed in"):
+		default:
+			l.Kit.Tell("Whether " + row.Member + " has signed in to " + team + " could not be read (" + word + ").")
+			l.Kit.Tell(howToSignIn(team))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (l *Login) offerSignIn(ctx context.Context, snap *board.Snapshot, team, name string, ask bool) error {
+	l.Kit.Tell(name + " has never signed in to " + team + ".")
+	if ask {
+		yes, err := l.Kit.AskYes(ctx, "Sign "+name+" in to Element now? A password is set and shown here once.", true)
+		if err != nil {
+			return err
+		}
+		if yes {
+			_, err = l.IssuePassword(ctx, snap, team, name)
+			return err
+		}
+	}
+	l.Kit.Tell(howToSignIn(team))
+	return nil
 }
 
 // ensureProfile is Done when the team has an Element profile, setting one up when it has none.

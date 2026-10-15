@@ -58,6 +58,7 @@ func Wire(h *host.Host) *App {
 	b := board.New(h)
 	o := ops.New(h, b.Statuses, func() { b.ForgetDevices("") })
 	l := login.New(h, kit, b, o)
+	o.SignInGap = l.SignInGap
 	s := seats.New(h, kit, o)
 	c := create.New(h, o, l)
 	return &App{

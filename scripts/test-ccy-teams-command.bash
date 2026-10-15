@@ -944,6 +944,7 @@ CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_PLAY_FAIL=1 "$TOOL" create --team
     --org example-org --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "a failed install is a failure" "1" "$?"
 check_has "  saying the team is declared but not applied as declared, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
+check_has "  and how to sign in to Element, which no one was shown a password for" "choose Open beta in Element" "$(cat "$SCRATCH/err")"
 
 # run_in <dir> <gum answers (one string, lines)> <words...> — ccy-teams with those words in
 # <dir>, under a terminal, its gum answered from the queue; the output ends "rc=<status>".
@@ -1216,6 +1217,7 @@ fresh_states
 CCY_TEAMS_HOST_VARS="$STATES" TEST_PLAY_FAIL=1 "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "a failed play is a failure" "1" "$?"
 check_has "  saying the entry stands but is not applied, and how to retry" "ccy-teams apply" "$(cat "$SCRATCH/err")"
+check_has "  and how to sign in to Element, whether or not the apply passed" "choose Open delta in Element" "$(cat "$SCRATCH/err")"
 CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply gone >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "apply refuses a team declared absent" "64" "$?"
 check_has "  pointing at remove" "ccy-teams remove gone" "$(cat "$SCRATCH/err")"
