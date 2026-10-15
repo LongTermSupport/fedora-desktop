@@ -69,8 +69,8 @@ that play.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
    takes them or the highlighted one), each marked team gets its own seat question, and the
    launch prints which teams the session is on, with seat, role and what each is for; the status
-   line shows `bus: alpha,beta`. With several teams, `pingbus send`/`say` work out the team from
-   `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
+   line shows `bus: alpha,beta`. With several teams, pingbus's send and say commands work out the
+   team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
    free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
