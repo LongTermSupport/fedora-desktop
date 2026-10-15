@@ -9,13 +9,15 @@ Where things live, under `/var/lib/agent-bus/<team>/` (0700, the running user's)
 `team.json` (the validated team file), `registry.json` (helpers/agent_bus/registry.py;
 every change goes through `registry.update_registry`), `room_id` (the team room, written
 when `bootstrap` creates it), and `secrets/` holding `registration_shared_secret` (created
-by the installer), `admin.token` and `admin.password` (created here). Human passwords
+by the installer), `admin.token` (created here) and, only until that is written,
+`admin.password`. Human passwords
 and member tokens are never stored: a member's token leaves only inside its bundle, and a
 human's password only as `human password`'s output.
 
 Accounts are created with `PUT /_synapse/admin/v2/users/<id>` carrying a random password
 that is discarded at once and **no `admin` key**: with `"admin": false` Tuwunel 1.9.3
-answers 500 (probe H4, DESIGN.md section 4).
+answers 500 (probe H4, DESIGN.md section 4). Those calls set each account's display name;
+`enable_set_displayname = false` stops only a member's own change, never the server admin's.
 
 The homeserver is reached through a `Transport`, `(method, path, query, body, token) ->
 (status, JSON object)`, `path` percent-encoded as on the wire. `http_transport` is the
@@ -145,6 +147,10 @@ class Team:
     @property
     def secrets(self) -> pathlib.Path:
         return self.dir / SECRETS_DIR
+
+    @property
+    def admin_password_path(self) -> pathlib.Path:
+        return self.dir / SECRETS_DIR / ADMIN_PASSWORD_FILE
 
     @property
     def registry_path(self) -> pathlib.Path:
@@ -287,8 +293,8 @@ def http_transport(base_url: str, timeout: float = HTTP_TIMEOUT_S) -> Transport:
             obj = json.loads(raw)
         except (UnicodeDecodeError, ValueError):
             raise AdminError(f"{method} {path}: the homeserver answered {status} with no JSON") from None
-        if not isinstance(obj, dict):
-            raise AdminError(f"{method} {path}: the homeserver answered {status} with no JSON object")
+        if not isinstance(obj, (dict, list)):
+            raise AdminError(f"{method} {path}: the homeserver answered {status} with no JSON object or array")
         return status, obj
 
     return call
@@ -326,17 +332,29 @@ class _Api:
     def call(self, what: str, method: str, path: str, *, query: Mapping[str, str] | None = None,
              body: object = None, allow: Iterable[int] = (), token: str | None = None) -> tuple[int, dict]:
         status, obj = self.transport(method, path, query, body, token or self.token)
+        if not isinstance(obj, dict):
+            raise AdminError(f"{what}: the homeserver answered {status} with no JSON object")
         if status != 200 and status not in allow:
             raise _refused(what, status, obj)
         return status, obj
 
+    def room_state(self, room: str) -> list[dict]:
+        """Every current state event of the room (`GET /rooms/<id>/state`: a JSON array)."""
+        status, events = self.transport("GET", f"{_CLIENT}/rooms/{_q(room)}/state", None, None, self.token)
+        if status != 200:
+            raise _refused("read the room state", status, events if isinstance(events, dict) else {})
+        if not isinstance(events, list) or not all(isinstance(e, dict) for e in events):
+            raise AdminError("read the room state: the homeserver answered with no list of events")
+        return events
+
+    def empty_state(self, room: str, event_type: str, key: str) -> None:
+        self.call(f"empty {event_type} {key!r}", "PUT", _state_path(room, event_type, key), body={})
+
     def whoami(self, token: str) -> str:
-        status, obj = self.transport("GET", f"{_CLIENT}/account/whoami", None, None, token)
+        status, obj = self.call("whoami", "GET", f"{_CLIENT}/account/whoami", allow=(401, 403), token=token)
         if status in (401, 403):
             raise AdminError(f"team {self.team.name}: the admin token was rejected ({status}); "
                              "rotating it is deferred (DESIGN.md section 3.7)")
-        if status != 200:
-            raise _refused("whoami", status, obj)
         return obj.get("user_id")
 
     def account(self, user_id: str) -> dict | None:
@@ -425,7 +443,8 @@ def _register_admin(api: _Api, password: str) -> tuple[int, dict]:
     mac = registration_mac(shared, nonce, config.ADMIN_LOCALPART, password, True)
     body = {"nonce": nonce, "username": config.ADMIN_LOCALPART, "password": password,
             "admin": True, "mac": mac}
-    return api.transport("POST", f"{_ADMIN}/v1/register", None, body, None)
+    return api.call("register the team admin", "POST", f"{_ADMIN}/v1/register", body=body,
+                    allow=range(400, 600))
 
 
 def _login_admin(api: _Api, password: str) -> str:
@@ -435,27 +454,42 @@ def _login_admin(api: _Api, password: str) -> str:
     return obj.get("access_token")
 
 
+def _remove_admin_password(team: Team, changes: list[str]) -> None:
+    if os.path.lexists(team.admin_password_path):
+        team.admin_password_path.unlink()
+        changes.append("removed the admin password")
+
+
 def _admin_api(team: Team, transport: Transport, changes: list[str]) -> _Api:
     """The admin session; registers `admin` with the shared secret the first time.
 
-    The password is stored before registering, so a run that dies after registering
-    and before storing the token logs in with it next time instead of failing."""
+    The password is stored before registering, so a run that dies after registering and
+    before storing the token logs in with it next time instead of failing. Once the token is
+    stored the password is deleted (DESIGN.md section 3.7): the token is the one long-lived
+    admin credential, and one lost after that is restored from a backup."""
     if os.path.lexists(team.secrets / ADMIN_TOKEN_FILE):
-        return _session(team, transport)
+        api = _session(team, transport)
+        _remove_admin_password(team, changes)
+        return api
     api = _Api(team, transport)
     password_path = team.secrets / ADMIN_PASSWORD_FILE
-    if os.path.lexists(password_path):
+    stored = os.path.lexists(password_path)
+    if stored:
         password = _read_private(password_path, "the admin password")
     else:
         password = generate_password()
         write_private(password_path, password)
-        changes.append("admin password")
     status, obj = _register_admin(api, password)
     if status == 200:
         _check_admin(api, obj.get("user_id"))
         token = obj.get("access_token")
-    elif status == 400 and obj.get("errcode") == "M_USER_IN_USE":
+    elif status == 400 and obj.get("errcode") == "M_USER_IN_USE" and stored:
         token = _login_admin(api, password)
+    elif status == 400 and obj.get("errcode") == "M_USER_IN_USE":
+        password_path.unlink()
+        raise AdminError(f"team {team.name}: the admin account exists but its token is gone and its "
+                         f"password is not kept: restore the team from a backup "
+                         f"(agent-bus-install restore --team {team.name})")
     else:
         raise _refused("register the team admin", status, obj)
     if not config.is_printable_token(token):
@@ -463,6 +497,7 @@ def _admin_api(team: Team, transport: Transport, changes: list[str]) -> _Api:
     _check_admin(api, api.whoami(token))
     write_private(team.secrets / ADMIN_TOKEN_FILE, token)
     changes.append("admin token")
+    _remove_admin_password(team, changes)
     api.token = token
     return api
 
@@ -565,6 +600,21 @@ def _sync_team(api: _Api, room: str, changes: list[str]) -> None:
         changes.append("topic")
 
 
+def _empty_stray_status(api: _Api, room: str, changes: list[str]) -> None:
+    """Empties every `agent_bus.status` event under a key that is no user ID.
+
+    Power 0 lets any member write the type, and Matrix's auth rules hold a key starting with
+    `@` to its sender only, so every other key is one no receiver reads (protocol §8) and
+    that nothing else bounds. The keys stay (room state cannot drop one); their content goes."""
+    stray = [event.get("state_key") for event in api.room_state(room)
+             if event.get("type") == protocol.EVENT_STATUS and isinstance(event.get("state_key"), str)
+             and not event["state_key"].startswith("@") and event.get("content") != {}]
+    for key in stray:
+        api.empty_state(room, protocol.EVENT_STATUS, key)
+    if stray:
+        changes.append(f"emptied {len(stray)} {protocol.EVENT_STATUS} events under no member's key")
+
+
 def _remove_account(api: _Api, room: str, user_id: str, changes: list[str]) -> None:
     """Out of the room and deactivated, each only if not already done."""
     if api.membership(room, user_id) in JOINED:
@@ -593,6 +643,7 @@ def bootstrap(team: Team, transport: Transport) -> list[str]:
         if protocol.is_human_user_id(user_id, team.server_name):
             _remove_account(api, room, user_id, changes)
     _sync_team(api, room, changes)
+    _empty_stray_status(api, room, changes)
     for user_id in team.humans():
         if api.membership(room, user_id) not in JOINED:
             api.invite(room, user_id)

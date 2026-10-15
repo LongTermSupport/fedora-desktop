@@ -2,7 +2,7 @@
 
 It models what pingbus and the admin tool use, and nothing else: password login, whoami,
 `createRoom` (room version 12, `private_chat`), invite, join, leave (unrecorded), send, state get/put with
-`format=event`, redact, `GET /event`, `/messages`, and `/sync` with an inline filter,
+`format=event`, the whole room state (unrecorded: the spec's array of client events), redact, `GET /event`, `/messages`, and `/sync` with an inline filter,
 `timeout` long-polling and lazy-loaded members. Its answers are checked against Tuwunel's
 recorded ones (fixtures/tuwunel/, probe H4) by test_fakes.py; where it says what Tuwunel
 says, the text is the recorded text. A request for anything outside that raises
@@ -287,6 +287,7 @@ class FakeHomeserver:
             ("PUT", _ROOM + r"/send/([^/]+)/([^/]+)", self._send, "user"),
             ("PUT", _ROOM + r"/state/([^/]+)(?:/([^/]*))?", self._put_state, "user"),
             ("GET", _ROOM + r"/state/([^/]+)(?:/([^/]*))?", self._get_state, "user"),
+            ("GET", _ROOM + r"/state", self._get_full_state, "user"),
             ("PUT", _ROOM + r"/redact/([^/]+)/([^/]+)", self._redact, "user"),
             ("GET", _ROOM + r"/event/([^/]+)", self._get_event, "user"),
             ("GET", _ROOM + r"/messages", self._messages, "user"),
@@ -497,6 +498,10 @@ class FakeHomeserver:
         if req.query.get("format") == "event":
             return event.client(with_room=True, unsigned={})
         return copy.deepcopy(event.content)
+
+    def _get_full_state(self, req: Req, room_id: str) -> list[dict]:
+        room = self._joined_room(room_id, req.user_id)
+        return [event.client(with_room=True, unsigned={}) for event in room.state.values()]
 
     def _find_event(self, room: Room, event_id: str) -> Event:
         for event in room.events:

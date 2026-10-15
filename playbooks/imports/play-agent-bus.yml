@@ -190,6 +190,9 @@
             label: "{{ item.team }}"
           changed_when: false
 
+        # The applied stamps are root:<the desktop user's group> 0640 in a 0750 directory:
+        # ccy-teams, run by that user, reads them without sudo, and no other user learns a
+        # team's name from them.
         - name: Install or update each team
           ansible.builtin.command:
             argv:
@@ -197,6 +200,8 @@
               - team
               - --team-file
               - "{{ agent_bus_team_dir.path }}/{{ item.team }}.json"
+          environment:
+            AGENT_BUS_STAMP_GROUP: "{{ user_login }}"
           loop: "{{ agent_bus_apply_present }}"
           loop_control:
             label: "{{ item.team }}"

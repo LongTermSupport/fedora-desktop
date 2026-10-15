@@ -35,10 +35,12 @@ allow_public_room_directory_without_auth
 allow_public_room_search_by_id
 allow_registration
 allow_room_admins_to_request_unredacted_events
+allow_room_alias_creation
 allow_room_creation
 allow_unlisted_room_search_by_id
 allow_unstable_room_versions
 allowed_remote_server_names_experimental
+application_credentials_path
 appservice_dir
 appservice_idle_timeout
 appservice_timeout
@@ -64,6 +66,7 @@ brotli_compression
 bucket
 bundle_edit_relations
 bundle_reference_relations
+burst_count
 cache_capacity_modifier
 calculate_heroes
 callback_url
@@ -125,6 +128,7 @@ email_address
 emergency_password
 enable
 enable_policy_servers
+enable_set_displayname
 encryption_enabled_by_default_for_room_type
 endpoint
 enforce_erasure_over_federation
@@ -177,6 +181,7 @@ issuer_url
 jaeger_filter
 key
 kms
+limit_profile_requests_to_users_who_share_rooms
 listening
 livekit_url
 lockdown_public_room_directory
@@ -202,6 +207,8 @@ max_fetch_prev_events
 max_join_attempts_per_join_request
 max_make_join_attempts_per_join_attempt
 max_pending_media_uploads
+max_profile_fields_per_request
+max_remote_profile_fields
 max_request_size
 max_response_size
 media_allow_redirect
@@ -245,6 +252,7 @@ one_time_key_limit
 only_query_trusted_key_servers
 openid_token_ttl
 pdu_cache_capacity
+per_second
 pgp_key
 policy_server_request_timeout
 port
@@ -356,6 +364,7 @@ server_name
 server_user_localpart
 servername_status_cache_capacity
 servernameevent_data_cache_capacity
+service_account_path
 shorteventid_cache_capacity
 shortstatekey_cache_capacity
 show_all_local_users_in_user_directory
@@ -375,6 +384,7 @@ stream_width_default
 stream_width_scale
 suppress_push_when_active
 test
+thread_latest_reply_search_limit
 token
 token_url
 tokio_console
