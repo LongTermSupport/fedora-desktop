@@ -23,3 +23,15 @@
 # Redeploys ssh-suspend-guard with its startup trap and "started" log moved below the
 # test cut marker. Host behaviour is unchanged; the deployed script matches the repo again.
 playbooks/imports/play-prevent-ssh-suspend.yml
+# Plan 00192 (ftp-camera port): the camera FTP play now builds ~/.local/bin/ftp-camera from
+# src-go/cmd/ftp-camera (installing the Go toolchain first) in place of the bash script; the
+# vsftpd config changes only in its comments, and the camera account and the hotspot profile
+# are unchanged. After it runs,
+# `ftp-camera --copy-preflight` printing the mount's RC address and one `ftp-camera --sort`
+# prove the binary on the host (SPEC-ftp-camera.md section 7, H1-H5). A play with no vaulted
+# ftp_camera_password still only installs the Go toolchain and ends.
+playbooks/imports/optional/common/play-ftp-camera.yml
+# Plan 00192 (ftp-camera port): the rclone play redeploys rclone-rc-auth.bash, whose comments no
+# longer name the deleted bash ftp-camera; behaviour unchanged. Without it the deployed-drift
+# check reports the old copy.
+playbooks/imports/optional/common/play-rclone.yml

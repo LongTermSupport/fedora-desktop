@@ -171,6 +171,18 @@ linters:
       - path: internal/vmtest/
         linters: [gosec]
         text: "G304|G703|G301|G302|G306"
+      # rclonerc reads the RC credential at the path play-rclone.yml writes (or the one
+      # RCLONE_RC_AUTH_FILE names, as the bash library it mirrors does).
+      - path: internal/rclonerc/rclonerc\.go
+        linters: [gosec]
+        text: "G304"
+      # ftp-camera's job is files by computed path: it reads its config and the uploads under
+      # the camera account's home, and copies each sorted upload into the rclone mount, creating
+      # its directories with the user's umask as cp and mkdir -p did (SPEC-ftp-camera.md E63).
+      # Its tests build that tree.
+      - path: internal/ftpcamera/
+        linters: [gosec]
+        text: "G304|G703|G301|G302|G306"
   settings:
     cyclop:
       max-complexity: 15

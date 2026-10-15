@@ -138,9 +138,9 @@ rclone_rc_addr_for_mount() {
     fi
 
     # NORMALISE TO THE MOUNT ROOT FIRST, because callers legitimately hold a path
-    # INSIDE the mount rather than the mount itself — ftp-camera's find_mount_path
-    # returns the target plus the remote's own path offset, which is the configured
-    # case. The cmdline walk below matches the mountpoint as rclone was given it,
+    # INSIDE the mount rather than the mount itself — a remote with a path of its own
+    # resolves to the mount target plus that offset, which is the configured case.
+    # The cmdline walk below matches the mountpoint as rclone was given it,
     # i.e. the root, so an offset path matches nothing and the caller is told no
     # mount serves a directory that is plainly inside one. Doing it here means one
     # correct answer for every caller instead of each one remembering.
@@ -156,8 +156,8 @@ rclone_rc_addr_for_mount() {
     # a two-line value can never match the cmdline below, so the caller is told no mount
     # serves a directory that plainly is one.
     #
-    # The pipeline spelling is wrong HERE specifically: `ftp-camera` runs `set -e` WITHOUT
-    # `pipefail`, so a failing `findmnt` piped into `head` yields exit 0 and an EMPTY
+    # The pipeline spelling is wrong HERE specifically: in a caller running `set -e` WITHOUT
+    # `pipefail`, a failing `findmnt` piped into `head` yields exit 0 and an EMPTY
     # mount_root — and an empty mountpoint degenerates the matcher below to `*"  "*`, which
     # matches almost any argv. An expansion cannot fail silently, and the emptiness is then
     # asserted rather than assumed.
