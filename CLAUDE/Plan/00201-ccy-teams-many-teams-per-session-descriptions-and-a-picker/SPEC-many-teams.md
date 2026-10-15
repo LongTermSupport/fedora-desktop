@@ -157,7 +157,9 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
 - **S-B15** The ccy-teams picker's first pass (`picker/offers.go:148-208`): in a checkout no
   team covers, it offers "Start a ccy session here (choose its teams)?" as well as creating
   one; in a covered checkout, one question "Start a ccy session here?" replaces the
-  question per team. Yes runs `ccy --teams` (bare), which shows S-B3.
+  question per team. Yes runs `ccy --teams` (bare), which shows S-B3. "Create a team for
+  OWNER/REPO now?" defaults to **No**: creating a team is heavy and outward, so a stray Enter
+  must not do it. Both start-a-session questions default to Yes.
 
 ## C. A session on several teams
 

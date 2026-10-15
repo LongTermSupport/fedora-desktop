@@ -317,7 +317,8 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) 
 			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
 		}
 	}
-	if want := "gum confirm --default=true Create a team for example-org/proj now?"; h.Script.GumLog[0] != want {
+	// S-B15: creating a team is heavy and outward, so a stray Enter does not do it
+	if want := "gum confirm --default=false Create a team for example-org/proj now?"; h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
 	// S-B15: when no team covers the checkout, a session can still be started and choose its teams

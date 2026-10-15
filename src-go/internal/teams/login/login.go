@@ -65,7 +65,9 @@ func (l *Login) OpenElement(ctx context.Context, snap *board.Snapshot, team stri
 			return flow.Done, err
 		}
 		if set {
-			l.Kit.Tell("Copy it now. Press Enter to open Element.")
+			// No "copy it": with Clipboard Indicator on, the password was not offered for the
+			// clipboard and is typed from the screen.
+			l.Kit.Tell("Press Enter to open Element, then sign in there as " + row.Member + " with the password shown above.")
 			l.Kit.WaitForEnter(ctx)
 		}
 	}
@@ -175,12 +177,15 @@ func sessionsWarning(snap *board.Snapshot, team, name string) string {
 }
 
 // SetPassword asks, then sets name's password on team and shows it once. It says whether one
-// was set.
+// was set. The answer defaults to Yes only for someone with no Element session (read, not
+// unknown): they cannot sign in without a password, and a new one signs nothing out. Anyone
+// else defaults to No, as a new password signs out their other devices.
 func (l *Login) SetPassword(ctx context.Context, snap *board.Snapshot, team, name string) (bool, error) {
+	count, known := snap.SessionsOf(team, name)
 	yes, err := l.Kit.Confirm(ctx, "New Element password for "+name+"?",
 		"Sets a new password for "+name+" on "+team+"'s homeserver and shows it here, once: it is stored nowhere. "+
 			sessionsWarning(snap, team, name),
-		"set a new password for "+name, false)
+		"set a new password for "+name, known && count == 0)
 	if err != nil {
 		return false, err
 	}

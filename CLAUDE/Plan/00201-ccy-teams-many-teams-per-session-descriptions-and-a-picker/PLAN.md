@@ -158,6 +158,12 @@ a repository is no longer offered for a checkout of it. Report:
   the nonce. N5: the pre-swap backup also runs on a rendered config change
   (`helpers/agent_bus/config_restart.py`). Host run pending (meta-deploy). Report:
   `subagent-reports/261015-final-review-fixes.md`.
+- [ ] 🔄 **Task 2.13**: the Morning start dry run's ccy-teams defects (branch
+  `fix/teams-signin-first-run`; ccy-teams only, no CCY or container bump). After a first
+  password, Open in Element no longer says "Copy it now" (it said so with Clipboard Indicator
+  on); the new-password question defaults to Yes for someone with no Element session, No
+  otherwise; "Create a team for OWNER/REPO now?" defaults to No (S-B15). Host run pending
+  (meta-deploy: play-claude-yolo.yml).
 
 ## Success Criteria
 
