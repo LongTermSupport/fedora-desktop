@@ -20,13 +20,23 @@
 
 ## Pin
 
-`md_viewer_version: b2d1f942fcdd8508f93a5ca40807a387032b02ae`. This is the tip of md-viewer
-`main` ("Mark M10 done"), after the M10 merge. The repository has no tags.
+The first pin was `b2d1f942fcdd…` ("Mark M10 done"). After Fable's review it moved to
+`md_viewer_version: 79acc7011daf0f57505605c902e9209448f377ac`, the tip of md-viewer `main`
+after the M11 merge ("Read both streams in the Xvfb smoke test"). CI's build job is green for
+that commit. Its go-qa job fails only because go-qa-ci is private. The repository has no tags.
+Its `go.mod` still says `go 1.26.9`, which is held in `md_viewer_go_min`.
+
+## Review follow-up
+
+- The play upgrades `golang` (`state: latest`), because `play-golang.yml` only makes it
+  present. It then asserts that `go env GOVERSION` is at least `md_viewer_go_min`, and fails
+  before the build with a message naming the required version.
+- `text/x-markdown` is also set to md-viewer in `mimeapps.list`.
 
 ## Facts checked
 
-- md-viewer's git log has the M0 to M10 merges on `main`. M11 is unticked in its
-  `docs/MILESTONES.md`.
+- md-viewer's git log has the M0 to M11 merges on `main`. M11 was still unticked when the
+  play was first written.
 - Fedora 44's golang is 1.26.9 (mdapi, f44 and f44-updates). That is what md-viewer's `go.mod`
   needs under `GOTOOLCHAIN=local`.
 - The `#cgo linux pkg-config:` lines in Gio v0.10.3 name `x11 xkbcommon xkbcommon-x11 x11-xcb xcursor xfixes egl wayland-egl wayland-client wayland-cursor`, and Gio's sources include

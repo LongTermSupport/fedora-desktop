@@ -6,9 +6,10 @@
 # login user's default application for text/markdown, so a double-click on a .md file in
 # Nautilus opens it rendered.
 #
-# The Go toolchain comes from play-golang.yml, its one source of truth. md-viewer's go.mod
-# names the Go release it needs, and the build runs with GOTOOLCHAIN=local, so a Fedora golang
-# older than that fails the build with Go's own message rather than downloading a toolchain.
+# The Go toolchain comes from play-golang.yml, its one source of truth. That play only makes
+# golang present, but md-viewer's go.mod can need the newest patch release and the build runs
+# with GOTOOLCHAIN=local (it never downloads a toolchain), so this play upgrades golang to
+# Fedora's newest build and asserts it meets md_viewer_go_min before building.
 - import_playbook: ../../play-golang.yml
 
 - hosts: desktop
@@ -19,7 +20,9 @@
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # md-viewer publishes no tags yet, so the pin is a full commit hash on its main. Its
     # pseudo-version, which `md-viewer --version` prints, carries the first 12 characters.
-    md_viewer_version: b2d1f942fcdd8508f93a5ca40807a387032b02ae
+    md_viewer_version: 79acc7011daf0f57505605c902e9209448f377ac
+    # The `go` line of md-viewer's go.mod at that commit; move it with the pin.
+    md_viewer_go_min: "1.26.9"
     md_viewer_bin: "/home/{{ user_login }}/.local/bin/md-viewer"
     md_viewer_desktop_dir: "/home/{{ user_login }}/.local/share/applications"
   tasks:
@@ -58,6 +61,40 @@
         state: present
       tags:
         - packages
+        - md-viewer
+
+    - name: Upgrade golang to the Newest Fedora Build
+      ansible.builtin.dnf:
+        name: golang
+        state: latest
+      tags:
+        - packages
+        - md-viewer
+
+    - name: Read the Installed Go Version
+      become: false
+      ansible.builtin.command:
+        argv:
+          - go
+          - env
+          - GOVERSION
+      environment:
+        GOTOOLCHAIN: local
+      register: md_viewer_go_version
+      changed_when: false
+      check_mode: false
+      tags:
+        - md-viewer
+
+    - name: Assert golang Meets md-viewer's go.mod
+      ansible.builtin.assert:
+        that:
+          - (md_viewer_go_version.stdout | regex_replace('^go', '')) is version(md_viewer_go_min, '>=')
+        fail_msg: >-
+          md-viewer at {{ md_viewer_version[:12] }} needs Go {{ md_viewer_go_min }} or newer, and
+          the newest golang Fedora offers here is {{ md_viewer_go_version.stdout }}. Wait for
+          Fedora's update, or pin an md-viewer commit whose go.mod asks for this version.
+      tags:
         - md-viewer
 
     - name: Build and Install md-viewer at the Pinned Commit
@@ -141,16 +178,20 @@
 
     # mimeapps.list in ~/.config is the per-user default that GNOME, Nautilus and xdg-open all
     # read. Setting the one key declaratively leaves every other default as it is.
-    - name: Make md-viewer the Default for text/markdown
+    # text/x-markdown is the older alias; some applications still ask for it by that name.
+    - name: Make md-viewer the Default for {{ item }}
       become: false
       community.general.ini_file:
         path: "/home/{{ user_login }}/.config/mimeapps.list"
         section: Default Applications
-        option: text/markdown
+        option: "{{ item }}"
         value: md-viewer.desktop
         no_extra_spaces: true
         create: true
         mode: "0644"
+      loop:
+        - text/markdown
+        - text/x-markdown
       tags:
         - md-viewer
 
