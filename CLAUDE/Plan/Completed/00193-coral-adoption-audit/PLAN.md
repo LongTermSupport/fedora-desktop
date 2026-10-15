@@ -1,6 +1,6 @@
 # Plan 00193: coral adoption audit
 
-**Status**: In Progress
+**Status**: Complete (2026-10-15: not adopted; coral moved to the repo watch list, Plan 00200)
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: Medium
@@ -35,14 +35,16 @@ adopt it as is, fork it, borrow ideas from it, or leave it.
   architecture, language and dependencies, licence, maintenance health, security model, how
   opinionated it is, and an overlap/gap map against ccy, ccy-sessions, ccy-teams, the agent
   bus and the hooks daemon. Write `AUDIT-coral.md`.
-- [ ] ⬜ **Task 1.2**: The owner decides: adopt, fork, borrow ideas, or leave.
+- [x] ✅ **Task 1.2**: The owner decides: adopt, fork, borrow ideas, or leave. Owner's decision
+  (2026-10-15): coral is not useful here; leave it, and keep it on the repo watch list (Plan
+  00200\) so later changes are scanned for ideas. The audit counts as its first full review.
 
 ## Success Criteria
 
-- [ ] `AUDIT-coral.md` answers the four questions with evidence, and the owner has decided.
+- [x] `AUDIT-coral.md` answers the four questions with evidence, and the owner has decided.
 
 ## Delivery & Milestones
 
 - Audit: delivered in [`AUDIT-coral.md`](AUDIT-coral.md). Recommendation: leave coral, and
   borrow its task-dependency, wait-don't-poll, cost-rollup and idle-escalation ideas into
-  `ccy-teams` and the agent bus. Waiting on the owner's decision (Task 1.2).
+  `ccy-teams` and the agent bus. Decided: not adopted; on the watch list (Plan 00200).

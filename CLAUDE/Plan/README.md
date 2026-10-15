@@ -72,8 +72,6 @@ Use these Unicode icons in plan documents:
 
 - [00194-agent-bus-live-delivery-supervisor-plugin](00194-agent-bus-live-delivery-supervisor-plugin/) - In Progress (high priority). Agent bus messages delivered live into a ccy team session by a ccy supervisor plugin, with human and agent text kept distinct
 
-- [00193-coral-adoption-audit](00193-coral-adoption-audit/) - In Progress (medium priority). Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon: fit, how opinionated it is, adopt, fork, borrow or leave
-
 - [00192-bash-line-in-the-sand-go-for-tooling](00192-bash-line-in-the-sand-go-for-tooling/) - In Progress (high priority). No more tooling in bash: the limits in `CLAUDE.md`, a Go gate with a ratchet allowlist, project DBF rules for `src-go/`, and the bash (then standalone Python) tools rewritten in Go, one feature branch per programme
 
 - [00178-agent-team-history-export](00178-agent-team-history-export/) - Not Started (low priority). Export an agent team's room history to JSON and Markdown for archiving, from `ccy-teams`
@@ -261,6 +259,8 @@ Use these Unicode icons in plan documents:
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Dormant (owner to keep or cancel). User documentation for the major features.
 
 ## Completed Plans
+
+- [00193-coral-adoption-audit](Completed/00193-coral-adoption-audit/) - Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon. Recommendation: leave it and borrow ideas. The owner decided it is not useful here; coral goes on the repo watch list (Plan 00200).
 
 - [00164-stt-enter-lost-after-focus-retake](Completed/00164-stt-enter-lost-after-focus-retake/) - When a dictation's window lost focus, the text was pasted back into it but the Enter did not send it. Both recorders wait for the window to keep focus before the paste and check it again before the Enter. Deployed; the owner confirmed Enter works.
 
