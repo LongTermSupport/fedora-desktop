@@ -65,8 +65,20 @@ It merges deny rules in with `jq` and adds `--append-system-prompt`.
 - container or ccy awareness, doctor, deploy or plan helpers;
 - a place to grow non-team features.
 
-The live message delivery is not in the plugin: it is the supervisor typing into the
-terminal (Plan 00194).
+**Live delivery is already in-process.** It is not in the plugin. With
+`PINGBUS_DELIVERY` unset, which is the default, `pingbus watch` writes each item **into
+the session's Claude Code inbox socket** (`CLAUDE_CODE_MESSAGING_SOCKET`, authenticated
+with the session token). The kit's `crossSessionInbound: accept` exists for exactly this.
+Supervisor typing (Plan 00194) is the `relay` mode, which the launch sets explicitly.
+Sources: `docs/agent-bus-protocol.md` around lines 641 to 680, and
+`helpers/pingbus/notify.py`. Deliveries therefore already arrive as cross-session peer
+messages, with a Claude Code `origin` and `from`.
+
+The docs say "a session inside a container and a session on the host can't reach each
+other" ([cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)).
+That does not bite here: the watcher runs inside the same container and posts to the
+local socket. It does mean host cc and a ccy session never reach each other through this
+channel.
 
 ## 2. Claude Code's extension points, centred on mods
 
@@ -98,10 +110,14 @@ it goes through `$`, which is why `claude plugin validate` can list what a mod c
 it runs ([Events](https://code.claude.com/docs/en/plugins/mods/events)).
 
 **Version and status.** Mods are on by default from v2.1.287 in the terminal. The old
-`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` switch is ignored. The bundled skill's reference still
-calls the API "early access", one that "moves between releases", and names the
-per-build declaration file as the authority. Claude Code writes that file at
-`<mod>/.claude-plugin/types/` on load. It has about 22,000 lines at v2.1.301.
+`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` switch is ignored. The overview tells you to remove it
+if you set it "during early access", so **early access is over**. The live risk is
+different: the API is **version-gated and still growing**. The reference marks fields as
+needing v2.1.289, .290, .292, .299 and .300, and says the GitHub copy of the types "can be
+older than the Claude Code version you have installed… trust the copy Claude Code writes
+for your version"
+([Reference](https://code.claude.com/docs/en/plugins/mods/reference)). Claude Code writes
+that copy at `<mod>/.claude-plugin/types/` on load. It has about 22,000 lines at v2.1.301.
 
 ### 2.2 How a mod differs from a plugin
 
@@ -149,16 +165,19 @@ render-sites table in the [Reference](https://code.claude.com/docs/en/plugins/mo
   `{ text }` reply is printed and Claude reads it. `{}` prints nothing.
 - **A tool the model calls** with no MCP server: `$.tool.register`, served by `tool.call`.
   It is listed as `mcp__<plugin>__<name>`.
-- **Wake an idle session:** `$.prompt.submit({ text })` queues a turn once the session
-  is idle. Claude reads the text after a sentence that names the mod. `asUser: true`
+- **Start a turn in this session when idle:** `$.prompt.submit({ text })` queues a turn
+  once the session is idle. It does not wake another session. Claude reads the text after a sentence that names the mod. `asUser: true`
   drops that sentence.
 - **Append rows Claude reads without starting a turn:** `$.session.append` adds a meta
   user row, which the model reads at the loop's next step, or a notice the model never
   reads.
-- **Observe and filter deliveries:** `session.receive` sees each inbound message
-  (`peer`, `coordinator`, `task-notification`, and others) before Claude reads it, and
-  may consume it. `session.send` sees outbound ones. The docs warn that the sender's
-  name is a claim: "never key a guard on it".
+- **Observe and filter deliveries:** `session.receive` sees each inbound message before
+  Claude reads it, and may consume it with `{ consumed }`. The API page lists the origin
+  kinds `peer`, `peer-send-message`, `task-notification` and `scheduled-trigger`. The
+  v2.1.301 types add `coordinator`. `session.send` sees outbound messages. The API page:
+  "The sender's name on a received message is whatever the sender wrote, so don't base a
+  decision on it."
+  ([API: Send and receive](https://code.claude.com/docs/en/plugins/mods/api#send-and-receive-messages-between-sessions)).
 - **Timers** with `$.clock.every` and `$.clock.after`, started in `session.start`. They run
   between turns and do not start one.
 - **Ask the user** with `$.ui.ask`, using Claude's own question dialog.
@@ -181,6 +200,14 @@ render-sites table in the [Reference](https://code.claude.com/docs/en/plugins/mo
   marketplace added from a local folder loads from that folder at every session start or
   `/reload-plugins`, "whatever its version string says". It needs no copy, no reinstall
   and no network ([Loading: In-place and copied](https://code.claude.com/docs/en/plugins/loading#in-place-and-copied-plugins)).
+- **First session:** a marketplace that settings declare but `known_marketplaces.json`
+  lacks is registered **in the background after the session starts**, and plugins then
+  reload ([Loading](https://code.claude.com/docs/en/plugins/loading#plugins-and-marketplaces-that-arent-on-disk-at-session-start)).
+  In ccy `~/.claude` is per project, so `known_marketplaces.json` is too. Every new
+  project's first session could therefore start without the mod. The entrypoint must run
+  `claude plugin marketplace add /opt/claude-yolo/mods` before `exec claude`. That step
+  uses a directory source, needs no network, and is idempotent. A test must cover the
+  first-session case.
 - **Seed directory for images:** `CLAUDE_CODE_PLUGIN_SEED_DIR`. Install into it at build
   time with `CLAUDE_CODE_PLUGIN_CACHE_DIR=<seed>`. The seed is read-only, `autoUpdate` is
   forced off, and its plugins still need `enabledPlugins`
@@ -282,26 +309,26 @@ Each feature lists:
 
 ### 3.1 Teams (absorbing pingbus)
 
-| #   | Feature                                                                                                                                                                                                              | Tag          | Value                                                                             | Effort | Risk                                                                                                                                                        | Extension point                                                      |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| T1  | **Team roster band**: seat, team(s), coordinator, unread count, members' last-seen                                                                                                                                   | mod-native   | See the team at a glance without running `pingbus`                                | M      | Low: read-only, from `pingbus status --json`                                                                                                                | `AbovePrompt`, `$.clock.every`, `$.process.run`                      |
-| T2  | **In-process delivery**: a ping or team message arrives through `session.receive`, or is appended as a meta row or a `$.prompt.submit` when idle, instead of the supervisor typing it into the terminal (Plan 00194) | mod-native   | No half-typed input lines, no tmux dependency, and it works in cc on the host too | L      | **High**: this is a delivery route into the model. It must keep 00161's HUMAN/PEER framing, use only the watcher's fixed envelope, and never `asUser: true` | `$.prompt.submit`, `$.session.append`, `session.receive`             |
-| T3  | **Team messages drawn distinctly**: a human's message, a peer's note and a ping each get their own row style                                                                                                         | mod-native   | The trust model becomes visible to the owner reading the transcript               | S      | Low: display only (`ui.render` changes the row, never what the model read)                                                                                  | `ui.render` on `UserMessage`                                         |
-| T4  | **`/team` commands**: `/team status`, `/team say`, `/team ping`, `/team who`, run as code with no turn                                                                                                               | mod-native   | Fast and deterministic, with no model tokens                                      | M      | Medium: `say` posts as the seat, so it needs the same refusals as the CLI                                                                                   | `$.command.register`, `command.run`, `$.process.run(['pingbus', …])` |
-| T5  | **Team pane**: a scrollable room view with a reply input                                                                                                                                                             | mod-native   | Read the room without leaving the session                                         | L      | Medium: an input posts to Matrix. It must run through `pingbus` and never call Matrix directly                                                              | `Pane`, `Input`, `ui.input`                                          |
-| T6  | **Shutdown coordination UX** (feat/teams-shutdown): a "team shutting down: save state" band, a `/team shutdown` that asks with `$.ui.ask`, and a hold on new work while draining                                     | mod-native   | Clean team stop with a visible state                                              | M      | Medium: it must not block the session's own exit. `session.end` has 1.5 s in total                                                                          | `AbovePrompt`, `$.ui.ask`, `session.end`                             |
-| T7  | **pingbus status line** moved from the settings `statusLine` to `$.ui.status`                                                                                                                                        | mod-native   | Frees the single `statusLine` slot, which the kit's `--settings` takes today      | S      | Low                                                                                                                                                         | `$.ui.status`                                                        |
-| T8  | The pingbus **skill**                                                                                                                                                                                                | plugin/hooks | Already exists                                                                    | —      | —                                                                                                                                                           | `skills/`                                                            |
+| #   | Feature                                                                                                                                                                                                                                                                                                    | Tag          | Value                                                                        | Effort | Risk                                                                                                                                                                                                                                                                                                                                                                                                                                | Extension point                                                      |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| T1  | **Team roster band**: seat, team(s), coordinator, unread count, members' last-seen                                                                                                                                                                                                                         | mod-native   | See the team at a glance without running `pingbus`                           | M      | Low: read-only, from `pingbus status --json`                                                                                                                                                                                                                                                                                                                                                                                        | `AbovePrompt`, `$.clock.every`, `$.process.run`                      |
+| T2  | **Delivery role: none, by default.** Deliveries already reach the model in-process through the inbox socket (§1.4). The mod must not add `$.prompt.submit` or `$.session.append` as a second route. The only open question is whether the mod needs any delivery role at all, and the default answer is no | mod-native   | None: the socket already does it                                             | —      | **High** if ever built: it would be a second injection route                                                                                                                                                                                                                                                                                                                                                                        | not used                                                             |
+| T3  | **Team messages drawn distinctly**: a human's message, a peer's note and a ping each get their own row style                                                                                                                                                                                               | mod-native   | The trust model becomes visible to the owner reading the transcript          | S      | Medium, as a spoof surface: a peer can write text that *renders* as HUMAN. The style may key **only** on `e.props.origin.kind` and on fields pingbus itself verified (the watcher writes the envelope from the team record), never on `from.name` or on free text. Display only: it never changes what the model read                                                                                                               | `ui.render` on `UserMessage`                                         |
+| T4  | **`/team` commands**: `/team status`, `/team say`, `/team ping`, `/team who`, run as code with no turn                                                                                                                                                                                                     | mod-native   | Fast and deterministic, with no model tokens                                 | M      | Medium. A `command.run` `{ text }` reply "prints in the transcript and Claude reads it", with no HUMAN/PEER envelope. So `/team status` and `/team who` **return `{}`** and show any peer-authored text (names, topics, last messages) only in the band, a pane or `$.ui.log`, which Claude does not read. Only operator-authored, fixed-format facts may go in `{ text }`. `say` posts as the seat, so it needs the CLI's refusals | `$.command.register`, `command.run`, `$.process.run(['pingbus', …])` |
+| T5  | **Team pane**: a scrollable room view with a reply input                                                                                                                                                                                                                                                   | mod-native   | Read the room without leaving the session                                    | L      | Medium: an input posts to Matrix. It must run through `pingbus` and never call Matrix directly                                                                                                                                                                                                                                                                                                                                      | `Pane`, `Input`, `ui.input`                                          |
+| T6  | **Shutdown coordination UX**, **blocked** on feat/teams-shutdown, which has no commits yet: a "team shutting down: save state" band, a `/team shutdown` that asks with `$.ui.ask`, and a hold on new work while draining                                                                                   | mod-native   | Clean team stop with a visible state                                         | M      | Medium: it must not block the session's own exit. `session.end` has 1.5 s in total                                                                                                                                                                                                                                                                                                                                                  | `AbovePrompt`, `$.ui.ask`, `session.end`                             |
+| T7  | **pingbus status line** moved from the settings `statusLine` to `$.ui.status`                                                                                                                                                                                                                              | mod-native   | Frees the single `statusLine` slot, which the kit's `--settings` takes today | S      | Low                                                                                                                                                                                                                                                                                                                                                                                                                                 | `$.ui.status`                                                        |
+| T8  | The pingbus **skill**                                                                                                                                                                                                                                                                                      | plugin/hooks | Already exists                                                               | —      | —                                                                                                                                                                                                                                                                                                                                                                                                                                   | `skills/`                                                            |
 
 ### 3.2 Container awareness
 
-| #   | Feature                                                                                                                          | Tag                                   | Value                                                  | Effort | Risk                                                          | Extension point                                    |
-| --- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------ | ------ | ------------------------------------------------------------- | -------------------------------------------------- |
-| C1  | **Status entry**: `ccy <ver> · image <ver>`, network mode, and whether the session is in a team                                  | mod-native                            | Always know where you are                              | S      | Low                                                           | `$.ui.status`, `$.fs.read` of an image-baked JSON  |
-| C2  | **Update-needed band**: the host's ccy is newer than this container's image. Relaunch with `ccy` (or `ccy --restart`)            | mod-native                            | Stops stale-image sessions                             | S      | Low: reads a host-written file, mounted read-only             | `AbovePrompt`                                      |
-| C3  | **`/ccy mounts`**: what is mounted, read-only or read-write, and what is deliberately absent (ssh keys, vault)                   | mod-native                            | Answers "why can't I see X" without a turn             | S      | Low: it lists paths and never prints contents                 | `command.run`, `$.fs.read('/proc/self/mountinfo')` |
-| C4  | **Relaunch guidance**: when a tool needs something the container lacks, the command prints the exact `ccy` flag to relaunch with | mod-native                            | Fewer dead ends                                        | M      | Low                                                           | `command.run`                                      |
-| C5  | **System-prompt section** saying "you are in ccy, here is what you can and cannot do"                                            | mod-native (or a `SessionStart` hook) | The model stops asking for host actions it cannot take | S      | Low, but it costs cache and context. Keep it short and stable | `prompt.compose`                                   |
+| #   | Feature                                                                                                                          | Tag                                   | Value                                                  | Effort | Risk                                                                                                                                                                                                                                    | Extension point                                    |
+| --- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| C1  | **Status entry**: `ccy <ver> · image <ver>`, network mode, and whether the session is in a team                                  | mod-native                            | Always know where you are                              | S      | Low                                                                                                                                                                                                                                     | `$.ui.status`, `$.fs.read` of an image-baked JSON  |
+| C2  | **Update-needed band**: the host's ccy is newer than this container's image. Relaunch with `ccy` (or `ccy --restart`)            | mod-native                            | Stops stale-image sessions                             | S      | Low, but **needs a launcher change first**. No such host-written file or mount exists, and the launcher never passes `CCY_VERSION` into the container. That means a launcher change, a `CCY_VERSION` bump and a new read-only mount. M2 | `AbovePrompt`                                      |
+| C3  | **`/ccy mounts`**: what is mounted, read-only or read-write, and what is deliberately absent (ssh keys, vault)                   | mod-native                            | Answers "why can't I see X" without a turn             | S      | Low: it lists paths and never prints contents                                                                                                                                                                                           | `command.run`, `$.fs.read('/proc/self/mountinfo')` |
+| C4  | **Relaunch guidance**: when a tool needs something the container lacks, the command prints the exact `ccy` flag to relaunch with | mod-native                            | Fewer dead ends                                        | M      | Low                                                                                                                                                                                                                                     | `command.run`                                      |
+| C5  | **System-prompt section** saying "you are in ccy, here is what you can and cannot do"                                            | mod-native (or a `SessionStart` hook) | The model stops asking for host actions it cannot take | S      | Low, but it costs cache and context. Keep it short and stable                                                                                                                                                                           | `prompt.compose`                                   |
 
 ### 3.3 Host bridge requests
 
@@ -345,10 +372,10 @@ Each feature lists:
 
 ### 3.8 Diagnostics
 
-| #   | Feature                                                                                                                                                                                                                               | Tag        | Value                                         | Effort | Risk                                                   | Extension point                        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | --------------------------------------------- | ------ | ------------------------------------------------------ | -------------------------------------- |
-| D1  | **`/ccy doctor`**: versions (ccy, image, Claude Code, mod), the mounts, pingbus seat and watcher health, hooks-daemon health, supervisor presence, whether mods loaded, the network mode. Each check prints PASS or FAIL with the fix | mod-native | One command answers "is this session healthy" | M      | Low: read-only. It must print no secrets or env values | `command.run`, `$.process.run`, `$.fs` |
-| D2  | **Doctor pane** with re-run buttons                                                                                                                                                                                                   | mod-native | Nicer than D1                                 | M      | Low                                                    | `Pane`                                 |
+| #   | Feature                                                                                                                                                                                                                                                                                                                      | Tag        | Value                                         | Effort | Risk                                                   | Extension point                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | --------------------------------------------- | ------ | ------------------------------------------------------ | -------------------------------------- |
+| D1  | **`/ccy doctor`**: versions (ccy, image, Claude Code, mod), the mounts, pingbus seat and watcher health, whether the inbox socket is bound and the session token is exported (never its value), hooks-daemon health, supervisor presence, whether mods loaded, the network mode. Each check prints PASS or FAIL with the fix | mod-native | One command answers "is this session healthy" | M      | Low: read-only. It must print no secrets or env values | `command.run`, `$.process.run`, `$.fs` |
+| D2  | **Doctor pane** with re-run buttons                                                                                                                                                                                                                                                                                          | mod-native | Nicer than D1                                 | M      | Low                                                    | `Pane`                                 |
 
 ### 3.9 cc on the host compared with ccy in a container
 
@@ -360,8 +387,9 @@ Each feature lists:
 | Features that apply    | all                   | teams (T1 to T7), plans (P1, P2), doctor (part), usage (L3)                       |
 | Features to switch off | —                     | C1 to C4 (container awareness), the deploy band (the host *is* where deploys run) |
 
-The mod must detect where it runs (`/.dockerenv` or `/run/.containerenv`, or a ccy env
-marker) and load only the matching modules. On the host it runs as the owner, so it must
+The mod must detect where it runs and load only the matching modules. It should use an
+**image-baked marker that the Dockerfile writes**, not `/run/.containerenv`, which
+podman writes and docker does not. On the host it runs as the owner, so it must
 add no capability there that ccy does not already need. Decision D6.
 
 ### 3.10 What should NOT go in a mod
@@ -418,7 +446,16 @@ version tracks, for no isolation gain, since all three run in one process anyway
     "organization" tier, so it runs first and cannot be shadowed by a `--plugin-dir`
     copy.
 
-  Both load **in place, with no network and no copy**. Decision D4.
+  Both load **in place, with no network and no copy**. Either way, the entrypoint also
+  runs `claude plugin marketplace add /opt/claude-yolo/mods` before `exec claude`, so the
+  first session in a new project loads the mod (§2.4). Decision D4.
+
+  **The integrity trade-off:** the container settings file is session-writable, because
+  `/root/.claude` is a link to `/workspace/.claude/ccy`. Under (a) the session controls
+  whether its own mod loads, which gives no integrity guarantee. Under (b) the mod's load
+  is outside the session's control, since the image layer owns the managed file. Option
+  (b) also loads the built-in `sec-default` guard, which is harmless for a mod that never
+  approves tool calls. Recommendation: (a) for M1, and move to (b) by M2.
 
 - **To cc on the host:** an Ansible task registers the same directory, deployed to
   `/opt/claude-yolo/mods/` on the host by the existing claude-yolo play, as a marketplace
@@ -435,36 +472,55 @@ version tracks, for no isolation gain, since all three run in one process anyway
   and the Dockerfile label, and add a ccy changelog line. A contract test asserts that
   the mod version appears in `docs/ccy-changelog.md` (section 4.4).
 
-- **Close the gate first:** the pre-commit COPY-source gate must also cover
-  `files/opt/claude-yolo/`, or a mod edit ships without a bump (section 1.3). This is
-  done in M1, before the mod exists.
+- **Close the gate first:** the gate resolves each Dockerfile COPY source only under
+  `files/var/local/claude-yolo/`. The repo path and the build-context path differ per
+  file, and the playbook is the only map between them, so "also try
+  `files/opt/claude-yolo/`" alone is not enough. Gate 2 needs one of two things. One
+  option is a second context root, `files/opt/claude-yolo/`, tried per source. The other
+  is an **explicit list** of repo paths that require a container bump, with a test that
+  checks the list against the playbook's copy tasks. Either way the gate must also
+  cover `helpers/pingbus/**`, because the zipapp built from it is baked into the image.
+  This lands in its own commit, first, before the mod exists.
 
-- **One host copy:** the host's `/opt/claude-yolo/mods` is the only host copy. It does
-  not repeat the agent-bus kit's second install, and the deployed-drift QA lists the
-  directory once.
+- **One host copy, with one open question:** the host's `/opt/claude-yolo/mods` is the
+  only copy on a ccy host. But `agent-bus-claude` members (LXC, VM, other hosts) get the
+  kit from `agent-bus-install`, not from `/opt/claude-yolo`. If M3 moves the pingbus
+  hooks and skill into `ccy`, those members need `ccy` too. Either the kit carries a
+  second copy of the mod, or the `pingbus` plugin stays for them permanently. **Decide
+  this before M3** (D11).
 
-- **Claude Code version floor:** the mod needs v2.1.287 or later. `session.start` checks
-  `$.session.version()` and degrades to a toast if it is older. The image pins Claude
-  Code anyway.
+- **Claude Code version floor, with no pin:** the image does not pin Claude Code. It
+  self-updates from npm at most once a day (`docs/ccy.md`, "Claude Code auto-update",
+  and Plan 00169), and cc runs `claude update` on every launch. So the guard is at
+  runtime: `session.start` checks `$.session.version()` against the floor the types were
+  generated for, and degrades to a toast if it is older. `tsc` against new types catches
+  API drift when the floor is bumped, not before a session runs.
 
 ### 4.3 Relationship to the hooks-daemon and the supervisor
 
-| Concern                                                                           | Owner                                                                                                                                                                           |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Enforcement: blocks, denials, fail-fast rules, secret guards, plan QA, stop gates | **hooks-daemon** (settings hooks). Unchanged                                                                                                                                    |
-| The settings `statusLine` slot                                                    | **hooks-daemon** (or the user)                                                                                                                                                  |
-| UI: band, pane, `/ccy` and `/team` commands, the mod's status entry               | **ccy mod**                                                                                                                                                                     |
-| Team protocol and CLI                                                             | **pingbus**; the mod calls `pingbus … --json`                                                                                                                                   |
-| Live delivery into the session                                                    | Today the **supervisor** types it (Plan 00194). Target: the **mod** delivers in-process (T2), after a spike proves `session.receive` and `$.prompt.submit` keep 00161's framing |
-| Restart and relaunch                                                              | **supervisor and launcher**                                                                                                                                                     |
+| Concern                                                                           | Owner                                                                                                                                                |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Enforcement: blocks, denials, fail-fast rules, secret guards, plan QA, stop gates | **hooks-daemon** (settings hooks). Unchanged                                                                                                         |
+| The settings `statusLine` slot                                                    | **hooks-daemon** (or the user)                                                                                                                       |
+| UI: band, pane, `/ccy` and `/team` commands, the mod's status entry               | **ccy mod**                                                                                                                                          |
+| Team protocol and CLI                                                             | **pingbus**; the mod calls `pingbus … --json`                                                                                                        |
+| Live delivery into the session                                                    | **pingbus watch** writes to the inbox socket by default. The supervisor types it only in `relay` mode (Plan 00194). **The mod has no delivery role** |
+| Restart and relaunch                                                              | **supervisor and launcher**                                                                                                                          |
 
 The rules that keep them apart:
 
 - **The mod never denies a tool call.** It has no `tool.call` or `tool.check` guards.
   `claude plugin validate` must show neither event, and a contract test asserts it. This
   keeps one enforcement owner.
-- **The mod never rewrites prompts or transcript rows.** No `prompt.submit`
+- **The mod never rewrites prompts or transcript rows.** It has no `prompt.submit`
   rewrite and no `session.append` hook. Display-only `ui.render` changes are allowed.
+- **The mod never touches deliveries.** It has no `session.receive` hook (which could
+  consume a delivery, or skip it silently when it throws) and no `session.send` hook.
+- **The mod never sits in front of the daemon.** It has no `classic.*` hooks, which
+  would run ahead of the hooks-daemon's settings hooks.
+- **The mod owns only `/ccy` and `/team` command names.** A test checks that they are
+  not built-ins. `$.command.register` throws for a taken name, which skips the whole
+  `session.start` hook, so commands are registered last or inside `try`.
 - The hooks-daemon keeps the settings hooks. The mod may *read* hooks-daemon health
   (`bin/hooks-daemon status`) for `/ccy doctor`.
 
@@ -477,27 +533,41 @@ The rules that keep them apart:
   `claude` binary as a QA dependency through IaC if the CI image lacks it.
 - **`claude plugin validate --strict --json`** feeds a **contract test**
   (`tests/helpers/ccy_mod/test_mod_contract.py`, modelled on
-  `tests/helpers/pingbus/test_plugin_contract.py`). It asserts:
-  - the allowed hook set: no `tool.call`, `tool.check`, `prompt.submit`,
-    `session.append`, `http.fetch` or `env.set`;
-  - the allowed `calls:` set;
-  - every `$.process.run` argv's first element is on an allow-list (`pingbus`, `git`,
-    `bin/hooks-daemon`);
+  `tests/helpers/pingbus/test_plugin_contract.py`). `validate` prints `hooks:` and
+  `calls:` as separate lines, and the test pins each separately:
+  - **`hooks:`** must contain none of `tool.call`, `tool.check`, `prompt.submit`,
+    `session.append`, `session.receive`, `session.send` or `classic.*`;
+  - **`calls:`** must contain none of `$.http.fetch`, `$.env.set`, `$.settings.read`,
+    `$.prompt.submit`, `$.session.append` or `$.session.send`, and is otherwise an
+    exact allow-list;
+  - `env reads:` is an exact allow-list;
   - the version is in the changelog;
   - no install-specific text appears.
-- **Types:** `tsc -p` against the per-build declarations, so an API change between
-  Claude Code releases fails QA, not a session.
+- **Argv lint, not a pin:** `validate` shows `$.process.run`, not its arguments. A check
+  that greps `register.ts` for literal argv arrays (`pingbus`, `git`,
+  `bin/hooks-daemon`) is a lint on our own source, and a variable defeats it. Keep it,
+  but the real controls are the root-owned source and enforcement staying outside the
+  mod.
+- **The mod's own tests** are `claude plugin test` fixtures, not pytest. The Python test
+  only reads `validate --json`.
+- **Types:** `tsc -p` against the per-build declarations is the API-drift check. It runs
+  when the version floor is bumped (§4.2), from M2. `claude plugin test` runs TypeScript
+  itself, so M1 does not need `tsc`.
 
 ### 4.5 Security model
 
-- **No new injection route in M1 or M2.** The mod reads and displays. It does not use
-  `$.prompt.submit`, `$.session.append` or `$.session.send`. T2 (delivery) comes only
-  after a design review against Plan 00161's trust model, and replaces the supervisor's
-  typing rather than adding a second route.
+- **No new injection route, ever by default.** The mod reads and displays. It does not
+  use `$.prompt.submit`, `$.session.append` or `$.session.send`, and does not hook
+  `session.receive`. The inbox socket is the one delivery route (§1.4).
+- **"Read-only" includes what the model reads.** A command's `{ text }` reply goes to the
+  model. Peer-authored text never goes into `{ text }`; it is shown in the band, a pane
+  or `$.ui.log`. `/ccy doctor` may reply in `{ text }`, because its output is local,
+  fixed-format facts with no secrets and no env values.
 - **No network:** no `$.http.fetch` (the contract test enforces it). Everything goes
   through local CLIs that already exist.
-- **No env reads beyond a named allow-list** (`PINGBUS_SEATS`, ccy markers). The
-  `env reads:` line of `validate` is pinned by the test.
+- **No settings and few env reads:** `$.settings.read` is forbidden, because settings
+  can hold tokens. Env reads are limited to a named allow-list (`PINGBUS_SEATS`, ccy
+  markers). The test pins both through `validate`'s `calls:` and `env reads:` lines.
 - **No host execution.** In the container the mod can reach only the container. On the
   host the same code runs, but the host-only modules are off and the allow-listed argv
   are read-only commands.
@@ -510,16 +580,19 @@ The rules that keep them apart:
 
 ### 4.6 Migration from the pingbus plugin
 
-1. **M1** ships `ccy` beside `pingbus`, unchanged: there is no overlap, since the M1
-   features are container, doctor and deploy.
-2. **M2** adds the teams read-only UI (T1, T3, T4 status and who, T7). The mod's team
+1. **M1** ships `ccy` beside `pingbus`, unchanged. There is no overlap, since M1 is the
+   version gate, then the marketplace, the status entry (C1) and `/ccy doctor` (D1).
+2. **M2** adds the teams read-only UI (T1, T3, T4 status and who). The mod's team
    module turns on only when `PINGBUS_SEATS` is set and `pingbus` is on PATH. The
-   pingbus plugin keeps its hooks and its skill, and the kit keeps `--settings` until T7
-   frees the `statusLine` slot. Then the kit's `settings.json` drops `statusLine` and
-   keeps only `crossSessionInbound: accept`.
-3. **M3** moves the pingbus skill and settings-style hooks into `ccy`, keeps a
-   `pingbus` plugin stub for one release for non-ccy members (`agent-bus-claude`), and
-   then retires it. The `test_plugin_contract.py` assertions move with the files. Running
-   teams are untouched until their container is relaunched on the new image, because the
-   image carries both until M3 lands.
-4. **M4** is T2, delivery, decided by its own spike. Plan 00194 is told in its journal.
+   pingbus plugin keeps its hooks and its skill. M2 also adds C2, H1 and H2, `tsc`, cc on
+   the host (D5), and moves the phpantom `jq` wiring onto the same directory marketplace.
+3. **T7 waits for D5 on the host.** Once T7 drops `statusLine` from the kit settings,
+   `cc --teams` and `agent-bus-claude` lose the bus segment unless they also load `ccy`.
+   So T7 lands after `ccy` reaches the host. The kit keeps `statusLine` for
+   `agent-bus-claude` until its members have `ccy` (D11).
+4. **M3** moves the pingbus skill and settings-style hooks into `ccy`, after D11 is
+   decided. The `test_plugin_contract.py` assertions move with the files. Running teams
+   are untouched until their container is relaunched on the new image, because the image
+   carries both plugins until M3 lands.
+5. **M4 is a question, not a feature:** does the mod need any delivery role at all? The
+   default answer is no, because the socket already delivers in-process.
