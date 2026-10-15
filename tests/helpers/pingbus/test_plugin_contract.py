@@ -40,9 +40,10 @@ SKILL = PLUGIN / "skills" / "pingbus" / "SKILL.md"
 SETTINGS = KIT / "settings.json"
 LAUNCHER = KIT / "agent-bus-claude"
 
-#: The hooks whose subcommand does something. `session-end` posts the goodbye (Plan 00194
-#: Task 2.0b) and is registered with a `timeout` above the hook's own cap, because Claude
-#: Code gives a SessionEnd hook only a short default.
+#: The hooks whose subcommand does something. `session-end` removes the session's teams record
+#: the status line reads and posts the goodbye (Plan 00194 Task 2.0b); it is registered with a
+#: `timeout` above the hook's own cap, because Claude Code gives a SessionEnd hook only a short
+#: default.
 REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "Stop": "stop",
               "PostToolUse": "post-tool", "SessionEnd": "session-end"}
 #: The one hook that is matched to a tool: the `SENT` echo follows `pingbus say` and `send`,
@@ -139,7 +140,7 @@ class HooksJsonTest(unittest.TestCase):
             self.assertEqual(hooks.HOOK_EVENT_NAMES[argv[2]], event)
             self.assertTrue(parses(argv[1:]), commands[0])
 
-    def test_session_end_without_a_poster_does_nothing(self) -> None:
+    def test_session_end_without_a_session_id_or_a_poster_does_nothing(self) -> None:
         err = io.StringIO()
         result = hooks.run("session-end", b"{}", {}, now_ms=0, spawn=self.fail, err=err)
         self.assertEqual(result, {})

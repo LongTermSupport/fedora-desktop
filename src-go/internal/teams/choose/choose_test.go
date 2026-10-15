@@ -406,3 +406,51 @@ func TestDescribeNothingAndATeamAlone(t *testing.T) {
 		t.Fatalf("stdout %q", h.stdout())
 	}
 }
+
+const (
+	handleTwo   = "proj.2+local.host"
+	handleThree = "proj.3+local.host"
+	hostSeats   = "SEAT\talpha\t1\theld\tself\t" + handleOne + "\nSEAT\tbeta\t2\theld\tself\t" + handleTwo + "\n" +
+		"SEAT\tgamma\t3\theld\tself\t" + handleThree + "\n"
+)
+
+// S-E5: the sentence a host session is told about itself names every team and the handle in it.
+func TestDescribeSentenceNamesEveryHandleInItsTeam(t *testing.T) {
+	for list, want := range map[string]string{
+		"1@alpha":                "You are " + handleOne + " in alpha.\n",
+		"1@alpha,2@beta":         "You are " + handleOne + " in alpha and " + handleTwo + " in beta.\n",
+		"1@alpha,2@beta,3@gamma": "You are " + handleOne + " in alpha, " + handleTwo + " in beta and " + handleThree + " in gamma.\n",
+	} {
+		h := newRig(t)
+		h.On("agent-bus seat list", hostSeats, 0)
+		if code := h.c.Describe(t.Context(), []string{"--sentence", list}); code != term.ExitOK {
+			t.Fatalf("%s: exit %d: %s", list, code, h.ErrOut.String())
+		}
+		if h.stdout() != want {
+			t.Fatalf("%s: stdout %q, want %q", list, h.stdout(), want)
+		}
+	}
+}
+
+func TestDescribeSentenceOfASeatThatDoesNotExistFailsAndPrintsNothing(t *testing.T) {
+	h := newRig(t)
+	h.On("agent-bus seat list", hostSeats, 0)
+	if code := h.c.Describe(t.Context(), []string{"--sentence", "1@alpha,9@beta"}); code != exitConfig {
+		t.Fatalf("exit %d", code)
+	}
+	if h.stdout() != "" || !strings.Contains(h.ErrOut.String(), "9@beta") {
+		t.Fatalf("stdout %q stderr %q", h.stdout(), h.ErrOut.String())
+	}
+}
+
+func TestDescribeSentenceNeedsAListOfSeats(t *testing.T) {
+	for _, args := range [][]string{{"--sentence"}, {"--sentence", ""}, {"--sentence", "alpha"}} {
+		h := newRig(t)
+		if code := h.c.Describe(t.Context(), args); code != term.ExitUsage {
+			t.Fatalf("%v exit %d", args, code)
+		}
+		if h.stdout() != "" {
+			t.Fatalf("%v stdout %q", args, h.stdout())
+		}
+	}
+}

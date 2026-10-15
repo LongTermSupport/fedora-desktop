@@ -131,7 +131,13 @@ Usage:
                                    runs play-agent-bus.yml for it, no homeserver restart), or
                                    joined as it is, or left out. Then the seat. Prints
                                    SEAT@TEAM[,...] on stdout, the rest on stderr. Leaving any
-                                   screen prints nothing and succeeds. ccy --teams calls it
+                                   screen prints nothing and succeeds. With --type=host (cc)
+                                   it also asks, once per user, whether a host seat may run
+                                   beside your Element session, and records the answer in
+                                   ~/.config/pingbus/element-accepted; declining ends the
+                                   run (exit 1); with no terminal and no valid record
+                                   (yours, mode 600, in your closed folder) it exits 78
+                                   before any seat is made. ccy --teams and cc --teams call it
   ccy-teams record-seats <seats>   put the seats (a canonical --teams list) into the record of
                                    the ccy session this runs in (from TMUX), so its restore
                                    replays them. ccy calls it when Quick Launch brings a saved
@@ -151,6 +157,9 @@ Usage:
                                    print "This session is on N teams:" and, per seat, its
                                    team, seat, role and what the team is for: the block a
                                    launch shows once its seats are taken
+  ccy-teams describe-seats --sentence <list>
+                                   print "You are <handle> in <team>, ... and <handle> in
+                                   <team>.": the line cc adds to a host session's prompt
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

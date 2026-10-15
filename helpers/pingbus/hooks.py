@@ -21,7 +21,8 @@ event, a stored file or an exception carried reaches the output: every text is o
   window, for a failure class or for an active team with no waker. The windows are kept in
   `PINGBUS_HOME/stop-guard.json`, so a guard that keeps blocking cannot loop against the
   hooks daemon's own Stop handlers.
-- `session-end` posts the goodbye (Plan 00194 Task 2.0b) and answers `{}`. The watcher needs
+- `session-end` removes the session's teams record (SessionStart writes it again after a
+  `/clear`), posts the goodbye (Plan 00194 Task 2.0b) and answers `{}`. The watcher needs
   no stop: it exits when the session's socket goes. The goodbye is the one network use of a
   hook: a fixed-template room message from each seat the session holds, sent through `post`,
   once per session and only when the session really ends (not on `/clear` or `/resume`,

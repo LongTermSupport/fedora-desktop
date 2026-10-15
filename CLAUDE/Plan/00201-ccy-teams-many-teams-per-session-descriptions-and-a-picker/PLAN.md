@@ -1,6 +1,6 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (M1-M5 built; M6 cc on the shared flow next, then M7)
+**Status**: In Progress (M1-M6 built; M7 host run and acceptance next)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -97,7 +97,15 @@ a repository is no longer offered for a checkout of it. Report:
   look at a two-team session's status line. M6 must also print the launch block for `cc --teams`.
   Reports: `subagent-reports/261015-m5-many-teams-sonnet.md`, review
   `subagent-reports/261015-m5-review-fable.md`.
-- [ ] ⬜ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it.
+- [x] ✅ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it (S-E1 to S-E6),
+  CCY 3.97.10 / container 2.58. `cc` takes ccy's list grammar and, on a terminal, calls
+  `ccy-teams choose-teams --type=host`; the Element consent is Go (`chooser/consent.go`), asked after
+  the seats are chosen and before any is made, reading and writing `~/.config/pingbus/element-accepted`
+  with the old rules. `agent-bus seat check`, `seat take --type=host`, then the launch block (M5 F6)
+  and `describe-seats --sentence` for the prompt. `cc-teams.bash` lost `cc_teams_seat` and
+  `cc_teams_accept` (170 to 113 code lines). The kit plugin's SessionStart hook covers the status-line
+  record on the host (pinned in `scripts/test-cc-teams.bash`). Report:
+  `subagent-reports/261015-m6-cc-teams-sonnet.md`.
 - [ ] ⬜ **Task 2.7**: M7, host run through `meta-deploy.bash`; the owner launches a session on
   two teams from an uncovered checkout; the two-team acceptance leg. qa-reviewer over the
   plan.

@@ -65,7 +65,7 @@ files/usr/local/bin/watermark	311	6	288	-
 files/usr/local/sbin/agent-bus-install	995	62	1158	assoc,data
 files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	183	2	196	-
-files/var/local/claude-code/cc-teams.bash	170	9	217	ui
+files/var/local/claude-code/cc-teams.bash	108	8	159	-
 files/var/local/claude-yolo/agent-browser-session-guard	123	2	113	data
 files/var/local/claude-yolo/claude-yolo	2828	12	2747	-
 files/var/local/claude-yolo/entrypoint.sh	443	5	448	data
