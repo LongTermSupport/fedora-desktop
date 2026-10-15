@@ -279,6 +279,29 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   scope with no caller (F15); the branch tip fixed them (the shell rule now reads the mvdan syntax
   tree, journal 22:37); the gate is green on the merged tree (739 files, 0 findings). Review G-7
   of the sibling gh-scopes port is recorded as SPEC-qa-changed B41, a stated limit.
+  `qa-plan-script-logging.bash` (P3) on `go-port/qa-plan-script-logging`: ported, merged on the integration branch; spec
+  [SPEC-qa-plan-script-logging.md](SPEC-qa-plan-script-logging.md), expectations L1-L14; nested
+  `src-go/qa/planscriptlogging` and `qa/cmd/qa-plan-script-logging`; it walks the active plan folders
+  on disk and parses each script with `mvdan.cc/sh`; the script a build-and-run wrapper, its
+  allowlist row gone; `qa-changed` gets a `plan-script-logging` whole-gate check (SPEC-qa-changed B42).
+  `qa-toolchain.bash` (P3) on `go-port/qa-toolchain`: ported, merged on the integration branch; spec
+  [SPEC-qa-toolchain.md](SPEC-qa-toolchain.md), expectations T1-T16; nested `src-go/qa/toolchain`
+  and `qa/cmd/qa-toolchain`; `.qa-versions` is parsed with the `mvdan.cc/sh` parser and `go.mod` with
+  `x/mod/modfile`, never sourced; the script a build-and-run wrapper, its allowlist row gone;
+  `qa-changed` routes the pins, `src-go/go.mod` and the gate's own files to the `toolchain` check
+  (B43).
+  `qa-speech-to-text-rules.bash` (P3) on `go-port/qa-speech-to-text-rules`: ported, merged on the integration branch; spec
+  [SPEC-qa-speech-to-text-rules.md](SPEC-qa-speech-to-text-rules.md), expectations S1-S17; nested
+  `src-go/qa/sttrules` and `qa/cmd/qa-speech-to-text-rules`; semgrep stays the engine and one rule
+  file is written per language; the script a build-and-run wrapper, its allowlist row gone;
+  `qa-changed` gets a `stt-rules` whole-gate check and a listed `stt-rules-files` check over each
+  changed JavaScript and Python file (B44). Fable review of the three
+  (`subagent-reports/261015-fable-review-psl-toolchain-stt.md`) answers PSL-1, TC-1 and STT-1 with
+  this entry. Its other findings were fixed on the branch tips; checked in the merged tree: a
+  `todoruleid` test in `qa/sttrules` (STT-2), `python .claude/skills` in `scripts/qa-trees.tsv`
+  (STT-3), no "aborts the whole run" wording left in the toolchain spec, wrapper or package doc
+  (TC-2), and a test for a symlink named `logs` in `qa/planscriptlogging` (PSL-2). The remaining
+  LOW findings (PSL-4, TC-3, TC-4, TC-6, STT-4 to STT-6) were not re-checked here.
 
 ### Phase 4: Review
 
