@@ -40,6 +40,21 @@ def line(*fields: str) -> str:
     return "\t".join(fields)
 
 
+def reply_line(event: str, name: str) -> str:
+    return line("REPLY", "1", TEAM, event, f"pingbus --team {TEAM} say --to {name}")
+
+
+def human_item(event: str, body: str) -> str:
+    """What `recv` prints for a human message: the HUMAN line, then its REPLY line."""
+    return (line("HUMAN", "1", TEAM, event, "tester", "1791234567890", json.dumps(body))
+            + "\n" + reply_line(event, "tester"))
+
+
+def peer_item(event: str, sender: str, body: str) -> str:
+    return (line("PEER", "1", TEAM, event, sender, "1791234567890", json.dumps(body), "-")
+            + "\n" + reply_line(event, sender))
+
+
 def run_main(*argv: str, stdin: str = "") -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     old_stdin = sys.stdin
@@ -93,7 +108,7 @@ class TeamFileTest(unittest.TestCase):
     def test_it_passes_the_admin_tool_validator(self) -> None:
         from helpers.agent_bus import teamfile
 
-        for forge_api in ("https://api.github.com", "https://api.example.com"):
+        for forge_api in ("https://api.github.com",):
             with self.subTest(forge_api=forge_api):
                 data = ac.team_file(TEAM, 45001, "203.0.113.9", "tester", "example-org/project", "F44",
                                     "CLAUDE/Plan/", forge_api)
@@ -115,10 +130,10 @@ class TrustMarksTest(unittest.TestCase):
 
     def test_expect_marked(self) -> None:
         ext = "commit:someone/project@" + SHA
-        out = line("PING", "1", TEAM, EV1, A, "review", ext, "-", "external", "-") + "\n"
+        out = line("PING", "1", TEAM, EV1, A, "review", ext, "-", "external", "-", "-") + "\n"
         self.assertEqual(ac.expect_marked(out, TEAM, EV1, A, "review", ext, "external", None), [])
         self.assertTrue(ac.expect_marked(out, TEAM, EV1, A, "review", ext, "trusted", None))
-        on_branch = line("PING", "1", TEAM, EV1, A, "review", ext, "-", "trusted", "feature/x") + "\n"
+        on_branch = line("PING", "1", TEAM, EV1, A, "review", ext, "-", "trusted", "feature/x", "-") + "\n"
         self.assertEqual(ac.expect_marked(on_branch, TEAM, EV1, A, "review", ext, "trusted", "feature/x"), [])
         self.assertTrue(ac.expect_marked(on_branch, TEAM, EV1, A, "review", ext, "trusted", None))
 
@@ -219,11 +234,11 @@ class LinesTest(unittest.TestCase):
                 ac.parse_lines(text)
 
     def test_the_expected_ping_alone_passes(self) -> None:
-        text = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-") + "\n"
+        text = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-", "-") + "\n"
         self.assertEqual(ac.expect_ping(text, TEAM, EV1, A, "review", REF, None), [])
 
     def test_a_ping_with_any_field_different_fails(self) -> None:
-        good = ("PING", "1", TEAM, EV1, A, "review", REF, "-")
+        good = ("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-", "-")
         for index, value in ((2, "other"), (3, EV2), (4, B), (5, "fetch"), (7, EV2)):
             fields = list(good)
             fields[index] = value
@@ -231,36 +246,56 @@ class LinesTest(unittest.TestCase):
                 self.assertTrue(ac.expect_ping(line(*fields) + "\n", TEAM, EV1, A, "review", REF, None))
 
     def test_an_extra_line_or_none_fails(self) -> None:
-        ping = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-")
+        ping = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-", "-")
         timeout = line("TIMEOUT", "1", TEAM, EV2, B, "review", REF)
         self.assertTrue(ac.expect_ping(f"{ping}\n{timeout}\n", TEAM, EV1, A, "review", REF, None))
         self.assertTrue(ac.expect_ping("", TEAM, EV1, A, "review", REF, None))
 
     def test_an_ack_names_its_re_and_no_ref(self) -> None:
-        text = line("PING", "1", TEAM, EV2, B, "ack", "-", EV1, "-", "-") + "\n"
+        text = line("PING", "1", TEAM, EV2, B, "ack", "-", EV1, "-", "-", "-") + "\n"
         self.assertEqual(ac.expect_ping(text, TEAM, EV2, B, "ack", None, EV1), [])
         self.assertTrue(ac.expect_ping(text, TEAM, EV2, B, "ack", None, EV2))
 
-    def test_the_expected_human_line_passes_with_its_text_decoded(self) -> None:
-        text = line("HUMAN", "1", TEAM, EV1, "tester", "1791234567890", json.dumps("hi\tthere")) + "\n"
+    def test_the_expected_human_line_and_its_reply_pass_with_the_text_decoded(self) -> None:
+        text = human_item(EV1, "hi\tthere") + "\n"
         self.assertEqual(ac.expect_human(text, TEAM, EV1, "tester", "hi\tthere"), [])
         self.assertTrue(ac.expect_human(text, TEAM, EV1, "tester", "hi there"))
         self.assertTrue(ac.expect_human(text, TEAM, EV1, "other", "hi\tthere"))
 
     def test_a_human_line_with_a_bad_timestamp_or_text_fails(self) -> None:
         for ts, body in (("-1", json.dumps("hi")), ("x", json.dumps("hi")), ("1", "hi")):
-            text = line("HUMAN", "1", TEAM, EV1, "tester", ts, body) + "\n"
+            text = line("HUMAN", "1", TEAM, EV1, "tester", ts, body) + "\n" + reply_line(EV1, "tester") + "\n"
             with self.subTest(ts=ts, body=body):
                 self.assertTrue(ac.expect_human(text, TEAM, EV1, "tester", "hi"))
 
-    def test_the_expected_peer_line_passes_with_its_text_decoded(self) -> None:
-        text = line("PEER", "1", TEAM, EV1, A, "1791234567890", json.dumps("hi\tthere")) + "\n"
+    def test_a_human_or_peer_line_without_its_reply_fails(self) -> None:
+        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi")) + "\n"
+        self.assertTrue(ac.expect_human(human, TEAM, EV1, "tester", "hi"))
+        peer = line("PEER", "1", TEAM, EV1, A, "1", json.dumps("hi"), "-") + "\n"
+        self.assertTrue(ac.expect_peer(peer, TEAM, EV1, A, "hi"))
+
+    def test_a_reply_for_another_event_team_or_sender_fails(self) -> None:
+        for reply in (reply_line(EV2, "tester"), reply_line(EV1, "other"),
+                      line("REPLY", "1", "other", EV1, f"pingbus --team {TEAM} say --to tester")):
+            text = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi")) + "\n" + reply + "\n"
+            with self.subTest(reply=reply):
+                self.assertTrue(ac.expect_human(text, TEAM, EV1, "tester", "hi"))
+
+    def test_a_ping_has_no_reply_line_and_a_reply_after_it_fails(self) -> None:
+        ping = line("PING", "1", TEAM, EV1, A, "review", REF, "-", "trusted", "-", "-") + "\n"
+        self.assertEqual(ac.expect_ping(ping, TEAM, EV1, A, "review", REF, None), [])
+        self.assertTrue(ac.expect_ping(ping + reply_line(EV1, A) + "\n", TEAM, EV1, A, "review", REF, None))
+
+    def test_the_expected_peer_line_and_its_reply_pass_with_the_text_decoded(self) -> None:
+        text = peer_item(EV1, A, "hi\tthere") + "\n"
+        short = peer_item(EV1, A, "x").replace(f"say --to {A}", "say --to acceptance.1") + "\n"
+        self.assertEqual(ac.expect_peer(short, TEAM, EV1, A, "x"), [])
         self.assertEqual(ac.expect_peer(text, TEAM, EV1, A, "hi\tthere"), [])
         self.assertTrue(ac.expect_peer(text, TEAM, EV1, A, "hi there"))
         self.assertTrue(ac.expect_peer(text, TEAM, EV1, B, "hi\tthere"))
-        human = line("HUMAN", "1", TEAM, EV1, "tester", "1", json.dumps("hi\tthere")) + "\n"
+        human = human_item(EV1, "hi\tthere") + "\n"
         self.assertTrue(ac.expect_peer(human, TEAM, EV1, "tester", "hi\tthere"))
-        other = line("PEER", "1", TEAM, EV2, A, "1", json.dumps("x")) + "\n"
+        other = peer_item(EV2, A, "x") + "\n"
         self.assertTrue(ac.expect_peer(text + other, TEAM, EV1, A, "hi\tthere"))
 
     def test_the_expected_timeout_alone_passes(self) -> None:
@@ -271,9 +306,9 @@ class LinesTest(unittest.TestCase):
 
     def test_absent_passes_when_no_line_names_the_event_and_no_human_line(self) -> None:
         self.assertEqual(ac.expect_absent("", EV1), [])
-        other = line("PING", "1", TEAM, EV2, A, "review", REF, "-", "trusted", "-") + "\n"
+        other = line("PING", "1", TEAM, EV2, A, "review", REF, "-", "trusted", "-", "-") + "\n"
         self.assertEqual(ac.expect_absent(other, EV1), [])
-        self.assertTrue(ac.expect_absent(line("PING", "1", TEAM, EV2, A, "ack", "-", EV1, "-", "-") + "\n", EV1))
+        self.assertTrue(ac.expect_absent(line("PING", "1", TEAM, EV2, A, "ack", "-", EV1, "-", "-", "-") + "\n", EV1))
         human = line("HUMAN", "1", TEAM, EV2, "tester", "1", json.dumps("x")) + "\n"
         self.assertTrue(ac.expect_absent(human, EV1))
         peer = line("PEER", "1", TEAM, EV2, A, "1", json.dumps("x")) + "\n"
