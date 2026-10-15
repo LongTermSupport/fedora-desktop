@@ -327,7 +327,7 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   `qa-docs.bash` (P3) on `go-port/qa-docs`: ported, merged on the integration branch; spec
   [SPEC-qa-docs.md](SPEC-qa-docs.md), expectations D1-D25; nested `src-go/qa/docs` and
   `qa/cmd/qa-docs`, with the Markdown parsed by goldmark (v1.8.6 in `src-go/qa/go.mod`) and new
-  `markdown` and `tracked-files` lists in `qa/discovery` (D18, D19); `helpers/docs` (the Python
+  `markdown` and `tracked-files` lists in `qa/discovery` (SPEC-qa-discovery D18, D19); `helpers/docs` (the Python
   link checker) is gone and the script a build-and-run wrapper; `scripts/test-qa-docs-exit-codes.bash`
   drives the wrapper. `qa-changed` gets a whole `docs` check that every deleted file owes
   (SPEC-qa-changed B47; the branch numbered it B48, renumbered here to keep the rows sequential,
@@ -340,17 +340,19 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   Shared scaffolding (`go-port/qa-cmdmain`, merged): the command-line and output boilerplate the
   gates had each copied now lives in `src-go/qa/internal/cmdmain` (closed-stdout refusal, report
   writers), `emit` (the two-stream writer and the exit rule) and `rootargs` (the `-h`, `--root`,
-  `--scripts` grammar), used by 12 non-test packages under `src-go/qa`. Fable review
+  `--scripts` grammar): every one of the 22 `qa/cmd` mains uses `cmdmain`, and 12 gate packages
+  use `rootargs` (9 of them also `emit`). Fable review
   (`subagent-reports/261015-fable-review-cmdmain.md`) found no blocker and no behaviour drift.
   Checked in the merged tree: `rootargs.Lenient` is gone, so `--root ""` is refused as
   `--root needs a directory` instead of silently falling back to another tree, and
   `rootargs_test.go` pins `--root ""` and `--scripts ""`; the `ansible-patterns` routing row for
   `qa/ansible`, `qa/cmd/qa-ansible` and the shared packages is in `scripts/qa-routing.tsv`; the
-  cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages. Not
-  re-checked: the per-spec departure notes the review asked for and the closed-stdout gap in the
-  other mains.
-  Still on `scripts/bash-limits.allowlist`: `qa-go.bash`. Per the coordinator it waits on Plan
-  00191's go-qa-ci decisions; I did not verify that.
+  cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages; all 22
+  `qa/cmd` mains call `cmdmain.RefuseClosedStdout`; the departure rows for the Strict move exist
+  (SPEC-qa-docs B16, qa-js B12, qa-python B18, qa-patterns B15, qa-gh-scopes B9, qa-ansible-syntax
+  D11).
+  Still on `scripts/bash-limits.allowlist`: `qa-go.bash`, the interim Go gate that Plan 00191's
+  go-qa-ci toolchain is to replace; it is ported once the owner's 00191 decisions settle that.
 
 ### Phase 4: Review
 
