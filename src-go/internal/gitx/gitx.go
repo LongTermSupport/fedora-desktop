@@ -102,6 +102,101 @@ func (g *Git) FileAtRef(ctx context.Context, dir, ref, path string) (string, boo
 	return string(shown.Stdout), true, nil
 }
 
+// DefaultBranch is the branch the remote at url calls HEAD, read from `git ls-remote --symref`.
+// A reply that names no branch is an error: nothing is guessed.
+func (g *Git) DefaultBranch(ctx context.Context, url string) (string, error) {
+	res, err := g.run(ctx, "", "ls-remote", "--symref", url, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	for line := range strings.SplitSeq(string(res.Stdout), "\n") {
+		if ref, ok := strings.CutPrefix(line, "ref: refs/heads/"); ok {
+			if branch, _, found := strings.Cut(ref, "\t"); found && branch != "" {
+				return branch, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%s names no default branch (git ls-remote --symref gave no symbolic HEAD)", url)
+}
+
+// CloneBranch clones one branch of url into dest.
+func (g *Git) CloneBranch(ctx context.Context, url, branch, dest string) error {
+	_, err := g.run(ctx, "", "clone", "--branch", branch, "--single-branch", url, dest)
+	return err
+}
+
+// FetchBranch brings origin's branch in the clone at dir up to date as refs/remotes/origin/<branch>.
+func (g *Git) FetchBranch(ctx context.Context, dir, branch string) error {
+	_, err := g.run(ctx, dir, "fetch", "origin", "+refs/heads/"+branch+":"+RemoteRef(branch))
+	return err
+}
+
+// RemoteHead is the commit refs/remotes/origin/<branch> points at in the clone at dir.
+func (g *Git) RemoteHead(ctx context.Context, dir, branch string) (string, error) {
+	res, err := g.run(ctx, dir, "rev-parse", "--verify", RemoteRef(branch))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(res.Stdout)), nil
+}
+
+// RemoteRef is the local name FetchBranch gives origin's branch.
+func RemoteRef(branch string) string { return "refs/remotes/origin/" + branch }
+
+// IsAncestor reports whether commit ancestor is reachable from descendant (a commit is its own
+// ancestor). Git answering "no" (exit 1) is false; any other refusal, such as an unknown
+// object, or git being unable to start, is an error: nothing is guessed.
+func (g *Git) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
+	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	if exitErr, ok := errors.AsType[*execx.ExitError](err); ok && exitErr.Code == 1 {
+		return false, nil
+	}
+	return false, err
+}
+
+// HasCommit reports whether the clone at dir holds the commit sha. Git refusing is false; git
+// being unable to start is an error.
+func (g *Git) HasCommit(ctx context.Context, dir, sha string) (bool, error) {
+	if _, err := g.run(ctx, dir, "cat-file", "-e", sha+"^{commit}"); err != nil {
+		if refused(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// CommitsBetween is `<short sha> <subject>` for each commit in from..to, newest first.
+func (g *Git) CommitsBetween(ctx context.Context, dir, from, to string) ([]string, error) {
+	res, err := g.run(ctx, dir, "log", "--format=%h %s", from+".."+to)
+	if err != nil {
+		return nil, err
+	}
+	return lines(res.Stdout), nil
+}
+
+// ChangedPaths is the paths that differ between the commits from and to.
+func (g *Git) ChangedPaths(ctx context.Context, dir, from, to string) ([]string, error) {
+	res, err := g.run(ctx, dir, "diff", "--name-only", from, to)
+	if err != nil {
+		return nil, err
+	}
+	return lines(res.Stdout), nil
+}
+
+func lines(b []byte) []string {
+	var out []string
+	for l := range strings.SplitSeq(string(b), "\n") {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 func (g *Git) run(ctx context.Context, dir string, args ...string) (execx.Result, error) {
 	res, err := g.runner.Run(ctx, execx.Cmd{Name: "git", Args: args, Dir: dir})
 	if err != nil {

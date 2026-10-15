@@ -1,0 +1,9 @@
+# The watch list: public repositories scanned at intervals for ideas (CLAUDE/Watchlist.md).
+# Edited by the watchlist command (add, mark); read strictly, a malformed row is an error.
+#
+# url <TAB> branch <TAB> last_sha <TAB> run
+#   url       https://github.com/<owner>/<repo>, no .git suffix
+#   branch    the branch that is reviewed (the remote's default branch when added)
+#   last_sha  the commit last reviewed (40 hex digits), or - when never reviewed
+#   run       the run or document that recorded last_sha (no spaces), or - with it
+https://github.com/cdknorow/coral	main	e785da3baf077aa7519ad910266e4c7ecde32ce0	plan-00193-audit-coral
