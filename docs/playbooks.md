@@ -1196,6 +1196,16 @@ Install lightweight IDEs:
 
 - Installs compact editor/IDE options as alternatives to VS Code
 
+#### play-md-viewer.yml
+
+Markdown viewer — installs `md-viewer` (Go on Gio, from
+[LongTermSupport/md-viewer](https://github.com/LongTermSupport/md-viewer)):
+
+- Builds it at the commit pinned in the play, with Gio's build and runtime libraries
+- Adds a desktop file and makes it the default for `text/markdown`, so a `.md` file opens
+  rendered from Nautilus; `md-viewer FILE.md` from a terminal
+- Plan 00199 tracks it
+
 #### play-network-tools.yml
 
 Network discovery tools:

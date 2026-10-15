@@ -1,6 +1,8 @@
-# Build one Go command from this checkout's src-go/ and install it.
+# Build one Go command, from this checkout's src-go/ or from a pinned external module, and install
+# it.
 #
-# Import this from any play that deploys a command from src-go/cmd/<name>:
+# Import this from any play that deploys a command from src-go/cmd/<name> (an external one adds
+# go_command_module, below):
 #
 #   - name: Build and install the foo command
 #     ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
@@ -36,9 +38,25 @@
 #   go_command_mode     required; the installed file's mode
 #   go_command_ldflags  optional; one -ldflags value, omitted when unset or empty
 #   go_command_owner    optional; the installed file's owner and group, the login user when unset
+#   go_command_module   optional; `<package path>@<version>` of a command in ANOTHER repository.
+#                       It is then built with `go install` from the Go module proxy, not from
+#                       src-go, and the version must be pinned (a tag or a full commit hash,
+#                       never `latest`). The package path's last element is the binary's name,
+#                       so it must equal go_command_name, which is asserted.
 #
 # The scratch directory predates its second user and keeps its first user's name; every command
 # built through this file lands there.
+
+- name: Assert the {{ go_command_name }} Module Is Pinned and Names the Command
+  ansible.builtin.assert:
+    that:
+      - go_command_module is search('^[^@]+@[^@]+$')
+      - (go_command_module.split('@') | last) != 'latest'
+      - (go_command_module.split('@') | first | basename) == go_command_name
+    fail_msg: >-
+      go_command_module={{ go_command_module }} must be <package path>@<pinned version>, not
+      @latest, and the package path must end in /{{ go_command_name }}.
+  when: (go_command_module | default('')) != ''
 
 - name: Ensure the Go Command Build Directory Exists
   ansible.builtin.file:
@@ -53,18 +71,25 @@
   ansible.builtin.command:
     # argv is a LIST. The folded scalar below renders to one Jinja expression, and Ansible's native
     # templating returns the list that expression builds (not a string to be word-split), so the
-    # optional -ldflags pair and each path stay single arguments whatever they contain.
+    # optional -ldflags pair and each path stay single arguments whatever they contain. A module
+    # build runs `go install`, which writes the binary into GOBIN (the scratch directory) and
+    # runs outside src-go so this checkout's go.mod plays no part in it.
     argv: >-
-      {{ ['go', 'build', '-trimpath', '-buildvcs=false']
+      {{ (['go', 'install', '-trimpath'] if (go_command_module | default('')) != ''
+      else ['go', 'build', '-trimpath', '-buildvcs=false'])
       + (['-ldflags', go_command_ldflags] if (go_command_ldflags | default('')) != '' else [])
-      + ['-o', '/home/' ~ user_login ~ '/.cache/ccy-go-build/' ~ go_command_name,
-      './cmd/' ~ go_command_name] }}
-    chdir: "{{ root_dir }}/src-go"
+      + ([go_command_module] if (go_command_module | default('')) != ''
+      else ['-o', '/home/' ~ user_login ~ '/.cache/ccy-go-build/' ~ go_command_name,
+      './cmd/' ~ go_command_name]) }}
+    chdir: >-
+      {{ ('/home/' ~ user_login ~ '/.cache/ccy-go-build') if (go_command_module | default('')) != ''
+      else (root_dir ~ '/src-go') }}
   environment:
     HOME: "/home/{{ user_login }}"
     GOTOOLCHAIN: local
     GOFLAGS: -mod=readonly
     GOCACHE: "/home/{{ user_login }}/.cache/go-build"
+    GOBIN: "/home/{{ user_login }}/.cache/ccy-go-build"
   become: false
   changed_when: false # a build into the scratch path changes nothing installed; the copy below reports the change
 

@@ -118,6 +118,12 @@ a repository is no longer offered for a checkout of it. Report:
   purges and checks the firewalld rules are gone. The interactive steps (chooser, scope widening, cc consent) are the owner's:
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md). Report:
   `subagent-reports/261015-m7-acceptance-opus.md`.
+- [ ] ⬜ **Task 2.8**: S-D1 in relay mode: `_deliver` (`helpers/pingbus/cli.py`) writes a
+  relay-delivered `HUMAN` or `PEER` to the spool with no `REPLY` line, so the session never
+  gets the ready reply command. Expected to be carried by the structured-injection work of
+  [Plan 00194](../00194-agent-bus-live-delivery-supervisor-plugin/PLAN.md) on branch
+  `feat/bus-inject-message`; check the reply line is there when it merges, else add it here
+  (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.
 
 ## Success Criteria
 
