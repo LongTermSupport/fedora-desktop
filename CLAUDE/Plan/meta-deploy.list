@@ -21,7 +21,8 @@
 # that is not an entry is a fatal error naming its line number.
 
 # Redeploys ssh-suspend-guard with its startup trap and "started" log moved below the
-# test cut marker. Host behaviour is unchanged; the deployed script matches the repo again.
+# test cut marker, and now restarts the running ssh-suspend-guard service whenever its script or
+# unit changes (it will restart the guard once). Host behaviour is otherwise unchanged.
 playbooks/imports/play-prevent-ssh-suspend.yml
 # Plan 00192 (ftp-camera port): the camera FTP play now builds ~/.local/bin/ftp-camera from
 # src-go/cmd/ftp-camera (installing the Go toolchain first) in place of the bash script; the

@@ -14,6 +14,7 @@
         owner: root
         group: root
         mode: "0755"
+      notify: Restart ssh-suspend-guard
 
     - name: Deploy ssh-suspend-guard systemd service
       ansible.builtin.copy:
@@ -35,6 +36,7 @@
 
           [Install]
           WantedBy=multi-user.target
+      notify: Restart ssh-suspend-guard
 
     - name: Enable and start ssh-suspend-guard
       ansible.builtin.systemd:
@@ -42,6 +44,11 @@
         state: started
         enabled: true
         daemon_reload: true
+
+    # Handlers run at the end of the play; flush now so the verify below checks the
+    # restarted service, and a failed restart stops the run before it.
+    - name: Apply pending ssh-suspend-guard restart
+      ansible.builtin.meta: flush_handlers
 
     - name: Get user UID
       ansible.builtin.getent:
@@ -100,3 +107,10 @@
     - name: Verify ssh-suspend-guard is running
       ansible.builtin.command: systemctl is-active ssh-suspend-guard
       changed_when: false
+
+  handlers:
+    - name: Restart ssh-suspend-guard
+      ansible.builtin.systemd:
+        name: ssh-suspend-guard
+        state: restarted
+        daemon_reload: true
