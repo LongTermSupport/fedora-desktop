@@ -28,9 +28,16 @@ The pingbus kit is installed twice. Changes under `files/opt/claude-yolo/`, and 
 in-process through the Claude Code inbox socket. The supervisor types messages in only in
 `relay` mode.
 
-This plan designs one **`ccy` mod**. It becomes the place where ccy extends the Claude Code
-user experience: team UI, container awareness, `/ccy doctor`, deploy-pending and plan
-status, and session helpers. It ships from one source tree to ccy containers and cc host
+This plan designs one **`ccy` mod whose own GUI is the primary surface**. The GUI is:
+
+- an always-visible band above the prompt;
+- a **ccy pane** with Health, Mounts and Deploy tabs;
+- a **Teams pane** with Status, Who, Pending and Homeserver tabs.
+
+Slash commands are not the user experience. A single `/ccy` command only opens the pane,
+for VS Code, which draws no band. The surfaces and their limits are cited in
+[RESEARCH.md §2.7](RESEARCH.md#27-exactly-what-gui-a-mod-can-draw), and the design is in
+[§4.7](RESEARCH.md#47-the-gui-design). It ships from one source tree to ccy containers and cc host
 sessions. Enforcement stays with the hooks-daemon, launch decisions with the launcher,
 delivery with the socket, and host runs with `meta-deploy.bash`.
 
@@ -49,8 +56,13 @@ and this revision addresses it.
 
 - One `ccy` mod, loaded in place from a directory marketplace, with no network, in every
   ccy container and later in cc host sessions. One tree in the repo serves both.
-- A small M1: close the version gate first, then ship the marketplace, the status entry
-  and `/ccy doctor`.
+- A small M1: close the version gate first, then ship the marketplace, the band and the
+  ccy pane with its Health tab.
+- Team status, who is on each team (role, listening or stale, seat), pending items,
+  homeserver health, and the session's own teams and role, all **viewable in the GUI**
+  (M2).
+- Peer text shown in the GUI only and never fed to the model. Styling keys only on
+  `origin.kind` and pingbus-verified fields.
 - Contract tests on `claude plugin validate --json` that pin the forbidden hooks and
   calls, and `claude plugin test` fixtures for behaviour.
 - A path that absorbs the pingbus plugin's skill, hooks and status line with no
@@ -78,29 +90,37 @@ and this revision addresses it.
 4. **Owners:** the mod owns UI and commands. The hooks-daemon owns enforcement and the
    settings `statusLine`. pingbus owns the protocol, the CLI and delivery (the socket).
    The supervisor and launcher own restarts.
-5. **What the mod may not do:** hook `tool.call`, `tool.check`, `prompt.submit`,
+5. **GUI first:** the band (digit-hotkey buttons open the panes), the ccy pane and the
+   Teams pane. Tabs are button rows, and state lives in `$.state`. One `/ccy` opener
+   returns `{}`. There are no `/team` commands.
+6. **What the mod may not do:** hook `tool.call`, `tool.check`, `prompt.submit`,
    `session.append`, `session.receive`, `session.send` or `classic.*`; call
    `$.http.fetch`, `$.settings.read`, `$.env.set`, `$.prompt.submit`, `$.session.append`
-   or `$.session.send`; or put peer-authored text into a command's `{ text }`, which the
-   model reads. A contract test pins all of this.
+   or `$.session.send`; or produce any `{ text }` the model would read. A contract test
+   pins all of this.
 
 ## Top features
 
 These are ranked by value for effort. The full list is in [RESEARCH.md §3](RESEARCH.md#3-brainstorm-what-a-ccy-mod-could-give-a-session).
 
-| Rank | Feature                                                                                                                                                     | Milestone         |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| 1    | `/ccy doctor`: versions, mounts, seat and watcher, inbox socket bound and token exported, hooks-daemon, supervisor, network; each PASS or FAIL with the fix | M1                |
-| 2    | ccy status entry, from image-baked facts: image version, team, context %                                                                                    | M1                |
-| 3    | Update-needed band with the relaunch command (needs a launcher change and a mount)                                                                          | M2                |
-| 4    | Deploy-pending band and `/ccy deploy-needed` (reads `meta-deploy.list`)                                                                                     | M2                |
-| 5    | Team roster band, and `/team status` and `/team who` that return `{}` and show peer text only in the band or `$.ui.log`                                     | M2                |
-| 6    | Team messages styled by `origin.kind` and pingbus-verified fields only, never by sender name                                                                | M2                |
-| 7    | pingbus status line moved to the mod, freeing the settings slot (after D5)                                                                                  | M2 / M3           |
-| 8    | Shutdown coordination UX: **blocked** on feat/teams-shutdown, which has no commits yet                                                                      | after that branch |
+| Rank | Feature                                                                                                                                                                                                        | Milestone       |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| 1    | **Band**: ccy and image version, a health glyph, and buttons `1: ccy` and `2: Teams` that open the panes (a digit typed into an empty prompt, or a click)                                                      | M1              |
+| 2    | **ccy pane, Health tab** (replaces `/ccy doctor`): versions, hooks-daemon, supervisor, inbox socket and token, network, mods loaded. Each row is PASS or FAIL with the fix, and there is a `[ Re-run ]` button | M1              |
+| 3    | **Teams pane, Who tab**: every member, with role or `human`, and listening, stale or absent. Unexpected members are flagged                                                                                    | M2              |
+| 4    | **Teams pane, Status tab**: the session's own seats and roles, the team description, room trust, wake path, relay state, and pending, overdue and dropped counts. A team picker when there are several         | M2              |
+| 5    | **Band team strip**: per team, your role, listening count and pending count                                                                                                                                    | M2              |
+| 6    | **Teams pane, Pending and Homeserver tabs**: per-item metadata, text only on demand and in the pane only. Homeserver reachability and last sync (needs a pingbus addition)                                     | M2              |
+| 7    | **ccy pane, Deploy and Mounts tabs**, and the update-needed line in the band (needs a launcher change)                                                                                                         | M2              |
+| 8    | **Live membership and role changes** from Plan 00203 (driven from ccy-teams on the host), shown by redraw and a toast                                                                                          | M2 / with 00203 |
 
-Later work: the `/plan` pane, `/handover`, the post-reboot resume card, and the usage
-meter.
+Later work:
+
+- transcript rows styled by `origin.kind` (T3);
+- the pingbus status line on `$.ui.status` (T7, after D5);
+- the Plans tab and the Handover button;
+- the resume card and the usage meter;
+- the shutdown view, **blocked** on feat/teams-shutdown.
 
 ## Decisions for the owner
 
@@ -168,6 +188,26 @@ Each decision carries a recommendation.
     **Recommend: (b)**, decided before M3, because those members have no ccy features
     to show.
 
+12. **D12: Is the GUI the primary surface, with no `/team` commands?** Yes. The band is
+    always visible, and its digit-hotkey buttons open the ccy and Teams panes. Tabs are
+    button rows. The one command, `/ccy`, only opens the pane (returning `{}`), because
+    VS Code draws no band. A mod cannot add its own keybinding, so the band's digit
+    hotkeys and clicks are the openers (RESEARCH §2.7). **Recommend: yes.**
+
+13. **D13: Does `/ccy doctor` survive?** No. The docs give a better surface: a pane tab
+    that stays open, re-runs with a button, and is not read by the model. It becomes
+    the **Health tab**, and a red glyph in the band opens it. **Recommend: Health tab.**
+
+14. **D14: Where does the Teams pane get its data?** From pingbus, which is local and
+    offline, never from Matrix directly. pingbus gains `status --json` (members, roles,
+    listening, stale or absent, seats, counts) and exposes the watcher's last sync
+    result for the Homeserver tab. This is pingbus work under Plan 00161. **Recommend:
+    yes. The mod makes no network calls.**
+
+15. **D15: Does Plan 00203's hot control appear in the GUI?** As a view only. The owner
+    changes membership and roles from ccy-teams on the host. The Teams pane redraws on
+    change and raises a toast, and offers no controls. **Recommend: view only.**
+
 ## Tasks
 
 ### Phase 0: Research and decisions
@@ -177,22 +217,25 @@ Each decision carries a recommendation.
 - [x] ✅ **Task 0.3**: Brainstorm features, including what does not belong in a mod ([RESEARCH.md §3](RESEARCH.md#3-brainstorm-what-a-ccy-mod-could-give-a-session))
 - [x] ✅ **Task 0.4**: Recommend an architecture ([RESEARCH.md §4](RESEARCH.md#4-architecture))
 - [x] ✅ **Task 0.5**: Adversarial design review (REVISE), with every point addressed in this revision
-- [ ] ⬜ **Task 0.6**: Owner answers D1 to D11
+- [x] ✅ **Task 0.6**: Owner correction applied: the GUI is the primary surface, and the `/team` commands are dropped (RESEARCH §2.7, §4.7)
+- [ ] ⬜ **Task 0.7**: Owner answers D1 to D15
 
 ### Phase 1: M1, version gate then a minimal mod in the container
 
 - [ ] ⬜ **Task 1.1**: **Version gate first, in its own commit.** Gate 2 of `scripts/git-hooks/pre-commit` gets an explicit list of repo paths that require a container bump: `files/opt/claude-yolo/**` and `helpers/pingbus/**`, plus the existing `files/var/local/claude-yolo` COPY sources. A test checks that list against the copy tasks in `play-claude-yolo.yml`. (The alternative is a second context root per source, plus `helpers/pingbus/**`.) This overlaps Plan 00093
 - [ ] ⬜ **Task 1.2**: Contract test first (`tests/helpers/ccy_mod/test_mod_contract.py`). It pins `hooks:`, `calls:` and `env reads:` from `validate --strict --json` separately, as set out in RESEARCH §4.4. It also checks that the version is in the changelog and that no install-specific text appears
-- [ ] ⬜ **Task 1.3**: Write `files/opt/claude-yolo/mods/` (marketplace) and `ccy/` (manifest, `hooks.json`, `register.ts`, `core` module, `*.test.ts`), with C1 (status entry from image-baked facts) and D1 (`/ccy doctor`, local checks only). Commands are registered last, and their names are checked against the built-ins
+- [ ] ⬜ **Task 1.3**: Write `files/opt/claude-yolo/mods/` (marketplace) and `ccy/` (manifest, `hooks.json`, `register.ts`, `core` module, `*.test.ts`), and the M1 GUI. That is: the **band** (version, health glyph, the `1: ccy` button); the **ccy pane** with its **Health tab** (local checks, PASS or FAIL with the fix, `[ Re-run ]`); and the `/ccy` opener returning `{}`, registered last and checked against the built-ins. Tests mount the band and the pane on `terminal` and `desktop`, and press the buttons by key
 - [ ] ⬜ **Task 1.4**: Wire `claude plugin validate --strict` and `claude plugin test` into `qa-changed.bash` and `qa-all.bash`, with `claude` provisioned through IaC where missing
 - [ ] ⬜ **Task 1.5**: The entrypoint runs `claude plugin marketplace add /opt/claude-yolo/mods`, then enables `ccy@<marketplace>` (D4 option a). Bump the container version and add a changelog line
-- [ ] ⬜ **Task 1.6**: Verify in a relaunched ccy session, **including the first session of a brand-new project**: `/plugin` shows `1 mod active · ccy`, the status entry appears (and its `⚠` prefix is checked), and `/ccy doctor` runs. Record it in the journal
+- [ ] ⬜ **Task 1.6**: Verify in a relaunched ccy session, **including the first session of a brand-new project**: `/plugin` shows `1 mod active · ccy`, the band draws, typing `1` into an empty prompt opens the ccy pane at a narrow width, and the Health tab re-runs. Record it in the journal
 - [ ] ⬜ **Task 1.7**: Run the qa-reviewer agent
 
-### Phase 2: M2, read-only team UI, host cc, managed settings
+### Phase 2: M2, the Teams GUI, host cc, managed settings
 
-- [ ] ⬜ **Task 2.1**: The `teams` module: the roster band (T1), and `/team status` and `/team who` returning `{}` (T4). T3 row styling keyed on `origin.kind` and verified fields only
-- [ ] ⬜ **Task 2.2**: Update-needed band (C2): the launcher passes the ccy version in through a read-only mount, with a `CCY_VERSION` bump. Then the deploy-pending band and `/ccy deploy-needed` (H1, H2)
+- [ ] ⬜ **Task 2.0**: pingbus `status --json` and the watcher's last-sync exposure (D14), under Plan 00161
+- [ ] ⬜ **Task 2.1**: The `teams` module: the band team strip and the `2: Teams` button (T1). The **Teams pane** with Status, Who, Pending (metadata, text on demand in the pane only) and Homeserver tabs, plus a team `Select` (T4). Styling only on verified fields
+- [ ] ⬜ **Task 2.2**: Show live membership and role changes by redraw and toast (D15, Plan 00203)
+- [ ] ⬜ **Task 2.8**: The update-needed line in the band (C2), where the launcher passes the ccy version in through a read-only mount, with a `CCY_VERSION` bump. Then the ccy pane's **Deploy** and **Mounts** tabs (H1, H2, C3)
 - [ ] ⬜ **Task 2.3**: Move the container enable to image-owned managed settings (D4 option b)
 - [ ] ⬜ **Task 2.4**: An Ansible task registers the marketplace for cc host sessions (D5), with the container modules off
 - [ ] ⬜ **Task 2.5**: Move the phpantom `jq` wiring onto the same directory marketplace
@@ -221,13 +264,19 @@ Each decision carries a recommendation.
 - Plan 00201 and feat/teams-shutdown: Task B.1.
 - Plan 00169 (image keeps its tools current): D10's no-pin premise.
 - Plan 00135 (sessions survive a reboot): the later resume card.
+- Plan 00203 (teams hot control): the Teams pane shows its live membership and role
+  changes (Task 2.2). Hot control itself runs from ccy-teams on the host.
 
 ## Success Criteria
 
 - [ ] A commit that edits `files/opt/claude-yolo/**` or `helpers/pingbus/**` without a
   container bump is refused.
 - [ ] A relaunched ccy session, including the first session in a new project, shows
-  `1 mod active · ccy` and runs `/ccy doctor` with no network.
+  `1 mod active · ccy`, draws the band, and opens the ccy pane's Health tab from the
+  band, with no network.
+- [ ] After M2, team status, who (role, listening or stale, seat), pending, homeserver
+  health and the session's own teams and roles are all viewable in the Teams pane, and
+  no peer text reaches the model.
 - [ ] The contract test fails on any forbidden hook or call listed under Recommended
   architecture.
 - [ ] After M3, no ccy or cc launcher passes `--plugin-dir` for pingbus, and running teams
@@ -237,3 +286,4 @@ Each decision carries a recommendation.
 
 - Research, design and review revision: the branch `plan/ccy-claude-code-plugin`. The
   branch name predates the rename to "mod".
+- GUI-first revision, after the owner's correction: the branch `plan/ccy-mod-gui`.
