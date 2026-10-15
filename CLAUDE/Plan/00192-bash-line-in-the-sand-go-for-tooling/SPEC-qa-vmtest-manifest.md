@@ -69,7 +69,8 @@ Numbers are cited by the tests.
   process group that is killed on timeout, with `PYTHONDONTWRITEBYTECODE=1` (the gate leaves no
   `__pycache__` in the tree). Outcomes: exit 0 with the OK marker (V7) is a valid manifest; exit
   1 with a line `VMTEST-MANIFEST-INVALID` on stdout is an invalid manifest: exit 1 with the
-  validator's `ERROR:` text on stderr as `ERROR: vars/vm-test-scenarios.yml: <reason>`, and the
+  validator's stderr lines that start `ERROR: ` (and only those; a Python warning is not a
+  finding) on stderr as `ERROR: vars/vm-test-scenarios.yml: <reason>`, and the
   cross-checks are not run (their input is not a coherent manifest). Every other outcome (python3
   absent or not startable, a non-zero exit without the INVALID marker, a Python traceback,
   exit 0 without the OK marker, a timeout, a leftover child) is exit 2 naming the cause, with
@@ -95,7 +96,7 @@ Both read the manifest as the validator accepted it, and the guest scripts of
   is a finding (V10). A script that exists but cannot be read, or that the bash parser rejects,
   is exit 2 naming it. The count a script declares is read from its syntax tree (the shared
   `mvdan.cc/sh` parser): the value of the simple assignment `PLANNED=<digits>` among its
-  top-level statements (also `readonly PLANNED=<digits>` and `declare`/`typeset -r`), never from
+  top-level statements (also the same assignment given to any declaration builtin: `readonly`, `declare`, `typeset`, `export`, `local`), never from
   text in a comment, a string, a heredoc or a function. No such assignment, a second one, or a
   value that is not a plain decimal integer literal (`$((...))`, an expansion, a quoted number)
   is a finding.

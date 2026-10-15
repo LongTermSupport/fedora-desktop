@@ -248,6 +248,35 @@ func TestV6AnInvalidManifestIsExitOneAndSkipsTheCrossChecks(t *testing.T) {
 	}
 }
 
+// V6: only the validator's ERROR lines are findings; a warning Python printed is not one.
+func TestV6OnlyTheValidatorsErrorLinesAreFindings(t *testing.T) {
+	w := newWorld(t, nil)
+	w.fake.reply = proc.Result{
+		Stdout: "VMTEST-MANIFEST-INVALID\n", Code: 1,
+		Stderr: "/x/y.py:3: DeprecationWarning: old thing\nERROR: scenario 'x': bad\n  warnings.warn(...)\n",
+	}
+	w.wantExit(ExitFailed, w.run())
+	w.wantStderr("ERROR: vars/vm-test-scenarios.yml: scenario 'x': bad")
+	if strings.Contains(w.stderr.String(), "DeprecationWarning") || strings.Contains(w.stderr.String(), "warnings.warn") {
+		t.Fatalf("a warning became a finding:\n%s", w.stderr.String())
+	}
+	w = newWorld(t, nil)
+	w.fake.reply = proc.Result{Stdout: "VMTEST-MANIFEST-INVALID\n", Code: 1, Stderr: "only a warning\n"}
+	w.wantExit(ExitFailed, w.run())
+	w.wantStderr("without saying why")
+}
+
+// V8: a path discovery names outside the root is an error, not a silent drop.
+func TestV8APathOutsideTheRootIsRefused(t *testing.T) {
+	if _, err := relativeTo("/repo", "/elsewhere/x.bash"); err == nil {
+		t.Fatal("a path outside the root was accepted")
+	}
+	got, err := relativeTo("/repo", "/repo/files/x.bash")
+	if err != nil || got != "files/x.bash" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
 // V6: everything else is the gate being unable to judge.
 func TestV6AValidatorThatDidNotJudgeIsExitTwo(t *testing.T) {
 	for name, setup := range map[string]func(*fakeRunner){
@@ -381,6 +410,9 @@ func TestV9PlannedIsReadFromTheSyntaxTreeNotTheText(t *testing.T) {
 		"readonly assignment":   "readonly PLANNED=13\n",
 		"declare":               "declare -r PLANNED=13\n",
 		"typeset":               "typeset -r PLANNED=13\n",
+		"export":                "export PLANNED=13\n",
+		"local at top level":    "local PLANNED=13\n",
+		"declare -i":            "declare -i PLANNED=13\n",
 		"indented":              "    PLANNED=13\n",
 		"trailing comment":      "PLANNED=13   # the count\n",
 		"after a comment about": "# PLANNED=99 is the old value\nPLANNED=13\n",

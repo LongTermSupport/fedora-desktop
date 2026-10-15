@@ -137,13 +137,23 @@ func (g *gate) discoverShell() ([]string, error) {
 		if abs == "" {
 			continue
 		}
-		rel, err := filepath.Rel(g.root, abs)
+		rel, err := relativeTo(g.root, abs)
 		if err != nil {
-			return nil, fmt.Errorf("discovery named %s outside the repository root", abs)
+			return nil, err
 		}
-		files = append(files, filepath.ToSlash(rel))
+		files = append(files, rel)
 	}
 	return files, nil
+}
+
+// relativeTo is abs as a repository path; a path outside the root is an error (filepath.Rel
+// answers "../x" for one, with no error).
+func relativeTo(root, abs string) (string, error) {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", fmt.Errorf("discovery named %s outside the repository root", abs)
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 // checkPlanned compares every runnable scenario's planned count with the PLANNED of the checker

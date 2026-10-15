@@ -65,8 +65,8 @@ func (g *gate) validate(ctx context.Context, version int, manifest []byte) (verd
 func invalidReasons(stderr string) []string {
 	var reasons []string
 	for line := range strings.SplitSeq(strings.TrimSpace(stderr), "\n") {
-		if reason := strings.TrimSpace(strings.TrimPrefix(line, "ERROR: ")); reason != "" {
-			reasons = append(reasons, manifestFile+": "+reason)
+		if reason, ok := strings.CutPrefix(line, "ERROR: "); ok && strings.TrimSpace(reason) != "" {
+			reasons = append(reasons, manifestFile+": "+strings.TrimSpace(reason))
 		}
 	}
 	if len(reasons) == 0 {
