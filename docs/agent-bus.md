@@ -24,102 +24,112 @@ It is a Go binary (`src-go/cmd/ccy-teams`), built from this checkout and install
 `play-claude-yolo.yml`, so a change to its source reaches the desktop on the next run of
 that play.
 
-1. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
-   asks a few questions. First, what the team works on: inside a checkout, **this
-   repository** (the default, pre-filled as `owner/repo`), **everything one GitHub owner
-   owns** (an organisation or user), or **several repositories**, typed as one
-   comma-separated `owner/repo` list (up to 32, of any owners). Agents may send each other
-   to any file of those, on any branch; a public repository elsewhere reaches them only as
-   outside content, marked so (never forks, never private repositories elsewhere). Each
-   repository is checked as you type: its syntax, that it exists, and that your `gh` login
-   can push to it. A failing entry is named with its reason and the list comes back to edit
-   (three tries). Then the team's name (the repository's or owner's, lower-cased); the
-   people in its room (you, by default); and subnets of other machines (WireGuard peers,
-   a non-default bridge), usually none: LXC containers are admitted automatically. The summary says the scope in plain words
-   and asks one question, "Create team <name>?". Yes adds the team to `agent_bus_teams` in
-   your host_vars `localhost.yml` (backing the file up first), declares its Element
-   profile, and installs both at once: `play-agent-bus.yml` for the team, then
-   `play-agent-bus-element.yml` (sudo asks for your password), and says it is done only
-   once the homeserver is up. If a play fails, the entry stays written and
-   `ccy-teams apply <team>` runs both again. Straight after, it offers each person's
-   sign-in (step 2), offers to open Element, and, run inside a checkout the team covers,
-   offers to start a ccy session there (step 3). The questions need `gum` and a logged-in
-   `gh`; `--org`, `--repo`, `--team`, `--human` and `--yes` ask nothing. A team created
-   before this release that still carries the old `path_prefixes` limit
-   (`CLAUDE/Plan/`, `docs/`) is offered its removal, once, the next time `ccy-teams` opens.
-   Run in a GitHub checkout that no team covers, `ccy-teams` says so before listing the
-   other teams, and offers to create one for it.
-2. **Watch it in Element.** `create` has already set up the team's Element profile. In
-   `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
-   words. Until you have signed in, the first choice is "Sign in: set a password (shown
-   once)"; it shows the password with the homeserver and username, offers it to the
-   clipboard (for one paste, then gone; not while Clipboard Indicator is on, see
-   [Limits](#limits)), and then offers to open Element. Once you are signed in, the first choice is
-   "Open `<team>` in Element", and a new password is a separate choice that says how many of
-   your Element sessions it signs out, and asks first
-   ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
-   which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
-   it, and the header names the selected row's actions, so no key has to be guessed.
-   **Each team opens in its own Element window**, like a separate Slack sign-in: each team
-   is its own Matrix server, and an Element window is signed in to one account (GNOME groups
-   the windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open
-   every team in Element, a window each*. Why, and the alternatives weighed:
-   [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
-3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
-   asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
-   it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
-   excludes it), covering teams first, and a row to create a team. A single covering team is
-   taken without a list. Choosing a team that does not cover the checkout offers to add the
-   repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
-   no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
-   **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
-   takes them or the highlighted one), each marked team gets its own seat question, and the
-   launch prints which teams the session is on, with seat, role and what each is for; the status
-   line shows `bus: alpha,beta`, in any checkout (see
-   [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
-   team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
-   It then goes on as `ccy --teams <team>` (no seat), which shows this
-   checkout's seats in the team and launches a session into the one you choose: the lowest
-   free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
-   no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
-   configuration" at the Quick Launch prompt launches into them again (and records them in that
-   session's own record, which is all a reboot restore reads: a restore never gives a session
-   a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
-   covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
-4. **Add an LXC container's agent.** In `ccy-teams`, Enter on a row of the team, then *Add an
-   LXC container's agent to `<team>`*, or `ccy-teams lxc-add <team>`: it lists the host's
-   running containers, asks for the user, the checkout and the role (the handle's repo, host
-   and seat are derived from the checkout, as for a ccy seat), shows the handle,
-   writes the `agent_bus_lxc_members` entry and applies the team, then says what is left
-   inside the container (`gh auth login` if needed, then `ccy --teams <team>`). No hand edit
-   of `localhost.yml` (writing the entry yourself and running `play-agent-bus.yml` still
-   works). Nothing to declare for the network: every team admits the LXC bridge
-   ([Joining a team](#joining-a-team)); [agent-bus-lxc-members.md](agent-bus-lxc-members.md)
-   has the details.
-5. **Pings for actions, mentions for discussion.** An agent asks another to act with a ping
-   (pingbus's `send` verb: a fixed verb about a committed file). Free text one agent
-   addresses to another by mention (pingbus's `say` verb with `--to`) is for the discussion
-   around it, and the receiving agent reads it as a colleague's note, not an instruction.
-   A team human's message in Element, mentioning an agent, is an instruction to it: see
-   [Talking to agents from Element](#talking-to-agents-from-element).
-6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
-   comes back in the same seats when this machine restores sessions
-   (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
-   it back. Other members keep their bundles, and their sessions are started as before.
-7. **Back up and restore.** Each team is backed up daily on this machine.
-   `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
-   after a yes/no ([Backups](#backups-are-the-root-of-trust)).
-8. **Keep teams up to date.** After you edit a team's entry, or after this repository's
-   software changes, its APPLIED column says "out of date". `ccy-teams apply <team>`, or
-   `apply --all` (Ctrl-U in the picker, which also offers it when it opens), runs
-   `play-agent-bus.yml` for those teams and checks the result. Neither ever takes a team
-   down or deletes data: a team declared `absent`, or running but no longer declared,
-   says "decide" and is left alone. A full run of `play-agent-bus.yml` (the main playbook)
-   does apply an `absent` entry, as declared.
-9. **Take a team down.** `ccy-teams remove <team>` (or Ctrl-X on the team), on a terminal
-   only, one team at a time. It says what is lost, offers a backup first, and by default
-   keeps the team's data (its whole room history); deleting the data as well needs the
-   team's name typed.
+01. **Create a team.** `ccy-teams create`, or `ccy-teams` on a machine with no team yet,
+    asks a few questions. First, what the team works on: inside a checkout, **this
+    repository** (the default, pre-filled as `owner/repo`), **everything one GitHub owner
+    owns** (an organisation or user), or **several repositories**, typed as one
+    comma-separated `owner/repo` list (up to 32, of any owners). Agents may send each other
+    to any file of those, on any branch; a public repository elsewhere reaches them only as
+    outside content, marked so (never forks, never private repositories elsewhere). Each
+    repository is checked as you type: its syntax, that it exists, and that your `gh` login
+    can push to it. A failing entry is named with its reason and the list comes back to edit
+    (three tries). Then the team's name (the repository's or owner's, lower-cased); the
+    people in its room (you, by default); and subnets of other machines (WireGuard peers,
+    a non-default bridge), usually none: LXC containers are admitted automatically. The summary says the scope in plain words
+    and asks one question, "Create team <name>?". Yes adds the team to `agent_bus_teams` in
+    your host_vars `localhost.yml` (backing the file up first), declares its Element
+    profile, and installs both at once: `play-agent-bus.yml` for the team, then
+    `play-agent-bus-element.yml` (sudo asks for your password), and says it is done only
+    once the homeserver is up. If a play fails, the entry stays written and
+    `ccy-teams apply <team>` runs both again. Straight after, it offers each person's
+    sign-in (step 2), offers to open Element, and, run inside a checkout the team covers,
+    offers to start a ccy session there (step 3). The questions need `gum` and a logged-in
+    `gh`; `--org`, `--repo`, `--team`, `--human` and `--yes` ask nothing. A team created
+    before this release that still carries the old `path_prefixes` limit
+    (`CLAUDE/Plan/`, `docs/`) is offered its removal, once, the next time `ccy-teams` opens.
+    Run in a GitHub checkout that no team covers, `ccy-teams` says so before listing the
+    other teams, and offers to create one for it.
+02. **Watch it in Element.** `create` has already set up the team's Element profile. In
+    `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
+    words. Until you have signed in, the first choice is "Sign in: set a password (shown
+    once)"; it shows the password with the homeserver and username, offers it to the
+    clipboard (for one paste, then gone; not while Clipboard Indicator is on, see
+    [Limits](#limits)), and then offers to open Element. Once you are signed in, the first choice is
+    "Open `<team>` in Element", and a new password is a separate choice that says how many of
+    your Element sessions it signs out, and asks first
+    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
+    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
+    it, and the header names the selected row's actions, so no key has to be guessed.
+    **Each team opens in its own Element window**, like a separate Slack sign-in: each team
+    is its own Matrix server, and an Element window is signed in to one account (GNOME groups
+    the windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open
+    every team in Element, a window each*. Why, and the alternatives weighed:
+    [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
+03. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
+    asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
+    it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
+    excludes it), covering teams first, and a row to create a team. A single covering team is
+    taken without a list. Choosing a team that does not cover the checkout offers to add the
+    repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
+    no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
+    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
+    takes them or the highlighted one), each marked team gets its own seat question, and the
+    launch prints which teams the session is on, with seat, role and what each is for; the status
+    line shows `bus: alpha,beta`, in any checkout (see
+    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
+    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
+    It then goes on as `ccy --teams <team>` (no seat), which shows this
+    checkout's seats in the team and launches a session into the one you choose: the lowest
+    free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
+    no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
+    configuration" at the Quick Launch prompt launches into them again (and records them in that
+    session's own record, which is all a reboot restore reads: a restore never gives a session
+    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
+    covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
+04. **Add an LXC container's agent.** In `ccy-teams`, Enter on a row of the team, then *Add an
+    LXC container's agent to `<team>`*, or `ccy-teams lxc-add <team>`: it lists the host's
+    running containers, asks for the user, the checkout and the role (the handle's repo, host
+    and seat are derived from the checkout, as for a ccy seat), shows the handle,
+    writes the `agent_bus_lxc_members` entry and applies the team, then says what is left
+    inside the container (`gh auth login` if needed, then `ccy --teams <team>`). No hand edit
+    of `localhost.yml` (writing the entry yourself and running `play-agent-bus.yml` still
+    works). Nothing to declare for the network: every team admits the LXC bridge
+    ([Joining a team](#joining-a-team)); [agent-bus-lxc-members.md](agent-bus-lxc-members.md)
+    has the details.
+05. **Pings for actions, mentions for discussion.** An agent asks another to act with a ping
+    (pingbus's `send` verb: a fixed verb about a committed file). Free text one agent
+    addresses to another by mention (pingbus's `say` verb with `--to`) is for the discussion
+    around it, and the receiving agent reads it as a colleague's note, not an instruction.
+    A team human's message in Element, mentioning an agent, is an instruction to it: see
+    [Talking to agents from Element](#talking-to-agents-from-element).
+06. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
+    comes back in the same seats when this machine restores sessions
+    (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
+    it back. Other members keep their bundles, and their sessions are started as before.
+07. **Back up and restore.** Each team is backed up daily on this machine.
+    `ccy-teams backup <team>` takes one now; `ccy-teams restore <team> [<n>]` puts one back
+    after a yes/no ([Backups](#backups-are-the-root-of-trust)).
+08. **Keep teams up to date.** After you edit a team's entry, or after this repository's
+    software changes, its APPLIED column says "out of date". `ccy-teams apply <team>`, or
+    `apply --all` (Ctrl-U in the picker, which also offers it when it opens), runs
+    `play-agent-bus.yml` for those teams and checks the result. Neither ever takes a team
+    down or deletes data: a team declared `absent`, or running but no longer declared,
+    says "decide" and is left alone. A full run of `play-agent-bus.yml` (the main playbook)
+    does apply an `absent` entry, as declared.
+09. **Take a team down.** `ccy-teams remove <team>` (or Ctrl-X on the team), on a terminal
+    only, one team at a time. It says what is lost, offers a backup first, and by default
+    keeps the team's data (its whole room history); deleting the data as well needs the
+    team's name typed.
+10. **Shut down a team's sessions.** `ccy-teams shutdown <team>` (or Enter on the team, then
+    **Shut down every session of `<team>`**) lists the team's sessions on this host and the
+    members it cannot reach, asks (default No; `--yes` where there is no terminal), then
+    types `/exit` into each session's tmux pane, as you would (Escape first if it is busy).
+    A session still running after 60 s is stopped as ccy-sessions' End stops it; each seat
+    must then be free. Each member is reported: exited cleanly, stopped, failed, or not shut
+    down (an LXC agent, a session on another machine, a `cc --teams <team>` session whose
+    record lacks its seat: end those where they run). A session with unsent text in its
+    input box is left alone. It is local only, nothing goes on the bus, and the homeserver
+    keeps running. Spec: Plan 00201 `SPEC-shutdown.md`.
 
 `ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is

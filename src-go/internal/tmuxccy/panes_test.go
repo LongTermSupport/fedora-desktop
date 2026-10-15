@@ -98,6 +98,19 @@ func TestSendKeysAndEnterTargetsKeepTheColon(t *testing.T) {
 	}
 }
 
+func TestSendEscapePressesTheKeyInThePane(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"tmux", "-L", "ccy", "send-keys", "-t", "=alpha:", "Escape"}, ok(""))
+	tm := newTmux(f)
+	if err := tm.SendEscape(context.Background(), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	f.On([]string{"tmux"}, fail("no such pane"))
+	if err := tm.SendEscape(context.Background(), "alpha"); err == nil || !strings.HasPrefix(err.Error(), "pressing Escape in alpha failed: no such pane") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestKillSession(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"tmux", "-L", "ccy", "kill-session", "-t", "=alpha"}, ok(""))

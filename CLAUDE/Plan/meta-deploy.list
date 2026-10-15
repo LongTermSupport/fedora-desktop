@@ -19,3 +19,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00201 Task 2.14: rebuilds ccy-teams only (no ccy launcher or image change, so no image
+# rebuild and no session relaunch). Adds `ccy-teams shutdown <team>` and, on a team row's menu,
+# "Shut down every session of <team>": it types /exit into each of the team's sessions on this
+# host after a yes/no (default No), stops one that has not ended in 60 s, checks each seat is
+# free, and lists what it cannot reach (LXC agents). The table also shows the cc session that
+# holds a seat when its record names the seat.
+playbooks/imports/play-claude-yolo.yml
