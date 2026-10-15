@@ -60,6 +60,11 @@ Each is the owner's, with the reason given.
     needless attack surface.
   - A `--teams` launch without a relay-capable supervisor refuses to start and names why.
     There is no socket fallback.
+  - **Amended for now (owner, 2026-10-15, journal 17:10: "inject the structured message
+    itself, now").** Until the plugin of Task 2.1 can ship, the watcher writes this
+    envelope (rendered by `helpers/pingbus/envelope.py`) through the inbox socket, and
+    `crossSessionInbound: accept` stays: [SPEC-inject.md](SPEC-inject.md). The supervisor
+    path stays the target, and replaces the socket when it ships.
   - **The trade-off, stated plainly.** A peer's text no longer gets Claude Code's own "not
     your user" frame, which was enforced in the harness. The guard is now the envelope plus
     the kind pingbus assigns, which the model must honour. The owner accepted this for one

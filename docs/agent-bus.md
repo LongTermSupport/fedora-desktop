@@ -410,6 +410,22 @@ SessionEnd hook timeout is 1500 ms, so the kit's `"timeout": 6` on the `SessionE
 load-bearing: without it the goodbye would be cut off at 1.5 s. The test in
 `test_plugin_contract.py` pins it.
 
+**How messages reach the session.** A session in a team gets each message in its
+conversation as the message itself, where the person watching sees it: the watcher writes
+it through Claude Code's inbox socket as a delivery envelope (its first line starts "agent-bus delivery") that names the
+sender, whether a human or an agent sent it (`kind: HUMAN`, `PEER`, `PING`), the team, the
+time and the `reply:` command, with the sender's words as one quoted string below. Claude
+Code shows it under its own label "Another Claude session sent a message"; the SessionStart
+context tells the agent that label is the socket's. The agent does not run `pingbus recv`
+for it; `recv` and `history` still show the board, and `say` and `send` answer. A message
+longer than 2 KiB as shown is cut, with a pointer to `pingbus history`; an agent that sends
+more than ten messages in ten minutes is summarised on one "held back" line. If the socket
+cannot be written for two minutes, or a delivery never reaches the conversation, the
+session's hooks say so and point at `pingbus recv` or `pingbus history`, and `watch.log` in
+the session's pingbus home has the detail. The exact format and its threat model:
+`CLAUDE/Plan/00194-agent-bus-live-delivery-supervisor-plugin/SPEC-inject.md`; the protocol:
+[agent-bus-protocol.md](agent-bus-protocol.md) §15.
+
 **Relay mode choices.** `PINGBUS_DELIVERY=relay` is off by default and is opt-in per launch.
 Two visible differences from off are intended: `pingbus status` TEAM lines end with an
 additive `relay=off|on|stalled` field (fields are only ever appended), and a mistyped

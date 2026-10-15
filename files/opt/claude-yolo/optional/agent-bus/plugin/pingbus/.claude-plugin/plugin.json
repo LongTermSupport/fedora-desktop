@@ -1,5 +1,5 @@
 {
   "name": "pingbus",
-  "version": "1.1.0",
-  "description": "Agent team bus: wakes the session for pings and human messages, and the pingbus skill"
+  "version": "1.2.0",
+  "description": "Agent team bus: delivers pings and team messages into the session, and the pingbus skill"
 }

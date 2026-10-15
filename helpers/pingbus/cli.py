@@ -29,6 +29,7 @@ import os
 import pathlib
 import queue
 import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -38,7 +39,8 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
-from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify, protocol, relay, sentlog, syncer
+from helpers.pingbus import (config, envelope, forge, hooks, inbox, inject, limits, matrix, notify, protocol,
+                             relay, sentlog, syncer)
 from helpers.pingbus import seat as seating
 from helpers.pingbus import statusline
 
@@ -631,6 +633,21 @@ def _now_ms() -> int:
 
 
 @dataclasses.dataclass
+class DeliveryTiming:
+    """Socket delivery's clocks (SPEC-inject.md): the close wait of one write (E11), the
+    retry after a failed write and the stall after failures (E15), the quiet and the
+    give-up before a delivery not in the transcript is missing (E16), and how often a
+    delivery of held-back lines alone may go (E19)."""
+
+    send_timeout_s: float = notify.SEND_TIMEOUT_S
+    retry_s: float = 10.0
+    stall_after_s: float = relay.STALL_AFTER_S
+    missing_quiet_s: float = inject.MISSING_QUIET_S
+    missing_give_up_s: float = inject.MISSING_GIVE_UP_S
+    held_back_every_s: float = 60.0
+
+
+@dataclasses.dataclass
 class Runtime:
     """What the network commands take from their surroundings; tests replace the parts.
 
@@ -640,7 +657,7 @@ class Runtime:
     wait for a `recv` lock holder; `long_poll_ms` caps each `/sync` of `wait`; `tick_s` is how often
     `wait` looks for a TIMEOUT falling due while nothing arrives; `threads` collects
     `wait`'s and `watch`'s long-poll threads; `notice_interval_s` spaces the watcher's
-    notices; `spawn` starts the watcher from the SessionStart hook; `seats_root` is the
+    deliveries, and `delivery` holds its other clocks; `spawn` starts the watcher from the SessionStart hook; `seats_root` is the
     checkout's seats (`SEAT` lines, the claim), `session_home` the home a claim builds, and
     `execvpe` replaces the process with the session once its seats are claimed;
     `upstream` is the working directory's checkout and the branch it tracks (`send`);
@@ -657,6 +674,7 @@ class Runtime:
     tick_s: float = 1.0
     threads: list[threading.Thread] = dataclasses.field(default_factory=list)
     notice_interval_s: float = notify.NOTICE_MIN_INTERVAL_S
+    delivery: DeliveryTiming = dataclasses.field(default_factory=DeliveryTiming)
     spawn: Callable[[Mapping[str, str], pathlib.Path], object] = hooks.spawn_watcher
     seats_root: pathlib.Path = seating.CCY_SEATS_ROOT
     session_home: pathlib.Path = seating.SESSION_HOME
@@ -1103,10 +1121,12 @@ def _relay_confirm(seat: _Seat, spool: relay.Spool, rt: Runtime) -> int:
     return len(owed)
 
 
-def _spool_if_relaying(environ: Mapping[str, str]) -> relay.Spool | None:
-    """The relay spool when this session delivers by relay; with relay off there is no spool
-    to withdraw from or lock, and nothing relay-shaped is touched."""
-    return relay.Spool(config.resolve_home(environ)) if relay.enabled(environ) else None
+def _spool_lock(environ: Mapping[str, str]) -> relay.Spool:
+    """The spool whose lock `recv` and `wait` share with the watcher in either delivery mode
+    (relay, or the socket's: SPEC-inject.md E12), so an item is shown by one of them only.
+    Off relay mode nothing is spooled, so withdrawing from it only finds nothing."""
+    relay.enabled(environ)  # a mistyped PINGBUS_DELIVERY is refused here too
+    return relay.Spool(config.resolve_home(environ))
 
 
 def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
@@ -1126,7 +1146,7 @@ def _recv_team(member: config.Member, environ: Mapping[str, str], rt: Runtime,
             batch = seat.syncer.sync_once(0)
         record = seat.syncer.record
         drops.update(batch.drops)
-    printed, refetched = _deliver(seat, record, rt, out, err, _spool_if_relaying(environ))
+    printed, refetched = _deliver(seat, record, rt, out, err, _spool_lock(environ))
     drops.update(refetched)
     if drops:
         emit(dropped_line(drops), out, err)
@@ -1254,7 +1274,7 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
         except limits.LimitsError as exc:
             raise config.UsageError(f"wait --timeout: {exc}") from None
     waiting = _Waiting(rt.monotonic() + timeout)
-    spool = _spool_if_relaying(environ)
+    spool = _spool_lock(environ)
     held: list[tuple[_Seat, inbox.Lock]] = []
     pending: _Drops = {}
     handed_over: set[str] = set()
@@ -1314,24 +1334,6 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
 #: How long the watcher's `listening` status (§8) runs, and how often it renews it.
 WATCH_STATUS_TTL_MS = 600_000
 WATCH_STATUS_REFRESH_MS = 300_000
-
-
-def _pending_view(seats: Sequence[_Seat]) -> tuple[tuple[int, int, int, int], set[str]]:
-    """(total, from humans, from agents, pings) pending over every trusted team, re-validated
-    offline, and the pending items' `team:event ID` names (what the notifier compares)."""
-    total = humans = peers = pings = 0
-    ids: set[str] = set()
-    for seat in seats:
-        record = seat.syncer.record
-        if record is None:
-            continue
-        member = seat.member
-        pending = seat.state.pending(record.context(member.server_name), member.user_id,
-                                     human_text=member.human_text)
-        t, h, a, p = pending.counts()
-        total, humans, peers, pings = total + t, humans + h, peers + a, pings + p
-        ids.update(f"{member.team}:{item.event_id}" for item in pending.items)
-    return (total, humans, peers, pings), ids
 
 
 def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, status_ms: int) -> None:
@@ -1398,6 +1400,218 @@ def _relay_pass(seats: Sequence[_Seat], ledger: _RelayLedger, rt: Runtime, pendi
         err.write(f"{PROG}: relay {'stalled: no relay was confirmed in time' if stalled else 'delivers again'}\n")
 
 
+@dataclasses.dataclass
+class _Candidate:
+    """One entry of a socket delivery being built: an inbox item, or a TIMEOUT owed."""
+
+    seat: _Seat
+    entry: envelope.Entry
+    event_id: str
+    timeout: inbox.Timeout | None = None
+
+
+@dataclasses.dataclass
+class _Batch:
+    chosen: list[_Candidate]
+    dropped: list[tuple[_Seat, str, object, protocol.Outcome]]
+    held: list[tuple[_Seat, str, tuple[str, str]]]
+    more: int
+
+
+@dataclasses.dataclass
+class _Injector:
+    """What a socket-mode watcher keeps between passes (SPEC-inject.md)."""
+
+    path: str
+    token: str
+    spool: relay.Spool
+    marks: inject.Marks
+    stall: relay.Stall
+    check: inject.DeliveryCheck
+    budget: envelope.SenderBudget
+    held: dict[tuple[str, str], int] = dataclasses.field(default_factory=dict)
+    last_sent: float | None = None
+    held_sent: float | None = None
+    retry_at: float = 0.0
+    waiting: int = 0
+
+
+def _reply_command(team: str, server_name: str, record: protocol.TeamRecord,
+                   outcome: protocol.Outcome) -> str | None:
+    line = reply_line(team, server_name, record, outcome)
+    return None if line is None else line.rsplit("\t", 1)[1]
+
+
+_Found = tuple[tuple[int, int, int], _Seat, protocol.TeamRecord, inbox.Item | None, inbox.Timeout | None]
+
+
+def _candidates(seats: Sequence[_Seat], rt: Runtime) -> list[_Found]:
+    """Every trusted team's pending inbox items by `origin_server_ts`, then its TIMEOUTs due
+    (E20), across teams."""
+    order: list[_Found] = []
+    for seat in seats:
+        record = seat.syncer.record
+        if record is None:
+            continue
+        member = seat.member
+        ctx = record.context(member.server_name)
+        for item in seat.state.pending(ctx, member.user_id, human_text=member.human_text).items:
+            order.append(((0, item.origin_server_ts, len(order)), seat, record, item, None))
+        with seat.state.outbox() as box:
+            due = box.due_timeouts(rt.clock_ms(), member.limits)
+        order += [((1, 0, len(order)), seat, record, None, timeout) for timeout in due]
+    order.sort(key=lambda found: found[0])
+    return order
+
+
+def _choose(seats: Sequence[_Seat], inj: _Injector, rt: Runtime) -> _Batch:
+    """The next delivery's candidates, each item from its re-fetched copy (E1). Re-fetch is a
+    homeserver call, so this runs outside the spool lock and `_send_delivery` re-checks
+    everything under it. An agent sender past its budget is held back (E19)."""
+    batch = _Batch([], [], [], 0)
+    per_sender: collections.Counter[tuple[str, str]] = collections.Counter()
+    for _, seat, record, item, timeout in _candidates(seats, rt):
+        if len(batch.chosen) >= envelope.DELIVERY_MAX_ENTRIES:
+            batch.more += 1
+            continue
+        member = seat.member
+        if timeout is not None:
+            line = timeout_line(member.team, member.server_name, timeout.event_id, timeout.target,
+                                timeout.verb, timeout.ref)
+            entry = envelope.entry_from_line(line, handle=member.handle, ts_ms=None, reply=None)
+            batch.chosen.append(_Candidate(seat, entry, timeout.event_id, timeout))
+            continue
+        outcome, sender = _refetch(seat, record.context(member.server_name), item.event_id)
+        if outcome.kind != protocol.ACCEPT:
+            batch.dropped.append((seat, item.event_id, sender, outcome))
+            continue
+        entry = envelope.entry_from_line(
+            item_line(member.team, member.server_name, outcome), handle=member.handle,
+            ts_ms=item.origin_server_ts,
+            reply=_reply_command(member.team, member.server_name, record, outcome))
+        key = (entry.team, entry.sender)
+        if not inj.budget.allowed(entry.team, entry.sender, entry.kind, chosen=per_sender[key]):
+            batch.held.append((seat, item.event_id, key))
+            continue
+        per_sender[key] += 1
+        batch.chosen.append(_Candidate(seat, entry, item.event_id))
+    held = collections.Counter(inj.held)
+    held.update(key for _, _, key in batch.held)
+    fits = envelope.fit([c.entry for c in batch.chosen], held_back=held, more=batch.more)
+    batch.more += len(batch.chosen) - fits
+    batch.chosen = batch.chosen[:fits]
+    return batch
+
+
+def _settle_aside(batch: _Batch, inj: _Injector, rt: Runtime, pending: _Drops) -> None:
+    """With the spool lock held: consume what failed re-validation (a drop is logged, as
+    `recv` does) and what the flood limit holds back (counted for the next delivery)."""
+    now = rt.clock_ms()
+    for seat, event_id, sender, outcome in batch.dropped:
+        if not seat.state.in_inbox(event_id):
+            continue
+        if outcome.kind == protocol.DROP:
+            seat.state.log_drop(seat.member.team, event_id, sender, outcome.reason, now)
+            pending.setdefault(seat.member.team, collections.Counter())[outcome.reason] += 1
+        seat.state.consume(event_id)
+    for seat, event_id, key in batch.held:
+        if seat.state.in_inbox(event_id) and seat.state.consume(event_id):
+            inj.held[key] = inj.held.get(key, 0) + 1
+
+
+def _live(batch: _Batch, rt: Runtime, stack: contextlib.ExitStack) -> tuple[list[_Candidate], dict[str, object]]:
+    """The candidates still owed, re-checked with the spool lock held: an item still in the
+    inbox, a TIMEOUT still due and unreported. The outboxes stay open on `stack`."""
+    boxes: dict[str, object] = {}
+    live: list[_Candidate] = []
+    for candidate in batch.chosen:
+        state, member = candidate.seat.state, candidate.seat.member
+        if candidate.timeout is None:
+            if state.in_inbox(candidate.event_id):
+                live.append(candidate)
+            continue
+        if member.team not in boxes:
+            boxes[member.team] = stack.enter_context(state.outbox())
+        if candidate.timeout in boxes[member.team].due_timeouts(rt.clock_ms(), member.limits):
+            live.append(candidate)
+    return live, boxes
+
+
+def _send_delivery(batch: _Batch, inj: _Injector, rt: Runtime, pending: _Drops, err: TextIO) -> bool:
+    """With the spool lock held (E10, E12): re-check each candidate, write the delivery, and
+    consume what it carried once the payload was written in full (E11). True when a delivery
+    was written. `SocketGone` propagates and consumes nothing."""
+    now = rt.monotonic()
+    with inj.spool.exclusive(), contextlib.ExitStack() as stack:
+        _settle_aside(batch, inj, rt, pending)
+        live, boxes = _live(batch, rt, stack)
+        held_due = bool(inj.held) and (inj.held_sent is None
+                                       or now - inj.held_sent >= rt.delivery.held_back_every_s)
+        if not live and not held_due:
+            inj.waiting = batch.more
+            return False
+        nonce = secrets.token_hex(4)
+        text = envelope.render([c.entry for c in live], nonce, held_back=inj.held, more=batch.more)
+        before = inj.check.prepare()
+        try:
+            closed = notify.send_notice(inj.path, inj.token, text, timeout_s=rt.delivery.send_timeout_s)
+        except notify.SocketGone:
+            raise
+        except OSError as exc:
+            err.write(f"{PROG}: delivery not written, nothing consumed: {exc.strerror or exc}: "
+                      f"retry in {rt.delivery.retry_s:g} s\n")
+            inj.retry_at = now + rt.delivery.retry_s
+            inj.waiting = len(live) + batch.more
+            return False
+        for candidate in live:
+            if candidate.timeout is None:
+                candidate.seat.state.consume(candidate.event_id)
+            else:
+                boxes[candidate.seat.member.team].mark_reported([candidate.timeout])
+            inj.budget.spend(candidate.entry.team, candidate.entry.sender, candidate.entry.kind)
+        inj.held.clear()
+        inj.held_sent = inj.last_sent = now
+        inj.waiting = batch.more
+        inj.check.sent(nonce, before)
+    if not closed:
+        err.write(f"{PROG}: delivery {nonce} was written in full but the socket did not close within "
+                  f"{rt.delivery.send_timeout_s:g} s: counted as sent\n")
+    return True
+
+
+def _inject_pass(seats: Sequence[_Seat], inj: _Injector, rt: Runtime, pending: _Drops, err: TextIO) -> None:
+    """One socket-mode pass: report deliveries found missing from the transcript (E16), then,
+    once the pacing interval and any retry allow (E13, E15), build and write the next
+    delivery, and keep the stall mark (E15)."""
+    for nonce in inj.check.poll()[1]:
+        err.write(f"{PROG}: delivery {nonce} is missing: it is not in the session's transcript; "
+                  "Claude Code may be holding socket messages. Its items are in `pingbus history`\n")
+    now = rt.monotonic()
+    paced = inj.last_sent is not None and now - inj.last_sent < rt.notice_interval_s
+    delivered = False
+    if not paced and now >= inj.retry_at:
+        try:
+            batch = _choose(seats, inj, rt)
+        except FAILURES as exc:
+            _, message = failure(exc)
+            err.write(f"{PROG}: {message}: delivery retries in {rt.delivery.retry_s:g} s\n")
+            inj.retry_at = now + rt.delivery.retry_s
+            # What waits is still owed: the stall clock must run (Fable M1). Counting is local;
+            # if even that fails, something is owed all the same.
+            try:
+                owed = len(_candidates(seats, rt))
+            except FAILURES:
+                owed = 1
+            inj.waiting = max(inj.waiting, owed)
+        else:
+            delivered = _send_delivery(batch, inj, rt, pending, err)
+    stalled = inj.stall.observe(waiting=inj.waiting, confirmed=1 if delivered else 0)
+    if stalled != inj.marks.stalled():
+        inj.marks.set_stalled(stalled)
+        state = "stalled: nothing was written to the socket in time" if stalled else "works again"
+        err.write(f"{PROG}: delivery {state}\n")
+
+
 def _session_socket(environ: Mapping[str, str]) -> tuple[str, str]:
     try:
         session = notify.session_socket(environ)
@@ -1413,8 +1627,9 @@ def _session_socket(environ: Mapping[str, str]) -> tuple[str, str]:
 
 def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Hold every active team's lock as a watcher (a busy team is reported and skipped;
-    exit 75 only when every team is busy), keep the inbox filled, and write a counts-only
-    notice to the session's socket whenever a new item is pending. Exits 0 when the socket
+    exit 75 only when every team is busy), keep the inbox filled, and write each pending item
+    to the session's socket as a delivery envelope (SPEC-inject.md), consuming what was
+    written. Exits 0 when the socket
     goes (the session ended). A team that fails is reported and dropped, and the others go
     on; once no team is left, it exits with the first failure's code."""
     rt: Runtime = args.runtime
@@ -1431,7 +1646,7 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
     handed_over: set[str] = set()
     try:
         for member in members:
-            seat = _seat(member, environ, rt, err, reads=relaying)
+            seat = _seat(member, environ, rt, err, reads=True)
             try:
                 held.append((seat, _take_waiter_lock(seat.state, rt, "watch")))
             except inbox.Busy as busy:
@@ -1449,10 +1664,17 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
         status_ms = rt.clock_ms()
         for seat in seats:
             seat.syncer.publish_status(status_ms + WATCH_STATUS_TTL_MS)
-        notifier = None if relaying else notify.Notifier(
-            lambda text: notify.send_notice(path, token, text), first_number=max(1, rt.clock_ms()),
-            clock=rt.monotonic, min_interval_s=rt.notice_interval_s)
-        ledger = _RelayLedger(relay.Spool(config.resolve_home(environ)), relay.Stall(rt.monotonic))
+        home = config.resolve_home(environ)
+        ledger = _RelayLedger(relay.Spool(home), relay.Stall(rt.monotonic))
+        marks = inject.Marks(home, path)
+        if not relaying:
+            marks.set_stalled(False)  # nothing is outstanding yet: old marks are not this watcher's
+            marks.set_missing(False)
+        injector = None if relaying else _Injector(
+            path, token, relay.Spool(home), marks, relay.Stall(rt.monotonic, rt.delivery.stall_after_s),
+            inject.DeliveryCheck(marks, rt.monotonic, quiet_s=rt.delivery.missing_quiet_s,
+                                 give_up_s=rt.delivery.missing_give_up_s),
+            envelope.SenderBudget(rt.monotonic))
         for seat, lock in held:
             thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, status_ms),
                                       daemon=True, name=f"pingbus-watch-{seat.member.team}")
@@ -1468,17 +1690,17 @@ def cmd_watch(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO,
             elif not notify.socket_present(path):
                 err.write(f"{PROG}: the session socket is gone: the watcher exits\n")
                 return EXIT_OK
-            if not relaying:
-                try:
-                    notifier.observe(*_pending_view(seats))
-                except notify.SocketGone as gone:
-                    err.write(f"{PROG}: {gone}: the watcher exits\n")
-                    return EXIT_OK
             waiting.woke.wait(rt.tick_s)
             waiting.woke.clear()
             _collect_drops(waiting, pending)
             if relaying:
                 _relay_pass(seats, ledger, rt, pending, err)
+            else:
+                try:
+                    _inject_pass(seats, injector, rt, pending, err)
+                except notify.SocketGone as gone:
+                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    return EXIT_OK
             _emit_drops(pending, out, err)
             while len(waiting.failures) > reported:
                 team, exc = waiting.failures[reported]
