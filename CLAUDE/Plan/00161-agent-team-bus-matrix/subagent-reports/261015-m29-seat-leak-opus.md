@@ -63,6 +63,14 @@ each launch or not at all. `scripts/test-ccy-teams.bash` asserted the wrong beha
 - Red first: 4 failures (EOF joined the seat, recorded it, gave no message; the summary named
   the role), then 167 passed.
 
+## Parser fix (semgrep tree-sitter-bash)
+
+semgrep rejected the whole launcher at line 1 after this change. The construct was the
+two-assignment command `SPECIFIED_NETWORK="$LAST_NETWORK" NETWORK_FROM_CONFIG=true` as the
+body of the `if [[ -n "$LAST_NETWORK" ]]` in the Quick Launch `case` arm. It is now one
+and-list, `[[ -z "$LAST_NETWORK" ]] || NETWORK_FROM_CONFIG=true SPECIFIED_NETWORK="$LAST_NETWORK"`,
+with the same behaviour. The code-line record is now 2830.
+
 ## Real-path proof
 
 These are harness tests of the extracted Quick Launch block against fakes. The proof on the
