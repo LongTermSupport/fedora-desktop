@@ -20,51 +20,22 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00194 Task 2.0c and Plan 00201's UX fixes and security fixes: deploys the ccy launcher
-# 3.98.10, which requires container 2.65, so the next ccy launch rebuilds the image once. Its
-# pingbus watcher writes each team message into the session as an `agent-bus delivery` envelope
-# (who sent it, human or agent, team, and the reply command) instead of the "N pending, run
-# pingbus recv" notice; a human's accents, other scripts and emoji read as written; the agent's
-# answer is an Element reply to the message, and Element shows the agent's avatar under each
-# message it received; the skill and delivery frame carry the security rules (plugin 1.2.2).
-# Rebuilds ccy-teams: Enter on a team row has "Open every team in Element, a window each"; a
-# run that used sudo drops the credential before it exits; the launch block names who can
-# direct a session; a copied password is cleared after 45 seconds. cc --teams gets the new
-# deny rules and consent text. Running ccy sessions keep their old image until each is
-# relaunched.
+# Plan 00201's UX fixes and security fixes: deploys the ccy launcher 3.98.10, which requires
+# container 2.65, so the next ccy launch rebuilds the image once. In the envelope a human's
+# accents, other scripts and emoji read as written; the agent's answer is an Element reply to
+# the message, and Element shows the agent's avatar under each message it received; the skill
+# and delivery frame carry the security rules (plugin 1.2.2). Rebuilds ccy-teams: Enter on a
+# team row has "Open every team in Element, a window each"; a run that used sudo drops the
+# credential before it exits, Ctrl-C included; the launch block names who can direct a
+# session; a copied password serves one paste and is then gone. cc --teams gets the new deny
+# rules and consent text. Running ccy sessions keep their old image until each is relaunched.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Task 2.0c and Plan 00201's UX and security fixes: agent-bus-install software puts
-# the same pingbus and kit in /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC
-# members get the same envelopes, replies, read receipts and security rules; and the agent-bus
-# seat commands ccy and cc launch through, so a launch naming a stopped team says `ccy-teams
-# apply <team>`, an unknown one lists the teams here, and `seat take` and `seat remove` end
-# with `sudo -k`. No team, homeserver or firewall rule changes; every team then reads "out of
-# date: software" until applied (ccy-teams offers it). The owner's checks, SPEC-inject.md
-# section 7 H1-H7 among them, are in Plan 00201's ACCEPTANCE-owner.md, after its "Morning
-# start".
+# Plan 00201's UX and security fixes: agent-bus-install software puts the same pingbus and kit
+# in /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get the same
+# envelopes, replies, read receipts and security rules; and the agent-bus seat commands ccy and
+# cc launch through, so a launch naming a stopped team says `ccy-teams apply <team>`, an
+# unknown one lists the teams here, and `seat take` and `seat remove` end with `sudo -k`. No
+# team, homeserver or firewall rule changes; every team then reads "out of date: software"
+# until applied (ccy-teams offers it). The owner's checks are in Plan 00201's
+# ACCEPTANCE-owner.md, from its "Morning start".
 playbooks/imports/play-agent-bus.yml
-# Plan 00161: its acceptance again, since its M2 leg now reads the delivery envelope's first
-# line and accepts an answer by `pingbus send` as well as `pingbus recv`.
-00161-agent-team-bus-matrix
-# Plan 00201: the automated two-team acceptance again on the new pingbus (it saves and puts
-# back the Quick Launch record). Then the owner's steps: ACCEPTANCE-owner.md, from its
-# "Morning start".
-00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# Plan 00199: rebuilds md-viewer at the M12 commit (non-regular files never block, tracked-files-only
-# label test); nothing else changes.
-playbooks/imports/optional/common/play-md-viewer.yml
-
-# Plan 00192 (watermark port): the watermarking play now builds /usr/local/bin/watermark from
-# src-go/cmd/watermark (installing the Go toolchain first) in place of the bash script, and
-# redeploys the example config whose comments now say the files are read, not sourced. After
-# it runs, `watermark --profile <name> photo.jpg` twice (the second exits 3) proves the binary
-# (SPEC-wsi-watermark.md section 7, H3). A config file that relied on being sourced (a `$`
-# expansion, an unquoted space) is now refused with its file and line.
-playbooks/imports/optional/common/play-image-watermarking.yml
-
-# Plan 00192 (wsi port): the speech-to-text play now builds ~/.local/bin/wsi from src-go/cmd/wsi
-# (installing the Go toolchain first) in place of the bash script; the panel extension and the
-# sibling helpers are unchanged. After it runs, an Insert, speech, Insert dictation pastes into a
-# terminal and an editor, and Escape mid-recording discards it (SPEC-wsi-watermark.md section 7,
-# H1 and H2).
-playbooks/imports/optional/common/play-speech-to-text.yml
