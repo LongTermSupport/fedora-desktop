@@ -448,3 +448,26 @@ func TestB18AnUnsetHomeIsAnErrorAndAnUnsetUserIsTheAccount(t *testing.T) {
 		t.Fatalf("calls %q", k.calls())
 	}
 }
+
+func TestB11APreflightFailureLeavesAFileAtTheRecordingPathAlone(t *testing.T) {
+	k := newKit(t)
+	k.missing = []string{"sox"}
+	if err := os.WriteFile(k.wav(), []byte("not ours"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := k.exec(); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	if _, err := os.Stat(k.wav()); err != nil {
+		t.Fatalf("a run that never recorded removed the file: %v", err)
+	}
+}
+
+func TestL3TheTranscriberInstallHintIsThePipLine(t *testing.T) {
+	k := newKit(t)
+	k.missing = []string{"faster-whisper-transcribe"}
+	if code := k.exec("-d"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	k.wantStderr("[ERROR]     Install: pip install --user faster-whisper")
+}

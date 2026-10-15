@@ -240,8 +240,10 @@ func (r *run) cleanup(ctx context.Context) {
 	default:
 		r.log.debug("PID file names " + strings.TrimSpace(string(data)) + ", not this client; left in place")
 	}
-	for _, f := range []string{r.wav, r.wav + ".resampled.wav", r.wav + ".padded"} {
-		r.remove(f)
+	if r.recording != nil {
+		for _, f := range []string{r.wav, r.wav + ".resampled.wav", r.wav + ".padded"} {
+			r.remove(f)
+		}
 	}
 	r.panel.state(ctx, stateIdle)
 }

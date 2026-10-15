@@ -31,7 +31,7 @@ Exit codes:
   2  argument or validation error
   3  idempotency skip (already watermarked; pass --force to override)
   4  magick (visible watermark) failed
-  5  exiftool (metadata write) failed
+  5  exiftool (metadata write) failed; the unmarked output is removed, even a file --force overwrote
 
 Examples:
   watermark photo.jpg

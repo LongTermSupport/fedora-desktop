@@ -200,7 +200,7 @@ func (r *run) targetWhy() string {
 // press is one ydotool chord through the daemon's socket.
 func (r *run) press(ctx context.Context, keys []string) error {
 	_, err := r.env.Runner.Run(ctx, execx.Cmd{
-		Name: "ydotool",
+		Name: ydotoolBin,
 		Args: append([]string{"key"}, keys...),
 		Env:  []string{"YDOTOOL_SOCKET=" + r.socket},
 	})

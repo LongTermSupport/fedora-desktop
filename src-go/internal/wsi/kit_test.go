@@ -82,6 +82,8 @@ type kit struct {
 	// autoFire lists the timer durations that fire as soon as they are set.
 	autoFire map[time.Duration]bool
 	sleeps   []time.Duration
+	// held, when set, receives the prepare delay's channel so a test fires it by hand.
+	held chan chan time.Time
 
 	mu        sync.Mutex
 	pasteKeys []string // PasteKey replies, the last repeating; none: the method is missing
@@ -208,6 +210,10 @@ func (k *kit) app() App {
 		},
 		After: func(d time.Duration) <-chan time.Time {
 			ch := make(chan time.Time, 1)
+			if k.held != nil && d == prepareDelay {
+				k.held <- ch
+				return ch
+			}
 			if k.autoFire[d] {
 				ch <- time.Time{}
 			}

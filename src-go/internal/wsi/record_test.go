@@ -173,3 +173,16 @@ func TestW16TheRealRecorderIsInterruptedWhenStopped(t *testing.T) {
 		t.Fatalf("the recorder got %q (%v), want INT", got, err)
 	}
 }
+
+func TestW16ALimitIsArmedEvenWhenAStopWasPendingAtTheEndOfThePrepareDelay(t *testing.T) {
+	k := graceKit(t, "100")
+	delete(k.onState, "RECORDING")
+	k.held = make(chan chan time.Time, 1)
+	k.autoFire[maxRecording] = true
+	k.onState["STOPPING"] = func() { (<-k.held) <- time.Time{} }
+	k.signals <- syscall.SIGTERM
+	if code := k.exec("-v"); code != 0 {
+		t.Fatalf("exit %d: %s", code, k.errb.String())
+	}
+	k.wantStderr("[DEBUG] 30-second limit reached, auto-stopping recording")
+}
