@@ -8,7 +8,8 @@
 # by qa-changed.bash for any changed src-go/ file.
 #
 # Steps, in order, each a hard failure: formatting (golangci-lint fmt --diff, any diff
-# fails), go vet, go test -race with a whole-module statement coverage floor
+# fails), go build ./... (test files are not loaded, so a production file calling a helper
+# defined only in a _test.go file fails here and nowhere else), go vet, go test -race with a whole-module statement coverage floor
 # (GO_COVERAGE_FLOOR), golangci-lint run. golangci-lint fmt exits 0 when it
 # prints a diff, so the verdict is "printed nothing", not its exit code.
 #
@@ -48,7 +49,6 @@ fi
 # not ordinary drift. Raise it as coverage rises; never lower it to let a change in.
 GO_COVERAGE_FLOOR=90
 
-QA_DIR="$GO_DIR/qa"
 OUT="$(mktemp)"
 PROFILE="$(mktemp)"
 VETTOOL="$(mktemp)"
@@ -75,6 +75,7 @@ check_module() {
         cat "$OUT" >&2
         exit 1
     fi
+    run_step "go build, without test files ($dir)" go build ./...
     run_step "go vet ($dir)" go vet ./...
     run_step "go test -race ($dir)" go test -race -coverprofile="$PROFILE" ./...
     PACKAGES="$(awk '/^ok/ {n++} END {print n + 0}' "$OUT")"
@@ -103,7 +104,7 @@ check_module() {
     run_step "golangci-lint ($dir)" golangci-lint run ./...
 }
 
-check_module "$QA_DIR"
+check_module "$GO_DIR/qa"
 QA_PACKAGES="$PACKAGES"
 QA_COVERAGE="$COVERAGE"
 check_module "$GO_DIR"
@@ -112,8 +113,8 @@ check_module "$GO_DIR"
 # ./... stops at the nested module, so a second pass runs over the qa module itself; the rules
 # package is exempt from the one rule it cannot obey, in the rules' own table). Any finding
 # fails the gate; a driver that does not build or a vet that cannot run is a failure.
-run_step "project rules driver build" go build -C "$QA_DIR" -o "$VETTOOL" ./driver
+run_step "project rules driver build" go build -C "$GO_DIR/qa" -o "$VETTOOL" ./driver
 run_step "project rules (CLAUDE/GoProjectRules.md)" go vet -vettool="$VETTOOL" ./...
-run_step "project rules over the qa module" go vet -C "$QA_DIR" -vettool="$VETTOOL" ./...
+run_step "project rules over the qa module" go vet -C "$GO_DIR/qa" -vettool="$VETTOOL" ./...
 
 echo "GO-OK $PACKAGES package(s), all tested: fmt, vet, test -race, coverage ${COVERAGE}% (floor ${GO_COVERAGE_FLOOR}%), golangci-lint clean; qa module $QA_PACKAGES package(s) at ${QA_COVERAGE}%; project rules clean"
