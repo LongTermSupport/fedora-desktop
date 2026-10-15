@@ -180,6 +180,14 @@ func TestAFixtureWithoutAnnotationsOrMissingARuleProvesNothingAndIsExitTwo(t *te
 	}
 }
 
+// S7: todoruleid certifies nothing (semgrep does not fail a todoruleid line that does not match),
+// so it does not count as a ruleid line.
+func TestATodoruleidAnnotationDoesNotProveARule(t *testing.T) {
+	w := newWorld(t, map[string]string{pyFixtureFile: "# todoruleid: model-present-without-weights\n"})
+	w.wantExit(ExitCannotRun, w.run())
+	w.wantStderr("ERROR: " + pyFixtureFile + " marks no ruleid line for model-present-without-weights")
+}
+
 // S7: two ids on one annotation line both count.
 func TestOneAnnotationMayNameSeveralRules(t *testing.T) {
 	w := newWorld(t, map[string]string{jsFixtureFile: "// ruleid: model-present-without-weights, dropdown-label-carries-explanation\n"})
@@ -248,6 +256,64 @@ func TestTheDefaultScopeIsTheJavaScriptAndPythonFilesLessTheExcludedTrees(t *tes
 		t.Fatalf("handed %v, want %v", got, want)
 	}
 	w.wantStdout("passed: 5 failed: 0\n")
+}
+
+// S9: the vendored trees are the trees table's business (discovery drops them), this gate adds
+// only its own fixtures; so a table without .claude/skills judges a file there.
+func TestTheVendoredTreesComeFromTheTreesTableAlone(t *testing.T) {
+	w := newWorld(t, map[string]string{"scripts/qa-trees.tsv": "shell\t.semgrep\npython\t.venv\n"})
+	w.wantExit(ExitOK, w.run())
+	if !slices.Contains(w.fake.handedFiles(), ".claude/skills/s/run.py") || slices.Contains(w.fake.handedFiles(), ".semgrep/unrelated.py") {
+		t.Fatalf("handed %v", w.fake.handedFiles())
+	}
+}
+
+// S10: the shebang is parsed, not searched: a name that merely contains python is not Python.
+func TestANamedFileWhoseInterpreterOnlyContainsPythonIsNotPython(t *testing.T) {
+	w := newWorld(t, map[string]string{"a/t1": "#!/usr/bin/perl # python\n", "a/t2": "#!/bin/sh -c 'exec python'\n", "a/t3": "#!/usr/bin/env -S python3.12 -u\n"})
+	for _, p := range []string{"a/t1", "a/t2"} {
+		w.stderr.Reset()
+		w.wantExit(ExitCannotRun, w.run(p))
+		w.wantStderr("ERROR: " + p + " is neither JavaScript nor Python")
+	}
+	w.wantExit(ExitOK, w.run("a/t3"))
+}
+
+// S17: the count is of the files semgrep reports it read.
+func TestPassedCountsWhatSemgrepReportsRead(t *testing.T) {
+	w := newWorld(t, nil)
+	w.fake.scan = func(_ string, files []string) proc.Result {
+		return reportFor(t, append(slices.Clone(files), files...), nil, nil)
+	}
+	w.wantExit(ExitOK, w.run("helpers/mod.py"))
+	w.wantStdout("passed: 1 failed: 0\n")
+	w = newWorld(t, nil)
+	w.fake.scan = func(_ string, files []string) proc.Result {
+		return reportFor(t, append(slices.Clone(files), "extra/one.py", "extra/two.py"), nil, nil)
+	}
+	w.wantExit(ExitOK, w.run("helpers/mod.py"))
+	w.wantStdout("passed: 3 failed: 0\n")
+}
+
+// S8: a rule file semgrep cannot load is the gate's input being unusable, exit 2 with its cause,
+// not a rule that stopped matching.
+func TestARuleFileSemgrepCannotLoadIsExitTwoWithItsCause(t *testing.T) {
+	w := newWorld(t, nil)
+	w.fake.test = proc.Result{Code: 2, Stderr: "invalid pattern-regex\n"}
+	w.wantExit(ExitCannotRun, w.run())
+	w.wantStderr("ERROR: semgrep could not run the self-test (exit 2)", "invalid pattern-regex")
+	if len(w.fake.scans()) != 0 {
+		t.Fatal("a scan ran")
+	}
+}
+
+// S8: semgrep also exits 2 for a rule id that a fixture annotates and the rules do not hold
+// (a rule edited into another name); that is a fixture the rules failed, exit 1.
+func TestARuleIdMismatchIsAFailedFixtureNotAnUnusableRuleFile(t *testing.T) {
+	w := newWorld(t, nil)
+	w.fake.test = proc.Result{Code: 2, Stderr: "Failing due to rule id mismatch.\n"}
+	w.wantExit(ExitFailed, w.run())
+	w.wantStderr("failed its fixture", "rule id mismatch")
 }
 
 // S9 / B1: a new file git has not been told about is judged too.
@@ -338,8 +404,8 @@ func TestANamedFileThatIsNeitherLanguageIsExitTwo(t *testing.T) {
 // S10
 func TestANamedFileInAnExcludedTreeIsJudgedBecauseItWasNamed(t *testing.T) {
 	w := newWorld(t, nil)
-	w.wantExit(ExitOK, w.run(".semgrep/unrelated.py", ".claude/skills/s/run.py"))
-	if got := w.fake.handedFiles(); !slices.Equal(got, []string{".claude/skills/s/run.py", ".semgrep/unrelated.py"}) {
+	w.wantExit(ExitOK, w.run(".semgrep/unrelated.py"))
+	if got := w.fake.handedFiles(); !slices.Equal(got, []string{".semgrep/unrelated.py"}) {
 		t.Fatalf("handed %v", got)
 	}
 }
@@ -521,7 +587,7 @@ func TestALostFileIsNamedAndNotAPass(t *testing.T) {
 		return reportFor(t, slices.DeleteFunc(slices.Clone(files), func(f string) bool { return f == "helpers/mod2.py" }), nil, nil)
 	}
 	w.wantExit(ExitCannotRun, w.run())
-	w.wantStderr("ERROR: semgrep did not scan files it was handed:", "    helpers/mod2.py", "is not a pass")
+	w.wantStderr("ERROR: semgrep did not scan Python files it was handed:", "    helpers/mod2.py", "is not a pass")
 	if w.stdout.Len() != 0 {
 		t.Fatalf("stdout %q", w.stdout.String())
 	}

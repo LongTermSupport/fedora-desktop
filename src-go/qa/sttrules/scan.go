@@ -3,11 +3,9 @@ package sttrules
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -23,22 +21,7 @@ type finding struct {
 
 func (f finding) String() string { return fmt.Sprintf("%s:%d: %s", f.path, f.line, f.rule) }
 
-// semgrepReport is the part of semgrep's JSON that matters.
-type semgrepReport struct {
-	Results []semgrepreport.Result `json:"results"`
-	Errors  []struct {
-		Path    string `json:"path"`
-		Message string `json:"message"`
-	} `json:"errors"`
-	Paths *struct {
-		Scanned []string `json:"scanned"`
-	} `json:"paths"`
-}
-
-// tidy is a path as the repository names it: no leading ./.
-func tidy(p string) string { return filepath.ToSlash(filepath.Clean(strings.TrimPrefix(p, "./"))) }
-
-// outcome is what the scans found and how many files semgrep read.
+// outcome is what the scans found and how many files semgrep says it read.
 type outcome struct {
 	found   []finding
 	scanned int
@@ -74,72 +57,38 @@ func (g *gate) scanAll(ctx context.Context, set ruleSet, sets fileSets, dir stri
 		if err != nil {
 			return outcome{}, err
 		}
-		total.found = append(total.found, got...)
-		total.scanned += len(files)
+		total.found = append(total.found, got.found...)
+		total.scanned += got.scanned
 	}
 	return total, nil
 }
 
 // scanLanguage hands the files to semgrep by name, never as a directory (a directory scan applies
 // semgrep's default ignore list, which skips tests/), and refuses a pass over any it did not read.
-func (g *gate) scanLanguage(ctx context.Context, lang language, rules string, files []string) ([]finding, error) {
+func (g *gate) scanLanguage(ctx context.Context, lang language, rules string, files []string) (outcome, error) {
 	argv := slices.Concat([]string{
 		"semgrep", "--metrics=off", "--disable-version-check", "--config", rules,
 		"--no-rewrite-rule-ids", "--scan-unknown-extensions", "--json", "--quiet", "--max-target-bytes=0",
 	}, files)
 	res, err := g.runTool(ctx, semgrepTimeout, argv...)
 	if err != nil {
-		return nil, err
+		return outcome{}, err
 	}
 	if res.Code >= 2 || strings.TrimSpace(res.Stdout) == "" {
-		return nil, fmt.Errorf("semgrep failed on the %s files (exit %d):\n%s", nounOf[lang], res.Code, g.scrub(strings.TrimSpace(res.Stderr)))
+		return outcome{}, fmt.Errorf("semgrep failed on the %s files (exit %d):\n%s", nounOf[lang], res.Code, g.scrub(strings.TrimSpace(res.Stderr)))
 	}
-	var rep semgrepReport
-	if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil {
-		return nil, fmt.Errorf("semgrep's report on the %s files cannot be read: %w", nounOf[lang], err)
+	rep, err := semgrepreport.Decode(res.Stdout)
+	if err != nil {
+		return outcome{}, fmt.Errorf("on the %s files: %w", nounOf[lang], err)
 	}
-	if err := judge(lang, files, rep); err != nil {
-		return nil, err
+	if err := rep.Judge(nounOf[lang], files); err != nil {
+		return outcome{}, err
 	}
 	found := make([]finding, 0, len(rep.Results))
 	for _, r := range rep.Results {
-		found = append(found, finding{path: tidy(r.Path), line: r.Start.Line, rule: r.CheckID})
+		found = append(found, finding{path: semgrepreport.Tidy(r.Path), line: r.Start.Line, rule: r.CheckID})
 	}
-	return found, nil
-}
-
-// judge refuses a report over code the analyser did not read: a parse error, or a file handed
-// over that it never opened (or skipped).
-func judge(lang language, files []string, rep semgrepReport) error {
-	if len(rep.Errors) > 0 {
-		lines := make([]string, 0, len(rep.Errors))
-		for _, e := range rep.Errors {
-			path := e.Path
-			if path == "" {
-				path = "?"
-			}
-			lines = append(lines, fmt.Sprintf("    %s: %s", path, e.Message))
-		}
-		return fmt.Errorf("semgrep could not parse some %s files, so no rule ran on them:\n%s", nounOf[lang], strings.Join(lines, "\n"))
-	}
-	if rep.Paths == nil {
-		return errors.New("semgrep's report has no paths.scanned: it cannot be told what was read")
-	}
-	read := map[string]bool{}
-	for _, p := range rep.Paths.Scanned {
-		read[tidy(p)] = true
-	}
-	var lost []string
-	for _, rel := range files {
-		if !read[tidy(rel)] {
-			lost = append(lost, "    "+rel)
-		}
-	}
-	if len(lost) > 0 {
-		slices.Sort(lost)
-		return fmt.Errorf("semgrep did not scan files it was handed:\n%s\n  A pass reported over files the analyser never opened is not a pass", strings.Join(lost, "\n"))
-	}
-	return nil
+	return outcome{found: found, scanned: rep.ScannedCount()}, nil
 }
 
 // finish prints the verdict: the findings sorted without duplicates, then the counts the qa-all

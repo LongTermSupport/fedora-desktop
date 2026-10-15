@@ -120,6 +120,11 @@ func (s *session) script(ctx context.Context, env []string, name string) (checkR
 	return s.exec(ctx, env, "bash", filepath.Join(s.scripts, name))
 }
 
+// scriptOver runs one of the repository's gate scripts over the named files only.
+func (s *session) scriptOver(ctx context.Context, name string, files []string) (checkResult, error) {
+	return s.exec(ctx, nil, slices.Concat([]string{toolBash, filepath.Join(s.scripts, name)}, files)...)
+}
+
 func runToolchain(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-toolchain.bash")
 }
@@ -146,8 +151,7 @@ func runGhScopes(ctx context.Context, s *session, _ *checkPlan) (checkResult, er
 
 // runReadyWaitFiles runs the ready-wait gate over the changed Python and shell files only.
 func runReadyWaitFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	argv := append([]string{toolBash, filepath.Join(s.scripts, "qa-ready-wait-rules.bash")}, cp.items...)
-	return s.exec(ctx, nil, argv...)
+	return s.scriptOver(ctx, "qa-ready-wait-rules.bash", cp.items)
 }
 
 func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
@@ -156,8 +160,7 @@ func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, e
 
 // runSttRulesFiles runs the speech-to-text rules gate over the changed JavaScript and Python files only.
 func runSttRulesFiles(ctx context.Context, s *session, cp *checkPlan) (checkResult, error) {
-	argv := append([]string{toolBash, filepath.Join(s.scripts, "qa-speech-to-text-rules.bash")}, cp.items...)
-	return s.exec(ctx, nil, argv...)
+	return s.scriptOver(ctx, "qa-speech-to-text-rules.bash", cp.items)
 }
 
 func runSttRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

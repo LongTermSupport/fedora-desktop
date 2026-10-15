@@ -44,6 +44,7 @@ python	.claude/ccy/plugins
 python	.claude/ccy/file-history
 python	.claude/ccy/projects
 python	.claude/worktrees
+python	.claude/skills
 python	roles/vendor
 python	node_modules
 python	untracked

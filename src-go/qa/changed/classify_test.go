@@ -621,6 +621,18 @@ func TestAChangedScriptRunsTheSpeechToTextRulesOnThatFile(t *testing.T) {
 	}
 }
 
+// A vendored skill payload is an excluded tree for Python as it is for shell and JavaScript: the
+// per-file speech-to-text check is never handed one, so the commit check is no stricter than the
+// push gate (review STT-3).
+func TestAVendoredSkillPythonFileIsSkippedNotJudgedBySpeechToText(t *testing.T) {
+	w := newWorld(t)
+	w.touch(".claude/skills/s/run.py", "x = 1")
+	p := w.classify([]string{".claude/skills/s/run.py"})
+	if p.has("stt-rules-files") || !reflect.DeepEqual(p.skipped, []string{".claude/skills/s/run.py"}) {
+		t.Fatalf("checks %v skipped %v", keys(p), p.skipped)
+	}
+}
+
 // An edit to the speech-to-text rules, their fixtures, the wrapper, Go package or command runs
 // the whole gate (and a deletion owes it), the .semgrep files count as covered, and the wrapper is
 // not also picked as a suite.

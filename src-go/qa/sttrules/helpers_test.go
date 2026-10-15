@@ -159,10 +159,11 @@ func newWorld(t *testing.T, files map[string]string) *world {
 	w := &world{t: t, root: root, fake: &fakeRunner{version: proc.Result{Stdout: "1.0\n"}}}
 	w.fake.scan = func(_ string, files []string) proc.Result { return reportFor(t, files, nil, nil) }
 	all := map[string]string{
-		ruleFile:                  rulesText,
-		jsFixtureFile:             jsFixtureText,
-		pyFixtureFile:             pyFixtureText,
-		"scripts/qa-trees.tsv":    "shell\t.semgrep\npython\t.venv\n",
+		ruleFile:      rulesText,
+		jsFixtureFile: jsFixtureText,
+		pyFixtureFile: pyFixtureText,
+		"scripts/qa-trees.tsv": "shell\t.semgrep\nshell\t.claude/skills\nshell\t.claude/hooks-daemon\nshell\tnode_modules\n" +
+			"python\t.venv\npython\t.claude/skills\npython\t.claude/hooks-daemon\npython\tnode_modules\n",
 		"extensions/panel.js":     "export const a = 1;\n",
 		"helpers/mod.py":          "print('hi')\n",
 		".semgrep/unrelated.py":   "print('fixture')\n",

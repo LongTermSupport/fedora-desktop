@@ -22,15 +22,11 @@ type fileSets map[language][]string
 // discoveryList is the list of qa/discovery that holds each language's files.
 var discoveryList = map[language]string{langJS: "js", langPy: "python"}
 
-// excluded is a file the default scope leaves out: the rules' own fixtures, vendored trees and
-// anything under a node_modules directory.
+// excluded is a file the default scope leaves out beyond what the trees table already drops from
+// the discovery lists: the rules' own fixtures, which hold the patterns on purpose. Vendored
+// trees are the table's business alone.
 func excluded(rel string) bool {
-	for _, tree := range []string{".semgrep/", ".claude/hooks-daemon/", ".claude/skills/"} {
-		if strings.HasPrefix(rel, tree) {
-			return true
-		}
-	}
-	return slices.Contains(strings.Split(rel, "/"), "node_modules")
+	return strings.HasPrefix(rel, ".semgrep/")
 }
 
 // files is the files to judge: those named, else every JavaScript and Python file git would
@@ -138,7 +134,7 @@ func (g *gate) languageOf(rel string) (language, error) {
 	if err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(first, "#!") && strings.Contains(first, "python") {
+	if discovery.PythonShebang(first) {
 		return langPy, nil
 	}
 	return "", fmt.Errorf("%s is neither JavaScript nor Python", rel)

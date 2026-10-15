@@ -3,7 +3,6 @@ package readywait
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -195,21 +194,6 @@ func (g *gate) scan(ctx context.Context, sets fileSets) ([]finding, error) {
 	return found, nil
 }
 
-// semgrepReport is the part of semgrep's JSON that matters.
-type semgrepReport struct {
-	Results []semgrepreport.Result `json:"results"`
-	Errors  []struct {
-		Path    string `json:"path"`
-		Message string `json:"message"`
-	} `json:"errors"`
-	Paths *struct {
-		Scanned []string `json:"scanned"`
-	} `json:"paths"`
-}
-
-// tidy is a path as the repository names it: no leading ./.
-func tidy(p string) string { return filepath.ToSlash(filepath.Clean(strings.TrimPrefix(p, "./"))) }
-
 // scanPython hands the files to semgrep and refuses a pass over any it did not read.
 func (g *gate) scanPython(ctx context.Context, py []string) ([]finding, error) {
 	argv := slices.Concat([]string{
@@ -223,52 +207,18 @@ func (g *gate) scanPython(ctx context.Context, py []string) ([]finding, error) {
 	if res.Code >= 2 || strings.TrimSpace(res.Stdout) == "" {
 		return nil, fmt.Errorf("semgrep failed on the Python files (exit %d):\n%s", res.Code, strings.TrimSpace(res.Stderr))
 	}
-	var report semgrepReport
-	if err := json.Unmarshal([]byte(res.Stdout), &report); err != nil {
-		return nil, fmt.Errorf("semgrep's report cannot be read: %w", err)
+	report, err := semgrepreport.Decode(res.Stdout)
+	if err != nil {
+		return nil, err
 	}
-	if err := g.judge(py, report); err != nil {
+	if err := report.Judge("Python", py); err != nil {
 		return nil, err
 	}
 	found := make([]finding, 0, len(report.Results))
 	for _, r := range report.Results {
-		found = append(found, finding{path: tidy(r.Path), line: r.Start.Line, rule: r.CheckID})
+		found = append(found, finding{path: semgrepreport.Tidy(r.Path), line: r.Start.Line, rule: r.CheckID})
 	}
 	return found, nil
-}
-
-// judge refuses a report over code the analyser did not read: a parse error, or a file handed
-// over that it never opened.
-func (g *gate) judge(py []string, report semgrepReport) error {
-	if len(report.Errors) > 0 {
-		lines := make([]string, 0, len(report.Errors))
-		for _, e := range report.Errors {
-			path := e.Path
-			if path == "" {
-				path = "?"
-			}
-			lines = append(lines, fmt.Sprintf("    %s: %s", path, e.Message))
-		}
-		return fmt.Errorf("semgrep could not parse some Python files, so the rule did not run on them:\n%s", strings.Join(lines, "\n"))
-	}
-	if report.Paths == nil {
-		return errors.New("semgrep's report has no paths.scanned: it cannot be told what was read")
-	}
-	scanned := map[string]bool{}
-	for _, p := range report.Paths.Scanned {
-		scanned[tidy(p)] = true
-	}
-	var lost []string
-	for _, rel := range py {
-		if !scanned[tidy(rel)] {
-			lost = append(lost, "    "+rel)
-		}
-	}
-	if len(lost) > 0 {
-		slices.Sort(lost)
-		return fmt.Errorf("semgrep did not scan Python files it was handed:\n%s", strings.Join(lost, "\n"))
-	}
-	return nil
 }
 
 // finish prints the verdict: the coverage line, the findings sorted without duplicates, and the

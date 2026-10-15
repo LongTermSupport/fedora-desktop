@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/semgrepreport"
 )
 
 // language is a language the rules are written for, named as semgrep names it.
@@ -173,20 +174,6 @@ func (set ruleSet) rulesFor(lang language, dir string) (string, error) {
 	return path, nil
 }
 
-// annotationRe is a fixture annotation: a comment naming the rules the next line must match.
-var annotationRe = regexp.MustCompile(`ruleid:\s*([\w.-]+(?:\s*,\s*[\w.-]+)*)`)
-
-// annotated is the rule ids a fixture marks with a ruleid annotation.
-func annotated(fixture string) map[string]bool {
-	ids := map[string]bool{}
-	for _, m := range annotationRe.FindAllStringSubmatch(fixture, -1) {
-		for id := range strings.SplitSeq(m[1], ",") {
-			ids[strings.TrimSpace(id)] = true
-		}
-	}
-	return ids
-}
-
 // proveRules shows every rule is still matched by its fixture. A rule that silently stops
 // matching is worse than a missing tool, so a regression here is the run failing and never
 // "0 findings". semgrep --test exits 0 on a fixture with no annotations, so the annotations are
@@ -198,7 +185,7 @@ func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 		if err != nil {
 			return fmt.Errorf("cannot read %s: %s", fixture, reason(err))
 		}
-		marked := annotated(string(data))
+		marked := semgrepreport.Annotated(string(data))
 		for _, id := range set.ids[lang] {
 			if !marked[id] {
 				return fmt.Errorf("%s marks no ruleid line for %s; the self-test proves nothing for it", fixture, id)
@@ -211,6 +198,9 @@ func (g *gate) proveRules(ctx context.Context, set ruleSet) error {
 			"--config", g.path(ruleFile), g.path(fixture))
 		if err != nil {
 			return err
+		}
+		if res.Code >= 2 && !strings.Contains(res.Stdout+res.Stderr, "rule id mismatch") {
+			return fmt.Errorf("semgrep could not run the self-test (exit %d):\n%s%s", res.Code, g.scrub(res.Stdout), g.scrub(res.Stderr))
 		}
 		if res.Code != 0 {
 			return failed("%s failed its fixture %s:\n%s%s", ruleFile, fixture, g.scrub(res.Stdout), g.scrub(res.Stderr))
