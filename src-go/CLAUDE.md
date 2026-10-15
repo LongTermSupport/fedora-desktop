@@ -156,6 +156,13 @@ the command. A line scan (the annotation is a comment, which a YAML load drops) 
 list of `qa/discovery` under `playbooks/` and `tasks/`; `SPEC-qa-ansible-pause.md` (E1-E17) is the
 specification, and the rule is proven against `tests/fixtures/ansible-pause` by its Go tests.
 
+`qa/toolchain` + `qa/cmd/qa-toolchain` (same nested module) are `scripts/qa-toolchain.bash`, the
+gate that the QA tools are the versions `.qa-versions` pins (go: not older than `src-go/go.mod`):
+the script only builds and runs the command. The pin file is parsed with the `mvdan.cc/sh` parser
+and `go.mod` with `x/mod/modfile`, never sourced or awk-ed; tool drift is exit 1 (the machine is
+wrong), an unreadable pin file or go.mod exit 2 (the gate cannot judge). Version runs go through `qa/internal/proc`, faked in the
+unit tests; `SPEC-qa-toolchain.md` (T1-T16) is the specification.
+
 `qa/readywait` + `qa/cmd/qa-ready-wait-rules` (same nested module) are
 `scripts/qa-ready-wait-rules.bash`, the gate for `ready-wait-ignores-child-exit`: the script only
 builds and runs the command. Python stays semgrep's (`.semgrep/ready-wait.yml` is the data); the

@@ -443,6 +443,18 @@ func TestRunnerStartFailuresSurface(t *testing.T) {
 	}
 }
 
+// The toolchain check is a whole gate (a deleted pin file may ask for it) and needs bash and go,
+// because its wrapper builds the Go command.
+func TestTheToolchainCheckIsAWholeGateNeedingGo(t *testing.T) {
+	d := lookupCheck("toolchain")
+	if !d.gate || !d.whole {
+		t.Errorf("toolchain: gate %v whole %v", d.gate, d.whole)
+	}
+	if !slices.Contains(d.tools, toolBash) || !slices.Contains(d.tools, toolGo) {
+		t.Errorf("toolchain needs bash and go, has %v", d.tools)
+	}
+}
+
 type failingRunner struct{}
 
 func (failingRunner) Run(context.Context, proc.Cmd) (proc.Result, error) {

@@ -402,11 +402,11 @@ func TestExcludedShellIsSkippedButStillAsksTheBashLimitsGateLikeBefore(t *testin
 func TestDeletedFilesOweOnlyTheWholeGates(t *testing.T) {
 	w := newWorld(t)
 	w.touch("scripts/keep.bash", "#!/usr/bin/bash")
-	p := w.classify(nil, "scripts/gone.bash", "src-go/internal/old/old.go", "docs/gone.md", "playbooks/old.yml", "scripts/gone.py", "files/home/.local/bin/listed-tool", "untracked/gone.js", ".semgrep/gh-scopes.fixture")
-	if !p.has("bash-limits") || !p.has("go") || !p.has("docs") || !p.has("gh-scopes") {
+	p := w.classify(nil, "scripts/gone.bash", "src-go/internal/old/old.go", "docs/gone.md", "playbooks/old.yml", "scripts/gone.py", "files/home/.local/bin/listed-tool", "untracked/gone.js", ".semgrep/gh-scopes.fixture", ".qa-versions")
+	if !p.has("bash-limits") || !p.has("go") || !p.has("docs") || !p.has("gh-scopes") || !p.has("toolchain") {
 		t.Fatalf("whole gates: %v", keys(p))
 	}
-	for _, id := range []string{"bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "toolchain", "ansible-syntax", "ansible-patterns"} {
+	for _, id := range []string{"bash-syntax", "shellcheck", "shell-directives", "semgrep", "ruff", "ansible-syntax", "ansible-patterns"} {
 		if p.has(id) {
 			t.Errorf("a deleted file has nothing for %s", id)
 		}
@@ -528,6 +528,32 @@ func TestAPauseGateEditRunsTheGate(t *testing.T) {
 	w.touch("vars/v.yml", "a: 1")
 	if p := w.classify([]string{"vars/v.yml"}); p.has("ansible-pause") {
 		t.Errorf("a vars file must not run the pause gate: %v", keys(p))
+	}
+}
+
+// An edit to the pins, the Go floor, the toolchain gate's wrapper, Go package or command, or the
+// wrapper library runs the whole toolchain gate; .qa-versions counts as covered by it. A deleted
+// pin file still owes the gate (it is a whole check), and a vars file does not run it.
+func TestAToolchainInputEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		".qa-versions", "src-go/go.mod", "src-go/qa/toolchain/versions.go", "src-go/qa/cmd/qa-toolchain/main.go",
+		"scripts/qa-toolchain.bash", "scripts/lib/go-tool.bash",
+	} {
+		w := newWorld(t)
+		w.touch(f, "RUFF=0.16.8")
+		p := w.classify([]string{f})
+		if !p.has("toolchain") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, ".qa-versions"); !p.has("toolchain") || len(p.uncovered) != 0 {
+		t.Errorf("a deleted .qa-versions: %v uncovered %v", keys(p), p.uncovered)
+	}
+	w = newWorld(t)
+	w.touch("vars/v.yml", "a: 1")
+	if p := w.classify([]string{"vars/v.yml"}); p.has("toolchain") {
+		t.Errorf("a vars file must not run the toolchain gate: %v", keys(p))
 	}
 }
 

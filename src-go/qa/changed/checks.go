@@ -60,7 +60,7 @@ const (
 
 // checkDefs is every check in the order they run. The order is the contract (SPEC 8.2).
 var checkDefs = []checkDef{
-	{id: "toolchain", fixed: "QA tool versions match .qa-versions", gate: true, tools: []string{toolBash}, run: runToolchain},
+	{id: "toolchain", fixed: "QA tool versions match .qa-versions", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runToolchain},
 	{id: "bash-syntax", listed: true, noun: nounFiles, tools: []string{toolBash}, run: runBashSyntax},
 	{id: "shellcheck", listed: true, noun: nounFiles, tools: []string{toolShellcheck}, run: runShellcheck},
 	{id: "shell-directives", listed: true, noun: nounFiles, tools: []string{toolBash, toolGo}, run: runShellDirectives},
