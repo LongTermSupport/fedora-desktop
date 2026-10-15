@@ -1,6 +1,6 @@
 # Plan 00192: Line in the sand: tooling is Go, bash only for small helpers
 
-**Status**: In Progress
+**Status**: In Progress (every QA script but `qa-go.bash` ported; that one waits on the owner making go-qa-ci public, Plan 00191 Task 3.3)
 **Created**: 2026-10-14
 **Owner**: joseph
 **Priority**: High
@@ -352,7 +352,9 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   (SPEC-qa-docs B16, qa-js B12, qa-python B18, qa-patterns B15, qa-gh-scopes B9, qa-ansible-syntax
   D11).
   Still on `scripts/bash-limits.allowlist`: `qa-go.bash`, the interim Go gate that Plan 00191's
-  go-qa-ci toolchain is to replace; it is ported once the owner's 00191 decisions settle that.
+  go-qa-ci toolchain is to replace. Owner's decision (2026-10-15): not ported; the owner makes
+  `go-qa-ci` public, then Plan 00191 Task 3.3 pins it and retires `scripts/qa-go.bash`, which
+  closes this task. Blocked on that owner action.
 
 ### Phase 4: Review
 
