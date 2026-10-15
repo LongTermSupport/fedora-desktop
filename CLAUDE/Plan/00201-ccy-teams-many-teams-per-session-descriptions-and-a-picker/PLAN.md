@@ -61,8 +61,10 @@ change the bus protocol unless the research shows it must.
 - [ ] ⬜ **Task 2.1**: M1, descriptions declared and shown on the host.
 - [ ] ⬜ **Task 2.2**: M2, descriptions reach agents (team record, room topic, `pingbus status`,
   SessionStart); container bump.
-- [ ] ⬜ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's
-  short name.
+- [x] ✅ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's
+  short name. Built test-first in `helpers/pingbus` (S-D1 to S-D6); Q8 taken as the spec
+  recommends (REPLY after HUMAN and PEER only, not PING), pending the owner's confirmation.
+  Report: `subagent-reports/261015-m3-reply-sonnet.md`.
 - [ ] ⬜ **Task 2.4**: M4, the shared chooser in Go (`ccy-teams choose-teams`), scope widening,
   ccy wired.
 - [ ] ⬜ **Task 2.5**: M5, several teams per session: multi-select, launch block, status line,

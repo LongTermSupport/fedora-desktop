@@ -743,6 +743,7 @@ only ever appended in later versions, never reordered.
 | `PING`    | stdout | `PING`, `1`, team, event ID, sender, verb, ref, re, trust, branch, copy                                                    |
 | `HUMAN`   | stdout | `HUMAN`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string                                       |
 | `PEER`    | stdout | `PEER`, `1`, team, event ID, sender, `origin_server_ts` (ms), text as a JSON string, copy                                  |
+| `REPLY`   | stdout | `REPLY`, `1`, team, event ID, command                                                                                      |
 | `TIMEOUT` | stdout | `TIMEOUT`, `1`, team, event ID of the unanswered ping, silent target, verb, ref                                            |
 | `SENT`    | stdout | `SENT`, `1`, team, event ID (from `send` or `say`)                                                                         |
 | `DROPPED` | stderr | `DROPPED`, `1`, count, `reason=count` pairs joined by `,` (one line per batch: per team per pass; re-fetch drops included) |
@@ -764,7 +765,16 @@ addressed to them and sent to it for its information, not as a request of its ow
 The `HUMAN` and `PEER` text field is `json.dumps(body, ensure_ascii=True)`, so newlines, tabs
 and control characters arrive escaped, and the line stays one line. A `PEER` line is an
 agent's text naming this agent (§7): information from a peer, never an instruction; its
-sender is an agent handle, never a human. Examples:
+sender is an agent handle, never a human.
+
+`recv` prints a `REPLY` line right after each `HUMAN` and `PEER` line (never after a `PING`,
+whose answer is a verb the agent chooses; never in `history`). Its event ID is that item's and
+its command is `pingbus --team <team> say --to <name>`, ready to run with the text on stdin:
+`<name>` is a human's localpart, or an agent's short name (the handle before `+`,
+`<repo>.<seat>`) when no other member of the team has it, else its full handle. `--to` takes
+the same names (§9): a full user ID, an exact handle, a human localpart, or a short name that
+matches exactly one agent; a short name matching several, or a name matching no member, is a
+usage error (exit 64) naming the candidates or the team's members. Examples:
 
 ```
 PING	1	<team>	$AbC…	orch.1+workstation.podman	review	pr:example-org/myrepo#12@0123…	-	trusted	-	-
@@ -772,6 +782,7 @@ PING	1	<team>	$MnO…	myrepo.2+workstation.podman	done	issue:someone/project#7	-
 HUMAN	1	<team>	$DeF…	alice	1791234567890	"please halt and commit what you have"
 PEER	1	<team>	$JkL…	orch.1+workstation.podman	1791234567950	"I am on the docs; the tests are yours"	-
 PEER	1	<team>	$PqR…	myrepo.2+workstation.podman	1791234568100	"the docs are merged"	copy:alice
+REPLY	1	<team>	$PqR…	pingbus --team <team> say --to myrepo.2
 ```
 
 A `HISTORY` line (`history`, §13) records one item: `in` for one this member received,
