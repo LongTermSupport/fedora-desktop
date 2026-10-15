@@ -5,8 +5,7 @@ _acceptance-m7.inc.bash drives the host (agent-bus-install, agent-bus, ccy-teams
 ccy sessions, podman exec into them, the human's curl); this module writes what it hands them
 and judges what comes back. Every judgement rests on what a tool printed or recorded, never on
 the model's prose. Standard library only, and only `bus-ports` imports from this checkout
-(declare.py, lazily): `segment` runs inside a ccy container under the hooks daemon's venv
-python. Commands (stdout is the payload, reasons on stderr):
+(declare.py, lazily). Commands (stdout is the payload, reasons on stderr):
 
   team-file TEAM PORT ADDRESS HUMAN ORG DESCRIPTION   a throwaway team file (JSON)
   host-vars TEAMFILE...              a host_vars file declaring those teams (agent_bus_teams)
@@ -14,7 +13,6 @@ python. Commands (stdout is the payload, reasons on stderr):
                                      of every listening port, one per line
   launch-conf-clean CONF TEAM[,TEAM]   ccy's Quick Launch record names none of the teams
   expect-own-team TEAM_JSON TEAM PREFIX   an installed team is ours: its description starts PREFIX
-  expect-handler HANDLERS_JSON EVENT NAME   `hooks-daemon handlers --json` lists that handler
   say-outcome STATUS STDERR          0 sent, 3 a team record not verified yet, 1 anything else
   github-owner URL                   the lowercased owner of a github.com remote URL
   member-field FILE KEY              one string field of a member.json
@@ -33,8 +31,8 @@ python. Commands (stdout is the payload, reasons on stderr):
   expect-about STATUS TEAM DESCRIPTION   that team's ABOUT line carries DESCRIPTION
   expect-sent OUT TEAM               one SENT line, for TEAM; prints its event ID
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
-  segment HANDLER_PY SESSION_ID      call the bus-teams status-line handler; print its segments
-  expect-segment OUT TEAMS|-         the segment shows `bus: TEAMS`, or nothing for -
+  expect-kit-status-line SETTINGS    the kit's settings.json makes `pingbus status-line` the status line
+  expect-segment OUT TEAMS           `pingbus status-line` printed the session's own line, then | bus: TEAMS
   expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
@@ -43,7 +41,7 @@ Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not ther
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import json
 import pathlib
 import re
@@ -153,7 +151,7 @@ def bus_ports(
 
 def _declare() -> object:
     """helpers.agent_bus.declare from this checkout, imported only by the host-side commands
-    that need it (`segment` runs in a container, where it is not on the path)."""
+    that need it."""
     here = pathlib.Path(__file__).resolve().parent
     for candidate in (here, *here.parents):
         if (candidate / "ansible.cfg").exists():
@@ -206,20 +204,6 @@ def expect_own_team(installed: object, team: str, prefix: str) -> None:
         raise Failed(
             f"team {team} is installed with the description {description!r}, not one starting "
             f"{prefix!r}: it is not this acceptance's, so it is not purged"
-        )
-
-
-def expect_handler(listing: object, event: str, name: str) -> None:
-    """F3: `hooks-daemon handlers --json` lists the handler under the event."""
-    entries = listing.get(event) if isinstance(listing, dict) else None
-    names = (
-        [e.get("name") for e in entries if isinstance(e, dict)]
-        if isinstance(entries, list)
-        else []
-    )
-    if name not in names:
-        raise Failed(
-            f"the running hooks daemon lists no {event} handler {name}: {names}"
         )
 
 
@@ -436,25 +420,24 @@ def expect_choices(stderr: str, teams: Sequence[tuple[str, str]]) -> None:
         raise Failed(f"the refusal does not list {missing!r}: {stderr!r}")
 
 
-def segment(handler_path: str, session: str) -> list[str]:
-    """The bus-teams handler, loaded from its file as the daemon's plugin loader does, asked for
-    this session's status-line segments. Run under the daemon's venv python (its imports)."""
-    spec = importlib.util.spec_from_file_location("bus_teams_probe", handler_path)
-    if spec is None or spec.loader is None:
-        raise ValueError(f"cannot load {handler_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    result = module.BusTeamsHandler().handle(
-        {"session_id": session, "hook_event_name": "Status"}
-    )
-    return [str(item) for item in result.context]
+#: The status line command the member kit's settings.json names (helpers/pingbus/statusline.py).
+KIT_STATUS_LINE = "pingbus status-line"
+
+
+def expect_kit_status_line(settings: object) -> None:
+    line = settings.get("statusLine") if isinstance(settings, dict) else None
+    command = line.get("command") if isinstance(line, dict) else None
+    if command != KIT_STATUS_LINE:
+        raise Failed(f"the kit's settings.json status line is {line!r}, want the command {KIT_STATUS_LINE!r}")
 
 
 def expect_segment(text: str, teams: str) -> None:
-    shown = _ANSI_RE.sub("", text).strip()
-    want = "" if teams == "-" else f"| bus: {teams}"
-    if shown != want:
-        raise Failed(f"the status-line segment is {shown!r}, want {want!r}")
+    """`pingbus status-line`'s last line is the session's own status line, then `| bus: TEAMS`."""
+    lines = _ANSI_RE.sub("", text).strip().splitlines()
+    last = lines[-1] if lines else ""
+    inner, sep, segment = last.rpartition(" | ")
+    if not sep or not inner.strip() or segment != f"bus: {teams}":
+        raise Failed(f"the status line ends {last!r}, want the session's own line then | bus: {teams}")
 
 
 def expect_plain(labels: object, env: object) -> None:
@@ -523,7 +506,6 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "bus-ports": (2, lambda a: _lines(owner_bus_ports(int(a[0]), a[1]))),
     "launch-conf-clean": (2, lambda a: launch_conf_clean(_read(a[0]), a[1].split(","))),
     "expect-own-team": (3, lambda a: expect_own_team(_json_file(a[0]), a[1], a[2])),
-    "expect-handler": (3, lambda a: expect_handler(_json_file(a[0]), a[1], a[2])),
     "say-outcome": (2, lambda a: say_outcome(int(a[0]), _read(a[1]))),
     "github-owner": (1, lambda a: _print(github_owner(a[0]))),
     "member-field": (2, lambda a: _print(member_field(_json_file(a[0]), a[1]))),
@@ -556,7 +538,7 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-about": (3, lambda a: expect_about(_read(a[0]), a[1], a[2])),
     "expect-sent": (2, lambda a: _print(expect_sent(_read(a[0]), a[1]))),
     "expect-choices": (-1, lambda a: expect_choices(_read(a[0]), _groups(a[1:], 2))),
-    "segment": (2, lambda a: _lines(segment(a[0], a[1]))),
+    "expect-kit-status-line": (1, lambda a: expect_kit_status_line(_json_file(a[0]))),
     "expect-segment": (2, lambda a: expect_segment(_read(a[0]), a[1])),
     "expect-plain": (2, lambda a: expect_plain(_json_file(a[0]), _json_file(a[1]))),
 }

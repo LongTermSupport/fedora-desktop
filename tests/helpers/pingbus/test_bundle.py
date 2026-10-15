@@ -137,6 +137,28 @@ class BuildTests(unittest.TestCase):
         main = archive.read("__main__.py").decode()
         self.assertIn("from helpers.pingbus.cli import main", main)
 
+    def test_status_line_runs_without_the_cli(self) -> None:
+        """Plan 00201: `pingbus status-line` renders on every status refresh, so the archive runs
+        it from statusline.py alone and never imports the cli and everything it loads."""
+        archive = self.tmp / "pingbus.pyz"
+        archive.write_bytes(bundle.build("pingbus", REPO_ROOT))
+        env = {key: value for key, value in os.environ.items() if not key.startswith(("PYTHON", "PINGBUS"))}
+        with tempfile.TemporaryDirectory() as cwd:
+            done = subprocess.run([sys.executable, "-X", "importtime", str(archive), "status-line"],
+                                  cwd=cwd, env=env, input="{}", capture_output=True, text=True,
+                                  check=False, timeout=60)
+        self.assertEqual((done.returncode, done.stdout), (0, "\n"), done.stderr)
+        loaded = {line.rsplit("|", 1)[1].strip() for line in done.stderr.splitlines() if "|" in line}
+        self.assertIn("helpers.pingbus.statusline", loaded)
+        self.assertNotIn("helpers.pingbus.cli", loaded)
+
+    def test_every_other_command_goes_to_the_cli(self) -> None:
+        archive = self.tmp / "pingbus.pyz"
+        archive.write_bytes(bundle.build("pingbus", REPO_ROOT))
+        done = run_archive(archive, "version")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(done.stdout.startswith("pingbus "), done.stdout)
+
     def test_missing_entry_module_fails(self) -> None:
         source = copy_source(self.tmp / "src")
         (source / "helpers" / "pingbus" / "cli.py").unlink()

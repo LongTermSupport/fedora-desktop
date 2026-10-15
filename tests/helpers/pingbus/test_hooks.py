@@ -448,12 +448,18 @@ class SessionStartTest(HookCase):
         self.assertFalse((directory / "sess-1").exists())
         self.assertIn("session record", err.getvalue())
 
-    def test_the_status_line_handler_reads_the_same_place(self):
-        """The handler cannot import this package (the daemon owns its process), so the two
-        copies of the default location must agree."""
-        source = (pathlib.Path(__file__).parents[3] / ".claude/hooks/handlers/status_line/bus_teams.py").read_text()
-        self.assertIn(hooks.SESSIONS_DIR_TEMPLATE, source)
-        self.assertIn(hooks.SESSIONS_DIR_VAR, source)
+    def test_a_record_that_was_not_written_is_told_to_the_session_not_only_to_stderr(self):
+        """A failed record must not look like a session on no team: the session is told, and
+        the status line shows `bus: no record` in red (test_statusline)."""
+        directory = self.sessions_env()
+        directory.mkdir(mode=0o777)
+        directory.chmod(0o777)
+        context = self.context(self.start_as("sess-1"))
+        self.assertIn(hooks.TEMPLATES["record_failed"], context.splitlines())
+
+    def test_a_written_record_says_nothing_about_it(self):
+        self.sessions_env()
+        self.assertNotIn(hooks.TEMPLATES["record_failed"], self.context(self.start_as("sess-1")))
 
     def test_a_session_on_one_team_has_no_such_line(self):
         self.assertNotIn("this session is on teams", self.context(self.start()))

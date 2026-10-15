@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.98.7 — container 2.62
+## 3.98.8 — container 2.63
 
 - **Team messages arrive in the session as the messages themselves.** In a `--teams`
   session the pingbus watcher writes each message into the conversation as an
@@ -28,6 +28,18 @@ Two version numbers move independently — see
   summarised on one "held back" line; a delivery the socket refuses for two minutes, or one
   that never reaches the conversation, is reported by the session's hooks. Plugin 1.2.0.
   Plan 00194 Task 2.0c (`SPEC-inject.md`).
+
+## 3.98.7 — container 2.62
+
+- **The `bus: A,B` status line works in any checkout** (Plan 00201's final review). It was a
+  hooks-daemon handler registered in this repository only, so a team session elsewhere showed
+  nothing. The member kit's `settings.json` now makes `pingbus status-line` the status line: it
+  runs the session's own status line first and appends the teams from the per-session record.
+  A record that could not be written shows `bus: no record ...` in red, and SessionStart tells
+  the session, instead of looking like a session on no team. The image carries the new kit
+  settings and pingbus, so it is rebuilt once.
+- **`cc --teams` makes nothing before the consent.** The checkout's `.claude/ccy/` is created
+  after the chooser and its Element consent, so a declined start leaves no folder behind.
 
 ## 3.98.6 — container 2.61
 

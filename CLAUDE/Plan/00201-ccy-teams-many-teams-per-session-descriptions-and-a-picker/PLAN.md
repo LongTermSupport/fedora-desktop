@@ -88,13 +88,11 @@ a repository is no longer offered for a checkout of it. Report:
   `ccy_seats_resolve` deleted. Report: `subagent-reports/261015-m4-chooser-sonnet.md`.
 - [x] ✅ **Task 2.5**: M5, several teams per session (S-B3 `--multi`, S-C1 to S-C9), CCY 3.97.8 /
   container 2.58. `choose-teams` list is a multi-select with kept marks across rounds; `describe-seats --block` prints the launch block after `seat take`; SessionStart's first line names the teams; a
-  project status-line handler shows `bus: A,B`; `pingbus send`/`say` infer the team from `--re` or
-  `--to` or fail with the choices. The status-line segment reads a per-session record the pingbus
-  SessionStart hook writes (the daemon is shared, so not the environment). Its tests
-  (`.claude/hooks/handlers/status_line/tests`) are in no QA gate: they need the daemon's package and
-  its venv's pydantic, which only exist on a checkout with an installed daemon, and routing them
-  would be a new qa-changed check in Go; the host run must restart and health-check the daemon and
-  look at a two-team session's status line. M6 must also print the launch block for `cc --teams`.
+  status line shows `bus: A,B`; `pingbus send` infers the team from `--re` or `--to`, `say` from
+  `--to`, or they fail with the choices. The segment reads a per-session record the pingbus
+  SessionStart hook writes. It was first a hooks-daemon handler in this repository only; after the
+  final review it is the kit's `pingbus status-line` (Task 2.8). M6 must also print the launch
+  block for `cc --teams`.
   Reports: `subagent-reports/261015-m5-many-teams-sonnet.md`, review
   `subagent-reports/261015-m5-review-fable.md`.
 - [x] ✅ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it (S-E1 to S-E6),
@@ -113,17 +111,27 @@ a repository is no longer offered for a checkout of it. Report:
   (legs in `_acceptance-m7.inc.bash`, judgements in `m7_check.py`, tested by
   `test_m7_check.py`) makes two throwaway teams declared only in a run-directory host_vars
   (`CCY_TEAMS_HOST_VARS`), checks descriptions (`ccy-teams --list`, room topic, `ABOUT`), one
-  headless session on both (launch block, per-session record, the bus-teams handler called by
-  the daemon's venv python, `say` inference and refusal, SessionEnd), a plain session, then
+  headless session on both (launch block, per-session record, `pingbus status-line` in the
+  session's container, `say` inference and refusal, SessionEnd), a plain session, then
   purges and checks the firewalld rules are gone. The interactive steps (chooser, scope widening, cc consent) are the owner's:
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md). Report:
-  `subagent-reports/261015-m7-acceptance-opus.md`.
+  `subagent-reports/261015-m7-acceptance-opus.md`. M3 changed with Task 2.9, so the automated
+  part must pass again after the host run.
 - [ ] ⬜ **Task 2.8**: S-D1 in relay mode: `_deliver` (`helpers/pingbus/cli.py`) writes a
   relay-delivered `HUMAN` or `PEER` to the spool with no `REPLY` line, so the session never
   gets the ready reply command. Expected to be carried by the structured-injection work of
   [Plan 00194](../00194-agent-bus-live-delivery-supervisor-plugin/PLAN.md) on branch
   `feat/bus-inject-message`; check the reply line is there when it merges, else add it here
   (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.
+- [x] ✅ **Task 2.9**: the final qa-reviewer's findings
+  (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `bus: A,B`
+  status line works in any checkout: the member kit's `settings.json` makes `pingbus status-line`
+  the status line (command-line settings outrank the project's), which runs the session's own
+  status line first; the hooks-daemon handler is gone, and the tests are pingbus's, in the
+  helper-tests gate. A record SessionStart could not write is told to the session and shown in red
+  (`bus: no record ...`), never as nothing. S-C6, S-C8 and Q6/Q7 match what was built; `cc --teams`
+  makes `.claude/ccy/` only after the consent (S-E4). Report:
+  `subagent-reports/261015-qa-review-fixes-opus.md`.
 
 ## Success Criteria
 
@@ -145,3 +153,4 @@ a repository is no longer offered for a checkout of it. Report:
 - M5 (several teams per session): 202b254f; integrated with F44 in daae0612
 - M6 (`cc --teams` on the shared flow): 397ca234; integrated in c95036bb
 - M7 (two-team acceptance): 3c137fa4; the REPLY pairing check: 6affbfec
+- Final review fixes: 3a4014b0; ccy play queued for CCY 3.98.5: 43d6b861

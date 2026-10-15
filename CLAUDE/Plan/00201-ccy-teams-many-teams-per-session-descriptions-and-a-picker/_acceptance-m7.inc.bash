@@ -35,9 +35,8 @@ readonly M7_APPLIED="/var/lib/agent-bus-applied"
 #: The checkout as a ccy container sees it (claude-yolo mounts $PWD there).
 readonly M7_CTR_ROOT="/workspace"
 readonly M7_CTR_RUN_DIR="${M7_CTR_ROOT}/${PLAN_RUN_DIR#"${PLAN_REPO_ROOT}"/}"
-readonly M7_CTR_CHECK="${M7_CTR_ROOT}/${PLAN_SCRIPT_DIR#"${PLAN_REPO_ROOT}"/}/m7_check.py"
-readonly M7_CTR_HANDLER="${M7_CTR_ROOT}/.claude/hooks/handlers/status_line/bus_teams.py"
-readonly M7_CTR_DAEMON="${M7_CTR_ROOT}/.claude/hooks-daemon"
+#: The member kit's settings in the image, which the entrypoint passes to a bus session's claude.
+readonly M7_CTR_KIT_SETTINGS="/opt/claude-yolo/optional/agent-bus/settings.json"
 #: The session home `pingbus seat exec` builds in a container (helpers/pingbus/seat.py).
 readonly M7_CTR_PINGBUS_HOME="/tmp/pingbus-home"
 #: Members added by hand, to address: a short name in both teams, and one in team A only.
@@ -615,35 +614,22 @@ m7_check_record() {
     evidence "M2 the per-session record of ${SESSION_ID} lists ${record}: multi/record.out"
 }
 
-# m7_segment <want> — the bus-teams status-line handler, loaded by the hooks daemon's venv python
-# in the session's container, asked for this session ID's segment.
-m7_segment() {
-    local py
-    if ! m7_exec venv /dev/null bash "${M7_CTR_DAEMON}/scripts/lib/resolve_venv.sh" python "${M7_CTR_DAEMON}"; then
-        m7_show venv
-        printf '[FAIL] the hooks daemon has no venv python for %s in the container: the handler cannot be called\n' "${M7_CTR_DAEMON}" >&2
-        return 1
-    fi
-    py="$(cat -- "$(m7_ev "${SESSION_NAME}/venv.out")")"
-    if ! m7_exec segment /dev/null "${py}" -I "${M7_CTR_CHECK}" segment "${M7_CTR_HANDLER}" "${SESSION_ID}"; then
-        m7_show segment
-        printf '[FAIL] the bus-teams handler could not be called with %s\n' "${py}" >&2
-        return 1
-    fi
-    m7_show segment
-    "${CHECK[@]}" expect-segment "$(m7_ev "${SESSION_NAME}/segment.out")" "$1"
-}
-
-# M3 — the handler shows `bus: A,B` for this session.
+# M3 — the session's status line command is the kit's `pingbus status-line`, which prints this
+# checkout's own status line and then `bus: A,B` for this session ID: the same in any checkout.
 m7_check_segment() {
-    if ! m7_exec handlers /dev/null "${M7_CTR_DAEMON}/bin/hooks-daemon" handlers --json; then
-        m7_show handlers
-        printf '[FAIL] hooks-daemon handlers failed in the container: is the daemon running there?\n' >&2
+    local payload
+    m7_exec kit-settings /dev/null cat "${M7_CTR_KIT_SETTINGS}" || { m7_show kit-settings; return 1; }
+    "${CHECK[@]}" expect-kit-status-line "$(m7_ev multi/kit-settings.out)" || return 1
+    payload="$(m7_ev multi/status-line.in)"
+    printf '{"session_id": "%s", "workspace": {"project_dir": "%s"}}\n' "${SESSION_ID}" "${M7_CTR_ROOT}" >"${payload}"
+    if ! m7_exec status-line "${payload}" env "CLAUDE_PROJECT_DIR=${M7_CTR_ROOT}" "PINGBUS_TEAMS=${TEAM_A},${TEAM_B}" pingbus status-line; then
+        m7_show status-line
+        printf '[FAIL] pingbus status-line failed in the container (the reason is above)\n' >&2
         return 1
     fi
-    "${CHECK[@]}" expect-handler "$(m7_ev multi/handlers.out)" Status bus-teams || return 1
-    m7_segment "${TEAM_A},${TEAM_B}" || return 1
-    evidence "M3 the container's running hooks daemon lists the Status handler bus-teams (multi/handlers.out), and the handler returns bus: ${TEAM_A},${TEAM_B} for ${SESSION_ID}: multi/segment.out"
+    m7_show status-line
+    "${CHECK[@]}" expect-segment "$(m7_ev multi/status-line.out)" "${TEAM_A},${TEAM_B}" || return 1
+    evidence "M3 the kit's settings make pingbus status-line the status line (multi/kit-settings.out), and it prints this checkout's own status line then bus: ${TEAM_A},${TEAM_B} for ${SESSION_ID}: multi/status-line.out"
 }
 
 # R1 — `say --to` a seat on team A only, no --team: the team is inferred and the SENT line names A.
@@ -727,7 +713,8 @@ say("removed")
 }
 
 # P1 — a plain `ccy` is on no team: no seat label or PINGBUS_ variable on its container, no
-# pingbus on its PATH, no per-session record for its session ID, no segment from the handler.
+# pingbus on its PATH, no per-session record for its session ID. With no pingbus there is no
+# `pingbus status-line` either, so its status line is the checkout's own, with no bus segment.
 m7_check_plain() {
     local labels env
     m7_start plain "" || return 1
@@ -742,9 +729,8 @@ m7_check_plain() {
         printf '[FAIL] the plain session has pingbus on its PATH or a per-session record\n' >&2
         return 1
     fi
-    m7_segment - || return 1
     m7_end || return 1
-    evidence "P1 a plain ccy session: no ccy-seats label or PINGBUS_ variable, no pingbus, no record, an empty bus segment: plain/"
+    evidence "P1 a plain ccy session: no ccy-seats label or PINGBUS_ variable, no pingbus (so no bus status line), no record: plain/"
 }
 
 # ── the way out ──────────────────────────────────────────────────────────────────────────

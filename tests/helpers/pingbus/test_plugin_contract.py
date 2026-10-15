@@ -81,7 +81,11 @@ class PluginLayoutTest(unittest.TestCase):
 
     def test_settings_accept_cross_session_inbound(self) -> None:
         # U01: in bypass mode without this setting a notice is held and no turn starts.
-        self.assertEqual(load_json(SETTINGS), {"crossSessionInbound": "accept"})
+        # Plan 00201 S-C6: the status line is pingbus's, which runs the session's own first.
+        self.assertEqual(load_json(SETTINGS), {
+            "crossSessionInbound": "accept",
+            "statusLine": {"type": "command", "command": "pingbus status-line", "refreshInterval": 1},
+        })
 
     def test_every_kit_file_is_tracked_by_name(self) -> None:
         found = sorted(str(path.relative_to(KIT)) for path in KIT.rglob("*") if path.is_file())

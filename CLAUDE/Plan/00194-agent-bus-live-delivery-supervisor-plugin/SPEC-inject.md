@@ -380,8 +380,8 @@ The trust root is the admin-written team record on the homeserver (Plan 00161 §
   envelope replaces the notice); `docs/agent-bus.md` (what a session sees); the skill (the
   envelope, the frame, a repeated `id`, held back and missing). Decision rows: Plan 00161 D16
   and this plan's decision B, each dated, pointing here.
-- **Ships.** pingbus is in the ccy image (`optional/agent-bus/`): container 2.62, CCY 3.98.7
-  (above the fix branch's 2.61 and 3.98.6), `docs/ccy-changelog.md`. The host's pingbus for
+- **Ships.** pingbus is in the ccy image (`optional/agent-bus/`): container 2.63, CCY 3.98.8
+  (above Plan 00201's 2.62 and 3.98.7), `docs/ccy-changelog.md`. The host's pingbus for
   `cc --teams` comes from the agent-bus play. Both plays are queued in `meta-deploy.list`.
 
 ## 6. Tests (written first, red then green)

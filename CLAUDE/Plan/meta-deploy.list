@@ -20,30 +20,30 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00201 (pingbus fix) and Plan 00194 Task 2.0c (bus messages injected): deploys the ccy
-# launcher 3.98.7, which requires container 2.62, so the next ccy launch rebuilds the image
-# with the pingbus whose target refusals name what was refused and who can be addressed, and
-# whose watcher writes each team message into the session as an `agent-bus delivery`
-# envelope instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). Running ccy
-# sessions keep their old image and pingbus until each is relaunched.
+# Plan 00201 (pingbus fix and final review fixes) and Plan 00194 Task 2.0c: deploys the ccy
+# launcher 3.98.8, which requires container 2.63, so the next ccy launch rebuilds the image
+# once. Its pingbus watcher writes each team message into the session as an `agent-bus
+# delivery` envelope instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). The image gets the
+# pingbus whose target refusals name what was refused and who can be addressed, and the member
+# kit's new settings.json, whose status line is `pingbus status-line`: a team session shows
+# `bus: A,B` in any checkout. Also deploys cc-teams.bash (`cc --teams` makes .claude/ccy/ only
+# after the consent). Running ccy sessions keep their old image until each is relaunched.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Task 2.0c: reinstalls the host's member kit and pingbus (agent-bus-install), so
-# `cc --teams` sessions and LXC members also get team messages delivered as envelopes, with
-# plugin 1.2.0's skill. Homeserver and teams are unchanged. Then SPEC-inject.md section 7,
-# H1-H7, in a relaunched `ccy --teams` session (and H4 measures the socket's largest message).
+# Plan 00201: agent-bus-install software puts the same kit settings and pingbus in
+# /usr/local/share/agent-bus/kit, which cc --teams and agent-bus-claude launch with. No team,
+# homeserver or firewall rule changes. Plan 00194 Task 2.0c: the same pingbus delivers team
+# messages as envelopes to `cc --teams` sessions and LXC members; then SPEC-inject.md section
+# 7, H1-H7, in a relaunched `ccy --teams` session (H4 measures the socket's largest message).
 playbooks/imports/play-agent-bus.yml
-# Redeploys ssh-suspend-guard with its startup trap and "started" log moved below the
-# test cut marker. Host behaviour is unchanged; the deployed script matches the repo again.
-playbooks/imports/play-prevent-ssh-suspend.yml
-# Plan 00192 (ftp-camera port): the camera FTP play now builds ~/.local/bin/ftp-camera from
-# src-go/cmd/ftp-camera (installing the Go toolchain first) in place of the bash script; the
-# vsftpd config changes only in its comments, and the camera account and the hotspot profile
-# are unchanged. After it runs,
-# `ftp-camera --copy-preflight` printing the mount's RC address and one `ftp-camera --sort`
-# prove the binary on the host (SPEC-ftp-camera.md section 7, H1-H5). A play with no vaulted
-# ftp_camera_password still only installs the Go toolchain and ends.
-playbooks/imports/optional/common/play-ftp-camera.yml
-# Plan 00192 (ftp-camera port): the rclone play redeploys rclone-rc-auth.bash, whose comments no
-# longer name the deleted bash ftp-camera; behaviour unchanged. Without it the deployed-drift
-# check reports the old copy.
-playbooks/imports/optional/common/play-rclone.yml
+# Plan 00201: the automated two-team acceptance again, since its M3 leg now checks
+# `pingbus status-line` in the session's container (the checkout's own status line, then
+# `bus: A,B`). Then the owner's steps in ACCEPTANCE-owner.md, from another project's checkout.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
+# Plan 00199 (md-viewer): installs Gio's build libraries (dnf), upgrades golang to Fedora's
+# newest build (md-viewer's go.mod needs Go 1.26.9 or newer; the play stops before building if
+# Fedora has nothing that new), builds md-viewer from its own repository at the pinned commit
+# into ~/.local/bin/md-viewer, checks `md-viewer --version` names that commit, adds a desktop
+# file and makes it your default for text/markdown (and its alias text/x-markdown). Afterwards
+# double-click a PLAN.md in Nautilus, and run `md-viewer --time <file>.md` for the start-up
+# timings.
+playbooks/imports/optional/common/play-md-viewer.yml

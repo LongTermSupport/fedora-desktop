@@ -158,9 +158,10 @@ cc_teams_prepare() {
         command -v "$need" >/dev/null || { print_error "--teams needs $need on this host, and it is not installed: run play-agent-bus.yml and play-claude-yolo.yml."; return 78; }
     done
     checkout=$(git rev-parse --show-toplevel) || { print_error "cc --teams runs in a git checkout: its seat lives there."; return 78; }
-    cc_teams_ccy_dir || return
-    # The owner's consent is asked inside the chooser, so a declined start leaves no member.
+    # The owner's consent is asked inside the chooser, so a declined start makes nothing: no
+    # member, and not even the checkout's .claude/ccy/ (S-E4).
     cc_teams_choose || return
+    cc_teams_ccy_dir || return
     cc_teams_take || return
     cc_teams_settings "$tmp/settings.json" || return
     cc_teams_command "$tmp" "$checkout" "$CC_TEAMS_SEATS" "$CC_TEAMS_SENTENCE" "$@"

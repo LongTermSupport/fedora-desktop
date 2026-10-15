@@ -51,8 +51,21 @@ class BundleError(Exception):
     """The archive cannot be built from this source tree."""
 
 
-def _main_module(entry: str) -> bytes:
-    return f"import sys\n\nfrom {entry} import main\n\nsys.exit(main())\n".encode()
+#: App name -> {first argument: module}: commands the archive runs from that module's `main()`
+#: without importing the app's entry module. `pingbus status-line` renders on every status
+#: refresh, and the cli's imports are most of its cost (Plan 00201).
+FAST_COMMANDS = {
+    "pingbus": {"status-line": "helpers.pingbus.statusline"},
+}
+
+
+def _main_module(entry: str, fast: dict[str, str]) -> bytes:
+    lines = ["import sys", ""]
+    for word, module in fast.items():
+        lines += [f"if sys.argv[1:2] == [{word!r}]:", f"    from {module} import main",
+                  "    sys.exit(main())", ""]
+    lines += [f"from {entry} import main", "", "sys.exit(main())", ""]
+    return "\n".join(lines).encode()
 
 
 def collect(source: pathlib.Path) -> dict[str, bytes]:
@@ -87,7 +100,7 @@ def build(app: str, source: pathlib.Path) -> bytes:
     entry_file = entry.replace(".", "/") + ".py"
     if entry_file not in files:
         raise BundleError(f"{entry_file}, the {app} entry point, is missing under {source}")
-    files["__main__.py"] = _main_module(entry)
+    files["__main__.py"] = _main_module(entry, FAST_COMMANDS.get(app, {}))
     buffer = io.BytesIO()
     buffer.write(SHEBANG)
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:

@@ -92,7 +92,7 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   delivery detected from the transcript. Spec: [SPEC-inject.md](SPEC-inject.md), amended
   after Fable's review. Branch `feat/bus-inject-message`. Built test first (modules
   `envelope.py` and `inject.py`, the watcher, the hooks, the skill, plugin 1.2.0, container
-  2.62, CCY 3.98.7; Plan 00161's M2 checks read deliveries). Waiting on Fable's review of
+  2.63, CCY 3.98.8; Plan 00161's M2 checks read deliveries). Waiting on Fable's review of
   spec and code, then the host checks H1-H7 after `play-claude-yolo.yml` and
   `play-agent-bus.yml` (queued in meta-deploy).
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
