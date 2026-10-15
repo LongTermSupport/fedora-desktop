@@ -6,6 +6,7 @@ package declare
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -84,7 +85,21 @@ type Team struct {
 	Present    bool
 	ServerName string
 	URL        string // empty when the entry has no address to reach it on
+	// Description is what the team is for; empty when the entry sets none (or a vaulted one).
+	Description string
+	// DescriptionState is set when the entry has a description that cannot be shown: it is
+	// vaulted, or fails the team file's grammar. Description is then empty.
+	DescriptionState DescriptionState
 }
+
+// DescriptionState says why a team's description is not shown.
+type DescriptionState string
+
+// The two states declare.py marks with !vaulted and !invalid.
+const (
+	DescriptionVaulted DescriptionState = "vaulted"
+	DescriptionInvalid DescriptionState = "invalid"
+)
 
 // Status is a STATUS line: whether a team is applied as declared.
 type Status struct {
@@ -116,6 +131,12 @@ type Limit struct {
 	Trusts   string // what the team trusts, in words
 }
 
+// Undescribed is an UNDESCRIBED line: a present team that has no description yet.
+type Undescribed struct {
+	Team   string
+	Trusts string // what the team trusts, in words
+}
+
 // Profile is an ELEMENT line: a team's Element profile and the homeserver it uses.
 type Profile struct {
 	Team    string
@@ -136,6 +157,8 @@ type Entry struct {
 	Repos     []string
 	AllowFrom []string
 	Address   string
+	// Description is what the team is for (create needs it).
+	Description string
 }
 
 func (e Entry) args() []string {
@@ -158,6 +181,9 @@ func (e Entry) args() []string {
 	if e.Address != "" {
 		args = append(args, "--address", e.Address)
 	}
+	if e.Description != "" {
+		args = append(args, "--description", e.Description)
+	}
 	return args
 }
 
@@ -173,7 +199,7 @@ func (c *Client) Declared(ctx context.Context) ([]Team, error) {
 }
 
 func parseTeams(out string) ([]Team, error) {
-	rows, err := marker.Fields(out, "TEAM", 6)
+	rows, err := marker.Fields(out, "TEAM", 7)
 	if err != nil {
 		return nil, fmt.Errorf("declare declared: %w", err)
 	}
@@ -183,6 +209,17 @@ func parseTeams(out string) ([]Team, error) {
 		if f[2] != "-" {
 			if team.Port, err = strconv.Atoi(f[2]); err != nil {
 				return nil, fmt.Errorf("declare declared: team %s: port %q is not a number", f[1], f[2])
+			}
+		}
+		switch f[6] {
+		case "-":
+		case "!vaulted":
+			team.DescriptionState = DescriptionVaulted
+		case "!invalid":
+			team.DescriptionState = DescriptionInvalid
+		default:
+			if err = json.Unmarshal([]byte(f[6]), &team.Description); err != nil {
+				return nil, fmt.Errorf("declare declared: team %s: description %q is not a JSON string", f[1], f[6])
 			}
 		}
 		switch f[3] {
@@ -262,6 +299,23 @@ func (c *Client) Limited(ctx context.Context) ([]Limit, error) {
 		limits = append(limits, Limit{Team: f[1], Prefixes: f[2], Trusts: f[3]})
 	}
 	return limits, nil
+}
+
+// Undescribed is the present teams that have no description.
+func (c *Client) Undescribed(ctx context.Context) ([]Undescribed, error) {
+	out, err := c.runFile(ctx, "undescribed")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := marker.Fields(out, "UNDESCRIBED", 3)
+	if err != nil {
+		return nil, fmt.Errorf("declare undescribed: %w", err)
+	}
+	teams := make([]Undescribed, 0, len(rows))
+	for _, f := range rows {
+		teams = append(teams, Undescribed{Team: f[1], Trusts: f[2]})
+	}
+	return teams, nil
 }
 
 // ElementTeams is the teams that have an Element profile entry.
@@ -357,6 +411,12 @@ func (c *Client) Create(ctx context.Context, e Entry) (Change, error) {
 func (c *Client) CreateDryRun(ctx context.Context, e Entry) (string, error) {
 	out, err := c.runFile(ctx, "create", append(e.args(), "--dry-run")...)
 	return out, err
+}
+
+// Describe sets or replaces the present team's description; Changed is false when it was
+// already that.
+func (c *Client) Describe(ctx context.Context, team, description string) (Change, error) {
+	return c.edit(ctx, "describe", "--team", team, "--description", description)
 }
 
 // Element adds or updates the team's Element profile entry; Changed is false when it was right.

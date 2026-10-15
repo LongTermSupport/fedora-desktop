@@ -59,7 +59,10 @@ func TestRealDeclared(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Team{
-		{Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167"},
+		{
+			Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167",
+			Description: "Builds the example site",
+		},
 		{Name: "old", ServerName: "old.agent-bus.internal"},
 	}
 	if !reflect.DeepEqual(teams, want) {

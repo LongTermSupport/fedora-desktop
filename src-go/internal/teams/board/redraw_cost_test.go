@@ -15,7 +15,7 @@ func bigWorld(t *testing.T) rig {
 	h := populated(t)
 	var declared, units, status strings.Builder
 	for _, team := range []string{"alpha", "beta", "gamma"} {
-		declared.WriteString("TEAM\t" + team + "\t6167\tpresent\t" + team + ".agent-bus.internal\thttp://192.0.2.10:6167\n")
+		declared.WriteString("TEAM\t" + team + "\t6167\tpresent\t" + team + ".agent-bus.internal\thttp://192.0.2.10:6167\t-\n")
 		units.WriteString("agent-bus-hs@" + team + ".service loaded active running Homeserver " + team + "\n")
 		status.WriteString("STATUS\t" + team + "\tcurrent\t-\n")
 		h.On(teamtest.SudoBus+"list "+team, teamtest.BusList, 0)

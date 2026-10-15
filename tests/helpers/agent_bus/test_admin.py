@@ -235,6 +235,50 @@ class BootstrapTest(AdminTestCase):
         _, record_event = self.state(protocol.EVENT_TEAM, event=True)
         self.assertNotIn("exclude", record_event["content"])
 
+    def topic(self) -> str:
+        status, content = self.state("m.room.topic")
+        self.assertEqual(status, 200)
+        return content["topic"]
+
+    #: The record keys every release before the description read (spec section 8).
+    OLD_RECORD_KEYS = frozenset({"v", "team", "humans", "roles", "org", "exclude", "repos",
+                                 "path_prefixes", "forge_api"})
+
+    def test_the_record_never_carries_the_description_so_an_old_reader_is_unaffected(self) -> None:
+        """Plan 00201: the description travels in the room topic. A record written by this admin
+        for a team that has one uses only the old key set and validates under it."""
+        self.write_team(team_data(description="Builds the example site"))
+        self.bootstrap()
+        _, record_event = self.state(protocol.EVENT_TEAM, event=True)
+        content = record_event["content"]
+        self.assertLessEqual(set(content), self.OLD_RECORD_KEYS)
+        self.assertNotIn("description", content)
+        old_keys = tuple(k for k in protocol.TEAM_KEYS if k in self.OLD_RECORD_KEYS)
+        self.assertEqual(old_keys, protocol.TEAM_KEYS)
+        protocol.parse_team_event(record_event, ADMIN_ID, SN, "team-a")
+
+    def test_the_room_topic_is_the_description_or_the_fixed_sentence(self) -> None:
+        """S-A9: set on every apply, only when it differs; `CHANGED topic` when it was set."""
+        self.bootstrap()
+        self.assertEqual(self.topic(), admin.ROOM_TOPIC)
+        self.write_team(team_data(description="Builds the example site"))
+        self.assertIn("topic", self.bootstrap())
+        self.assertEqual(self.topic(), "Builds the example site")
+        _, event = self.state("m.room.topic", event=True)
+        self.assertEqual(event["sender"], ADMIN_ID)
+        self.assertEqual(event["content"]["m.topic"], {"m.text": [{"body": "Builds the example site"}]})
+        before = len(self.transport.calls)
+        self.assertEqual(self.bootstrap(), [])
+        self.assertEqual([c for c in self.transport.calls[before:] if c[0] != "GET"], [])
+        self.write_team(team_data())
+        self.assertIn("topic", self.bootstrap())
+        self.assertEqual(self.topic(), admin.ROOM_TOPIC)
+
+    def test_a_new_room_starts_with_the_description_as_its_topic(self) -> None:
+        self.write_team(team_data(description="Builds the example site"))
+        self.assertIn("team room", self.bootstrap())
+        self.assertEqual(self.topic(), "Builds the example site")
+
     def test_human_account_has_no_admin_key_and_a_discarded_password(self) -> None:
         self.bootstrap()
         puts = [c for c in self.transport.calls

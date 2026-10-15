@@ -181,7 +181,12 @@ class FilterTest(unittest.TestCase):
         recorded = json.loads((FIXTURES / "071-sync-limited.json").read_text(encoding="utf-8"))
         flt = json.loads(recorded["query"]["filter"])
         room = flt["room"]["rooms"][0]
-        self.assertEqual(syncer.sync_filter(room, flt["room"]["timeline"]["limit"]), flt)
+        ours = syncer.sync_filter(room, flt["room"]["timeline"]["limit"])
+        # The probe predates the description: the topic is the one type added to it.
+        for part in ("state", "timeline"):
+            self.assertIn(syncer.TOPIC, ours["room"][part]["types"])
+            ours["room"][part]["types"].remove(syncer.TOPIC)
+        self.assertEqual(ours, flt)
 
     def test_gap_fill_filter_is_the_one_probe_h4_recorded(self):
         recorded = json.loads((FIXTURES / "072-messages-gap-fill.json").read_text(encoding="utf-8"))
@@ -369,6 +374,45 @@ class TrustTest(TeamCase):
         self.fake.rooms[self.room].state.pop(("m.room.member", self.me))
         with self.assertRaises(syncer.RoomUntrusted):
             self.syncer().sync_once()
+
+
+class AboutTest(TeamCase):
+    """The team description is the room topic the admin set, followed while the watcher runs."""
+
+    def topic(self, uid: str, text: str) -> None:
+        self.put_state(uid, "m.room.topic", "", {"topic": text, "m.topic": {"m.text": [{"body": text}]}})
+
+    def test_a_topic_change_mid_stream_refreshes_the_description_without_a_restart(self):
+        s = self.ready()
+        self.assertIsNone(self.state.about())
+        self.topic(self.admin, "Builds the example site")
+        s.sync_once()
+        self.assertEqual(self.state.about(), "Builds the example site")
+        self.topic(self.admin, "Reviews the example site")
+        s.sync_once()
+        self.assertEqual(self.state.about(), "Reviews the example site")
+        self.topic(self.admin, protocol.ROOM_TOPIC)
+        s.sync_once()
+        self.assertIsNone(self.state.about())
+        self.assertIsNone(self.state.untrusted_reason())
+
+    def test_only_a_well_formed_event_from_the_admin_is_a_description(self):
+        s = self.ready()
+        good = {"sender": self.admin, "content": {"topic": "Builds the example site"}}
+        self.assertEqual(s._about_of(good), "Builds the example site")
+        self.assertIsNone(s._about_of({"sender": self.alice, "content": {"topic": "Forged"}}))
+        self.assertIsNone(s._about_of("not an event"))
+        self.assertIsNone(s._about_of({"sender": self.admin, "content": "x"}))
+        self.assertIsNone(s._about_of({"sender": self.admin, "content": {"topic": protocol.ROOM_TOPIC}}))
+
+    def test_a_forbidden_topic_read_is_no_description_and_costs_no_trust(self):
+        s = self.ready()
+
+        def forbidden(*args, **kwargs):
+            raise matrix.Forbidden("no")
+
+        s.client.get_state = forbidden
+        self.assertIsNone(s._read_about())
 
 
 class HumanPipelineTest(TeamCase):

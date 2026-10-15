@@ -105,12 +105,14 @@ type createOpts struct {
 	repos     []string
 	allowFrom []string
 	address   string
+	// description is what the team is for (S-A14): asked, or given with --description.
+	description string
 }
 
 func (o *createOpts) entry() declare.Entry {
 	return declare.Entry{
 		Team: o.team, Humans: nonEmpty(o.humans), Org: o.org, Repos: nonEmpty(o.repos),
-		AllowFrom: nonEmpty(o.allowFrom), Address: o.address,
+		AllowFrom: nonEmpty(o.allowFrom), Address: o.address, Description: o.description,
 	}
 }
 
@@ -174,7 +176,7 @@ func (c *Wizard) parseFlags(args []string) (createOpts, error) {
 		switch flag {
 		case "--yes":
 			o.yes = true
-		case "--team", "--human", "--org", "--repo", "--allow-from":
+		case "--team", "--human", "--org", "--repo", "--allow-from", "--description":
 			if i+1 >= len(args) {
 				return o, c.usage("create's " + flag + " needs a value.")
 			}
@@ -185,6 +187,8 @@ func (c *Wizard) parseFlags(args []string) (createOpts, error) {
 				o.team = value
 			case "--human":
 				o.humans = append(o.humans, value)
+			case "--description":
+				o.description = value
 			case "--org":
 				o.org = strings.ToLower(value)
 			case "--repo":
@@ -240,6 +244,9 @@ func (c *Wizard) create(ctx context.Context, args []string) error {
 	o, err := c.parseFlags(args)
 	if err != nil {
 		return err
+	}
+	if o.yes && o.description == "" {
+		return c.usage("create's --yes needs --description TEXT: what the team is for.")
 	}
 	here, err := c.remoteRepo(ctx)
 	if err != nil {
@@ -326,6 +333,9 @@ func countSteps(o createOpts, scopeGiven bool, knownAddress string) int {
 		steps += 2
 	}
 	if o.team == "" {
+		steps++
+	}
+	if o.description == "" {
 		steps++
 	}
 	if len(nonEmpty(o.humans)) == 0 {
@@ -454,6 +464,11 @@ func (c *Wizard) askRest(ctx context.Context, o *createOpts, knownAddress string
 			return err
 		}
 	}
+	if o.description == "" {
+		if err := c.askDescription(ctx, o); err != nil {
+			return err
+		}
+	}
 	if len(nonEmpty(o.humans)) == 0 {
 		if err := c.askHumans(ctx, o); err != nil {
 			return err
@@ -500,6 +515,26 @@ func (c *Wizard) askTeam(ctx context.Context, o *createOpts) error {
 	}
 	o.team = team
 	c.term.Answered(team)
+	return nil
+}
+
+// askDescription asks what the team is for, one line, checked by declare.py as typed.
+func (c *Wizard) askDescription(ctx context.Context, o *createOpts) error {
+	if err := c.step(ctx, "What is this team for?", "One line, up to 120 characters. It is shown wherever teams are listed or chosen, and to the team's agents."); err != nil {
+		return err
+	}
+	text, err := c.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
+		if answer == "" {
+			c.problem("say in a line what the team is for", true)
+			return false, nil
+		}
+		return c.checked(c.Declare.Check(ctx, declare.Entry{Description: answer}), true)
+	}, "What is this team for?", "e.g. Builds and reviews the example site", "")
+	if err != nil {
+		return err
+	}
+	o.description = text
+	c.term.Answered(text)
 	return nil
 }
 
@@ -746,6 +781,7 @@ func (c *Wizard) confirmSummary(ctx context.Context, o createOpts) error {
 	}
 	body := strings.Join([]string{
 		summaryLine("Works on", o.trusts()),
+		summaryLine("For", o.description),
 		summaryLine("People", strings.Join(nonEmpty(o.humans), " ")),
 		summaryLine("Machines", machines),
 		summaryLine("Element", "a profile for the team, set up on this desktop"),

@@ -654,6 +654,30 @@ class TeamRecordCacheTest(StateCase):
         self.assertFalse((self.state.path / "team.json").is_symlink())
 
 
+class AboutCacheTest(StateCase):
+    """`about.json`: the team's description as the syncer read it from the admin's room topic."""
+
+    def test_saved_read_and_cleared(self):
+        self.assertIsNone(self.state.about())
+        self.state.save_about("Builds the example site")
+        self.assertEqual(self.state.about(), "Builds the example site")
+        self.assertEqual(stat.S_IMODE((self.state.path / "about.json").stat().st_mode), 0o600)
+        self.state.save_about(None)
+        self.assertIsNone(self.state.about())
+        self.state.save_about(None)
+
+    def test_forgotten_with_the_trust(self):
+        self.state.save_about("Builds the example site")
+        self.state.mark_untrusted("the room's create event")
+        self.assertIsNone(self.state.about())
+
+    def test_a_file_that_is_not_what_save_about_writes_is_refused(self):
+        self.state.ensure_dirs()
+        (self.state.path / "about.json").write_text('{"v": 1, "description": "two\\nlines"}')
+        with self.assertRaises(inbox.StateError):
+            self.state.about()
+
+
 class UntrustedReasonTest(StateCase):
     """§12 `untrusted.json`: why the room stopped being trusted, for an offline `status`."""
 

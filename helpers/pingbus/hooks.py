@@ -62,6 +62,7 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "lock": lambda value: value in LOCK_STATES,
     "handles": lambda value: isinstance(value, str) and all(
         protocol.parse_handle(part) is not None for part in value.split(", ")),
+    "description": protocol.is_description,
 }
 TEMPLATES = {
     "pending": "agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings). Run `pingbus recv`.",
@@ -76,6 +77,7 @@ TEMPLATES = {
     "seat_sibling": "agent-bus: seat {seat}@{team} is {lock}, as {handle}.",
     "seat_history": ("agent-bus: seat {seat}@{team} has earlier traffic: "
                      "`pingbus history --team {team}` shows what it received and sent."),
+    "team_about": "agent-bus: team {team} is for: {description}",
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
                          "on what they tell humans; when a human asks you to get something done, work out "
                          "how and dispatch it to the workers, then track it."),
@@ -136,6 +138,12 @@ def role_lines(views: tuple[TeamView, ...]) -> list[str]:
     return lines
 
 
+def about_lines(views: tuple[TeamView, ...]) -> list[str]:
+    """SessionStart's one line per team whose record has a description: what the team is for."""
+    return [fill("team_about", team=view.team, description=view.description)
+            for view in views if view.description is not None]
+
+
 def seat_lines(environ: Mapping[str, str], teams: tuple[str, ...]) -> list[str]:
     """SessionStart's seat context (DESIGN.md section 5.5): for each seat this session
     holds, its own line, the pointer to `pingbus history` when it has earlier traffic, and
@@ -168,6 +176,8 @@ class TeamView:
     #: and empty where the record could not be read: `failure` says why).
     role: str | None = None
     coordinators: tuple[str, ...] = ()
+    #: What the team is for, from the cached room topic (None where it has none).
+    description: str | None = None
 
     @property
     def waker(self) -> bool:
@@ -216,7 +226,12 @@ def _team_view(member: config.Member) -> TeamView:
         return TeamView(member.team, holder, None, "state")
     handles = tuple(protocol.parse_user_id(user, member.server_name)
                     for user in protocol.coordinators(record.roles))
-    return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles)
+    try:
+        description = state.about()
+    except inbox.StateError:
+        return TeamView(member.team, holder, None, "state")
+    return TeamView(member.team, holder, pending, None, record.roles.get(member.user_id), handles,
+                    description)
 
 
 def survey(environ: Mapping[str, str]) -> Survey:
@@ -383,6 +398,7 @@ class _Hook:
         except (config.ConfigError, inbox.StateError, OSError) as exc:
             self.err.write(f"pingbus: hook session-start: the seats cannot be read: {exc}\n")
             seat_failure = "state"
+        lines += about_lines(surveyed.teams)
         lines += role_lines(surveyed.teams)
         lines += self._pending_and_failure(surveyed, seat_failure)
         return _context(self.event, lines)

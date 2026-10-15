@@ -58,7 +58,7 @@ LOOPBACK = "127.0.0.1"
 HTTP_TIMEOUT_S = 30
 PASSWORD_LENGTH = 32
 PASSWORD_ALPHABET = string.ascii_letters + string.digits
-ROOM_TOPIC = "Agent team bus: agents' pings and the team's humans' addressed messages"
+ROOM_TOPIC = protocol.ROOM_TOPIC
 REMOVED_REASON = "removed from the team"
 
 TEAM_FILE = "team.json"
@@ -512,6 +512,11 @@ def _team_record(team: Team, reg: registry.Registry) -> dict:
     return record
 
 
+def _topic(team: Team) -> str:
+    """The room's topic: what the team is for, else the fixed sentence (Element shows it)."""
+    return team.file.description or ROOM_TOPIC
+
+
 def _canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -529,7 +534,7 @@ def _ensure_room(api: _Api, changes: list[str]) -> str:
     record = _team_record(team, registry.load_registry(team.registry_path, team.name))
     _, obj = api.call("create the team room", "POST", f"{_CLIENT}/createRoom", body={
         "preset": "private_chat", "room_version": protocol.ROOM_VERSION, "visibility": "private",
-        "name": team.name, "topic": ROOM_TOPIC,
+        "name": team.name, "topic": _topic(team),
         "power_level_content_override": protocol.expected_power_levels(team.humans()),
         "initial_state": [{"type": protocol.EVENT_TEAM, "state_key": "", "content": record}],
     })
@@ -553,6 +558,11 @@ def _sync_team(api: _Api, room: str, changes: list[str]) -> None:
     if _canonical(api.state(room, protocol.EVENT_TEAM)) != _canonical(record):
         api.put_state(room, protocol.EVENT_TEAM, record)
         changes.append("team record")
+    topic = _topic(team)
+    current = api.state(room, "m.room.topic")
+    if not isinstance(current, dict) or current.get("topic") != topic:
+        api.put_state(room, "m.room.topic", {"topic": topic, "m.topic": {"m.text": [{"body": topic}]}})
+        changes.append("topic")
 
 
 def _remove_account(api: _Api, room: str, user_id: str, changes: list[str]) -> None:

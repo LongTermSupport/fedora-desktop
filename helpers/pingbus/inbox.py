@@ -63,6 +63,8 @@ DROPPED_LOG = "dropped.log"
 #: The room as the syncer last saw it (§12), for an offline `status`: joined and invited
 #: members by user ID, and the `listening` statuses §8 lets it read.
 ROOM_FILE = "room.json"
+#: The team's description, read by the syncer from the admin's room topic (informational).
+ABOUT_FILE = "about.json"
 ROOM_MEMBERSHIPS = ("join", "invite")
 ROOM_MEMBERS_MAX = 4096
 TEAM_RECORD_MAX_BYTES = 65536
@@ -419,6 +421,28 @@ class TeamState:
         (self.path / UNTRUSTED_FILE).unlink(missing_ok=True)
         _fsync_dir(self.path)
 
+    def save_about(self, description: str | None) -> None:
+        """Replace `about.json` with the description the syncer read from the room topic, or
+        remove it when the team has none."""
+        if description is None:
+            (self.path / ABOUT_FILE).unlink(missing_ok=True)
+            return
+        if not protocol.is_description(description):
+            raise ValueError("a description is 1 to 120 characters, one line")
+        self.ensure_dirs()
+        write_json_file(self.path / ABOUT_FILE, {"v": STATE_VERSION, "description": description})
+
+    def about(self) -> str | None:
+        """The cached description, or None when there is none; `StateError` when the file is
+        not what `save_about` writes."""
+        data = read_json_file(self.path / ABOUT_FILE)
+        if data is None:
+            return None
+        if (not isinstance(data, dict) or set(data) != {"v", "description"} or data["v"] != STATE_VERSION
+                or not protocol.is_description(data["description"])):
+            raise StateError(f"{self.path / ABOUT_FILE} is not a description file")
+        return data["description"]
+
     def mark_untrusted(self, reason: str) -> None:
         """Record why the room stopped being trusted, and remove `team.json`."""
         if not _is_reason(reason):
@@ -426,6 +450,7 @@ class TeamState:
         self.ensure_dirs()
         _write_atomic(self.path / UNTRUSTED_FILE, _dump({"v": STATE_VERSION, "reason": reason}))
         self.forget_team_record()
+        (self.path / ABOUT_FILE).unlink(missing_ok=True)
         _fsync_dir(self.path)
 
     def untrusted_reason(self) -> str | None:

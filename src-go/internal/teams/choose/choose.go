@@ -124,13 +124,30 @@ func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
 		c.Host.Print(c.Host.Stdout, prefix+"none\n")
 		return term.ExitOK
 	}
-	d := &describer{c: c, rosters: map[string]rosterResult{}}
+	d := &describer{c: c, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
 	var parts []string
 	for ref := range strings.SplitSeq(args[0], ",") {
 		parts = append(parts, d.describe(ctx, strings.TrimSpace(ref)))
 	}
 	c.Host.Print(c.Host.Stdout, prefix+strings.Join(parts, ", ")+"\n")
 	return term.ExitOK
+}
+
+// descriptions is what each declared team is for. Descriptions that cannot be read are said on
+// stderr and left out: the launch still shows its seats.
+func (c *Choose) descriptions(ctx context.Context) map[string]string {
+	teams, err := c.Host.Declare.Declared(ctx)
+	if err != nil {
+		c.Kit.ReportErr(err)
+		return nil
+	}
+	about := make(map[string]string, len(teams))
+	for _, t := range teams {
+		if t.Description != "" {
+			about[t.Name] = t.Description
+		}
+	}
+	return about
 }
 
 func (c *Choose) say(msg string) { c.Host.Print(c.Host.Stderr, msg+"\n") }
@@ -253,15 +270,24 @@ type describer struct {
 	c       *Choose
 	rosters map[string]rosterResult
 	handles map[string]string // "<seat>@<team>" -> handle
+	about   map[string]string // team -> what it is for
 	loaded  bool
 	loadErr error
 }
 
+// describe is the seat with its role, and what its team is for when the team has a description.
 func (d *describer) describe(ctx context.Context, ref string) string {
 	seat, team, ok := strings.Cut(ref, "@")
 	if !ok {
 		return ref
 	}
+	if about := d.about[team]; about != "" {
+		return d.role(ctx, ref, seat, team) + ": " + about
+	}
+	return d.role(ctx, ref, seat, team)
+}
+
+func (d *describer) role(ctx context.Context, ref, seat, team string) string {
 	handle, found, err := d.handle(ctx, seat, team)
 	if err != nil {
 		return ref + " (role unknown: " + err.Error() + ")"

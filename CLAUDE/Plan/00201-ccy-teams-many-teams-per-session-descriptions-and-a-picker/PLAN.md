@@ -65,9 +65,19 @@ honours a team's `exclude` through the bus's own `protocol.is_excluded`, so a te
 a repository is no longer offered for a checkout of it. Report:
 `subagent-reports/261015-teams-for-exclude-sonnet.md`.
 
-- [ ] ⬜ **Task 2.1**: M1, descriptions declared and shown on the host.
-- [ ] ⬜ **Task 2.2**: M2, descriptions reach agents (team record, room topic, `pingbus status`,
-  SessionStart); container bump.
+- [x] ✅ **Task 2.1**: M1, descriptions declared and shown on the host (S-A1 to S-A7, S-A13 to
+  S-A16). Built test-first: team file `description`, `declare.py` create/check/describe/
+  `undescribed` and the 7-field `TEAM` line, the board's MEMBER cell, the create wizard's question,
+  the picker's one-time offer, Quick Launch's `Team:` line, and an installer case proving a
+  description-only change restarts nothing. Q1 (required at create, optional in the file) taken as
+  the spec recommends. Report: `subagent-reports/261015-m1-m2-sonnet.md`.
+- [x] ✅ **Task 2.2**: M2, descriptions reach agents (S-A8 to S-A12), revised after review: the
+  description travels as the admin-written room topic, read by the syncer into `about.json`
+  (only from the admin, only if it passes the grammar, never the fixed sentence), NOT as a
+  team-record key, because an unknown record key makes every older member exit 10. Then
+  `pingbus status` prints `ABOUT` and SessionStart says "team T is for: ...". Container 2.57 /
+  CCY 3.97.4. No deploy-order hazard remains. Q2 and Q3 as the spec recommends. Report:
+  `subagent-reports/261015-m1-m2-sonnet.md`.
 - [x] ✅ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's
   short name. Built test-first in `helpers/pingbus` (S-D1 to S-D6); Q8 taken as the spec
   recommends (REPLY after HUMAN and PEER only, not PING), pending the owner's confirmation.

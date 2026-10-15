@@ -1471,6 +1471,13 @@ class TestTeamRecord(unittest.TestCase):
                 self.parse(body)
         self.parse(dict(good, repos=listed, exclude=["hidden"]))
 
+    def test_a_description_key_is_not_part_of_the_record(self) -> None:
+        """Plan 00201: the description travels in the room topic, so an unknown `description`
+        key still makes the record untrusted and the key set is the one every release reads."""
+        self.assertNotIn("description", p.TEAM_KEYS)
+        with self.assertRaises(p.Untrusted):
+            self.parse(dict(self.good(), description="Builds the example site"))
+
     def test_refusals(self) -> None:
         good = self.good()
         roles65 = {f"@r{i}.1+h.podman:server.test": "worker" for i in range(65)}

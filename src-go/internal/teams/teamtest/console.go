@@ -138,6 +138,7 @@ func Interactive(t *testing.T, w *World) *Console {
 	w.Env["NO_COLOR"] = "1"
 	w.Env["PWD"] = w.Root
 	w.OnDeclare("limited", "")
+	w.OnDeclare("undescribed", "")
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal

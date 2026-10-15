@@ -17,7 +17,7 @@ a different answer changes only the expectations it names.
 | #   | Decision                                                                                              | Recommendation                                                                                                                                                                                                                                                                                                                                     | Affects       |
 | --- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | Q1  | Is a description **required**?                                                                        | Required for every team `ccy-teams create` makes; **optional in the team file** so existing teams and other projects' team files stay valid. A team without one shows `(no description)`, and the ccy-teams picker asks once per team to write one.                                                                                                | S-A1, S-A6    |
-| Q2  | Does the description reach the **agents** (pingbus, SessionStart), or only the host (ccy, ccy-teams)? | Both. Agents on several teams need to know what each is for. It travels as an optional `description` key of the team record, a version-1 widening like `exclude`: every member must run the new pingbus before a team sets one. In this repository the kit and the image are one build; docs/agent-bus.md tells other projects to re-copy the kit. | S-A8 to S-A12 |
+| Q2  | Does the description reach the **agents** (pingbus, SessionStart), or only the host (ccy, ccy-teams)? | Both, **through the room topic**, not a team-record key (revised after review: a new record key makes every older member exit 10). Old readers ignore the topic, so no upgrade-first ordering. | S-A8 to S-A12 |
 | Q3  | Should the team room's **Element topic** be the description?                                          | Yes: `bootstrap` sets the topic to the description on every apply (the fixed sentence when there is none). Element is where the humans see teams.                                                                                                                                                                                                  | S-A9          |
 | Q4  | Choosing a team that does not cover the checkout: what are the choices?                               | Three, default **Add**: "Add example-org/proj to beta's scope", "Join without adding (beta will treat example-org/proj references as external)", "Leave beta out". Joining without adding is an explicit, named choice, not a fallback.                                                                                                            | S-B7          |
 | Q5  | When does the chooser appear?                                                                         | Whenever an attended launch has `--teams` with no value or a team alone, **unless** the machine has exactly one team and it covers the checkout (then it is taken, as today). With two or more teams the owner always sees the list, covering teams on top.                                                                                        | S-B2          |
@@ -58,20 +58,20 @@ file by the play unchanged (`play-agent-bus.yml:183` passes every key, R§7).
   description as a JSON string, or a bare `-` when there is none (quoting keeps a
   description that is itself `-` distinct from "none"). `declare.Client` parses 7 fields;
   `declare.Team` gains `Description`.
-- **S-A8** The team record gains optional `description` (protocol §8 TEAM_KEYS and
-  TEAM_OPTIONAL_KEYS); `parse_team_record` validates it with S-A2 or raises
-  `Untrusted("description")`; `TeamRecord.description` is `None` when absent.
-  `admin._team_record` publishes it when the team file has one. docs/agent-bus-protocol.md
-  §1 records it as a version-1 widening (a receiver built before it treats the room as
-  untrusted, exit 10, loudly).
+- **S-A8** (revised) The description is **not** a key of the team record: the record's keys and
+  its trust check are unchanged, because a receiver treats an unknown key as untrusted (exit 10),
+  which would break every member on an older image the moment a team set a description. The
+  admin carries it in `m.room.topic`, which old readers ignore. The syncer reads the topic into
+  `about.json` only from an event sent by `admin`, only if it passes S-A2's grammar and is not the
+  fixed sentence; otherwise the team has no description and nothing is lost. A record written by
+  the admin for a team with a description still validates under the old key set (tested).
 - **S-A9** `bootstrap` sets the room's `m.room.topic` to the description, or to the fixed
   `ROOM_TOPIC` when there is none, only when it differs (idempotent; `CHANGED topic` when set).
-- **S-A10** `pingbus status` prints, after a trusted team's `TEAM` line and only when the
-  record has a description, `ABOUT<TAB>1<TAB><team><TAB><description as JSON string>`
-  (new line type in §13 and §15). An untrusted team prints none.
+- **S-A10** `pingbus status` prints, after a trusted team's `TEAM` line and only when the cached
+  topic gives a description, `ABOUT<TAB>1<TAB><team><TAB><description as JSON string>` (new line
+  type in section 15). An untrusted team prints none.
 - **S-A11** SessionStart adds per team with a description one line
-  `agent-bus: team <team> is for: <description>` (a new hooks template; the description is
-  checked by S-A2's rule before it is filled, as every hook field is).
+  `agent-bus: team <team> is for: <description>`, checked by S-A2's rule before it is filled.
 - **S-A12** The skill's status section names the `ABOUT` line.
 - **S-A13** ccy-teams board: a team row's MEMBER cell is the description (or
   `(no description)`), cut to the column's 36 characters with `…` in the picker and in
