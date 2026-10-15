@@ -199,6 +199,17 @@ owns scope (the `js` and `python` lists of `qa/discovery`, or the named files), 
 every rule has a `ruleid:` line in its language's fixture and matches it, and the refusal to pass
 over a file semgrep did not read. `SPEC-qa-speech-to-text-rules.md` (S1-S17) is the specification.
 
+`qa/helpertests` + `qa/cmd/qa-helper-tests` (same nested module) are `scripts/qa-helper-tests.bash`,
+the helper unit-test gate: the script only builds and runs the command. The stdlib `unittest` runner
+(`helpers/qa_environment/unittest_counts.py`) stays Python and the engine; the Go owns scope (a walk
+of `tests/helpers` checked against the `tracked-helper-tests` list of `qa/discovery`; none found or
+one lost is exit 2), the module names (each segment an identifier), the environment (the machine's
+git configuration kept out), and the judgement: the counts file is read back with `gates.HelperRun`
+(the integer sibling of `gates.HelperCounts`, which `qa-all` reads) and must agree with the request,
+so a run that did not happen cannot pass. `SPEC-qa-helper-tests.md` (H1-H13, G1) is the specification,
+proven by unit tests over a fake tree and runner and a real git tree with the real runner in the
+command package.
+
 `qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:
 ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
 name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the

@@ -134,34 +134,66 @@ var digits = regexp.MustCompile(`^[0-9]+$`)
 // concurrent run); it is not a lock against a test that reads argv, and write ordering is what
 // defeats a clobber from inside the suite.
 func HelperCounts(path, wantToken string) (string, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("no counts file at %s", path)
-		}
-		return "", fmt.Errorf("counts file %s: %w", path, err)
-	}
-	if len(body) == 0 {
-		return "", fmt.Errorf("%s is empty: the runner did not write it", path)
-	}
-	values, err := parseCounts(string(body), path)
+	values, err := readCounts(path, wantToken)
 	if err != nil {
 		return "", err
-	}
-	// Before the digits: if the file is not the one this run produced, its numbers describe
-	// something else and validating them would only lend them credibility.
-	if values["token"] != wantToken {
-		return "", fmt.Errorf("%s carries token %q, expected %q: the file was written by something other than the run that asked for it", path, values["token"], wantToken)
-	}
-	for _, key := range countKeys[:4] {
-		if !digits.MatchString(values[key]) {
-			return "", fmt.Errorf("%s= is missing or not a number in %s", key, path)
-		}
 	}
 	return fmt.Sprintf("Ran %s %s in %s %s (%s tracked), %s skipped",
 		values["tests"], plural(values["tests"], "test", "tests"),
 		values["modules"], plural(values["modules"], "module", "modules"),
 		values["tracked"], values["skipped"]), nil
+}
+
+// HelperNumbers are the four numbers of a helper-tests counts file.
+type HelperNumbers struct {
+	Tests, Skipped, Modules, Tracked int
+}
+
+// HelperRun reads the counts file under the refusals of HelperCounts and returns the numbers as
+// integers; a number too large for an int is refused too.
+func HelperRun(path, wantToken string) (HelperNumbers, error) {
+	values, err := readCounts(path, wantToken)
+	if err != nil {
+		return HelperNumbers{}, err
+	}
+	var n HelperNumbers
+	for key, into := range map[string]*int{"tests": &n.Tests, "skipped": &n.Skipped, "modules": &n.Modules, "tracked": &n.Tracked} {
+		v, convErr := strconv.Atoi(values[key])
+		if convErr != nil {
+			return HelperNumbers{}, fmt.Errorf("%s=%s is not a number this tool can hold in %s", key, values[key], path)
+		}
+		*into = v
+	}
+	return n, nil
+}
+
+// readCounts is the validated key/value map of a counts file.
+func readCounts(path, wantToken string) (map[string]string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("no counts file at %s", path)
+		}
+		return nil, fmt.Errorf("counts file %s: %w", path, err)
+	}
+	if len(body) == 0 {
+		return nil, fmt.Errorf("%s is empty: the runner did not write it", path)
+	}
+	values, err := parseCounts(string(body), path)
+	if err != nil {
+		return nil, err
+	}
+	// Before the digits: if the file is not the one this run produced, its numbers describe
+	// something else and validating them would only lend them credibility.
+	if values["token"] != wantToken {
+		return nil, fmt.Errorf("%s carries token %q, expected %q: the file was written by something other than the run that asked for it", path, values["token"], wantToken)
+	}
+	for _, key := range countKeys[:4] {
+		if !digits.MatchString(values[key]) {
+			return nil, fmt.Errorf("%s= is missing or not a number in %s", key, path)
+		}
+	}
+	return values, nil
 }
 
 // parseCounts splits the file into its keys. A key is split at the first "="; a line with an

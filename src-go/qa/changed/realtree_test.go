@@ -141,6 +141,24 @@ func TestTheRealRoutingSendsEveryToolchainInputToTheToolchainCheck(t *testing.T)
 	}
 }
 
+// The helper-tests gate's own files, routed by the real table: the Go package and command run the
+// go check, the wrapper the shell checks, the Python runner ruff and the mirrored unit test; every
+// one is covered (SPEC-qa-helper-tests B9).
+func TestTheRealRoutingCoversEveryHelperTestsGateInput(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, check := range map[string]string{
+		"src-go/qa/helpertests/run.go":              "check:go",
+		"src-go/qa/cmd/qa-helper-tests/main.go":     "check:go",
+		"scripts/qa-helper-tests.bash":              "check:shellcheck",
+		"helpers/qa_environment/unittest_counts.py": "check:unit-tests",
+	} {
+		checkSemgrepRoute(t, root, rel, check)
+	}
+}
+
 // Every file under .semgrep/ is read by the gate or suite listed here; a change to one must run
 // it, and none may be called covered when nothing checked it (SPEC-qa-changed B33).
 var semgrepReaders = map[string]string{

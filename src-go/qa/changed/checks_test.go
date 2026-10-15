@@ -470,6 +470,18 @@ func TestTheToolchainCheckIsAWholeGateNeedingGo(t *testing.T) {
 	}
 }
 
+// The helper-tests gate is not a qa-changed check (SPEC-qa-helper-tests B9): qa-changed runs the
+// mirrored unit-tests module of each changed helper and leaves the whole suite to qa-all, whose
+// table (qa-gates.tsv, kind helpers) owns it. Adding a check is a decision that comes with routing
+// rows, a golden deviation and a SPEC-qa-changed B-row, not a side effect of the port.
+func TestTheHelperTestsGateIsNotAChangedCheck(t *testing.T) {
+	for _, d := range checkDefs {
+		if strings.Contains(d.id, "helper") {
+			t.Errorf("check %q: the helper-tests gate is not routed by qa-changed", d.id)
+		}
+	}
+}
+
 type failingRunner struct{}
 
 func (failingRunner) Run(context.Context, proc.Cmd) (proc.Result, error) {
