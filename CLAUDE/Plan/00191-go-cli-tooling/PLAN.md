@@ -73,8 +73,9 @@ today; rewriting them is out of scope.
   - Added `go build ./...` per module, before vet and test: a production file calling a
     helper defined only in a `_test.go` file passes vet, test and lint (all load test
     files) and breaks only the build. Red/green proven with a throwaway fixture package.
-    go-qa-ci is getting the same stage on its branch `feat/build-stage`.
-    Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
+    go-qa-ci has the same stage, merged to its main at `7fc4547e92f2` after a Fable review
+    (no binary left behind, go.mod and go.sum never rewritten, go.work and vendor/ respected).
+  - Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
     go-qa-ci already runs it.
 
 ### Phase 2: ccy-teams in Go
