@@ -52,6 +52,8 @@ MEMBER_ROLE = "worker"
 BUS_IFACE = "agentbus0"
 #: The root wrapper, by path: sudo's own PATH is not the caller's.
 WRAPPER = "/usr/local/bin/agent-bus"
+#: Where the installer stamps each team it built (`ccy-teams`' CCY_TEAMS_APPLIED_DIR default).
+APPLIED_DIR = pathlib.Path("/var/lib/agent-bus-applied")
 DIR_MODE = 0o700
 
 CCY_DIR = pathlib.PurePosixPath(".claude/ccy")
@@ -418,10 +420,15 @@ class System:
     cwd: pathlib.Path
     uid: int
     team_active: Callable[[str], bool]
+    #: The teams built on this host, running or not (the installer's stamps).
+    teams_here: Callable[[], Sequence[str]]
     bus_address: Callable[[], str]
     #: `sudo agent-bus ARGV` (`sudo -n` when no prompt is allowed): its exit code and stdout
     #: (bytes: `add-member --out=-` prints the bundle's tar).
     agent_bus: Callable[[Sequence[str], bool], tuple[int, bytes]]
+    #: `sudo -k`: drop sudo's cached credential, so the session started next on this terminal
+    #: cannot run root commands with it (security audit H1).
+    forget_sudo: Callable[[], None]
     clock_ms: Callable[[], int]
 
 
@@ -435,6 +442,14 @@ def _systemctl_active(team: str) -> bool:
     except FileNotFoundError:
         raise CheckoutError("systemctl is not installed: a team's homeserver cannot be checked") from None
     return run.returncode == 0
+
+
+def _stamped_teams(applied: pathlib.Path = APPLIED_DIR) -> list[str]:
+    """The teams the installer has built here: one `<team>.json` stamp each, readable without
+    sudo (the same stamps `ccy-teams` reads for its APPLIED column)."""
+    if not applied.is_dir():
+        return []
+    return sorted(path.stem for path in applied.glob("*.json") if protocol.is_team_name(path.stem))
 
 
 def _ip_bus_address() -> str:
@@ -460,10 +475,25 @@ def _sudo_agent_bus(argv: Sequence[str], no_prompt: bool) -> tuple[int, bytes]:
     return run.returncode, run.stdout
 
 
+def sudo_forget() -> None:
+    """`sudo -k`: invalidate the cached credential of this terminal (or of this process, with
+    none), whoever primed it. It needs no password; a failure stops the launch."""
+    try:
+        run = subprocess.run(["sudo", "-k"], check=False)
+    except FileNotFoundError:
+        raise CheckoutError("sudo is not installed") from None
+    if run.returncode != 0:
+        raise CheckoutError(
+            f"sudo -k exited {run.returncode}, so sudo's cached credential could not be dropped "
+            "before the session starts on this terminal; not starting"
+        )
+
+
 def real_system(cwd: pathlib.Path | None = None) -> System:
     return System(cwd=pathlib.Path.cwd() if cwd is None else cwd, uid=os.getuid(),
-                  team_active=_systemctl_active, bus_address=_ip_bus_address,
-                  agent_bus=_sudo_agent_bus, clock_ms=lambda: time.time_ns() // 1_000_000)
+                  team_active=_systemctl_active, teams_here=_stamped_teams, bus_address=_ip_bus_address,
+                  agent_bus=_sudo_agent_bus, forget_sudo=sudo_forget,
+                  clock_ms=lambda: time.time_ns() // 1_000_000)
 
 
 def _git(cwd: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
@@ -587,12 +617,20 @@ def _observe(root: pathlib.Path, refs: Sequence[seat.SeatRef], uid: int) -> tupl
 
 
 def _check_team(team: str, system: System) -> None:
-    if not system.team_active(team):
+    """A team named for a seat must run here. A team built here but stopped is started by
+    `ccy-teams apply`; a name this host has no team of is answered with those it has."""
+    if system.team_active(team):
+        return
+    here = list(system.teams_here())
+    if team in here:
         raise CheckoutError(
-            f"team `{team}` has no homeserver running on this host ({hs_unit(team)} is "
-            "not active): a launch names only a team hosted here; create it with "
-            "play-agent-bus.yml (agent_bus_teams) or sudo agent-bus-install team --team-file <file>"
+            f"team `{team}` is built on this host but its homeserver is not running ({hs_unit(team)} "
+            f"is not active): ccy-teams apply {team} starts it (ccy-teams shows the team's state)"
         )
+    raise CheckoutError(
+        f"there is no team `{team}` on this host ({hs_unit(team)} is not active); teams here: "
+        f"{', '.join(here) or 'none yet'}. Check the name, or ccy-teams create makes one"
+    )
 
 
 def _parse_and_check_teams(text: str, system: System, *, one_per_team: bool = True) -> tuple[seat.SeatRef, ...]:
@@ -615,7 +653,16 @@ def check(text: str, system: System, *, resolved: bool = True) -> str:
 def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], None],
          emit: Callable[[str], None], member_type: str = MEMBER_TYPE) -> None:
     """`seat take`: create every named seat that has no directory; refuse a held one, and
-    one that exists for another member type."""
+    one that exists for another member type. However it ends, sudo's cached credential is
+    dropped last: the session the launcher starts next runs on this terminal."""
+    try:
+        _take(text, system, no_prompt=no_prompt, say=say, emit=emit, member_type=member_type)
+    finally:
+        system.forget_sudo()
+
+
+def _take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], None],
+          emit: Callable[[str], None], member_type: str) -> None:
     refs = _parse_and_check_teams(text, system)
     top = find_checkout(system)
     _seat_tree(top, system.uid, [ref.team for ref in refs])
@@ -634,8 +681,8 @@ def take(text: str, system: System, *, no_prompt: bool, say: Callable[[str], Non
             code, bundle = system.agent_bus(action.argv, no_prompt)
             if code != 0:
                 claim.abandon()
-                hint = ("; a launch with no prompt uses only sudo's cached credential: run `sudo -v`, "
-                        "then launch again") if no_prompt else ""
+                hint = ("; a launch with no prompt cannot ask for sudo's password, so a new seat "
+                        "is made by starting the launch once on a terminal") if no_prompt else ""
                 raise CheckoutError(
                     f"seat {action.ref.text} could not be created: sudo agent-bus add-member exited "
                     f"{code}, for the reason above{hint}"
@@ -723,7 +770,15 @@ def _prune(tree: Sequence[pathlib.Path]) -> None:
 def remove(text: str, system: System, *, say: Callable[[str], None], emit: Callable[[str], None]) -> None:
     """`seat remove`: park each named seat's handle, delete its directory, and remove what
     is left empty up to `.claude/ccy/pingbus/`. Each seat's lock is held while it goes. The
-    list may name several seats of one team: no session claims it."""
+    list may name several seats of one team: no session claims it. sudo's cached credential
+    is dropped last, however it ends."""
+    try:
+        _remove(text, system, say=say, emit=emit)
+    finally:
+        system.forget_sudo()
+
+
+def _remove(text: str, system: System, *, say: Callable[[str], None], emit: Callable[[str], None]) -> None:
     refs = _parse_and_check_teams(text, system, one_per_team=False)
     top = find_checkout(system)
     tree = _seat_tree(top, system.uid, [ref.team for ref in refs])

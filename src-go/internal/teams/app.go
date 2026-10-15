@@ -18,6 +18,8 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"os"
+	"os/signal"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/choose"
@@ -53,6 +55,9 @@ type App struct {
 	// Chooser is choose-teams.
 	Chooser *chooser.Chooser
 	Picker  *picker.Picker
+	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
+	// so the sudo credential is still dropped (review L-A).
+	Interrupted func(context.Context) (context.Context, context.CancelFunc)
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
@@ -87,16 +92,33 @@ func Wire(h *host.Host) *App {
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
 		Picker:  picker.New(h, kit, b, o, c, l, s, x),
+		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return signal.NotifyContext(ctx, os.Interrupt)
+		},
 	}
 }
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
 // not be written turns a success into a failure.
+//
+// A run that made sudo ready drops the credential last (security audit H1): a launcher may
+// start an agent's session on this terminal next, and it must not inherit the owner's sudo.
+// A launcher started by exec takes its seats through `agent-bus seat take`, which drops it too.
 func (a *App) Run(args []string) term.ExitCode {
-	return a.Term.Finish(a.run(args), a.Out.Err())
+	ctx, stop := a.Interrupted(context.Background())
+	code := a.run(ctx, args)
+	stop()
+	if err := a.Sudo.Forget(context.Background()); err != nil {
+		a.Term.PrintError("the sudo credential could not be dropped (" + err.Error() +
+			"); run sudo -k before starting an agent on this terminal.")
+		if code == term.ExitOK {
+			code = term.ExitFailure
+		}
+	}
+	return a.Term.Finish(code, a.Out.Err())
 }
 
-func (a *App) run(args []string) term.ExitCode {
+func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -117,7 +139,7 @@ func (a *App) run(args []string) term.ExitCode {
 	if !a.CcyInstalled() {
 		return term.ExitFailure
 	}
-	return a.dispatch(context.Background(), sub, args[min(1, len(args)):])
+	return a.dispatch(ctx, sub, args[min(1, len(args)):])
 }
 
 // dispatch hands the validated subcommand to the package that implements it.

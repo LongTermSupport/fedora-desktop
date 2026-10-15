@@ -211,6 +211,53 @@ func TestElementSetUpFailureIsSaidAndKeepsThePicker(t *testing.T) {
 	}
 }
 
+func TestOpenEveryTeamLaunchesEachTeamWithAProfileInItsOwnWindow(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	snap := h.pass(t)
+	teamtest.MustWrite(t, filepath.Join(h.l.Home, ".local/share/applications/agent-bus-beta-element.desktop"), "[Desktop Entry]\n")
+	snap.Teams = append(snap.Teams, "beta", "gamma")
+	res, err := h.l.OpenEveryTeam(context.Background(), snap)
+	if err != nil || res != flow.Done {
+		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
+	}
+	var launched []string
+	for _, c := range h.Fake.Calls() {
+		if c.Name == "systemd-run" {
+			launched = append(launched, c.Line())
+		}
+	}
+	if len(launched) != 2 || !strings.Contains(launched[0], "ccy-teams-element-alpha-") || !strings.Contains(launched[1], "ccy-teams-element-beta-") {
+		t.Fatalf("launched %q", launched)
+	}
+	for _, want := range []string{
+		"Opening alpha, beta in Element: one window each (each team is its own Matrix server, and an Element window holds one account).\n",
+		"gamma has no Element profile on this desktop yet: Open gamma in Element (Ctrl-E on its row) sets one up.\n",
+	} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+	if h.Fake.Called(teamtest.SudoBus + "human password") {
+		t.Fatal("opening every team sets no password")
+	}
+}
+
+func TestOpenEveryTeamWithNoProfileSaysSoAndLaunchesNothing(t *testing.T) {
+	h := newRig(t)
+	snap := h.pass(t)
+	res, err := h.l.OpenEveryTeam(context.Background(), snap)
+	if err != nil || res != flow.Done {
+		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
+	}
+	if h.Fake.Called("systemd-run") {
+		t.Fatal("Element was started with no profile")
+	}
+	if want := "alpha has no Element profile on this desktop yet: Open alpha in Element (Ctrl-E on its row) sets one up.\n"; !strings.Contains(h.ErrOut.String(), want) {
+		t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+	}
+}
+
 func TestElementSetUpCancelledEndsWith130(t *testing.T) {
 	h := newRig(t)
 	h.Script.Gum = []string{"CANCEL"}

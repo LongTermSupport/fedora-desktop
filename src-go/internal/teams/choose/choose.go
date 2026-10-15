@@ -174,6 +174,12 @@ func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
 		}
 		fmt.Fprintf(&b, "  %-*s  seat %s (%s)  %s\n", width, st.team, st.seat, d.roleWords(ctx, st.seat, st.team), about)
 	}
+	// Security audit L1: a team human's request carries the owner's authority over the session.
+	which := "these teams"
+	if len(seats) == 1 {
+		which = "this team"
+	}
+	fmt.Fprintf(&b, "Any human listed in %s can direct this session as you can.\n", which)
 	c.Host.Print(c.Host.Stdout, b.String())
 	return term.ExitOK
 }

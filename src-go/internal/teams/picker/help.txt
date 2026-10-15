@@ -21,7 +21,9 @@ Keys:
   Ctrl-N   start a ccy session in a free or new seat of the team, in this folder
   Ctrl-P   a new Element password for the person on the row (shown once). If they are
            signed in to Element it asks first, saying how many sessions it signs out
-  Ctrl-E   open the team in Element; it starts apart, and you stay on the list
+  Ctrl-E   open the team in Element; it starts apart, and you stay on the list. Each
+           team is its own Element window (each is its own Matrix server); Enter on a
+           team row has Open every team in Element, a window each
   Ctrl-U   update every team out of date or not built (never takes one down)
   Ctrl-R   restore after a reboot, on or off, for the seat's session
   Ctrl-X   remove a seat, park a member, or take a team down (after a yes/no; a

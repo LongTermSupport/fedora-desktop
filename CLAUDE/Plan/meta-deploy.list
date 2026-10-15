@@ -20,6 +20,18 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Plan 00201 Tasks 2.10 (UX fixes) and 2.11 (security fixes): deploys the ccy launcher
+# 3.98.10, which requires container 2.65, so the next ccy launch rebuilds the image once. In a
+# team session a human's accents, other scripts and emoji read as written in the delivery
+# block; the agent's answer is an Element reply to the message (`say --re`), and Element shows
+# the agent's avatar under each human message it received; the skill and delivery frame carry
+# the security rules (plugin 1.2.2). Rebuilds ccy-teams: Enter on a team row has "Open every
+# team in Element, a window each"; a run that used sudo drops the credential before it exits,
+# Ctrl-C included; the launch block names who can direct a session; a copied password serves
+# one paste. cc --teams gets the new deny rules and consent text. Every team session must then
+# be relaunched: a session on an older image silently drops a reply from a new one, refusing it
+# as an edit.
+playbooks/imports/play-claude-yolo.yml
 # Plans 00161/00201 security fixes (homeserver and infrastructure): play-agent-bus first takes a
 # fresh backup of every running team (failing the run if one fails, so the worst case is a known
 # `agent-bus-install restore`), then installs Tuwunel 1.9.4 (from 1.9.3) and a re-sandboxed
@@ -29,6 +41,14 @@
 # display-name changes; caps a request at 10 MB. Bootstrap deletes the stored admin password
 # (the token stays) and empties any agent_bus.status event under a key that is not a user ID.
 # The applied stamps become 0640 in a 0750 directory, group the desktop user's primary group.
+# Plan 00201 Tasks 2.10 and 2.11: agent-bus-install software puts the same pingbus and kit in
+# /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get the same
+# replies, read receipts, readable text and security rules, and must be restarted too (an old
+# one drops replies as edits); and the agent-bus seat commands ccy and cc launch through, so a
+# launch naming a stopped team says `ccy-teams apply <team>`, an unknown one lists the teams
+# here, and `seat take` and `seat remove` end with `sudo -k`. No firewall rule changes; a team
+# that still reads "out of date: software" afterwards is applied from ccy-teams. The owner's
+# checks: Plan 00201 ACCEPTANCE-owner.md, from its "Morning start".
 playbooks/imports/play-agent-bus.yml
 # Plan 00161: its triage, deploy and acceptance again. Triage now reads the bus address from
 # agent_bus_address in host_vars, as deploy and acceptance do, so H1 and H2 test agentbus0; the
@@ -37,3 +57,5 @@ playbooks/imports/play-agent-bus.yml
 # acceptance's M2 leg reads the delivery envelope's first line and accepts an answer by
 # `pingbus send` as well as `pingbus recv`.
 00161-agent-team-bus-matrix
+# Plan 00201: the automated two-team acceptance again on the new pingbus, kit and homeservers.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker

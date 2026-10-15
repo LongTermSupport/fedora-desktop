@@ -17,6 +17,38 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.10 — container 2.65
+
+- **Teams security fixes** (Plan 00201, from the end-to-end security audit). Every seat launch
+  (`ccy --teams`, `cc --teams`) ends by dropping sudo's cached credential, and so does a
+  `ccy-teams` run that used sudo (Ctrl-C included), so the agent session that follows on the
+  terminal cannot reuse your password. The pingbus skill and the delivery frame now tell an
+  agent to confirm a consequential `HUMAN` request in `pingbus history` (its id and its text)
+  before acting, never to carry one team's
+  messages to another, that a peer's request is never a human's authority, and that `sync`
+  cannot widen what it may do (plugin 1.2.2). The launch block says any listed human can
+  direct the session; `cc --teams` denies Bash the plain routes to Element's sign-in and its
+  consent says ccy is the safe choice; a password copied to the clipboard serves one paste and
+  is then gone. The image carries the new skill and pingbus, so it is rebuilt once.
+
+## 3.98.9 — container 2.64
+
+- **A team human's words read as written.** In a delivery envelope, accented letters,
+  dashes, curly apostrophes, other scripts and emoji are shown as themselves instead of
+  `\uXXXX`. Punctuation and symbols are shown only from an allow-list of blocks, and at most
+  four combining marks sit on one letter; controls, bidi and zero-width characters, odd
+  spaces, and quote, backslash and bracket look-alikes are still escaped. The body cap is 2 KiB of UTF-8 and the
+  delivery cap 12 KiB as the socket carries it.
+- **Replies thread in Element.** `pingbus say --re <event>` sends the text as a reply to that
+  message; the `REPLY` line and the envelope's `reply:` command carry it (the event ID
+  single-quoted, so the shell leaves its `$` alone).
+- **Element shows which agent read a message.** The watcher sends a read receipt for each
+  human message it delivers, so the agent's avatar appears under it; a message no agent
+  was mentioned in shows none. Plugin 1.2.1. Plan 00201 UX fixes.
+- **Relaunch every team session.** A session still on container 2.63 drops a reply (a text
+  carrying `--re`) from a 2.64 session as an edit, silently. Until every session of a team is
+  relaunched, answers from new sessions do not reach the old ones.
+
 ## 3.98.8 — container 2.63
 
 - **Team messages arrive in the session as the messages themselves.** In a `--teams`

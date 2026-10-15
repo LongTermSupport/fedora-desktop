@@ -17,8 +17,11 @@
 #
 # The guard is cc's alone (project settings are shared with ccy sessions) and it is
 # instruction, not containment: the session's own text says only how to post (pingbus, as
-# itself), and cc's settings file denies Claude's file tools Element's folders. Nothing the
-# session reads mentions Element or posting as anyone else.
+# itself), and cc's settings file denies Claude's file tools Element's folders and the keyring,
+# and Bash the plain routes to them (rules match command text, so a determined agent gets past
+# them; the consent says ccy is the safe choice). Nothing the session reads mentions Element or
+# posting as anyone else. `agent-bus seat take` drops sudo's cached credential before the
+# session starts on this terminal.
 #
 # Sourced by cc after common-pure.bash (print_error). Status 64 is a usage mistake, 78 a
 # state that stops the launch; stdout carries nothing, every message goes to stderr.
@@ -110,7 +113,7 @@ cc_teams_ccy_dir() {
 }
 
 # cc_teams_settings <out> — the session's settings: the kit's (the bus may wake an idle
-# session) with cc's deny rules on Element's folders, written owner-only.
+# session) with cc's deny rules on Element's sign-in, written owner-only.
 cc_teams_settings() {
     local out="${1:?cc_teams_settings requires an output path}" merged
     if ! merged=$(jq -s '.[0] * .[1]' "$CC_TEAMS_KIT/settings.json" "$CC_TEAMS_DENY_SETTINGS"); then

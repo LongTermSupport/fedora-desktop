@@ -1,11 +1,14 @@
 package teams
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -256,5 +259,81 @@ func TestNewAppIsTheRealSystemOverTheConfig(t *testing.T) {
 	}
 	if a.RootDir != "/checkout" {
 		t.Fatalf("config %+v", a.Config)
+	}
+}
+
+// Security audit H1: a launcher starts an agent's session on the terminal ccy-teams ran on, so
+// a run that made sudo ready drops the credential before it ends.
+func TestARunThatMadeSudoReadyDropsTheCredentialLast(t *testing.T) {
+	h := world(t)
+	h.On("sudo -n -v", "", 0)
+	h.On("sudo -n /usr/local/sbin/agent-bus-install backup-now --team alpha", "backup 1 written\n", 0)
+	if code := h.app.Run([]string{"backup", "alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	calls := h.Fake.Calls()
+	if calls[len(calls)-1].Line() != "sudo -k" {
+		t.Fatalf("the last command is not sudo -k: %v", calls)
+	}
+}
+
+// Review L-A: Ctrl-C after sudo was made ready must not kill ccy-teams before it drops the
+// credential. Run takes its context from Interrupted; a run cut short through it still ends
+// with sudo -k.
+func TestARunInterruptedAfterSudoWasMadeReadyStillDropsTheCredential(t *testing.T) {
+	h := world(t)
+	var interrupt context.CancelFunc
+	h.app.Interrupted = func(parent context.Context) (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(parent)
+		interrupt = cancel
+		return ctx, cancel
+	}
+	h.On("sudo -n -v", "", 0)
+	h.Fake.OnFunc([]string{"sudo", "-n", "/usr/local/sbin/agent-bus-install", "backup-now"},
+		func(execx.Cmd) (execx.Result, error) {
+			interrupt()
+			return execx.Result{ExitCode: 130}, nil
+		})
+	if code := h.app.Run([]string{"backup", "alpha"}); code == term.ExitOK {
+		t.Fatal("an interrupted backup exited 0")
+	}
+	calls := h.Fake.Calls()
+	if calls[len(calls)-1].Line() != "sudo -k" {
+		t.Fatalf("the last command is not sudo -k: %v", calls)
+	}
+}
+
+// The default Interrupted catches SIGINT as a cancelled context instead of letting it end the
+// process. Without it this SIGINT ends the test binary, which is the red.
+func TestTheDefaultInterruptedTurnsCtrlCIntoACancelledContext(t *testing.T) {
+	h := newHarness(t)
+	ctx, stop := h.app.Interrupted(context.Background())
+	defer stop()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	<-ctx.Done()
+}
+
+func TestARunThatNeverMadeSudoReadyLeavesItAlone(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"--list"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if h.Fake.Called("sudo -k") {
+		t.Fatalf("sudo -k ran: %v", h.Fake.Calls())
+	}
+}
+
+func TestACredentialThatCannotBeDroppedFailsTheRun(t *testing.T) {
+	h := world(t)
+	h.On("sudo -n -v", "", 0)
+	h.On("sudo -n /usr/local/sbin/agent-bus-install backup-now --team alpha", "", 0)
+	h.On("sudo -k", "", 1)
+	if code := h.app.Run([]string{"backup", "alpha"}); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(h.ErrOut.String(), "the sudo credential could not be dropped") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }

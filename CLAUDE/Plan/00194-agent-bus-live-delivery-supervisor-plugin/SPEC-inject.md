@@ -53,11 +53,28 @@ Each is numbered so a test, a review finding or a host check can name it.
   `id`, and the fields of a ping. `HUMAN` only for a sender listed as a human in the team
   record, `PEER` only for an agent's text that names this member, `PING` only for a
   validated ping. Nothing in a body can change a header line.
-- **E2. The body is data.** It is `json.dumps(text, ensure_ascii=True)` on one `body:` line:
-  printable ASCII inside one JSON string. A quote, a newline, a tab, NUL, DEL, ESC,
-  `ESC[201~`, a bidi override, a zero-width character, U+2028/2029, a lone surrogate or a
-  look-alike bracket arrives escaped. `formatted_body` is never used.
-- **E3. The whole envelope is ASCII and fixed.** Every character outside the body strings is
+- **E2. The body is data.** It is one JSON string on one `body:` line. A quote, a newline,
+  a tab, NUL, DEL, ESC, `ESC[201~`, a bidi override, a zero-width character, U+2028/2029, a
+  lone surrogate or a look-alike bracket arrives escaped. `formatted_body` is never used.
+  *Amended by Plan 00201's UX fixes:* a non-ASCII letter or number is shown as itself (was
+  `ensure_ascii`, which showed `café` as `caf\u00e9`); a combining mark on a shown base, at
+  most `MARKS_MAX` (4) in a row; punctuation and symbols only from the allow-listed blocks
+  `envelope._PS_ALLOWED` (every other P/S code point escaped, so look-alikes in unlisted
+  blocks need no naming; added after Fable's review found eleven a deny-list missed). Still
+  escaped: every control (C0, DEL, C1), format character (Cf: bidi, zero-width, tags, soft
+  hyphen, BOM), separator other than U+0020 (Zs, Zl, Zp), surrogate, private-use and
+  unassigned code point; a variation selector except one U+FE0E/U+FE0F after a symbol; a
+  combining mark not after a letter, digit or shown character; the invisible fillers
+  (U+115F, U+1160, U+3164, U+FFA0, U+2800, U+034F, U+17B4/5, U+180B-F); any character whose
+  NFKC form holds a quote, backslash, `<`, `>` or a control; and the quote, backslash and
+  angle-bracket look-alikes NFKC leaves alone (`“ ” „ ‟ ″ ‶ « » ‹ › 〃 〝 〞 〟 ˂ ˃ ᐸ ᐳ ≪ ≫ ⟨ ⟩ ⟪ ⟫ 〈 〉 《 》 ∖`
+  and their kin, with the Ogham feather marks, Dingbat arrowheads U+27A2-27A4, Tibetan
+  brackets U+0F3A-0F3D, heavy low quotes U+275F/2760, low-9 quotes U+201A/201B and Canadian
+  syllabics U+140A/1405 from Fable's re-check). A zero-width joiner is shown only between two
+  emoji pictographs (the first with its selector or skin tone), and U+FE0F on a keycap base
+  only before U+20E3; every other joiner and selector stays escaped. `envelope._render` is the list; `test_envelope.py` HostileBodyTest the
+  attack set, each in five positions.
+- **E3. Every header line is ASCII and fixed.** Every character outside the body strings is
   pingbus's template or a field that passed its §3/§4/§6 grammar and is re-checked as
   printable ASCII by the renderer (a field that fails raises; it is never rendered).
 - **E4. Markers.** Each delivery draws `secrets.token_hex(4)` after every body in it was
@@ -71,22 +88,27 @@ Each is numbered so a test, a review finding or a host check can name it.
   agent's own ping.
 - **E6. The reply command.** `HUMAN` and `PEER` entries carry `reply:` with exactly the
   command `recv`'s `REPLY` line prints (`reply_line`). `PING` entries carry
-  `reply: pingbus --team <team> send <VERB> --to <sender> --re <id>`, `<VERB>` literal: the
-  answer verb is the agent's choice. `TIMEOUT` entries carry none.
+  `reply: pingbus --team <team> send <VERB> --to <sender> --re '<id>'`, `<VERB>` literal: the
+  answer verb is the agent's choice. The event ID is single-quoted (Plan 00201's UX fixes):
+  unquoted, a shell expands its leading `$`. `REPLY` (and so the `HUMAN`/`PEER` `reply:`)
+  carries `--re '<id>'` too, so the answer threads under the message in Element. `TIMEOUT` entries carry none.
 - **E7. A short first line (human-friendly).** One line per delivery naming the count by
   kind and who sent it: `agent-bus delivery <nonce>: <N> message(s) (<H> from humans, <A> from agents, <P> pings, <T> timeouts): <who>`, where `<who>` lists up to three
   `<sender> (<KIND>, <team>)` and then `and <k> more`. The frame explanation is not
   repeated per delivery; it is in SessionStart (E14) and the skill.
 - **E8. Body cap, after escaping.** The rendered body string (quotes included) is at most
-  2048 characters (DESIGN.md section 2.3, "2 KiB per body after escaping"). A longer text is
+  2048 UTF-8 bytes (DESIGN.md section 2.3, "2 KiB per body after escaping"; characters until
+  Plan 00201's UX fixes, when the body could only be ASCII). A longer text is
   cut to the longest prefix of whole code points whose rendering fits, so no escape and no
   character is split, lone surrogates included. A `truncated:` line follows: `truncated: <shown> of <total> bytes shown; the whole text is in pingbus --team <team> history (id <id>)`, both counts in UTF-8 bytes (lone surrogates counted as `surrogatepass` does). The
   pointer is `history`: the item is consumed once delivered (E10), so `recv` will not show
   it again.
-- **E9. Delivery cap.** A delivery holds at most 8 entries and at most 12 KiB as rendered,
-  oldest first. The renderer refuses to start a delivery an entry cannot fit, so the cap is
-  absolute: one entry of the largest header and a full body is under 5 KiB (a test renders
-  the largest values every grammar allows), so the first entry always fits. What is left
+- **E9. Delivery cap.** A delivery holds at most 8 entries and at most 12 KiB as the socket
+  carries the text (an ASCII JSON string, so a non-ASCII character counts as its `\u`
+  escape: `envelope.wire_bytes`), oldest first. The renderer refuses to start a delivery an
+  entry cannot fit, so the cap is absolute: one entry of the largest header and a full body
+  is under 9 KiB on the wire (a test renders the largest values every grammar allows, with
+  bodies of NUL, `é`, quotes, backslashes and emoji), so the first entry always fits. What is left
   adds `<N> more pending: they follow in the next delivery`. The socket's largest accepted
   message is unmeasured: H4 measures it with a full hostile delivery before the caps are
   frozen.
@@ -329,7 +351,7 @@ The trust root is the admin-written team record on the homeserver (Plan 00161 §
 | --- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
 | T1  | A team agent writes text crafted to read as a human's request, or to close the envelope    | Kind from the record, never the text; the body one escaped JSON string on one line; markers drawn after the body                            | E1, E2, E4      |
 | T2  | A sibling seat's container plants a "HUMAN" item in the shared inbox                       | Every delivered item is re-fetched from the homeserver and re-validated; the inbox is only a cache (§9). Planting only: see R4              | E1, E10         |
-| T3  | Terminal or paste control bytes in a body (ESC, `ESC[201~`, bidi, U+2028, NUL, DEL)        | `ensure_ascii`: the envelope is printable ASCII and the body has no control byte                                                            | E2, E3          |
+| T3  | Terminal or paste control bytes in a body (ESC, `ESC[201~`, bidi, U+2028, NUL, DEL)        | Every control, format, separator and look-alike character escaped (E2); headers printable ASCII                                             | E2, E3          |
 | T4  | A process holding the session's socket token writes a forged envelope                      | Not defended, and not new: only the session's own processes hold the token (its environment), and they can already type into their own turn | none (R5)       |
 | T5  | Claude Code's "Another Claude session" frame makes the model discount a real human request | The SessionStart line, the skill, and each envelope's `kind` and `authority` lines                                                          | E5, E14 (H3)    |
 | T6  | One compromised agent floods the thread or starts a turn every 2 s                         | §10 receive limit; 10 entries per sender per 10 minutes, the rest held back as one line; per-body and per-delivery caps                     | E8, E9, E19     |

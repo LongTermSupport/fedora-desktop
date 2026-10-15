@@ -65,6 +65,8 @@ func New(t *testing.T) *World {
 	}
 	w.Host.AppliedDir = filepath.Join(root, "applied")
 	w.Host.Wire()
+	// A run that made sudo ready ends by dropping the credential.
+	w.On("sudo -k", "", 0)
 	return w
 }
 

@@ -179,14 +179,19 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 			copyCall = c
 		}
 	}
-	if copyCall.Name == "" || len(copyCall.Args) != 0 {
+	if copyCall.Name == "" || !slices.Equal(copyCall.Args, []string{"--paste-once"}) {
 		t.Fatalf("wl-copy call %+v: the password is never an argument", copyCall)
 	}
 	in, err := io.ReadAll(copyCall.Stdin)
 	if err != nil || string(in) != "a-new-password" {
 		t.Fatalf("stdin %q %v", in, err)
 	}
-	if !strings.Contains(h.ErrOut.String(), "The password is on the clipboard.\n") {
+	// Security audit L4: the password serves one paste and is gone; nothing clears the clipboard
+	// later, so what the person copies afterwards is never wiped.
+	if h.Fake.Called("systemd-run") {
+		t.Fatalf("a timer was started: %v", h.Fake.Calls())
+	}
+	if !strings.Contains(h.ErrOut.String(), "The password is on the clipboard for one paste; after that it is gone from the clipboard.\n") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
@@ -197,6 +202,24 @@ func TestPasswordOffersTheClipboardOnWaylandAndPutsItOnStdin(t *testing.T) {
 	}
 	if !slices.Contains(h.Script.Rows[0], "Yes, copy the password") {
 		t.Fatalf("rows %q", h.Script.Rows[0])
+	}
+}
+
+func TestPasswordOutsideWaylandOffersNoClipboard(t *testing.T) {
+	h := newRig(t)
+	h.passwordable()
+	h.Script.Fzf = []string{"|EXIT"}
+	snap := h.pass(t)
+	if _, err := h.l.PasswordRow(context.Background(), snap, h.row(t, snap, "owner")); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range h.Fake.Calls() {
+		if c.Name == "wl-copy" || c.Name == "xclip" || c.Name == "xsel" {
+			t.Fatalf("a clipboard tool ran outside Wayland: %+v", c)
+		}
+	}
+	if strings.Contains(h.ErrOut.String(), "on the clipboard") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
 }
 

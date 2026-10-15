@@ -73,6 +73,36 @@ func (l *Login) OpenElement(ctx context.Context, snap *board.Snapshot, team stri
 	return flow.Done, l.LaunchElement(ctx, team)
 }
 
+// OpenEveryTeam opens every team that has an Element profile on this desktop, each in its own
+// Element window: a team is its own homeserver, and an Element window is signed in to one
+// account. A team with no profile is named with how to set one up; nothing is asked, and no
+// password is set (opening that one team does both).
+func (l *Login) OpenEveryTeam(ctx context.Context, snap *board.Snapshot) (flow.Result, error) {
+	var ready []string
+	for _, team := range snap.Teams {
+		_, statErr := os.Stat(l.Ops.ElementLauncher(team))
+		switch {
+		case statErr == nil:
+			ready = append(ready, team)
+		case errors.Is(statErr, os.ErrNotExist):
+			l.Kit.Tell(team + " has no Element profile on this desktop yet: Open " + team + " in Element (Ctrl-E on its row) sets one up.")
+		default:
+			l.Kit.Term.PrintError("the Element launcher of " + team + " could not be looked for: " + statErr.Error())
+			return flow.Refused, flow.Leave(term.ExitFailure)
+		}
+	}
+	if len(ready) == 0 {
+		return flow.Done, nil
+	}
+	l.Kit.Tell("Opening " + strings.Join(ready, ", ") + " in Element: one window each (each team is its own Matrix server, and an Element window holds one account).")
+	for _, team := range ready {
+		if err := l.LaunchElement(ctx, team); err != nil {
+			return flow.Done, err
+		}
+	}
+	return flow.Done, nil
+}
+
 // LaunchElement starts the team's Element apart from this terminal, in a scope of its own, and
 // returns: the picker goes on. It ends the picker with a failure when Element did not start,
 // which is the answer, not a side effect of an unchecked error. Who is signed in is read again
@@ -370,7 +400,9 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 }
 
 // offerCopy, in a Wayland session, offers to put the password on the clipboard. It goes to
-// wl-copy on stdin, never in its arguments, which any process can read.
+// wl-copy on stdin, never in its arguments, which any process can read, and is served to one
+// paste only (security audit L4): nothing clears the clipboard later, so nothing the person
+// copies afterwards is wiped. Outside Wayland nothing is offered; the password is on screen.
 func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 	if l.Getenv("WAYLAND_DISPLAY") == "" {
 		return nil
@@ -381,7 +413,8 @@ func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 		return nil
 	}
 	yes, err := l.Kit.Confirm(ctx, "Copy the password?",
-		"Put "+name+"'s new password on the clipboard, to paste into Element. A clipboard manager may keep a copy.",
+		"Put "+name+"'s new password on the clipboard for one paste, into Element; after that it is gone "+
+			"from the clipboard. A clipboard manager may keep a copy.",
 		"copy the password", true)
 	if err != nil || !yes {
 		return err
@@ -390,13 +423,13 @@ func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 		l.Kit.Term.PrintError("wl-copy failed (above), so the password is not on the clipboard; copy it from above.")
 		return nil
 	}
-	l.Kit.Tell("The password is on the clipboard.")
+	l.Kit.Tell("The password is on the clipboard for one paste; after that it is gone from the clipboard.")
 	return nil
 }
 
-// copyToClipboard puts text on the clipboard; it says whether wl-copy took it.
+// copyToClipboard puts text on the clipboard for one paste; it says whether wl-copy took it.
 func (l *Login) copyToClipboard(ctx context.Context, text string) bool {
-	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Stdin: strings.NewReader(text), Stderr: l.Kit.Stderr})
+	_, err := l.Runner.Run(ctx, execx.Cmd{Name: "wl-copy", Args: []string{"--paste-once"}, Stdin: strings.NewReader(text), Stderr: l.Kit.Stderr})
 	return err == nil
 }
 

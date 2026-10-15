@@ -213,6 +213,8 @@ class FakeHomeserver:
         self.rooms: dict[str, Room] = {}
         self.http_log: list[HttpRecord] = []
         self.unmodelled: list[Unmodelled] = []
+        #: Every read receipt accepted: (user ID, room ID, receipt type, event ID).
+        self.receipts: list[tuple[str, str, str, str]] = []
         self._clock = clock
         self._cond = threading.Condition()
         self._tokens: dict[str, tuple[str, str]] = {}
@@ -290,6 +292,7 @@ class FakeHomeserver:
             ("GET", _ROOM + r"/state", self._get_full_state, "user"),
             ("PUT", _ROOM + r"/redact/([^/]+)/([^/]+)", self._redact, "user"),
             ("GET", _ROOM + r"/event/([^/]+)", self._get_event, "user"),
+            ("POST", _ROOM + r"/receipt/([^/]+)/([^/]+)", self._receipt, "user"),
             ("GET", _ROOM + r"/messages", self._messages, "user"),
             ("GET", r"/_matrix/client/v3/sync", self._sync, "user"),
         ]
@@ -533,6 +536,18 @@ class FakeHomeserver:
     def _get_event(self, req: Req, room_id: str, event_id: str) -> dict:
         event = self._find_event(self._joined_room(room_id, req.user_id), event_id)
         return event.client(with_room=True, unsigned=self._unsigned(event, req))
+
+    def _receipt(self, req: Req, room_id: str, receipt_type: str, event_id: str) -> dict:
+        """The spec's `POST /receipt/{type}/{eventId}` (`{}`): kept in `receipts` as (user, room,
+        type, event). A receipt on an event the room does not hold is a 404, as an unknown
+        event is everywhere else here."""
+        room = self._joined_room(room_id, req.user_id)
+        req.obj()
+        if receipt_type not in ("m.read", "m.read.private", "m.fully_read"):
+            raise MatrixError(400, "M_INVALID_PARAM", "Unknown receipt type.")
+        self._find_event(room, event_id)
+        self.receipts.append((req.user_id, room.room_id, receipt_type, event_id))
+        return {}
 
     def _batch(self, value: str | None, default: int) -> int:
         if value is None:

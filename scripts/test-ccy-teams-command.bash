@@ -160,6 +160,10 @@ if [ "$1" = "-v" ]; then
     touch "$TEST_STATE/sudo-cached"
     exit 0
 fi
+if [ "$1" = "-k" ]; then
+    rm -f "$TEST_STATE/sudo-cached"
+    exit 0
+fi
 if [ "$1" = "-n" ]; then
     shift
     if [ "$1" = "-v" ]; then
@@ -641,6 +645,9 @@ check_has "  the reason comes first" "done as root" "$out"
 check_has "  with what installs the rule that removes the need" "play-agent-bus.yml" "$out"
 check "  and with the password, the picker shows the members" "rc=0" "$(rc_of "$out")"
 check_has "    seat 1 active" "active" "$(grep -E '^alpha +1 +ccy' "$TEST_FZF_ROWS")"
+check "  and the credential is dropped as ccy-teams ends (an agent may start here next)" "sudo -k" \
+    "$(grep '^sudo ' "$TEST_LOG" | awk 'END { print }')"
+check "    so none is left cached" "no" "$([ -e "$STATE/sudo-cached" ] && echo yes || echo no)"
 
 reset
 rm -f "$STATE/sudo-cached"
@@ -834,6 +841,9 @@ out="$(WAYLAND_DISPLAY=wayland-test run_picker "$OUTSIDE" "ctrl-p|owner" "|YES" 
 check "Ctrl-P does the same, and offers the clipboard where wl-copy can reach it" "a-new-password" \
     "$(cat "$STATE/clipboard" 2>&1)"
 check_lacks "  the password never reaches wl-copy's arguments" "a-new-password" "$(grep -F 'wl-copy' "$LOG")"
+check "  and served to one paste only" "yes" "$(logged 'wl-copy --paste-once')"
+check "    with no timer that could wipe a later copy" "no" "$(logged 'systemd-run --user --quiet --collect --on-active')"
+check_has "    which the person is told" "for one paste; after that it is gone from the clipboard" "$out"
 copy_call="$(awk '/Copy the password\?/ { on = 1 } on { print } on && /--bind=q:abort/ { exit }' "$TEST_FZF_RAW")"
 check_has "  the copy question is asked" "Yes, copy the password" "$(cat "$TEST_FZF_RAW")"
 check_lacks "  with Yes, not Exit, as the default" "start:last" "$copy_call"
@@ -869,6 +879,9 @@ reset
 check "backup runs backup-now through sudo" "yes" "$(logged "$SUDO_INSTALL backup-now --team alpha")"
 "$TOOL" backup 2>"$SCRATCH/err"
 check "  and needs a team" "64" "$?"
+check "  and the run that made sudo ready leaves no credential cached" "no" \
+    "$([ -e "$STATE/sudo-cached" ] && echo yes || echo no)"
+touch "$STATE/sudo-cached"
 "$TOOL" restore alpha 2 --yes 2>"$SCRATCH/err"
 check "restore <team> <n> --yes restores that backup" "yes" \
     "$(logged "$SUDO_INSTALL restore --team alpha --backup 2")"
@@ -876,6 +889,7 @@ reset
 "$TOOL" restore alpha 2 </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "without a terminal a restore needs --yes" "64" "$?"
 check "  and restores nothing" "no" "$(logged 'restore --team')"
+touch "$STATE/sudo-cached"
 out="$("$TOOL" restore alpha </dev/null 2>"$SCRATCH/err")"
 check "without a number and a terminal, the backups are listed" "64" "$?"
 check_has "  on stdout" $'BACKUP\t2' "$out"

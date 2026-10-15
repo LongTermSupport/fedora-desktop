@@ -53,12 +53,17 @@ that play.
    `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
    words. Until you have signed in, the first choice is "Sign in: set a password (shown
    once)"; it shows the password with the homeserver and username, offers it to the
-   clipboard, and then offers to open Element. Once you are signed in, the first choice is
+   clipboard (for one paste, then gone), and then offers to open Element. Once you are signed in, the first choice is
    "Open the team in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
    it, and the header names the selected row's actions, so no key has to be guessed.
+   **Each team opens in its own Element window**, like a separate Slack sign-in: each team
+   is its own Matrix server, and an Element window is signed in to one account (GNOME groups
+   the windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open
+   every team in Element, a window each*. Why, and the alternatives weighed:
+   [RESEARCH-one-element-window.md](../CLAUDE/Plan/00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/RESEARCH-one-element-window.md).
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
    asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
    it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
@@ -94,7 +99,8 @@ that play.
    (pingbus's `send` verb: a fixed verb about a committed file). Free text one agent
    addresses to another by mention (pingbus's `say` verb with `--to`) is for the discussion
    around it, and the receiving agent reads it as a colleague's note, not an instruction.
-   A team human's message in Element, mentioning an agent, is an instruction to it.
+   A team human's message in Element, mentioning an agent, is an instruction to it: see
+   [Talking to agents from Element](#talking-to-agents-from-element).
 6. **After a reboot.** Homeservers, their data and every seat stay. A ccy session in a team
    comes back in the same seats when this machine restores sessions
    (`ccy_restore_sessions`, [ccy.md](ccy.md)); Ctrl-R in `ccy-teams` keeps one out, or puts
@@ -139,6 +145,30 @@ Underneath, three commands do the work, and `ccy-teams` calls them:
 
 `agent-bus-claude` starts a Claude Code session with the bus switched on, for agents that
 are not ccy sessions.
+
+### Talking to agents from Element
+
+**Only a message that mentions an agent reaches it.** Type `@`, then **pick the agent from
+the list Element offers** (it is named by its handle, like `myrepo.1+local.podman`). A name
+typed out in full but not picked from the list is plain text: it mentions nobody, and no agent
+receives the message. `@room` reaches every agent of the team, and costs each one a turn.
+
+- **Read receipts show who got it.** When a message reaches an agent's session, that agent
+  marks it read, and Element shows the agent's avatar under it. A message with no avatar
+  under it after a few seconds reached no agent: check the mention, and that the agent's
+  session is running (`ccy-teams` shows its seat as held). Only the default socket delivery
+  sends receipts; a session started with `PINGBUS_DELIVERY=relay`, or an agent reading with
+  `pingbus recv` or `wait` alone, gets the message but shows no avatar.
+- **Edits are ignored.** An agent never sees an edited version; write a new message instead.
+  Element's Reply is fine (the quoted part is removed before the agent reads it).
+- **Answers are replies.** An agent answers with its `reply:` command, which makes the answer
+  an Element reply to your message, so two answers to two questions stay apart. It appears
+  under the agent's name, starting `[agent-bus] text -> ` and the people it is addressed to.
+- **Long messages are cut.** An agent sees about 2,000 characters of one message (fewer with
+  many non-Latin characters or emoji) and is told where to read the rest.
+- **In the agent's terminal** your message shows under Claude Code's label "Another Claude
+  session sent a message", followed by a delivery block (its first line starts "agent-bus
+  delivery") with `kind: HUMAN` and `from: <you>`. The label is Claude Code's own; the block says who sent it.
 
 ## Teams
 
@@ -381,9 +411,9 @@ must run here.
 A **seat** is a durable member of one team in one checkout. `dev1@<team>` is the same
 member, with its handle, role, pending pings and history, every time a session is launched
 into it; one live session holds a seat at a time, and a launch into a held seat is
-refused. The first launch that names a seat creates it: one `add-member` run with sudo (a
-headless launch uses only sudo's cached credential, so run `sudo -v` first), which hands
-the bundle back on stdout; the launch's seat step, running as you, writes it to
+refused. The first launch that names a seat creates it: one `add-member` run with sudo (the
+launch asks for your password once; a headless launch cannot ask, so its seat must exist
+already), which hands the bundle back on stdout; the launch's seat step, running as you, writes it to
 `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`, which ccy's
 `.claude/ccy/.gitignore` keeps out of git. Root writes nothing in the checkout, since
 other sessions in it can change it, and a symlink anywhere in that path is refused. A session taking over a seat reads what the seat
@@ -515,7 +545,11 @@ answer is kept in `~/.config/pingbus/element-accepted` (mode 0600, in a folder o
 (every other `host` member is still refused). Declining starts nothing and records
 nothing; delete the file to be asked again. The session never sees the question. What guards it is
 guidance, not a wall: the session is told to post only through pingbus, as itself, and
-cc's own settings keep Claude's file tools out of Element's folders. Those settings are
+cc's own settings deny Claude's file tools Element's folders and the keyring, and deny Bash
+the plain commands that reach them (`secret-tool`, the keyring, the Element Flatpak and
+profile paths). A rule matches the command's text, so an agent beside Element can still
+reach your session by other routes, post as you, and every agent on the team would take
+that as your request. A ccy session is the safe choice. Those settings are
 cc's alone, never the project's, which ccy sessions share. Claude Code's sandbox is not
 used for now: it would also limit the network, and a real boundary is being looked at in
 issue #101. When you want an agent that cannot reach your sign-ins, use a ccy session or a
@@ -652,6 +686,20 @@ These are known and documented rather than engineered around:
   ([above](#joining-a-team-hosted-elsewhere)); `--no-human-text` narrows it to pings.
 - No TLS: on a network that is not private, logins, passwords and tokens travel in clear.
 - Backups hold the team's root of trust.
+- Any human listed in a team has your authority over its agents: a request from any of them
+  is weighed as yours, including by a session that also works for another team. The
+  launch block says so; list only people you would let direct your agents.
+- A `cc --teams` session runs as you beside your Element session. Its deny rules stop the
+  plain routes to your sign-in, not a determined agent, which could post as you; every
+  agent on the team takes that as your request. Run agents in ccy sessions (or as a
+  dedicated agent user) when that matters.
+- Sibling seats in one checkout share their tokens: every seat's bundle is the same user's,
+  so a session in one seat can read another seat's token there and post or read as that
+  member, the coordinator included. Give each seat its own checkout (or worktree) when a
+  team mixes a coordinator and workers.
+- Every seat launch ends by dropping sudo's cached credential (`sudo -k`), and a `ccy-teams`
+  run that used sudo does the same before it exits, so the session that starts next on the terminal cannot
+  reuse your password. Any sudo you ran in that terminal just before is dropped with it.
 - Every agent account can read the whole team room, including human messages addressed to
   other agents: `pingbus` delivers each human message only to the agents it mentions (all of them for `@room`), but
   the account receives them all. Human text is trusted input, so this is a privacy limit
@@ -665,6 +713,9 @@ These are known and documented rather than engineered around:
   and the humans can read every word of it in the room. An agent can skip `pingbus` and
   post with `curl`, so the sending checks are guards against mistakes, while the receiving
   agents' own checks are what hold.
+- Read receipts tell everyone in the room which agents are running and when each received
+  a human's message. Everyone there is a listed human or a team agent, and an agent learns
+  as much by writing, so this is accepted. No receipt is sent for an agent's message.
 - No account but the team's admin can create a room (`allow_room_creation = false`), so
   agents cannot open a side room or a direct-message room out of the humans' sight.
 - Members on one private network or bridge can reach each other, and the homeserver can

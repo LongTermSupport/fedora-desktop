@@ -266,7 +266,9 @@ def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
                outcome: protocol.Outcome) -> str | None:
     """The ready `say` command that answers a `HUMAN` or `PEER` item; None for a ping, whose
     answer is a verb the agent chooses. The name is the sender's short name when no other
-    member of the team has it, else the full handle; a human's is the localpart."""
+    member of the team has it, else the full handle; a human's is the localpart. `--re` names
+    the item, single-quoted for the shell (an event ID starts with `$`), so the answer is
+    threaded under it in Element."""
     message = outcome.human or outcome.peer
     if message is None:
         return None
@@ -275,8 +277,9 @@ def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
         short = name.partition(protocol.HANDLE_SEP)[0]
         if len(_agents_named(record, server_name, short)) == 1:
             name = short
-    return format_line("REPLY", _team(team), _event_id(message.event_id),
-                       f"{PROG} --team {team} say --to {name}")
+    event_id = _event_id(message.event_id)
+    return format_line("REPLY", _team(team), event_id,
+                       f"{PROG} --team {team} say --to {name} --re '{event_id}'")
 
 
 def timeout_line(
@@ -960,6 +963,8 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     3, 4 and 6, the member's own token refused as `secret`, then 5 and 7."""
     rt: Runtime = args.runtime
     relaying = relay.enabled(environ)
+    if args.re is not None and not protocol.is_event_id(args.re):
+        raise protocol.Refusal("re")
     member = _sending_member(args, environ)
     text = _read_text(args.stdin)
     seat = _seat(member, environ, rt, err)
@@ -967,7 +972,7 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     ctx = record.context(member.server_name)
     with _explained_targets(args, None, record, member) as addressees:
         to = protocol.with_coordinator_copy(addressees, member.user_id, ctx)
-        event_id, now, said_to = _send_text(seat, ctx, to, text, rt)
+        event_id, now, said_to = _send_text(seat, ctx, to, text, rt, re=args.re)
     if relaying:
         _record_sent(environ, err, sentlog.say_entry(
             member.team, event_id, now, _localparts(said_to, member.server_name), text))
@@ -975,11 +980,12 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     return EXIT_OK
 
 
-def _send_text(seat: _Seat, ctx: protocol.Context, to: list[str], text: str, rt: Runtime) -> tuple[str, int, list[str]]:
+def _send_text(seat: _Seat, ctx: protocol.Context, to: list[str], text: str, rt: Runtime,
+               re: str | None = None) -> tuple[str, int, list[str]]:
     """§9 steps from the build of an agent text to its send; the event ID, the send time
-    and the validated addressees."""
+    and the validated addressees. With `re`, the text answers that event (§7)."""
     member = seat.member
-    content = protocol.build_text(to, text)
+    content = protocol.build_text(to, text, re=re)
     said = protocol.validate_text_content(content, ctx)
     if config.read_token(member) in text:
         raise protocol.Refusal("secret")
@@ -1576,7 +1582,22 @@ def _send_delivery(batch: _Batch, inj: _Injector, rt: Runtime, pending: _Drops, 
     if not closed:
         err.write(f"{PROG}: delivery {nonce} was written in full but the socket did not close within "
                   f"{rt.delivery.send_timeout_s:g} s: counted as sent\n")
+    _read_receipts([c for c in live if c.entry.kind == "HUMAN"], err)
     return True
+
+
+def _read_receipts(delivered: Sequence[_Candidate], err: TextIO) -> None:
+    """A read receipt for each human message just delivered, so Element shows this agent's
+    avatar under it (and none under a message that reached no agent). Outside the spool lock:
+    a homeserver call. The delivery stands whatever happens here, so a failure is one stderr
+    line, never raised."""
+    for candidate in delivered:
+        member = candidate.seat.member
+        try:
+            candidate.seat.client.read_receipt(member.room, candidate.event_id)
+        except FAILURES as exc:
+            err.write(f"{PROG}: message {candidate.event_id} on {member.team} was delivered, but its read "
+                      f"receipt was not sent, so Element does not show it read: {failure(exc)[1]}\n")
 
 
 def _inject_pass(seats: Sequence[_Seat], inj: _Injector, rt: Runtime, pending: _Drops, err: TextIO) -> None:
@@ -2023,6 +2044,9 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                      help="human localparts, handles or full user IDs; never @room")
     say.add_argument("--to-coordinator", action="store_true",
                      help="the team's coordinator, besides any --to")
+    say.add_argument("--re", metavar="EVENT_ID",
+                     help="the message this answers (the REPLY command gives it): Element shows "
+                          "the text as a reply to it")
     command("recv", cmd_recv, "sync once if the lock is free, then print every pending item")
     wait = command("wait", cmd_wait, "long-poll every active team until an item arrives")
     wait.add_argument("--timeout", type=int, metavar="S",

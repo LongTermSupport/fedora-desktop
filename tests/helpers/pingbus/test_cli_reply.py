@@ -1,9 +1,12 @@
 """Plan 00201 M3: `recv` prints a ready REPLY command for HUMAN and PEER items, and `--to`
-takes a seat's short name (`<repo>.<seat>`) besides a handle, a human localpart or a user ID."""
+takes a seat's short name (`<repo>.<seat>`) besides a handle, a human localpart or a user ID.
+The REPLY command answers with `--re '<event>'`, so the reply is threaded to the message in
+Element (Plan 00201 UX fixes)."""
 
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 import unittest
 
@@ -22,7 +25,7 @@ class ReplyLineTest(BusCase):
         code, out, err = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK, err)
         self.assertEqual(self.lines(out, "REPLY"),
-                         [["REPLY", "1", TEAM_A, event, f"pingbus --team {TEAM_A} say --to peer.1"]])
+                         [["REPLY", "1", TEAM_A, event, f"pingbus --team {TEAM_A} say --to peer.1 --re '{event}'"]])
         self.assertEqual([line.split("\t")[0] for line in out.splitlines()], ["PEER", "REPLY"])
 
     def test_a_human_message_is_followed_by_a_reply_command_with_the_localpart(self):
@@ -30,7 +33,7 @@ class ReplyLineTest(BusCase):
         event = self.a.human()
         out = self.run_cli("recv")[1]
         self.assertEqual(self.lines(out, "REPLY"),
-                         [["REPLY", "1", TEAM_A, event, f"pingbus --team {TEAM_A} say --to alice"]])
+                         [["REPLY", "1", TEAM_A, event, f"pingbus --team {TEAM_A} say --to alice --re '{event}'"]])
 
     def test_a_ping_has_no_reply_line(self):
         self.joined()
@@ -43,20 +46,38 @@ class ReplyLineTest(BusCase):
         self.joined()
         twin = self.a.fake.add_user(TWIN_LP)
         self.a.set_record(dict(self.a.record, roles=dict(self.a.record["roles"], **{twin: "worker"})))
-        self.a.send(self.a.peer, protocol.build_text([self.a.me], "which peer am I"))
+        event = self.a.send(self.a.peer, protocol.build_text([self.a.me], "which peer am I"))
         out = self.run_cli("recv")[1]
         (reply,) = self.lines(out, "REPLY")
-        self.assertEqual(reply[4], f"pingbus --team {TEAM_A} say --to {PEER_LP}")
+        self.assertEqual(reply[4], f"pingbus --team {TEAM_A} say --to {PEER_LP} --re '{event}'")
 
-    def test_the_reply_command_is_accepted_by_say(self):
+    def test_the_reply_command_is_accepted_by_say_as_a_shell_reads_it(self):
         self.joined()
-        self.a.send(self.a.peer, protocol.build_text([self.a.me], "ping me back"))
+        event = self.a.send(self.a.peer, protocol.build_text([self.a.me], "ping me back"))
         (reply,) = self.lines(self.run_cli("recv")[1], "REPLY")
-        argv = reply[4].split()
+        argv = shlex.split(reply[4])
         self.assertEqual(argv[0], "pingbus")
         code, _, err = self.run_cli(*argv[1:], stdin="done")
         self.assertEqual(code, cli.EXIT_OK, err)
-        self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.peer], "done")])
+        self.assertEqual(self.a.messages_from_me(), [protocol.build_text([self.a.peer], "done", re=event)])
+
+    def test_a_reply_to_a_human_threads_under_their_message(self):
+        self.joined()
+        event = self.a.human()
+        (reply,) = self.lines(self.run_cli("recv")[1], "REPLY")
+        code, _, err = self.run_cli(*shlex.split(reply[4])[1:], stdin="on it")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        (content,) = self.a.messages_from_me()
+        self.assertEqual(content["m.relates_to"], {"m.in_reply_to": {"event_id": event}})
+        self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch], "on it", re=event))
+
+    def test_say_refuses_an_re_that_is_not_an_event_id(self):
+        self.joined()
+        for bad in ("$short", "AAAA", ""):
+            code, out, err = self.run_cli("say", "--to", "alice", "--re", bad, stdin="hi")
+            self.assertEqual((code, out), (cli.EXIT_REFUSED, ""), (bad, err))
+            self.assertIn("re", err)
+        self.assertEqual(self.a.messages_from_me(), [])
 
     def test_recv_while_a_watcher_holds_the_lock_still_prints_the_reply(self):
         """The inbox-read path (no sync, the cached record) prints REPLY after PEER too."""
@@ -71,7 +92,7 @@ class ReplyLineTest(BusCase):
         self.assertIn("not syncing: a watch process holds the sync lock; reading the inbox", err)
         self.assertEqual([line.split("\t")[0] for line in out.splitlines()], ["PEER", "REPLY"])
         self.assertEqual(self.lines(out, "REPLY"),
-                         [["REPLY", "1", TEAM_A, event, f"pingbus --team {TEAM_A} say --to peer.1"]])
+                         [["REPLY", "1", TEAM_A, event, f"pingbus --team {TEAM_A} say --to peer.1 --re '{event}'"]])
 
     def test_history_prints_no_reply_line(self):
         self.joined()

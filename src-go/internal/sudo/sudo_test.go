@@ -295,3 +295,66 @@ func TestReadyWithNilOpenTTYCannotPrompt(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// Security audit H1: ccy-teams runs on the terminal a launcher then starts an agent's session
+// on, so a credential Ready may have left is dropped before it ends.
+func TestForgetWithoutReadyRunsNothing(t *testing.T) {
+	f := &execx.Fake{}
+	s := newSudo(f, true)
+	if err := s.Forget(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls()) != 0 {
+		t.Errorf("calls %v", f.Calls())
+	}
+}
+
+func TestForgetAfterReadyDropsTheCredentialOnce(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{})
+	f.On([]string{"sudo", "-k"}, execx.Result{})
+	s := newSudo(f, true)
+	if err := s.Ready(context.Background(), "Why."); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.Forget(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := f.Calls()
+	if len(calls) != 2 || calls[1].Line() != "sudo -k" {
+		t.Errorf("calls %v", calls)
+	}
+}
+
+func TestForgetAfterARefusedReadyStillDrops(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-n", "true"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-v"}, execx.Result{ExitCode: 1})
+	f.On([]string{"sudo", "-k"}, execx.Result{})
+	s := newSudo(f, true)
+	if err := s.Ready(context.Background(), "Why."); err == nil {
+		t.Fatal("Ready succeeded")
+	}
+	if err := s.Forget(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !f.Called("sudo -k") {
+		t.Errorf("calls %v", f.Calls())
+	}
+}
+
+func TestForgetThatFailsIsAnError(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "-v"}, execx.Result{})
+	f.On([]string{"sudo", "-k"}, execx.Result{ExitCode: 1})
+	s := newSudo(f, true)
+	if err := s.Ready(context.Background(), "Why."); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Forget(context.Background()); err == nil {
+		t.Fatal("a failed sudo -k was not reported")
+	}
+}

@@ -30,6 +30,8 @@ const (
 	keyCoordinator = "coordinator"
 	// keyLxc is the same: adding an LXC container's agent has no shortcut, only its menu line.
 	keyLxc = "lxc-add"
+	// keyElementAll, opening every team in Element, is a team row's menu line with no shortcut.
+	keyElementAll = "element-all"
 )
 
 // backToList is the last line of every menu: leaving it does nothing and shows the list.
@@ -46,7 +48,7 @@ type action struct {
 // shown is the shortcut as a person reads it ("Ctrl-E"); empty when there is none.
 func (a action) shown() string {
 	switch a.key {
-	case keyAttach, keyCoordinator, keyLxc:
+	case keyAttach, keyCoordinator, keyLxc, keyElementAll:
 		return ""
 	case keyHelp:
 		return "?"
@@ -87,7 +89,9 @@ func (r *run) kindActions(row board.Row) []action {
 	switch row.Kind {
 	case board.KindTeam:
 		return []action{
-			open, start,
+			open,
+			{keyElementAll, "Open every team in Element, a window each", "open every team in Element"},
+			start,
 			{keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
 			{keyRemove, "Take " + team + " down", "take " + team + " down"},
 			help,
