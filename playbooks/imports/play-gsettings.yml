@@ -4,6 +4,8 @@
   name: GSettings
   vars:
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # Lazy: only resolved after text_editor_system_desktop is registered below.
+    text_editor_system_text: "{{ text_editor_system_desktop.content | b64decode }}"
   tasks:
     - name: Scope guard — assert provisioning_profile is recognised
       ansible.builtin.assert:
@@ -50,8 +52,6 @@
       register: text_editor_system_desktop
 
     - name: Assert the system desktop file still has the lines the override rewrites
-      vars:
-        text_editor_system_text: "{{ text_editor_system_desktop.content | b64decode }}"
       ansible.builtin.assert:
         that:
           - text_editor_system_text is search('(?m)^DBusActivatable=true$')
@@ -72,8 +72,6 @@
     - name: Override GNOME Text Editor to open each file in a new window
       become: true
       become_user: "{{ user_login }}"
-      vars:
-        text_editor_system_text: "{{ text_editor_system_desktop.content | b64decode }}"
       ansible.builtin.copy:
         dest: "/home/{{ user_login }}/.local/share/applications/org.gnome.TextEditor.desktop"
         content: >-

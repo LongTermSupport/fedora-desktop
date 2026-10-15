@@ -31,7 +31,12 @@ desktop files in play.
 
 ## Non-Goals
 
+- A file already open in another editor window: the editor ignores the new-window hint for it
+  and raises that window, so GNOME still switches to its workspace. The owner's check in
+  Task 2.2 must use files that are not already open.
+
 - Changing the editor, or how GNOME Shell places windows in general.
+
 - Other editors or file types beyond those GNOME Text Editor handles.
 
 ## Tasks
@@ -41,8 +46,7 @@ desktop files in play.
 - [x] ✅ **Task 1.1**: `triage.bash` on the host. Facts established:
   - GNOME Text Editor is the RPM (`gnome-text-editor` 50.1, Fedora 44); the Flatpak is not
     installed, so the override path is `~/.local/share/applications/`.
-  - `--help-all` has `-n, --new-window` (open the provided files in a new window), `-s,
-    --standalone` (a new instance, implies `--ignore-session`) and `-i, --ignore-session`.
+  - `--help-all` has `-n, --new-window` (open the provided files in a new window), `-s, --standalone` (a new instance, implies `--ignore-session`) and `-i, --ignore-session`.
   - The one desktop file is `/usr/share/applications/org.gnome.TextEditor.desktop`:
     `DBusActivatable=true`, `Exec=gnome-text-editor %U`, `MimeType=text/plain;application/x-zerosize;`,
     and a `new-window` action whose Exec is `gnome-text-editor --new-window`.
