@@ -51,3 +51,13 @@ playbooks/imports/play-claude-yolo.yml
 # goodbye existed. Its message counts now expect the goodbye, so this run proves them against
 # the branch. Run it after the two plays above.
 00161-agent-team-bus-matrix/acceptance.bash
+# Plan 00201 M7: the automated two-team acceptance, after the 00161 acceptance. Makes two
+# throwaway teams (accept201a, accept201b) with descriptions, never touching yours, and checks:
+# the descriptions in ccy-teams --list and the room topics; one headless ccy session on
+# --teams 1@accept201a,1@accept201b (launch block, both ABOUT lines in pingbus status, the
+# per-session record, the bus-teams status-line handler showing bus: accept201a,accept201b,
+# pingbus say inferring the team or refusing with the choices, SessionEnd removing the record);
+# a plain ccy on no team. Then parks the seats, purges both teams and checks their firewalld
+# rules are gone; this checkout's Quick Launch record is put back. Needs ccy launched here
+# interactively once. The interactive part is the 00201 folder's ACCEPTANCE-owner.md.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/acceptance.bash
