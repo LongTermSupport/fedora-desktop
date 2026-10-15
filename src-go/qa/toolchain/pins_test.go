@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
@@ -119,6 +120,18 @@ func TestT6TheGoFloorComesFromGoMod(t *testing.T) {
 			w.files["src-go/go.mod"] = c.text
 		}
 		t.Run(name, func(t *testing.T) { cannotRun(t, w, "src-go/go.mod") })
+	}
+}
+
+// T6: the floor is validated where it is read, so a floor the version rules cannot compare is a
+// bad input (exit 2) and never machine drift. modfile and go/version accept the same strings
+// today, so this pins the accepted forms; the branch itself is defence.
+func TestT6TheFloorIsValidatedWhereItIsRead(t *testing.T) {
+	for _, floor := range []string{"1.26", "1.26.4", "1.26rc1"} {
+		got, err := readGoFloor(fstest.MapFS{goModFile: {Data: []byte("module m\n\ngo " + floor + "\n")}})
+		if err != nil || got != floor {
+			t.Errorf("%s: got %q, %v", floor, got, err)
+		}
 	}
 }
 

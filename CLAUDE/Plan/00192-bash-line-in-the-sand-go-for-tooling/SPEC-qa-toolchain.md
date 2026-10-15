@@ -17,8 +17,10 @@ taken from `src-go/go.mod`, not a pin. This gate asserts the machine matches. Ca
 (check `toolchain`).
 
 A wrong or absent QA tool fails **this** gate with exit 1 and leaves the other gates their
-chance: exit 2 makes `qa-all` abort the whole run, which is how one drifted ruff once took 44
-unrelated gates offline. Exit 2 is for the gate itself being unable to judge (its inputs).
+chance. The 1/2 split says what is wrong: exit 1 is the machine (a tool absent, unreadable or
+drifted), exit 2 is the gate being unable to judge (its inputs: the pins, `go.mod`, the command
+line). Under `qa-all` a gate row's exit 2 fails only that gate, the same as exit 1; `qa-changed`
+reports a gate's exit 2 as "could not run" and exits 2 itself.
 
 ## 2. Expectations
 
@@ -49,7 +51,9 @@ Numbers are cited by the tests.
   value, a duplicated key, or a key outside that set (a pin that no assertion reads) is exit 2
   naming the key.
 - T6. The Go floor is the `go` directive of `<root>/src-go/go.mod`, read with the `modfile` parser.
-  A missing, unreadable or unparseable file, or one with no `go` directive, is exit 2 naming it.
+  A missing, unreadable or unparseable file, one with no `go` directive, or one whose floor is not
+  a Go version (checked where it is read, so it is never reported as machine drift), is exit 2
+  naming it.
 - T7. A file with no entries at all (empty or comment-only `.qa-versions`) is T5's missing keys,
   exit 2: an empty scope never passes.
 

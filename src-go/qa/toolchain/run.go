@@ -1,9 +1,9 @@
 // Package toolchain is the gate "the QA tools on this machine are the versions the repository
 // pins". A gate's verdict belongs to the binary that produced it, so .qa-versions pins ruff,
 // semgrep, shellcheck and golangci-lint, and the go directive of src-go/go.mod is a floor for go.
-// Tool drift is exit 1, never 2: exit 2 makes qa-all abort the whole run, which would take every
-// unrelated gate offline for one drifted tool. The specification is the plan's
-// SPEC-qa-toolchain.md.
+// Exit 1 says the machine is wrong (a tool absent, unreadable or drifted); exit 2 says the gate
+// could not judge (its pins, go.mod or command line). Under qa-all either fails only this gate.
+// The specification is the plan's SPEC-qa-toolchain.md.
 package toolchain
 
 import (

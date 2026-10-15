@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/version"
 	"io/fs"
 	"strings"
 
@@ -120,6 +121,9 @@ func readGoFloor(fsys fs.FS) (string, error) {
 	}
 	if mod.Go == nil || mod.Go.Version == "" {
 		return "", fmt.Errorf("%s has no go directive", goModFile)
+	}
+	if !version.IsValid("go" + mod.Go.Version) {
+		return "", fmt.Errorf("%s names the Go floor %q, which is not a Go version", goModFile, mod.Go.Version)
 	}
 	return mod.Go.Version, nil
 }

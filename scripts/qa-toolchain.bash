@@ -11,8 +11,9 @@
 # caller. Specification: CLAUDE/Plan/00192-.../SPEC-qa-toolchain.md.
 #
 # stdout: one `TOOLCHAIN-OK N tool(s) match .qa-versions` line; diagnostics on stderr.
-# Exit: 0 every tool matches, 1 a tool is absent, unreadable or drifted (never 2: exit 2 aborts
-# the whole qa-all run), 2 the pins could not be read or the tool could not run.
+# Exit: 0 every tool matches, 1 the machine is wrong (a tool is absent, unreadable or drifted),
+# 2 the gate could not judge (the pins or go.mod could not be read, or the tool could not run).
+# Under qa-all either failing exit fails only this gate.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

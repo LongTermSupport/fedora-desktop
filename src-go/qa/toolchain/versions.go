@@ -137,10 +137,6 @@ func (a *assertion) pinned(t pinnedTool, expected string) {
 // goFloor asserts go is present and not older than the floor.
 func (a *assertion) goFloor(floor string) {
 	a.checked++
-	if !version.IsValid("go" + floor) {
-		a.fail(fmt.Sprintf("✗ toolchain: %s names the Go floor %q, which is not a Go version", goModFile, floor))
-		return
-	}
 	path, err := a.env.LookPath("go")
 	if err != nil {
 		a.fail(fmt.Sprintf("✗ toolchain: go is not installed (need >= %s, %s)", floor, goModFile))
