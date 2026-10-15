@@ -78,13 +78,34 @@ EOF
 )"
 readonly U23_AGENT_ENV
 
+#: README step 1's copy: the kit tar on stdin unpacked under argv[1], every directory set to
+#: 0755 explicitly. tarfile's "data" filter creates directories with the caller's umask, and
+#: lxc-attach under sudo inherits the host run's: under umask 077 the kit was 0700 and the
+#: agent user could not run pingbus (exit 126). Files keep the installer's modes from the tar.
+U23_KIT_UNPACK_PY="$(
+    cat <<'EOF'
+import os, sys, tarfile
+parent = sys.argv[1]
+os.makedirs(parent, exist_ok=True)
+os.chmod(parent, 0o755)
+with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
+    tar.extractall(parent, filter="data")
+kit = os.path.join(parent, "kit")
+if not os.path.isfile(os.path.join(kit, "pingbus")):
+    sys.exit("the kit tar made no " + os.path.join(kit, "pingbus"))
+for top, dirs, files in os.walk(kit):
+    os.chmod(top, 0o755)
+EOF
+)"
+readonly U23_KIT_UNPACK_PY
+
 # Run as root in a guest: refuse what is not this acceptance's, then make the agent user and
 # its checkout, unpack the kit (stdin, a tar of kit/), and link its commands into
-# /usr/local/bin (README step 1). Arguments: agent, home, checkout, kit parent.
+# /usr/local/bin (README step 1). Arguments: agent, home, checkout, kit parent, unpack script.
 U23_GUEST_PREPARE="$(
     cat <<'EOF'
 set -eu
-agent=$1 home=$2 checkout=$3 parent=$4
+agent=$1 home=$2 checkout=$3 parent=$4 unpack=$5
 for path in "$parent" /usr/local/bin/pingbus /usr/local/bin/agent-bus-claude "$home"; do
     if [ -e "$path" ] || [ -L "$path" ]; then
         echo "$path already exists in this guest and is not this acceptance's: use a guest without an agent-bus kit" >&2
@@ -97,8 +118,7 @@ if getent passwd "$agent" >/dev/null; then
 fi
 useradd -m -d "$home" -U "$agent"
 install -d -o "$agent" -g "$agent" -m 0700 "$checkout"
-mkdir -p "$parent"
-python3 -I -c 'import sys, tarfile; tarfile.open(fileobj=sys.stdin.buffer, mode="r|").extractall(sys.argv[1], filter="data")' "$parent"
+python3 -I -c "$unpack" "$parent"
 ln -s "$parent/kit/pingbus" /usr/local/bin/pingbus
 ln -s "$parent/kit/agent-bus-claude" /usr/local/bin/agent-bus-claude
 echo "agent user $agent, the kit at $parent/kit and its two links are in place" >&2
@@ -269,7 +289,7 @@ u23_kit_tar() {
 u23_guest_prepare() {
     u23_kit_tar || return 1
     u23_step "$1" root prepare "${PLAN_RUN_DIR}/u23-kit.tar" 0 sh -c "${U23_GUEST_PREPARE}" sh \
-        "${U23_AGENT}" "${U23_HOME}" "${U23_CHECKOUT}" "${U23_KIT_PARENT}"
+        "${U23_AGENT}" "${U23_HOME}" "${U23_CHECKOUT}" "${U23_KIT_PARENT}" "${U23_KIT_UNPACK_PY}"
 }
 
 # u23_bridge <kind> — the network the member reaches <bus_ip> through: its source address,

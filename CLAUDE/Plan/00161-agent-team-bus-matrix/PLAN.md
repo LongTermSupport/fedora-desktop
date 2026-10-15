@@ -90,6 +90,12 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
     2026-10-12). Built: `agent_bus_lxc_members` (`localhost.yml.dist`), applied by
     `play-agent-bus.yml` through `helpers/agent_bus_lxc/members.py`, `test_members.py`.
     Pending: a host run with a real container declared (journal 26-10-12).
+  - [ ] 🔄 Defect: the 26-10-15 acceptance re-run failed U23.lxc, `env: 'pingbus': Permission denied` (exit 126). Cause: the host run had umask 077 (its run directories turned 0700 on
+    26-10-15); sudo and lxc-attach carried it into the member, where the acceptance's kit
+    copy made `/usr/local/share/agent-bus` and `kit/` 0700. The installer and `members.py`
+    already set 0755 explicitly. Fixed 26-10-15: `U23_KIT_UNPACK_PY` sets every kit directory
+    0755, `test_u23_kit_unpack.py`. Pending: acceptance.bash on the host.
+    [report](subagent-reports/261015-u23-lxc-exec-opus.md)
 - [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1-P8)**: U25-U28 (U26, TLS,
   only if probe H7 needs it). U25 (`element.py`, `play-agent-bus-element.yml`,
   `agent_bus_element_teams`) built, reviewed and fixed. Its host run is pending: the owner
