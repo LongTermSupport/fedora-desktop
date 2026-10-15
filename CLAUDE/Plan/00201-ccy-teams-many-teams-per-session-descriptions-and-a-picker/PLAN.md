@@ -1,6 +1,6 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (M1-M3 built and merged; M4 shared chooser next, then M5-M7)
+**Status**: In Progress (M1-M5 built; M6 cc on the shared flow next, then M7)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -86,8 +86,17 @@ a repository is no longer offered for a checkout of it. Report:
   ccy wired (CCY 3.97.6). Single team (S-B1 to S-B15 without multi-select): `declare.py choices`
   and `add-repo`, the Go chooser, the wizard's chooser mode, `for-checkout --choose` and
   `ccy_seats_resolve` deleted. Report: `subagent-reports/261015-m4-chooser-sonnet.md`.
-- [ ] ⬜ **Task 2.5**: M5, several teams per session: multi-select, launch block, status line,
-  `send`/`say` team inference.
+- [x] ✅ **Task 2.5**: M5, several teams per session (S-B3 `--multi`, S-C1 to S-C9), CCY 3.97.8 /
+  container 2.58. `choose-teams` list is a multi-select with kept marks across rounds; `describe-seats --block` prints the launch block after `seat take`; SessionStart's first line names the teams; a
+  project status-line handler shows `bus: A,B`; `pingbus send`/`say` infer the team from `--re` or
+  `--to` or fail with the choices. The status-line segment reads a per-session record the pingbus
+  SessionStart hook writes (the daemon is shared, so not the environment). Its tests
+  (`.claude/hooks/handlers/status_line/tests`) are in no QA gate: they need the daemon's package and
+  its venv's pydantic, which only exist on a checkout with an installed daemon, and routing them
+  would be a new qa-changed check in Go; the host run must restart and health-check the daemon and
+  look at a two-team session's status line. M6 must also print the launch block for `cc --teams`.
+  Reports: `subagent-reports/261015-m5-many-teams-sonnet.md`, review
+  `subagent-reports/261015-m5-review-fable.md`.
 - [ ] ⬜ **Task 2.6**: M6, `cc --teams` on the shared flow, its consent inside it.
 - [ ] ⬜ **Task 2.7**: M7, host run through `meta-deploy.bash`; the owner launches a session on
   two teams from an uncovered checkout; the two-team acceptance leg. qa-reviewer over the

@@ -32,7 +32,9 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
+import stat
 import subprocess
 from collections.abc import Callable, Mapping
 from typing import TextIO
@@ -63,6 +65,8 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "handles": lambda value: isinstance(value, str) and all(
         protocol.parse_handle(part) is not None for part in value.split(", ")),
     "description": protocol.is_description,
+    "team_list": lambda value: isinstance(value, str) and all(
+        protocol.is_team_name(part) for part in value.split(", ")),
 }
 TEMPLATES = {
     "pending": "agent-bus: {total} pending ({humans} from humans, {peers} from agents, {pings} pings). Run `pingbus recv`.",
@@ -78,6 +82,7 @@ TEMPLATES = {
     "seat_history": ("agent-bus: seat {seat}@{team} has earlier traffic: "
                      "`pingbus history --team {team}` shows what it received and sent."),
     "team_about": "agent-bus: team {team} is for: {description}",
+    "session_teams": "agent-bus: this session is on teams {team_list}.",
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
                          "on what they tell humans; when a human asks you to get something done, work out "
                          "how and dispatch it to the workers, then track it."),
@@ -106,6 +111,48 @@ class _Failure(Exception):
     def __init__(self, cls: str) -> None:
         super().__init__(cls)
         self.cls = cls
+
+
+#: Where a session's teams are recorded for the status line. The hooks daemon that draws the status
+#: line is one process shared by sessions, so it cannot read a session's PINGBUS_TEAMS; this hook,
+#: which runs in the session, writes it under the session's id instead. The status-line handler
+#: (.claude/hooks/handlers/status_line/bus_teams.py) holds a copy of the default and the variable
+#: name, and a test keeps the two equal.
+SESSIONS_DIR_VAR = "PINGBUS_SESSIONS_DIR"
+SESSIONS_DIR_TEMPLATE = "/tmp/pingbus-sessions-{uid}"
+SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def sessions_dir(environ: Mapping[str, str]) -> pathlib.Path:
+    return pathlib.Path(environ.get(SESSIONS_DIR_VAR) or SESSIONS_DIR_TEMPLATE.format(uid=os.getuid()))
+
+
+def _session_id(payload: dict | None) -> str | None:
+    value = None if payload is None else payload.get("session_id")
+    return value if isinstance(value, str) and SESSION_ID_RE.fullmatch(value) else None
+
+
+def record_session_teams(environ: Mapping[str, str], session_id: str, teams: list[str]) -> None:
+    """Write `teams` (comma separated) as `<sessions dir>/<session_id>`: atomically, mode 0600, in a
+    directory that is this user's alone. `OSError` where that cannot be had."""
+    directory = sessions_dir(environ)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    found = os.lstat(directory)
+    if not stat.S_ISDIR(found.st_mode) or found.st_uid != os.getuid() or found.st_mode & 0o077:
+        raise OSError(f"{directory} is not a directory only this user can use")
+    temporary = directory / f".{session_id}.{os.getpid()}"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as handle:
+            handle.write(",".join(teams))
+        os.replace(temporary, directory / session_id)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def forget_session_teams(environ: Mapping[str, str], session_id: str) -> None:
+    (sessions_dir(environ) / session_id).unlink(missing_ok=True)
 
 
 def pending_text(total: int, humans: int, peers: int, pings: int) -> str:
@@ -373,6 +420,15 @@ class _Hook:
     def session_start(self) -> dict:
         surveyed = survey(self.environ)
         lines: list[str] = []
+        session_id = _session_id(self.payload)
+        if session_id is not None and surveyed.teams:
+            try:
+                record_session_teams(self.environ, session_id, [view.team for view in surveyed.teams])
+            except OSError as exc:
+                self.err.write(f"pingbus: hook session-start: the session record for the status line "
+                               f"was not written: {exc}\n")
+        if len(surveyed.teams) > 1:
+            lines.append(fill("session_teams", team_list=", ".join(view.team for view in surveyed.teams)))
         try:
             session = notify.session_socket(self.environ)
         except ValueError as exc:
@@ -470,6 +526,9 @@ def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
     hook = _Hook(event, _parse_input(raw), environ, now_ms, spawn, err)
     try:
         if event == "session-end":
+            session_id = _session_id(hook.payload)
+            if session_id is not None:
+                forget_session_teams(environ, session_id)
             return {}
         if event == "session-start":
             return hook.session_start()

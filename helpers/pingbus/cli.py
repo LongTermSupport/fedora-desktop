@@ -84,6 +84,8 @@ TO_FORMS = """\
   --to alice                   a human's localpart
   --to @proj.1+local.podman:SERVER    a full user ID
 `pingbus recv` prints a ready REPLY command for every message from an agent or a human.
+On several teams, without --team, the team is the one --re belongs to, else the only one in
+which every --to name resolves; if that is not one team, name it with --team.
 """
 
 STDOUT = "stdout"
@@ -761,10 +763,72 @@ def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: c
     return list(dict.fromkeys(to))
 
 
+def _cached_record(member: config.Member) -> protocol.TeamRecord | None:
+    """The team's verified record, or None while it has none (not synced yet, or untrusted)."""
+    try:
+        return load_cached_record(member)
+    except protocol.Untrusted:
+        return None
+
+
+def _fits(member: config.Member, record: protocol.TeamRecord, names: list[str]) -> bool:
+    """Whether every `--to` name resolves in this team's verified record (`_user_id`); a full
+    user ID fits only the team whose server it names."""
+    for name in names:
+        if name.startswith("@"):
+            if not name.endswith(f":{member.server_name}"):
+                return False
+            continue
+        try:
+            _user_id(name, record, member)
+        except config.UsageError:
+            return False
+    return True
+
+
+def _choices_line(member: config.Member, unknown: bool) -> str:
+    """One active team with what it is for (or why it cannot be judged), for the message that
+    asks which to name."""
+    if unknown:
+        return (f"  {member.team}  (no verified team record yet: run pingbus recv or name it "
+                "with --team)")
+    try:
+        about = inbox.TeamState.for_member(member).about()
+    except inbox.StateError:
+        about = "(description unreadable)"
+    return f"  {member.team}  {about or '(no description)'}"
+
+
+def _sending_member(args: argparse.Namespace, environ: Mapping[str, str]) -> config.Member:
+    """The team `send` or `say` acts on: `--team`, the one active team, or, when several are
+    active, the one `--re` belongs to (its inbox or consumed items hold that event) or else the
+    only one in which every `--to` name resolves. Anything else is a usage error that lists the
+    active teams, because guessing would put a message in the wrong room."""
+    members = config.load_active(environ, team=args.team)
+    if len(members) == 1:
+        return members[0]
+    re_id = getattr(args, "re", None)
+    holders = [] if re_id is None else [
+        member for member in members if re_id in inbox.TeamState.for_member(member).known_event_ids()]
+    if len(holders) == 1:
+        return holders[0]
+    records = {member.team: _cached_record(member) for member in members}
+    # A team whose record is not verified yet cannot be judged, so `--to` cannot pick between
+    # teams: guessing would put a message in the wrong room.
+    if args.to is not None and all(record is not None for record in records.values()):
+        fitting = [member for member in members
+                   if _fits(member, records[member.team], args.to.split(","))]
+        if len(fitting) == 1:
+            return fitting[0]
+    raise config.UsageError(
+        "several teams are active and --to/--re fit more than one (or none): name one with --team:\n"
+        + "\n".join(_choices_line(member, records[member.team] is None) for member in members))
+
+
 def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """§9 on send, steps 1-7, in order; the first failure sends nothing."""
     rt: Runtime = args.runtime
-    member = _one_member(environ, args.team)
+    member = _sending_member(args, environ)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
@@ -801,7 +865,7 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     """§9 on send for an agent text: steps 1 and 2, §7's rules and the role in place of
     3, 4 and 6, the member's own token refused as `secret`, then 5 and 7."""
     rt: Runtime = args.runtime
-    member = _one_member(environ, args.team)
+    member = _sending_member(args, environ)
     text = _read_text(args.stdin)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()

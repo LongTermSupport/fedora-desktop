@@ -103,8 +103,11 @@ The SessionStart context says which you are, and who the coordinator is.
 
 `pingbus send VERB [REF] --to HANDLE[,HANDLE...] [--re EVENT_ID] [--branch BRANCH]` sends one ping;
 `pingbus send VERB REF --to-coordinator` addresses the team's coordinator, alone or beside
-`--to`. `--to` takes the forms listed under Writing free text. With several teams active, name
-one: `pingbus --team NAME send ack --to HANDLE --re EVENT_ID`.
+`--to`. `--to` takes the forms listed under Writing free text. With several teams active, the team
+is inferred when `--re` names an event of one team, or every `--to` name fits only one team;
+otherwise pingbus refuses (exit 64) and lists the teams (also when a team has no verified record
+yet). `--to-coordinator` alone never infers a team (give `--re`, or name the team). Name one with
+`pingbus --team NAME send ack --to HANDLE --re EVENT_ID`.
 
 | Verb      | Use it to                                                                        | `REF`            | `--re`   | Ack expected |
 | --------- | -------------------------------------------------------------------------------- | ---------------- | -------- | ------------ |

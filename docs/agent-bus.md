@@ -66,6 +66,11 @@ that play.
    taken without a list. Choosing a team that does not cover the checkout offers to add the
    repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
    no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
+   **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
+   takes them or the highlighted one), each marked team gets its own seat question, and the
+   launch prints which teams the session is on, with seat, role and what each is for; the status
+   line shows `bus: alpha,beta`. With several teams, `pingbus send`/`say` work out the team from
+   `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
    free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;

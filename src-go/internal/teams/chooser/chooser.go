@@ -177,9 +177,11 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 	if repo != "" && !slices.ContainsFunc(entries, func(e entry) bool { return e.Standing == declare.StandingCovers }) {
 		c.say("No team on this machine works on " + repo + " (this checkout). Choose a team to add it to, or create one.")
 	}
+	var held []entry
 	for round := range maxRounds {
-		taken, code, again := c.take(ctx, repo, entries, round == 0)
+		taken, code, again := c.take(ctx, repo, entries, round == 0, held)
 		if again {
+			held = taken
 			continue
 		}
 		if len(taken) == 0 {
@@ -187,6 +189,7 @@ func (c *Chooser) bare(ctx context.Context, memberType string) term.ExitCode {
 		}
 		final, code, again := c.settle(ctx, repo, taken)
 		if again {
+			held = nil // every team was left out: that answer stands, nothing is held
 			continue
 		}
 		if len(final) == 0 {
