@@ -725,7 +725,7 @@ These are known and documented rather than engineered around:
 - Matrix offers no second factor here.
 - The homeserver limits only password sign-in (per account: three wrong passwords, then one
   every five minutes) and enforces no password strength, so change a human's password only
-  with `agent-bus human password`; it has no per-account send limit, so the client limits
+  with `agent-bus human password <team> <name>`; it has no per-account send limit, so the client limits
   below guard against mistakes, not against an agent posting with `curl`; and although no
   member can change its display name, an agent can still set a per-room one that looks like
   a human's in Element (`pingbus` reads only the account, never the name).
