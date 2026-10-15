@@ -156,6 +156,18 @@ the command. A line scan (the annotation is a comment, which a YAML load drops) 
 list of `qa/discovery` under `playbooks/` and `tasks/`; `SPEC-qa-ansible-pause.md` (E1-E17) is the
 specification, and the rule is proven against `tests/fixtures/ansible-pause` by its Go tests.
 
+`qa/vmtestmanifest` + `qa/cmd/qa-vmtest-manifest` (same nested module) are
+`scripts/qa-vmtest-manifest.bash`, the VM-test scenario manifest gate: the script only builds and
+runs the command. `vars/vm-test-scenarios.yml` is decoded strictly as YAML (`go.yaml.in/yaml/v3`),
+handed as JSON to the host's own Python validator (`helpers/vmtest/validate_manifest.py`, run
+through `qa/internal/proc`, which gained `Cmd.Stdin` for it; one definition of a valid manifest, so
+the gate needs python3), then cross-checked against the guest scripts that `qa/discovery` lists as
+published: each runnable scenario's `planned` against the `PLANNED` assignment read from its
+checker's `mvdan.cc/sh` syntax tree, each `guest-prepare-*` fixture against a declared reboot, and
+orphaned guest scripts. `SPEC-qa-vmtest-manifest.md` (V1-V16) is the specification, proven by unit
+tests over real temporary git repositories with a fake validator and by the real validator in
+`qa/cmd/qa-vmtest-manifest`.
+
 `qa/toolchain` + `qa/cmd/qa-toolchain` (same nested module) are `scripts/qa-toolchain.bash`, the
 gate that the QA tools are the versions `.qa-versions` pins (go: not older than `src-go/go.mod`):
 the script only builds and runs the command. The pin file is parsed with the `mvdan.cc/sh` parser

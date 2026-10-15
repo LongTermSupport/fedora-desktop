@@ -108,6 +108,14 @@ also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa
 # .semgrep files are its own data and count as covered.
 also	.semgrep/speech-to-text.yml,.semgrep/speech-to-text.js,.semgrep/speech-to-text.py	stt-rules	covered
 also	scripts/qa-speech-to-text-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-speech-to-text-rules/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	stt-rules	-
+# The VM-test manifest gate judges the manifest (which it covers), the Fedora version it composes
+# base names with, the host's validator (the three helpers it imports), the guest scripts it
+# counts and resolves, and runs whole when one changes or is deleted, or its own wrapper, Go
+# package, command, the shared discovery that lists the guest scripts, or the trees table change.
+# The guest scripts and the validator are code other checks cover; this row adds the gate.
+also	vars/vm-test-scenarios.yml	vmtest-manifest	covered
+also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*	vmtest-manifest	-
+also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa-vmtest-manifest/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	vmtest-manifest	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in
@@ -127,4 +135,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-speech-to-text-rules
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-speech-to-text-rules qa-vmtest-manifest

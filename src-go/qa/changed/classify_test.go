@@ -531,6 +531,50 @@ func TestAPauseGateEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// An edit to the VM-test manifest, the Fedora version, the host's validator, a guest script, the
+// gate's wrapper, Go package or command, the shared discovery or the trees table runs the whole
+// vmtest-manifest gate (SPEC-qa-changed B46); the manifest counts as covered by it; the wrapper
+// is not also picked as a suite. A deleted input owes the gate. Other vars files, other
+// helpers/vmtest modules and the vmtest CLI do not.
+func TestAVmtestManifestInputEditRunsTheGate(t *testing.T) {
+	inputs := []string{
+		"vars/vm-test-scenarios.yml", "vars/fedora-version.yml",
+		"helpers/vmtest/scenarios.py", "helpers/vmtest/upstream.py", "helpers/vmtest/validate_manifest.py",
+		"files/home/.local/share/vmtest/guest-acceptance-server.bash", "files/home/.local/share/vmtest/guest-prepare-x.bash",
+		"scripts/qa-vmtest-manifest.bash", "src-go/qa/vmtestmanifest/guest.go", "src-go/qa/cmd/qa-vmtest-manifest/main.go",
+		"src-go/qa/discovery/run.go", "scripts/lib/go-tool.bash", "scripts/qa-trees.tsv",
+	}
+	for _, f := range inputs {
+		w := newWorld(t)
+		if f != "scripts/qa-trees.tsv" { // the world already has a valid table
+			w.touch(f, "a: 1\n")
+		}
+		p := w.classify([]string{f})
+		if !p.has("vmtest-manifest") {
+			t.Errorf("%s: %v", f, keys(p))
+		}
+		if f == "scripts/qa-vmtest-manifest.bash" && len(p.suites) != 0 {
+			t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+		}
+		if f == "vars/vm-test-scenarios.yml" && len(p.uncovered) != 0 {
+			t.Errorf("%s uncovered %v", f, p.uncovered)
+		}
+	}
+	for _, f := range inputs {
+		w := newWorld(t)
+		if p := w.classify(nil, f); !p.has("vmtest-manifest") {
+			t.Errorf("a deleted %s owes the gate: %v", f, keys(p))
+		}
+	}
+	for _, f := range []string{"vars/other.yml", "helpers/vmtest/freshness.py", "files/home/.local/bin/vmtest", "files/home/.local/share/vmtest/guest-cleanup.bash", "docs/vm-acceptance-testing.md"} {
+		w := newWorld(t)
+		w.touch(f, "x = 1\n")
+		if p := w.classify([]string{f}); p.has("vmtest-manifest") {
+			t.Errorf("%s must not run the vmtest-manifest gate: %v", f, keys(p))
+		}
+	}
+}
+
 // An edit to the pins, the Go floor, the toolchain gate's wrapper, Go package or command, or the
 // wrapper library runs the whole toolchain gate; .qa-versions counts as covered by it. A deleted
 // pin file still owes the gate (it is a whole check), and a vars file does not run it.

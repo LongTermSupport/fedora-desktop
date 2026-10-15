@@ -3,8 +3,8 @@
 Pure. `parse_manifest` takes an already-decoded mapping — the JSON Ansible
 renders from `vars/vm-test-scenarios.yml` onto the host — and returns a
 validated `Manifest`. No YAML here: helpers are stdlib-only, and the tracked
-YAML is checked by `scripts/qa-vmtest-manifest.bash`, which converts it with the
-same toolchain Ansible uses.
+YAML is checked by `scripts/qa-vmtest-manifest.bash`, which decodes it strictly
+and feeds this validator the JSON, so there is one definition of a valid manifest.
 
 Three properties the data carries so prose does not have to:
 

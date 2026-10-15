@@ -85,6 +85,7 @@ var checkDefs = []checkDef{
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
 	{id: "plan-script-logging", fixed: "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runPlanScriptLogging},
 	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
+	{id: "vmtest-manifest", fixed: "whole gate (the VM-test scenario manifest is valid and agrees with its guest scripts)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runVmtestManifest},
 	{id: "deployed-drift", fixed: "repo-owned scripts against their deployed copies, whole gate", gate: true, tools: []string{toolBash, toolGo}, run: runDeployedDrift},
 	{id: "node-check", listed: true, noun: nounFiles, tools: []string{toolNode}, run: runNodeCheck},
 	{id: "eslint", listed: true, noun: nounFiles, tools: []string{eslintTool}, run: runEslint},
@@ -170,6 +171,10 @@ func runSttRulesFiles(ctx context.Context, s *session, cp *checkPlan) (checkResu
 
 func runSttRules(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-speech-to-text-rules.bash")
+}
+
+func runVmtestManifest(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-vmtest-manifest.bash")
 }
 
 // gateWithReport runs a gate that requires QA_JSON_OUT, a file for its machine report, which
