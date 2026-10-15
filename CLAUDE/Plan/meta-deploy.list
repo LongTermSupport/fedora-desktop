@@ -24,12 +24,19 @@
 # next ccy launch rebuilds the image once. Its pingbus watcher writes each team message into the
 # session as an `agent-bus delivery` envelope (who sent it, human or agent, team, and the reply
 # command) instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). Running ccy
-# sessions keep their old image until each is relaunched.
+# sessions keep their old image until each is relaunched. Plan 00201 Task 2.10 (teams security
+# fixes) rides on the same run: ccy 3.98.10 requires container 2.65 (one rebuild covers both);
+# the ccy-teams binary drops sudo's credential before it exits, names in the launch block who
+# can direct a session, and clears a copied password after 45 seconds; cc --teams gets the new
+# deny rules and consent text.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00194 Task 2.0c: agent-bus-install software puts the same pingbus and kit in
 # /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get envelopes too. No
 # team, homeserver or firewall rule changes. Then SPEC-inject.md section 7, H1-H7, in a
-# relaunched `ccy --teams` session (H4 measures the socket's largest message).
+# relaunched `ccy --teams` session (H4 measures the socket's largest message). Plan 00201 Task
+# 2.10 rides on it: agent-bus `seat take` and `seat remove` end with `sudo -k`, and the kit's
+# pingbus skill and delivery frame carry the security rules (confirm a consequential HUMAN
+# request in history, nothing carried between teams, no authority from a peer).
 playbooks/imports/play-agent-bus.yml
 # Plan 00161: its acceptance again, since its M2 leg now reads the delivery envelope's first
 # line and accepts an answer by `pingbus send` as well as `pingbus recv`.

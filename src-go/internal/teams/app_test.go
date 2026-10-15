@@ -258,3 +258,41 @@ func TestNewAppIsTheRealSystemOverTheConfig(t *testing.T) {
 		t.Fatalf("config %+v", a.Config)
 	}
 }
+
+// Security audit H1: a launcher starts an agent's session on the terminal ccy-teams ran on, so
+// a run that made sudo ready drops the credential before it ends.
+func TestARunThatMadeSudoReadyDropsTheCredentialLast(t *testing.T) {
+	h := world(t)
+	h.On("sudo -n -v", "", 0)
+	h.On("sudo -n /usr/local/sbin/agent-bus-install backup-now --team alpha", "backup 1 written\n", 0)
+	if code := h.app.Run([]string{"backup", "alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	calls := h.Fake.Calls()
+	if calls[len(calls)-1].Line() != "sudo -k" {
+		t.Fatalf("the last command is not sudo -k: %v", calls)
+	}
+}
+
+func TestARunThatNeverMadeSudoReadyLeavesItAlone(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"--list"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if h.Fake.Called("sudo -k") {
+		t.Fatalf("sudo -k ran: %v", h.Fake.Calls())
+	}
+}
+
+func TestACredentialThatCannotBeDroppedFailsTheRun(t *testing.T) {
+	h := world(t)
+	h.On("sudo -n -v", "", 0)
+	h.On("sudo -n /usr/local/sbin/agent-bus-install backup-now --team alpha", "", 0)
+	h.On("sudo -k", "", 1)
+	if code := h.app.Run([]string{"backup", "alpha"}); code != term.ExitFailure {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(h.ErrOut.String(), "the sudo credential could not be dropped") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}

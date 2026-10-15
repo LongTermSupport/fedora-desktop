@@ -92,8 +92,20 @@ func Wire(h *host.Host) *App {
 
 // Run dispatches args (without the program name) and returns the exit code. Output that could
 // not be written turns a success into a failure.
+//
+// A run that made sudo ready drops the credential last (security audit H1): a launcher may
+// start an agent's session on this terminal next, and it must not inherit the owner's sudo.
+// A launcher started by exec takes its seats through `agent-bus seat take`, which drops it too.
 func (a *App) Run(args []string) term.ExitCode {
-	return a.Term.Finish(a.run(args), a.Out.Err())
+	code := a.run(args)
+	if err := a.Sudo.Forget(context.Background()); err != nil {
+		a.Term.PrintError("the sudo credential could not be dropped (" + err.Error() +
+			"); run sudo -k before starting an agent on this terminal.")
+		if code == term.ExitOK {
+			code = term.ExitFailure
+		}
+	}
+	return a.Term.Finish(code, a.Out.Err())
 }
 
 func (a *App) run(args []string) term.ExitCode {

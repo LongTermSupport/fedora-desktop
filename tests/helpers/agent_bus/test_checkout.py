@@ -95,6 +95,14 @@ class FakeHost:
         self.bundle: dict[str, bytes | tarfile.TarInfo] | None = None
         #: `agent-bus list <team>`'s MEMBER lines: (handle, active|parked) per team.
         self.members: dict[str, list[tuple[str, str]]] = {}
+        #: How many `sudo agent-bus` calls had run each time sudo's credential was dropped.
+        self.forgot_after: list[int] = []
+        self.forget_fails = False
+
+    def forget_sudo(self) -> None:
+        self.forgot_after.append(len(self.calls))
+        if self.forget_fails:
+            raise checkout.CheckoutError("sudo -k exited 1")
 
     def team_active(self, team: str) -> bool:
         return team in self.active
@@ -157,7 +165,8 @@ class CheckoutTestCase(unittest.TestCase):
     def system(self, cwd: pathlib.Path | None = None, uid: int | None = None) -> checkout.System:
         return checkout.System(cwd=cwd or self.top, uid=os.getuid() if uid is None else uid,
                                team_active=self.host.team_active, bus_address=self.host.bus_address,
-                               agent_bus=self.host.agent_bus, clock_ms=lambda: T0_MS)
+                               agent_bus=self.host.agent_bus, forget_sudo=self.host.forget_sudo,
+                               clock_ms=lambda: T0_MS)
 
     def run_cli(self, *argv: str, system: checkout.System | None = None) -> tuple[int, str, str]:
         out, err = io.BytesIO(), io.StringIO()
@@ -611,9 +620,52 @@ class TakeCommandTest(CheckoutTestCase):
         self.assertEqual(code, EX_CONFIG)
         self.assertEqual(out, "")
         self.assertEqual(len(self.host.calls), 1)
-        self.assertIn("sudo -v", err)
+        self.assertNotIn("sudo -v", err)
+        self.assertIn("on a terminal", err)
         # The seat's directory, claimed before the call, goes again.
         self.assertFalse((self.seats / TEAM_A / "dev1").exists())
+
+    # Security audit H1: the session that follows a take runs on the same terminal, so the
+    # sudo credential is dropped after the last root command, whatever the take did or refused.
+    def test_take_drops_the_credential_after_its_last_root_command(self):
+        code, _, err = self.run_cli("seat", "take", "dev1@team-a,qa@team-b")
+        self.assertEqual(code, 0, err)
+        self.assertGreater(len(self.host.calls), 0)
+        self.assertEqual(self.host.forgot_after, [len(self.host.calls)])
+
+    def test_take_that_creates_nothing_still_drops_the_credential(self):
+        self.run_cli("seat", "take", "dev1@team-a")
+        self.host.forgot_after.clear()
+        self.assertEqual(self.run_cli("seat", "take", "dev1@team-a")[0], 0)
+        self.assertEqual(self.host.forgot_after, [len(self.host.calls)])
+
+    def test_a_refused_take_still_drops_the_credential(self):
+        self.host.fail["add-member"] = 1
+        self.assertEqual(self.run_cli("seat", "take", "dev1@team-a")[0], EX_CONFIG)
+        self.assertEqual(self.host.forgot_after, [1])
+
+    def test_a_credential_that_cannot_be_dropped_stops_the_launch(self):
+        self.host.forget_fails = True
+        code, _, err = self.run_cli("seat", "take", "dev1@team-a")
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn("sudo -k", err)
+
+    def test_remove_drops_the_credential_after_parking(self):
+        self.run_cli("seat", "take", "dev1@team-a")
+        self.host.forgot_after.clear()
+        self.assertEqual(self.run_cli("seat", "remove", "dev1@team-a")[0], 0)
+        self.assertEqual(self.host.forgot_after, [len(self.host.calls)])
+
+    def test_the_real_drop_runs_sudo_k_and_fails_loudly(self):
+        done = subprocess.CompletedProcess(["sudo", "-k"], 0)
+        with mock.patch.object(checkout.subprocess, "run", return_value=done) as run:
+            checkout.sudo_forget()
+        self.assertEqual(run.call_args.args[0], ["sudo", "-k"])
+        failed = subprocess.CompletedProcess(["sudo", "-k"], 1)
+        with mock.patch.object(checkout.subprocess, "run", return_value=failed):
+            with self.assertRaises(checkout.CheckoutError) as caught:
+                checkout.sudo_forget()
+        self.assertIn("sudo -k", str(caught.exception))
 
     def test_the_bundle_is_placed_by_the_user_with_private_modes(self):
         code, _, err = self.run_cli("seat", "take", "dev1@team-a")

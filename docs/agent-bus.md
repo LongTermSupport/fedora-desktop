@@ -53,7 +53,7 @@ that play.
    `ccy-teams`, press Enter on your name under the team: a menu lists what you can do, in
    words. Until you have signed in, the first choice is "Sign in: set a password (shown
    once)"; it shows the password with the homeserver and username, offers it to the
-   clipboard, and then offers to open Element. Once you are signed in, the first choice is
+   clipboard (cleared again after 45 seconds), and then offers to open Element. Once you are signed in, the first choice is
    "Open the team in Element", and a new password is a separate choice that says how many of
    your Element sessions it signs out, and asks first
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
@@ -381,9 +381,9 @@ must run here.
 A **seat** is a durable member of one team in one checkout. `dev1@<team>` is the same
 member, with its handle, role, pending pings and history, every time a session is launched
 into it; one live session holds a seat at a time, and a launch into a held seat is
-refused. The first launch that names a seat creates it: one `add-member` run with sudo (a
-headless launch uses only sudo's cached credential, so run `sudo -v` first), which hands
-the bundle back on stdout; the launch's seat step, running as you, writes it to
+refused. The first launch that names a seat creates it: one `add-member` run with sudo (the
+launch asks for your password once; a headless launch cannot ask, so its seat must exist
+already), which hands the bundle back on stdout; the launch's seat step, running as you, writes it to
 `<checkout>/.claude/ccy/pingbus/seats/<team>/<seat>/`, which ccy's
 `.claude/ccy/.gitignore` keeps out of git. Root writes nothing in the checkout, since
 other sessions in it can change it, and a symlink anywhere in that path is refused. A session taking over a seat reads what the seat
@@ -515,7 +515,11 @@ answer is kept in `~/.config/pingbus/element-accepted` (mode 0600, in a folder o
 (every other `host` member is still refused). Declining starts nothing and records
 nothing; delete the file to be asked again. The session never sees the question. What guards it is
 guidance, not a wall: the session is told to post only through pingbus, as itself, and
-cc's own settings keep Claude's file tools out of Element's folders. Those settings are
+cc's own settings deny Claude's file tools Element's folders and the keyring, and deny Bash
+the plain commands that reach them (`secret-tool`, the keyring, the Element Flatpak and
+profile paths). A rule matches the command's text, so an agent beside Element can still
+reach your session by other routes, post as you, and every agent on the team would take
+that as your request. A ccy session is the safe choice. Those settings are
 cc's alone, never the project's, which ccy sessions share. Claude Code's sandbox is not
 used for now: it would also limit the network, and a real boundary is being looked at in
 issue #101. When you want an agent that cannot reach your sign-ins, use a ccy session or a
@@ -652,6 +656,20 @@ These are known and documented rather than engineered around:
   ([above](#joining-a-team-hosted-elsewhere)); `--no-human-text` narrows it to pings.
 - No TLS: on a network that is not private, logins, passwords and tokens travel in clear.
 - Backups hold the team's root of trust.
+- Any human listed in a team has your authority over its agents: a request from any of them
+  is weighed as yours, including by a session that also works for another team. The
+  launch block says so; list only people you would let direct your agents.
+- A `cc --teams` session runs as you beside your Element session. Its deny rules stop the
+  plain routes to your sign-in, not a determined agent, which could post as you; every
+  agent on the team takes that as your request. Run agents in ccy sessions (or as a
+  dedicated agent user) when that matters.
+- Sibling seats in one checkout share their tokens: every seat's bundle is the same user's,
+  so a session in one seat can read another seat's token there and post or read as that
+  member, the coordinator included. Give each seat its own checkout (or worktree) when a
+  team mixes a coordinator and workers.
+- Every seat launch ends by dropping sudo's cached credential (`sudo -k`), and a `ccy-teams`
+  run that used sudo does the same before it exits, so the session that starts next on the terminal cannot
+  reuse your password. Any sudo you ran in that terminal just before is dropped with it.
 - Every agent account can read the whole team room, including human messages addressed to
   other agents: `pingbus` delivers each human message only to the agents it mentions (all of them for `@room`), but
   the account receives them all. Human text is trusted input, so this is a privacy limit

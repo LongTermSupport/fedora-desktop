@@ -187,6 +187,19 @@ for path in .var/app/im.riot.Riot/** .config/Element/** .config/Element-*/**; do
             "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
     done
 done
+# Security audit H2: Bash can reach the human's sign-in too. A deny rule matches the command
+# text, so it stops the plain routes (the keyring, Element's profile, the Flatpak) and not a
+# determined one; the consent and the docs say so.
+for tool in Read Edit; do
+    rule="$tool($home_rel/.local/share/keyrings/**)"
+    check "deny $rule" "true" \
+        "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
+done
+for rule in 'Bash(*secret-tool*)' 'Bash(*keyring*)' 'Bash(*freedesktop.Secret*)' \
+    'Bash(*im.riot.Riot*)' 'Bash(*.config/Element*)' 'Bash(*IndexedDB*)' 'Bash(*Local Storage*)'; do
+    check "deny $rule" "true" \
+        "$(jq --arg r "$rule" '.permissions.deny | index($r) != null' "$work/settings.json")"
+done
 check "deny Edit of the acceptance record's folder" "true" \
     "$(jq --arg r "Edit($home_rel/.config/pingbus/**)" '.permissions.deny | index($r) != null' "$work/settings.json")"
 check "the settings file is the owner's alone" "600" "$(stat -c %a "$work/settings.json")"

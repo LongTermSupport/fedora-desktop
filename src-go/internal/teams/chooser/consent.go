@@ -95,10 +95,16 @@ func consentWords(handles []string) string {
 	}
 	return "\n  " + who + " " + verb + " as its own member, and runs as you.\n\n" +
 		"  That means it can reach what you can, including the Element\n" +
-		"  session you are signed in to. A misbehaving agent could use it.\n\n" +
+		"  session you are signed in to. A misbehaving agent could use it\n" +
+		"  to post as you, and every agent on the team would obey that.\n\n" +
 		"  It is told to post only through pingbus, as itself, and its\n" +
-		"  file tools are kept out of Element's folders. That is guidance,\n" +
-		"  not a wall. You are asked once, for every cc --teams seat.\n"
+		"  tools are denied Element's folders, the keyring and the plain\n" +
+		"  commands that reach them. That is guidance, not a wall: an agent\n" +
+		"  beside Element can still reach your session by other routes.\n" +
+		"  ccy --teams is the safe choice: its agent runs in a container\n" +
+		"  that cannot reach Element at all.\n\n" +
+		"  Any human listed in a team can direct its agents as you can.\n" +
+		"  You are asked once, for every cc --teams seat.\n"
 }
 
 // recordState is whether the acceptance is already recorded, by the rule pingbus applies

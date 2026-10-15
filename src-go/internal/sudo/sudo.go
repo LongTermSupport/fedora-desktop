@@ -44,6 +44,8 @@ type Sudo struct {
 	// stdin and stderr are, so whether it opens is whether asking is possible. Nil means
 	// no terminal to ask on.
 	OpenTTY func() (io.ReadCloser, error)
+	// asked is whether Ready has run since the last Forget, so a credential may be cached.
+	asked bool
 }
 
 // New is a Sudo on the process's stdin and stdout, asking on /dev/tty.
@@ -64,6 +66,7 @@ func openDevTTY() (io.ReadCloser, error) {
 // password. Failure returns ErrNotReady after printing the reason, and the caller must not
 // carry on as if the root command had run.
 func (s *Sudo) Ready(ctx context.Context, why string) error {
+	s.asked = true
 	probe, err := s.Runner.Run(ctx, execx.Cmd{Name: cmd, Args: []string{"-n", "-v"}})
 	if err == nil {
 		return nil
@@ -86,6 +89,21 @@ func (s *Sudo) Ready(ctx context.Context, why string) error {
 		s.Term.PrintError("sudo was not given your password (three wrong tries, or cancelled).")
 		return fmt.Errorf("%w: %w", ErrNotReady, err)
 	}
+	return nil
+}
+
+// Forget drops sudo's cached credential ("sudo -k", which asks nothing) when Ready has run
+// since the last Forget, whether or not it asked for a password. A tool whose terminal may next
+// run an agent's session calls it before it ends, so that session cannot run root commands on
+// the owner's password. Failure is returned: the credential may still be live.
+func (s *Sudo) Forget(ctx context.Context) error {
+	if !s.asked {
+		return nil
+	}
+	if _, err := s.Runner.Run(ctx, execx.Cmd{Name: cmd, Args: []string{"-k"}}); err != nil {
+		return fmt.Errorf("sudo -k: %w", err)
+	}
+	s.asked = false
 	return nil
 }
 

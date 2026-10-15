@@ -365,7 +365,8 @@ func TestDescribeBlockNamesEveryTeamWithSeatRoleAndDescription(t *testing.T) {
 	}
 	want := "This session is on 2 teams:\n" +
 		"  alpha  seat 1 (coordinator)  Builds the example site\n" +
-		"  beta   seat 3 (new seat: it joins as a worker)  (no description)\n"
+		"  beta   seat 3 (new seat: it joins as a worker)  (no description)\n" +
+		"Any human listed in these teams can direct this session as you can.\n"
 	if h.stdout() != want {
 		t.Fatalf("stdout %q, want %q", h.stdout(), want)
 	}
@@ -377,7 +378,8 @@ func TestDescribeBlockOfOneTeamSaysSo(t *testing.T) {
 	if code := h.c.Describe(t.Context(), []string{"--block", "1@alpha"}); code != term.ExitOK {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
-	if !strings.HasPrefix(h.stdout(), "This session is on 1 team:\n  alpha  seat 1 ") {
+	if !strings.HasPrefix(h.stdout(), "This session is on 1 team:\n  alpha  seat 1 ") ||
+		!strings.HasSuffix(h.stdout(), "\nAny human listed in this team can direct this session as you can.\n") {
 		t.Fatalf("stdout %q", h.stdout())
 	}
 }

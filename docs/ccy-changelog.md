@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.10 — container 2.65
+
+- **Teams security fixes** (Plan 00201, from the end-to-end security audit). Every seat launch
+  (`ccy --teams`, `cc --teams`) ends by dropping sudo's cached credential, and so does a
+  `ccy-teams` run that used sudo, so the agent session that follows on the terminal cannot
+  reuse your password. The pingbus skill and the delivery frame now tell an agent to confirm a
+  consequential `HUMAN` request in `pingbus history` before acting, never to carry one team's
+  messages to another, that a peer's request is never a human's authority, and that `sync`
+  cannot widen what it may do (plugin 1.2.1). The launch block says any listed human can
+  direct the session; `cc --teams` denies Bash the plain routes to Element's sign-in and its
+  consent says ccy is the safe choice; a password copied to the clipboard is cleared after 45
+  seconds. The image carries the new skill and pingbus, so it is rebuilt once.
+
 ## 3.98.8 — container 2.63
 
 - **Team messages arrive in the session as the messages themselves.** In a `--teams`

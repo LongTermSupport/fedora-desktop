@@ -7,7 +7,16 @@
       "Edit(~/.config/Element/**)",
       "Read(~/.config/Element-*/**)",
       "Edit(~/.config/Element-*/**)",
-      "Edit(~/.config/pingbus/**)"
+      "Edit(~/.config/pingbus/**)",
+      "Read(~/.local/share/keyrings/**)",
+      "Edit(~/.local/share/keyrings/**)",
+      "Bash(*secret-tool*)",
+      "Bash(*keyring*)",
+      "Bash(*freedesktop.Secret*)",
+      "Bash(*im.riot.Riot*)",
+      "Bash(*.config/Element*)",
+      "Bash(*IndexedDB*)",
+      "Bash(*Local Storage*)"
     ]
   }
 }

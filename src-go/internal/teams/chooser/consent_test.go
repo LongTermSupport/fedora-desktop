@@ -47,6 +47,10 @@ func TestAHostSeatAsksForTheElementConsentAndRecordsIt(t *testing.T) {
 		t.Fatalf("payload %q", r.payload.String())
 	}
 	contains(t, "stderr", r.stderr(), "proj.1+local.host", "runs as you", "Element")
+	// Security audit H2 and L1: the owner is told plainly that the rules are not a wall, that
+	// ccy is the safe choice, and who can direct the agent.
+	contains(t, "stderr", r.stderr(), "other routes", "ccy --teams is the safe choice",
+		"Any human listed in a team can direct its agents as you can.")
 	if len(r.Script.GumLog) != 1 || !strings.Contains(r.Script.GumLog[0], "--default=false") {
 		t.Fatalf("the question must default to No: %v", r.Script.GumLog)
 	}
