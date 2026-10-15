@@ -1,0 +1,32 @@
+Usage: wsi [OPTIONS]
+
+Options:
+  -c, --clipboard     Use CLIPBOARD instead of PRIMARY selection
+  -a, --auto-paste    Type text directly at cursor (sends Enter by default)
+  --no-auto-enter     Skip sending Enter/Return key after auto-paste
+  --paste-with-shift N  Use CLIPBOARD + Ctrl+V (N=0) or Ctrl+Shift+V (N=1)
+                      instead of legacy PRIMARY + Shift+Insert. Set by the
+                      GNOME extension per focused window; omit when running
+                      wsi from the shell to keep the legacy behaviour.
+  -w, --wrap-marker   Wrap text with speech-to-text:"..." for LLM context
+  -l, --language      Language code for transcription (e.g., 'en')
+  -n, --netapi        Use whisper.cpp server (host:port from config)
+  --no-notify         Suppress desktop notifications
+  --claude-process    Post-process transcription through Claude Code
+  --claude-model M    Claude model for processing (sonnet/opus/haiku)
+  --claude-style S    Claude processing style (corporate/natural)
+  --session-token T   The panel's name for this recording, sent with every D-Bus signal
+  -d, --debug         Enable debug mode (verbose output + dependency checks)
+  -v, --verbose       Enable verbose output only
+  -h, --help          Show this help message
+
+  IP:PORT             Use whisper.cpp server at specific address
+
+Examples:
+  wsi                 # Record speech and transcribe locally
+  wsi -d              # Debug mode with full diagnostics
+  wsi -c              # Use CLIPBOARD instead of PRIMARY
+  wsi -a              # Auto-paste at cursor (includes Enter)
+  wsi -a --no-auto-enter  # Auto-paste without Enter
+  wsi -l en           # Force English language
+  wsi server.local:8080  # Use remote whisper.cpp server

@@ -30,6 +30,9 @@ type Cmd struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+	// Interrupt is the signal a cancelled context sends the child; SIGTERM when zero. A
+	// recorder that flushes its buffers on SIGINT (pw-record) is stopped with SIGINT.
+	Interrupt syscall.Signal
 }
 
 // Line is the argv as one space-joined string, for logs and test matching.
@@ -77,7 +80,7 @@ type OS struct {
 	Grace time.Duration
 }
 
-// Run implements Runner. Cancelling ctx sends the child SIGTERM, not SIGKILL: fzf and gum
+// Run implements Runner. Cancelling ctx sends the child SIGTERM (or c.Interrupt), not SIGKILL: fzf and gum
 // restore the terminal (raw mode, alternate screen) from their TERM handler, and a kill that
 // lands first leaves the tty wedged. SIGTERM rather than SIGINT because the terminal driver
 // has already delivered SIGINT to the foreground group on Ctrl-C, and a second SIGINT would
@@ -87,7 +90,11 @@ type OS struct {
 // the copy takes on a loaded host; a Grace of milliseconds can cut a finished command short.
 func (o OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	interrupt := syscall.SIGTERM
+	if c.Interrupt != 0 {
+		interrupt = c.Interrupt
+	}
+	cmd.Cancel = func() error { return cmd.Process.Signal(interrupt) }
 	cmd.WaitDelay = DefaultGrace
 	if o.Grace > 0 {
 		cmd.WaitDelay = o.Grace

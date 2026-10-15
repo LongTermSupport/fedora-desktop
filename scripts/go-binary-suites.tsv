@@ -15,3 +15,5 @@ lxcfreeze	qa-go
 vmtest	qa-go
 watchlist	qa-go
 ftp-camera	qa-go
+watermark	qa-go
+wsi	scripts/test-wsi-stop-grace.bash

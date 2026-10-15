@@ -1160,6 +1160,8 @@ High-fidelity audio system:
 Image watermarking — installs `watermark` command (ImageMagick 7 + exiftool):
 
 - Batch image watermarking with EXIF metadata preservation
+- `watermark` is a Go binary built from this checkout (`src-go/cmd/watermark`), so the play
+  installs the Go toolchain first; its config files are `KEY=VALUE` data, never run as shell
 
 #### play-lastpass.yml
 

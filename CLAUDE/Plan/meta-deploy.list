@@ -39,3 +39,18 @@ playbooks/imports/play-agent-bus.yml
 # Plan 00199: rebuilds md-viewer at the M12 commit (non-regular files never block, tracked-files-only
 # label test); nothing else changes.
 playbooks/imports/optional/common/play-md-viewer.yml
+
+# Plan 00192 (watermark port): the watermarking play now builds /usr/local/bin/watermark from
+# src-go/cmd/watermark (installing the Go toolchain first) in place of the bash script, and
+# redeploys the example config whose comments now say the files are read, not sourced. After
+# it runs, `watermark --profile <name> photo.jpg` twice (the second exits 3) proves the binary
+# (SPEC-wsi-watermark.md section 7, H3). A config file that relied on being sourced (a `$`
+# expansion, an unquoted space) is now refused with its file and line.
+playbooks/imports/optional/common/play-image-watermarking.yml
+
+# Plan 00192 (wsi port): the speech-to-text play now builds ~/.local/bin/wsi from src-go/cmd/wsi
+# (installing the Go toolchain first) in place of the bash script; the panel extension and the
+# sibling helpers are unchanged. After it runs, an Insert, speech, Insert dictation pastes into a
+# terminal and an editor, and Escape mid-recording discards it (SPEC-wsi-watermark.md section 7,
+# H1 and H2).
+playbooks/imports/optional/common/play-speech-to-text.yml

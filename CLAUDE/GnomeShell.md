@@ -376,7 +376,7 @@ fails on an unmapped Fedora version by design — see
 **Implementation:**
 
 - `extension.js` - Thin GNOME Shell wrapper: keybinding, panel indicator, DBus signal listener
-- `wsi` - Batch backend: records audio via `pw-record`, resamples with `sox`, transcribes via `faster-whisper-transcribe`, signals the extension over DBus (`StateChanged`, `Error`)
+- `wsi` - Batch backend, a Go binary (`src-go/cmd/wsi`, spec `SPEC-wsi-watermark.md` of Plan 00192): records audio via `pw-record`, resamples with `sox`, transcribes via `faster-whisper-transcribe`, signals the extension over DBus (`StateChanged`, `Error`)
 - `wsi-stream` - Streaming backend: uses RealtimeSTT for low-latency real-time transcription (alternative to batch `wsi`)
 - `ydotool` - Auto-paste tool for Wayland/X11 (types transcribed text into the active window)
 
