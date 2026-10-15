@@ -223,7 +223,7 @@ expect_lacks "the watch list: it is covered" "$plan" "not covered by qa-changed:
 
 echo
 echo "== bash files, the allowlist and its Go source -> the bash-limits gate =="
-for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/qa/bashlimits/measure.go src-go/qa/cmd/qa-bash-limits/main.go files/home/.local/bin/wsi files/home/.local/bin/fedora-desktop-health.j2; do
+for changed in scripts/qa-bash.bash scripts/bash-limits.allowlist src-go/qa/bashlimits/measure.go src-go/qa/cmd/qa-bash-limits/main.go files/home/.local/bin/reclaim files/home/.local/bin/fedora-desktop-health.j2; do
     plan="$(plan_for "$changed")"
     expect_has "bash-limits: $changed runs the gate" "$plan" "check bash-limits"
 done
@@ -331,10 +331,10 @@ expect_rc "a bad --base is exit 2, not 'nothing to check'" 2
 expect_lacks "a bad --base does not say nothing to check" "$OUT" "nothing to check"
 
 mkdir -p "$REPO/files/home/.local/bin"
-printf '#!/usr/bin/env python3\n' > "$REPO/files/home/.local/bin/wsi"
+printf '#!/usr/bin/env python3\n' > "$REPO/files/home/.local/bin/reclaim"
 git_s add -A
 git_s commit -q -m "a listed tool"
-rm "$REPO/files/home/.local/bin/wsi"
+rm "$REPO/files/home/.local/bin/reclaim"
 capture env QA_CHANGED_ROOT="$REPO" "${TARGET[@]}" --plan
 expect_has "a deleted allowlisted tool runs the bash-limits gate" "$OUT" "check bash-limits"
 expect_lacks "a deleted file is not checked per file" "$OUT" "check shellcheck: files/home"

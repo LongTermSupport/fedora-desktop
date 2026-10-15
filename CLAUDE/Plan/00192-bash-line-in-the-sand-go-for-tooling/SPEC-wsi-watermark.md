@@ -96,7 +96,8 @@ Python and are run from the directory the binary is in.
   written at once; otherwise it is held in memory and written only when an error ends the
   dictation (W9). Before a write the directory is created and a log over 1 MiB is renamed to
   `debug.log.old`. A log that cannot be written is said once on stderr and the dictation goes
-  on.
+  on. Directories wsi creates are mode 0750; the log, the PID file and a saved transcript are
+  created 0600 (they hold dictated text and are the user's alone).
 - W8. A signal to the panel is
   `gdbus emit --session --object-path /org/fedoradesktop/SpeechToText --signal org.fedoradesktop.SpeechToText.<Name> <value> <token>`, in the foreground, so signals
   arrive in the order sent. The token is the `--session-token` as a GVariant string literal.

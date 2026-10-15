@@ -384,6 +384,10 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   and cut over: `src-go/cmd/watermark`, `internal/watermark` (config files read as data, never
   sourced), shared `internal/shellword`; the play builds it root-owned into `/usr/local/bin`
   (`build-go-command.yml` gains `go_command_owner`); the bash and its allowlist row are gone.
+  `wsi` ported and cut over: `src-go/cmd/wsi`, `internal/wsi` (one select loop over the stop
+  signals, timers and `pw-record`); `play-speech-to-text.yml` builds it into `~/.local/bin`;
+  `scripts/test-wsi-stop-grace.bash` drives the binary, `qa-stt-limits.bash` reads `limit.go`;
+  the bash and its allowlist row are gone. Host checks H1-H3 pending.
 
 ### Phase 4: Review
 

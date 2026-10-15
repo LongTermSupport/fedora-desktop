@@ -141,6 +141,11 @@ var dynamicNames = []allowance{
 		reason: "the Element play, run by its own shebang; its path is configuration",
 	},
 	{
+		pkg:    "internal/wsi",
+		fn:     "run.sibling",
+		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",
+	},
+	{
 		pkg:    lxcfreezePkg,
 		fn:     "Engine.runAct",
 		reason: "runs the lxc command its caller names; every caller is itself judged as a program runner",

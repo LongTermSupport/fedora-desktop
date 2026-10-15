@@ -4,7 +4,7 @@
 # WHY THIS GATE EXISTS. The 120 s streaming limit was once held in six places (the panel's
 # 117 and 120, wsi-stream's --timeout and its fallbacks, the server's 125 s watchdog) with
 # nothing keeping them in step; raising one and not another lost whole transcripts. Now:
-#   - batch:      wsi's MAX_RECORDING_SECONDS
+#   - batch:      wsi's maxRecordingSeconds (src-go/internal/wsi/limit.go; wsi is Go)
 #   - streaming:  wsi-stream's STREAMING_MAX_SECONDS (also server mode without continuous
 #                 dictation: the client sends it to the server)
 #   - continuous: the GSettings keys max-recording-minutes and silence-autostop-seconds,
@@ -53,8 +53,8 @@ expect() {
 }
 
 echo "=== speech-to-text recording limits: one home each ==="
-expect "batch: wsi holds 30 once" "$bin/wsi" "$(num 30)" 1
-expect "…as MAX_RECORDING_SECONDS" "$bin/wsi" '^readonly MAX_RECORDING_SECONDS=30$' 1
+expect "batch: wsi holds 30 once" "$root/src-go/internal/wsi/limit.go" "$(num 30)" 1
+expect "…as maxRecordingSeconds" "$root/src-go/internal/wsi/limit.go" '^const maxRecordingSeconds = 30$' 1
 expect "streaming: wsi-stream holds 120 once" "$bin/wsi-stream" "$(num 120)" 1
 expect "…as STREAMING_MAX_SECONDS" "$bin/wsi-stream" '^STREAMING_MAX_SECONDS = 120$' 1
 expect "server: no watchdog" "$bin/wsi-stream-server" 'WATCHDOG' 0

@@ -188,6 +188,15 @@ linters:
       - path: internal/watermark/image\.go
         linters: [gosec]
         text: "G304"
+      # wsi reads its PID file and its recording in /dev/shm and its log under the user's home,
+      # each a fixed name (SPEC-wsi-watermark.md W5-W7); its tests read back what it wrote there,
+      # copy the recording as the fake sox does, and write an executable stand-in recorder.
+      - path: internal/wsi/
+        linters: [gosec]
+        text: "G304"
+      - path: internal/wsi/.*_test\.go
+        linters: [gosec]
+        text: "G306|G703"
   settings:
     cyclop:
       max-complexity: 15
