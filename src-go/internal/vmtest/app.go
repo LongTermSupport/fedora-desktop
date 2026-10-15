@@ -102,6 +102,28 @@ type InterruptError struct {
 
 func (i InterruptError) Error() string { return "interrupted by " + i.Signal.String() }
 
+// WithSignals is ctx cancelled with an InterruptError when sigs delivers a signal (E4), so
+// every running step stops and its teardown runs. release ends the watch and the context.
+func WithSignals(ctx context.Context, sigs <-chan os.Signal) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case sig := <-sigs:
+			if s, ok := sig.(syscall.Signal); ok {
+				cancel(InterruptError{Signal: s})
+				return
+			}
+			cancel(fmt.Errorf("interrupted by %v", sig))
+		case <-done:
+		}
+	}()
+	return ctx, func() {
+		close(done)
+		cancel(context.Canceled)
+	}
+}
+
 // failure is a step that failed and says why: `ERROR: <msg>`, exit 1.
 type failure struct{ msg string }
 

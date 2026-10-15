@@ -1,8 +1,13 @@
 package all
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
 )
 
 // addedAfterPort are the gates the table gained after the bash was recorded. The goldens are
@@ -36,6 +41,88 @@ func withoutAddedGates(stdout string) string {
 		}
 	}
 	return strings.Join(kept, "")
+}
+
+// retiredAfterPort are the gates the bash ran that the table has since dropped: their suites
+// tested a bash tool a Go port replaced, and the port's Go tests are the proof now. The goldens
+// are what the bash printed over the table it had, so the replay puts each row back where it
+// stood (before the row named by before, in list order) and answers it as the capture did.
+var retiredAfterPort = []struct{ row, before, reason string }{
+	{
+		"gate\tvmtest-host-only-gate\tscripts/test-vmtest-host-only-gate.bash\tvmtest host-only gate unit tests failed\tcount",
+		"vmtest-kernel-selection", "Plan 00192, vmtest port: the bash vmtest is gone; internal/vmtest TestE30* is the gate",
+	},
+	{
+		"gate\tvmtest-reboot-dispatch\tscripts/test-vmtest-reboot-dispatch.bash\tvmtest reboot dispatch unit tests failed\tcount",
+		"vmtest-kernel-selection", "Plan 00192, vmtest port: internal/vmtest TestE38*, TestE39* and TestE40* replace it",
+	},
+	{
+		"gate\tvmtest-build-dir-cleanup\tscripts/test-vmtest-build-dir-cleanup.bash\tvmtest build directory cleanup tests failed\tcount",
+		"vmtest-prepare-record", "Plan 00192, vmtest port: internal/vmtest TestE21* replaces it",
+	},
+	{
+		"gate\tvmtest-member\tscripts/test-vmtest-member.bash\tvmtest member lifecycle tests failed\tcount",
+		"vmtest-prepare-record", "Plan 00192, vmtest port: internal/vmtest TestE55* to TestE60* replace it",
+	},
+}
+
+// gateName is a table row's gate name, or "" for a line that is not a gate row.
+func gateName(line string) string {
+	fields := strings.Split(line, "\t")
+	if len(fields) < 2 || fields[0] != "gate" {
+		return ""
+	}
+	return fields[1]
+}
+
+// tableAsRecorded is the real table with the retired rows put back where they stood.
+func tableAsRecorded(t *testing.T) (string, []gates.Gate) {
+	t.Helper()
+	body, current := realTable(t)
+	lines := strings.Split(body, "\n")
+	for _, r := range retiredAfterPort {
+		at := slices.IndexFunc(lines, func(l string) bool { return gateName(l) == r.before })
+		if at < 0 {
+			t.Fatalf("retired row %s stood before %s, which is no longer in the table", gateName(r.row), r.before)
+		}
+		lines = slices.Insert(lines, at, r.row)
+	}
+	restored := strings.Join(lines, "\n")
+	path := filepath.Join(t.TempDir(), "qa-gates.tsv")
+	if err := os.WriteFile(path, []byte(restored), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gs, err := gates.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gs) != len(current)+len(retiredAfterPort) {
+		t.Fatalf("restored %d gates from %d and %d retired", len(gs), len(current), len(retiredAfterPort))
+	}
+	return restored, gs
+}
+
+// A retired gate still in the table, or one listed with no reason, is rot.
+func TestEveryGateRetiredAfterThePortIsGoneFromTheTable(t *testing.T) {
+	body, gs := realTable(t)
+	for _, r := range retiredAfterPort {
+		name := gateName(r.row)
+		if name == "" || r.reason == "" {
+			t.Errorf("%q is listed with no gate name or no reason", r.row)
+		}
+		if slices.ContainsFunc(gs, func(g gates.Gate) bool { return g.Name == name }) {
+			t.Errorf("%s is listed as retired but is still in scripts/qa-gates.tsv: drop it from retiredAfterPort", name)
+		}
+	}
+	restored, all := tableAsRecorded(t)
+	for line := range strings.SplitSeq(body, "\n") {
+		if !strings.Contains(restored, line) {
+			t.Fatalf("the restored table lost %q", line)
+		}
+	}
+	if len(all) != len(gs)+len(retiredAfterPort) {
+		t.Fatalf("restored %d gates", len(all))
+	}
 }
 
 // A listed gate that left the table, or a list entry with no reason, is rot.

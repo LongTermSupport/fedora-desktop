@@ -15,6 +15,11 @@
 # Standalone / opt-in play — deliberately NOT imported from playbook-main.yml.
 # Run it directly, or via the plan's deploy.bash:
 #   ./playbooks/imports/optional/common/play-vm-test-lab.yml
+
+# vmtest is a Go binary built from this checkout (src-go/cmd/vmtest), so the Go toolchain is
+# installed first. play-golang.yml stays its one source of truth.
+- import_playbook: ../../play-golang.yml
+
 - hosts: desktop
   name: VM Acceptance Testing Lab
   become: true
@@ -157,13 +162,14 @@
         group: "{{ user_login }}"
         mode: "0755"
 
-    - name: Deploy the vmtest host CLI
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/vmtest"
-        dest: "/home/{{ user_login }}/.local/bin/vmtest"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
+    # The host CLI is a Go binary (src-go/cmd/vmtest, Plan 00192), built and installed at the
+    # path the nightly unit and the bridge watcher call by the shared build-go-command.yml.
+    - name: Build and Install the vmtest Host CLI
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: vmtest
+        go_command_dest: "/home/{{ user_login }}/.local/bin/vmtest"
+        go_command_mode: "0755"
 
     # Derived from the directory, not listed. `vmtest` resolves a scenario's checker and
     # its fixture BY NAME — guest-acceptance-<id>.bash, guest-prepare-<id>.bash — so a new
@@ -201,10 +207,11 @@
         mode: "0755"
       loop: "{{ vm_test_guest_scripts }}"
 
-    # The run-log scrubber, for the host-only scenario's artefacts. Two files, and the
+    # The run-log scrubber, for the host-only scenario's artefacts. Three files, and the
     # RELATIVE layout between them matters: run-log-scrub.bash sources the commit gate's
     # detection engine at ../git-hooks/lib/secret-scan.bash, so there is one matcher and one
-    # allowlist rather than a second copy that drifts. Deploying either alone gives a
+    # allowlist rather than a second copy that drifts, and run-log-scrub-cli.bash is the
+    # front the Go vmtest runs (it sources its sibling). Deploying any one alone gives a
     # scrubber that cannot load.
     - name: Ensure the scrubber directories exist
       ansible.builtin.file:
@@ -226,6 +233,7 @@
         mode: "0644"
       loop:
         - lib/run-log-scrub.bash
+        - lib/run-log-scrub-cli.bash
         - git-hooks/lib/secret-scan.bash
 
     # The VM kickstarts for the full bases: the deployed copies are what the builder

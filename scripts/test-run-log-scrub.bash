@@ -205,5 +205,30 @@ printf 'raw \xff\xfe\x00 bytes\n' >> "$logF"
 err=$(scrub_backstop "$logF" "$denylist" 2>&1); rc=$?
 check "a binary artefact does not hide an identifier" "1" "$rc"
 
+# ---------------------------------------------------------------------------
+# The command front the Go vmtest runs (run-log-scrub-cli.bash): the same two verbs, the
+# library's exit status, and a usage error for anything else.
+# ---------------------------------------------------------------------------
+
+CLI="$REPO_ROOT/scripts/lib/run-log-scrub-cli.bash"
+tokG=$(secret_file tokG "value-front")
+tokH=$(secret_file tokH "other-UNTOLD-value")
+logG=$(artefact logG "a value-front b" "c other-UNTOLD-value d")
+bash "$CLI" redact "$logG" "$tokG" "front"; rc=$?
+check "the front redacts" "0" "$rc"
+check "the front's redaction names its label" "1" "$(count_in '[REDACTED:front]' "$logG")"
+err=$(bash "$CLI" verify "$logG" "$tokG" "$tokH" 2>&1); rc=$?
+check "the front refuses a residual secret" "1" "$rc"
+case "$err" in
+    *other-UNTOLD-value*) check "the front's refusal does not echo the secret" "clean" "it leaked the secret" ;;
+    *) check "the front's refusal does not echo the secret" "clean" "clean" ;;
+esac
+bash "$CLI" redact "$logG" "$tokH" "untold" && bash "$CLI" verify "$logG" "$tokG" "$tokH"; rc=$?
+check "the front verifies a clean artefact" "0" "$rc"
+bash "$CLI" backstop "$logG" "$denylist" 2>/dev/null; rc=$?
+check "the front refuses an unknown verb as a usage error" "64" "$rc"
+bash "$CLI" 2>/dev/null; rc=$?
+check "the front refuses no verb as a usage error" "64" "$rc"
+
 printf '\npassed: %s failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

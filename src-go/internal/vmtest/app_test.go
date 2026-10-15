@@ -2,6 +2,8 @@ package vmtest
 
 import (
 	"context"
+	"errors"
+	"os"
 	"strings"
 	"syscall"
 	"testing"
@@ -24,6 +26,29 @@ func TestE1HelpAndUnknownCommand(t *testing.T) {
 	if k.out.Len() != 0 || !strings.HasPrefix(k.err.String(), "vmtest — host CLI") ||
 		!strings.HasSuffix(k.err.String(), "ERROR: unknown command: frobnicate\n") {
 		t.Fatalf("stdout %q stderr %q", k.out.String(), k.err.String())
+	}
+}
+
+// E4: a signal cancels the run's context with an InterruptError naming it; releasing the
+// watch leaves the context uncancelled.
+func TestE4SignalsCancelWithTheirCause(t *testing.T) {
+	sigs := make(chan os.Signal, 1)
+	ctx, release := WithSignals(context.Background(), sigs)
+	sigs <- syscall.SIGHUP
+	<-ctx.Done()
+	release()
+	in, ok := errors.AsType[InterruptError](context.Cause(ctx))
+	if !ok || in.Signal != syscall.SIGHUP {
+		t.Fatalf("cause %v", context.Cause(ctx))
+	}
+
+	ctx, release = WithSignals(context.Background(), make(chan os.Signal))
+	release()
+	if ctx.Err() == nil {
+		t.Fatal("releasing the watch did not end the context")
+	}
+	if cause := context.Cause(ctx); !errors.Is(cause, context.Canceled) {
+		t.Fatalf("a release was reported as %v", cause)
 	}
 }
 

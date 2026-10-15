@@ -12,4 +12,5 @@ ccy-teams	scripts/test-ccy-teams-command.bash
 ccy-sessions	scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash
 podfreeze	qa-go
 lxcfreeze	qa-go
+vmtest	qa-go
 watchlist	qa-go

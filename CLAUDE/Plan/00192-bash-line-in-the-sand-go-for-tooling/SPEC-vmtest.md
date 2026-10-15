@@ -40,9 +40,10 @@ Callers:
   file as each call needs.
 - **D2. The run-log scrubber stays bash.** `scripts/lib/run-log-scrub.bash` sources the commit
   gate's detection engine (`git-hooks/lib/secret-scan.bash`), so there is one matcher and one
-  allowlist. A Go copy would be a second matcher. A small executable front
-  (`scripts/lib/run-log-scrub-cli.bash`, `redact` and `verify`, within the bash limits) is
-  deployed beside it. The Go runs it as `bash <front> redact|verify ...`. No `bash -c` is used.
+  allowlist. A Go copy would be a second matcher. A small front
+  (`scripts/lib/run-log-scrub-cli.bash`, `redact` and `verify`, exit 64 otherwise, within the
+  bash limits, tested in `test-run-log-scrub.bash`) is deployed 0644 beside it. The Go runs it as
+  `bash <front> redact|verify ...`. No `bash -c` is used.
 - **D3. The guest scripts stay bash.** They run inside the Fedora guest before any Go exists
   there (`guest-*.bash`, `vmtest-session-provision.bash`).
 - **D4. Work done natively in Go.** Hashing (sha256), file size and mtime, the free port, the
@@ -439,6 +440,8 @@ The tests cite these numbers.
 | B13 | `nightly` skipped the retention sweep whenever `freshness-status` died (upstream unreachable), so the disk could fill                          | sweep always runs                                          | E52           |
 | B14 | `vcpus`/`ram_mib`/the revisions were used unchecked (a non-number became a shell arithmetic error)                                             | whole numbers required                                     | E9, E20       |
 | B15 | a missing transcript was skipped by the scrubber without a word                                                                                | the transcript is required; a missing console log is named | E45           |
+| B16 | a desktop host-only run's session `run.env` carried no GitHub identity, so run.bash in the session provisioned as `none`                       | the same identity lines a server run passes                | E36, E37      |
+| B17 | a probe artefact URL was used as printed, any scheme                                                                                           | `https://` required, with a 64-hex sha256                  | E13           |
 
 Kept as they were, and accepted. The free port is chosen, released and then handed to
 virt-install, so there is a race between them, as in the bash. `ssh` host keys are not checked
@@ -461,6 +464,9 @@ virt-install, so there is a race between them, as in the bash. `ssh` host keys a
   `~/.local/bin/vmtest` with `tasks/build-go-command.yml`. It also deploys
   `lib/run-log-scrub-cli.bash` beside the scrubber. `scripts/go-binary-suites.tsv` gets a
   `vmtest qa-go` row. The bash, its allowlist row and the four suites go (D5).
+- File modes are the lab's as they were: run directories and records 0755/0644 (the run spool
+  and the bridge read them), bases 0444, secrets and kickstarts 0600. `.golangci.yml` scopes
+  its gosec path and mode rules out of `internal/vmtest` for that reason.
 
 ## 6. Disposition of the bash suites' cases
 

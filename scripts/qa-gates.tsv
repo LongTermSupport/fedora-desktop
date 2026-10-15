@@ -88,11 +88,7 @@ gate	ccy-sessions-take-over	scripts/test-ccy-sessions-take-over.bash	ccy-session
 gate	ccy-tmux-targets	scripts/test-ccy-tmux-targets.bash	ccy tmux exact-target tests failed	count
 gate	ccy-teams-command	scripts/test-ccy-teams-command.bash	ccy-teams command unit tests failed	count
 gate	ccy-restore-askpass	scripts/test-ccy-restore-askpass.bash	ccy restore-askpass unit tests failed	count
-gate	vmtest-host-only-gate	scripts/test-vmtest-host-only-gate.bash	vmtest host-only gate unit tests failed	count
-gate	vmtest-reboot-dispatch	scripts/test-vmtest-reboot-dispatch.bash	vmtest reboot dispatch unit tests failed	count
 gate	vmtest-kernel-selection	scripts/test-vmtest-kernel-selection.bash	vmtest kernel selection unit tests failed	count
-gate	vmtest-build-dir-cleanup	scripts/test-vmtest-build-dir-cleanup.bash	vmtest build directory cleanup tests failed	count
-gate	vmtest-member	scripts/test-vmtest-member.bash	vmtest member lifecycle tests failed	count
 gate	vmtest-prepare-record	scripts/test-vmtest-prepare-record.bash	vmtest prepare-record contract tests failed	count
 gate	panel-sections	scripts/test-panel-sections.bash	panel section unit tests failed	count
 gate	run-bash-headless-localhost-yml	scripts/test-run-bash-headless-localhost-yml.bash	run.bash headless localhost.yml unit tests failed	count

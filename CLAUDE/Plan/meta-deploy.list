@@ -51,3 +51,9 @@ playbooks/imports/play-claude-yolo.yml
 # goodbye existed. Its message counts now expect the goodbye, so this run proves them against
 # the branch. Run it after the two plays above.
 00161-agent-team-bus-matrix/acceptance.bash
+# Plan 00192 (vmtest port): the lab play now builds ~/.local/bin/vmtest from src-go/cmd/vmtest
+# (installing the Go toolchain first) in place of the bash CLI, and deploys the scrubber's
+# command front beside run-log-scrub.bash. After it runs, `vmtest freshness-status` and one
+# `vmtest run server-fast-provision` on the host are what prove the binary against real
+# libvirt (SPEC-vmtest.md section 7, H1-H6).
+playbooks/imports/optional/common/play-vm-test-lab.yml
