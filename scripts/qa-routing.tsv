@@ -88,6 +88,11 @@ also	tests/fixtures/ansible-pause/*	go	covered
 # It reads no fixtures: its Go tests run on fakes.
 also	.qa-versions	toolchain	covered
 also	src-go/go.mod,scripts/qa-toolchain.bash,src-go/qa/toolchain/*,src-go/qa/cmd/qa-toolchain/*,scripts/lib/go-tool.bash	toolchain	-
+# The docs gate runs whole after any Markdown change (the *.md row below), any playbook or playbook
+# support file (the YAML logic in classify.go), and when anything it reads changes: the gate table
+# and the trees table (the inventory check and the scan), the shared discovery and gate loader, the
+# Go module's own dependencies, its wrapper, its Go package or command, or the wrapper library.
+also	scripts/qa-docs.bash,scripts/qa-gates.tsv,scripts/qa-trees.tsv,src-go/qa/docs/*,src-go/qa/cmd/qa-docs/*,src-go/qa/discovery/*,src-go/qa/gates/*,src-go/qa/go.mod,src-go/qa/go.sum,scripts/lib/go-tool.bash	docs	-
 # The ready-wait gate runs over each changed Python and shell file by name (the @py and @sh rows
 # below), and runs whole over every tracked file (too slow to do for each ordinary edit) when
 # its rule, fixtures, script, Go package, command, the shared

@@ -49,6 +49,8 @@ Prints one list of files, each ended by NUL, sorted. LIST is one of:
   python-templates    .j2 templates with a Python shebang, likewise; absolute; may be empty
   yaml                .yml/.yaml files, likewise, outside the shell trees; absolute
   js                  .js and .mjs files, likewise (by name only); absolute
+  markdown            .md files, likewise, outside the shell trees; absolute; may be empty
+  tracked-files       every tracked file; repository-relative
   tracked-shell       tracked shell scripts; repository-relative
   tracked-python      tracked Python files; repository-relative
   tracked-playbooks   tracked .yml/.yaml files under playbooks/; repository-relative
@@ -59,7 +61,7 @@ Prints one list of files, each ended by NUL, sorted. LIST is one of:
   -h, --help      this text
 
 Exit codes: 0 the list, 2 bad usage or the list could not be made (including an empty one, except
-python-templates). stdout is the list; diagnostics go to stderr.
+python-templates and markdown). stdout is the list; diagnostics go to stderr.
 `
 
 // options is the parsed command line.
@@ -161,7 +163,9 @@ var listings = map[string]listing{
 	"python":            {what: "Python files", published: true, absolute: true, dirs: pythonDirs, keep: ofKind(pythonLang)},
 	"python-templates":  {what: "Python templates", published: true, absolute: true, mayBeEmpty: true, dirs: pythonDirs, keep: ofKind(templateLang)},
 	"yaml":              {what: "YAML files", published: true, absolute: true, dirs: shellDirs, keep: fileUnder("", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},
+	"markdown":          {what: "Markdown files", published: true, absolute: true, mayBeEmpty: true, dirs: shellDirs, keep: fileUnder("", func(b string) bool { return path.Ext(b) == ".md" })},
 	"js":                {what: "JavaScript files", published: true, absolute: true, dirs: shellDirs, keep: scriptFile},
+	"tracked-files":     {what: "tracked files", keep: func(finder, string) (bool, error) { return true, nil }},
 	"tracked-shell":     {what: "tracked shell scripts", dirs: shellDirs, keep: ofKind(shellLang)},
 	"tracked-python":    {what: "tracked Python files", dirs: pythonDirs, keep: ofKind(pythonLang)},
 	"tracked-playbooks": {what: "tracked playbooks", keep: fileUnder("playbooks/", func(b string) bool { return path.Ext(b) == ".yml" || path.Ext(b) == ".yaml" })},

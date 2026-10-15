@@ -175,6 +175,18 @@ and `go.mod` with `x/mod/modfile`, never sourced or awk-ed; tool drift is exit 1
 wrong), an unreadable pin file or go.mod exit 2 (the gate cannot judge). Version runs go through `qa/internal/proc`, faked in the
 unit tests; `SPEC-qa-toolchain.md` (T1-T16) is the specification.
 
+`qa/docs` + `qa/cmd/qa-docs` (same nested module) are `scripts/qa-docs.bash`, the documentation
+integrity gate: the script only builds and runs the command. Markdown is read with a CommonMark
+parser (`goldmark`, with its table extension: links, headings and the gate rows of `CLAUDE/QA.md`
+come from the syntax tree), `playbooks/playbook-main.yml` as YAML, and `scripts/qa-gates.tsv` by
+`qa/gates`, so the inventory check and `qa-all` cannot disagree on what a gate is. The scan is the
+`markdown` list of `qa/discovery` (what git would publish) narrowed to the core documents, a link
+target is asked its trackedness through the `tracked-files` list, and an empty scope, an unread
+file or an unparsed file is exit 2. git goes through `qa/internal/proc`, faked in the unit tests;
+`SPEC-qa-docs.md` (D1-D25) is the specification, proven by unit tests over on-disk trees and
+real-git tests in `qa/cmd/qa-docs`, and `scripts/test-qa-docs-exit-codes.bash` drives the built
+tool over fixture trees.
+
 `qa/readywait` + `qa/cmd/qa-ready-wait-rules` (same nested module) are
 `scripts/qa-ready-wait-rules.bash`, the gate for `ready-wait-ignores-child-exit`: the script only
 builds and runs the command. Python stays semgrep's (`.semgrep/ready-wait.yml` is the data); the
@@ -251,7 +263,8 @@ shebang; `--directives FILE...` runs only this, for `qa-changed`) and the judgem
 the bash gates source through `scripts/qa-discovery.bash` (`qa_discover <list> <root>`; the exclusion
 trees are `scripts/qa-trees.tsv`, read by the Go tools only): what git would publish, one predicate per
 language, and the tracked yardsticks each gate measures its coverage against.
-`SPEC-qa-discovery.md` (D1-D17) is the specification.
+`SPEC-qa-discovery.md` (D1-D19) is the specification; the `markdown` and `tracked-files` lists are
+the docs gate's.
 
 `qa/deployeddrift` + `qa/cmd/qa-deployed-drift` (same nested module) are
 `scripts/qa-deployed-drift.bash`, the repo-against-host gate: the script only builds and runs the

@@ -223,6 +223,12 @@
   ],
   "reason": "qa-js exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B31), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
  },
+ "exit2-docs": {
+  "bugs": [
+   "B32"
+  ],
+  "reason": "qa-docs exits 2 for causes that are not a zero-file scan or a checker crash (see SPEC-qa-all.md B32), but its stage text said only that; it now covers every cause and points at the ERROR line above"
+ },
  "stage-then-abort": {
   "bugs": [
    "B30"

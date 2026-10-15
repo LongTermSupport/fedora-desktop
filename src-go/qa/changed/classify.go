@@ -133,6 +133,11 @@ func (s *session) classify(ctx context.Context, files collected) error {
 			return err
 		}
 	}
+	// A deleted file may be the target of a link in a core document, whatever its kind; the gate
+	// takes under a second, so every deletion owes it (SPEC-qa-changed B47).
+	if len(files.deleted) > 0 {
+		s.plan.add("docs", "", "")
+	}
 	for _, pr := range s.routing.post {
 		if slices.ContainsFunc(pr.anyOf, func(kind string) bool { return s.kinds[kind] > 0 }) {
 			for _, id := range pr.checks {

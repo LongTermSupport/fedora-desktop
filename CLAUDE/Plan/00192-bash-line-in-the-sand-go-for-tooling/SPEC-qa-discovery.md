@@ -91,6 +91,17 @@ Callers: `qa-bash`, `qa-python`, `qa-ansible-syntax`, `qa-helper-tests`, `qa-rea
   `ERROR: found 0 YAML files under <root>: ...`. The `qa-ansible-syntax` gate asks for it to
   find the playbooks (SPEC-qa-ansible-syntax.md). Proof: `TestYamlListIsPublishedYamlOutsideTheExcludedTrees`,
   `TestAnEmptyYamlListIsABrokenDiscovery`.
+- D18. `markdown` lists the `*.md` files in the published set (D4), outside the `shell` rows of
+  `scripts/qa-trees.tsv` (D5), by name only, absolute, sorted (D2). A symlink is judged by its
+  target (D11). Unlike D13 an empty list is **not** an error here: whether the documents a caller
+  owns are among them is that caller's judgement (`qa-docs` narrows the list to its own scope and
+  refuses an empty result, SPEC-qa-docs.md D5). Proof: `TestMarkdownListIsPublishedMarkdownOutsideTheExcludedTrees`,
+  `TestAnEmptyMarkdownListIsAListNotAnError`.
+- D19. `tracked-files` lists every tracked file less those gone from the tree (D4), repository
+  relative, sorted, nothing excluded and nothing looked into: the answer to "does this repository
+  own this path". An empty list is exit 2 (D13). The `qa-docs` gate asks for it to tell a link
+  to a tracked file from one to a file that is merely on disk (SPEC-qa-docs.md D14). Proof:
+  `TestTrackedFilesListsEveryTrackedPathLessTheDeleted`.
 - D15. `git ls-files --others` does not look inside an untracked nested repository: it prints the
   one entry, ending in `/`. Such an entry that is not in an excluded tree (D5) is exit 2 naming
   it (`ERROR: <path> is a nested repository git will not look into ...`): a file the gates

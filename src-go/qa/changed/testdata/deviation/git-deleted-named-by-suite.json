@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck bash-limits\nsuite scripts/test-alpha.bash: names lib/util.sh\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck docs\ncheck bash-limits\nsuite scripts/test-alpha.bash: names lib/util.sh\n",
  "stderr": "",
  "status": 0,
  "log": []
