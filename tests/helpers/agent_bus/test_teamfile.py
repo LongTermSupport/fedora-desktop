@@ -13,8 +13,11 @@ check against the live host.
 from __future__ import annotations
 
 import copy
+import grp
 import json
+import os
 import pathlib
+import pwd
 import sys
 import tempfile
 import unittest
@@ -365,6 +368,63 @@ class StampTest(unittest.TestCase):
         for bad in ({**stamp, "extra": 1}, {**stamp, "v": 2}, {**stamp, "config": "x"}, {**stamp, "team": "A"}, []):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 teamfile.parse_stamp(json.dumps(bad))
+
+
+class StampGroupTest(unittest.TestCase):
+    """The stamps' group comes from the record play-agent-bus.yml writes, never a default,
+    so a `team` run by anyone else cannot put the stamps back in root's group."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = pathlib.Path(tmp.name) / "stamp-group"
+        self.owner = pwd.getpwuid(os.getuid()).pw_name
+        self.group = grp.getgrgid(os.getgid()).gr_name
+
+    def record(self, text: str, mode: int = 0o644) -> None:
+        self.path.write_text(text, encoding="utf-8")
+        self.path.chmod(mode)
+
+    def refused(self, needle: str) -> None:
+        with self.assertRaises(teamfile.StampGroupError) as caught:
+            teamfile.read_stamp_group(self.path, self.owner)
+        self.assertIn(needle, str(caught.exception))
+        self.assertIn("play-agent-bus.yml", str(caught.exception))
+
+    def test_the_recorded_group(self) -> None:
+        self.record(f"{self.group}\n")
+        self.assertEqual(teamfile.read_stamp_group(self.path, self.owner), self.group)
+        self.record(self.group, mode=0o600)
+        self.assertEqual(teamfile.read_stamp_group(self.path, self.owner), self.group)
+
+    def test_no_record_is_a_failure_not_a_default(self) -> None:
+        self.refused("is missing")
+
+    def test_a_symlink_is_refused(self) -> None:
+        real = self.path.with_name("real")
+        real.write_text(f"{self.group}\n", encoding="utf-8")
+        self.path.symlink_to(real)
+        self.refused("not a regular file")
+
+    def test_a_record_others_may_write_is_refused(self) -> None:
+        for mode in (0o664, 0o646, 0o666):
+            with self.subTest(mode=oct(mode)):
+                self.record(f"{self.group}\n", mode=mode)
+                self.refused("writable")
+
+    def test_a_record_owned_by_another_user_is_refused(self) -> None:
+        self.record(f"{self.group}\n")
+        other = next(p.pw_name for p in pwd.getpwall() if p.pw_uid != os.getuid())
+        with self.assertRaises(teamfile.StampGroupError):
+            teamfile.read_stamp_group(self.path, other)
+
+    def test_the_record_holds_one_existing_group(self) -> None:
+        for text, needle in (("", "one group name"), ("\n", "one group name"),
+                             (f"{self.group}\n{self.group}\n", "one group name"),
+                             ("no-such-group-agent-bus-test\n", "no-such-group-agent-bus-test")):
+            with self.subTest(text=text):
+                self.record(text)
+                self.refused(needle)
 
 
 class LoadAndRoundTripTest(unittest.TestCase):

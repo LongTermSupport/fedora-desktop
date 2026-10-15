@@ -329,6 +329,9 @@ new_root() {
     mkdir -p "$ROOT/etc/systemd/system" "$ROOT/usr/local/bin" "$ROOT/usr/local/sbin" \
         "$STUB_DIR/units" "$STUB_DIR/fail-start" "$STUB_DIR/zone-of"
     printf 'NAME="Fedora Linux"\nID=fedora\nVERSION_ID=44\n' >"$ROOT/etc/os-release"
+    # The stamps' group, as play-agent-bus.yml records it.
+    install -D -m 0644 /dev/null "$ROOT/etc/agent-bus/stamp-group"
+    id -gn >"$ROOT/etc/agent-bus/stamp-group"
     touch "$STUB_DIR/units/firewalld.service.active" "$STUB_DIR/units/NetworkManager.service.active"
     cp "$ASSET" "$STUB_DIR/serve-asset"
     echo eth0 >"$STUB_DIR/route-dev"
@@ -587,7 +590,7 @@ check "no secret reaches stdout or stderr" "0" "$(cat "$OUT" "$ERR" | grep -cF "
 STAMP=$ROOT/var/lib/agent-bus-applied/alpha.json
 check "the applied stamp is readable by its group only (D65)" "640" "$(mode "$STAMP")"
 check "  in a directory only its group may enter" "750" "$(mode "$ROOT/var/lib/agent-bus-applied")"
-check "  the group is root's when AGENT_BUS_STAMP_GROUP is unset" \
+check "  the group is the one recorded in /etc/agent-bus/stamp-group" \
     "$(id -gn) $(id -gn)" "$(stat -c %G "$STAMP") $(stat -c %G "$ROOT/var/lib/agent-bus-applied")"
 check "  its config digest is the team.json's, by teamfile.config_digest" \
     "$(cd "$REPO_ROOT" && python3 -c 'import pathlib, sys; from helpers.agent_bus import teamfile; print(teamfile.config_digest(teamfile.load_team_file(pathlib.Path(sys.argv[1]))))' "$T/team.json")" \
@@ -642,14 +645,56 @@ check "  and the team record is republished (bootstrap runs)" "yes" "$(says '^ag
 check "  and the stamp's config digest moved with it" "yes" "$(
     [[ $(jq -r .config "$STAMP") == "$(cd "$REPO_ROOT" && python3 -c 'import pathlib, sys; from helpers.agent_bus import teamfile; print(teamfile.config_digest(teamfile.load_team_file(pathlib.Path(sys.argv[1]))))' "$T/team.json")" ]] && echo yes || echo no)"
 
-echo "== team: AGENT_BUS_STAMP_GROUP names the stamps' group"
-AGENT_BUS_STAMP_GROUP=no-such-group-agent-bus-test run team --team-file "$TF"
-check "a group that does not exist fails the run" "1" "$RC"
-check "  naming the group" "yes" "$(says 'no-such-group-agent-bus-test' "$ERR")"
+echo "== team: the stamps' group is the one the play recorded, whoever runs team"
+# A group other than the runner's primary one, so a reset to it shows.
+GROUP_FILE=$ROOT/etc/agent-bus/stamp-group
+APPLIED=$ROOT/var/lib/agent-bus-applied
+OTHER_GROUP=""
+for g in $(id -Gn); do
+    if [[ $g != "$(id -gn)" ]]; then OTHER_GROUP=$g && break; fi
+done
+if [[ -z $OTHER_GROUP && $(id -u) == 0 ]]; then
+    OTHER_GROUP=$(awk -F: -v primary="$(id -gn)" '$1 != primary { print $1; exit }' /etc/group)
+fi
+groups_of() { echo "$(stat -c %G "$STAMP") $(stat -c %G "$APPLIED")"; }
+check "this test has a second group to record" "yes" "$(yes_if test -n "$OTHER_GROUP")"
+echo "$OTHER_GROUP" >"$GROUP_FILE"
+run team --team-file "$TF"
+check "the recorded group is applied" "0" "$RC"
+check "  to the stamp and its directory" "$OTHER_GROUP $OTHER_GROUP" "$(groups_of)"
+# The regression: a run with no AGENT_BUS_STAMP_GROUP (ccy-teams apply, an acceptance's
+# throwaway team) put the directory back in root's group and locked ccy-teams out.
+run team --team-file "$TF"
+check "a run with no environment keeps the recorded group" "$OTHER_GROUP $OTHER_GROUP" "$(groups_of)"
 AGENT_BUS_STAMP_GROUP="$(id -gn)" run team --team-file "$TF"
-check "an existing group is applied" "0" "$RC"
-check "  to the stamp and its directory" "$(id -gn) $(id -gn)" \
-    "$(stat -c %G "$STAMP") $(stat -c %G "$ROOT/var/lib/agent-bus-applied")"
+check "  and AGENT_BUS_STAMP_GROUP no longer steers it" "$OTHER_GROUP $OTHER_GROUP" "$(groups_of)"
+chgrp "$(id -gn)" "$APPLIED"
+run team --team-file "$TF"
+check "a directory reset to another group is healed" "$OTHER_GROUP" "$(stat -c %G "$APPLIED")"
+echo no-such-group-agent-bus-test >"$GROUP_FILE"
+run team --team-file "$TF"
+check "a recorded group that does not exist fails the run" "78" "$RC"
+check "  naming the group" "yes" "$(says 'no-such-group-agent-bus-test' "$ERR")"
+check "  before the team is bootstrapped" "no" "$(says '^agent-bus bootstrap' "$(LOG)")"
+rm -f "$GROUP_FILE"
+run team --team-file "$TF"
+check "no recorded group fails the run" "78" "$RC"
+check "  naming the file and the play" "yes" "$(says '/etc/agent-bus/stamp-group.*play-agent-bus.yml' "$ERR")"
+check "  and the stamps keep their group" "$OTHER_GROUP $OTHER_GROUP" "$(groups_of)"
+echo "$OTHER_GROUP" >"$GROUP_FILE"
+chmod 0666 "$GROUP_FILE"
+run team --team-file "$TF"
+check "a record anyone may write fails the run" "78" "$RC"
+mv "$GROUP_FILE" "$GROUP_FILE.real" && chmod 0644 "$GROUP_FILE.real" && ln -s "$GROUP_FILE.real" "$GROUP_FILE"
+run team --team-file "$TF"
+check "a record that is a symlink fails the run" "78" "$RC"
+rm -f "$GROUP_FILE" && mv "$GROUP_FILE.real" "$GROUP_FILE"
+: >"$GROUP_FILE"
+run team --team-file "$TF"
+check "an empty record fails the run" "78" "$RC"
+id -gn >"$GROUP_FILE"
+run team --team-file "$TF"
+check "restoring the record applies again" "0" "$RC"
 
 echo "== team: a new binary restarts the homeserver"
 write_pin 1.9.4 "$ASSET_SHA"
