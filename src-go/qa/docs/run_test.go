@@ -39,6 +39,16 @@ func TestD1HelpUnknownArgumentsAndMissingValues(t *testing.T) {
 	wantStderr(t, got, "ERROR: unknown argument 'docs'")
 }
 
+// B16: an empty or flag-like --root/--scripts value is refused, not read as "not given".
+func TestD1AnEmptyOrFlagLikeDirectoryValueIsRefused(t *testing.T) {
+	for _, args := range [][]string{{"--root", ""}, {"--scripts", ""}, {"--root", "--scripts"}} {
+		got := newWorld(t, nil).main(args...)
+		wantExit(t, got, ExitCannotRun)
+		wantStderr(t, got, "ERROR: "+args[0]+" needs a directory")
+		wantStderr(t, got, "usage: qa-docs")
+	}
+}
+
 func TestD1RootAndScriptsSelectTheTree(t *testing.T) {
 	w := newWorld(t, nil)
 	elsewhere := t.TempDir()

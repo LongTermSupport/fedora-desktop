@@ -102,6 +102,7 @@ through `qa/internal/proc`.
 | B6  | self-test sent metrics; no timeout on any process                         | `--metrics=off`; every process is time-bounded (G6, G10)    |
 | B7  | arguments ignored                                                         | unknown argument is exit 2 (G1)                             |
 | B8  | a missing semgrep and a missing rule file were different failures         | both exit 2 (G4, G5)                                        |
+| B9 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage (G1) |
 
 ## 4. Stated limits and decisions
 

@@ -25,7 +25,12 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(bash.ExitCannotRun)
 	}
-	env := bash.Env{
+	return int(bash.Main(args, newEnv(cwd)))
+}
+
+// newEnv is the production environment of the gate: the real process, file system and report writer.
+func newEnv(cwd string) bash.Env {
+	return bash.Env{
 		Getenv:    os.Getenv,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
@@ -33,5 +38,4 @@ func run(args []string) int {
 		Runner:    proc.OS{},
 		WriteFile: cmdmain.WriteReport,
 	}
-	return int(bash.Main(args, env))
 }

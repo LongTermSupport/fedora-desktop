@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/discovery"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -18,6 +19,9 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(discovery.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return int(discovery.Fail(stderr, fmt.Errorf("working directory: %w", err)))

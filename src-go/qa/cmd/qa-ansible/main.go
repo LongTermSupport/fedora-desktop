@@ -21,12 +21,20 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(ansible.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(ansible.ExitCannotRun)
 	}
-	env := ansible.Env{
+	return int(ansible.Main(args, newEnv(cwd)))
+}
+
+// newEnv is the production environment of the gate: the real process, file system and report writer.
+func newEnv(cwd string) ansible.Env {
+	return ansible.Env{
 		Getenv:    os.Getenv,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
@@ -35,7 +43,6 @@ func run(args []string) int {
 		Ignored:   gitIgnored,
 		WriteFile: cmdmain.WriteReportPrivate,
 	}
-	return int(ansible.Main(args, env))
 }
 
 // gitIgnoredTimeout bounds the git listing.

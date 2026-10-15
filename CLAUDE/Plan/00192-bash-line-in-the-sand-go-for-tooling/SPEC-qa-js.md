@@ -120,6 +120,7 @@ same pins (section 4).
 | B9  | output order was `find`'s                                                                                                                                                                  | sorted                                                                                        | J13, J15    |
 | B10 | ESLint ran in `extensions/`, so `extensions/.eslintignore` was live                                                                                                                        | ESLint runs from the root: only a root `.eslintignore` is read, and a file it drops is exit 2 | J8, J11     |
 | B11 | a root reached through a symlink was used as given                                                                                                                                         | resolved once; unresolvable is exit 2                                                         | J1, J7, J16 |
+| B12 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage (J1) |
 
 ## 4. Go design and cut-over
 

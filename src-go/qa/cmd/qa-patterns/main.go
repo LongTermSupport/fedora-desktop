@@ -18,12 +18,20 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(patterns.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(patterns.ExitCannotRun)
 	}
-	env := patterns.Env{
+	return int(patterns.Main(args, newEnv(cwd)))
+}
+
+// newEnv is the production environment of the gate: the real process, file system and report writer.
+func newEnv(cwd string) patterns.Env {
+	return patterns.Env{
 		Getenv:    os.Getenv,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
@@ -32,5 +40,4 @@ func run(args []string) int {
 		TempDir:   os.TempDir(),
 		WriteFile: cmdmain.WriteReportPrivate,
 	}
-	return int(patterns.Main(args, env))
 }

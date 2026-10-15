@@ -90,7 +90,7 @@ type options struct {
 
 // parseArgs reads the command line; anything unknown is a usage error.
 func parseArgs(args []string) (options, error) {
-	parsed, err := rootargs.Lenient(args)
+	parsed, err := rootargs.Strict(args)
 	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts}, err
 }
 

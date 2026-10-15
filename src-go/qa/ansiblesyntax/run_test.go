@@ -57,6 +57,17 @@ func TestBadArgumentsAreAUsageError(t *testing.T) {
 	}
 }
 
+// S1 (B-S): an empty or flag-like --root/--scripts value is refused, not read as "not given".
+func TestAnEmptyOrFlagLikeDirectoryValueIsRefused(t *testing.T) {
+	for _, args := range [][]string{{"--root", ""}, {"--scripts", ""}, {"--root", "--scripts"}} {
+		w := newWorld(t, nil)
+		got := w.main(args...)
+		wantExit(t, got, ExitCannotRun)
+		wantStderr(t, got, "ERROR: "+args[0]+" needs a directory", "usage: qa-ansible-syntax")
+		w.noReport()
+	}
+}
+
 // S1: the root is --root, or the parent of --scripts, or the working directory.
 func TestRootComesFromTheFlagsOrTheWorkingDirectory(t *testing.T) {
 	w := newWorld(t, nil)

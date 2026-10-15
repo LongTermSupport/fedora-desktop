@@ -181,6 +181,7 @@ Numbers are cited by the tests.
 | B13 | a closed stdout exited 1 or lost the verdict                                                            | exit 2 (D2)                                                                          |
 | B14 | the OK line named three checks                                                                          | names the fourth, the gate inventory (D22)                                           |
 | B15 | an untracked nested repository's documents vanished from the walk unannounced                           | the shared discovery refuses it (exit 2) unless the trees table excludes it          |
+| B16 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage (D1) |
 
 ## 4. Seams
 

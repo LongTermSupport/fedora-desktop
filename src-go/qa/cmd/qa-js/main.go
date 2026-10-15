@@ -25,7 +25,12 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(js.ExitCannotRun)
 	}
-	env := js.Env{
+	return int(js.Main(args, newEnv(cwd)))
+}
+
+// newEnv is the production environment of the gate: the real process, file system and report writer.
+func newEnv(cwd string) js.Env {
+	return js.Env{
 		Getenv:    os.Getenv,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
@@ -33,5 +38,4 @@ func run(args []string) int {
 		Runner:    proc.OS{},
 		WriteFile: cmdmain.WriteReportPrivate,
 	}
-	return int(js.Main(args, env))
 }

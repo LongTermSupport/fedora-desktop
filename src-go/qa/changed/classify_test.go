@@ -935,13 +935,19 @@ func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
 // them, and a gate that does not use one does not rerun for it.
 func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
 	uses := map[string][]string{
-		"src-go/qa/internal/cmdmain/cmdmain.go": {"bash", "python", "js", "ansible-syntax-gate", "patterns", "docs"},
+		// every command's main refuses a closed stdout through cmdmain
+		"src-go/qa/internal/cmdmain/cmdmain.go": {
+			"bash", "python", "js", "ansible-syntax-gate", "patterns", "docs", "ansible-patterns", "nokill-containerwatch",
+			"ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest", "gh-scopes",
+			"deployed-drift", "ready-wait", "stt-rules", "bash-limits",
+		},
 		"src-go/qa/internal/emit/emit.go": {
 			"nokill-containerwatch", "ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
+			"ansible-patterns",
 		},
 		"src-go/qa/internal/rootargs/rootargs.go": {
 			"nokill-containerwatch", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
-			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs",
+			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs", "ansible-patterns",
 		},
 	}
 	for file, checks := range uses {
@@ -953,7 +959,7 @@ func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
 				t.Errorf("%s does not run %s: %v", file, check, keys(p))
 			}
 		}
-		if p.has("deployed-drift") {
+		if file != "src-go/qa/internal/cmdmain/cmdmain.go" && p.has("deployed-drift") {
 			t.Errorf("%s runs a gate that does not use it: %v", file, keys(p))
 		}
 	}

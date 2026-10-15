@@ -53,6 +53,19 @@ func TestP1UnknownArgumentAndMissingValueAreUsageErrors(t *testing.T) {
 	}
 }
 
+// P1: an empty or flag-like --root/--scripts value is refused, not read as "not given".
+func TestP1AnEmptyOrFlagLikeDirectoryValueIsRefused(t *testing.T) {
+	for _, args := range [][]string{{"--root", ""}, {"--scripts", ""}, {"--root", "--scripts"}} {
+		w := oneScript(t)
+		got := w.main(args...)
+		wantExit(t, got, ExitCannotRun)
+		wantStderr(t, got, "ERROR: "+args[0]+" needs a directory", "usage:")
+		if len(w.run.calls) != 0 {
+			t.Fatalf("%v ran a process: %v", args, w.run.calls)
+		}
+	}
+}
+
 func TestP1HelpIsOnStdoutAndExitsZero(t *testing.T) {
 	w := oneScript(t)
 	got := w.main("--help")

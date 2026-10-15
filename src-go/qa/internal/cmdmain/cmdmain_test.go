@@ -22,6 +22,9 @@ func TestWriteReportWritesTheFileWorldReadable(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("mode %v %v", info, err)
 	}
+	if data, err := os.ReadFile(filepath.Clean(path)); err != nil || string(data) != "{}" {
+		t.Fatalf("content %q %v", data, err)
+	}
 	if err := WriteReport(filepath.Join(t.TempDir(), "no", "r.json"), nil); err == nil {
 		t.Fatal("a report in a missing directory was written")
 	}
@@ -60,6 +63,9 @@ func TestWriteReportPrivateWritesTheFileOwnerOnly(t *testing.T) {
 	info, err := os.Stat(path)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v %v", info, err)
+	}
+	if data, err := os.ReadFile(filepath.Clean(path)); err != nil || string(data) != "{}" {
+		t.Fatalf("content %q %v", data, err)
 	}
 	if err := WriteReportPrivate(filepath.Join(t.TempDir(), "no", "r.json"), nil); err == nil {
 		t.Fatal("a report in a missing directory was written")

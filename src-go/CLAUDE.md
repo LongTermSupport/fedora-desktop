@@ -280,3 +280,15 @@ a field (`rootpath.RootVia`).
 
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).
+
+A new gate's command and package are built on four shared packages under `qa/internal`, never on
+a copy of their code. `cmdmain` is for the `main`: every command's `run` starts with
+`cmdmain.RefuseClosedStdout()` (a closed stdout cannot carry the verdict: exit 2), and a command
+that writes a machine report wires `cmdmain.WriteReport` (mode 0644, read by other accounts) or
+`cmdmain.WriteReportPrivate` (0600) in a `newEnv` function, so a test can pin the choice with
+`cmdmaintest`. `emit` is the two-stream writer that remembers its first write error (`Line`,
+`Text`, `Block` for a usage text) and `emit.Finish`, the one exit-code rule for an unwritable
+stdout or stderr. `rootargs` is the `-h`/`--root DIR`/`--scripts DIR` grammar (a missing, empty or
+`-`-leading value is refused, an unknown argument is a typed error answered with the usage text);
+a gate with more flags keeps its own parser. `rootpath` (above) resolves what `rootargs` read.
+`cmdmaintest` is the test side: `RefusesClosedStdout` and `WritesReportWithMode`.
