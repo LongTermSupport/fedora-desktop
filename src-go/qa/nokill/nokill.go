@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootargs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
@@ -78,86 +80,38 @@ type options struct {
 	scripts string
 }
 
-// unknownArgError is an argument the tool does not know; the usage text follows it.
-type unknownArgError struct{ arg string }
-
-func (e *unknownArgError) Error() string { return fmt.Sprintf("unknown argument '%s'", e.arg) }
-
 func parseArgs(args []string) (options, error) {
-	var opts options
-	rest := args
-	for len(rest) > 0 {
-		arg := rest[0]
-		rest = rest[1:]
-		switch arg {
-		case "-h", "--help":
-			opts.help = true
-		case "--root", "--scripts":
-			if len(rest) == 0 || rest[0] == "" || rest[0][0] == '-' {
-				return options{}, fmt.Errorf("%s needs a directory", arg)
-			}
-			if arg == "--root" {
-				opts.root = rest[0]
-			} else {
-				opts.scripts = rest[0]
-			}
-			rest = rest[1:]
-		default:
-			return options{}, &unknownArgError{arg: arg}
-		}
-	}
-	return opts, nil
-}
-
-// emitter writes to a stream and remembers the first write that failed.
-type emitter struct {
-	w   io.Writer
-	err error
-}
-
-func (e *emitter) line(text string) {
-	if _, err := fmt.Fprintln(e.w, text); err != nil && e.err == nil {
-		e.err = err
-	}
+	parsed, err := rootargs.Strict(args)
+	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts}, err
 }
 
 // Main runs the command and returns the exit status.
 func Main(args []string, env Env) ExitCode {
-	out, errOut := &emitter{w: env.Stdout}, &emitter{w: env.Stderr}
-	code := run(args, env, out, errOut)
-	if out.err != nil {
-		errOut.line("ERROR: cannot write to stdout: " + out.err.Error())
-		return ExitCannotRun
-	}
-	if code != ExitCannotRun && errOut.err != nil {
-		return ExitCannotRun
-	}
-	return code
+	out, errOut := emit.New(env.Stdout), emit.New(env.Stderr)
+	return emit.Finish(out, errOut, run(args, env, out, errOut), ExitCannotRun)
 }
 
-func run(args []string, env Env, out, errOut *emitter) ExitCode {
+func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	opts, err := parseArgs(args)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
-		if unknown, isUnknown := errors.AsType[*unknownArgError](err); isUnknown && unknown != nil {
-			for line := range strings.SplitSeq(strings.TrimSuffix(usageText, "\n"), "\n") {
-				errOut.line(line)
-			}
+		errOut.Line("ERROR: " + err.Error())
+		if unknown, isUnknown := errors.AsType[*rootargs.UnknownArgError](err); isUnknown && unknown != nil {
+			errOut.Block(usageText)
 		}
 		return ExitCannotRun
 	}
 	if opts.help {
-		out.line(strings.TrimSuffix(usageText, "\n"))
+		out.Block(usageText)
 		return ExitOK
 	}
 	root, err := rootpath.RootVia(env.Resolve, env.Cwd, opts.root, opts.scripts)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
 	published, err := env.Published(root)
 	if err != nil {
-		errOut.line("ERROR: cannot list the files git would publish under " + root + ": " + err.Error())
+		errOut.Line("ERROR: cannot list the files git would publish under " + root + ": " + err.Error())
 		return ExitCannotRun
 	}
 	targets, ok := collectTargets(published, errOut)
@@ -175,7 +129,7 @@ func run(args []string, env Env, out, errOut *emitter) ExitCode {
 // directory, and the named JavaScript. false, with every problem on stderr, when a declared
 // target is not published or there is no Python at all: a gate that has stopped judging a
 // file must not pass.
-func collectTargets(published []string, errOut *emitter) ([]string, bool) {
+func collectTargets(published []string, errOut *emit.Emitter) ([]string, bool) {
 	var targets []string
 	for _, p := range published {
 		if strings.HasPrefix(p, watchdogDir) && strings.HasSuffix(p, ".py") {
@@ -184,7 +138,7 @@ func collectTargets(published []string, errOut *emitter) ([]string, bool) {
 	}
 	ok := true
 	if len(targets) == 0 {
-		errOut.line("ERROR: no Python file under " + watchdogDir + " is published; the watchdog must exist")
+		errOut.Line("ERROR: no Python file under " + watchdogDir + " is published; the watchdog must exist")
 		ok = false
 	}
 	for _, js := range javascriptTargets {
@@ -192,12 +146,12 @@ func collectTargets(published []string, errOut *emitter) ([]string, bool) {
 			targets = append(targets, js)
 			continue
 		}
-		errOut.line("ERROR: declared container-watch JavaScript target is missing: " + js)
+		errOut.Line("ERROR: declared container-watch JavaScript target is missing: " + js)
 		ok = false
 	}
 	if !ok {
-		errOut.line("✗ no-kill gate: refusing to pass on a scan that did not cover every target.")
-		errOut.line("  Re-point javascriptTargets if the file moved.")
+		errOut.Line("✗ no-kill gate: refusing to pass on a scan that did not cover every target.")
+		errOut.Line("  Re-point javascriptTargets if the file moved.")
 		return nil, false
 	}
 	slices.Sort(targets)
@@ -206,13 +160,13 @@ func collectTargets(published []string, errOut *emitter) ([]string, bool) {
 
 // judgeAll reads and judges every target. false, with each unreadable file on stderr, when any
 // cannot be read.
-func judgeAll(fsys fs.FS, targets []string, errOut *emitter) ([]Finding, bool) {
+func judgeAll(fsys fs.FS, targets []string, errOut *emit.Emitter) ([]Finding, bool) {
 	var findings []Finding
 	readable := true
 	for _, rel := range targets {
 		data, err := fs.ReadFile(fsys, rel)
 		if err != nil {
-			errOut.line(fmt.Sprintf("ERROR: cannot read %s: %v", rel, err))
+			errOut.Line(fmt.Sprintf("ERROR: cannot read %s: %v", rel, err))
 			readable = false
 			continue
 		}
@@ -222,24 +176,24 @@ func judgeAll(fsys fs.FS, targets []string, errOut *emitter) ([]Finding, bool) {
 }
 
 // report prints the verdict: violations and guidance on stderr, a pass on stdout.
-func report(findings []Finding, targets []string, out, errOut *emitter) ExitCode {
+func report(findings []Finding, targets []string, out, errOut *emit.Emitter) ExitCode {
 	if len(findings) == 0 {
 		if slices.Contains(targets, containmentPath) {
-			out.line("✓ containment.py: stop-only confirmed (the one audited exception)")
+			out.Line("✓ containment.py: stop-only confirmed (the one audited exception)")
 		}
-		out.line(fmt.Sprintf("✓ no-kill gate: %d container-watch file(s) clean — no process-termination call site", len(targets)))
+		out.Line(fmt.Sprintf("✓ no-kill gate: %d container-watch file(s) clean — no process-termination call site", len(targets)))
 		return ExitOK
 	}
 	files := map[string]bool{}
 	for _, f := range findings {
 		files[f.Path] = true
-		errOut.line(fmt.Sprintf("%s:%d: (%s) %s", f.Path, f.Line, f.Rule, f.Text))
+		errOut.Line(fmt.Sprintf("%s:%d: (%s) %s", f.Path, f.Line, f.Rule, f.Text))
 	}
-	errOut.line("")
-	errOut.line(fmt.Sprintf("✗ no-kill gate: %d forbidden call site(s) in %d file(s)", len(findings), len(files)))
-	errOut.line("The watchdog must never signal a process, and only containment.py may ask")
-	errOut.line("an engine to stop a container. Remove the termination call.")
-	errOut.line("The word 'kill' is allowed ONLY inside guidance string literals (exec_hint),")
-	errOut.line("not as an executable call site.")
+	errOut.Line("")
+	errOut.Line(fmt.Sprintf("✗ no-kill gate: %d forbidden call site(s) in %d file(s)", len(findings), len(files)))
+	errOut.Line("The watchdog must never signal a process, and only containment.py may ask")
+	errOut.Line("an engine to stop a container. Remove the termination call.")
+	errOut.Line("The word 'kill' is allowed ONLY inside guidance string literals (exec_hint),")
+	errOut.Line("not as an executable call site.")
 	return ExitFailed
 }

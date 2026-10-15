@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootargs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
@@ -57,102 +58,54 @@ type options struct {
 	scripts string
 }
 
-// unknownArgError is an argument the tool does not know; the usage text follows it.
-type unknownArgError struct{ arg string }
-
-func (e *unknownArgError) Error() string { return fmt.Sprintf("unknown argument '%s'", e.arg) }
-
 func parseArgs(args []string) (options, error) {
-	var opts options
-	rest := args
-	for len(rest) > 0 {
-		arg := rest[0]
-		rest = rest[1:]
-		switch arg {
-		case "-h", "--help":
-			opts.help = true
-		case "--root", "--scripts":
-			if len(rest) == 0 || rest[0] == "" || rest[0][0] == '-' {
-				return options{}, fmt.Errorf("%s needs a directory", arg)
-			}
-			if arg == "--root" {
-				opts.root = rest[0]
-			} else {
-				opts.scripts = rest[0]
-			}
-			rest = rest[1:]
-		default:
-			return options{}, &unknownArgError{arg: arg}
-		}
-	}
-	return opts, nil
-}
-
-// emitter writes to a stream and remembers the first write that failed.
-type emitter struct {
-	w   io.Writer
-	err error
-}
-
-func (e *emitter) line(text string) {
-	if _, err := fmt.Fprintln(e.w, text); err != nil && e.err == nil {
-		e.err = err
-	}
+	parsed, err := rootargs.Strict(args)
+	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts}, err
 }
 
 // Main runs the command and returns the exit status.
 func Main(args []string, env Env) ExitCode {
-	out, errOut := &emitter{w: env.Stdout}, &emitter{w: env.Stderr}
-	code := run(args, env, out, errOut)
-	if out.err != nil {
-		errOut.line("ERROR: cannot write to stdout: " + out.err.Error())
-		return ExitCannotRun
-	}
-	if code != ExitCannotRun && errOut.err != nil {
-		return ExitCannotRun
-	}
-	return code
+	out, errOut := emit.New(env.Stdout), emit.New(env.Stderr)
+	return emit.Finish(out, errOut, run(args, env, out, errOut), ExitCannotRun)
 }
 
-func run(args []string, env Env, out, errOut *emitter) ExitCode {
+func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	opts, err := parseArgs(args)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
-		if unknown, isUnknown := errors.AsType[*unknownArgError](err); isUnknown && unknown != nil {
-			for line := range strings.SplitSeq(strings.TrimSuffix(usageText, "\n"), "\n") {
-				errOut.line(line)
-			}
+		errOut.Line("ERROR: " + err.Error())
+		if unknown, isUnknown := errors.AsType[*rootargs.UnknownArgError](err); isUnknown && unknown != nil {
+			errOut.Block(usageText)
 		}
 		return ExitCannotRun
 	}
 	if opts.help {
-		out.line(strings.TrimSuffix(usageText, "\n"))
+		out.Block(usageText)
 		return ExitOK
 	}
 	root, err := rootpath.RootVia(env.Resolve, env.Cwd, opts.root, opts.scripts)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
 	return judge(scan(env.Open(root)), out, errOut)
 }
 
 // judge reports a scan: every problem and finding on stderr, the counted OK line on stdout.
-func judge(r result, out, errOut *emitter) ExitCode {
+func judge(r result, out, errOut *emit.Emitter) ExitCode {
 	if len(r.problems) == 0 && r.examined == 0 {
 		r.problems = append(r.problems, "examined 0 plan scripts; the search matched nothing, so this gate certified nothing")
 	}
 	for _, p := range r.problems {
-		errOut.line("ERROR: " + p)
+		errOut.Line("ERROR: " + p)
 	}
 	if n := len(r.findings); n > 0 {
-		errOut.line(fmt.Sprintf("ERROR: %d plan-script logging offence(s) across %d script(s) examined:", n, r.examined))
+		errOut.Line(fmt.Sprintf("ERROR: %d plan-script logging offence(s) across %d script(s) examined:", n, r.examined))
 		for _, f := range r.findings {
-			errOut.line("  " + f)
+			errOut.Line("  " + f)
 		}
-		errOut.line("")
-		errOut.line("  Convert to the plan library: source _planlib.inc.bash, plan_init, then")
-		errOut.line("  plan_start_log auto — and remove every consumer of the $LOG you delete.")
+		errOut.Line("")
+		errOut.Line("  Convert to the plan library: source _planlib.inc.bash, plan_init, then")
+		errOut.Line("  plan_start_log auto — and remove every consumer of the $LOG you delete.")
 	}
 	switch {
 	case len(r.problems) > 0:
@@ -160,6 +113,6 @@ func judge(r result, out, errOut *emitter) ExitCode {
 	case len(r.findings) > 0:
 		return ExitFailed
 	}
-	out.line(fmt.Sprintf("PLAN-SCRIPT-LOGGING-OK: %d plan script(s) examined, no offences", r.examined))
+	out.Line(fmt.Sprintf("PLAN-SCRIPT-LOGGING-OK: %d plan script(s) examined, no offences", r.examined))
 	return ExitOK
 }

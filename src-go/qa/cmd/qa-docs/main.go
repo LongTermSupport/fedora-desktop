@@ -17,8 +17,7 @@ func main() {
 }
 
 func run(args []string) int {
-	if cmdmain.StdoutWasClosed() {
-		fmt.Fprintln(os.Stderr, "ERROR: stdout is closed (>&-): the verdict cannot be delivered")
+	if cmdmain.RefuseClosedStdout() {
 		return int(docs.ExitCannotRun)
 	}
 	cwd, err := os.Getwd()

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/ansible"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -32,7 +33,7 @@ func run(args []string) int {
 		Cwd:       cwd,
 		Open:      os.DirFS,
 		Ignored:   gitIgnored,
-		WriteFile: writeReport,
+		WriteFile: cmdmain.WriteReportPrivate,
 	}
 	return int(ansible.Main(args, env))
 }
@@ -60,9 +61,4 @@ func gitIgnored(root string) ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-// writeReport writes the machine report where the caller said.
-func writeReport(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o600)
 }

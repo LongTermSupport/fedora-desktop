@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootargs"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
@@ -89,26 +90,8 @@ type options struct {
 
 // parseArgs reads the command line; anything unknown is a usage error.
 func parseArgs(args []string) (options, error) {
-	var opts options
-	for i := 0; i < len(args); i++ {
-		switch arg := args[i]; arg {
-		case "-h", "--help":
-			opts.help = true
-		case flagRoot, flagScripts:
-			if i+1 >= len(args) {
-				return opts, fmt.Errorf("%s needs a value", arg)
-			}
-			i++
-			if arg == flagRoot {
-				opts.root = args[i]
-			} else {
-				opts.scripts = args[i]
-			}
-		default:
-			return opts, fmt.Errorf("unknown argument '%s'", arg)
-		}
-	}
-	return opts, nil
+	parsed, err := rootargs.Lenient(args)
+	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts}, err
 }
 
 // absolute makes a path absolute against cwd and cleans it, so a relative path or a trailing

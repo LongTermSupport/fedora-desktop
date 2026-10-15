@@ -6,6 +6,7 @@ import (
 	"go/version"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -51,7 +52,7 @@ func shellcheckVersion(stdout string) string {
 type assertion struct {
 	env        Env
 	root       string
-	errOut     *emitter
+	errOut     *emit.Emitter
 	checked    int
 	mismatches int
 }
@@ -98,7 +99,7 @@ func unreadableEvidence(stderr, reason string) string {
 func (a *assertion) fail(lines ...string) {
 	a.mismatches++
 	for _, l := range lines {
-		a.errOut.line(l)
+		a.errOut.Line(l)
 	}
 }
 

@@ -38,30 +38,30 @@ also	src-go/qa/bashlimits/*,src-go/qa/cmd/qa-bash-limits/*,src-go/qa/internal/pr
 also	scripts/bash-limits.allowlist	bash-limits	covered
 # The bash-convention gate runs whole when its rules, their fixture or the tool that applies them change.
 also	.semgrep/bash-conventions.yml,.semgrep/bash-conventions.bash	patterns	covered
-also	src-go/qa/patterns/*,src-go/qa/cmd/qa-patterns/*	patterns	-
+also	src-go/qa/patterns/*,src-go/qa/cmd/qa-patterns/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	patterns	-
 # The wrapper that builds and runs the gate, the library it runs through and the table of excluded trees it reads.
 also	scripts/qa-patterns.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	patterns	-
 # The gh-scope gate runs whole when its rule, the rule's fixture, its wrapper or its tool change.
 also	.semgrep/gh-scopes.yml,.semgrep/gh-scopes.fixture	gh-scopes	covered
-also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-gh-scopes/*	gh-scopes	-
+also	src-go/qa/ghscopes/*,src-go/qa/cmd/qa-gh-scopes/*,src-go/qa/internal/rootargs/*	gh-scopes	-
 also	scripts/qa-gh-scopes.bash,scripts/lib/go-tool.bash	gh-scopes	-
 # The Python gate runs whole when its tool, the ruff config, the pin, its wrapper or the table of excluded trees change.
-also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*	python	-
+also	src-go/qa/python/*,src-go/qa/cmd/qa-python/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	python	-
 also	ruff.toml	python	covered
 # A Python template is compiled by the python gate once rendered, so an edit to one runs it.
 also	@pytemplate	python	-
 also	scripts/qa-python.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,.qa-versions	python	-
 # The js gate: its tool, its wrapper, the shared discovery and the ESLint config it pins (the
 # per-file eslint check is given the same config).
-also	src-go/qa/js/*,src-go/qa/cmd/qa-js/*,src-go/qa/discovery/*	js	-
+also	src-go/qa/js/*,src-go/qa/cmd/qa-js/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	js	-
 also	scripts/qa-js.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	js	-
 also	extensions/.eslintrc.json	js	covered
 # The shell gate runs whole when its tool, the shared discovery, its wrapper or the table of excluded trees change.
-also	src-go/qa/bash/*,src-go/qa/cmd/qa-bash/*,src-go/qa/discovery/*	bash	-
+also	src-go/qa/bash/*,src-go/qa/cmd/qa-bash/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*	bash	-
 also	scripts/qa-bash.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	bash	-
 # The ansible-syntax gate runs whole when its tool, the shared discovery that finds the playbooks,
 # its wrapper or the table of excluded trees change.
-also	src-go/qa/ansiblesyntax/*,src-go/qa/cmd/qa-ansible-syntax/*,src-go/qa/discovery/*	ansible-syntax-gate	-
+also	src-go/qa/ansiblesyntax/*,src-go/qa/cmd/qa-ansible-syntax/*,src-go/qa/discovery/*,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	ansible-syntax-gate	-
 also	scripts/qa-ansible-syntax.bash,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ansible-syntax-gate	-
 # The deployed-drift gate runs whole when its tool or its wrapper changes.
 also	src-go/qa/deployeddrift/*,src-go/qa/cmd/qa-deployed-drift/*,scripts/qa-deployed-drift.bash	deployed-drift	-
@@ -74,25 +74,25 @@ also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
 # The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
 # runs whole when its own script or Go package changes (so it is not also picked as a suite).
-also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-nokill-containerwatch/*,helpers/containerwatch/*,extensions/fedora-desktop@fedora-desktop/containerReport.js,extensions/fedora-desktop@fedora-desktop/sections/containers.js	nokill-containerwatch	-
+also	scripts/qa-nokill-containerwatch.bash,src-go/qa/nokill/*,src-go/qa/cmd/qa-nokill-containerwatch/*,helpers/containerwatch/*,extensions/fedora-desktop@fedora-desktop/containerReport.js,extensions/fedora-desktop@fedora-desktop/sections/containers.js,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	nokill-containerwatch	-
 also	extensions/*.js,extensions/*.mjs	eslint	tree:shell,rel:extensions
 # The pause gate judges the YAML under playbooks/ and tasks/ and runs whole when one changes, or
 # its own script, Go package or shared discovery. Its fixtures are read only by the Go tests of
 # the rule, so they run the go check.
 also	playbooks/*.yml,playbooks/*.yaml,tasks/*.yml,tasks/*.yaml	ansible-pause	-
-also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	ansible-pause	-
+also	scripts/qa-ansible-pause.bash,src-go/qa/ansiblepause/*,src-go/qa/cmd/qa-ansible-pause/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*	ansible-pause	-
 also	tests/fixtures/ansible-pause/*	go	covered
 # The toolchain gate judges the installed tools against .qa-versions (which it covers) and the Go
 # floor of src-go/go.mod; it runs whole when either, its wrapper, its Go package or command, or the
 # wrapper library change. It also runs after any changed shell or Python file (the post row below).
 # It reads no fixtures: its Go tests run on fakes.
 also	.qa-versions	toolchain	covered
-also	src-go/go.mod,scripts/qa-toolchain.bash,src-go/qa/toolchain/*,src-go/qa/cmd/qa-toolchain/*,scripts/lib/go-tool.bash	toolchain	-
+also	src-go/go.mod,scripts/qa-toolchain.bash,src-go/qa/toolchain/*,src-go/qa/cmd/qa-toolchain/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	toolchain	-
 # The docs gate runs whole after any Markdown change (the *.md row below), any playbook or playbook
 # support file (the YAML logic in classify.go), and when anything it reads changes: the gate table
 # and the trees table (the inventory check and the scan), the shared discovery and gate loader, the
 # Go module's own dependencies, its wrapper, its Go package or command, or the wrapper library.
-also	scripts/qa-docs.bash,scripts/qa-gates.tsv,scripts/qa-trees.tsv,src-go/qa/docs/*,src-go/qa/cmd/qa-docs/*,src-go/qa/discovery/*,src-go/qa/gates/*,src-go/qa/go.mod,src-go/qa/go.sum,scripts/lib/go-tool.bash	docs	-
+also	scripts/qa-docs.bash,scripts/qa-gates.tsv,scripts/qa-trees.tsv,src-go/qa/docs/*,src-go/qa/cmd/qa-docs/*,src-go/qa/discovery/*,src-go/qa/gates/*,src-go/qa/go.mod,src-go/qa/go.sum,scripts/lib/go-tool.bash,src-go/qa/internal/cmdmain/*,src-go/qa/internal/rootargs/*	docs	-
 # The ready-wait gate runs over each changed Python and shell file by name (the @py and @sh rows
 # below), and runs whole over every tracked file (too slow to do for each ordinary edit) when
 # its rule, fixtures, script, Go package, command, the shared
@@ -106,7 +106,7 @@ also	scripts/qa-ready-wait-rules.bash,src-go/qa/readywait/*,src-go/qa/cmd/qa-rea
 # than the gate (the matcher's * crosses /): a shell file under Completed/ or the plan tooling runs
 # it too, though it reads neither. The walk is cheap, so the over-match is pinned, not narrowed.
 also	CLAUDE/Plan/*.bash,CLAUDE/Plan/*.sh,CLAUDE/Plan/*/logs/*	plan-script-logging	-
-also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa/cmd/qa-plan-script-logging/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash	plan-script-logging	-
+also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa/cmd/qa-plan-script-logging/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	plan-script-logging	-
 # The version-pins gate judges the manifest and the files its pins name, which are playbooks and
 # the agent-bus pin file, and runs whole when one changes or is deleted, or its own script, Go
 # package or command change. The manifest counts as covered by it. A pin may name any repository
@@ -118,7 +118,7 @@ also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
 # The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
 # to it runs the go check.
 also	helpers/version_pins/manifest.py	go	-
-also	scripts/qa-version-pins.bash,src-go/qa/versionpins/*,src-go/qa/cmd/qa-version-pins/*,scripts/lib/go-tool.bash	version-pins	-
+also	scripts/qa-version-pins.bash,src-go/qa/versionpins/*,src-go/qa/cmd/qa-version-pins/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	version-pins	-
 # The speech-to-text rules gate runs over each changed JavaScript and Python file by name (the
 # *.js, *.mjs and @py rows below), and runs whole over every published file when its rules,
 # fixtures, wrapper, Go package, command, the shared discovery or the trees table change; the
@@ -132,7 +132,7 @@ also	scripts/qa-speech-to-text-rules.bash,src-go/qa/sttrules/*,src-go/qa/cmd/qa-
 # The guest scripts and the validator are code other checks cover; this row adds the gate.
 also	vars/vm-test-scenarios.yml	vmtest-manifest	covered
 also	vars/fedora-version.yml,helpers/vmtest/scenarios.py,helpers/vmtest/upstream.py,helpers/vmtest/validate_manifest.py,files/home/.local/share/vmtest/guest-acceptance-*,files/home/.local/share/vmtest/guest-prepare-*	vmtest-manifest	-
-also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa-vmtest-manifest/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv	vmtest-manifest	-
+also	scripts/qa-vmtest-manifest.bash,src-go/qa/vmtestmanifest/*,src-go/qa/cmd/qa-vmtest-manifest/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash,scripts/qa-trees.tsv,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*	vmtest-manifest	-
 # Each .semgrep/ file is read by one gate and no per-file check applies to it (.semgrep is an
 # excluded shell tree, so the rows below would only report it skipped). These rows end the search
 # with no check and no cover: the patterns row above, or the suite that names the file in

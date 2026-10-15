@@ -19,19 +19,6 @@ func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	}
 }
 
-func TestWriteReportWritesTheFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "r.json")
-	if err := writeReport(path, []byte("{}")); err != nil {
-		t.Fatal(err)
-	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != "{}" {
-		t.Fatalf("%q %v", data, err)
-	}
-	if err := writeReport(filepath.Join(t.TempDir(), "no", "r.json"), nil); err == nil {
-		t.Fatal("a report in a missing directory was written")
-	}
-}
-
 // TestRunOnARealGitTree runs the command over a real work tree. semgrep is the tool the gate
 // needs; a machine without it fails here with the gate's own message, as the gate itself would.
 func TestRunOnARealGitTree(t *testing.T) {

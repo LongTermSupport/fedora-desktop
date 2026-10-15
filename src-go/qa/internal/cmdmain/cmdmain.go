@@ -4,6 +4,7 @@
 package cmdmain
 
 import (
+	"fmt"
 	"os"
 	"syscall"
 )
@@ -24,6 +25,28 @@ func StdoutWasClosed() bool {
 	}
 	flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(syscall.Stdout), syscall.F_GETFL, 0)
 	return errno == 0 && int(flags)&syscall.O_ACCMODE == syscall.O_RDWR
+}
+
+// closedStdoutMessage is what a gate says, on stderr, when it is refused for a closed stdout.
+const closedStdoutMessage = "ERROR: stdout is closed (>&-): the verdict cannot be delivered"
+
+// RefuseClosedStdout says on stderr that the command cannot run when stdout was closed at start,
+// and reports whether it did; the caller then exits with its cannot-run code.
+func RefuseClosedStdout() bool {
+	if !StdoutWasClosed() {
+		return false
+	}
+	fmt.Fprintln(os.Stderr, closedStdoutMessage)
+	return true
+}
+
+// privateReportMode is the permission of a report that only its writer reads back.
+const privateReportMode = 0o600
+
+// WriteReportPrivate writes the machine report readable by its owner only, as the gates whose
+// report is read back by the same account do. The umask can only narrow it further.
+func WriteReportPrivate(path string, data []byte) error {
+	return os.WriteFile(path, data, privateReportMode)
 }
 
 // reportMode is the report's permission: it holds repository paths and finding text, no secrets.

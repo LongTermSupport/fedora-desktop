@@ -930,3 +930,31 @@ func TestAContainerWatchEditRunsTheNoKillGate(t *testing.T) {
 		t.Errorf("an unrelated helper must not run the gate: %v", keys(p))
 	}
 }
+
+// The shared command helpers of src-go/qa/internal rerun the gates whose commands are built on
+// them, and a gate that does not use one does not rerun for it.
+func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
+	uses := map[string][]string{
+		"src-go/qa/internal/cmdmain/cmdmain.go": {"bash", "python", "js", "ansible-syntax-gate", "patterns", "docs"},
+		"src-go/qa/internal/emit/emit.go": {
+			"nokill-containerwatch", "ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
+		},
+		"src-go/qa/internal/rootargs/rootargs.go": {
+			"nokill-containerwatch", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
+			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs",
+		},
+	}
+	for file, checks := range uses {
+		w := newWorld(t)
+		w.touch(file, "// x")
+		p := w.classify([]string{file})
+		for _, check := range checks {
+			if !p.has(check) {
+				t.Errorf("%s does not run %s: %v", file, check, keys(p))
+			}
+		}
+		if p.has("deployed-drift") {
+			t.Errorf("%s runs a gate that does not use it: %v", file, keys(p))
+		}
+	}
+}
