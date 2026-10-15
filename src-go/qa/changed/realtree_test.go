@@ -250,6 +250,47 @@ func checkSemgrepRoute(t *testing.T, root, rel, reader string) {
 	}
 }
 
+// Every file the repository's own manifest names, the manifest and the gate's own files run the
+// version-pins check against the repository's own routing table. The pins are read from the live
+// manifest, so a pin added later is routed without a change here.
+func TestEveryRealPinnedFileRunsTheVersionPinsCheck(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(filepath.Join(root, "vars/version-pins.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := []string{"vars/version-pins.yml", "scripts/qa-version-pins.bash", "src-go/qa/versionpins/resolve.go", "src-go/qa/cmd/qa-version-pins/main.go"}
+	for line := range strings.SplitSeq(string(text), "\n") {
+		if file, ok := strings.CutPrefix(strings.TrimSpace(line), "- playbook: "); ok {
+			inputs = append(inputs, file)
+		}
+	}
+	if len(inputs) < 10 {
+		t.Fatalf("found only %d inputs; the manifest read matched nothing: %v", len(inputs), inputs)
+	}
+	s := &session{
+		env:     Env{Runner: &scriptedRunner{replies: map[string]proc.Result{}}, Stderr: &strings.Builder{}, Stdout: &strings.Builder{}},
+		root:    root,
+		scripts: filepath.Join(root, "scripts"),
+		opts:    options{base: "HEAD"},
+	}
+	if err := s.load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range inputs {
+		s.plan = &plan{checks: map[string]*checkPlan{}, covered: map[string]bool{}}
+		if err := s.classify(context.Background(), collected{existing: []string{rel}}); err != nil {
+			t.Fatal(err)
+		}
+		if !s.plan.has("version-pins") {
+			t.Errorf("%s does not run the version-pins check: %v", rel, keys(s.plan))
+		}
+	}
+}
+
 // Every active plan script of the tree, and the gate's own files, run the plan-script-logging
 // check against the repository's own routing table. The scripts are read from the tree, so a plan
 // script this test has not met is still routed.

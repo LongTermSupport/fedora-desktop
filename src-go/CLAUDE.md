@@ -191,6 +191,15 @@ an unparseable or unreadable file is exit 2. It starts no process.
 `SPEC-qa-plan-script-logging.md` (L1-L14) is the specification, proven by unit tests over in-memory
 trees and a real-file-system test in the command package.
 
+`qa/versionpins` + `qa/cmd/qa-version-pins` (same nested module) are `scripts/qa-version-pins.bash`,
+the Plan 00109 gate on `vars/version-pins.yml`: the script only builds and runs the command. The
+manifest and each `.yml` target are read with the YAML library's node API (repeated keys, wrong
+types and unknown keys are findings); the `var: value` line form is the one
+`helpers/version_pins/check_pins.py` reads. A missing, unreadable or unparsed file, or no pins, is
+exit 2; a wrong manifest or pin is exit 1, and every finding is reported. It starts no process.
+`SPEC-qa-version-pins.md` (V1-V25) is the specification, proven by unit tests over in-memory trees
+and real-file-system tests (symlinks, the live manifest) in the command package.
+
 `qa/sttrules` + `qa/cmd/qa-speech-to-text-rules` (same nested module) are
 `scripts/qa-speech-to-text-rules.bash`, the gate for the rules in `.semgrep/speech-to-text.yml`:
 semgrep stays the engine and the rule file the data (decoded as YAML and written out again, one

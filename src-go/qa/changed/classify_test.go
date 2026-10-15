@@ -655,6 +655,44 @@ func TestAPlanScriptLoggingEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// A change to the version-pin manifest (which it covers), to a playbook, to the agent-bus pin file
+// or to the gate's own script, Go package or command runs the whole version-pins gate; so does the
+// deletion of a playbook (the pin naming it is then wrong). A task file and an ordinary Python file
+// do not, and the gate's script is not also picked as a suite.
+func TestAVersionPinsEditRunsTheGate(t *testing.T) {
+	for _, f := range []string{
+		"vars/version-pins.yml", "playbooks/imports/play-x.yml", "playbooks/imports/optional/common/play-y.yml",
+		"files/usr/local/share/agent-bus/tuwunel.pin", "scripts/qa-version-pins.bash",
+		"src-go/qa/versionpins/resolve.go", "src-go/qa/cmd/qa-version-pins/main.go",
+	} {
+		w := newWorld(t)
+		w.touch(f, "a: 1\n")
+		p := w.classify([]string{f})
+		if !p.has("version-pins") || len(p.uncovered) != 0 {
+			t.Errorf("%s: %v uncovered %v", f, keys(p), p.uncovered)
+		}
+		if (f == "scripts/qa-version-pins.bash" || f == "vars/version-pins.yml") && len(p.suites) != 0 {
+			t.Errorf("%s was also picked as a suite: %+v", f, p.suites)
+		}
+	}
+	w := newWorld(t)
+	w.touch("vars/version-pins.yml", "version_pins: []\n")
+	if p := w.classify([]string{"vars/version-pins.yml"}); !p.covered["vars/version-pins.yml"] {
+		t.Errorf("the manifest must count as covered by the gate: %+v", p.covered)
+	}
+	w = newWorld(t)
+	if p := w.classify(nil, "playbooks/imports/play-gone.yml"); !p.has("version-pins") {
+		t.Errorf("a deleted playbook owes the gate: %v", keys(p))
+	}
+	for _, f := range []string{"tasks/x.yml", "helpers/other.py", "CLAUDE/Plan/00130-x/PLAN.md"} {
+		w = newWorld(t)
+		w.touch(f, "x")
+		if p := w.classify([]string{f}); p.has("version-pins") {
+			t.Errorf("%s must not run the version-pins gate: %v", f, keys(p))
+		}
+	}
+}
+
 // A changed JavaScript or Python file (by name, or a Python shebang) runs the speech-to-text rules
 // over that file only; other files do not, and a deleted file has nothing to judge.
 func TestAChangedScriptRunsTheSpeechToTextRulesOnThatFile(t *testing.T) {
