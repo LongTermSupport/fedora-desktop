@@ -300,9 +300,9 @@ The agent user must have gh logged in to github.com inside the container: the pl
 it for every container before it changes anything, and stops naming the container and
 `gh auth login` when it is missing; it never installs gh or supplies a token.
 `play-agent-bus.yml` adds the LXC bridge's subnet (read from the live `lxcbr0`, which
-`play-lxc-install-config.yml` sets up; `agent_bus_lxc_bridge` renames it) to every present
+`play-lxc-install-config.yml` sets up, by `ip -j -4 addr show`) to every present
 team's `allow_from`, so `allow_from` is only for other machines (WireGuard) or a
-non-default bridge. With no such bridge the play says so and adds nothing; a bridge
+non-default bridge. `ccy-teams` digests the same effective list, so it reads an applied team as current. With no such bridge the play says so and adds nothing; a bridge
 without an IPv4 address stops it (lxc-net is broken). The play still stops, naming the
 subnet, for a container on a bridge it did not admit. Virtual machines (libvirt) are not
 covered yet. The handle takes a fixed seat (`seat`, by default the

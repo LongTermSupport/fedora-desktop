@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
@@ -31,12 +32,24 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
+// realClient runs the real declare.py. Its status reads the LXC bridge with ip, so a fake ip
+// first on PATH says there is none: the result does not depend on the machine running the test.
 func realClient(t *testing.T) *Client {
 	t.Helper()
 	file, err := filepath.Abs(filepath.Join("testdata", "host_vars.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	bin := t.TempDir()
+	noBridge := "#!/bin/sh\necho 'Device \"lxcbr0\" does not exist.' >&2\nexit 1\n"
+	ip := filepath.Join(bin, "ip")
+	if err := os.WriteFile(ip, []byte(noBridge), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Chmod(ip, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return &Client{Runner: execx.OS{}, Root: repoRoot(t), File: file}
 }
 

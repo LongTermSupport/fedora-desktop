@@ -223,6 +223,14 @@ cat >"$BIN/ss" <<'EOF'
 printf 'LISTEN 0 128 127.0.0.1:6168 0.0.0.0:*\n'
 EOF
 
+# ip: a host with no LXC bridge, in ip's own words, so the suite does not depend on the machine
+# running it (a ccy container has no ip at all). test_bridge and test_declare prove the bridge.
+cat >"$BIN/ip" <<'EOF'
+#!/usr/bin/env bash
+printf 'Device "lxcbr0" does not exist.\n' >&2
+exit 1
+EOF
+
 # gio and the ccy launcher: each logs its arguments.
 cat >"$BIN/gio" <<'EOF'
 #!/usr/bin/env bash
@@ -935,7 +943,7 @@ cp "$HOST_VARS" "$SCRATCH/create.yml"
 CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_PLAY_FAIL=1 "$TOOL" create --team beta --human owner \
     --org example-org --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "a failed install is a failure" "1" "$?"
-check_has "  saying the team is declared but not installed, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
+check_has "  saying the team is declared but not applied as declared, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
 
 # run_in <dir> <gum answers (one string, lines)> <words...> — ccy-teams with those words in
 # <dir>, under a terminal, its gum answered from the queue; the output ends "rc=<status>".

@@ -15,7 +15,7 @@
 #   3. `team --team-file` for each entry with state present (the default), from a team
 #      file rendered into a root-only temporary directory that is deleted afterwards. Each
 #      file's allow_from is the declared list plus the LXC bridge's subnet, read from the
-#      live bridge (agent_bus_lxc_bridge, lxcbr0): LXC containers need no declaration.
+#      live bridge (lxcbr0, helpers/agent_bus/bridge.py): LXC containers need no declaration.
 #
 # Before step 2 it installs /etc/sudoers.d/agent-bus-read-only (Plan 00177): the desktop
 # user may run exactly `agent-bus list <team>` and `agent-bus human devices <team> <name>`
@@ -56,9 +56,6 @@
       else agent_bus_absent | selectattr('team', 'in', agent_bus_only_teams) | list }}"
     # Matches the installer's and the helper's CHANGED<TAB><what> marker lines.
     agent_bus_changed_re: "^CHANGED\t"
-    # The bridge play-lxc-install-config.yml sets up (lxc-net's stock one). A host that renamed
-    # it overrides this in host_vars. Its subnet is read from the live bridge, never written down.
-    agent_bus_lxc_bridge: lxcbr0
     # Scoped like the teams: with agent_bus_only_teams, only those teams' LXC members.
     agent_bus_lxc_member_list: "{{ agent_bus_lxc_members | default([]) if agent_bus_only_teams is not defined
       else agent_bus_lxc_members | default([]) | selectattr('team', 'in', agent_bus_only_teams) | list }}"
@@ -143,24 +140,15 @@
         # The one place a team's effective allow_from is computed (helpers/agent_bus/bridge.py):
         # the declared list plus the LXC bridge's subnet. The team files rendered below carry
         # it, so the installer's firewall rule, unit drop-in and validation all see the same list.
-        # ansible.cfg caches facts (gathering = smart, jsonfile), so the bridge's entry may
-        # predate LXC's install, or play-lxc-install-config.yml creating the bridge earlier in
-        # this same run, and would wrongly read as "no bridge". Network facts are re-read from
-        # the live host here so the decision is always made on what exists now.
-        - name: Refresh the network facts the LXC bridge is read from
-          ansible.builtin.setup:
-            gather_subset: ['!all', '!min', 'network']
-
+        # The helper asks the live host (`ip`), not the fact cache, so a bridge that
+        # play-lxc-install-config.yml created earlier in this run is seen; `ccy-teams` status
+        # uses the same probe to digest the same list.
         - name: Add the LXC bridge's subnet to every team's allow_from
           ansible.builtin.command:
             argv:
               - python3
               - -m
               - helpers.agent_bus.bridge
-              - --bridge
-              - "{{ agent_bus_lxc_bridge }}"
-              - --facts
-              - "{{ ansible_facts[agent_bus_lxc_bridge | replace('-', '_')] | default(none) | to_json }}"
               - --teams
               - "{{ agent_bus_apply_present | to_json }}"
             chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
