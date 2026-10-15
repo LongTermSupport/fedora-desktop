@@ -228,6 +228,9 @@ const rootWhy = "ftp-camera runs vsftpd, the firewall and the filing of uploads 
 
 // ready makes sudo's credential available; sudo has explained a refusal.
 func (c *cli) ready(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := c.root.Ready(ctx, rootWhy); err != nil {
 		return errFailed
 	}

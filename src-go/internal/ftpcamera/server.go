@@ -399,12 +399,16 @@ func (s *session) viewerRows(row func(label, value string)) {
 
 const gib = 1 << 30
 
-// regularFiles calls fn for each regular file under dir. Entries that cannot be read are not
-// visited: an advisory or a summary undercounts rather than stops the session (E50, E57).
-func regularFiles(dir string, fn func(path string, info fs.FileInfo)) {
-	walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+// regularFiles calls fn for each regular file under dir. An entry below dir that cannot be
+// read is not visited, so an advisory or a summary undercounts rather than stops the session
+// (E50, E57); dir itself unreadable is the error.
+func regularFiles(dir string, fn func(path string, info fs.FileInfo)) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			if d != nil && d.IsDir() && path != dir {
+			if path == dir {
+				return err
+			}
+			if d != nil && d.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
@@ -417,20 +421,17 @@ func regularFiles(dir string, fn func(path string, info fs.FileInfo)) {
 		}
 		return nil
 	})
-	if walkErr != nil {
-		return
-	}
 }
 
 // staleBytes is the size of the files whose age in whole days is above days (find -mtime +N).
-func staleBytes(dir string, now time.Time, days int64) int64 {
+func staleBytes(dir string, now time.Time, days int64) (int64, error) {
 	var total int64
-	regularFiles(dir, func(_ string, info fs.FileInfo) {
+	err := regularFiles(dir, func(_ string, info fs.FileInfo) {
 		if int64(now.Sub(info.ModTime())/(24*time.Hour)) > days {
 			total += info.Size()
 		}
 	})
-	return total
+	return total, err
 }
 
 // landingAdvisory suggests clearing old uploads out of the landing zone (E50).
@@ -439,7 +440,11 @@ func (s *session) landingAdvisory() {
 	if !isDir(c.upload) {
 		return
 	}
-	stale := staleBytes(c.upload, c.env.Now(), c.tun.warnAgeDays)
+	stale, err := staleBytes(c.upload, c.env.Now(), c.tun.warnAgeDays)
+	if err != nil {
+		c.err.f("note: no landing-zone check — %v\n", err)
+		return
+	}
 	if stale < c.tun.warnGB*gib {
 		return
 	}
@@ -526,6 +531,7 @@ func (s *session) follow(bg context.Context) {
 				select {
 				case queue <- u:
 				case <-bg.Done():
+					s.notSorted()
 				}
 			}
 		})
@@ -551,16 +557,19 @@ func (s *session) inotify(bg context.Context) error {
 	return err
 }
 
-// worker handles each queued upload in arrival order; a failure ends the session.
+// worker handles each queued upload in arrival order; a failure ends the session, and what
+// is still queued then is counted as not sorted (E66).
 func (s *session) worker(bg context.Context, workers *sync.WaitGroup, who string, q <-chan upload, handle func(context.Context, upload) error) {
 	workers.Go(func() {
+		failed := false
 		for u := range q {
+			if failed {
+				s.notSorted()
+				continue
+			}
 			if err := handle(bg, u); err != nil {
 				s.report(bg, who, err)
-				for range q {
-					continue
-				}
-				return
+				failed = true
 			}
 		}
 	})
@@ -578,11 +587,14 @@ func (s *session) report(bg context.Context, who string, err error) {
 }
 
 // tailLog follows the vsftpd log as root, its stderr discarded, handing each line to handle.
+// A line it cannot read stops tail, so the failure ends the session at once (E55).
 func (s *session) tailLog(bg context.Context, handle func(string)) error {
 	c := s.c
 	if err := c.ready(bg); err != nil {
 		return errors.New("sudo is not ready")
 	}
+	tailCtx, stopTail := context.WithCancel(bg)
+	defer stopTail()
 	pr, pw := io.Pipe()
 	quiet := *c.root
 	quiet.Term = &term.Term{Err: io.Discard, IsTerminal: c.env.IsTerminal, Getenv: c.env.Getenv}
@@ -590,7 +602,7 @@ func (s *session) tailLog(bg context.Context, handle func(string)) error {
 	quiet.Stdout = pw
 	done := make(chan error, 1)
 	go func() {
-		err := quiet.Run(bg, "tail", "-F", "-n", "0", "--pid="+strconv.Itoa(c.env.PID), vsftpdLog)
+		err := quiet.Run(tailCtx, "tail", "-F", "-n", "0", "--pid="+strconv.Itoa(c.env.PID), vsftpdLog)
 		pw.CloseWithError(io.EOF)
 		done <- err
 	}()
@@ -600,14 +612,18 @@ func (s *session) tailLog(bg context.Context, handle func(string)) error {
 		handle(sc.Text())
 	}
 	scanErr := sc.Err()
+	if scanErr != nil {
+		stopTail()
+	}
 	if _, err := io.Copy(io.Discard, pr); err != nil {
 		scanErr = errors.Join(scanErr, err)
 	}
-	if err := <-done; err != nil {
-		return fmt.Errorf("tail %s: %w", vsftpdLog, err)
-	}
+	tailErr := <-done
 	if scanErr != nil {
 		return fmt.Errorf("read %s: %w", vsftpdLog, scanErr)
+	}
+	if tailErr != nil {
+		return fmt.Errorf("tail %s: %w", vsftpdLog, tailErr)
 	}
 	return nil
 }

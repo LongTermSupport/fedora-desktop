@@ -43,7 +43,7 @@ func hotspotKit(t *testing.T, active bool) *kit {
 // E44, E48, E49, E56: --hotspot brings the profile up, opens nm-shared, and takes it down.
 func TestHotspotOwnedBySession(t *testing.T) {
 	k := hotspotKit(t, false)
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--hotspot"), term.ExitOK)
 	k.wantRan("sudo -n nmcli connection up Camera AP",
 		"sudo -n firewall-cmd --zone=nm-shared --add-service=ftp --quiet",
@@ -62,7 +62,7 @@ func TestHotspotOwnedBySession(t *testing.T) {
 // E44: an already active hotspot is used and left alone.
 func TestHotspotAlreadyUp(t *testing.T) {
 	k := hotspotKit(t, true)
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--hotspot"), term.ExitOK)
 	k.wantOut("Hotspot 'Camera AP' already active — using as-is, will not tear down on exit.\n",
 		"(pre-existing, left alone on exit)\n")
@@ -96,7 +96,7 @@ func TestUploadSummaryManyFiles(t *testing.T) {
 	for i := range 21 {
 		k.put("DCIM/F"+strings.Repeat("x", i)+".dat", []byte("x"), testStart.Add(time.Minute))
 	}
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx), term.ExitOK)
 	k.wantOut("  Files: 21\n  Total: 21B\n")
 	if strings.Contains(k.out.String(), "Fxx.dat  1B") {
@@ -108,7 +108,7 @@ func TestUploadSummaryNothingReceived(t *testing.T) {
 	k := serverKit(t)
 	k.feedOn(true, tailArgv)
 	k.feedOn(false, []string{"inotifywait"})
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx), term.ExitOK)
 	k.wantOut("Upload summary:\n  (no files received)\n")
 }
@@ -119,7 +119,7 @@ func TestClosingSortFailureIsANote(t *testing.T) {
 	k.feedOn(true, tailArgv)
 	k.feedOn(false, []string{"inotifywait"})
 	delete(k.onPath, "exiftool")
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx), term.ExitOK)
 	k.wantErr("ERROR: exiftool not found — run play-photography.yml first\nnote: the sort pass did not complete — continuing with teardown.\n")
 }
@@ -127,7 +127,8 @@ func TestClosingSortFailureIsANote(t *testing.T) {
 // E55: an interrupt before the monitors start still tears down, exit 0.
 func TestInterruptDuringStart(t *testing.T) {
 	k := hotspotKit(t, false)
-	ctx := interruptAt(k, 2*time.Second)
+	// The interrupt lands while the hotspot comes up: no feed has started.
+	ctx := cancelAtSleep(k, 2*time.Second, func() {})
 	k.wantCode(k.runCtx(ctx, "--hotspot"), term.ExitOK)
 	k.wantOut("FTP server stopped.\n")
 	k.wantNotRan("sudo -n systemctl start")

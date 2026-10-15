@@ -16,9 +16,9 @@ import (
 
 // asyncTally is the per-session count of what the handler did (E57, E59-E63).
 type asyncTally struct {
-	mu                                                  sync.Mutex
-	moved, skipped, errored, copied, copyErr, truncated int
-	failed                                              []string
+	mu                                                            sync.Mutex
+	moved, skipped, errored, copied, copyErr, truncated, unsorted int
+	failed                                                        []string
 }
 
 func (t *asyncTally) add(field *int) {
@@ -45,25 +45,70 @@ var (
 
 func (s *session) stamp() string { return s.c.env.Now().Format("15:04:05") }
 
-// handle is the per-upload handler of the async modes (E59-E63). Only a viewer that cannot
-// start is an error: every other outcome is reported and counted.
+// handle is the per-upload handler of the async modes (E59-E63, E66). Only a viewer that cannot
+// start is an error: every other outcome is reported and counted. Once the session is
+// stopping, an upload is counted as not sorted rather than handled (E66).
 func (s *session) handle(ctx context.Context, u upload) error {
 	c := s.c
 	rel := c.rel(u.path)
 	if strings.HasPrefix(rel, photoDir+"/") || strings.HasPrefix(rel, videoDir+"/") {
 		return nil
 	}
+	if stopping(ctx) {
+		s.notSorted()
+		return nil
+	}
 	name := filepath.Base(u.path)
-	ts := s.stamp()
 	if n := c.link.arrived(name); int64(n) >= c.tun.repeat {
 		c.warnWeakLink(fmt.Sprintf("%s has now arrived %d times — the camera is re-sending because no attempt has completed", name, n))
 	}
 	s.checkRate(u.meta)
-	if !isRegular(u.path) || !s.screen(ctx, u.path, name, ts) {
+	if !isRegular(u.path) {
 		return nil
 	}
-	sorted, outcome := s.sortOne(ctx, u.path)
+	return s.file(ctx, u.path, name)
+}
+
+// stopping is whether the session is being stopped: work begun after it is not reported.
+func stopping(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// notSorted counts a completed upload the async handler did not get to (E66).
+func (s *session) notSorted() {
+	if s.c.opts.async {
+		s.tally.add(&s.tally.unsorted)
+	}
+}
+
+// file screens, sorts, shows and copies one arrival. An outcome the interrupt caused (a check
+// or a move cut short) is not reported as the file's: the file is counted as not sorted (E66).
+func (s *session) file(ctx context.Context, path, name string) error {
+	c := s.c
+	ts := s.stamp()
+	v := completeness(ctx, c.env.Runner, c.onPath, path)
+	if stopping(ctx) {
+		s.notSorted()
+		return nil
+	}
+	if !s.screen(v, path, name, ts) {
+		return nil
+	}
+	sorted, outcome := s.sortOne(ctx, path)
+	if outcome != sortMoved && stopping(ctx) {
+		s.notSorted()
+		return nil
+	}
 	if !s.sorted(outcome, sorted, name, ts) {
+		return nil
+	}
+	if stopping(ctx) {
+		s.unshipped(sorted)
 		return nil
 	}
 	if c.opts.viewer != "" && viewerMatches(c.opts.viewer, sorted) {
@@ -78,9 +123,9 @@ func (s *session) handle(ctx context.Context, u upload) error {
 }
 
 // screen is the completeness gate of one arrival (E61): false keeps it out of the library.
-func (s *session) screen(ctx context.Context, path, name, ts string) bool {
+func (s *session) screen(v verdict, path, name, ts string) bool {
 	c := s.c
-	switch completeness(ctx, c.env.Runner, c.onPath, path) {
+	switch v {
 	case truncated:
 		e := c.err
 		e.f("  [%s%s%s] %spartial%s  %s  (truncated at %s bytes — NOT sorted; camera will retry)\n", e.c, ts, e.n, e.r, e.n, name, sizeText(path))
@@ -156,6 +201,10 @@ func (s *session) copyOut(ctx context.Context, sorted string) {
 	c := s.c
 	name := filepath.Base(sorted)
 	err := s.copyIntoMount(ctx, sorted)
+	if err != nil && stopping(ctx) {
+		s.unshipped(sorted)
+		return
+	}
 	ts := s.stamp()
 	if err == nil {
 		c.out.f("  [%s%s%s] %scopy%s  %s  → mount cache (VFS will upload)\n", c.out.c, ts, c.out.n, c.out.g, c.out.n, name)
@@ -167,10 +216,18 @@ func (s *session) copyOut(ctx context.Context, sorted string) {
 	for line := range strings.SplitSeq(err.Error(), "\n") {
 		e.f("    %s\n", line)
 	}
+	s.tally.add(&s.tally.copyErr)
+	s.unshipped(sorted)
+}
+
+// unshipped lists a sorted file that did not reach the mount, for the summary (E57, E66).
+func (s *session) unshipped(sorted string) {
+	if !s.c.opts.asyncCopy {
+		return
+	}
 	s.tally.mu.Lock()
-	s.tally.copyErr++
+	defer s.tally.mu.Unlock()
 	s.tally.failed = append(s.tally.failed, sorted)
-	s.tally.mu.Unlock()
 }
 
 // copyIntoMount writes sorted into the mount under a temporary name, then renames it, so an
@@ -239,7 +296,7 @@ func viewerMatches(class, path string) bool {
 
 // view is the default-mode viewer's handler: a completed upload of the class is shown (E53).
 func (s *session) view(ctx context.Context, u upload) error {
-	if !viewerMatches(s.c.opts.viewer, u.path) {
+	if stopping(ctx) || !viewerMatches(s.c.opts.viewer, u.path) {
 		return nil
 	}
 	return s.show(ctx, u.path)

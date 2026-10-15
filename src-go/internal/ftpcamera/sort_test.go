@@ -94,6 +94,38 @@ func TestSortPassRootFailures(t *testing.T) {
 	k2.wantErr("ERROR: could not remove the empty directories under " + k2.upload + ": find: busy\n")
 }
 
+// E21, B24: a sorted file of the same name is never replaced: the pass stops with the new
+// file left in place and nothing moved.
+func TestSortPassRefusesToOverwrite(t *testing.T) {
+	k := newKit(t)
+	k.path("exiftool")
+	k.realRoot()
+	k.exifDates(map[string]string{"DSC00001.JPG": "2026/01/02"})
+	k.put("DSC00001.JPG", []byte{0xFF, 0xD8, 0x07, 0xFF, 0xD9}, testStart)
+	k.put("photos/2026/01/02/JPG/DSC00001.JPG", jpegBytes(), testStart)
+	k.wantCode(k.run("--sort"), term.ExitFailure)
+	k.wantErr("ERROR: could not move DSC00001.JPG: photos/2026/01/02/JPG/DSC00001.JPG is already in the library — rename one of them, then sort again\n")
+	k.wantNotRan("sudo -n mv")
+	if data, err := os.ReadFile(filepath.Join(k.upload, "photos/2026/01/02/JPG/DSC00001.JPG")); err != nil || string(data) != string(jpegBytes()) {
+		t.Errorf("the sorted file was touched: %q %v", data, err)
+	}
+	if !exists(t, filepath.Join(k.upload, "DSC00001.JPG")) {
+		t.Error("the new file was not left in place")
+	}
+}
+
+// E62, B24: in async mode the same collision is a sort error, and the session goes on.
+func TestAsyncRefusesToOverwrite(t *testing.T) {
+	k := serverKit(t)
+	k.exifDates(map[string]string{"DSC00001.JPG": "2026/10/15"})
+	k.put("DSC00001.JPG", jpegBytes(), testStart)
+	k.put("photos/2026/10/15/JPG/DSC00001.JPG", jpegBytes(), testStart)
+	k.feedOn(false, tailArgv, okUpload("DSC00001.JPG", 6, "900"))
+	k.wantCode(k.runCtx(interruptAt(k), "--async"), term.ExitOK)
+	k.wantErr("  [09:30:00] fail  DSC00001.JPG  (sort error, left in place)\n")
+	k.wantNotRan("sudo -n mv")
+}
+
 // D5: sudo not ready is a failure after sudo's own explanation.
 func TestSortPassSudoRefused(t *testing.T) {
 	k := newKit(t)

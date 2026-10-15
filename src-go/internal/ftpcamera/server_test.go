@@ -2,6 +2,8 @@ package ftpcamera
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,13 +34,20 @@ func serverKit(t *testing.T) *kit {
 	return k
 }
 
-// interruptAt cancels the run at the first sleep of d: the grace the session gives an interrupt
-// after its monitor ends, so the test's Ctrl+C lands once every scripted line is handled.
-func interruptAt(k *kit, d time.Duration) context.Context {
+// interruptAt cancels the run at the grace the session gives an interrupt after its monitor
+// ends. It waits for the held feeds first, so the test's Ctrl+C lands once every scripted line
+// is handled.
+func interruptAt(k *kit) context.Context {
+	return cancelAtSleep(k, interruptGrace, k.awaitFeeds)
+}
+
+// cancelAtSleep cancels the run at the first sleep of d, once first has returned.
+func cancelAtSleep(k *kit, d time.Duration, first func()) context.Context {
 	ctx, cancel := context.WithCancel(k.t.Context())
 	k.t.Cleanup(cancel)
 	k.onSleep = func(slept time.Duration) {
 		if slept == d {
+			first()
 			cancel()
 		}
 	}
@@ -63,7 +72,7 @@ func TestDefaultSession(t *testing.T) {
 	k.feedOn(false, []string{"inotifywait", "-m", "-r", "-q"}, "  [09:31:03] CLOSE_WRITE,CLOSE  "+k.upload+"/DSC1.JPG")
 	k.put("DSC1.JPG", jpegBytes(), testStart.Add(time.Minute))
 	k.put("old.JPG", jpegBytes(), testStart.Add(-time.Hour))
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx), term.ExitOK)
 
 	k.wantRan(
@@ -168,6 +177,16 @@ func TestMonitorStoppingIsAnError(t *testing.T) {
 	k.wantOut("FTP server stopped.\n")
 }
 
+// E55: a log line the follower cannot read stops it at once, which ends the session; tail is
+// stopped rather than left to run to teardown.
+func TestLogLineTooLongStopsTheFollower(t *testing.T) {
+	k := serverKit(t)
+	k.feedOn(true, tailArgv, strings.Repeat("x", 1<<20+1), okUpload("A.JPG", 6, "900"))
+	k.wantCode(k.run("--async"), term.ExitFailure)
+	k.wantErr("ERROR: the upload monitor stopped: read /var/log/vsftpd.log: bufio.Scanner: token too long\n")
+	k.wantOut("FTP server stopped.\n")
+}
+
 // E41, E56: a start that fails still tears down, and the session exits 1.
 func TestStartFailureTearsDown(t *testing.T) {
 	k := serverKit(t)
@@ -184,7 +203,7 @@ func TestTeardownFailureStops(t *testing.T) {
 	k.feedOn(true, tailArgv)
 	k.feedOn(false, []string{"inotifywait"})
 	k.fake.On([]string{"sudo", "-n", "firewall-cmd", "--query-service=ftp", "--quiet"}, execx.Result{ExitCode: 252})
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx), term.ExitFailure)
 	k.wantErr("ERROR: could not stop the FTP server: firewall-cmd --query-service=ftp --quiet")
 	if strings.Contains(k.out.String(), "FTP server stopped.") {
@@ -200,7 +219,7 @@ func TestTeardownLeavesAbsentRulesAlone(t *testing.T) {
 	k.fake.On([]string{"systemctl", "is-active"}, execx.Result{ExitCode: 3})
 	k.fake.On([]string{"sudo", "-n", "firewall-cmd", "--query-service=ftp"}, execx.Result{ExitCode: 1})
 	k.fake.On([]string{"sudo", "-n", "firewall-cmd", "--get-zones"}, execx.Result{Stdout: []byte("public\n")})
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx), term.ExitOK)
 	k.wantNotRan("sudo -n firewall-cmd --remove-service")
 	k.wantNotRan("sudo -n systemctl stop")
@@ -212,7 +231,7 @@ func TestDebugFTP(t *testing.T) {
 	k := serverKit(t)
 	k.feedOn(true, tailArgv)
 	k.feedOn(false, []string{"inotifywait"})
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--debug-ftp"), term.ExitOK)
 	k.wantOut("--debug-ftp: FTP protocol tracing enabled.\n",
 		"    CLAUDE/Plan/Cancelled/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash\n",
@@ -237,7 +256,7 @@ func TestLandingZoneAdvisory(t *testing.T) {
 	k.env["LANDING_WARN_AGE_DAYS"] = "1"
 	k.put("photos/2026/10/01/JPG/A.JPG", make([]byte, 2048), testStart.Add(-72*time.Hour))
 	k.put("photos/2026/10/14/JPG/B.JPG", make([]byte, 4096), testStart.Add(-36*time.Hour))
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx), term.ExitOK)
 	k.wantOut("  ⚠  Landing-zone cleanup suggested\n     0.0 GB of files older than 1 days are sitting in\n",
 		"       rclone check "+k.upload+" <your-remote>   # 0 differences = safe\n")
@@ -246,7 +265,7 @@ func TestLandingZoneAdvisory(t *testing.T) {
 	k2.feedOn(true, tailArgv)
 	k2.feedOn(false, []string{"inotifywait"})
 	k2.put("A.JPG", make([]byte, 10), testStart.Add(-30*24*time.Hour))
-	ctx = interruptAt(k2, time.Second)
+	ctx = interruptAt(k2)
 	k2.wantCode(k2.runCtx(ctx), term.ExitOK)
 	if strings.Contains(k2.out.String(), "Landing-zone") {
 		t.Error("advised below the size limit")
@@ -264,10 +283,22 @@ func TestStaleBytes(t *testing.T) {
 		}
 	}
 	now := testStart
-	if got := staleBytes(dir, now, 1); got != 150 {
-		t.Errorf("49h old, limit 1 day: %d", got)
+	if got, err := staleBytes(dir, now, 1); err != nil || got != 150 {
+		t.Errorf("49h old, limit 1 day: %d %v", got, err)
 	}
-	if got := staleBytes(dir, now, 2); got != 0 {
-		t.Errorf("49h old, limit 2 days: %d", got)
+	if got, err := staleBytes(dir, now, 2); err != nil || got != 0 {
+		t.Errorf("49h old, limit 2 days: %d %v", got, err)
+	}
+}
+
+// E50, E57: an upload root that cannot be read is an error, not "no files".
+func TestRegularFilesRootUnreadable(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "gone")
+	err := regularFiles(missing, func(string, fs.FileInfo) { t.Error("visited a file") })
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("err = %v", err)
+	}
+	if got, err := staleBytes(missing, testStart, 1); err == nil || got != 0 {
+		t.Errorf("staleBytes = %d %v", got, err)
 	}
 }

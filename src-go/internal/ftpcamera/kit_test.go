@@ -42,6 +42,10 @@ type kit struct {
 	// feeds are the long-running programs (tail -F, inotifywait): what they print, and whether
 	// they then run until they are stopped.
 	feeds []feed
+	// held counts the feeds that run until stopped; live receives one value as each of them
+	// has had every line it printed read by its consumer.
+	held int
+	live chan struct{}
 }
 
 // feed is a long-running program's script.
@@ -56,13 +60,27 @@ type feed struct {
 func (k *kit) feedOn(hold bool, prefix []string, lines ...string) {
 	k.fake.On(prefix, execx.Result{})
 	k.feeds = append(k.feeds, feed{prefix: prefix, lines: lines, hold: hold})
+	if hold {
+		k.held++
+	}
+}
+
+// awaitFeeds blocks until every held feed is running and its lines have been read.
+func (k *kit) awaitFeeds() {
+	for range k.held {
+		<-k.live
+	}
 }
 
 // kitRunner is the fake runner with the feeds in front of it: a feed blocks without holding
-// the fake's lock, so the other goroutines' commands still run.
+// the fake's lock, so the other goroutines' commands still run. Like execx.OS, it refuses to
+// start a command under a finished context, so an interrupt reaches the code under test.
 type kitRunner struct{ k *kit }
 
 func (r kitRunner) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return execx.Result{}, err
+	}
 	argv := append([]string{c.Name}, c.Args...)
 	for _, f := range r.k.feeds {
 		if len(argv) < len(f.prefix) || !slicesEqual(argv[:len(f.prefix)], f.prefix) {
@@ -78,6 +96,12 @@ func (r kitRunner) Run(ctx context.Context, c execx.Cmd) (execx.Result, error) {
 			}
 		}
 		if f.hold {
+			// An empty write returns only once the reader asks for more, which a line reader
+			// does only after it has handled every line before it.
+			if _, err := io.WriteString(c.Stdout, ""); err != nil {
+				return res, err
+			}
+			r.k.live <- struct{}{}
 			<-ctx.Done()
 			return res, ctx.Err()
 		}
@@ -113,6 +137,7 @@ func newKit(t *testing.T) *kit {
 		config: filepath.Join(base, "etc", "config"),
 		now:    testStart,
 		proc:   fstest.MapFS{},
+		live:   make(chan struct{}, 8),
 	}
 	if err := os.MkdirAll(k.upload, 0o755); err != nil {
 		t.Fatal(err)

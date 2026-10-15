@@ -1,6 +1,7 @@
 package ftpcamera
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,7 +40,7 @@ func TestAsyncSession(t *testing.T) {
 		okUpload("GONE.JPG", 6, "1.00"),
 		`Thu Oct 15 09:31:03 2026 [pid 3] [camera] OK UPLOAD: Client "::ffff:192.0.2.30"`,
 	)
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async"), term.ExitOK)
 	for _, rel := range []string{"photos/2026/10/15/JPG/A.JPG", "videos/2026/10/15/MOV/C.MOV", "B.JPG", "D.JPG", "E.txt"} {
 		if !exists(t, filepath.Join(k.upload, rel)) {
@@ -74,16 +75,49 @@ func TestAsyncWeakLinkSignals(t *testing.T) {
 	k := serverKit(t)
 	k.env["LINK_REPEAT_THRESHOLD"] = "2"
 	k.feedOn(false, tailArgv, okUpload("GONE.JPG", 6, "1.00"), okUpload("GONE.JPG", 6, "1.00"))
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async"), term.ExitOK)
 	k.wantErr("Detected: GONE.JPG has now arrived 2 times — the camera is re-sending because no attempt has completed\n")
 
 	k = serverKit(t)
 	k.env["LINK_SLOW_KBS"] = "250"
 	k.feedOn(false, tailArgv, okUpload("FAST.JPG", 2000000, "300.5"), okUpload("SMALL.JPG", 10, "1.0"), okUpload("SLOW.JPG", 2000000, "120.25"))
-	ctx = interruptAt(k, time.Second)
+	ctx = interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async"), term.ExitOK)
 	k.wantErr("Detected: transfer ran at 120.25 KB/s (below 250 KB/s)\n")
+}
+
+// E66, B25: Ctrl+C with uploads still queued. The interrupt lands just as the first file's date is
+// read, before its move; nothing is reported as skipped or failed, no password is asked for,
+// and the summary says how many completed uploads were left for --sort.
+func TestAsyncInterruptWithBacklog(t *testing.T) {
+	k := serverKit(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	k.fake.OnFunc([]string{"exiftool", "-s3", "-d"}, func(execx.Cmd) (execx.Result, error) {
+		cancel()
+		return execx.Result{Stdout: []byte("2026/10/15\n")}, nil
+	})
+	for _, n := range []string{"A.JPG", "B.JPG", "C.JPG"} {
+		k.put(n, jpegBytes(), testStart)
+	}
+	k.feedOn(true, tailArgv, okUpload("A.JPG", 6, "900"), okUpload("B.JPG", 6, "900"), okUpload("C.JPG", 6, "900"))
+	k.wantCode(k.runCtx(ctx, "--async"), term.ExitOK)
+	for _, n := range []string{"A.JPG", "B.JPG", "C.JPG"} {
+		if !exists(t, filepath.Join(k.upload, n)) {
+			t.Errorf("%s was not left in place", n)
+		}
+	}
+	for _, bogus := range []string{"skip", "fail", "sudo asks", "ERROR"} {
+		if strings.Contains(k.out.String()+k.err.String(), bogus) {
+			t.Errorf("an interrupted sort was reported (%q):\nstdout:\n%s\nstderr:\n%s", bogus, k.out.String(), k.err.String())
+		}
+	}
+	k.wantNotRan("sudo -n mv")
+	k.wantOut(
+		"Sorted: 0  Skipped: 0  Sort errors: 0\n",
+		"  3 completed upload(s) not sorted — run ftp-camera --sort\n",
+	)
 }
 
 // E62: a failed move is a sort error, on stderr.
@@ -93,7 +127,7 @@ func TestAsyncSortError(t *testing.T) {
 	k.put("A.JPG", jpegBytes(), testStart)
 	k.fake.On([]string{"sudo", "-n", "mv"}, execx.Result{ExitCode: 1})
 	k.feedOn(false, tailArgv, okUpload("A.JPG", 6, "900"))
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async"), term.ExitOK)
 	k.wantErr("  [09:30:00] fail  A.JPG  (sort error, left in place)\n")
 	k.wantOut("Sort errors: 1\n")
@@ -128,7 +162,7 @@ func TestAsyncCopySession(t *testing.T) {
 	k.feedOn(false, tailArgv, okUpload("A.JPG", 6, "900"), okUpload("B.JPG", 6, "900"))
 	k.path("rclone-tail")
 	k.fake.On([]string{"rclone-tail", "--once", "lib"}, execx.Result{Stdout: []byte("queue: 1\n")})
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async-copy"), term.ExitOK)
 	copied := filepath.Join(remoteDest(k), "photos/2026/10/15/JPG/A.JPG")
 	if data, err := os.ReadFile(copied); err != nil || string(data) != string(jpegBytes()) {
@@ -160,7 +194,7 @@ func TestAsyncCopyMountGone(t *testing.T) {
 	k.feedOn(false, tailArgv, okUpload("A.JPG", 6, "900"))
 	k.path("rclone-tail")
 	k.fake.On([]string{"rclone-tail"}, execx.Result{ExitCode: 1})
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async-copy"), term.ExitOK)
 	k.wantErr("    " + remoteDest(k) + " is no longer served by an rclone mount\n")
 	k.wantOut("  could not read upload status — no matching mount, or the rclone RC is unreachable\n")
@@ -198,7 +232,7 @@ func TestViewer(t *testing.T) {
 	k.put("B.JPG", jpegBytes(), testStart)
 	k.fake.On([]string{"setsid"}, execx.Result{})
 	k.feedOn(false, tailArgv, okUpload("A.ARW", 3, "900"), okUpload("B.JPG", 6, "900"))
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--async", "--view"), term.ExitOK)
 	today := filepath.Join(k.upload, "photos/2026/10/15/RAW")
 	k.wantRan("sudo -n mkdir -p "+today, "setsid -f geeqie --file="+today, "setsid -f geeqie --file="+filepath.Join(today, "A.ARW"))
@@ -221,7 +255,7 @@ func TestDefaultModeViewer(t *testing.T) {
 	k.feedOn(false, tailArgv, okUpload("A.JPG", 6, "900"), okUpload("B.ARW", 6, "900"))
 	k.feedOn(true, []string{"inotifywait"})
 	k.fake.On([]string{"setsid"}, execx.Result{})
-	ctx := interruptAt(k, time.Second)
+	ctx := interruptAt(k)
 	k.wantCode(k.runCtx(ctx, "--view-jpg"), term.ExitOK)
 	k.wantRan("setsid -f geeqie --file=" + filepath.Join(k.upload, "A.JPG"))
 	k.wantNotRan("setsid -f geeqie --file=" + filepath.Join(k.upload, "B.ARW"))

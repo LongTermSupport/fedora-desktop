@@ -104,7 +104,7 @@
       ansible.builtin.package:
         name:
           - vsftpd         # FTP server
-          - inotify-tools  # File system event monitoring (used by ftp-camera wrapper)
+          - inotify-tools  # File system event monitoring (used by the ftp-camera command)
           - gum            # Two-step launcher TUI for argument-free `ftp-camera` invocation
           - tcpdump        # FTP control-channel capture for triage (see CLAUDE/PlanTriage.md)
         state: present
@@ -210,7 +210,7 @@
         state: true
         persistent: true
 
-    - name: Disable vsftpd auto-start (managed manually via ftp-camera script)
+    - name: Disable vsftpd auto-start (started and stopped by the ftp-camera command)
       ansible.builtin.systemd:
         name: vsftpd
         enabled: false
@@ -246,7 +246,7 @@
     - name: Deploy ftp-camera config (records repo path, rclone destination, hotspot profile)
       # REPO_PATH lets `ftp-camera --pass` find vault.bash and decrypt
       # ftp_camera_password from the user's clone of this repo without
-      # hardcoding the path in the script.
+      # hardcoding the path in the command.
       # RCLONE_REMOTE is consumed by `ftp-camera --push` to know where to
       # upload sorted files. Empty value disables --push with a clear error.
       # HOTSPOT_CONNECTION names the NetworkManager profile that --hotspot
@@ -486,7 +486,7 @@
             photos/YYYY/MM/DD/{JPG,RAW}/<file>
             videos/YYYY/MM/DD/{MP4,MOV}/<file>
 
-          The script will print your PC's IP address and the exact
+          ftp-camera will print your PC's IP address and the exact
           camera menu path when it starts.
 
           Sony A7V camera setup (one-time, manual):

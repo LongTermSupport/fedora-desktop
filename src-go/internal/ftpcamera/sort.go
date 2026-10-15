@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -86,8 +87,15 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// moveAsRoot files path into dest, as root (E21).
+// moveAsRoot files path into dest, as root (E21). A file of the same name already there is
+// never replaced (B24): cameras number their files in a cycle, so it is a different shot.
 func (c *cli) moveAsRoot(ctx context.Context, path, dest string) error {
+	target := filepath.Join(dest, filepath.Base(path))
+	if _, err := os.Lstat(target); err == nil {
+		return fmt.Errorf("%s is already in the library — rename one of them, then sort again", c.rel(target))
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("check %s: %w", c.rel(target), err)
+	}
 	if err := c.asRoot(ctx, "mkdir", "-p", dest); err != nil {
 		return err
 	}

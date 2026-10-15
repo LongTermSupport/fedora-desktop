@@ -137,7 +137,9 @@ The tests cite these numbers.
 - E21. A dated file is moved, as root, with `mkdir -p <upload>/<photos|videos>/<date>/<TYPE>`
   and `mv <file> <that dir>/`, where TYPE is the extension upper-cased and ARW is RAW; it prints
   `  move  <name>  → <photos|videos>/<date>/<TYPE>/`. A failed mkdir or mv ends the pass with
-  an error.
+  an error. A file of the same name already in that directory is never replaced: the move is
+  refused (`<relative path> is already in the library — rename one of them, then sort again`),
+  the new file stays in the upload root, and the pass ends with that error (B24).
 - E22. Then, as root, `find <upload> -mindepth 1 -type d -empty -delete`; its failure ends the
   pass with an error. Then a blank line; when files were truncated, the four-line truncation
   block, a blank line and the weak-link advisory (E58) for `<n> file(s) arrived truncated during this session`; and `Sort complete: <moved> moved, <skipped> skipped`. `--sort` exits 0 when the
@@ -274,8 +276,9 @@ The tests cite these numbers.
   the landing-zone advisory (E50), and `Monitoring for uploads — press Ctrl+C to stop`.
 - E50. Landing-zone advisory: the regular files under the upload directory whose age in whole
   days is above `LANDING_WARN_AGE_DAYS`, summed; at or above `LANDING_WARN_GB` GiB, the
-  six-line suggestion with the size to one decimal. Entries that cannot be read are not
-  counted. It never deletes anything.
+  six-line suggestion with the size to one decimal. Entries below the upload directory that
+  cannot be read are not counted; the upload directory itself unreadable prints
+  `note: no landing-zone check — <reason>` on stderr instead. It never deletes anything.
 - E51. Viewer pre-warm (async modes with a viewer): today's class folder is created as root and
   shown (E54).
 - E52. The log follower: `tail -F -n 0 --pid=<this process> /var/log/vsftpd.log` as root, its
@@ -303,7 +306,8 @@ The tests cite these numbers.
   that arrives within a second of the part stopping is an interrupt (Ctrl+C reaches its
   process too). The log is followed once; the async handler and the default-mode viewer take
   the completed uploads from that one follower, one at a time, so a slow sort never holds up
-  the printed log.
+  the printed log. A log line the follower cannot read (over 1 MiB) stops its `tail` at once,
+  with the reason `read /var/log/vsftpd.log: <error>`.
 - E56. Teardown, in order: a blank line and `Stopping FTP server...`; every follower and monitor
   is stopped and waited for; vsftpd is stopped when `systemctl is-active --quiet vsftpd` says it
   runs; as root `rm -rf /run/systemd/system/vsftpd.service.d /run/vsftpd-camera.conf` and
@@ -315,8 +319,9 @@ The tests cite these numbers.
   A failing step stops the teardown with its error and the exit is 1.
 - E57. Then the upload summary of the regular files modified since the session started (count,
   total in IEC binary units, path, and, for twenty or fewer, one `  <path>  <size>` line each;
-  or `(no files received)`); in async modes the async summary (sorted, skipped, sort errors;
-  truncated with its three lines; with `--async-copy`, copied and copy errors, the failed files,
+  or `(no files received)`; the upload directory unreadable: `  could not list what arrived — <reason>` on stderr); in async modes the async summary (sorted, skipped, sort errors;
+  the uploads left unsorted by the interrupt (E66); truncated with its three lines; with
+  `--async-copy`, copied and copy errors, the sorted files that did not reach the mount,
   the `--push` line, and `rclone-tail --once <remote name>` when it is on PATH, whose failure
   prints that the status could not be read); in default mode the sort pass (E17-E22), whose
   failure prints `note: the sort pass did not complete — continuing with teardown.` on stderr
@@ -340,7 +345,7 @@ The tests cite these numbers.
   `<name> arrived truncated — the data connection dropped mid-transfer`. An unverifiable file
   prints `  [<ts>] unverified  <name>  (no completeness check for this type)` and goes on.
 - E62. Sorting one file (E20, E21 as root): unsupported type `skip ... (unsupported type, left in place)`, no date `skip ... (no EXIF date, left in place)`, both counted skipped; a failed
-  move `fail ... (sort error, left in place)` on stderr, counted as a sort error; moved
+  move (including a refused one, E21) `fail ... (sort error, left in place)` on stderr, counted as a sort error; moved
   `  [<ts>] sort  <name>  → <relative dir>/`, counted, then shown when it matches the viewer
   class.
 - E63. `--async-copy` then copies the sorted file into the mount: the mount path must still be
@@ -348,6 +353,15 @@ The tests cite these numbers.
   directory is created; the file is written to `.ftp-camera.tmp.<name>` and renamed to
   `<name>` (a failure removes the temporary file). Success: `  [<ts>] copy  <name>  → mount cache (VFS will upload)`, counted. Failure: `  [<ts>] copy fail  <name>  (rc=1; sorted locally, rerun ftp-camera --push)` and the reason indented four spaces, on stderr; counted,
   and the sorted path is listed in the summary.
+- E66. Once the session is stopping (Ctrl+C, TERM, or a part that stopped), the handler starts
+  nothing new: each completed upload still queued, or not yet queued, is counted, not handled.
+  The one in hand when the interrupt lands is not reported as its own outcome when the interrupt
+  cut it short (a date or completeness check that did not finish, a move that was not made):
+  it is counted the same way. No root command is started, so no password is asked for. A file
+  already moved is reported as moved; with `--async-copy`, one not yet copied is listed with
+  the failed copies. The async summary then prints
+  `  <n> completed upload(s) not sorted — run ftp-camera --sort`. The files stay in the upload
+  root.
 
 ### Shared
 
@@ -385,11 +399,15 @@ The tests cite these numbers.
 | B21 | a second ERROR path checked the mount source twice; the first answer was already the source                                                        | read once                                                                  | E24      |
 | B22 | the log was followed by up to three `sudo tail` processes (printer, async monitor, viewer)                                                         | one follower feeding the printer, the handler and the viewer               | E55      |
 | B23 | the RC-address lookup's reason was printed before the ERROR line, prefixed with a bash function name                                               | after it, indented                                                         | E30      |
+| B24 | `mv <file> <dir>/` replaced a sorted file of the same name with no notice (cameras number files in a cycle, so it was a different shot): data loss | the move is refused and reported; the new file stays in the upload root    | E21, E62 |
+| B25 | Ctrl+C killed the async handler with its backlog; the unsorted uploads were not mentioned                                                          | the backlog is counted and named in the async summary; none is misreported | E66      |
 
 Kept as they were, and accepted: the capture date is used as exiftool prints it (an odd value
 makes an odd folder name, as before); the prune prompt treats anything but `y` as no, the
 documented default of a `[y/N]` question; `--copy` polls with no time limit (Ctrl+C is the way
-out).
+out); `--copy` and `--push` ship everything in the upload root, including the truncated
+fragments the sort passes leave there, under their own names (pre-existing: deciding what a
+shipping mode should leave behind is a behaviour change for its own plan, not this port).
 
 ## 5. Go design
 

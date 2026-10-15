@@ -137,7 +137,7 @@ func (s *session) uploadSummary() {
 	var paths []string
 	var sizes []int64
 	var total int64
-	regularFiles(c.upload, func(path string, info fs.FileInfo) {
+	err := regularFiles(c.upload, func(path string, info fs.FileInfo) {
 		if info.ModTime().After(s.start) {
 			paths = append(paths, path)
 			sizes = append(sizes, info.Size())
@@ -145,6 +145,10 @@ func (s *session) uploadSummary() {
 		}
 	})
 	o.f("%sUpload summary:%s\n", o.b, o.n)
+	if err != nil {
+		c.err.f("  could not list what arrived — %v\n", err)
+		return
+	}
 	if len(paths) == 0 {
 		o.f("  (no files received)\n")
 		return
@@ -167,6 +171,9 @@ func (s *session) asyncSummary(ctx context.Context) {
 	t := &s.tally
 	o.f("\n%sAsync summary:%s\n", o.b, o.n)
 	o.f("  Sorted: %s%d%s  Skipped: %s%d%s  Sort errors: %s%d%s\n", o.c, t.moved, o.n, o.c, t.skipped, o.n, o.c, t.errored, o.n)
+	if t.unsorted > 0 {
+		o.f("  %s%d completed upload(s) not sorted — run ftp-camera --sort%s\n", o.y, t.unsorted, o.n)
+	}
 	if t.truncated > 0 {
 		o.f("  %sTruncated (rejected): %d%s\n", o.r, t.truncated, o.n)
 		o.f("  %sThe link dropped the data connection mid-transfer on those.%s\n", o.y, o.n)
@@ -177,7 +184,7 @@ func (s *session) asyncSummary(ctx context.Context) {
 		return
 	}
 	o.f("  Copied: %s%d%s  Copy errors: %s%d%s\n", o.c, t.copied, o.n, o.c, t.copyErr, o.n)
-	if t.copyErr > 0 {
+	if len(t.failed) > 0 {
 		o.f("%sSome files were sorted locally but did not reach the remote.%s\n", o.y, o.n)
 		for _, f := range t.failed {
 			o.f("  %s%s%s\n", o.r, c.rel(f), o.n)
