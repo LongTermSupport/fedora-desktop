@@ -651,10 +651,11 @@ u20_find_ping() {
 # ── the M2 checks ────────────────────────────────────────────────────────────────────────
 
 # M2.1 — accb sits idle after its orders; acca is told to send accb a `review`; accb, which
-# nothing writes to again, wakes on its watcher's notice and acks it. Once accb has drained its
-# inbox, the second review for M2.2 goes out at once (from M1's host member a), so that its
-# notice has the same count and falls inside the window in which the socket drops an
-# identical body.
+# nothing writes to again, wakes on its watcher's delivery (Plan 00194 SPEC-inject.md: the
+# message itself, in an envelope) and acks it. Once accb's inbox is empty (the watcher consumes
+# what it delivered), the second review for M2.2 goes out at once (from M1's host member a), so
+# that its delivery has the same counts and falls inside the window in which the socket drops
+# an identical body: the delivery's nonce keeps the two distinct.
 u20_check_review_ack() {
     local found turns status=0
     turns="$(u20_turns accb)" || return 1
@@ -666,8 +667,8 @@ u20_check_review_ack() {
     REVIEW1_TS="${found#*$'\t'}"
     # D64: acca's send named no branch; pingbus filled in the one this checkout tracks.
     "${U20[@]}" expect-ping-branch "${U20_MESSAGES}" "${U20_REVIEW1}" "${REF_BRANCH}" || return 1
-    u20_poll "${U20_TURN_S}" "accb's watcher notice reached accb's session" u20_notices_at_least accb 1 || return 1
-    u20_poll "${U20_TURN_S}" "accb ran pingbus recv (its inbox empty again)" u20_pending_is accb 0 || return 1
+    u20_poll "${U20_TURN_S}" "accb's watcher delivery reached accb's session" u20_notices_at_least accb 1 || return 1
+    u20_poll "${U20_TURN_S}" "accb's inbox empty again (delivered and consumed)" u20_pending_is accb 0 || return 1
     send_ping a u20-send-review-2 review "${REF_COMMIT}" --branch "${REF_BRANCH}" --to "${U20_HANDLE[accb]}" || status=$?
     if [[ "${status}" -ne 0 ]]; then
         return "${status}"
@@ -679,11 +680,11 @@ u20_check_review_ack() {
     u20_poll "${U20_TURN_S}" "accb's woken turn ended" u20_turns_above accb "${turns}" || return 1
     "${U20[@]}" expect-notice-before-recv "${U20_TRANSCRIPT[accb]}" || return 1
     u20_stdin_lines accb 1 || return 1
-    evidence "M2.1 review ${U20_REVIEW1} from seat acca (told on stdin), ack ${U20_ACK1} from seat accb, whose only input was its orders; in accb's transcript the watcher's notice precedes the turn that ran pingbus recv: u20/messages.json, u20/accb/"
+    evidence "M2.1 review ${U20_REVIEW1} from seat acca (told on stdin), ack ${U20_ACK1} from seat accb, whose only input was its orders; in accb's transcript the watcher's delivery precedes the turn that answered it: u20/messages.json, u20/accb/"
 }
 
-# M2.2 — the second review reached accb through a second notice with the same count (1
-# pending, 1 ping) and the next notice number, within the dedupe window, and accb acked it.
+# M2.2 — the second review reached accb through a second delivery with the same counts (1
+# message, 1 ping) and a new nonce, within the dedupe window, and accb acked it.
 u20_check_same_count() {
     local found ack2 m1a="@${A_HANDLE}:${SERVER_NAME}"
     if [[ -z "${REVIEW2_ID}" ]]; then
@@ -700,7 +701,7 @@ u20_check_same_count() {
     "${U20[@]}" expect-same-count "${U20_TRANSCRIPT[accb]}" 1 0 1 || return 1
     "${U20[@]}" expect-within-window "${REVIEW1_TS}" "${REVIEW2_TS}" || return 1
     u20_stdin_lines accb 1 || return 1
-    evidence "M2.2 review ${REVIEW2_ID} sent $(((REVIEW2_TS - REVIEW1_TS) / 1000)) s after the first, a second notice of 1 pending with a new number, ack ${ack2}: u20/accb/"
+    evidence "M2.2 review ${REVIEW2_ID} sent $(((REVIEW2_TS - REVIEW1_TS) / 1000)) s after the first, a second delivery of 1 ping with a new nonce, ack ${ack2}: u20/accb/"
 }
 
 # u20_stop_watcher <session> — a signal to the `pingbus watch` process in its container, found

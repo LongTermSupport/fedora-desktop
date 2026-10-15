@@ -17,7 +17,7 @@
 #      requires gh logged in to github.com, the forge credential's one source (D66).
 #   4. Execs `claude --plugin-dir <kit>/plugin/pingbus --settings <kit>/settings.json "$@"`.
 #      The settings carry crossSessionInbound: accept, without which a bypass-mode session
-#      holds the watcher's wake notice instead of starting a turn.
+#      holds the watcher's deliveries instead of starting a turn.
 #
 # The kit is the directory this file resolves into, so a symlink on PATH works.
 # Stdout is claude's: everything this script says goes to stderr.

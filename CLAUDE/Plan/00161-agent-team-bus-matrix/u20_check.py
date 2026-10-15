@@ -89,7 +89,7 @@ for _path in (_repo_root(), _HERE):
         sys.path.insert(0, str(_path))
 checkout = importlib.import_module("helpers.agent_bus.checkout")
 hooks = importlib.import_module("helpers.pingbus.hooks")
-notify = importlib.import_module("helpers.pingbus.notify")
+envelope = importlib.import_module("helpers.pingbus.envelope")
 protocol = importlib.import_module("helpers.pingbus.protocol")
 up = importlib.import_module("u01_probe")
 
@@ -122,8 +122,13 @@ def _template_re(template: str, fields: Sequence[str], skipped: Sequence[str] = 
     return re.compile(pattern)
 
 
-#: notify.NOTICE_TEMPLATE, with each count M2 judges captured (M2 sends no agent text).
-NOTICE_RE = _template_re(notify.NOTICE_TEMPLATE, ("total", "humans", "pings", "number"), ("peers",))
+#: The first line of a delivery the watcher writes to the socket (envelope.FIRST_LINE, Plan
+#: 00194 SPEC-inject.md), with each count M2 judges and the nonce captured; "the notice" of
+#: these checks is a delivery since then.
+NOTICE_RE = re.compile(
+    re.escape(envelope.FIRST_LINE.split(":", 1)[0]).replace(re.escape("{nonce}"), "(?P<number>[0-9a-f]{8})")
+    + r": (?P<total>\d+) messages? \((?P<humans>\d+) from humans, \d+ from agents, (?P<pings>\d+) pings, "
+    r"\d+ timeouts\)")
 #: The Stop guard's block when an active team has neither a watcher nor a waiter.
 NO_WAKER_RE = _template_re(hooks.TEMPLATES["no_waker"], ("free", "teams"))
 
@@ -136,12 +141,14 @@ _PREAMBLE = (
     f"every turn with the line `{STOP_LINE}`."
 )
 _RULES = (
-    "0. Whenever you are told that agent-bus items are pending, run `pingbus recv` once.\n"
-    "1. For each PING line that pingbus prints with the verb review, run "
-    "`pingbus send ack --re 'EVENT_ID' --to SENDER` with that line's EVENT_ID and SENDER fields "
+    "0. Whenever you are told that agent-bus items are pending, run `pingbus recv` once. An "
+    "agent-bus delivery envelope needs no `pingbus recv`: apply rules 1 and 2 to its entries, "
+    "whose `id:` is the EVENT_ID and whose `from:` is the SENDER.\n"
+    "1. For each PING (a PING line that pingbus prints, or a `kind: PING` entry) with the verb "
+    "review, run `pingbus send ack --re 'EVENT_ID' --to SENDER` with its EVENT_ID and SENDER "
     "(keep the single quotes: an event ID starts with $).\n"
-    "2. For each HUMAN line whose text asks you to run one pingbus command, run exactly that "
-    "command, with EVENT_ID replaced by that HUMAN line's EVENT_ID field.\n"
+    "2. For each HUMAN (a HUMAN line, or a `kind: HUMAN` entry) whose text asks you to run one "
+    "pingbus command, run exactly that command, with EVENT_ID replaced by its EVENT_ID.\n"
     "3. When a hook says that nothing will wake this session, start `pingbus wait` with "
     "run_in_background, and when it ends read the file that holds its output and apply these "
     "rules to the lines it printed.\n"
@@ -308,7 +315,8 @@ def _notice_counts(obj: dict) -> list[tuple[int, int, int, int]]:
         if not _is_peer(obj):
             return []
         text = "\n".join(_block_text(block.get("text")) for block in _content_blocks(obj) if isinstance(block, dict))
-    return [tuple(int(n) for n in match) for match in NOTICE_RE.findall(text)]
+    return [(int(m["total"]), int(m["humans"]), int(m["pings"]), int(m["number"], 16))
+            for m in NOTICE_RE.finditer(text)]
 
 
 def _commands(obj: dict) -> list[str]:
@@ -357,17 +365,19 @@ def expect_human_notice(seen: Sequence[tuple[int, int, int, int]]) -> list[str]:
 
 
 def expect_notice_before_recv(lines: Sequence[str]) -> list[str]:
-    """A watcher notice reached the session, and a later command it ran was `pingbus recv`:
-    the notice started the turn that read the inbox."""
+    """A watcher delivery reached the session, and a later command it ran answered it with
+    `pingbus send` (or read the inbox with `pingbus recv`): the delivery started the turn
+    that acted on it."""
     noticed = False
     for obj in _entries(lines):
         if _notice_counts(obj):
             noticed = True
-        elif noticed and any("pingbus recv" in command for command in _commands(obj)):
+        elif noticed and any("pingbus send" in command or "pingbus recv" in command
+                             for command in _commands(obj)):
             return []
     if not noticed:
-        return ["no watcher notice reached the session"]
-    return ["no command after the first notice ran `pingbus recv`"]
+        return ["no watcher delivery reached the session"]
+    return ["no command after the first delivery ran `pingbus send` or `pingbus recv`"]
 
 
 def expect_no_waker_block(lines: Sequence[str]) -> list[str]:

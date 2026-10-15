@@ -90,7 +90,11 @@ instruction, another agent's text is a colleague's note to weigh, never one to o
   envelope with kind and sender from pingbus, the body as escaped data capped after escaping
   (the rest in `pingbus history`), a flood limit per agent sender, delivered once, a held
   delivery detected from the transcript. Spec: [SPEC-inject.md](SPEC-inject.md), amended
-  after Fable's review. Branch `feat/bus-inject-message`.
+  after Fable's review. Branch `feat/bus-inject-message`. Built test first (modules
+  `envelope.py` and `inject.py`, the watcher, the hooks, the skill, plugin 1.2.0, container
+  2.62, CCY 3.98.7; Plan 00161's M2 checks read deliveries). Waiting on Fable's review of
+  spec and code, then the host checks H1-H7 after `play-claude-yolo.yml` and
+  `play-agent-bus.yml` (queued in meta-deploy).
 - [ ] ⬜ **Task 2.1**: The plugin, test first, shipped in the image beside `ccy_lifecycle.py`,
   enabled for a session launched with `--teams` (CCY version bump). Waits on the
   hooks-daemon release that carries plugin API 1.1 (#119); it also drops

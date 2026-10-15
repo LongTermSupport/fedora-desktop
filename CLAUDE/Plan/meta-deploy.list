@@ -20,11 +20,18 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00201 (pingbus fix): deploys the ccy launcher 3.98.6, which requires container 2.61, so
-# the next ccy launch rebuilds the image with the pingbus whose target refusals name what was
-# refused and who can be addressed. Running ccy sessions keep their old image (and their old
-# pingbus: no short --to, no REPLY lines if older than 2.56) until each is relaunched.
+# Plan 00201 (pingbus fix) and Plan 00194 Task 2.0c (bus messages injected): deploys the ccy
+# launcher 3.98.7, which requires container 2.62, so the next ccy launch rebuilds the image
+# with the pingbus whose target refusals name what was refused and who can be addressed, and
+# whose watcher writes each team message into the session as an `agent-bus delivery`
+# envelope instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). Running ccy
+# sessions keep their old image and pingbus until each is relaunched.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00194 Task 2.0c: reinstalls the host's member kit and pingbus (agent-bus-install), so
+# `cc --teams` sessions and LXC members also get team messages delivered as envelopes, with
+# plugin 1.2.0's skill. Homeserver and teams are unchanged. Then SPEC-inject.md section 7,
+# H1-H7, in a relaunched `ccy --teams` session (and H4 measures the socket's largest message).
+playbooks/imports/play-agent-bus.yml
 # Redeploys ssh-suspend-guard with its startup trap and "started" log moved below the
 # test cut marker. Host behaviour is unchanged; the deployed script matches the repo again.
 playbooks/imports/play-prevent-ssh-suspend.yml
