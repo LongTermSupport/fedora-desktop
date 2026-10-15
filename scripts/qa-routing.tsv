@@ -71,6 +71,7 @@ also	scripts/shellcheck-disable.allowlist	bash	covered
 also	scripts/qa-discovery.bash	go	-
 # The tables that route files and list the gates are read by the Go tests (which run the real ones).
 also	scripts/qa-routing.tsv,scripts/qa-trees.tsv,scripts/qa-gates.tsv	go	covered
+also	CLAUDE/Watchlist.tsv	go	covered
 also	@listed:bash-limits.allowlist	bash-limits	-
 # The no-kill gate judges the container-watch watchdog and the two panel files that show it, and
 # runs whole when its own script or Go package changes (so it is not also picked as a suite).

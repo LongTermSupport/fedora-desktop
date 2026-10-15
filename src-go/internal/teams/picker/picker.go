@@ -115,6 +115,9 @@ func (p *Picker) pickerSession(ctx context.Context) error {
 	if err = p.offerPathLimits(ctx); err != nil {
 		return err
 	}
+	if err = p.offerDescriptions(ctx); err != nil {
+		return err
+	}
 	if err = p.offerUpdate(ctx); err != nil {
 		return err
 	}

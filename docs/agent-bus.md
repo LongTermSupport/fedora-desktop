@@ -60,9 +60,18 @@ that play.
    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
    it, and the header names the selected row's actions, so no key has to be guessed.
 3. **Add ccy sessions.** `ccy --teams` with no value, in a checkout of a GitHub repository,
-   finds the team for you (`ccy-teams for-checkout`): the one team that works on that
-   `owner/repo` (an organisation team by its owner), or you choose of several; with none it
-   says so and stops. It then goes on as `ccy --teams <team>` (no seat), which shows this
+   asks `ccy-teams choose-teams`: every team on the machine with what it is for and whether
+   it covers that `owner/repo` (a team that trusts the repository, or its owner, unless it
+   excludes it), covering teams first, and a row to create a team. A single covering team is
+   taken without a list. Choosing a team that does not cover the checkout offers to add the
+   repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
+   no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
+   **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
+   takes them or the highlighted one), each marked team gets its own seat question, and the
+   launch prints which teams the session is on, with seat, role and what each is for; the status
+   line shows `bus: alpha,beta`. With several teams, `pingbus send`/`say` work out the team from
+   `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
+   It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
    free seat, or a new one, and then asks whether the seat is the team's coordinator (see below;
    no sudo unless you change it). ccy creates the seat the first time (with sudo). `ccy --teams <seat>@<team>` names the seat instead. ccy remembers the seats: "use the previous
@@ -138,6 +147,11 @@ A team is a group of agents and humans working around one project. It has:
 - one homeserver, on one machine, listening on the addresses the team chooses;
 - one room, which only the team's admin account can change;
 - a list of humans, each with one account;
+- a description, one line of up to 120 characters saying what the team is for. `ccy-teams create`
+  asks for it, and `ccy-teams` offers once to add one to a team made without. It is shown wherever
+  teams are listed or chosen, and to its agents (`pingbus status`, the session's start-up
+  context) and in Element, all through the room topic. Setting or changing it restarts no
+  homeserver, and an older pingbus simply shows none;
 - what it trusts: the GitHub owner (`org`, an organisation or a user) whose repositories
   pings may refer to, on any branch but never in a fork; and, or instead, repositories of
   any owner (`repos`), each on any branch, or only at the `branches` its entry lists. Any
@@ -311,9 +325,9 @@ The agent user must have gh logged in to github.com inside the container: the pl
 it for every container before it changes anything, and stops naming the container and
 `gh auth login` when it is missing; it never installs gh or supplies a token.
 `play-agent-bus.yml` adds the LXC bridge's subnet (read from the live `lxcbr0`, which
-`play-lxc-install-config.yml` sets up; `agent_bus_lxc_bridge` renames it) to every present
+`play-lxc-install-config.yml` sets up, by `ip -j -4 addr show`) to every present
 team's `allow_from`, so `allow_from` is only for other machines (WireGuard) or a
-non-default bridge. With no such bridge the play says so and adds nothing; a bridge
+non-default bridge. `ccy-teams` digests the same effective list, so it reads an applied team as current. With no such bridge the play says so and adds nothing; a bridge
 without an IPv4 address stops it (lxc-net is broken). The play still stops, naming the
 subnet, for a container on a bridge it did not admit. Virtual machines (libvirt) are not
 covered yet. The handle takes a fixed seat (`seat`, by default the

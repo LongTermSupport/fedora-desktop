@@ -208,14 +208,26 @@ def pingbus_dir(home: pathlib.Path) -> pathlib.Path:
 
 def check_user(home: pathlib.Path) -> None:
     """Refuse a user who holds pingbus bundles. Anything at the path counts, a dangling
-    symlink included; a path that cannot be looked at is a refusal, not a pass."""
+    symlink included; a path that cannot be looked at is a refusal, not a pass. The one
+    exception is what `cc --teams` leaves there: the owner's acceptance of a seat beside
+    Element and nothing else, judged as pingbus judges it (its seats' bundles live in the
+    checkout, not here)."""
     path = pingbus_dir(home)
     try:
         os.lstat(path)
+        entries = os.listdir(path) if path.is_dir() and not path.is_symlink() else None
     except FileNotFoundError:
         return
     except OSError as exc:
         raise ElementError(f"{path} cannot be checked for pingbus bundles ({exc.strerror})") from None
+    if entries == [config.ELEMENT_ACCEPTED_FILE]:
+        if config.element_accepted(home, os.getuid()):
+            return
+        raise ElementError(
+            f"{path} holds only an Element acceptance record, and the acceptance record is not valid "
+            "(it must be a regular file owned by this user, readable by no one else, in a "
+            "directory this user owns); rerun cc --teams to write it again"
+        )
     raise ElementError(
         f"{path} exists: this user holds pingbus bundles, so no Element session may live "
         "beside them; configure Element for a human user, never an agent user"

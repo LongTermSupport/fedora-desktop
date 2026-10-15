@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -126,6 +127,7 @@ type wzHarness struct {
 	applied  [][]string
 	applyErr error
 	pwd      []string
+	signIn   []string // "team ask=bool", one per look at the sign-in after a failed apply
 	pwdErr   error
 	element  []string
 	elemErr  error
@@ -196,6 +198,10 @@ func newWzHarness(t *testing.T) *wzHarness {
 			h.applied = append(h.applied, teams)
 			return h.applyErr
 		},
+		SignInGap: func(_ context.Context, teams []string, ask bool) error {
+			h.signIn = append(h.signIn, strings.Join(teams, " ")+" ask="+strconv.FormatBool(ask))
+			return nil
+		},
 		NewPassword: func(_ context.Context, team, human string) error {
 			h.pwd = append(h.pwd, team+"/"+human)
 			return h.pwdErr
@@ -251,7 +257,7 @@ func wzCode(t *testing.T, got, want term.ExitCode, h *wzHarness) {
 // sign-in, no Element, yes to a session here.
 func (h *wzHarness) happyAnswers() {
 	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzOK(""))
 }
 
@@ -267,12 +273,13 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	wzContain(t, "choose", strings.Join(h.run.matching("gum choose"), "\n"),
 		"gum choose --header Trust --selected Repositories you list (one or more), starting with example-org/proj")
 	inputs := h.run.matching("gum input")
-	if len(inputs) != 4 {
+	if len(inputs) != 5 {
 		t.Fatalf("inputs: %v", inputs)
 	}
 	wantInputs := []string{
 		"gum input --header Repositories (owner/repo, comma-separated) --placeholder e.g. example-org/alpha --value example-org/proj --width 0",
 		"gum input --header Team name --placeholder e.g. example-org --value proj --width 0",
+		"gum input --header What is this team for? --placeholder e.g. Builds and reviews the example site --value  --width 0",
 		"gum input --header People, comma-separated --placeholder e.g. owner, colleague --value owner --width 0",
 		"gum input --header Subnets (Enter for none) --placeholder e.g. 192.0.2.0/24 --value  --width 0",
 	}
@@ -307,7 +314,7 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 		"Team proj", "Works on  only example-org/proj, on any branch", "People    owner",
 		"Machines  this one only", "Element   a profile for the team, set up on this desktop")
 	wzContain(t, "stderr", e, "ccy --teams proj",
-		"1/5  What the team works on", "5/5  Other machines",
+		"1/6  What the team works on", "6/6  Other machines",
 		"✓ Repositories you list (one or more), starting with example-org/proj", "✓ example-org/proj",
 		"Starting ccy --teams proj in ~/proj.")
 	wzLack(t, "stderr", e, "forge_api", "path_prefixes", "meta-deploy", "Traceback")
@@ -316,7 +323,7 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	}
 	// declared with the flags the answers made, installed, session started in the top
 	wzContain(t, "create call", strings.Join(h.run.matching("env "), "\n"),
-		"create --file "+wzHostVars+" --team proj --human owner --repo example-org/proj")
+		"create --file "+wzHostVars+" --team proj --human owner --repo example-org/proj --description Builds the example site")
 	if len(h.applied) != 1 || !slices.Equal(h.applied[0], []string{"proj"}) {
 		t.Errorf("applied %v", h.applied)
 	}
@@ -329,15 +336,50 @@ func TestWizardInACheckoutAcceptsEveryDefault(t *testing.T) {
 	wzContain(t, "stdout", h.stdout.String(), "CHANGED\tteam proj, port 6169")
 }
 
+// S-B11: the chooser runs the wizard for this checkout and takes the team it made; the wizard
+// neither offers a session of its own nor prints on stdout, which is the chooser's payload.
+func TestWizardForTheChooserReturnsTheTeamAndStartsNothing(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
+	team, code := h.c.RunForChooser(context.Background())
+	wzCode(t, code, term.ExitOK, h)
+	if team != "proj" {
+		t.Fatalf("team %q", team)
+	}
+	if len(h.applied) != 1 || !slices.Equal(h.applied[0], []string{"proj"}) {
+		t.Errorf("applied %v", h.applied)
+	}
+	if len(h.execd) != 0 || h.run.called("gum confirm --default=true Start a ccy session") {
+		t.Errorf("a session was offered or started: %v", h.execd)
+	}
+	if h.stdout.Len() != 0 {
+		t.Errorf("stdout is the chooser's payload, got %q", h.stdout.String())
+	}
+	wzContain(t, "stderr", h.err(), "CHANGED\tteam proj, port 6169")
+	wzLack(t, "stderr", h.err(), "run ccy --teams")
+}
+
+func TestWizardForTheChooserCancelledReturnsNoTeam(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzExit(130))
+	team, code := h.c.RunForChooser(context.Background())
+	wzCode(t, code, term.ExitCancelled, h)
+	if team != "" || len(h.applied) != 0 {
+		t.Fatalf("team %q applied %v", team, h.applied)
+	}
+}
+
 func TestWizardRunsItsStepsInTheDocumentedOrder(t *testing.T) {
 	h := newWzHarness(t)
 	h.happyAnswers()
 	wzCode(t, h.invoke(), 0, h)
 	order := []string{
 		"gum style --bold", "gum choose", "gum input --header Repositories", "gh api repos/example-org/proj",
-		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --dry-run",
+		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --description Builds the example site --dry-run",
 		"gum confirm --default=true Create team",
-		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj",
+		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create --file " + wzHostVars + " --team proj --human owner --repo example-org/proj --description Builds the example site",
 		"env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare element",
 		"gum confirm --default=true Sign owner in",
 		"gum confirm --default=true Open proj",
@@ -365,7 +407,7 @@ func TestWizardOutsideACheckoutOffersTheOwnerFirstAndNoDefaults(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("git rev-parse", wzExit(128)) // not a work tree
 	h.run.queue("gum choose", wzOK(scopeOwner+"\n"))
-	h.run.queue("gum input", wzOK("Example-Org\n"), wzOK("example-org\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("Example-Org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "choose", strings.Join(h.run.matching("gum choose"), "\n"),
@@ -387,7 +429,7 @@ func TestWizardOutsideACheckoutOffersTheOwnerFirstAndNoDefaults(t *testing.T) {
 func TestWizardInACheckoutOffersTheOwnerOfThatCheckoutSecond(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeOwner+": example-org\n"))
-	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "choose", strings.Join(h.run.matching("gum choose"), "\n"),
@@ -401,7 +443,7 @@ func TestAnOwnerGitHubDoesNotKnowIsRefusedWithAReason(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum spin", wzExit(1))
 	h.run.queue("gum choose", wzOK(scopeOwner+": example-org\n"))
-	h.run.queue("gum input", wzOK("nope\n"), wzOK("example-org\n"), wzOK("example-org\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("nope\n"), wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "GitHub has no user or organisation called 'nope' that your gh login can see. Try again.")
@@ -439,7 +481,7 @@ func TestThreeRefusedTriesEndTheRunWithNothingChanged(t *testing.T) {
 func TestAnEmptyTeamNameIsRefused(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("  \n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("  \n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "  the team needs a name. Try again.")
@@ -450,7 +492,7 @@ func TestARefusedAnswerComesBackAsTypedNotLowerCased(t *testing.T) {
 	h.fake.On(wzDP("check", "--repo", "bad"), wzRefuse("declare: --repo: no"))
 	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
 	typed := "Example-Org/Alpha, example-org/readonly, other/missing, bad"
-	h.run.queue("gum input", wzOK(typed+"\n"), wzOK("example-org/alpha,other/tool\n"), wzOK("alpha\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK(typed+"\n"), wzOK("example-org/alpha,other/tool\n"), wzOK("alpha\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	e := h.err()
@@ -469,7 +511,7 @@ func TestARefusedAnswerComesBackAsTypedNotLowerCased(t *testing.T) {
 func TestAnEmptyRepositoryListIsRefused(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
-	h.run.queue("gum input", wzOK(" , \n"), wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK(" , \n"), wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "  name at least one repository, as owner/repo. Try again.")
@@ -479,7 +521,7 @@ func TestTheWholeRepositoryListIsCheckedAgainstTheTeamFile(t *testing.T) {
 	h := newWzHarness(t)
 	h.fake.On(wzDP("check", "--repo", "example-org/proj", "--repo", "other/tool"), wzRefuse("declare: --repo: at most 1 here"))
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj, other/tool\n"), wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj, other/tool\n"), wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "  --repo: at most 1 here. Try again.")
@@ -489,7 +531,7 @@ func TestAnInnerSpaceIsRefusedNotDeleted(t *testing.T) {
 	h := newWzHarness(t)
 	h.fake.On(wzDP("check", "--repo", "example-org/pro j"), wzRefuse("declare: --repo: not OWNER/REPO"))
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/pro j\n"), wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/pro j\n"), wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "example-org/pro j: not OWNER/REPO")
@@ -505,7 +547,7 @@ func TestAnInnerSpaceIsRefusedNotDeleted(t *testing.T) {
 func TestPeopleAreSplitOnCommasAndCheckedTogether(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK(" owner ,colleague,, \n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK(" owner ,colleague,, \n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	if !h.run.called(strings.Join(wzDP("check", "--human", "owner", "--human", "colleague"), " ")) {
@@ -519,7 +561,7 @@ func TestPeopleAreSplitOnCommasAndCheckedTogether(t *testing.T) {
 func TestPeopleNamedByNobodyAreRefused(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK(",\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK(",\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "  name at least one person; your own login name is the usual answer. Try again.")
@@ -529,7 +571,7 @@ func TestALoginThatCannotBeAnAccountHasNoDefault(t *testing.T) {
 	h := newWzHarness(t)
 	h.fake.On(wzDP("check", "--human", "owner"), wzRefuse("declare: --human: owner is reserved"))
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("alice\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("alice\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(),
@@ -542,7 +584,7 @@ func TestOtherMachinesAreCheckedAndListed(t *testing.T) {
 	h := newWzHarness(t)
 	h.fake.On(wzDP("check", "--allow-from", "300.0.0.0/8"), wzRefuse("declare: --allow-from: not a CIDR"))
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("300.0.0.0/8\n"), wzOK("192.0.2.0/24, 198.51.100.0/24\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("300.0.0.0/8\n"), wzOK("192.0.2.0/24, 198.51.100.0/24\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	wzContain(t, "stderr", h.err(), "  --allow-from: not a CIDR. Try again.", "✓ 192.0.2.0/24 198.51.100.0/24")
@@ -562,11 +604,11 @@ func TestAMachineWithNoBusAddressAsksForOneAndDeclaresItWithTheTeam(t *testing.T
 	h.fake.On(wzDP("address"), wzOK(""))
 	h.fake.On(wzDPBare("check-address", "--address", "=not-an-ip"), wzRefuse("declare: --address: not an IP address"))
 	h.run.queue("gum choose", wzOK(scopeOwner+"\n"))
-	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("owner\n"), wzOK("\n"), wzOK("=not-an-ip\n"), wzOK("192.0.2.10\n"))
+	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"), wzOK("=not-an-ip\n"), wzOK("192.0.2.10\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	e := h.err()
-	wzContain(t, "stderr", e, "6/6  Bus address", "not an IP address. Try again.", "✓ 192.0.2.10")
+	wzContain(t, "stderr", e, "7/7  Bus address", "not an IP address. Try again.", "✓ 192.0.2.10")
 	wzContain(t, "explanation", h.boxes(), "Every team's room lives at one address of this machine")
 	wzContain(t, "bus input", h.run.matching("gum input --header This machine's bus address")[1], "--value =not-an-ip")
 	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"), "--org example-org --address 192.0.2.10")
@@ -591,12 +633,12 @@ func TestEscOnAnyQuestionCancelsWithNothingChanged(t *testing.T) {
 		}},
 		{"summary Ctrl-C", func(h *wzHarness) {
 			h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-			h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+			h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 			h.run.queue("gum confirm", wzExit(130))
 		}},
 		{"sign-in offer Ctrl-C", func(h *wzHarness) {
 			h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-			h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+			h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 			h.run.queue("gum confirm", wzOK(""), wzExit(130))
 		}},
 	}
@@ -624,7 +666,7 @@ func TestCancellingBeforeTheSummaryWritesNothing(t *testing.T) {
 func TestNoAtTheSummaryAddsNothing(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzExit(1))
 	wzCode(t, h.invoke(), 1, h)
 	wzContain(t, "stderr", h.err(), "Nothing was added.")
@@ -644,7 +686,7 @@ func TestADryRunTheTeamFileRefusesStopsBeforeAnythingIsAsked(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("declare create --dry-run", execx.Result{ExitCode: 78, Stderr: []byte("declare: team file: too many\n")})
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	wzCode(t, h.invoke(), 78, h)
 	wzContain(t, "stderr", h.err(), "declare: team file: too many")
 	if h.run.called("gum confirm") {
@@ -657,7 +699,7 @@ func TestADryRunTheTeamFileRefusesStopsBeforeAnythingIsAsked(t *testing.T) {
 func TestYesWithEveryValueCreatesInstallsAndPrintsTheNextSteps(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "Example-Org"), 0, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "Example-Org"), 0, h)
 	wzContain(t, "stdout", h.stdout.String(), "CHANGED\tteam proj, port 6169")
 	if len(h.applied) != 1 || h.applied[0][0] != "beta" {
 		t.Errorf("applied %v", h.applied)
@@ -688,7 +730,7 @@ func TestYesWithEveryValueCreatesInstallsAndPrintsTheNextSteps(t *testing.T) {
 func TestYesChecksTheOrgOnGitHubAsTheQuestionWould(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
 	if !h.run.called("gh auth status") || !h.run.called("gh api users/example-org --silent") {
 		t.Errorf("not looked up: %v", h.run.lines())
 	}
@@ -697,7 +739,7 @@ func TestYesChecksTheOrgOnGitHubAsTheQuestionWould(t *testing.T) {
 	}
 	h = newWzHarness(t)
 	h.tty = false
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "nope"), 1, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "nope"), 1, h)
 	wzContain(t, "stderr", h.err(),
 		"GitHub has no user or organisation called 'nope' that your gh login can see.",
 		"ERROR: create stopped: fix the organisation above (or drop it); nothing was written.")
@@ -709,13 +751,13 @@ func TestYesChecksTheOrgOnGitHubAsTheQuestionWould(t *testing.T) {
 
 func TestAnOrgGivenAsAFlagIsCheckedInTheInteractiveRunToo(t *testing.T) {
 	h := newWzHarness(t)
-	h.run.queue("gum input", wzOK("beta\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("beta\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke("--org", "example-org"), 0, h)
 	if !h.run.called("gh auth status") || !h.run.called("gum spin --title Looking up example-org on GitHub… -- gh api users/example-org --silent") {
 		t.Errorf("not looked up: %v", h.run.lines())
 	}
-	wzContain(t, "steps", h.err(), "1/3  Team name", "3/3  Other machines")
+	wzContain(t, "steps", h.err(), "1/4  Team name", "4/4  Other machines")
 	h = newWzHarness(t)
 	h.run.queue("gum spin", wzExit(1))
 	wzCode(t, h.invoke("--org", "nope"), 1, h)
@@ -726,7 +768,7 @@ func TestYesChecksEveryRepositoryAndNamesTheBadOnes(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	h.fake.On(wzDP("check", "--repo", "bad"), wzRefuse("declare: --repo: no"))
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--repo", "example-org/proj",
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--repo", "example-org/proj",
 		"--repo", "example-org/readonly", "--repo", "other/missing", "--repo", "bad"), 1, h)
 	e := h.err()
 	wzContain(t, "stderr", e, "example-org/readonly: read-only", "other/missing: not found", "bad: not OWNER/REPO",
@@ -740,7 +782,7 @@ func TestYesChecksEveryRepositoryAndNamesTheBadOnes(t *testing.T) {
 func TestYesWithGoodRepositoriesWritesThem(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--repo", "Example-Org/Proj", "--repo", "other/tool"), 0, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--repo", "Example-Org/Proj", "--repo", "other/tool"), 0, h)
 	for _, r := range []string{"example-org/proj", "other/tool"} {
 		if !h.run.called("gh api repos/" + r + " --jq .permissions.push") {
 			t.Errorf("%s not checked", r)
@@ -756,7 +798,7 @@ func TestYesWithNoBusAddressPassesDeclaresRefusalThrough(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	h.run.queue("declare create", execx.Result{ExitCode: 78, Stderr: []byte("declare: no bus address: run ccy-teams create on a terminal\n")})
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 78, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 78, h)
 	wzContain(t, "stderr", h.err(), "declare: no bus address: run ccy-teams create on a terminal")
 	wzLack(t, "stderr", h.err(), "localhost.yml")
 	if len(h.applied) != 0 {
@@ -768,11 +810,61 @@ func TestAFailedInstallSaysHowToRetry(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	h.applyErr = errors.New("play failed")
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
 	wzContain(t, "stderr", h.err(),
-		"ERROR: team beta is declared in ~/fd/localhost.yml but not installed. Once the cause above is fixed, ccy-teams apply beta installs it.")
+		"ERROR: team beta is declared in ~/fd/localhost.yml but not applied as declared. Once the cause above is fixed, ccy-teams apply beta applies it.")
 	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare next-steps") {
 		t.Error("next steps after a failed install")
+	}
+}
+
+// The play made the person's account before the apply failed, so the sign-in is still looked
+// at (asked on a terminal, said otherwise) and the failure still stands.
+func TestAFailedInstallStillLooksAtTheSignInOfThePeopleMade(t *testing.T) {
+	for _, tty := range []bool{false, true} {
+		h := newWzHarness(t)
+		h.tty = tty
+		h.applyErr = errors.New("play failed")
+		wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
+		if len(h.signIn) != 1 || h.signIn[0] != "beta ask=false" {
+			t.Errorf("tty %v: sign-in looked at %v", tty, h.signIn)
+		}
+		wzContain(t, "stderr", h.err(), "ccy-teams apply beta applies it.")
+	}
+}
+
+func TestAnInteractiveFailedInstallOffersTheSignInBeforeItsFailure(t *testing.T) {
+	h := newWzHarness(t)
+	h.applyErr = errors.New("play failed")
+	h.run.queue("gum choose", wzOK(scopeRepos+", starting with example-org/proj\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzOK(""))
+	wzCode(t, h.invoke(), 1, h)
+	if len(h.signIn) != 1 || h.signIn[0] != "proj ask=true" {
+		t.Errorf("sign-in looked at %v", h.signIn)
+	}
+	if h.pwd != nil {
+		t.Errorf("the success path's offer ran as well: %v", h.pwd)
+	}
+}
+
+// A sign-in offer that breaks is said, and the failed apply keeps its own message and exit.
+func TestAFailedInstallKeepsItsMessageAndExitWhenTheSignInOfferBreaks(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	h.applyErr = errors.New("play failed")
+	h.c.SignInGap = func(context.Context, []string, bool) error { return errors.New("gum broke") }
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
+	wzContain(t, "stderr", h.err(), "gum broke", "ccy-teams apply beta applies it.")
+	wzLack(t, "stderr", h.err(), "nothing was changed")
+}
+
+func TestAPassedInstallLeavesTheSignInToItsOwnOffer(t *testing.T) {
+	h := newWzHarness(t)
+	h.happyAnswers()
+	wzCode(t, h.invoke(), 0, h)
+	if len(h.signIn) != 0 {
+		t.Errorf("sign-in looked at twice: %v", h.signIn)
 	}
 }
 
@@ -780,7 +872,7 @@ func TestAnElementEntryThatCannotBeDeclaredFailsBeforeTheInstall(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	h.fake.On(wzDP("element"), execx.Result{ExitCode: 78, Stderr: []byte("declare: team beta has no listen address\n")})
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 78, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 78, h)
 	if len(h.applied) != 0 {
 		t.Error("installed after a failed profile")
 	}
@@ -790,7 +882,7 @@ func TestAnUnchangedCreatePrintsUNCHANGED(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	h.fake.On(wzDP("create"), wzOK("UNCHANGED\tbeta\n"))
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
 	if got := h.stdout.String(); got != "UNCHANGED\tbeta\n" {
 		t.Errorf("stdout %q", got)
 	}
@@ -816,7 +908,7 @@ func TestFlagsNeedValuesAndUnknownOnesAreRefused(t *testing.T) {
 func TestAFlagValueMayLookLikeAFlag(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
-	wzCode(t, h.invoke("--yes", "--team", "--yes", "--human", "owner", "--org", "example-org"), 0, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "--yes", "--human", "owner", "--org", "example-org"), 0, h)
 	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"), "--team --yes")
 }
 
@@ -853,7 +945,7 @@ func TestWithoutGhTheWizardNamesThePlayThatInstallsIt(t *testing.T) {
 func TestGhNeedsNoteWhenEveryScopeIsGivenAsRepositories(t *testing.T) {
 	h := newWzHarness(t)
 	h.missing["gh"] = true
-	h.run.queue("gum input", wzOK("beta\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("beta\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzExit(1))
 	// interactive with --repo: no question is asked about GitHub, so gh is not needed
 	wzCode(t, h.invoke("--repo", "example-org/proj"), 0, h)
@@ -885,7 +977,7 @@ func TestACheckoutWithNoRemoteHasNoDefaultRepository(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("git remote", wzExit(2))
 	h.run.queue("gum choose", wzOK(scopeOwner+"\n"))
-	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org\n"), wzOK("example-org\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare github-remote") {
@@ -921,7 +1013,7 @@ func TestAGumThatCannotRunEndsTheRunWithAnError(t *testing.T) {
 func TestAcceptingTheSignInAndElementOffersRunThem(t *testing.T) {
 	h := newWzHarness(t)
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner, colleague\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner, colleague\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzOK(""), wzExit(1), wzOK(""), wzExit(1))
 	wzCode(t, h.invoke(), 0, h)
 	if !slices.Equal(h.pwd, []string{"proj/owner"}) {
@@ -955,7 +1047,7 @@ func TestACancelInsideAnOfferCancelsTheRun(t *testing.T) {
 	h := newWzHarness(t)
 	h.pwdErr = fmt.Errorf("password: %w", ui.ErrCancelled)
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
-	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
 	h.run.queue("gum confirm", wzOK(""), wzOK(""))
 	wzCode(t, h.invoke(), 130, h)
 	wzContain(t, "stderr", h.err(), "Cancelled; nothing was changed.")
@@ -973,7 +1065,7 @@ func TestTheNextStepsDoNotRepeatTheOffersJustMade(t *testing.T) {
 func TestTheNextStepsKeepEveryLineWhenNothingWasOffered(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
 	wzContain(t, "stderr", h.err(), "  Sign in      Enter on your name", "  Element      Enter on the team, then choose Open in Element")
 }
 
@@ -981,7 +1073,7 @@ func TestNextStepsThatCannotBeReadEndTheRun(t *testing.T) {
 	h := newWzHarness(t)
 	h.tty = false
 	h.fake.On(wzDP("next-steps"), execx.Result{ExitCode: 78, Stderr: []byte("declare: team beta is not declared\n")})
-	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 78, h)
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 78, h)
 }
 
 // ── offer_join ───────────────────────────────────────────────────────────────────────────
@@ -1068,4 +1160,77 @@ func TestAHardFailureOfACheckerEndsTheRunNotTheRetries(t *testing.T) {
 	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
 	wzCode(t, h.invoke(), 1, h)
 	wzContain(t, "stderr", h.err(), "ERROR:")
+}
+
+// ── the description (Plan 00201 S-A14) ───────────────────────────────────────────────────
+
+func TestTheWizardAsksWhatTheTeamIsForAndShowsItInTheSummary(t *testing.T) {
+	h := newWzHarness(t)
+	h.happyAnswers()
+	wzCode(t, h.invoke(), 0, h)
+	wzContain(t, "stderr", h.err(), "What is this team for")
+	wzContain(t, "summary", h.boxes(), "For       Builds the example site")
+	if !h.run.called(strings.Join(wzDP("check", "--description", "Builds the example site"), " ")) {
+		t.Errorf("the answer was not checked: %v", h.run.lines())
+	}
+	order := []string{"gum input --header Team name", "gum input --header What is this team for?", "gum input --header People"}
+	last := -1
+	for _, prefix := range order {
+		at := -1
+		for i, l := range h.run.lines() {
+			if i > last && strings.HasPrefix(l, prefix) {
+				at = i
+				break
+			}
+		}
+		if at < 0 {
+			t.Fatalf("%q does not come after step %d", prefix, last)
+		}
+		last = at
+	}
+}
+
+func TestARefusedDescriptionIsAskedAgainAsTyped(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("bad one\n"), wzOK("Builds the example site\n"), wzOK("owner\n"), wzOK("\n"))
+	h.fake.On(wzDP("check", "--description", "bad one"), wzRefuse("declare: --description: team file: description: must be 1 to 120 characters"))
+	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzOK(""))
+	wzCode(t, h.invoke(), 0, h)
+	wzContain(t, "stderr", h.err(), "must be 1 to 120 characters")
+	inputs := h.run.matching("gum input --header What is this team for?")
+	if len(inputs) != 2 || !strings.Contains(inputs[1], "--value bad one") {
+		t.Errorf("the second try starts from what was typed: %v", inputs)
+	}
+}
+
+func TestADescriptionGivenAsAFlagIsNotAskedAndIsChecked(t *testing.T) {
+	h := newWzHarness(t)
+	h.run.queue("gum choose", wzOK(scopeRepos+"\n"))
+	h.run.queue("gum input", wzOK("example-org/proj\n"), wzOK("proj\n"), wzOK("owner\n"), wzOK("\n"))
+	h.run.queue("gum confirm", wzOK(""), wzExit(1), wzExit(1), wzOK(""))
+	wzCode(t, h.invoke("--description", "Flag given"), 0, h)
+	if h.run.called("gum input --header What is this team for?") {
+		t.Error("asked for what the flag gave")
+	}
+	wzContain(t, "summary", h.boxes(), "For       Flag given")
+	wzContain(t, "stderr", h.err(), "1/5  What the team works on")
+}
+
+func TestYesNeedsADescription(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 64, h)
+	wzContain(t, "stderr", h.err(), "create's --yes needs --description", "See ccy-teams --help.")
+	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare create") || len(h.applied) != 0 {
+		t.Error("something was written or installed")
+	}
+}
+
+func TestYesPassesTheDescriptionToTheEntry(t *testing.T) {
+	h := newWzHarness(t)
+	h.tty = false
+	wzCode(t, h.invoke("--yes", "--description", "Builds the site", "--team", "beta", "--human", "owner", "--org", "example-org"), 0, h)
+	wzContain(t, "create", strings.Join(h.run.matching("env "), "\n"),
+		"create --file "+wzHostVars+" --team beta --human owner --org example-org --description Builds the site")
 }

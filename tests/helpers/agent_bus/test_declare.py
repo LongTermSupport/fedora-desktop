@@ -26,7 +26,7 @@ from collections.abc import Sequence
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.agent_bus import declare, teamfile
+from helpers.agent_bus import bridge, declare, teamfile
 from helpers.pingbus import bundle
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -225,7 +225,8 @@ class CreateTest(unittest.TestCase):
     """create takes every value as a flag and prompts for nothing: ccy-teams asks the
     questions (with gum) and calls it with the answers."""
 
-    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org")
+    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org",
+             "--description", "Builds the example site")
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -268,7 +269,8 @@ class CreateTest(unittest.TestCase):
     def test_repositories_instead_of_an_org(self) -> None:
         """Task 4.9: a team of one or several repositories, of any owners, each on any branch
         (no `branches`), and no org."""
-        flags = ("--team", "beta", "--human", "owner", "--repo", "example-org/one", "--repo", "other/tool")
+        flags = ("--team", "beta", "--human", "owner", "--repo", "example-org/one", "--repo", "other/tool",
+                 "--description", "Builds the site")
         self.assertEqual(self.run_create(flags), 0, self.stderr.getvalue())
         text = self.path.read_text(encoding="utf-8")
         self.assertIn('repos: [{"repo": "example-org/one"}, {"repo": "other/tool"}]', text)
@@ -278,8 +280,26 @@ class CreateTest(unittest.TestCase):
         said = self.next_steps("beta")
         self.assertIn("example-org/one or other/tool", said)
 
+    def test_the_description_is_required_and_written_as_a_json_string(self) -> None:
+        """S-A5: create needs --description; the entry carries it, flow style as the other keys."""
+        flags = [f for f in self.FLAGS[:6]]
+        self.assertEqual(self.run_create(flags), 64)
+        self.assertIn("create needs --description", self.stderr.getvalue())
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+        self.assertEqual(self.run_create(self.FLAGS), 0, self.stderr.getvalue())
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn('    description: "Builds the example site"\n', text)
+        beta = declare.entry_of(next(t for t in declare.parse(text).teams if t.team == "beta"))
+        self.assertEqual(teamfile.parse_team_file(beta).description, "Builds the example site")
+
+    def test_a_bad_description_is_refused_naming_the_rule(self) -> None:
+        for bad in ("", " padded ", "two\nlines", "x" * 121):
+            self.assertEqual(self.run_create([*self.FLAGS[:6], "--description", bad]), 64, repr(bad))
+        self.assertIn("description", self.stderr.getvalue())
+        self.assertEqual(self.path.read_text(encoding="utf-8"), WITH_TEAMS)
+
     def test_org_or_repos_is_required(self) -> None:
-        self.assertEqual(self.run_create(("--team", "beta", "--human", "owner")), 64)
+        self.assertEqual(self.run_create(("--team", "beta", "--human", "owner", "--description", "d")), 64)
         self.assertIn("--org or --repo", self.stderr.getvalue())
 
     def test_allow_from(self) -> None:
@@ -295,7 +315,7 @@ class CreateTest(unittest.TestCase):
         self.assertNotIn("CHANGED", self.stdout.getvalue())
 
     def test_every_value_is_required(self) -> None:
-        for missing in ("--team", "--human", "--org"):
+        for missing in ("--team", "--human", "--org", "--description"):
             flags = list(self.FLAGS)
             at = flags.index(missing)
             del flags[at:at + 2]
@@ -370,6 +390,13 @@ class CheckTest(unittest.TestCase):
             self.assertEqual(code, 64, value)
             self.assertIn(said, err)
 
+    def test_description_alone_is_checked(self) -> None:
+        self.assertEqual(self.check("--description", "Builds the example site"), (0, ""))
+        for bad in ("", " padded", "a\nb", "x" * 121):
+            code, err = self.check("--description", bad)
+            self.assertEqual(code, 64, repr(bad))
+            self.assertIn("description", err)
+
     def test_too_many_repositories(self) -> None:
         flags = [arg for i in range(declare.protocol.REPOS_MAX + 1) for arg in ("--repo", f"o/r{i}")]
         code, err = self.check(*flags)
@@ -427,8 +454,8 @@ class DeclaredTest(unittest.TestCase):
             code = declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=stderr)
         self.assertEqual(code, 0)
         self.assertEqual(stdout.getvalue(),
-                         "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\n"
-                         "TEAM\told\t-\tabsent\told.agent-bus.internal\t-\n")
+                         "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t-\n"
+                         "TEAM\told\t-\tabsent\told.agent-bus.internal\t-\t-\n")
 
     def test_a_missing_file_is_refused(self) -> None:
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -544,7 +571,8 @@ class StatusTest(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         flags = [f for team in installed for f in ("--installed", team)]
         code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
-                             "--applied", str(self.applied), *flags], stdout=stdout, stderr=stderr)
+                             "--applied", str(self.applied), *flags], stdout=stdout, stderr=stderr,
+                            bridge_cidr=lambda: None)
         self.assertEqual(code, 0, stderr.getvalue())
         return [line.split("\t") for line in stdout.getvalue().splitlines()]
 
@@ -591,15 +619,78 @@ class StatusTest(unittest.TestCase):
         for command in ("declared", "status", "overview"):
             stdout = io.StringIO()
             args = argv if command != "declared" else argv[:2]
-            self.assertEqual(declare.main([command, *args], stdout=stdout, stderr=io.StringIO()), 0)
+            self.assertEqual(declare.main([command, *args], stdout=stdout, stderr=io.StringIO(),
+                                         bridge_cidr=lambda: None), 0)
             out[command] = stdout.getvalue()
         self.assertEqual(out["overview"], out["declared"] + out["status"])
 
     def test_a_malformed_stamp_is_refused(self) -> None:
         (self.applied / "alpha.json").write_text('{"v": 1}', encoding="utf-8")
         code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
-                             "--applied", str(self.applied)], stdout=io.StringIO(), stderr=io.StringIO())
+                             "--applied", str(self.applied)], stdout=io.StringIO(), stderr=io.StringIO(),
+                            bridge_cidr=lambda: None)
         self.assertEqual(code, 78)
+
+
+class BridgeStatusTest(unittest.TestCase):
+    """The play stamps the digest of the team file it rendered, bridge subnet included; the
+    status must compute that same digest (the regression: every team read `outdated: config`)."""
+
+    CIDR = "198.51.100.0/24"
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.path = self.tmp / "localhost.yml"
+        self.path.write_text(STATUS_HV, encoding="utf-8")
+        self.applied = self.tmp / "applied"
+        self.applied.mkdir()
+        self.software = declare.declared_software(REPO_ROOT)
+        self.alpha = next(t for t in declare.parse(STATUS_HV).teams if t.team == "alpha")
+
+    def play_stamp(self, cidr: str | None) -> None:
+        """What the installer stamps: the digest of the team file the play rendered."""
+        entry = dict(declare.entry_of(self.alpha))
+        entry["allow_from"] = bridge.effective(entry.get("allow_from"), cidr)
+        config = teamfile.config_digest(teamfile.parse_team_file(dict(entry, state="present")))
+        (self.applied / "alpha.json").write_text(json.dumps(
+            {"v": 1, "team": "alpha", "config": config, "software": self.software}), encoding="utf-8")
+
+    def alpha_row(self, cidr: str | None) -> list[str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
+                             "--applied", str(self.applied)], stdout=stdout, stderr=stderr,
+                            bridge_cidr=lambda: cidr)
+        self.assertEqual(code, 0, stderr.getvalue())
+        return next(line.split("\t") for line in stdout.getvalue().splitlines() if "\talpha\t" in line)
+
+    def test_a_stamp_from_the_bridge_augmented_file_reads_back_current(self) -> None:
+        self.play_stamp(self.CIDR)
+        self.assertEqual(self.alpha_row(self.CIDR), ["STATUS", "alpha", "current", "-"])
+
+    def test_a_bare_digest_is_outdated_once_the_bridge_exists(self) -> None:
+        self.play_stamp(None)
+        self.assertEqual(self.alpha_row(self.CIDR)[2:], ["outdated", "config"])
+
+    def test_no_bridge_is_the_bare_entry(self) -> None:
+        self.play_stamp(None)
+        self.assertEqual(self.alpha_row(None), ["STATUS", "alpha", "current", "-"])
+        self.assertEqual(declare.declared_config(self.alpha), declare.declared_config(self.alpha, None))
+
+    def test_a_declared_bridge_cidr_is_not_doubled(self) -> None:
+        hv = STATUS_HV.replace("allow_from: []", f'allow_from: ["{self.CIDR}"]', 1)
+        self.assertNotEqual(hv, STATUS_HV)
+        team = next(t for t in declare.parse(hv).teams if t.team == "alpha")
+        self.assertEqual(declare.declared_config(team, self.CIDR), declare.declared_config(team))
+
+    def test_a_broken_bridge_refuses_the_status(self) -> None:
+        def broken() -> str | None:
+            raise bridge.BridgeError("bridge lxcbr0 exists but has no IPv4 address: lxc-net is broken")
+        stderr = io.StringIO()
+        code = declare.main(["status", "--file", str(self.path), "--source", str(REPO_ROOT),
+                             "--applied", str(self.applied)], stdout=io.StringIO(), stderr=stderr,
+                            bridge_cidr=broken)
+        self.assertEqual(code, 78)
+        self.assertIn("lxc-net", stderr.getvalue())
 
 
 class RemoveTest(unittest.TestCase):
@@ -638,6 +729,65 @@ class RemoveTest(unittest.TestCase):
         self.assertEqual(self.remove("--team", "nosuch")[0], 64)
 
 
+class DescriptionFieldTest(unittest.TestCase):
+    """S-A7: the seventh TEAM field is the description as a JSON string, or a bare `-`."""
+
+    def test_json_string_or_dash(self) -> None:
+        text = WITH_TEAMS.replace("    port: 6167\n", '    port: 6167\n    description: "Builds: the \\"site\\""\n', 1)
+        text = text.replace("  - team: \"old\"\n", '  - team: "old"\n    description: "-"\n', 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "localhost.yml"
+            path.write_text(text, encoding="utf-8")
+            stdout = io.StringIO()
+            self.assertEqual(declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=io.StringIO()), 0)
+        rows = [line.split("\t") for line in stdout.getvalue().splitlines()]
+        self.assertEqual(len(rows[0]), 7)
+        self.assertEqual(json.loads(rows[0][6]), 'Builds: the "site"')
+        self.assertEqual(rows[1][6], '"-"')
+
+    def test_a_hash_inside_the_quotes_is_not_a_comment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "localhost.yml"
+            path.write_text(STATUS_HV, encoding="utf-8")
+            for said in ('Fix bug #5 "now"', "Café \\ team"):
+                out, err = io.StringIO(), io.StringIO()
+                self.assertEqual(declare.main(["describe", "--file", str(path), "--team", "alpha",
+                                               "--description", said], stdout=out, stderr=err), 0, err.getvalue())
+                alpha = declare.parse(path.read_text(encoding="utf-8")).teams[0]
+                self.assertEqual(declare.entry_of(alpha)["description"], said)
+            path.write_text(STATUS_HV.replace("  - team: alpha\n", '  - team: alpha\n    description: "A # b"  # note\n', 1),
+                            encoding="utf-8")
+            self.assertEqual(declare.entry_of(declare.parse(path.read_text(encoding="utf-8")).teams[0])["description"],
+                             "A # b")
+
+    def listing(self, injected: str) -> list[list[str]]:
+        text = STATUS_HV.replace("  - team: gamma\n", "  - team: gamma\n" + injected, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "localhost.yml"
+            path.write_text(text, encoding="utf-8")
+            stdout = io.StringIO()
+            self.assertEqual(declare.main(["declared", "--file", str(path)], stdout=stdout, stderr=io.StringIO()), 0)
+        rows = [line.split("\t") for line in stdout.getvalue().splitlines()]
+        self.assertEqual(len(rows), 5)
+        self.assertTrue(all(len(r) == 7 for r in rows))
+        return rows
+
+    def test_a_vaulted_description_is_marked_vaulted_not_none(self) -> None:
+        rows = self.listing("    description: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n")
+        self.assertEqual(rows[2][6], "!vaulted")
+
+    def test_only_the_vault_error_is_vaulted_every_other_unreadable_value_is_invalid(self) -> None:
+        for odd in ("    description: [\"a\"]\n", "    description:\n", "    description: a\n      b\n"):
+            with self.subTest(odd=odd):
+                self.assertEqual(self.listing(odd)[2][6], "!invalid", odd)
+
+    def test_a_description_that_fails_the_grammar_never_reaches_the_listing(self) -> None:
+        for bad in ('"a\\tb"', '"x\\ny"', '" padded"', '"' + "x" * 121 + '"', '"a\\u202eb"'):
+            with self.subTest(bad=bad):
+                rows = self.listing(f"    description: {bad}\n")
+                self.assertEqual(rows[2][6], "!invalid")
+
+
 class CommandCase(unittest.TestCase):
     TEXT = STATUS_HV
 
@@ -650,6 +800,62 @@ class CommandCase(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         code = declare.main([argv[0], "--file", str(self.path), *argv[1:]], stdout=stdout, stderr=stderr)
         return code, stdout.getvalue(), stderr.getvalue()
+
+
+class DescribeTest(CommandCase):
+    """S-A6: describe sets or replaces a present team's description, nothing else touched."""
+
+    def test_set_where_there_was_none_and_nothing_else_changed(self) -> None:
+        before = declare.entry_of(declare.parse(STATUS_HV).teams[0])
+        code, out, err = self.run_cmd("describe", "--team", "alpha", "--description", "Builds the site")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam alpha description\n")
+        text = self.path.read_text()
+        self.assertEqual(text, STATUS_HV.replace("  - team: alpha\n",
+                                                 '  - team: alpha\n    description: "Builds the site"\n', 1))
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[0]), dict(before, description="Builds the site"))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+
+    def test_replaced_in_place_and_unchanged_when_equal(self) -> None:
+        self.run_cmd("describe", "--team", "beta", "--description", "First")
+        self.assertEqual(self.run_cmd("describe", "--team", "beta", "--description", "First")[:2],
+                         (0, "UNCHANGED\tbeta\n"))
+        code, out, _ = self.run_cmd("describe", "--team", "beta", "--description", "Second")
+        self.assertEqual((code, out), (0, "CHANGED\tteam beta description\n"))
+        text = self.path.read_text()
+        self.assertEqual(text.count("description:"), 1)
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[1])["description"], "Second")
+
+    def test_refusals_write_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("describe", "--team", "nosuch", "--description", "d")[0], 64)
+        self.assertEqual(self.run_cmd("describe", "--team", "gamma", "--description", "d")[0], 64)
+        self.assertEqual(self.run_cmd("describe", "--team", "alpha", "--description", " bad")[0], 64)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
+
+    def test_a_vaulted_description_is_refused_naming_the_line(self) -> None:
+        vaulted = STATUS_HV.replace("  - team: alpha\n", "  - team: alpha\n    description: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n", 1)
+        self.path.write_text(vaulted, encoding="utf-8")
+        code, _, err = self.run_cmd("describe", "--team", "alpha", "--description", "d")
+        self.assertEqual(code, 78)
+        self.assertIn("line 4", err)
+        self.assertEqual(self.path.read_text(), vaulted)
+
+
+class UndescribedTest(CommandCase):
+    """S-A15: the present teams that still have no description, with what they trust in words."""
+
+    def test_listed_with_their_scope(self) -> None:
+        org = "any repository of example-org"
+        self.assertEqual(self.run_cmd("undescribed")[1],
+                         f"UNDESCRIBED\talpha\t{org}\nUNDESCRIBED\tbeta\texample-org/one\n"
+                         f"UNDESCRIBED\tdelta\t{org}\nUNDESCRIBED\tvaulted\t{org}\n")
+
+    def test_a_described_team_is_left_out(self) -> None:
+        self.assertEqual(self.run_cmd("describe", "--team", "beta", "--description", "Second")[0], 0)
+        out = self.run_cmd("undescribed")[1]
+        self.assertNotIn("\tbeta\t", out)
+        self.assertEqual(out.count("UNDESCRIBED"), 3)
 
 
 class ElementTest(CommandCase):
@@ -698,6 +904,147 @@ class TeamsForTest(CommandCase):
                          "TEAM\talpha\nTEAM\tbeta\nTEAM\tdelta\nTEAM\tvaulted\n")
         self.assertEqual(self.run_cmd("teams-for", "--repo", "other/tool")[1], "")
 
+    def test_a_repository_that_is_not_owner_slash_repo_is_refused(self) -> None:
+        for bad in ("example-org", "Example-Org/two", "example-org/two/x", ""):
+            code, out, err = self.run_cmd("teams-for", "--repo", bad)
+            self.assertEqual((code, out), (64, ""), bad)
+            self.assertIn(repr(bad), err)
+
+    def test_an_org_team_does_not_cover_a_repository_it_excludes(self) -> None:
+        self.path.write_text(STATUS_HV.replace('    org: "example-org"\n',
+                                               '    org: "example-org"\n    exclude: ["two"]\n', 1))
+        # alpha trusts the org but excludes example-org/two: the bus would refuse a ping naming it.
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/two")[1],
+                         "TEAM\tdelta\nTEAM\tvaulted\n")
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/other")[1],
+                         "TEAM\talpha\nTEAM\tdelta\nTEAM\tvaulted\n")
+        # A team that lists the repository (beta) is unaffected by another team's exclude.
+        self.assertEqual(self.run_cmd("teams-for", "--repo", "example-org/one")[1],
+                         "TEAM\talpha\nTEAM\tbeta\nTEAM\tdelta\nTEAM\tvaulted\n")
+
+
+class ChoicesTest(CommandCase):
+    """S-B4: every present team with how it stands to a repository: covers, widen (a scope
+    edit would make it cover), or excluded (it refuses the repository on purpose)."""
+
+    def test_each_present_team_with_its_standing(self) -> None:
+        self.assertEqual(self.run_cmd("choices", "--repo", "example-org/two")[1],
+                         "CHOICE\talpha\tcovers\t-\nCHOICE\tbeta\twiden\t-\n"
+                         "CHOICE\tdelta\tcovers\t-\nCHOICE\tvaulted\tcovers\t-\n")
+        self.assertEqual(self.run_cmd("choices", "--repo", "other/tool")[1],
+                         "CHOICE\talpha\twiden\t-\nCHOICE\tbeta\twiden\t-\n"
+                         "CHOICE\tdelta\twiden\t-\nCHOICE\tvaulted\twiden\t-\n")
+
+    def test_a_listed_repository_covers(self) -> None:
+        self.assertIn("CHOICE\tbeta\tcovers\t-\n", self.run_cmd("choices", "--repo", "example-org/one")[1])
+
+    def test_an_org_team_that_excludes_the_repository_is_excluded_not_covering(self) -> None:
+        self.path.write_text(STATUS_HV.replace('    org: "example-org"\n',
+                                               '    org: "example-org"\n    exclude: ["two"]\n', 1))
+        out = self.run_cmd("choices", "--repo", "example-org/two")[1]
+        self.assertIn("CHOICE\talpha\texcluded\t-\n", out)
+        self.assertIn("CHOICE\tdelta\tcovers\t-\n", out)
+        # teams-for and choices agree on who covers.
+        self.assertNotIn("alpha", self.run_cmd("teams-for", "--repo", "example-org/two")[1])
+
+    def test_the_description_is_a_json_string_as_declared_prints_it(self) -> None:
+        self.run_cmd("describe", "--team", "beta", "--description", "Builds the site")
+        self.assertIn('CHOICE\tbeta\twiden\t"Builds the site"\n', self.run_cmd("choices", "--repo", "other/tool")[1])
+
+    def test_a_team_whose_scope_cannot_be_read_is_unreadable_and_does_not_end_the_listing(self) -> None:
+        self.path.write_text(STATUS_HV.replace("    org: example-org\n    path_prefixes: [\"docs/\"]\n"
+                                               "    forge_api: https://api.github.com\n  - team: vaulted",
+                                               "    org: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n"
+                                               "    forge_api: https://api.github.com\n  - team: vaulted", 1))
+        out = self.run_cmd("choices", "--repo", "example-org/two")[1]
+        self.assertIn("CHOICE\tdelta\tunreadable\t-\n", out)
+        self.assertIn("CHOICE\talpha\tcovers\t-\n", out)
+
+    def test_a_repository_that_is_not_owner_slash_repo_is_refused(self) -> None:
+        code, out, err = self.run_cmd("choices", "--repo", "Example-Org/two")
+        self.assertEqual((code, out), (64, ""))
+        self.assertIn("--repo", err)
+
+
+class AddRepoTest(CommandCase):
+    """S-B8: add-repo appends one repository to a present team's `repos`, every other line as it
+    was, read back or refused."""
+
+    def test_made_where_the_team_had_no_repos_and_nothing_else_changed(self) -> None:
+        before = declare.entry_of(declare.parse(STATUS_HV).teams[0])
+        code, out, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam alpha trusts other/tool\n")
+        text = self.path.read_text()
+        self.assertEqual(text, STATUS_HV.replace("  - team: alpha\n",
+                                                 '  - team: alpha\n    repos: [{"repo": "other/tool"}]\n', 1))
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[0]),
+                         dict(before, repos=[{"repo": "other/tool"}]))
+        self.assertEqual(len(list(self.tmp.glob("localhost.yml.backup.*"))), 1)
+        self.assertIn("CHOICE\talpha\tcovers\t-\n", self.run_cmd("choices", "--repo", "other/tool")[1])
+
+    def test_appended_to_a_one_line_list(self) -> None:
+        self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/more")[0], 0)
+        self.assertIn('    repos: [{"repo": "other/tool"}, {"repo": "other/more"}]\n', self.path.read_text())
+
+    def test_appended_to_a_block_list_after_its_last_item(self) -> None:
+        code, out, err = self.run_cmd("add-repo", "--team", "beta", "--repo", "other/tool")
+        self.assertEqual(code, 0, err)
+        text = self.path.read_text()
+        self.assertEqual(text, STATUS_HV.replace('        branches: ["main"]\n',
+                                                 '        branches: ["main"]\n      - repo: "other/tool"\n', 1))
+        self.assertEqual(declare.entry_of(declare.parse(text).teams[1])["repos"],
+                         [{"repo": "example-org/one", "branches": ["main"]}, {"repo": "other/tool"}])
+
+    def test_already_trusted_is_a_usage_error_and_writes_nothing(self) -> None:
+        for team, repo in (("beta", "example-org/one"), ("alpha", "example-org/two")):
+            code, _, err = self.run_cmd("add-repo", "--team", team, "--repo", repo)
+            self.assertEqual(code, 64, err)
+            self.assertIn("already trusts", err)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+
+    def test_a_repository_the_team_excludes_is_refused_naming_the_exclude(self) -> None:
+        self.path.write_text(STATUS_HV.replace('    org: "example-org"\n',
+                                               '    org: "example-org"\n    exclude: ["two"]\n', 1))
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "example-org/two")
+        self.assertEqual(code, 78)
+        self.assertIn("exclude", err)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_the_repos_limit_is_refused_with_78(self) -> None:
+        many = ", ".join('{"repo": "o/r%d"}' % i for i in range(declare.protocol.REPOS_MAX))
+        self.path.write_text(STATUS_HV.replace("  - team: alpha\n", f"  - team: alpha\n    repos: [{many}]\n", 1))
+        before = self.path.read_text()
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 78)
+        self.assertIn(str(declare.protocol.REPOS_MAX), err)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_a_vaulted_scope_is_refused_naming_the_line(self) -> None:
+        vaulted = STATUS_HV.replace("  - team: alpha\n", "  - team: alpha\n    repos: !vault |\n      $ANSIBLE_VAULT;1.1;AES256\n      3132\n", 1)
+        self.path.write_text(vaulted)
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 78)
+        self.assertIn("line 4", err)
+        self.assertEqual(self.path.read_text(), vaulted)
+
+    def test_a_list_line_with_a_comment_is_refused_not_rewritten(self) -> None:
+        text = STATUS_HV.replace("  - team: alpha\n", '  - team: alpha\n    repos: [{"repo": "o/r"}]   # mine\n', 1)
+        self.path.write_text(text)
+        code, _, err = self.run_cmd("add-repo", "--team", "alpha", "--repo", "other/tool")
+        self.assertEqual(code, 78)
+        self.assertIn("comment", err)
+        self.assertEqual(self.path.read_text(), text)
+
+    def test_usage_refusals_write_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("add-repo", "--team", "nosuch", "--repo", "other/tool")[0], 64)
+        self.assertEqual(self.run_cmd("add-repo", "--team", "gamma", "--repo", "other/tool")[0], 64)
+        self.assertEqual(self.run_cmd("add-repo", "--team", "alpha", "--repo", "Other/Tool")[0], 64)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(list(self.tmp.glob("localhost.yml.backup.*")), [])
+
 
 class PathLimitTest(CommandCase):
     """Task 4.7's follow-up: an entry written with the old path_prefixes default is offered
@@ -734,7 +1081,7 @@ class AddressTest(CommandCase):
     sets it through declare.py, so nobody edits the host_vars for it."""
     TEXT = "user_login: someone\n"
 
-    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org")
+    FLAGS = ("--team", "beta", "--human", "owner", "--org", "example-org", "--description", "Builds the site")
 
     def create(self, *extra: str) -> tuple[int, str, str]:
         stdout, stderr = io.StringIO(), io.StringIO()

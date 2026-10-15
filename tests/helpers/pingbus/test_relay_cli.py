@@ -415,7 +415,9 @@ class OffUnchangedTest(bus.BusCase):
         code, out, _ = self.run_cli("recv")
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(out, "\t".join(["HUMAN", "1", bus.TEAM_A, event, "alice",
-                                         str(int(bus.T0 * 1000)), '"hello"']) + "\n")
+                                         str(int(bus.T0 * 1000)), '"hello"']) + "\n"
+                         + "\t".join(["REPLY", "1", bus.TEAM_A, event,
+                                      f"pingbus --team {bus.TEAM_A} say --to alice"]) + "\n")
         self.assertEqual(self.run_cli("send", "review", bus.PATH_REF, "--to", bus.ORCH_LP)[0], cli.EXIT_OK)
         self.assertEqual(self.run_cli("say", "--to", "alice", stdin="x")[0], cli.EXIT_OK)
         names = sorted(p.name for p in self.home.iterdir())

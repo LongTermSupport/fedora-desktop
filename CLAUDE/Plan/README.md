@@ -38,6 +38,14 @@ Use these Unicode icons in plan documents:
 
 - [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
 
+- [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - In Progress. Opening a file from Nautilus opens GNOME Text Editor in a new window on the current workspace, not as a tab on another workspace
+
+- [00199-quick-markdown-viewer](00199-quick-markdown-viewer/) - In Progress. A desktop viewer that renders a Markdown file nicely and opens quickly; adopt one or build one
+
+- [00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker](00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/) - In Progress. `ccy --teams`: one session on several teams, a description for every team, and a picker instead of a hard stop when no team covers the checkout
+
+- [00200-repo-watch-list](00200-repo-watch-list/) - In Progress. A list of external public repositories scanned at intervals for ideas, with a `watchlist` Go command, a scout agent and a `/watchlist` skill; findings become issues or plans
+
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 
 - [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - Not Started. The ouch tarball is checked against a pinned sha256 (#63)
@@ -67,8 +75,6 @@ Use these Unicode icons in plan documents:
 - [00195-slack-reads-lxc-vhosts-through-project-symlinks](00195-slack-reads-lxc-vhosts-through-project-symlinks/) - In Progress (medium priority). Slack Flatpak granted `/var/lib/lxc:ro` so a file dragged from a folder symlinked into an LXC container uploads; follow-up to 00103
 
 - [00194-agent-bus-live-delivery-supervisor-plugin](00194-agent-bus-live-delivery-supervisor-plugin/) - In Progress (high priority). Agent bus messages delivered live into a ccy team session by a ccy supervisor plugin, with human and agent text kept distinct
-
-- [00193-coral-adoption-audit](00193-coral-adoption-audit/) - In Progress (medium priority). Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon: fit, how opinionated it is, adopt, fork, borrow or leave
 
 - [00192-bash-line-in-the-sand-go-for-tooling](00192-bash-line-in-the-sand-go-for-tooling/) - In Progress (high priority). No more tooling in bash: the limits in `CLAUDE.md`, a Go gate with a ratchet allowlist, project DBF rules for `src-go/`, and the bash (then standalone Python) tools rewritten in Go, one feature branch per programme
 
@@ -258,6 +264,8 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
+- [00193-coral-adoption-audit](Completed/00193-coral-adoption-audit/) - Audit of the external agent-supervision project coral against ccy, ccy-sessions, ccy-teams, the agent bus and the hooks daemon. Recommendation: leave it and borrow ideas. The owner decided it is not useful here; coral goes on the repo watch list (Plan 00200).
+
 - [00164-stt-enter-lost-after-focus-retake](Completed/00164-stt-enter-lost-after-focus-retake/) - When a dictation's window lost focus, the text was pasted back into it but the Enter did not send it. Both recorders wait for the window to keep focus before the paste and check it again before the Enter. Deployed; the owner confirmed Enter works.
 
 - [00166-laptop-panel-stays-on-with-lid-closed-when-docked](Completed/00166-laptop-panel-stays-on-with-lid-closed-when-docked/) - Docked with the lid closed, GNOME kept the laptop panel live because `IgnoreLid=true` hid the lid from UPower. The play sets `IgnoreLid=false` and asserts UPower sees the lid; deployed and accepted. Undocked suspend rows waived by the owner.
@@ -315,8 +323,6 @@ Use these Unicode icons in plan documents:
 - [00101-ccy-token-usage-via-ratelimit-headers](Completed/00101-ccy-token-usage-via-ratelimit-headers/) - Per-account 5-hour and weekly usage in `ccy`'s token menu, read from `/v1/messages` response headers behind a keypress. Shipped and deployed; the Fable allowance (Phase 6) is WON'T DO.
 
 - [00108-headless-prompt-colour](Completed/00108-headless-prompt-colour/) - A headless run answered the prompt-colour question with nothing and left `PS1_COLOUR=` on the box; run.bash 1.19.0 takes `RUN_BASH_PS1_COLOUR` and the empty answer takes the default. Proven on a headless box following this branch.
-
-- [00107-server-profile-never-grants-passwordless-sudo](Completed/00107-server-profile-never-grants-passwordless-sudo/) - The server profile declares `play-basic-configs.yml`'s passwordless-sudo block absent instead of granting it; the desktop profile is unchanged. run.bash 1.18.1 passes the become password to headless optional playbooks, a gap the grant had been masking. Proven live on a headless box.
 
 **Older completed plans** — everything beyond the most recent 30 — are in
 [Completed/README.md](Completed/README.md), moved there verbatim. The retention window

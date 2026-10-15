@@ -20,16 +20,22 @@ address (`agent_bus_address`) and `forge_api` the example's. No `path_prefixes` 
 trusted reference may name any path in the team's repositories (a team narrows it by hand).
 
     python3 -m helpers.agent_bus.declare declared --file <localhost.yml>
-        TEAM<TAB><team><TAB><port or -><TAB><present|absent><TAB><server_name><TAB><url or -> per
-        entry; the URL is http://<first listen address, or agent_bus_address>:<port>
+        TEAM<TAB><team><TAB><port or -><TAB><present|absent><TAB><server_name><TAB><url or -><TAB>
+        <description as a JSON string; - none, !vaulted, !invalid> per entry; the URL is http://<first listen address,
+        or agent_bus_address>:<port>
     python3 -m helpers.agent_bus.declare create --file <localhost.yml> --team T --human NAME...
-            (--org ORG | --repo OWNER/REPO...) [--allow-from CIDR]... [--dry-run]
+            (--org ORG | --repo OWNER/REPO...) --description TEXT [--allow-from CIDR]... [--dry-run]
         CHANGED<TAB>team <team>, port <port>, in <file>, and the next steps on stderr;
         --dry-run prints the entry's lines instead and writes nothing; ccy-teams then installs it
+    python3 -m helpers.agent_bus.declare describe --file <localhost.yml> --team T --description TEXT
+        sets or replaces a present team's description, every other line as it was:
+        CHANGED<TAB>team T description, or UNCHANGED<TAB>T; applying it restarts no homeserver
+    python3 -m helpers.agent_bus.declare undescribed --file <localhost.yml>
+        UNDESCRIBED<TAB><team><TAB><what it trusts, in words> per present team with no description
     python3 -m helpers.agent_bus.declare next-steps --file <localhost.yml> --team T
         what is left once the team is installed (sign in, Element, ccy --teams), in ccy-teams
     python3 -m helpers.agent_bus.declare check --file <localhost.yml> [--team T] [--human NAME]...
-            [--org ORG] [--repo OWNER/REPO]... [--allow-from CIDR]...
+            [--org ORG] [--repo OWNER/REPO]... [--allow-from CIDR]... [--description TEXT]
         nothing when every value given is valid; exit 64 naming the first that is not
     python3 -m helpers.agent_bus.declare suggest-team --file <localhost.yml> --name NAME
         a GitHub owner's or repository's name as a free team name, or nothing
@@ -108,7 +114,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
-from helpers.agent_bus import registry, teamfile
+from helpers.agent_bus import bridge, registry, teamfile
 from helpers.agent_bus_lxc import derive, members
 from helpers.pingbus import bundle, protocol
 
@@ -147,6 +153,10 @@ class DeclareError(Exception):
     """Refused: the message says why, and never quotes a value of the file."""
 
 
+class VaultedError(DeclareError):
+    """A value is vault-encrypted (tagged), so ccy-teams cannot read it."""
+
+
 class UsageError(Exception):
     """A flag is wrong: exit 64."""
 
@@ -177,7 +187,7 @@ def _scalar(rest: str, where: str) -> str:
     """A plain or quoted one-line scalar, its comment removed; a tag is refused."""
     value = re.sub(r"(^|\s)#.*$", "", rest).strip()
     if value.startswith("!"):
-        raise DeclareError(f"{where} is tagged (vault-encrypted?); ccy-teams reads only plain values")
+        raise VaultedError(f"{where} is tagged (vault-encrypted?); ccy-teams reads only plain values")
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         value = value[1:-1]
     return value
@@ -337,6 +347,20 @@ def _first_listen(item: dict[str, tuple[str, int]]) -> str | None:
 _INT_RE = re.compile(r"-?[0-9]+")
 
 
+def _json_string(rest: str) -> str | None:
+    """A double-quoted scalar read as the JSON string it is (so a hash inside it is text, not
+    a comment, and an escaped quote is a quote), or None when the value is not one."""
+    text = rest.strip()
+    if not text.startswith('"'):
+        return None
+    try:
+        value, end = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
+        return None
+    tail = text[end:].strip()
+    return value if isinstance(value, str) and (not tail or tail.startswith("#")) else None
+
+
 def _value(rest: str, nested: Sequence[str], where: str) -> object:
     """One value as the play reads it, in the subset ccy-teams writes and the example shows:
     a plain or quoted scalar (`true`/`false` and unquoted integers typed), a flow list or
@@ -349,6 +373,9 @@ def _value(rest: str, nested: Sequence[str], where: str) -> object:
         return _block_list(nested, where)
     if nested:
         raise DeclareError(f"{where} has a value and lines nested under it")
+    quoted = _json_string(rest)
+    if quoted is not None:
+        return quoted
     if plain[0] in "[{":
         try:
             return json.loads(plain)
@@ -421,9 +448,11 @@ def declared_software(source: pathlib.Path) -> str:
     return teamfile.software_digest(bundle.build("agent-bus", source), versions[0], installer)
 
 
-def declared_config(team: Declared) -> str:
-    """The config digest of the team file the play would render from this entry."""
+def declared_config(team: Declared, bridge_cidr: str | None = None) -> str:
+    """The config digest of the team file the play would render from this entry: its
+    allow_from is the declared list plus the live LXC bridge's subnet (`bridge_cidr`)."""
     entry = {k: v for k, v in entry_of(team).items() if k != "purge"}
+    entry["allow_from"] = bridge.effective(entry.get("allow_from"), bridge_cidr)
     try:
         return teamfile.config_digest(teamfile.parse_team_file(dict(entry, state="present")))
     except teamfile.TeamFileError as exc:
@@ -447,7 +476,7 @@ def read_stamps(applied: pathlib.Path) -> dict[str, dict]:
 
 
 def team_states(hv: HostVars, stamps: dict[str, dict], software: str,
-                installed: Sequence[str]) -> list[tuple[str, str, str]]:
+                installed: Sequence[str], bridge_cidr: str | None = None) -> list[tuple[str, str, str]]:
     """(team, state, detail) per declared team, then per applied team no longer declared."""
     rows = []
     for team in hv.teams:
@@ -456,7 +485,7 @@ def team_states(hv: HostVars, stamps: dict[str, dict], software: str,
             rows.append((team.team, DECIDE, "absent") if stamp else (team.team, REMOVED, "-"))
             continue
         try:
-            config = declared_config(team)
+            config = declared_config(team, bridge_cidr)
         except DeclareError as exc:
             rows.append((team.team, UNREADABLE, str(exc).replace("\t", " ")))
             continue
@@ -470,17 +499,21 @@ def team_states(hv: HostVars, stamps: dict[str, dict], software: str,
     return rows
 
 
-def status(args: argparse.Namespace, out: TextIO) -> int:
+def status(args: argparse.Namespace, out: TextIO, live_bridge: Callable[[], str | None] = bridge.live_subnet) -> int:
     hv = parse(_read(pathlib.Path(args.file)))
+    try:
+        cidr = live_bridge()
+    except bridge.BridgeError as exc:
+        raise DeclareError(str(exc)) from None
     rows = team_states(hv, read_stamps(pathlib.Path(args.applied)), declared_software(pathlib.Path(args.source)),
-                       args.installed or [])
+                       args.installed or [], cidr)
     out.writelines(f"STATUS\t{team}\t{state}\t{detail}\n" for team, state, detail in rows)
     return EXIT_OK
 
 
-def overview(args: argparse.Namespace, out: TextIO) -> int:
+def overview(args: argparse.Namespace, out: TextIO, live_bridge: Callable[[], str | None] = bridge.live_subnet) -> int:
     declared(args, out)
-    return status(args, out)
+    return status(args, out, live_bridge)
 
 
 def mark_absent(hv: HostVars, name: str, purge: bool) -> str:
@@ -574,12 +607,14 @@ def _repos_value(repos: Sequence[str]) -> list[dict]:
 
 
 def build_entry(*, team: str, port: int, listen: Sequence[str], allow_from: Sequence[str],
-                humans: Sequence[str], org: str | None = None, repos: Sequence[str] = ()) -> dict:
+                humans: Sequence[str], org: str | None = None, repos: Sequence[str] = (),
+                description: str | None = None) -> dict:
     """The new agent_bus_teams entry, checked by the team file's validator: it trusts the
     whole GitHub owner `org`, or the repositories `repos` (any owners), or both."""
     entry = {
         "team": team,
         "port": port,
+        **({"description": description} if description else {}),
         "listen": list(listen),
         "allow_from": list(allow_from),
         "humans": list(humans),
@@ -598,7 +633,7 @@ def render_entry(entry: dict, item_indent: int, key_indent: int) -> list[str]:
     """The entry as YAML lines in the list's indentation; lists in flow (JSON) style."""
     pad, key_pad = " " * item_indent, " " * key_indent
     lines = [f"{pad}- team: {entry['team']}\n", f"{key_pad}port: {entry['port']}\n"]
-    for key in ("listen", "allow_from", "humans", "org", "repos", "forge_api"):
+    for key in ("description", "listen", "allow_from", "humans", "org", "repos", "forge_api"):
         if key in entry:
             lines.append(f"{key_pad}{key}: {json.dumps(entry[key])}\n")
     return lines
@@ -704,6 +739,10 @@ def _check_flags(hv: HostVars, args: argparse.Namespace) -> None:
         problem = field_error("team", args.team)
         if problem:
             raise UsageError(f"--team: {problem}")
+    if args.description is not None:
+        problem = field_error("description", args.description)
+        if problem:
+            raise UsageError(f"--description: {problem}")
     for flag, key, value in (("--human", "humans", args.human), ("--allow-from", "allow_from", args.allow_from),
                              ("--org", "org", args.org),
                              ("--repo", "repos", _repos_value(args.repo) if args.repo else None)):
@@ -730,13 +769,15 @@ def create(args: argparse.Namespace, ss_output: Callable[[], str], out: TextIO, 
     elif args.address is not None:
         raise UsageError(f"--address: {ADDRESS_KEY} is already set; ccy-teams does not replace it")
     missing = [flag for flag, value in (("--team", args.team), ("--human", args.human),
-                                        ("--org or --repo", args.org or args.repo)) if not value]
+                                        ("--org or --repo", args.org or args.repo),
+                                        ("--description", args.description)) if not value]
     if missing:
         raise UsageError(f"create needs {', '.join(missing)} (ccy-teams create asks for them on a terminal)")
     _check_flags(hv, args)
     port = choose_port({t.port for t in hv.teams if t.port is not None} | listening_ports(ss_output()))
     entry = build_entry(team=args.team, port=port, listen=[hv.address], allow_from=args.allow_from or [],
-                        humans=args.human, org=args.org, repos=args.repo or [])
+                        humans=args.human, org=args.org, repos=args.repo or [],
+                        description=args.description)
     new = insert(hv, entry)
     if args.dry_run:
         out.writelines(render_entry(entry, hv.item_indent, hv.key_indent))
@@ -769,6 +810,13 @@ def scope_words(team: Declared) -> str:
     repos = [r["repo"] for r in _raw_value(team, "repos") or [] if isinstance(r, dict) and "repo" in r]
     parts = ([f"any repository of {org}"] if org else []) + repos
     return " or ".join(parts) if parts else "no repository"
+
+
+def _scope_or_unreadable(team: Declared) -> str:
+    try:
+        return scope_words(team)
+    except DeclareError:
+        return "a scope ccy-teams cannot read"
 
 
 def next_steps(hv: HostVars, name: str) -> str:
@@ -822,18 +870,94 @@ def set_element(text: str, name: str) -> str | None:
     return new
 
 
+COVERS, WIDEN, EXCLUDED, UNREADABLE_SCOPE = "covers", "widen", "excluded", "unreadable"
+
+
+def _checked_repo(repo: str) -> protocol.Ref:
+    if not protocol.is_owner_repo(repo):
+        raise UsageError(f"--repo: {repo!r} is not a lower-case OWNER/REPO")
+    ref = protocol.parse_ref(f"issue:{repo}#1")
+    if ref is None:
+        raise UsageError(f"--repo: {repo!r} is not a repository the bus can name")
+    return ref
+
+
+def _standing(team: Declared, ref: protocol.Ref) -> str:
+    """How the team stands to the repository: COVERS when it lists it, or its org owns it and
+    does not exclude it (the bus's own rule, `protocol.is_excluded`); EXCLUDED when its org owns
+    it and excludes it; else WIDEN: a scope edit would make the team cover it."""
+    listed = [r.get("repo") for r in _raw_value(team, "repos") or [] if isinstance(r, dict)]
+    if ref.repo_full in listed:
+        return COVERS
+    org = _raw_value(team, "org")
+    if org != ref.owner:
+        return WIDEN
+    return EXCLUDED if protocol.is_excluded(ref, org, _raw_value(team, "exclude") or ()) else COVERS
+
+
 def teams_for(hv: HostVars, repo: str) -> list[str]:
-    """The teams declared present whose trust covers the repository: its owner is their
-    org, or they list it."""
-    owner = repo.partition("/")[0]
+    """The teams declared present whose trust covers the repository."""
+    ref = _checked_repo(repo)
+    return [t.team for t in hv.teams if t.state == "present" and _standing(t, ref) == COVERS]
+
+
+def choices(hv: HostVars, repo: str) -> list[tuple[str, str, str]]:
+    """Every present team as (name, standing, description field). A team whose scope cannot
+    be read (vaulted) stands UNREADABLE_SCOPE: one entry must not end the listing."""
+    ref = _checked_repo(repo)
     out = []
     for team in hv.teams:
         if team.state != "present":
             continue
-        listed = [r.get("repo") for r in _raw_value(team, "repos") or [] if isinstance(r, dict)]
-        if _raw_value(team, "org") == owner or repo in listed:
-            out.append(team.team)
+        try:
+            standing = _standing(team, ref)
+        except DeclareError:
+            standing = UNREADABLE_SCOPE
+        out.append((team.team, standing, _description_field(team)))
     return out
+
+
+def add_repo(text: str, name: str, repo: str) -> str:
+    """The file's text with the present team's `repos` extended by `repo` (any branch), every
+    other line as it was. UsageError when the team already trusts it; DeclareError (nothing
+    written) when it excludes it, is at the repos limit, or the entry cannot be edited safely."""
+    ref = _checked_repo(repo)
+    hv = parse(text)
+    team = _present(hv, name)
+    standing = _standing(team, ref)
+    if standing == COVERS:
+        raise UsageError(f"--repo: team {name} already trusts {repo}")
+    if standing == EXCLUDED:
+        raise DeclareError(f"team {name} excludes {repo} on purpose; edit its exclude in {TEAMS_KEY} to change that")
+    repos = _raw_value(team, "repos") or []
+    if len(repos) >= protocol.REPOS_MAX:
+        raise DeclareError(f"team {name} already lists {protocol.REPOS_MAX} repos, the most a team may; "
+                           "remove one by hand first")
+    found = [(index, rest, more) for key, rest, index, more in team.raw if key == "repos"]
+    lines = list(hv.lines)
+    if not found:
+        line = f"{' ' * hv.key_indent}repos: {json.dumps([{'repo': repo}])}\n"
+        lines.insert(next(index for key, _, index, _ in team.raw if key == "team") + 1, line)
+    else:
+        index, rest, more = found[0]
+        if more:
+            end, left = index + 1, len(more)
+            while left:
+                if lines[end].strip() and not lines[end].lstrip().startswith("#"):
+                    left -= 1
+                end += 1
+            first = more[0]
+            lines.insert(end, f"{first[:len(first) - len(first.lstrip(' '))]}- repo: {json.dumps(repo)}\n")
+        else:
+            if "#" in rest:
+                raise DeclareError(f"team {name}'s repos on line {index + 1} has a comment; add {repo} by hand")
+            lines[index] = f"{' ' * hv.key_indent}repos: {json.dumps([*repos, {'repo': repo}])}\n"
+    new = "".join(lines)
+    after = parse(new)
+    expected = {**entry_of(team), "repos": [*repos, {"repo": repo}]}
+    if entry_of(_present(after, name)) != expected or [t.team for t in after.teams] != [t.team for t in hv.teams]:
+        raise DeclareError("the edited file does not read back with only the repository added; nothing was written")
+    return new
 
 
 def drop_limit(text: str, name: str) -> str:
@@ -855,6 +979,34 @@ def drop_limit(text: str, name: str) -> str:
     if any(key == "path_prefixes" for key, *_ in after.raw) or (
             {k: v for k, v in entry_of(team).items() if k != "path_prefixes"} != entry_of(after)):
         raise DeclareError("the edited file does not read back with only path_prefixes gone; nothing was written")
+    return new
+
+
+def set_description(text: str, name: str, description: str) -> str | None:
+    """The file's text with the present team's description set or replaced, every other line
+    as it was; None when it is already that. Read back, or DeclareError (nothing written)."""
+    problem = field_error("description", description)
+    if problem:
+        raise UsageError(f"--description: {problem}")
+    hv = parse(text)
+    team = _present(hv, name)
+    line = f"{' ' * hv.key_indent}description: {json.dumps(description)}\n"
+    lines = list(hv.lines)
+    found = [(index, more) for key, _, index, more in team.raw if key == "description"]
+    if found:
+        index, more = found[0]
+        if more:
+            raise DeclareError(f"team {name}'s description on line {index + 1} has nested lines; set it by hand")
+        if _raw_value(team, "description") == description:
+            return None
+        lines[index] = line
+    else:
+        lines.insert(next(index for key, _, index, _ in team.raw if key == "team") + 1, line)
+    new = "".join(lines)
+    after = parse(new)
+    if (entry_of(_present(after, name)) != {**entry_of(team), "description": description}
+            or [t.team for t in after.teams] != [t.team for t in hv.teams]):
+        raise DeclareError("the edited file does not read back with only the description changed; nothing was written")
     return new
 
 
@@ -1078,13 +1230,31 @@ def _read(path: pathlib.Path) -> str:
         raise DeclareError(f"{path} does not exist (copy localhost.yml.dist to make it)") from None
 
 
+def _description_field(team: Declared) -> str:
+    """The description as a JSON string, `-` for none (so a description that is itself `-`
+    stays distinct), `!vaulted` for one ccy-teams cannot read, or `!invalid` for one the team
+    file would refuse (it never reaches a table row). One entry must not end the listing:
+    the team's `status` row already says it is unreadable."""
+    try:
+        found = _raw_value(team, "description")
+    except VaultedError:
+        return "!vaulted"
+    except DeclareError:
+        return "!invalid"
+    if found is None:
+        return "-"
+    if not protocol.is_description(found):
+        return "!invalid"
+    return json.dumps(found, ensure_ascii=False)
+
+
 def declared(args: argparse.Namespace, out: TextIO) -> int:
     hv = parse(_read(pathlib.Path(args.file)))
     for team in hv.teams:
         host = team.listen or hv.address
         url = f"http://{_url_host(host)}:{team.port}" if host and team.port is not None else "-"
         out.write(f"TEAM\t{team.team}\t{team.port if team.port is not None else '-'}\t{team.state}"
-                  f"\t{team.server_name}\t{url}\n")
+                  f"\t{team.server_name}\t{url}\t{_description_field(team)}\n")
     return EXIT_OK
 
 
@@ -1103,8 +1273,31 @@ def _listing_or_edit(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
                 out.write(f"LIMITED\t{team.team}\t{', '.join(str(p) for p in prefixes)}"
                           f"\t{scope_words(team)}\n")
         return EXIT_OK
+    if args.command == "undescribed":
+        for team in parse(text).teams:
+            if team.state == "present" and not any(key == "description" for key, *_ in team.raw):
+                out.write(f"UNDESCRIBED\t{team.team}\t{_scope_or_unreadable(team)}\n")
+        return EXIT_OK
     if args.command == "teams-for":
         out.writelines(f"TEAM\t{name}\n" for name in teams_for(parse(text), args.repo))
+        return EXIT_OK
+    if args.command == "choices":
+        for name, standing, about in choices(parse(text), args.repo):
+            out.write(f"CHOICE\t{name}\t{standing}\t{about}\n")
+        return EXIT_OK
+    if args.command == "add-repo":
+        backup = write(path, add_repo(text, args.team, args.repo))
+        out.write(f"CHANGED\tteam {args.team} trusts {args.repo}\n")
+        err.write(f"The file as it was is kept at {backup}.\n")
+        return EXIT_OK
+    if args.command == "describe":
+        new = set_description(text, args.team, args.description)
+        if new is None:
+            out.write(f"UNCHANGED\t{args.team}\n")
+            return EXIT_OK
+        backup = write(path, new)
+        out.write(f"CHANGED\tteam {args.team} description\n")
+        err.write(f"The file as it was is kept at {backup}.\n")
         return EXIT_OK
     if args.command == "element":
         new = set_element(text, args.team)
@@ -1140,6 +1333,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="a repository the team trusts, on any branch (instead of, or as well as, --org)")
         sub.add_argument("--allow-from", action="append", dest="allow_from", metavar="CIDR")
         sub.add_argument("--address", help="this machine's bus address, declared with the first team")
+        sub.add_argument("--description", help="what the team is for, 1 to 120 characters on one line (create needs it)")
         if name == "create":
             sub.add_argument("--dry-run", action="store_true", help="print the entry; write nothing")
     suggest = commands.add_parser("suggest-team", help="a free team name made from a GitHub owner's or repo's")
@@ -1151,8 +1345,20 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--file", required=True)
         sub.add_argument("--team", required=True)
     for name, help_text in (("element-teams", "one ELEMENT line per agent_bus_element_teams entry"),
-                            ("limited", "one LIMITED line per present team that sets path_prefixes")):
+                            ("limited", "one LIMITED line per present team that sets path_prefixes"),
+                            ("undescribed", "one UNDESCRIBED line per present team with no description")):
         commands.add_parser(name, help=help_text).add_argument("--file", required=True)
+    describing = commands.add_parser("describe", help="set or replace a present team's description")
+    describing.add_argument("--file", required=True)
+    describing.add_argument("--team", required=True)
+    describing.add_argument("--description", required=True)
+    adding = commands.add_parser("add-repo", help="add a repository to a present team's repos (any branch)")
+    adding.add_argument("--file", required=True)
+    adding.add_argument("--team", required=True)
+    adding.add_argument("--repo", required=True)
+    options = commands.add_parser("choices", help="every present team: covers, widen or excluded for a repository")
+    options.add_argument("--file", required=True)
+    options.add_argument("--repo", required=True)
     covering = commands.add_parser("teams-for", help="the present teams a repository belongs to")
     covering.add_argument("--file", required=True)
     covering.add_argument("--repo", required=True)
@@ -1212,7 +1418,8 @@ def _lxc_parsers(commands: argparse._SubParsersAction) -> None:
 
 
 def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _ss,
-         stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
+         stdout: TextIO | None = None, stderr: TextIO | None = None,
+         bridge_cidr: Callable[[], str | None] = bridge.live_subnet) -> int:
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     try:
@@ -1239,12 +1446,13 @@ def main(argv: Sequence[str] | None = None, *, ss_output: Callable[[], str] = _s
         if args.command == "next-steps":
             out.write(next_steps(parse(_read(pathlib.Path(args.file))), args.team))
             return EXIT_OK
-        if args.command in ("element", "drop-limit", "element-teams", "limited", "teams-for"):
+        if args.command in ("describe", "element", "drop-limit", "element-teams", "limited", "teams-for", "undescribed",
+                            "choices", "add-repo"):
             return _listing_or_edit(args, out, err)
         if args.command == "status":
-            return status(args, out)
+            return status(args, out, bridge_cidr)
         if args.command == "overview":
-            return overview(args, out)
+            return overview(args, out, bridge_cidr)
         if args.command == "remove":
             return remove(args, out, err)
         if args.command == "lxc-script":

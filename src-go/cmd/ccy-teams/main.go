@@ -27,5 +27,5 @@ func run(args []string, getenv func(string) string, root string, stderr io.Write
 			"build it with playbooks/imports/play-claude-yolo.yml, which bakes the checkout in")
 		return term.ExitFailure
 	}
-	return teams.NewApp(config.Load(root, getenv)).Run(args)
+	return teams.NewAppFor(config.Load(root, getenv), args).Run(args)
 }

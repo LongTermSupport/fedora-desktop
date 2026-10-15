@@ -164,11 +164,29 @@ quit `ccy-teams` to start Element.
   the repository), choosing alone when exactly one matches and saying so when none does.
   The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
   ratchet, only calls it and must not grow. Built (`ccy-teams for-checkout [--choose]`, CCY
-  3.96.0), awaiting the owner's host test.
+  3.96.0), awaiting the owner's host test. The owner's test: when no team covers the
+  checkout, it stops and makes the owner type a team name. A chooser takes its place in Plan
+  00201 (M4), which also brings cc onto the same flow.
 - [ ] 🔄 **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
   `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
   it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
-  owner's host test.
+  owner's host test. Only a person's yes to the offer takes the team: a headless, no-terminal
+  or restore launch never does (CCY 3.97.3, Plan 00161 M2.9 defect).
+- [ ] 🔄 **Task 7.3**: The owner's host run found `play-agent-bus-element.yml` refusing them
+  after they accepted `cc --teams`. The reason: "~/.config/pingbus exists: this user holds
+  pingbus bundles". Task 4.10's acceptance record lives in that folder, so the Element
+  check refused every owner who had accepted. A cc seat's bundles live in the checkout.
+  `helpers/agent_bus/element.py` now passes a folder that holds only the acceptance record,
+  valid by pingbus's own `config.element_accepted`. Anything else there still refuses.
+  Built test first, waiting for the owner's run of the Element play.
+- [ ] 🔄 **Task 7.4**: A person is never left with an account they cannot sign in to. After an
+  apply (from `ccy-teams create` or `ccy-teams apply <team>`), passed or failed, every person
+  of the team who has no Element session (the picker's check) is offered the sign-in on a
+  terminal, or told the exact way (`ccy-teams`, Enter on the team, Open `<team>` in Element)
+  without one. When the sessions cannot be read (the homeserver is not up after a failed
+  apply) it says so with the same way. The apply's failure still stands and still exits 1.
+  Diagnosis: `subagent-reports/261015-room-access-diagnosis-opus.md`; the report
+  `261015-create-signin-gap-sonnet.md`. Built test first; awaiting the owner's host test.
 
 ### Phase 9: Add an LXC container to a team from ccy-teams, no hand edit of localhost.yml
 

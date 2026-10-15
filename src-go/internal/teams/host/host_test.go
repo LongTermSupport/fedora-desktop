@@ -81,6 +81,18 @@ func TestWireFillsOnlyWhatIsMissing(t *testing.T) {
 	}
 }
 
+func TestPayloadIsStdoutUnlessTheHostWasDiverted(t *testing.T) {
+	h := &Host{Runner: &execx.Fake{}}
+	h.Wire()
+	if h.Payload != h.Stdout {
+		t.Fatal("a host that was not diverted must have the payload on its stdout")
+	}
+	d := NewDiverted(config.Config{})
+	if d.Payload != os.Stdout || d.Stdout != os.Stderr {
+		t.Fatalf("a diverted host keeps the process stdout for the payload and prints its output on stderr: %+v", d)
+	}
+}
+
 func TestReportErrPrintsTheReasonAsItWasSaid(t *testing.T) {
 	h := newHost(t)
 	h.ReportErr(stringError("declare: nope"))

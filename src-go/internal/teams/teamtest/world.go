@@ -24,7 +24,7 @@ const (
 		"MEMBER\tproj.1+local.podman\tdev\tjoin\tactive\n" +
 		"MEMBER\tproj.2+local.podman\tdev\tjoin\tparked\n" +
 		"MEMBER\tproj.box+role.lxc\tops\tjoin\tactive\n"
-	DeclaredAlpha = "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\n"
+	DeclaredAlpha = "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t-\n"
 	UnitAlpha     = "agent-bus-hs@alpha.service loaded active running Homeserver alpha\n"
 	// SudoBus is the start of every agent-bus call made as root.
 	SudoBus = "sudo -n /usr/local/bin/agent-bus "

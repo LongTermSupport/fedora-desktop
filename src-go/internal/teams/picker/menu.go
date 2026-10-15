@@ -155,7 +155,7 @@ func (r *run) menu(ctx context.Context, row board.Row) (flow.Result, error) {
 	}
 	picked, err := p.Kit.Choose(ctx, ui.PickSpec{
 		Title: subject, Rows: lines, Tags: tags, ExitLabel: backToList,
-		Header: ui.Header("Enter choose   Esc or q back to the list", "What to do with "+subject+":"),
+		Header: ui.Header("Enter choose   Esc or q back to the list", "What to do with "+subject+":", aboutLine(row)),
 	})
 	if errors.Is(err, ui.ErrLeave) {
 		return flow.Done, p.Kit.Interrupted(ctx)
@@ -169,6 +169,14 @@ func (r *run) menu(ctx context.Context, row board.Row) (flow.Result, error) {
 		return flow.Done, flow.Leave(term.ExitFailure)
 	}
 	return r.do(ctx, acts[i].key, row)
+}
+
+// aboutLine is a team row's description, whole, for the header of its menu; "" for any other row.
+func aboutLine(row board.Row) string {
+	if row.Kind != board.KindTeam {
+		return ""
+	}
+	return row.Member
 }
 
 // footerFor is the line of the header that names row's actions in words.

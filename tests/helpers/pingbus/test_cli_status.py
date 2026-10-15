@@ -39,6 +39,7 @@ LINE_RES = {
         rf"TEAM\t{TEAM_RE}\t{protocol.HANDLE_PATTERN}\ttrust=(?:trusted|untrusted)"
         rf"\twake=(?:watcher|waiter|none)\tpending={COUNT_RE}\thumans={COUNT_RE}\tpeers={COUNT_RE}\tpings={COUNT_RE}"
         rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}\trelay=(?:on|stalled|off)"),
+    "ABOUT": re.compile(rf"ABOUT\t1\t{TEAM_RE}\t\"[\x20-\x7e]{{0,300}}\""),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
     "MEMBER": re.compile(
         rf"MEMBER\t{TEAM_RE}\t{LOCALPART_RE}\t(?:human|coordinator|worker)\t(?:listening|stale|-)"),
@@ -70,6 +71,11 @@ class StatusCase(bus.BusCase):
     def members(self, rows: list[list[str]]) -> dict[str, tuple[str, str]]:
         return {r[2]: (r[3], r[4]) for r in rows if r[0] == "MEMBER"}
 
+    def set_topic(self, text: str) -> None:
+        a = self.a
+        a.call(a.admin, "PUT", f"/_matrix/client/v3/rooms/{bus.q(a.room)}/state/m.room.topic/",
+               {"topic": text, "m.topic": {"m.text": [{"body": text}]}})
+
     def put_status(self, uid: str, until_ms: int, key: str | None = None) -> None:
         a = self.a
         a.call(uid, "PUT", f"/_matrix/client/v3/rooms/{bus.q(a.room)}/state/"
@@ -98,6 +104,47 @@ class StatusTest(StatusCase):
             bus.ORCH_LP: ("coordinator", "-"),
             bus.PEER_LP: ("worker", "-"),
         })
+
+    def test_about_line_carries_the_description_after_the_team_line(self):
+        """Plan 00201 S-A10: a trusted team whose record has a description prints
+        `ABOUT 1 <team> <description as a JSON string>` right after its TEAM line."""
+        self.set_topic('Builds the "example" site é')
+        self.joined()
+        code, rows, _ = self.report()
+        self.assertEqual(code, cli.EXIT_OK)
+        kinds = [r[0] for r in rows]
+        self.assertEqual(kinds[:2], ["TEAM", "ABOUT"])
+        about = rows[1]
+        self.assertEqual(about[:3], ["ABOUT", "1", bus.TEAM_A])
+        self.assertEqual(json.loads(about[3]), 'Builds the "example" site é')
+        self.assertTrue(about[3].isascii())
+
+    def test_no_about_line_without_a_description(self):
+        self.joined()
+        self.assertNotIn("ABOUT", [r[0] for r in self.report()[1]])
+
+    def test_the_fixed_topic_sentence_is_no_description(self):
+        self.set_topic(protocol.ROOM_TOPIC)
+        self.joined()
+        self.assertNotIn("ABOUT", [r[0] for r in self.report()[1]])
+
+    def test_a_topic_that_fails_the_grammar_is_ignored_and_costs_no_trust(self):
+        self.set_topic("two\nlines")
+        self.joined()
+        code, rows, _ = self.report()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(self.team_line(rows)["trust"], "trusted")
+        self.assertNotIn("ABOUT", [r[0] for r in rows])
+
+    def test_a_changed_topic_replaces_the_cached_description(self):
+        self.set_topic("First")
+        self.joined()
+        self.set_topic("Second")
+        self.joined()
+        self.assertEqual(json.loads(self.report()[1][1][3]), "Second")
+        self.set_topic(protocol.ROOM_TOPIC)
+        self.joined()
+        self.assertNotIn("ABOUT", [r[0] for r in self.report()[1]])
 
     def test_status_is_offline(self):
         self.joined()
@@ -265,7 +312,8 @@ class InboxTest(StatusCase):
         self.assertEqual(sorted((r[2], r[3], r[5]) for r in rows),
                          sorted([(ping, bus.ORCH_LP, "review"), (human, "alice", "human")]))
         code, out, _ = self.run_cli("recv")
-        self.assertEqual(len(out.splitlines()), 2, "inbox consumed nothing")
+        kinds = [line.split("\t")[0] for line in out.splitlines() if not line.startswith("REPLY\t")]
+        self.assertEqual(sorted(kinds), ["HUMAN", "PING"], "inbox consumed nothing")
 
     def test_an_empty_inbox_prints_nothing(self):
         self.joined()

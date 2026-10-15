@@ -111,6 +111,35 @@ func TestDispatchForCheckoutIsTheFindFlow(t *testing.T) {
 	}
 }
 
+func TestDispatchChooseTeamsIsTheChooserAndItsPayloadIsTheSeatList(t *testing.T) {
+	h := world(t)
+	teamtest.Interactive(t, h.World)
+	if code := h.app.Run([]string{"choose-teams", "--type=podman", "2@alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if h.Out.String() != "2@alpha\n" {
+		t.Fatalf("stdout %q", h.Out.String())
+	}
+}
+
+func TestChooseTeamsHasNoForCheckoutChooseAnyMore(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"for-checkout", "--choose"}); code != term.ExitUsage {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+}
+
+func TestAChooseTeamsAppKeepsStdoutForThePayloadAlone(t *testing.T) {
+	a := NewAppFor(config.Config{RootDir: "/checkout"}, []string{"choose-teams", "--type=podman"})
+	if a.Payload != os.Stdout || a.Stdout != os.Stderr || a.Ops.Stdout != os.Stderr {
+		t.Fatalf("payload %v stdout %v ops %v", a.Payload, a.Stdout, a.Ops.Stdout)
+	}
+	b := NewAppFor(config.Config{RootDir: "/checkout"}, []string{"--list"})
+	if b.Payload != os.Stdout || b.Stdout != os.Stdout {
+		t.Fatalf("a command whose stdout is its output keeps it: payload %v stdout %v", b.Payload, b.Stdout)
+	}
+}
+
 func TestDispatchRecordSeatsIsTheFindFlow(t *testing.T) {
 	h := world(t)
 	if code := h.app.Run([]string{"record-seats", "one", "two"}); code != term.ExitUsage {

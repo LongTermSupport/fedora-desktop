@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.1 — container 2.59
+
+- **The two 3.97/3.98 lines meet.** 3.98.0 (goodbye, relay, `ccy-teams lxc-add`) was built
+  beside 3.97.2 to 3.97.9 (several teams per session, team descriptions, `REPLY` lines); this
+  version holds both. A session's team list and status-line record are written in relay mode
+  too, `recv` prints `REPLY` lines when it is not relaying, and SessionEnd removes the
+  status-line record before the goodbye. Both lines changed the image, so the container
+  version moves to 2.59 and the image is rebuilt once.
+
 ## 3.98.0 — container 2.56
 
 - **The member kit says goodbye and can relay.** The pingbus plugin (now 1.1.0) registers a
@@ -28,6 +37,83 @@ Two version numbers move independently — see
   00194 (`PINGBUS_DELIVERY=relay`, spool, sent log, `PostToolUse` echo), inert unless a launch
   sets it; in relay mode the goodbye is still sent and is not echoed back. The kit is in the
   image, so the container version moves to 2.56 and the image is rebuilt once.
+
+## 3.97.9 — container 2.58 (unchanged)
+
+- A failing launch block (`ccy-teams describe-seats --block`) now stops the launch with a
+  "Not starting" line naming its exit code; the seats were already taken.
+
+## 3.97.8 — container 2.58
+
+- **A session can be on several teams, and it is fully clear which** (Plan 00201 M5).
+  `ccy --teams` (bare) shows the team list as a multi-select screen: Tab marks several teams,
+  Enter takes them (or the highlighted one), Esc leaves. Marked teams that do not cover the checkout
+  each get the Add / Join without adding / Leave out question and all Adds are applied by one play
+  run; a team that cannot be taken is explained and the list returns with the other marks kept (three
+  rounds at most). Each taken team then gets its seat chooser, in list order.
+- After the seats are taken the launcher prints `This session is on N teams:` and, per seat, its team,
+  seat, role and what the team is for (`ccy-teams describe-seats --block`).
+- Container 2.58: SessionStart adds `agent-bus: this session is on teams A, B.` as its first line
+  for two or more teams. `pingbus send` and `say` infer the team on a several-team session: from
+  `--re` (an event held by exactly one team's inbox) or from `--to` (every name fits exactly one
+  team's record; a team with no verified record yet blocks inference); otherwise they exit 64 and
+  list the active teams with their descriptions, and `--team` always wins. A status-line segment
+  shows `bus: A,B` from a per-session record the SessionStart hook writes (mode 0600, removed at
+  SessionEnd), never from the shared hooks daemon's environment.
+
+## 3.97.7 — container 2.57 (unchanged)
+
+- A headless bare `--teams` is refused with the reason: choosing a team needs a terminal, so
+  name the seat with `--teams <seat>@<team>`.
+
+## 3.97.6 — container 2.57 (unchanged)
+
+- **`ccy --teams` with no value (or a team alone) is answered by `ccy-teams choose-teams`.**
+  It replaces the hard stop "No team on this machine works on OWNER/REPO". It lists every team
+  with what it is for and whether it covers the checkout, offers creating one, and for a team
+  that does not cover the checkout offers to add the repository to its scope (host_vars edit and
+  one play run, no homeserver restart) before the seat and role are chosen. With nobody to ask,
+  a bare `--teams` is refused (64). `ccy-teams for-checkout --choose` and `ccy_seats_resolve`
+  are gone.
+
+## 3.97.5 — container 2.57
+
+- No behaviour change; a two-assignment command that semgrep's bash grammar rejects is
+  rewritten so the patterns gate scans the launcher again.
+
+## 3.97.4 — container 2.57
+
+- **A team's description reaches its agents, through the room topic.** The admin sets the
+  team room's `m.room.topic` to the team's description on every apply (the fixed sentence when
+  there is none); the syncer reads it (only from an event the admin sent, and only if it passes
+  the 1 to 120 character grammar) into `about.json`. `pingbus status` prints an `ABOUT` line
+  after a trusted team's `TEAM` line, and SessionStart adds "agent-bus: team TEAM is for: ..."
+  per team that has one. The trusted team record is unchanged and old readers ignore the topic,
+  so there is no upgrade-first hazard: a member on an older image or an older host zipapp (the
+  agent-bus play updates that one) simply shows no description. A description change restarts no
+  homeserver. The client and skill are in the image, so the container version moves to 2.57 and
+  the image is rebuilt once.
+
+## 3.97.3 — container 2.56
+
+- **A plain launch is on no team.** Quick Launch takes the saved team only when a person
+  answers yes to the offer that shows it; end of input (Ctrl-D) at the prompt is not a yes. A
+  headless launch, a launch with no terminal to ask on and a session restore still take the
+  saved token, keys and network, but never the saved seats: their summary shows the team as
+  none and they say the saved one is not taken. Only `--teams` (for a restore, the session's
+  own record) puts such a session in a team. A headless `ccy` run after
+  a `--teams` session in the same checkout had been labelled with that session's seat (Plan
+  00161 acceptance, M2.9). The image is unchanged.
+
+## 3.97.2 — container 2.56
+
+- **`pingbus recv` prints a ready reply command, and `--to` takes a seat's short name.** After
+  each message from an agent or a human, `recv` prints a `REPLY` line holding the exact
+  `pingbus --team TEAM say --to NAME` to answer it. `--to` on `send` and `say` accepts
+  `<repo>.<seat>` when exactly one member has it; an ambiguous or unknown name is refused (exit
+  64\) naming the candidates or the team's members. `send --help` and `say --help` show the
+  forms. The client and skill are in the image, so the container version moves to 2.56 and the
+  image is rebuilt once.
 
 ## 3.97.1 — container 2.55
 

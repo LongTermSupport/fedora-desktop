@@ -39,7 +39,7 @@ REQUIRED_KEYS = frozenset({"team", "port", "listen", "allow_from", "humans", "fo
 #: `org` and `repos` are each optional, but a team names at least one of them (spec §11).
 #: `path_prefixes` narrows the paths a trusted reference may name; absent, any path.
 #: `exclude` names repositories of the `org` the team never trusts (spec §11).
-OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "exclude", "repos", "path_prefixes"})
+OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "exclude", "repos", "path_prefixes", "description"})
 REPO_ENTRY_KEYS = frozenset({"repo", "branches"})
 
 _DNS_LABEL_RE = re.compile(DNS_LABEL_PATTERN)
@@ -74,6 +74,8 @@ class TeamFile:
     path_prefixes: tuple[str, ...]
     forge_api: str
     exclude: tuple[str, ...] = ()
+    #: What the team is for (Plan 00201); None when the entry sets none.
+    description: str | None = None
 
     def listen_addresses(self) -> tuple[str, ...]:
         """Every address the homeserver binds: loopback always, then `listen`."""
@@ -83,8 +85,10 @@ class TeamFile:
         org = {} if self.org is None else {"org": self.org}
         exclude = {"exclude": list(self.exclude)} if self.exclude else {}
         prefixes = {"path_prefixes": list(self.path_prefixes)} if self.path_prefixes else {}
+        description = {} if self.description is None else {"description": self.description}
         return {
             **org,
+            **description,
             **exclude,
             "team": self.team,
             "state": self.state,
@@ -220,6 +224,15 @@ def _exclude(data: Mapping, org: str | None, repos: tuple[RepoEntry, ...]) -> tu
     return tuple(names)
 
 
+def _description(data: Mapping) -> str | None:
+    if "description" not in data:
+        return None
+    if not protocol.is_description(data["description"]):
+        raise _fail("description", f"must be 1 to {protocol.DESCRIPTION_MAX} characters, with no "
+                                   "leading or trailing space and no control character or newline")
+    return data["description"]
+
+
 def _repos(data: Mapping) -> tuple[RepoEntry, ...]:
     value = data.get("repos", [])
     if not isinstance(value, list) or not protocol.REPOS_MIN <= len(value) <= protocol.REPOS_MAX:
@@ -310,6 +323,7 @@ def parse_team_file(data: object) -> TeamFile:
         path_prefixes=_path_prefixes(data),
         forge_api=_forge_api(data["forge_api"]),
         exclude=_exclude(data, org, repos),
+        description=_description(data),
     )
 
 

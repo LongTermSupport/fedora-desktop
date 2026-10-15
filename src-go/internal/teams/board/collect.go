@@ -365,7 +365,7 @@ func (c *Collector) addTeamRows(ctx context.Context, s *Snapshot, team string, s
 		where += ", entry unreadable: " + s.Status[team].Detail
 	}
 	s.Rows = append(s.Rows, Row{
-		Team: team, Member: "-", Kind: KindTeam, State: state, Applied: s.StatusWord(team),
+		Team: team, Member: s.aboutTeam(team), Kind: KindTeam, State: state, Applied: s.StatusWord(team),
 		Session: "-", Restore: "-", Where: where, Handle: "-", Dir: "-",
 	})
 	s.addMemberRows(c, team, seats)

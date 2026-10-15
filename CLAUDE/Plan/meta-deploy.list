@@ -20,13 +20,19 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# This list assumes the 00161 acceptance has already run from F44's list before this merge.
 # Plans 00177 and 00194: the agent bus kit and LXC members. Re-stages the member kit (the
 # pingbus plugin now registers SessionEnd for the goodbye) and applies the LXC rule that
 # derives a member's handle from its checkout; existing members keep their handles.
 playbooks/imports/play-agent-bus.yml
-# Plans 00177 and 00194: CCY 3.98.0, container 2.56 (the image is rebuilt once). ccy-teams
-# gains the lxc-add action; a team session sends a goodbye to the team's humans and coordinator
-# when it really ends. Then try: ccy-teams lxc-add <team>, and end a team session with
-# `ccy stop` to see its goodbye in Element.
+# ccy play: installs CCY 3.98.1 (container 2.59, a one-time image rebuild) and rebuilds
+# ccy-teams. Plan 00201 M4, M5: `ccy --teams` in a checkout no team covers offers every team
+# with its description, or creating one, and on your yes adds this repository to the chosen
+# team's scope and applies it; the list is a multi-select, and one session joins every marked
+# team, with its launch block, SessionStart line, status line and pingbus send/say naming them.
+# Plans 00177 and 00194: ccy-teams gains the lxc-add action, and a team session sends a goodbye
+# to the team's humans and coordinator when it really ends. Afterwards, try it: run
+# `ccy --teams` in a checkout no team covers and mark two teams; restart the hooks daemon
+# (hooks-daemon skill, restart then health) and look at the two-team session's `bus: A,B`
+# status-line segment; run ccy-teams lxc-add <team>; end a team session with `ccy stop` and see
+# its goodbye in Element.
 playbooks/imports/play-claude-yolo.yml

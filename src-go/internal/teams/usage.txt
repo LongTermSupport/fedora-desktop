@@ -47,8 +47,9 @@ Every row's menu also has Add an LXC container's agent to <team> (no shortcut): 
 With no team on this machine, the picker offers to create one; with a team out of date, it
 offers to update it first; with a team still holding the old default path_prefixes, it
 offers once to remove them. Run in a checkout of a team's repositories, with no session of
-that checkout in the team, it offers to start one there (ccy --teams <team>); run in a
-GitHub checkout no team covers, it says so and offers to create a team for it.
+that checkout in the team, it offers to start one there (a bare ccy --teams, which lists the
+teams); run in a GitHub checkout no team covers, it says so and offers to create a team for
+it, or to start a session there that chooses its teams (ccy --teams).
 
 Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
 installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human
@@ -62,7 +63,7 @@ Usage:
   ccy-teams -l|--list              print the same table, with a heading, and exit
                                    (colour only on a terminal, and never with NO_COLOR)
   ccy-teams create [--org ORG | --repo OWNER/REPO...] [--team T] [--human NAME]...
-                   [--allow-from CIDR]... [--yes]
+                   [--allow-from CIDR]... [--description TEXT] [--yes]
                                    add a team to agent_bus_teams in the host_vars, with
                                    its Element profile in agent_bus_element_teams, and
                                    install both. On a terminal it asks (with gum) for what
@@ -113,13 +114,24 @@ Usage:
   ccy-teams restore <team> [<n>] [--yes]
                                    restore backup <n> after a yes/no (--yes: none);
                                    without <n>, choose one from the list
-  ccy-teams for-checkout [--choose]
-                                   print the team(s) that work on this checkout's GitHub
-                                   OWNER/REPO (an organisation team by its owner), one per
-                                   line on stdout, the rest on stderr. --choose prints exactly
-                                   one: the only match, or the one you pick of several (with
-                                   nobody to ask, it fails naming them). With none, it fails
-                                   saying so. ccy --teams with no value calls it
+  ccy-teams for-checkout           print the team(s) that work on this checkout's GitHub
+                                   OWNER/REPO (an organisation team by its owner, unless
+                                   it excludes the repository), one per line on stdout, the
+                                   rest on stderr. With none, it fails saying so. For scripts;
+                                   ccy chooses with choose-teams
+  ccy-teams choose-teams --type=podman|host [<list>]
+                                   the launcher's team chooser, on a terminal only. With a
+                                   <list> (SEAT@TEAM or a team alone, comma-separated) it
+                                   chooses the seat of each team named alone and prints the
+                                   canonical list. With none, it shows every team on this
+                                   machine with what it is for and whether it covers this
+                                   checkout (covers, would add, excludes), and offers
+                                   creating one. A team that does not cover the checkout is
+                                   offered the repository in its scope (edits the host_vars,
+                                   runs play-agent-bus.yml for it, no homeserver restart), or
+                                   joined as it is, or left out. Then the seat. Prints
+                                   SEAT@TEAM[,...] on stdout, the rest on stderr. Leaving any
+                                   screen prints nothing and succeeds. ccy --teams calls it
   ccy-teams record-seats <seats>   put the seats (a canonical --teams list) into the record of
                                    the ccy session this runs in (from TMUX), so its restore
                                    replays them. ccy calls it when Quick Launch brings a saved
@@ -129,12 +141,16 @@ Usage:
                                    stops being the coordinator; prints SEAT@TEAM on stdout, the
                                    rest on stderr. Leaving the chooser prints nothing and
                                    succeeds. The role is asked only for a seat that exists, and
-                                   sudo only when you change it. ccy --teams with a team alone
-                                   calls it
+                                   sudo only when you change it. choose-teams uses the same
+                                   chooser for each team named alone
   ccy-teams describe-seats [--prefix TEXT] <list>
                                    print each seat of a --teams list followed by its role,
                                    (coordinator) or (worker), on one line after TEXT: what
                                    Quick Launch shows as the previous team. ccy calls it
+  ccy-teams describe-seats --block <list>
+                                   print "This session is on N teams:" and, per seat, its
+                                   team, seat, role and what the team is for: the block a
+                                   launch shows once its seats are taken
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

@@ -24,6 +24,7 @@ import os
 import pathlib
 import re
 import socket
+import stat
 import sys
 import tempfile
 import threading
@@ -61,8 +62,10 @@ FIELD_RES = {
     "team": protocol.TEAM_NAME_PATTERN,
     "handle": protocol.HANDLE_PATTERN,
     "handles": rf"{UNNAMED_HANDLE}(?:, {UNNAMED_HANDLE})*",
+    "team_list": rf"{protocol.TEAM_NAME_PATTERN}(?:, {protocol.TEAM_NAME_PATTERN})*",
     "lock": "(?:held|free)",
     "reason": "(?:exit|logout|other)",
+    "description": r"[^\x00-\x1f\x7f\u200b-\u200f\u202a-\u202e]{1,120}",
 }
 
 
@@ -301,6 +304,97 @@ class SessionStartTest(HookCase):
         record["roles"] = {ME: "orchestrator", ORCH: "worker"}
         self.state.save_team_record(record)
         self.assertIn(hooks.fill("role_coordinator", team=TEAM), self.context(self.start()))
+
+    def test_a_team_with_a_description_says_what_it_is_for(self):
+        """Plan 00201 S-A11: one line per team that has a description."""
+        self.state.save_about("Builds the example site")
+        context = self.context(self.start())
+        self.assertIn(hooks.fill("team_about", team=TEAM, description="Builds the example site"), context)
+        self.assertIn(f"agent-bus: team {TEAM} is for: Builds the example site", context)
+
+    def test_a_session_on_several_teams_says_so_in_its_first_line(self):
+        """Plan 00201 S-C5: two or more teams: the first line names them all, in order."""
+        self.env["PINGBUS_TEAMS"] = f"{TEAM},{TEAM_B}"
+        self.bundle(TEAM_B, SN_B)
+        lines = self.context(self.start()).splitlines()
+        self.assertEqual(lines[0], f"agent-bus: this session is on teams {TEAM}, {TEAM_B}.")
+        self.assertEqual(lines[0], hooks.fill("session_teams", team_list=f"{TEAM}, {TEAM_B}"))
+
+    # The status line shows the session's teams from a file this hook writes, keyed by session id.
+
+    def sessions_env(self) -> pathlib.Path:
+        directory = self.tmp / "sessions"
+        self.env[hooks.SESSIONS_DIR_VAR] = str(directory)
+        return directory
+
+    def start_as(self, session_id: object) -> dict:
+        return self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup",
+                                           "session_id": session_id})
+
+    def test_session_start_records_the_sessions_teams_for_the_status_line(self):
+        directory = self.sessions_env()
+        self.env["PINGBUS_TEAMS"] = f"{TEAM},{TEAM_B}"
+        self.bundle(TEAM_B, SN_B)
+        self.start_as("sess-1")
+        record = directory / "sess-1"
+        self.assertEqual(record.read_text(encoding="ascii"), f"{TEAM},{TEAM_B}")
+        self.assertEqual(stat.S_IMODE(record.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+
+    def test_each_session_has_its_own_record(self):
+        directory = self.sessions_env()
+        self.start_as("sess-1")
+        other = dict(self.env, PINGBUS_TEAMS=TEAM)
+        self.hook("session-start", {"session_id": "sess-2"}, env=other)
+        self.assertEqual(sorted(path.name for path in directory.iterdir()), ["sess-1", "sess-2"])
+
+    def test_no_session_id_or_a_bad_one_records_nothing(self):
+        directory = self.sessions_env()
+        for bad in (None, "", "../x", "a/b", "x" * 129, 5, "a b"):
+            with self.subTest(bad=bad):
+                self.start_as(bad)
+        self.hook("session-start", {"source": "startup"})
+        self.assertFalse(directory.exists() and any(directory.iterdir()))
+
+    def test_session_end_removes_the_record(self):
+        directory = self.sessions_env()
+        self.start_as("sess-1")
+        self.hook("session-end", {"session_id": "sess-1"})
+        self.assertEqual(list(directory.iterdir()), [])
+
+    def test_a_directory_anyone_else_could_use_is_refused_and_reported(self):
+        directory = self.sessions_env()
+        directory.mkdir(mode=0o777)
+        directory.chmod(0o777)
+        err = io.StringIO()
+        out = io.StringIO()
+        cli.main(["hook", "session-start"], environ=self.env, stdout=out, stderr=err,
+                 stdin=io.BytesIO(json.dumps({"session_id": "sess-1"}).encode()), runtime=self.runtime())
+        self.assertFalse((directory / "sess-1").exists())
+        self.assertIn("session record", err.getvalue())
+
+    def test_the_status_line_handler_reads_the_same_place(self):
+        """The handler cannot import this package (the daemon owns its process), so the two
+        copies of the default location must agree."""
+        source = (pathlib.Path(__file__).parents[3] / ".claude/hooks/handlers/status_line/bus_teams.py").read_text()
+        self.assertIn(hooks.SESSIONS_DIR_TEMPLATE, source)
+        self.assertIn(hooks.SESSIONS_DIR_VAR, source)
+
+    def test_a_session_on_one_team_has_no_such_line(self):
+        self.assertNotIn("this session is on teams", self.context(self.start()))
+
+    def test_the_team_list_is_checked_before_it_is_filled(self):
+        for bad in ("two\nlines", "a, ", "", "A_B, c", 5, "a,b"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                hooks.fill("session_teams", team_list=bad)
+
+    def test_a_team_without_a_description_adds_no_line(self):
+        self.assertNotIn("is for:", self.context(self.start()))
+
+    def test_a_description_is_checked_before_it_is_filled(self):
+        for bad in ("two\nlines", " padded", "", "x" * 121, "a\u202eb", 5):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                hooks.fill("team_about", team=TEAM, description=bad)
 
     def test_a_seat_held_by_a_waker_starts_no_watcher(self):
         self.hold("watch")

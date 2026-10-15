@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 )
 
@@ -46,7 +47,7 @@ func TestChoosingTheLxcActionRunsLxcAddForTheRowsTeam(t *testing.T) {
 	h.p.Lxc.Lister = noLxc{}
 	h.p.Lxc.SudoReady = func(context.Context, string) bool { return true }
 	r := h.run1(t)
-	if _, err := r.do(context.Background(), keyLxc, h.row(t, r.snap, "-")); err != nil {
+	if _, err := r.do(context.Background(), keyLxc, h.row(t, r.snap, board.NoDescription)); err != nil {
 		t.Fatal(err)
 	}
 	said := h.ErrOut.String()

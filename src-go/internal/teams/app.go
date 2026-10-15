@@ -8,7 +8,8 @@
 //	create  the create wizard
 //	lxcadd  lxc-add: an LXC container's agent joins a team
 //	find    for-checkout: the teams that work on this checkout's repository
-//	choose  choose-seat and describe-seats: the launcher's seat and role chooser
+//	choose  choose-seat and describe-seats: the launcher's seat and role questions
+//	chooser choose-teams: which team the launcher's session joins, then its seat through choose
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -20,6 +21,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/choose"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/chooser"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/find"
@@ -48,11 +50,26 @@ type App struct {
 	Lxc    *lxcadd.Adder
 	Find   *find.Find
 	Choose *choose.Choose
-	Picker *picker.Picker
+	// Chooser is choose-teams.
+	Chooser *chooser.Chooser
+	Picker  *picker.Picker
 }
 
 // NewApp is the production App: the real OS and the process's own streams.
 func NewApp(cfg config.Config) *App { return Wire(host.New(cfg)) }
+
+// NewAppFor is NewApp for the command line args: a command whose stdout is a value its caller
+// captures (choose-teams) is given a host that prints everything else on stderr, so a play's
+// output cannot reach the value.
+func NewAppFor(cfg config.Config, args []string) *App {
+	if len(args) > 0 && args[0] == subChooseTeams {
+		return Wire(host.NewDiverted(cfg))
+	}
+	return NewApp(cfg)
+}
+
+// subChooseTeams is the subcommand whose stdout is its payload.
+const subChooseTeams = "choose-teams"
 
 // Wire builds the flows over h, after h has built every adapter it was not given.
 func Wire(h *host.Host) *App {
@@ -61,12 +78,15 @@ func Wire(h *host.Host) *App {
 	b := board.New(h)
 	o := ops.New(h, b.Statuses, func() { b.ForgetDevices("") })
 	l := login.New(h, kit, b, o)
+	o.SignInGap = l.SignInGap
 	s := seats.New(h, kit, o)
 	c := create.New(h, o, l)
 	x := lxcadd.New(h, kit, o)
+	pick := choose.New(h, kit, s)
 	return &App{
-		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: choose.New(h, kit, s),
-		Picker: picker.New(h, kit, b, o, c, l, s, x),
+		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
+		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
+		Picker:  picker.New(h, kit, b, o, c, l, s, x),
 	}
 }
 
@@ -83,7 +103,7 @@ func (a *App) run(args []string) term.ExitCode {
 	}
 	switch sub {
 	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "for-checkout", "record-seats",
-		"choose-seat", "describe-seats":
+		"choose-seat", "describe-seats", subChooseTeams:
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -104,15 +124,9 @@ func (a *App) run(args []string) term.ExitCode {
 func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.ExitCode {
 	switch sub {
 	case "create":
-		if err := a.NeedCheckout(); err != nil {
-			return term.ExitFailure
-		}
-		return a.Create.Run(ctx, rest)
+		return a.inCheckout(func() term.ExitCode { return a.Create.Run(ctx, rest) })
 	case "lxc-add":
-		if err := a.NeedCheckout(); err != nil {
-			return term.ExitFailure
-		}
-		return a.Lxc.Run(ctx, rest)
+		return a.inCheckout(func() term.ExitCode { return a.Lxc.Run(ctx, rest) })
 	case "apply":
 		return a.Ops.Apply(ctx, rest)
 	case "remove":
@@ -125,6 +139,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Find.Run(ctx, rest)
 	case "record-seats":
 		return a.Find.RecordSeats(ctx, rest)
+	case subChooseTeams:
+		return a.Chooser.Run(ctx, rest)
 	case "choose-seat":
 		return a.Choose.Seat(ctx, rest)
 	case "describe-seats":
@@ -134,6 +150,14 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 	default:
 		return a.Picker.Run(ctx)
 	}
+}
+
+// inCheckout runs a flow that needs to be in a checkout, or fails (NeedCheckout has said why).
+func (a *App) inCheckout(run func() term.ExitCode) term.ExitCode {
+	if err := a.NeedCheckout(); err != nil {
+		return term.ExitFailure
+	}
+	return run()
 }
 
 func (a *App) usageError(msg string) term.ExitCode {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -371,7 +372,7 @@ func TestRemoveOrParkOnAHumanAndOnATeamAndOnAnUnreadableSeat(t *testing.T) {
 	snap = h.pass(t)
 	// a team that cannot be read cannot be taken down: remove answers exit 1
 	h.OnErr(h.DeclarePrefix("overview"), "declare: no", 78)
-	if _, err := h.s.RemoveOrPark(context.Background(), snap, h.row(t, snap, "-")); err != nil {
+	if _, err := h.s.RemoveOrPark(context.Background(), snap, h.row(t, snap, board.NoDescription)); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(h.ErrOut.String(), "(ccy-teams remove alpha failed, exit 1: see above.)\n") {
@@ -397,8 +398,19 @@ func TestRemoveOrParkCancelledRemoveEndsWith130(t *testing.T) {
 	// Ctrl-C at the first question of the take-down
 	h.Script.Gum = []string{"YES", "YES", "CANCEL"}
 	snap := h.pass(t)
-	_, err := h.s.RemoveOrPark(context.Background(), snap, h.row(t, snap, "-"))
+	_, err := h.s.RemoveOrPark(context.Background(), snap, h.row(t, snap, board.NoDescription))
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitCancelled {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestStartCcyWithNoSeatsRunsABareTeamsLaunch(t *testing.T) {
+	h := newRig(t)
+	err := h.s.StartCcy(h.Checkout(), "")
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitOK {
+		t.Fatalf("%v", err)
+	}
+	if len(h.Execs) != 1 || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams"}) {
+		t.Fatalf("execs %+v", h.Execs)
 	}
 }

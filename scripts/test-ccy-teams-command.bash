@@ -223,6 +223,14 @@ cat >"$BIN/ss" <<'EOF'
 printf 'LISTEN 0 128 127.0.0.1:6168 0.0.0.0:*\n'
 EOF
 
+# ip: a host with no LXC bridge, in ip's own words, so the suite does not depend on the machine
+# running it (a ccy container has no ip at all). test_bridge and test_declare prove the bridge.
+cat >"$BIN/ip" <<'EOF'
+#!/usr/bin/env bash
+printf 'Device "lxcbr0" does not exist.\n' >&2
+exit 1
+EOF
+
 # gio and the ccy launcher: each logs its arguments.
 cat >"$BIN/gio" <<'EOF'
 #!/usr/bin/env bash
@@ -395,6 +403,7 @@ agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: alpha
     port: 6167
+    description: "Builds the example site"
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]
@@ -508,10 +517,11 @@ heading="$(awk 'NR == 1' <<<"$out")"
 check_has "a heading first" "TEAM" "$heading"
 check_has "  naming every column" "RESTORE" "$heading"
 check_has "  APPLIED among them" "APPLIED" "$heading"
-alpha="$(grep -E '^alpha +- +team' <<<"$out")"
+alpha="$(grep -E '^alpha +.+ +team ' <<<"$out")"
 check_has "alpha's homeserver is up" " up " "$alpha"
 check_has "  on its declared port" "port 6167" "$alpha"
 check_has "  applied as declared (D65)" "up to date" "$alpha"
+check_has "  with what the team is for in the MEMBER column, whole when piped" "Builds the example site" "$alpha"
 seat="$(grep -E '^alpha +1 +ccy' <<<"$out")"
 check_has "seat 1 is an active ccy seat" "active" "$seat"
 check_has "  held by ccy-proj" "ccy-proj" "$seat"
@@ -526,7 +536,7 @@ human="$(grep -E '^alpha +owner +human' <<<"$out")"
 check_has "the person, in the room in words" "in room" "$human"
 check_has "  never signed in to Element (no device)" "never signed in" "$human"
 check_has "  and the key that gives them their choices" "Enter for choices" "$human"
-extra="$(grep -E '^extra +- +team' <<<"$out")"
+extra="$(grep -E '^extra +.+ +team ' <<<"$out")"
 check_has "a loaded homeserver not declared is listed, down" "down (inactive)" "$extra"
 check_has "  with no port, and why there are no members" "port unknown (not declared), members: homeserver down" "$extra"
 check "a team declared absent is not listed" "0" "$(grep -c '^gone ' <<<"$out")"
@@ -544,7 +554,7 @@ check_has "a person signed in on two devices says so" "2 signed in" "$(grep -E '
 reset
 printf 'agent-bus-hs@extra.service loaded inactive dead x\n' >"$STATE/units"
 out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
-alpha="$(grep -E '^alpha +- +team' <<<"$out")"
+alpha="$(grep -E '^alpha +.+ +team ' <<<"$out")"
 check_has "a team declared but with no homeserver unit is not installed" "not installed" "$alpha"
 check_has "  and the row says what installs it" "ccy-teams apply alpha" "$alpha"
 check_lacks "  never meta-deploy" "meta-deploy" "$out"
@@ -563,7 +573,7 @@ check "--list with no sudo credential prints the table, but exits 1: part of it 
 check_has "  says why the members are not shown" "members of alpha are not shown" "$(cat "$SCRATCH/err")"
 check_has "  and the two ways to show them" "play-agent-bus.yml" "$(cat "$SCRATCH/err")"
 check_has "  the seat's state is need sudo" "need sudo" "$(grep -E '^alpha +1 +ccy' <<<"$out")"
-check_has "  and so is the team row's" "members: need sudo" "$(grep -E '^alpha +- +team' <<<"$out")"
+check_has "  and so is the team row's" "members: need sudo" "$(grep -E '^alpha +.+ +team ' <<<"$out")"
 
 reset
 rm -f "$STATE/sudo-cached"
@@ -598,7 +608,7 @@ out="$(cd "$OUTSIDE" && "$TOOL" --list 2>"$SCRATCH/err")"
 check "a seat that cannot be read: the checkout's other seats are still listed" "1" \
     "$(grep -cE '^alpha +1 +ccy' <<<"$out")"
 check_has "  and every team row says something is unreadable" "a seat is unreadable" \
-    "$(grep -E '^alpha +- +team' <<<"$out")"
+    "$(grep -E '^alpha +.+ +team ' <<<"$out")"
 out="$(run_picker "$OUTSIDE" "ctrl-x|proj.2+local.podman" "|ABORT")"
 check "  so Ctrl-X parks no ccy member whose checkout is unknown" "no" "$(logged 'park-member')"
 check_has "  saying why" "could not be read" "$out"
@@ -883,10 +893,15 @@ check "  and no restores nothing" "no" "$(logged 'restore --team')"
 
 echo "== create"
 reset
+CCY_TEAMS_HOST_VARS="$HOST_VARS" "$TOOL" create --team beta --human owner --org example-org --yes \
+    </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "create --yes without --description is a usage error" "64" "$?"
+check_has "  saying what it needs" "create's --yes needs --description" "$(cat "$SCRATCH/err")"
+reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
 "$TOOL" create </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "create with no terminal and no --yes is a usage error" "64" "$?"
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --human owner \
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --description "Builds the site" --human owner \
     --org example-org --yes </dev/null 2>"$SCRATCH/err")"
 check "create with every value adds the entry" "0" "$?"
 check_has "  saying so on stdout, on a port neither declared nor listening" $'CHANGED\tteam beta, port 6169' "$out"
@@ -900,7 +915,7 @@ check "  and written by play-agent-bus-element.yml, after the team's play" "play
 check "  --yes offers no sign-in" "no" "$(logged 'human password')"
 reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
-out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --human owner \
+out="$(CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --description "Builds the site" --human owner \
     --repo example-org/proj --repo other/tool --yes </dev/null 2>"$SCRATCH/err")"
 check "create --repo: a team of repositories of any owners" "0" "$?"
 check_has "  each on any branch, no org" 'repos: [{"repo": "example-org/proj"}, {"repo": "other/tool"}]' \
@@ -911,7 +926,7 @@ check "  each checked on GitHub for push access, as the questions do" "yes yes" 
 reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
 cp "$SCRATCH/create.yml" "$SCRATCH/create.before"
-CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --human owner \
+CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" "$TOOL" create --team beta --description "Builds the site" --human owner \
     --repo example-org/proj --repo example-org/readonly --repo other/missing --repo bad --yes \
     </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "create --repo --yes: a read-only, a missing and a malformed repository fail it (1)" "1" "$?"
@@ -923,7 +938,7 @@ check "  nothing is written" "" "$(diff "$SCRATCH/create.before" "$SCRATCH/creat
 check "  nothing is installed" "no" "$(logged 'play ')"
 reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
-CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_ELEMENT_FAIL=1 "$TOOL" create --team beta --human owner \
+CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_ELEMENT_FAIL=1 "$TOOL" create --team beta --description "Builds the site" --human owner \
     --org example-org --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "a failed Element play fails create" "1" "$?"
 check_has "  saying the Element profile is not applied, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
@@ -932,10 +947,11 @@ check "  in the host_vars" "1" "$(grep -c 'port: 6169' "$SCRATCH/create.yml")"
 check "  listening on the bus address" "2" "$(grep -c 'listen: \["192.0.2.10"\]' "$SCRATCH/create.yml")"
 reset
 cp "$HOST_VARS" "$SCRATCH/create.yml"
-CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_PLAY_FAIL=1 "$TOOL" create --team beta --human owner \
+CCY_TEAMS_HOST_VARS="$SCRATCH/create.yml" TEST_PLAY_FAIL=1 "$TOOL" create --team beta --description "Builds the site" --human owner \
     --org example-org --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "a failed install is a failure" "1" "$?"
-check_has "  saying the team is declared but not installed, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
+check_has "  saying the team is declared but not applied as declared, and how to retry" "ccy-teams apply beta" "$(cat "$SCRATCH/err")"
+check_has "  and how to sign in to Element, which no one was shown a password for" "choose Open beta in Element" "$(cat "$SCRATCH/err")"
 
 # run_in <dir> <gum answers (one string, lines)> <words...> — ccy-teams with those words in
 # <dir>, under a terminal, its gum answered from the queue; the output ends "rc=<status>".
@@ -968,7 +984,7 @@ check "  asking with gum, default no" "yes" "$(logged 'gum confirm --default=fal
 fresh_no_teams
 # Answers: create now; the scope (this repository), the repository, the name, the people and the
 # subnets all by Enter; the summary; no sign-in; no Element; yes to a session here.
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES NO NO YES)")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER '=Builds the example site' ENTER ENTER YES NO NO YES)")"
 check "yes runs create there and then; every default accepted with Enter" "rc=0" "$(rc_of "$out")"
 written="$(cat "$NO_TEAMS")"
 check_has "  the team is named after the repository, lower-cased" "- team: proj" "$written"
@@ -976,6 +992,8 @@ check_has "  you are its human: your login name" 'humans: ["owner"]' "$written"
 check_has "  this repository, on any branch, is the whole scope" 'repos: [{"repo": "example-org/proj"}]' "$written"
 check_lacks "    no org" "org:" "$written"
 check_has "  and no other machine" 'allow_from: []' "$written"
+check_has "  what the team is for is asked after its name, and written" 'description: "Builds the example site"' "$written"
+check_has "  the summary says what it is for" "For       Builds the example site" "$out"
 check_has "  its Element profile is declared with it" $'agent_bus_element_teams:\n  - team: proj' "$written"
 check "  the team is installed at once" "yes" "$(logged 'play -e {"agent_bus_only_teams": ["proj"]}')"
 check "  and its Element profile written" "yes" "$(logged 'element-profiles')"
@@ -1009,8 +1027,8 @@ check_has "  with one accent from the terminal's theme" "GUM_CONFIRM_SELECTED_BA
 check "  and no 256-colour value anywhere (the theme decides every shade)" "0" \
     "$(grep -cE '=[0-9]{2,}$' "$STATE/gum-env")"
 check_has "  gum's dim key-help line is hidden" "GUM_CONFIRM_SHOW_HELP=false" "$(cat "$STATE/gum-env")"
-check_has "  each question is a numbered step" "1/5  What the team works on" "$out"
-check_has "    the last of five" "5/5  Other machines" "$out"
+check_has "  each question is a numbered step" "1/6  What the team works on" "$out"
+check_has "    the last of six" "6/6  Other machines" "$out"
 check_has "  each answer stays on screen" "example-org/proj" "$(grep -F '✓' <<<"$out")"
 check_lacks "    never the file's internals" "forge_api" "$out"
 check_lacks "    nor its path limits" "path_prefixes" "$out"
@@ -1018,14 +1036,14 @@ check "  the team is explained once, not twice" "1" "$(grep -c 'private room' <<
 
 # The sign-in is taken up; the session offer is declined.
 fresh_no_teams
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER ENTER ENTER YES YES NO NO)")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER ENTER ENTER '=Builds the example site' ENTER ENTER YES YES NO NO)")"
 check "a yes to the sign-in sets the password straight after create" "yes" "$(logged 'sudo -n /usr/local/bin/agent-bus human password proj owner')"
 check_has "  and shows the login" "Username" "$out"
 check "  a no to the session starts nothing" "no" "$(logged 'launcher')"
 
 # The whole owner: the second scope.
 fresh_no_teams
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER ENTER ENTER YES NO NO NO)")"
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER '=Builds the example site' ENTER ENTER YES NO NO NO)")"
 check "the whole GitHub owner as the scope" "rc=0" "$(rc_of "$out")"
 written="$(cat "$NO_TEAMS")"
 check_has "  is written as the org, no repository list" 'org: "example-org"' "$written"
@@ -1037,7 +1055,7 @@ check_has "  the summary says so in words" "everything example-org owns: any rep
 # No bus address declared yet: asked for (a bad one refused, bounded), then declared with the team.
 fresh_no_teams
 printf 'user_login: someone\n' >"$NO_TEAMS"
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER ENTER ENTER \
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES NONE ENTER ENTER '=Builds the example site' ENTER ENTER \
     '=not-an-ip' '=192.0.2.10' YES NO NO NO)")"
 check "no bus address: asked for, and the team is created" "rc=0" "$(rc_of "$out")"
 check_has "  a bad one is refused with its reason" "not an IP address" "$out"
@@ -1047,7 +1065,7 @@ check_has "  and the team listens on it" 'listen: ["192.0.2.10"]' "$written"
 check_lacks "  the owner is never told to edit a file" "localhost.yml" "$(grep -v 'saved to\|kept at' <<<"$out")"
 fresh_no_teams
 printf 'user_login: someone\n' >"$NO_TEAMS"
-CCY_TEAMS_HOST_VARS="$NO_TEAMS" "$TOOL" create --team beta --human owner --org example-org --yes \
+CCY_TEAMS_HOST_VARS="$NO_TEAMS" "$TOOL" create --team beta --description "Builds the site" --human owner --org example-org --yes \
     </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "no bus address with --yes: refused" "78" "$?"
 check_has "  saying to run create on a terminal" "ccy-teams create" "$(cat "$SCRATCH/err")"
@@ -1057,7 +1075,7 @@ check "  nothing written" "user_login: someone" "$(cat "$NO_TEAMS")"
 # Several repositories, of any owners: failing entries named with why, the list kept as typed.
 fresh_no_teams
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' YES ENTER \
-    '=Example-Org/Alpha, example-org/readonly, other/missing, bad' '=example-org/alpha,other/tool' ENTER ENTER ENTER YES NO NO NO)")"
+    '=Example-Org/Alpha, example-org/readonly, other/missing, bad' '=example-org/alpha,other/tool' ENTER '=Builds the example site' ENTER ENTER YES NO NO NO)")"
 check "several repositories: a bounded re-prompt, then accepted" "rc=0" "$(rc_of "$out")"
 check_has "  a read-only repository is named with its reason" "example-org/readonly: read-only" "$out"
 check_has "  a missing one is named with its reason" "other/missing: not found" "$out"
@@ -1076,6 +1094,7 @@ agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: legacy
     port: 6190
+    description: "A legacy team"
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]
@@ -1098,6 +1117,7 @@ agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: legacy
     port: 6190
+    description: "A legacy team"
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]
@@ -1120,6 +1140,7 @@ agent_bus_address: 192.0.2.10
 agent_bus_teams:
   - team: elsewhere
     port: 6191
+    description: "Works elsewhere"
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]
@@ -1127,12 +1148,14 @@ agent_bus_teams:
     forge_api: https://api.github.com
 EOF
 printf '|ABORT\n' >"$TEST_ANSWERS"
-# Answers: no to updating the team (not built here), no to creating one for the checkout.
-out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' NO NO)")"
+# Answers: no to updating the team (not built here), no to creating one for the checkout, no to
+# starting a session there that chooses its teams (S-B15).
+out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$CHECKOUT" "$(printf '%s\n' NO NO NO)")"
 check_has "a checkout no team covers is named as such" "No team on this machine works on example-org/proj (this checkout)" "$out"
 check_has "  so the other teams are not mistaken for its own" "The teams listed next are for other repositories" "$out"
 check "  and creating one is offered, default yes" "yes" "$(logged 'gum confirm --default=true Create a team for example-org/proj now?')"
 check_has "  declined, it says how to create one later" "ccy-teams create starts one whenever you like" "$out"
+check "  and a session that chooses its teams is offered too" "yes" "$(logged '(choose its teams)?')"
 check "  and the picker still opens" "rc=0" "$(rc_of "$out")"
 printf '|ABORT\n' >"$TEST_ANSWERS"
 out="$(CCY_TEAMS_HOST_VARS="$NO_TEAMS" run_in "$OUTSIDE" "")"
@@ -1156,6 +1179,7 @@ fresh_states() {
     cat >>"$STATES" <<'EOF'
   - team: beta
     port: 6180
+    description: "Second team"
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]
@@ -1163,6 +1187,7 @@ fresh_states() {
     forge_api: https://api.github.com
   - team: delta
     port: 6181
+    description: "Fourth team"
     listen: ["192.0.2.10"]
     allow_from: []
     humans: ["owner"]
@@ -1181,12 +1206,12 @@ EOF
 }
 fresh_states
 out="$(cd "$OUTSIDE" && CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" --list 2>"$SCRATCH/err")"
-check_has "a team as declared is up to date" "up to date" "$(grep -E '^alpha +- +team' <<<"$out")"
+check_has "a team as declared is up to date" "up to date" "$(grep -E '^alpha +.+ +team ' <<<"$out")"
 check_has "a team built from an older declaration is out of date, saying what differs" "out of date: config" \
-    "$(grep -E '^beta +- +team' <<<"$out")"
-check_has "a team declared and never built is not built" "not built" "$(grep -E '^delta +- +team' <<<"$out")"
-check_has "a team declared absent but still built needs a decision" "decide: absent" "$(grep -E '^gone +- +team' <<<"$out")"
-check_has "a team built but not declared needs a decision" "decide: undeclared" "$(grep -E '^zeta +- +team' <<<"$out")"
+    "$(grep -E '^beta +.+ +team ' <<<"$out")"
+check_has "a team declared and never built is not built" "not built" "$(grep -E '^delta +.+ +team ' <<<"$out")"
+check_has "a team declared absent but still built needs a decision" "decide: absent" "$(grep -E '^gone +.+ +team ' <<<"$out")"
+check_has "a team built but not declared needs a decision" "decide: undeclared" "$(grep -E '^zeta +.+ +team ' <<<"$out")"
 check "  read with no sudo" "no" "$(logged 'sudo -v')"
 
 fresh_states
@@ -1199,7 +1224,7 @@ check_has "    both of them" "zeta (decide: undeclared)" "$(cat "$SCRATCH/err")"
 check_has "  saying so" "Applied: beta delta." "$(cat "$SCRATCH/err")"
 check "  never taking a team down" "no" "$(logged 'agent-bus-install remove')"
 out="$(cd "$OUTSIDE" && CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" --list 2>"$SCRATCH/err")"
-check_has "  beta is up to date afterwards" "up to date" "$(grep -E '^beta +- +team' <<<"$out")"
+check_has "  beta is up to date afterwards" "up to date" "$(grep -E '^beta +.+ +team ' <<<"$out")"
 
 fresh_states
 CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
@@ -1208,6 +1233,7 @@ fresh_states
 CCY_TEAMS_HOST_VARS="$STATES" TEST_PLAY_FAIL=1 "$TOOL" apply delta >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "a failed play is a failure" "1" "$?"
 check_has "  saying the entry stands but is not applied, and how to retry" "ccy-teams apply" "$(cat "$SCRATCH/err")"
+check_has "  and how to sign in to Element, whether or not the apply passed" "choose Open delta in Element" "$(cat "$SCRATCH/err")"
 CCY_TEAMS_HOST_VARS="$STATES" "$TOOL" apply gone >"$SCRATCH/out" 2>"$SCRATCH/err"
 check "apply refuses a team declared absent" "64" "$?"
 check_has "  pointing at remove" "ccy-teams remove gone" "$(cat "$SCRATCH/err")"
@@ -1259,7 +1285,7 @@ fresh_wiz() {
 }
 before="$(cat "$HOST_VARS")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' NONE '=nope' '=Example-Org' '=Bad_Name' '=beta' ENTER \
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' NONE '=nope' '=Example-Org' '=Bad_Name' '=beta' '=Builds beta' ENTER \
     '=198.51.100.0/24' YES NO NO NO)" create)"
 check "a bad name, then a good one; an unknown owner, then a known one" "rc=0" "$(rc_of "$out")"
 check_has "  the bad name is explained, and asked again" "Try again" "$out"
@@ -1279,7 +1305,7 @@ check "Ctrl-C at a question, the same" "rc=130" "$(rc_of "$out")"
 check_lacks "  with no traceback" "Traceback" "$out"
 check "  and writes nothing" "$before" "$(cat "$WIZ")"
 fresh_wiz
-out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER ENTER '=gamma' ENTER ENTER NO)" create)"
+out="$(CCY_TEAMS_HOST_VARS="$WIZ" run_in "$CHECKOUT" "$(printf '%s\n' ENTER ENTER '=gamma' '=Builds gamma' ENTER ENTER NO)" create)"
 check "no at the summary adds nothing" "rc=1" "$(rc_of "$out")"
 check_has "  saying so" "Nothing was added." "$out"
 check "  the file is as it was" "$before" "$(cat "$WIZ")"

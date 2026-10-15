@@ -207,6 +207,57 @@ class TestRefusal(HomeCase):
         (self.home / ".config").mkdir()
         element.check_user(self.home)
 
+    def accepted(self, mode: int = 0o600) -> pathlib.Path:
+        """What cc --teams leaves: ~/.config/pingbus holding only the owner's acceptance."""
+        directory = self.home / ".config" / "pingbus"
+        directory.mkdir(parents=True, mode=0o700)
+        record = directory / config.ELEMENT_ACCEPTED_FILE
+        record.write_text("accepted 2026-01-01T00:00:00Z\n")
+        record.chmod(mode)
+        return directory
+
+    def test_the_owners_cc_acceptance_alone_passes(self) -> None:
+        self.accepted()
+        element.check_user(self.home)
+
+    def test_an_acceptance_beside_bundles_refuses(self) -> None:
+        # A team directory here is a dedicated agent user's bundle, which no acceptance covers.
+        (self.accepted() / "team-a").mkdir()
+        with self.assertRaisesRegex(element.ElementError, "holds pingbus bundles"):
+            element.check_user(self.home)
+
+    def test_an_acceptance_others_can_read_does_not_count(self) -> None:
+        self.accepted(mode=0o644)
+        with self.assertRaisesRegex(element.ElementError, "acceptance record is not valid") as caught:
+            element.check_user(self.home)
+        self.assertNotIn("holds pingbus bundles", str(caught.exception))
+
+    def test_a_symlinked_pingbus_dir_holding_only_the_record_refuses(self) -> None:
+        real = self.accepted()
+        real.rename(self.home / "elsewhere")
+        real.symlink_to(self.home / "elsewhere")
+        with self.assertRaises(element.ElementError):
+            element.check_user(self.home)
+
+    def test_a_dotfile_beside_the_acceptance_refuses(self) -> None:
+        (self.accepted() / ".env").write_text("")
+        with self.assertRaisesRegex(element.ElementError, "holds pingbus bundles"):
+            element.check_user(self.home)
+
+    def test_the_acceptance_as_a_directory_refuses(self) -> None:
+        record = self.accepted() / config.ELEMENT_ACCEPTED_FILE
+        record.unlink()
+        record.mkdir()
+        with self.assertRaises(element.ElementError):
+            element.check_user(self.home)
+
+    def test_the_acceptance_as_a_symlink_refuses(self) -> None:
+        record = self.accepted() / config.ELEMENT_ACCEPTED_FILE
+        record.rename(self.home / "real-record")
+        record.symlink_to(self.home / "real-record")
+        with self.assertRaises(element.ElementError):
+            element.check_user(self.home)
+
     def test_an_unsearchable_config_refuses(self) -> None:
         denied = PermissionError(13, "Permission denied")
         with mock.patch.object(element.os, "lstat", side_effect=denied):

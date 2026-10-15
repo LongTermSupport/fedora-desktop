@@ -70,15 +70,24 @@ func lastLine(t *testing.T, f *execx.Fake) string {
 
 func TestDeclared(t *testing.T) {
 	f := &execx.Fake{}
-	script(f, "declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\n"+
-		"TEAM\told\t-\tabsent\told.agent-bus.internal\t-\n")
+	script(f, "declared", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t\"Builds: the \\\"site\\\"\"\n"+
+		"TEAM\told\t-\tabsent\told.agent-bus.internal\t-\t-\n"+
+		"TEAM\tdash\t-\tabsent\tdash.agent-bus.internal\t-\t\"-\"\n"+
+		"TEAM\tsafe\t-\tabsent\tsafe.agent-bus.internal\t-\t!vaulted\n"+
+		"TEAM\tbad\t-\tabsent\tbad.agent-bus.internal\t-\t!invalid\n")
 	teams, err := newClient(f).Declared(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []Team{
-		{Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167"},
+		{
+			Name: "alpha", Port: 6167, Present: true, ServerName: "alpha.agent-bus.internal", URL: "http://192.0.2.10:6167",
+			Description: `Builds: the "site"`,
+		},
 		{Name: "old", ServerName: "old.agent-bus.internal"},
+		{Name: "dash", ServerName: "dash.agent-bus.internal", Description: "-"},
+		{Name: "safe", ServerName: "safe.agent-bus.internal", DescriptionState: DescriptionVaulted},
+		{Name: "bad", ServerName: "bad.agent-bus.internal", DescriptionState: DescriptionInvalid},
 	}
 	if !reflect.DeepEqual(teams, want) {
 		t.Fatalf("got %+v", teams)
@@ -91,8 +100,10 @@ func TestDeclared(t *testing.T) {
 func TestDeclaredRejectsAMalformedLine(t *testing.T) {
 	for _, line := range []string{
 		"TEAM\talpha\t6167\tpresent\tsrv",
-		"TEAM\talpha\tport\tpresent\tsrv\t-",
-		"TEAM\talpha\t6167\tgone\tsrv\t-",
+		"TEAM\talpha\t6167\tpresent\tsrv\t-",
+		"TEAM\talpha\tport\tpresent\tsrv\t-\t-",
+		"TEAM\talpha\t6167\tgone\tsrv\t-\t-",
+		"TEAM\talpha\t6167\tpresent\tsrv\t-\tunquoted words",
 	} {
 		f := &execx.Fake{}
 		script(f, "declared", line+"\n")
@@ -121,7 +132,7 @@ func TestStatusSortsInstalledAndParsesRows(t *testing.T) {
 
 func TestOverviewIsTheDeclaredTeamsAndTheirStatesFromOneRun(t *testing.T) {
 	f := &execx.Fake{}
-	script(f, "overview", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\n"+
+	script(f, "overview", "TEAM\talpha\t6167\tpresent\talpha.agent-bus.internal\thttp://192.0.2.10:6167\t-\n"+
 		"STATUS\talpha\tcurrent\t-\nSTATUS\tzeta\tdecide\tundeclared\n")
 	teams, states, err := newClient(f).Overview(context.Background(), "/src", "/applied", []string{"beta", "alpha"})
 	if err != nil {
@@ -139,7 +150,7 @@ func TestOverviewIsTheDeclaredTeamsAndTheirStatesFromOneRun(t *testing.T) {
 }
 
 func TestOverviewRejectsAMalformedLineOfEitherKind(t *testing.T) {
-	for _, out := range []string{"TEAM\talpha\tport\tpresent\tsrv\t-\n", "STATUS\talpha\tcurrent\n"} {
+	for _, out := range []string{"TEAM\talpha\tport\tpresent\tsrv\t-\t-\n", "STATUS\talpha\tcurrent\n"} {
 		f := &execx.Fake{}
 		script(f, "overview", out)
 		if _, _, err := newClient(f).Overview(context.Background(), "/s", "/a", nil); err == nil {
@@ -173,6 +184,26 @@ func TestLimitedKeepsTheScopeWordsField(t *testing.T) {
 	}
 }
 
+func TestUndescribedKeepsTheScopeWordsField(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "undescribed", "UNDESCRIBED\talpha\tany repository of example-org\nUNDESCRIBED\tbeta\texample-org/proj\n")
+	got, err := newClient(f).Undescribed(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Undescribed{{Team: "alpha", Trusts: "any repository of example-org"}, {Team: "beta", Trusts: "example-org/proj"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+	if line := lastLine(t, f); line != prefix+" undescribed --file /hv.yml" {
+		t.Fatalf("ran %q", line)
+	}
+	script(f, "undescribed", "UNDESCRIBED\talpha\n")
+	if _, err := newClient(f).Undescribed(context.Background()); err == nil {
+		t.Fatal("accepted an UNDESCRIBED line with no scope words")
+	}
+}
+
 func TestElementTeams(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "element-teams", "ELEMENT\talpha\thttp://192.0.2.10:6167\n")
@@ -199,6 +230,54 @@ func TestTeamsFor(t *testing.T) {
 	script(f, "teams-for", "TEAM\n")
 	if _, err := newClient(f).TeamsFor(context.Background(), "example-org/proj"); err == nil {
 		t.Fatal("accepted a TEAM line with no name")
+	}
+}
+
+func TestChoicesParsesStandingAndDescription(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "choices", "CHOICE\talpha\tcovers\t\"Builds the site\"\nCHOICE\tbeta\twiden\t-\n"+
+		"CHOICE\tgamma\texcluded\t!vaulted\nCHOICE\tdelta\tunreadable\t!invalid\n")
+	got, err := newClient(f).Choices(context.Background(), "example-org/proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Choice{
+		{Team: "alpha", Standing: StandingCovers, Description: "Builds the site"},
+		{Team: "beta", Standing: StandingWiden},
+		{Team: "gamma", Standing: StandingExcluded, DescriptionState: DescriptionVaulted},
+		{Team: "delta", Standing: StandingUnreadable, DescriptionState: DescriptionInvalid},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+	if line := lastLine(t, f); line != prefix+" choices --file /hv.yml --repo example-org/proj" {
+		t.Fatalf("ran %q", line)
+	}
+}
+
+func TestChoicesRefusesWhatItDoesNotKnow(t *testing.T) {
+	for name, out := range map[string]string{
+		"a standing it does not know": "CHOICE\talpha\tmaybe\t-\n",
+		"a short line":                "CHOICE\talpha\tcovers\n",
+		"a description not JSON":      "CHOICE\talpha\tcovers\tplain\n",
+	} {
+		f := &execx.Fake{}
+		script(f, "choices", out)
+		if _, err := newClient(f).Choices(context.Background(), "example-org/proj"); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestAddRepo(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "add-repo", "CHANGED\tteam beta trusts example-org/proj\n")
+	got, err := newClient(f).AddRepo(context.Background(), "beta", "example-org/proj")
+	if err != nil || !got.Changed || got.Text != "team beta trusts example-org/proj" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if line := lastLine(t, f); line != prefix+" add-repo --file /hv.yml --team beta --repo example-org/proj" {
+		t.Fatalf("ran %q", line)
 	}
 }
 
@@ -253,12 +332,13 @@ func TestChecks(t *testing.T) {
 	e := Entry{
 		Team: "alpha", Humans: []string{"a", "b"}, Org: "example-org",
 		Repos: []string{"example-org/x", "example-org/y"}, AllowFrom: []string{"192.0.2.0/24"},
+		Description: "Builds the site",
 	}
 	if err := c.Check(ctx, e); err != nil {
 		t.Fatal(err)
 	}
 	want := prefix + " check --file /hv.yml --team alpha --human a --human b --org example-org" +
-		" --repo example-org/x --repo example-org/y --allow-from 192.0.2.0/24"
+		" --repo example-org/x --repo example-org/y --allow-from 192.0.2.0/24 --description Builds the site"
 	if line := lastLine(t, f); line != want {
 		t.Fatalf("ran %q", line)
 	}
@@ -267,6 +347,23 @@ func TestChecks(t *testing.T) {
 	}
 	if line := lastLine(t, f); line != prefix+" check --file /hv.yml --repo example-org/x" {
 		t.Fatalf("ran %q", line)
+	}
+}
+
+func TestDescribeSetsAndReportsUnchanged(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "describe", "CHANGED\tteam alpha description\n")
+	c := newClient(f)
+	got, err := c.Describe(context.Background(), "alpha", "Builds the site")
+	if err != nil || !got.Changed || got.Text != "team alpha description" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if line := lastLine(t, f); line != prefix+" describe --file /hv.yml --team alpha --description Builds the site" {
+		t.Fatalf("ran %q", line)
+	}
+	script(f, "describe", "UNCHANGED\talpha\n")
+	if got, err = c.Describe(context.Background(), "alpha", "Builds the site"); err != nil || got.Changed {
+		t.Fatalf("%+v %v", got, err)
 	}
 }
 
@@ -279,12 +376,13 @@ func TestCreate(t *testing.T) {
 	errw := &bytes.Buffer{}
 	c := newClient(f)
 	c.Err = errw
-	e := Entry{Team: "alpha", Humans: []string{"owner"}, Org: "example-org", Address: "192.0.2.10"}
+	e := Entry{Team: "alpha", Humans: []string{"owner"}, Org: "example-org", Address: "192.0.2.10", Description: "Builds the site"}
 	got, err := c.Create(context.Background(), e)
 	if err != nil || !got.Changed || got.Text != "team alpha, port 6167, in /hv.yml" {
 		t.Fatalf("%+v %v", got, err)
 	}
-	want := prefix + " create --file /hv.yml --team alpha --human owner --org example-org --address 192.0.2.10"
+	want := prefix + " create --file /hv.yml --team alpha --human owner --org example-org --address 192.0.2.10" +
+		" --description Builds the site"
 	if line := lastLine(t, f); line != want {
 		t.Fatalf("ran %q", line)
 	}

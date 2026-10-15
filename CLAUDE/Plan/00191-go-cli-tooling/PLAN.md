@@ -98,22 +98,45 @@ today; rewriting them is out of scope.
 - [x] ✅ **Task 3.1**: Brief from rust-qa-ci, ts-qa-ci and php-qa-ci, and the Defence
   Before Fix toolchain spec read from its first-party repository:
   [RESEARCH-go-qa-ci.md](RESEARCH-go-qa-ci.md).
+
 - [x] ✅ **Task 3.2**: Create `LongTermSupport/go-qa-ci` (created private; the owner makes it
   public after review) and build it by milestones, self-hosted. It is a generic DBF toolchain
   for Go: it names no consumer. Milestones M0-M14 each passed an independent verifier; its
   conformance is declared with recorded gaps, never claimed in full. The verifiers' deferred
   minor items are in `subagent-reports/261014-go-qa-ci-deferred-run*.md`, for a polish pass.
+
 - [ ] ⬜ **Task 3.3**: This repository's Go QA runs go-qa-ci, pinned. Waits on the owner
   making go-qa-ci public (CI and the host cannot fetch a private module); until then the
   interim `scripts/qa-go.bash` gates `src-go/`. Ready on go-qa-ci's side since M15/M16 (Plan
   00192): it builds a project driver from a nested module (`src-go/qa`), counts disabled linters
   as the chosen defence set rather than suppressions, and ships nine bundled analyzers. When
   adopted, its pinned tools (ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint)
-  go into the image, `play-python.yml` and CI by IaC, as golangci-lint did.
+  are installed by go-qa itself (Task 3.7): the image and CI run one go-qa install command
+  at build time, not one task per tool.
+
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to
   everything. This repository's `qa-changed.bash` calls it with Task 3.3.
+
+- [x] ✅ **Task 3.7**: Installing go-qa-ci provides every tool it runs, with nothing further
+  required (owner, 2026-10-15: "simple and reliable"). go-qa embeds `tools.lock` and installs
+  each pinned tool into a cache it manages: release archives are checked against the pinned
+  sha256 before extracting, `[go]` tools are built with `go install`, and each tool is moved into
+  place atomically. `go-qa run` installs any that are missing, so `go install` plus `go-qa run`
+  is the whole setup. Built test first. A Fable review found no blockers. Its two medium
+  findings are fixed:
+
+  - `GOFLAGS=-mod=mod` and `GOWORK=off`, so a project that vendors can use it;
+  - Go-built tools are keyed by the Go version that built them, so a toolchain upgrade
+    rebuilds them.
+
+  Merged to go-qa-ci main at `f125f711e6f6`. When Task 3.3 adopts it, the go-qa-ci/adopt
+  branch replaces its per-tool IaC installs (deadcode, govulncheck) with one
+  `go-qa install-tools`.
+
+  - The owner also said not to lock into go-qa-ci. The Go workflow, the hooks daemon's Go
+    handlers included, assumes only the plain Go toolchain, and go-qa is an add-on.
 
 ### Phase 4: ccy-sessions, then ccy
 

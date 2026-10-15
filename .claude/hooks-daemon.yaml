@@ -240,6 +240,14 @@ handlers:
         authorisations:
           - id: subagent-delegation
             enabled: true
+          # The owner's standing request for the watch list (Plan 00200, CLAUDE/Watchlist.md):
+          # "outcome to be GH tickets created, or plans created as appropriate - plans for
+          # where there is more discussion/research needed - straight to gh tickets for clear
+          # wins that are defined and clear". Covers the watchlist-scout agent filing issues
+          # and plans, nothing else. The daemon has no built-in text for this id yet and
+          # ignores it, so this entry is the durable record, not an injected authorisation.
+          - id: watchlist-issue-filing
+            enabled: true
     idle_housekeeping_advisory: {enabled: true}  # Report-first housekeeping after repeated no-op recovery ticks
 
   # SessionStart - Initialise environment
@@ -369,4 +377,10 @@ plugins:
     - path: ".claude/hooks/handlers/pre_tool_use/ansible_enforcement.py"
       event_type: "pre_tool_use"
       handlers: ["AnsibleEnforcementHandler"]
+      enabled: true
+
+    # The agent-bus teams a session is on (PINGBUS_TEAMS), in the status line
+    - path: ".claude/hooks/handlers/status_line/bus_teams.py"
+      event_type: "status_line"
+      handlers: ["BusTeamsHandler"]
       enabled: true

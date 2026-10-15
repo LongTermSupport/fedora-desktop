@@ -41,12 +41,12 @@ EXIT_UNTRUSTED = 10
 
 CREATE = "m.room.create"
 POWER_LEVELS = "m.room.power_levels"
+TOPIC = "m.room.topic"
 MEMBER = "m.room.member"
 #: A change to any of these re-verifies the room (§8).
-TRUST_TYPES = (CREATE, POWER_LEVELS, protocol.EVENT_TEAM)
-#: The filter probe H4 recorded against Tuwunel 1.9.3 (fixtures 040, 044, 071).
-STATE_TYPES = (CREATE, POWER_LEVELS, MEMBER, protocol.EVENT_TEAM, protocol.EVENT_STATUS)
-TIMELINE_TYPES = (protocol.EVENT_MESSAGE, MEMBER, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_STATUS)
+TRUST_TYPES = (CREATE, POWER_LEVELS, protocol.EVENT_TEAM)#: The filter probe H4 recorded against Tuwunel 1.9.3 (fixtures 040, 044, 071).
+STATE_TYPES = (CREATE, POWER_LEVELS, MEMBER, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC)
+TIMELINE_TYPES = (protocol.EVENT_MESSAGE, MEMBER, POWER_LEVELS, protocol.EVENT_TEAM, protocol.EVENT_STATUS, TOPIC)
 TIMELINE_LIMIT = 50
 #: A limited timeline's gap is read forward with `/messages` (fixture 072).
 GAP_FILTER = {"types": [protocol.EVENT_MESSAGE]}
@@ -259,6 +259,7 @@ class Syncer:
         except (matrix.NotFound, matrix.Forbidden):
             raise self._lose_trust("not joined, or the room or its team record is missing") from None
         self.state.save_team_record(content)
+        self.state.save_about(self._read_about())
         if self.record is None or self.record.forge_api != record.forge_api:
             self._forge = None
         self.record = record
@@ -268,6 +269,28 @@ class Syncer:
             self.statuses = kept
             self._save_room_view()
         return record
+
+    def _read_about(self) -> str | None:
+        """The team's description: the room topic when `admin` set it to something other than
+        the fixed sentence and it passes the description grammar. Informational only, so a
+        missing, odd or foreign topic is no description and never a loss of trust."""
+        member = self.member
+        try:
+            event = self.client.get_state(member.room, TOPIC, "", as_event=True)
+        except (matrix.NotFound, matrix.Forbidden):
+            return None
+        return self._about_of(event)
+
+    def _about_of(self, event: object) -> str | None:
+        """The description a room-topic event gives, or None for anything else."""
+        if not isinstance(event, dict):
+            return None
+        content = event.get("content")
+        topic = content.get("topic") if isinstance(content, dict) else None
+        if (event.get("sender") != self.member.admin or not protocol.is_description(topic)
+                or topic == protocol.ROOM_TOPIC):
+            return None
+        return topic
 
     def _read_trusted_state(self) -> tuple[protocol.TeamRecord, dict]:
         member, room = self.member, self.member.room
@@ -323,6 +346,8 @@ class Syncer:
             self.verify_room()
         if limited:
             events = self._fill_gap(since, timeline.get("prev_batch")) + events
+        elif any(_type_of(e) == TOPIC for e in state_events + events):
+            self.state.save_about(self._read_about())
         self._read_room_state(state_events + events)
         return self._receive(events, next_batch)
 

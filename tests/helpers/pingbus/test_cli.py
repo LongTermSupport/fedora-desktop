@@ -43,7 +43,7 @@ PEER_LP = "peer.1+workstation.podman"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 PATH_REF = f"path:example-org/myrepo@{SHA}:docs/plan.md"
 T0 = 1_791_000_000.0
-STDOUT_KINDS = ("PING", "HUMAN", "PEER", "TIMEOUT", "SENT")
+STDOUT_KINDS = ("PING", "HUMAN", "PEER", "REPLY", "TIMEOUT", "SENT")
 #: Long enough that the fake's long-poll is really held, short enough to end with a test.
 LONG_POLL_MS = 400
 UNKNOWN_EVENT = "$" + "Q" * 43
@@ -548,10 +548,13 @@ class SayTest(BusCase):
         (content,) = self.a.messages_from_me()
         self.assertEqual(content, protocol.build_text([self.a.alice, self.a.orch], "moving to the docs"))
         self.assertEqual(content["m.mentions"], {"user_ids": sorted([self.a.alice, self.a.orch])})
-        for to in ("nobody", "admin", "nobody.1+workstation.podman"):
+        code, out, err = self.run_cli("say", "--to", "admin", stdin="hello")
+        self.assertEqual((code, out), (cli.EXIT_REFUSED, ""))
+        self.assertIn("target", err)
+        for to in ("nobody", "nobody.1+workstation.podman"):
             code, out, err = self.run_cli("say", "--to", to, stdin="hello")
-            self.assertEqual((code, out), (cli.EXIT_REFUSED, ""), to)
-            self.assertIn("target", err)
+            self.assertEqual((code, out), (cli.EXIT_USAGE, ""), to)
+            self.assertIn("no member of team team-a is named that", err)
         self.assertEqual(len(self.a.messages_from_me()), 1)
 
     def test_say_refuses_secret_shaped_text(self):

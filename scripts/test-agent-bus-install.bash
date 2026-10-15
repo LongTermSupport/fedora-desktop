@@ -624,6 +624,22 @@ check "the new rule is added" "yes" "$(says '^firewall-cmd --permanent --zone=tr
 check "the permanent zone holds only the new rule" "1" "$(count . "$STUB_DIR/fw/permanent.trusted")"
 check "and the run says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
 
+echo "== team: a description changed (Plan 00201 S-A4)"
+cp "$T/tuwunel.toml" "$SCRATCH/toml.before"
+cp "$DROPIN" "$SCRATCH/dropin.before"
+jq '. + {description: "Builds the example site"}' "$TF" >"$TF.new" && mv "$TF.new" "$TF"
+run team --team-file "$TF"
+check "a team file differing only in description is applied" "0" "$RC"
+check "  and the homeserver is not restarted" "0" "$(count '^systemctl (start|restart|stop)' "$(LOG)")"
+check "  and systemd is not reloaded" "0" "$(count '^systemctl daemon-reload' "$(LOG)")"
+check "  and no restart is announced" "no" "$(says 'restarted' "$OUT")"
+check "  and tuwunel.toml is byte-identical" "yes" "$(same "$T/tuwunel.toml" "$SCRATCH/toml.before")"
+check "  and the drop-in is byte-identical" "yes" "$(same "$DROPIN" "$SCRATCH/dropin.before")"
+check "  and the canonical team.json carries the description" "Builds the example site" "$(jq -r .description "$T/team.json")"
+check "  and the team record is republished (bootstrap runs)" "yes" "$(says '^agent-bus bootstrap alpha$' "$(LOG)")"
+check "  and the stamp's config digest moved with it" "yes" "$(
+    [[ $(jq -r .config "$STAMP") == "$(cd "$REPO_ROOT" && python3 -c 'import pathlib, sys; from helpers.agent_bus import teamfile; print(teamfile.config_digest(teamfile.load_team_file(pathlib.Path(sys.argv[1]))))' "$T/team.json")" ]] && echo yes || echo no)"
+
 echo "== team: a new binary restarts the homeserver"
 write_pin 1.9.4 "$ASSET_SHA"
 run software --source "$SOURCE"

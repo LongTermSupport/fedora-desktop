@@ -115,23 +115,18 @@ export FAKE_BUS_LOG="$work/bus.log"
 bus_calls() { if [ -s "$FAKE_BUS_LOG" ]; then paste -sd'|' "$FAKE_BUS_LOG"; else echo none; fi; }
 
 # The fake ccy-teams: each call is one line in $FAKE_BUS_LOG (after agent-bus's own calls, in
-# order). `for-checkout --choose` prints FAKE_FIND_OUT (default team-a) and exits FAKE_FIND_RC;
-# `choose-seat <team>` is the seat chooser, Go's (its rows, role question and refusals are tested
-# there): it prints FAKE_CHOOSE_SEAT (default 2@<team>; empty is the owner leaving the chooser)
-# and exits FAKE_CHOOSE_SEAT_RC.
+# order). `choose-teams --type=podman [LIST]` is the team and seat chooser, Go's (its list, scope
+# question and seat chooser are tested there): it prints FAKE_CHOOSE_TEAMS (default 2@team-a;
+# empty is the owner leaving the chooser) and exits FAKE_CHOOSE_TEAMS_RC.
 cat >"$bus_bin/ccy-teams" <<'FAKE'
 #!/usr/bin/env bash
 printf 'ccy-teams %s\n' "$*" >>"$FAKE_BUS_LOG"
-if [ "$1" = choose-seat ]; then
-    [ "${FAKE_CHOOSE_SEAT_RC:-0}" -eq 0 ] || exit "$FAKE_CHOOSE_SEAT_RC"
-    [ -z "${FAKE_CHOOSE_SEAT-x}" ] || printf '%s\n' "${FAKE_CHOOSE_SEAT-2@$2}"
-    exit 0
+if [ "$1 $2" = "describe-seats --block" ]; then
+    printf 'This session is on teams (fake block): %s\n' "$3"
+    exit "${FAKE_BLOCK_RC:-0}"
 fi
-if [ "${FAKE_FIND_RC:-0}" -ne 0 ]; then
-    echo "ccy-teams: no team works on this checkout (fake)" >&2
-    exit "$FAKE_FIND_RC"
-fi
-printf '%s\n' "${FAKE_FIND_OUT-team-a}"
+[ "${FAKE_CHOOSE_TEAMS_RC:-0}" -eq 0 ] || exit "$FAKE_CHOOSE_TEAMS_RC"
+[ -z "${FAKE_CHOOSE_TEAMS-x}" ] || printf '%s\n' "${FAKE_CHOOSE_TEAMS-2@team-a}"
 FAKE
 chmod 755 "$bus_bin/ccy-teams"
 
@@ -174,36 +169,22 @@ rc=0" "$(lib_run ccy_seats_check team-a,qa@team-b true)"
 check "unattended, the check asks for every seat named" "rc=64" "$(lib_run ccy_seats_check team-a false)"
 check "  with --resolved" "seat check team-a --resolved" "$(bus_calls)"
 
-echo "=== a team alone: the seat chooser is ccy-teams choose-seat (Task 4.8, Plan 00196) ==="
-
-check "a list naming every seat: printed as it is, nothing asked" "dev1@team-a,qa@team-b
-rc=0" "$(lib_run ccy_seats_resolve dev1@team-a,qa@team-b)"
-check "  neither agent-bus nor ccy-teams called" "none" "$(bus_calls)"
-check "a team alone: the seat ccy-teams chose is taken, and the list checked again with --resolved" \
-    "2@team-a,qa@team-b
-rc=0" "$(lib_run ccy_seats_resolve team-a,qa@team-b)"
-check "  ccy-teams was asked for that team's seat, then the list was checked" \
-    "ccy-teams choose-seat team-a|seat check 2@team-a,qa@team-b --resolved" "$(bus_calls)"
-check "another seat chosen: that seat" "3@team-a
-rc=0" "$(FAKE_CHOOSE_SEAT=3@team-a lib_run ccy_seats_resolve team-a)"
-check "the owner leaving the chooser: nothing printed, status 0" "rc=0" \
-    "$(FAKE_CHOOSE_SEAT='' lib_run ccy_seats_resolve team-a)"
-check "  and nothing was checked or taken" "ccy-teams choose-seat team-a" "$(bus_calls)"
-check "ccy-teams' refusal is passed on" "rc=78" "$(FAKE_CHOOSE_SEAT_RC=78 lib_run ccy_seats_resolve team-a)"
-check "  a second team is not asked after a refusal" "ccy-teams choose-seat team-a" "$(bus_calls)"
-check "two teams alone are asked one after the other" "2@team-a,2@team-b
-rc=0" "$(lib_run ccy_seats_resolve team-a,team-b)"
-
 check "take with a list: called with it, the container's arguments filled" \
     "-e|PINGBUS_SEATS=dev1@team-a,qa2@team-b|--label|ccy-seats=dev1@team-a,qa2@team-b|rc=0" \
     "$(lib_run take_and_show dev1@team-a,qa2@team-b false)"
-check "take, interactive: no --no-prompt" "seat take dev1@team-a,qa2@team-b" "$(bus_calls)"
+check "take, interactive: no --no-prompt, then the launch block for the list" \
+    "seat take dev1@team-a,qa2@team-b|ccy-teams describe-seats --block dev1@team-a,qa2@team-b" "$(bus_calls)"
 check "take's CHANGED lines go to stderr, never stdout" "rc=0" "$(lib_run ccy_seats_take dev1@team-a false)"
 check "they are shown" "yes" "$(has "CHANGED seat dev1@team-a" "$work/lib.err")"
+check "the launch block is shown on stderr" "yes" "$(has "This session is on teams (fake block): dev1@team-a" "$work/lib.err")"
 lib_run ccy_seats_take dev1@team-a true >/dev/null
-check "take, unattended: --no-prompt" "seat take dev1@team-a --no-prompt" "$(bus_calls)"
+check "take, unattended: --no-prompt" "seat take dev1@team-a --no-prompt|ccy-teams describe-seats --block dev1@team-a" "$(bus_calls)"
 check "take's 75 (a held seat) is passed on, no arguments for the container" "|rc=75" \
     "$(FAKE_TAKE_RC=75 lib_run take_and_show dev1@team-a false)"
+check "  and no block is shown for seats that were not taken" "seat take dev1@team-a" "$(bus_calls)"
+check "a launch block that cannot be made stops the launch with its code" "rc=70" \
+    "$(FAKE_BLOCK_RC=70 lib_run ccy_seats_take dev1@team-a false)"
+check "  and says so, with the code" "yes" "$(has "Not starting: ccy-teams describe-seats --block failed (exit 70" "$work/lib.err")"
 check "take's 78 is passed on" "rc=78" "$(FAKE_TAKE_RC=78 lib_run ccy_seats_take dev1@team-a true)"
 check "no list (a plain launch): agent-bus not called, no arguments for the container" "|rc=0" \
     "$(lib_run take_and_show "" false)"
@@ -350,26 +331,18 @@ nothing_ran() {
 }
 no_session_tools() { if grep -q '^podman run\|^ssh' "$work/tools.log"; then echo no; else echo yes; fi; }
 
-# A bare --teams asks ccy-teams which team works on this checkout, and the answer is then the
-# team named alone (nobody to choose a seat here, so the check refuses it: 64).
-find_then_check="ccy-teams for-checkout --choose|seat check team-a --resolved"
+# A bare --teams is answered by ccy-teams choose-teams, on a terminal. With nobody to ask (here:
+# headless, no terminal) the empty list is refused by agent-bus seat check (64), and ccy-teams
+# is not asked.
 for bare in "--headless --teams" "--teams --headless" "--teams= --headless" "--headless --teams --prompt go"; do
     # shellcheck disable=SC2086  # the words are the case
     run_ccy with-bus $bare
-    check "bare '$bare': ccy-teams finds the team, a team alone is then checked" "$find_then_check" "$(bus_calls)"
-    check "  a team alone with nobody to choose: 64" "64" "$RC"
+    check "bare '$bare', nobody to choose: 64" "64" "$RC"
+    check "  it says why: choosing a team needs a terminal, name the seat" "yes" "$(has 'needs a terminal: name the seat instead, --teams <seat>@<team>' "$work/ccy.err")"
+    check "  only the check ran, on the empty list, and no chooser" "seat check  --resolved" "$(bus_calls)"
 done
-FAKE_FIND_OUT=team-b run_ccy with-bus --headless --teams
-check "bare --teams: the team ccy-teams printed is the one checked" \
-    "ccy-teams for-checkout --choose|seat check team-b --resolved" "$(bus_calls)"
-FAKE_FIND_RC=1 run_ccy with-bus --headless --teams
-check "bare --teams, no team found: ccy-teams' exit code is the launch's" "1" "$RC"
-check "  it says why, and nothing but the question ran" "ccy-teams for-checkout --choose" "$(bus_calls)"
-check "  no SSH, engine or token work" "yes" "$(no_session_tools)"
-FAKE_FIND_RC=130 run_ccy with-bus --teams --headless
-check "bare --teams, the person cancelled the choice: 130" "130" "$RC"
-FAKE_FIND_RC=1 run_ccy with-bus --teams dev1@team-a --headless
-check "an explicit --teams never asks ccy-teams" "no" "$(has 'for-checkout' "$FAKE_BUS_LOG")"
+FAKE_CHOOSE_TEAMS_RC=1 run_ccy with-bus --teams dev1@team-a --headless
+check "an explicit --teams never asks ccy-teams" "no" "$(has 'choose-teams' "$FAKE_BUS_LOG")"
 run_ccy with-bus --teams dev1@team-a --teams qa2@team-b --headless
 check "--teams given twice: 64" "64" "$RC"
 check "  it says one flag carries every seat" "yes" "$(has "once" "$work/ccy.err")"
@@ -432,8 +405,18 @@ quick() {
     (cd "$proj" && bash -c '
         print_error() { printf "ERROR: %s\n" "$*" >&2; }
         token_expiry_label() { :; }
-        read() { if [ "$1" = -rp ]; then echo PROMPT >>"$PROMPT_LOG"; return 1; fi; builtin read "$@"; }
+        # The Quick Launch prompt answers QUICK_ANSWER as typed (empty is a bare Enter); with
+        # QUICK_ANSWER unset it is end of input (Ctrl-D), so read fails and sets nothing.
+        read() {
+            if [ "$1" = -rp ]; then
+                echo PROMPT >>"$PROMPT_LOG"
+                [ -n "${QUICK_ANSWER+set}" ] || return 1
+                printf -v "$3" "%s" "$QUICK_ANSWER"; return 0
+            fi
+            builtin read "$@"
+        }
         ccy_launch_teams() { printf "%s\n" "$TEAMS_LIST" >"$TEAMS_LOG"; CCY_SEATS="$TEAMS_LIST"; }
+        ccy_nobody_to_ask() { [ "${QUICK_NOBODY:-false}" = true ]; }
         ccy-teams() {
             if [ "$1" = describe-seats ]; then printf "%s%s%s\n" "$3" "${4:-none}" "${4:+ (worker)}"; return 0; fi
             printf "%s\n" "$*" >>"$TEAMS_REC"; return "${FAKE_RECORD_RC:-0}"
@@ -501,33 +484,59 @@ check "headless with a launch-choice flag: the block is not entered" \
 
 echo "=== Quick Launch remembers the team ==="
 
+# Plan 00161 M2.9: a plain launch is on no team. Only --teams, or a person answering the
+# Quick Launch offer that shows the team, may put a session in one; nobody answers a headless
+# launch, a launch with no terminal or a restore, so their saved seats are never taken.
 save personal /keys/id_a proj_net dev1@team-a
-check "headless, a saved team: it is launched into, and a restart would replay it" \
-    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(teams_after true)"
+check "headless, a saved team: not launched into, a restart would replay none (M2.9)" \
+    "ran= end=|--orig" "$(teams_after true)"
+check "  the rest of the saved choices are still taken" "yes" \
+    "$(save personal /keys/id_a proj_net dev1@team-a; quick true | grep -q 'token=personal keys=/keys/id_a' && echo yes || echo no)"
+check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
+check "  and it records nothing" "none" "$(save personal /keys/id_a proj_net dev1@team-a; recorded_after true)"
 save personal /keys/id_a proj_net dev1@team-a
-check "  the summary shows the team, its seat and its role" "yes" \
-    "$(has "Team:    dev1@team-a (worker)" "$work/quick.err")"
+check "no terminal to ask on, a saved team: not launched into" \
+    "ran= end=|--orig" "$(QUICK_NOBODY=true teams_after false)"
+check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
+save personal /keys/id_a proj_net dev1@team-a
+check "  the summary says no team, never the saved one's seat and role" "yes no" \
+    "$(has "Team:    none" "$work/quick.err") $(has "(worker)" "$work/quick.err")"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive: the summary shows the team, its seat and its role" "yes" \
+    "$(QUICK_ANSWER=y quick false >/dev/null; has "Team:    dev1@team-a (worker)" "$work/quick.err")"
 save personal /keys/id_a proj_net dev1@team-a,qa2@team-b
 check "  several seats are kept together" "ran=dev1@team-a,qa2@team-b end=dev1@team-a,qa2@team-b|--orig --teams dev1@team-a,qa2@team-b" \
-    "$(teams_after true)"
+    "$(QUICK_ANSWER=y teams_after false)"
 save personal /keys/id_a proj_net dev1@team-a
-check "interactive, the previous configuration accepted: the team comes with it" \
-    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(teams_after false)"
+check "interactive, y typed: the team comes with it" \
+    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER=y teams_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive, a bare Enter (the default yes): the team comes with it" \
+    "ran=dev1@team-a end=dev1@team-a|--orig --teams dev1@team-a" "$(QUICK_ANSWER='' teams_after false)"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive, n typed: no team, and no saved choice is taken" \
+    "ran= end=|--orig token= keys=" \
+    "$(QUICK_ANSWER=n teams_after false) $(save personal /keys/id_a proj_net dev1@team-a; QUICK_ANSWER=n quick false | grep -o 'token=[^ ]* keys=[^ ]*')"
+save personal /keys/id_a proj_net dev1@team-a
+check "interactive, end of input (Ctrl-D) is not a yes: no team" \
+    "ran= end=|--orig" "$(teams_after false)"
+check "  it says the saved team is not taken" "yes" "$(has "not its team" "$work/quick.err")"
+check "  and it records nothing" "none" "$(save personal /keys/id_a proj_net dev1@team-a; recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "a session restore never takes the saved team: it is in a team only if its own record says so" \
     "ran= end=|--orig" "$(QUICK_RESTORE=true teams_after false)"
 check "  and it records nothing" "none" "$(QUICK_RESTORE=true recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "a quick-launched team goes into the session's own record, as an explicit --teams does" \
-    "record-seats dev1@team-a" "$(recorded_after false)"
+    "record-seats dev1@team-a" "$(QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 check "  a record that cannot be written stops the launch" "yes" \
-    "$(FAKE_RECORD_RC=1 quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
+    "$(FAKE_RECORD_RC=1 QUICK_ANSWER=y quick false | grep -q 'rc=1 prompt=' && echo yes || echo no)"
 save personal /keys/id_a proj_net dev1@team-a
 check "an explicit --teams records nothing here (the launch's arguments carry it)" "none" \
-    "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team recorded_after false)"
+    "$(QUICK_TEAMS_GIVEN=true QUICK_TEAMS_LIST=other-team QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net ""
-check "a launch with no saved team records nothing" "none" "$(recorded_after false)"
+check "a launch with no saved team records nothing" "none" "$(QUICK_ANSWER=y recorded_after false)"
 save personal /keys/id_a proj_net dev1@team-a
 save personal /keys/id_a proj_net ""
 check "saved with no team: none is launched into" "ran= end=|--orig" "$(teams_after true)"
@@ -629,19 +638,32 @@ insulate_line=$(grep -n -F "ccy_tmux_insulate \"\$PROJECT_NAME\"" "$LAUNCHER" | 
 check "the canonical list replaces the given one before tmux records the session" "yes" \
     "$([ -n "$rewrite_line" ] && [ -n "$insulate_line" ] && [ "$rewrite_line" -lt "$insulate_line" ] \
         && echo yes || echo no)"
-resolve_call="ccy_seats_resolve \"\$CCY_SEATS\""
-resolve_line=$(grep -n -F "$resolve_call" "$LAUNCHER" | cut -d: -f1)
+choose_call="ccy-teams choose-teams --type=podman \"\$TEAMS_LIST\""
+choose_line=$(grep -n -F "$choose_call" "$LAUNCHER" | cut -d: -f1)
 check "the chooser runs once, before the rewrite (so the chosen seat is what is replayed)" "yes" \
-    "$([ "$(grep -c -F "$resolve_call" "$LAUNCHER")" = 1 ] && [ -n "$rewrite_line" ] \
-        && [ "$resolve_line" -lt "$rewrite_line" ] && echo yes || echo no)"
+    "$([ "$(grep -c -F "$choose_call" "$LAUNCHER")" = 1 ] && [ -n "$rewrite_line" ] \
+        && [ "$choose_line" -lt "$rewrite_line" ] && echo yes || echo no)"
+check "the launcher keeps no chooser logic of its own: no for-checkout, no resolve loop" "0" \
+    "$(cat "$LAUNCHER" "$LIB_DIR/agent-bus-seats.bash" | grep -c -E 'for-checkout|ccy_seats_resolve|choose-seat' || true)"
+# The chooser is asked, attended, for a bare --teams and for a team named alone, never for a
+# list that already names every seat (so a saved Quick Launch list needs no ccy-teams).
+needs_chooser() {
+    local TEAMS_LIST="$1" attended=true cond
+    cond=$(grep -F 'TEAMS_LIST" =~ ,[^@,]+' "$LAUNCHER")
+    [ -n "$cond" ] || { echo missing; return; }
+    : "$TEAMS_LIST" "$attended" # read by the condition eval'd below
+    eval "$cond"$'\n echo yes\n else echo no\n fi'
+}
+check "a bare --teams asks the chooser" "yes" "$(needs_chooser '')"
+check "a team alone asks it" "yes" "$(needs_chooser 'team-a')"
+check "  and so does a team alone among seats" "yes" "$(needs_chooser '1@team-a, team-b')"
+check "a list naming every seat does not" "no" "$(needs_chooser '1@team-a,qa2@team-b')"
 check "a restore, a restart, headless and no terminal count as nobody to choose" "yes" \
     "$(grep -A2 '^    ccy_nobody_to_ask || \[ ! -t 2 \]' "$LAUNCHER" | tr '\n' ' ' | grep -F 'ccy_nobody_to_ask' \
         | grep -F 'CCY_SESSION_RESTORE' | grep -F 'CCY_RESTART_RELAUNCH_SESSION' \
         | grep -qF '|| attended=true' && echo yes || echo no)"
 check "Quick Launch's summary names each seat with its role, through ccy-teams" "1" \
     "$(grep -c -F 'ccy-teams describe-seats' "$LAUNCHER")"
-check "the seat chooser, with the role question, is ccy-teams choose-seat" "1" \
-    "$(grep -c -F "chosen=\$(ccy-teams choose-seat" "$LIB_DIR/agent-bus-seats.bash")"
 check "the flag and the Quick Launch team go through the one function (definition and two calls)" "3" \
     "$(grep -c -E '^ *ccy_launch_teams' "$LAUNCHER")"
 

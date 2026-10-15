@@ -50,25 +50,32 @@ func TestPathLimitYesDropsTheLimitAndAppliesTheTeam(t *testing.T) {
 	}
 }
 
-func TestPathLimitNoIsRememberedAndNeverAskedAgain(t *testing.T) {
-	h := newRig(t)
-	h.OnDeclare("limited", limitedLegacy)
-	h.Script.Gum = []string{"NO"}
-	if err := h.p.offerPathLimits(context.Background()); err != nil {
+// declinedOnce is a declined offer: remembered in marker, said, and not made again.
+func declinedOnce(t *testing.T, h rig, offer func() error, marker, said string) {
+	t.Helper()
+	if err := offer(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(h.marker("alpha")); err != nil {
+	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("marker: %v", err)
 	}
-	if !strings.Contains(h.ErrOut.String(), "Kept. ccy-teams will not ask about alpha's limit again.\n") {
+	if !strings.Contains(h.ErrOut.String(), said) {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
-	if err := h.p.offerPathLimits(context.Background()); err != nil {
+	if err := offer(); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.Script.GumLog) != 1 || h.plays() != 0 {
 		t.Fatalf("asked again: %v, plays %d", h.Script.GumLog, h.plays())
 	}
+}
+
+func TestPathLimitNoIsRememberedAndNeverAskedAgain(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("limited", limitedLegacy)
+	h.Script.Gum = []string{"NO"}
+	declinedOnce(t, h, func() error { return h.p.offerPathLimits(context.Background()) }, h.marker("alpha"),
+		"Kept. ccy-teams will not ask about alpha's limit again.\n")
 }
 
 func TestPathLimitFailuresAreFatal(t *testing.T) {
@@ -111,9 +118,96 @@ func TestPathLimitApplyFailureIsSaidAndGoesOn(t *testing.T) {
 	}
 }
 
+const undescribedAlpha = "UNDESCRIBED\talpha\tany repository of example-org\n"
+
+func (h rig) declined(team string) string {
+	return filepath.Join(h.p.StateDir, "declined", "description-"+team)
+}
+
+func TestDescriptionYesAsksChecksDescribesAndAppliesTheTeam(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("undescribed", undescribedAlpha)
+	h.OnDeclare("check", "")
+	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
+	h.Script.Gum = []string{"YES", "CHOOSE:Builds the example site"}
+	if err := h.p.offerDescriptions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := "gum confirm --default=true Team alpha (for any repository of example-org) has no description. Write one now?"; h.Script.GumLog[0] != want {
+		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	if !strings.HasPrefix(h.Script.GumLog[1], "gum input --header What is this team for?") {
+		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	if !h.Fake.Called(h.DeclarePrefix("describe") + " --file " + h.Host.HostVars + " --team alpha --description Builds the example site") {
+		t.Fatalf("calls %v", h.Fake.Calls())
+	}
+	if h.plays() != 1 {
+		t.Fatalf("the apply play ran %d times, want once", h.plays())
+	}
+	if _, err := os.Stat(h.declined("alpha")); err == nil {
+		t.Fatal("a description that was written leaves no marker")
+	}
+}
+
+func TestDescriptionNoIsRememberedAndNeverAskedAgain(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("undescribed", undescribedAlpha)
+	h.Script.Gum = []string{"NO"}
+	declinedOnce(t, h, func() error { return h.p.offerDescriptions(context.Background()) }, h.declined("alpha"),
+		"Kept. ccy-teams will not ask about alpha's description again.\n")
+}
+
+func TestARefusedDescriptionIsAskedAgainWithWhatWasTyped(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("undescribed", undescribedAlpha)
+	h.OnDeclare("check", "")
+	h.OnErr(h.DeclarePrefix("check")+" --file "+h.Host.HostVars+" --description bad", "declare: --description: nope", 64)
+	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
+	h.Script.Gum = []string{"YES", "CHOOSE:bad", "CHOOSE:Good one"}
+	if err := h.p.offerDescriptions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.ErrOut.String(), "declare: --description: nope") || !strings.HasSuffix(h.Script.GumLog[2], "--value bad --width 0") {
+		t.Fatalf("stderr %q gum %q", h.ErrOut.String(), h.Script.GumLog)
+	}
+	if !h.Fake.Called(h.DeclarePrefix("describe") + " --file " + h.Host.HostVars + " --team alpha --description Good one") {
+		t.Fatal("the good one was not written")
+	}
+}
+
+func TestADescriptionWhoseApplyFailsFailsTheFlowAndNamesTheRetry(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("undescribed", undescribedAlpha)
+	h.OnDeclare("check", "")
+	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
+	h.OnErr(h.Host.Play, "play failed", 1)
+	h.Script.Gum = []string{"YES", "CHOOSE:Builds the example site"}
+	err := h.p.offerDescriptions(context.Background())
+	code, left := flow.ExitCodeOf(err)
+	if !left || code != term.ExitFailure {
+		t.Fatalf("a failed apply must end the flow with a failure, got %v", err)
+	}
+	if !strings.Contains(h.ErrOut.String(), "ccy-teams apply alpha") {
+		t.Fatalf("stderr %q lacks the retry", h.ErrOut.String())
+	}
+}
+
+func TestCancellingTheDescriptionQuestionLeavesNothingWritten(t *testing.T) {
+	h := newRig(t)
+	h.OnDeclare("undescribed", undescribedAlpha)
+	h.Script.Gum = []string{"YES", "ABORT"}
+	if err := h.p.offerDescriptions(context.Background()); err == nil {
+		t.Fatal("Ctrl-C ends the picker")
+	}
+	if h.Fake.Called(h.DeclarePrefix("describe")) || h.plays() != 0 {
+		t.Fatal("something was written")
+	}
+}
+
 func TestOfferUpdateListsTeamsInOrderAndDeclinedDoesNothing(t *testing.T) {
 	h := newRig(t)
-	h.OnDeclare("declared", teamtest.DeclaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\n")
+	h.OnDeclare("declared", teamtest.DeclaredAlpha+"TEAM\tbeta\t6168\tpresent\tbeta.agent-bus.internal\t-\t-\n")
 	h.On("systemctl list-units", teamtest.UnitAlpha, 0)
 	h.OnDeclare("status", "STATUS\talpha\tcurrent\t-\nSTATUS\tbeta\tunbuilt\t-\n")
 	h.Script.Gum = []string{"NO"}
@@ -194,11 +288,12 @@ func TestOfferJoinHereAsksForTeamsThatCoverTheCheckout(t *testing.T) {
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitOK {
 		t.Fatalf("starting the session ends the picker: %v", err)
 	}
-	want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + " as a member of alpha?"
+	// S-B15: one question for the checkout, and ccy --teams (bare) shows the teams
+	want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + "?"
 	if len(h.Script.GumLog) != 1 || h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
-	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams", "alpha"}) {
+	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams"}) {
 		t.Fatalf("execs %+v", h.Execs)
 	}
 }
@@ -209,7 +304,7 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) 
 	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	h.OnDeclare("github-remote", "example-org/proj\n")
 	h.OnDeclare("teams-for", "")
-	h.Script.Gum = []string{"NO"}
+	h.Script.Gum = []string{"NO", "NO"}
 	r := &run{p: h.p, snap: board.NewSnapshot()}
 	if err := r.offerJoinHere(context.Background()); err != nil {
 		t.Fatal(err)
@@ -224,6 +319,13 @@ func TestOfferJoinHereWithNoTeamForTheRepositoryOffersToCreateOne(t *testing.T) 
 	}
 	if want := "gum confirm --default=true Create a team for example-org/proj now?"; h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	// S-B15: when no team covers the checkout, a session can still be started and choose its teams
+	if want := "gum confirm --default=true Start a ccy session in " + h.Checkout() + " (choose its teams)?"; len(h.Script.GumLog) != 2 || h.Script.GumLog[1] != want {
+		t.Fatalf("gum %q", h.Script.GumLog)
+	}
+	if len(h.Execs) != 0 {
+		t.Fatalf("declined, yet started: %+v", h.Execs)
 	}
 
 	h = newRig(t)
@@ -276,5 +378,22 @@ func TestOfferJoinHereSkipsWhatItCannotDecide(t *testing.T) {
 	r = &run{p: h.p, snap: board.NewSnapshot()}
 	if err := r.offerJoinHere(context.Background()); err != nil || !strings.Contains(h.ErrOut.String(), "declare: nope") {
 		t.Fatalf("%v %q", err, h.ErrOut.String())
+	}
+}
+
+func TestOfferJoinHereWithNoTeamForTheRepositoryCanStartASessionThatChoosesItsTeams(t *testing.T) {
+	h := newRig(t)
+	h.inProject()
+	h.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
+	h.OnDeclare("github-remote", "example-org/proj\n")
+	h.OnDeclare("teams-for", "")
+	h.Script.Gum = []string{"NO", "YES"}
+	r := &run{p: h.p, snap: board.NewSnapshot()}
+	err := r.offerJoinHere(context.Background())
+	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitOK {
+		t.Fatalf("starting the session ends the picker: %v", err)
+	}
+	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || !slices.Equal(h.Execs[0].Argv, []string{"/x/launcher", "--teams"}) {
+		t.Fatalf("execs %+v", h.Execs)
 	}
 }

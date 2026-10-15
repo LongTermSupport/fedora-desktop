@@ -14,6 +14,8 @@ Newest first, continuing from [../README.md](../README.md#completed-plans).
      were read as an unrecognised section while their folders were plainly completed —
      sixteen advisories saying so. -->
 
+- [00107-server-profile-never-grants-passwordless-sudo](00107-server-profile-never-grants-passwordless-sudo/) - The server profile declares `play-basic-configs.yml`'s passwordless-sudo block absent instead of granting it; the desktop profile is unchanged. run.bash 1.18.1 passes the become password to headless optional playbooks, a gap the grant had been masking. Proven live on a headless box.
+
 - [00106-run-bash-git-ref-headless](00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort. run.bash 1.18.0; proven on a real headless box.
 
 - [00105-tmux-sessions-single-key-menu](00105-tmux-sessions-single-key-menu/) - tmux for detachable long-running dev sessions behind one key: F12 opens a new/rename/switch/detach/kill menu; status bar off. Deployed and verified on a headless box.

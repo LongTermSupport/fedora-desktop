@@ -50,6 +50,18 @@ func TestScriptedFzfAnswersWithTheChosenRowAndKey(t *testing.T) {
 	}
 }
 
+func TestScriptedFzfMarksSeveralRowsWhenTheChoicesAreJoinedWithAmpersands(t *testing.T) {
+	w := Populated(t)
+	c := Interactive(t, w)
+	c.Script.Fzf = []string{"|alpha&&gamma"}
+	res, err := c.Script.Run(t.Context(), execx.Cmd{
+		Name: "fzf", Args: []string{"--multi"}, Stdin: strings.NewReader("alpha one\nbeta two\ngamma three\n"),
+	})
+	if err != nil || string(res.Stdout) != "alpha one\ngamma three\n" {
+		t.Fatalf("%q %v", res.Stdout, err)
+	}
+}
+
 func TestInteractiveRecordsTheLauncherAndReadsTheTerminalFromTTY(t *testing.T) {
 	w := Populated(t)
 	c := Interactive(t, w)

@@ -6,6 +6,7 @@ package declare
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -84,7 +85,21 @@ type Team struct {
 	Present    bool
 	ServerName string
 	URL        string // empty when the entry has no address to reach it on
+	// Description is what the team is for; empty when the entry sets none (or a vaulted one).
+	Description string
+	// DescriptionState is set when the entry has a description that cannot be shown: it is
+	// vaulted, or fails the team file's grammar. Description is then empty.
+	DescriptionState DescriptionState
 }
+
+// DescriptionState says why a team's description is not shown.
+type DescriptionState string
+
+// The two states declare.py marks with !vaulted and !invalid.
+const (
+	DescriptionVaulted DescriptionState = "vaulted"
+	DescriptionInvalid DescriptionState = "invalid"
+)
 
 // Status is a STATUS line: whether a team is applied as declared.
 type Status struct {
@@ -116,6 +131,12 @@ type Limit struct {
 	Trusts   string // what the team trusts, in words
 }
 
+// Undescribed is an UNDESCRIBED line: a present team that has no description yet.
+type Undescribed struct {
+	Team   string
+	Trusts string // what the team trusts, in words
+}
+
 // Profile is an ELEMENT line: a team's Element profile and the homeserver it uses.
 type Profile struct {
 	Team    string
@@ -136,6 +157,8 @@ type Entry struct {
 	Repos     []string
 	AllowFrom []string
 	Address   string
+	// Description is what the team is for (create needs it).
+	Description string
 }
 
 func (e Entry) args() []string {
@@ -158,6 +181,9 @@ func (e Entry) args() []string {
 	if e.Address != "" {
 		args = append(args, "--address", e.Address)
 	}
+	if e.Description != "" {
+		args = append(args, "--description", e.Description)
+	}
 	return args
 }
 
@@ -173,7 +199,7 @@ func (c *Client) Declared(ctx context.Context) ([]Team, error) {
 }
 
 func parseTeams(out string) ([]Team, error) {
-	rows, err := marker.Fields(out, "TEAM", 6)
+	rows, err := marker.Fields(out, "TEAM", 7)
 	if err != nil {
 		return nil, fmt.Errorf("declare declared: %w", err)
 	}
@@ -185,6 +211,9 @@ func parseTeams(out string) ([]Team, error) {
 				return nil, fmt.Errorf("declare declared: team %s: port %q is not a number", f[1], f[2])
 			}
 		}
+		if team.Description, team.DescriptionState, err = parseDescription(f[6]); err != nil {
+			return nil, fmt.Errorf("declare declared: team %s: %w", f[1], err)
+		}
 		switch f[3] {
 		case "present":
 			team.Present = true
@@ -195,6 +224,24 @@ func parseTeams(out string) ([]Team, error) {
 		teams = append(teams, team)
 	}
 	return teams, nil
+}
+
+// parseDescription reads declare.py's description field: a JSON string, "-" for none, or
+// !vaulted / !invalid for one that cannot be shown.
+func parseDescription(field string) (string, DescriptionState, error) {
+	switch field {
+	case "-":
+		return "", "", nil
+	case "!vaulted":
+		return "", DescriptionVaulted, nil
+	case "!invalid":
+		return "", DescriptionInvalid, nil
+	}
+	var text string
+	if err := json.Unmarshal([]byte(field), &text); err != nil {
+		return "", "", fmt.Errorf("description %q is not a JSON string", field)
+	}
+	return text, "", nil
 }
 
 // Status compares each team's applied stamp in appliedDir with the declaration and the
@@ -264,6 +311,23 @@ func (c *Client) Limited(ctx context.Context) ([]Limit, error) {
 	return limits, nil
 }
 
+// Undescribed is the present teams that have no description.
+func (c *Client) Undescribed(ctx context.Context) ([]Undescribed, error) {
+	out, err := c.runFile(ctx, "undescribed")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := marker.Fields(out, "UNDESCRIBED", 3)
+	if err != nil {
+		return nil, fmt.Errorf("declare undescribed: %w", err)
+	}
+	teams := make([]Undescribed, 0, len(rows))
+	for _, f := range rows {
+		teams = append(teams, Undescribed{Team: f[1], Trusts: f[2]})
+	}
+	return teams, nil
+}
+
 // ElementTeams is the teams that have an Element profile entry.
 func (c *Client) ElementTeams(ctx context.Context) ([]Profile, error) {
 	out, err := c.runFile(ctx, "element-teams")
@@ -296,6 +360,57 @@ func (c *Client) TeamsFor(ctx context.Context, repo string) ([]string, error) {
 		names = append(names, f[1])
 	}
 	return names, nil
+}
+
+// Standing is how a present team stands to a repository, the word declare.py choices prints.
+type Standing string
+
+// The standings of declare.py choices.
+const (
+	// StandingCovers: the team trusts the repository now.
+	StandingCovers Standing = "covers"
+	// StandingWiden: it does not, and adding the repository to its scope would make it.
+	StandingWiden Standing = "widen"
+	// StandingExcluded: the team's org owns it and excludes it on purpose.
+	StandingExcluded Standing = "excluded"
+	// StandingUnreadable: the team's scope cannot be read (vaulted), so nothing can be said.
+	StandingUnreadable Standing = "unreadable"
+)
+
+// Choice is a CHOICE line: a present team, how it stands to the repository, what it is for.
+type Choice struct {
+	Team             string
+	Standing         Standing
+	Description      string
+	DescriptionState DescriptionState
+}
+
+// Choices is every present team with its standing to the repository (OWNER/REPO), in file
+// order. Unlike TeamsFor it also names the teams that would need their scope widened.
+func (c *Client) Choices(ctx context.Context, repo string) ([]Choice, error) {
+	out, err := c.runFile(ctx, "choices", "--repo", repo)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := marker.Fields(out, "CHOICE", 4)
+	if err != nil {
+		return nil, fmt.Errorf("declare choices: %w", err)
+	}
+	choices := make([]Choice, 0, len(rows))
+	for _, f := range rows {
+		standing := Standing(f[2])
+		switch standing {
+		case StandingCovers, StandingWiden, StandingExcluded, StandingUnreadable:
+		default:
+			return nil, fmt.Errorf("declare choices: team %s: standing %q is not one this build knows", f[1], f[2])
+		}
+		choice := Choice{Team: f[1], Standing: standing}
+		if choice.Description, choice.DescriptionState, err = parseDescription(f[3]); err != nil {
+			return nil, fmt.Errorf("declare choices: team %s: %w", f[1], err)
+		}
+		choices = append(choices, choice)
+	}
+	return choices, nil
 }
 
 // GithubRemote is the lower-case OWNER/REPO a GitHub remote URL names, or "" when it names none.
@@ -357,6 +472,17 @@ func (c *Client) Create(ctx context.Context, e Entry) (Change, error) {
 func (c *Client) CreateDryRun(ctx context.Context, e Entry) (string, error) {
 	out, err := c.runFile(ctx, "create", append(e.args(), "--dry-run")...)
 	return out, err
+}
+
+// Describe sets or replaces the present team's description; Changed is false when it was
+// already that.
+func (c *Client) Describe(ctx context.Context, team, description string) (Change, error) {
+	return c.edit(ctx, "describe", "--team", team, "--description", description)
+}
+
+// AddRepo adds the repository (OWNER/REPO, any branch) to the present team's scope.
+func (c *Client) AddRepo(ctx context.Context, team, repo string) (Change, error) {
+	return c.edit(ctx, "add-repo", "--team", team, "--repo", repo)
 }
 
 // Element adds or updates the team's Element profile entry; Changed is false when it was right.

@@ -62,15 +62,21 @@ type Wizard struct {
 	Home     string // for the ~ abbreviation
 	Launcher string // the ccy launcher offered after the team is made
 
-	LookPath      func(name string) (string, error)
-	ApplyTeams    func(ctx context.Context, teams ...string) error
-	NewPassword   func(ctx context.Context, team, human string) error
+	LookPath    func(name string) (string, error)
+	ApplyTeams  func(ctx context.Context, teams ...string) error
+	NewPassword func(ctx context.Context, team, human string) error
+	// SignInGap is, after an apply that failed, the sign-in of the team's people who have no
+	// Element session: the play made their accounts, so it is offered (ask) or said.
+	SignInGap     func(ctx context.Context, teams []string, ask bool) error
 	LaunchElement func(ctx context.Context, team string) error
 	// ExecLauncher replaces this process with argv in dir. It returns only on failure
 	// (a test's stand-in returns nil).
 	ExecLauncher func(dir string, argv []string) error
 
 	term *term.Term
+	// forChooser is a run for `choose-teams`; created is the team that run made.
+	forChooser bool
+	created    string
 }
 
 // New is the Wizard over a host and the flows it hands the work after the entry is written to:
@@ -85,6 +91,7 @@ func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 			return o.ApplyTeams(ctx, teams)
 		},
 		NewPassword:   l.NewPassword,
+		SignInGap:     l.SignInGap,
 		LaunchElement: l.Open,
 		ExecLauncher: func(dir string, argv []string) error {
 			return h.Exec(h.Launcher, argv, dir)
@@ -101,12 +108,14 @@ type createOpts struct {
 	repos     []string
 	allowFrom []string
 	address   string
+	// description is what the team is for (S-A14): asked, or given with --description.
+	description string
 }
 
 func (o *createOpts) entry() declare.Entry {
 	return declare.Entry{
 		Team: o.team, Humans: nonEmpty(o.humans), Org: o.org, Repos: nonEmpty(o.repos),
-		AllowFrom: nonEmpty(o.allowFrom), Address: o.address,
+		AllowFrom: nonEmpty(o.allowFrom), Address: o.address, Description: o.description,
 	}
 }
 
@@ -123,6 +132,20 @@ func nonEmpty(in []string) []string {
 // Run is ccy-teams create with the arguments after "create". It returns the exit code:
 // 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
 func (c *Wizard) Run(ctx context.Context, args []string) term.ExitCode {
+	c.forChooser, c.created = false, ""
+	return c.run(ctx, args)
+}
+
+// RunForChooser is the wizard for `ccy-teams choose-teams`, with this checkout's repository as
+// the scope's default: it offers no session of its own and prints nothing on stdout (the
+// chooser's payload), and returns the team it made, empty when it made none.
+func (c *Wizard) RunForChooser(ctx context.Context) (string, term.ExitCode) {
+	c.forChooser, c.created = true, ""
+	code := c.run(ctx, nil)
+	return c.created, code
+}
+
+func (c *Wizard) run(ctx context.Context, args []string) term.ExitCode {
 	c.term = c.NewTerm()
 	err := c.create(ctx, args)
 	if err == nil {
@@ -170,7 +193,7 @@ func (c *Wizard) parseFlags(args []string) (createOpts, error) {
 		switch flag {
 		case "--yes":
 			o.yes = true
-		case "--team", "--human", "--org", "--repo", "--allow-from":
+		case "--team", "--human", "--org", "--repo", "--allow-from", "--description":
 			if i+1 >= len(args) {
 				return o, c.usage("create's " + flag + " needs a value.")
 			}
@@ -181,6 +204,8 @@ func (c *Wizard) parseFlags(args []string) (createOpts, error) {
 				o.team = value
 			case "--human":
 				o.humans = append(o.humans, value)
+			case "--description":
+				o.description = value
 			case "--org":
 				o.org = strings.ToLower(value)
 			case "--repo":
@@ -236,6 +261,9 @@ func (c *Wizard) create(ctx context.Context, args []string) error {
 	o, err := c.parseFlags(args)
 	if err != nil {
 		return err
+	}
+	if o.yes && o.description == "" {
+		return c.usage("create's --yes needs --description TEXT: what the team is for.")
 	}
 	here, err := c.remoteRepo(ctx)
 	if err != nil {
@@ -322,6 +350,9 @@ func countSteps(o createOpts, scopeGiven bool, knownAddress string) int {
 		steps += 2
 	}
 	if o.team == "" {
+		steps++
+	}
+	if o.description == "" {
 		steps++
 	}
 	if len(nonEmpty(o.humans)) == 0 {
@@ -450,6 +481,11 @@ func (c *Wizard) askRest(ctx context.Context, o *createOpts, knownAddress string
 			return err
 		}
 	}
+	if o.description == "" {
+		if err := c.askDescription(ctx, o); err != nil {
+			return err
+		}
+	}
 	if len(nonEmpty(o.humans)) == 0 {
 		if err := c.askHumans(ctx, o); err != nil {
 			return err
@@ -496,6 +532,26 @@ func (c *Wizard) askTeam(ctx context.Context, o *createOpts) error {
 	}
 	o.team = team
 	c.term.Answered(team)
+	return nil
+}
+
+// askDescription asks what the team is for, one line, checked by declare.py as typed.
+func (c *Wizard) askDescription(ctx context.Context, o *createOpts) error {
+	if err := c.step(ctx, "What is this team for?", "One line, up to 120 characters. It is shown wherever teams are listed or chosen, and to the team's agents."); err != nil {
+		return err
+	}
+	text, err := c.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
+		if answer == "" {
+			c.problem("say in a line what the team is for", true)
+			return false, nil
+		}
+		return c.checked(c.Declare.Check(ctx, declare.Entry{Description: answer}), true)
+	}, "What is this team for?", "e.g. Builds and reviews the example site", "")
+	if err != nil {
+		return err
+	}
+	o.description = text
+	c.term.Answered(text)
 	return nil
 }
 
@@ -742,6 +798,7 @@ func (c *Wizard) confirmSummary(ctx context.Context, o createOpts) error {
 	}
 	body := strings.Join([]string{
 		summaryLine("Works on", o.trusts()),
+		summaryLine("For", o.description),
 		summaryLine("People", strings.Join(nonEmpty(o.humans), " ")),
 		summaryLine("Machines", machines),
 		summaryLine("Element", "a profile for the team, set up on this desktop"),
@@ -777,7 +834,9 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 	if change.Changed {
 		marker = "CHANGED"
 	}
-	if _, err = fmt.Fprintf(c.Stdout, "%s\t%s\n", marker, change.Text); err != nil {
+	if c.forChooser {
+		c.term.Printf("%s\t%s\n", marker, change.Text)
+	} else if _, err = fmt.Fprintf(c.Stdout, "%s\t%s\n", marker, change.Text); err != nil {
 		return fmt.Errorf("write the result: %w", err)
 	}
 	// Element is set up with the team: its profile is declared beside it, and apply runs its play.
@@ -785,13 +844,22 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 		return err
 	}
 	if err = c.ApplyTeams(ctx, o.team); err != nil {
+		// The play ran before it failed, so the person's account exists with a password
+		// nobody was shown: the sign-in is offered (or said) here, the failure still stands.
+		if signErr := c.SignInGap(ctx, []string{o.team}, !o.yes); signErr != nil {
+			c.term.PrintError(signErr.Error())
+		}
 		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
-			" but not installed. Once the cause above is fixed, ccy-teams apply " + o.team + " installs it.")
+			" but not applied as declared. Once the cause above is fixed, ccy-teams apply " + o.team + " applies it.")
 	}
+	c.created = o.team
 	if !o.yes {
 		if err = c.afterCreate(ctx, o); err != nil {
 			return err
 		}
+	}
+	if c.forChooser {
+		return nil
 	}
 	steps, err := c.Declare.NextSteps(ctx, o.team)
 	if err != nil {

@@ -69,6 +69,12 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
   [MILESTONES-DONE.md](MILESTONES-DONE.md).
 - [x] ✅ **M2 ccy members, the idle session woken**: U12, U18-U20, U29-U33. Accepted on the
   host 26-10-09 (M2.0-M2.10). Detail: [MILESTONES-DONE.md](MILESTONES-DONE.md).
+  - [ ] 🔄 Defect: the 26-10-15 acceptance re-run failed M2.9, a plain headless `ccy` carrying
+    the seat of the checkout's previous `--teams` session. Cause: Quick Launch replayed the
+    saved team on a launch nobody answered (Plan 00177 Task 7.2), against D38. Fixed 26-10-15
+    test first (CCY 3.97.3): only a person's yes to the offer, or `--teams`, takes a team.
+    Pending: the ccy play and acceptance.bash on the host.
+    [report](subagent-reports/261015-m29-seat-leak-opus.md)
 - [ ] 🔄 **M3 other encapsulations on this host, the play**: U21-U23. U24 (a team on another
   machine over WireGuard) is a later phase (DESIGN.md D46). U21, U22 and U23 (LXC, docker,
   VM) are built and accepted on the host (U23.vm 26-10-12); `play-agent-bus.yml` passed its
@@ -84,6 +90,12 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
     2026-10-12). Built: `agent_bus_lxc_members` (`localhost.yml.dist`), applied by
     `play-agent-bus.yml` through `helpers/agent_bus_lxc/members.py`, `test_members.py`.
     Pending: a host run with a real container declared (journal 26-10-12).
+  - [ ] 🔄 Defect: the 26-10-15 acceptance re-run failed U23.lxc, `env: 'pingbus': Permission denied` (exit 126). Cause: the host run had umask 077 (its run directories turned 0700 on
+    26-10-15); sudo and lxc-attach carried it into the member, where the acceptance's kit
+    copy made `/usr/local/share/agent-bus` and `kit/` 0700. The installer and `members.py`
+    already set 0755 explicitly. Fixed 26-10-15: `U23_KIT_UNPACK_PY` sets every kit directory
+    0755, `test_u23_kit_unpack.py`. Pending: acceptance.bash on the host.
+    [report](subagent-reports/261015-u23-lxc-exec-opus.md)
 - [ ] 🔄 **M4 Element, deploy and acceptance (privacy checks P1-P8)**: U25-U28 (U26, TLS,
   only if probe H7 needs it). U25 (`element.py`, `play-agent-bus-element.yml`,
   `agent_bus_element_teams`) built, reviewed and fixed. Its host run is pending: the owner
@@ -113,6 +125,11 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
       (its message counts predate the goodbye); the merged list no longer carries it.
   - [x] ✅ Applied state and team changes by the play (DESIGN.md D65): built and deployed
     26-10-13; the owner created a real team with `ccy-teams create` on 26-10-13 and it worked.
+  - [x] ✅ Defect: `ccy-teams apply` always read every team "out of date: config" where lxcbr0
+    exists, because the play stamped the digest of the bridge-augmented team file and
+    `declare.py status` digested the bare entry. Fixed 26-10-15: `bridge.py` owns the bridge
+    name and a live `ip` probe; `status` digests `bridge.effective(...)` too; `agent_bus_lxc_bridge`
+    and the facts path are gone. The create wizard's failure line no longer claims "not installed".
 
 ## Success Criteria
 

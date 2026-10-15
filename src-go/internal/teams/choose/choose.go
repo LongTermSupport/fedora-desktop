@@ -82,32 +82,44 @@ func (c *Choose) Seat(ctx context.Context, args []string) term.ExitCode {
 		c.say("ccy-teams: 'choose-seat' takes one team. See ccy-teams --help.")
 		return term.ExitUsage
 	}
-	team := args[0]
-	choices, err := c.Bus.SeatChoose(ctx, team)
+	ref, code := c.PickSeat(ctx, args[0], "")
+	if ref != "" {
+		c.Host.Print(c.Host.Stdout, ref+"\n")
+	}
+	return code
+}
+
+// PickSeat chooses the seat this session takes in team, for a launcher of memberType ("" for
+// agent-bus's default), then offers its role. The ref is SEAT@TEAM; it is empty with ExitOK when
+// the person left a question, and nothing is started.
+func (c *Choose) PickSeat(ctx context.Context, team, memberType string) (string, term.ExitCode) {
+	choices, err := c.Bus.SeatChooseAs(ctx, team, memberType)
 	if err != nil {
-		return c.listFailed(team, err)
+		return "", c.listFailed(team, err)
 	}
 	if !c.Kit.HasTool("gum") {
 		c.say("--teams " + team + " asks which seat to take, and gum is not installed: play-claude-yolo.yml installs it.")
 		c.say("  Or name the seat yourself: --teams " + choices.Default + "@" + team)
-		return exitConfig
+		return "", exitConfig
 	}
 	picked, ok, code := c.pickSeat(ctx, team, choices)
 	if !ok {
-		return code
+		return "", code
 	}
 	c.say("Taking seat " + picked.Seat + "@" + team + ": " + picked.Handle + " (" + picked.Words + ").")
 	if code := c.offerRole(ctx, team, picked); code != term.ExitOK {
-		return code
+		return "", code
 	}
-	c.Host.Print(c.Host.Stdout, picked.Seat+"@"+team+"\n")
-	return term.ExitOK
+	return picked.Seat + "@" + team, term.ExitOK
 }
 
 // Describe is `ccy-teams describe-seats [--prefix TEXT] LIST`: each seat of a launch's --teams
 // list followed by its role, for Quick Launch to show, on stdout after the prefix. A role that
 // cannot be read is said so with the reason; it never stops the launch showing what it would do.
 func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
+	if len(args) > 0 && args[0] == "--block" {
+		return c.block(ctx, args[1:])
+	}
 	prefix := ""
 	if len(args) > 0 && args[0] == "--prefix" {
 		if len(args) < 2 {
@@ -124,13 +136,68 @@ func (c *Choose) Describe(ctx context.Context, args []string) term.ExitCode {
 		c.Host.Print(c.Host.Stdout, prefix+"none\n")
 		return term.ExitOK
 	}
-	d := &describer{c: c, rosters: map[string]rosterResult{}}
+	d := &describer{c: c, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
 	var parts []string
 	for ref := range strings.SplitSeq(args[0], ",") {
 		parts = append(parts, d.describe(ctx, strings.TrimSpace(ref)))
 	}
 	c.Host.Print(c.Host.Stdout, prefix+strings.Join(parts, ", ")+"\n")
 	return term.ExitOK
+}
+
+// block is `describe-seats --block LIST`: on stdout, the block a launch prints once its seats are
+// taken, naming every team the session is on with its seat, the seat's role and what the team is
+// for. LIST is the canonical SEAT@TEAM list; anything else is a usage mistake.
+func (c *Choose) block(ctx context.Context, args []string) term.ExitCode {
+	if len(args) != 1 || args[0] == "" {
+		c.say("ccy-teams: 'describe-seats --block' takes the seat list. See ccy-teams --help.")
+		return term.ExitUsage
+	}
+	type seatTeam struct{ seat, team string }
+	var seats []seatTeam
+	width := 0
+	for item := range strings.SplitSeq(args[0], ",") {
+		seat, team, ok := strings.Cut(strings.TrimSpace(item), "@")
+		if !ok {
+			c.say("ccy-teams: 'describe-seats --block' takes SEAT@TEAM items; '" + item + "' is not one. See ccy-teams --help.")
+			return term.ExitUsage
+		}
+		seats = append(seats, seatTeam{seat, team})
+		width = max(width, len(team))
+	}
+	d := &describer{c: c, rosters: map[string]rosterResult{}, about: c.descriptions(ctx)}
+	noun := "teams"
+	if len(seats) == 1 {
+		noun = "team"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "This session is on %d %s:\n", len(seats), noun)
+	for _, st := range seats {
+		about := d.about[st.team]
+		if about == "" {
+			about = "(no description)"
+		}
+		fmt.Fprintf(&b, "  %-*s  seat %s (%s)  %s\n", width, st.team, st.seat, d.roleWords(ctx, st.seat, st.team), about)
+	}
+	c.Host.Print(c.Host.Stdout, b.String())
+	return term.ExitOK
+}
+
+// descriptions is what each declared team is for. Descriptions that cannot be read are said on
+// stderr and left out: the launch still shows its seats.
+func (c *Choose) descriptions(ctx context.Context) map[string]string {
+	teams, err := c.Host.Declare.Declared(ctx)
+	if err != nil {
+		c.Kit.ReportErr(err)
+		return nil
+	}
+	about := make(map[string]string, len(teams))
+	for _, t := range teams {
+		if t.Description != "" {
+			about[t.Name] = t.Description
+		}
+	}
+	return about
 }
 
 func (c *Choose) say(msg string) { c.Host.Print(c.Host.Stderr, msg+"\n") }
@@ -253,21 +320,35 @@ type describer struct {
 	c       *Choose
 	rosters map[string]rosterResult
 	handles map[string]string // "<seat>@<team>" -> handle
+	about   map[string]string // team -> what it is for
 	loaded  bool
 	loadErr error
 }
 
+// describe is the seat with its role, and what its team is for when the team has a description.
 func (d *describer) describe(ctx context.Context, ref string) string {
 	seat, team, ok := strings.Cut(ref, "@")
 	if !ok {
 		return ref
 	}
+	if about := d.about[team]; about != "" {
+		return d.role(ctx, ref, seat, team) + ": " + about
+	}
+	return d.role(ctx, ref, seat, team)
+}
+
+func (d *describer) role(ctx context.Context, ref, seat, team string) string {
+	return ref + " (" + d.roleWords(ctx, seat, team) + ")"
+}
+
+// roleWords is the seat's role, or why it cannot be said.
+func (d *describer) roleWords(ctx context.Context, seat, team string) string {
 	handle, found, err := d.handle(ctx, seat, team)
 	if err != nil {
-		return ref + " (role unknown: " + err.Error() + ")"
+		return "role unknown: " + err.Error()
 	}
 	if !found {
-		return ref + newSeatWords
+		return newSeatWords
 	}
 	res, read := d.rosters[team]
 	if !read {
@@ -276,16 +357,16 @@ func (d *describer) describe(ctx context.Context, ref string) string {
 		d.rosters[team] = res
 	}
 	if res.err != nil {
-		return ref + " (role unknown: " + res.err.Error() + ")"
+		return "role unknown: " + res.err.Error()
 	}
 	member, ok := res.roster.Member(handle)
 	if !ok {
-		return ref + newSeatWords
+		return newSeatWords
 	}
-	return ref + " (" + member.Role + ")"
+	return member.Role
 }
 
-const newSeatWords = " (new seat: it joins as a worker)"
+const newSeatWords = "new seat: it joins as a worker"
 
 // handle is the member's handle of a seat of this checkout; found is false for a seat it does
 // not have.

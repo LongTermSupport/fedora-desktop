@@ -78,12 +78,16 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 			}
 		}
 	default:
-		for _, r := range rows {
-			if strings.Contains(r, choice) {
-				row = r
-				break
+		// Several marks (fzf --multi) are choices joined with "&&", answered in the order given.
+		var marked []string
+		for want := range strings.SplitSeq(choice, "&&") {
+			at := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, want) })
+			if at < 0 {
+				s.T.Fatalf("no row contains %q in %q", want, rows)
 			}
+			marked = append(marked, rows[at])
 		}
+		row = strings.Join(marked, "\n")
 	}
 	if row == "" {
 		s.T.Fatalf("no row contains %q in %q", choice, rows)
@@ -147,6 +151,7 @@ func Interactive(t *testing.T, w *World) *Console {
 	w.Env["NO_COLOR"] = "1"
 	w.Env["PWD"] = w.Root
 	w.OnDeclare("limited", "")
+	w.OnDeclare("undescribed", "")
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal

@@ -78,6 +78,18 @@ EXIT_CODES = {
     EXIT_CONFIG: "configuration refused (§12, §10 bounds, Python older than 3.11)",
 }
 
+#: The forms `--to` takes, shown by `send --help` and `say --help`.
+TO_FORMS = """\
+--to takes, comma separated:
+  --to proj.1                  a seat, when exactly one member has it
+  --to proj.1+local.podman     an agent's full handle
+  --to alice                   a human's localpart
+  --to @proj.1+local.podman:SERVER    a full user ID
+`pingbus recv` prints a ready REPLY command for every message from an agent or a human.
+On several teams, without --team, the team is the one --re belongs to, else the only one in
+which every --to name resolves; if that is not one team, name it with --team.
+"""
+
 STDOUT = "stdout"
 STDERR = "stderr"
 ABSENT = "-"
@@ -86,6 +98,8 @@ LINES = {
     "PING": (STDOUT, ("team", "event ID", "sender", "verb", "ref", "re", "trust", "branch", "copy")),
     "HUMAN": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
     "PEER": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string", "copy")),
+    "REPLY": (STDOUT, ("team", "event ID", "command")),
+    "ABOUT": (STDOUT, ("team", "description as a JSON string")),
     "TIMEOUT": (STDOUT, ("team", "event ID of the unanswered ping", "silent target", "verb", "ref")),
     "SENT": (STDOUT, ("team", "event ID")),
     "DROPPED": (STDERR, ("count", "reason=count pairs joined by ,")),
@@ -243,6 +257,23 @@ def item_line(team: str, server_name: str, outcome: protocol.Outcome) -> str:
     if outcome.peer is not None:
         return peer_line(team, server_name, outcome.peer)
     raise ValueError("an accepted outcome carries a ping, a human message or a peer text")
+
+
+def reply_line(team: str, server_name: str, record: protocol.TeamRecord,
+               outcome: protocol.Outcome) -> str | None:
+    """The ready `say` command that answers a `HUMAN` or `PEER` item; None for a ping, whose
+    answer is a verb the agent chooses. The name is the sender's short name when no other
+    member of the team has it, else the full handle; a human's is the localpart."""
+    message = outcome.human or outcome.peer
+    if message is None:
+        return None
+    name = _localpart(message.sender, server_name)
+    if outcome.peer is not None:
+        short = name.partition(protocol.HANDLE_SEP)[0]
+        if len(_agents_named(record, server_name, short)) == 1:
+            name = short
+    return format_line("REPLY", _team(team), _event_id(message.event_id),
+                       f"{PROG} --team {team} say --to {name}")
 
 
 def timeout_line(
@@ -699,16 +730,49 @@ def _seat(member: config.Member, environ: Mapping[str, str], rt: Runtime, err: T
     return _Seat(member, client, fetcher, state, engine)
 
 
-def _user_ids(names: str, server_name: str) -> list[str]:
-    """`--to`'s comma-separated handles, human localparts or full user IDs, as user IDs.
-    Nothing is judged here: the validator refuses whatever is not allowed (`target`)."""
-    return [name if name.startswith("@") else f"@{name}:{server_name}" for name in names.split(",")]
+def _agent_handles(record: protocol.TeamRecord, server_name: str) -> list[str]:
+    """The handles of the record's agents, in the record's order."""
+    found = (protocol.parse_user_id(user, server_name) for user in record.roles)
+    return [handle for handle in found if handle is not None]
+
+
+def _agents_named(record: protocol.TeamRecord, server_name: str, short: str) -> list[str]:
+    """The agents whose short name (the handle before `+`, `<repo>.<seat>`) is `short`."""
+    return [handle for handle in _agent_handles(record, server_name)
+            if handle.partition(protocol.HANDLE_SEP)[0] == short]
+
+
+def _user_id(name: str, record: protocol.TeamRecord, member: config.Member) -> str:
+    """One `--to` name as a user ID, tried in order: a full user ID, an exact agent handle,
+    a human localpart, a reserved localpart, then a seat's short name, which must match
+    exactly one agent. Anything else is a usage error naming the team's members; the
+    validator refuses what resolution cannot (`target`: `@room`, the sender itself)."""
+    server = member.server_name
+    if name.startswith("@"):
+        return name
+    handles = _agent_handles(record, server)
+    humans = sorted(localpart for localpart in
+                    (protocol.parse_user_id(user, server) for user in record.humans) if localpart)
+    if name in handles or name in humans or name in protocol.RESERVED_LOCALPARTS:
+        return f"@{name}:{server}"
+    named = _agents_named(record, server, name)
+    if len(named) == 1:
+        return f"@{named[0]}:{server}"
+    if named:
+        raise config.UsageError(f"--to {name} is ambiguous in team {member.team}: {', '.join(named)}")
+    raise config.UsageError(f"--to {name}: no member of team {member.team} is named that. "
+                            f"Agents: {', '.join(handles) or '-'}. Humans: {', '.join(humans) or '-'}")
+
+
+def _user_ids(names: str, record: protocol.TeamRecord, member: config.Member) -> list[str]:
+    """`--to`'s comma-separated names, as user IDs (`_user_id`)."""
+    return [_user_id(name, record, member) for name in names.split(",")]
 
 
 def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: config.Member) -> list[str]:
     """`--to`'s names then, for `--to-coordinator`, the team's coordinator but the sender;
     each user once. Nothing else is judged here: the validator refuses what is not allowed."""
-    to = [] if args.to is None else _user_ids(args.to, member.server_name)
+    to = [] if args.to is None else _user_ids(args.to, record, member)
     if args.to_coordinator:
         found = [user for user in protocol.coordinators(record.roles) if user != member.user_id]
         if not found:
@@ -719,11 +783,73 @@ def _addressees(args: argparse.Namespace, record: protocol.TeamRecord, member: c
     return list(dict.fromkeys(to))
 
 
+def _cached_record(member: config.Member) -> protocol.TeamRecord | None:
+    """The team's verified record, or None while it has none (not synced yet, or untrusted)."""
+    try:
+        return load_cached_record(member)
+    except protocol.Untrusted:
+        return None
+
+
+def _fits(member: config.Member, record: protocol.TeamRecord, names: list[str]) -> bool:
+    """Whether every `--to` name resolves in this team's verified record (`_user_id`); a full
+    user ID fits only the team whose server it names."""
+    for name in names:
+        if name.startswith("@"):
+            if not name.endswith(f":{member.server_name}"):
+                return False
+            continue
+        try:
+            _user_id(name, record, member)
+        except config.UsageError:
+            return False
+    return True
+
+
+def _choices_line(member: config.Member, unknown: bool) -> str:
+    """One active team with what it is for (or why it cannot be judged), for the message that
+    asks which to name."""
+    if unknown:
+        return (f"  {member.team}  (no verified team record yet: run pingbus recv or name it "
+                "with --team)")
+    try:
+        about = inbox.TeamState.for_member(member).about()
+    except inbox.StateError:
+        about = "(description unreadable)"
+    return f"  {member.team}  {about or '(no description)'}"
+
+
+def _sending_member(args: argparse.Namespace, environ: Mapping[str, str]) -> config.Member:
+    """The team `send` or `say` acts on: `--team`, the one active team, or, when several are
+    active, the one `--re` belongs to (its inbox or consumed items hold that event) or else the
+    only one in which every `--to` name resolves. Anything else is a usage error that lists the
+    active teams, because guessing would put a message in the wrong room."""
+    members = config.load_active(environ, team=args.team)
+    if len(members) == 1:
+        return members[0]
+    re_id = getattr(args, "re", None)
+    holders = [] if re_id is None else [
+        member for member in members if re_id in inbox.TeamState.for_member(member).known_event_ids()]
+    if len(holders) == 1:
+        return holders[0]
+    records = {member.team: _cached_record(member) for member in members}
+    # A team whose record is not verified yet cannot be judged, so `--to` cannot pick between
+    # teams: guessing would put a message in the wrong room.
+    if args.to is not None and all(record is not None for record in records.values()):
+        fitting = [member for member in members
+                   if _fits(member, records[member.team], args.to.split(","))]
+        if len(fitting) == 1:
+            return fitting[0]
+    raise config.UsageError(
+        "several teams are active and --to/--re fit more than one (or none): name one with --team:\n"
+        + "\n".join(_choices_line(member, records[member.team] is None) for member in members))
+
+
 def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """§9 on send, steps 1-7, in order; the first failure sends nothing."""
     rt: Runtime = args.runtime
     relaying = relay.enabled(environ)
-    member = _one_member(environ, args.team)
+    member = _sending_member(args, environ)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
@@ -778,7 +904,7 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     3, 4 and 6, the member's own token refused as `secret`, then 5 and 7."""
     rt: Runtime = args.runtime
     relaying = relay.enabled(environ)
-    member = _one_member(environ, args.team)
+    member = _sending_member(args, environ)
     text = _read_text(args.stdin)
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
@@ -884,6 +1010,9 @@ def _deliver(seat: _Seat, record: protocol.TeamRecord, rt: Runtime, out: TextIO,
                     continue
                 emit(item_line(member.team, member.server_name, outcome), out, err)
                 printed += 1
+                reply = reply_line(member.team, member.server_name, record, outcome)
+                if reply is not None:
+                    emit(reply, out, err)
             elif outcome.kind == protocol.DROP:
                 state.log_drop(member.team, item.event_id, sender, outcome.reason, now)
                 drops[outcome.reason] += 1
@@ -1478,6 +1607,9 @@ def _status_team(member: config.Member, now_ms: int, relay_field: str, out: Text
                f"relay={relay_field}"]
     trust = "trust=trusted" if record is not None else "trust=untrusted"
     out.write(report_line("TEAM", _team(member.team), member.handle, trust, *fields) + "\n")
+    about = state.about() if record is not None else None
+    if about is not None:
+        out.write(format_line("ABOUT", _team(member.team), json.dumps(about, ensure_ascii=True)) + "\n")
     if record is None:
         reason = state.untrusted_reason()
         if reason is not None:
@@ -1584,8 +1716,10 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     team_option(parser, None)
     commands = parser.add_subparsers(dest="command", metavar="COMMAND", required=True)
 
-    def command(name: str, handler: object, help_text: str) -> argparse.ArgumentParser:
-        sub = commands.add_parser(name, help=help_text)
+    def command(name: str, handler: object, help_text: str, epilog: str | None = None
+                ) -> argparse.ArgumentParser:
+        sub = commands.add_parser(name, help=help_text, epilog=epilog,
+                                  formatter_class=argparse.RawDescriptionHelpFormatter)
         team_option(sub, argparse.SUPPRESS)
         sub.set_defaults(handler=handler)
         return sub
@@ -1605,7 +1739,7 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     check.set_defaults(handler=cmd_config_check)
     command("suggest-handle", cmd_suggest_handle,
             "print the agent-bus add-member arguments this environment implies")
-    send = command("send", cmd_send, "send a ping (the only way to emit one)")
+    send = command("send", cmd_send, "send a ping (the only way to emit one)", epilog=TO_FORMS)
     send.add_argument("verb", metavar="VERB")
     send.add_argument("ref", nargs="?", metavar="REF")
     send.add_argument("--to", metavar="HANDLE[,HANDLE...]",
@@ -1615,7 +1749,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     send.add_argument("--re", metavar="EVENT_ID")
     send.add_argument("--branch", metavar="BRANCH",
                       help="the branch holding the commit; by default the one this checkout tracks")
-    say = command("say", cmd_say, "send text from stdin to the team's humans and agents")
+    say = command("say", cmd_say, "send text from stdin to the team's humans and agents",
+                  epilog=TO_FORMS)
     say.add_argument("--to", metavar="NAME[,NAME...]",
                      help="human localparts, handles or full user IDs; never @room")
     say.add_argument("--to-coordinator", action="store_true",

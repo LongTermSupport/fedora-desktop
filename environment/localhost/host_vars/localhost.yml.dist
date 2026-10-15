@@ -95,6 +95,10 @@ user_email: "yourname@example.com"
 # agent_bus_teams:
 #   - team: <team>
 #     port: <port>
+#     description: "<what the team is for>" # optional in this file (ccy-teams create asks for it): one line,
+#                                # 1 to 120 characters; shown by ccy-teams, the ccy --teams picker, pingbus
+#                                # status and the room topic. Changing it restarts nothing; it travels as
+#                                # the room topic, so an older pingbus just shows none.
 #     listen: ["<bus_ip>"]
 #     allow_from: ["<cidr>"]     # only other machines (WireGuard) or a non-default bridge; the LXC bridge is added by the play
 #     humans: ["<name>"]
@@ -114,7 +118,7 @@ user_email: "yourname@example.com"
 # Optional (Plan 00161): existing LXC containers whose agent users join a team hosted here,
 # applied by play-agent-bus.yml with README.lxc's steps (docs/agent-bus.md, "Joining a
 # team"). The play never creates the container or the user: both must exist, the container
-# running. The play admits the LXC bridge's subnet (lxcbr0, or agent_bus_lxc_bridge) to
+# running. The play admits the LXC bridge's subnet (lxcbr0) to
 # every present team itself; allow_from need not list it. A joined member is left alone on later runs; state: absent
 # parks its handle, deletes its bundle and takes the team out of its env file. Change
 # seat or host only through state: absent first, as they make the handle.
