@@ -1,0 +1,49 @@
+vmtest — host CLI for the VM lifecycle acceptance lab (Plan 00110).
+
+A thin executor: every decision (manifest parsing, freshness, the base record) lives in the
+unit-tested helpers that play-vm-test-lab.yml deploys to /usr/local/lib/ccy-helpers; this
+command fetches, verifies, boots and shells out. It reads only Ansible-deployed copies — the
+manifest, the guest scripts, the helpers — never the checkout (DESIGN.md §2.3).
+
+Usage:
+  vmtest fetch <base-key>                  download + verify the published artefact(s) a base is built from
+  vmtest build-base <base-key>             build a base from its artefact (fast kind: import, upgrade, clean, flatten)
+  vmtest run <scenario-id> [--commit SHA]  the full lifecycle: freshness gate, overlay, boot, run.bash at the
+                                           pinned commit, in-guest acceptance, transcript, verdict, destroy
+    A host_only scenario additionally REQUIRES, and only accepts:
+      --github-account <user>                a THROWAWAY GitHub account, never a real one
+      --github-token-file <path>             0600 file holding that account's scoped PAT
+      --github-ssh-passphrase-file <path>    0600 file holding the login key's passphrase
+    Secrets are named by PATH, never by value: a value on argv is visible to every user
+    on the host through `ps`. These options are refused on an ordinary scenario.
+  vmtest verify <run-id>                   check a bridge response's signature under the host-only key
+  vmtest refresh-base <base-key|profile|all>   bring a base up to date: a fast base is re-imported from the
+                                           published image (minutes); a full base is reinstalled from its media
+  vmtest freshness-status [--deep]         probe upstream and REPORT every base's freshness; never rebuilds.
+                                           --deep re-hashes every base disk against its record
+  vmtest sweep                             apply the retention policy (runs, failed builds, spool); logs every eviction
+  vmtest nightly                           freshness-status --deep, then sweep — what the nightly timer runs
+  vmtest ensure-base <base-key>            build the base if it is absent, or rebuild it if the freshness
+                                           gate refuses it; otherwise change nothing
+  vmtest member-up <name> <base-key>       boot a server base as a guest that STAYS UP for another script to
+                                           drive (freshness gate, overlay, boot, SSH answered); prints
+                                           VMTEST-MEMBER-UP. A failed boot removes the guest and its overlay
+  vmtest member-ssh <name> <command>       run <command> in the member as the cloud user (passwordless sudo),
+                                           stdin passed through; exits with the command's status.
+                                           Bounded: SSH keepalives, and VMTEST_MEMBER_SSH_TIMEOUT
+                                           seconds (default 1800; exit 124 when it is hit)
+  vmtest member-down <name>                remove the member's guest and directory; nothing there is no error
+  vmtest help
+
+`run` provisions from a PUSHED commit of the public repo (the branch tip on the
+remote by default), never from a checkout — a transcript must point at code a
+human can review (DESIGN.md §3.4). Exit 0 only on verdict pass; the response
+document is written to runs/<run-id>/response.json either way.
+
+Rootless throughout: qemu:///session, user-mode networking with a passt port
+forward to the guest's SSH, the lab's own throwaway ed25519 key. Everything
+lands under ~/.local/share/vmtest and nothing touches the checkout.
+
+Exit codes: 0 success; 1 a step failed and said why; 64 usage; 128+n a signal
+(130 Ctrl-C, 143 SIGTERM, 129 SIGHUP). member-ssh exits with the remote command's
+status, and freshness-status with the worst verdict's.
