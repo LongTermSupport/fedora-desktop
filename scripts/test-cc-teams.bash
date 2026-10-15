@@ -89,8 +89,6 @@ chmod 755 "$bin/agent-bus" "$bin/ccy-teams"
 export PATH="$bin:$PATH" FAKE_WORK="$work"
 CC_TEAMS_AGENT_BUS="$bin/agent-bus"
 CC_TEAMS_CCY_TEAMS="$bin/ccy-teams"
-attended() { return 0; }
-unattended() { return 1; }
 
 echo "=== the arguments ==="
 
@@ -116,7 +114,6 @@ printf '1@dev-team,2@other\n' >"$work/chosen"
 : >"$work/ccy-teams.calls"
 : >"$work/agent-bus.calls"
 CC_TEAMS_LIST=dev-team
-cc_teams_attended() { attended; }
 rc=0
 cc_teams_choose >"$work/out" 2>"$work/err" || rc=$?
 check "attended: the chooser's list is the seats" "0|1@dev-team,2@other" "$rc|$CC_TEAMS_SEATS"
@@ -139,25 +136,23 @@ rc=0
 (FAKE_CHOOSE_RC=1 cc_teams_choose) 2>"$work/err" || rc=$?
 check "a declined consent or a failed chooser is cc's exit" "1" "$rc"
 
-cc_teams_attended() { unattended; }
 : >"$work/ccy-teams.calls"
 : >"$work/agent-bus.calls"
+printf '1@dev-team\n' >"$work/chosen"
 CC_TEAMS_LIST=1@dev-team
 rc=0
-cc_teams_choose 2>"$work/err" || rc=$?
-check "unattended: the chooser is never called" "0|0" "$rc|$(grep -c . "$work/ccy-teams.calls")"
-check "unattended: agent-bus checks the list as given, resolved" "seat check 1@dev-team --resolved" "$(cat "$work/agent-bus.calls")"
-check "unattended: the seats are the list" "1@dev-team" "$CC_TEAMS_SEATS"
-CC_TEAMS_LIST=""
+(cd "$work" && cc_teams_choose 2>"$work/err" </dev/null) || rc=$?
+check "the chooser is always asked, a full list and no terminal included (Go decides)" "choose-teams --type=host 1@dev-team" "$(cat "$work/ccy-teams.calls")"
+check "no --resolved branch: agent-bus checks what the chooser printed" "seat check 1@dev-team" "$(cat "$work/agent-bus.calls")"
+: >"$work/agent-bus.calls"
 rc=0
-cc_teams_choose 2>"$work/err" || rc=$?
-check "unattended bare --teams is refused 64 and says a terminal is needed" "64|yes" \
-    "$rc|$(yes_no grep -q terminal "$work/err")"
+(FAKE_CHOOSE_RC=78 cc_teams_choose) 2>"$work/err" || rc=$?
+check "the chooser refusing for want of a terminal (78) is cc's exit, agent-bus never called" "78|0" "$rc|$(grep -c . "$work/agent-bus.calls")"
 CC_TEAMS_LIST=dev-team
 rc=0
 FAKE_CHECK_RC=64 cc_teams_choose 2>"$work/err" || rc=$?
 check "agent-bus refusing the list is cc's exit" "64" "$rc"
-cc_teams_attended() { attended; }
+check "the library has no attended or --resolved branch left" "0" "$(grep -c 'attended\|resolved' "$LIB")"
 
 echo "=== the seats: taken as host, the block shown, the sentence made ==="
 

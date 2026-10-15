@@ -49,13 +49,18 @@ func (c *Chooser) consent(ctx context.Context, refs []string) term.ExitCode {
 	}
 	dir := filepath.Join(home, acceptedDir)
 	record := filepath.Join(dir, acceptedFile)
-	accepted, err := recordState(dir, record)
+	accepted, err := recordState(dir, record, c.UID())
 	if err != nil {
-		c.say("ccy-teams: " + err.Error() + "; remove it and start again.")
+		c.say("ccy-teams: " + err.Error())
 		return exitConfig
 	}
 	if accepted {
 		return term.ExitOK
+	}
+	if !c.attended() {
+		c.say("ccy-teams: the Element consent needs a terminal to be asked on, and there is none: " +
+			"start cc --teams once from a terminal, and no seat has been made.")
+		return exitConfig
 	}
 	if _, lookErr := c.Host.LookPath("gum"); lookErr != nil {
 		c.say("ccy-teams: gum is needed to ask you this, and it is not installed: run play-claude-yolo.yml.")
@@ -96,9 +101,11 @@ func consentWords(handles []string) string {
 		"  not a wall. You are asked once, for every cc --teams seat.\n"
 }
 
-// recordState is whether the acceptance is already recorded. A folder or record that is a
-// symlink, or a record that is not a plain file, is refused: nothing is written through it.
-func recordState(dir, record string) (bool, error) {
+// recordState is whether the acceptance is already recorded, by the rule pingbus applies
+// (config.element_accepted): a real folder and a plain file, both the user's, the file with no
+// group or other access. Anything else that exists is refused with how to put it right, so no
+// seat is made for a record pingbus would then not count; nothing is written through a symlink.
+func recordState(dir, record string, uid int) (bool, error) {
 	info, err := os.Lstat(dir)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -106,7 +113,11 @@ func recordState(dir, record string) (bool, error) {
 	case err != nil:
 		return false, err
 	case !info.IsDir():
-		return false, fmt.Errorf("%s is not a real directory", dir)
+		return false, fmt.Errorf("%s is not a real directory; remove it and start again", dir)
+	case !ownedBy(info, uid):
+		return false, fmt.Errorf("%s is not yours (the owner must be you); remove it and start again", dir)
+	case info.Mode().Perm()&0o077 != 0:
+		return false, fmt.Errorf("%s is open to other users; chmod 700 it and start again", dir)
 	}
 	info, err = os.Lstat(record)
 	switch {
@@ -115,9 +126,20 @@ func recordState(dir, record string) (bool, error) {
 	case err != nil:
 		return false, err
 	case !info.Mode().IsRegular():
-		return false, fmt.Errorf("%s is not a plain file", record)
+		return false, fmt.Errorf("%s is not a plain file; remove it and start again", record)
+	case !ownedBy(info, uid):
+		return false, fmt.Errorf("%s is not yours (the owner must be you); remove it and answer again", record)
+	case info.Mode().Perm()&0o077 != 0:
+		return false, fmt.Errorf("%s is open to other users, so pingbus would not count it; chmod 600 it, "+
+			"or remove it and answer again", record)
 	}
 	return true, nil
+}
+
+// ownedBy is whether the file belongs to uid.
+func ownedBy(info fs.FileInfo, uid int) bool {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == uid
 }
 
 // handles are the member handles the refs will have, as agent-bus offers them for a host seat of
@@ -151,13 +173,6 @@ func (c *Chooser) handles(ctx context.Context, refs []string) ([]string, term.Ex
 func (c *Chooser) record(dir, record string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
-	}
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return err
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("%s is open to other users: chmod 700 it first", dir)
 	}
 	f, err := os.OpenFile(filepath.Clean(record), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {

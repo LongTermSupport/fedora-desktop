@@ -198,6 +198,89 @@ func TestAFolderThatIsASymlinkIsRefused(t *testing.T) {
 	}
 }
 
+// recorded makes an accepted record with the given modes, as pingbus would find it.
+func (a accepted) recorded(t *testing.T, dirMode, fileMode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(a.dir, dirMode); err != nil {
+		t.Fatal(err)
+	}
+	teamtest.MustWrite(t, a.record, "accepted earlier\n")
+	for path, mode := range map[string]os.FileMode{a.dir: dirMode, a.record: fileMode} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// pingbus (config.element_accepted) counts a record only if it is the owner's, owner-only, in a
+// folder the owner has; the Go reader holds the same rule so no seat is made for a record
+// pingbus would refuse.
+func TestARecordOpenToOthersIsRefusedWithHowToFixIt(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	a.recorded(t, 0o700, 0o644)
+	exit(t, r.run("--type=host", "1@alpha"), 78, r)
+	contains(t, "stderr", r.stderr(), a.record, "chmod 600", "remove it")
+	r.lacksOutput(t)
+	if len(r.Script.GumLog) != 0 {
+		t.Fatalf("asked: %v", r.Script.GumLog)
+	}
+}
+
+func TestARecordOfAnotherOwnerIsRefused(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	a.recorded(t, 0o700, 0o600)
+	r.c.UID = func() int { return os.Getuid() + 1 }
+	exit(t, r.run("--type=host", "1@alpha"), 78, r)
+	contains(t, "stderr", r.stderr(), a.dir, "owner")
+	r.lacksOutput(t)
+}
+
+func TestAFolderOpenToOthersIsRefusedEvenWithAGoodRecord(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	a.recorded(t, 0o755, 0o600)
+	exit(t, r.run("--type=host", "1@alpha"), 78, r)
+	contains(t, "stderr", r.stderr(), a.dir, "chmod 700")
+	r.lacksOutput(t)
+}
+
+// With no terminal nobody can be asked: Go refuses before any seat is made, whatever the list.
+func TestNoRecordAndNoTerminalRefusesBeforeAnySeatIsTaken(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	r.hostSeat()
+	r.Host.IsTerminal = func(any) bool { return false }
+	exit(t, r.run("--type=host", "1@alpha"), 78, r)
+	contains(t, "stderr", r.stderr(), "terminal", "cc --teams")
+	r.lacksOutput(t)
+	if a.exists() {
+		t.Fatal("recorded")
+	}
+}
+
+func TestARecordAnswersWithoutATerminalForAFullList(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	a := r.consentRig()
+	a.recorded(t, 0o700, 0o600)
+	r.Host.IsTerminal = func(any) bool { return false }
+	exit(t, r.run("--type=host", "1@alpha"), term.ExitOK, r)
+	if r.payload.String() != "1@alpha\n" {
+		t.Fatalf("payload %q", r.payload.String())
+	}
+}
+
+func TestATeamAloneStillNeedsATerminal(t *testing.T) {
+	r := newRig(t, alphaCovers)
+	r.Host.IsTerminal = func(any) bool { return false }
+	exit(t, r.run("--type=host", "alpha"), term.ExitUsage, r)
+	r.lacksOutput(t)
+}
+
 func TestWithoutGumTheConsentCannotBeAsked(t *testing.T) {
 	r := newRig(t, alphaCovers)
 	a := r.consentRig()

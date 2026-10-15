@@ -112,7 +112,9 @@ Usage:
                                    it also asks, once per user, whether a host seat may run
                                    beside your Element session, and records the answer in
                                    ~/.config/pingbus/element-accepted; declining ends the
-                                   run (exit 1). ccy --teams and cc --teams call it
+                                   run (exit 1); with no terminal and no valid record
+                                   (yours, mode 600, in your closed folder) it exits 78
+                                   before any seat is made. ccy --teams and cc --teams call it
   ccy-teams record-seats <seats>   put the seats (a canonical --teams list) into the record of
                                    the ccy session this runs in (from TMUX), so its restore
                                    replays them. ccy calls it when Quick Launch brings a saved

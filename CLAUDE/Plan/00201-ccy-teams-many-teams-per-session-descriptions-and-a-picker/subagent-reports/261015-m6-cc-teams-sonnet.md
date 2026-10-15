@@ -58,3 +58,16 @@ keyed by session id and harmless, noted for M7.
 4. A Ctrl-C at the consent question is treated as a decline (exit 1), not 130.
 5. Prompt wording changed from "a member of the agent team T" to `You are H in T [and ...]. Post to your teams only with pingbus, as yourself; ...` (S-E5). It still names no Element term.
 6. The `bus: A,B` handler tests stay outside every gate (M5 F7); the host run must look at it.
+
+## Review fixes (261015-m6-review-fable.md)
+
+- F1: `recordState` applies pingbus's rule (folder and file the user's, folder closed to others,
+  file mode 600, regular, no symlink) and refuses with 78 saying how to fix it. Tests: 0644 record,
+  another owner, open folder.
+- F2: deviation 1 withdrawn. cc always calls `choose-teams`; with no terminal and no valid record
+  Go exits 78 before any seat is taken (a full list passes without a terminal only when the record
+  answers). The attended and `--resolved` code is gone (cc-teams.bash 108 code lines).
+- F3: the plugin's `hooks.json` registers SessionEnd; contract test and protocol doc updated.
+  Image content changed, so CCY 3.97.11 and container 2.59.
+- F6: deviation 2 documented in `docs/agent-bus.md`. F7: the meta-deploy text is split into
+  paragraphs. F4 is left to the coordinator.

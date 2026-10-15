@@ -440,7 +440,10 @@ cc --teams 1@<team>,2@<team2>   # name the seats
 On a terminal `ccy-teams choose-teams --type=host` asks, and prints the launch block once
 the seats are taken. With no terminal a team alone or a bare `--teams` is refused.
 It joins as its own member, `<repo>.<N>+<host>.host`, in a seat of the checkout you start
-it in, as a ccy session does: the seat you choose, made the first time with sudo.
+it in, as a ccy session does: the seat you choose, made the first time with sudo. Naming a
+brand-new seat number yourself (`9@<team>`) works once the consent is recorded; until then the
+consent question cannot name its handle and `cc --teams` stops (78), so choose the seat from the
+list the first time.
 `agent-bus seat list` shows it beside the ccy seats. cc makes the
 checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy works, and
 your `gh` must be logged in.

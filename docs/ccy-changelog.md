@@ -17,7 +17,17 @@ Two version numbers move independently — see
 
 ---
 
-## 3.97.10 — container 2.58 (unchanged)
+## 3.97.11 — container 2.59
+
+- Container 2.59: the pingbus plugin registers its `SessionEnd` hook, so the per-session teams
+  record the status line reads is removed when a session ends (it was never removed before).
+- `cc --teams` always asks `ccy-teams choose-teams`, which now refuses (78), before any seat is
+  made, when there is no terminal and no consent record; the `--resolved` path in cc is gone.
+  A consent record is counted as pingbus counts it (yours, no group or other access, in a folder
+  that is yours and closed to others); a record or folder that is not is refused with how to put it
+  right, instead of seats being made for a session pingbus would then refuse.
+
+## 3.97.10 — container 2.58
 
 - **`cc --teams` is on the same flow as `ccy --teams`** (Plan 00201 M6). It takes the same list:
   bare `--teams`, a team alone, or `SEAT@TEAM[,...]` for several teams. On a terminal

@@ -20,6 +20,16 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pingbus hook session-end"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

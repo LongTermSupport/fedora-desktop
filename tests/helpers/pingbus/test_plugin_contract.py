@@ -40,9 +40,14 @@ SKILL = PLUGIN / "skills" / "pingbus" / "SKILL.md"
 SETTINGS = KIT / "settings.json"
 LAUNCHER = KIT / "agent-bus-claude"
 
-#: The hooks whose subcommand does something. `session-end` is not registered: it does
-#: nothing (DESIGN.md section 6), which `test_session_end_is_a_no_op` holds it to.
-REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "Stop": "stop"}
+#: The hooks whose subcommand does something. `session-end` is registered because it removes the
+#: session's teams record the status line reads; with no session id it does nothing.
+REGISTERED = {
+    "SessionStart": "session-start",
+    "UserPromptSubmit": "prompt",
+    "Stop": "stop",
+    "SessionEnd": "session-end",
+}
 
 #: The commands an agent runs by hand, each of which the skill must name.
 AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
@@ -120,7 +125,7 @@ class HooksJsonTest(unittest.TestCase):
             self.assertEqual(hooks.HOOK_EVENT_NAMES[argv[2]], event)
             self.assertTrue(parses(argv[1:]), commands[0])
 
-    def test_session_end_is_a_no_op(self) -> None:
+    def test_session_end_without_a_session_id_does_nothing(self) -> None:
         err = io.StringIO()
         result = hooks.run("session-end", b"{}", {}, now_ms=0, spawn=self.fail, err=err)
         self.assertEqual(result, {})

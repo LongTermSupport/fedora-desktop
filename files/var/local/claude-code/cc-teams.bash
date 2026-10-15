@@ -4,17 +4,16 @@
 #
 # The desktop Claude Code session joins its teams as `host` members, `<repo>.<N>+<host>.host`,
 # one seat of the checkout it runs in per team, as ccy's sessions do. The list grammar and the
-# questions are ccy's: on a terminal `ccy-teams choose-teams --type=host` shows the teams with
-# what they are for, offers a team that does not cover the checkout its scope, chooses the
-# seats, and asks the owner's once-per-user consent (below), then `agent-bus seat check`
-# validates the list it prints and `agent-bus seat take --type=host` makes the seats (one sudo
-# agent-bus add-member each). With no terminal nobody can be asked: a full list is checked
-# `--resolved` and a team alone or a bare `--teams` is refused. cc runs as the owner, with no
+# questions are ccy's: `ccy-teams choose-teams --type=host` shows the teams with what they are
+# for, offers a team that does not cover the checkout its scope, chooses the seats, and asks the
+# owner's once-per-user consent (below), then `agent-bus seat check` validates the list it
+# prints and `agent-bus seat take --type=host` makes the seats (one sudo agent-bus add-member
+# each). With no terminal a team alone or a bare `--teams` is refused, and so is a full list
+# until the consent is recorded, before any seat is made. cc runs as the owner, with no
 # dedicated agent user, by the owner's decision, so it sits beside their Element profile. The
 # consent lives in ccy-teams (Go) and is recorded under the user's config
 # (~/.config/pingbus/element-accepted, owner-only), the only thing that lets pingbus run a
-# `host` member beside Element; the no-terminal path cannot ask it, so pingbus refuses the
-# session there until an attended launch has recorded it.
+# `host` member beside Element.
 #
 # The guard is cc's alone (project settings are shared with ccy sessions) and it is
 # instruction, not containment: the session's own text says only how to post (pingbus, as
@@ -59,23 +58,17 @@ cc_teams_split_args() {
     done
 }
 
-# cc_teams_attended — a person is at a terminal, so the chooser can ask.
-cc_teams_attended() { [ -t 0 ] && [ -t 2 ]; }
-
-# cc_teams_choose — CC_TEAMS_SEATS, the canonical list `agent-bus seat check` prints for
-# CC_TEAMS_LIST. Attended, the list is the one `ccy-teams choose-teams` prints (which asks the
-# owner's Element consent); leaving it ends cc quietly. Unattended it is checked `--resolved`.
+# cc_teams_choose — CC_TEAMS_SEATS, the canonical list `agent-bus seat check` prints for the
+# list `ccy-teams choose-teams` prints. The chooser is always asked: it knows whether a person
+# can answer, asks the owner's Element consent, and refuses (78) before any seat is made when
+# there is none to ask and no record. Leaving it ends cc quietly.
 cc_teams_choose() {
-    local list=$CC_TEAMS_LIST resolved=(--resolved) rc=0
-    if cc_teams_attended; then
-        list=$("$CC_TEAMS_CCY_TEAMS" choose-teams "--type=$CC_TEAMS_MEMBER_TYPE" "$list") || return $?
-        [ -n "$list" ] || exit 0
-        resolved=()
-    fi
-    CC_TEAMS_SEATS=$("$CC_TEAMS_AGENT_BUS" seat check "$list" "${resolved[@]}") || rc=$?
+    local list rc=0
+    list=$("$CC_TEAMS_CCY_TEAMS" choose-teams "--type=$CC_TEAMS_MEMBER_TYPE" "$CC_TEAMS_LIST") || return $?
+    [ -n "$list" ] || exit 0
+    CC_TEAMS_SEATS=$("$CC_TEAMS_AGENT_BUS" seat check "$list") || rc=$?
     if [ "$rc" -ne 0 ]; then
         print_error "--teams '$list' refused by agent-bus seat check (exit $rc; the reason is above)."
-        if [ -z "$list" ]; then echo "  Choosing a team needs a terminal: name the seat instead, --teams <seat>@<team>." >&2; fi
         return "$rc"
     fi
 }

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -60,13 +61,15 @@ type Chooser struct {
 	Apply  ApplyFunc
 	// Now stamps the owner's acceptance.
 	Now func() time.Time
+	// UID is the user the acceptance record must belong to.
+	UID func() int
 }
 
 // New is the chooser over a host and the flows it hands the work to.
 func New(h *host.Host, seat SeatFunc, create CreateFunc, apply ApplyFunc) *Chooser {
 	return &Chooser{
 		Host: h, Declare: h.Declare, Systemd: h.Systemd, Gum: h.Gum, Picker: h.Picker, Payload: h.Payload,
-		Seat: seat, Create: create, Apply: apply, Now: time.Now,
+		Seat: seat, Create: create, Apply: apply, Now: time.Now, UID: os.Getuid,
 	}
 }
 
@@ -76,7 +79,7 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 	if !ok {
 		return term.ExitUsage
 	}
-	if !c.Host.IsTerminal(c.Host.Stdin) || !c.Host.IsTerminal(c.Host.Stderr) {
+	if !c.attended() && !allSeats(list) {
 		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal; with none, name the seats: --teams SEAT@TEAM.")
 		return term.ExitUsage
 	}
@@ -84,6 +87,19 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 		return c.resolve(ctx, memberType, list)
 	}
 	return c.bare(ctx, memberType)
+}
+
+// attended is whether a person is at a terminal to be asked.
+func (c *Chooser) attended() bool {
+	return c.Host.IsTerminal(c.Host.Stdin) && c.Host.IsTerminal(c.Host.Stderr)
+}
+
+// allSeats is whether list names a seat in every item, so nothing needs choosing; only the
+// consent can still need a person.
+func allSeats(list string) bool {
+	return list != "" && !slices.ContainsFunc(strings.Split(list, ","), func(item string) bool {
+		return !strings.Contains(item, "@")
+	})
 }
 
 // parse reads --type=T (or --type T) and the one optional list.
