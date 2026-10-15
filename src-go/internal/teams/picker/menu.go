@@ -32,6 +32,9 @@ const (
 	keyLxc = "lxc-add"
 	// keyElementAll, opening every team in Element, is a team row's menu line with no shortcut.
 	keyElementAll = "element-all"
+	// keyShutdown, shutting every session of the team down, is a team row's menu line with no
+	// shortcut: a key that ends sessions is too easy to press by mistake.
+	keyShutdown = "shutdown"
 )
 
 // backToList is the last line of every menu: leaving it does nothing and shows the list.
@@ -48,7 +51,7 @@ type action struct {
 // shown is the shortcut as a person reads it ("Ctrl-E"); empty when there is none.
 func (a action) shown() string {
 	switch a.key {
-	case keyAttach, keyCoordinator, keyLxc, keyElementAll:
+	case keyAttach, keyCoordinator, keyLxc, keyElementAll, keyShutdown:
 		return ""
 	case keyHelp:
 		return "?"
@@ -93,6 +96,7 @@ func (r *run) kindActions(row board.Row) []action {
 			{keyElementAll, "Open every team in Element, a window each", "open every team in Element"},
 			start,
 			{keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
+			{keyShutdown, "Shut down every session of " + team, "shut down " + team + "'s sessions"},
 			{keyRemove, "Take " + team + " down", "take " + team + " down"},
 			help,
 		}

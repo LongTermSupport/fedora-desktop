@@ -173,7 +173,7 @@ func TestDispatchChooseSeatAndDescribeSeatsAreTheChooseFlow(t *testing.T) {
 func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	h := newHarness(t)
 	h.app.Run([]string{"--help"})
-	for _, want := range []string{"choose-seat", "describe-seats", "coordinator"} {
+	for _, want := range []string{"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]"} {
 		if !strings.Contains(h.Out.String(), want) {
 			t.Fatalf("usage lacks %q", want)
 		}
@@ -191,6 +191,8 @@ func TestSubcommandsReachTheirRealFlowsWithTheirUsageErrors(t *testing.T) {
 		{[]string{"backup"}, "ccy-teams: 'backup' takes one team. See ccy-teams --help."},
 		{[]string{"restore", "--nope"}, "unknown restore option '--nope'"},
 		{[]string{"restore"}, "ccy-teams: "},
+		{[]string{"shutdown"}, "ccy-teams: 'shutdown' needs a team. See ccy-teams --help."},
+		{[]string{"shutdown", "alpha", "--now"}, "ccy-teams: unknown shutdown option '--now'. See ccy-teams --help."},
 	}
 	for _, c := range cases {
 		h := newHarness(t)

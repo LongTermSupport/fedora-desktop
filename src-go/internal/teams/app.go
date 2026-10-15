@@ -10,6 +10,7 @@
 //	find    for-checkout: the teams that work on this checkout's repository
 //	choose  choose-seat and describe-seats: the launcher's seat and role questions
 //	chooser choose-teams: which team the launcher's session joins, then its seat through choose
+//	shutdown shutdown: every session of a team sent /exit, and the team row's menu line
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -34,6 +35,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -55,6 +57,8 @@ type App struct {
 	// Chooser is choose-teams.
 	Chooser *chooser.Chooser
 	Picker  *picker.Picker
+	// Shutdown ends every session of a team.
+	Shutdown *shutdown.Shutdown
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -88,10 +92,13 @@ func Wire(h *host.Host) *App {
 	c := create.New(h, o, l)
 	x := lxcadd.New(h, kit, o)
 	pick := choose.New(h, kit, s)
+	down := shutdown.New(h, kit, b)
+	list := picker.New(h, kit, b, o, c, l, s, x)
+	list.Shutdown = down
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
-		Picker:  picker.New(h, kit, b, o, c, l, s, x),
+		Picker:  list, Shutdown: down,
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -124,7 +131,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 		sub = args[0]
 	}
 	switch sub {
-	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "for-checkout", "record-seats",
+	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", "for-checkout", "record-seats",
 		"choose-seat", "describe-seats", subChooseTeams:
 	case "-l", "--list":
 		if len(args) > 1 {
@@ -157,6 +164,8 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 		return a.Ops.Backup(ctx, rest)
 	case "restore":
 		return a.Ops.Restore(ctx, rest)
+	case "shutdown":
+		return a.Shutdown.Run(ctx, rest)
 	case "for-checkout":
 		return a.Find.Run(ctx, rest)
 	case "record-seats":

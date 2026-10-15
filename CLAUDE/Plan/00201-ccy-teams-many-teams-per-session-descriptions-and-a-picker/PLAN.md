@@ -164,6 +164,14 @@ a repository is no longer offered for a checkout of it. Report:
   on); the new-password question defaults to Yes for someone with no Element session, No
   otherwise; "Create a team for OWNER/REPO now?" defaults to No (S-B15). Host run pending
   (meta-deploy: play-claude-yolo.yml).
+- [ ] 🔄 **Task 2.14**: shut down every session of a team from ccy-teams (the owner: "pass /exit
+  to all members of a team"), branch `feat/teams-shutdown`, ccy-teams only. Spec:
+  [SPEC-shutdown.md](SPEC-shutdown.md) (SD1-SD16). `ccy-teams shutdown <team> [--yes]` and a
+  team row's menu line show the team's live sessions and what cannot be reached from here,
+  ask (default No), type `/exit` into each session's pane through tmux (Escape first when
+  busy), stop one that has not ended in time, check each seat is released, and report each
+  member. Local only: nothing on the bus. Host run pending (meta-deploy:
+  play-claude-yolo.yml); the owner's check is in ACCEPTANCE-owner.md.
 
 ## Success Criteria
 
