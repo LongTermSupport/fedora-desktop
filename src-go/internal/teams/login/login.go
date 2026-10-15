@@ -403,6 +403,9 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 // wl-copy on stdin, never in its arguments, which any process can read, and is served to one
 // paste only (security audit L4): nothing clears the clipboard later, so nothing the person
 // copies afterwards is wiped. Outside Wayland nothing is offered; the password is on screen.
+// Nor is it while the Clipboard Indicator extension is on (or that cannot be read): it reads
+// every new selection, which is the one paste, and keeps it in its history; it honours no
+// password-manager hint.
 func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 	if l.Getenv("WAYLAND_DISPLAY") == "" {
 		return nil
@@ -410,6 +413,17 @@ func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 	if !l.Kit.HasTool("wl-copy") {
 		l.Kit.Term.PrintError("wl-copy is not installed, so the password cannot be put on the clipboard; copy it from above. " +
 			"playbooks/imports/play-claude-yolo.yml installs wl-clipboard.")
+		return nil
+	}
+	switch l.clipboardHistory(ctx) {
+	case historyOff:
+	case historyUnknown:
+		l.Kit.Term.PrintError("whether the Clipboard Indicator extension is on could not be read, so the password is not offered " +
+			"for the clipboard; type it from above.")
+		return nil
+	case historyOn:
+		l.Kit.Tell("The password is not offered for the clipboard: the Clipboard Indicator extension is on, " +
+			"and it would use up the one paste and keep the password in its history. Type it from above.")
 		return nil
 	}
 	yes, err := l.Kit.Confirm(ctx, "Copy the password?",
@@ -425,6 +439,37 @@ func (l *Login) offerCopy(ctx context.Context, name, password string) error {
 	}
 	l.Kit.Tell("The password is on the clipboard for one paste; after that it is gone from the clipboard.")
 	return nil
+}
+
+// clipboardHistoryUUID is the Clipboard Indicator extension vars/gnome-shell-extensions.yml
+// installs and enables.
+const clipboardHistoryUUID = "clipboard-indicator@tudmotu.com"
+
+// history is whether a clipboard history keeps what is copied.
+type history int
+
+const (
+	historyOff     history = iota
+	historyOn              // Clipboard Indicator is enabled
+	historyUnknown         // the enabled extensions could not be read (gsettings said why)
+)
+
+// clipboardHistory is whether GNOME Shell's enabled extensions include Clipboard Indicator.
+// With no gsettings there is no GNOME Shell, so it is off.
+func (l *Login) clipboardHistory(ctx context.Context) history {
+	if !l.Kit.HasTool("gsettings") {
+		return historyOff
+	}
+	res, err := l.Runner.Run(ctx, execx.Cmd{
+		Name: "gsettings", Args: []string{"get", "org.gnome.shell", "enabled-extensions"}, Stderr: l.Kit.Stderr,
+	})
+	switch {
+	case err != nil:
+		return historyUnknown
+	case strings.Contains(string(res.Stdout), "'"+clipboardHistoryUUID+"'"):
+		return historyOn
+	}
+	return historyOff
 }
 
 // copyToClipboard puts text on the clipboard for one paste; it says whether wl-copy took it.

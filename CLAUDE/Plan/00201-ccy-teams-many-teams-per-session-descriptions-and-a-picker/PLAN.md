@@ -149,6 +149,15 @@ a repository is no longer offered for a checkout of it. Report:
   the consent and the launch block; L4: a copied password serves one paste (`wl-copy --paste-once`); M1, H2,
   L1 in the docs' Limits. Host run pending (meta-deploy). Report:
   `subagent-reports/261015-security-client-opus.md`.
+- [ ] 🔄 **Task 2.12**: the final release security review's findings
+  (`subagent-reports/261015-final-release-security-fable.md`), branch `fix/teams-final-review`,
+  CCY 3.98.11 / container 2.66 / plugin 1.2.3. S1: no clipboard offer while Clipboard Indicator
+  is on (it honours no password hint), said in one line; Limits and the owner's check 11. N1:
+  the read receipt waits for the transcript check (SPEC-inject E16). N2: the sign-in lock in
+  Limits. N3: JSON-decode before comparing, in the skill and frame. N4: SPEC-inject E2 names
+  the nonce. N5: the pre-swap backup also runs on a rendered config change
+  (`helpers/agent_bus/config_restart.py`). Host run pending (meta-deploy). Report:
+  `subagent-reports/261015-final-review-fixes.md`.
 
 ## Success Criteria
 

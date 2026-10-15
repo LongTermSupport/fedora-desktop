@@ -59,3 +59,15 @@ playbooks/imports/play-agent-bus.yml
 00161-agent-team-bus-matrix
 # Plan 00201: the automated two-team acceptance again on the new pingbus, kit and homeservers.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
+# Plan 00201 final review fixes: deploys the ccy launcher 3.98.11, which requires container
+# 2.66, so the next ccy launch rebuilds the image once. Element shows an agent's avatar under a
+# human's message only once the delivery is in the agent's conversation; the skill and delivery
+# frame say to JSON-decode the history text before comparing (plugin 1.2.3). Rebuilds
+# ccy-teams: while the Clipboard Indicator extension is on, a new password is not offered to
+# the clipboard (the extension would use up the paste and keep the password); it says why.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00201 final review fixes: the pre-swap backup also runs when this checkout renders a
+# running team's tuwunel.toml differently (a homeserver restart), not only for a new Tuwunel or
+# unit; agent-bus-install software puts the new pingbus in the kit for `cc --teams` sessions and
+# LXC members. No firewall rule changes.
+playbooks/imports/play-agent-bus.yml
