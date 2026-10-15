@@ -20,7 +20,7 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy play: installs CCY 3.97.4 and rebuilds ccy-teams and the image (container 2.57). A plain
+# ccy play: installs CCY 3.97.5 and rebuilds ccy-teams and the image (container 2.57). A plain
 # ccy no longer takes the previous session's team (Plan 00161 M2.9), and every team has a
 # description, shown by ccy-teams and passed to agents (Plan 00201 M1-M2). Existing teams have
 # no description yet, so ccy-teams offers to add one on the next launch.
