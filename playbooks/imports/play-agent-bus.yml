@@ -6,6 +6,9 @@
 # truth for what a homeserver host looks like; other projects run the same installer from
 # their own IaC, so nothing here may re-implement a step of it. The play:
 #
+#   0. `backup-now --team` for every running team, only when this checkout's Tuwunel pin or
+#      homeserver units differ from the installed ones, so a swap that goes wrong has a
+#      restore point minutes old. A failed backup fails the run before anything changes.
 #   1. `software --source <this checkout>` on every run, with `--bus-address` when the
 #      host sets agent_bus_address: packages, the agent-bus user, the pinned Tuwunel, the
 #      zipapps, the units, and the installer itself under /usr/local/sbin. Every desktop
@@ -54,6 +57,11 @@
       else agent_bus_present | selectattr('team', 'in', agent_bus_only_teams) | list }}"
     agent_bus_apply_absent: "{{ agent_bus_absent if agent_bus_only_teams is not defined
       else agent_bus_absent | selectattr('team', 'in', agent_bus_only_teams) | list }}"
+    # The files `software` installs whose change restarts every homeserver, relative to /.
+    agent_bus_swap_paths:
+      - usr/local/share/agent-bus/tuwunel.pin
+      - etc/systemd/system/agent-bus-hs@.service
+      - etc/systemd/system/agent-bus-backup@.service
     # Matches the installer's and the helper's CHANGED<TAB><what> marker lines.
     agent_bus_changed_re: "^CHANGED\t"
     # Scoped like the teams: with agent_bus_only_teams, only those teams' LXC members.
@@ -97,6 +105,57 @@
           environment/localhost/host_vars/localhost.yml; admit another bridge's subnet
           through a team's allow_from.
         quiet: true
+      tags: [agent-bus]
+
+    # A restore point before the Tuwunel binary or the homeserver units change: `software`
+    # replaces them and the next `team` run restarts every homeserver. Taken only when the
+    # checkout's pin or a unit differs from the installed one, since each backup pushes the
+    # oldest of Tuwunel's seven out; a homeserver that is not running has nothing new to save.
+    # A failed backup fails the run before anything is swapped.
+    - name: Read the installed Tuwunel pin and homeserver units
+      ansible.builtin.stat:
+        path: "/{{ item }}"
+        get_checksum: true
+      loop: "{{ agent_bus_swap_paths }}"
+      register: agent_bus_installed_files
+      tags: [agent-bus]
+
+    - name: Read this checkout's Tuwunel pin and homeserver units
+      ansible.builtin.stat:
+        path: "{{ root_dir }}/files/{{ item }}"
+        get_checksum: true
+      loop: "{{ agent_bus_swap_paths }}"
+      register: agent_bus_source_files
+      tags: [agent-bus]
+
+    # True when an installed file differs from this checkout's copy; a host with none of them
+    # installed yet runs no homeserver, so it has nothing to back up.
+    - name: Decide whether this run swaps the binary or the units
+      ansible.builtin.set_fact:
+        agent_bus_swap: >-
+          {{ agent_bus_installed_files.results | selectattr('stat.exists') | map(attribute='stat.checksum') | list
+             != agent_bus_source_files.results
+                | selectattr('item', 'in', agent_bus_installed_files.results | selectattr('stat.exists') | map(attribute='item') | list)
+                | map(attribute='stat.checksum') | list }}
+      tags: [agent-bus]
+
+    - name: Read which homeservers are running
+      ansible.builtin.service_facts:
+      when: agent_bus_swap | bool
+      tags: [agent-bus]
+
+    - name: Back up every running team before the binary or units change
+      ansible.builtin.command:
+        argv: ["{{ agent_bus_installer }}", backup-now, --team, "{{ item.team }}"]
+      loop: "{{ agent_bus_present }}"
+      loop_control:
+        label: "{{ item.team }}"
+      when:
+        - agent_bus_swap | bool
+        - not ansible_check_mode
+        - (ansible_facts.services['agent-bus-hs@' ~ item.team ~ '.service'] | default({})).state | default('') == 'running'
+      register: agent_bus_backup
+      changed_when: true
       tags: [agent-bus]
 
     - name: Install the agent-bus homeserver software
@@ -190,9 +249,20 @@
             label: "{{ item.team }}"
           changed_when: false
 
-        # The applied stamps are root:<the desktop user's group> 0640 in a 0750 directory:
-        # ccy-teams, run by that user, reads them without sudo, and no other user learns a
-        # team's name from them.
+        # The applied stamps are root:<the desktop user's primary group> 0640 in a 0750
+        # directory: ccy-teams, run by that user, reads them without sudo, and no other user
+        # learns a team's name from them. The group is looked up, not assumed to share the
+        # login's name; a user or group that cannot be found fails here, before any team.
+        - name: Look up the desktop user's primary group ID
+          ansible.builtin.getent:
+            database: passwd
+            key: "{{ user_login }}"
+
+        - name: Look up the desktop user's primary group name
+          ansible.builtin.getent:
+            database: group
+            key: "{{ ansible_facts.getent_passwd[user_login][2] }}"
+
         - name: Install or update each team
           ansible.builtin.command:
             argv:
@@ -201,7 +271,7 @@
               - --team-file
               - "{{ agent_bus_team_dir.path }}/{{ item.team }}.json"
           environment:
-            AGENT_BUS_STAMP_GROUP: "{{ user_login }}"
+            AGENT_BUS_STAMP_GROUP: "{{ ansible_facts.getent_group | list | first }}"
           loop: "{{ agent_bus_apply_present }}"
           loop_control:
             label: "{{ item.team }}"

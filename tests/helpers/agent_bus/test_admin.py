@@ -365,7 +365,7 @@ class BootstrapTest(AdminTestCase):
         for key in ("junk-1", "junk-2", ""):
             self.assertEqual(self.put_status(token, key, {"filler": "x" * 200}), 200)
         changes = self.bootstrap()
-        self.assertEqual(changes, ["emptied 3 agent_bus.status events under no member's key"])
+        self.assertEqual(changes, ["emptied 3 agent_bus.status events under a key that is not a user ID"])
         for key in ("junk-1", "junk-2", ""):
             self.assertEqual(self.state(protocol.EVENT_STATUS, key), (200, {}))
         self.assertEqual(self.state(protocol.EVENT_STATUS, own), (200, listening))

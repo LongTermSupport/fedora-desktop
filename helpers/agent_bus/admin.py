@@ -612,7 +612,7 @@ def _empty_stray_status(api: _Api, room: str, changes: list[str]) -> None:
     for key in stray:
         api.empty_state(room, protocol.EVENT_STATUS, key)
     if stray:
-        changes.append(f"emptied {len(stray)} {protocol.EVENT_STATUS} events under no member's key")
+        changes.append(f"emptied {len(stray)} {protocol.EVENT_STATUS} events under a key that is not a user ID")
 
 
 def _remove_account(api: _Api, room: str, user_id: str, changes: list[str]) -> None:

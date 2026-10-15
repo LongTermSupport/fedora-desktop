@@ -969,7 +969,8 @@ cmd_backup_now() {
     local dir=$STATE_ROOT/$team unit port
     unit=$(hs_unit "$team")
     require_running "$unit"
-    # SIGUSR2 kills a Tuwunel that has not yet installed its handler. The timer is
+    # A Tuwunel that has not yet installed its handler loses the SIGUSR2 (it is PID 1 of its
+    # own PID namespace, so an unhandled signal is dropped) and no backup appears. The timer is
     # Persistent, so a missed run fires the moment it starts: with the homeserver at boot,
     # or at install beside a team name used before. Signal only one that answers.
     port=$(jq -r .port "$dir/team.json")
