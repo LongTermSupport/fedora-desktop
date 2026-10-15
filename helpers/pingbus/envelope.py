@@ -5,10 +5,12 @@ Spec: Plan 00194 SPEC-inject.md sections 2 (E1-E9, E19-E21) and 3; docs/agent-bu
 
 An entry is built from the §15 line pingbus printed for a re-fetched, re-validated item, so its
 kind and sender are pingbus's, never the sender's text. Every header value is checked again
-here and must be printable ASCII; the one untrusted part, the body, is
-`json.dumps(text, ensure_ascii=True)` on one `body:` line, capped after escaping, so it can
-neither start a line nor end the string. The nonce in the markers is drawn by the caller after
-every body was written; it is shown in the thread and is not a secret.
+here and must be printable ASCII; the one untrusted part, the body, is one JSON string on one
+`body:` line, capped after escaping, so it can neither start a line nor end the string. A
+visible letter, digit, mark, punctuation or symbol is shown as itself (`shown`); everything
+else, and every look-alike of the string's quote, the backslash or a marker's angle brackets,
+is a JSON escape. The nonce in the markers is drawn by the caller after every body was written;
+it is shown in the thread and is not a secret.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import dataclasses
 import datetime
 import json
 import re
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 
 from helpers.pingbus import protocol
@@ -25,14 +28,15 @@ from helpers.pingbus import protocol
 KINDS = ("HUMAN", "PEER", "PING", "TIMEOUT")
 AGENT_KINDS = ("PEER", "PING")
 
-#: E8: the rendered body string, quotes included, is at most this many characters.
-BODY_MAX_CHARS = 2048
-#: E9: a delivery holds at most this many entries and characters as rendered.
+#: E8: the rendered body string, quotes included, is at most this many UTF-8 bytes.
+BODY_MAX_BYTES = 2048
+#: E9: a delivery holds at most this many entries, and this many bytes as the socket carries
+#: the text (`wire_bytes`).
 DELIVERY_MAX_ENTRIES = 8
-DELIVERY_MAX_CHARS = 12 * 1024
-#: The largest single entry the grammars allow stays under this (a test renders it), so the
-#: first entry of a delivery always fits.
-ENTRY_MAX_CHARS = 5 * 1024
+DELIVERY_MAX_BYTES = 12 * 1024
+#: The largest single entry the grammars allow stays under this on the wire (a test renders
+#: it), so the first entry of a delivery always fits.
+ENTRY_MAX_BYTES = 9 * 1024
 HELD_BACK_MAX_LINES = 8
 WHO_MAX = 3
 #: E21: the end of year 9999, in ms.
@@ -72,7 +76,24 @@ HELD_BACK_LINE = ("held back: {count} more from {sender} on {team} (flood limit)
                   "pingbus --team {team} history")
 HELD_BACK_OTHERS = "held back: {count} more from other senders"
 MORE_LINE = "{count} more pending: they follow in the next delivery"
-PING_REPLY = "pingbus --team {team} send <VERB> --to {sender} --re {event_id}"
+PING_REPLY = "pingbus --team {team} send <VERB> --to {sender} --re '{event_id}'"
+
+#: Non-ASCII categories a body may show as themselves: letters, marks, numbers, punctuation
+#: and symbols. Never Cc, Cf (bidi, zero-width, tags), Cs, Co, Cn, Zs, Zl or Zp.
+_SHOWN_CATEGORIES = frozenset(("Lu", "Ll", "Lt", "Lm", "Lo", "Mn", "Mc", "Me", "Nd", "Nl", "No",
+                               "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po", "Sm", "Sc", "Sk", "So"))
+#: Shown categories that are escaped all the same: invisible fillers and joiners, variation
+#: selectors (shown only as one U+FE0E/U+FE0F after a symbol), and look-alikes of the quote,
+#: the backslash and the markers' angle brackets that NFKC does not map to them.
+_ESCAPED = frozenset(
+    [0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F, 0x2800, 0x3164, 0xFFA0,
+     0x00AB, 0x00BB, 0x02BA, 0x02C2, 0x02C3, 0x02DD, 0x02EE, 0x05F4, 0x1433, 0x1438, 0x201C, 0x201D,
+     0x201E, 0x201F, 0x2033, 0x2036, 0x2039, 0x203A, 0x2216, 0x226A, 0x226B, 0x2329, 0x232A, 0x29F5,
+     0x29F9, 0x2AA1, 0x2AA2, 0x3003, 0x301D, 0x301E, 0x301F]
+    + list(range(0x276C, 0x2772)) + list(range(0x27E8, 0x27EC)) + list(range(0x3008, 0x300C))
+    + list(range(0xFE00, 0xFE10)) + list(range(0xE0100, 0xE01F0)))
+_TEXT_PRESENTATION = (0xFE0E, 0xFE0F)
+_STRUCTURAL = frozenset('"\\<>')
 
 
 @dataclasses.dataclass(frozen=True)
@@ -175,23 +196,57 @@ def _bytes(text: str) -> int:
     return len(text.encode("utf-8", "surrogatepass"))
 
 
+def _shown(char: str, previous: str | None) -> bool:
+    """Whether a non-ASCII `char` after `previous` (the code point before it, when that was
+    shown as itself) is shown as itself."""
+    point = ord(char)
+    if point in _TEXT_PRESENTATION:
+        return previous is not None and unicodedata.category(previous) in ("So", "Sk")
+    category = unicodedata.category(char)
+    if category not in _SHOWN_CATEGORIES or point in _ESCAPED:
+        return False
+    if category[0] == "M":
+        return previous is not None and (previous.isalnum() or ord(previous) > 0x7E)
+    folded = unicodedata.normalize("NFKC", char)
+    return not any(c in _STRUCTURAL or not c.isprintable() for c in folded)
+
+
 def _render(text: str) -> str:
-    return json.dumps(text, ensure_ascii=True)
+    """`text` as one JSON string: printable ASCII but the quote and backslash, and `_shown`
+    characters, as themselves; everything else escaped as `json.dumps` escapes it."""
+    parts = ['"']
+    previous: str | None = None
+    for char in text:
+        if (" " <= char <= "~" and char not in '"\\') or (char > "~" and _shown(char, previous)):
+            parts.append(char)
+            previous = char
+        else:
+            parts.append(json.dumps(char, ensure_ascii=True)[1:-1])
+            previous = None
+    parts.append('"')
+    return "".join(parts)
+
+
+def wire_bytes(text: str) -> int:
+    """The bytes `text` takes in the socket message, which carries it as an ASCII JSON string
+    (`notify.frames`), quotes included."""
+    return len(json.dumps(text, ensure_ascii=True))
 
 
 def cap_body(text: str) -> tuple[str, int | None, int]:
     """(the rendered body, the UTF-8 bytes shown or None when whole, the text's UTF-8 bytes).
     The rendering is the longest prefix of whole code points whose JSON string, quotes
-    included, is at most `BODY_MAX_CHARS`: the cut precedes the escaping, so it splits no
-    escape, and a lone surrogate is one code point like any other."""
+    included, is at most `BODY_MAX_BYTES` in UTF-8: the cut precedes the escaping, so it splits
+    no escape, and a lone surrogate is one code point like any other. A code point's rendering
+    depends only on those before it, so a longer prefix never renders shorter."""
     rendered = _render(text)
     total = _bytes(text)
-    if len(rendered) <= BODY_MAX_CHARS:
+    if _bytes(rendered) <= BODY_MAX_BYTES:
         return rendered, None, total
     low, high = 0, len(text)
     while low < high:
         mid = (low + high + 1) // 2
-        if len(_render(text[:mid])) <= BODY_MAX_CHARS:
+        if _bytes(_render(text[:mid])) <= BODY_MAX_BYTES:
             low = mid
         else:
             high = mid - 1
@@ -295,12 +350,12 @@ def render(entries: Sequence[Entry], nonce: str, *, held_back: Mapping[tuple[str
 def fit(entries: Sequence[Entry], *, held_back: Mapping[tuple[str, str], int] | None = None,
         more: int = 0) -> int:
     """How many of `entries`, oldest first, one delivery takes: at most
-    `DELIVERY_MAX_ENTRIES`, and at most `DELIVERY_MAX_CHARS` rendered with the rest counted as
-    more pending. At least one when there is any (an entry is under `ENTRY_MAX_CHARS`)."""
+    `DELIVERY_MAX_ENTRIES`, and at most `DELIVERY_MAX_BYTES` on the wire with the rest counted
+    as more pending. At least one when there is any (an entry is under `ENTRY_MAX_BYTES`)."""
     best = 0
     for count in range(1, min(len(entries), DELIVERY_MAX_ENTRIES) + 1):
-        size = len(render(entries[:count], "0" * 8, held_back=held_back, more=more + len(entries) - count))
-        if size > DELIVERY_MAX_CHARS:
+        size = wire_bytes(render(entries[:count], "0" * 8, held_back=held_back, more=more + len(entries) - count))
+        if size > DELIVERY_MAX_BYTES:
             break
         best = count
     if entries and best == 0:

@@ -32,7 +32,10 @@ too (? there shows every key, explained). The shortcuts:
   Ctrl-P   a new Element password for the person on the row; it asks first, saying how
            many of their Element sessions it signs out (none: no question)
   Ctrl-E   open the team in Element (setting its profile up first, when it has none);
-           Element starts apart from ccy-teams, which stays on the list
+           Element starts apart from ccy-teams, which stays on the list. Each team is its
+           own Element window, because each team is its own Matrix server and an Element
+           window holds one account; the menu of a team row has Open every team in
+           Element, a window each (no shortcut), which opens every team with a profile
   Ctrl-U   update every team that is out of date or not built (never one to take down)
   Ctrl-R   turn the seat's session's restore after a reboot off or on
   Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)

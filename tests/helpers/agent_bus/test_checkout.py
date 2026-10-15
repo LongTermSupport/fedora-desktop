@@ -86,6 +86,8 @@ class FakeHost:
 
     def __init__(self) -> None:
         self.active = {TEAM_A, TEAM_B}
+        #: The teams built on this host (their installer stamps), running or not.
+        self.built = [TEAM_A, TEAM_B]
         self.address = BUS_IP
         self.calls: list[tuple[tuple[str, ...], bool]] = []
         self.fail: dict[str, int] = {}
@@ -98,6 +100,9 @@ class FakeHost:
 
     def team_active(self, team: str) -> bool:
         return team in self.active
+
+    def teams_here(self) -> list[str]:
+        return list(self.built)
 
     def bus_address(self) -> str:
         if self.address is None:
@@ -156,7 +161,8 @@ class CheckoutTestCase(unittest.TestCase):
 
     def system(self, cwd: pathlib.Path | None = None, uid: int | None = None) -> checkout.System:
         return checkout.System(cwd=cwd or self.top, uid=os.getuid() if uid is None else uid,
-                               team_active=self.host.team_active, bus_address=self.host.bus_address,
+                               team_active=self.host.team_active, teams_here=self.host.teams_here,
+                               bus_address=self.host.bus_address,
                                agent_bus=self.host.agent_bus, clock_ms=lambda: T0_MS)
 
     def run_cli(self, *argv: str, system: checkout.System | None = None) -> tuple[int, str, str]:
@@ -519,6 +525,35 @@ class RefusalsAlikeTest(CheckoutTestCase):
                 self.assertEqual(out, "")
         self.assertEqual(self.host.calls, [])
         self.assertFalse((self.top / ".claude" / "ccy" / "pingbus").exists())
+
+    def test_a_stopped_team_built_here_is_started_by_apply(self):
+        self.host.active = {TEAM_A}
+        code, _, err = self.run_cli("seat", "check", "qa@team-b")
+        self.assertEqual(code, EX_CONFIG, err)
+        self.assertIn("team `team-b` is built on this host but its homeserver is not running", err)
+        self.assertIn("ccy-teams apply team-b starts it", err)
+        self.assertNotIn("agent-bus-install team", err)
+        self.assertNotIn("ccy-teams create", err)
+
+    def test_the_teams_here_are_the_installers_stamps(self):
+        applied = self.top.parent / "applied"
+        self.assertEqual(checkout._stamped_teams(applied), [])
+        applied.mkdir()
+        for name in ("team-b.json", "team-a.json", "Not_A_Team.json", "notes.txt"):
+            (applied / name).write_text("{}", encoding="utf-8")
+        self.assertEqual(checkout._stamped_teams(applied), ["team-a", "team-b"])
+
+    def test_a_team_this_host_does_not_have_lists_those_it_has(self):
+        self.host.active = {TEAM_A, TEAM_B}
+        code, _, err = self.run_cli("seat", "check", "qa@team-c")
+        self.assertEqual(code, EX_CONFIG, err)
+        self.assertIn("there is no team `team-c` on this host", err)
+        self.assertIn("teams here: team-a, team-b", err)
+        self.assertIn("ccy-teams create makes one", err)
+        self.assertNotIn("ccy-teams apply", err)
+        self.host.built = []
+        code, _, err = self.run_cli("seat", "check", "qa@team-c")
+        self.assertIn("teams here: none yet", err)
 
 
 class TakeCommandTest(CheckoutTestCase):

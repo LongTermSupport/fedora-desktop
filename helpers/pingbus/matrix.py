@@ -289,6 +289,11 @@ class Client:
         query = {"format": "event"} if as_event else None
         return self.call("GET", path("rooms", _room(room_id), "state", event_type, state_key), query=query)
 
+    def read_receipt(self, room_id: str, event_id: str) -> dict:
+        """Mark `event_id` read by this account (a public `m.read` receipt): Element shows the
+        account's avatar under it. A receipt is not a room event and needs no power level."""
+        return self.call("POST", path("rooms", _room(room_id), "receipt", "m.read", _event(event_id)), body={})
+
     def get_event(self, room_id: str, event_id: str) -> dict:
         return self.call("GET", path("rooms", _room(room_id), "event", _event(event_id)))
 

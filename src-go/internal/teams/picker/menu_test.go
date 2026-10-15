@@ -71,6 +71,20 @@ func TestATeamsMenuHeaderShowsItsWholeDescription(t *testing.T) {
 	}
 }
 
+func TestATeamsMenuOpensEveryTeamInElement(t *testing.T) {
+	h := newRig(t)
+	h.Script.Fzf = []string{"|alpha", "|Open every team in Element", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if rows := h.menuRows(1); !slices.Contains(rows, "Open every team in Element, a window each") {
+		t.Fatalf("menu %q", rows)
+	}
+	if !strings.Contains(h.ErrOut.String(), "alpha has no Element profile on this desktop yet") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
 func TestEscInTheMenuGoesBackToTheListAndNothingIsAsked(t *testing.T) {
 	h := newRig(t)
 	h.Script.Fzf = []string{"|guest", "|ABORT", "|ABORT"}
