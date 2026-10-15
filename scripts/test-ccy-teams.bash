@@ -328,6 +328,7 @@ for bare in "--headless --teams" "--teams --headless" "--teams= --headless" "--h
     # shellcheck disable=SC2086  # the words are the case
     run_ccy with-bus $bare
     check "bare '$bare', nobody to choose: 64" "64" "$RC"
+    check "  it says why: choosing a team needs a terminal, name the seat" "yes" "$(has 'needs a terminal: name the seat instead, --teams <seat>@<team>' "$work/ccy.err")"
     check "  only the check ran, on the empty list, and no chooser" "seat check  --resolved" "$(bus_calls)"
 done
 FAKE_CHOOSE_TEAMS_RC=1 run_ccy with-bus --teams dev1@team-a --headless

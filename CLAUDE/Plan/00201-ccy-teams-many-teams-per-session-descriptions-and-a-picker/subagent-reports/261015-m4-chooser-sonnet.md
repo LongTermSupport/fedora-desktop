@@ -35,4 +35,8 @@ together, so its red was not observed separately.
    (64), not by a launcher message, to stay inside the ratchet.
 5. The scope question names the repository but not the team's current scope in words.
 6. `--type=host` is accepted and passed to the seat chooser; cc is not wired (M6).
-7. The Add/Join/Leave loop is written over a slice but the list is single-select until M5.
+7. (Review fixes, later: S-B15 built in the picker's first pass; docs/agent-bus.md rewritten for
+   `choose-teams`; a headless bare `--teams` says choosing a team needs a terminal; a team made
+   from the list is re-read with `choices` and the run fails fast if it does not cover the
+   checkout.)
+8. The Add/Join/Leave loop is written over a slice but the list is single-select until M5.

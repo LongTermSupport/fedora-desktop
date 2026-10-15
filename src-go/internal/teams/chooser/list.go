@@ -49,7 +49,7 @@ func (c *Chooser) take(ctx context.Context, repo string, entries []entry, first 
 		return nil, term.ExitFailure, false
 	}
 	if at == len(entries) {
-		return c.created(ctx)
+		return c.created(ctx, repo)
 	}
 	picked := entries[at]
 	if reason := blocked(repo, picked); reason != "" {
@@ -59,9 +59,10 @@ func (c *Chooser) take(ctx context.Context, repo string, entries []entry, first 
 	return []entry{picked}, term.ExitOK, false
 }
 
-// created runs the create wizard; the team it made covers this checkout. Cancelling it goes back
-// to the list.
-func (c *Chooser) created(ctx context.Context) ([]entry, term.ExitCode, bool) {
+// created runs the create wizard, then reads the checkout's standing again: the wizard lets the
+// person choose the scope, so the new team is taken only if it covers this checkout. Cancelling
+// the wizard goes back to the list.
+func (c *Chooser) created(ctx context.Context, repo string) ([]entry, term.ExitCode, bool) {
 	team, code := c.Create(ctx)
 	switch {
 	case code == term.ExitCancelled:
@@ -73,7 +74,20 @@ func (c *Chooser) created(ctx context.Context) ([]entry, term.ExitCode, bool) {
 		c.say("ccy-teams: the create wizard finished but named no team.")
 		return nil, term.ExitFailure, false
 	}
-	return []entry{{Choice: declare.Choice{Team: team, Standing: declare.StandingCovers}}}, term.ExitOK, false
+	if repo == "" {
+		return []entry{{Choice: declare.Choice{Team: team}}}, term.ExitOK, false
+	}
+	entries, err := c.entries(ctx, repo)
+	if err != nil {
+		return nil, c.failed(err), false
+	}
+	at := slices.IndexFunc(entries, func(e entry) bool { return e.Team == team })
+	if at < 0 || entries[at].Standing != declare.StandingCovers {
+		c.say("ccy-teams: team " + team + " was created but does not cover " + repo + ", so nothing was started. " +
+			"Run ccy --teams again to choose it and add the repository, or name it: ccy --teams " + team + ".")
+		return nil, term.ExitFailure, false
+	}
+	return entries[at : at+1], term.ExitOK, false
 }
 
 // blocked is why the team cannot be taken, or "".

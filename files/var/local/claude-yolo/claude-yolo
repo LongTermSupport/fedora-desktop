@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.97.6"  # ccy --teams is answered by ccy-teams choose-teams: every team with its description, scope widening. See docs/ccy-changelog.md.
+CCY_VERSION="3.97.7"  # ccy --teams is answered by ccy-teams choose-teams: every team with its description, scope widening. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -855,10 +855,9 @@ ccy_launch_teams() {
     if [ "$rc" -ne 0 ]; then
         # An unquoted `--teams a@x, b@y` reaches ccy as `a@x,` and a separate word.
         next="${*:$((TEAMS_VALUE_POS + 1)):1}"
-        if [[ "$TEAMS_LIST" =~ ,[[:space:]]*$ ]] && [ -n "$next" ]; then
-            echo "  The shell split the list at a space. Write it without the space, or quote it:" >&2
-            echo "    --teams '${TEAMS_LIST} ${next}'" >&2
-        fi
+        [[ "$TEAMS_LIST" =~ ,[[:space:]]*$ && -n "$next" ]] \
+            && printf '%s\n' "  The shell split the list at a space. Write it without the space, or quote it:" "    --teams '${TEAMS_LIST} ${next}'" >&2
+        if [ -z "$TEAMS_LIST" ]; then echo "  Choosing a team needs a terminal: name the seat instead, --teams <seat>@<team>." >&2; fi
         exit "$rc"
     fi
 }

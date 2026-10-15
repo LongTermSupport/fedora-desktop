@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -47,7 +48,7 @@ func newRig(t *testing.T, choices string) *rig {
 	w.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	w.OnDeclare("github-remote", repo+"\n")
 	w.OnDeclare("choices", choices)
-	for _, team := range []string{"alpha", "beta", "gamma", "delta"} {
+	for _, team := range []string{"alpha", "beta", "gamma", "delta", "fresh"} {
 		w.On("systemctl is-active agent-bus-hs@"+team+".service", "active\n", 0)
 	}
 	r := &rig{World: w, Console: console, payload: &bytes.Buffer{}, seatLeft: map[string]bool{}}
@@ -320,9 +321,22 @@ func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *test
 	}
 }
 
-// S-B11: creating a team from the list.
+// S-B11: creating a team from the list. The checkout's standing is read again afterwards.
+func (r *rig) choicesAfterCreate(fresh string) {
+	calls := 0
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("choices")), func(execx.Cmd) (execx.Result, error) {
+		calls++
+		out := alphaCovers + betaWiden
+		if calls > 1 {
+			out += fresh
+		}
+		return execx.Result{Stdout: []byte(out)}, nil
+	})
+}
+
 func TestCreatingATeamFromTheListTakesIt(t *testing.T) {
 	r := newRig(t, alphaCovers+betaWiden)
+	r.choicesAfterCreate("CHOICE\tfresh\tcovers\t\"New\"\n")
 	r.created = "fresh"
 	r.Script.Fzf = []string{"|+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)
@@ -332,6 +346,19 @@ func TestCreatingATeamFromTheListTakesIt(t *testing.T) {
 	if len(r.Script.GumLog) != 0 {
 		t.Fatalf("a covering new team asks no scope question: %v", r.Script.GumLog)
 	}
+}
+
+func TestACreatedTeamThatDoesNotCoverTheCheckoutFailsFast(t *testing.T) {
+	r := newRig(t, alphaCovers+betaWiden)
+	r.choicesAfterCreate("CHOICE\tfresh\twiden\t-\n")
+	r.created = "fresh"
+	r.Script.Fzf = []string{"|+ Create a team"}
+	exit(t, r.run("--type=podman"), term.ExitFailure, r)
+	contains(t, "stderr", r.stderr(), "fresh", "does not cover "+repo, "nothing was started")
+	if r.seatsAsked != nil {
+		t.Fatalf("seats %v", r.seatsAsked)
+	}
+	r.lacksOutput(t)
 }
 
 func TestCancellingTheWizardReturnsToTheList(t *testing.T) {
@@ -452,6 +479,14 @@ func TestAFailureToReadTheCheckoutIsReportedNotHidden(t *testing.T) {
 
 func TestNoTeamAtAllStillOffersToCreateOne(t *testing.T) {
 	r := newRig(t, "")
+	calls := 0
+	r.Fake.OnFunc(strings.Fields(r.DeclarePrefix("choices")), func(execx.Cmd) (execx.Result, error) {
+		calls++
+		if calls == 1 {
+			return execx.Result{}, nil
+		}
+		return execx.Result{Stdout: []byte("CHOICE\tfresh\tcovers\t-\n")}, nil
+	})
 	r.created = "fresh"
 	r.Script.Fzf = []string{"|+ Create a team"}
 	exit(t, r.run("--type=podman"), term.ExitOK, r)

@@ -44,8 +44,9 @@ agent-bus set-role as root.
 With no team on this machine, the picker offers to create one; with a team out of date, it
 offers to update it first; with a team still holding the old default path_prefixes, it
 offers once to remove them. Run in a checkout of a team's repositories, with no session of
-that checkout in the team, it offers to start one there (ccy --teams <team>); run in a
-GitHub checkout no team covers, it says so and offers to create a team for it.
+that checkout in the team, it offers to start one there (a bare ccy --teams, which lists the
+teams); run in a GitHub checkout no team covers, it says so and offers to create a team for
+it, or to start a session there that chooses its teams (ccy --teams).
 
 Reading the members needs root (the team's admin token is root's). play-agent-bus.yml
 installs a sudoers rule that lets you run exactly `agent-bus list` and `agent-bus human

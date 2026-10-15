@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.7 — container 2.57 (unchanged)
+
+- A headless bare `--teams` is refused with the reason: choosing a team needs a terminal, so
+  name the seat with `--teams <seat>@<team>`.
+
 ## 3.97.6 — container 2.57 (unchanged)
 
 - **`ccy --teams` with no value (or a team alone) is answered by `ccy-teams choose-teams`.**
