@@ -70,8 +70,12 @@ today; rewriting them is out of scope.
   diff fails), `go vet`, `go test -race` with a whole-module statement coverage floor of 90%
   (measured 94.2%) and every package tested, `golangci-lint run`, whole module, a missing
   tool a hard failure.
-  Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
-  go-qa-ci already runs it.
+  - Added `go build ./...` per module, before vet and test: a production file calling a
+    helper defined only in a `_test.go` file passes vet, test and lint (all load test
+    files) and breaks only the build. Red/green proven with a throwaway fixture package.
+    go-qa-ci is getting the same stage on its branch `feat/build-stage`.
+    Interim, until Task 3.3 puts go-qa-ci in its place; govulncheck comes with it, since
+    go-qa-ci already runs it.
 
 ### Phase 2: ccy-teams in Go
 
