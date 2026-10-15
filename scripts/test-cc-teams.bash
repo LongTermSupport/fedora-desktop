@@ -268,6 +268,22 @@ rm -rf "$prep_repo/.claude/ccy/pingbus"
 rc=0
 (cd "$prep_repo" && FAKE_CHOOSE_RC=1 cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
 check "a declined consent stops prepare (1) before any seat is taken" "1|0" "$rc|$(grep -c 'seat take' "$work/agent-bus.calls")"
+untouched_repo="$work/prep-untouched"
+mkdir -p "$untouched_repo"
+git -C "$untouched_repo" init -q
+rc=0
+(cd "$untouched_repo" && FAKE_CHOOSE_RC=1 cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
+check "a declined consent makes nothing in the checkout, not even .claude/ccy/ (S-E4)" "1|no" \
+    "$rc|$(yes_no test -e "$untouched_repo/.claude/ccy")"
+untouched_link="$work/prep-untouched-link"
+mkdir -p "$untouched_link/.claude" "$work/prep-elsewhere"
+git -C "$untouched_link" init -q
+ln -s "$work/prep-elsewhere" "$untouched_link/.claude/ccy"
+: >"$work/agent-bus.calls"
+rc=0
+(cd "$untouched_link" && cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
+check ".claude/ccy as a symlink is refused (78) before any seat is taken" "78|0" \
+    "$rc|$(grep -c 'seat take' "$work/agent-bus.calls")"
 CC_TEAMS_KIT="$KIT_SRC"
 
 echo "=== cc and pingbus name the same acceptance record ==="

@@ -364,30 +364,24 @@ class RoutingTest(TempDir):
 
 
 class SegmentTest(TempDir):
-    HANDLER = """
-import types
-class BusTeamsHandler:
-    def handle(self, hook_input):
-        sid = hook_input.get("session_id")
-        teams = {"%s": "a,b"}.get(sid)
-        return types.SimpleNamespace(context=[f"| \\033[36mbus: {teams}\\033[0m"] if teams else [])
-"""
+    """M3: `pingbus status-line` ends the session's own status line with `bus: TEAMS`."""
 
-    def test_segment_calls_the_handler_with_the_session_id(self) -> None:
-        handler = self.write("bus_teams.py", self.HANDLER % SID)
-        status, out, err = run("segment", handler, SID)
-        self.assertEqual(status, 0, err)
-        self.assertEqual(out, "| \x1b[36mbus: a,b\x1b[0m\n")
-        self.assertEqual(run("segment", handler, "other")[:2], (0, ""))
-
-    def test_expect_segment(self) -> None:
-        shown = self.write("seg", "| \x1b[36mbus: a,b\x1b[0m\n")
-        empty = self.write("empty", "")
+    def test_expect_segment_wants_the_inner_line_then_the_teams(self) -> None:
+        shown = self.write("seg", "model \x1b[2m|\x1b[0m dir | \x1b[36mbus: a,b\x1b[0m\n")
+        alone = self.write("alone", "\x1b[36mbus: a,b\x1b[0m\n")
+        broken = self.write("broken", "model | \x1b[31mbus: no record of this session's teams (pingbus status)\x1b[0m\n")
         self.assertEqual(run("expect-segment", shown, "a,b")[0], 0)
         self.assertEqual(run("expect-segment", shown, "b,a")[0], 1)
-        self.assertEqual(run("expect-segment", empty, "-")[0], 0)
-        self.assertEqual(run("expect-segment", shown, "-")[0], 1)
-        self.assertEqual(run("expect-segment", empty, "a,b")[0], 1)
+        self.assertEqual(run("expect-segment", alone, "a,b")[0], 1, "the session's own line is missing")
+        self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)
+
+    def test_expect_kit_status_line(self) -> None:
+        kit = self.write("kit.json", json.dumps({
+            "crossSessionInbound": "accept",
+            "statusLine": {"type": "command", "command": "pingbus status-line"}}))
+        old = self.write("old.json", json.dumps({"crossSessionInbound": "accept"}))
+        self.assertEqual(run("expect-kit-status-line", kit)[0], 0)
+        self.assertEqual(run("expect-kit-status-line", old)[0], 1)
 
 
 class PlainTest(TempDir):
@@ -457,43 +451,6 @@ class ReviewFixesTest(TempDir):
         self.assertEqual(run("expect-own-team", other, TEAM_A, prefix)[0], 1)
         self.assertEqual(run("expect-own-team", bare, TEAM_A, prefix)[0], 1)
         self.assertEqual(run("expect-own-team", ours, TEAM_B, prefix)[0], 1)
-
-    def test_f3_the_running_daemon_lists_the_handler(self) -> None:
-        listing = {
-            "Status": [
-                {"name": "status-multithread-indicator", "class": "X", "priority": 2},
-                {"name": "bus-teams", "class": "BusTeamsHandler", "priority": 25},
-            ],
-            "Stop": [],
-        }
-        without = {"Status": [{"name": "other", "class": "Y"}]}
-        self.assertEqual(
-            run(
-                "expect-handler",
-                self.write("h.json", json.dumps(listing)),
-                "Status",
-                "bus-teams",
-            )[0],
-            0,
-        )
-        self.assertEqual(
-            run(
-                "expect-handler",
-                self.write("n.json", json.dumps(without)),
-                "Status",
-                "bus-teams",
-            )[0],
-            1,
-        )
-        self.assertEqual(
-            run(
-                "expect-handler",
-                self.write("h2.json", json.dumps(listing)),
-                "Stop",
-                "bus-teams",
-            )[0],
-            1,
-        )
 
     def test_f4_ports_come_from_the_bus_range_avoiding_declared_and_listening(
         self,

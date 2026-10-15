@@ -378,9 +378,3 @@ plugins:
       event_type: "pre_tool_use"
       handlers: ["AnsibleEnforcementHandler"]
       enabled: true
-
-    # The agent-bus teams a session is on (PINGBUS_TEAMS), in the status line
-    - path: ".claude/hooks/handlers/status_line/bus_teams.py"
-      event_type: "status_line"
-      handlers: ["BusTeamsHandler"]
-      enabled: true

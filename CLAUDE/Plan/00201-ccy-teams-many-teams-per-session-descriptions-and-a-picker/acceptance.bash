@@ -35,14 +35,14 @@ set -euo pipefail
 #      their seats and descriptions;
 #   D3 that session's `pingbus status` trusts both teams and prints each one's ABOUT line;
 #   M2 its per-session record (pingbus SessionStart) lists both teams;
-#   M3 the bus-teams status-line handler, called by the hooks daemon's venv python in the
-#      session's container, returns `bus: accept201a,accept201b` for its session ID;
+#   M3 the kit's settings make `pingbus status-line` the session's status line, and in the
+#      session's container it prints the checkout's own line then `bus: accept201a,accept201b`;
 #   R1 `pingbus say --to m7solo.1` (a member of accept201a only), no --team: SENT in accept201a;
 #   R2 `pingbus say --to m7peer.1` (a member of both): exit 64, both teams listed with their
 #      descriptions;
 #   M4 SessionEnd removes the per-session record (seen from inside the container as it ends);
 #   P1 a plain headless `ccy` is on no team: no seat label or PINGBUS_ variable, no pingbus, no
-#      per-session record, an empty bus segment;
+#      per-session record (so no bus status line);
 #   C1 after the seats are parked and the teams purged: no recorded firewalld rule (permanent or
 #      runtime), unit, state, stamp or seat left, and the Quick Launch record as it was.
 
@@ -69,7 +69,7 @@ PLAN_USAGE="usage: acceptance.bash [--bus-address=<ip>] [-h|--help]
 
 Plan 00201 M7, the automated two-team acceptance: two throwaway teams with descriptions, one
 headless ccy session on both (launch block, pingbus status ABOUT lines, the per-session record,
-the bus-teams status-line handler, pingbus say team inference, SessionEnd), a plain ccy on no
+the pingbus status-line command, pingbus say team inference, SessionEnd), a plain ccy on no
 team; then everything removed. The interactive part is ACCEPTANCE-owner.md.
   --bus-address=<ip>   the teams' listen address; without it, agent_bus_address from the
                        host_vars localhost.yml
@@ -164,7 +164,7 @@ plan_deploy_leg "save the Quick Launch record; ccy --headless --teams ${SEAT_LIS
 check_leg "M1 the launch block names both teams, seats and descriptions" m7_check_block
 check_leg "D3 the session's pingbus status prints both ABOUT lines" m7_check_about
 check_leg "M2 the per-session record lists both teams" m7_check_record
-check_leg "M3 the bus-teams status-line handler returns bus: ${TEAM_A},${TEAM_B}" m7_check_segment
+check_leg "M3 pingbus status-line shows the session's own line, then bus: ${TEAM_A},${TEAM_B}" m7_check_segment
 check_leg "R1 say --to a member of one team infers that team" m7_check_infer
 check_leg "R2 say --to a name on both teams is refused with the choices" m7_check_ambiguous
 check_leg "M4 SessionEnd removes the per-session record" m7_check_session_end

@@ -69,7 +69,8 @@ that play.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
    takes them or the highlighted one), each marked team gets its own seat question, and the
    launch prints which teams the session is on, with seat, role and what each is for; the status
-   line shows `bus: alpha,beta`. With several teams, pingbus's send and say commands work out the
+   line shows `bus: alpha,beta`, in any checkout (see
+   [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the
    team from `--re` or `--to` when only one fits, and otherwise list the teams and ask for `--team`.
    It then goes on as `ccy --teams <team>` (no seat), which shows this
    checkout's seats in the team and launches a session into the one you choose: the lowest
@@ -503,6 +504,21 @@ cc's alone, never the project's, which ccy sessions share. Claude Code's sandbox
 used for now: it would also limit the network, and a real boundary is being looked at in
 issue #101. When you want an agent that cannot reach your sign-ins, use a ccy session or a
 dedicated agent user.
+
+### A session's status line
+
+Every session on a team (ccy, cc or `agent-bus-claude`, in any checkout) ends its status
+line with `bus: alpha,beta`, the teams it was launched into. The member kit's `settings.json`
+makes `pingbus status-line` the status line command, and settings given on the command line
+outrank the project's, so it applies in a checkout that has never heard of the bus. It runs
+the status line the checkout or your user settings already set (a hooks daemon's, for
+example) and adds the segment after it, so nothing you had is lost. It refreshes every second,
+as this repository's status line does (ccy `--supervise` reads what the hooks daemon's status
+line writes on each render), whatever interval the replaced status line had. A failing, hung or
+unreadable status line underneath is shown in red rather than blanking the line. The segment comes from a record the SessionStart hook
+writes for the session. If that record could not be written, the status line shows
+`bus: no record of this session's teams (pingbus status)` in red rather than nothing, and the
+session is told; a session on no team shows no segment.
 
 ## The dedicated agent user
 

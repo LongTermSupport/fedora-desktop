@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.7 — container 2.62
+
+- **The `bus: A,B` status line works in any checkout** (Plan 00201's final review). It was a
+  hooks-daemon handler registered in this repository only, so a team session elsewhere showed
+  nothing. The member kit's `settings.json` now makes `pingbus status-line` the status line: it
+  runs the session's own status line first and appends the teams from the per-session record.
+  A record that could not be written shows `bus: no record ...` in red, and SessionStart tells
+  the session, instead of looking like a session on no team. The image carries the new kit
+  settings and pingbus, so it is rebuilt once.
+- **`cc --teams` makes nothing before the consent.** The checkout's `.claude/ccy/` is created
+  after the chooser and its Element consent, so a declined start leaves no folder behind.
+
 ## 3.98.6 — container 2.61
 
 - **A `target` refusal from `pingbus send` or `say` says what it refused and who can be

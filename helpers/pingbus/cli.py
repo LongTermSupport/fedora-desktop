@@ -40,6 +40,7 @@ from typing import BinaryIO, TextIO
 from helpers.agent_bus import registry
 from helpers.pingbus import config, forge, hooks, inbox, limits, matrix, notify, protocol, relay, sentlog, syncer
 from helpers.pingbus import seat as seating
+from helpers.pingbus import statusline
 
 PROG = "pingbus"
 TOOL_VERSION = "0.1.0"
@@ -1546,6 +1547,13 @@ def cmd_hook(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     return EXIT_OK
 
 
+def cmd_status_line(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """The session's status line, with its agent-bus teams (statusline.py): the kit's statusLine."""
+    text, status = statusline.render(args.stdin.read(HOOK_INPUT_MAX + 1), environ)
+    out.write(text + "\n")
+    return status
+
+
 # ---------------------------------------------------------------- inbox and status (offline)
 
 _REPORT_FIELD_RE = re.compile(r"[\x21-\x7e]{1,255}|[\x20-\x7e]{1,200}")
@@ -1808,6 +1816,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     hook = command("hook", cmd_hook, "a Claude Code hook: stdin hook JSON, stdout hook JSON")
     hook.add_argument("event", choices=hooks.EVENTS, metavar="EVENT",
                       help=" | ".join(hooks.EVENTS))
+    command("status-line", cmd_status_line,
+            "the Claude Code status line: the session's own, then bus: <teams> (the kit's statusLine)")
     seat_parser = commands.add_parser("seat", help="this ccy session's seats")
     team_option(seat_parser, argparse.SUPPRESS)
     seat_commands = seat_parser.add_subparsers(dest="seat_command", metavar="SUBCOMMAND",

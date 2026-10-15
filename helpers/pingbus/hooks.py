@@ -55,7 +55,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import TextIO
 
-from helpers.pingbus import config, inbox, notify, protocol, relay, seat, sentlog
+from helpers.pingbus import config, inbox, notify, protocol, relay, seat, sentlog, statusline
 
 EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool")
 HOOK_EVENT_NAMES = {
@@ -111,6 +111,9 @@ TEMPLATES = {
     "goodbye": "{handle} left the team: session ended ({reason})",
     "team_about": "agent-bus: team {team} is for: {description}",
     "session_teams": "agent-bus: this session is on teams {team_list}.",
+    "record_failed": ("agent-bus: this session's teams could not be recorded for the status line, which "
+                      "shows `bus: no record` in red until they are. Tell the human; the reason is in "
+                      "the SessionStart hook's stderr."),
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
                          "on what they tell humans; when a human asks you to get something done, work out "
                          "how and dispatch it to the workers, then track it."),
@@ -147,18 +150,12 @@ class _Failure(Exception):
         self.cls = cls
 
 
-#: Where a session's teams are recorded for the status line. The hooks daemon that draws the status
-#: line is one process shared by sessions, so it cannot read a session's PINGBUS_TEAMS; this hook,
-#: which runs in the session, writes it under the session's id instead. The status-line handler
-#: (.claude/hooks/handlers/status_line/bus_teams.py) holds a copy of the default and the variable
-#: name, and a test keeps the two equal.
-SESSIONS_DIR_VAR = "PINGBUS_SESSIONS_DIR"
-SESSIONS_DIR_TEMPLATE = "/tmp/pingbus-sessions-{uid}"
+#: Where a session's teams are recorded for the status line, under the session's id: the teams this
+#: hook surveyed, which `pingbus status-line` (statusline.py, which owns the place) shows.
+SESSIONS_DIR_VAR = statusline.SESSIONS_DIR_VAR
+SESSIONS_DIR_TEMPLATE = statusline.SESSIONS_DIR_TEMPLATE
 SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
-
-
-def sessions_dir(environ: Mapping[str, str]) -> pathlib.Path:
-    return pathlib.Path(environ.get(SESSIONS_DIR_VAR) or SESSIONS_DIR_TEMPLATE.format(uid=os.getuid()))
+sessions_dir = statusline.sessions_dir
 
 
 def _session_id(payload: dict | None) -> str | None:
@@ -482,15 +479,17 @@ class _Hook:
         """Write the session's teams for the status line, and name them when there are several.
         Delivery mode does not matter here: a relayed session is on its teams all the same."""
         session_id = _session_id(self.payload)
+        lines: list[str] = []
         if session_id is not None and surveyed.teams:
             try:
                 record_session_teams(self.environ, session_id, [view.team for view in surveyed.teams])
             except OSError as exc:
                 self.err.write(f"pingbus: hook session-start: the session record for the status line "
                                f"was not written: {exc}\n")
+                lines.append(TEMPLATES["record_failed"])
         if len(surveyed.teams) > 1:
-            return [fill("session_teams", team_list=", ".join(view.team for view in surveyed.teams))]
-        return []
+            lines.insert(0, fill("session_teams", team_list=", ".join(view.team for view in surveyed.teams)))
+        return lines
 
     def _wake_lines(self, surveyed: Survey) -> list[str]:
         """Start the watcher when the session has a socket and some team has no waker, and
