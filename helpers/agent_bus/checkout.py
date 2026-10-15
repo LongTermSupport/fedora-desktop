@@ -52,6 +52,8 @@ MEMBER_ROLE = "worker"
 BUS_IFACE = "agentbus0"
 #: The root wrapper, by path: sudo's own PATH is not the caller's.
 WRAPPER = "/usr/local/bin/agent-bus"
+#: Where the installer stamps each team it built (`ccy-teams`' CCY_TEAMS_APPLIED_DIR default).
+APPLIED_DIR = pathlib.Path("/var/lib/agent-bus-applied")
 DIR_MODE = 0o700
 
 CCY_DIR = pathlib.PurePosixPath(".claude/ccy")
@@ -418,6 +420,8 @@ class System:
     cwd: pathlib.Path
     uid: int
     team_active: Callable[[str], bool]
+    #: The teams built on this host, running or not (the installer's stamps).
+    teams_here: Callable[[], Sequence[str]]
     bus_address: Callable[[], str]
     #: `sudo agent-bus ARGV` (`sudo -n` when no prompt is allowed): its exit code and stdout
     #: (bytes: `add-member --out=-` prints the bundle's tar).
@@ -438,6 +442,14 @@ def _systemctl_active(team: str) -> bool:
     except FileNotFoundError:
         raise CheckoutError("systemctl is not installed: a team's homeserver cannot be checked") from None
     return run.returncode == 0
+
+
+def _stamped_teams(applied: pathlib.Path = APPLIED_DIR) -> list[str]:
+    """The teams the installer has built here: one `<team>.json` stamp each, readable without
+    sudo (the same stamps `ccy-teams` reads for its APPLIED column)."""
+    if not applied.is_dir():
+        return []
+    return sorted(path.stem for path in applied.glob("*.json") if protocol.is_team_name(path.stem))
 
 
 def _ip_bus_address() -> str:
@@ -479,7 +491,7 @@ def sudo_forget() -> None:
 
 def real_system(cwd: pathlib.Path | None = None) -> System:
     return System(cwd=pathlib.Path.cwd() if cwd is None else cwd, uid=os.getuid(),
-                  team_active=_systemctl_active, bus_address=_ip_bus_address,
+                  team_active=_systemctl_active, teams_here=_stamped_teams, bus_address=_ip_bus_address,
                   agent_bus=_sudo_agent_bus, forget_sudo=sudo_forget,
                   clock_ms=lambda: time.time_ns() // 1_000_000)
 
@@ -605,12 +617,20 @@ def _observe(root: pathlib.Path, refs: Sequence[seat.SeatRef], uid: int) -> tupl
 
 
 def _check_team(team: str, system: System) -> None:
-    if not system.team_active(team):
+    """A team named for a seat must run here. A team built here but stopped is started by
+    `ccy-teams apply`; a name this host has no team of is answered with those it has."""
+    if system.team_active(team):
+        return
+    here = list(system.teams_here())
+    if team in here:
         raise CheckoutError(
-            f"team `{team}` has no homeserver running on this host ({hs_unit(team)} is "
-            "not active): a launch names only a team hosted here; create it with "
-            "play-agent-bus.yml (agent_bus_teams) or sudo agent-bus-install team --team-file <file>"
+            f"team `{team}` is built on this host but its homeserver is not running ({hs_unit(team)} "
+            f"is not active): ccy-teams apply {team} starts it (ccy-teams shows the team's state)"
         )
+    raise CheckoutError(
+        f"there is no team `{team}` on this host ({hs_unit(team)} is not active); teams here: "
+        f"{', '.join(here) or 'none yet'}. Check the name, or ccy-teams create makes one"
+    )
 
 
 def _parse_and_check_teams(text: str, system: System, *, one_per_team: bool = True) -> tuple[seat.SeatRef, ...]:

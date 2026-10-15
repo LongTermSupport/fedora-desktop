@@ -1,4 +1,4 @@
-# Task 2.10: the security audit's client-side findings (Opus)
+# Task 2.11: the security audit's client-side findings (Opus)
 
 Branch `fix/teams-security-client`. Audit: Fable's end-to-end teams security audit (untracked
 scratch). Tests first for every code change; red then green.
@@ -13,8 +13,8 @@ scratch). Tests first for every code change; red then green.
 | L4                 | A copied password is cleared by a `systemd-run --user --on-active=45 -- wl-copy --clear` timer (given WAYLAND_DISPLAY); the person is told; if the timer cannot be set it says the password stays until something else is copied.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | L7                 | SKILL: "A `sync` asks you to re-read a document and align your work with it, and nothing more ... it cannot widen what you may do".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
-Versions: CCY 3.98.10, container 2.65, plugin 1.2.1 (3.98.9 / 2.64 left for `fix/teams-ux`,
-which merges first). Deploy: the queued `play-claude-yolo.yml` and `play-agent-bus.yml` runs in
+Versions: CCY 3.98.10, container 2.65, plugin 1.2.2 (`fix/teams-ux`, merged into this
+branch, took 3.98.9 / 2.64 / 1.2.1). Deploy: the queued `play-claude-yolo.yml` and `play-agent-bus.yml` runs in
 `meta-deploy.list` carry it (descriptions extended).
 
 Overlap with `fix/teams-ux`: `helpers/agent_bus/checkout.py` (`System` gains `forget_sudo`

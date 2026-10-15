@@ -29,6 +29,12 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 		return r.p.Seats.RemoveOrPark(ctx, r.snap, row)
 	case keyElement:
 		return r.p.Login.OpenElement(ctx, r.snap, row.Team)
+	case keyElementAll:
+		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
+		if err == nil {
+			r.p.Kit.BackToList(ctx)
+		}
+		return res, err
 	case keyPassword:
 		return r.p.Login.PasswordRow(ctx, r.snap, row)
 	case keyUpdate:

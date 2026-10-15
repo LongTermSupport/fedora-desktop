@@ -1266,6 +1266,33 @@ class TestAgentText(unittest.TestCase):
             with self.subTest(case=label):
                 self.assertRefused(reason, body)
 
+    def test_a_reply_threads_to_the_message_it_answers(self) -> None:
+        body = p.build_text([HUMAN], "done", re=EVENT_ID)
+        self.assertEqual(body["m.relates_to"], {"m.in_reply_to": {"event_id": EVENT_ID}})
+        self.assertEqual(set(body), {*p.TEXT_CONTENT_KEYS, "m.relates_to"})
+        self.assertEqual(body["body"], p.render_text(body[p.TEXT_KEY]))
+        self.assertEqual(p.validate_text_content(body, make_ctx()).text, "done")
+        self.assertNotIn("m.relates_to", p.build_text([HUMAN], "done"))
+
+    def test_a_reply_has_exactly_the_in_reply_to_shape(self) -> None:
+        good = p.build_text([HUMAN], "done", re=EVENT_ID)
+        for label, relates, reason in (
+            ("replace", {"rel_type": "m.replace", "event_id": EVENT_ID}, "edit"),
+            ("replace beside a reply", {"rel_type": "m.replace", "event_id": EVENT_ID,
+                                        "m.in_reply_to": {"event_id": EVENT_ID}}, "edit"),
+            ("thread", {"rel_type": "m.thread", "event_id": EVENT_ID}, "schema"),
+            ("extra key", {"m.in_reply_to": {"event_id": EVENT_ID}, "x": 1}, "schema"),
+            ("reply extra key", {"m.in_reply_to": {"event_id": EVENT_ID, "x": 1}}, "schema"),
+            ("bad event ID", {"m.in_reply_to": {"event_id": "$short"}}, "schema"),
+            ("event ID int", {"m.in_reply_to": {"event_id": 5}}, "schema"),
+            ("not an object", "x", "schema"),
+            ("empty", {}, "schema"),
+        ):
+            with self.subTest(case=label):
+                self.assertRefused(reason, dict(good, **{"m.relates_to": relates}))
+        with self.assertRaises(ValueError):
+            p.build_text([HUMAN], "done", re="$short")
+
     def test_secret_shaped_text_is_refused(self) -> None:
         self.assertEqual([name for name, _ in p.SECRET_PATTERNS], list(SECRET_EXAMPLES))
         for name, text in SECRET_EXAMPLES.items():

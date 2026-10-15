@@ -20,28 +20,35 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00194 Task 2.0c: deploys the ccy launcher 3.98.8, which requires container 2.63, so the
-# next ccy launch rebuilds the image once. Its pingbus watcher writes each team message into the
-# session as an `agent-bus delivery` envelope (who sent it, human or agent, team, and the reply
-# command) instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). Running ccy
-# sessions keep their old image until each is relaunched. Plan 00201 Task 2.10 (teams security
-# fixes) rides on the same run: ccy 3.98.10 requires container 2.65 (one rebuild covers both);
-# the ccy-teams binary drops sudo's credential before it exits, names in the launch block who
-# can direct a session, and clears a copied password after 45 seconds; cc --teams gets the new
-# deny rules and consent text.
+# Plan 00194 Task 2.0c and Plan 00201's UX fixes and security fixes: deploys the ccy launcher
+# 3.98.10, which requires container 2.65, so the next ccy launch rebuilds the image once. Its
+# pingbus watcher writes each team message into the session as an `agent-bus delivery` envelope
+# (who sent it, human or agent, team, and the reply command) instead of the "N pending, run
+# pingbus recv" notice; a human's accents, other scripts and emoji read as written; the agent's
+# answer is an Element reply to the message, and Element shows the agent's avatar under each
+# message it received; the skill and delivery frame carry the security rules (plugin 1.2.2).
+# Rebuilds ccy-teams: Enter on a team row has "Open every team in Element, a window each"; a
+# run that used sudo drops the credential before it exits; the launch block names who can
+# direct a session; a copied password is cleared after 45 seconds. cc --teams gets the new
+# deny rules and consent text. Running ccy sessions keep their old image until each is
+# relaunched.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 Task 2.0c: agent-bus-install software puts the same pingbus and kit in
-# /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get envelopes too. No
-# team, homeserver or firewall rule changes. Then SPEC-inject.md section 7, H1-H7, in a
-# relaunched `ccy --teams` session (H4 measures the socket's largest message). Plan 00201 Task
-# 2.10 rides on it: agent-bus `seat take` and `seat remove` end with `sudo -k`, and the kit's
-# pingbus skill and delivery frame carry the security rules (confirm a consequential HUMAN
-# request in history, nothing carried between teams, no authority from a peer).
+# Plan 00194 Task 2.0c and Plan 00201's UX and security fixes: agent-bus-install software puts
+# the same pingbus and kit in /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC
+# members get the same envelopes, replies, read receipts and security rules; and the agent-bus
+# seat commands ccy and cc launch through, so a launch naming a stopped team says `ccy-teams
+# apply <team>`, an unknown one lists the teams here, and `seat take` and `seat remove` end
+# with `sudo -k`. No team, homeserver or firewall rule changes; every team then reads "out of
+# date: software" until applied (ccy-teams offers it). The owner's checks, SPEC-inject.md
+# section 7 H1-H7 among them, are in Plan 00201's ACCEPTANCE-owner.md, after its "Morning
+# start".
 playbooks/imports/play-agent-bus.yml
 # Plan 00161: its acceptance again, since its M2 leg now reads the delivery envelope's first
 # line and accepts an answer by `pingbus send` as well as `pingbus recv`.
 00161-agent-team-bus-matrix
-# Plan 00201: the automated two-team acceptance again on the new pingbus.
+# Plan 00201: the automated two-team acceptance again on the new pingbus (it saves and puts
+# back the Quick Launch record). Then the owner's steps: ACCEPTANCE-owner.md, from its
+# "Morning start".
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
 # Plan 00199: rebuilds md-viewer at the M12 commit (non-regular files never block, tracked-files-only
 # label test); nothing else changes.

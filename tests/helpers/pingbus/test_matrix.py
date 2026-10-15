@@ -231,6 +231,25 @@ class NoProxyTest(TeamRoom):
         self.assertEqual([h for h in opener.handlers if type(h) is urllib.request.HTTPRedirectHandler], [])
 
 
+class ReadReceiptTest(TeamRoom):
+    """Plan 00201 UX fixes: a public read receipt, which Element shows as the reader's avatar
+    under the message. It is not a room event, so it needs no power level."""
+
+    def test_a_receipt_marks_the_event_read_for_this_account(self) -> None:
+        client = self.client()
+        event_id = client.send_message(self.room, PING)
+        self.assertEqual(client.read_receipt(self.room, event_id), {})
+        self.assertTrue(self.fake.http_log[-1].path.endswith(
+            "/receipt/m.read/" + urllib.parse.quote(event_id, safe="")))
+        self.assertEqual(self.fake.receipts[-1][1:], (self.room, "m.read", event_id))
+
+    def test_the_event_id_grammar_is_checked_before_any_request(self) -> None:
+        before = len(self.fake.http_log)
+        with self.assertRaises(ValueError):
+            self.client().read_receipt(self.room, "$short/../x")
+        self.assertEqual(len(self.fake.http_log), before)
+
+
 class TransactionIdTest(TeamRoom):
     def test_send_after_a_lost_response_reuses_the_txn_id(self) -> None:
         opener = LosesFirstResponse(matrix.default_opener())

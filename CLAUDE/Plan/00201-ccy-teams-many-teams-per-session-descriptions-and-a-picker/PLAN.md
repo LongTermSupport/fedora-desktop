@@ -132,8 +132,16 @@ a repository is no longer offered for a checkout of it. Report:
   (`bus: no record ...`), never as nothing. S-C6, S-C8 and Q6/Q7 match what was built; `cc --teams`
   makes `.claude/ccy/` only after the consent (S-E4). Report:
   `subagent-reports/261015-qa-review-fixes-opus.md`.
-- [ ] 🔄 **Task 2.10**: the client-side findings of the end-to-end security audit, CCY 3.98.10 /
-  container 2.65, plugin 1.2.1, branch `fix/teams-security-client`. H1: `agent-bus seat take` and
+- [x] ✅ **Task 2.10**: UX fixes before the owner's first day with teams (branch
+  `fix/teams-ux`), CCY 3.98.9 / container 2.64 / plugin 1.2.1: a read receipt for each
+  delivered human message, `say --re` threading replies (the `reply:` command carries it), a
+  human's non-ASCII text shown as written with the hostile set still escaped (SPEC-inject.md
+  E2/E8/E9 amended), the stopped-team and unknown-team launch refusals, Open every team in
+  Element, "Talking to agents from Element" in docs/agent-bus.md, and
+  [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md) matched to the code with a Morning start and the
+  00194 H1-H7 checks. Report: `subagent-reports/261015-ux-fixes-opus.md`.
+- [ ] 🔄 **Task 2.11**: the client-side findings of the end-to-end security audit, CCY 3.98.10 /
+  container 2.65, plugin 1.2.2, branch `fix/teams-security-client`. H1: `agent-bus seat take` and
   `seat remove` end with `sudo -k` however they end, and a `ccy-teams` run that made sudo ready
   drops it before exiting (`sudo.Forget`); the `sudo -v` advice is gone. H2: cc's settings deny
   Bash the plain routes to the keyring and Element's profile, and the consent says ccy is the

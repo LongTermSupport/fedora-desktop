@@ -115,6 +115,8 @@ MAX_STATUS_BYTES = 256
 MAX_TO = 32
 
 TEXT_CONTENT_KEYS = ("msgtype", "body", "m.mentions", TEXT_KEY)
+#: The one optional key of an agent's text: the event it answers (spec §7).
+TEXT_REPLY_KEY = "m.relates_to"
 TEXT_OBJECT_KEYS = ("v", "to", "text")
 MAX_AGENT_TEXT_BYTES = 4096
 #: Addressees of one agent text: listed humans and role-holding agents together.
@@ -1039,16 +1041,39 @@ def render_text(obj: Mapping[str, object]) -> str:
     return f"{RENDER_TAG} text -> {' '.join(sorted(obj['to']))}\n{obj['text']}"
 
 
-def build_text(to: Sequence[str], text: str) -> dict:
-    """An agent's text as full `m.room.message` content, `to` sorted. Validate it before
-    sending."""
+def build_text(to: Sequence[str], text: str, re: str | None = None) -> dict:
+    """An agent's text as full `m.room.message` content, `to` sorted; with `re`, a reply to
+    that event (`m.in_reply_to`), which Element shows threaded under it. Validate it before
+    sending. ValueError for an `re` that is not an event ID."""
     obj: dict = {"v": PROTOCOL_VERSION, "to": sorted(to), "text": text}
-    return {
+    content = {
         "msgtype": MSGTYPE_TEXT,
         "body": render_text(obj),
         "m.mentions": {"user_ids": list(obj["to"])},
         TEXT_KEY: obj,
     }
+    if re is not None:
+        if not is_event_id(re):
+            raise ValueError("re is not an event ID")
+        content[TEXT_REPLY_KEY] = {"m.in_reply_to": {"event_id": re}}
+    return content
+
+
+def _check_text_reply(content: Mapping[str, object]) -> None:
+    """An agent's text may answer one event: `m.relates_to` is absent or exactly
+    `{"m.in_reply_to": {"event_id": <event ID>}}`; an edit is `edit`, any other shape `schema`."""
+    if "m.new_content" in content:
+        raise Refusal("edit")
+    if TEXT_REPLY_KEY not in content:
+        return
+    relates = content[TEXT_REPLY_KEY]
+    if isinstance(relates, dict) and relates.get("rel_type") == "m.replace":
+        raise Refusal("edit")
+    if (not isinstance(relates, dict) or set(relates) != {"m.in_reply_to"}
+            or not isinstance(relates["m.in_reply_to"], dict)
+            or set(relates["m.in_reply_to"]) != {"event_id"}
+            or not is_event_id(relates["m.in_reply_to"]["event_id"])):
+        raise Refusal("schema")
 
 
 def secret_shaped(text: str) -> str | None:
@@ -1075,9 +1100,8 @@ def validate_text_content(content: object, ctx: Context, *, check_secret: bool =
     if not isinstance(content, dict):
         raise Refusal("schema")
     _check_version_first(content.get(TEXT_KEY))
-    if any(key in content for key in EDIT_KEYS):
-        raise Refusal("edit")
-    if set(content) != set(TEXT_CONTENT_KEYS) or content["msgtype"] != MSGTYPE_TEXT:
+    _check_text_reply(content)
+    if set(content) - {TEXT_REPLY_KEY} != set(TEXT_CONTENT_KEYS) or content["msgtype"] != MSGTYPE_TEXT:
         raise Refusal("schema")
     obj = content[TEXT_KEY]
     if not isinstance(obj, dict) or set(obj) != set(TEXT_OBJECT_KEYS):
