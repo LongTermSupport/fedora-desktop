@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.4 — container 2.60
+
+- **`ccy --help` and the docs describe the shared chooser.** Bare `--teams` is documented as
+  the list of teams with descriptions (Tab marks several), scope widening only on a yes, the
+  launch block and the `bus:` status line; the old "finds the team from this checkout" line is
+  gone. No image change.
+
 ## 3.98.2 — container 2.60
 
 - **The two 3.97/3.98 lines meet.** 3.98.0 (goodbye, relay, `ccy-teams lxc-add`) was built
