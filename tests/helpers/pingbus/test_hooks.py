@@ -60,6 +60,7 @@ FIELD_RES = {
     "handle": protocol.HANDLE_PATTERN,
     "handles": rf"{UNNAMED_HANDLE}(?:, {UNNAMED_HANDLE})*",
     "lock": "(?:held|free)",
+    "description": r"[^\x00-\x1f\x7f\u200b-\u200f\u202a-\u202e]{1,120}",
 }
 
 
@@ -298,6 +299,22 @@ class SessionStartTest(HookCase):
         record["roles"] = {ME: "orchestrator", ORCH: "worker"}
         self.state.save_team_record(record)
         self.assertIn(hooks.fill("role_coordinator", team=TEAM), self.context(self.start()))
+
+    def test_a_team_with_a_description_says_what_it_is_for(self):
+        """Plan 00201 S-A11: one line per team that has a description."""
+        record = dict(self.record(TEAM, SN), description="Builds the example site")
+        self.state.save_team_record(record)
+        context = self.context(self.start())
+        self.assertIn(hooks.fill("team_about", team=TEAM, description="Builds the example site"), context)
+        self.assertIn(f"agent-bus: team {TEAM} is for: Builds the example site", context)
+
+    def test_a_team_without_a_description_adds_no_line(self):
+        self.assertNotIn("is for:", self.context(self.start()))
+
+    def test_a_description_is_checked_before_it_is_filled(self):
+        for bad in ("two\nlines", " padded", "", "x" * 121, "a\u202eb", 5):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                hooks.fill("team_about", team=TEAM, description=bad)
 
     def test_a_seat_held_by_a_waker_starts_no_watcher(self):
         self.hold("watch")

@@ -95,6 +95,7 @@ LINES = {
     "HUMAN": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string")),
     "PEER": (STDOUT, ("team", "event ID", "sender", "origin_server_ts", "text as a JSON string", "copy")),
     "REPLY": (STDOUT, ("team", "event ID", "command")),
+    "ABOUT": (STDOUT, ("team", "description as a JSON string")),
     "TIMEOUT": (STDOUT, ("team", "event ID of the unanswered ping", "silent target", "verb", "ref")),
     "SENT": (STDOUT, ("team", "event ID")),
     "DROPPED": (STDERR, ("count", "reason=count pairs joined by ,")),
@@ -1339,6 +1340,8 @@ def _status_team(member: config.Member, now_ms: int, out: TextIO) -> None:
                "unexpected=-" if record is None else f"unexpected={len(unexpected)}"]
     trust = "trust=trusted" if record is not None else "trust=untrusted"
     out.write(report_line("TEAM", _team(member.team), member.handle, trust, *fields) + "\n")
+    if record is not None and record.description is not None:
+        out.write(format_line("ABOUT", _team(member.team), json.dumps(record.description, ensure_ascii=True)) + "\n")
     if record is None:
         reason = state.untrusted_reason()
         if reason is not None:

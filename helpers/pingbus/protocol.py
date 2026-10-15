@@ -136,9 +136,10 @@ SECRET_PATTERNS = (
      r"|private[_-]?key|client[_-]?secret)\b[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,}"),
 )
 
-TEAM_KEYS = ("v", "team", "humans", "roles", "org", "exclude", "repos", "path_prefixes", "forge_api")
+TEAM_KEYS = ("v", "team", "humans", "roles", "org", "exclude", "repos", "path_prefixes", "forge_api",
+             "description")
 #: Keys a team record may leave out (spec §8); every other key is required.
-TEAM_OPTIONAL_KEYS = ("org", "exclude", "path_prefixes")
+TEAM_OPTIONAL_KEYS = ("org", "exclude", "path_prefixes", "description")
 FORGE_API_PATTERN = r"https://[^\s/]+(/\S*)?"
 HUMANS_MAX = 16
 ROLES_MAX = 64
@@ -311,6 +312,8 @@ class TeamRecord:
     forge_api: str
     org: str | None = None
     exclude: tuple[str, ...] = ()
+    #: What the team is for (spec §8); None when the record carries none.
+    description: str | None = None
 
     def context(self, server_name: str) -> Context:
         return Context(server_name, self.humans, self.roles, self.repos, self.path_prefixes, self.org,
@@ -945,8 +948,11 @@ def parse_team_record(content: object, server_name: str, team_name: str) -> Team
     if org is None and not repos:
         raise Untrusted("neither an org nor a repository is trusted")
     exclude = _parse_exclude(content["exclude"], org, repos) if "exclude" in content else ()
+    if "description" in content and not is_description(content["description"]):
+        raise Untrusted("description")
     return TeamRecord(
         content["team"], frozenset(humans), dict(roles), repos, tuple(prefixes), forge, org, exclude,
+        content.get("description"),
     )
 
 

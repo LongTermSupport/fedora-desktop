@@ -39,6 +39,7 @@ LINE_RES = {
         rf"TEAM\t{TEAM_RE}\t{protocol.HANDLE_PATTERN}\ttrust=(?:trusted|untrusted)"
         rf"\twake=(?:watcher|waiter|none)\tpending={COUNT_RE}\thumans={COUNT_RE}\tpeers={COUNT_RE}\tpings={COUNT_RE}"
         rf"\toverdue=\d+\tdropped=\d+\tunexpected={COUNT_RE}"),
+    "ABOUT": re.compile(rf"ABOUT\t1\t{TEAM_RE}\t\"[\x20-\x7e]{{0,300}}\""),
     "UNTRUSTED": re.compile(rf"UNTRUSTED\t{TEAM_RE}\t[\x20-\x7e]{{1,200}}"),
     "MEMBER": re.compile(
         rf"MEMBER\t{TEAM_RE}\t{LOCALPART_RE}\t(?:human|coordinator|worker)\t(?:listening|stale|-)"),
@@ -98,6 +99,24 @@ class StatusTest(StatusCase):
             bus.ORCH_LP: ("coordinator", "-"),
             bus.PEER_LP: ("worker", "-"),
         })
+
+    def test_about_line_carries_the_description_after_the_team_line(self):
+        """Plan 00201 S-A10: a trusted team whose record has a description prints
+        `ABOUT 1 <team> <description as a JSON string>` right after its TEAM line."""
+        self.a.set_record(dict(self.a.record, description='Builds the "example" site é'))
+        self.joined()
+        code, rows, _ = self.report()
+        self.assertEqual(code, cli.EXIT_OK)
+        kinds = [r[0] for r in rows]
+        self.assertEqual(kinds[:2], ["TEAM", "ABOUT"])
+        about = rows[1]
+        self.assertEqual(about[:3], ["ABOUT", "1", bus.TEAM_A])
+        self.assertEqual(json.loads(about[3]), 'Builds the "example" site é')
+        self.assertTrue(about[3].isascii())
+
+    def test_no_about_line_without_a_description(self):
+        self.joined()
+        self.assertNotIn("ABOUT", [r[0] for r in self.report()[1]])
 
     def test_status_is_offline(self):
         self.joined()

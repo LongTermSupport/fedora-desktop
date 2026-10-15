@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.3 — container 2.57
+
+- **A team's description reaches its agents.** The team record gains an optional `description`
+  (a version-1 widening like `exclude`: a pingbus built before it reads a record carrying one as
+  untrusted, so every member takes this image before any team sets a description). `pingbus
+  status` prints an `ABOUT` line after a trusted team's `TEAM` line, and SessionStart adds
+  "agent-bus: team TEAM is for: ..." per team that has one. The team room's Element topic is
+  set to the description on every apply (the fixed sentence when there is none); a description
+  change restarts no homeserver. The client and skill are in the image, so the container version
+  moves to 2.57 and the image is rebuilt once.
+
 ## 3.97.2 — container 2.56
 
 - **`pingbus recv` prints a ready reply command, and `--to` takes a seat's short name.** After

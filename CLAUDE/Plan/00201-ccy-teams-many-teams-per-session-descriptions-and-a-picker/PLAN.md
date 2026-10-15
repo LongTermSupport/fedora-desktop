@@ -71,8 +71,13 @@ a repository is no longer offered for a checkout of it. Report:
   the picker's one-time offer, Quick Launch's `Team:` line, and an installer case proving a
   description-only change restarts nothing. Q1 (required at create, optional in the file) taken as
   the spec recommends. Report: `subagent-reports/261015-m1-m2-sonnet.md`.
-- [ ] ⬜ **Task 2.2**: M2, descriptions reach agents (team record, room topic, `pingbus status`,
-  SessionStart); container bump.
+- [x] ✅ **Task 2.2**: M2, descriptions reach agents (S-A8 to S-A12): the optional `description`
+  key of the team record (protocol §8, a version-1 widening recorded in §1), `admin` publishing it,
+  the room topic set to it (the fixed sentence when none), the `ABOUT` line of `pingbus status`,
+  SessionStart's "team T is for: ..." line, the skill; container 2.57 / CCY 3.97.3. Q2 and Q3 taken
+  as the spec recommends. This image must be deployed before any team's description is applied
+  (an older pingbus reads the record as untrusted, exit 10). Report:
+  `subagent-reports/261015-m1-m2-sonnet.md`.
 - [x] ✅ **Task 2.3**: M3, replying: `recv` prints a REPLY command; `--to` takes a seat's
   short name. Built test-first in `helpers/pingbus` (S-D1 to S-D6); Q8 taken as the spec
   recommends (REPLY after HUMAN and PEER only, not PING), pending the owner's confirmation.

@@ -97,7 +97,9 @@ user_email: "yourname@example.com"
 #     port: <port>
 #     description: "<what the team is for>" # optional in this file (ccy-teams create asks for it): one line,
 #                                # 1 to 120 characters; shown by ccy-teams, the ccy --teams picker, pingbus
-#                                # status and the room topic. Changing it restarts nothing.
+#                                # status and the room topic. Changing it restarts nothing. Every member
+#                                # must run the current pingbus (ccy 3.97.3, container 2.57) before one is
+#                                # set: an older one reads the team record as untrusted.
 #     listen: ["<bus_ip>"]
 #     allow_from: ["<cidr>"]     # only other machines (WireGuard) or a non-default bridge; the LXC bridge is added by the play
 #     humans: ["<name>"]
