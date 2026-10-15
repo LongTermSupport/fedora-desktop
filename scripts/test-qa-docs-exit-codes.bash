@@ -2,7 +2,7 @@
 # The docs gate's exit codes, asserted against the real wrapper and the built Go tool (Plan 00125,
 # Task 2.2; the tool is src-go/qa/docs, Plan 00192).
 #
-# `qa-docs.bash` documents three exit codes. Two of them need a tree this repository is not: a
+# `qa-docs.bash` documents three exit codes. Three cases need a tree this repository is not: a
 # checkout git cannot answer for, a tree with no in-scope documents, and a playbook list that is
 # not YAML. This suite builds those trees and runs the real script over each, so the codes are
 # produced by the script and not by reasoning.

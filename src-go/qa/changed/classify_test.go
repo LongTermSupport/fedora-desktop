@@ -655,6 +655,21 @@ func TestAPlanScriptLoggingEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// Any deleted file owes the docs check: a document may link to it (SPEC-qa-changed B48).
+func TestAnyDeletionOwesTheDocsCheck(t *testing.T) {
+	for _, f := range []string{"scripts/gone.bash", "helpers/gone.py", "playbooks/gone.yml", "scripts/gone.tsv", "files/gone.json"} {
+		w := newWorld(t)
+		if p := w.classify(nil, f); !p.has("docs") {
+			t.Errorf("deleting %s does not owe the docs check: %v", f, keys(p))
+		}
+	}
+	w := newWorld(t)
+	w.touch("helpers/other.py", "x = 1")
+	if p := w.classify([]string{"helpers/other.py"}); p.has("docs") {
+		t.Errorf("an ordinary edit must not run the docs check: %v", keys(p))
+	}
+}
+
 // A change to the docs gate's own script, Go package or command, to the gate table or the trees table
 // it reads, to the shared discovery or gate loader it calls, or to the QA module's dependencies,
 // runs the whole docs check (SPEC-qa-docs D4, D20); an ordinary Python file does not.

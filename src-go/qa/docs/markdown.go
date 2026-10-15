@@ -37,7 +37,7 @@ type document struct {
 }
 
 // parser is the one Markdown parser; it holds no state between documents.
-var parser = goldmark.New(goldmark.WithExtensions(extension.Table)).Parser()
+var parser = goldmark.New(goldmark.WithExtensions(extension.Table, extension.Footnote)).Parser()
 
 // parseDocument reads a document: its links, the anchors its headings define, and its table rows.
 func parseDocument(src []byte) document {
@@ -64,22 +64,17 @@ func parseDocument(src []byte) document {
 	return out
 }
 
-// walkAll calls visit for every node of the tree in document order.
+// walkAll calls visit for every node of the tree in document order. ast.Walk returns only what its
+// callback returns, and this callback never fails, so a non-nil error cannot happen.
 func walkAll(root ast.Node, visit func(ast.Node)) {
-	for n := root; n != nil; {
-		visit(n)
-		switch {
-		case n.FirstChild() != nil:
-			n = n.FirstChild()
-		default:
-			for n != nil && n != root && n.NextSibling() == nil {
-				n = n.Parent()
-			}
-			if n == nil || n == root {
-				return
-			}
-			n = n.NextSibling()
+	err := ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			visit(n)
 		}
+		return ast.WalkContinue, nil
+	})
+	if err != nil {
+		panic("ast.Walk failed though its callback cannot: " + err.Error())
 	}
 }
 
@@ -113,8 +108,9 @@ func rowOf(row *extast.TableRow, src []byte, lines []int) (tableRow, bool) {
 	return tableRow{line: lineOf(lines, firstOffset(span)), name: name}, true
 }
 
-// gateName is what a documented gate's name looks like: a file name or a dotted module path.
-var gateName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+// gateName is what a documented gate's name looks like, the shape D20 gives a gate it can name: a
+// script file name or a dotted module path under helpers.
+var gateName = regexp.MustCompile(`^(?:[A-Za-z0-9_-]+\.bash|helpers(?:\.[A-Za-z0-9_]+)+)$`)
 
 // rawText is the text of a node's descendants exactly as written.
 func rawText(n ast.Node, src []byte) string {

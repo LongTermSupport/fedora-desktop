@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -125,7 +124,7 @@ func (g *gate) judge(docRel, target string, tracked trackedPaths) (string, outco
 	if err != nil {
 		return "", classClean, err
 	}
-	if !doc.headings[slugOf(anchor)] {
+	if !doc.headings[anchor] {
 		return "no heading matches the anchor", classFinding, nil
 	}
 	return "", classClean, nil
@@ -145,7 +144,7 @@ func (g *gate) judgePath(abs string, tracked trackedPaths) (string, string, outc
 		class, problem, err := g.vendoredOutcome(root, abs)
 		return "", problem, class, err
 	}
-	exists, err := present(abs)
+	exists, err := g.present(abs)
 	if err != nil {
 		return "", "", classClean, err
 	}
@@ -189,14 +188,14 @@ func vendoredRootOf(rel string, inside bool) string {
 // and has the target, unverifiable when the repository is absent (CI's case), broken when it is
 // here and does not.
 func (g *gate) vendoredOutcome(root, abs string) (outcome, string, error) {
-	rootPresent, err := present(filepath.Join(g.root, filepath.FromSlash(root)))
+	rootPresent, err := g.present(filepath.Join(g.root, filepath.FromSlash(root)))
 	if err != nil {
 		return classClean, "", err
 	}
 	if !rootPresent {
 		return classVendoredAbsent, "", nil
 	}
-	targetPresent, err := present(abs)
+	targetPresent, err := g.present(abs)
 	if err != nil {
 		return classClean, "", err
 	}
@@ -209,8 +208,8 @@ func (g *gate) vendoredOutcome(root, abs string) (outcome, string, error) {
 // present is whether the path exists, a symlink being followed. A path that cannot exist
 // (something along it is a file, or the name is too long) is absent; any other failure to look
 // is an error.
-func present(abs string) (bool, error) {
-	_, err := os.Stat(abs)
+func (g *gate) present(abs string) (bool, error) {
+	_, err := g.env.Stat(abs)
 	switch {
 	case err == nil:
 		return true, nil
@@ -231,7 +230,7 @@ func (g *gate) nestedRepository(rel string, inside bool) string {
 		return ""
 	}
 	for dir := rel; dir != "." && dir != "/" && dir != ""; dir = path.Dir(dir) {
-		if _, err := os.Lstat(filepath.Join(g.root, filepath.FromSlash(dir), ".git")); err == nil {
+		if _, err := g.env.Lstat(filepath.Join(g.root, filepath.FromSlash(dir), ".git")); err == nil {
 			return dir
 		}
 	}

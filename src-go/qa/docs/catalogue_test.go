@@ -111,6 +111,15 @@ func TestD19ATopicFileMustBeAWholeTokenInClaudeMD(t *testing.T) {
 	w.wantFindings()
 }
 
+func TestD19TheTokenIsThePathUnderCLAUDE(t *testing.T) {
+	w := newWorld(t, nil)
+	w.add("CLAUDE/Other.md", "# O\n")
+	w.add("CLAUDE.md", claudeText+"| `CLAUDE/core/Other.md` | x |\n| Other.md alone | x |\n")
+	w.wantFindings("CLAUDE.md:0  CLAUDE/Other.md  — topic file has no row in the index")
+	w.add("CLAUDE.md", claudeText+"| `CLAUDE/Other.md` | x |\n")
+	w.wantFindings()
+}
+
 func TestD19AMissingClaudeMDIsExitTwoAndNoTopicFileIsExitTwo(t *testing.T) {
 	w := newWorld(t, map[string]string{"CLAUDE.md": ""})
 	got := w.check()
@@ -203,6 +212,14 @@ func TestD21ARowIsTheFirstCellBeingExactlyOneCodeSpan(t *testing.T) {
 			"| see `not-a-gate.bash` | x |\n| `two` `spans` | x |\n| plain | `g2.bash` |\n| `has space.bash` | x |\n",
 	})
 	w.wantFindings()
+}
+
+func TestD21OnlyTheShapeOfAGateNameIsARow(t *testing.T) {
+	w := newWorld(t, map[string]string{
+		"CLAUDE/QA.md": "# QA\n\n| Script | What |\n| --- | --- |\n| `g1.bash` | x |\n\n" +
+			"| Variable | What |\n| --- | --- |\n| `QA_JSON_OUT` | report |\n| `ruff.toml` | config |\n| `helpers.a.b` | module not run |\n",
+	})
+	w.wantFindings("CLAUDE/QA.md:11  helpers.a.b  — this document lists the gate but qa-all.bash does not run it")
 }
 
 func TestD21ASeveralTablesAreAllRead(t *testing.T) {

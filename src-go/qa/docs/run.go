@@ -50,6 +50,8 @@ type Env struct {
 	Runner proc.Runner
 	// ReadFile reads a document, the playbook list and the other inputs.
 	ReadFile func(path string) ([]byte, error)
+	// Stat and Lstat look for a link target, a vendored root and a nested repository.
+	Stat, Lstat func(path string) (fs.FileInfo, error)
 	// WriteFile writes the report.
 	WriteFile func(path string, data []byte) error
 }

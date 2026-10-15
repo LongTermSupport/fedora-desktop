@@ -32,6 +32,7 @@ func TestD8WhatIsAndIsNotALink(t *testing.T) {
 		{"collapsed reference", []string{"see [r][]", "", "[r]: ./a.md"}, []string{hit(1, "./a.md", absent)}},
 		{"shortcut reference", []string{"see [r]", "", "[r]: ./a.md"}, []string{hit(1, "./a.md", absent)}},
 		{"an unused reference definition is no link", []string{"[r]: ./a.md"}, nil},
+		{"a footnote definition is no link", []string{"text[^1]", "", "[^1]: docs/missing-footnote.md"}, nil},
 		{"an undefined reference is no link", []string{"see [x][nowhere]"}, nil},
 		{"in a list", []string{"- one", "- [x](./a.md)"}, []string{hit(2, "./a.md", absent)}},
 		{"in a quotation", []string{"> [x](./a.md)"}, []string{hit(1, "./a.md", absent)}},
@@ -228,7 +229,9 @@ func TestD15HeadingSlugs(t *testing.T) {
 		ok              bool
 	}{
 		{"## Plain Words", "plain-words", true},
-		{"## Plain Words", "Plain-Words", true},
+		{"## Plain Words", "Plain-Words", false},
+		{"## Plain Words", "plain%20words", false},
+		{"## Plain Words", "plain%2Dwords", true},
 		{"## `code` and **bold** and _em_", "code-and-bold-and-em", true},
 		{"## A [link text](https://example.com/x) here", "a-link-text-here", true},
 		{"## A — B", "a--b", true},

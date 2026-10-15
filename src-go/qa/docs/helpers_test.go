@@ -132,6 +132,8 @@ func (w *world) environment(stdout, stderr *bytes.Buffer) Env {
 			}
 			return os.ReadFile(filepath.Clean(path))
 		},
+		Stat:  os.Stat,
+		Lstat: os.Lstat,
 		WriteFile: func(path string, data []byte) error {
 			w.wrote = append(w.wrote, path)
 			return os.WriteFile(path, data, 0o600)

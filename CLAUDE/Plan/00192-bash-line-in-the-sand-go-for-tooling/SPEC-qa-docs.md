@@ -56,7 +56,8 @@ Numbers are cited by the tests.
   (the shared `markdown` list of `qa/discovery`), narrowed by this gate's own rule: `README.md`,
   `CLAUDE.md`, anything under `docs/`, anything under `.claude/rules/`, anything under `CLAUDE/`
   (the top-level topic files and the rest, **not** `CLAUDE/Plan/`), and any directory's own
-  `CLAUDE.md`; and never anything under `.claude/agents/`. A linked worktree, an installed skill, the daemon's
+  `CLAUDE.md` (the daemon-owned `CLAUDE/core/` files are in scope: a link broken there fails this gate for a file
+  this repository must not edit, and is reported, not fixed here); and never anything under `.claude/agents/`. A linked worktree, an installed skill, the daemon's
   clone, `untracked/`, `roles/vendor/`, `.ansible/` and `node_modules` are outside because the
   trees table says so (one source), not because this gate lists them again.
 - D5. A population of zero documents is exit 2: `ERROR: found 0 in-scope markdown files: ...`.
@@ -73,7 +74,7 @@ Numbers are cited by the tests.
 - D8. Links are read with a CommonMark parser (with GitHub tables), not a regular expression: an
   inline link, a reference link (`[x][ref]`, `[ref]`), with or without a title or an angle-bracket
   destination, anywhere a Markdown block can hold one (paragraph, list, quotation, table cell,
-  heading). An image is not a link. Text in a code span or a code block is never a link, whatever it
+  heading). An image is not a link, and a footnote reference or definition (`[^1]`) is not a link. Text in a code span or a code block is never a link, whatever it
   looks like. An autolink (`<https://...>`) and raw HTML are not checked.
 - D9. A destination with a URL scheme (`https:`, `mailto:`) or a network-path (`//host`) is not
   checked. A destination that begins `/` is a finding (`link is an absolute path: use a path relative to this document`): it points outside what the repository can promise.
@@ -105,8 +106,8 @@ Numbers are cited by the tests.
   raw HTML dropped; escapes and entities resolved), lower-cased, every character other than a
   letter, combining mark, number, underscore, space or hyphen deleted, and every white-space character becoming its
   own hyphen (runs are not collapsed: `A — B` is `a--b`); a heading whose slug is empty defines
-  nothing; the second and later headings with a slug get `-1`, `-2`, ...; the anchor is compared as
-  `slug(anchor)`. An anchor on a target that is not a Markdown file, or on a directory, is not
+  nothing; the second and later headings with a slug get `-1`, `-2`, ...; the anchor is percent-decoded and compared verbatim
+  against those slugs, as a browser matches a fragment: `#Plain-Words` and `#plain%20words` are dead links. An anchor on a target that is not a Markdown file, or on a directory, is not
   checked. The target is read even when it is outside the population (D6).
 - D16. A finding is `{file, line, target, problem}`; the line is the line the link text starts on
   (the first line of the paragraph when the text is empty); `target` is the destination as the
@@ -127,8 +128,8 @@ Numbers are cited by the tests.
 ### The topic index
 
 - D19. The topic files are the population's `CLAUDE/<name>.md` paths with no further directory.
-  None is exit 2 (`found 0 topic files`). Each name must be mentioned in `CLAUDE.md` as a whole
-  token (D18's rule). A missing mention is `{file: CLAUDE.md, line: 0, target: CLAUDE/<name>, problem: topic file has no row in the index}`. A missing `CLAUDE.md` is exit 2.
+  None is exit 2 (`found 0 topic files`). Each path `CLAUDE/<name>` must be mentioned in `CLAUDE.md` as a
+  whole token (D18's rule, and not preceded by a slash, so `CLAUDE/core/<name>` does not count). A missing mention is `{file: CLAUDE.md, line: 0, target: CLAUDE/<name>, problem: topic file has no row in the index}`. A missing `CLAUDE.md` is exit 2.
 
 ### The gate inventory
 
@@ -138,7 +139,8 @@ Numbers are cited by the tests.
   path, else a `scripts/*.bash` command by its file name; a command that is neither is exit 2
   (`cannot name the gate run by <command>`), because a row the inventory cannot name is a gate it never looked at.
 - D21. The documented gates are the first cell of each body row of each table in `CLAUDE/QA.md` (the header row names columns) when
-  that cell is one code span of `[A-Za-z0-9._-]+`; the tables are read with the parser, so a
+  that cell is one code span of the shape D20 gives a gate it can name (`<name>.bash`, or a dotted module
+  path under `helpers`), so a table of variables or config files is not an inventory; the tables are read with the parser, so a
   line in a code fence or in prose that merely looks like a row is not one. A document with no such
   row is exit 2. A gate that runs without a row is `{file: CLAUDE/QA.md, line: 0, target: <name>, problem: gate is run by qa-all.bash but has no row in this document}`; a row for a gate that
   does not run is `{..., line: <the row's line>, problem: this document lists the gate but qa-all.bash does not run it}`. Both directions: a one-way check lets a row stand for a gate that no longer runs.
@@ -183,8 +185,9 @@ Numbers are cited by the tests.
 ## 4. Seams
 
 Package `qa/docs` is pure except for the injected `Env` (streams, environment, working directory,
-`proc.Runner` for the discovery lists, the report writer). The file system is read through the
-root, and `Resolve` is the shared `rootpath`. Command: `src-go/qa/cmd/qa-docs` fills them with the
+`proc.Runner` for the discovery lists, `ReadFile`, `Stat` and `Lstat` for the file system, the report
+writer); `Resolve` is the shared `rootpath`. The command's `main` shares `qa/internal/cmdmain` (closed
+stdout, the report writer) with whatever ports adopt it. Command: `src-go/qa/cmd/qa-docs` fills them with the
 OS; wrapper `scripts/qa-docs.bash` via `scripts/lib/go-tool.bash`. The Python checker
 (`helpers/docs/link_check.py` and its unit tests) is deleted: this package is the only
 implementation. `scripts/test-qa-docs-exit-codes.bash` drives the built tool over fixture trees,

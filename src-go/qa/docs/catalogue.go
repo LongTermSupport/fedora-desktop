@@ -68,14 +68,19 @@ func importedPlaybooks(body []byte) ([]string, error) {
 // mentions is whether the text names the file as a whole token: not preceded by a letter, digit,
 // underscore, dot or hyphen, nor followed by a letter, digit, underscore or hyphen. A longer name
 // that merely ends or starts with it does not count.
-func mentions(text, name string) bool {
+func mentions(text, name string) bool { return mentionsAs(text, name, false) }
+
+// mentionsAs is mentions; a path token (as) is not preceded by a slash either, so a longer path
+// that ends in the same name does not count.
+func mentionsAs(text, name string, path bool) bool {
 	for from := 0; ; {
 		at := strings.Index(text[from:], name)
 		if at < 0 {
 			return false
 		}
 		start, end := from+at, from+at+len(name)
-		if !continuesName(lastRune(text[:start]), true) && !continuesName(firstRune(text[end:]), false) {
+		before := lastRune(text[:start])
+		if !continuesName(before, true) && (!path || before != '/') && !continuesName(firstRune(text[end:]), false) {
 			return true
 		}
 		from = start + 1
@@ -157,7 +162,7 @@ func (g *gate) checkTopicIndex(population []string) ([]finding, error) {
 	}
 	findings := []finding{}
 	for _, name := range names {
-		if !mentions(string(index), name) {
+		if !mentionsAs(string(index), topicDir+name, true) {
 			findings = append(findings, finding{File: indexDoc, Target: topicDir + name, Problem: "topic file has no row in the index"})
 		}
 	}
