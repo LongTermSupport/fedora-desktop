@@ -26,6 +26,6 @@ Use two of your own teams, here called A and B, and a GitHub checkout neither co
 10. If the scope added in step 2 should not stay, remove the repository from A's `repos` in
     the host_vars and run `ccy-teams apply A`.
 
-If `acceptance.bash` was killed (not stopped by an error or Ctrl-C), check that
-`.claude/ccy/.last-launch.conf` in this checkout still names your own team, and re-run the
-script: it removes its leftover teams, seats and containers first.
+If `acceptance.bash` was killed (not stopped by an error or Ctrl-C), re-run it. It first puts
+back the Quick Launch record from the copy an earlier run saved, or fails naming the file when
+no clean copy exists. It then removes its leftover teams, seats and containers.

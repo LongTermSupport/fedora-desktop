@@ -154,13 +154,13 @@ m7_prerequisites() {
         fi
     done
     if [[ ! -f "${PLAN_REPO_ROOT}/.claude/hooks-daemon/scripts/lib/resolve_venv.sh" ]]; then
-        printf '[FAIL] this checkout has no hooks daemon (.claude/hooks-daemon): the status-line handler cannot be called\n' >&2
-        return 1
+        printf '[UNKNOWN] OWNER: this checkout has no hooks daemon (.claude/hooks-daemon): install it (hooks-daemon skill), then run again\n' >&2
+        return 2
     fi
     if [[ ! -f "${M7_LAST_LAUNCH}" ]]; then
-        printf '[FAIL] OWNER: launch ccy interactively in %s once: a headless launch reuses the token and SSH choice Quick Launch saves\n' \
+        printf '[UNKNOWN] OWNER: launch ccy interactively in %s once: a headless launch reuses the token and SSH choice Quick Launch saves\n' \
             "${PLAN_REPO_ROOT}" >&2
-        return 1
+        return 2
     fi
     if [[ -e "${OWNER_HOST_VARS}" ]]; then
         declared="$(cd -- "${PLAN_REPO_ROOT}" && python3 -m helpers.agent_bus.declare declared --file "${OWNER_HOST_VARS}")" || return 1
@@ -205,8 +205,54 @@ m7_remove_teams() {
     TEAMS_PRESENT=0
 }
 
-# m7_leftovers — what an interrupted run left: containers, seat directories, the teams.
+# m7_restore_polluted_launch_conf — a run killed outright (no trap) after its first launch
+# leaves the Quick Launch record naming the acceptance seats. Put back the newest clean copy an
+# earlier run saved, or FAIL naming the file: saving it now would make the pollution permanent.
+m7_restore_polluted_launch_conf() {
+    local runs="${PLAN_RUN_DIR%/*}" stamp copy
+    if "${CHECK[@]}" launch-conf-clean "${M7_LAST_LAUNCH}" "${TEAM_A},${TEAM_B}"; then
+        return 0
+    fi
+    while IFS= read -r stamp; do
+        copy="${runs}/${stamp}/last-launch.conf.before"
+        if [[ "${runs}/${stamp}" == "${PLAN_RUN_DIR}" || ! -f "${copy}" ]]; then
+            continue
+        fi
+        if "${CHECK[@]}" launch-conf-clean "${copy}" "${TEAM_A},${TEAM_B}"; then
+            cp -p -- "${copy}" "${M7_LAST_LAUNCH}" || return 1
+            printf '==> the Quick Launch record named the acceptance seats (a killed run): restored from %s\n' "${copy}"
+            return 0
+        fi
+    done < <(find "${runs}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort -r)
+    printf '[FAIL] %s names the acceptance seats (a run was killed after launching) and no earlier run saved a clean copy under %s: launch ccy interactively in this checkout once, then run again\n' \
+        "${M7_LAST_LAUNCH}" "${runs}" >&2
+    return 1
+}
+
+# m7_own_or_absent <team> — an installed team of this name is this acceptance's own (its
+# description says so), else FAIL: it is never purged.
+m7_own_or_absent() {
+    local team="$1" file
+    file="$(m7_ev "${team}.installed-team.json")"
+    if sudo -n test -e "${M7_STATE}/${team}/team.json"; then
+        { sudo -n cat -- "${M7_STATE}/${team}/team.json"; } >"${file}" || return 1
+        "${CHECK[@]}" expect-own-team "${file}" "${team}" "Plan 00201 acceptance" || return 1
+        printf '==> %s is installed, left by an earlier acceptance run\n' "${team}"
+    elif sudo -n test -e "${M7_INSTALL_STATE}/${team}"; then
+        printf '[FAIL] %s has install state (%s) but no team file to say whose it is: not purged; remove it by hand if it is this acceptance'\''s\n' \
+            "${team}" "${M7_INSTALL_STATE}/${team}" >&2
+        return 1
+    fi
+}
+
+# m7_leftovers — what an interrupted run left: the Quick Launch record, containers, seat
+# directories, and the teams, each purged only once it is known to be this acceptance's.
 m7_leftovers() {
+    local team
+    m7_restore_polluted_launch_conf || return 1
+    for team in "${M7_TEAMS[@]}"; do
+        m7_own_or_absent "${team}" || return 1
+    done
     m7_remove_containers || return 1
     m7_delete_seat_dirs || return 1
     m7_remove_teams leftover
@@ -237,9 +283,9 @@ m7_write_teams() {
     local url org ports
     url="$(git -C "${PLAN_REPO_ROOT}" remote get-url origin)" || return 1
     org="$("${CHECK[@]}" github-owner "${url}")" || return 1
-    mapfile -t ports < <("${CHECK[@]}" free-ports 2)
+    mapfile -t ports < <("${CHECK[@]}" bus-ports 2 "${OWNER_HOST_VARS}")
     if [[ "${#ports[@]}" -ne 2 ]]; then
-        printf '[FAIL] no two free loopback ports\n' >&2
+        printf '[FAIL] no two free ports in the bus range (declare.py'\''s finder; the reason is above)\n' >&2
         return 1
     fi
     "${CHECK[@]}" team-file "${TEAM_A}" "${ports[0]}" "${BUS_ADDRESS}" "${HUMAN}" "${org}" "${DESC_A}" \
@@ -381,6 +427,7 @@ m7_check_topics() {
 # m7_save_launch_conf — the owner's Quick Launch record, which every launch rewrites (LAST_TEAMS
 # included): kept here, put back by m7_restore_launch_conf.
 m7_save_launch_conf() {
+    "${CHECK[@]}" launch-conf-clean "${M7_LAST_LAUNCH}" "${TEAM_A},${TEAM_B}" || return 1
     cp -p -- "${M7_LAST_LAUNCH}" "${M7_LAST_LAUNCH_SAVED}" || return 1
     LAUNCH_CONF_STATE="saved"
 }
@@ -589,21 +636,41 @@ m7_segment() {
 
 # M3 — the handler shows `bus: A,B` for this session.
 m7_check_segment() {
+    if ! m7_exec handlers /dev/null "${M7_CTR_DAEMON}/bin/hooks-daemon" handlers --json; then
+        m7_show handlers
+        printf '[FAIL] hooks-daemon handlers failed in the container: is the daemon running there?\n' >&2
+        return 1
+    fi
+    "${CHECK[@]}" expect-handler "$(m7_ev multi/handlers.out)" Status bus-teams || return 1
     m7_segment "${TEAM_A},${TEAM_B}" || return 1
-    evidence "M3 the bus-teams status-line handler returns bus: ${TEAM_A},${TEAM_B} for ${SESSION_ID}: multi/segment.out"
+    evidence "M3 the container's running hooks daemon lists the Status handler bus-teams (multi/handlers.out), and the handler returns bus: ${TEAM_A},${TEAM_B} for ${SESSION_ID}: multi/segment.out"
 }
 
 # R1 — `say --to` a seat on team A only, no --team: the team is inferred and the SENT line names A.
+m7_say_solo() {
+    local status=0 outcome=0
+    m7_bus_exec say-solo "$(m7_ev multi/say.in)" say --to "${M7_SOLO_SHORT}" || status=$?
+    "${CHECK[@]}" say-outcome "${status}" "$(m7_ev multi/say-solo.err)" || outcome=$?
+    case "${outcome}" in
+        0) return 0 ;;
+        3)
+            printf '==> pingbus say waits for a verified team record before it can infer the team\n'
+            return 3
+            ;;
+    esac
+    m7_show say-solo
+    printf '[FAIL] pingbus say --to %s exited %d\n' "${M7_SOLO_SHORT}" "${status}" >&2
+    return 1
+}
+
+# R1 is polled: inference refuses (64, "no verified team record yet") until every active team's
+# record is cached; that is "not yet", anything else a FAIL. Only a successful say sends.
 m7_check_infer() {
-    local input status=0 event
+    local input event
     input="$(m7_ev multi/say.in)"
     printf 'Plan 00201 M7: a note to a member of one team only\n' >"${input}" || return 1
-    m7_bus_exec say-solo "${input}" say --to "${M7_SOLO_SHORT}" || status=$?
+    m7_poll "${M7_READY_S}" "pingbus say --to ${M7_SOLO_SHORT} (both team records verified)" m7_say_solo || return 1
     m7_show say-solo
-    if [[ "${status}" -ne 0 ]]; then
-        printf '[FAIL] pingbus say --to %s exited %d\n' "${M7_SOLO_SHORT}" "${status}" >&2
-        return 1
-    fi
     event="$("${CHECK[@]}" expect-sent "$(m7_ev multi/say-solo.out)" "${TEAM_A}")" || return 1
     evidence "R1 say --to ${M7_SOLO_SHORT} without --team went to ${TEAM_A} (event ${event}): multi/say-solo.out"
 }
@@ -755,7 +822,7 @@ m7_teardown_after_stop() {
     printf '==> the run stopped with acceptance sessions, seats or teams in place: removing them\n'
     m7_end || failed=1
     m7_remove_containers || failed=1
-    if [[ "${TEAMS_PRESENT}" -ne 1 ]] || ! m7_park_seats; then
+    if [[ "${TEAMS_PRESENT}" -eq 1 ]] && ! m7_park_seats; then
         printf '[WARN] the acceptance seats could not be parked; deleting them, as their teams are purged next\n' >&2
     fi
     m7_delete_seat_dirs || failed=1

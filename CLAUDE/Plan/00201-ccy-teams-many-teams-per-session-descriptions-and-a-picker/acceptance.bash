@@ -24,7 +24,8 @@
 # token and SSH choice a headless launch reuses, every key usable unattended) and the hooks
 # daemon installed in it. Each session runs one short turn on haiku.
 #
-# EXIT CODES: 0 ACCEPTED; 1 REJECTED (a check or a step failed, and names itself); 64 usage.
+# EXIT CODES: 0 ACCEPTED; 1 REJECTED (a check or a step failed, and names itself); 2 COULD NOT
+# ESTABLISH (an owner step above is missing; nothing was changed); 64 usage.
 set -euo pipefail
 
 # CHECKS (each a check_leg; the first that fails ends the run, after the teardown):
@@ -72,7 +73,7 @@ the bus-teams status-line handler, pingbus say team inference, SessionEnd), a pl
 team; then everything removed. The interactive part is ACCEPTANCE-owner.md.
   --bus-address=<ip>   the teams' listen address; without it, agent_bus_address from the
                        host_vars localhost.yml
-Exit 0 ACCEPTED, 1 REJECTED, 64 usage. Prompts for sudo once, before the run log opens."
+Exit 0 ACCEPTED, 1 REJECTED, 2 COULD NOT ESTABLISH (an owner step missing), 64 usage. Prompts for sudo once, before the run log opens."
 
 plan_mode deploy
 plan_parse_common_flags "$@"
@@ -138,7 +139,19 @@ check_leg() {
     printf '## PASS %s\n\n' "${name}" >>"${REPORT}"
 }
 
-plan_deploy_leg "ccy, agent-bus, ccy-teams, the hooks daemon and a saved Quick Launch are here; the owner declares neither team" m7_prerequisites
+# The prerequisites are not a plan_deploy_leg: a missing owner step (no saved Quick Launch, no
+# hooks daemon) is COULD NOT ESTABLISH (2), which meta-deploy reports apart from a FAIL.
+printf '\n==> [prerequisites] ccy, agent-bus, ccy-teams, the hooks daemon and a saved Quick Launch are here; the owner declares neither team\n'
+prereq_status=0
+m7_prerequisites || prereq_status=$?
+case "${prereq_status}" in
+    0) ;;
+    2)
+        printf 'COULD NOT ESTABLISH: an owner step is missing (above); nothing was changed\n' | tee -a "${REPORT}" >&2
+        exit 2
+        ;;
+    *) exit 1 ;;
+esac
 plan_deploy_leg "remove what an interrupted run left: acceptance containers, seats and teams" m7_leftovers
 plan_deploy_leg "the bus address" m7_resolve_bus_address
 plan_deploy_leg "write the team files and the run's own host_vars" m7_write_teams

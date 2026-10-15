@@ -19,6 +19,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 
 _HERE = pathlib.Path(__file__).resolve().parent
@@ -121,13 +122,6 @@ class TeamFileTest(TempDir):
 
 
 class SmallValuesTest(TempDir):
-    def test_free_ports_are_distinct_numbers(self) -> None:
-        status, out, _ = run("free-ports", "2")
-        ports = out.split()
-        self.assertEqual(status, 0)
-        self.assertEqual(len(set(ports)), 2)
-        self.assertTrue(all(p.isdigit() for p in ports))
-
     def test_github_owner_of_each_remote_form(self) -> None:
         for url in (
             "https://github.com/Example-Org/proj.git",
@@ -419,6 +413,135 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(run("nope")[0], 64)
         self.assertEqual(run("turns")[0], 64)
         self.assertEqual(run()[0], 64)
+
+
+class ReviewFixesTest(TempDir):
+    """Fable's M7 review, F1 to F8."""
+
+    def conf(self, teams: str) -> str:
+        return self.write(
+            "last-launch.conf",
+            "# CCY Launch Configuration\nSAVED_CONFIG_VERSION=3\n"
+            f'LAST_TOKEN="tok-name"\nLAST_TEAMS="{teams}"\nLAST_LAUNCH_DATE="2026-10-15"\n',
+        )
+
+    def test_f1_a_conf_naming_an_acceptance_team_is_polluted(self) -> None:
+        teams = f"{TEAM_A},{TEAM_B}"
+        self.assertEqual(
+            run("launch-conf-clean", self.conf("1@owner-team"), teams)[0], 0
+        )
+        self.assertEqual(run("launch-conf-clean", self.conf(""), teams)[0], 0)
+        status, _, err = run(
+            "launch-conf-clean", self.conf(f"1@{TEAM_A},1@{TEAM_B}"), teams
+        )
+        self.assertEqual(status, 1)
+        self.assertIn(TEAM_A, err)
+        self.assertEqual(
+            run("launch-conf-clean", self.conf(f"2@owner,1@{TEAM_B}"), teams)[0], 1
+        )
+
+    def test_f1_a_conf_with_no_last_teams_line_is_clean(self) -> None:
+        path = self.write("conf", 'LAST_TOKEN="x"\n')
+        self.assertEqual(run("launch-conf-clean", path, TEAM_A)[0], 0)
+
+    def test_f2_an_installed_team_is_ours_only_by_its_description(self) -> None:
+        ours = self.write(
+            "ours.json", json.dumps({"team": TEAM_A, "description": DESC_A})
+        )
+        other = self.write(
+            "other.json", json.dumps({"team": TEAM_A, "description": "Real work"})
+        )
+        bare = self.write("bare.json", json.dumps({"team": TEAM_A}))
+        prefix = "Plan 00201 acceptance"
+        self.assertEqual(run("expect-own-team", ours, TEAM_A, prefix)[0], 0)
+        self.assertEqual(run("expect-own-team", other, TEAM_A, prefix)[0], 1)
+        self.assertEqual(run("expect-own-team", bare, TEAM_A, prefix)[0], 1)
+        self.assertEqual(run("expect-own-team", ours, TEAM_B, prefix)[0], 1)
+
+    def test_f3_the_running_daemon_lists_the_handler(self) -> None:
+        listing = {
+            "Status": [
+                {"name": "status-multithread-indicator", "class": "X", "priority": 2},
+                {"name": "bus-teams", "class": "BusTeamsHandler", "priority": 25},
+            ],
+            "Stop": [],
+        }
+        without = {"Status": [{"name": "other", "class": "Y"}]}
+        self.assertEqual(
+            run(
+                "expect-handler",
+                self.write("h.json", json.dumps(listing)),
+                "Status",
+                "bus-teams",
+            )[0],
+            0,
+        )
+        self.assertEqual(
+            run(
+                "expect-handler",
+                self.write("n.json", json.dumps(without)),
+                "Status",
+                "bus-teams",
+            )[0],
+            1,
+        )
+        self.assertEqual(
+            run(
+                "expect-handler",
+                self.write("h2.json", json.dumps(listing)),
+                "Stop",
+                "bus-teams",
+            )[0],
+            1,
+        )
+
+    def test_f4_ports_come_from_the_bus_range_avoiding_declared_and_listening(
+        self,
+    ) -> None:
+        first = declare.AUTO_PORT_FIRST
+        ports = mc.bus_ports(2, {first}, {first + 1}, declare.choose_port)
+        self.assertEqual(ports, [first + 2, first + 3])
+
+    def test_f4_bus_ports_reads_the_owners_host_vars(self) -> None:
+        first = declare.AUTO_PORT_FIRST
+        hv = self.write(
+            "hv.yml", f"agent_bus_teams:\n  - team: owner\n    port: {first}\n"
+        )
+        listening = f"LISTEN 0 4096 127.0.0.1:{first + 1} 0.0.0.0:*\n"
+        with mock.patch.object(declare, "_ss", return_value=listening):
+            status, out, err = run("bus-ports", "2", hv)
+        self.assertEqual(status, 0, err)
+        self.assertEqual([int(p) for p in out.split()], [first + 2, first + 3])
+
+    def test_f4_an_absent_owner_file_declares_nothing(self) -> None:
+        with mock.patch.object(declare, "_ss", return_value=""):
+            status, out, err = run("bus-ports", "1", str(self.dir / "absent.yml"))
+        self.assertEqual(status, 0, err)
+        self.assertEqual(out, f"{declare.AUTO_PORT_FIRST}\n")
+
+    def test_f4_ports_unknown_when_ss_fails(self) -> None:
+        failing = mock.Mock(side_effect=declare.DeclareError("ss failed"))
+        with mock.patch.object(declare, "_ss", failing):
+            status, out, _ = run("bus-ports", "1", str(self.dir / "absent.yml"))
+        self.assertEqual((status, out), (1, ""))
+
+    def test_f8_a_role_with_a_digit_or_hyphen_still_matches(self) -> None:
+        err = self.write(
+            "e",
+            f"This session is on 1 team:\n  {TEAM_A}  seat 1 (lead-2 worker)  {DESC_A}\n",
+        )
+        self.assertEqual(run("expect-block", err, "1", TEAM_A, DESC_A)[0], 0)
+
+    def test_f7_say_waiting_on_an_unverified_record_is_not_yet(self) -> None:
+        unverified = self.write(
+            "u.err",
+            f"pingbus: {mc.CHOICES_TEXT}\n  {TEAM_A}  (no verified team record yet: run pingbus recv "
+            "or name it with --team)\n",
+        )
+        other = self.write("o.err", "pingbus: refused: target\n")
+        self.assertEqual(run("say-outcome", "64", unverified)[0], 3)
+        self.assertEqual(run("say-outcome", "64", other)[0], 1)
+        self.assertEqual(run("say-outcome", "0", other)[0], 0)
 
 
 if __name__ == "__main__":

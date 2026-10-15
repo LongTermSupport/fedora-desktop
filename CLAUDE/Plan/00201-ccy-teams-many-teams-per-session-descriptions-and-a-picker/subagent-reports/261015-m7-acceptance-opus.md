@@ -56,3 +56,25 @@ Task 2.7, automated part. Not run: it is host-only. It passes `bash -n` and `she
 - The 00194 goodbye adds a message at SessionEnd. Nothing here counts messages.
 - A plain session is told apart from the owner's sessions as the one new ccy container. A
   concurrent launch by the owner fails the check, as in 00161.
+
+## Review fixes (261015-m7-review-fable.md)
+
+Tests first: 9 new cases in `test_m7_check.py` failed against the old helper, then all 42 passed.
+
+- F1: `m7_leftovers` checks the Quick Launch record's `LAST_TEAMS` (`launch-conf-clean`). If it
+  names an acceptance seat, the newest clean `last-launch.conf.before` from an earlier run
+  directory is restored; with none, the run FAILs and names the file. `m7_save_launch_conf`
+  refuses to save a polluted record.
+- F2: before the leftover purge, an installed team of either name must have a team file whose
+  description starts "Plan 00201 acceptance" (`expect-own-team`). Install state without a team
+  file is refused too.
+- F3: M3 first requires the container's `hooks-daemon handlers --json` to list the Status
+  handler `bus-teams` (`expect-handler`). The direct handler call is kept.
+- F4: ports come from `declare.choose_port` (`bus-ports`, range 6167-6266). They avoid the
+  owner's declared ports and every port listening now (`ss -Hltn`).
+- F5: a missing owner step (no saved Quick Launch, no hooks daemon) exits 2, COULD NOT
+  ESTABLISH, before anything changes.
+- F6: the "could not be parked" warning is printed only when parking failed.
+- F7: R1 is polled. A 64 saying "no verified team record yet" counts as not yet
+  (`say-outcome`); any other failure FAILs.
+- F8: the role in the launch block is matched as `[^()]+`.

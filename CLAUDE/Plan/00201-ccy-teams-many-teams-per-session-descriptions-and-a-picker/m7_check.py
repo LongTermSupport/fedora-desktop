@@ -4,13 +4,18 @@
 _acceptance-m7.inc.bash drives the host (agent-bus-install, agent-bus, ccy-teams, two headless
 ccy sessions, podman exec into them, the human's curl); this module writes what it hands them
 and judges what comes back. Every judgement rests on what a tool printed or recorded, never on
-the model's prose. Standard library only and no import from this checkout: `segment` runs
-inside a ccy container under the hooks daemon's venv python. Commands (stdout is the payload,
-reasons on stderr):
+the model's prose. Standard library only, and only `bus-ports` imports from this checkout
+(declare.py, lazily): `segment` runs inside a ccy container under the hooks daemon's venv
+python. Commands (stdout is the payload, reasons on stderr):
 
   team-file TEAM PORT ADDRESS HUMAN ORG DESCRIPTION   a throwaway team file (JSON)
   host-vars TEAMFILE...              a host_vars file declaring those teams (agent_bus_teams)
-  free-ports N                       N distinct TCP ports free on loopback now, one per line
+  bus-ports N OWNER_HOST_VARS        N ports by declare.py's finder, clear of the owner's and
+                                     of every listening port, one per line
+  launch-conf-clean CONF TEAM[,TEAM]   ccy's Quick Launch record names none of the teams
+  expect-own-team TEAM_JSON TEAM PREFIX   an installed team is ours: its description starts PREFIX
+  expect-handler HANDLERS_JSON EVENT NAME   `hooks-daemon handlers --json` lists that handler
+  say-outcome STATUS STDERR          0 sent, 3 a team record not verified yet, 1 anything else
   github-owner URL                   the lowercased owner of a github.com remote URL
   member-field FILE KEY              one string field of a member.json
   room-path ROOM_ID                  the room ID quoted for a URL path
@@ -40,8 +45,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import pathlib
 import re
-import socket
 import sys
 import unicodedata
 import urllib.parse
@@ -129,18 +134,107 @@ def host_vars(teams: Sequence[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def free_ports(count: int) -> list[int]:
-    """Ports free on loopback now, all held open together so no two are the same."""
-    held = []
+def bus_ports(
+    count: int,
+    declared: set[int],
+    listening: set[int],
+    choose: Callable[[set[int]], int],
+) -> list[int]:
+    """`count` ports by the bus's own finder (declare.choose_port: its range, never a port the
+    owner declares or one listening now), each chosen port counted as used for the next."""
+    used = set(declared) | set(listening)
+    ports = []
+    for _ in range(count):
+        port = choose(used)
+        ports.append(port)
+        used.add(port)
+    return ports
+
+
+def _declare() -> object:
+    """helpers.agent_bus.declare from this checkout, imported only by the host-side commands
+    that need it (`segment` runs in a container, where it is not on the path)."""
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here, *here.parents):
+        if (candidate / "ansible.cfg").exists():
+            if str(candidate) not in sys.path:
+                sys.path.insert(0, str(candidate))
+            return importlib.import_module("helpers.agent_bus.declare")
+        if (candidate / ".git").exists():
+            break
+    raise ValueError(
+        f"no ansible.cfg above {here}: not inside a fedora-desktop checkout"
+    )
+
+
+def owner_bus_ports(count: int, host_vars_path: str) -> list[int]:
+    """Ports for the throwaway teams, clear of every port the owner's host_vars declare (an
+    absent file declares none) and of every port listening now (ss -Hltn)."""
+    declare = _declare()
+    path = pathlib.Path(host_vars_path)
+    teams = (
+        declare.parse(path.read_text(encoding="utf-8")).teams if path.exists() else ()
+    )
+    declared = {team.port for team in teams if team.port is not None}
     try:
-        for _ in range(count):
-            sock = socket.socket()
-            sock.bind(("127.0.0.1", 0))
-            held.append(sock)
-        return [sock.getsockname()[1] for sock in held]
-    finally:
-        for sock in held:
-            sock.close()
+        listening = declare.listening_ports(declare._ss())
+        return bus_ports(count, declared, listening, declare.choose_port)
+    except declare.DeclareError as exc:
+        raise ValueError(str(exc)) from None
+
+
+def launch_conf_clean(conf: str, teams: Sequence[str]) -> None:
+    """F1: ccy's Quick Launch record names none of `teams` in LAST_TEAMS."""
+    for line in conf.splitlines():
+        match = re.fullmatch(r'LAST_TEAMS="?([^"]*)"?\s*', line.strip())
+        if match is None:
+            continue
+        named = [item.strip() for item in match.group(1).split(",") if item.strip()]
+        found = [item for item in named if item.rpartition("@")[2] in teams]
+        if found:
+            raise Failed(
+                f"the Quick Launch record names the acceptance seats {found} (LAST_TEAMS)"
+            )
+
+
+def expect_own_team(installed: object, team: str, prefix: str) -> None:
+    """F2: an installed team of this name is the acceptance's own: its description says so."""
+    if not isinstance(installed, dict) or installed.get("team") != team:
+        raise Failed(f"the installed team file is not team {team}'s")
+    description = installed.get("description")
+    if not isinstance(description, str) or not description.startswith(prefix):
+        raise Failed(
+            f"team {team} is installed with the description {description!r}, not one starting "
+            f"{prefix!r}: it is not this acceptance's, so it is not purged"
+        )
+
+
+def expect_handler(listing: object, event: str, name: str) -> None:
+    """F3: `hooks-daemon handlers --json` lists the handler under the event."""
+    entries = listing.get(event) if isinstance(listing, dict) else None
+    names = (
+        [e.get("name") for e in entries if isinstance(e, dict)]
+        if isinstance(entries, list)
+        else []
+    )
+    if name not in names:
+        raise Failed(
+            f"the running hooks daemon lists no {event} handler {name}: {names}"
+        )
+
+
+def say_outcome(status: int, stderr: str) -> int:
+    """F7: 0 sent; 3 not yet, while a team's record is not verified (inference waits for it);
+    1 anything else."""
+    if status == 0:
+        return EXIT_OK
+    if (
+        status == 64
+        and CHOICES_TEXT in stderr
+        and "no verified team record yet" in stderr
+    ):
+        return EXIT_NOT_YET
+    return EXIT_FAIL
 
 
 def github_owner(url: str) -> str:
@@ -285,7 +379,7 @@ def expect_block(stderr: str, seats: Sequence[tuple[str, str, str]]) -> None:
         got = lines[start + offset] if start + offset < len(lines) else ""
         want = re.compile(
             re.escape(f"  {team:<{width}}  seat {seat} (")
-            + r"[a-z ]+"
+            + r"[^()]+"
             + re.escape(f")  {description}")
         )
         if not want.fullmatch(got):
@@ -426,7 +520,11 @@ def _team_file(a: Sequence[str]) -> None:
 COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "team-file": (6, _team_file),
     "host-vars": (-1, lambda a: print(host_vars([_json_file(p) for p in a]), end="")),
-    "free-ports": (1, lambda a: _lines(free_ports(int(a[0])))),
+    "bus-ports": (2, lambda a: _lines(owner_bus_ports(int(a[0]), a[1]))),
+    "launch-conf-clean": (2, lambda a: launch_conf_clean(_read(a[0]), a[1].split(","))),
+    "expect-own-team": (3, lambda a: expect_own_team(_json_file(a[0]), a[1], a[2])),
+    "expect-handler": (3, lambda a: expect_handler(_json_file(a[0]), a[1], a[2])),
+    "say-outcome": (2, lambda a: say_outcome(int(a[0]), _read(a[1]))),
     "github-owner": (1, lambda a: _print(github_owner(a[0]))),
     "member-field": (2, lambda a: _print(member_field(_json_file(a[0]), a[1]))),
     "room-path": (1, lambda a: _print(urllib.parse.quote(a[0], safe=""))),
