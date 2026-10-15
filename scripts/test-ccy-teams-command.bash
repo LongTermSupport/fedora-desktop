@@ -81,15 +81,43 @@ STATE="$SCRATCH/state"
 LOG="$SCRATCH/calls.log"
 mkdir -p "$BIN" "$STATE/active" "$STATE/members" "$STATE/devices" "$STATE/seats"
 
-# tmux: sessions are "<name> <attached> <dir>" lines in $STATE/sessions.
+# tmux: sessions are "<name> <attached> <dir>" lines in $STATE/sessions. A pane shows claude's
+# empty prompt unless $STATE/panes/<name> says otherwise. /exit typed then Enter ends the
+# session, as does kill-session; either way every held seat goes free, as the session's
+# process ending frees its seat lock.
 cat >"$BIN/tmux" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 [ "$1" = "-L" ] && shift 2
 printf 'tmux %s\n' "$*" >>"$TEST_LOG"
+name="" prev=""
+for arg in "$@"; do
+    [ "$prev" != "-t" ] || { name="${arg#=}"; name="${name%:}"; }
+    prev="$arg"
+done
+end_session() {
+    local kept="" line seats file
+    while IFS= read -r line; do
+        [[ "$line" == "$name "* ]] || kept+="$line"$'\n'
+    done <"$TEST_STATE/sessions"
+    printf '%s' "$kept" >"$TEST_STATE/sessions"
+    for file in "$TEST_STATE/seats/"*; do
+        seats="$(cat "$file")"
+        printf '%s\n' "${seats//$'\theld\t'/$'\tfree\t'}" >"$file"
+    done
+}
 case "$1" in
 list-sessions) cat "$TEST_STATE/sessions" ;;
 list-clients | set-hook | attach-session) ;;
+capture-pane)
+    if [ -f "$TEST_STATE/panes/$name" ]; then cat "$TEST_STATE/panes/$name"; else printf '%s\n' "──────────────" "❯ " "──────────────"; fi ;;
+send-keys)
+    if [ "${*: -2:1}" = "-l" ]; then
+        printf '%s' "${*: -1}" >"$TEST_STATE/typed-$name"
+    elif [ "${*: -1}" = "Enter" ] && [ -f "$TEST_STATE/typed-$name" ] && [ "$(cat "$TEST_STATE/typed-$name")" = "/exit" ]; then
+        end_session
+    fi ;;
+kill-session) end_session ;;
 *) echo "fake tmux: unexpected call: $*" >&2; exit 97 ;;
 esac
 EOF
@@ -468,7 +496,9 @@ reset() {
     rm -f "$STATE/clipboard"
     printf 'agent-bus-hs@alpha.service loaded active running x\nagent-bus-hs@extra.service loaded inactive dead x\n' \
         >"$STATE/units"
-    rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/seats/"*.unreadable
+    rm -f "$STATE/active/"* "$STATE/devices/"* "$STATE/seats/"*.unreadable "$STATE/typed-"*
+    rm -rf "$STATE/panes"
+    mkdir -p "$STATE/panes"
     touch "$STATE/active/agent-bus-hs@alpha.service"
     printf 'HUMAN\towner\tjoin\nMEMBER\tproj.1+local.podman\tworker\tjoin\tactive\nMEMBER\tproj.2+local.podman\tworker\tjoin\tparked\nMEMBER\tproj.box+role.lxc\tworker\tjoin\tactive\n' \
         >"$STATE/members/alpha"
@@ -915,6 +945,35 @@ reset
 printf '%s\n' "|Backup 2" "|EXIT" >"$TEST_ANSWERS"
 out="$(run_on_terminal restore alpha)"
 check "  and no restores nothing" "no" "$(logged 'restore --team')"
+
+# ── shutdown (Plan 00201 SPEC-shutdown.md) ───────────────────────────────────────────────
+echo "== shutdown"
+reset
+"$TOOL" shutdown alpha </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "without a terminal a shutdown needs --yes" "64" "$?"
+check_has "  after showing the session" "ccy-proj   seat 1 (proj.1+local.podman)" "$(cat "$SCRATCH/err")"
+check "  and types nothing" "no" "$(logged 'send-keys')"
+reset
+"$TOOL" shutdown alpha --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "shutdown --yes fails while a member is out of reach (the LXC agent)" "1" "$?"
+check "  having typed /exit into the session's pane" "yes" "$(logged 'tmux send-keys -t =ccy-proj: -l /exit')"
+check "  then Enter" "yes" "$(logged 'tmux send-keys -t =ccy-proj: Enter')"
+check "  and not killed it, since it ended" "no" "$(logged 'kill-session')"
+check_has "  saying it exited and its seat is free" "ccy-proj: exited cleanly; seat 1@alpha released" "$(cat "$SCRATCH/err")"
+check_has "  and that the LXC agent was not shut down" "proj.box+role.lxc: not shut down: its session runs inside the LXC container" \
+    "$(cat "$SCRATCH/err")"
+check "  sending nothing on the bus" "no no" "$(logged 'agent-bus send') $(logged 'pingbus')"
+check "  stdout stays empty" "" "$(cat "$SCRATCH/out")"
+reset
+printf '%s\n' "──────────────" "❯ half a thought" "──────────────" >"$STATE/panes/ccy-proj"
+"$TOOL" shutdown alpha --yes </dev/null >"$SCRATCH/out" 2>"$SCRATCH/err"
+check "unsent text in the input box fails the session" "1" "$?"
+check "  and nothing is typed over it" "no" "$(logged 'send-keys')"
+check "  nor is it killed" "no" "$(logged 'kill-session')"
+reset
+out="$(run_picker "$OUTSIDE" "|port 6167" "|Shut down every session of alpha" "|EXIT" "|ABORT")"
+check_has "a team's menu shuts its sessions down, after a question" "Nothing was shut down." "$out"
+check "  and a no types nothing" "no" "$(logged 'send-keys')"
 
 echo "== create"
 reset

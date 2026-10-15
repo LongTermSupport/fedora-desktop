@@ -39,6 +39,8 @@ too (? there shows every key, explained). The shortcuts:
   Ctrl-U   update every team that is out of date or not built (never one to take down)
   Ctrl-R   turn the seat's session's restore after a reboot off or on
   Ctrl-X   remove a seat, park a member, or take a team down (each after a yes/no)
+The menu of a team row also has Shut down every session of <team> (no shortcut): the same as
+`ccy-teams shutdown <team>` below.
 A team has at most one coordinator, an agent that takes the humans' requests, dispatches them
 to the workers and is copied on what workers tell humans. Its seat's MEMBER shows
 "(coordinator)". The menu of a seat has Make coordinator or Stop being coordinator (no
@@ -117,7 +119,18 @@ Usage:
   ccy-teams restore <team> [<n>] [--yes]
                                    restore backup <n> after a yes/no (--yes: none);
                                    without <n>, choose one from the list
-  ccy-teams for-checkout           print the team(s) that work on this checkout's GitHub
+  ccy-teams shutdown <team> [--yes]
+                                   end every session of the team on this host: it lists
+                                   them, and the members it cannot reach from here (an
+                                   LXC container's agent, another machine), then asks
+                                   (default No; with no terminal, --yes is required).
+                                   Each session gets /exit typed into its tmux pane
+                                   (Escape first when busy) and is stopped only if it
+                                   has not ended within 60 s; then each of its seats must
+                                   be free. One line per member: exited cleanly, stopped,
+                                   failed or not shut down; exit 1 unless all ended. The
+                                   homeserver keeps running. Nothing goes on the bus
+  ccy-teams for-checkout          print the team(s) that work on this checkout's GitHub
                                    OWNER/REPO (an organisation team by its owner, unless
                                    it excludes the repository), one per line on stdout, the
                                    rest on stderr. With none, it fails saying so. For scripts;

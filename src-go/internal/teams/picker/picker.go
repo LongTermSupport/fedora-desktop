@@ -26,6 +26,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/shutdown"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -51,6 +52,8 @@ type Picker struct {
 	Login  *login.Login
 	Seats  *seats.Seats
 	Lxc    *lxcadd.Adder
+	// Shutdown is the team row's "Shut down every session"; teams.Wire sets it.
+	Shutdown *shutdown.Shutdown
 
 	Declare *declare.Client
 	Git     *gitx.Git
