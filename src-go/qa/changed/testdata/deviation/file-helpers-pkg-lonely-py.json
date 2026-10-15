@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: helpers/pkg/lonely.py\ncheck stt-rules-files: helpers/pkg/lonely.py\ncheck ruff: helpers/pkg/lonely.py\nnote: helpers/pkg/lonely.py: no mirrored unit test (tests/helpers/pkg/test_lonely.py)\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

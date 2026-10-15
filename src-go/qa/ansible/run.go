@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"path/filepath"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootargs"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
 // ExitCode is the status qa-ansible exits with.
@@ -69,35 +72,9 @@ type options struct {
 // parseArgs reads the command line. The bash ignored every argument, so a typo ran the scan;
 // here anything unknown is a usage error.
 func parseArgs(args []string) (options, error) {
-	var opts options
-	rest := args
-	for len(rest) > 0 {
-		arg := rest[0]
-		rest = rest[1:]
-		switch arg {
-		case "-h", "--help":
-			opts.help = true
-		case "--root", "--scripts":
-			if len(rest) == 0 || rest[0] == "" || rest[0][0] == '-' {
-				return options{}, fmt.Errorf("%s needs a directory", arg)
-			}
-			if arg == "--root" {
-				opts.root = rest[0]
-			} else {
-				opts.scripts = rest[0]
-			}
-			rest = rest[1:]
-		default:
-			return options{}, &unknownArgError{arg: arg}
-		}
-	}
-	return opts, nil
+	parsed, err := rootargs.Strict(args)
+	return options{help: parsed.Help, root: parsed.Root, scripts: parsed.Scripts}, err
 }
-
-// unknownArgError is an argument the tool does not know; the usage text follows it.
-type unknownArgError struct{ arg string }
-
-func (e *unknownArgError) Error() string { return fmt.Sprintf("unknown argument '%s'", e.arg) }
 
 // reportPath is where the machine report is written.
 func reportPath(getenv func(string) string) string {
@@ -107,106 +84,63 @@ func reportPath(getenv func(string) string) string {
 	return defaultReportPath
 }
 
-// emitter writes to a stream and remembers the first write that failed.
-type emitter struct {
-	w   io.Writer
-	err error
-}
-
-func (e *emitter) line(text string) {
-	if _, err := fmt.Fprintln(e.w, text); err != nil && e.err == nil {
-		e.err = err
-	}
-}
-
-func (e *emitter) text(text string) {
-	if _, err := io.WriteString(e.w, text); err != nil && e.err == nil {
-		e.err = err
-	}
-}
-
 // Main runs the command and returns the exit status.
 func Main(args []string, env Env) ExitCode {
-	out, errOut := &emitter{w: env.Stdout}, &emitter{w: env.Stderr}
-	code := run(args, env, out, errOut)
-	if out.err != nil {
-		errOut.line("ERROR: cannot write to stdout: " + out.err.Error())
-		return ExitCannotRun
-	}
-	if code != ExitCannotRun && errOut.err != nil {
-		return ExitCannotRun
-	}
-	return code
+	out, errOut := emit.New(env.Stdout), emit.New(env.Stderr)
+	return emit.Finish(out, errOut, run(args, env, out, errOut), ExitCannotRun)
 }
 
-func run(args []string, env Env, out, errOut *emitter) ExitCode {
+func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	opts, err := parseArgs(args)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
-		if unknown, isUnknown := errors.AsType[*unknownArgError](err); isUnknown && unknown != nil {
-			errOut.text(usageText)
+		errOut.Line("ERROR: " + err.Error())
+		if unknown, isUnknown := errors.AsType[*rootargs.UnknownArgError](err); isUnknown && unknown != nil {
+			errOut.Text(usageText)
 		}
 		return ExitCannotRun
 	}
 	if opts.help {
-		out.text(usageText)
+		out.Text(usageText)
 		return ExitOK
 	}
-	root, err := rootDir(opts, env.Cwd)
+	root, err := rootpath.Root(env.Cwd, opts.root, opts.scripts)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
 	ignored, err := env.Ignored(root)
 	if err != nil {
-		errOut.line("ERROR: cannot list the gitignored files under " + root + ": " + err.Error())
+		errOut.Line("ERROR: cannot list the gitignored files under " + root + ": " + err.Error())
 		return ExitCannotRun
 	}
 	findings, err := Scan(published(env.Open(root), ignored), root)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
 	return finish(findings, reportPath(env.Getenv), env.WriteFile, out, errOut)
 }
 
 // finish prints the violations, writes the report and prints the summary.
-func finish(findings Findings, path string, write func(string, []byte) error, out, errOut *emitter) ExitCode {
+func finish(findings Findings, path string, write func(string, []byte) error, out, errOut *emit.Emitter) ExitCode {
 	for _, line := range findings.Out {
-		out.line(line)
+		out.Line(line)
 	}
 	body, err := findings.JSON()
 	if err == nil {
 		err = write(path, body)
 	}
 	if err != nil {
-		errOut.line(fmt.Sprintf("ERROR: cannot write the report %s: %v", path, err))
+		errOut.Line(fmt.Sprintf("ERROR: cannot write the report %s: %v", path, err))
 		return ExitCannotRun
 	}
 	for _, line := range findings.Summary(path) {
-		out.line(line)
+		out.Line(line)
 	}
 	if findings.Errors() > 0 {
 		return ExitFailed
 	}
 	return ExitOK
-}
-
-// rootDir is the repository root: --root, else the parent of --scripts, else the working
-// directory, made absolute.
-func rootDir(opts options, cwd string) (string, error) {
-	root := cwd
-	switch {
-	case opts.root != "":
-		root = opts.root
-	case opts.scripts != "":
-		root = filepath.Join(opts.scripts, "..")
-	}
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve the root %s: %w", root, err)
-	}
-	return abs, nil
 }
 
 // Scan runs the six checks over the tree and returns what they found. An error is a run that

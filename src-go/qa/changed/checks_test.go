@@ -2,6 +2,7 @@ package changed
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -65,8 +66,8 @@ func (r *scriptedRunner) argv() []string {
 
 func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 	want := []string{
-		"toolchain", "bash-syntax", "shellcheck", "semgrep", "ruff", "unit-tests", "ansible-syntax",
-		"ansible-patterns", "docs", "go", "bash-limits", "node-check", "eslint",
+		"toolchain", "bash-syntax", "shellcheck", "shell-directives", "semgrep", "ready-wait-files", "stt-rules-files", "ruff", "unit-tests", "ansible-syntax",
+		"ansible-patterns", "ansible-syntax-gate", "patterns", "bash", "python", "js", "docs", "go", "bash-limits", "nokill-containerwatch", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "version-pins", "vmtest-manifest", "deployed-drift", "node-check", "eslint",
 	}
 	got := make([]string, 0, len(checkDefs))
 	for _, d := range checkDefs {
@@ -86,15 +87,33 @@ func TestEveryRegisteredCheckIsKnownAndOrdered(t *testing.T) {
 func TestSummaries(t *testing.T) {
 	two := &checkPlan{items: []string{"a", "b"}}
 	for id, want := range map[string]string{
-		"toolchain":        "QA tool versions match .qa-versions",
-		"bash-syntax":      "2 file(s)",
-		"unit-tests":       "2 module(s)",
-		"ansible-syntax":   "2 playbook(s)",
-		"ansible-patterns": "fail-fast patterns, whole gate",
-		"docs":             "whole gate",
-		"go":               "whole gate (interim qa-go.bash)",
-		"bash-limits":      "whole gate (tooling is Go; allowlist ratchet)",
-		"eslint":           "2 file(s)",
+		"toolchain":           "QA tool versions match .qa-versions",
+		"bash-syntax":         "2 file(s)",
+		"shell-directives":    "2 file(s)",
+		"ready-wait-files":    "2 file(s)",
+		"stt-rules-files":     "2 file(s)",
+		"unit-tests":          "2 module(s)",
+		"ansible-syntax":      "2 playbook(s)",
+		"ansible-patterns":    "fail-fast patterns, whole gate",
+		"ansible-syntax-gate": "every playbook, whole gate",
+		"deployed-drift":      "repo-owned scripts against their deployed copies, whole gate",
+		"patterns":            "bash-convention rules, whole gate",
+		"bash":                "bash -n and shellcheck, whole gate",
+		"python":              "compile and ruff, whole gate",
+		"js":                  "node --check and ESLint, whole gate",
+		"docs":                "whole gate",
+		"go":                  "whole gate (interim qa-go.bash)",
+		"bash-limits":         "whole gate (tooling is Go; allowlist ratchet)",
+		"eslint":              "2 file(s)",
+
+		"nokill-containerwatch": "whole gate (the container-watch watchdog never signals a process)",
+		"ansible-pause":         "whole gate (every pause registers its answer or says why it waits)",
+		"gh-scopes":             "gh-scope-outside-ssot rule, whole gate",
+		"ready-wait":            "whole gate (no wait ignores the exit of the process it waits for)",
+		"plan-script-logging":   "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)",
+		"stt-rules":             "whole gate (no model judged present without its weights, no dropdown label that explains itself)",
+		"version-pins":          "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)",
+		"vmtest-manifest":       "whole gate (the VM-test scenario manifest is valid and agrees with its guest scripts)",
 	} {
 		if got := lookupCheck(id).summaryFor(two); got != want {
 			t.Errorf("%s: %q, want %q", id, got, want)
@@ -147,8 +166,8 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		}
 	}
 	want := []string{
-		"shellcheck --external-sources --severity=warning a.bash b.bash",
-		"ruff check x.py",
+		"shellcheck --norc --external-sources --severity=warning a.bash b.bash",
+		"ruff check --config " + filepath.Join(s.root, "ruff.toml") + " --no-cache x.py",
 		"python3 -m unittest tests.helpers.test_a",
 	}
 	got := runner.argv()
@@ -158,22 +177,146 @@ func TestToolChecksPassTheirFilesOnOneCommandLine(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 	for _, c := range runner.calls {
+		if c.Argv[0] == "shellcheck" && !slices.Contains(c.Env, "SHELLCHECK_OPTS=") {
+			t.Fatalf("shellcheck must not read options from the environment: %v", c.Env)
+		}
 		if c.Argv[0] == "python3" && !reflect.DeepEqual(c.Env, []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}) {
 			t.Fatalf("unit tests must not read the git configuration: %v", c.Env)
 		}
 	}
 }
 
-func TestEslintRunsInExtensionsWithPrefixStripped(t *testing.T) {
+// SPEC-qa-bash.md S20: a changed shell file gets the suppression verdict the gate gives it, by the
+// gate's own --directives mode, in one process over all the files.
+func TestShellDirectivesRunsTheGatesDirectivesMode(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
-	_, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{"extensions/a@b/x.js"}, rel: "extensions"})
+	if _, err := lookupCheck("shell-directives").run(context.Background(), s, &checkPlan{items: []string{"a.bash", "b.bash"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-bash.bash") + " --directives a.bash b.bash"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The per-file ready-wait check runs the gate over the changed files by name (SPEC-qa-ready-wait-rules R9).
+func TestReadyWaitFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("ready-wait-files").run(context.Background(), s, &checkPlan{items: []string{"a.py", "b.bash"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-ready-wait-rules.bash") + " a.py b.bash"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The per-file speech-to-text check runs the gate over the changed files by name (SPEC-qa-speech-to-text-rules S10).
+func TestSttRulesFilesRunsTheGateOnTheNamedFiles(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := lookupCheck("stt-rules-files").run(context.Background(), s, &checkPlan{items: []string{"a.py", "b.js"}}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bash " + filepath.Join(s.scripts, "qa-speech-to-text-rules.bash") + " a.py b.js"}
+	if got := runner.argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// eslintReply is the JSON ESLint prints for one file with the given messages.
+func eslintReply(t *testing.T, file string, messages ...map[string]any) string {
+	t.Helper()
+	if messages == nil {
+		messages = []map[string]any{}
+	}
+	data, err := json.Marshal([]map[string]any{{"filePath": file, "messages": messages}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// runEslintCheck runs the eslint check over one changed file whose ESLint answer is reply.
+func runEslintCheck(t *testing.T, reply proc.Result, file string) checkResult {
+	t.Helper()
+	runner := &scriptedRunner{replies: map[string]proc.Result{"": reply}}
+	s := newTestSession(t, runner)
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{file}, rel: "extensions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// J9, J8: the per-file lint is given the gate's pins, so a nested config or an eslint-disable
+// comment cannot make it pass what the gate fails; and it runs from the root on absolute paths,
+// as the gate does, so an ignore file is read from the same directory.
+func TestEslintRunsFromTheRootOnAbsolutePathsWithTheGatesPins(t *testing.T) {
+	rel := "extensions/a@b/x.js"
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	file := filepath.Join(s.root, rel)
+	runner.replies = map[string]proc.Result{"": {Stdout: eslintReply(t, file)}}
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{rel}, rel: "extensions"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := runner.calls[0]
-	if c.Dir != filepath.Join(s.root, "extensions") || !reflect.DeepEqual(c.Argv, []string{"./node_modules/.bin/eslint", "a@b/x.js"}) {
-		t.Fatalf("got %+v", c)
+	want := []string{filepath.Join(s.root, "extensions", "node_modules", ".bin", "eslint"), "--no-eslintrc", "--config", filepath.Join(s.root, "extensions", ".eslintrc.json"), "--no-inline-config", "--format", "json", file}
+	if c.Dir != s.root || !reflect.DeepEqual(c.Argv, want) || res.code != 0 {
+		t.Fatalf("got %+v, result %+v", c, res)
+	}
+}
+
+// B37: a file ESLint names but does not read (an ignore pattern drops it, with exit 0) is a
+// failure, as it is in the gate (J11).
+func TestEslintFailsAFileItIgnoredInsteadOfVouchingForIt(t *testing.T) {
+	ignored := map[string]any{"ruleId": nil, "severity": 1, "message": "File ignored by default.  Use a negated ignore pattern to override.", "line": 0, "column": 0}
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	file := filepath.Join(s.root, "extensions", "a@b", ".hidden.js")
+	runner.replies = map[string]proc.Result{"": {Stdout: eslintReply(t, file, ignored)}}
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{"extensions/a@b/.hidden.js"}, rel: "extensions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.code == 0 || !strings.Contains(res.output, "ignored") || !strings.Contains(res.output, "extensions/a@b/.hidden.js") {
+		t.Fatalf("an ignored file was vouched for: %+v", res)
+	}
+}
+
+// B37: a file ESLint does not answer for at all is a failure too.
+func TestEslintFailsWhenItAnswersForNoFile(t *testing.T) {
+	res := runEslintCheck(t, proc.Result{Stdout: "[]"}, "extensions/a@b/x.js")
+	if res.code == 0 || !strings.Contains(res.output, "did not report on 1 of the 1 file(s)") {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+// J12, J13: a finding is a line naming the file relative to the root, with its place and rule.
+func TestEslintReportsEachFindingAsAFileLine(t *testing.T) {
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	file := filepath.Join(s.root, "extensions", "a@b", "x.js")
+	finding := map[string]any{"ruleId": "no-undef", "severity": 2, "message": "'w' is not defined.", "line": 1, "column": 8}
+	runner.replies = map[string]proc.Result{"": {Stdout: eslintReply(t, file, finding), Code: 1}}
+	res, err := lookupCheck("eslint").run(context.Background(), s, &checkPlan{items: []string{"extensions/a@b/x.js"}, rel: "extensions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.code == 0 || !strings.Contains(res.output, "extensions/a@b/x.js:1:8: 'w' is not defined. (no-undef)") || strings.Contains(res.output, s.root) {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+// J10: an ESLint that fails to run fails the check with its stderr.
+func TestEslintThatFailsToRunFailsTheCheckWithItsStderr(t *testing.T) {
+	res := runEslintCheck(t, proc.Result{Stderr: "Oops! Something went wrong\n", Code: 2}, "extensions/a@b/x.js")
+	if res.code == 0 || !strings.Contains(res.output, "status 2") || !strings.Contains(res.output, "Oops! Something went wrong") {
+		t.Fatalf("got %+v", res)
 	}
 }
 
@@ -201,12 +344,12 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 	runner := &scriptedRunner{}
 	s := newTestSession(t, runner)
 	ctx := context.Background()
-	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs"} {
+	for _, id := range []string{"toolchain", "go", "bash-limits", "ansible-patterns", "docs", "nokill-containerwatch", "ansible-syntax-gate", "deployed-drift", "ansible-pause", "gh-scopes", "ready-wait", "plan-script-logging", "stt-rules", "version-pins", "vmtest-manifest"} {
 		if _, err := lookupCheck(id).run(ctx, s, &checkPlan{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash"} {
+	for i, name := range []string{"qa-toolchain.bash", "qa-go.bash", "qa-bash-limits.bash", "qa-ansible.bash", "qa-docs.bash", "qa-nokill-containerwatch.bash", "qa-ansible-syntax.bash", "qa-deployed-drift.bash", "qa-ansible-pause.bash", "qa-gh-scopes.bash", "qa-ready-wait-rules.bash", "qa-plan-script-logging.bash", "qa-speech-to-text-rules.bash", "qa-version-pins.bash", "qa-vmtest-manifest.bash"} {
 		argv := runner.calls[i].Argv
 		if argv[0] != "bash" || argv[1] != filepath.Join(s.scripts, name) {
 			t.Fatalf("call %d: %v", i, argv)
@@ -215,7 +358,7 @@ func TestGatesRunTheirScriptFromTheScriptsDirectory(t *testing.T) {
 			t.Fatalf("call %d: output must be merged", i)
 		}
 	}
-	for _, i := range []int{3, 4} {
+	for _, i := range []int{3, 4, 6} {
 		env := runner.calls[i].Env
 		if len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
 			t.Fatalf("the JSON-report gates need QA_JSON_OUT: %v", env)
@@ -314,6 +457,67 @@ func TestRunnerStartFailuresSurface(t *testing.T) {
 		if _, err := lookupCheck(id).run(context.Background(), s, &checkPlan{items: []string{"x"}}); err == nil {
 			t.Errorf("%s swallowed a start failure", id)
 		}
+	}
+}
+
+// The toolchain check is a whole gate (a deleted pin file may ask for it) and needs bash and go,
+// because its wrapper builds the Go command.
+func TestTheToolchainCheckIsAWholeGateNeedingGo(t *testing.T) {
+	d := lookupCheck("toolchain")
+	if !d.gate || !d.whole {
+		t.Errorf("toolchain: gate %v whole %v", d.gate, d.whole)
+	}
+	if !slices.Contains(d.tools, toolBash) || !slices.Contains(d.tools, toolGo) {
+		t.Errorf("toolchain needs bash and go, has %v", d.tools)
+	}
+}
+
+// The VM-test manifest check is a whole gate (a deleted guest script may owe it) and needs bash,
+// go (its wrapper builds the Go command) and python3 (the host's validator it runs).
+func TestTheVmtestManifestCheckIsAWholeGateNeedingGoAndPython(t *testing.T) {
+	d := lookupCheck("vmtest-manifest")
+	if !d.gate || !d.whole {
+		t.Errorf("vmtest-manifest: gate %v whole %v", d.gate, d.whole)
+	}
+	for _, tool := range []string{toolBash, toolGo, toolPython} {
+		if !slices.Contains(d.tools, tool) {
+			t.Errorf("vmtest-manifest needs %s, has %v", tool, d.tools)
+		}
+	}
+}
+
+// The helper-tests gate is not a qa-changed check (SPEC-qa-helper-tests B9): qa-changed runs the
+// mirrored unit-tests module of each changed helper and leaves the whole suite to qa-all, whose
+// table (qa-gates.tsv, kind helpers) owns it. Adding a check is a decision that comes with routing
+// rows, a golden deviation and a SPEC-qa-changed B-row, not a side effect of the port.
+func TestTheHelperTestsGateIsNotAChangedCheck(t *testing.T) {
+	for _, d := range checkDefs {
+		if strings.Contains(d.id, "helper") {
+			t.Errorf("check %q: the helper-tests gate is not routed by qa-changed", d.id)
+		}
+	}
+}
+
+// The docs check is a whole gate (a deleted document or playbook may ask for it) and needs bash and
+// go, because its wrapper builds the Go command; it is run through the wrapper with the report.
+func TestTheDocsCheckIsAWholeGateNeedingGoAndRunsItsWrapper(t *testing.T) {
+	d := lookupCheck("docs")
+	if !d.gate || !d.whole {
+		t.Errorf("docs: gate %v whole %v", d.gate, d.whole)
+	}
+	if !slices.Contains(d.tools, toolBash) || !slices.Contains(d.tools, toolGo) {
+		t.Errorf("docs needs bash and go, has %v", d.tools)
+	}
+	runner := &scriptedRunner{}
+	s := newTestSession(t, runner)
+	if _, err := d.run(context.Background(), s, &checkPlan{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0].Argv[0] != "bash" || runner.calls[0].Argv[1] != filepath.Join(s.scripts, "qa-docs.bash") {
+		t.Fatalf("calls: %+v", runner.calls)
+	}
+	if env := runner.calls[0].Env; len(env) != 1 || !strings.HasPrefix(env[0], "QA_JSON_OUT=") {
+		t.Fatalf("the docs gate writes a report: %v", env)
 	}
 }
 

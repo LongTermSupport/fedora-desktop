@@ -98,9 +98,10 @@
  },
  "stale-report-then-abort": {
   "bugs": [
-   "B6"
+   "B6",
+   "B30"
   ],
-  "reason": "the previous run's report is removed before the first gate, so a run that aborts leaves none"
+  "reason": "the previous run's report is removed before the first gate, so a run that aborts leaves none; the patterns stage's exit-2 text is the B30 wording"
  },
  "no-count": {
   "bugs": [
@@ -191,5 +192,47 @@
    "B5"
   ],
   "reason": "a stage that exits 0 while its report counts failures is a failed stage"
+ },
+ "exit2-ansible-syntax": {
+  "bugs": [
+   "B27"
+  ],
+  "reason": "ansible-syntax exits 2 for six causes (a missing engine, ansible.cfg or vault password file, an unusable config dump, a broken playbook discovery, an unwritable report), but its stage text only told the reader to install a tool; it now covers every cause and points at the ERROR line above"
+ },
+ "exit2-bash": {
+  "bugs": [
+   "B28"
+  ],
+  "reason": "qa-bash exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B28), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+ },
+ "exit2-python": {
+  "bugs": [
+   "B29"
+  ],
+  "reason": "qa-python exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B29), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+ },
+ "exit2-patterns": {
+  "bugs": [
+   "B30"
+  ],
+  "reason": "qa-patterns exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B30), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+ },
+ "exit2-js": {
+  "bugs": [
+   "B31"
+  ],
+  "reason": "qa-js exits 2 for causes that are not a missing tool (see SPEC-qa-all.md B31), but its stage text only told the reader to install one; it now covers every cause and points at the ERROR line above"
+ },
+ "exit2-docs": {
+  "bugs": [
+   "B32"
+  ],
+  "reason": "qa-docs exits 2 for causes that are not a zero-file scan or a checker crash (see SPEC-qa-all.md B32), but its stage text said only that; it now covers every cause and points at the ERROR line above"
+ },
+ "stage-then-abort": {
+  "bugs": [
+   "B30"
+  ],
+  "reason": "the patterns stage's exit-2 text names the failure and points at the ERROR line above instead of telling the reader to install semgrep"
  }
 }

@@ -73,6 +73,51 @@ func Detail(capture string, re *regexp.Regexp) (string, bool) {
 	return re.FindString(last), true
 }
 
+// Summarise is the text of a gate's stage line from its captured output, or the reason it cannot
+// give one: qa-all and qa-changed both judge a script they ran by it, so neither can be more
+// lenient than the other. A gate's every reader must find its line (a count reader a count, a
+// detail reader its pattern); a drift gate must print its own stage line; a helpers or stage
+// gate's verdict is not in its output, so it is refused rather than passed on nothing. The
+// errors keep ErrNoCount, ErrZeroCases and ErrFailedCases reachable with errors.Is.
+func Summarise(g Gate, capture string) (string, error) {
+	switch g.Kind {
+	case KindDrift:
+		return driftLine(g, capture)
+	case KindHelpers:
+		return "", errors.New("its counts travel in a file, not in its output, so its output cannot be judged here")
+	case KindStage:
+		return "", errors.New("its verdict is a JSON report, not its output, so its output cannot be judged here")
+	case KindGate:
+	}
+	parts := make([]string, 0, len(g.Readers))
+	for _, r := range g.Readers {
+		if r.Detail == nil {
+			got, err := CaseCount(capture)
+			if err != nil {
+				return "", fmt.Errorf("exited 0 but %w", err)
+			}
+			parts = append(parts, got)
+			continue
+		}
+		got, ok := Detail(capture, r.Detail)
+		if !ok {
+			return "", errors.New("ran, but its summary line was not found: " + r.Detail.String())
+		}
+		parts = append(parts, got)
+	}
+	return strings.Join(parts, "; "), nil
+}
+
+// driftLine is the text after the drift gate's own "<mark> <name>: " stage line.
+func driftLine(g Gate, capture string) (string, error) {
+	line := regexp.MustCompile(`(?m)^[✓⚠] ` + regexp.QuoteMeta(g.Name) + `: (.*)$`)
+	m := line.FindStringSubmatch(capture)
+	if m == nil {
+		return "", errors.New("ran, but printed no " + g.Name + " stage line")
+	}
+	return m[1], nil
+}
+
 // countKeys are the five keys of the helper-tests counts file, which the runner
 // (helpers/qa_environment/unittest_counts.py) writes from unittest's TestResult. The first four
 // are numbers.
@@ -89,34 +134,66 @@ var digits = regexp.MustCompile(`^[0-9]+$`)
 // concurrent run); it is not a lock against a test that reads argv, and write ordering is what
 // defeats a clobber from inside the suite.
 func HelperCounts(path, wantToken string) (string, error) {
+	n, err := HelperRun(path, wantToken)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Ran %d %s in %d %s (%d tracked), %d skipped",
+		n.Tests, plural(n.Tests, "test", "tests"),
+		n.Modules, plural(n.Modules, "module", "modules"),
+		n.Tracked, n.Skipped), nil
+}
+
+// HelperNumbers are the four numbers of a helper-tests counts file.
+type HelperNumbers struct {
+	Tests, Skipped, Modules, Tracked int
+}
+
+// HelperRun reads the counts file under the refusals of HelperCounts and returns the numbers as
+// integers; a number too large for an int is refused too.
+func HelperRun(path, wantToken string) (HelperNumbers, error) {
+	values, err := readCounts(path, wantToken)
+	if err != nil {
+		return HelperNumbers{}, err
+	}
+	var n HelperNumbers
+	for key, into := range map[string]*int{"tests": &n.Tests, "skipped": &n.Skipped, "modules": &n.Modules, "tracked": &n.Tracked} {
+		v, convErr := strconv.Atoi(values[key])
+		if convErr != nil {
+			return HelperNumbers{}, fmt.Errorf("%s=%s is not a number this tool can hold in %s", key, values[key], path)
+		}
+		*into = v
+	}
+	return n, nil
+}
+
+// readCounts is the validated key/value map of a counts file.
+func readCounts(path, wantToken string) (map[string]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("no counts file at %s", path)
+			return nil, fmt.Errorf("no counts file at %s", path)
 		}
-		return "", fmt.Errorf("counts file %s: %w", path, err)
+		return nil, fmt.Errorf("counts file %s: %w", path, err)
 	}
 	if len(body) == 0 {
-		return "", fmt.Errorf("%s is empty: the runner did not write it", path)
+		return nil, fmt.Errorf("%s is empty: the runner did not write it", path)
 	}
 	values, err := parseCounts(string(body), path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	// Before the digits: if the file is not the one this run produced, its numbers describe
 	// something else and validating them would only lend them credibility.
 	if values["token"] != wantToken {
-		return "", fmt.Errorf("%s carries token %q, expected %q: the file was written by something other than the run that asked for it", path, values["token"], wantToken)
+		return nil, fmt.Errorf("%s carries token %q, expected %q: the file was written by something other than the run that asked for it", path, values["token"], wantToken)
 	}
 	for _, key := range countKeys[:4] {
 		if !digits.MatchString(values[key]) {
-			return "", fmt.Errorf("%s= is missing or not a number in %s", key, path)
+			return nil, fmt.Errorf("%s= is missing or not a number in %s", key, path)
 		}
 	}
-	return fmt.Sprintf("Ran %s %s in %s %s (%s tracked), %s skipped",
-		values["tests"], plural(values["tests"], "test", "tests"),
-		values["modules"], plural(values["modules"], "module", "modules"),
-		values["tracked"], values["skipped"]), nil
+	return values, nil
 }
 
 // parseCounts splits the file into its keys. A key is split at the first "="; a line with an
@@ -145,8 +222,8 @@ func parseCounts(body, path string) (map[string]string, error) {
 }
 
 // plural is the singular only for exactly one.
-func plural(count, singular, many string) string {
-	if n, err := strconv.Atoi(count); err == nil && n == 1 {
+func plural(count int, singular, many string) string {
+	if count == 1 {
 		return singular
 	}
 	return many

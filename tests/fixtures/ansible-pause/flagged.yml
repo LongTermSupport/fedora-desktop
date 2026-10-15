@@ -1,5 +1,5 @@
 ---
-# Fixture for scripts/qa-ansible-pause.bash: every pause marked EXPECT-FINDING must be
+# Fixture for src-go/qa/ansiblepause tests: every pause marked EXPECT-FINDING must be
 # reported, and no other line. A task list, not a play, so no gate syntax-checks it.
 
 - name: Info-only pause that waits for Enter

@@ -13,6 +13,7 @@ import (
 const (
 	kindPy     = "@py"
 	kindSh     = "@sh"
+	kindPyTpl  = "@pytemplate"
 	kindListed = "@listed"
 	kindGlob   = "glob"
 	listShell  = "shell"
@@ -29,7 +30,7 @@ type matcher struct {
 
 func parseMatcher(field string) (matcher, error) {
 	switch {
-	case field == kindPy || field == kindSh:
+	case field == kindPy || field == kindSh || field == kindPyTpl:
 		return matcher{kind: field}, nil
 	case strings.HasPrefix(field, "@listed:"):
 		file := strings.TrimPrefix(field, "@listed:")
@@ -45,7 +46,7 @@ func parseMatcher(field string) (matcher, error) {
 
 // contentBased is whether the match reads the file's first line, which a deleted file has not got.
 func (m matcher) contentBased() bool {
-	return m.kind == kindPy || m.kind == kindSh
+	return m.kind == kindPy || m.kind == kindSh || m.kind == kindPyTpl
 }
 
 // matches is whether rel is matched; listed is the set of paths on the file @listed names.
@@ -55,6 +56,8 @@ func (m matcher) matches(rel string, probe fileProbe, listed map[string]bool) (b
 		return probe.isPython(rel)
 	case kindSh:
 		return probe.isShell(rel)
+	case kindPyTpl:
+		return probe.isPythonTemplate(rel)
 	case kindListed:
 		return listed[rel], nil
 	}
@@ -257,8 +260,8 @@ func (rl *rule) parseFlags(field string) error {
 	return nil
 }
 
-// trees are the excluded directory lists, from scripts/qa-trees.tsv, which qa-discovery.bash
-// reads too so the bash gates and this tool share one list.
+// trees are the excluded directory lists, from scripts/qa-trees.tsv, which the Go
+// discovery and patterns gates read too, so they and this tool share one list.
 type trees struct {
 	shell, python treeList
 }

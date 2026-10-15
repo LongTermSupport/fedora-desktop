@@ -17,6 +17,29 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.2 — container 2.60
+
+- **The two 3.97/3.98 lines meet.** 3.98.0 (goodbye, relay, `ccy-teams lxc-add`) was built
+  beside 3.97.2 to 3.97.11 (several teams per session, team descriptions, `REPLY` lines, `cc
+  --teams` on the shared chooser); this version holds both. A session's team list and
+  status-line record are written in relay mode too, `recv` prints `REPLY` lines when it is not
+  relaying, and SessionEnd (registered once, with the goodbye's 6 s timeout) removes the
+  status-line record before the goodbye. Both lines changed the image (2.56 and 2.59), so the
+  container version moves to 2.60 and the image is rebuilt once. (3.98.1 was this join on the
+  integration branch before 3.97.10 and 3.97.11.)
+
+## 3.98.0 — container 2.56
+
+- **The member kit says goodbye and can relay.** The pingbus plugin (now 1.1.0) registers a
+  `SessionEnd` hook: when a session really ends (not on `/clear` or `/resume`) pingbus posts one
+  fixed-template room message, `<handle> left the team: session ended (<reason>)`, from each
+  seat to the team's humans and coordinator(s) (not every agent, which would cost each a model
+  turn), within 4 s; a failure is one stderr line. The relay-mode `PostToolUse` echo is a shell
+  guard, so a session without relay starts no Python process per Bash call. The kit also carries the relay side of Plan
+  00194 (`PINGBUS_DELIVERY=relay`, spool, sent log, `PostToolUse` echo), inert unless a launch
+  sets it; in relay mode the goodbye is still sent and is not echoed back. The kit is in the
+  image, so the container version moves to 2.56 and the image is rebuilt once.
+
 ## 3.97.11 — container 2.59
 
 - Container 2.59: the pingbus plugin registers its `SessionEnd` hook, so the per-session teams

@@ -26,6 +26,8 @@ type Cmd struct {
 	Dir string
 	// Env is extra KEY=value entries added to the caller's environment.
 	Env []string
+	// Stdin, when set, is what the command reads on its standard input.
+	Stdin io.Reader
 	// Merge sends stderr into Stdout, in the order the command wrote them.
 	Merge bool
 	// StdoutTo and StderrTo, when set, receive that stream as the command writes it instead of
@@ -64,6 +66,7 @@ func (OS) Run(ctx context.Context, c Cmd) (Result, error) {
 	}
 	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
 	cmd.Dir = c.Dir
+	cmd.Stdin = c.Stdin
 	if len(c.Env) > 0 {
 		cmd.Env = append(os.Environ(), c.Env...)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -49,6 +50,7 @@ type Picker struct {
 	Create *create.Wizard
 	Login  *login.Login
 	Seats  *seats.Seats
+	Lxc    *lxcadd.Adder
 
 	Declare *declare.Client
 	Git     *gitx.Git
@@ -62,9 +64,9 @@ type Picker struct {
 }
 
 // New is the Picker over a host and the flows it hands work to.
-func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops, c *create.Wizard, l *login.Login, s *seats.Seats) *Picker {
+func New(h *host.Host, kit *flow.Kit, b *board.Collector, o *ops.Ops, c *create.Wizard, l *login.Login, s *seats.Seats, x *lxcadd.Adder) *Picker {
 	return &Picker{
-		Kit: kit, Board: b, Ops: o, Create: c, Login: l, Seats: s, Declare: h.Declare, Git: h.Git,
+		Kit: kit, Board: b, Ops: o, Create: c, Login: l, Seats: s, Lxc: x, Declare: h.Declare, Git: h.Git,
 		Stdin: h.Stdin, Stdout: h.Stdout, Here: h.Here, Home: h.Home, StateDir: h.StateDir,
 	}
 }

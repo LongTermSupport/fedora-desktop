@@ -26,6 +26,9 @@ type Script struct {
 	Rows    [][]string // the rows each fzf call was shown, colour stripped
 	FzfArgs [][]string
 	GumLog  []string
+	// SkipStyle makes "gum style" calls (a box or wrapped text) take no answer; Styled keeps them.
+	SkipStyle bool
+	Styled    []string
 	// Rewrite, when set, changes fzf's answer before it is returned.
 	Rewrite func(string) string
 }
@@ -100,6 +103,12 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 }
 
 func (s *Script) runGum(c execx.Cmd) (execx.Result, error) {
+	// With SkipStyle, "gum style" only prints (a box, wrapped text): it asks nothing, so it takes
+	// no answer. Without it, as before, every gum call takes the next one.
+	if s.SkipStyle && len(c.Args) > 0 && c.Args[0] == "style" {
+		s.Styled = append(s.Styled, c.Line())
+		return execx.Result{}, nil
+	}
 	s.GumLog = append(s.GumLog, c.Line())
 	if len(s.Gum) == 0 {
 		s.T.Fatalf("no gum answer queued for %s", c.Line())

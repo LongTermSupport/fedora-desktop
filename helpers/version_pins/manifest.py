@@ -3,10 +3,13 @@
 The manifest was a heredoc inside `scripts/check-pinned-versions.bash`, so a second
 consumer could only copy it. It is `vars/version-pins.yml` now, and both read that.
 
-Pure and stdlib-only: this takes the JSON that `scripts/qa-version-pins.bash`
-converts the YAML into, because helpers cannot read YAML. The gate script owns the
-conversion and the on-disk checks (does the playbook exist, does it still declare
-the var); everything here is about the manifest's own shape.
+Pure and stdlib-only: this takes the JSON that the host-side consumers
+(`scripts/check-pinned-versions.bash`, `check_pins.py`) convert the YAML into,
+because helpers cannot read YAML. Everything here is about the manifest's own shape.
+The qa gate (`scripts/qa-version-pins.bash`, in Go) states the same shape itself and
+adds the on-disk checks; `TestGoAndPythonAgreeOnTheShapeOfTheManifest` in
+`src-go/qa/cmd/qa-version-pins` pins the two to the same verdicts, so a rule added
+here is added there.
 
 Rows reach the bash consumer **pipe-delimited, one per line**, which is the reason
 several of the rules below exist: a `|` or a newline inside a field does not fail,

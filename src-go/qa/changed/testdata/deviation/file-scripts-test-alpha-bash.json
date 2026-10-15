@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/test-alpha.bash\ncheck shellcheck: scripts/test-alpha.bash\ncheck shell-directives: scripts/test-alpha.bash\ncheck semgrep: scripts/test-alpha.bash\ncheck ready-wait-files: scripts/test-alpha.bash\ncheck bash-limits\nsuite scripts/test-alpha.bash: the suite itself changed\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

@@ -21,9 +21,21 @@ event, a stored file or an exception carried reaches the output: every text is o
   window, for a failure class or for an active team with no waker. The windows are kept in
   `PINGBUS_HOME/stop-guard.json`, so a guard that keeps blocking cannot loop against the
   hooks daemon's own Stop handlers.
-- `session-end` removes the session's teams record and nothing else: the watcher exits when the
-  session's socket goes, which also keeps it running across a `/clear`, where SessionEnd fires
-  and the session goes on (SessionStart then writes the record again).
+- `session-end` removes the session's teams record (SessionStart writes it again after a
+  `/clear`), posts the goodbye (Plan 00194 Task 2.0b) and answers `{}`. The watcher needs
+  no stop: it exits when the session's socket goes. The goodbye is the one network use of a
+  hook: a fixed-template room message from each seat the session holds, sent through `post`,
+  once per session and only when the session really ends (not on `/clear` or `/resume`,
+  where SessionEnd fires and the session goes on), within `GOODBYE_TIMEOUT_S`. A failure is
+  one stderr line; the hook still answers.
+- `post-tool` (PostToolUse) is the `SENT` echo (relay mode only; nothing otherwise).
+
+With `PINGBUS_DELIVERY=relay` (Plan 00194) a supervisor plugin owns the watcher and types
+the messages: `session-start` spawns nothing and names no wake path, the counts leave out
+what is already spooled, `stop` does not block on pending items or on a missing waker, and
+`post-tool` and `stop` return the `SENT` echo of what the session sent as `systemMessage`
+(`sentlog`). A stalled relay is the exception: the counts and the Stop block come back, and
+Stop names the stall once per window. Unset, every hook is as it was.
 """
 
 from __future__ import annotations
@@ -33,23 +45,36 @@ import hashlib
 import json
 import os
 import pathlib
+import secrets
 import re
 import shutil
 import stat
 import subprocess
+import threading
+import time
 from collections.abc import Callable, Mapping
 from typing import TextIO
 
-from helpers.pingbus import config, inbox, notify, protocol, seat
+from helpers.pingbus import config, inbox, notify, protocol, relay, seat, sentlog
 
-EVENTS = ("session-start", "prompt", "stop", "session-end")
+EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool")
 HOOK_EVENT_NAMES = {
     "session-start": "SessionStart",
     "prompt": "UserPromptSubmit",
     "stop": "Stop",
     "session-end": "SessionEnd",
+    "post-tool": "PostToolUse",
 }
 GUARD_FILE = "stop-guard.json"
+GOODBYE_FILE = "goodbye.json"
+#: The most a session's end waits for its goodbyes, in all.
+GOODBYE_TIMEOUT_S = 4.0
+#: SessionEnd `reason`s after which the session goes on: no goodbye.
+GOODBYE_NONE = ("clear", "resume")
+#: The closed set of reasons a goodbye shows, by the SessionEnd `reason`; any other is `other`.
+GOODBYE_REASONS = {"prompt_input_exit": "exit", "logout": "logout"}
+GOODBYE_OTHER = "other"
+SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 WATCH_LOG = "watch.log"
 NO_WAKER_EVERY_S = 600
 FAILURE_EVERY_S = 600
@@ -63,6 +88,7 @@ NAME_FIELDS: dict[str, Callable[[object], bool]] = {
     "team": protocol.is_team_name,
     "handle": lambda value: protocol.parse_handle(value) is not None,
     "lock": lambda value: value in LOCK_STATES,
+    "reason": lambda value: value in (*GOODBYE_REASONS.values(), GOODBYE_OTHER),
     "handles": lambda value: isinstance(value, str) and all(
         protocol.parse_handle(part) is not None for part in value.split(", ")),
     "description": protocol.is_description,
@@ -82,6 +108,7 @@ TEMPLATES = {
     "seat_sibling": "agent-bus: seat {seat}@{team} is {lock}, as {handle}.",
     "seat_history": ("agent-bus: seat {seat}@{team} has earlier traffic: "
                      "`pingbus history --team {team}` shows what it received and sent."),
+    "goodbye": "{handle} left the team: session ended ({reason})",
     "team_about": "agent-bus: team {team} is for: {description}",
     "session_teams": "agent-bus: this session is on teams {team_list}.",
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
@@ -101,9 +128,15 @@ TEMPLATES = {
     "state": "agent-bus: a pingbus state file is unreadable. Run `pingbus status`.",
     "untrusted": "agent-bus: a team room is not trusted, or not verified yet. Run `pingbus status`.",
     "internal": "agent-bus: pingbus failed inside a hook. Run `pingbus status`.",
+    "relay": ("agent-bus: relay delivery has stalled, so pending items are not being typed into this "
+              "session. Run `pingbus status`, then `pingbus recv`."),
 }
 #: Failure classes, worst first: the one a hook names when several apply.
-FAILURE_CLASSES = ("internal", "config", "state", "untrusted")
+FAILURE_CLASSES = ("internal", "config", "state", "untrusted", "relay")
+
+
+class GoodbyeFailed(Exception):
+    """A goodbye that could not be posted; the message is safe to show (no event text)."""
 
 
 class _Failure(Exception):
@@ -235,6 +268,14 @@ class TeamView:
 @dataclasses.dataclass(frozen=True)
 class Survey:
     teams: tuple[TeamView, ...]
+    #: Relay delivery is on (`PINGBUS_DELIVERY=relay`), and whether it has stalled.
+    relaying: bool = False
+    stalled: bool = False
+
+    @property
+    def relay_active(self) -> bool:
+        """The plugin is delivering: what is spooled is its to type, not the agent's to read."""
+        return self.relaying and not self.stalled
 
     def counts(self) -> tuple[int, int, int, int]:
         """(total, from humans, from agents, pings) pending over every surveyed team."""
@@ -246,6 +287,8 @@ class Survey:
 
     def failure(self) -> str | None:
         found = {view.failure for view in self.teams if view.failure is not None}
+        if self.relaying and self.stalled:
+            found.add("relay")
         return next((cls for cls in FAILURE_CLASSES if cls in found), None)
 
     def digest(self) -> str:
@@ -285,10 +328,12 @@ def _team_view(member: config.Member) -> TeamView:
 def survey(environ: Mapping[str, str]) -> Survey:
     """Every active team, offline. `_Failure` when the bundles themselves are refused."""
     try:
+        relaying = relay.enabled(environ)
         members = config.load_active(environ)
     except (config.ConfigError, config.UsageError):
         raise _Failure("config") from None
-    return Survey(tuple(_team_view(member) for member in members))
+    stalled = relaying and relay.Spool(config.resolve_home(environ)).stalled()
+    return Survey(tuple(_team_view(member) for member in members), relaying, stalled)
 
 
 # ── starting the watcher ─────────────────────────────────────────────────────────────────
@@ -420,7 +465,22 @@ class _Hook:
 
     def session_start(self) -> dict:
         surveyed = survey(self.environ)
-        lines: list[str] = []
+        lines = self._session_teams_lines(surveyed)
+        lines += [] if surveyed.relaying else self._wake_lines(surveyed)
+        seat_failure = None
+        try:
+            lines += seat_lines(self.environ, tuple(view.team for view in surveyed.teams))
+        except (config.ConfigError, inbox.StateError, OSError) as exc:
+            self.err.write(f"pingbus: hook session-start: the seats cannot be read: {exc}\n")
+            seat_failure = "state"
+        lines += about_lines(surveyed.teams)
+        lines += role_lines(surveyed.teams)
+        lines += self._pending_and_failure(surveyed, seat_failure)
+        return _context(self.event, lines)
+
+    def _session_teams_lines(self, surveyed: Survey) -> list[str]:
+        """Write the session's teams for the status line, and name them when there are several.
+        Delivery mode does not matter here: a relayed session is on its teams all the same."""
         session_id = _session_id(self.payload)
         if session_id is not None and surveyed.teams:
             try:
@@ -429,7 +489,13 @@ class _Hook:
                 self.err.write(f"pingbus: hook session-start: the session record for the status line "
                                f"was not written: {exc}\n")
         if len(surveyed.teams) > 1:
-            lines.append(fill("session_teams", team_list=", ".join(view.team for view in surveyed.teams)))
+            return [fill("session_teams", team_list=", ".join(view.team for view in surveyed.teams))]
+        return []
+
+    def _wake_lines(self, surveyed: Survey) -> list[str]:
+        """Start the watcher when the session has a socket and some team has no waker, and
+        say which wake path the session has. (Relay mode has none of this: the plugin owns it.)"""
+        lines: list[str] = []
         try:
             session = notify.session_socket(self.environ)
         except ValueError as exc:
@@ -449,16 +515,7 @@ class _Hook:
                 lines.append(TEMPLATES["watcher_started"])
         if held:
             lines.append(TEMPLATES["seat_held"].format(held=held, teams=teams))
-        seat_failure = None
-        try:
-            lines += seat_lines(self.environ, tuple(view.team for view in surveyed.teams))
-        except (config.ConfigError, inbox.StateError, OSError) as exc:
-            self.err.write(f"pingbus: hook session-start: the seats cannot be read: {exc}\n")
-            seat_failure = "state"
-        lines += about_lines(surveyed.teams)
-        lines += role_lines(surveyed.teams)
-        lines += self._pending_and_failure(surveyed, seat_failure)
-        return _context(self.event, lines)
+        return lines
 
     def prompt(self) -> dict:
         return _context(self.event, self._pending_and_failure(survey(self.environ)))
@@ -466,7 +523,9 @@ class _Hook:
     def _pending_and_failure(self, surveyed: Survey, extra_failure: str | None = None) -> list[str]:
         lines = []
         total, humans, peers, pings = surveyed.counts()
-        if total:
+        if total and not surveyed.relay_active:
+            # Relay is delivering: the watcher spools within a second and the plugin types
+            # it. Sending the agent to `recv` now would deliver the item a second time.
             lines.append(pending_text(total, humans, peers, pings))
         found = {surveyed.failure(), extra_failure}
         failure = next((cls for cls in FAILURE_CLASSES if cls in found), None)
@@ -474,7 +533,31 @@ class _Hook:
             lines.append(TEMPLATES[failure])
         return lines
 
+    def echo(self) -> str | None:
+        """The `SENT` echo of what this session sent since the last one (relay mode), or None."""
+        try:
+            if not relay.enabled(self.environ):
+                return None
+            home = config.resolve_home(self.environ)
+            handles = {member.team: member.handle for member in config.load_active(self.environ)}
+        except (config.ConfigError, config.UsageError):
+            raise _Failure("config") from None
+        problems: list[str] = []
+        text = sentlog.drain(home, handles, secrets.token_hex(4), problems)
+        for problem in problems:
+            self.err.write(f"pingbus: hook {self.event}: {problem}\n")
+        return text
+
+    def post_tool(self) -> dict:
+        text = self.echo()
+        return {} if text is None else {"systemMessage": text}
+
     def stop(self) -> dict:
+        echoed = self.echo()
+        decision = self.stop_decision()
+        return decision if echoed is None else {**decision, "systemMessage": echoed}
+
+    def stop_decision(self) -> dict:
         if self.payload is None or self.payload.get("stop_hook_active") is not False:
             return {}
         guard = _Guard.load(self.environ, self.err)
@@ -483,6 +566,8 @@ class _Hook:
         except _Failure as failure:
             return self.stop_failure(failure.cls, guard)
         total, humans, peers, pings = surveyed.counts()
+        if surveyed.relay_active:
+            total = 0  # the plugin types these; blocking would only duplicate
         if total:
             digest = surveyed.digest()
             if guard.values["pending"] != digest:
@@ -498,7 +583,7 @@ class _Hook:
         failure = surveyed.failure()
         if failure is not None:
             return self.stop_failure(failure, guard)
-        free = surveyed.without_waker()
+        free = 0 if surveyed.relaying else surveyed.without_waker()
         if free and guard.allow("no_waker_ms", self.now_ms, NO_WAKER_EVERY_S):
             return _block(TEMPLATES["no_waker"].format(free=free, teams=len(surveyed.teams)))
         return {}
@@ -511,16 +596,77 @@ class _Hook:
             return _block(TEMPLATES[cls])
         return {}
 
+    def session_end(self, post: Callable[[str, str], object] | None) -> dict:
+        reason = self.payload.get("reason") if self.payload is not None else None
+        if post is None or reason in GOODBYE_NONE:
+            return {}
+        shown = GOODBYE_REASONS.get(reason, GOODBYE_OTHER) if isinstance(reason, str) else GOODBYE_OTHER
+        home = config.resolve_home(self.environ)
+        teams = tuple(member.team for member in config.load_active(self.environ))
+        goodbyes = [(view.ref.team, fill("goodbye", handle=view.handle, reason=shown))
+                    for view in seat.session_seats(home, teams) if view.own]
+        if goodbyes and self._first_goodbye(home / GOODBYE_FILE):
+            self._post_all(post, goodbyes)
+        return {}
+
+    def _first_goodbye(self, path: pathlib.Path) -> bool:
+        """Whether this session has not tried to say goodbye yet. The attempt is recorded
+        before it is made, so a hook that fires twice, or an attempt that failed, is not
+        repeated. Without a usable session id nothing is remembered."""
+        session = self.payload.get("session_id") if self.payload is not None else None
+        if not isinstance(session, str) or not SESSION_ID_RE.fullmatch(session):
+            return True
+        try:
+            data = inbox.read_json_file(path)
+        except (inbox.StateError, OSError):
+            data = None  # unreadable or malformed: replaced below
+        if isinstance(data, dict) and data.get("session") == session:
+            return False
+        try:
+            inbox.write_json_file(path, {"v": 1, "session": session})
+        except OSError as exc:
+            self.err.write(f"pingbus: hook session-end: no goodbye sent, its record cannot be "
+                           f"written: {exc.strerror or exc}\n")
+            return False
+        return True
+
+    def _post_all(self, post: Callable[[str, str], object], goodbyes: list[tuple[str, str]]) -> None:
+        results: dict[str, str | None] = {}
+
+        def send(team: str, text: str) -> None:
+            try:
+                post(team, text)
+            except GoodbyeFailed as exc:
+                results[team] = str(exc)
+            except Exception as exc:  # reported by class only: its message may hold anything
+                results[team] = type(exc).__name__
+            else:
+                results[team] = None
+
+        threads = [threading.Thread(target=send, args=goodbye, daemon=True) for goodbye in goodbyes]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + GOODBYE_TIMEOUT_S
+        for thread in threads:
+            thread.join(max(0.0, deadline - time.monotonic()))
+        for team, _ in goodbyes:
+            failure = results.get(team, f"no answer within {GOODBYE_TIMEOUT_S:g} s")
+            if failure is not None:
+                self.err.write(f"pingbus: hook session-end: goodbye to team {team} not sent: {failure}\n")
+
     def failed(self, cls: str) -> dict:
         if self.event == "stop":
             return self.stop_failure(cls)
         if self.event == "session-end":
             return {}
+        if self.event == "post-tool":
+            return {"systemMessage": TEMPLATES[cls]}
         return _context(self.event, [TEMPLATES[cls]])
 
 
 def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
-        spawn: Callable[[Mapping[str, str], pathlib.Path], object], err: TextIO) -> dict:
+        spawn: Callable[[Mapping[str, str], pathlib.Path], object], err: TextIO,
+        post: Callable[[str, str], object] | None = None) -> dict:
     """One hook's output object. Never raises: a failure becomes its class's template."""
     if event not in EVENTS:
         raise ValueError(f"not a hook: {event!r}")
@@ -530,11 +676,13 @@ def run(event: str, raw: bytes, environ: Mapping[str, str], *, now_ms: int,
             session_id = _session_id(hook.payload)
             if session_id is not None:
                 forget_session_teams(environ, session_id)
-            return {}
+            return hook.session_end(post)
         if event == "session-start":
             return hook.session_start()
         if event == "prompt":
             return hook.prompt()
+        if event == "post-tool":
+            return hook.post_tool()
         return hook.stop()
     except _Failure as failure:
         cls = failure.cls

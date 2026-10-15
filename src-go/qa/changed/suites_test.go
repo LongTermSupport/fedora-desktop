@@ -133,6 +133,7 @@ func TestSuiteIsPickedByNameWithTheReasonAndCoversTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []pickedSuite{{name: "scripts/test-alpha.bash", why: []string{"names scripts/lib/helper.bash"}}}
+	dropRows(p)
 	if !reflect.DeepEqual(p.suites, want) || !p.covered["scripts/lib/helper.bash"] {
 		t.Fatalf("got %+v covered %v", p.suites, p.covered)
 	}
@@ -145,8 +146,16 @@ func TestSuiteThatItselfChangedRunsItselfOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []pickedSuite{{name: "scripts/test-alpha.bash", why: []string{"the suite itself changed"}}}
+	dropRows(p)
 	if !reflect.DeepEqual(p.suites, want) {
 		t.Fatalf("got %+v", p.suites)
+	}
+}
+
+// dropRows blanks the judging rows, which these tests are not about.
+func dropRows(p *plan) {
+	for i := range p.suites {
+		p.suites[i].rows = nil
 	}
 }
 

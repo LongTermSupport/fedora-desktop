@@ -17,6 +17,25 @@ import (
 type pickedSuite struct {
 	name string // scripts/<name>.bash
 	why  []string
+	// rows are the gate-table rows of the suite's script; its output is judged by each one's
+	// readers, as qa-all judges that gate.
+	rows []gates.Gate
+}
+
+// rowsByScript maps each gate script of scripts/qa-gates.tsv to its rows: a suite picked from the
+// table is judged by its row's own readers, exactly as qa-all judges that gate.
+func rowsByScript(scripts string) (map[string][]gates.Gate, error) {
+	table, err := gates.Load(filepath.Join(scripts, "qa-gates.tsv"))
+	if err != nil {
+		return nil, err
+	}
+	rows := map[string][]gates.Gate{}
+	for _, g := range table {
+		if name, ok := g.Script(); ok {
+			rows[name] = append(rows[name], g)
+		}
+	}
+	return rows, nil
 }
 
 // loadPopulation is the suites that may run: the scripts of the rows of scripts/qa-gates.tsv,
@@ -153,6 +172,10 @@ func (s *session) selectSuites(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	gateRows, err := rowsByScript(s.scripts)
+	if err != nil {
+		return err
+	}
 	changed := slices.Concat(s.plan.existing, s.plan.deleted)
 	for _, name := range population {
 		suite := "scripts/" + name
@@ -175,7 +198,7 @@ func (s *session) selectSuites(ctx context.Context) error {
 			}
 		}
 		if len(why) > 0 {
-			s.plan.suites = append(s.plan.suites, pickedSuite{name: suite, why: why})
+			s.plan.suites = append(s.plan.suites, pickedSuite{name: suite, why: why, rows: gateRows[name]})
 		}
 	}
 	s.settleUncovered()

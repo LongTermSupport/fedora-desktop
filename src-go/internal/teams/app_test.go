@@ -219,6 +219,36 @@ func TestCreateApplyAndRemoveRefuseWhenTheCheckoutHasGone(t *testing.T) {
 	}
 }
 
+func TestDispatchLxcAddIsTheAdderAndTheUsageNamesIt(t *testing.T) {
+	h := world(t)
+	if code := h.app.Run([]string{"lxc-add"}); code != term.ExitUsage ||
+		!strings.Contains(h.ErrOut.String(), "'lxc-add' takes one team: ccy-teams lxc-add <team>") {
+		t.Fatalf("no team: exit %d: %s", code, h.ErrOut.String())
+	}
+	h = world(t)
+	if code := h.app.Run([]string{"lxc-add", "alpha"}); code != term.ExitUsage ||
+		!strings.Contains(h.ErrOut.String(), "asks its questions on a terminal") {
+		t.Fatalf("no terminal: exit %d: %s", code, h.ErrOut.String())
+	}
+	h = newHarness(t)
+	h.app.Run([]string{"--help"})
+	for _, want := range []string{"ccy-teams lxc-add <team>", "agent_bus_lxc_members", "Add an LXC container's agent"} {
+		if !strings.Contains(h.Out.String(), want) {
+			t.Fatalf("usage lacks %q", want)
+		}
+	}
+}
+
+func TestLxcAddRefusesWhenTheCheckoutHasGone(t *testing.T) {
+	h := newHarness(t)
+	if err := os.Remove(filepath.Join(h.Root, "helpers", "agent_bus", "declare.py")); err != nil {
+		t.Fatal(err)
+	}
+	if code := h.app.Run([]string{"lxc-add", "alpha"}); code != term.ExitFailure || !strings.Contains(h.ErrOut.String(), "has gone") {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+}
+
 func TestNewAppIsTheRealSystemOverTheConfig(t *testing.T) {
 	a := NewApp(config.Config{RootDir: "/checkout"})
 	if a.Runner == nil || a.Board == nil || a.Ops == nil || a.Login == nil || a.Seats == nil || a.Create == nil || a.Picker == nil {

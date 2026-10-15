@@ -1,0 +1,13 @@
+{
+ "stdout": "✓ toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n✓ go: GO-OK 39 package(s)\n✓ bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n✓ bash: 4 files OK\n✓ python: 4 files OK\n",
+ "stderr": "no tool\nERROR: python gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).\n",
+ "status": 2,
+ "log": [
+  "qa-toolchain ",
+  "qa-go ",
+  "qa-bash-limits ",
+  "qa-bash  json",
+  "qa-python  json"
+ ],
+ "report": null
+}

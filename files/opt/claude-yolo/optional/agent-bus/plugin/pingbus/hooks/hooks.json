@@ -20,12 +20,13 @@
         ]
       }
     ],
-    "SessionEnd": [
+    "PostToolUse": [
       {
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "pingbus hook session-end"
+            "command": "if [ \"$PINGBUS_DELIVERY\" = relay ]; then exec pingbus hook post-tool; fi"
           }
         ]
       }
@@ -36,6 +37,17 @@
           {
             "type": "command",
             "command": "pingbus hook stop"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pingbus hook session-end",
+            "timeout": 6
           }
         ]
       }

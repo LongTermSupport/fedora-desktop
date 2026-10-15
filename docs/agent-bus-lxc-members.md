@@ -81,21 +81,44 @@ Notes on the table:
    The full team file is described in [agent-bus.md](agent-bus.md); `localhost.yml.dist`
    shows an example entry.
 
-2. **Declare the member** in `agent_bus_lxc_members` in the same file:
+2. **Add the member from ccy-teams.** This is the way to do it: no file is edited by hand.
+   In `ccy-teams`, Enter on any row of the team and choose *Add an LXC container's agent to
+   `<team>`* (it has no shortcut key), or run:
+
+   ```bash
+   ccy-teams lxc-add <team>
+   ```
+
+   It asks for sudo (LXC is rootful), lists the host's running containers and asks for the
+   container, the agent user (the container's ordinary users are suggested; a user already
+   in another team is fine), the checkout inside it (those in the user's home with a GitHub
+   remote are suggested) and the role (`worker`; `coordinator` only while the team has
+   none). It never asks for the handle's repo, host or seat: they are derived from the
+   checkout, as for a ccy seat (below). Each answer is checked as it is
+   given by the rules the play applies, and asked again when refused (a duplicate, a second
+   coordinator, a relative checkout, a path that is not a git checkout). It then shows a
+   summary with the derived handle, asks once, writes the
+   `agent_bus_lxc_members` entry (the file as it was is kept beside it as
+   `localhost.yml.backup.<time>`) and applies the team, which is step 3. It ends by saying
+   what is left inside the container: `gh auth login` as the agent user if gh is not logged
+   in (the play stops naming it when it is not; fix that, then `ccy-teams apply <team>`), and
+   `ccy --teams <team>` as that user in the checkout. The container and user must already
+   exist; this never makes either.
+
+   **Or declare the member by hand** in `agent_bus_lxc_members` in the same file, which is
+   what the command writes:
 
    ```yaml
    agent_bus_lxc_members:
      - team: <team>
        container: <container>
        user: <agent-user>
-       host: <role>
        checkout: /home/<agent-user>/<repo>
    ```
 
-   `host` is the install's role, which becomes the handle's `<host>` part. It is a role name
-   (for example `worker`), never a machine's hostname: handles appear in public forge text.
-   The optional keys are `seat`, `role`, `human_text`, `repo` and `state`; the comments in
-   `localhost.yml.dist` describe each.
+   Those four keys are all an entry needs. The handle is derived (see **The handle** below).
+   The optional keys are `host` and `seat` (overrides), `role`, `human_text`, `repo` and
+   `state`; the comments in `localhost.yml.dist` describe each.
 
 3. **Run the play**, or let `ccy-teams apply <team>` run it for that team:
 
@@ -109,12 +132,57 @@ Notes on the table:
    `HOOKS_DAEMON_HOSTNAME=<role>`, and runs `pingbus config check` as the agent user. A run
    with nothing new reports no change.
 
-**The handle stays fixed.** The member's handle is `<repo>.<seat>+<host>.lxc`. The seat
-defaults to the container's name (lower case, letters and digits, at most 12, a letter
-first); set `seat` when the name does not give one. A member that has joined is left alone on
-later runs, so its token does not change; a lost bundle is replaced with a new token for the
-same handle. `seat` and `host` are part of the handle: to change either, set the entry
-`state: absent`, run the play, then declare it again.
+**The handle** is `<repo>.<seat>+<host>.lxc`, derived from the repository as ccy derives a
+podman seat's ([agent-bus.md](agent-bus.md)), reading the checkout in the container:
+
+- `<repo>` is the last component of the checkout's `origin` (`.git` removed), else the
+  directory's name;
+- `<host>` is the `HOOKS_DAEMON_HOSTNAME` that the checkout's `.claude/ccy/ccy.env.local`
+  assigns, else the literal `local`; never the machine's hostname, because handles appear in
+  public forge text;
+- `<seat>` is the lowest number that no active member of the same `<repo>+<host>.lxc` holds in
+  the team; a parked member's number is offered again, so it returns. An active numbered
+  member that no entry holds is not skipped: see **A lost bundle**, below.
+
+The host reads `<repo>` and `<host>` and the play mints the handle from them. The container's
+own `pingbus suggest-handle` is only held to the same answer: if it names another repo or
+host, the play refuses and mints nothing.
+
+The checkout is read from the host's side, as root, through the container's LXC config (its
+rootfs and the bind mounts the config declares), so it also works for a container that is
+stopped. Nothing is run there: `.git/config` and `ccy.env.local` are read as plain files, no
+git is started (a repository config can name programs to run), every path component is opened
+without following a link and a link anywhere is refused, and each file is capped at 64 KiB. A
+container with an `lxc.idmap` (unprivileged) or a rootfs that is not a directory is refused.
+Git section names are read without regard to case (`[Remote "origin"]`), and a url may be
+quoted as a whole. `git` would apply a `url.<base>.insteadOf` rewrite to the origin, which
+can change the repository's name; this does not apply it, so a checkout whose `.git/config`
+has one is refused (remove the rewrite, or give the entry `repo`, `host` and `seat`). A rewrite
+in the agent's own `~/.gitconfig` cannot be seen from the host; it shows as a disagreement with
+the container's `pingbus suggest-handle`, which is refused too. An `optional` bind mount whose
+source is absent is skipped, as LXC skips it; any other missing source is refused by name.
+
+**The handle stays fixed.** A member that has joined is left alone on later runs, so its token
+does not change; a lost bundle is replaced with a new token for the same handle. An entry that
+leaves `seat` out keeps the seat its bundle in the container names, so a run again never
+renames it.
+
+**Entries written before host and seat were derived** keep their handles, and nothing is renamed
+silently. An entry that gives `host` and `seat` is used as it is, and the checkout is not read.
+An entry that gives `host` but not `seat` keeps the seat its bundle names; with no bundle, the
+seat the container's name gave before (lower case, letters and digits, at most 12, a letter
+first) when a member of that handle is already in the team; otherwise it is derived like a new
+one. `host` and `seat` stay valid as overrides. They are part of the handle: to change either,
+set the entry `state: absent`, run the play, then declare it again.
+
+**A lost bundle.** If a member's bundle is gone while it is still active, the play does not
+give the container a new handle: that would leave the old one active with a token nobody
+holds. It refuses, naming the handle, whenever an active numbered member of the same
+`<repo>+<host>.lxc` is held by no entry (by an explicit `seat`, or by a bundle in another
+declared container). To take that handle back, set the entry `state: absent`, run the play
+(which parks it), then declare it present again: it returns with a new token. To leave it
+alone, give the entry another `seat`. An explicit `seat` equal to that handle is refused the
+same way. A member joined by hand looks the same as a lost bundle, so it is refused the same way.
 
 **Leaving.** `state: absent` parks the member's handle in the team, deletes the bundle from
 the container and takes the team out of `PINGBUS_TEAMS`. A container that is already gone
@@ -149,8 +217,8 @@ What it does, in order (the script is `files/opt/claude-yolo/optional/agent-bus/
    ```
 
    where `<kit>` is `/usr/local/share/agent-bus/kit`. The plugin supplies the
-   `SessionStart`, `UserPromptSubmit` and `Stop` hooks (`pingbus hook session-start`,
-   `prompt`, `stop`) and the pingbus skill. The settings file holds one setting,
+   `SessionStart`, `UserPromptSubmit`, `Stop` and `SessionEnd` hooks (`pingbus hook session-start`, `prompt`, `stop`, `session-end`) and the pingbus skill. `SessionEnd`
+   posts the goodbye ([agent-bus.md](agent-bus.md)). The settings file holds one setting,
    `"crossSessionInbound": "accept"`, without which a bypass-permissions session holds the
    bus's wake notice instead of starting a turn.
 

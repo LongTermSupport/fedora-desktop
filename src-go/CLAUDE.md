@@ -136,5 +136,159 @@ publish) is injected and run by the command through the seam. Its spec is the in
 (`SPEC-qa-ansible.md`, expectations E1-E19), proven by unit tests and end-to-end scenario trees,
 not by a recording of the old bash; `scripts/test-qa-ansible-failfast.bash` drives the built tool.
 
+`qa/ansiblesyntax` + `qa/cmd/qa-ansible-syntax` (same nested module) are
+`scripts/qa-ansible-syntax.bash`, `ansible-playbook --syntax-check` over every playbook: the script
+only builds and runs the command. Ansible stays the engine; the tool owns the playbook set (the
+`yaml` list of `qa/discovery`, the `tracked-playbooks` yardstick), the prerequisites (a password
+file the config names is asked of `ansible-config`, never opened) and the judgement. Spec
+`SPEC-qa-ansible-syntax.md` (S1-S15); its unit tests and the real-engine tests in
+`qa/cmd/qa-ansible-syntax` are the proof.
+
+`qa/nokill` + `qa/cmd/qa-nokill-containerwatch` (same nested module) are
+`scripts/qa-nokill-containerwatch.bash`, the no-kill gate for the container-watch watchdog: the
+script only builds and runs the command. Its spec is `SPEC-qa-nokill-containerwatch.md`
+(expectations E1-E15), proven by unit tests over a fake tree and a real work tree; the one
+`git ls-files` it needs is run by the command through the seam.
+
+`qa/ansiblepause` + `qa/cmd/qa-ansible-pause` (same nested module) are
+`scripts/qa-ansible-pause.bash`, the rule pause-without-register: the script only builds and runs
+the command. A line scan (the annotation is a comment, which a YAML load drops) over the `yaml`
+list of `qa/discovery` under `playbooks/` and `tasks/`; `SPEC-qa-ansible-pause.md` (E1-E17) is the
+specification, and the rule is proven against `tests/fixtures/ansible-pause` by its Go tests.
+
+`qa/vmtestmanifest` + `qa/cmd/qa-vmtest-manifest` (same nested module) are
+`scripts/qa-vmtest-manifest.bash`, the VM-test scenario manifest gate: the script only builds and
+runs the command. `vars/vm-test-scenarios.yml` is decoded strictly as YAML (`go.yaml.in/yaml/v3`),
+handed as JSON to the host's own Python validator (`helpers/vmtest/validate_manifest.py`, run
+through `qa/internal/proc`, which gained `Cmd.Stdin` for it; one definition of a valid manifest, so
+the gate needs python3), then cross-checked against the guest scripts that `qa/discovery` lists as
+published: each runnable scenario's `planned` against the `PLANNED` assignment read from its
+checker's `mvdan.cc/sh` syntax tree, each `guest-prepare-*` fixture against a declared reboot, and
+orphaned guest scripts. `SPEC-qa-vmtest-manifest.md` (V1-V16) is the specification, proven by unit
+tests over real temporary git repositories with a fake validator and by the real validator in
+`qa/cmd/qa-vmtest-manifest`.
+
+`qa/toolchain` + `qa/cmd/qa-toolchain` (same nested module) are `scripts/qa-toolchain.bash`, the
+gate that the QA tools are the versions `.qa-versions` pins (go: not older than `src-go/go.mod`):
+the script only builds and runs the command. The pin file is parsed with the `mvdan.cc/sh` parser
+and `go.mod` with `x/mod/modfile`, never sourced or awk-ed; tool drift is exit 1 (the machine is
+wrong), an unreadable pin file or go.mod exit 2 (the gate cannot judge). Version runs go through `qa/internal/proc`, faked in the
+unit tests; `SPEC-qa-toolchain.md` (T1-T16) is the specification.
+
+`qa/docs` + `qa/cmd/qa-docs` (same nested module) are `scripts/qa-docs.bash`, the documentation
+integrity gate: the script only builds and runs the command. Markdown is read with a CommonMark
+parser (`goldmark`, with its table extension: links, headings and the gate rows of `CLAUDE/QA.md`
+come from the syntax tree), `playbooks/playbook-main.yml` as YAML, and `scripts/qa-gates.tsv` by
+`qa/gates`, so the inventory check and `qa-all` cannot disagree on what a gate is. The scan is the
+`markdown` list of `qa/discovery` (what git would publish) narrowed to the core documents, a link
+target is asked its trackedness through the `tracked-files` list, and an empty scope, an unread
+file or an unparsed file is exit 2. git goes through `qa/internal/proc`, faked in the unit tests;
+`SPEC-qa-docs.md` (D1-D25) is the specification, proven by unit tests over on-disk trees and
+real-git tests in `qa/cmd/qa-docs`, and `scripts/test-qa-docs-exit-codes.bash` drives the built
+tool over fixture trees.
+
+`qa/readywait` + `qa/cmd/qa-ready-wait-rules` (same nested module) are
+`scripts/qa-ready-wait-rules.bash`, the gate for `ready-wait-ignores-child-exit`: the script only
+builds and runs the command. Python stays semgrep's (`.semgrep/ready-wait.yml` is the data); the
+shell half is a rule in Go over the `mvdan.cc/sh` syntax tree (it replaced `helpers/ready_wait`), and each half is proven
+against its fixture in `.semgrep/` on every run. Spec `SPEC-qa-ready-wait-rules.md` (R1-R26), proven
+by unit tests over a fake semgrep and real-semgrep tests in `qa/cmd/qa-ready-wait-rules`.
+
+`qa/patterns` + `qa/cmd/qa-patterns` (same nested module) are `scripts/qa-patterns.bash`, the
+bash-convention gate: semgrep stays the engine and `.semgrep/bash-conventions.yml` the data; the Go
+owns scope (what git would publish), the rule self-test against its fixture, the scan mirror and
+the refusal to pass over a script semgrep did not read or parse. git and semgrep go through
+`qa/internal/proc`, faked in the unit tests; `SPEC-qa-patterns.md` (P1-P18) is the specification.
+
+`qa/ghscopes` + `qa/cmd/qa-gh-scopes` (same nested module) are `scripts/qa-gh-scopes.bash`, the
+`gh-scope-outside-ssot` gate: semgrep stays the engine and `.semgrep/gh-scopes.yml` the data; the
+Go owns scope (what git would publish, handed by name), the rule self-test against its fixture and
+the refusal to pass over a file semgrep did not read (the rule's own `paths.exclude` globs say
+which are not expected). `SPEC-qa-gh-scopes.md` (G1-G16) is the specification.
+
+`qa/planscriptlogging` + `qa/cmd/qa-plan-script-logging` (same nested module) are
+`scripts/qa-plan-script-logging.bash`, the Plan 00130 gate: the script only builds and runs the
+command. It walks the active plan folders on disk (an ignored `logs/` directory must be seen, so
+not a git listing), finds plan scripts by name or shell shebang (`discovery.ShellShebang`), parses
+each with `mvdan.cc/sh` and reports a bare `exec` redirected into an output process substitution;
+an unparseable or unreadable file is exit 2. It starts no process.
+`SPEC-qa-plan-script-logging.md` (L1-L14) is the specification, proven by unit tests over in-memory
+trees and a real-file-system test in the command package.
+
+`qa/versionpins` + `qa/cmd/qa-version-pins` (same nested module) are `scripts/qa-version-pins.bash`,
+the Plan 00109 gate on `vars/version-pins.yml`: the script only builds and runs the command. The
+manifest and each `.yml` target are read with the YAML library's node API (repeated keys, wrong
+types and unknown keys are findings); the `var: value` line form is the one
+`helpers/version_pins/check_pins.py` reads. A missing, unreadable or unparsed file, or no pins, is
+exit 2; a wrong manifest or pin is exit 1, and every finding is reported. It starts no process.
+`SPEC-qa-version-pins.md` (V1-V25) is the specification, proven by unit tests over in-memory trees
+and real-file-system tests (symlinks, the live manifest) in the command package.
+
+`qa/sttrules` + `qa/cmd/qa-speech-to-text-rules` (same nested module) are
+`scripts/qa-speech-to-text-rules.bash`, the gate for the rules in `.semgrep/speech-to-text.yml`:
+semgrep stays the engine and the rule file the data (decoded as YAML and written out again, one
+rule file per language, so an extensionless Python script never meets a JavaScript rule); the Go
+owns scope (the `js` and `python` lists of `qa/discovery`, or the named files), the proof that
+every rule has a `ruleid:` line in its language's fixture and matches it, and the refusal to pass
+over a file semgrep did not read. `SPEC-qa-speech-to-text-rules.md` (S1-S17) is the specification.
+
+`qa/helpertests` + `qa/cmd/qa-helper-tests` (same nested module) are `scripts/qa-helper-tests.bash`,
+the helper unit-test gate: the script only builds and runs the command. The stdlib `unittest` runner
+(`helpers/qa_environment/unittest_counts.py`) stays Python and the engine; the Go owns scope (a walk
+of `tests/helpers` checked against the `tracked-helper-tests` list of `qa/discovery`; none found or
+one lost is exit 2), the module names (each segment an identifier), the environment (the machine's
+git configuration kept out), and the judgement: the counts file is read back with `gates.HelperRun`
+(the integer sibling of `gates.HelperCounts`, which `qa-all` reads) and must agree with the request,
+so a run that did not happen cannot pass. `SPEC-qa-helper-tests.md` (H1-H13, G1) is the specification,
+proven by unit tests over a fake tree and runner and a real git tree with the real runner in the
+command package.
+
+`qa/python` + `qa/cmd/qa-python` (same nested module) are `scripts/qa-python.bash`, the Python gate:
+ruff and python3 stay the engines; the Go owns scope (what git would publish, by shebang or `.py`
+name, never by mode; both lists come from `qa/discovery`), the one-process compile, the substitution and compile of Python templates, the
+`ruff --show-files` proof that ruff read every file, and the judgement. `SPEC-qa-python.md` (Y1-Y23) is the specification.
+`qa/js` + `qa/cmd/qa-js` (same nested module) are `scripts/qa-js.bash`, the JavaScript gate:
+`node --check` and the project's ESLint 8 stay the engines (ESLint run as `--no-eslintrc --config extensions/.eslintrc.json --no-inline-config`, so nothing beside the repository's config changes the
+rules; `qa-changed`'s per-file eslint is given the same pins); the Go owns scope (the `js` list of
+`qa/discovery`), the proof that ESLint read every file it was given, the exit 2 for missing tooling
+(`extensions/node_modules`) and the judgement. `SPEC-qa-js.md` (J1-J16) is the specification.
+`qa/bash` + `qa/cmd/qa-bash` (same nested module) are `scripts/qa-bash.bash`, the shell gate:
+`bash -n` and shellcheck stay the engines (shellcheck with `--norc --external-sources` and an
+empty `SHELLCHECK_OPTS`, so nothing beside a script changes the rules); the Go owns scope (the
+`shell` list of `qa/discovery`), the `tracked-shell` coverage guard, the suppression ratchet
+(`# shellcheck disable=` against `scripts/shellcheck-disable.allowlist`, `shell=` against the
+shebang; `--directives FILE...` runs only this, for `qa-changed`) and the judgement.
+`SPEC-qa-bash.md` (S1-S20) is the specification.
+`qa/discovery` + `qa/cmd/qa-discovery` (same nested module) are the shared source-file discovery
+every Go gate imports (`qa/discovery`, `discovery.Main` with a list name; no bash wrapper; the exclusion
+trees are `scripts/qa-trees.tsv`, read by the Go tools only): what git would publish, one predicate per
+language, and the tracked yardsticks each gate measures its coverage against.
+`SPEC-qa-discovery.md` (D1-D19) is the specification; the `markdown` and `tracked-files` lists are
+the docs gate's.
+
+`qa/deployeddrift` + `qa/cmd/qa-deployed-drift` (same nested module) are
+`scripts/qa-deployed-drift.bash`, the repo-against-host gate: the script only builds and runs the
+command. It reads the repo and the host through `fs.FS`; the one git question (is this a linked
+worktree) is asked by the command through the seam. `SPEC-qa-deployed-drift.md` (E1-E18) is the
+specification, proven by unit tests over in-memory trees.
+
+`qa/internal/rootpath` is the one place a gate turns `--root`/`--scripts` into its root: absolute,
+clean, symlink-free, an unresolvable root being exit 2. No gate resolves a root on its own; each
+carries a symlinked-root test, because an engine that prints realpaths leaks the checkout path
+when the root is stripped unresolved. A gate whose tests run on a fake tree takes the resolver as
+a field (`rootpath.RootVia`).
+
 `qa/internal/proc` can stream a command's output to a writer (a report stage's output reaches the
 terminal live and in order).
+
+A new gate's command and package are built on four shared packages under `qa/internal`, never on
+a copy of their code. `cmdmain` is for the `main`: every command's `run` starts with
+`cmdmain.RefuseClosedStdout()` (a closed stdout cannot carry the verdict: exit 2), and a command
+that writes a machine report wires `cmdmain.WriteReport` (mode 0644, read by other accounts) or
+`cmdmain.WriteReportPrivate` (0600) in a `newEnv` function, so a test can pin the choice with
+`cmdmaintest`. `emit` is the two-stream writer that remembers its first write error (`Line`,
+`Text`, `Block` for a usage text) and `emit.Finish`, the one exit-code rule for an unwritable
+stdout or stderr. `rootargs` is the `-h`/`--root DIR`/`--scripts DIR` grammar (a missing, empty or
+`-`-leading value is refused, an unknown argument is a typed error answered with the usage text);
+a gate with more flags keeps its own parser. `rootpath` (above) resolves what `rootargs` read.
+`cmdmaintest` is the test side: `RefusesClosedStdout` and `WritesReportWithMode`.

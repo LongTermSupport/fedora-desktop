@@ -107,7 +107,7 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
     step, never SKIPPED-NEEDS-OWNER.
   - [ ] 🔄 Agent-to-agent free text (owner, 2026-10-12; DESIGN.md D63, reverses D13): built;
     acceptance M1.4 host run ACCEPTED 26-10-13. Room creation refused: acceptance M1.7 added
-    26-10-13 (a member's `createRoom` must get 403 `M_FORBIDDEN`). Pending: its host run.
+    26-10-13 (a member's `createRoom` must get 403 `M_FORBIDDEN`). Host run done at F44 70ef1d02 (every leg passed), before the integration merge. It runs again after the merge, from the branch's meta-deploy list, against the goodbye-aware message counts.
   - [ ] 🔄 Org trust and outside references (owner, 2026-10-13; DESIGN.md D64): built with unit
     tests; deployed 26-10-13; M1.5 and M1.6 pass on the host. Pending: acceptance.bash again
     (D66 deployed 26-10-13); the owner's own testing comes first. Every member must run the
@@ -121,7 +121,9 @@ Detail of every task and milestone below, as it stood at the PLAN.md split, is i
       suggestion of a stub gh for the harness's non-ccy members). The repository answer is
       kept in the cache file for an hour (26-10-13: a repeat ping costs no call). A GitHub
       rate refusal gets its own drop reason (`forge-rate`, not `unresolved`). Pending:
-      acceptance.bash.
+      acceptance.bash. Its F44 run at 70ef1d02 passed every leg (M1.1-M1.7,
+      M2.0-M2.10, U23 lxc/docker/vm), before the integration merge; it runs again after the
+      merge, from the branch's meta-deploy list, against the goodbye-aware message counts.
   - [x] ✅ Applied state and team changes by the play (DESIGN.md D65): built and deployed
     26-10-13; the owner created a real team with `ccy-teams create` on 26-10-13 and it worked.
   - [x] ✅ Defect: `ccy-teams apply` always read every team "out of date: config" where lxcbr0

@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck stt-rules-files: extensions/ext@x/ok.mjs\ncheck node-check: extensions/ext@x/ok.mjs\ncheck eslint: extensions/ext@x/ok.mjs\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

@@ -399,6 +399,10 @@ class TeamState:
             return rejected
         return protocol.validate_event(event, ctx, self_user_id, human_text=human_text)
 
+    def in_inbox(self, event_id: str) -> bool:
+        """Whether the item is still in the inbox, that is, no one has consumed it."""
+        return os.path.lexists(self.inbox_dir / f"{_check_event_id(event_id)}.json")
+
     def consume(self, event_id: str) -> bool:
         """Move an item from the inbox to `consumed/`; False when it was not pending."""
         name = f"{_check_event_id(event_id)}.json"

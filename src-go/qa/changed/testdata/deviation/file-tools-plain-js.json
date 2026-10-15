@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck stt-rules-files: tools/plain.js\ncheck node-check: tools/plain.js\nsuite scripts/test-beta.bash: names tools/plain.js\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

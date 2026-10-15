@@ -19,8 +19,12 @@ in its order, after README.lxc's requirement is checked for every container befo
   5. ~/.config/pingbus/env lists the team in PINGBUS_TEAMS and sets HOOKS_DAEMON_HOSTNAME;
   6. `pingbus config check` as the agent user, on every run.
 
-The seat (default: the container's name) makes the handle `<repo>.<seat>+<host>.lxc` known
-before anything is made, so a member whose bundle names it, holds a token, matches the
+The handle `<repo>.<seat>+<host>.lxc` is derived from the repository as ccy derives a podman
+seat's (derive.py): `<host>` and `<seat>` are overrides an entry may carry, and are otherwise
+read from the checkout, which this play reads from the host's side as plain files, never by
+running anything in it. An entry written before they were derived keeps its handle: its
+bundle's seat, or the seat its container's name gave, is kept. The handle is known before
+anything is made, so a member whose bundle names it, holds a token, matches the
 address and `human_text`, and is active in the registry is left alone: no new token per
 run. Otherwise the stale bundle goes, an active handle is parked, and `add-member --seat`
 returns (or adds) it with a new token. An absent entry parks the handle when its team
@@ -43,11 +47,13 @@ import subprocess
 import sys
 import tarfile
 from collections.abc import Callable, Mapping, Sequence
-from typing import TextIO
+from typing import TextIO, TypeVar
 
 from helpers.agent_bus import checkout, registry, teamfile
+from helpers.agent_bus_lxc import derive
 from helpers.pingbus import protocol
 
+T = TypeVar("T")
 PROG = "agent-bus-lxc-members"
 MEMBER_TYPE = "lxc"
 STATES = ("present", "absent")
@@ -68,8 +74,10 @@ LXC_PLAY = "playbooks/imports/play-lxc-install-config.yml"
 EXIT_USAGE = 64
 EXIT_REFUSED = 78
 
-REQUIRED_KEYS = frozenset({"team", "container", "user", "host"})
-OPTIONAL_KEYS = frozenset({"checkout", "seat", "role", "human_text", "repo", "state"})
+REQUIRED_KEYS = frozenset({"team", "container", "user"})
+#: `host` and `seat` are overrides: left out, they are derived from the checkout as ccy
+#: derives them (derive.py).
+OPTIONAL_KEYS = frozenset({"host", "checkout", "seat", "role", "human_text", "repo", "state"})
 _CONTAINER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
 _ENV_VALUE = r"[A-Za-z0-9,._-]*"
@@ -266,9 +274,11 @@ class Member:
     container: str
     user: str
     #: HOOKS_DAEMON_HOSTNAME inside the container: the install's role, the handle's <host>.
-    host: str
+    #: None until resolve_members derives it from the checkout.
+    host: str | None
     checkout: str | None
-    seat: str
+    #: None until resolve_members derives it.
+    seat: str | None
     role: str
     human_text: bool
     repo: str | None
@@ -279,18 +289,13 @@ class Member:
         return f"{self.user}@{self.container}"
 
     def handle(self, repo: str) -> str:
+        if self.host is None or self.seat is None:
+            raise MemberError(f"{self.label} in team {self.team}: its host and seat are derived from "
+                              "the checkout, which has not been read")
         try:
             return registry.build_handle(repo, self.seat, self.host, MEMBER_TYPE)
         except registry.HandleError as exc:
             raise MemberError(f"{self.label} in team {self.team}: {exc}") from None
-
-
-def default_seat(container: str) -> str | None:
-    """The container's name as a seat: lower case, letters and digits, at most 12. Only a
-    named seat (a letter first): a number is the registry counter's, which a member joined
-    by hand may hold."""
-    seat = re.sub(r"[^a-z0-9]", "", container.lower())[:12]
-    return seat if seat[:1].isalpha() and protocol.is_seat_name(seat) else None
 
 
 def _parse_entry(position: int, entry: object) -> Member:
@@ -312,12 +317,14 @@ def _parse_entry(position: int, entry: object) -> Member:
         raise MemberError(f"{where}: container must be an LXC container name")
     if not isinstance(user, str) or not _USER_RE.fullmatch(user):
         raise MemberError(f"{where}: user must be a user name")
-    if not isinstance(entry["host"], str):
-        raise MemberError(f"{where}: host must be a string")
-    try:
-        host = registry.resolve_host(entry["host"], None)
-    except registry.HandleError as exc:
-        raise MemberError(f"{where}: host: {exc}") from None
+    host = entry.get("host")
+    if host is not None:
+        if not isinstance(host, str):
+            raise MemberError(f"{where}: host must be a string")
+        try:
+            host = registry.resolve_host(host, None)
+        except registry.HandleError as exc:
+            raise MemberError(f"{where}: host: {exc}") from None
     checkout_path = entry.get("checkout")
     if checkout_path is not None and (not isinstance(checkout_path, str) or not checkout_path.startswith("/")):
         raise MemberError(f"{where}: checkout must be an absolute path inside the container")
@@ -334,14 +341,9 @@ def _parse_entry(position: int, entry: object) -> Member:
     if state == "absent" and checkout_path is None and repo is None:
         raise MemberError(f"{where}: an absent member needs checkout or repo, to know its handle")
     seat = entry.get("seat")
-    if seat is None:
-        seat = default_seat(container)
-        if seat is None:
-            raise MemberError(f"{where}: container {container} gives no seat name "
-                              f"({protocol.HANDLE_SEAT_PATTERN}); set seat")
-    elif type(seat) is int:
+    if type(seat) is int:
         seat = str(seat)
-    if not isinstance(seat, str) or not protocol.is_seat_name(seat):
+    if seat is not None and (not isinstance(seat, str) or not protocol.is_seat_name(seat)):
         raise MemberError(f"{where}: seat must match {protocol.HANDLE_SEAT_PATTERN}")
     role = protocol.normalise_role(entry.get("role", DEFAULT_ROLE))
     if role not in registry.ROLES:
@@ -359,6 +361,13 @@ def parse_members(data: object) -> tuple[Member, ...]:
     if not isinstance(data, list):
         raise MemberError("agent_bus_lxc_members must be a list")
     found = tuple(_parse_entry(position, entry) for position, entry in enumerate(data, start=1))
+    _check_between(found)
+    return found
+
+
+def _check_between(found: Sequence[Member]) -> None:
+    """The rules between entries. A host or seat not yet derived (None) is not judged; it is,
+    once resolve_members has given it a value."""
     entries: dict[tuple[str, str, str], int] = {}
     hosts: dict[tuple[str, str], str] = {}
     seats: dict[tuple[str, str, str], str] = {}
@@ -369,17 +378,78 @@ def parse_members(data: object) -> tuple[Member, ...]:
             raise MemberError(f"agent_bus_lxc_members entries {entries[key]} and {position} both "
                               f"declare {member.label} in team {member.team}")
         entries[key] = position
-        if hosts.setdefault((member.container, member.user), member.host) != member.host:
+        if member.host is not None and hosts.setdefault((member.container, member.user), member.host) != member.host:
             raise MemberError(f"agent_bus_lxc_members gives {member.label} two hosts; its env file "
                               f"sets one {ROLE_VAR}")
-        if seats.setdefault((member.team, member.host, member.seat), member.container) != member.container:
+        if member.host is not None and member.seat is not None and \
+                seats.setdefault((member.team, member.host, member.seat), member.container) != member.container:
             raise MemberError(f"agent_bus_lxc_members gives seat {member.seat} of team {member.team} "
                               f"to two containers; set seat on one")
         if member.state == "present" and member.role == protocol.ROLE_COORDINATOR:
             if coordinators.setdefault(member.team, position) != position:
                 raise MemberError(f"agent_bus_lxc_members entries {coordinators[member.team]} and {position} "
                                   f"both declare the coordinator of team {member.team}; a team has one")
-    return found
+
+
+def resolve_members(found: Sequence[Member], *, identify: Callable[[Member], derive.Identity],
+                    roster: Callable[[str], Mapping[str, bool]],
+                    bundle: Callable[[Member], str | None],
+                    unheld_ok: bool = False) -> tuple[Member, ...]:
+    """The present entries with the host and seat they leave out derived, in file order, by
+    derive.py's rule. `identify` reads the member's checkout (asked only for an entry that
+    leaves one out), `roster` is a team's members (handle -> parked) and `bundle` the handle
+    the member's bundle in its container names. An absent entry is left as it is: its bundle
+    names its handle. An entry that gives both is untouched, so a run of it changes nothing.
+
+    A derived entry comes back with `repo` set to the checkout's: the one `<repo>` of its
+    handle, which `_suggest` then holds the container's own claim to. `unheld_ok` is derive_seat's."""
+    def derived(member: Member, step: Callable[[], T]) -> T:
+        try:
+            return step()
+        except derive.DeriveError as exc:
+            raise MemberError(f"{member.label} in team {member.team}: {exc}") from None
+
+    needy = [m for m in found if m.state == "present" and (m.host is None or m.seat is None)]
+    identities: dict[int, derive.Identity] = {}
+    for member in needy:
+        read = derived(member, lambda member=member: identify(member))
+        if member.repo is not None and member.repo != read.repo:
+            raise MemberError(f"{member.label} in team {member.team}: the entry says repo: {member.repo}, "
+                              f"and its checkout's origin gives {read.repo}")
+        identities[id(member)] = derive.Identity(read.repo, member.host or read.host)
+    # What other entries of a team already hold: explicit seats first, then the seat each derived
+    # entry's bundle names (whatever its place in the file), then each seat derived below.
+    claimed: list[tuple[str, str, str | None, str]] = []
+    for member in found:
+        if member.state == "present" and member.seat is not None:
+            known = identities.get(id(member))
+            claimed.append((member.team, known.host if known else str(member.host),
+                            known.repo if known else member.repo, member.seat))
+    bundles: dict[int, str | None] = {}
+    for member in needy:
+        if member.seat is None:
+            bundles[id(member)] = bundle(member)
+            held = protocol.parse_handle(bundles[id(member)] or "")
+            identity = identities[id(member)]
+            if held is not None and (held.repo, held.host, held.type) == (identity.repo, identity.host, MEMBER_TYPE):
+                claimed.append((member.team, identity.host, identity.repo, held.seat))
+    resolved = []
+    for member in found:
+        identity = identities.get(id(member))
+        if identity is None:
+            resolved.append(member)
+            continue
+        seat = member.seat
+        if seat is None:
+            taken = {s for team, h, repo, s in claimed
+                     if team == member.team and h == identity.host and repo in (None, identity.repo)}
+            seat = derived(member, lambda member=member, identity=identity, taken=taken: derive.derive_seat(
+                identity, member.container, roster(member.team), bundles[id(member)], taken, unheld_ok=unheld_ok))
+            claimed.append((member.team, identity.host, identity.repo, seat))
+        resolved.append(dataclasses.replace(member, host=identity.host, seat=seat, repo=identity.repo))
+    result = tuple(resolved)
+    _check_between(result)
+    return result
 
 
 # ── the decisions (pure) ─────────────────────────────────────────────────────────────────
@@ -556,6 +626,9 @@ class Host:
     team_file: Callable[[str], teamfile.TeamFile]
     kit_tar: Callable[[], bytes]
     guest: Callable[[str], object]
+    #: `derive.ROOT_READ_PY probe` for (container, user, checkout) as root, from the host's
+    #: side: what it printed. A failure raises MemberError.
+    read_checkout: Callable[[str, str, str], str]
 
 
 def _python(script: str, *args: str) -> list[str]:
@@ -662,8 +735,11 @@ def _check_route(host: Host, guest, members: Sequence[Member], bus: str) -> None
 
 
 def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable[[str], None]) -> None:
-    repo = _suggest(guest, member, home)
-    handle = member.handle(registry.normalise_repo(repo))
+    suggested = _suggest(guest, member, home)
+    # A derived entry carries the repo the host read from the checkout; the container's own
+    # claim was only held to it (_suggest), so the handle is never minted from what it says.
+    repo = member.repo if member.repo is not None else registry.normalise_repo(suggested)
+    handle = member.handle(repo)
     found, _ = _observe(guest, member, home)
     registered = parse_list(host.agent_bus(["list", member.team]).decode()).get(handle)
     plan = present_plan(handle, base_url(bus, host.team_file(member.team).port), member, found, registered)
@@ -697,6 +773,30 @@ def _groups(members: Sequence[Member]) -> dict[tuple[str, str], list[Member]]:
     return groups
 
 
+def _derive_hosts_and_seats(found: Sequence[Member], host: Host,
+                            guests: Mapping[tuple[str, str], tuple[object, str]]) -> tuple[Member, ...]:
+    """resolve_members over the real surroundings: the checkout read from the host's side,
+    the team's roster from `agent-bus list`, the bundle from the agent's own directory."""
+    rosters: dict[str, dict[str, bool]] = {}
+
+    def identify(member: Member) -> derive.Identity:
+        return derive.identity_of(derive.parse_probe(host.read_checkout(member.container, member.user,
+                                                                        member.checkout)))
+
+    def roster(team: str) -> dict[str, bool]:
+        if team not in rosters:
+            listed = parse_list(host.agent_bus(["list", team]).decode())
+            rosters[team] = {handle: parked for handle, (_role, parked) in listed.items()}
+        return rosters[team]
+
+    def bundle(member: Member) -> str | None:
+        guest, home = guests[(member.container, member.user)]
+        seen, _ = _observe(guest, member, home)
+        return bundle_handle(seen.member) if seen.member is not None else None
+
+    return resolve_members(found, identify=identify, roster=roster, bundle=bundle)
+
+
 def run_present(members: Sequence[Member], teams_present: Sequence[str], host: Host,
                 emit: Callable[[str], None], say: Callable[[str], None]) -> None:
     # Everything that can be checked without the kit, for every container, before any change:
@@ -710,6 +810,9 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
         _check_gh(guest, group[0], home)
         _check_route(host, guest, group, bus)
         ready.append((container, user, group, guest, home))
+    members = _derive_hosts_and_seats(members, host, {(c, u): (guest, home) for c, u, _, guest, home in ready})
+    ready = [(c, u, group, *next((g, h) for cc, uu, _, g, h in ready if (cc, uu) == (c, u)))
+             for (c, u), group in _groups(members).items()]
     synced: set[str] = set()
     for container, user, group, guest, home in ready:
         if container not in synced:
@@ -756,6 +859,9 @@ def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
     if team_runs:
         held = bundle_handle(found.member) if found.member is not None else None
         if held is None:
+            if member.host is None or member.seat is None:
+                raise MemberError(f"{member.label}: no bundle in the container names its handle, and the entry "
+                                  "leaves out its host or seat: set both on the entry to park it")
             if member.repo is None and home is None:
                 raise MemberError(f"{member.label}: no user {member.user} in the container to run "
                                   "suggest-handle as: add repo: <repo> to the entry")
@@ -877,6 +983,20 @@ def _team_file(team: str) -> teamfile.TeamFile:
         raise MemberError(f"team {team} has no {STATE_ROOT / team / TEAM_FILE}: run play-agent-bus.yml") from None
 
 
+def read_checkout(container: str, user: str, checkout_path: str) -> str:
+    """What `derive.ROOT_READ_PY probe` prints for the checkout: read from this host as root,
+    through the container's LXC config, never by running anything the container controls."""
+    code, out, err = _run(list(derive.LXC_PATH_COMMAND))
+    lxc_path = out.decode().strip()
+    if code != 0 or not lxc_path.startswith("/") or not lxc_path.isprintable():
+        raise _failed(" ".join(derive.LXC_PATH_COMMAND), code, err)
+    code, out, err = _run(["python3", "-I", "-c", derive.ROOT_READ_PY, "probe", lxc_path, container, user,
+                           checkout_path])
+    if code != 0:
+        raise _failed(f"reading {checkout_path} of {user}@{container} from the host", code, err)
+    return out.decode()
+
+
 def kit_tar(parent: pathlib.Path) -> bytes:
     """`parent`/kit as a tar of `kit/...`, owned by root; a symlink in it is refused."""
     kit = pathlib.Path(parent) / "kit"
@@ -904,7 +1024,8 @@ def real_host() -> Host:
     return Host(container_state=_container_state, agent_bus=_agent_bus, ip_json=_ip_json,
                 is_bridge=lambda dev: pathlib.Path(f"/sys/class/net/{dev}/bridge").is_dir(),
                 team_active=system.team_active, bus_address=system.bus_address, team_file=_team_file,
-                kit_tar=lambda: kit_tar(pathlib.Path(KIT_PARENT)), guest=LxcGuest)
+                kit_tar=lambda: kit_tar(pathlib.Path(KIT_PARENT)), guest=LxcGuest,
+                read_checkout=read_checkout)
 
 
 def main(argv: Sequence[str] | None = None, *, host_factory: Callable[[], Host] = real_host,

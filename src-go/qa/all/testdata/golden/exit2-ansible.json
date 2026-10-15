@@ -1,7 +1,7 @@
 {
  "args": [],
  "stdout": "\u2713 toolchain: TOOLCHAIN-OK 6 tools match .qa-versions\n\u2713 go: GO-OK 39 package(s)\n\u2713 bash-limits: BASH-LIMITS-OK 446 bash files: 109 allowlisted\n\u2713 bash: 4 files OK\n\u2713 python: 4 files OK\n\u2713 patterns: 4 files OK\n\u2713 ansible: 4 files OK\n",
- "stderr": "no tool\nERROR: Missing required tools for ansible check. Install them and re-run.\n",
+ "stderr": "no tool\nERROR: ansible gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).\n",
  "status": 2,
  "log": [
   "qa-toolchain ",

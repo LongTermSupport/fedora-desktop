@@ -85,11 +85,10 @@ cd "$repo_root"
 # already depends on. An invalid manifest is a hard error, never a short list:
 # silently dropping a row would hide a pin rather than report it.
 #
-# Converted in its own step rather than piped straight into the validator, for the
-# reason qa-version-pins.bash records: in one pipeline a YAML failure goes to the
-# terminal while the validator, handed empty stdin, reports a JSON decode error — so
-# the gate's first line names a problem the manifest does not have. It fails either
-# way; a wrong diagnosis is what costs the reader the time.
+# Converted in its own step rather than piped straight into the validator: in one
+# pipeline a YAML failure goes to the terminal while the validator, handed empty
+# stdin, reports a JSON decode error — so the first line names a problem the manifest
+# does not have. It fails either way; a wrong diagnosis is what costs the reader the time.
 conversion_error="$(mktemp)"
 trap 'rm -f "$conversion_error"' EXIT
 manifest_json=""

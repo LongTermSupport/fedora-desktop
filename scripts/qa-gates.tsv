@@ -3,7 +3,7 @@
 # failure never stops the gates after it. src-go/qa/gates loads this file strictly (a short row,
 # an unknown kind or reader, a bad name or pattern, a duplicate, or a missing script is exit 2
 # with the line number); qa-changed reads its suite population from it and the QA.md inventory
-# gate (helpers/docs/link_check.py) checks the documentation against it. SPEC-qa-all.md section 11.
+# gate (src-go/qa/docs) checks the documentation against it. SPEC-qa-all.md section 11.
 #
 #   kind    name    command    text    [reader ...]
 #
@@ -29,13 +29,13 @@ gate	go	scripts/qa-go.bash	Go format, vet, tests or golangci-lint failed (or go/
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
 # The seven report stages. Their reports are merged into the machine report.
-stage	bash	scripts/qa-bash.bash	ERROR: Missing required tools. Install them and re-run.
-stage	python	scripts/qa-python.bash	ERROR: Missing required tools. Install them and re-run.
-stage	patterns	scripts/qa-patterns.bash	ERROR: Missing required tools (semgrep). Install with: pipx install semgrep
-stage	ansible	scripts/qa-ansible.bash	ERROR: Missing required tools for ansible check. Install them and re-run.
-stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: Missing required tools (ansible-playbook). Install them and re-run.
-stage	js	scripts/qa-js.bash	ERROR: Missing required tools (node / extensions node_modules). Install them and re-run.
-stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (zero-file scan or checker crash).
+stage	bash	scripts/qa-bash.bash	ERROR: bash gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
+stage	python	scripts/qa-python.bash	ERROR: python gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
+stage	patterns	scripts/qa-patterns.bash	ERROR: patterns gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
+stage	ansible	scripts/qa-ansible.bash	ERROR: ansible gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
+stage	ansible-syntax	scripts/qa-ansible-syntax.bash	ERROR: ansible-syntax gate could not produce a result (prerequisites missing or the tool failed: see the ERROR line above).
+stage	js	scripts/qa-js.bash	ERROR: js gate could not produce a result (a required tool is missing or the tool failed: see the ERROR line above).
+stage	docs	scripts/qa-docs.bash	ERROR: docs gate could not produce a result (an empty scope, an unread or unparsed file, a broken discovery, or the tool failed: see the ERROR line above).
 # Hard gates that are not report stages.
 gate	nokill-containerwatch	scripts/qa-nokill-containerwatch.bash	rejected a process-termination call site in the container-watch watchdog	detail:[0-9]+ container-watch file[(]s[)] clean
 drift	deployed-drift	scripts/qa-deployed-drift.bash	repo-owned scripts differ from their deployed copies

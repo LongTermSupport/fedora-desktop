@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: gone.bash\ncheck shellcheck: gone.bash\ncheck shell-directives: gone.bash\ncheck semgrep: gone.bash\ncheck ready-wait-files: gone.bash\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}

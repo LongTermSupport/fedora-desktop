@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fixture for the bash half of ready-wait-ignores-child-exit
-# (helpers/ready_wait/bash_ready_waits.py; CLAUDE/QA.md). A `ruleid:` comment marks the
+# (src-go/qa/readywait; CLAUDE/QA.md). A `ruleid:` comment marks the
 # loop on the next line as one that must be reported; every other loop must not be.
 set -euo pipefail
 

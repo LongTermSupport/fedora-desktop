@@ -40,14 +40,18 @@ SKILL = PLUGIN / "skills" / "pingbus" / "SKILL.md"
 SETTINGS = KIT / "settings.json"
 LAUNCHER = KIT / "agent-bus-claude"
 
-#: The hooks whose subcommand does something. `session-end` is registered because it removes the
-#: session's teams record the status line reads; with no session id it does nothing.
-REGISTERED = {
-    "SessionStart": "session-start",
-    "UserPromptSubmit": "prompt",
-    "Stop": "stop",
-    "SessionEnd": "session-end",
-}
+#: The hooks whose subcommand does something. `session-end` removes the session's teams record
+#: the status line reads and posts the goodbye (Plan 00194 Task 2.0b); it is registered with a
+#: `timeout` above the hook's own cap, because Claude Code gives a SessionEnd hook only a short
+#: default.
+REGISTERED = {"SessionStart": "session-start", "UserPromptSubmit": "prompt", "Stop": "stop",
+              "PostToolUse": "post-tool", "SessionEnd": "session-end"}
+#: The one hook that is matched to a tool: the `SENT` echo follows `pingbus say` and `send`,
+#: which are Bash commands.
+MATCHERS = {"PostToolUse": "Bash"}
+#: The PostToolUse command runs only in relay mode; behaviour is tested in test_relay_hooks.
+GUARD_PREFIX = 'if [ "$PINGBUS_DELIVERY" = relay ]; then exec '
+GUARD_SUFFIX = "; fi"
 
 #: The commands an agent runs by hand, each of which the skill must name.
 AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
@@ -106,10 +110,17 @@ class HooksJsonTest(unittest.TestCase):
         for event, groups in self.hooks.items():
             self.assertIsInstance(groups, list)
             for group in groups:
-                self.assertEqual(set(group), {"hooks"}, f"{event}: no matcher is needed")
+                if event in MATCHERS:
+                    self.assertEqual(group.get("matcher"), MATCHERS[event], event)
+                else:
+                    self.assertEqual(set(group), {"hooks"}, f"{event}: no matcher is needed")
                 for entry in group["hooks"]:
-                    self.assertEqual(set(entry), {"type", "command"})
+                    self.assertLessEqual(set(entry), {"type", "command", "timeout"})
                     self.assertEqual(entry["type"], "command")
+                    if event == "SessionEnd":
+                        self.assertGreater(entry["timeout"], hooks.GOODBYE_TIMEOUT_S)
+                    else:
+                        self.assertNotIn("timeout", entry)
                     found.setdefault(event, []).append(entry["command"])
         return found
 
@@ -119,13 +130,17 @@ class HooksJsonTest(unittest.TestCase):
     def test_each_command_is_its_events_pingbus_hook_subcommand(self) -> None:
         for event, commands in self.commands().items():
             self.assertEqual(len(commands), 1, event)
-            argv = shlex.split(commands[0])
+            command = commands[0]
+            if event == "PostToolUse":  # guarded in shell: off mode starts no Python process
+                self.assertTrue(command.startswith(GUARD_PREFIX) and command.endswith(GUARD_SUFFIX), command)
+                command = command[len(GUARD_PREFIX):-len(GUARD_SUFFIX)]
+            argv = shlex.split(command)
             self.assertEqual(argv, ["pingbus", "hook", REGISTERED[event]], event)
             self.assertIn(argv[2], hooks.EVENTS)
             self.assertEqual(hooks.HOOK_EVENT_NAMES[argv[2]], event)
             self.assertTrue(parses(argv[1:]), commands[0])
 
-    def test_session_end_without_a_session_id_does_nothing(self) -> None:
+    def test_session_end_without_a_session_id_or_a_poster_does_nothing(self) -> None:
         err = io.StringIO()
         result = hooks.run("session-end", b"{}", {}, now_ms=0, spawn=self.fail, err=err)
         self.assertEqual(result, {})

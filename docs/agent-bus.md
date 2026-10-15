@@ -79,9 +79,16 @@ that play.
    session's own record, which is all a reboot restore reads: a restore never gives a session
    a team it was not launched into), and an explicit `--teams` overrides them. `ccy-teams create`, and `ccy-teams` itself, run in a checkout the team
    covers, offer to start one; so does Ctrl-N ([seats](#a-ccy-session-seats)).
-4. **Add an LXC container's agent.** List it in `agent_bus_lxc_members` and run
-   `play-agent-bus.yml`. Nothing to declare for the network: every team admits the LXC
-   bridge ([Joining a team](#joining-a-team)).
+4. **Add an LXC container's agent.** In `ccy-teams`, Enter on a row of the team, then *Add an
+   LXC container's agent to `<team>`*, or `ccy-teams lxc-add <team>`: it lists the host's
+   running containers, asks for the user, the checkout and the role (the handle's repo, host
+   and seat are derived from the checkout, as for a ccy seat), shows the handle,
+   writes the `agent_bus_lxc_members` entry and applies the team, then says what is left
+   inside the container (`gh auth login` if needed, then `ccy --teams <team>`). No hand edit
+   of `localhost.yml` (writing the entry yourself and running `play-agent-bus.yml` still
+   works). Nothing to declare for the network: every team admits the LXC bridge
+   ([Joining a team](#joining-a-team)); [agent-bus-lxc-members.md](agent-bus-lxc-members.md)
+   has the details.
 5. **Pings for actions, mentions for discussion.** An agent asks another to act with a ping
    (pingbus's `send` verb: a fixed verb about a committed file). Free text one agent
    addresses to another by mention (pingbus's `say` verb with `--to`) is for the discussion
@@ -304,10 +311,14 @@ A member on another machine reaches the homeserver over WireGuard, so `allow_fro
 the WireGuard subnet or the peer's address, and `--address` is the homeserver's WireGuard
 address.
 
-**LXC containers on a fedora-desktop host, by the play.** List each agent user of an
-existing container in `agent_bus_lxc_members` in your host_vars `localhost.yml` (the
-commented example in `localhost.yml.dist` names every key) and run
-`play-agent-bus.yml`. It runs `README.lxc`'s steps for you, and checks the result with
+**LXC containers on a fedora-desktop host, by the play.** `ccy-teams lxc-add <team>` (or the
+team's menu in `ccy-teams`) writes each agent user's entry in `agent_bus_lxc_members` and
+applies the team. By hand, list the entry in your host_vars `localhost.yml` (the commented
+example in `localhost.yml.dist` names every key; only `team`, `container`, `user` and
+`checkout` are needed, since an LXC member's handle `<repo>.<seat>+<host>.lxc` is derived the
+way a ccy seat's is: `<repo>` from the checkout's forge remote, `<host>` from the
+`HOOKS_DAEMON_HOSTNAME` its `ccy.env.local` assigns or `local`, `<seat>` the lowest number no
+active member of that `<repo>+<host>.lxc` holds) and run `play-agent-bus.yml`. The play runs `README.lxc`'s steps for you, and checks the result with
 `pingbus config check` on every run. The container and its agent user must already exist,
 the container must be running, and the team must be declared present in `agent_bus_teams`.
 The agent user must have gh logged in to github.com inside the container: the play checks
@@ -376,6 +387,36 @@ the bundle back on stdout; the launch's seat step, running as you, writes it to
 `.claude/ccy/.gitignore` keeps out of git. Root writes nothing in the checkout, since
 other sessions in it can change it, and a symlink anywhere in that path is refused. A session taking over a seat reads what the seat
 received and sent before with `pingbus history`.
+
+**Goodbye.** When a session in a seat really ends, pingbus posts one room message from the
+seat's member: `<handle> left the team: session ended (exit)`, with `logout` or
+`other` in place of `exit` for those endings. It is addressed to the team's humans and its
+coordinator(s) only, not to every agent: an agent that is addressed spends a model turn on
+the message, so a team of `k` agents would spend `k-1` turns on each exit, and agents learn
+the seat is free from its lock anyway (`agent-bus seat list` shows it `free`). It is a
+fixed template filled by pingbus, not written by the model, so it is sent whatever the
+harness and whatever the model does at the end. It is sent from the SessionEnd hook, once
+per session, never on `/clear` or `/resume`, and within about 4 seconds; if the homeserver
+cannot be reached or does not answer in time, the hook prints one line on stderr and the
+session closes as usual (a slow homeserver can still deliver a goodbye the line calls "not
+sent").
+
+Which endings run the hook (Claude Code 2.1.299): `/exit`, logout, Ctrl-C (SIGINT), a closed
+terminal (SIGHUP) and a forwarded SIGTERM all run SessionEnd, so `ccy stop` should produce a
+goodbye. A SIGKILL (a container stop whose grace period expired) or a lost container sends
+nothing; teammates then see only that the seat is no longer held. Claude Code's default
+SessionEnd hook timeout is 1500 ms, so the kit's `"timeout": 6` on the `SessionEnd` hook is
+load-bearing: without it the goodbye would be cut off at 1.5 s. The test in
+`test_plugin_contract.py` pins it.
+
+**Relay mode choices.** `PINGBUS_DELIVERY=relay` is off by default and is opt-in per launch.
+Two visible differences from off are intended: `pingbus status` TEAM lines end with an
+additive `relay=off|on|stalled` field (fields are only ever appended), and a mistyped
+`PINGBUS_DELIVERY` (anything but unset, empty or `relay`) is refused with a configuration
+error instead of silently falling back to the socket. The `PostToolUse` hook that echoes
+what the session sent is a shell guard in `hooks.json`, so an off-mode session starts no
+Python process per Bash call; it prints nothing and exits 0 in that case, which Claude Code
+reads as "no output".
 
 A seat's handle is `<repo>.<seat>+<host>.podman`: `<repo>` from the checkout's forge
 remote, and `<host>` the `HOOKS_DAEMON_HOSTNAME` that the checkout's `ccy.env.local`

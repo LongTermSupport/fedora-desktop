@@ -105,8 +105,9 @@ jobs:
       - name: Provide placeholder vault password (parse-only, never decrypts)
         run: echo "ci-syntax-check-placeholder" > vault-pass.secret
 
-      # The bash-limits gate fails on an allowlist entry added or a record raised relative to a
-      # base commit (scripts/qa-bash-limits.bash, QA_BASH_LIMITS_BASE). The base is a point the
+      # The bash-limits gate and the shellcheck-suppression ratchet (qa-bash) fail on an allowlist
+      # entry added or a record raised relative to a base commit (QA_BASH_LIMITS_BASE, read by
+      # scripts/qa-bash-limits.bash and the qa-bash tool). The base is a point the
       # change has not reached, whatever the push granularity: the merge-base of HEAD and the
       # default branch, for a pull request and for a push to any other branch alike. A push to
       # the default branch has nothing to branch from, so its base is the head before the push

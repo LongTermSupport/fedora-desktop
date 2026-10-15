@@ -26,6 +26,7 @@ Numbers are cited by the tests.
   directory. `-h`/`--help` prints the usage to stdout, exit 0. Any other argument is exit 2 with
   `ERROR: unknown argument '<arg>'` and the usage on stderr. A flag missing its value is exit 2.
   *(Bash ignored every argument and ran the scan.)*
+  The root is resolved by the one shared helper `qa/internal/rootpath` (absolute, clean, symlink-free; a root that cannot be resolved is exit 2), and a symlinked-root test pins that no checkout path reaches stdout or the report.
 - E2. `QA_JSON_OUT` is the report path; unset or empty is `/tmp/qa-ansible-results.json`.
 - E3. Exit codes: 0 no violation, 1 at least one violation, 2 the run could not complete.
   stdout carries the violation lines and the summary; every exit-2 message is on stderr and starts

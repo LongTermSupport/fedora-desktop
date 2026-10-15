@@ -1,0 +1,6 @@
+{
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: files/home/.local/bin/listed-tool\ncheck stt-rules-files: files/home/.local/bin/listed-tool\ncheck ruff: files/home/.local/bin/listed-tool\ncheck bash-limits\n",
+ "stderr": "",
+ "status": 0,
+ "log": []
+}
