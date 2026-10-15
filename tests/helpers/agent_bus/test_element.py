@@ -207,6 +207,30 @@ class TestRefusal(HomeCase):
         (self.home / ".config").mkdir()
         element.check_user(self.home)
 
+    def accepted(self, mode: int = 0o600) -> pathlib.Path:
+        """What cc --teams leaves: ~/.config/pingbus holding only the owner's acceptance."""
+        directory = self.home / ".config" / "pingbus"
+        directory.mkdir(parents=True, mode=0o700)
+        record = directory / config.ELEMENT_ACCEPTED_FILE
+        record.write_text("accepted 2026-01-01T00:00:00Z\n")
+        record.chmod(mode)
+        return directory
+
+    def test_the_owners_cc_acceptance_alone_passes(self) -> None:
+        self.accepted()
+        element.check_user(self.home)
+
+    def test_an_acceptance_beside_bundles_refuses(self) -> None:
+        # A team directory here is a dedicated agent user's bundle, which no acceptance covers.
+        (self.accepted() / "team-a").mkdir()
+        with self.assertRaisesRegex(element.ElementError, "holds pingbus bundles"):
+            element.check_user(self.home)
+
+    def test_an_acceptance_others_can_read_does_not_count(self) -> None:
+        self.accepted(mode=0o644)
+        with self.assertRaises(element.ElementError):
+            element.check_user(self.home)
+
     def test_an_unsearchable_config_refuses(self) -> None:
         denied = PermissionError(13, "Permission denied")
         with mock.patch.object(element.os, "lstat", side_effect=denied):

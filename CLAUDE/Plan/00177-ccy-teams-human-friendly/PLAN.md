@@ -164,11 +164,20 @@ quit `ccy-teams` to start Element.
   the repository), choosing alone when exactly one matches and saying so when none does.
   The matching and the choice live in the Go `ccy-teams`; the launcher, on the bash-limits
   ratchet, only calls it and must not grow. Built (`ccy-teams for-checkout [--choose]`, CCY
-  3.96.0), awaiting the owner's host test.
+  3.96.0), awaiting the owner's host test. The owner's test: when no team covers the
+  checkout, it stops and makes the owner type a team name. A chooser takes its place in Plan
+  00201 (M4), which also brings cc onto the same flow.
 - [ ] 🔄 **Task 7.2**: The quick launch ("use the previous configuration") remembers the team:
   `.last-launch.conf` keeps the `--teams` list (`LAST_TEAMS`, config format 2), and reusing
   it launches into the same team; an explicit `--teams` overrides it. Built, awaiting the
   owner's host test.
+- [ ] 🔄 **Task 7.3**: The owner's host run found `play-agent-bus-element.yml` refusing them
+  after they accepted `cc --teams`. The reason: "~/.config/pingbus exists: this user holds
+  pingbus bundles". Task 4.10's acceptance record lives in that folder, so the Element
+  check refused every owner who had accepted. A cc seat's bundles live in the checkout.
+  `helpers/agent_bus/element.py` now passes a folder that holds only the acceptance record,
+  valid by pingbus's own `config.element_accepted`. Anything else there still refuses.
+  Built test first, waiting for the owner's run of the Element play.
 
 ## Success Criteria
 

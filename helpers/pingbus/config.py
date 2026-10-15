@@ -63,7 +63,7 @@ ELEMENT_FLATPAK_DIR = ".var/app/im.riot.Riot"
 ELEMENT_NATIVE_PARENT = ".config"
 ELEMENT_NATIVE_NAME = "Element"
 #: The user's own record, under their home, that they accept a cc `host` seat beside
-#: Element (`_element_accepted`): once per user, not once per seat.
+#: Element (`element_accepted`): once per user, not once per seat.
 ELEMENT_ACCEPTED_DIR = ".config/pingbus"
 ELEMENT_ACCEPTED_FILE = "element-accepted"
 
@@ -193,12 +193,12 @@ def load_bundle(
     read_token(member, uid=owner)
     if member.member_type == "host":
         where = _home_of(owner) if user_home is None else user_home
-        if not (linked and _element_accepted(where, owner)):
+        if not (linked and element_accepted(where, owner)):
             _refuse_beside_element(team, where)
     return member
 
 
-def _element_accepted(user_home: pathlib.Path, owner: int) -> bool:
+def element_accepted(user_home: pathlib.Path, owner: int) -> bool:
     """Plan 00177 Task 4.10: a `host` seat reached through a session home's link (a `cc
     --teams` session, which runs as the desktop's owner) runs beside Element only when its
     owner accepted that once, at cc's confirm. The record is a regular file of `owner`'s,
