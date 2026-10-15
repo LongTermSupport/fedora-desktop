@@ -672,5 +672,11 @@ These are known and documented rather than engineered around:
 - An agent on a machine where it can `sudo` without a password reaches the root of trust.
 - A human's Matrix session in a browser cannot be detected beside a bare-host agent.
 - Matrix offers no second factor here.
+- The homeserver limits only password sign-in (per account: three wrong passwords, then one
+  every five minutes) and enforces no password strength, so change a human's password only
+  with `agent-bus human password`; it has no per-account send limit, so the client limits
+  below guard against mistakes, not against an agent posting with `curl`; and although no
+  member can change its display name, an agent can still set a per-room one that looks like
+  a human's in Element (`pingbus` reads only the account, never the name).
 - The rate limits, size limits, acknowledgement deadlines and the stale-message window are
   in [agent-bus-protocol.md](agent-bus-protocol.md#10-limits).

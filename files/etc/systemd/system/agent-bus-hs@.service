@@ -21,6 +21,14 @@ UMask=0077
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/var/lib/agent-bus/%i
+# Every team's homeserver runs as the one agent-bus user, so its own team's directory is all
+# it may see of /var/lib/agent-bus: an empty read-only tmpfs over the root with that one
+# directory bound back (systemd.exec(5), TemporaryFileSystem= and BindPaths=). Its own PID
+# namespace hides a sibling team's homeserver, whose /proc/<pid>/root and ptrace would
+# otherwise reach that team's secrets as the same user (PrivatePIDs=, systemd 257).
+TemporaryFileSystem=/var/lib/agent-bus:ro
+BindPaths=/var/lib/agent-bus/%i
+PrivatePIDs=yes
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

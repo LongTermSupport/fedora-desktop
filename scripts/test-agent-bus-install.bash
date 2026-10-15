@@ -585,8 +585,10 @@ check "the run says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
 check "stdout carries only CHANGED lines" "0" "$(grep -cv $'^CHANGED\t' "$OUT")"
 check "no secret reaches stdout or stderr" "0" "$(cat "$OUT" "$ERR" | grep -cF "$SECRET_BEFORE")"
 STAMP=$ROOT/var/lib/agent-bus-applied/alpha.json
-check "the applied stamp is world-readable (D65)" "644" "$(mode "$STAMP")"
-check "  in a world-readable directory" "755" "$(mode "$ROOT/var/lib/agent-bus-applied")"
+check "the applied stamp is readable by its group only (D65)" "640" "$(mode "$STAMP")"
+check "  in a directory only its group may enter" "750" "$(mode "$ROOT/var/lib/agent-bus-applied")"
+check "  the group is root's when AGENT_BUS_STAMP_GROUP is unset" \
+    "$(id -gn) $(id -gn)" "$(stat -c %G "$STAMP") $(stat -c %G "$ROOT/var/lib/agent-bus-applied")"
 check "  its config digest is the team.json's, by teamfile.config_digest" \
     "$(cd "$REPO_ROOT" && python3 -c 'import pathlib, sys; from helpers.agent_bus import teamfile; print(teamfile.config_digest(teamfile.load_team_file(pathlib.Path(sys.argv[1]))))' "$T/team.json")" \
     "$(jq -r .config "$STAMP")"
@@ -639,6 +641,15 @@ check "  and the canonical team.json carries the description" "Builds the exampl
 check "  and the team record is republished (bootstrap runs)" "yes" "$(says '^agent-bus bootstrap alpha$' "$(LOG)")"
 check "  and the stamp's config digest moved with it" "yes" "$(
     [[ $(jq -r .config "$STAMP") == "$(cd "$REPO_ROOT" && python3 -c 'import pathlib, sys; from helpers.agent_bus import teamfile; print(teamfile.config_digest(teamfile.load_team_file(pathlib.Path(sys.argv[1]))))' "$T/team.json")" ]] && echo yes || echo no)"
+
+echo "== team: AGENT_BUS_STAMP_GROUP names the stamps' group"
+AGENT_BUS_STAMP_GROUP=no-such-group-agent-bus-test run team --team-file "$TF"
+check "a group that does not exist fails the run" "1" "$RC"
+check "  naming the group" "yes" "$(says 'no-such-group-agent-bus-test' "$ERR")"
+AGENT_BUS_STAMP_GROUP="$(id -gn)" run team --team-file "$TF"
+check "an existing group is applied" "0" "$RC"
+check "  to the stamp and its directory" "$(id -gn) $(id -gn)" \
+    "$(stat -c %G "$STAMP") $(stat -c %G "$ROOT/var/lib/agent-bus-applied")"
 
 echo "== team: a new binary restarts the homeserver"
 write_pin 1.9.4 "$ASSET_SHA"
@@ -804,6 +815,7 @@ check "  as a collected transient unit" "yes" "$(says '^systemd-run --unit=agent
 for property in NoNewPrivileges=yes ProtectSystem=strict ReadWritePaths=/var/lib/agent-bus/alpha \
     SocketBindDeny=any IPAddressDeny=any 'IPAddressAllow=127.0.0.1/32 ::1/128' SocketBindAllow=tcp:8448 \
     TemporaryFileSystem=/run/systemd/resolve:ro \
+    TemporaryFileSystem=/var/lib/agent-bus:ro BindPaths=/var/lib/agent-bus/alpha PrivatePIDs=yes \
     BindReadOnlyPaths=/usr/local/share/agent-bus/resolv.conf:/run/systemd/resolve/resolv.conf \
     Environment=TUWUNEL_CONFIG=/var/lib/agent-bus/alpha/tuwunel.toml; do
     check "  under the homeserver's sandbox: $property" "1" "$(grep -cF -- "--property=$property " "$(LOG)")"

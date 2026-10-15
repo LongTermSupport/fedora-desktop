@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import pathlib
 import re
 from collections.abc import Mapping, Sequence
@@ -36,7 +37,20 @@ TOML_KEYS = (
     "admin_escape_commands", "allow_encryption", "allow_room_creation", "auto_accept_invites",
     "new_user_displayname_suffix", "client_sync_timeout_min", "default_room_version", "sentry",
     "log", "admin_signal_execute", "error_on_unknown_config_opts", "rocksdb_allow_fallocate",
+    "max_request_size", "enable_set_displayname", "rate_limiting",
 )
+
+#: Tuwunel refuses to start below this request size (src/core/config/check.rs, 1.9.4).
+MAX_REQUEST_SIZE = 10_000_000
+
+#: Password sign-in limits per account (Tuwunel 1.9.4 `[global.rate_limiting.login.*]`):
+#: three wrong passwords, then one every five minutes (Synapse's default refills one every
+#: six seconds); successful sign-ins at Tuwunel's default, five, then one every five and a
+#: half minutes. Member tokens are minted through the admin API, never through `/login`.
+LOGIN_LIMITS = {
+    "failed": {"per_second": 0.0033, "burst_count": 3},
+    "account": {"per_second": 0.003, "burst_count": 5},
+}
 
 #: Linux interface names: at most 15 bytes, no `/`, whitespace or `:` (an alias).
 _IFACE_RE = re.compile(r"[A-Za-z0-9_.-]{1,15}")
@@ -81,6 +95,9 @@ def toml_values(tf: teamfile.TeamFile) -> dict[str, object]:
         "admin_signal_execute": ["server backup-database"],
         "error_on_unknown_config_opts": True,
         "rocksdb_allow_fallocate": False,
+        "max_request_size": MAX_REQUEST_SIZE,
+        "enable_set_displayname": False,
+        "rate_limiting": {"login": {name: dict(limit) for name, limit in LOGIN_LIMITS.items()}},
     }
 
 
@@ -89,6 +106,10 @@ def _toml_value(value: object) -> str:
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise RenderError("a tuwunel.toml number must be finite")
+        return repr(value)
     if isinstance(value, str):
         if not value.isascii() or not value.isprintable():
             raise RenderError("a tuwunel.toml string must be printable ASCII")
@@ -98,13 +119,26 @@ def _toml_value(value: object) -> str:
     raise RenderError(f"no TOML form for {type(value).__name__}")
 
 
+def _toml_lines(values: Mapping[str, object], path: tuple[str, ...] = ()) -> list[str]:
+    """A table's own keys first, then its sub-tables, so no key lands in the wrong table."""
+    scalars = {key: value for key, value in values.items() if not isinstance(value, Mapping)}
+    lines = [f"[{'.'.join(path)}]"] if path and scalars else []
+    lines += [f"{key} = {_toml_value(value)}" for key, value in scalars.items()]
+    for key, value in values.items():
+        if isinstance(value, Mapping):
+            lines += _toml_lines(value, (*path, key))
+    return lines
+
+
 def render_toml(tf: teamfile.TeamFile) -> str:
     values = toml_values(tf)
     if tuple(values) != TOML_KEYS:
         raise RenderError("tuwunel.toml keys differ from TOML_KEYS")
-    # Top-level keys, no `[global]` table: the form probe H4 started Tuwunel 1.9.3 with.
+    # Bare top-level keys, no `[global]` table: the form probe H4 started Tuwunel with. A file
+    # holding any bare key is read whole as the global section (Config::load_file, 1.9.4), so
+    # `[rate_limiting.login.failed]` is global.rate_limiting.login.failed.
     lines = [f"# Rendered by agent-bus render toml for team {tf.team}; do not edit."]
-    lines += [f"{key} = {_toml_value(value)}" for key, value in values.items()]
+    lines += _toml_lines(values)
     return "\n".join(lines) + "\n"
 
 

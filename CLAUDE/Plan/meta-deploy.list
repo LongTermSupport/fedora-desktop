@@ -20,6 +20,16 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Plans 00161/00201 security fixes (homeserver and infrastructure): play-agent-bus first takes a
+# fresh backup of every running team (failing the run if one fails, so the worst case is a known
+# `agent-bus-install restore`), then installs Tuwunel 1.9.4 (from 1.9.3) and a re-sandboxed
+# homeserver unit, so it RESTARTS EVERY TEAM'S HOMESERVER (a few seconds each; members reconnect
+# by themselves). Each homeserver then sees only its own team's directory and no sibling
+# process; allows three wrong passwords, then one per five minutes, per account; refuses
+# display-name changes; caps a request at 10 MB. Bootstrap deletes the stored admin password
+# (the token stays) and empties any agent_bus.status event under a key that is not a user ID.
+# The applied stamps become 0640 in a 0750 directory, group the desktop user's primary group.
+playbooks/imports/play-agent-bus.yml
 # Plan 00161: its triage, deploy and acceptance again. Triage now reads the bus address from
 # agent_bus_address in host_vars, as deploy and acceptance do, so H1 and H2 test agentbus0; the
 # deploy's throwaway team zz-deploy-check now names GitHub's API as forge_api, the only one

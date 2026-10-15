@@ -265,7 +265,8 @@ class SecretHygieneTest(CliTestCase):
         self.ok(["bootstrap", "team-a"])
         secrets_dir = self.team_dir / "secrets"
         found = [self.shared_secret, member_token, seat_token, returned_token, rotated_token, human_password,
-                 (secrets_dir / "admin.token").read_text(), (secrets_dir / "admin.password").read_text()]
+                 (secrets_dir / "admin.token").read_text()]
+        # Every account's password, the admin's included (bootstrap deletes its copy on disk).
         found += [u.password for u in self.fake.users.values() if u.password]
         for argv, run in self.runs:
             payload = any(tuple(argv[:len(p)]) == p for p in self.PAYLOAD_COMMANDS)

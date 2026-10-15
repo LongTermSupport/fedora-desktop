@@ -192,9 +192,10 @@ class BootstrapTest(AdminTestCase):
     def test_fresh_bootstrap(self) -> None:
         changes = self.bootstrap()
         self.assertTrue(changes)
-        for name in ("admin.token", "admin.password"):
-            info = (self.team_dir / "secrets" / name).stat()
-            self.assertEqual(stat.S_IMODE(info.st_mode), 0o600, name)
+        info = (self.team_dir / "secrets" / "admin.token").stat()
+        self.assertEqual(stat.S_IMODE(info.st_mode), 0o600)
+        # The password is needed only until the token is stored (DESIGN.md section 3.7).
+        self.assertFalse((self.team_dir / "secrets" / "admin.password").exists())
         self.assertEqual(self.whoami(self.admin_token())[1]["user_id"], ADMIN_ID)
         admins = [u for u in self.fake.users.values() if u.admin]
         self.assertEqual([u.user_id for u in admins], [ADMIN_ID])
@@ -314,11 +315,68 @@ class BootstrapTest(AdminTestCase):
         self.assertNotIn(self.shared_secret, str(caught.exception))
         self.assertFalse((self.team_dir / "secrets" / "admin.token").exists())
 
-    def test_recovers_from_a_run_that_lost_the_token(self) -> None:
+    def test_recovers_from_a_run_that_died_before_storing_the_token(self) -> None:
+        # Registered with the stored password, then the run died: the next run logs in.
+        password = admin.generate_password()
+        self.fake.add_user("admin", password=password, admin=True)
+        admin.write_private(self.team_dir / "secrets" / "admin.password", password)
+        changes = self.bootstrap()
+        self.assertIn("admin token", changes)
+        self.assertIn("removed the admin password", changes)
+        self.assertEqual(self.whoami(self.admin_token())[1]["user_id"], ADMIN_ID)
+        self.assertFalse((self.team_dir / "secrets" / "admin.password").exists())
+
+    def test_a_token_lost_later_is_refused_naming_the_backup(self) -> None:
         self.bootstrap()
         (self.team_dir / "secrets" / "admin.token").unlink()
-        self.assertIn("admin token", " ".join(self.bootstrap()))
-        self.assertEqual(self.whoami(self.admin_token())[1]["user_id"], ADMIN_ID)
+        with self.assertRaisesRegex(admin.AdminError, "restore"):
+            self.bootstrap()
+        self.assertFalse((self.team_dir / "secrets" / "admin.password").exists())
+        self.assertFalse((self.team_dir / "secrets" / "admin.token").exists())
+
+    def test_a_password_left_by_an_older_bootstrap_is_removed(self) -> None:
+        self.bootstrap()
+        admin.write_private(self.team_dir / "secrets" / "admin.password", admin.generate_password())
+        self.assertEqual(self.bootstrap(), ["removed the admin password"])
+        self.assertFalse((self.team_dir / "secrets" / "admin.password").exists())
+
+    def status_writer(self) -> str:
+        """An agent member joined to the room, as add-member makes one; returns its token."""
+        tar = self.add_member()
+        token = read_member(tar, "token").decode()
+        room = urllib.parse.quote(self.room(), safe="")
+        self.assertEqual(self.fake.request("POST", f"/_matrix/client/v3/rooms/{room}/join",
+                                           body={}, token=token)[0], 200)
+        return token
+
+    def put_status(self, token: str, key: str, content: dict) -> int:
+        room = urllib.parse.quote(self.room(), safe="")
+        path = f"/_matrix/client/v3/rooms/{room}/state/{protocol.EVENT_STATUS}/{urllib.parse.quote(key, safe='')}"
+        return self.fake.request("PUT", path, body=content, token=token)[0]
+
+    def test_status_under_a_key_that_is_no_user_is_emptied(self) -> None:
+        # Power 0 lets any agent write agent_bus.status under any key not starting with @;
+        # receivers ignore those (protocol §8), so bootstrap empties them to bound the state.
+        self.bootstrap()
+        token = self.status_writer()
+        own = self.whoami(token)[1]["user_id"]
+        listening = {"v": 1, "state": protocol.STATUS_LISTENING, "until": 1}
+        self.assertEqual(self.put_status(token, own, listening), 200)
+        for key in ("junk-1", "junk-2", ""):
+            self.assertEqual(self.put_status(token, key, {"filler": "x" * 200}), 200)
+        changes = self.bootstrap()
+        self.assertEqual(changes, ["emptied 3 agent_bus.status events under a key that is not a user ID"])
+        for key in ("junk-1", "junk-2", ""):
+            self.assertEqual(self.state(protocol.EVENT_STATUS, key), (200, {}))
+        self.assertEqual(self.state(protocol.EVENT_STATUS, own), (200, listening))
+        self.assertEqual(self.bootstrap(), [])
+
+    def test_bootstrap_with_no_stray_status_writes_nothing(self) -> None:
+        self.bootstrap()
+        self.status_writer()
+        before = len(self.transport.calls)
+        self.assertEqual(self.bootstrap(), [])
+        self.assertEqual([c for c in self.transport.calls[before:] if c[0] != "GET"], [])
 
     def test_rejected_admin_token_fails_without_echo(self) -> None:
         self.bootstrap()

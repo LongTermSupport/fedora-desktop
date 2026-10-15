@@ -87,8 +87,10 @@ readonly STATE_ROOT=$PREFIX/var/lib/agent-bus
 # agent-bus user's directory so the homeserver cannot steer what root later removes.
 readonly INSTALL_STATE_ROOT=$PREFIX/var/lib/agent-bus-install
 # What `team` last applied for each team (<team>.json: config and software digests, no
-# secret), world-readable so ccy-teams can tell an out-of-date team without sudo (D65).
-readonly APPLIED_ROOT=$PREFIX/var/lib/agent-bus-applied
+# secret), readable by AGENT_BUS_STAMP_GROUP (default root's group), so ccy-teams, run by
+# a member of it, tells an out-of-date team without sudo (D65) and no other user learns a
+# team's name: the directory is 0750 and each stamp 0640, root:<that group>.
+readonly APPLIED_ROOT=$PREFIX/var/lib/agent-bus-applied STAMP_GROUP=${AGENT_BUS_STAMP_GROUP:-$ROOT_GROUP}
 readonly OS_RELEASE=$PREFIX/etc/os-release
 
 WORK_DIR=""
@@ -838,8 +840,8 @@ cmd_team() {
     admin_tool render stamp --zipapp "$LIB_DIR/agent-bus.pyz" --tuwunel "${running#tuwunel-}" \
         --installer-sha256 "${self_sha%% *}" \
         <"$WORK_DIR/team.json" >"$WORK_DIR/stamp.json"
-    ensure_dir "$APPLIED_ROOT" 0755 "$ROOT_OWNER" "$ROOT_GROUP"
-    put_file "team $team applied stamp" "$WORK_DIR/stamp.json" "$APPLIED_ROOT/$team.json" 0644 "$ROOT_OWNER" "$ROOT_GROUP"
+    ensure_dir "$APPLIED_ROOT" 0750 "$ROOT_OWNER" "$STAMP_GROUP"
+    put_file "team $team applied stamp" "$WORK_DIR/stamp.json" "$APPLIED_ROOT/$team.json" 0640 "$ROOT_OWNER" "$STAMP_GROUP"
 }
 
 # ---------------------------------------------------------------- remove
@@ -967,7 +969,8 @@ cmd_backup_now() {
     local dir=$STATE_ROOT/$team unit port
     unit=$(hs_unit "$team")
     require_running "$unit"
-    # SIGUSR2 kills a Tuwunel that has not yet installed its handler. The timer is
+    # A Tuwunel that has not yet installed its handler loses the SIGUSR2 (it is PID 1 of its
+    # own PID namespace, so an unhandled signal is dropped) and no backup appears. The timer is
     # Persistent, so a missed run fires the moment it starts: with the homeserver at boot,
     # or at install beside a team name used before. Signal only one that answers.
     port=$(jq -r .port "$dir/team.json")

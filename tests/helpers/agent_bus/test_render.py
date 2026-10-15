@@ -25,14 +25,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 from helpers.agent_bus import render, teamfile
 from helpers.pingbus import protocol
 
-#: Every key name Tuwunel 1.9.3's example config documents (DESIGN.md section 3.6), one per
+#: Every key name Tuwunel 1.9.4's example config documents (DESIGN.md section 3.6), one per
 #: line, sorted: the names `^#?([a-z0-9_]+) =` matches in EXAMPLE_CONFIG_SOURCE, whose
 #: SHA-256 was EXAMPLE_CONFIG_SHA256. Only the names are vendored: the file's default
 #: values include private address ranges, which this public repository's scanner refuses.
-EXAMPLE_KEYS = pathlib.Path(__file__).resolve().parent / "fixtures" / "tuwunel-1.9.3-example-keys.txt"
-EXAMPLE_CONFIG_SOURCE = ("https://raw.githubusercontent.com/matrix-construct/tuwunel/v1.9.3/"
+EXAMPLE_KEYS = pathlib.Path(__file__).resolve().parent / "fixtures" / "tuwunel-1.9.4-example-keys.txt"
+EXAMPLE_CONFIG_SOURCE = ("https://raw.githubusercontent.com/matrix-construct/tuwunel/v1.9.4/"
                          "tuwunel-example.toml")
-EXAMPLE_CONFIG_SHA256 = "4a8e20619a8989b501adca52219235960418eb648be6b1260b0f9f45d8d8991b"
+EXAMPLE_CONFIG_SHA256 = "6510ebc79fa418b0442a7ac5b1382b15a7400f6a5b30d461a3ecc68f0a453fd7"
+#: The two sections of the same file that hold the password sign-in limits
+#: (`#[global.rate_limiting.login.failed]`, `#[global.rate_limiting.login.account]`).
+EXAMPLE_LOGIN_SECTIONS = ("failed", "account")
 
 
 def team_data(**overrides: object) -> dict:
@@ -83,6 +86,12 @@ EXPECTED_TOML = {
     "admin_signal_execute": ["server backup-database"],
     "error_on_unknown_config_opts": True,
     "rocksdb_allow_fallocate": False,
+    "max_request_size": 10_000_000,
+    "enable_set_displayname": False,
+    "rate_limiting": {"login": {
+        "failed": {"per_second": 0.0033, "burst_count": 3},
+        "account": {"per_second": 0.003, "burst_count": 5},
+    }},
 }
 
 
@@ -99,7 +108,41 @@ class TomlTest(unittest.TestCase):
         documented = EXAMPLE_KEYS.read_text(encoding="utf-8").splitlines()
         self.assertEqual(documented, sorted(set(documented)), EXAMPLE_CONFIG_SOURCE)
         self.assertTrue(all(re.fullmatch(r"[a-z0-9_]+", key) for key in documented))
-        self.assertEqual(set(render.TOML_KEYS) - set(documented), set(), EXAMPLE_CONFIG_SHA256)
+        # rate_limiting is a section of the file, not a `key =` line: its sections are below.
+        self.assertEqual(set(render.TOML_KEYS) - {"rate_limiting"} - set(documented), set(), EXAMPLE_CONFIG_SHA256)
+        limits = render.toml_values(team())["rate_limiting"]["login"]
+        self.assertEqual(tuple(limits), EXAMPLE_LOGIN_SECTIONS)
+        for section in limits.values():
+            self.assertEqual(set(section) - set(documented), set(), EXAMPLE_CONFIG_SHA256)
+
+    def test_scalars_come_before_the_tables(self) -> None:
+        # Bare keys then tables: Tuwunel reads a file holding any bare key as its global
+        # section (Config::load_file), so the tables are rate_limiting's own, not [global].
+        lines = render.render_toml(team()).splitlines()
+        headers = [line for line in lines if line.startswith("[")]
+        self.assertEqual(headers, ["[rate_limiting.login.failed]", "[rate_limiting.login.account]"])
+        before_tables = tomllib.loads("\n".join(lines[:lines.index(headers[0])]))
+        self.assertEqual(set(before_tables), set(render.TOML_KEYS) - {"rate_limiting"})
+
+    def test_password_guessing_is_slowed_on_every_account(self) -> None:
+        # Three wrong passwords, then one every five minutes, keyed on the account, so a
+        # weakened human password cannot be guessed at speed from any local process.
+        failed = tomllib.loads(render.render_toml(team()))["rate_limiting"]["login"]["failed"]
+        self.assertEqual(failed["burst_count"], 3)
+        self.assertLessEqual(1 / failed["per_second"], 5 * 60 + 5)
+        self.assertGreaterEqual(1 / failed["per_second"], 5 * 60 - 5)
+
+    def test_members_cannot_rename_themselves(self) -> None:
+        # The admin, a server admin, still sets each display name through the admin API.
+        self.assertIs(tomllib.loads(render.render_toml(team()))["enable_set_displayname"], False)
+
+    def test_request_size_is_tuwunels_floor(self) -> None:
+        # Tuwunel refuses to start below 10_000_000 bytes (src/core/config/check.rs).
+        self.assertEqual(tomllib.loads(render.render_toml(team()))["max_request_size"], 10_000_000)
+
+    def test_a_float_that_is_not_finite_is_refused(self) -> None:
+        with self.assertRaises(render.RenderError):
+            render._toml_value(float("nan"))
 
     def test_only_the_admin_creates_rooms(self) -> None:
         # The team room is the one room on the instance (DESIGN.md section 3.6, D63): every
