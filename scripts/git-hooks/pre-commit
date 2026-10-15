@@ -98,8 +98,10 @@ echo "🔍 Scanning staged changes for sensitive information..."
 # recorded as D+A instead, in which case the add WAS scanned — which is why this
 # hole was easy to miss: it appears and disappears with file size.
 mapfile -t STAGED_FILE_LIST < <(git diff --cached --name-only --diff-filter=ACMRT)
+# The version gates judge deletions too: a file deleted from the repo is still in the image.
+mapfile -t STAGED_CHANGE_LIST < <(git diff --cached --name-only --diff-filter=ACDMRT)
 
-if [ ${#STAGED_FILE_LIST[@]} -eq 0 ]; then
+if [ ${#STAGED_CHANGE_LIST[@]} -eq 0 ]; then
     echo "✓ No files staged for commit"
     exit 0
 fi
@@ -127,7 +129,7 @@ CCY_LIB_DIR="files/var/local/claude-yolo/lib"
 CCY_HELPER_DIR="helpers/ssh_agent_filter"
 
 CCY_STAGED=()
-for FILE in "${STAGED_FILE_LIST[@]}"; do
+for FILE in "${STAGED_CHANGE_LIST[@]}"; do
     case "$FILE" in
         "$CCY_SCRIPT" | "$CCY_LIB_DIR"/*.bash | "$CCY_HELPER_DIR"/*.py) CCY_STAGED+=("$FILE") ;;
     esac
@@ -180,9 +182,7 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
             echo -e "${RED}COMMIT REJECTED: CCY version bump required${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
-            echo "CCY code was modified but CCY_VERSION was not bumped."
-            echo "Current version: $STAGED_VERSION"
-            echo ""
+            echo -e "CCY code was modified but CCY_VERSION was not bumped.\nCurrent version: $STAGED_VERSION\n"
             echo "Staged CCY file(s):"
             printf '  %s\n' "${CCY_STAGED[@]}"
             echo ""
@@ -196,11 +196,8 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
             echo "     - Minor (x.Y.0): New features, backward compatible"
             echo "     - Major (X.0.0): Breaking changes"
             echo ""
-            echo "  2. Update the version comment to describe the change"
-            echo ""
-            echo "Example:"
-            echo "  CCY_VERSION=\"3.0.1\"  # Fix: persist sessions in .claude/ccy/"
-            echo ""
+            echo -e "  2. Update the version comment to describe the change\n"
+            echo -e "Example:\n  CCY_VERSION=\"3.0.1\"  # Fix: persist sessions in .claude/ccy/\n"
             echo "To bypass this check (NOT RECOMMENDED):"
             echo "  git commit --no-verify"
             echo ""
@@ -249,7 +246,11 @@ for src in "${CCY_COPY_SOURCES[@]}"; do
     CCY_IMAGE_PATHS+=("${CCY_CONTEXT_ROOTS[@]/%//$src}")
 done
 CCY_IMAGE_STAGED=()
-for FILE in "${STAGED_FILE_LIST[@]}"; do
+for FILE in "${STAGED_CHANGE_LIST[@]}"; do
+    # Host-kit files under the COPY optional/ that the play never puts into the build context.
+    case "$FILE" in
+        files/opt/claude-yolo/optional/agent-bus/README.* | files/opt/claude-yolo/optional/agent-bus/agent-bus-claude) continue ;;
+    esac
     for path in "${CCY_IMAGE_PATHS[@]}"; do
         if [ "$FILE" = "$path" ] || [[ "$FILE" == "$path/"* ]]; then
             CCY_IMAGE_STAGED+=("$FILE")
@@ -274,11 +275,14 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
         exit 1
     fi
     if [ -n "$HEAD_LABEL" ] && [ "$STAGED_LABEL" = "$HEAD_LABEL" ]; then
-        if git diff --cached HEAD -- "${CCY_IMAGE_STAGED[@]}" \
-            | grep -E '^[+-]' \
-            | grep -vE '^[+-]{3}' \
-            | grep -vE '^[+-][[:space:]]*(#|$)' \
-            | grep -q .; then
+        # Any changed line that is not blank counts. A `#` line is skipped as a comment only in
+        # code (.py, .sh, .bash, or no extension) and never as a shebang: in a SKILL.md or a
+        # .txt guide it is a heading. A deletion is all `-` lines, so it counts too.
+        if git diff --cached HEAD -- "${CCY_IMAGE_STAGED[@]}" | awk '
+            /^diff --git / { prose = ($NF ~ /\.[^\/]+$/ && $NF !~ /\.(py|sh|bash)$/); next }
+            /^(---|\+\+\+) (a\/|b\/|\/dev\/null)/ { next }
+            /^[+-]/ && (prose ? $0 !~ /^[+-][[:space:]]*$/ : $0 !~ /^[+-][[:space:]]*(#([^!]|$)|$)/) { found = 1; exit }
+            END { exit !found }'; then
             echo -e "${RED}COMMIT REJECTED: CCY container version bump required${NC}"
             echo ""
             echo "These files are baked into the image, and a running container only"
