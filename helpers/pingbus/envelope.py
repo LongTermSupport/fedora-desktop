@@ -117,10 +117,20 @@ _PS_ALLOWED = (
 _ESCAPED = frozenset(
     [0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F, 0x2800, 0x3164, 0xFFA0,
      0x00AB, 0x00BB, 0x02BA, 0x02C2, 0x02C3, 0x02DD, 0x02EE, 0x05F4, 0x1433, 0x1438, 0x201C, 0x201D,
-     0x201E, 0x201F, 0x2033, 0x2036, 0x2039, 0x203A, 0x3003]
-    + list(range(0x275B, 0x275F)) + list(range(0x276C, 0x2772))
+     0x201E, 0x201F, 0x2033, 0x2036, 0x2039, 0x203A, 0x3003,
+     0x169B, 0x169C, 0x0F3A, 0x0F3B, 0x0F3C, 0x0F3D, 0x201A, 0x201B, 0x140A, 0x1405]
+    + list(range(0x275B, 0x2761)) + list(range(0x276C, 0x2772)) + list(range(0x27A2, 0x27A5))
     + list(range(0xFE00, 0xFE10)) + list(range(0xE0100, 0xE01F0)))
 _TEXT_PRESENTATION = (0xFE0E, 0xFE0F)
+_ZWJ = "\u200d"
+_EMOJI_PRESENTATION = "\ufe0f"
+_KEYCAP = "\u20e3"
+_KEYCAP_BASES = frozenset("0123456789#*")
+#: Skin tone modifiers: they continue the pictograph before them.
+_SKIN_TONES = range(0x1F3FB, 0x1F400)
+#: The pictograph blocks an emoji sequence joins (a `So` symbol shown from these).
+_PICTOGRAPH_BLOCKS = ((0x2600, 0x27BF), (0x2B05, 0x2B55), (0x1F004, 0x1F0CF), (0x1F300, 0x1F6FF),
+                      (0x1F7E0, 0x1F7EB), (0x1F900, 0x1F9FF), (0x1FA70, 0x1FAFF))
 _STRUCTURAL = frozenset('"\\<>')
 
 
@@ -249,21 +259,44 @@ def _shown(char: str, previous: str | None, marks: int) -> bool:
     return not any(c in _STRUCTURAL or not c.isprintable() for c in folded)
 
 
+def _pictograph(char: str | None) -> bool:
+    """Whether `char` is an emoji pictograph an emoji sequence may join."""
+    if char is None or unicodedata.category(char) != "So" or ord(char) in _ESCAPED:
+        return False
+    return any(low <= ord(char) <= high for low, high in _PICTOGRAPH_BLOCKS)
+
+
+def _in_sequence(char: str, previous: str | None, in_emoji: bool, following: str | None) -> bool:
+    """Whether a joiner or a presentation selector is shown as part of an emoji sequence: a
+    joiner between a shown pictograph (with its selector or skin tone) and the next pictograph;
+    an emoji presentation selector on a keycap base right before the keycap mark."""
+    if char == _ZWJ:
+        return in_emoji and _pictograph(following)
+    return char == _EMOJI_PRESENTATION and previous in _KEYCAP_BASES and following == _KEYCAP
+
+
 def _render(text: str) -> str:
     """`text` as one JSON string: printable ASCII but the quote and backslash, and `_shown`
     characters, as themselves; everything else escaped as `json.dumps` escapes it. A code
-    point's rendering depends only on those before it."""
+    point's rendering depends on those before it and, for a joiner or a keycap's selector
+    only, on the one after it: one more code point can turn that escape (6 bytes) into the
+    character (3 bytes), and adds at least 3, so a longer prefix never renders shorter."""
     parts = ['"']
     previous: str | None = None
     marks = 0
-    for char in text:
-        if (" " <= char <= "~" and char not in '"\\') or (char > "~" and _shown(char, previous, marks)):
+    in_emoji = False
+    for index, char in enumerate(text):
+        following = text[index + 1] if index + 1 < len(text) else None
+        if (" " <= char <= "~" and char not in '"\\') or (char > "~" and (
+                _shown(char, previous, marks) or _in_sequence(char, previous, in_emoji, following))):
             parts.append(char)
             marks = marks + 1 if unicodedata.category(char) in _MARK_CATEGORIES else 0
+            in_emoji = _pictograph(char) or (in_emoji and (char == _EMOJI_PRESENTATION
+                                                             or ord(char) in _SKIN_TONES))
             previous = char
         else:
             parts.append(json.dumps(char, ensure_ascii=True)[1:-1])
-            previous, marks = None, 0
+            previous, marks, in_emoji = None, 0, False
     parts.append('"')
     return "".join(parts)
 
@@ -278,8 +311,8 @@ def cap_body(text: str) -> tuple[str, int | None, int]:
     """(the rendered body, the UTF-8 bytes shown or None when whole, the text's UTF-8 bytes).
     The rendering is the longest prefix of whole code points whose JSON string, quotes
     included, is at most `BODY_MAX_BYTES` in UTF-8: the cut precedes the escaping, so it splits
-    no escape, and a lone surrogate is one code point like any other. A code point's rendering
-    depends only on those before it, so a longer prefix never renders shorter."""
+    no escape, and a lone surrogate is one code point like any other. A longer prefix never
+    renders shorter (`_render`)."""
     rendered = _render(text)
     total = _bytes(text)
     if _bytes(rendered) <= BODY_MAX_BYTES:

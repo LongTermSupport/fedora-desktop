@@ -878,8 +878,10 @@ REPLY	1	<team>	$PqR…	pingbus --team <team> say --to myrepo.2 --re '$PqR…'
 ```
 
 `status` prints an `ABOUT` line right after a trusted team's `TEAM` line when the team record
-has a description, read from the room topic `admin` set (§8: a topic that is not the fixed sentence, set by `admin`, 1 to 120 characters); the description is `json.dumps(description, ensure_ascii=True)`. An
-untrusted team, or one with no description, prints none.
+has a description, read from the room topic `admin` set (§8: a topic that is not the fixed
+sentence, set by `admin`, 1 to 120 characters); the description is
+`json.dumps(description, ensure_ascii=True)`. An untrusted team, or one with no description,
+prints none.
 
 A `HISTORY` line (`history`, §13) records one item: `in` for one this member received,
 `out` for one it sent; the item's `origin_server_ts`; then the line the item would be,
@@ -924,14 +926,17 @@ base at most four in a row, and punctuation or a symbol only from an allow-list 
 (Latin-1 and General Punctuation, the scripts' own punctuation, currency, letterlike, arrows,
 a few comparison signs, Miscellaneous Symbols and Dingbats, CJK punctuation without its
 brackets, fullwidth forms, emoji), less the quote and angle-bracket look-alikes those blocks
-hold. Everything else is a JSON escape: every control, format character (bidi, zero-width,
-tag), separator other than U+0020, surrogate, private-use or unassigned code point, run of
-variation selectors, invisible filler, and every punctuation or symbol outside the allowed
-blocks (mathematical brackets, box drawing, OCR, ornamental quotes). So the string can
-neither end early nor start a line, and no quote, backslash or marker look-alike outside the
-listed blocks appears as itself. A delivery is at most 12 KiB as the socket carries it (an ASCII JSON message, so a
-non-ASCII character counts as its escape). Every header value passed its grammar and is
-printable ASCII; the nonce is drawn after the bodies were written and is not a secret. `held back:` and `N more pending` lines may follow the entries.
+hold. A zero-width joiner is shown only between two emoji pictographs (the first with its
+presentation selector or skin tone), and U+FE0F on a keycap base only before the keycap mark,
+so joined and keycap emoji read as written. Everything else is a JSON escape: every control,
+format character (bidi, zero-width, tag), separator other than U+0020, surrogate, private-use
+or unassigned code point, run of variation selectors, invisible filler, and every punctuation
+or symbol outside the allowed blocks (mathematical brackets, box drawing, OCR, ornamental
+quotes). So the string can neither end early nor start a line, and no quote, backslash or
+marker look-alike appears as itself. A delivery is at most 12 KiB as the socket carries it (an
+ASCII JSON message, so a non-ASCII character counts as its escape). Every header value passed
+its grammar and is printable ASCII; the nonce is drawn after the bodies were written and is not
+a secret. `held back:` and `N more pending` lines may follow the entries.
 
 ```
 agent-bus delivery <nonce>: <N> message(s) (<H> from humans, <A> from agents, <P> pings, <T> timeouts): <sender> (<KIND>, <team>)[, …][ and <k> more]

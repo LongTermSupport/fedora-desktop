@@ -217,7 +217,12 @@ class HostileBodyTest(unittest.TestCase):
                # punctuation and symbols are shown only from an allow-list of blocks.
                "⧼", "⧽", "≺", "≻", "⋘", "⋙", "⦑", "⦖",
                "⩽", "⩾", "〔", "〕", "❝", "❞", "\U0001f676",
-               "\U0001f677", "⟍", "╲", "⑊")
+               "\U0001f677", "⟍", "╲", "⑊",
+               # Fable's re-check of the allow-list: angle and quote look-alikes still inside
+               # the allowed blocks (Ogham feather marks, Dingbat arrowheads, Tibetan brackets,
+               # heavy low quotes, low-9 quotes, Canadian syllabics pointing left and right).
+               "\u169b", "\u169c", "\u27a2", "\u27a3", "\u27a4", "\u0f3a", "\u0f3b", "\u0f3c",
+               "\u0f3d", "\u275f", "\u2760", "\u201a", "\u201b", "\u140a", "\u1405")
 
     def test_a_forged_close_and_header_stay_inside_the_body(self):
         text = envelope.render([peer(self.FORGERY, sender=QA)], "e90f3b12")
@@ -295,6 +300,43 @@ class ReadableTextTest(unittest.TestCase):
         self.assertEqual(envelope.cap_body("✅️️")[0], '"✅️\\ufe0f"')
         self.assertEqual(envelope.cap_body("a️")[0], '"a\\ufe0f"')
         self.assertEqual(envelope.cap_body("✅︁")[0], '"✅\\ufe01"')
+
+
+class EmojiSequenceTest(unittest.TestCase):
+    """E2: a zero-width joiner is shown only inside an emoji sequence (a pictograph, optionally
+    with an emoji presentation selector or a skin tone, joined to the next pictograph), and an
+    emoji presentation selector on a keycap base only before the keycap mark; every other
+    joiner or selector stays escaped."""
+
+    ZWJ = "\u200d"
+
+    def test_joined_emoji_read_as_written(self):
+        for text in ("\U0001f468\u200d\U0001f469\u200d\U0001f467",  # family
+                     "\u2764\ufe0f\u200d\U0001f525",  # heart on fire
+                     "\U0001f469\U0001f3fd\u200d\U0001f4bb",  # technologist, skin tone
+                     "\U0001f3f3\ufe0f\u200d\U0001f308",  # rainbow flag
+                     "1\ufe0f\u20e3", "#\ufe0f\u20e3", "*\ufe0f\u20e3"):  # keycaps
+            with self.subTest(text=ascii(text)):
+                self.assertEqual(envelope.cap_body(text)[0], f'"{text}"')
+
+    def test_a_joiner_or_selector_outside_a_sequence_stays_escaped(self):
+        for text, shown in (
+            ("a\u200d\U0001f525", '"a\\u200d\U0001f525"'),  # after a letter
+            ("\U0001f525\u200da", '"\U0001f525\\u200da"'),  # before a letter
+            ("\U0001f525\u200d", '"\U0001f525\\u200d"'),  # at the end
+            ("\U0001f525\u200d\u200d\U0001f525", '"\U0001f525\\u200d\\u200d\U0001f525"'),
+            ("\U0001f525\u200d\u2764", '"\U0001f525\u200d\u2764"'),
+            ("\u27a4\u200d\U0001f525", '"\\u27a4\\u200d\U0001f525"'),  # an escaped base
+            ("1\ufe0f", '"1\\ufe0f"'), ("1\ufe0fx", '"1\\ufe0fx"'),
+            ("a\ufe0f\u20e3", '"a\\ufe0f\\u20e3"'),
+        ):
+            with self.subTest(text=ascii(text)):
+                self.assertEqual(envelope.cap_body(text)[0], shown)
+
+    def test_a_longer_prefix_never_renders_shorter(self):
+        text = "\U0001f468\u200d\U0001f469\u200d\U0001f467 1\ufe0f\u20e3 a\u200d"
+        lengths = [len(envelope.cap_body(text[:end])[0].encode()) for end in range(len(text) + 1)]
+        self.assertEqual(lengths, sorted(lengths))
 
 
 class CapTest(unittest.TestCase):

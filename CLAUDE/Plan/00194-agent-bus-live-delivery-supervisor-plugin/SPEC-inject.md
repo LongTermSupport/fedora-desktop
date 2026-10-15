@@ -68,7 +68,11 @@ Each is numbered so a test, a review finding or a host check can name it.
   (U+115F, U+1160, U+3164, U+FFA0, U+2800, U+034F, U+17B4/5, U+180B-F); any character whose
   NFKC form holds a quote, backslash, `<`, `>` or a control; and the quote, backslash and
   angle-bracket look-alikes NFKC leaves alone (`“ ” „ ‟ ″ ‶ « » ‹ › 〃 〝 〞 〟 ˂ ˃ ᐸ ᐳ ≪ ≫ ⟨ ⟩ ⟪ ⟫ 〈 〉 《 》 ∖`
-  and their kin). `envelope._render` is the list; `test_envelope.py` HostileBodyTest the
+  and their kin, with the Ogham feather marks, Dingbat arrowheads U+27A2-27A4, Tibetan
+  brackets U+0F3A-0F3D, heavy low quotes U+275F/2760, low-9 quotes U+201A/201B and Canadian
+  syllabics U+140A/1405 from Fable's re-check). A zero-width joiner is shown only between two
+  emoji pictographs (the first with its selector or skin tone), and U+FE0F on a keycap base
+  only before U+20E3; every other joiner and selector stays escaped. `envelope._render` is the list; `test_envelope.py` HostileBodyTest the
   attack set, each in five positions.
 - **E3. Every header line is ASCII and fixed.** Every character outside the body strings is
   pingbus's template or a field that passed its §3/§4/§6 grammar and is re-checked as
