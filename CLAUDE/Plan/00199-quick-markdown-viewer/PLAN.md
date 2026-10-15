@@ -1,6 +1,6 @@
 # Plan 00199: quick markdown viewer
 
-**Status**: In Progress (research under way)
+**Status**: In Progress (md-viewer planned; waiting on the owner's decisions and its own ccy project)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: Medium
@@ -48,12 +48,31 @@ on Gio with goldmark (Task 1.2).
 
 ### Phase 2: Adopt or build
 
-- [ ] 🔄 **Task 2.1**: md-viewer: the spec, architecture and milestones (Opus), then the build,
-  milestone by milestone, tests first (Haiku), in its own repository. The window needs Gio's
-  system libraries, which this container lacks, so md-viewer's CI builds and proves the binary.
-  Its go-qa-ci step fails until go-qa-ci is public.
+- [x] ✅ **Task 2.1a**: md-viewer's spec, architecture and 12 milestones (M0 to M11), written by
+  Opus and pushed to its `main`
+  ([report](subagent-reports/261015-md-viewer-plan-opus.md)): `docs/SPEC.md`,
+  `docs/ARCHITECTURE.md`, `docs/MILESTONES.md`, its own `CLAUDE.md` and
+  `.claude/ccy/Dockerfile` (Go plus Gio's libraries, so it builds and tests in its own
+  container).
+
+- [ ] 🔄 **Task 2.1b**: The owner's decisions before the build. These are listed at the end of
+  `docs/MILESTONES.md`. The two that matter for reading plan files are emoji (the embedded Go
+  fonts draw ✅ ⬜ 🔄 as boxes) and dark mode (a `--dark` flag, or the desktop setting read
+  over D-Bus).
+
+- [ ] ⬜ **Task 2.1c**: md-viewer becomes its own ccy project, owner's host steps:
+
+  1. clone it into the projects directory and run `ccy` there;
+  2. run `/hooks-daemon install` there and commit what it writes;
+  3. run `gh auth setup-git` there;
+  4. join both sessions to one team with `ccy-teams`.
+
+  Its session then has Haiku build the milestones, tests first. Its go-qa-ci step fails until
+  go-qa-ci is public.
+
 - [ ] ⬜ **Task 2.2**: A play installs md-viewer on the host (with Gio's runtime libraries) and
   makes it the default for `text/markdown`. Startup is measured on the host with `--time`.
+
 - [ ] ⬜ **Task 2.3**: Host run through `meta-deploy.bash`; the owner opens a plan's `PLAN.md`
   from Nautilus and confirms it renders and opens quickly. qa-reviewer over the plan.
 
