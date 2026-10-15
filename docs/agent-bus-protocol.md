@@ -347,7 +347,9 @@ answers a message:
 
 A reply carries no reply fallback in `body` (Element shows the quoted message from
 `m.in_reply_to`), so `body` stays `render_text(text)`. A receiver built before replies drops
-one as `edit`; every member of a team runs the same pingbus release.
+one as `edit`; every member of a team runs the same pingbus release. The event ID is checked
+by its grammar only, not that it is in this room: a reply to a foreign or missing event shows
+as "unable to load" in Element, and claims no more than the text's own words could.
 
 The text object, exactly these keys:
 
@@ -662,7 +664,11 @@ only `relay/lock` exists, which `recv`, `wait` and the socket-mode watcher share
 
 **Socket delivery** (Plan 00194 `SPEC-inject.md`). With `PINGBUS_DELIVERY` unset, `watch`
 writes each pending item into the session through its inbox socket as a delivery envelope
-(§15), and consumes it once the payload was written in full. Its per-session files are in
+(§15), and consumes it once the payload was written in full. It then sends a public `m.read`
+receipt for each `HUMAN` item of that delivery (its one homeserver write besides the status
+event), so Element shows the agent's avatar under the message; a failed receipt is one
+stderr line and the delivery stands. Only this path sends receipts: relay mode, `recv` and
+`wait` send none. Its per-session files are in
 `inject/`, each named `<key>.<what>`, `<key>` the first 16 hex digits of the SHA-256 of the
 session's `CLAUDE_CODE_MESSAGING_SOCKET` path, so sessions sharing one `PINGBUS_HOME` (the
 host) never read each other's:
@@ -913,12 +919,17 @@ the ping's fields, `copy` when set, a fixed `authority` sentence per kind, `repl
 `REPLY` command, or `send <VERB> --to … --re '…'` for a ping) and, for `HUMAN` and `PEER`,
 `body`: the text as one JSON string on one line, at most 2048 UTF-8 bytes as rendered, cut
 on a code point before escaping and followed by a `truncated:` line pointing at `history`.
-In the body a visible letter, digit, mark, punctuation or symbol of any script is shown as
-itself; a control, a format character (bidi, zero-width, tag), a line or paragraph separator,
-a space other than U+0020, a surrogate, a private-use or unassigned code point, a run of
-variation selectors, an invisible filler, and a look-alike of the quote, the backslash or a
-marker's angle brackets are JSON escapes, so the string can neither end early nor start a
-line. A delivery is at most 12 KiB as the socket carries it (an ASCII JSON message, so a
+In the body a letter or number of any script is shown as itself, a combining mark on a shown
+base at most four in a row, and punctuation or a symbol only from an allow-list of blocks
+(Latin-1 and General Punctuation, the scripts' own punctuation, currency, letterlike, arrows,
+a few comparison signs, Miscellaneous Symbols and Dingbats, CJK punctuation without its
+brackets, fullwidth forms, emoji), less the quote and angle-bracket look-alikes those blocks
+hold. Everything else is a JSON escape: every control, format character (bidi, zero-width,
+tag), separator other than U+0020, surrogate, private-use or unassigned code point, run of
+variation selectors, invisible filler, and every punctuation or symbol outside the allowed
+blocks (mathematical brackets, box drawing, OCR, ornamental quotes). So the string can
+neither end early nor start a line, and no quote, backslash or marker look-alike outside the
+listed blocks appears as itself. A delivery is at most 12 KiB as the socket carries it (an ASCII JSON message, so a
 non-ASCII character counts as its escape). Every header value passed its grammar and is
 printable ASCII; the nonce is drawn after the bodies were written and is not a secret. `held back:` and `N more pending` lines may follow the entries.
 

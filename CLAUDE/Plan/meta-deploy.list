@@ -20,22 +20,25 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00201's UX fixes and security fixes: deploys the ccy launcher 3.98.10, which requires
-# container 2.65, so the next ccy launch rebuilds the image once. In the envelope a human's
-# accents, other scripts and emoji read as written; the agent's answer is an Element reply to
-# the message, and Element shows the agent's avatar under each message it received; the skill
-# and delivery frame carry the security rules (plugin 1.2.2). Rebuilds ccy-teams: Enter on a
-# team row has "Open every team in Element, a window each"; a run that used sudo drops the
-# credential before it exits, Ctrl-C included; the launch block names who can direct a
-# session; a copied password serves one paste and is then gone. cc --teams gets the new deny
-# rules and consent text. Running ccy sessions keep their old image until each is relaunched.
+# Plan 00201 Tasks 2.10 (UX fixes) and 2.11 (security fixes): deploys the ccy launcher
+# 3.98.10, which requires container 2.65, so the next ccy launch rebuilds the image once. In a
+# team session a human's accents, other scripts and emoji read as written in the delivery
+# block; the agent's answer is an Element reply to the message (`say --re`), and Element shows
+# the agent's avatar under each human message it received; the skill and delivery frame carry
+# the security rules (plugin 1.2.2). Rebuilds ccy-teams: Enter on a team row has "Open every
+# team in Element, a window each"; a run that used sudo drops the credential before it exits,
+# Ctrl-C included; the launch block names who can direct a session; a copied password serves
+# one paste. cc --teams gets the new deny rules and consent text. Every team session must then
+# be relaunched: a session on an older image silently drops a reply from a new one, refusing it
+# as an edit.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00201's UX and security fixes: agent-bus-install software puts the same pingbus and kit
-# in /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get the same
-# envelopes, replies, read receipts and security rules; and the agent-bus seat commands ccy and
-# cc launch through, so a launch naming a stopped team says `ccy-teams apply <team>`, an
-# unknown one lists the teams here, and `seat take` and `seat remove` end with `sudo -k`. No
-# team, homeserver or firewall rule changes; every team then reads "out of date: software"
-# until applied (ccy-teams offers it). The owner's checks are in Plan 00201's
-# ACCEPTANCE-owner.md, from its "Morning start".
+# Plan 00201 Tasks 2.10 and 2.11: agent-bus-install software puts the same pingbus and kit in
+# /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get the same
+# replies, read receipts, readable text and security rules, and must be restarted too (an old
+# one drops replies as edits); and the agent-bus seat commands ccy and cc launch through, so a
+# launch naming a stopped team says `ccy-teams apply <team>`, an unknown one lists the teams
+# here, and `seat take` and `seat remove` end with `sudo -k`. No team, homeserver or firewall
+# rule changes; every team then reads "out of date: software" until applied (ccy-teams offers
+# it). The owner's checks: Plan 00201 ACCEPTANCE-owner.md, from its "Morning start".
 playbooks/imports/play-agent-bus.yml
+
