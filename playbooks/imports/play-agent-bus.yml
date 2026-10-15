@@ -183,6 +183,43 @@
       changed_when: agent_bus_software.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
       tags: [agent-bus]
 
+    # The applied stamps are root:<the desktop user's primary group> 0640 in a 0750
+    # directory: ccy-teams, run by that user, reads them without sudo, and no other user
+    # learns a team's name from them. The group is looked up, not assumed to share the
+    # login's name; a user or group that cannot be found fails here, before any team.
+    # It is recorded in /etc/agent-bus/stamp-group, which every `agent-bus-install team`
+    # reads (with no record it fails), so a run outside this play keeps the same group.
+    # Recorded whenever the software is installed, whether or not a team is present.
+    - name: Look up the desktop user's primary group ID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+      tags: [agent-bus]
+
+    - name: Look up the desktop user's primary group name
+      ansible.builtin.getent:
+        database: group
+        key: "{{ ansible_facts.getent_passwd[user_login][2] }}"
+      tags: [agent-bus]
+
+    - name: Create the agent-bus configuration directory
+      ansible.builtin.file:
+        path: /etc/agent-bus
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [agent-bus]
+
+    - name: Record the applied stamps' group
+      ansible.builtin.copy:
+        content: "{{ ansible_facts.getent_group | list | first }}\n"
+        dest: /etc/agent-bus/stamp-group
+        owner: root
+        group: root
+        mode: "0644"
+      tags: [agent-bus]
+
     # ccy-teams lists a team's members and its people's Element sessions through these two
     # read-only commands; with this rule it needs no password to show them. Nothing else is
     # granted: the rule pins each command's arguments (see the file for why that is safe).
@@ -264,38 +301,6 @@
           loop_control:
             label: "{{ item.team }}"
           changed_when: false
-
-        # The applied stamps are root:<the desktop user's primary group> 0640 in a 0750
-        # directory: ccy-teams, run by that user, reads them without sudo, and no other user
-        # learns a team's name from them. The group is looked up, not assumed to share the
-        # login's name; a user or group that cannot be found fails here, before any team.
-        # It is recorded in /etc/agent-bus/stamp-group, which every `agent-bus-install team`
-        # reads (with no record it fails), so a run outside this play keeps the same group.
-        - name: Look up the desktop user's primary group ID
-          ansible.builtin.getent:
-            database: passwd
-            key: "{{ user_login }}"
-
-        - name: Look up the desktop user's primary group name
-          ansible.builtin.getent:
-            database: group
-            key: "{{ ansible_facts.getent_passwd[user_login][2] }}"
-
-        - name: Create the agent-bus configuration directory
-          ansible.builtin.file:
-            path: /etc/agent-bus
-            state: directory
-            owner: root
-            group: root
-            mode: "0755"
-
-        - name: Record the applied stamps' group
-          ansible.builtin.copy:
-            content: "{{ ansible_facts.getent_group | list | first }}\n"
-            dest: /etc/agent-bus/stamp-group
-            owner: root
-            group: root
-            mode: "0644"
 
         - name: Install or update each team
           ansible.builtin.command:
