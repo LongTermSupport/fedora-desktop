@@ -786,7 +786,7 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 	}
 	if err = c.ApplyTeams(ctx, o.team); err != nil {
 		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
-			" but not installed. Once the cause above is fixed, ccy-teams apply " + o.team + " installs it.")
+			" but not applied as declared. Once the cause above is fixed, ccy-teams apply " + o.team + " applies it.")
 	}
 	if !o.yes {
 		if err = c.afterCreate(ctx, o); err != nil {

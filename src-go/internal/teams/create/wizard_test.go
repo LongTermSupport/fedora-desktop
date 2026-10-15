@@ -770,7 +770,7 @@ func TestAFailedInstallSaysHowToRetry(t *testing.T) {
 	h.applyErr = errors.New("play failed")
 	wzCode(t, h.invoke("--yes", "--team", "beta", "--human", "owner", "--org", "example-org"), 1, h)
 	wzContain(t, "stderr", h.err(),
-		"ERROR: team beta is declared in ~/fd/localhost.yml but not installed. Once the cause above is fixed, ccy-teams apply beta installs it.")
+		"ERROR: team beta is declared in ~/fd/localhost.yml but not applied as declared. Once the cause above is fixed, ccy-teams apply beta applies it.")
 	if h.run.called("env PYTHONPATH=/root python3 -P -m helpers.agent_bus.declare next-steps") {
 		t.Error("next steps after a failed install")
 	}
