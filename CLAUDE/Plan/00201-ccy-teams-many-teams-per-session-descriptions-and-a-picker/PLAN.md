@@ -1,6 +1,6 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (spec done, M3 replies built; M1-M2 descriptions next, then M4-M7)
+**Status**: In Progress (M1-M3 built and merged; M4 shared chooser next, then M5-M7)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
@@ -55,7 +55,7 @@ change the bus protocol unless the research shows it must.
   descriptions, the shared chooser (no-cover, several-cover, scope widening), several teams
   per session, replying to a peer, and `cc` on the same flow. Decisions Q1-Q10: the spec's
   recommendations are taken, by the coordinator, on the owner's instruction of 2026-10-15
-  ("DO NOT GATE ON ME - get this all done properly and pragmatically"). The owner may
+  not to wait for him and to decide properly and pragmatically. The owner may
   overrule any of them.
 
 ### Phase 2: Build (tests first; milestones M1-M7 of the spec)
