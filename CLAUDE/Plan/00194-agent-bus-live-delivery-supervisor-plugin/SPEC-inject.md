@@ -85,7 +85,7 @@ Each is numbered so a test, a review finding or a host check can name it.
   it again.
 - **E9. Delivery cap.** A delivery holds at most 8 entries and at most 12 KiB as rendered,
   oldest first. The renderer refuses to start a delivery an entry cannot fit, so the cap is
-  absolute: one entry of the largest header and a full body is under 4 KiB (a test renders
+  absolute: one entry of the largest header and a full body is under 5 KiB (a test renders
   the largest values every grammar allows), so the first entry always fits. What is left
   adds `<N> more pending: they follow in the next delivery`. The socket's largest accepted
   message is unmeasured: H4 measures it with a full hostile delivery before the caps are
@@ -394,7 +394,7 @@ In `tests/helpers/pingbus/`, with the existing fakes and the real Unix socket of
   lone surrogate each stay inside one JSON string on the `body:` line; the envelope is
   ASCII; 2048 NUL bytes and 512 emoji each render a body of at most 2048 characters; the cut
   never splits a character or an escape; the largest entry the grammars allow is under
-  4 KiB; 8 entries and 12 KiB; held-back and more-pending lines; a field that fails its
+  5 KiB; 8 entries and 12 KiB; held-back and more-pending lines; a field that fails its
   grammar raises; a timestamp out of range renders `-`; the flood budget.
 - `test_notify.py` (watch, socket mode): the delivery replaces the notice, a human's words
   reach the socket inside the envelope; consumed after a full write; a write error consumes
