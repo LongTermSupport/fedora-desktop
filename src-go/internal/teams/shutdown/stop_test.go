@@ -114,6 +114,21 @@ func TestASeatStillHeldFails(t *testing.T) {
 	m.errHas(t, "ccy-proj: failed: seat 1@alpha is still held 30 s after: something of the session still runs (podman ps)")
 }
 
+// SD12, SD13: a pane that cannot be read fails the session and kills nothing: it may hold
+// unsent text.
+func TestAnUnreadablePaneFailsTheSessionAndKillsNothing(t *testing.T) {
+	m := newMachine(t)
+	m.noLxc()
+	m.OnErr("tmux -L ccy capture-pane", "server exited unexpectedly", 1)
+	if got := m.run("alpha", "--yes"); got != term.ExitFailure {
+		t.Fatalf("exit %d", got)
+	}
+	if m.killed() || len(m.typedInto("ccy-proj")) != 0 {
+		t.Fatal("the session was touched")
+	}
+	m.errHas(t, "ccy-proj: failed: the screen of ccy-proj could not be read: server exited unexpectedly; nothing was typed or stopped")
+}
+
 // SD13: a tmux failure fails that session, with tmux's words.
 func TestATmuxFailureFailsTheSession(t *testing.T) {
 	m := newMachine(t)

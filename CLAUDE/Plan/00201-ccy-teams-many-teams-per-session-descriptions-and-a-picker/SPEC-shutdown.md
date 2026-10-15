@@ -125,7 +125,9 @@ are ccy-teams' own: 0, 1 refusal or failure, 64 usage, 130 cancelled.
   says why: "did not end within 60 s of /exit" or "its prompt was not ready within 30 s". A
   session already gone at the kill is exited, not stopped.
 - **SD13** Each step that fails (a tmux or registry error) makes that session **failed**, with
-  the tool's words; the other sessions carry on.
+  the tool's words; the other sessions carry on. A pane that cannot be read is failed with
+  nothing typed or killed (it may hold unsent text), unless tmux says the session is gone, which
+  the next pass reads as ended.
 
 ### Seats
 

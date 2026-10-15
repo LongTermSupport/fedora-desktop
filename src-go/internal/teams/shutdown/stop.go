@@ -104,7 +104,11 @@ func (s *Shutdown) step(ctx context.Context, j *job, live map[string]bool) {
 	}
 	pane, err := s.Tmux.CapturePane(ctx, j.name, true)
 	if err != nil {
-		s.hardStop(ctx, j, err.Error()+noteKilledSuffix)
+		// A session that ended since the list was read is seen gone on the next pass. Any other
+		// failure kills nothing: the pane may hold unsent text (SD12, SD13).
+		if !strings.Contains(err.Error(), "can't find") {
+			j.done(failed, err.Error()+"; nothing was typed or stopped")
+		}
 		return
 	}
 	prefix, _, found := strings.Cut(j.name, "-")
