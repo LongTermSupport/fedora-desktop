@@ -20,6 +20,11 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# GNOME Text Editor facts (read-only): RPM or Flatpak, its command-line options, its desktop
+# files and D-Bus activation, the default handler for text files, its settings. Collected so
+# Plan 00198 can make a file opened from Nautilus open in a new window on the current workspace.
+00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace
+
 # agent team bus acceptance, now with the coordinator role (Plan 00196 is deployed). BEFORE
 # running meta, launch `ccy` interactively once in this checkout and choose the token and SSH
 # keys: the saved choices are still in the format before CCY 3.96, which a headless launch

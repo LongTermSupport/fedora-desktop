@@ -38,6 +38,10 @@ Use these Unicode icons in plan documents:
 
 - [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
 
+- [00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace](00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace/) - In Progress. Opening a file from Nautilus opens GNOME Text Editor in a new window on the current workspace, not as a tab on another workspace
+
+- [00199-quick-markdown-viewer](00199-quick-markdown-viewer/) - In Progress. A desktop viewer that renders a Markdown file nicely and opens quickly; adopt one or build one
+
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 
 - [00189-ouch-download-sha256-pin](00189-ouch-download-sha256-pin/) - Not Started. The ouch tarball is checked against a pinned sha256 (#63)
