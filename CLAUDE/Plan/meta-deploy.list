@@ -19,3 +19,9 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# ccy play: installs CCY 3.98.5 (container unchanged at 2.60, no image rebuild). The launcher
+# and its libraries are rewritten where semgrep's bash grammar could not parse them, with
+# identical behaviour (Plan 00192), and `ccy --help` describes the shared team chooser
+# (Plan 00201).
+playbooks/imports/play-claude-yolo.yml
