@@ -34,7 +34,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
@@ -695,7 +695,7 @@ def failure(exc: BaseException) -> tuple[int, str]:
     if isinstance(exc, protocol.Untrusted):
         return EXIT_UNTRUSTED, f"the team room is not trusted: {exc}"
     if isinstance(exc, protocol.Refusal):
-        return EXIT_REFUSED, f"refused: {exc.reason}"
+        return EXIT_REFUSED, f"refused: {exc.reason}" + (f": {exc.detail}" if exc.detail else "")
     if isinstance(exc, limits.RateLimited):
         return EXIT_RATE, f"rate limited: {exc.reason}"
     if isinstance(exc, forge.ForgeError):
@@ -762,6 +762,39 @@ def _user_id(name: str, record: protocol.TeamRecord, member: config.Member) -> s
         raise config.UsageError(f"--to {name} is ambiguous in team {member.team}: {', '.join(named)}")
     raise config.UsageError(f"--to {name}: no member of team {member.team} is named that. "
                             f"Agents: {', '.join(handles) or '-'}. Humans: {', '.join(humans) or '-'}")
+
+
+@contextlib.contextmanager
+def _explained_targets(args: argparse.Namespace, verb: str | None, record: protocol.TeamRecord,
+                       member: config.Member) -> Iterator[list[str]]:
+    """`--to`'s addressees (`_addressees`), with a `target` refusal raised inside re-raised
+    with what was refused and who this command can address, from the command line and the
+    record only. `verb` is the ping's, None for `say`."""
+    server = member.server_name
+    to: list[str] = []
+    try:
+        to += _addressees(args, record, member)
+        yield to
+    except protocol.Refusal as exc:
+        if exc.reason != "target" or exc.detail is not None:
+            raise
+        ctx = record.context(server)
+        command = "say" if verb is None else f"send {verb}"
+        refused = [protocol.parse_user_id(user, server) or user for user in to
+                   if not protocol.addressable(user, verb, ctx)]
+        if refused:
+            what = f"--to {','.join(refused)} cannot be addressed by {command}"
+        elif not to:
+            what = f"--to-coordinator: team {member.team} has no coordinator but this agent"
+        else:
+            limit = protocol.MAX_TEXT_TO if verb is None else protocol.MAX_TO
+            what = f"{command} takes at most {limit} addressees, not {len(to)}"
+        users = [user for user in (*record.roles, *sorted(record.humans))
+                 if user != member.user_id and protocol.addressable(user, verb, ctx)]
+        agents = [_localpart(user, server) for user in users if protocol.is_agent_user_id(user, server)]
+        humans = [_localpart(user, server) for user in users if protocol.is_human_user_id(user, server)]
+        raise protocol.Refusal("target", f"{what}. Agents: {', '.join(agents) or '-'}. "
+                                         f"Humans: {', '.join(humans) or '-'}") from None
 
 
 def _user_ids(names: str, record: protocol.TeamRecord, member: config.Member) -> list[str]:
@@ -853,10 +886,11 @@ def cmd_send(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
-    to = protocol.with_coordinator_copy(_addressees(args, record, member), member.user_id, ctx)
-    ref = None if args.ref is None else protocol.lowercase_ref_repo(args.ref)
-    content = protocol.build_ping(args.verb, to, ref, args.re, _send_branch(args, ref, record, rt.upstream))
-    ping = protocol.validate_content(content, ctx)
+    with _explained_targets(args, args.verb, record, member) as addressees:
+        to = protocol.with_coordinator_copy(addressees, member.user_id, ctx)
+        ref = None if args.ref is None else protocol.lowercase_ref_repo(args.ref)
+        content = protocol.build_ping(args.verb, to, ref, args.re, _send_branch(args, ref, record, rt.upstream))
+        ping = protocol.validate_content(content, ctx)
     protocol.check_role(args.verb, member.user_id, ctx)
     now = rt.clock_ms()
     seat.state.admit_send(member.limits, args.verb, ref, args.re, ping.to, now)
@@ -909,8 +943,9 @@ def cmd_say(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, e
     seat = _seat(member, environ, rt, err)
     record = seat.syncer.verify_room()
     ctx = record.context(member.server_name)
-    to = protocol.with_coordinator_copy(_addressees(args, record, member), member.user_id, ctx)
-    event_id, now, said_to = _send_text(seat, ctx, to, text, rt)
+    with _explained_targets(args, None, record, member) as addressees:
+        to = protocol.with_coordinator_copy(addressees, member.user_id, ctx)
+        event_id, now, said_to = _send_text(seat, ctx, to, text, rt)
     if relaying:
         _record_sent(environ, err, sentlog.say_entry(
             member.team, event_id, now, _localparts(said_to, member.server_name), text))

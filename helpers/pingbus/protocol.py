@@ -245,13 +245,15 @@ _SECRET_RES = tuple((name, re.compile(pattern)) for name, pattern in SECRET_PATT
 
 
 class Refusal(ValueError):
-    """A validation failure carrying one code from `DROP_REASONS` or `SEND_REFUSALS`."""
+    """A validation failure carrying one code from `DROP_REASONS` or `SEND_REFUSALS`, and on
+    a send, optionally, a `detail` built only from the command line and the team record."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, detail: str | None = None) -> None:
         if reason not in DROP_REASONS and reason not in SEND_REFUSALS:
             raise ValueError(f"not a drop reason code: {reason!r}")
         super().__init__(reason)
         self.reason = reason
+        self.detail = detail
 
 
 class Untrusted(ValueError):
@@ -627,13 +629,18 @@ def _check_version_first(obj: object) -> None:
 def _check_targets(to: list[str], verb: str, ctx: Context) -> tuple[str, ...]:
     if not 1 <= len(to) <= MAX_TO or len(set(to)) != len(to):
         raise Refusal("target")
-    for user in to:
-        if ctx.roles.get(user) in ROLES and is_agent_user_id(user, ctx.server_name):
-            continue
-        if verb in VERBS_TO_HUMANS and user in ctx.humans and is_human_user_id(user, ctx.server_name):
-            continue
+    if not all(addressable(user, verb, ctx) for user in to):
         raise Refusal("target")
     return tuple(sorted(to))
+
+
+def addressable(user: str, verb: str | None, ctx: Context) -> bool:
+    """Whether `user` may be in a `to`: an agent holding a role; or a listed human, for an
+    agent text (`verb` None) or a verb in `VERBS_TO_HUMANS`. Never `admin` or the server user."""
+    if ctx.roles.get(user) in ROLES and is_agent_user_id(user, ctx.server_name):
+        return True
+    return ((verb is None or verb in VERBS_TO_HUMANS) and user in ctx.humans
+            and is_human_user_id(user, ctx.server_name))
 
 
 def check_ref_form(value: object, rule: VerbRule) -> Ref | None:
@@ -1056,11 +1063,7 @@ def _check_text_targets(to: list[str], ctx: Context) -> tuple[str, ...]:
     """Listed humans and role-holding agents; never `admin`, the server user or anyone else."""
     if not 1 <= len(to) <= MAX_TEXT_TO or len(set(to)) != len(to):
         raise Refusal("target")
-    for user in to:
-        if user in ctx.humans and is_human_user_id(user, ctx.server_name):
-            continue
-        if ctx.roles.get(user) in ROLES and is_agent_user_id(user, ctx.server_name):
-            continue
+    if not all(addressable(user, None, ctx) for user in to):
         raise Refusal("target")
     return tuple(sorted(to))
 
