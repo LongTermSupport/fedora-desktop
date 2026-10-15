@@ -27,6 +27,11 @@ Two version numbers move independently — see
   a bare `--teams` is refused (64). `ccy-teams for-checkout --choose` and `ccy_seats_resolve`
   are gone.
 
+## 3.97.5 — container 2.57
+
+- No behaviour change; a two-assignment command that semgrep's bash grammar rejects is
+  rewritten so the patterns gate scans the launcher again.
+
 ## 3.97.4 — container 2.57
 
 - **A team's description reaches its agents, through the room topic.** The admin sets the

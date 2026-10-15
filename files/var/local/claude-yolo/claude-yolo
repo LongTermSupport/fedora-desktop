@@ -1260,9 +1260,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                     # saved value leaves them empty.
                     SPECIFIED_TOKEN="$LAST_TOKEN"
                     IFS=' ' read -ra SSH_KEYS <<< "$LAST_SSH_KEYS"
-                    if [[ -n "$LAST_NETWORK" ]]; then
-                        SPECIFIED_NETWORK="$LAST_NETWORK" NETWORK_FROM_CONFIG=true
-                    fi
+                    [[ -z "$LAST_NETWORK" ]] || NETWORK_FROM_CONFIG=true SPECIFIED_NETWORK="$LAST_NETWORK"
                     # The saved seats only on a person's yes to the offer that showed them, and
                     # --teams wins: joining a team is not a preference, so a restore takes --teams
                     # only from the session's own record. The seats go into that record, as an
