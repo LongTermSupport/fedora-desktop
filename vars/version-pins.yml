@@ -74,6 +74,19 @@ version_pins:
         Not yet established. Needs a host to determine how the installed version is
         resolved; declared rather than omitted so the gap is counted, not invisible.
 
+  - playbook: playbooks/imports/optional/common/play-md-viewer.yml
+    var: md_viewer_version
+    note: >-
+      A full commit hash on LongTermSupport/md-viewer main, built with `go install` (Plan
+      00199). The project publishes no tags yet, so there is no release to compare with: bump it
+      to a newer main commit by hand, and to a tag once one exists.
+    installed:
+      kind: untracked
+      why: >-
+        `md-viewer --version` prints the Go pseudo-version, which carries only the first 12
+        characters of the hash; the play asserts that prefix at install time, so a separate
+        host-side resolver would repeat that check.
+
   - playbook: playbooks/imports/optional/common/play-network-tools.yml
     var: ooklaSpeedtestVersion
     note: >-

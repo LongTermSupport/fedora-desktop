@@ -115,10 +115,16 @@ a repository is no longer offered for a checkout of it. Report:
   session's container, `say` inference and refusal, SessionEnd), a plain session, then
   purges and checks the firewalld rules are gone. The interactive steps (chooser, scope widening, cc consent) are the owner's:
   [ACCEPTANCE-owner.md](ACCEPTANCE-owner.md). Report:
-  `subagent-reports/261015-m7-acceptance-opus.md`. M3 changed with Task 2.8, so the automated
+  `subagent-reports/261015-m7-acceptance-opus.md`. M3 changed with Task 2.9, so the automated
   part must pass again after the host run.
-- [x] ✅ **Task 2.8**: the final qa-reviewer's findings
-  (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.6 / container 2.61. The `bus: A,B`
+- [ ] ⬜ **Task 2.8**: S-D1 in relay mode: `_deliver` (`helpers/pingbus/cli.py`) writes a
+  relay-delivered `HUMAN` or `PEER` to the spool with no `REPLY` line, so the session never
+  gets the ready reply command. Expected to be carried by the structured-injection work of
+  [Plan 00194](../00194-agent-bus-live-delivery-supervisor-plugin/PLAN.md) on branch
+  `feat/bus-inject-message`; check the reply line is there when it merges, else add it here
+  (tests first). Found in `subagent-reports/261015-bus-bugs-opus.md`.
+- [x] ✅ **Task 2.9**: the final qa-reviewer's findings
+  (`subagent-reports/261015-final-qa-reviewer.md`), CCY 3.98.7 / container 2.62. The `bus: A,B`
   status line works in any checkout: the member kit's `settings.json` makes `pingbus status-line`
   the status line (command-line settings outrank the project's), which runs the session's own
   status line first; the hooks-daemon handler is gone, and the tests are pingbus's, in the

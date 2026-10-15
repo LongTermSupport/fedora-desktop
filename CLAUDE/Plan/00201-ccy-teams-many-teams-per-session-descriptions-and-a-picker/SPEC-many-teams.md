@@ -215,8 +215,12 @@ full handle `<repo>.<seat>+<host>.<type>` is a member.
   `--to proj.1 is ambiguous in team alpha: proj.1+local.podman, proj.1+lab.host`.
 - **S-D4** A name matching nothing: exit 64,
   `--to proj.9: no member of team alpha is named that. Agents: … Humans: …` (handles and
-  localparts from the record), instead of today's `refused: target` (exit 4), which stays
-  for what the validator refuses after resolution (an `@room`, the sender itself).
+  localparts from the record), instead of the old bare `refused: target` (exit 4). What the
+  validator still refuses after resolution (an `@room`, `admin`, a human for a verb humans do
+  not take, too many addressees counting the coordinator copy, no coordinator for
+  `--to-coordinator`) stays exit 4 and says what it refused and who can be addressed:
+  `refused: target: --to admin cannot be addressed by say. Agents: … Humans: …` (the sender
+  left out).
 - **S-D5** `say --help` and `send --help` show the forms in an epilog:
   `--to proj.1` (a seat, when one member has it), `--to proj.1+local.podman` (a handle),
   `--to alice` (a human), `--to @proj.1+local.podman:alpha.agent-bus.internal` (a user ID),

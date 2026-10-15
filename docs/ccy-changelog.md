@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.98.6 — container 2.61
+## 3.98.7 — container 2.62
 
 - **The `bus: A,B` status line works in any checkout** (Plan 00201's final review). It was a
   hooks-daemon handler registered in this repository only, so a team session elsewhere showed
@@ -28,6 +28,15 @@ Two version numbers move independently — see
   settings and pingbus, so it is rebuilt once.
 - **`cc --teams` makes nothing before the consent.** The checkout's `.claude/ccy/` is created
   after the chooser and its Element consent, so a declined start leaves no folder behind.
+
+## 3.98.6 — container 2.61
+
+- **A `target` refusal from `pingbus send` or `say` says what it refused and who can be
+  addressed.** `refused: target: --to admin cannot be addressed by say. Agents: … Humans: …`
+  (the agents and humans this command may reach, the sender left out), in place of a bare
+  `refused: target`. Exit code unchanged (4). A short `--to <repo>.<seat>` and the `REPLY`
+  line after an inbox read with a watcher holding the lock already worked from container 2.56;
+  a session still on an older image showed both as broken until relaunched.
 
 ## 3.98.5 — container 2.60
 
@@ -48,12 +57,10 @@ Two version numbers move independently — see
   or `%` in `$(( ))`, `! { ...; }` as an `if` condition and a heredoc in an `if` condition, so
   the rules covered almost none of the launcher. Each is now written in an equivalent form.
 
-
 ## 3.98.2 — container 2.60
 
 - **The two 3.97/3.98 lines meet.** 3.98.0 (goodbye, relay, `ccy-teams lxc-add`) was built
-  beside 3.97.2 to 3.97.11 (several teams per session, team descriptions, `REPLY` lines, `cc
-  --teams` on the shared chooser); this version holds both. A session's team list and
+  beside 3.97.2 to 3.97.11 (several teams per session, team descriptions, `REPLY` lines, `cc --teams` on the shared chooser); this version holds both. A session's team list and
   status-line record are written in relay mode too, `recv` prints `REPLY` lines when it is not
   relaying, and SessionEnd (registered once, with the goodbye's 6 s timeout) removes the
   status-line record before the goodbye. Both lines changed the image (2.56 and 2.59), so the
