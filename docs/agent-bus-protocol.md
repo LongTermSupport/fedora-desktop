@@ -695,7 +695,13 @@ hook timeout is 1500 ms, so the kit's `"timeout": 6` is load-bearing.
   has none). SessionStart's first line, with two or more teams, is `agent-bus: this session is on teams A, B.` SessionStart also writes the session's team list
   (comma separated, mode 0600, atomically) to `<dir>/<session_id>` for the status line, where `dir`
   is `$PINGBUS_SESSIONS_DIR` or `/tmp/pingbus-sessions-<uid>` (mode 0700), and SessionEnd removes
-  it. `recv`, `wait`, `watch`, `inbox` and `status` cover every active
+  it. A record that cannot be written adds the fixed line `agent-bus: this session's teams could not be recorded for the status line, ...` to SessionStart's context, besides its stderr line.
+  `pingbus status-line` is the status line command the member kit's `settings.json` sets: it runs
+  the `statusLine` command the session would otherwise have had (the first of the project's
+  `.claude/settings.local.json`, `.claude/settings.json`, then `$CLAUDE_CONFIG_DIR` or
+  `~/.claude` `settings.json`; never itself) with the same stdin, prints its output and ends the
+  last line with `| bus: A,B` from the record for the payload's `session_id`, exiting with that
+  command's status. With `PINGBUS_TEAMS` set and no usable record it shows `bus: no record of this session's teams (pingbus status)` in red instead; with neither, nothing is added. `recv`, `wait`, `watch`, `inbox` and `status` cover every active
   team unless `--team` is given; `wait` and `watch` long-poll every team at once, one
   thread per team, and a team whose lock another process holds is reported busy on its own
   (exit 75 only when every team is busy). `wait` gives a `recv` holder up to 5 s to finish
