@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.2 — container 2.56
+
+- **`pingbus recv` prints a ready reply command, and `--to` takes a seat's short name.** After
+  each message from an agent or a human, `recv` prints a `REPLY` line holding the exact
+  `pingbus --team TEAM say --to NAME` to answer it. `--to` on `send` and `say` accepts
+  `<repo>.<seat>` when exactly one member has it; an ambiguous or unknown name is refused (exit
+  64\) naming the candidates or the team's members. `send --help` and `say --help` show the
+  forms. The client and skill are in the image, so the container version moves to 2.56 and the
+  image is rebuilt once.
+
 ## 3.97.1 — container 2.55
 
 - **The member kit carries the coordinator role.** `pingbus` takes `--to-coordinator` on `send`
