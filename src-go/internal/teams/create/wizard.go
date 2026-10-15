@@ -62,9 +62,12 @@ type Wizard struct {
 	Home     string // for the ~ abbreviation
 	Launcher string // the ccy launcher offered after the team is made
 
-	LookPath      func(name string) (string, error)
-	ApplyTeams    func(ctx context.Context, teams ...string) error
-	NewPassword   func(ctx context.Context, team, human string) error
+	LookPath    func(name string) (string, error)
+	ApplyTeams  func(ctx context.Context, teams ...string) error
+	NewPassword func(ctx context.Context, team, human string) error
+	// SignInGap is, after an apply that failed, the sign-in of the team's people who have no
+	// Element session: the play made their accounts, so it is offered (ask) or said.
+	SignInGap     func(ctx context.Context, teams []string, ask bool) error
 	LaunchElement func(ctx context.Context, team string) error
 	// ExecLauncher replaces this process with argv in dir. It returns only on failure
 	// (a test's stand-in returns nil).
@@ -85,6 +88,7 @@ func New(h *host.Host, o *ops.Ops, l *login.Login) *Wizard {
 			return o.ApplyTeams(ctx, teams)
 		},
 		NewPassword:   l.NewPassword,
+		SignInGap:     l.SignInGap,
 		LaunchElement: l.Open,
 		ExecLauncher: func(dir string, argv []string) error {
 			return h.Exec(h.Launcher, argv, dir)
@@ -785,6 +789,11 @@ func (c *Wizard) write(ctx context.Context, o createOpts, here string) error {
 		return err
 	}
 	if err = c.ApplyTeams(ctx, o.team); err != nil {
+		// The play ran before it failed, so the person's account exists with a password
+		// nobody was shown: the sign-in is offered (or said) here, the failure still stands.
+		if signErr := c.SignInGap(ctx, []string{o.team}, !o.yes); signErr != nil {
+			c.term.PrintError(signErr.Error())
+		}
 		return c.failed("team " + o.team + " is declared in " + term.AbbrevHome(c.HostVars, c.Home) +
 			" but not applied as declared. Once the cause above is fixed, ccy-teams apply " + o.team + " applies it.")
 	}

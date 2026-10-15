@@ -467,6 +467,51 @@ func TestApplyFailureAddsNotApplied(t *testing.T) {
 	}
 }
 
+// The play creates each person's account whether or not the apply then passes, so the
+// sign-in is looked at after every apply of a team, and a failed apply still fails.
+func TestApplyLooksAtSignInAfterAPassedAndAFailedApply(t *testing.T) {
+	for _, exit := range []int{0, 2} {
+		r := newOpsRig(t)
+		r.onExit(opsPlay, exit, "")
+		r.on(opsDeclare+"element-teams", execx.Result{})
+		r.statuses = []map[string]declare.Status{{"t": st("unbuilt", "")}, {"t": st("current", "")}}
+		var teams []string
+		var asked []bool
+		r.ops.SignInGap = func(_ context.Context, ts []string, ask bool) error {
+			teams, asked = ts, append(asked, ask)
+			return nil
+		}
+		code := r.ops.Apply(context.Background(), []string{"t"})
+		if (exit == 0) != (code == 0) {
+			t.Errorf("play exit %d: code %d", exit, code)
+		}
+		if !slices.Equal(teams, []string{"t"}) || !slices.Equal(asked, []bool{true}) {
+			t.Errorf("play exit %d: looked at %v asking %v", exit, teams, asked)
+		}
+		r.tty = false
+		asked = nil
+		r.refreshes = 0
+		r.ops.Apply(context.Background(), []string{"t"})
+		if !slices.Equal(asked, []bool{false}) {
+			t.Errorf("play exit %d: without a terminal asking %v", exit, asked)
+		}
+	}
+}
+
+func TestApplyThatCannotFinishTheSignInOfferFailsEvenWhenTheApplyPassed(t *testing.T) {
+	r := newOpsRig(t)
+	r.on(opsPlay, execx.Result{})
+	r.on(opsDeclare+"element-teams", execx.Result{})
+	r.statuses = []map[string]declare.Status{{"t": st("unbuilt", "")}, {"t": st("current", "")}}
+	r.ops.SignInGap = func(context.Context, []string, bool) error { return errors.New("gum broke") }
+	if code := r.ops.Apply(context.Background(), []string{"t"}); code != term.ExitFailure {
+		t.Errorf("code %d", code)
+	}
+	if !strings.Contains(r.said(), "gum broke") || strings.Contains(r.said(), "nothing was changed") {
+		t.Errorf("said %q", r.said())
+	}
+}
+
 func TestNewIsOverTheHostsAdapters(t *testing.T) {
 	w := teamtest.New(t)
 	changed := 0
