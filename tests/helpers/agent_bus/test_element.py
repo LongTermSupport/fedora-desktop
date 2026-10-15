@@ -228,6 +228,33 @@ class TestRefusal(HomeCase):
 
     def test_an_acceptance_others_can_read_does_not_count(self) -> None:
         self.accepted(mode=0o644)
+        with self.assertRaisesRegex(element.ElementError, "acceptance record is not valid") as caught:
+            element.check_user(self.home)
+        self.assertNotIn("holds pingbus bundles", str(caught.exception))
+
+    def test_a_symlinked_pingbus_dir_holding_only_the_record_refuses(self) -> None:
+        real = self.accepted()
+        real.rename(self.home / "elsewhere")
+        real.symlink_to(self.home / "elsewhere")
+        with self.assertRaises(element.ElementError):
+            element.check_user(self.home)
+
+    def test_a_dotfile_beside_the_acceptance_refuses(self) -> None:
+        (self.accepted() / ".env").write_text("")
+        with self.assertRaisesRegex(element.ElementError, "holds pingbus bundles"):
+            element.check_user(self.home)
+
+    def test_the_acceptance_as_a_directory_refuses(self) -> None:
+        record = self.accepted() / config.ELEMENT_ACCEPTED_FILE
+        record.unlink()
+        record.mkdir()
+        with self.assertRaises(element.ElementError):
+            element.check_user(self.home)
+
+    def test_the_acceptance_as_a_symlink_refuses(self) -> None:
+        record = self.accepted() / config.ELEMENT_ACCEPTED_FILE
+        record.rename(self.home / "real-record")
+        record.symlink_to(self.home / "real-record")
         with self.assertRaises(element.ElementError):
             element.check_user(self.home)
 

@@ -8,8 +8,9 @@
 # helpers/agent_bus/element.py, which owns the config.json keys and is tested for each.
 #
 # The Element profile holds the human's Matrix session token, readable by every process of
-# that user, so no agent may run as user_login: the helper refuses (exit 78) a user with
-# ~/.config/pingbus/, before anything is installed, and agent-bus-claude and
+# that user, so no agent may run as user_login: the helper refuses (exit 78) a user holding
+# pingbus bundles, before anything is installed (the rule and its one exception:
+# check_user in helpers/agent_bus/element.py), and agent-bus-claude and
 # `pingbus config check` refuse a host member beside the profile this play writes.
 #
 # Teams live in the untracked host_vars localhost.yml (see localhost.yml.dist).

@@ -220,8 +220,14 @@ def check_user(home: pathlib.Path) -> None:
         return
     except OSError as exc:
         raise ElementError(f"{path} cannot be checked for pingbus bundles ({exc.strerror})") from None
-    if entries == [config.ELEMENT_ACCEPTED_FILE] and config.element_accepted(home, os.getuid()):
-        return
+    if entries == [config.ELEMENT_ACCEPTED_FILE]:
+        if config.element_accepted(home, os.getuid()):
+            return
+        raise ElementError(
+            f"{path} holds only an Element acceptance record, and the acceptance record is not valid "
+            "(it must be a regular file owned by this user, readable by no one else, in a "
+            "directory this user owns); rerun cc --teams to write it again"
+        )
     raise ElementError(
         f"{path} exists: this user holds pingbus bundles, so no Element session may live "
         "beside them; configure Element for a human user, never an agent user"
