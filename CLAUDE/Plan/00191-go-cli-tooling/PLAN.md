@@ -109,11 +109,21 @@ today; rewriting them is out of scope.
   00192): it builds a project driver from a nested module (`src-go/qa`), counts disabled linters
   as the chosen defence set rather than suppressions, and ships nine bundled analyzers. When
   adopted, its pinned tools (ast-grep, gremlins, deadcode, govulncheck, gitleaks, actionlint)
-  go into the image, `play-python.yml` and CI by IaC, as golangci-lint did.
+  are installed by go-qa itself (Task 3.7): the image and CI run one go-qa install command
+  at build time, not one task per tool.
 - [x] ✅ **Task 3.4**: go-qa-ci diff mode, `go-qa run --changed [--base <ref>]` (M13):
   per-package engines on the affected packages and their importers, repo-wide defences always,
   and a change to `go.mod`, `go.sum`, the golangci config, `qa/` or the tool lock widens it to
   everything. This repository's `qa-changed.bash` calls it with Task 3.3.
+- [ ] 🔄 **Task 3.7**: Installing go-qa-ci provides every tool it runs, with nothing further
+  required (owner, 2026-10-15: "simple and reliable"). go-qa embeds `tools.lock` and installs
+  each pinned tool into a cache it manages: release archives are checked against the pinned
+  sha256 before extracting, `[go]` tools are built with `go install`, and each tool is moved into
+  place atomically. `go-qa run` installs any that are missing, so `go install` plus `go-qa run`
+  is the whole setup. Built on go-qa-ci branch `tools-self-install`, test first; a Fable review
+  before it merges.
+  - The owner also said not to lock into go-qa-ci. The Go workflow, the hooks daemon's Go
+    handlers included, assumes only the plain Go toolchain, and go-qa is an add-on.
 
 ### Phase 4: ccy-sessions, then ccy
 
