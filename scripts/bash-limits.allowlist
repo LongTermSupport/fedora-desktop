@@ -98,7 +98,6 @@ scripts/mark-branches-superseded.bash	236	12	223	-
 scripts/nvidia-status.bash	430	4	519	-
 scripts/qa-docs.bash	77	0	72	data
 scripts/qa-go.bash	72	2	81	-
-scripts/qa-helper-tests.bash	90	0	88	assoc
 scripts/release.bash	227	8	271	data
 scripts/setup-rclone.bash	442	9	450	data
 scripts/setup.bash	74	5	107	-

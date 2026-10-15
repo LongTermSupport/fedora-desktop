@@ -601,6 +601,42 @@ func TestAToolchainInputEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// The helper-tests gate is not a qa-changed check (SPEC-qa-helper-tests B9): its Go package and
+// command are src-go files, so the go check (which runs their tests) covers them; its wrapper is a
+// shell file, so the shell checks cover it; the Python runner it drives is a helper, so ruff and the
+// mirrored unit test cover it. None of them runs the whole 1400-test suite.
+func TestTheHelperTestsGateInputsRouteToTheChecksThatCoverThem(t *testing.T) {
+	cases := []struct {
+		file string
+		want []string
+		not  []string
+	}{
+		{"src-go/qa/helpertests/run.go", []string{"go"}, []string{"unit-tests", "bash-syntax"}},
+		{"src-go/qa/cmd/qa-helper-tests/main.go", []string{"go"}, []string{"unit-tests", "bash-syntax"}},
+		{"scripts/qa-helper-tests.bash", []string{"bash-syntax", "shellcheck", "bash-limits"}, []string{"go"}},
+		{"helpers/qa_environment/unittest_counts.py", []string{"ruff", "unit-tests"}, []string{"go"}},
+	}
+	for _, c := range cases {
+		w := newWorld(t)
+		w.touch(c.file, "#!/usr/bin/env bash\n")
+		w.touch("tests/helpers/qa_environment/test_unittest_counts.py", "x = 1\n")
+		p := w.classify([]string{c.file})
+		for _, id := range c.want {
+			if !p.has(id) {
+				t.Errorf("%s does not run %s: %v", c.file, id, keys(p))
+			}
+		}
+		for _, id := range c.not {
+			if p.has(id) {
+				t.Errorf("%s runs %s: %v", c.file, id, keys(p))
+			}
+		}
+		if len(p.uncovered) != 0 {
+			t.Errorf("%s is uncovered: %v", c.file, p.uncovered)
+		}
+	}
+}
+
 // A changed Python or shell file (by name or by shebang) runs the ready-wait gate over that file
 // only; other files do not, and a deleted file has nothing to judge.
 func TestAChangedSourceFileRunsTheReadyWaitGateOnThatFile(t *testing.T) {
