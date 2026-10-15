@@ -46,7 +46,7 @@ Use these Unicode icons in plan documents:
 
 - [00200-repo-watch-list](00200-repo-watch-list/) - In Progress. A list of external public repositories scanned at intervals for ideas, with a `watchlist` Go command, a scout agent and a `/watchlist` skill; findings become issues or plans
 
-- [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - Not Started. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX: teams and pingbus, container awareness, status line, `/ccy doctor`; research and owner decisions, nothing built yet
+- [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - Not Started. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX, with its own GUI as the primary surface: a band, a ccy pane (Health, Mounts, Deploy) and a Teams pane (Status, Who, Pending, Homeserver); research and owner decisions, nothing built yet
 
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 
