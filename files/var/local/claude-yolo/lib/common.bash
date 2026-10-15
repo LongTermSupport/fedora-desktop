@@ -319,7 +319,7 @@ engine_assert_rootless() {
             echo "" >&2
             echo "Command: $CONTAINER_ENGINE info --format '$fmt'" >&2
             echo "Exit code: $rc" >&2
-            echo "Output: ${report:-(nothing)}" >&2
+            echo "Output: ${report:-"(nothing)"}" >&2
             echo "" >&2
             echo "Usually this means the engine is not running, or is unreachable." >&2
             return 1
@@ -561,7 +561,7 @@ check_ccy_gitignore_safety() {
     if ! tracked_files=$(git ls-files "$ccy_dir" 2>&1); then
         print_error "Could not check for tracked files in $ccy_dir"
         echo "" >&2
-        echo "git said: ${tracked_files:-(no output)}" >&2
+        echo "git said: ${tracked_files:-"(no output)"}" >&2
         echo "" >&2
         echo "This check protects against committing session data and secrets." >&2
         echo "It cannot be skipped: resolve the git error above and re-run." >&2

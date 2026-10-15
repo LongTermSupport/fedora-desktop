@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.3 — container 2.60
+
+- **The launcher and its libraries parse for semgrep.** Behaviour is unchanged. The bash
+  grammar semgrep uses stopped at a named-descriptor redirect (`exec <&"$FD" {FD}<&-`), a
+  parenthesis inside a `${var:+...}` or `${var:-...}` word, a parenthesised operand before `/`
+  or `%` in `$(( ))`, `! { ...; }` as an `if` condition and a heredoc in an `if` condition, so
+  the rules covered almost none of the launcher. Each is now written in an equivalent form.
+
+
 ## 3.98.2 — container 2.60
 
 - **The two 3.97/3.98 lines meet.** 3.98.0 (goodbye, relay, `ccy-teams lxc-add`) was built

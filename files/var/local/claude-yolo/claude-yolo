@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.98.2"  # Container 2.60: the many-teams line (3.97.x) and the goodbye and relay line (3.98.0) in one. See docs/ccy-changelog.md.
+CCY_VERSION="3.98.3"  # Container 2.60: the launcher and its libraries parse for semgrep, behaviour unchanged. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -449,8 +449,7 @@ fi
 if [ -d ".claude/ccy/sessions" ] && [ -z "$CCY_RESTART_RELAUNCH_SESSION" ]; then
     session_count=$(find .claude/ccy/sessions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)  # FAIL-FAST-OK: wc always yields a number, and 0 means "no migration needed" — the safe default
     if [ "$session_count" -gt 0 ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
+        printf '\n%s\n' "════════════════════════════════════════════════════════════════════════════════"
         echo "Migration: Old session directories detected"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
@@ -1245,7 +1244,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
             [ -n "$quick_unasked" ] || read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config ||
                 quick_unasked="No answer (end of input)"
             if [ -n "$quick_unasked" ]; then
-                echo "$quick_unasked: using the previous configuration${LAST_TEAMS:+ but not its team (only --teams joins one)}."
+                echo "$quick_unasked: using the previous configuration${LAST_TEAMS:+" but not its team (only --teams joins one)"}."
                 use_config=unasked
             fi
             echo ""
@@ -3586,7 +3585,7 @@ fi
 # Every launch-time prompt is behind us: a restart gets its terminal back for the session
 # itself (stdin was /dev/null since ccy_restart_marker_take).
 if [ -n "$CCY_RESTART_RELAUNCH_SESSION" ]; then
-    exec <&"$CCY_RESTART_TTY_FD" {CCY_RESTART_TTY_FD}<&-
+    exec <&"$CCY_RESTART_TTY_FD"; exec {CCY_RESTART_TTY_FD}<&-
 fi
 
 # Disable CTRL+Z (suspend) for this terminal session. Inside a CCY container

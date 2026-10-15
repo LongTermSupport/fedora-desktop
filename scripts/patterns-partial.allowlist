@@ -1,0 +1,12 @@
+# Ratchet allowlist for the patterns gate (scripts/qa-patterns.bash, src-go/qa/patterns).
+#
+# semgrep's bash grammar (tree-sitter-bash) stops at some valid bash and then sees none of the
+# rest of the file, so no rule can judge it. A shell file with more than half of its lines
+# outside the parse tree fails the gate unless it is listed here. Rows:
+#
+#   <path> TAB <lines outside the parse tree> TAB <the construct that stops the parser>
+#
+# A record may only be lowered: the gate fails when the file is above its record (it grew),
+# below it (lower the number) or no longer mostly unparsed (delete the row). Never add a row
+# for a new file: rewrite the construct in equivalent bash the grammar reads.
+CLAUDE/Plan/Completed/00142-qa-tool-pin-does-not-converge-under-pipx-uv/reproduce-pipx-uv.bash	348	heredoc in an if condition (if ! python3 - <<'PY'; then)

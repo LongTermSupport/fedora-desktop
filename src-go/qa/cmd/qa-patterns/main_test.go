@@ -32,10 +32,11 @@ func TestRunOnARealGitTree(t *testing.T) {
 	}
 	git("init", "-q")
 	files := map[string]string{
-		"scripts/good.bash":              "#!/usr/bin/bash\nset -e\necho hi\n",
-		"scripts/qa-trees.tsv":           "shell\t.semgrep\n",
-		".semgrep/bash-conventions.yml":  realRules,
-		".semgrep/bash-conventions.bash": realFixture,
+		"scripts/good.bash":                  "#!/usr/bin/bash\nset -e\necho hi\n",
+		"scripts/qa-trees.tsv":               "shell\t.semgrep\n",
+		"scripts/patterns-partial.allowlist": "# none\n",
+		".semgrep/bash-conventions.yml":      realRules,
+		".semgrep/bash-conventions.bash":     realFixture,
 	}
 	for rel, text := range files {
 		path := filepath.Join(root, rel)

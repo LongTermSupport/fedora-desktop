@@ -613,10 +613,10 @@ check "…and the handler keeps no history in the update-check cache" "0" \
 # outside the window. The libraries' prompts are not counted here: they are reached only through
 # launcher calls inside the window, so the closed stdin covers them too.
 marker_line=$(grep -n -x 'ccy_restart_marker_take || exit 1' "$LAUNCHER" | cut -d: -f1)
-restore_line=$(grep -n -F "exec <&\"\$CCY_RESTART_TTY_FD\" {CCY_RESTART_TTY_FD}<&-" "$LAUNCHER" | cut -d: -f1)
+restore_line=$(grep -n -F "exec <&\"\$CCY_RESTART_TTY_FD\"" "$LAUNCHER" | cut -d: -f1)
 run_line=$(grep -n -E "^container_cmd run \\\$DOCKER_FLAGS --rm" "$LAUNCHER" | cut -d: -f1)
-check "the launcher reads the restart mark, closes stdin and hands it back once each" "1 1 1" \
-    "$(grep -c -x 'ccy_restart_marker_take || exit 1' "$LAUNCHER") $(grep -c -F 'exec {CCY_RESTART_TTY_FD}<&0 </dev/null' "$LAUNCHER") $(grep -c -F "exec <&\"\$CCY_RESTART_TTY_FD\"" "$LAUNCHER")"
+check "the launcher reads the restart mark, closes stdin and hands it back and closes the saved descriptor once each" "1 1 1 1" \
+    "$(grep -c -x 'ccy_restart_marker_take || exit 1' "$LAUNCHER") $(grep -c -F 'exec {CCY_RESTART_TTY_FD}<&0 </dev/null' "$LAUNCHER") $(grep -c -F "exec <&\"\$CCY_RESTART_TTY_FD\"" "$LAUNCHER") $(grep -c -F 'exec {CCY_RESTART_TTY_FD}<&-' "$LAUNCHER")"
 mapfile -t prompt_lines < <(grep -n -E 'read -r?p ' "$LAUNCHER" | cut -d: -f1)
 launch_prompts=0 outside=0
 for line in "${prompt_lines[@]}"; do

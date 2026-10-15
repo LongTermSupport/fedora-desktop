@@ -204,9 +204,9 @@ detect_project_github_alias() {
         if ! declared=$(ssh -G "$host" 2>&1 | awk '$1 == "identityfile" { print $2 }' | paste -sd ' '); then
             declared=""
         fi
-        echo "ERROR: the remote $url uses the ssh alias '$host', which your ~/.ssh/config binds to" >&2
-        echo "       $hostname:$port — but none of its IdentityFile entries exist on disk:" >&2
-        echo "         ${declared:-(none declared)}" >&2
+        printf '%s\n' "ERROR: the remote $url uses the ssh alias '$host', which your ~/.ssh/config binds to" \
+            "       $hostname:$port — but none of its IdentityFile entries exist on disk:" >&2
+        echo "         ${declared:-"(none declared)"}" >&2
         echo "       The key this box was given for the repository is missing. Re-run the" >&2
         echo "       provisioning that writes it; ccy will not guess another identity." >&2
         return 2
@@ -910,7 +910,7 @@ ccy_restore_askpass_stage() {
         rm -rf -- "$dir"
         return 1
     fi
-    if ! cat >"$dir/askpass" <<'CCY_ASKPASS_BODY'; then
+    cat >"$dir/askpass" <<'CCY_ASKPASS_BODY' || { print_error "could not write the session-restore askpass helper in $dir"; rm -rf -- "$dir"; return 1; }
 #!/bin/sh
 # ccy session-restore askpass. Answers ssh-add's first passphrase question for a key from
 # $CCY_RESTORE_PP_FILE, and nothing else: a retry means the passphrase was wrong, and asking
@@ -921,10 +921,6 @@ esac
 echo "ccy restore askpass: not answering: $1" >&2
 exit 1
 CCY_ASKPASS_BODY
-        print_error "could not write the session-restore askpass helper in $dir"
-        rm -rf -- "$dir"
-        return 1
-    fi
     if ! chmod 0700 "$dir/askpass"; then
         print_error "could not make the session-restore askpass helper executable"
         rm -rf -- "$dir"
@@ -1187,7 +1183,7 @@ ccy_agent_filter_start() {
     local tries=0 alive listed rc=0
     while [ ! -S "$CCY_AGENT_FILTER_SOCK" ]; do
         if ! alive=$(kill -0 "$CCY_AGENT_FILTER_PID" 2>&1) || [ "$tries" -ge "$CCY_AGENT_FILTER_START_TRIES" ]; then
-            print_error "ccy's one-key agent did not start for $names${alive:+ ($alive)}. It said:"
+            print_error "ccy's one-key agent did not start for $names${alive:+" ($alive)"}. It said:"
             cat -- "$CCY_AGENT_FILTER_DIR/log" >&2
             ccy_agent_filter_stop
             return 1
@@ -1433,8 +1429,8 @@ build_ssh_mounts_and_validate() {
         if [ "$key" = "$SSH_AGENT_SENTINEL" ]; then
             if ! ssh_agent_usable; then
                 print_error "--ssh-agent: no usable ssh-agent in this session"
-                echo "  SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-(unset)}"
-                echo "  ssh-add -l said: ${SSH_AGENT_PROBE_OUTPUT:-(nothing)}"
+                echo "  SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-"(unset)"}"
+                echo "  ssh-add -l said: ${SSH_AGENT_PROBE_OUTPUT:-"(nothing)"}"
                 echo "Log in with agent forwarding (ssh -A), or load a key with ssh-add, then retry."
                 return 1
             fi
@@ -1686,7 +1682,7 @@ build_ssh_mounts_and_validate() {
                 echo "  GitHub's API did not return a usable answer after 3 attempts."
                 echo "  What it said:"
                 echo ""
-                printf '    %s\n' "${TOKEN_OWNER_LOOKUP_ERROR:-(no output)}"
+                printf '    %s\n' "${TOKEN_OWNER_LOOKUP_ERROR:-"(no output)"}"
                 echo ""
                 echo "This is almost always GitHub being briefly unavailable, NOT a"
                 echo "problem with your keys or your configuration. Check"
@@ -1746,7 +1742,7 @@ build_ssh_mounts_and_validate() {
                 echo "  GitHub's API did not return a usable answer after 3 attempts."
                 echo "  What it said:"
                 echo ""
-                printf '    %s\n' "${TOKEN_OWNER_LOOKUP_ERROR:-(no output)}"
+                printf '    %s\n' "${TOKEN_OWNER_LOOKUP_ERROR:-"(no output)"}"
                 echo ""
                 echo "This is almost always GitHub being briefly unavailable. To launch anyway:"
                 echo ""

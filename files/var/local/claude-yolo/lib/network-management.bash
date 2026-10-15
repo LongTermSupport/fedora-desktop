@@ -744,13 +744,13 @@ disconnect_from_network() {
                 return $?
             fi
             print_error "$network_name is not attached to any running container of project $project_name"
-            echo "Attached: ${all_attached[*]:-(none)}" >&2
+            echo "Attached: ${all_attached[*]:-"(none)"}" >&2
             return 1
         fi
     else
         if [ ${#candidates[@]} -eq 0 ]; then
             echo "The running container(s) of $project_name are on no project network to disconnect."
-            echo "Attached: ${all_attached[*]:-(none)}"
+            echo "Attached: ${all_attached[*]:-"(none)"}"
             if [ -z "$saved" ]; then
                 echo "No saved default network for this project."
             else
@@ -820,7 +820,7 @@ disconnect_from_network() {
         echo "Disconnecting $container from $network_name..."
         if ! error_output=$(container_cmd network disconnect "$network_name" "$container" 2>&1); then
             print_error "$CONTAINER_ENGINE refused to disconnect $container from $network_name:"
-            echo "  ${error_output:-(no output)}" >&2
+            echo "  ${error_output:-"(no output)"}" >&2
             if [ "$detached" -gt 0 ]; then
                 echo "  $detached container(s) were disconnected before this one." >&2
             fi
@@ -1271,7 +1271,7 @@ ensure_network_dns() {
     if ! dns_enabled="$(container_cmd network inspect "$network_name" --format '{{.DNSEnabled}}' 2>&1)"; then
         inspect_err="$dns_enabled"
         echo "  Warning: could not inspect network '$network_name' — DNS check skipped." >&2
-        echo "  ${CONTAINER_ENGINE} said: ${inspect_err:-(no output)}" >&2
+        echo "  ${CONTAINER_ENGINE} said: ${inspect_err:-"(no output)"}" >&2
         return 1
     fi
 
@@ -1287,7 +1287,7 @@ ensure_network_dns() {
     local current_dns
     if ! current_dns="$(container_cmd network inspect "$network_name" --format '{{json .NetworkDNSServers}}' 2>&1)"; then
         echo "  Warning: could not read DNS servers for '$network_name' — not modifying it." >&2
-        echo "  ${CONTAINER_ENGINE} said: ${current_dns:-(no output)}" >&2
+        echo "  ${CONTAINER_ENGINE} said: ${current_dns:-"(no output)"}" >&2
         return 1
     fi
 
