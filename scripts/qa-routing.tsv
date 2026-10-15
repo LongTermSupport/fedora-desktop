@@ -102,6 +102,18 @@ also	scripts/qa-ready-wait-rules.bash,src-go/qa/readywait/*,src-go/qa/cmd/qa-rea
 # it too, though it reads neither. The walk is cheap, so the over-match is pinned, not narrowed.
 also	CLAUDE/Plan/*.bash,CLAUDE/Plan/*.sh,CLAUDE/Plan/*/logs/*	plan-script-logging	-
 also	scripts/qa-plan-script-logging.bash,src-go/qa/planscriptlogging/*,src-go/qa/cmd/qa-plan-script-logging/*,src-go/qa/discovery/*,scripts/lib/go-tool.bash	plan-script-logging	-
+# The version-pins gate judges the manifest and the files its pins name, which are playbooks and
+# the agent-bus pin file, and runs whole when one changes or is deleted, or its own script, Go
+# package or command change. The manifest counts as covered by it. A pin may name any repository
+# file; one outside these trees is judged by qa-all, not before the commit. It reads no fixture:
+# its controls are Go tests, which the go check runs for a src-go change.
+also	vars/version-pins.yml	version-pins	covered
+also	files/usr/local/share/agent-bus/tuwunel.pin	version-pins	covered
+also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
+# The Python validator of the same manifest is pinned to the gate's shape by a Go test, so a change
+# to it runs the go check.
+also	helpers/version_pins/manifest.py	go	-
+also	scripts/qa-version-pins.bash,src-go/qa/versionpins/*,src-go/qa/cmd/qa-version-pins/*,scripts/lib/go-tool.bash	version-pins	-
 # The speech-to-text rules gate runs over each changed JavaScript and Python file by name (the
 # *.js, *.mjs and @py rows below), and runs whole over every published file when its rules,
 # fixtures, wrapper, Go package, command, the shared discovery or the trees table change; the
@@ -127,4 +139,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 # An extensionless shell tool is only known to be shell after classification.
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-speech-to-text-rules
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-discovery qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules

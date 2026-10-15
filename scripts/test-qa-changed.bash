@@ -119,7 +119,8 @@ expect_has "js: eslint under extensions/" "$plan" "check eslint: extensions/spee
 
 plan="$(plan_for vars/version-pins.yml)"
 expect_has "vars yml: patterns gate" "$plan" "check ansible-patterns"
-expect_has "vars yml: suite naming it, with the reason" "$plan" "suite scripts/qa-version-pins.bash: names vars/version-pins.yml"
+expect_has "vars yml: the version-pins gate, whole" "$plan" "check version-pins"
+expect_lacks "vars yml: its gate is a check, not also a suite" "$plan" "suite scripts/qa-version-pins.bash"
 
 plan="$(plan_for scripts/release.bash)"
 expect_has "suite picked by name, with the reason" "$plan" "suite scripts/test-release.bash: names scripts/release.bash"
