@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.97.5 — container 2.57
+
+- No behaviour change; a two-assignment command that semgrep's bash grammar rejects is
+  rewritten so the patterns gate scans the launcher again.
+
 ## 3.97.4 — container 2.57
 
 - **A team's description reaches its agents, through the room topic.** The admin sets the
@@ -29,6 +34,7 @@ Two version numbers move independently — see
   agent-bus play updates that one) simply shows no description. A description change restarts no
   homeserver. The client and skill are in the image, so the container version moves to 2.57 and
   the image is rebuilt once.
+
 ## 3.97.3 — container 2.56
 
 - **A plain launch is on no team.** Quick Launch takes the saved team only when a person
