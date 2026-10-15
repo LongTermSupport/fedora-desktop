@@ -17,13 +17,16 @@ import io
 import json
 import os
 import pathlib
+import signal
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, hooks, statusline
+from helpers.pingbus import cli, hooks, protocol, statusline
 
 CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
 
@@ -143,10 +146,13 @@ class StatusLineTest(unittest.TestCase):
         self.settings(self.project / ".claude/settings.json", "printf 'one\\ntwo\\n'")
         self.assertEqual(self.render()[0], f"one\ntwo | {CYAN}bus: alpha{RESET}")
 
-    def test_the_inner_exit_status_is_kept(self) -> None:
+    def test_a_failing_inner_status_line_is_shown_in_red_and_exits_0(self) -> None:
+        """Claude Code blanks the whole status line on a non-zero exit, which would hide the
+        bus segment and the inner's own message: the failure is shown instead."""
         self.record("sess-1", "alpha")
         self.settings(self.project / ".claude/settings.json", "echo DAEMON FAILED; exit 1")
-        self.assertEqual(self.render(), (f"DAEMON FAILED | {CYAN}bus: alpha{RESET}", 1))
+        self.assertEqual(self.render(), (
+            f"DAEMON FAILED {RED}(status line exit 1){RESET} | {CYAN}bus: alpha{RESET}", 0))
 
     def test_unreadable_settings_are_shown_not_skipped(self) -> None:
         self.record("sess-1", "alpha")
@@ -154,7 +160,49 @@ class StatusLineTest(unittest.TestCase):
         text, rc = self.render()
         self.assertIn(f"{RED}status line: {self.project}/.claude/settings.json is not valid JSON{RESET}", text)
         self.assertIn("bus: alpha", text)
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 0)
+
+    def test_a_hung_inner_status_line_times_out_and_its_whole_group_is_killed(self) -> None:
+        pidfile = self.tmp / "grandchild"
+        command = f"sleep 60 & echo $! > {pidfile}; wait"
+        started = time.monotonic()
+        text, rc = statusline.run_command(command, b"{}", self.env, None, timeout=1.0)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual(rc, statusline.TIMED_OUT)
+        self.assertGone(int(pidfile.read_text()))
+
+    def test_a_cancelled_pingbus_kills_the_inner_status_line_group(self) -> None:
+        """Claude Code cancels an in-flight status line command when a new update comes; the
+        inner command and anything it started must not outlive pingbus."""
+        pidfile = self.tmp / "grandchild"
+        self.settings(self.project / ".claude/settings.json", f"sleep 60 & echo $! > {pidfile}; wait")
+        repo = str(pathlib.Path(__file__).resolve().parents[3])
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import sys; from helpers.pingbus import statusline; sys.exit(statusline.main())"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=repo, env=self.env)
+        proc.stdin.write(self.payload())
+        proc.stdin.close()
+        deadline = time.monotonic() + 10
+        while not (pidfile.exists() and pidfile.read_text().strip()) and time.monotonic() < deadline:
+            self.assertIsNone(proc.poll(), "pingbus status-line ended before its inner started")
+            time.sleep(0.02)
+        grandchild = int(pidfile.read_text())
+        proc.send_signal(signal.SIGTERM)
+        self.assertNotEqual(proc.wait(timeout=10), 0)
+        proc.stdout.close()
+        self.assertGone(grandchild)
+
+    def assertGone(self, pid: int) -> None:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+            except FileNotFoundError:
+                return
+            if state in ("Z", "X"):
+                return
+            time.sleep(0.02)
+        self.fail(f"process {pid} outlived the status line")
 
     def test_it_never_runs_itself(self) -> None:
         self.record("sess-1", "alpha")
@@ -177,18 +225,41 @@ class StatusLineTest(unittest.TestCase):
 
     # ── the command ───────────────────────────────────────────────────────────────────
 
-    def test_pingbus_status_line_prints_the_line_and_returns_its_status(self) -> None:
+    def test_pingbus_status_line_prints_the_line_and_exits_0(self) -> None:
         self.record("sess-1", "alpha")
-        self.settings(self.project / ".claude/settings.json", "echo inner; exit 3")
+        self.settings(self.project / ".claude/settings.json", "echo inner")
         out, err = io.StringIO(), io.StringIO()
         rc = cli.main(["status-line"], environ=self.env, stdout=out, stderr=err,
                       stdin=io.BytesIO(self.payload()))
-        self.assertEqual((out.getvalue(), rc), (f"inner | {CYAN}bus: alpha{RESET}\n", 3))
+        self.assertEqual((out.getvalue(), rc), (f"inner | {CYAN}bus: alpha{RESET}\n", 0))
 
-    def test_the_kit_settings_make_it_the_status_line(self) -> None:
-        kit = pathlib.Path(__file__).resolve().parents[3] / "files/opt/claude-yolo/optional/agent-bus"
+    def test_the_kit_settings_make_it_the_status_line_refreshed_every_second(self) -> None:
+        """The interval is the project's (1 s): the kit's statusLine replaces the project's whole,
+        and ccy --supervise reads a context sidecar the daemon's status line writes on each
+        render, which goes stale in an idle session without it."""
+        repo = pathlib.Path(__file__).resolve().parents[3]
+        kit = repo / "files/opt/claude-yolo/optional/agent-bus"
         settings = json.loads((kit / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(settings["statusLine"], {"type": "command", "command": statusline.COMMAND})
+        self.assertEqual(settings["statusLine"],
+                         {"type": "command", "command": statusline.COMMAND, "refreshInterval": 1})
+        project = json.loads((repo / ".claude/settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(settings["statusLine"]["refreshInterval"], project["statusLine"]["refreshInterval"])
+
+    # ── cheap to run: a render imports no other pingbus module ─────────────────────────
+
+    def test_the_module_imports_no_other_pingbus_module(self) -> None:
+        repo = str(pathlib.Path(__file__).resolve().parents[3])
+        done = subprocess.run([sys.executable, "-X", "importtime", "-c", "import helpers.pingbus.statusline"],
+                              cwd=repo, capture_output=True, text=True, check=True)
+        loaded = {line.rsplit("|", 1)[1].strip() for line in done.stderr.splitlines() if "|" in line}
+        self.assertEqual(sorted(name for name in loaded if name.startswith("helpers.pingbus.")),
+                         ["helpers.pingbus.statusline"])
+
+    def test_its_copies_agree_with_the_hooks_and_the_protocol(self) -> None:
+        self.assertEqual(statusline.TEAM_NAME_RE.pattern, protocol.TEAM_NAME_PATTERN)
+        self.assertEqual(statusline.SESSION_ID_RE.pattern, hooks.SESSION_ID_RE.pattern)
+        self.assertEqual(statusline.INPUT_MAX_BYTES, hooks.INPUT_MAX_BYTES)
+        self.assertIs(hooks.sessions_dir, statusline.sessions_dir)
 
 
 if __name__ == "__main__":

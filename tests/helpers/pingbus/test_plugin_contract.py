@@ -84,7 +84,7 @@ class PluginLayoutTest(unittest.TestCase):
         # Plan 00201 S-C6: the status line is pingbus's, which runs the session's own first.
         self.assertEqual(load_json(SETTINGS), {
             "crossSessionInbound": "accept",
-            "statusLine": {"type": "command", "command": "pingbus status-line"},
+            "statusLine": {"type": "command", "command": "pingbus status-line", "refreshInterval": 1},
         })
 
     def test_every_kit_file_is_tracked_by_name(self) -> None:

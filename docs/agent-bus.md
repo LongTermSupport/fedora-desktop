@@ -512,8 +512,10 @@ line with `bus: alpha,beta`, the teams it was launched into. The member kit's `s
 makes `pingbus status-line` the status line command, and settings given on the command line
 outrank the project's, so it applies in a checkout that has never heard of the bus. It runs
 the status line the checkout or your user settings already set (a hooks daemon's, for
-example) and adds the segment after it, so nothing you had is lost; only that status line's
-`refreshInterval` is not carried over. The segment comes from a record the SessionStart hook
+example) and adds the segment after it, so nothing you had is lost. It refreshes every second,
+as this repository's status line does (ccy `--supervise` reads what the hooks daemon's status
+line writes on each render), whatever interval the replaced status line had. A failing, hung or
+unreadable status line underneath is shown in red rather than blanking the line. The segment comes from a record the SessionStart hook
 writes for the session. If that record could not be written, the status line shows
 `bus: no record of this session's teams (pingbus status)` in red rather than nothing, and the
 session is told; a session on no team shows no segment.

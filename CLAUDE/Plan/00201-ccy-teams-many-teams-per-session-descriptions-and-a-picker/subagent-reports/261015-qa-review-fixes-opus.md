@@ -68,6 +68,28 @@ plugin.
   registration, one handler) and `hooks.py` (`_session_teams_lines` and one template), so
   expect small textual merges there and in the version lines.
 
+## Fable review fixes (`/workspace/untracked/scratch/261015-201-fixes-review-fable.md`)
+
+Versions unchanged (3.98.7 / 2.62, unshipped). Tests first, each red before the fix.
+
+- **F1:** `pingbus status-line` always exits 0, since Claude Code blanks the line on a non-zero
+  exit. Unreadable settings show red `status line: <file> is not valid JSON`. An inner non-zero
+  exit shows its output then red `(status line exit N)`. Both keep the bus segment.
+- **F2:** the kit's `statusLine` carries `"refreshInterval": 1`, the project's value (a test
+  pins it equal to `.claude/settings.json`'s), so the daemon's context sidecar stays fresh for
+  `ccy --supervise` in an idle session. The docs no longer call the interval a known limit.
+- **F4:** the inner runs in its own process group (`start_new_session`) with a 10 s timeout. On
+  timeout, or when pingbus gets SIGTERM/SIGINT/SIGHUP, the whole group is SIGKILLed. Tests
+  check that a background grandchild of the inner is gone in both cases.
+- **F5:** `statusline.py` imports no other pingbus module. It holds the sessions-dir names, the
+  session-id and team-name patterns and the input cap; `hooks.py` takes `sessions_dir` from it,
+  and a test keeps the copies equal to `hooks`/`protocol`. The zipapp's `__main__` (generated
+  by `bundle.py`, `FAST_COMMANDS`) runs `status-line` from `statusline.main()` without importing
+  the cli; a bundle test checks with `-X importtime` that `helpers.pingbus.cli` is not loaded.
+  Measured with a freshly built zipapp, record present, no inner status line, 21 runs:
+  **before 127 ms median (122 min, 140 max); after 23 ms median (19 min, 39 max)**. A bare
+  `python3 -c pass` is 8 ms on the same machine.
+
 ## QA
 
 `qa-changed.bash` passed before the merge (26 files; helper unit tests, test-cc-teams 59,

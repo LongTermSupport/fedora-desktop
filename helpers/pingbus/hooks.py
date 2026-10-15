@@ -55,7 +55,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import TextIO
 
-from helpers.pingbus import config, inbox, notify, protocol, relay, seat, sentlog
+from helpers.pingbus import config, inbox, notify, protocol, relay, seat, sentlog, statusline
 
 EVENTS = ("session-start", "prompt", "stop", "session-end", "post-tool")
 HOOK_EVENT_NAMES = {
@@ -151,14 +151,11 @@ class _Failure(Exception):
 
 
 #: Where a session's teams are recorded for the status line, under the session's id: the teams this
-#: hook surveyed, which `pingbus status-line` (statusline.py) shows.
-SESSIONS_DIR_VAR = "PINGBUS_SESSIONS_DIR"
-SESSIONS_DIR_TEMPLATE = "/tmp/pingbus-sessions-{uid}"
+#: hook surveyed, which `pingbus status-line` (statusline.py, which owns the place) shows.
+SESSIONS_DIR_VAR = statusline.SESSIONS_DIR_VAR
+SESSIONS_DIR_TEMPLATE = statusline.SESSIONS_DIR_TEMPLATE
 SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
-
-
-def sessions_dir(environ: Mapping[str, str]) -> pathlib.Path:
-    return pathlib.Path(environ.get(SESSIONS_DIR_VAR) or SESSIONS_DIR_TEMPLATE.format(uid=os.getuid()))
+sessions_dir = statusline.sessions_dir
 
 
 def _session_id(payload: dict | None) -> str | None:
