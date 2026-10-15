@@ -86,7 +86,7 @@ scripts/collect-diagnostics.bash	364	9	365	-
 scripts/gh-account-setup.bash	546	19	548	data
 scripts/git-hooks/commit-msg	117	0	136	-
 scripts/git-hooks/lib/secret-scan.bash	225	6	128	assoc,data
-scripts/git-hooks/pre-commit	279	0	312	-
+scripts/git-hooks/pre-commit	279	0	311	-
 scripts/lib/run-log-scrub.bash	130	4	70	data
 scripts/lint	257	6	246	data
 scripts/mark-branches-superseded.bash	236	12	223	-

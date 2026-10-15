@@ -223,9 +223,15 @@ fi
 # no error. "Everything else" is read from the staged Dockerfile's own COPY
 # sources (a --from copy takes from a build stage, not the repo), so a file the
 # image starts copying is guarded without anyone remembering to list it here.
+#
+# The play fills the build context from two repo roots, and builds the pingbus zipapp in it
+# from the packages helpers/pingbus/bundle.py names. scripts/test-ccy-container-version-hook.bash
+# checks these lists against every file play-claude-yolo.yml puts into the image.
 
 CCY_CONTEXT="files/var/local/claude-yolo"
 CCY_DOCKERFILE="$CCY_CONTEXT/Dockerfile"
+CCY_CONTEXT_ROOTS=("$CCY_CONTEXT" "files/opt/claude-yolo")
+CCY_IMAGE_PATHS=("$CCY_DOCKERFILE" "helpers/pingbus" "helpers/agent_bus")
 CCY_COPY_SOURCES=()
 if git cat-file -e ":$CCY_DOCKERFILE" 2>/dev/null; then
     staged_dockerfile_src=$(git show ":$CCY_DOCKERFILE")
@@ -239,14 +245,13 @@ if git cat-file -e ":$CCY_DOCKERFILE" 2>/dev/null; then
             if (!from) for (i = 1; i < n; i++) { s = args[i]; sub(/\/$/, "", s); print s }
         }' <<<"$staged_dockerfile_src")
 fi
+for src in "${CCY_COPY_SOURCES[@]}"; do
+    CCY_IMAGE_PATHS+=("${CCY_CONTEXT_ROOTS[@]/%//$src}")
+done
 CCY_IMAGE_STAGED=()
 for FILE in "${STAGED_FILE_LIST[@]}"; do
-    if [ "$FILE" = "$CCY_DOCKERFILE" ]; then
-        CCY_IMAGE_STAGED+=("$FILE")
-        continue
-    fi
-    for src in "${CCY_COPY_SOURCES[@]}"; do
-        if [ "$FILE" = "$CCY_CONTEXT/$src" ] || [[ "$FILE" == "$CCY_CONTEXT/$src/"* ]]; then
+    for path in "${CCY_IMAGE_PATHS[@]}"; do
+        if [ "$FILE" = "$path" ] || [[ "$FILE" == "$path/"* ]]; then
             CCY_IMAGE_STAGED+=("$FILE")
             break
         fi
@@ -280,9 +285,8 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
             echo "picks up a change through a container version bump:"
             printf '  %s\n' "${CCY_IMAGE_STAGED[@]}"
             echo ""
-            echo "Bump LABEL claude-yolo-version in $CCY_DOCKERFILE and"
-            echo "REQUIRED_CONTAINER_VERSION in $CCY_SCRIPT to the same new value"
-            echo "(currently $STAGED_LABEL), and stage both."
+            echo "Bump LABEL claude-yolo-version in $CCY_DOCKERFILE and REQUIRED_CONTAINER_VERSION"
+            echo "in $CCY_SCRIPT to the same new value (currently $STAGED_LABEL), and stage both."
             exit 1
         fi
     elif [ -n "$HEAD_LABEL" ]; then

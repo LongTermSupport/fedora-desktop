@@ -104,6 +104,12 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
 - **`files/var/local/claude-yolo/entrypoint.sh`** — baked into the image by the
   Dockerfile, so a change needs the container version bump above or it never
   reaches a running container.
+- **Every other file the image bakes in**, by the same container version bump: whatever a
+  Dockerfile `COPY` takes from the build context, which the play fills from both
+  `files/var/local/claude-yolo/` and `files/opt/claude-yolo/` (docs, skills, the pingbus
+  plugin and kit settings), plus `helpers/pingbus/` and `helpers/agent_bus/`, which the
+  pingbus zipapp in the image is built from. `test-ccy-container-version-hook.bash`
+  checks the gate against every file `play-claude-yolo.yml` puts into the image.
 - Any file with version tracking
 
 ### Check the layers before adding a mechanism

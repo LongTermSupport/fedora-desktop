@@ -50,7 +50,19 @@ write_dockerfile() {
         'COPY entrypoint.sh /usr/local/bin/entrypoint.sh' \
         'COPY supervisor-plugins/ /opt/claude-yolo/supervisor-plugins/' \
         'COPY --chown=root:root guard-tool /opt/claude-yolo/guard-tool' \
+        'COPY docs/ /opt/claude-yolo/docs/' \
+        'COPY optional/ /opt/claude-yolo/optional/' \
         'COPY --from=builder /build/not-in-repo /usr/local/bin/not-in-repo' >"$ccy/Dockerfile"
+}
+# The build context is filled from a second repo root, files/opt/claude-yolo, and the pingbus
+# zipapp in optional/ is built from helpers/pingbus and helpers/agent_bus.
+opt="$repo/files/opt/claude-yolo"
+write_second_root() {
+    mkdir -p "$opt/docs" "$repo/helpers/pingbus" "$repo/helpers/agent_bus"
+    printf 'the guide\n' >"$opt/docs/GUIDE.txt"
+    printf 'host only\n' >"$opt/not-copied.txt"
+    printf 'SEATS = 1\n' >"$repo/helpers/pingbus/cli.py"
+    printf 'SEATS = 1\n' >"$repo/helpers/agent_bus/cli.py"
 }
 
 write_launcher 1.0.0 2.0
@@ -62,6 +74,7 @@ printf '#!/usr/bin/env bash\necho host\n' >"$ccy/host-only-tool"
 filter_src="$repo/helpers/ssh_agent_filter/ssh_agent_filter.py"
 mkdir -p "$(dirname "$filter_src")"
 printf 'MAX = 1\n' >"$filter_src"
+write_second_root
 git -C "$repo" add -A
 git -C "$repo" commit -q --no-verify -m baseline
 
@@ -81,6 +94,7 @@ baseline() {
     printf '#!/usr/bin/env bash\necho guard\n' >"$ccy/guard-tool"
     printf '#!/usr/bin/env bash\necho host\n' >"$ccy/host-only-tool"
     printf 'MAX = 1\n' >"$filter_src"
+    write_second_root
     git -C "$repo" add -A
 }
 has() { if grep -q -F -- "$1" "$work/hook.out"; then echo yes; else echo no; fi; }
@@ -122,6 +136,34 @@ check "a file in the ccy directory the image does not copy needs no container bu
 check "…and prints no container check" "no" "$(has 'container version bump requirement')"
 baseline
 
+echo "=== the second context root and the pingbus zipapp sources (Plan 00202) ==="
+
+printf 'the new guide\n' >"$opt/docs/GUIDE.txt"
+check "a change under files/opt/claude-yolo the image copies, without a bump, is rejected" "1" "$(hook_status)"
+check "…and says to bump the container version" "yes" "$(has 'container version bump required')"
+baseline
+
+printf 'the new guide\n' >"$opt/docs/GUIDE.txt"
+write_dockerfile 2.1
+write_launcher 1.0.1 2.1
+check "…and passes with both versions bumped together" "0" "$(hook_status)"
+baseline
+
+printf 'host only, changed\n' >"$opt/not-copied.txt"
+check "a file under files/opt/claude-yolo the image does not copy needs no container bump" "0" "$(hook_status)"
+baseline
+
+for pkg in pingbus agent_bus; do
+    printf 'SEATS = 2\n' >"$repo/helpers/$pkg/cli.py"
+    check "a helpers/$pkg change without a container bump is rejected" "1" "$(hook_status)"
+    baseline
+    printf 'SEATS = 2\n' >"$repo/helpers/$pkg/cli.py"
+    write_dockerfile 2.1
+    write_launcher 1.0.1 2.1
+    check "…and passes with both versions bumped together" "0" "$(hook_status)"
+    baseline
+done
+
 echo "=== the CCY version gate: ccy's one-key agent (Plan 00163) ==="
 
 # Its source is a helper, deployed into lib/ beside the libraries the gate already covers.
@@ -138,6 +180,114 @@ baseline
 printf 'unrelated\n' >"$repo/README.txt"
 check "a commit touching no image file is not judged" "0" "$(hook_status)"
 check "…and prints no container check" "no" "$(has 'container version bump requirement')"
+
+echo "=== every repo file the real play puts into the image is guarded by the gate ==="
+
+# The gate's paths must not drift from what the image actually copies. Read the real play's
+# copy tasks and its pingbus zipapp build into the build context, keep those landing under a
+# real Dockerfile COPY source, and run the real hook against a change to each repo file found.
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if ! python3 -B -s - "$REPO_ROOT" >"$work/image-files" 2>"$work/image-files.err" <<'PY'; then
+import pathlib
+import subprocess
+import sys
+
+import yaml
+
+root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root))
+from helpers.pingbus import bundle
+
+CONTEXT = "/opt/claude-yolo/"
+KNOWN = {"ansible.builtin.copy", "ansible.builtin.file", "ansible.builtin.command"}
+sources = []
+for line in (root / "files/var/local/claude-yolo/Dockerfile").read_text().splitlines():
+    words = line.split()
+    if words[:1] == ["COPY"] and not any(w.startswith("--from=") for w in words):
+        args = [w for w in words[1:] if not w.startswith("--")]
+        sources += [a.rstrip("/") for a in args[:-1]]
+tracked = subprocess.run(["git", "-C", str(root), "ls-files"], check=True,
+                         capture_output=True, text=True).stdout.splitlines()
+
+
+def copied(rel):
+    rel = rel.rstrip("/")
+    return any(rel == s or rel.startswith(s + "/") for s in sources)
+
+
+def tracked_file(path):
+    hits = [t for t in tracked if t == path or (path.endswith("/") and t.startswith(path))]
+    if not hits:
+        sys.exit(f"the play copies {path}, which git does not track")
+    return hits[0]
+
+
+def render(text, item):
+    if isinstance(item, dict):
+        for key, value in item.items():
+            text = text.replace("{{ item.%s }}" % key, value)
+    elif item is not None:
+        text = text.replace("{{ item | basename }}", item.rsplit("/", 1)[-1])
+        text = text.replace("{{ item }}", item)
+    return text.replace("{{ root_dir }}/", "")
+
+
+found = []
+play = yaml.safe_load((root / "playbooks/imports/play-claude-yolo.yml").read_text())
+for task in (t for p in play for t in (p.get("pre_tasks") or []) + (p.get("tasks") or [])):
+    for module, args in task.items():
+        if not isinstance(args, dict) or not str(args.get("dest", "")).startswith(CONTEXT):
+            continue
+        if module not in KNOWN:
+            sys.exit(f"task '{task.get('name')}' writes into the build context with {module}, "
+                     "which this test cannot read: teach it, so the gate's paths stay checked")
+    copy = task.get("ansible.builtin.copy")
+    for item in (task.get("loop") or [None]) if copy else []:
+        dest = render(copy["dest"], item)
+        if not dest.startswith(CONTEXT):
+            continue
+        if "src" not in copy:
+            sys.exit(f"task '{task.get('name')}' writes content into the build context: teach this test")
+        src, rel = render(copy["src"], item), dest[len(CONTEXT):]
+        if dest.endswith("/") and not src.endswith("/"):
+            rel += src.rsplit("/", 1)[-1]
+        # A directory copy: keep its first file that lands under a COPY source.
+        files = [t for t in tracked if t.startswith(src)] if src.endswith("/") else [tracked_file(src)]
+        found += [f for f in files if copied(rel + f[len(src):] if src.endswith("/") else rel)][:1]
+    command = task.get("ansible.builtin.command")
+    argv = command.get("argv") or [] if isinstance(command, dict) else []
+    if "helpers.pingbus.bundle" in argv:
+        out = argv[argv.index("--out") + 1]
+        if out.startswith(CONTEXT) and copied(out[len(CONTEXT):]):
+            found += [tracked_file(package + "/") for package in bundle.PACKAGES]
+print("\n".join(dict.fromkeys(found)))
+PY
+    cat "$work/image-files.err"
+    check "the play's image files can be listed" "0" "1"
+fi
+check "the play copies files from files/opt/claude-yolo into the image" "yes" \
+    "$(if grep -q '^files/opt/claude-yolo/' "$work/image-files"; then echo yes; else echo no; fi)"
+check "the pingbus zipapp's sources are found (helpers/pingbus and helpers/agent_bus)" "2" \
+    "$(grep -c -E '^helpers/(pingbus|agent_bus)/' "$work/image-files")"
+
+repo="$work/real"
+mkdir -p "$repo/hooks"
+cp -R "$HOOK_DIR/." "$repo/hooks/"
+for path in files/var/local/claude-yolo/Dockerfile files/var/local/claude-yolo/claude-yolo $(cat "$work/image-files"); do
+    mkdir -p "$(dirname "$repo/$path")"
+    cp "$REPO_ROOT/$path" "$repo/$path"
+done
+git -C "$repo" init -q
+git -C "$repo" config user.name test
+git -C "$repo" config user.email test@example.com
+git -C "$repo" add -A
+git -C "$repo" commit -q --no-verify -m baseline
+while IFS= read -r path; do
+    printf 'drift probe\n' >>"$repo/$path"
+    check "a change to $path without a container bump is rejected" "1 yes" "$(hook_status) $(has 'container version bump required')"
+    git -C "$repo" show "HEAD:$path" >"$repo/$path"
+    git -C "$repo" add -A
+done <"$work/image-files"
 
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
