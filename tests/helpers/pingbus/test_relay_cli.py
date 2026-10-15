@@ -407,7 +407,8 @@ class SentLogTest(RelayCase):
 
 
 class OffUnchangedTest(bus.BusCase):
-    """With `PINGBUS_DELIVERY` unset nothing relay-shaped is written or changed."""
+    """With `PINGBUS_DELIVERY` unset nothing is spooled: `recv` takes the spool's lock, which
+    the socket-mode watcher shares (SPEC-inject.md E12), and writes nothing else under `relay/`."""
 
     def test_recv_send_and_say_leave_no_relay_files(self):
         self.joined()
@@ -421,7 +422,8 @@ class OffUnchangedTest(bus.BusCase):
         self.assertEqual(self.run_cli("send", "review", bus.PATH_REF, "--to", bus.ORCH_LP)[0], cli.EXIT_OK)
         self.assertEqual(self.run_cli("say", "--to", "alice", stdin="x")[0], cli.EXIT_OK)
         names = sorted(p.name for p in self.home.iterdir())
-        self.assertEqual(names, [bus.TEAM_A])
+        self.assertEqual(names, sorted([bus.TEAM_A, relay.RELAY_DIR]))
+        self.assertEqual(sorted(p.name for p in (self.home / relay.RELAY_DIR).iterdir()), [relay.LOCK_FILE])
 
     def test_watch_still_needs_the_socket(self):
         code, out, err = self.run_cli("watch")

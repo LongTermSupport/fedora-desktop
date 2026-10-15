@@ -34,7 +34,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, hooks, inbox, notify, protocol
+from helpers.pingbus import cli, hooks, inbox, inject, notify, protocol, relay
 
 TEAM, SN = "team-a", "team-a.agent-bus.internal"
 TEAM_B, SN_B = "team-b", "team-b.agent-bus.internal"
@@ -254,6 +254,81 @@ class PromptTest(HookCase):
     def test_a_broken_bundle_names_its_class(self):
         (self.home / TEAM / "token").chmod(0o644)
         self.assertEqual(self.context(self.hook("prompt", {})), hooks.TEMPLATES["config"])
+
+
+# ── socket delivery (Plan 00194 SPEC-inject.md E14-E18) ─────────────────────────────────
+
+
+class SocketDeliveryHookTest(HookCase):
+    def marks(self, socket_path: str | None = None) -> inject.Marks:
+        return inject.Marks(self.home, socket_path or self.env[notify.SOCKET_ENV])
+
+    def start(self, payload: dict | None = None, **kwargs) -> dict:
+        return self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup",
+                                           **(payload or {})}, **kwargs)
+
+    def test_session_start_says_once_how_deliveries_look(self):
+        self.assertIn(hooks.TEMPLATES["inject_frame"], self.context(self.start()).splitlines())
+
+    def test_without_a_socket_or_in_relay_mode_there_is_no_such_line(self):
+        bare = {k: v for k, v in self.env.items() if k not in (notify.SOCKET_ENV, notify.TOKEN_ENV)}
+        self.assertNotIn(hooks.TEMPLATES["inject_frame"], self.context(self.start(env=bare)))
+        relaying = dict(self.env)
+        relaying[relay.ENV] = relay.MODE_RELAY
+        self.assertNotIn(hooks.TEMPLATES["inject_frame"], self.context(self.start(env=relaying)))
+
+    def test_the_frame_line_names_the_socket_label_and_the_kind_rule(self):
+        line = hooks.TEMPLATES["inject_frame"]
+        for phrase in ("agent-bus delivery", "Another Claude session", "kind: HUMAN", "reply:"):
+            self.assertIn(phrase, line)
+
+    def test_session_start_and_prompt_record_the_transcript(self):
+        self.start({"transcript_path": "/home/u/.claude/projects/p/one.jsonl"})
+        self.assertEqual(self.marks().transcript(), "/home/u/.claude/projects/p/one.jsonl")
+        self.hook("prompt", {"prompt": "hi", "transcript_path": "/home/u/.claude/projects/p/two.jsonl"})
+        self.assertEqual(self.marks().transcript(), "/home/u/.claude/projects/p/two.jsonl")
+
+    def test_a_bad_transcript_path_is_not_recorded(self):
+        for bad in ("relative.jsonl", 7, "/a\nb"):
+            with self.subTest(bad=bad):
+                self.hook("prompt", {"prompt": "hi", "transcript_path": bad})
+                self.assertIsNone(self.marks().transcript())
+
+    def test_counts_are_quiet_while_the_watcher_delivers(self):
+        self.hold("watch")
+        self.plant_human(1)
+        self.assertEqual(self.hook("prompt", {"prompt": "hi"}), {})
+        self.assertFalse(self.blocked(self.stop()))
+
+    def test_a_waiter_is_not_a_delivering_watcher(self):
+        self.hold("wait")
+        self.plant_human(1)
+        self.assertEqual(self.context(self.hook("prompt", {})), hooks.pending_text(1, 1, 0, 0))
+
+    def test_a_stalled_delivery_brings_the_counts_and_the_stop_block_back(self):
+        self.hold("watch")
+        self.plant_human(1)
+        self.marks().set_stalled(True)
+        self.assertEqual(self.context(self.hook("prompt", {})).splitlines(),
+                         [hooks.pending_text(1, 1, 0, 0), hooks.TEMPLATES["inject"]])
+        self.assertTrue(self.blocked(self.stop()))
+
+    def test_a_missing_delivery_is_said_and_blocks_stop_once_per_window(self):
+        self.hold("watch")
+        self.marks().set_missing(True)
+        self.assertEqual(self.context(self.hook("prompt", {})), hooks.TEMPLATES["missing"])
+        result = self.stop()
+        self.assertTrue(self.blocked(result))
+        self.assertEqual(result["reason"], hooks.TEMPLATES["missing"])
+        self.assertFalse(self.blocked(self.stop()))
+
+    def test_another_sessions_marks_are_not_this_ones(self):
+        self.hold("watch")
+        self.plant_human(1)
+        other = self.marks(str(self.tmp / "other.sock"))
+        other.set_stalled(True)
+        other.set_missing(True)
+        self.assertEqual(self.hook("prompt", {}), {})
 
 
 # ── SessionStart ───────────────────────────────────────────────────────────────────────
@@ -647,9 +722,13 @@ class GoodbyeTest(SeatCase):
 
 
 class StopTest(HookCase):
+    """The pending-items block, for a session woken by a waiter. A `watch` holder with the
+    session's socket delivers the items itself, so Stop does not block on them
+    (SocketDeliveryHookTest)."""
+
     def setUp(self) -> None:
         super().setUp()
-        self.hold("watch")
+        self.hold("wait")
 
     def test_pending_items_block_once_with_counts(self):
         self.plant_human(1)

@@ -125,9 +125,11 @@ class Spool:
 
     @contextlib.contextmanager
     def exclusive(self, *, block: bool = True) -> Iterator[None]:
-        """The one lock that makes the watcher's check-and-spool and `recv`'s
-        print-and-consume mutually exclusive, so an item is typed or printed, never both.
-        Hold it only around local file work: no network call belongs inside."""
+        """The one lock that makes the watcher's check-and-spool (or, in socket mode, its
+        check, write to the session's socket and consume: SPEC-inject.md E12) and `recv`'s
+        print-and-consume mutually exclusive, so an item is shown once, never twice. Hold it
+        only around local work: no homeserver call belongs inside; the socket write is local
+        and bounded by its send timeout."""
         os.makedirs(self.root, mode=DIR_MODE, exist_ok=True)
         fd = os.open(self.root / LOCK_FILE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, FILE_MODE)
         try:
