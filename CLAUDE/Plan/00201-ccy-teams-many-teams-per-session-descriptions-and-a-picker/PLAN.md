@@ -58,6 +58,11 @@ change the bus protocol unless the research shows it must.
 
 ### Phase 2: Build (tests first; milestones M1-M7 of the spec)
 
+Bug fixed first: `teams_for` (`declare.py teams-for`, behind `ccy-teams for-checkout`) now
+honours a team's `exclude` through the bus's own `protocol.is_excluded`, so a team that excludes
+a repository is no longer offered for a checkout of it. Report:
+`subagent-reports/261015-teams-for-exclude-sonnet.md`.
+
 - [ ] ⬜ **Task 2.1**: M1, descriptions declared and shown on the host.
 - [ ] ⬜ **Task 2.2**: M2, descriptions reach agents (team record, room topic, `pingbus status`,
   SessionStart); container bump.

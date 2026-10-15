@@ -798,14 +798,18 @@ def set_element(text: str, name: str) -> str | None:
 
 def teams_for(hv: HostVars, repo: str) -> list[str]:
     """The teams declared present whose trust covers the repository: its owner is their
-    org, or they list it."""
+    org, or they list it. An org team's `exclude` is applied by the bus's own rule
+    (`protocol.is_excluded`), so a repository it refuses is not offered."""
     owner = repo.partition("/")[0]
+    ref = protocol.parse_ref(f"issue:{repo}#1")
     out = []
     for team in hv.teams:
         if team.state != "present":
             continue
         listed = [r.get("repo") for r in _raw_value(team, "repos") or [] if isinstance(r, dict)]
-        if _raw_value(team, "org") == owner or repo in listed:
+        org = _raw_value(team, "org")
+        excluded = ref is not None and protocol.is_excluded(ref, org, _raw_value(team, "exclude") or ())
+        if (org == owner and not excluded) or repo in listed:
             out.append(team.team)
     return out
 
