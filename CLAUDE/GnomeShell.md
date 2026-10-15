@@ -376,13 +376,13 @@ fails on an unmapped Fedora version by design — see
 **Implementation:**
 
 - `extension.js` - Thin GNOME Shell wrapper: keybinding, panel indicator, DBus signal listener
-- `wsi` - Batch backend: records audio via `pw-record`, resamples with `sox`, transcribes via `faster-whisper-transcribe`, signals the extension over DBus (`StateChanged`, `Error`)
+- `wsi` - Batch backend, a Go binary (`src-go/cmd/wsi`, spec `SPEC-wsi-watermark.md` of Plan 00192): records audio via `pw-record`, resamples with `sox`, transcribes via `faster-whisper-transcribe`, signals the extension over DBus (`StateChanged`, `Error`)
 - `wsi-stream` - Streaming backend: uses RealtimeSTT for low-latency real-time transcription (alternative to batch `wsi`)
 - `ydotool` - Auto-paste tool for Wayland/X11 (types transcribed text into the active window)
 
 **Workflow (batch mode):**
 
-1. User presses Insert key → extension calls `GLib.spawn_command_line_async('wsi ...')`
+1. User presses Insert key → extension starts `wsi` through `/usr/bin/setsid` (its own process group) with `spawnWatched` from `recorderLaunch.js`
 2. `wsi` records audio via `pw-record`, resamples with `sox` to 16 kHz WAV in `/dev/shm`
 3. `wsi` calls `faster-whisper-transcribe` (the `WHISPERFILE` binary) and obtains the transcript
 4. `wsi` sends a DBus `StateChanged` signal; the extension receives it and, if auto-paste is enabled, uses `ydotool` to type the text into the active window

@@ -20,30 +20,37 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00201 (pingbus fix and final review fixes) and Plan 00194 Task 2.0c: deploys the ccy
-# launcher 3.98.8, which requires container 2.63, so the next ccy launch rebuilds the image
-# once. Its pingbus watcher writes each team message into the session as an `agent-bus
-# delivery` envelope instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). The image gets the
-# pingbus whose target refusals name what was refused and who can be addressed, and the member
-# kit's new settings.json, whose status line is `pingbus status-line`: a team session shows
-# `bus: A,B` in any checkout. Also deploys cc-teams.bash (`cc --teams` makes .claude/ccy/ only
-# after the consent). Running ccy sessions keep their old image until each is relaunched.
+# Plan 00194 Task 2.0c: deploys the ccy launcher 3.98.8, which requires container 2.63, so the
+# next ccy launch rebuilds the image once. Its pingbus watcher writes each team message into the
+# session as an `agent-bus delivery` envelope (who sent it, human or agent, team, and the reply
+# command) instead of the "N pending, run pingbus recv" notice (plugin 1.2.0). Running ccy
+# sessions keep their old image until each is relaunched.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00201: agent-bus-install software puts the same kit settings and pingbus in
-# /usr/local/share/agent-bus/kit, which cc --teams and agent-bus-claude launch with. No team,
-# homeserver or firewall rule changes. Plan 00194 Task 2.0c: the same pingbus delivers team
-# messages as envelopes to `cc --teams` sessions and LXC members; then SPEC-inject.md section
-# 7, H1-H7, in a relaunched `ccy --teams` session (H4 measures the socket's largest message).
+# Plan 00194 Task 2.0c: agent-bus-install software puts the same pingbus and kit in
+# /usr/local/share/agent-bus/kit, so `cc --teams` sessions and LXC members get envelopes too. No
+# team, homeserver or firewall rule changes. Then SPEC-inject.md section 7, H1-H7, in a
+# relaunched `ccy --teams` session (H4 measures the socket's largest message).
 playbooks/imports/play-agent-bus.yml
-# Plan 00201: the automated two-team acceptance again, since its M3 leg now checks
-# `pingbus status-line` in the session's container (the checkout's own status line, then
-# `bus: A,B`). Then the owner's steps in ACCEPTANCE-owner.md, from another project's checkout.
+# Plan 00161: its acceptance again, since its M2 leg now reads the delivery envelope's first
+# line and accepts an answer by `pingbus send` as well as `pingbus recv`.
+00161-agent-team-bus-matrix
+# Plan 00201: the automated two-team acceptance again on the new pingbus.
 00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker
-# Plan 00199 (md-viewer): installs Gio's build libraries (dnf), upgrades golang to Fedora's
-# newest build (md-viewer's go.mod needs Go 1.26.9 or newer; the play stops before building if
-# Fedora has nothing that new), builds md-viewer from its own repository at the pinned commit
-# into ~/.local/bin/md-viewer, checks `md-viewer --version` names that commit, adds a desktop
-# file and makes it your default for text/markdown (and its alias text/x-markdown). Afterwards
-# double-click a PLAN.md in Nautilus, and run `md-viewer --time <file>.md` for the start-up
-# timings.
+# Plan 00199: rebuilds md-viewer at the M12 commit (non-regular files never block, tracked-files-only
+# label test); nothing else changes.
 playbooks/imports/optional/common/play-md-viewer.yml
+
+# Plan 00192 (watermark port): the watermarking play now builds /usr/local/bin/watermark from
+# src-go/cmd/watermark (installing the Go toolchain first) in place of the bash script, and
+# redeploys the example config whose comments now say the files are read, not sourced. After
+# it runs, `watermark --profile <name> photo.jpg` twice (the second exits 3) proves the binary
+# (SPEC-wsi-watermark.md section 7, H3). A config file that relied on being sourced (a `$`
+# expansion, an unquoted space) is now refused with its file and line.
+playbooks/imports/optional/common/play-image-watermarking.yml
+
+# Plan 00192 (wsi port): the speech-to-text play now builds ~/.local/bin/wsi from src-go/cmd/wsi
+# (installing the Go toolchain first) in place of the bash script; the panel extension and the
+# sibling helpers are unchanged. After it runs, an Insert, speech, Insert dictation pastes into a
+# terminal and an editor, and Escape mid-recording discards it (SPEC-wsi-watermark.md section 7,
+# H1 and H2).
+playbooks/imports/optional/common/play-speech-to-text.yml

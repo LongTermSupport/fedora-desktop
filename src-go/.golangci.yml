@@ -183,6 +183,20 @@ linters:
       - path: internal/ftpcamera/
         linters: [gosec]
         text: "G304|G703|G301|G302|G306"
+      # watermark's job is the one image the person names: it reads its signature from the
+      # path given on the command line (SPEC-wsi-watermark.md M8).
+      - path: internal/watermark/image\.go
+        linters: [gosec]
+        text: "G304"
+      # wsi reads its PID file and its recording in /dev/shm and its log under the user's home,
+      # each a fixed name (SPEC-wsi-watermark.md W5-W7); its tests read back what it wrote there,
+      # copy the recording as the fake sox does, and write an executable stand-in recorder.
+      - path: internal/wsi/(app|log)\.go
+        linters: [gosec]
+        text: "G304"
+      - path: internal/wsi/.*_test\.go
+        linters: [gosec]
+        text: "G304|G306|G703"
   settings:
     cyclop:
       max-complexity: 15

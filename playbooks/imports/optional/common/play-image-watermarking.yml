@@ -1,5 +1,9 @@
 #!/usr/bin/env -S bash -c 'p=$(realpath "$0") && exec "${p%/playbooks/*}/run.bash" "$p" "$@"'
 ---
+# watermark is a Go binary built from this checkout (src-go/cmd/watermark), so the Go
+# toolchain is installed first. play-golang.yml stays its one source of truth.
+- import_playbook: ../../play-golang.yml
+
 - hosts: desktop
   name: Image Watermarking - installs `watermark` command (IM7 + exiftool)
   become: true
@@ -20,7 +24,7 @@
       register: magick_version
       changed_when: false
 
-    - name: Assert ImageMagick is version 7.x (watermark script requires `magick`, not legacy `convert`)
+    - name: Assert ImageMagick is version 7.x (watermark requires `magick`, not legacy `convert`)
       ansible.builtin.assert:
         that:
           - "'ImageMagick 7.' in magick_version.stdout"
@@ -36,13 +40,15 @@
         group: root
         mode: "0755"
 
-    - name: Deploy watermark script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/usr/local/bin/watermark"
-        dest: /usr/local/bin/watermark
-        owner: root
-        group: root
-        mode: "0755"
+    # The command is a Go binary (src-go/cmd/watermark, Plan 00192), built as the login user
+    # and installed root-owned at its old path by the shared build-go-command.yml.
+    - name: Build and Install the watermark Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: watermark
+        go_command_dest: /usr/local/bin/watermark
+        go_command_mode: "0755"
+        go_command_owner: root
 
     - name: Deploy exiftool config (registers XMP-wm namespace for idempotency sentinel)
       ansible.builtin.copy:

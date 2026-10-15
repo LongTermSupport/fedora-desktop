@@ -11,6 +11,7 @@
 #       go_command_dest: "/home/{{ user_login }}/.local/bin/foo"
 #       go_command_mode: "0755"
 #       go_command_ldflags: "-X main.RootDir={{ root_dir }}"   # optional
+#       go_command_owner: root                                 # optional
 #     tags:
 #       - foo
 #
@@ -28,13 +29,15 @@
 #
 # Every task runs as the login user (become: false) whatever the importing play does: the Go
 # build cache and the scratch directory are the user's, and a build run as root would leave
-# root-owned files in them.
+# root-owned files in them. The one exception is the install of a command another account owns
+# (go_command_owner, e.g. root for /usr/local/bin): that copy alone becomes root.
 #
 # Inputs
 #   go_command_name     required; the directory under src-go/cmd and the scratch binary's name
 #   go_command_dest     required; where the binary is installed
 #   go_command_mode     required; the installed file's mode
 #   go_command_ldflags  optional; one -ldflags value, omitted when unset or empty
+#   go_command_owner    optional; the installed file's owner and group, the login user when unset
 #   go_command_module   optional; `<package path>@<version>` of a command in ANOTHER repository.
 #                       It is then built with `go install` from the Go module proxy, not from
 #                       src-go, and the version must be pinned (a tag or a full commit hash,
@@ -95,7 +98,7 @@
     src: "/home/{{ user_login }}/.cache/ccy-go-build/{{ go_command_name }}"
     remote_src: true
     dest: "{{ go_command_dest }}"
-    owner: "{{ user_login }}"
-    group: "{{ user_login }}"
+    owner: "{{ go_command_owner | default(user_login) }}"
+    group: "{{ go_command_owner | default(user_login) }}"
     mode: "{{ go_command_mode }}"
-  become: false
+  become: "{{ (go_command_owner | default(user_login)) != user_login }}"

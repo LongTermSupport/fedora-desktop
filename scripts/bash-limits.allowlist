@@ -46,7 +46,6 @@ files/home/.local/bin/ssh-keys-rekey	228	5	252	-
 files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/ssh-with-key	87	2	98	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
-files/home/.local/bin/wsi	1000	26	1030	-
 files/home/.local/bin/wsi-claude-process	125	3	138	-
 files/home/.local/share/vmtest/guest-acceptance-desktop.bash	203	2	250	data
 files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	186	-
@@ -59,7 +58,6 @@ files/usr/local/bin/agent-bus	119	9	124	-
 files/usr/local/bin/compress	96	2	63	-
 files/usr/local/bin/shutdown-with-update	290	10	298	-
 files/usr/local/bin/uncompress	106	2	80	-
-files/usr/local/bin/watermark	311	6	288	-
 files/usr/local/sbin/agent-bus-install	995	62	1158	assoc,data
 files/usr/local/sbin/fedora-desktop-self-update	94	2	99	-
 files/var/local/claude-code/cc	183	2	196	-

@@ -1,0 +1,50 @@
+Usage:
+  watermark [OPTIONS] IMAGE
+
+Apply visible watermark + commercial-licence metadata to a single image.
+Produces IMAGE.watermarked.EXT alongside the input by default.
+
+Required (from CLI, --config, profile, ~/.config/watermark/defaults.conf,
+or /etc/watermark/defaults.conf — leftmost wins):
+  --artist NAME            EXIF:Artist / IPTC:By-line / XMP-dc:Creator
+  --copyright TEXT         Copyright notice (used for both metadata and
+                           default visible-mark text if --text not given)
+  --licence-url URL        XMP-xmpRights:WebStatement (full licence terms)
+  --licence-summary TEXT   XMP-xmpRights:UsageTerms (one-line human summary)
+
+Optional:
+  --text TEXT              Visible mark text (defaults to --copyright)
+  --profile NAME           Load ~/.config/watermark/profiles/NAME.conf
+  --config FILE            Load FILE (overrides user/system config)
+  -o, --output PATH        Output file path (default: INPUT.watermarked.EXT)
+  --force                  Overwrite output and bypass idempotency probes
+  --no-tile                Skip the faint diagonal tile layer
+  --no-corner              Skip the bottom-right corner mark
+  --dry-run                Print the magick + exiftool commands and exit 0
+  --show-config            Print the resolved merged config and exit 0
+  -v, --verbose            Verbose progress to stderr
+  -h, --help               This help
+
+Exit codes:
+  0  success
+  1  the output could not be written to stdout
+  2  argument or validation error
+  3  idempotency skip (already watermarked; pass --force to override)
+  4  magick (visible watermark) failed
+  5  exiftool (metadata write) failed; the unmarked output is removed, even a file --force overwrote
+
+Examples:
+  watermark photo.jpg
+  watermark --profile blog photo.jpg
+  watermark --force --output out.jpg --text 'custom mark' photo.jpg
+
+Config files (KEY=VALUE lines, read as data, never run as shell):
+  /etc/watermark/defaults.conf
+  ~/.config/watermark/defaults.conf
+  ~/.config/watermark/profiles/<name>.conf  (selected by --profile)
+  <path-passed-to-config-flag>  (highest config-layer precedence)
+Keys: artist copyright licence_url licence_summary text font opacity_corner
+opacity_tile tile_angle size_pct_corner size_pct_tile quality. A value with
+spaces is quoted ("..." or '...'); nothing in it is expanded.
+
+Plan: CLAUDE/Plan/00037-image-watermarking-toolkit/PLAN.md

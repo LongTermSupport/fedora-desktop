@@ -379,6 +379,15 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   Lows; two are fixed: a name collision no longer halts `--sort` (identical bytes are a
   reported duplicate, a different file a per-file refusal, exit 1 at the end), and the
   not-sorted count holds only distinct files still in the upload root.
+  `watermark` and `wsi` (P8, the rest after ftp-camera) on `go-port/wsi-watermark`: spec
+  [SPEC-wsi-watermark.md](SPEC-wsi-watermark.md) (W1-W35, M1-M14, B1-B30). `watermark` ported
+  and cut over: `src-go/cmd/watermark`, `internal/watermark` (config files read as data, never
+  sourced), shared `internal/shellword`; the play builds it root-owned into `/usr/local/bin`
+  (`build-go-command.yml` gains `go_command_owner`); the bash and its allowlist row are gone.
+  `wsi` ported and cut over: `src-go/cmd/wsi`, `internal/wsi` (one select loop over the stop
+  signals, timers and `pw-record`); `play-speech-to-text.yml` builds it into `~/.local/bin`;
+  `scripts/test-wsi-stop-grace.bash` drives the binary, `qa-stt-limits.bash` reads `limit.go`;
+  the bash and its allowlist row are gone. Host checks H1-H3 pending.
 
 ### Phase 4: Review
 

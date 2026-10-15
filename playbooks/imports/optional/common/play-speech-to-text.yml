@@ -8,6 +8,11 @@
 # Model: chosen in the extension Settings (Whisper Model). Its default, auto, is resolved
 #        per recording by wsi-resolve-model. stt_model in host_vars/localhost.yml
 #        (default: small) is only the default of faster-whisper-transcribe run by hand.
+
+# wsi, the batch recorder, is a Go binary built from this checkout (src-go/cmd/wsi), so the
+# Go toolchain is installed first. play-golang.yml stays its one source of truth.
+- import_playbook: ../../play-golang.yml
+
 - hosts: desktop
   name: Speech-to-Text Extension
   become: true
@@ -374,13 +379,15 @@
       changed_when: schema_copy.changed
       failed_when: schema_compile.rc != 0
 
-    - name: Copy WSI Script
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/wsi"
-        dest: "/home/{{ user_login }}/.local/bin/wsi"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
+    # The batch recorder is a Go binary (src-go/cmd/wsi, Plan 00192), built and installed at
+    # its old path by the shared build-go-command.yml; it runs the helpers below from the
+    # directory it is installed in.
+    - name: Build and Install the wsi Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: wsi
+        go_command_dest: "/home/{{ user_login }}/.local/bin/wsi"
+        go_command_mode: "0755"
 
     # The one reader of the extension's GSettings keys for the recorder scripts
     # (wsi-stop-grace uses it, so it is deployed first).

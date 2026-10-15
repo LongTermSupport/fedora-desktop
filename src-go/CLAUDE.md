@@ -2,7 +2,7 @@
 
 One module, `github.com/LongTermSupport/fedora-desktop/src-go`, for this repository's large
 interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfreeze`,
-`lxcfreeze`, `vmtest` and `ftp-camera` live here; their bash originals are gone.
+`lxcfreeze`, `vmtest`, `ftp-camera`, `watermark` and `wsi` live here; their bash originals are gone.
 
 ## Layout
 
@@ -32,7 +32,16 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   (the command runner every external call goes through, and its recording `Fake`), `term`
   (exit codes, error printing), `ui` (gum and fzf prompts), `sudo`, `systemd`, `tmuxccy`,
   `gitx`, `registry`, `agentbus`, `declare`, `marker`, `screen`, `transcript`, `restore`,
-  `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container).
+  `sessprobe`, `fsx` (atomic file writes), `ccyenv` (is CCY installed, is this a container),
+  `shellword` (POSIX shell quoting for a command shown to a person or a value a shell reads).
+- `internal/watermark/` — the watermark command (spec `SPEC-wsi-watermark.md`, M1-M14): its
+  config files read as `KEY=VALUE` data, the magick and exiftool argv, through `execx`.
+- `internal/wsi/` — the batch speech-to-text recorder the panel starts (same spec, W1-W35):
+  one select loop over the stop signals, the timers and the recorder (`pw-record` through
+  `execx` with `Interrupt: SIGINT`); the sibling helpers (`wsi-stop-grace`, `wsi-setting`,
+  `wsi-resolve-model`) stay bash and Python and run from the binary's directory. Its batch
+  limit's one home is `limit.go` (`scripts/qa-stt-limits.bash`); `scripts/test-wsi-stop-grace.bash`
+  builds and drives the binary end to end.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules
@@ -100,9 +109,12 @@ optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both c
 (`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
 and `tasks/deploy-freeze.yml` for the freeze tools, which `play-podfreeze.yml` and
 `play-lxcfreeze.yml` import (both import `play-golang.yml` first for the toolchain), and
-`play-vm-test-lab.yml` for `vmtest` and `play-ftp-camera.yml` for `ftp-camera` (both import
-`play-golang.yml` too). Each binary
-lands at its old path. A new deployed command takes a row in `scripts/go-binary-suites.tsv`. Never
+`play-vm-test-lab.yml` for `vmtest`, `play-ftp-camera.yml` for `ftp-camera`,
+`play-image-watermarking.yml` for `watermark` and `play-speech-to-text.yml` for `wsi` (each
+imports `play-golang.yml` too);
+`watermark` is installed root-owned in `/usr/local/bin` (`go_command_owner: root`; only that
+copy runs as root). Each binary lands at its old path. A new deployed command takes a row in
+`scripts/go-binary-suites.tsv`. Never
 install a binary by hand: the play is the only route
 ([InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)).
 

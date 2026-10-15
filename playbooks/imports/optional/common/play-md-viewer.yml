@@ -20,7 +20,7 @@
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # md-viewer publishes no tags yet, so the pin is a full commit hash on its main. Its
     # pseudo-version, which `md-viewer --version` prints, carries the first 12 characters.
-    md_viewer_version: 79acc7011daf0f57505605c902e9209448f377ac
+    md_viewer_version: bafafc8e4ff973fd168b8877bc00bf0d432738ef
     # The `go` line of md-viewer's go.mod at that commit; move it with the pin.
     md_viewer_go_min: "1.26.9"
     md_viewer_bin: "/home/{{ user_login }}/.local/bin/md-viewer"

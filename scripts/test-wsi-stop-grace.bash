@@ -6,7 +6,8 @@
 # now keeps recording for a grace read from the extension's GSettings key (via
 # wsi-stop-grace); a second TERM stops at once; 0 means no grace.
 #
-# This drives the REAL batch recorder (files/home/.local/bin/wsi) end to end with stub
+# This drives the REAL batch recorder (the Go wsi, built from src-go/cmd/wsi; spec
+# CLAUDE/Plan/00192-.../SPEC-wsi-watermark.md, its unit tests in src-go/internal/wsi) end to end with stub
 # pw-record / sox / soxi / faster-whisper / gdbus / gsettings on PATH, and measures when
 # the stub microphone is told to stop, and which keys an auto-paste presses for each
 # answer of the panel's PasteKey (stub ydotool and wl-copy). It then runs tests/speech_to_text/: unit tests
@@ -76,6 +77,20 @@ check() {
 stubs="$work/stubs"
 events="$work/events"
 mkdir -p "$stubs" "$events" "$work/home" "$work/pids"
+
+# The wsi under test is the Go binary, built into a directory of its own beside links to the
+# sibling helpers it runs from there (wsi-stop-grace, wsi-setting, wsi-resolve-model).
+tool_dir="$work/bin"
+TOOL="$tool_dir/wsi"
+mkdir -p "$tool_dir"
+if ! build_out=$(cd "$REPO_ROOT/src-go" && go build -trimpath -buildvcs=false -o "$TOOL" ./cmd/wsi 2>&1); then
+    echo "  FAIL: the Go wsi does not build: $build_out"
+    printf 'passed: %s  failed: %s\n' 0 1
+    exit 1
+fi
+for helper in wsi-stop-grace wsi-setting wsi-resolve-model; do
+    ln -s "$BIN/$helper" "$tool_dir/$helper"
+done
 
 # gsettings: answers the stop-grace key from $STUB_GRACE and any other key from the
 # file $STUB_SETTINGS/<key>, printed as gsettings would (strings quoted); records its argv.
@@ -246,11 +261,10 @@ start_wsi() {
     local grace="$1"
     shift
     reset_events
-    # WSI_TEST_TRACE=1 runs wsi under `bash -x`; the trace lands in the stderr dump
     "${run_env[@]}" "STUB_GRACE=$grace" "STUB_CUDA_DEVICES=${STUB_CUDA_DEVICES:-0}" \
         "STUB_PASTE_KEY=${STUB_PASTE_KEY:-}" "XDG_SESSION_TYPE=${STUB_SESSION_TYPE:-}" \
         "WAYLAND_DISPLAY=${STUB_WAYLAND_DISPLAY:-}" "HF_HUB_CACHE=${STUB_HF_HUB_CACHE:-}" \
-        bash ${WSI_TEST_TRACE:+-x} "$BIN/wsi" "$@" \
+        "$TOOL" "$@" \
         > "$work/wsi.out" 2> "$work/wsi.err" &
     WSI_PID=$!
 }
@@ -333,19 +347,6 @@ check "the play deploys the start-at-login unit" "1" \
     "$(grep -c 'files/home/.config/systemd/user/wsi-stream-server-at-login.service"' "$PLAY")"
 check "the play enables the start-at-login unit" "1" \
     "$(grep -c 'name: wsi-stream-server-at-login.service' "$PLAY")"
-
-#----------------------------------------------------------------------------
-echo "=== wsi: a background process that may have exited is signalled through signal_if_alive ==="
-#----------------------------------------------------------------------------
-# The grace timer is the usual sender of the second TERM, so it is exiting just as the trap
-# that handles that TERM cancels it. A raw `kill` there fails in the gap after the
-# `kill -0` probe and, under `set -e`, ended wsi with exit 1 and the recorder still running.
-# The race window is microseconds wide; the fuzz in Plan 00148 Task 0.7 hit it about once
-# in ninety runs, so this guards the cause statically.
-check "no raw kill of a recorded pid remains in wsi" "0" \
-    "$(grep -cE '^[[:space:]]*kill( -[A-Z]+)? "\$[A-Z_]*PID" 2>/dev/null' "$BIN/wsi")"
-check "the five signalling sites use signal_if_alive" "5" \
-    "$(grep -cE '^[[:space:]]*signal_if_alive (TERM|INT) "\$[A-Z_]*PID"' "$BIN/wsi")"
 
 #----------------------------------------------------------------------------
 echo "=== wsi: first TERM keeps recording for the grace ==="
@@ -463,7 +464,7 @@ printf "'system'\n" > "$settings/language"
 echo "=== wsi: no grace value, no recording ==="
 #----------------------------------------------------------------------------
 reset_events
-"${run_env[@]}" STUB_GSETTINGS_FAIL=1 STUB_GRACE=3 bash "$BIN/wsi" > "$work/wsi.out" 2> "$work/wsi.err"; rc=$?
+"${run_env[@]}" STUB_GSETTINGS_FAIL=1 STUB_GRACE=3 "$TOOL" >"$work/wsi.out" 2> "$work/wsi.err"; rc=$?
 check "wsi exits 1 when the grace cannot be read" "1" "$rc"
 check "…before the microphone opens" "absent" \
     "$([ -e "$events/pw-record.started" ] && echo present || echo absent)"
@@ -472,7 +473,7 @@ check "…before the microphone opens" "absent" \
 echo "=== wsi: no model, no recording ==="
 #----------------------------------------------------------------------------
 reset_events
-"${run_env[@]}" STUB_GRACE=3 STUB_CUDA_DEVICES=not-a-number bash "$BIN/wsi" \
+"${run_env[@]}" STUB_GRACE=3 STUB_CUDA_DEVICES=not-a-number "$TOOL" \
     > "$work/wsi.out" 2> "$work/wsi.err"; rc=$?
 check "wsi exits 1 when auto cannot ask for a GPU" "1" "$rc"
 check "…before the microphone opens" "absent" \
@@ -480,7 +481,7 @@ check "…before the microphone opens" "absent" \
 check "…and says why" "1" "$(grep -c 'cannot ask CTranslate2' "$work/wsi.err")"
 
 reset_events
-"${run_env[@]}" STUB_GRACE=3 WHISPER_MODEL=base.en bash "$BIN/wsi" --language de \
+"${run_env[@]}" STUB_GRACE=3 WHISPER_MODEL=base.en "$TOOL" --language de \
     > "$work/wsi.out" 2> "$work/wsi.err"; rc=$?
 check "wsi refuses an English-only model for another language" "1" "$rc"
 check "…before the microphone opens" "absent" \
@@ -691,8 +692,10 @@ fi
 echo "=== qa-stt-limits.bash: a limit planted back in is caught ==="
 #----------------------------------------------------------------------------
 limits_root="$work/limits"
-mkdir -p "$limits_root/files/home/.local/bin" "$limits_root/extensions/speech-to-text@fedora-desktop"
-cp "$BIN/wsi" "$BIN/wsi-stream" "$BIN/wsi-stream-server" "$limits_root/files/home/.local/bin/"
+mkdir -p "$limits_root/files/home/.local/bin" "$limits_root/extensions/speech-to-text@fedora-desktop" \
+    "$limits_root/src-go/internal/wsi"
+cp "$BIN/wsi-stream" "$BIN/wsi-stream-server" "$limits_root/files/home/.local/bin/"
+cp "$REPO_ROOT/src-go/internal/wsi/limit.go" "$limits_root/src-go/internal/wsi/"
 cp "$REPO_ROOT/extensions/speech-to-text@fedora-desktop/extension.js" \
     "$REPO_ROOT/extensions/speech-to-text@fedora-desktop/prefs.js" \
     "$limits_root/extensions/speech-to-text@fedora-desktop/"

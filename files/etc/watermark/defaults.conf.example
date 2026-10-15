@@ -9,8 +9,10 @@
 #   ~/.config/watermark/profiles/<name>.conf
 # selected with `watermark --profile <name> IMAGE`.
 #
-# This file is sourced as bash (`KEY=VALUE`). Comments start with #.
-# Quoting: use double quotes for values containing spaces or special chars.
+# This file is read as data, never run as shell: one `KEY=VALUE` per line, for
+# the keys below only. Comments start with #. Quote a value containing spaces or
+# special characters ("..." or '...'); nothing in a value is expanded, so a $ or
+# backquote inside double quotes must be escaped (\$, \`).
 #
 # Plan: CLAUDE/Plan/00037-image-watermarking-toolkit/PLAN.md
 
