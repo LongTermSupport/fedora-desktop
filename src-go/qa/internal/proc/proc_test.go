@@ -24,6 +24,19 @@ func TestOSRunsACommandAndSplitsTheStreams(t *testing.T) {
 	}
 }
 
+func TestOSFeedsTheCommandItsStandardInput(t *testing.T) {
+	res, err := OS{}.Run(context.Background(), Cmd{
+		Argv:  []string{"cat"},
+		Stdin: strings.NewReader("fed through stdin\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Code != 0 || res.Stdout != "fed through stdin\n" {
+		t.Fatalf("got %+v", res)
+	}
+}
+
 func TestOSMergesTheStreamsInOrderWhenAsked(t *testing.T) {
 	res, err := OS{}.Run(context.Background(), Cmd{
 		Argv:  []string{"sh", "-c", "echo one; echo two >&2; echo three"},

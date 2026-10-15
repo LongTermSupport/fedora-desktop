@@ -3,6 +3,7 @@ package changed
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -138,6 +139,35 @@ func TestTheRealRoutingSendsEveryToolchainInputToTheToolchainCheck(t *testing.T)
 		"src-go/qa/toolchain/versions.go", "src-go/qa/cmd/qa-toolchain/main.go",
 	} {
 		checkSemgrepRoute(t, root, rel, "check:toolchain")
+	}
+}
+
+// Every input of the vmtest-manifest gate, routed by the real table, runs the check: the manifest
+// (covered by it), the Fedora version, the host's validator, the gate's own files, and every guest
+// acceptance and prepare script the tree holds (read from git, so a script this test has not met
+// is still routed). SPEC-qa-vmtest-manifest, SPEC-qa-changed B46.
+func TestTheRealRoutingSendsEveryVmtestManifestInputToTheCheck(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := []string{
+		"vars/vm-test-scenarios.yml", "vars/fedora-version.yml",
+		"helpers/vmtest/scenarios.py", "helpers/vmtest/upstream.py", "helpers/vmtest/validate_manifest.py",
+		"scripts/qa-vmtest-manifest.bash", "src-go/qa/vmtestmanifest/guest.go", "src-go/qa/cmd/qa-vmtest-manifest/main.go",
+	}
+	guests := 0
+	for _, rel := range publishedUnder(t, root, "files/home/.local/share/vmtest") {
+		if name := path.Base(rel); strings.HasPrefix(name, "guest-acceptance-") || strings.HasPrefix(name, "guest-prepare-") {
+			inputs = append(inputs, rel)
+			guests++
+		}
+	}
+	if guests < 4 {
+		t.Fatalf("found only %d guest scripts; the tree walk matched nothing: %v", guests, inputs)
+	}
+	for _, rel := range inputs {
+		checkSemgrepRoute(t, root, rel, "check:vmtest-manifest")
 	}
 }
 
