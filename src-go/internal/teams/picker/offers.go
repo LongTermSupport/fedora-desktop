@@ -289,7 +289,8 @@ func (p *Picker) offerCreateHere(ctx context.Context, repo, top string) error {
 	}
 	p.Kit.Term.Say("No team on this machine works on " + repo + " (this checkout). " +
 		"The teams listed next are for other repositories.")
-	yes, err := p.Kit.AskYes(ctx, "Create a team for "+repo+" now?", true)
+	// No by default: creating a team is heavy and outward, and a stray Enter must not do it.
+	yes, err := p.Kit.AskYes(ctx, "Create a team for "+repo+" now?", false)
 	if err != nil {
 		return err
 	}

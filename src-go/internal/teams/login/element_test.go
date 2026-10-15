@@ -2,8 +2,10 @@ package login
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -111,11 +113,83 @@ func TestElementOffersNeverSignedInPeopleANewPassword(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	for _, want := range []string{
-		"owner has never signed in to alpha.\n", "a-new-password", "Copy it now. Press Enter to open Element.\n", "Opening alpha in Element.\n",
+		"owner has never signed in to alpha.\n", "a-new-password", afterFirstPassword, "Opening alpha in Element.\n",
 	} {
 		if !strings.Contains(h.ErrOut.String(), want) {
 			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
 		}
+	}
+}
+
+// afterFirstPassword is what Open in Element says once a first password is shown: true whether
+// it went to the clipboard, was not offered for it, or was declined for it.
+const afterFirstPassword = "Press Enter to open Element, then sign in there as owner with the password shown above.\n"
+
+// Someone who has never signed in has no Element session for a new password to sign out, and
+// cannot sign in without one: Enter sets it.
+func TestElementFirstSignInDefaultsToSettingAPassword(t *testing.T) {
+	h := newRig(t)
+	h.withElementProfile(t)
+	h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
+	h.passwordable()
+	h.Script.Fzf = []string{"|YES"}
+	snap := h.pass(t)
+	if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+		t.Fatalf("%v", err)
+	}
+	if !strings.Contains(h.HeaderOf(0), "owner has no Element session to sign out.") {
+		t.Fatalf("header %q", h.HeaderOf(0))
+	}
+	if slices.Contains(h.Script.FzfArgs[0], "--bind=start:last") {
+		t.Fatal("a first password defaults to Yes")
+	}
+}
+
+// After a first password, nothing tells the person to copy it: with Clipboard Indicator on it
+// is not offered for the clipboard and is typed from the screen.
+func TestElementAfterAFirstPasswordNeverSaysCopyIt(t *testing.T) {
+	cases := map[string]func(h rig){
+		"Clipboard Indicator on": func(h rig) {
+			h.On("gsettings get org.gnome.shell enabled-extensions", "['clipboard-indicator@tudmotu.com']\n", 0)
+			h.Script.Fzf = []string{"|YES"}
+		},
+		"Clipboard Indicator off, copied": func(h rig) {
+			h.withoutClipboardHistory()
+			h.On("wl-copy", "", 0)
+			h.Script.Fzf = []string{"|YES", "|YES"}
+		},
+		"Clipboard Indicator off, not copied": func(h rig) {
+			h.withoutClipboardHistory()
+			h.Script.Fzf = []string{"|YES", "|EXIT"}
+		},
+		"no gsettings": func(h rig) {
+			h.l.Kit.LookPath = func(name string) (string, error) {
+				if name == "gsettings" {
+					return "", errors.New("not found")
+				}
+				return "/usr/bin/" + name, nil
+			}
+			h.On("wl-copy", "", 0)
+			h.Script.Fzf = []string{"|YES", "|YES"}
+		},
+	}
+	for name, setUp := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newRig(t)
+			h.withElementProfile(t)
+			h.On(teamtest.SudoBus+"human devices alpha owner", "", 0)
+			h.passwordable()
+			h.Env["WAYLAND_DISPLAY"] = "wayland-test"
+			setUp(h)
+			snap := h.pass(t)
+			if _, err := h.l.OpenElement(context.Background(), snap, "alpha"); err != nil {
+				t.Fatalf("%v", err)
+			}
+			out := h.ErrOut.String()
+			if strings.Contains(out, "Copy it") || !strings.Contains(out, afterFirstPassword) {
+				t.Fatalf("stderr %q", out)
+			}
+		})
 	}
 }
 
@@ -131,7 +205,7 @@ func TestElementNeverSignedInDeclinedStillOpens(t *testing.T) {
 	if h.Fake.Called(teamtest.SudoBus+"human password") || !h.Fake.Called("systemd-run") {
 		t.Fatalf("calls %v", h.Fake.Calls())
 	}
-	if strings.Contains(h.ErrOut.String(), "Copy it now") {
+	if strings.Contains(h.ErrOut.String(), "password shown above") {
 		t.Fatal("nothing to copy when no password was set")
 	}
 }
