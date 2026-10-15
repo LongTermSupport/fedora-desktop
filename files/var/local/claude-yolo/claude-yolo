@@ -1229,49 +1229,45 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "  Token:   ${LAST_TOKEN:-none}${last_token_label}"
         echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
         echo "  Network: ${LAST_NETWORK:-none}"
-        ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$LAST_TEAMS}"
+        # A restore takes the saved configuration without asking: it is the one the person
+        # last chose in this project, and the only evidence of what they want. So does a
+        # headless launch, whose stdin is the session's own input. Unasked (end of input
+        # included), the saved team is not taken: only --teams or a person's yes joins one
+        # (Plan 00161 M2.9).
+        quick_unasked="" quick_team="$LAST_TEAMS"
+        if [ "$SESSION_RESTORE" = true ]; then quick_unasked="Session restore" quick_team=""
+        elif [ "$HEADLESS_MODE" = true ]; then quick_unasked="Headless launch" quick_team=""
+        elif ccy_nobody_to_ask; then quick_unasked="No terminal to ask on" quick_team=""
+        fi
+        ccy-teams describe-seats --prefix "  Team:    " "${TEAMS_LIST:-$quick_team}"
         echo ""
 
         while true; do
-            # A restore takes the saved configuration without asking: it is the one the
-            # person last chose in this project, and the only evidence of what they want.
-            # So does a headless launch, whose stdin is the session's own input.
-            if [ "$SESSION_RESTORE" = true ]; then
-                echo "Session restore: using the previous configuration."
-                use_config=Y
-            elif [ "$HEADLESS_MODE" = true ]; then
-                echo "Headless launch: using the previous configuration."
-                use_config=Y
-            elif ccy_nobody_to_ask; then
-                echo "No terminal to ask on: using the previous configuration."
-                use_config=Y
-            else
-                read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config
-                use_config=${use_config:-Y}
+            [ -n "$quick_unasked" ] || read -rp "$CCY_PROMPT_QUICK_LAUNCH " use_config ||
+                quick_unasked="No answer (end of input)"
+            if [ -n "$quick_unasked" ]; then
+                echo "$quick_unasked: using the previous configuration${LAST_TEAMS:+ but not its team (only --teams joins one)}."
+                use_config=unasked
             fi
             echo ""
 
             case "$use_config" in
-                Y|y|Yes|yes)
+                Y|y|Yes|yes|""|unasked)
                     echo "Quick launching with previous configuration..."
                     echo ""
 
-                    # Load config values
-                    if [[ -n "$LAST_TOKEN" ]]; then
-                        SPECIFIED_TOKEN="$LAST_TOKEN"
-                    fi
-                    if [[ -n "$LAST_SSH_KEYS" ]]; then
-                        IFS=' ' read -ra SSH_KEYS <<< "$LAST_SSH_KEYS"
-                    fi
+                    # Load config values. The token and keys were empty to get here, so an empty
+                    # saved value leaves them empty.
+                    SPECIFIED_TOKEN="$LAST_TOKEN"
+                    IFS=' ' read -ra SSH_KEYS <<< "$LAST_SSH_KEYS"
                     if [[ -n "$LAST_NETWORK" ]]; then
-                        SPECIFIED_NETWORK="$LAST_NETWORK"
-                        NETWORK_FROM_CONFIG=true
+                        SPECIFIED_NETWORK="$LAST_NETWORK" NETWORK_FROM_CONFIG=true
                     fi
-                    # The saved seats, unless --teams was given (that one wins) or this is a
-                    # restore: joining a team is not a preference, so a restore takes --teams
+                    # The saved seats only on a person's yes to the offer that showed them, and
+                    # --teams wins: joining a team is not a preference, so a restore takes --teams
                     # only from the session's own record. The seats go into that record, as an
                     # explicit --teams would be, so a restore of this session replays them.
-                    if [[ -n "$LAST_TEAMS" && "$TEAMS_GIVEN" = false && "$SESSION_RESTORE" = false ]]; then
+                    if [[ -n "$LAST_TEAMS" && "$TEAMS_GIVEN" = false && "$use_config" != unasked ]]; then
                         TEAMS_LIST="$LAST_TEAMS"
                         ccy_launch_teams
                         CCY_ORIG_ARGS+=(--teams "$CCY_SEATS")

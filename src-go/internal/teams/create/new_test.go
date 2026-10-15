@@ -24,7 +24,7 @@ func TestTheWizardIsBuiltOverTheHostsAdapters(t *testing.T) {
 	w, c := built(t)
 	h := w.Host
 	if c.Declare != h.Declare || c.Gum != h.Gum || c.Git != h.Git || c.Launcher != h.Launcher || c.HostVars != h.HostVars ||
-		c.ApplyTeams == nil || c.NewPassword == nil || c.LaunchElement == nil || c.ExecLauncher == nil ||
+		c.ApplyTeams == nil || c.SignInGap == nil || c.NewPassword == nil || c.LaunchElement == nil || c.ExecLauncher == nil ||
 		c.LookPath == nil || c.NewTerm == nil {
 		t.Fatalf("wizard %+v", c)
 	}

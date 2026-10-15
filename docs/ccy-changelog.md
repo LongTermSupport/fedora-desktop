@@ -29,6 +29,16 @@ Two version numbers move independently — see
   agent-bus play updates that one) simply shows no description. A description change restarts no
   homeserver. The client and skill are in the image, so the container version moves to 2.57 and
   the image is rebuilt once.
+## 3.97.3 — container 2.56
+
+- **A plain launch is on no team.** Quick Launch takes the saved team only when a person
+  answers yes to the offer that shows it; end of input (Ctrl-D) at the prompt is not a yes. A
+  headless launch, a launch with no terminal to ask on and a session restore still take the
+  saved token, keys and network, but never the saved seats: their summary shows the team as
+  none and they say the saved one is not taken. Only `--teams` (for a restore, the session's
+  own record) puts such a session in a team. A headless `ccy` run after
+  a `--teams` session in the same checkout had been labelled with that session's seat (Plan
+  00161 acceptance, M2.9). The image is unchanged.
 
 ## 3.97.2 — container 2.56
 

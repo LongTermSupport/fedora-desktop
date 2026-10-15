@@ -1,6 +1,6 @@
 # Plan 00198: gnome text editor opens a new window on the current workspace
 
-**Status**: In Progress (fix implemented in play-gsettings.yml; deploy and the owner's workspace check queued in meta-deploy)
+**Status**: In Progress (deployed and accepted on the host; waiting on the owner's two-workspace check in Nautilus)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: Medium
@@ -68,12 +68,14 @@ desktop files in play.
   upgrades are kept), and refreshes the desktop database when it changed. `acceptance.bash`
   checks the file and the `text/plain` default.
 - [ ] 🔄 **Task 2.2**: Host run through `meta-deploy.bash`; the owner opens files from Nautilus on
-  two workspaces and confirms each opens where they are. qa-reviewer over the plan.
+  two workspaces and confirms each opens where they are. qa-reviewer over the plan. The host run
+  at fb78d4ce passed: the gsettings play, triage and acceptance. Waiting on the owner's
+  two-workspace check.
 
 ## Success Criteria
 
 - [ ] A double-click in Nautilus opens the file in a new editor window on the current workspace.
-- [ ] The override is deployed by a play and is idempotent.
+- [x] The override is deployed by a play and is idempotent.
 
 ## Delivery & Milestones
 
