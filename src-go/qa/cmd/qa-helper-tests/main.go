@@ -13,6 +13,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/discovery"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/helpertests"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -21,6 +22,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(helpertests.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/js"
 )
@@ -19,19 +20,6 @@ func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	}
 	if code := run([]string{"--nope"}); code != int(js.ExitCannotRun) {
 		t.Fatalf("--nope: exit %d", code)
-	}
-}
-
-func TestWriteReportWritesTheFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "r.json")
-	if err := writeReport(path, []byte("{}")); err != nil {
-		t.Fatal(err)
-	}
-	if data, err := os.ReadFile(filepath.Clean(path)); err != nil || string(data) != "{}" {
-		t.Fatalf("%q %v", data, err)
-	}
-	if err := writeReport(filepath.Join(t.TempDir(), "no", "r.json"), nil); err == nil {
-		t.Fatal("a report in a missing directory was written")
 	}
 }
 
@@ -108,7 +96,7 @@ func realRun(t *testing.T, files map[string]string, withoutEslint bool) outcome 
 			}
 			return ""
 		},
-		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, WriteFile: writeReport,
+		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, WriteFile: cmdmain.WriteReportPrivate,
 	}
 	code := js.Main([]string{"--root", root}, env)
 	got := outcome{code: code, root: root, stdout: stdout.String(), stderr: stderr.String()}

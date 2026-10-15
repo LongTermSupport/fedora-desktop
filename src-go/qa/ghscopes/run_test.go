@@ -25,6 +25,15 @@ func TestAnUnknownArgumentOrMissingValueIsExitTwoWithUsage(t *testing.T) {
 	}
 }
 
+// G1: an empty or flag-like --root/--scripts value is refused, not read as "not given".
+func TestAnEmptyOrFlagLikeDirectoryValueIsRefused(t *testing.T) {
+	for _, args := range [][]string{{"--root", ""}, {"--scripts", ""}, {"--root", "--scripts"}} {
+		got := newWorld(t, nil).main(args...)
+		wantExit(t, got, ExitCannotRun)
+		wantIn(t, "stderr", got.stderr, "ERROR: "+args[0]+" needs a directory", "usage: qa-gh-scopes")
+	}
+}
+
 // G1
 func TestScriptsDirNamesTheRootAsItsParent(t *testing.T) {
 	w := newWorld(t, nil)

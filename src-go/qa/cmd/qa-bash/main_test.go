@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/bash"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -20,36 +20,6 @@ func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	}
 	if code := run([]string{"--nope"}); code != int(bash.ExitCannotRun) {
 		t.Fatalf("--nope: exit %d", code)
-	}
-}
-
-func TestWriteReportWritesTheFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "r.json")
-	if err := writeReport(path, []byte("{}")); err != nil {
-		t.Fatal(err)
-	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != "{}" {
-		t.Fatalf("%q %v", data, err)
-	}
-	if err := writeReport(filepath.Join(t.TempDir(), "no", "r.json"), nil); err == nil {
-		t.Fatal("a report in a missing directory was written")
-	}
-}
-
-// S2: the report is readable by other accounts, whatever the umask.
-func TestTheReportHasMode0644(t *testing.T) {
-	old := syscall.Umask(0o077)
-	defer syscall.Umask(old)
-	path := filepath.Join(t.TempDir(), "r.json")
-	if err := writeReport(path, []byte("{}")); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Fatalf("mode %v, want 0644", info.Mode().Perm())
 	}
 }
 
@@ -100,7 +70,7 @@ func realRunWith(t *testing.T, files map[string]string, args func(root string) [
 			}
 			return ""
 		},
-		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, WriteFile: writeReport,
+		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, WriteFile: cmdmain.WriteReport,
 	}
 	code := bash.Main(args(root), env)
 	got := outcome{code: code, root: root, stdout: stdout.String(), stderr: stderr.String()}

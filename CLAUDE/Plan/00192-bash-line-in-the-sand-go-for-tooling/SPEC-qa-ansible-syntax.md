@@ -119,6 +119,7 @@ call this gate.
   candidate, S7), where the bash ignored it.
 - D9. Only the vault password file is required (S6), and the path is never printed; the bash
   required none and printed nothing about it.
+- D11. `--root` or `--scripts` given an empty value, or one that begins with `-`, is refused: exit 2, `<flag> needs a directory`, with the usage (S1); the bash took it as the value and an empty root fell back to the working directory.
 - D10. A play written name first, or with `hosts:` after other keys, is a playbook, and a
   `- hosts:` nested in a loop list is not (S7); the bash's line marker judged both wrongly.
 - D7. Not required, though the task brief assumed it: `environment/localhost/host_vars/localhost.yml`.

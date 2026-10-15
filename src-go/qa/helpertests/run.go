@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/gates"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
@@ -120,59 +121,28 @@ func parseArgs(args []string) (options, error) {
 	return opts, nil
 }
 
-// emitter writes to a stream and remembers the first write that failed.
-type emitter struct {
-	w   io.Writer
-	err error
-}
-
-// Write implements io.Writer so the runner's streams share the failure memory.
-func (e *emitter) Write(p []byte) (int, error) {
-	n, err := e.w.Write(p)
-	if err != nil && e.err == nil {
-		e.err = err
-	}
-	return n, err
-}
-
-func (e *emitter) line(text string) {
-	if _, err := fmt.Fprintln(e.w, text); err != nil && e.err == nil {
-		e.err = err
-	}
-}
-
 // Main runs the command and returns the exit status.
 func Main(args []string, env Env) ExitCode {
-	out, errOut := &emitter{w: env.Stdout}, &emitter{w: env.Stderr}
-	code := run(args, env, out, errOut)
-	if out.err != nil {
-		errOut.line("ERROR: cannot write to stdout: " + out.err.Error())
-		return ExitCannotRun
-	}
-	if code != ExitCannotRun && errOut.err != nil {
-		return ExitCannotRun
-	}
-	return code
+	out, errOut := emit.New(env.Stdout), emit.New(env.Stderr)
+	return emit.Finish(out, errOut, run(args, env, out, errOut), ExitCannotRun)
 }
 
-func run(args []string, env Env, out, errOut *emitter) ExitCode {
+func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	opts, err := parseArgs(args)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		if unknown, isUnknown := errors.AsType[*unknownArgError](err); isUnknown && unknown != nil {
-			for line := range strings.SplitSeq(strings.TrimSuffix(usageText, "\n"), "\n") {
-				errOut.line(line)
-			}
+			errOut.Block(usageText)
 		}
 		return ExitCannotRun
 	}
 	if opts.help {
-		out.line(strings.TrimSuffix(usageText, "\n"))
+		out.Block(usageText)
 		return ExitOK
 	}
 	root, err := rootpath.RootVia(env.Resolve, env.Cwd, opts.root, opts.scripts)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
 	modules, tracked, ok := scope(env, root, errOut)
@@ -184,41 +154,41 @@ func run(args []string, env Env, out, errOut *emitter) ExitCode {
 
 // scope is the dotted module names to run (sorted) and the count of tracked ones, or false after
 // saying why the scope cannot be trusted (H4-H7).
-func scope(env Env, root string, errOut *emitter) ([]string, int, bool) {
+func scope(env Env, root string, errOut *emit.Emitter) ([]string, int, bool) {
 	found, err := walk(env.Open(root))
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return nil, 0, false
 	}
 	if len(found) == 0 {
-		errOut.line("ERROR: found 0 helper tests under " + testsDir + ": this repository always has some, so discovery is broken, and a pass here would vouch for tests nothing had run")
+		errOut.Line("ERROR: found 0 helper tests under " + testsDir + ": this repository always has some, so discovery is broken, and a pass here would vouch for tests nothing had run")
 		return nil, 0, false
 	}
 	tracked, err := env.Tracked(root)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return nil, 0, false
 	}
 	slices.Sort(tracked)
 	tracked = slices.Compact(tracked)
 	if missed := difference(tracked, found); len(missed) > 0 {
-		errOut.line(fmt.Sprintf("ERROR: discovery missed %d tracked helper test file(s):", len(missed)))
+		errOut.Line(fmt.Sprintf("ERROR: discovery missed %d tracked helper test file(s):", len(missed)))
 		for _, rel := range missed {
-			errOut.line("    " + rel)
+			errOut.Line("    " + rel)
 		}
-		errOut.line("  These are tests this gate would have reported a pass over without")
-		errOut.line("  running. Fix the discovery — do not untrack the files to silence it.")
+		errOut.Line("  These are tests this gate would have reported a pass over without")
+		errOut.Line("  running. Fix the discovery — do not untrack the files to silence it.")
 		return nil, 0, false
 	}
 	untracked := difference(found, tracked)
-	errOut.line(fmt.Sprintf("COVERAGE: %d of %d tracked helper test modules", len(found)-len(untracked), len(tracked)))
+	errOut.Line(fmt.Sprintf("COVERAGE: %d of %d tracked helper test modules", len(found)-len(untracked), len(tracked)))
 	if len(untracked) > 0 {
-		errOut.line(fmt.Sprintf("  plus %d UNTRACKED file(s), which run here and nowhere else:", len(untracked)))
+		errOut.Line(fmt.Sprintf("  plus %d UNTRACKED file(s), which run here and nowhere else:", len(untracked)))
 		for _, rel := range untracked {
-			errOut.line("    " + rel)
+			errOut.Line("    " + rel)
 		}
-		errOut.line("  Commit them or remove them — an uncommitted test makes this run's counts")
-		errOut.line("  incomparable with any other machine's.")
+		errOut.Line("  Commit them or remove them — an uncommitted test makes this run's counts")
+		errOut.Line("  incomparable with any other machine's.")
 	}
 	modules, ok := moduleNames(found, errOut)
 	return modules, len(tracked), ok
@@ -228,13 +198,13 @@ func scope(env Env, root string, errOut *emitter) ([]string, int, bool) {
 var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // moduleNames turns paths into dotted module names (H7).
-func moduleNames(paths []string, errOut *emitter) ([]string, bool) {
+func moduleNames(paths []string, errOut *emit.Emitter) ([]string, bool) {
 	modules := make([]string, 0, len(paths))
 	for _, rel := range paths {
 		dotted := strings.Split(strings.TrimSuffix(rel, ".py"), "/")
 		for _, segment := range dotted {
 			if !identifier.MatchString(segment) {
-				errOut.line("ERROR: " + rel + " cannot be imported by name: " + strconv.Quote(segment) + " is not a Python identifier. Rename it; a test the runner cannot import is a test nothing runs")
+				errOut.Line("ERROR: " + rel + " cannot be imported by name: " + strconv.Quote(segment) + " is not a Python identifier. Rename it; a test the runner cannot import is a test nothing runs")
 				return nil, false
 			}
 		}
@@ -287,22 +257,22 @@ func walk(fsys fs.FS) ([]string, error) {
 }
 
 // execute prepares the counts file, runs the suite and judges it (H8-H13).
-func execute(opts options, env Env, root string, modules []string, tracked int, out, errOut *emitter) ExitCode {
+func execute(opts options, env Env, root string, modules []string, tracked int, out, errOut *emit.Emitter) ExitCode {
 	counts, cleanup, err := countsFile(opts.countsFile, env.Cwd)
 	if err != nil {
-		errOut.line("ERROR: cannot prepare the counts file: " + err.Error())
+		errOut.Line("ERROR: cannot prepare the counts file: " + err.Error())
 		return ExitCannotRun
 	}
 	code := suite(opts, env, root, counts, modules, tracked, out, errOut)
 	if err := cleanup(); err != nil {
-		errOut.line("ERROR: cannot remove the private counts file: " + err.Error())
+		errOut.Line("ERROR: cannot remove the private counts file: " + err.Error())
 		return ExitCannotRun
 	}
 	return code
 }
 
 // suite starts the runner and judges what it left.
-func suite(opts options, env Env, root, counts string, modules []string, tracked int, out, errOut *emitter) ExitCode {
+func suite(opts options, env Env, root, counts string, modules []string, tracked int, out, errOut *emit.Emitter) ExitCode {
 	argv := []string{
 		"env", "-u", "GIT_CONFIG_COUNT", "-u", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"python3", "-m", "helpers.qa_environment.unittest_counts",
@@ -312,7 +282,7 @@ func suite(opts options, env Env, root, counts string, modules []string, tracked
 		argv = append(argv, "--counts-token", opts.countsToken)
 	}
 	argv = append(argv, modules...)
-	errOut.line(fmt.Sprintf("Running %d helper test module(s)...", len(modules)))
+	errOut.Line(fmt.Sprintf("Running %d helper test module(s)...", len(modules)))
 
 	timeout := env.Timeout
 	if timeout == 0 {
@@ -323,26 +293,26 @@ func suite(opts options, env Env, root, counts string, modules []string, tracked
 	res, err := env.Runner.Run(ctx, proc.Cmd{Argv: argv, Dir: root, StdoutTo: out, StderrTo: errOut})
 	switch {
 	case err != nil:
-		errOut.line("ERROR: the unittest runner could not be started: " + err.Error() + ". python3 is installed by playbooks/imports/play-python.yml; do NOT install it by hand")
+		errOut.Line("ERROR: the unittest runner could not be started: " + err.Error() + ". python3 is installed by playbooks/imports/play-python.yml; do NOT install it by hand")
 		return ExitCannotRun
 	case res.TimedOut:
-		errOut.line("ERROR: the unittest runner timed out after " + timeout.String() + " and was killed")
+		errOut.Line("ERROR: the unittest runner timed out after " + timeout.String() + " and was killed")
 		return ExitCannotRun
 	case res.Leftover:
-		errOut.line("ERROR: a test left a process holding the runner's output open; the run's verdict cannot be trusted")
+		errOut.Line("ERROR: a test left a process holding the runner's output open; the run's verdict cannot be trusted")
 		return ExitCannotRun
 	case res.Code != 0 && res.Code != 1:
-		errOut.line(fmt.Sprintf("ERROR: the runner ended %d, which is neither pass (0) nor fail (1): it did not run to a verdict (python3 or env missing, a signal, an argument error)", res.Code))
+		errOut.Line(fmt.Sprintf("ERROR: the runner ended %d, which is neither pass (0) nor fail (1): it did not run to a verdict (python3 or env missing, a signal, an argument error)", res.Code))
 		return ExitCannotRun
 	}
 	return judge(res.Code, counts, opts.countsToken, len(modules), tracked, errOut)
 }
 
 // judge reads the counts the runner wrote and checks them against the request (H12, H13).
-func judge(status int, counts, token string, modules, tracked int, errOut *emitter) ExitCode {
+func judge(status int, counts, token string, modules, tracked int, errOut *emit.Emitter) ExitCode {
 	n, err := gates.HelperRun(counts, token)
 	if err != nil {
-		errOut.line(fmt.Sprintf("ERROR: the runner ended %d but its counts could not be read: %v", status, err))
+		errOut.Line(fmt.Sprintf("ERROR: the runner ended %d but its counts could not be read: %v", status, err))
 		return ExitCannotRun
 	}
 	var problem string
@@ -355,20 +325,20 @@ func judge(status int, counts, token string, modules, tracked int, errOut *emitt
 		problem = fmt.Sprintf("the counts say tracked=%d, expected %d", n.Tracked, tracked)
 	}
 	if problem != "" {
-		errOut.line(fmt.Sprintf("ERROR: the runner ended %d, but %s", status, problem))
+		errOut.Line(fmt.Sprintf("ERROR: the runner ended %d, but %s", status, problem))
 		if status == 1 {
 			// The runner said red and its counts are readable: the suite failed, and the
 			// disagreement is a second fact about that failure, not a reason to hide it.
-			errOut.line(fmt.Sprintf("ERROR: helper tests failed (%d run, %d skipped)", n.Tests, n.Skipped))
+			errOut.Line(fmt.Sprintf("ERROR: helper tests failed (%d run, %d skipped)", n.Tests, n.Skipped))
 			return ExitFailed
 		}
 		return ExitCannotRun
 	}
 	if status == 1 {
-		errOut.line(fmt.Sprintf("ERROR: helper tests failed (%d run, %d skipped)", n.Tests, n.Skipped))
+		errOut.Line(fmt.Sprintf("ERROR: helper tests failed (%d run, %d skipped)", n.Tests, n.Skipped))
 		return ExitFailed
 	}
-	errOut.line(fmt.Sprintf("HELPER-TESTS-OK: Ran %d tests in %d modules (%d tracked), %d skipped", n.Tests, n.Modules, n.Tracked, n.Skipped))
+	errOut.Line(fmt.Sprintf("HELPER-TESTS-OK: Ran %d tests in %d modules (%d tracked), %d skipped", n.Tests, n.Modules, n.Tracked, n.Skipped))
 	return ExitOK
 }
 

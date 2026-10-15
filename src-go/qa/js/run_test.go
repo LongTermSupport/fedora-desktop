@@ -61,6 +61,14 @@ func TestBadCommandLinesAreUsageErrors(t *testing.T) {
 	}
 }
 
+// B11: an empty or flag-like --root/--scripts value is refused, not read as "not given".
+func TestAnEmptyOrFlagLikeDirectoryValueIsRefused(t *testing.T) {
+	for _, args := range [][]string{{"--root", ""}, {"--scripts", ""}, {"--root", "--scripts"}} {
+		w := newWorld(t, nil)
+		cannotRun(t, w, w.main(args...), "ERROR: "+args[0]+" needs a directory", "usage: qa-js")
+	}
+}
+
 func TestTheRootComesFromTheFlagTheScriptsDirOrTheWorkingDirectory(t *testing.T) {
 	w := newWorld(t, nil)
 	for name, args := range map[string][]string{

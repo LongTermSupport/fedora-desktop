@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/changed"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -20,6 +21,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(changed.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)

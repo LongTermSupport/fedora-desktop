@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/vmtestmanifest"
 )
@@ -16,6 +17,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(vmtestmanifest.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)

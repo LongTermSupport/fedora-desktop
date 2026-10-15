@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/emit"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/rootpath"
 )
 
@@ -102,55 +103,33 @@ func parseArgs(args []string) (options, error) {
 	return opts, nil
 }
 
-// emitter writes to a stream and remembers the first write that failed.
-type emitter struct {
-	w   io.Writer
-	err error
-}
-
-func (e *emitter) line(text string) {
-	if _, err := fmt.Fprintln(e.w, text); err != nil && e.err == nil {
-		e.err = err
-	}
-}
-
 // Main runs the command and returns the exit status.
 func Main(args []string, env Env) ExitCode {
-	out, errOut := &emitter{w: env.Stdout}, &emitter{w: env.Stderr}
-	code := run(args, env, out, errOut)
-	if out.err != nil {
-		errOut.line("ERROR: cannot write to stdout: " + out.err.Error())
-		return ExitCannotRun
-	}
-	if code != ExitCannotRun && errOut.err != nil {
-		return ExitCannotRun
-	}
-	return code
+	out, errOut := emit.New(env.Stdout), emit.New(env.Stderr)
+	return emit.Finish(out, errOut, run(args, env, out, errOut), ExitCannotRun)
 }
 
-func run(args []string, env Env, out, errOut *emitter) ExitCode {
+func run(args []string, env Env, out, errOut *emit.Emitter) ExitCode {
 	opts, err := parseArgs(args)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		if unknown, isUnknown := errors.AsType[*unknownArgError](err); isUnknown && unknown != nil {
-			for line := range strings.SplitSeq(strings.TrimSuffix(usageText, "\n"), "\n") {
-				errOut.line(line)
-			}
+			errOut.Block(usageText)
 		}
 		return ExitCannotRun
 	}
 	if opts.help {
-		out.line(strings.TrimSuffix(usageText, "\n"))
+		out.Block(usageText)
 		return ExitOK
 	}
 	root, err := rootpath.RootVia(env.Resolve, env.Cwd, opts.root, opts.scripts)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
 	targets, err := population(env, root, opts.paths)
 	if err != nil {
-		errOut.line("ERROR: " + err.Error())
+		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
 	return judge(env.Open(root), targets, out, errOut)
@@ -220,19 +199,19 @@ func relative(resolve rootpath.Eval, root, p string) (string, error) {
 
 // judge scans every target and reports: findings and the summary on stderr, the count line on
 // stdout.
-func judge(fsys fs.FS, targets []string, out, errOut *emitter) ExitCode {
+func judge(fsys fs.FS, targets []string, out, errOut *emit.Emitter) ExitCode {
 	total, files := 0, 0
 	unreadable := false
 	for _, rel := range targets {
 		data, err := fs.ReadFile(fsys, rel)
 		if err != nil {
-			errOut.line(fmt.Sprintf("ERROR: cannot read %s: %v", rel, err))
+			errOut.Line(fmt.Sprintf("ERROR: cannot read %s: %v", rel, err))
 			unreadable = true
 			continue
 		}
 		findings := Scan(string(data))
 		for _, f := range findings {
-			errOut.line(fmt.Sprintf("%s:%d: pause-without-register", rel, f.Line))
+			errOut.Line(fmt.Sprintf("%s:%d: pause-without-register", rel, f.Line))
 		}
 		total += len(findings)
 		if len(findings) > 0 {
@@ -243,10 +222,10 @@ func judge(fsys fs.FS, targets []string, out, errOut *emitter) ExitCode {
 		return ExitCannotRun
 	}
 	if total > 0 {
-		errOut.line(fmt.Sprintf("pause-without-register: %d pause task(s) in %d file(s) wait with no register and no '# PAUSE-OK: <reason>'. "+
+		errOut.Line(fmt.Sprintf("pause-without-register: %d pause task(s) in %d file(s) wait with no register and no '# PAUSE-OK: <reason>'. "+
 			"Use ansible.builtin.debug for status. See CLAUDE/QA.md \"pause-without-register\".", total, files))
 	}
-	out.line(fmt.Sprintf("passed: %d failed: %d", len(targets)-files, files))
+	out.Line(fmt.Sprintf("passed: %d failed: %d", len(targets)-files, files))
 	if total > 0 {
 		return ExitFailed
 	}

@@ -140,6 +140,7 @@ change (section 4, B33), besides its own per-file semgrep check.
 | B12 | failed stdout write unchecked                                    | exit 2                         | P3          |
 | B13 | rule id printed with the checkout path; `tests/`, `vendor/` scripts and files over 1 MB dropped by semgrep, CRLF evading `$` rules | bare rule id; ignore list emptied, no size limit, LF in the mirror | P10, P11 |
 | B14 | symlink coverage claimed a target scanned without checking       | target checked; otherwise the link is scanned and named | P8, P16 |
+| B15 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage | P1 |
 
 ## 4. Go design and cut-over
 

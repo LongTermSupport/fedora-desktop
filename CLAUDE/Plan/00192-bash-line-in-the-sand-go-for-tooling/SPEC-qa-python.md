@@ -148,6 +148,7 @@ wrapper change (section 4).
 | B15 | the error text of a failed compile carried a temporary file's path           | the template's own path                                               | Y14         |
 | B17 | a nested ruff config could swap the ruleset; `# noqa` hid findings          | `--config` to the root file, `--ignore-noqa`                          | Y22, Y23    |
 | B16 | exclusion list read by `lib/qa-trees.bash`; an empty list checked everything | no `python` row is exit 2                                             | Y8          |
+| B18 | `--root` or `--scripts` given an empty value, or a value that begins with `-`, was taken as the value, and an empty root was read as "not given", so the gate judged the working directory | exit 2: `<flag> needs a directory`, with the usage | Y1 |
 
 ## 4. Go design and cut-over
 

@@ -17,8 +17,7 @@ func main() {
 }
 
 func run(args []string) int {
-	if cmdmain.StdoutWasClosed() {
-		fmt.Fprintln(os.Stderr, "ERROR: stdout is closed (>&-): the verdict cannot be delivered")
+	if cmdmain.RefuseClosedStdout() {
 		return int(docs.ExitCannotRun)
 	}
 	cwd, err := os.Getwd()
@@ -26,7 +25,12 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(docs.ExitCannotRun)
 	}
-	env := docs.Env{
+	return int(docs.Main(args, newEnv(cwd)))
+}
+
+// newEnv is the production environment of the gate: the real process, file system and report writer.
+func newEnv(cwd string) docs.Env {
+	return docs.Env{
 		Getenv:    os.Getenv,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
@@ -37,5 +41,4 @@ func run(args []string) int {
 		Lstat:     os.Lstat,
 		WriteFile: cmdmain.WriteReport,
 	}
-	return int(docs.Main(args, env))
 }

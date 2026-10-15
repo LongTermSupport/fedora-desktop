@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/patterns"
 )
@@ -17,24 +18,26 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(patterns.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(patterns.ExitCannotRun)
 	}
-	env := patterns.Env{
+	return int(patterns.Main(args, newEnv(cwd)))
+}
+
+// newEnv is the production environment of the gate: the real process, file system and report writer.
+func newEnv(cwd string) patterns.Env {
+	return patterns.Env{
 		Getenv:    os.Getenv,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
 		Cwd:       cwd,
 		Runner:    proc.OS{},
 		TempDir:   os.TempDir(),
-		WriteFile: writeReport,
+		WriteFile: cmdmain.WriteReportPrivate,
 	}
-	return int(patterns.Main(args, env))
-}
-
-// writeReport writes the machine report where the caller said.
-func writeReport(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o600)
 }

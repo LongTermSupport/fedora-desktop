@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/ansiblesyntax"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -19,19 +20,6 @@ func TestRunDispatchesThroughTheCommand(t *testing.T) {
 	}
 	if code := run([]string{"--nope"}); code != int(ansiblesyntax.ExitCannotRun) {
 		t.Fatalf("--nope: exit %d", code)
-	}
-}
-
-func TestWriteReportWritesTheFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "r.json")
-	if err := writeReport(path, []byte("{}")); err != nil {
-		t.Fatal(err)
-	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != "{}" {
-		t.Fatalf("%q %v", data, err)
-	}
-	if err := writeReport(filepath.Join(t.TempDir(), "no", "r.json"), nil); err == nil {
-		t.Fatal("a report in a missing directory was written")
 	}
 }
 
@@ -99,7 +87,7 @@ func realRun(t *testing.T, files map[string]string) outcome {
 			}
 			return ""
 		},
-		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, WriteFile: writeReport,
+		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, WriteFile: cmdmain.WriteReport,
 	}
 	code := ansiblesyntax.Main([]string{"--root", root}, env)
 	got := outcome{code: code, stdout: stdout.String(), stderr: stderr.String()}
@@ -205,17 +193,5 @@ func TestRealLoopListInATasksFileIsNotAPlaybook(t *testing.T) {
 	})
 	if got.code != ansiblesyntax.ExitOK {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
-	}
-}
-
-// S15: the report is readable by other users, as the bash left it under the umask.
-func TestReportIsWorldReadable(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "r.json")
-	if err := writeReport(path, []byte("{}")); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o644 {
-		t.Fatalf("mode %v %v", info, err)
 	}
 }

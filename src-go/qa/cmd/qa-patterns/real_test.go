@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/patterns"
 )
@@ -64,7 +65,7 @@ func realRun(t *testing.T, files map[string]string) realOutcome {
 			}
 			return ""
 		},
-		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, TempDir: t.TempDir(), WriteFile: writeReport,
+		Stdout: &stdout, Stderr: &stderr, Cwd: root, Runner: proc.OS{}, TempDir: t.TempDir(), WriteFile: cmdmain.WriteReportPrivate,
 	}
 	code := patterns.Main([]string{"--root", root}, env)
 	if code == patterns.ExitCannotRun {

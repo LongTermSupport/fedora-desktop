@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/bashlimits"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 )
 
 func main() {
@@ -17,6 +18,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return bashlimits.ExitCannotRun
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "✗ bash-limits: working directory: %v\n", err)

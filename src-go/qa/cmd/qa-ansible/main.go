@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/ansible"
+	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/cmdmain"
 	"github.com/LongTermSupport/fedora-desktop/src-go/qa/internal/proc"
 )
 
@@ -20,21 +21,28 @@ func main() {
 }
 
 func run(args []string) int {
+	if cmdmain.RefuseClosedStdout() {
+		return int(ansible.ExitCannotRun)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: working directory: %v\n", err)
 		return int(ansible.ExitCannotRun)
 	}
-	env := ansible.Env{
+	return int(ansible.Main(args, newEnv(cwd)))
+}
+
+// newEnv is the production environment of the gate: the real process, file system and report writer.
+func newEnv(cwd string) ansible.Env {
+	return ansible.Env{
 		Getenv:    os.Getenv,
 		Stdout:    os.Stdout,
 		Stderr:    os.Stderr,
 		Cwd:       cwd,
 		Open:      os.DirFS,
 		Ignored:   gitIgnored,
-		WriteFile: writeReport,
+		WriteFile: cmdmain.WriteReportPrivate,
 	}
-	return int(ansible.Main(args, env))
 }
 
 // gitIgnoredTimeout bounds the git listing.
@@ -60,9 +68,4 @@ func gitIgnored(root string) ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-// writeReport writes the machine report where the caller said.
-func writeReport(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o600)
 }
