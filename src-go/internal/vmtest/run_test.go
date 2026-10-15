@@ -290,6 +290,11 @@ func TestE44HostOnlyRun(t *testing.T) {
 			t.Fatalf("a secret on a command line: %s", c.Line())
 		}
 	}
+	for stream, text := range map[string]string{"stdout": k.out.String(), "stderr": k.err.String()} {
+		if strings.Contains(text, plantedToken) || strings.Contains(text, passphraseValue) {
+			t.Fatalf("a secret on %s:\n%s", stream, text)
+		}
+	}
 	runDir := k.path("runs/" + id)
 	assertInOrder(t, k, []string{
 		"umask 077 && mkdir -p /dev/shm/vmtest-secrets && chmod 0700 /dev/shm/vmtest-secrets",
@@ -334,6 +339,35 @@ func TestE44HostOnlyRun(t *testing.T) {
 	})
 	k.wantCode(k.run("run", hostOnlyID, "--github-account", "throwaway-lab-user", "--github-token-file", token, "--github-ssh-passphrase-file", pp), term.ExitFailure)
 	k.wantErr("ERROR: a supplied secret survived redaction in " + k.path("runs/"+id) + "/transcript.log; the run's artefacts are NOT safe to share (they remain under " + k.path("runs/"+id) + ")")
+}
+
+// E45: the redaction replaces the transcript's inode; the run's transcript is reopened on the
+// new file, so what is written after the scrub is in the file that is judged and archived.
+func TestE45ScrubReopensTheTranscript(t *testing.T) {
+	k := newKit(t)
+	k.write(scrubLibrary, "lib\n")
+	k.write(scrubFront, "front\n")
+	r := newRunning(t, k, profileServer)
+	r.s.HostOnly = true
+	r.cr = credentials{account: "a", tokenFile: "/host/token", ppFile: "/host/pp"}
+	r.note("before\n")
+	k.fake.OnFunc([]string{"bash"}, func(c execx.Cmd) (execx.Result, error) {
+		if c.Args[1] != "redact" || c.Args[2] != r.dir+"/transcript.log" {
+			return execx.Result{}, nil
+		}
+		next := c.Args[2] + ".next"
+		if err := os.WriteFile(next, []byte("redacted\n"), 0o600); err != nil {
+			return execx.Result{}, err
+		}
+		return execx.Result{}, os.Rename(next, c.Args[2])
+	})
+	if err := r.scrubArtefacts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	r.note("after\n")
+	if got := transcriptOf(t, r); got != "redacted\nafter\n" {
+		t.Fatalf("transcript %q", got)
+	}
 }
 
 // E34, E37, E42, E43: a desktop run boots with a display and a socket, unlocks, and provisions

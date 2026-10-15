@@ -275,12 +275,29 @@ func (r *running) provisionAndCheck(ctx context.Context, check string) error {
 	if r.s.HostOnly {
 		// BEFORE the run is judged or reported: run.bash echoes plenty and the serial console
 		// captures everything the guest printed.
-		c.logf("scrubbing the run's artefacts and verifying no supplied secret survives")
-		if err := c.scrub(ctx, r.l, r.cr, r.dir, r.transcript.Name(), filepath.Join(r.dir, "console.log")); err != nil {
-			return err
-		}
+		return r.scrubArtefacts(ctx)
 	}
 	return nil
+}
+
+// scrubArtefacts redacts and verifies the run's artefacts (E45). The redaction writes the
+// transcript anew (a new inode), so the open transcript is closed first and reopened for
+// appending after, or a later line would land in the unlinked old file.
+func (r *running) scrubArtefacts(ctx context.Context) error {
+	c := r.c
+	c.logf("scrubbing the run's artefacts and verifying no supplied secret survives")
+	name := r.transcript.Name()
+	if err := r.transcript.Close(); err != nil {
+		return failf("cannot close the transcript before the scrub: %v", err)
+	}
+	r.transcript = nil
+	scrubErr := c.scrub(ctx, r.l, r.cr, r.dir, name, filepath.Join(r.dir, "console.log"))
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return errors.Join(scrubErr, failf("cannot reopen the transcript after the scrub: %v", err))
+	}
+	r.transcript = f
+	return scrubErr
 }
 
 // accept runs the checker in the guest, its output into the transcript (E42).

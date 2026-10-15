@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// The port of scripts/test-vmtest-host-only-gate.bash: the acceptance case first, so every
-// refusal is a change from a known-good baseline, then one spoiled input per case. Every case
-// of the suite is here; B6 (a literal line match) and B7 (a regular file) add two.
+// The host-only gate (E30; SPEC-vmtest.md section 6): the acceptance case first, so every
+// refusal is a change from a known-good baseline, then one spoiled input per case, with B6 (a
+// literal line match) and B7 (a regular file).
 
 const (
 	hostOnlyID      = "server-github-token"

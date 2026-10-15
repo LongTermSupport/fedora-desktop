@@ -277,7 +277,7 @@ func TestE27BuildSignal(t *testing.T) {
 	}
 }
 
-// The port of scripts/test-vmtest-build-dir-cleanup.bash: refresh-base all builds several
+// E21, E27 (SPEC-vmtest.md section 6): refresh-base all builds several
 // bases in one process; each successful build removes its own directory at once, and a failed
 // build after them keeps its own.
 func TestE21BuildDirectoriesAcrossOneRefresh(t *testing.T) {

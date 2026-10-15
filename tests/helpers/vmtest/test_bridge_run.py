@@ -38,7 +38,9 @@ RUN_ID = f"{STAMP}-{SCENARIO}"
 FAKE_VMTEST = """#!/usr/bin/bash
 set -euo pipefail
 # fake vmtest: `run <scenario>` writes a run directory and prints the marker;
-# `refresh-base <target>` prints what a rebuild prints
+# `refresh-base <target>` prints what a rebuild prints; both record whether the bridge said
+# it launched them (VMTEST_FROM_BRIDGE, the CLI's host-only gate reads it)
+printf '%s\\n' "${{VMTEST_FROM_BRIDGE:-unset}}" > "$VMTEST_HOME/from-bridge"
 if [[ "$1" == refresh-base ]]; then
     printf 'VMTEST-BASE-BUILT server-fast-44 /lab/bases/server-fast-44/base.qcow2 refresh_state=complete\\n'
     [[ "${{FAKE_VERDICT}}" == pass ]] || {{ echo 'ERROR: guest did not answer SSH' >&2; exit 1; }}
@@ -150,6 +152,26 @@ class BridgeRunCase(unittest.TestCase):
 
     def service_log(self):
         return (self.state / "service.log").read_text()
+
+
+class TestTheBridgeNamesItselfToTheCli(BridgeRunCase):
+    """vmtest refuses a host-only run whose VMTEST_FROM_BRIDGE is 1 (SPEC-vmtest E30): the
+    gate is armed only if the bridge sets it on every vmtest it starts."""
+
+    def from_bridge(self):
+        return (self.vmtest_home / "from-bridge").read_text()
+
+    def test_run_scenario_launches_vmtest_marked_as_the_bridge(self):
+        self.plant_accepted()
+        result = self.run_scope()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.from_bridge(), "1\n")
+
+    def test_refresh_base_launches_vmtest_marked_as_the_bridge(self):
+        name = self.plant_accepted(verb="refresh-base", argument="server", run_id=f"{STAMP}-server", planned=None)
+        result = self.run_scope(name=name, verb="refresh-base", argument="server")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.from_bridge(), "1\n")
 
 
 class TestRunScenario(BridgeRunCase):

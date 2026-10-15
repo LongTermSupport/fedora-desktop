@@ -233,7 +233,9 @@ The tests cite these numbers.
 
 - E30. Host-only scenario: every gate passes before anything boots.
 
-  - `VMTEST_FROM_BRIDGE=1` is refused, and the message names the bridge.
+  - `VMTEST_FROM_BRIDGE=1` is refused, and the message names the bridge. The bridge sets it on
+    every vmtest it starts (`bridge_run.cli_env`, B18), so this gate holds even if the bridge's
+    own host-only check were to miss.
   - The id must be a line of the deployed `scenarios.host-only`. A missing list is a refusal,
     never permission.
   - The id must not also be on the allowlist; the refusal says it is on `both`.
@@ -367,7 +369,8 @@ The tests cite these numbers.
 - E49. The recipe digest is the sha256 of `build-recipe-version=1\n`, followed by
   `guest-cleanup.bash`. A full base adds its kickstart, and a desktop also adds the session
   runner. A missing file fails, naming it.
-- E50. `freshness-status [--deep]` probes once. It then writes `freshness-status.txt.new` with
+- E50. `freshness-status [--deep]` probes once. It then writes `freshness-status.txt` atomically (a
+  `freshness-status.txt.tmp.<pid>` renamed over it, `fsx.WriteAtomic`) with
   `written_at=<UTC ISO>`, `integrity=<quick|deep>`, `probe_revision=` and `probe_compose_id=`,
   followed by one tab-separated line per base (`base= decision= degraded= integrity= divergences=`).
   It also prints `VMTEST-FRESHNESS-STATUS <name> decision= degraded= integrity=` for each base,
@@ -442,6 +445,7 @@ The tests cite these numbers.
 | B15 | a missing transcript was skipped by the scrubber without a word                                                                                | the transcript is required; a missing console log is named | E45           |
 | B16 | a desktop host-only run's session `run.env` carried no GitHub identity, so run.bash in the session provisioned as `none`                       | the same identity lines a server run passes                | E36, E37      |
 | B17 | a probe artefact URL was used as printed, any scheme                                                                                           | `https://` required, with a 64-hex sha256                  | E13           |
+| B18 | nothing set `VMTEST_FROM_BRIDGE`, so the CLI's bridge refusal never fired                                                                      | `bridge_run.py` sets it on both of its vmtest launches     | E30           |
 
 Kept as they were, and accepted. The free port is chosen, released and then handed to
 virt-install, so there is a race between them, as in the bash. `ssh` host keys are not checked

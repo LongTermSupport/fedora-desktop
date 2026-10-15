@@ -61,6 +61,13 @@ DIE_STAGES = (
 )
 
 
+def cli_env() -> dict[str, str]:
+    """The environment of every vmtest the bridge starts: the bridge names itself, so the CLI's
+    host-only gate refuses a credential-bearing scenario even if the bridge's own check missed
+    it (SPEC-vmtest E30)."""
+    return {**os.environ, "VMTEST_FROM_BRIDGE": "1"}
+
+
 class Refusal(RuntimeError):
     """The stub, the key or the spool cannot be trusted; nothing more is written into the spool."""
 
@@ -242,7 +249,7 @@ class Scope:
         log_path = log_dir / f"{run_id}.log"
         argv = [str(self.args.vmtest), "run", self.args.argument]
         with log_path.open("wb") as log:
-            proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=cli_env())
             while True:
                 try:
                     proc.wait(timeout=self.args.heartbeat_seconds)
@@ -287,7 +294,7 @@ class Scope:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{run_id}.log"
         with log_path.open("wb") as log:
-            proc = subprocess.Popen([str(self.args.vmtest), "refresh-base", self.args.argument], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            proc = subprocess.Popen([str(self.args.vmtest), "refresh-base", self.args.argument], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=cli_env())
             while True:
                 try:
                     proc.wait(timeout=self.args.heartbeat_seconds)

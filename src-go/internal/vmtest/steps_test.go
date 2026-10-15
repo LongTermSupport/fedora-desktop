@@ -11,9 +11,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-// The port of scripts/test-vmtest-reboot-dispatch.bash (its 9 cases, by number below) and of
-// the prepare_failure_reason case of scripts/test-vmtest-prepare-record.bash, on the steps of a
-// run driven directly: a guest that answers, a transcript on disk.
+// The reboot, fixture and session steps (E23, E24, E37, E40, E41; the cases numbered below are
+// those SPEC-vmtest.md section 6 lists), on the steps of a run driven directly: a guest that
+// answers, a transcript on disk.
 
 // newRunning is a run in progress on a guest of the profile, its transcript open.
 func newRunning(t *testing.T, k *kit, profile string) *running {
@@ -27,18 +27,20 @@ func newRunning(t *testing.T, k *kit, profile string) *running {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := f.Close(); err != nil {
-			t.Error(err)
-		}
-	})
 	l := &lab{paths: c.paths, fedora: testFedora, repoURL: testRepoURL, branch: testBranch}
-	return &running{
+	r := &running{
 		c: c, l: l, id: "r1", dir: dir, baseDir: k.path("bases/b-44"), commit: testCommit, transcript: f,
 		s: scenarioFacts{ID: "scen", Profile: profile, Planned: "5", MaxSkipped: "0"},
 		b: baseFacts{Name: "b-44", Key: "b", Kind: kindFast, Profile: profile, VCPUs: 2, RAMMiB: 4096},
 		g: &guest{c: c, key: k.path(sshKeyFile), domain: "vmtest-run-r1", port: 4022, dir: dir},
 	}
+	// The run's transcript at the end, which a scrub may have reopened (E45).
+	t.Cleanup(func() {
+		if err := r.transcript.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return r
 }
 
 func transcriptOf(t *testing.T, r *running) string {
@@ -262,6 +264,36 @@ func TestE37SessionProvision(t *testing.T) {
 	}
 	if transcriptOf(t, r) != "PLAY RECAP\n" || polls != 3 {
 		t.Fatalf("transcript %q polls %d", transcriptOf(t, r), polls)
+	}
+}
+
+// B16, E36, E37: a desktop host-only run hands the session runner the throwaway account and
+// the guest paths of its delivered secrets, as a server run passes them to run.bash.
+func TestB16DesktopHostOnlySessionCarriesTheIdentity(t *testing.T) {
+	k := stepKit(t, func(remote string) execx.Result {
+		if remote == "cat /var/lib/vmtest/run.exit" {
+			return execx.Result{Stdout: []byte("0\n")}
+		}
+		return execx.Result{}
+	})
+	r := newRunning(t, k, profileDesktop)
+	r.s.HostOnly = true
+	r.cr = credentials{account: "throwaway-lab-user", tokenFile: "/host/token", ppFile: "/host/pp"}
+	if rc, err := r.provision(context.Background()); err != nil || rc != 0 {
+		t.Fatalf("got %d %v", rc, err)
+	}
+	env := stdinText(t, k.mustCall("cat >/var/lib/vmtest/run.env.tmp"))
+	for _, want := range []string{
+		"\nRUN_BASH_GITHUB_ACCOUNTS=throwaway-lab-user\n",
+		"\nRUN_BASH_GITHUB_TOKEN_FILE=/dev/shm/vmtest-secrets/gh-token\n",
+		"\nRUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/dev/shm/vmtest-secrets/ssh-passphrase\n",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("run.env lacks %q:\n%s", want, env)
+		}
+	}
+	if strings.Contains(env, "=none\n") || strings.Contains(env, "/host/") {
+		t.Fatalf("run.env names none or a host path:\n%s", env)
 	}
 }
 

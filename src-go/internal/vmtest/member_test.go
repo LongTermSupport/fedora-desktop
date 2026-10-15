@@ -12,8 +12,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
-// Case accounting for the port of scripts/test-vmtest-member.bash (its 44 checks): every one
-// is here, by its label. Two change on purpose: a missing base key is a usage error, exit 64
+// The member verbs and ensure-base (E53-E59, E4; the 44 cases SPEC-vmtest.md section 6 lists),
+// each by its label. Two differ from the bash on purpose: a missing base key is a usage error, exit 64
 // rather than 1 (B4); and SIGTERM's 143 comes from the cancelled context, as it now does for
 // every command (E4).
 

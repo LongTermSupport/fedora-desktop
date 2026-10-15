@@ -18,6 +18,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# qa-changed picks a suite by the paths its text names, so these three name what this suite
+# drives: the library, the detection engine it sources (scripts/git-hooks/lib/secret-scan.bash)
+# and the command front the Go vmtest runs (scripts/lib/run-log-scrub-cli.bash).
 LIB="$REPO_ROOT/scripts/lib/run-log-scrub.bash"
 
 if [ ! -f "$LIB" ]; then
