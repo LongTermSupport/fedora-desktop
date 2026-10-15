@@ -337,6 +337,18 @@ recording its own Defence Before Fix rules for the defect classes the ports foun
   B32 (F1); anchors are compared verbatim (F2); `extension.Footnote` is enabled (F5); the rule in
   `.claude/rules/qa-gates.md` names `src-go/qa/docs/**` (F7); a test pins that any deleted file
   owes the docs check (F4); goldmark is v1.8.6 (F9). F3, F6, F8 and F10 were not re-checked here.
+  Shared scaffolding (`go-port/qa-cmdmain`, merged): the command-line and output boilerplate the
+  gates had each copied now lives in `src-go/qa/internal/cmdmain` (closed-stdout refusal, report
+  writers), `emit` (the two-stream writer and the exit rule) and `rootargs` (the `-h`, `--root`,
+  `--scripts` grammar), used by 12 non-test packages under `src-go/qa`. Fable review
+  (`subagent-reports/261015-fable-review-cmdmain.md`) found no blocker and no behaviour drift.
+  Checked in the merged tree: `rootargs.Lenient` is gone, so `--root ""` is refused as
+  `--root needs a directory` instead of silently falling back to another tree, and
+  `rootargs_test.go` pins `--root ""` and `--scripts ""`; the `ansible-patterns` routing row for
+  `qa/ansible`, `qa/cmd/qa-ansible` and the shared packages is in `scripts/qa-routing.tsv`; the
+  cmdmain tests read the report back; `src-go/CLAUDE.md` describes the shared packages. Not
+  re-checked: the per-spec departure notes the review asked for and the closed-stdout gap in the
+  other mains.
   Still on `scripts/bash-limits.allowlist`: `qa-go.bash`. Per the coordinator it waits on Plan
   00191's go-qa-ci decisions; I did not verify that.
 
