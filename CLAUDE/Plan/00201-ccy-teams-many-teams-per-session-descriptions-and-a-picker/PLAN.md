@@ -1,6 +1,6 @@
 # Plan 00201: ccy --teams — many teams per session, team descriptions, and a picker
 
-**Status**: In Progress (research and spec)
+**Status**: In Progress (spec done, M3 replies built; M1-M2 descriptions next, then M4-M7)
 **Created**: 2026-10-15
 **Owner**: joseph
 **Priority**: High
