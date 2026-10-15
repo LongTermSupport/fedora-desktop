@@ -38,3 +38,54 @@
         key: /org/gnome/Ptyxis/tab-middle-click
         value: "'nothing'"
         state: present
+
+    # GNOME Text Editor is D-Bus activated: Nautilus never runs its Exec line but asks the
+    # running instance to open the file, which adds a tab to an existing window and makes
+    # GNOME Shell switch to that window's workspace. A per-user desktop file with D-Bus
+    # activation off and --new-window makes every open a new window on the current workspace.
+    # It is generated from the system file on every run so editor upgrades are kept.
+    - name: Read the system GNOME Text Editor desktop file
+      ansible.builtin.slurp:
+        src: /usr/share/applications/org.gnome.TextEditor.desktop
+      register: text_editor_system_desktop
+
+    - name: Assert the system desktop file still has the lines the override rewrites
+      vars:
+        text_editor_system_text: "{{ text_editor_system_desktop.content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - text_editor_system_text is search('(?m)^DBusActivatable=true$')
+          - text_editor_system_text is search('(?m)^Exec=gnome-text-editor %U$')
+        fail_msg: >-
+          /usr/share/applications/org.gnome.TextEditor.desktop no longer has
+          DBusActivatable=true and Exec=gnome-text-editor %U. The editor changed how it
+          launches; re-run Plan 00198 triage before rewriting it.
+
+    - name: Create the per-user applications directory
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/share/applications"
+        state: directory
+        mode: "0755"
+
+    - name: Override GNOME Text Editor to open each file in a new window
+      become: true
+      become_user: "{{ user_login }}"
+      vars:
+        text_editor_system_text: "{{ text_editor_system_desktop.content | b64decode }}"
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.local/share/applications/org.gnome.TextEditor.desktop"
+        content: >-
+          {{ text_editor_system_text
+          | regex_replace('(?m)^DBusActivatable=true$', 'DBusActivatable=false')
+          | regex_replace('(?m)^Exec=gnome-text-editor %U$', 'Exec=gnome-text-editor --new-window %U') }}
+        mode: "0644"
+      register: text_editor_override
+
+    - name: Refresh the per-user desktop database
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: update-desktop-database "/home/{{ user_login }}/.local/share/applications"
+      when: text_editor_override is changed
+      changed_when: true

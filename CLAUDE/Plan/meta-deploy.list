@@ -20,9 +20,14 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# GNOME Text Editor facts (read-only): RPM or Flatpak, its command-line options, its desktop
-# files and D-Bus activation, the default handler for text files, its settings. Collected so
-# Plan 00198 can make a file opened from Nautilus open in a new window on the current workspace.
+# GNOME settings play: now also writes a per-user GNOME Text Editor desktop file (copied from
+# the system one) with D-Bus activation off and --new-window, so a file opened from Nautilus
+# opens in a new window on the current workspace (Plan 00198).
+playbooks/imports/play-gsettings.yml
+
+# Plan 00198 read-only facts again, then its acceptance: the override file is in place and the
+# editor is still the default for text/plain. Afterwards, open files from Nautilus on two
+# workspaces and confirm each opens where you are.
 00198-gnome-text-editor-opens-a-new-window-on-the-current-workspace
 
 # Element Desktop profiles for the agent teams. It refused the owner after they accepted
