@@ -428,21 +428,27 @@ seat's role is changed with `set-role`, the handle read from `agent-bus seat lis
 
 ### A cc session
 
-`cc --teams <team>` puts your desktop Claude Code session in a team on this machine:
+`cc --teams` puts your desktop Claude Code session in one or more teams on this machine,
+with the same list and the same chooser as `ccy --teams`:
 
 ```bash
-cc --teams <team>
+cc --teams                      # choose the teams from a list (Tab marks several)
+cc --teams <team>               # a team alone: choose its seat
+cc --teams 1@<team>,2@<team2>   # name the seats
 ```
 
+On a terminal `ccy-teams choose-teams --type=host` asks, and prints the launch block once
+the seats are taken. With no terminal a team alone or a bare `--teams` is refused.
 It joins as its own member, `<repo>.<N>+<host>.host`, in a seat of the checkout you start
-it in, as a ccy session does: the lowest free desktop seat, or a new number, made the first
-time with sudo. `agent-bus seat list` shows it beside the ccy seats. cc makes the
+it in, as a ccy session does: the seat you choose, made the first time with sudo.
+`agent-bus seat list` shows it beside the ccy seats. cc makes the
 checkout's `.claude/ccy/` if it is not there, so a repo never used with ccy works, and
 your `gh` must be logged in.
 
 It runs as you, with no dedicated agent user, so it can reach what you can, including the
 Element session you are signed in to. A misbehaving agent could use it. The first
-`cc --teams` launch asks you once, for you and not for each seat, to accept this. The
+`cc --teams` launch asks you once, on a terminal, after the seats are chosen and before
+any is made, for you and not for each seat, to accept this. The
 answer is kept in `~/.config/pingbus/element-accepted` (mode 0600, in a folder of mode
 0700), and pingbus runs a cc `host` seat beside an Element profile only while it exists
 (every other `host` member is still refused). Declining starts nothing and records

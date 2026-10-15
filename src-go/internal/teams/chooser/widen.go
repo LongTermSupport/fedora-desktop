@@ -117,5 +117,5 @@ func (c *Chooser) seats(ctx context.Context, memberType string, taken []entry) t
 		}
 		refs = append(refs, ref)
 	}
-	return c.printList(refs)
+	return c.finish(ctx, memberType, refs)
 }

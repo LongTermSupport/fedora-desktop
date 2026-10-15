@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.97.9"  # ccy --teams is answered by ccy-teams choose-teams: several teams per session, each with its description. See docs/ccy-changelog.md.
+CCY_VERSION="3.97.10"  # ccy --teams and cc --teams are answered by ccy-teams choose-teams: several teams per session, each with its description. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

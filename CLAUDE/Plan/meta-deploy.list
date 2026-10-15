@@ -20,8 +20,13 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# ccy play: installs CCY 3.97.9 (container 2.58, a one-time image rebuild) and rebuilds
-# ccy-teams (Plan 00201 M4, M5). `ccy --teams` in a checkout no team covers now offers every
+# ccy play: installs CCY 3.97.10 (container 2.58, a one-time image rebuild), rebuilds
+# ccy-teams and installs the new cc and cc-teams.bash (Plan 00201 M4, M5, M6). `cc --teams`
+# now takes the same list and chooser as ccy: bare, a team alone or SEAT@TEAM,... with the
+# launch block, and the Element consent is asked inside it, once per user, naming every handle.
+# Try it from a host checkout: `cc --teams`, mark two teams, answer the consent (an existing
+# ~/.config/pingbus/element-accepted answers it), and look at the status line for `bus: A,B`
+# (the pingbus SessionStart hook of the kit plugin writes its per-session record). `ccy --teams` in a checkout no team covers now offers every
 # team with its description, or creating one, and on your yes adds this repository to the
 # chosen team's scope and applies it. The list is a multi-select: Tab marks several teams and
 # one session joins them all, with its launch block, SessionStart line, status line and
