@@ -6,8 +6,10 @@
 #            run when a file in the command's build closure changes. Or qa-go: the command's oracle
 #            is a Go test, which scripts/qa-go.bash runs whole on any src-go/ change, so there is
 #            no bash suite to add.
-# A command no play deploys (a QA tool) lives under src-go/qa/cmd and has no row.
+# A command no play deploys (a QA tool) lives under src-go/qa/cmd and has no row. Every command
+# under src-go/cmd has one, including watchlist, which is run from the checkout with go run.
 ccy-teams	scripts/test-ccy-teams-command.bash
 ccy-sessions	scripts/test-ccy-sessions-reboot.bash scripts/test-ccy-sessions-take-over.bash scripts/test-ccy-tmux-targets.bash scripts/test-ccy-restore-askpass.bash
 podfreeze	qa-go
 lxcfreeze	qa-go
+watchlist	qa-go

@@ -253,6 +253,7 @@ Each of these is the single source of truth for its subject. Follow the row you 
 | [AgentNotes.md](CLAUDE/AgentNotes.md)                       | Working practices and project gotchas (feedback + project knowledge)            |
 | [AgentMailbox.md](CLAUDE/AgentMailbox.md)                   | Dormant ccy ⇄ desktop-agent file mailbox: protocol, watcher, teardown           |
 | [Release.md](CLAUDE/Release.md)                             | Release tags `44.x.y`: agents never tag; the release command's rules            |
+| [Watchlist.md](CLAUDE/Watchlist.md)                         | External repositories watched for ideas; the scan process and its state file    |
 
 Anything under `CLAUDE/core/` is daemon-owned and replaced wholesale on every
 hooks-daemon upgrade — never edit it; put project-specific content in the
