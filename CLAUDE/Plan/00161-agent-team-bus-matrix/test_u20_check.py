@@ -548,6 +548,16 @@ class MembersTest(unittest.TestCase):
         self.assertEqual(uc.expect_same_handles(self.AFTER, parked), [])
         self.assertTrue(uc.expect_same_handles(self.BEFORE, self.AFTER))
 
+    def test_other_coordinators_are_the_ones_to_step_down(self) -> None:
+        listing = (f"MEMBER\t{A_HANDLE}\tcoordinator\tjoin\tactive\n"
+                   f"MEMBER\t{B_HANDLE}\tworker\tjoin\tactive\n")
+        self.assertEqual(uc.other_coordinators(listing, C_HANDLE), [A_HANDLE])
+        self.assertEqual(uc.other_coordinators(listing, A_HANDLE), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(tmp, "list", listing)
+            code, out, _ = run_main("other-coordinators", str(path), C_HANDLE)
+        self.assertEqual((code, out), (0, A_HANDLE + "\n"))
+
     def test_cli(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             before, after = write(tmp, "before", self.BEFORE), write(tmp, "after", self.AFTER)

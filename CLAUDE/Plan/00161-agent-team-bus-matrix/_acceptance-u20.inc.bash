@@ -510,7 +510,20 @@ u20_launch_seats() {
         U20_UID[${seat}]="@${U20_HANDLE[${seat}]}:${SERVER_NAME}"
         printf '==> seat %s@%s: %s\n' "${seat}" "${TEAM}" "${U20_HANDLE[${seat}]}"
     done
-    sudo -n "${AGENT_BUS}" set-role "${TEAM}" "${U20_HANDLE[acca]}" --role coordinator || return 1
+    u20_hand_over_coordinator "${U20_HANDLE[acca]}" || return 1
+}
+
+# u20_hand_over_coordinator <handle> — a team has at most one coordinator (Plan 00196) and
+# member a holds the role from the M1 legs, so a steps down before <handle> takes it.
+u20_hand_over_coordinator() {
+    local holder listing
+    listing="$(u20_ev members-before-handover)"
+    u20_member_list "${listing}" || return 1
+    while IFS= read -r holder; do
+        [[ -n "${holder}" ]] || continue
+        sudo -n "${AGENT_BUS}" set-role "${TEAM}" "${holder}" --role worker || return 1
+    done < <("${U20[@]}" other-coordinators "${listing}" "$1")
+    sudo -n "${AGENT_BUS}" set-role "${TEAM}" "$1" --role coordinator || return 1
 }
 
 # M2.0 — ccy.env.local unchanged; each seat's directory the owner's own (0700, files 0600) and
