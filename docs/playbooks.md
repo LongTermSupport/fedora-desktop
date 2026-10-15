@@ -804,7 +804,9 @@ Element Desktop for watching an agent team bus (Plan 00161):
   team's homeserver and an "<team> team (Element)" launcher
   (`flatpak run im.riot.Riot --profile <team>`)
 - Refuses a `user_login` holding pingbus bundles (`~/.config/pingbus/`): the profile
-  holds the human's session, so agents run as a dedicated user, never as the human
+  holds the human's session, so agents run as a dedicated user, never as the human. The
+  one folder it tolerates is what `cc --teams` leaves, the owner's Element acceptance
+  record alone (`check_user` in `helpers/agent_bus/element.py` is the rule)
 
 #### play-claude-devtools.yml
 
