@@ -1125,6 +1125,106 @@ class KitSyncTest(Fixture):
             members.kit_tar(self.kit_parent)
 
 
+def mode_of(path: pathlib.Path) -> int:
+    return stat.S_IMODE(os.lstat(path).st_mode)
+
+
+class UmaskTest(Fixture):
+    """The guest scripts inherit the umask of whatever lxc-attach started, which has been 077:
+    the kit's parent was then made 0700 and the agent user could not reach `kit/pingbus`
+    (`env: pingbus: Permission denied`). What each script makes has the mode it names under
+    any inherited umask, and a secret is never readable by others under a permissive one."""
+
+    def with_umask(self, mask: int) -> None:
+        old = os.umask(mask)
+        self.addCleanup(os.umask, old)
+
+    def kit_dirs(self) -> list[pathlib.Path]:
+        parent = pathlib.Path(self.guest.kit_parent)
+        return [parent.parent, parent, parent / "kit", parent / "kit" / "plugin"]
+
+    def sync(self) -> list[str]:
+        out = self.guest.root(["python3", "-I", "-c", members.KIT_SYNC_PY, self.guest.kit_parent,
+                               self.guest.bin_dir, str(self.guest.kit_owner)], "kit",
+                              members.kit_tar(self.kit_parent))
+        return out.decode().splitlines()
+
+    def test_under_umask_077_the_kit_is_traversable(self) -> None:
+        self.with_umask(0o077)
+        self.run_phase("present", [entry()])
+        for path in self.kit_dirs():
+            self.assertEqual(mode_of(path), 0o755, path)
+        kit = pathlib.Path(self.guest.kit_parent) / "kit"
+        self.assertEqual(mode_of(kit / "pingbus"), 0o755)
+        self.assertEqual(mode_of(kit / "plugin" / "plugin.json"), 0o644)
+
+    def test_a_kit_directory_left_0700_is_repaired_and_said(self) -> None:
+        self.sync()
+        parent = pathlib.Path(self.guest.kit_parent)
+        parent.chmod(0o700)
+        (parent / "kit" / "plugin").chmod(0o700)
+        said: list[str] = []
+        changed: list[str] = []
+        members._sync_kit(self.host(), self.guest, "devbox", changed.append, said.append)
+        self.assertEqual(mode_of(parent), 0o755)
+        self.assertEqual(mode_of(parent / "kit" / "plugin"), 0o755)
+        for lines in (changed, said):
+            self.assertIn(f"container devbox: kit repaired {parent} from 0700 to 0755", lines)
+            self.assertIn(f"container devbox: kit repaired {parent / 'kit' / 'plugin'} from 0700 to 0755", lines)
+        self.assertEqual(self.sync(), [])
+
+    def test_a_kit_parent_that_is_a_symlink_is_refused_by_name(self) -> None:
+        parent = pathlib.Path(self.guest.kit_parent)
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir(mode=0o700)
+        parent.parent.mkdir(parents=True)
+        parent.symlink_to(elsewhere)
+        with self.assertRaisesRegex(members.MemberError, f"{parent} is not a directory"):
+            self.sync()
+        self.assertEqual(mode_of(elsewhere), 0o700)
+
+    def test_a_kit_parent_others_can_write_or_not_ours_is_refused_not_repaired(self) -> None:
+        parent = pathlib.Path(self.guest.kit_parent)
+        parent.mkdir(parents=True)
+        parent.chmod(0o775)
+        with self.assertRaisesRegex(members.MemberError, "writable by others"):
+            self.sync()
+        self.assertEqual(mode_of(parent), 0o775)
+        parent.chmod(0o700)
+        self.guest.kit_owner = os.getuid() + 1
+        with self.assertRaisesRegex(members.MemberError, f"{parent} is not owned by uid"):
+            self.sync()
+        self.assertEqual(mode_of(parent), 0o700)
+
+    def test_under_umask_077_the_unit_directory_is_readable(self) -> None:
+        self.with_umask(0o077)
+        self.run_phase("present", [entry(service=True)])
+        unit_dir = pathlib.Path(self.guest.unit_dir)
+        for path in (unit_dir.parent.parent, unit_dir.parent, unit_dir):
+            self.assertEqual(mode_of(path), 0o755, path)
+        self.assertEqual(mode_of(unit_dir / ServiceTest.UNIT), 0o644)
+
+    def test_secrets_stay_private_under_any_umask(self) -> None:
+        home = self.tmp / "guest" / "home" / "agent"
+        for mask in (0o000, 0o022, 0o077):
+            with self.subTest(umask=oct(mask)):
+                if home.exists():
+                    shutil.rmtree(home)
+                home.mkdir(parents=True, mode=0o700)
+                self.bus.members.clear()
+                old = os.umask(mask)
+                try:
+                    self.run_phase("present", [entry()])
+                finally:
+                    os.umask(old)
+                bundle = self.bundle_dir()
+                for path in (home / ".config", bundle.parent, bundle):
+                    self.assertEqual(mode_of(path), 0o700, path)
+                for name in ("member.json", "token", "README"):
+                    self.assertEqual(mode_of(bundle / name), 0o600, name)
+                self.assertEqual(mode_of(self.env_file()), 0o600)
+
+
 class LxcGuestTest(unittest.TestCase):
     """The real container commands: root through lxc-attach with a cleared environment, the
     agent through runuser inside it, the bundle on stdin and never in argv."""

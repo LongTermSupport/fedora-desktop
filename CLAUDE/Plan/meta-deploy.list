@@ -20,7 +20,13 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Agent teams: joins the LXC members declared in agent_bus_lxc_members. A team with two LXC
+# Agent teams: joins the LXC members declared in agent_bus_lxc_members. The last run failed at
+# `pingbus suggest-handle` ("env: pingbus: Permission denied"): a new container's
+# /usr/local/share/agent-bus was made 0700 under the 077 umask lxc-attach handed on, so the
+# agent user could not reach the kit. The kit and unit scripts now set umask 022 and the agent's
+# bundle and env scripts umask 077; a root-owned kit directory left 0700 is repaired to 0755
+# (said as `kit repaired <path> from 0700 to 0755`), so this run fixes that container as it is.
+# A team with two LXC
 # members whose checkouts are two different repositories, both leaving host and seat to be
 # derived, failed here ("gives seat 1 of team <team> to two containers"): seat 1 of one repo and
 # seat 1 of another are two handles, and the check between entries now says so. Runs on the
