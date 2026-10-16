@@ -446,8 +446,10 @@ def notify(state, message):
 
 
 def desktop_notification(message, expire_ms):
-    """Desktop notification with no state change (unless --no-notify was passed)."""
-    if no_notify:
+    """Desktop notification with no state change. --no-notify (the panel's default) drops
+    it, except one that stays (expire_ms 0): that reports a dictation lost or failed after
+    it was spoken, which the user must see (as wsi's W10)."""
+    if no_notify and expire_ms != 0:
         return
     show_notification(message, expire_ms)
 

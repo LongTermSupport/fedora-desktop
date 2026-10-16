@@ -96,9 +96,10 @@ func (p *panel) state(ctx context.Context, state string) { p.emit(ctx, stateChan
 // errorText is the text the panel shows beside its error state.
 func (p *panel) errorText(ctx context.Context, text string) { p.emit(ctx, "Error", gvString(text)) }
 
-// notify is one desktop notification replacing the last (W10).
+// notify is one desktop notification replacing the last (W10). One that stays reports a
+// dictation that failed after it was spoken, so --no-notify (the panel's default) keeps it.
 func (p *panel) notify(ctx context.Context, message, icon string, ms int) {
-	if p.noNotify {
+	if p.noNotify && ms != notifyStaysMS {
 		return
 	}
 	cmd := execx.Cmd{Name: gdbusBin, Args: []string{

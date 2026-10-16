@@ -71,8 +71,15 @@ playbooks/imports/play-claude-yolo.yml
 # rebuilds the wsi binary: the paste key is pressed only once the clipboard reads back as this
 # dictation's text; a copy that never takes is killed and retried within 3 s, then nothing is
 # pasted and a notification that stays points at Copy Last Transcription. Restarts the
-# wsi-stream-server (its handler). No extension change, so no log-out is needed. A wl-copy
-# left running by the bad dictation is not touched (each run kills only copies it started).
+# wsi-stream-server (its handler). A wl-copy left running by the bad dictation is not touched
+# (each run kills only copies it started).
+# Plan 00208 Phase 3: a failed Ctrl+Insert/Alt+Insert (Claude) dictation now shows its
+# notification even with Show Notifications off, as does every failure notice that stays
+# (wsi, wsi-stream, wsi-article). Builds and installs the new wsi-postprocess, and deploys the
+# extension's new menu items, Post-Process Last Transcription: Corporate and Natural (the result
+# goes to the clipboard, the transcription stays as it was), and a notification at login if a
+# record key could not be registered. THE EXTENSION CHANGED: LOG OUT AND BACK IN after this run
+# (Wayland reloads extension code only at login); the scripts and binaries apply at once.
 playbooks/imports/optional/common/play-speech-to-text.yml
 # Plan 00170: clears the play ledger's BROKEN marker (runs check_freshness --clear-broken).
 # A private play run on 10-12 from a linked worktree was outside that worktree's root, and

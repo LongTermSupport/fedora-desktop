@@ -849,7 +849,9 @@ class UrgentNotificationTest(unittest.TestCase):
         self.assertEqual(calls[0][-1], "0", "an urgent notification stays until dismissed")
 
     def test_an_ordinary_notification_respects_notifications_off(self):
-        self.assertEqual(self.sent(True, lambda m: wsi_stream.desktop_notification(m, 0)), [])
+        # Ordinary: one that expires. One that stays (0) reports a failure and is shown
+        # anyway (Plan 00208 Task 3.1, test_claude_failure_report.py)
+        self.assertEqual(self.sent(True, lambda m: wsi_stream.desktop_notification(m, wsi_stream.NOTIFY_MS)), [])
 
 
 class SignalSenderTest(unittest.TestCase):

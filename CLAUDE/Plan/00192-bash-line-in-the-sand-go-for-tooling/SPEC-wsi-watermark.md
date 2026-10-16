@@ -115,7 +115,9 @@ Python and are run from the directory the binary is in.
 - W10. A notification is
   `gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.Notify 'speech-to-text' <id> '<icon>' 'Speech to Text' '<text>' [] {} <ms>`, every string a GVariant literal; the id of
   the reply `(uint32 N,)` is reused so each notification replaces the last. `--no-notify`
-  sends none. A refused notification is a debug line. A state change notifies for 3000 ms with
+  sends none except a notification that stays (0 ms): that one reports a dictation that
+  failed after it was spoken (W23, W31, W32, W33), which the panel's default (notifications
+  off) must not hide (Plan 00208 Task 3.1). A refused notification is a debug line. A state change notifies for 3000 ms with
   the icon `audio-input-microphone` unless stated.
 
 ### Preparing

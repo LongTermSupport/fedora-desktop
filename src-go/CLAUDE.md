@@ -42,6 +42,9 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   `wsi-resolve-model`) stay bash and Python and run from the binary's directory. Its batch
   limit's one home is `limit.go` (`scripts/qa-stt-limits.bash`); `scripts/test-wsi-stop-grace.bash`
   builds and drives the binary end to end.
+- `internal/wsipost/` — `wsi-postprocess`, the panel menu's Post-Process Last Transcription
+  items (Plan 00208, P1-P8 in its package doc): Claude post-processing of the last
+  transcription, through the sibling `wsi-claude-process`.
   Reuse these; a second way to run a command or prompt the user is a defect.
 
 ## Rules

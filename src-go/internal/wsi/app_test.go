@@ -357,6 +357,18 @@ func TestW23ClaudeReplacesTheTextOrLeavesTheRawTextOnTheClipboard(t *testing.T) 
 		t.Fatalf("calls %q", k.calls())
 	}
 
+	// The panel passes --no-notify unless Show Notifications is on (its default is off): the
+	// failure must still be seen, or Ctrl+Insert looks as if it did nothing (Plan 00208 Task 3.1)
+	k = newKit(t)
+	k.desktop()
+	k.run.On([]string{"wsi-claude-process"}, execx.Result{ExitCode: 1, Stderr: []byte("wsi-claude-process: Not logged in\n")})
+	if code := k.exec("--claude-process", "--no-notify"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	if n := k.notes(); len(n) != 1 || n[0] != "'Claude post-processing failed: Not logged in . Nothing was pasted. The raw transcript is on the clipboard: Ctrl+V.'|'dialog-error'|0" {
+		t.Fatalf("with --no-notify, notes %q", n)
+	}
+
 	k = newKit(t)
 	k.missing = []string{"wsi-claude-process"}
 	if code := k.exec("--claude-process"); code != 1 {

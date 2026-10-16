@@ -146,6 +146,11 @@ var dynamicNames = []allowance{
 		reason: "wsi-stop-grace, wsi-setting or wsi-resolve-model, run from the directory the wsi binary is in",
 	},
 	{
+		pkg:    "internal/wsipost",
+		fn:     "App.postProcess",
+		reason: "wsi-claude-process, run from the directory the wsi-postprocess binary is in",
+	},
+	{
 		pkg:    lxcfreezePkg,
 		fn:     "Engine.runAct",
 		reason: "runs the lxc command its caller names; every caller is itself judged as a program runner",
