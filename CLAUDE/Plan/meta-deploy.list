@@ -60,13 +60,6 @@ playbooks/imports/optional/common/play-md-viewer.yml
 # Plan 00201 Task 2.15 (ccy 3.99.12.5, container 2.77.4): Enter on a team, then Edit settings,
 # opens one screen of the team's fields to change, save and apply (ACCEPTANCE-owner.md step 13).
 playbooks/imports/play-claude-yolo.yml
-# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.12.8. M2 starts its two
-# throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the
-# same container name and the second failed at podman's create (exit 125). Then M1, M3, M4,
-# the new M6 (three throwaway cc sessions on two throwaway teams) and R1-R9, on throwaway teams
-# acc-m3a, acc-m3b, acc-m4a, acc-m4b and acc-robust and their sessions, all removed after.
-# Prompts for sudo once. Needs ccy launched interactively here once (Quick Launch).
-00203-teams-hot-control-and-robustness
 # Plan 00203: read-only triage of why team homeservers stop. Changes nothing; reads as root
 # (sudo -n): the whole journal, each team's tuwunel.toml (secret values substituted), its
 # database size, filesystem and free space, the coredumps, and each running ccy container's
