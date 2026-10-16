@@ -111,12 +111,24 @@ The design is in [RESEARCH §4](RESEARCH.md#4-the-design-for-ccy-teams-and-ccy-s
 
 ### Phase 1: The seam, on fzf and gum (D4)
 
+- [x] ✅ **Task 1.0**: The context heading, ahead of D1 because the owner asked for it twice
+  ("adding a container to multiple teams it was not clear which team im adding to").
+  `ui.Heading` (crumbs, a wizard's step, a context line with the answers so far) is a
+  required argument of every `ui` question and pick, drawn the same way on fzf's `--header`
+  and gum's header or prompt, and refused when it names no place. Threaded through
+  `ccy-teams`, `ccy --teams` (`New session › Team 2 of 3: <team>`), `ccy-sessions`, the freeze
+  tools and `ftp-camera`. InteractiveScripts.md rule 15; owner steps in
+  [ACCEPTANCE.md](ACCEPTANCE.md); report `subagent-reports/261016-context-headings-opus.md`.
+  Branch `fix/context-headings`, from `dbf/hidden-bindings`.
+
 - [ ] ⬜ **Task 1.1**: `ui.Action{ID, Label, Key}` lands with `project_hidden_bindings`
   (branch `dbf/hidden-bindings`). `ccy-sessions`' Ctrl-T, Ctrl-X and Ctrl-N, and `ccy-teams`'
   Tab, become visible choices.
+
 - [ ] ⬜ **Task 1.2**: The semantic API in `internal/ui` (`Screen`, `Wizard`, `Confirm`,
   `Result`, with `Crumbs`), rendered on fzf and gum. The flows move onto it, and their tests
   script answers at that level instead of fzf argv.
+
 - [ ] ⬜ **Task 1.3**: Breadcrumbs in every title, one Confirm everywhere, and column
   explanations moved to help.
 
