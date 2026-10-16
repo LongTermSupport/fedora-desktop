@@ -1,51 +1,106 @@
-# Plan 00203 acceptance
+# Plan 00203: host acceptance
 
-The owner's acceptance steps for each milestone of [SPEC-hot-control.md](SPEC-hot-control.md)
-(section 6). Each milestone's automated part is in `acceptance.bash`, which
-`CLAUDE/Plan/meta-deploy.bash` runs after the plays the milestone needs.
+What proves each milestone on the host, one section per milestone. `acceptance.bash` is a
+dispatcher: each milestone's checks live in its own `_acceptance-<milestone>.inc.bash`, and it
+runs them in turn through `meta-deploy.bash`, after `play-claude-yolo.yml` and
+`play-agent-bus.yml`.
+
+## Server-side robustness (`_acceptance-robust.inc.bash`)
+
+`acceptance.bash` runs R1-R9 by itself on a throwaway team (`acc-robust`, loopback only,
+removed on the way out). The reboot steps (B1, B2) need a reboot, so they are the owner's.
+
+The gaps are those of `subagent-reports/261016-robustness-audit-opus.md` section 5; the design
+and its evidence are in `subagent-reports/261016-server-robustness-opus.md`.
+
+### Run by acceptance.bash
+
+| Check | Gap | What it does                                                                                                                                          | Passes when                                                                                                                      |
+| ----- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| R1    | 4   | Reads the homeserver unit's `Type`, `WatchdogUSec` and `Restart`, then waits 75 s                                                                     | `notify`, `30s`, `always`; same main PID, `NRestarts` 0 and the client API answering after 75 s (READY=1 and the pings arrive)   |
+| R2    | 10  | Starts `agent-bus-hs-health@acc-robust.service`; runs `agent-bus health status acc-robust` as the desktop user                                        | the check succeeds and the status exits 0                                                                                        |
+| R3    | 4   | `systemctl kill --kill-whom=main --signal=SIGKILL`                                                                                                    | a new main PID is active and answering within 60 s; `NRestarts` rose                                                             |
+| R4    | 4   | `systemctl kill --kill-whom=main --signal=SIGTERM` (Tuwunel exits 0; no `systemctl stop`)                                                             | back within 90 s (`Restart=always`)                                                                                              |
+| R5    | 4   | `systemctl kill --kill-whom=main --signal=SIGSTOP` (a hang)                                                                                           | back within 150 s, and the journal says `Watchdog timeout`                                                                       |
+| R6    | 10  | Runs the health check again                                                                                                                           | the status exits 1 with `PROBLEM systemd restarted the homeserver ...` and what to do                                            |
+| R7    | 10  | `agent-bus-install backup-now`, then the newest state tar made three days old, then the health check                                                  | the status says `PROBLEM the newest backup is 3 d ...`, and the team's row of `ccy-teams --list` says `health: ...` and the same |
+| R8    | 3   | A runtime drop-in delays the homeserver's start by 25 s; `systemctl restart --no-block`; `agent-bus seat check 1@acc-robust` while it is `activating` | exit 0 after at least 15 s, its stderr saying `... is starting ...` and `... is up after N s`                                    |
+| R9    | 9   | Every running LXC container with systemd: each `agent-bus-claude-*.service` in it                                                                     | enabled, active, `Restart=always`, and the container's `lxc.start.auto = 1`; a host with none declared says so in the report     |
+
+### The owner's, after a reboot
+
+- **B1 (gap 3).** With at least one ccy team session recorded for restore, reboot. Every recorded
+  team session is up (`ccy-sessions`), and none of their tmux windows shows a `seat check`
+  refusal. A homeserver that was still starting shows the wait instead:
+  `agent-bus: agent-bus-hs@<team>.service is starting (activating); waiting up to 180 s`.
+  `agent-bus health status` exits 0, or names only what it says.
+- **B2 (gap 9).** With an `agent_bus_lxc_members` entry that has `service: true` and the play
+  applied, reboot. The container is running, and in it
+  `systemctl is-active agent-bus-claude-<agent-user>.service` says `active`; `tmux -L agent-bus-claude attach`
+  as the agent user shows the session. Then end the session (`/exit` in it): it is running
+  again within a minute.
+
+### Not provable on the host
+
+A per-account sign-in lockout leaves nothing a tool can read (Tuwunel 1.9.4 keeps the
+buckets in memory and logs a refusal only at a level the release build compiles out). What is
+built is the text: `sudo agent-bus human password` and `agent-bus health status` both state the
+limits, what Element shows and that the wait clears by itself. No reset is offered.
 
 ## M2: the bus kit in every ccy session
 
 On an SELinux **Enforcing** host (`getenforce` says `Enforcing`), after `meta-deploy.bash` has
 run `play-claude-yolo.yml` for this plan. The first launch after the deploy rebuilds the image
-once (container 2.68).
+once (container 2.69). The automated part needs ccy launched interactively in this checkout
+once, so a headless launch has Quick Launch's token and key.
 
-### Before acceptance.bash runs
+### What runs by itself
 
-Start three sessions inside ccy's tmux (a terminal ccy opens, or Ctrl-N in `ccy-teams`, so that
-`ccy-sessions` lists each one). Leave all three running and idle:
+`_acceptance-m2.inc.bash` starts two throwaway headless sessions in ccy's tmux, in this checkout:
+a plain `ccy` and a `ccy --no-bus`. Their stdin is held open and no turn is sent, so they stay
+idle. It removes them on the way out, with their containers, records, membership directories
+and any transcript. Your own sessions are never touched. Then meta-deploy runs the Plan 00201
+and Plan 00161 acceptances, ported to M2. They launch `ccy --teams` sessions on throwaway teams,
+and that is check (a).
 
-1. `ccy --teams 1@<team>`, in a checkout of a team on this machine.
-2. A plain `ccy`, in any checkout.
-3. `ccy --no-bus`, in any checkout.
+| Step | What passes                                                                                                                                                                                                                                                                | Where                         |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| (a)  | `ccy --teams` works as before: the seats are held, the launch block, `pingbus status`, delivery and the goodbye.                                                                                                                                                           | Plan 00201 M7, Plan 00161 U20 |
+| (b)  | The plain session reads `/run/ccy/membership/membership.json` (no seat). A `touch`, a write and a remount there all fail (H3). It has no `active` flag, and its status line is the guard around its own. It has no `crossSessionInbound` and no inbox socket (Decision 1). | `_acceptance-m2.inc.bash`     |
+| (c)  | A prompt's hook ends in the shell (no `python3`, no `pingbus`), at most one `pingbus` process runs, and idle CPU over a minute matches the `--no-bus` session.                                                                                                             | `_acceptance-m2.inc.bash`     |
+| (d)  | The session image is the launcher's `REQUIRED_CONTAINER_VERSION` (2.69), with the M2 entrypoint.                                                                                                                                                                           | `_acceptance-m2.inc.bash`     |
+| (e)  | `--no-bus`: `PINGBUS_MEMBERSHIP=off`, no mount, no `pingbus`, no plugin, no settings.                                                                                                                                                                                      | `_acceptance-m2.inc.bash`     |
+| (f)  | The spike's result is in the spec (H34). Claude Code does not re-read `--settings` mid-session, so a session on no team is launched with no inbound, and its first join relaunches it once.                                                                                | `_acceptance-m2.inc.bash`     |
 
-### Steps
+### What to look at yourself
 
-| Step | What to do                                                                                          | What passes                                                                                                                                   | Automated by acceptance.bash                                                       |
-| ---- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| (a)  | In session 1, send a message to it from Element, and ask it to `pingbus say` something to the team. | It works as before: the launch block names the team, the status line shows `bus: <team>`, the message arrives, the reply is posted.           | the seat is held (`agent-bus seat list`), the `active` flag is up                  |
-| (b)  | Look at session 2.                                                                                  | No `bus:` segment: its status line is the checkout's own (the hooks daemon's, here).                                                          | the membership reads; `touch`, a write and a remount in the mount fail (H3)        |
-| (c)  | Type a short prompt in session 2.                                                                   | It answers as any session does.                                                                                                               | its hook ends in the shell (no `python3`); at most one `pingbus` process; idle CPU |
-| (d)  | Nothing to do.                                                                                      | The first launch after the deploy rebuilt the image.                                                                                          | the image is the launcher's `REQUIRED_CONTAINER_VERSION`, with the M2 entrypoint   |
-| (e)  | Look at session 3.                                                                                  | Its status line is the checkout's own; it never shows `bus:`.                                                                                 | `PINGBUS_MEMBERSHIP=off`, no mount, no `pingbus`, no plugin, no settings           |
-| (f)  | Nothing to do.                                                                                      | The spike's result is recorded: Claude Code does not re-read a `--settings` file mid-session, so a session is launched with inbound accepted. | the result is in the spec, H34                                                     |
-
-`acceptance.bash` exits 2 (could not establish) and names what to start when one of the three
-sessions is not running. While it measures idle CPU (one minute), leave sessions 2 and 3 alone.
+Start a plain `ccy` in ccy's tmux and look at it. Its status line is the checkout's own (the
+hooks daemon's, here), with no `bus:` segment, and a prompt is answered as in any session. A
+`ccy --no-bus` session looks the same. A `ccy --teams 1@<team>` session shows `bus: <team>`.
 
 ### What is not in M2
 
 With M1 merged, a plain session runs exactly one `pingbus` process, the seat keeper. Adding a
-running session to a team is M3.
+running session to a team is M3. For a session that started on no team, the first join
+relaunches it once: the keeper takes a seat added later, but inbound stays as it was launched.
 
 ## M1: the seat keeper and the membership reader
 
 After `meta-deploy.bash` has run `play-claude-yolo.yml` and `play-agent-bus.yml` (the same
 runs as M2: one deploy covers both). The first ccy launch after it rebuilds the image once.
 
+### What runs by itself (`_acceptance-m1.inc.bash`)
+
+After M2's checks, `acceptance.bash` runs (a) itself, and (b) on a throwaway plain headless
+session it starts and removes as M2's are: exactly one `pingbus` process,
+`pingbus seat keep --launch --parent ...`, holding `keeper.lock`, and no other process holding a
+lock. The seated half of (b) needs a team, so it is yours, below.
+
+### Steps
+
 | Step | What to do                                                                                                                                                                                                                                                                                                                                                                                                                      | What passes                                                                                                                                                                                                                                               |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (a)  | In a checkout of this repository: `./scripts/qa-helper-tests.bash`                                                                                                                                                                                                                                                                                                                                                              | It ends green.                                                                                                                                                                                                                                            |
+| (a)  | Nothing to do: `acceptance.bash` runs `./scripts/qa-helper-tests.bash`                                                                                                                                                                                                                                                                                                                                                          | It ends green.                                                                                                                                                                                                                                            |
 | (b)  | Inside ccy's tmux, in a checkout of a team on this machine, start `ccy --teams 1@<team>` and leave it idle. Then, from another terminal: `agent-bus seat list \| cat`, and `podman exec <container> sh -c 'for p in /proc/[0-9]*; do ls -l "$p/fd" 2>/dev/null \| grep -q seat.lock && cat "$p/cmdline" \| tr "\0" " " && echo; done'` (the container from `podman ps --filter label=ccy-session --format '{{.Names}}' \| cat`) | The launch block says `✓ agent team bus: 1@<team> (...)` as before; `agent-bus seat list` shows the seat `held`; the loop prints exactly one process, and it is `... pingbus seat keep --launch --parent ...`: claude and its children hold no seat lock. |
 
 The audit F5 case (a detached process keeping a seat) matters only on the host, where no

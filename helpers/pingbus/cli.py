@@ -2179,21 +2179,31 @@ def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
     from_membership = isinstance(source, seating.MembershipFile)
     if not want.refs and not from_membership:
         raise config.ConfigError(f"{seating.SEATS_VAR} names no seat")
-    inner = (seating.inner_status_line(seating.settings_sources(environ, pathlib.Path.cwd()))
-             if from_membership else None)
+    inner, guard, warnings = None, True, []
+    if from_membership:
+        try:
+            inner = seating.inner_status_line(seating.settings_sources(environ, pathlib.Path.cwd()))
+        except seating.SettingsUnreadable as exc:
+            guard = False
+            warnings.append(f"{exc}: the session keeps Claude Code's own status line, with no bus "
+                            "segment; fix the file and relaunch to get it")
     if want.refs:
         forge_credential_source(environ)
     _start_keeper(rt, environ, root, home, err)
     applied = membership.read_applied(home)
     seats = () if applied is None else applied.seats
     if from_membership:
-        seating.write_session_files(home, inner, seated=bool(seats))
+        # Inbound is decided here, once (H33b): a session launched on no team accepts none,
+        # whatever the keeper takes later; its first join relaunches it (M3).
+        seating.write_session_files(home, inner, seated=bool(seats), guard=guard)
     child_env = dict(environ)
     child_env["PINGBUS_HOME"] = str(home)
     child_env.pop("PINGBUS_TEAMS", None)
     if seats:
         child_env["PINGBUS_TEAMS"] = ",".join(entry.team for entry in seats)
     names = ", ".join(f"{entry.seat}@{entry.team} ({entry.handle})" for entry in seats)
+    for warning in warnings:
+        err.write(f"⚠ agent team bus: {warning}\n")
     err.write(f"✓ agent team bus: {names or 'no team (the kit is loaded and idle)'}\n")
     err.flush()
     out.flush()

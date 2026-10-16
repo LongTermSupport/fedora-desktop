@@ -17,6 +17,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import stat
 import subprocess
 import sys
@@ -180,6 +181,7 @@ class SeatCase(unittest.TestCase):
         self.session_home.parent.mkdir()
         self.execs: list[tuple[str, list[str], dict[str, str]]] = []
         self.keeper_argvs = []
+        self.keepers = []
         self.env ={"PATH": fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp)), "HOME": str(self.tmp)}
 
     def make_seat(self, name: str, team: str = TEAM_A, *, member: bool = True) -> pathlib.Path:
@@ -206,6 +208,7 @@ class SeatCase(unittest.TestCase):
             """The real keeper, a child of this test process; ended at cleanup."""
             self.keeper_argvs.append(list(argv))
             proc = cli.spawn_keeper(argv, env)
+            self.keepers.append(proc)
             self.addCleanup(self.end_keeper, proc)
             return proc
 
@@ -213,6 +216,12 @@ class SeatCase(unittest.TestCase):
                            session_home=self.session_home, execvpe=execvpe, spawn_keeper=spawn_keeper)
 
     keeper_argvs: list[list[str]]
+    keepers: list[subprocess.Popen]
+
+    def end_keepers(self) -> None:
+        """End every keeper this test started, so a second launch can take the seats."""
+        for proc in self.keepers:
+            self.end_keeper(proc)
 
     @staticmethod
     def end_keeper(proc: subprocess.Popen) -> None:
@@ -826,10 +835,9 @@ class MembershipClaimTest(SeatCase):
         self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
         self.assertIn("no team", err)
 
-    def test_the_session_settings_accept_inbound_and_guard_the_status_line(self):
-        """H34 with the M2 spike's answer (Claude Code does not re-read --settings): inbound is
-        accepted from the start, and the status line is a shell guard that runs no Python for
-        a session on no team."""
+    def test_a_seated_session_accepts_inbound_and_guards_the_status_line(self):
+        """H34 with the M2 spike's answer (Claude Code does not re-read --settings): a session
+        launched with a seat accepts inbound from the start; the status line is a shell guard."""
         self.assertEqual(self.claim()[0], 0)
         settings = json.loads(self.home_file(seat.SESSION_SETTINGS))
         self.assertEqual(settings, {
@@ -838,6 +846,30 @@ class MembershipClaimTest(SeatCase):
         })
         for name in (seat.SESSION_SETTINGS, seat.STATUS_LINE_INNER, seat.ACTIVE_FLAG):
             self.assertEqual(stat.S_IMODE((self.session_home / name).stat().st_mode), 0o600, name)
+
+    def test_a_session_launched_on_no_team_accepts_no_inbound(self):
+        """H33b, Decision 1: a session on no team has no inbox socket at all, so nothing in the
+        container can write a user turn into it. Its first join relaunches it once (M3)."""
+        self.write_desired(None)
+        self.assertEqual(self.claim()[0], 0)
+        settings = json.loads(self.home_file(seat.SESSION_SETTINGS))
+        self.assertNotIn("crossSessionInbound", settings)
+        self.assertEqual(settings["statusLine"]["command"], seat.STATUS_LINE_GUARD)
+
+    def test_a_seat_the_keeper_takes_later_never_turns_inbound_on(self):
+        """H33b with the keeper: a session launched on no team keeps no inbound when the keeper
+        later takes a seat; the settings are the launch's, and the join relaunches it (M3)."""
+        self.write_desired(None)
+        self.assertEqual(self.claim()[0], 0)
+        before = self.home_file(seat.SESSION_SETTINGS)
+        self.write_desired([{"team": TEAM_A, "seat": "dev1"}], generation=2)
+        deadline = time.monotonic() + 10
+        while not (membership.read_applied(self.session_home) or membership.Applied(0, (), ())).seats:
+            self.assertLess(time.monotonic(), deadline, "the keeper did not take the added seat")
+            time.sleep(0.05)
+        self.assertEqual(inbox.probe_lock_at(self.lock_of("dev1")), inbox.SEAT_KIND)
+        self.assertEqual(self.home_file(seat.SESSION_SETTINGS), before)
+        self.assertNotIn("crossSessionInbound", json.loads(before))
 
     def test_the_inner_status_line_is_the_one_the_session_would_have_had(self):
         local = self.project / ".claude" / "settings.local.json"
@@ -868,14 +900,23 @@ class MembershipClaimTest(SeatCase):
         self.assertEqual(self.home_file(seat.STATUS_LINE_INNER), "")
         self.assertNotIn("refreshInterval", json.loads(self.home_file(seat.SESSION_SETTINGS))["statusLine"])
 
-    def test_a_settings_file_that_is_not_json_is_refused_78(self):
+    def test_a_settings_file_that_is_not_json_is_named_and_the_session_starts_without_the_guard(self):
+        """A broken settings file must not stop a session starting: the claim says which file,
+        and leaves the status line to Claude Code's own (no bus segment)."""
         (self.project / ".claude" / "settings.json").write_text("{", encoding="utf-8")
-        code, _, err = self.claim()
-        self.assertEqual(code, EX_CONFIG)
-        self.assertIn("settings.json", err)
-        self.assertEqual(self.execs, [])
-        self.assertFalse(self.session_home.exists())
-        self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
+        for seats in (None, [{"team": TEAM_A, "seat": "dev1"}]):
+            with self.subTest(seats=seats):
+                self.end_keepers()
+                if self.session_home.exists():
+                    shutil.rmtree(self.session_home)
+                self.execs.clear()
+                self.write_desired(seats)
+                code, _, err = self.claim()
+                self.assertEqual(code, 0, err)
+                self.assertIn("settings.json", err)
+                self.assertIn("status line", err)
+                self.assertEqual(len(self.execs), 1)
+                self.assertNotIn("statusLine", json.loads(self.home_file(seat.SESSION_SETTINGS)))
 
     def test_a_refused_claim_leaves_no_home(self):
         self.qa2.chmod(0o750)

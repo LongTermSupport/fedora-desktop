@@ -141,6 +141,11 @@ user_email: "yourname@example.com"
 #   human_text optional; false makes a member that takes pings only
 #   repo       optional; needed only to park the handle of a container already destroyed
 #   state      optional; present (the default) or absent
+#   service    optional; true runs the member's session as a unit inside the container,
+#              restarted after a crash, a container restart and a host reboot (agent-bus-claude
+#              under tmux, in checkout). Needs lxc.start.auto = 1, systemd as the container's
+#              init and tmux in it. Alike on every entry of one user; false (the default) for a
+#              member started by hand.
 # agent_bus_lxc_members:
 #   - team: <team>
 #     container: <container>

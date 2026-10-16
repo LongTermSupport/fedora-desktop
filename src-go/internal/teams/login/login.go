@@ -402,6 +402,10 @@ func (l *Login) showLogin(snap *board.Snapshot, team, name, password string) {
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Matrix ID", "@"+name+":"+server))
 	l.Kit.Out.Print(l.Kit.Stderr, fmt.Sprintf("  %-11s %s\n", "Password", shown))
 	l.Kit.Tell("Shown this once and stored nowhere. The team's Element profile has the homeserver set already.")
+	// The homeserver keeps no record of a lockout a tool could read (Plan 00203 gap 10).
+	l.Kit.Tell("A few sign-ins in a row, or a few wrong passwords, and Element says \"Too many login attempts " +
+		"for this account\": wait, it clears by itself within minutes and retrying does not lengthen it " +
+		"(agent-bus health status gives the exact limits).")
 }
 
 // offerCopy, in a Wayland session, offers to put the password on the clipboard. It goes to

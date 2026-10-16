@@ -45,7 +45,7 @@ to stderr.
 | The agent user exists (`getent passwd` gives a home)                                                                                              | `lxc-attach`                                                            | `LXC container <container> has no user <agent-user>: make the agent user in the container first`                            |
 | gh is installed and logged in to github.com as the agent user                                                                                     | `gh auth token --hostname github.com`, as the agent user                | `LXC container <container>: gh is required and must be logged in for <agent-user>: install gh in the container and run ...` |
 | The container reaches the homeserver host's bus address through an LXC bridge of the desktop                                                      | The container's source address towards the bus address                  | `... is on no network of this host` or `... reaches <bus> through <dev>, which is not a bridge of this host`                |
-| The team admits that source address (the LXC bridge `lxcbr0` always is; another bridge needs `allow_from`)               | The team file                                                           | `team <team>'s allow_from (...) does not cover LXC container ... add "<cidr>" ...`          |
+| The team admits that source address (the LXC bridge `lxcbr0` always is; another bridge needs `allow_from`)                                        | The team file                                                           | `team <team>'s allow_from (...) does not cover LXC container ... add "<cidr>" ...`                                          |
 | `python3` 3.11 or later, on `/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin` for root (the play runs `python3 -I` in the container) | The kit sync, as root                                                   | `pingbus needs Python 3.11 or later; this container has <version>`                                                          |
 | `runuser` (util-linux) and GNU `env` with `-C` (coreutils 8.28 or later)                                                                          | Every command run as the agent user is `runuser -u <user> -- env -i -C` | The failing command's own error, as `container <container>: ... failed (exit N)`; there is no separate version probe        |
 | `git`, and a checkout of a GitHub repository (an `origin` remote on github.com) at the declared `checkout` path                                   | `pingbus suggest-handle`, run as the agent user in the checkout         | `suggest-handle` refuses with its own message; a checkout that is not the declared `repo` is refused naming both            |
@@ -117,8 +117,18 @@ Notes on the table:
    ```
 
    Those four keys are all an entry needs. The handle is derived (see **The handle** below).
-   The optional keys are `host` and `seat` (overrides), `role`, `human_text`, `repo` and
-   `state`; the comments in `localhost.yml.dist` describe each.
+   The optional keys are `host` and `seat` (overrides), `role`, `human_text`, `repo`,
+   `state` and `service`; the comments in `localhost.yml.dist` describe each.
+
+   **`service: true` keeps the session running by itself.** The play installs
+   `agent-bus-claude-<agent-user>.service` inside the container: it runs `agent-bus-claude`
+   as the agent user in `checkout`, under tmux, and systemd restarts it after a crash, a
+   container restart or a host reboot. The play refuses the entry, before changing anything,
+   unless the container starts at host boot (`lxc.start.auto = 1` in its config), runs
+   systemd as its init and has tmux. To watch or type into the session:
+   `sudo lxc-attach -n <container> -- runuser -u <agent-user> -- tmux -L agent-bus-claude attach`.
+   Leave it out for a member someone starts by hand; turning it off, or the user leaving its
+   last team, stops and removes the unit.
 
 3. **Run the play**, or let `ccy-teams apply <team>` run it for that team:
 

@@ -58,13 +58,6 @@ GUARD_SUFFIX = "; fi"
 #: `agent-bus-claude` member) runs every hook as before.
 INERT_HEAD = '[ -z "$PINGBUS_MEMBERSHIP" ] || [ -e "$PINGBUS_HOME/active" ] || '
 INERT_GUARD = INERT_HEAD + "exit 0; "
-#: SessionStart's inert branch records the inbox socket for the keeper (H11), in the shell.
-SESSION_START_INERT = (
-    INERT_HEAD + '{ [ -z "$CLAUDE_CODE_MESSAGING_SOCKET" ] || (umask 077 && jq -n '
-    "'env | {v: 1, socket: .CLAUDE_CODE_MESSAGING_SOCKET, token: .CLAUDE_CODE_MESSAGING_TOKEN}' "
-    '> "$PINGBUS_HOME/.socket.json.tmp" && mv -f "$PINGBUS_HOME/.socket.json.tmp" "$PINGBUS_HOME/socket.json") '
-    "|| exit 1; exit 0; }; "
-)
 
 #: The commands an agent runs by hand, each of which the skill must name.
 AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
@@ -148,9 +141,8 @@ class HooksJsonTest(unittest.TestCase):
         for event, commands in self.commands().items():
             self.assertEqual(len(commands), 1, event)
             command = commands[0]
-            head = SESSION_START_INERT if event == "SessionStart" else INERT_GUARD
-            self.assertTrue(command.startswith(head), f"{event}: {command}")
-            command = command[len(head):]
+            self.assertTrue(command.startswith(INERT_GUARD), f"{event}: {command}")
+            command = command[len(INERT_GUARD):]
             if event == "PostToolUse":  # guarded in shell: off mode starts no Python process
                 self.assertTrue(command.startswith(GUARD_PREFIX) and command.endswith(GUARD_SUFFIX), command)
                 command = "exec " + command[len(GUARD_PREFIX):-len(GUARD_SUFFIX)]
@@ -206,24 +198,6 @@ class HooksJsonTest(unittest.TestCase):
                 done, started, _ = self.run_hook(command, active=False, membership=False)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertEqual(started, f"pingbus hook {REGISTERED[event]}\n")
-
-    @unittest.skipUnless(shutil.which("jq"), "the image and the host both have jq; this machine has not")
-    def test_session_start_on_no_team_records_the_inbox_socket_privately(self) -> None:
-        (command,) = self.commands()["SessionStart"]
-        socket_env = {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/s.sock", "CLAUDE_CODE_MESSAGING_TOKEN": "t0k"}
-        done, started, home = self.run_hook(command, active=False, membership=True, extra=socket_env)
-        self.assertEqual((done.returncode, done.stdout, started), (0, "", ""), done.stderr)
-        recorded = home / "socket.json"
-        self.assertEqual(json.loads(recorded.read_text(encoding="utf-8")),
-                         {"v": 1, "socket": "/tmp/s.sock", "token": "t0k"})
-        self.assertEqual(recorded.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(sorted(p.name for p in home.iterdir()), ["socket.json"])
-
-    def test_session_start_on_no_team_without_a_socket_records_nothing(self) -> None:
-        (command,) = self.commands()["SessionStart"]
-        done, started, home = self.run_hook(command, active=False, membership=True)
-        self.assertEqual((done.returncode, done.stdout, started), (0, "", ""))
-        self.assertEqual(list(home.iterdir()), [])
 
     def test_session_end_without_a_session_id_or_a_poster_does_nothing(self) -> None:
         err = io.StringIO()

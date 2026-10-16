@@ -10,7 +10,14 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+# Tuwunel's systemd feature (on in the release asset) sends READY=1 once its database is open,
+# so `active` means ready, and pings the watchdog every WatchdogSec/2 (src/router/run.rs). A
+# homeserver that stops pinging (frozen, starved) is sent SIGABRT, then SIGKILL after
+# TimeoutAbortSec, since a stopped process holds the SIGABRT pending; the drop-in restarts it.
+Type=notify
+NotifyAccess=main
+WatchdogSec=30s
+TimeoutAbortSec=30s
 User=agent-bus
 Group=agent-bus
 Environment=TUWUNEL_CONFIG=/var/lib/agent-bus/%i/tuwunel.toml

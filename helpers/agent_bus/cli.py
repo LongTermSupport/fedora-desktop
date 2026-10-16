@@ -25,7 +25,7 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import BinaryIO, TextIO
 
-from helpers.agent_bus import admin, checkout, registry, render, teamfile
+from helpers.agent_bus import admin, checkout, health, registry, render, teamfile
 from helpers.pingbus import config, inbox, protocol
 
 PROG = "agent-bus"
@@ -135,6 +135,7 @@ def cmd_human(args: argparse.Namespace, team: admin.Team, transport: admin.Trans
         io.lines([admin.human_password(team, transport, args.name)])
         io.say(f"{args.name}: new password set and printed once; it is stored nowhere, and "
                "every other session was logged out")
+        io.say(health.login_limits_text())
     elif args.action == "devices":
         io.lines(admin.human_devices(team, transport, args.name))
     elif args.action == "logout-all":
@@ -236,6 +237,22 @@ def cmd_seat_list(args: argparse.Namespace, system: checkout.System, io: _Io) ->
 def cmd_seat_remove(args: argparse.Namespace, system: checkout.System, io: _Io) -> int:
     checkout.remove(args.seats, system, say=io.say, emit=_emitter(io))
     return EXIT_OK
+
+
+# ---------------------------------------------------------------- a team homeserver's health
+
+
+def cmd_health_check(args: argparse.Namespace, system: health.HealthSystem, io: _Io) -> int:
+    if not protocol.is_team_name(args.team):
+        raise UsageError(f"--team {args.team!r} is not a team name")
+    health.check(args.team, system)
+    return EXIT_OK
+
+
+def cmd_health_status(args: argparse.Namespace, system: health.HealthSystem, io: _Io) -> int:
+    lines, problems = health.status(args.teams, system)
+    io.lines(lines)
+    return health.EXIT_PROBLEM if problems else EXIT_OK
 
 
 def cmd_version(args: argparse.Namespace, io: _Io) -> int:
@@ -344,15 +361,29 @@ def build_parser(stdout: BinaryIO) -> argparse.ArgumentParser:
     seat_remove = seats.add_parser("remove", help="park each named seat and delete its directory")
     seat_remove.add_argument("seats", metavar="LIST", help=seat_list_help)
     seat_remove.set_defaults(seat_handler=cmd_seat_remove)
+
+    health_parser = commands.add_parser(
+        "health", help="a team homeserver's health: status as yourself; check is its timer's, as root")
+    healths = health_parser.add_subparsers(dest="health", metavar="WHAT", required=True)
+    health_status = healths.add_parser(
+        "status", help="each team's homeserver, health check, backups and sign-in limits; exit 1 on a problem")
+    health_status.add_argument("teams", metavar="TEAM", nargs="*", help="the teams (default: every team built here)")
+    health_status.set_defaults(health_handler=cmd_health_status)
+    health_check = healths.add_parser(
+        "check", help="probe, restart a homeserver that does not answer, record (agent-bus-hs-health@.timer)")
+    health_check.add_argument("--team", required=True)
+    health_check.set_defaults(health_handler=cmd_health_check)
     return parser
 
 
 def _run(args: argparse.Namespace, root: pathlib.Path,
          transport_factory: Callable[[str], admin.Transport], io: _Io,
-         checkout_system: checkout.System | None) -> int:
+         checkout_system: checkout.System | None, health_system: health.HealthSystem | None) -> int:
     if hasattr(args, "seat_handler"):
         system = checkout.real_system() if checkout_system is None else checkout_system
         return args.seat_handler(args, system, io)
+    if hasattr(args, "health_handler"):
+        return args.health_handler(args, health.real_system() if health_system is None else health_system, io)
     if hasattr(args, "team_handler"):
         team = admin.load_team(root, args.team)
         return args.team_handler(args, team, transport_factory(team.base_url()), io)
@@ -368,12 +399,13 @@ def main(
     stdout: BinaryIO | None = None,
     stderr: TextIO | None = None,
     checkout_system: checkout.System | None = None,
+    health_system: health.HealthSystem | None = None,
 ) -> int:
     io = _Io(sys.stdin if stdin is None else stdin, sys.stdout.buffer if stdout is None else stdout,
              sys.stderr if stderr is None else stderr)
     try:
         args = build_parser(io.stdout).parse_args(argv)
-        return _run(args, pathlib.Path(root), transport_factory, io, checkout_system)
+        return _run(args, pathlib.Path(root), transport_factory, io, checkout_system, health_system)
     except _ParserExit as done:
         return done.status
     except (UsageError, config.UsageError) as exc:
@@ -382,7 +414,7 @@ def main(
     except inbox.Busy as exc:
         io.say(str(exc))
         return EXIT_BUSY
-    except (checkout.CheckoutError, config.ConfigError, inbox.StateError) as exc:
+    except (checkout.CheckoutError, config.ConfigError, inbox.StateError, health.HealthError) as exc:
         io.say(str(exc))
         return EXIT_CONFIG
     except admin.Unreachable as exc:

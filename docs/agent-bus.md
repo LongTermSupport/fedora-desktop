@@ -507,6 +507,9 @@ with `--teams <list>`. `choose` reads the team's members with `sudo -n agent-bus
 `take` take `--type=host` for a desktop (`cc`) seat; a seat of the other type is never
 offered, and `take` refuses it. A
 seat's role is changed with `set-role`, the handle read from `agent-bus seat list`.
+`check` and `take` wait up to three minutes, saying so on the terminal, for a team whose
+homeserver is still starting (a session restored at boot), and refuse at once one that is
+stopped or failed.
 
 **Running the team.** On the homeserver host:
 
@@ -664,6 +667,25 @@ sudo agent-bus-install restore --team <team> --backup <n>
 
 `sudo agent-bus-install backups --team <team>` lists the numbers a restore accepts, with
 the time of each. `ccy-teams backup` and `ccy-teams restore` run these for you.
+
+## Is a team healthy?
+
+A homeserver restarts by itself after any exit but `systemctl stop`, and systemd's
+watchdog restarts one that freezes. Every minute `agent-bus-hs-health@<team>.timer`
+checks that its client API answers (restarting one that misses three probes in 20 s),
+notes the restarts systemd made, and checks the backups: a failed backup, or a newest one
+older than a day and a half. `ccy-teams` shows what it finds on the team's row, with what
+to do, and so does this, run as yourself (it exits 1 when a team has a problem):
+
+```bash
+agent-bus health status
+```
+
+A person can be held off signing in for a few minutes: three wrong passwords, then one
+try every 5 minutes; five sign-ins, then one every 6 minutes. Element then says "Too many
+login attempts for this account". It clears by itself, and retrying does not lengthen it.
+Tuwunel keeps no record of it that a tool can read, and no early reset is offered: the
+only one, restarting the homeserver, would lift the limit for every account.
 
 ## The human's account
 

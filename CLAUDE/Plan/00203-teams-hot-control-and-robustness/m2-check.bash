@@ -4,15 +4,13 @@
 # and exits 0 when the check holds, 1 when it does not, 2 when it could not look. Read-only: the
 # only writes it attempts are the ones H3 says must fail (into the read-only membership mount).
 #
-# RUN ON THE HOST, as the desktop user, through acceptance.bash.
+# RUN ON THE HOST, as the desktop user, through acceptance.bash (_acceptance-m2.inc.bash), on
+# the throwaway sessions it starts.
 #
-#   find                     one running session of each kind, as "<kind> <container> <session>"
-#                            lines on stdout: plain (the kit, no seat), seated, nobus
 #   selinux                  the host is Enforcing
 #   plain <container>        (b) (c) the membership reads; a write and a remount fail; the kit is
 #                            idle: no active flag, the guarded status line, a hook that starts no
 #                            process; at most one pingbus process (the keeper, once M1 ships)
-#   seated <container>       (a) every desired seat is held, the active flag is up
 #   nobus <container>        (e) PINGBUS_MEMBERSHIP=off, no mount, no pingbus, no plugin or settings
 #   cpu <plain> <nobus>      (c) the plain session's idle CPU is the --no-bus one's, within a point
 #   image <container>        (d) the session's image carries the M2 entrypoint, at the launcher's
@@ -40,35 +38,6 @@ env_of() {
         fi
     done < <(podman inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1")
     printf 'unset\n'
-}
-
-seat_count() { podman exec "$1" cat "${MOUNT}/membership.json" | jq '.seats | length'; }
-
-cmd_find() {
-    local id session membership seats found_plain="" found_seated="" found_nobus=""
-    while read -r id session; do
-        [[ -n "${id}" ]] || continue
-        membership="$(env_of "${id}" PINGBUS_MEMBERSHIP)"
-        if [[ "${membership}" == off ]]; then
-            [[ -n "${found_nobus}" ]] || found_nobus="nobus ${id} ${session}"
-        elif [[ "${membership}" == "${MOUNT}" ]]; then
-            seats="$(seat_count "${id}")"
-            if [[ "${seats}" == 0 ]]; then
-                [[ -n "${found_plain}" ]] || found_plain="plain ${id} ${session}"
-            else
-                [[ -n "${found_seated}" ]] || found_seated="seated ${id} ${session}"
-            fi
-        fi
-    done < <(podman ps --filter label=ccy-session --format '{{.ID}} {{index .Labels "ccy-session"}}')
-    local missing=""
-    [[ -n "${found_plain}" ]] || missing+=" a plain ccy (no --teams)"
-    [[ -n "${found_seated}" ]] || missing+=" a ccy --teams <seat>@<team>"
-    [[ -n "${found_nobus}" ]] || missing+=" a ccy --no-bus"
-    if [[ -n "${missing}" ]]; then
-        printf '[COULD NOT ESTABLISH] start, in ccy'"'"'s tmux (ccy-sessions lists them), and leave running:%s\n' "${missing}" >&2
-        exit 2
-    fi
-    printf '%s\n%s\n%s\n' "${found_plain}" "${found_seated}" "${found_nobus}"
 }
 
 cmd_selinux() {
@@ -105,6 +74,13 @@ cmd_plain() {
     jq -e '.statusLine.command | startswith("[ -e \"$PINGBUS_HOME/active\" ] || exec sh")' <<<"${settings}" >/dev/null \
         || fail "the session's status line is not the shell guard (H34): ${settings}"
     ok "(b) no active flag; the status line is the guard, so it runs the session's own: $(podman exec "${ctr}" cat "${HOME_IN}/statusline-inner")"
+    # Decision 1: a session on no team accepts no inbound, so Claude Code binds no inbox
+    # socket (it would be $XDG_RUNTIME_DIR/cc-socks/<pid>.sock, on the container's own root).
+    jq -e 'has("crossSessionInbound") | not' <<<"${settings}" >/dev/null \
+        || fail "(b) the plain session's settings accept inbound: ${settings}"
+    out="$(podman exec "${ctr}" sh -c 'd="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/cc-socks"; [ ! -d "$d" ] || find "$d" -name "*.sock"')"
+    [[ -z "${out}" ]] || fail "(b) the plain session has an inbox socket: ${out}"
+    ok "(b) no crossSessionInbound and no inbox socket: nothing in the container can write a turn into it"
     # (c) the UserPromptSubmit hook as the plugin registers it, with nothing on PATH: had the
     # guard not ended it in the shell, `exec pingbus` would fail (127).
     local hook
@@ -119,20 +95,6 @@ cmd_plain() {
         fail "(c) the plain session runs bus processes other than one keeper: $(grep '[p]ingbus' <<<"${procs}")"
     fi
     ok "(c) ${keepers} pingbus process in the plain session (the keeper, once M1 ships; none before)"
-}
-
-cmd_seated() {
-    local ctr="${1:?seated needs the container}" checkout json seats seat list
-    json="$(podman exec "${ctr}" cat "${MOUNT}/membership.json")"
-    checkout="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}' "${ctr}")"
-    list="$(cd -- "${checkout}" && agent-bus seat list)"
-    seats="$(jq -r '.seats[] | "\(.team)\t\(.seat)"' <<<"${json}")"
-    while IFS=$'\t' read -r team seat; do
-        grep -qP "^SEAT\t${team}\t${seat}\theld\t" <<<"${list}" || fail "(a) seat ${seat}@${team} is desired but not held: ${list}"
-        ok "(a) seat ${seat}@${team} is held"
-    done <<<"${seats}"
-    podman exec "${ctr}" test -f "${HOME_IN}/active" || fail "(a) the seated session has no active flag"
-    ok "(a) the active flag is up, so the hooks and pingbus status-line run as before"
 }
 
 cmd_nobus() {
@@ -186,13 +148,13 @@ cmd_spike() {
 }
 
 case "${1:-}" in
-find | selinux | plain | seated | nobus | cpu | image | spike)
+selinux | plain | nobus | cpu | image | spike)
     sub="$1"
     shift
     "cmd_${sub}" "$@"
     ;;
 *)
-    printf 'usage: m2-check.bash find|selinux|plain|seated|nobus|cpu|image|spike [args]\n' >&2
+    printf 'usage: m2-check.bash selinux|plain|nobus|cpu|image|spike [args]\n' >&2
     exit 64
     ;;
 esac

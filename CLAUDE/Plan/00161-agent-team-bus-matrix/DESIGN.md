@@ -185,7 +185,8 @@ Idempotent; run on every play run.
   `/usr/local/bin/agent-bus-claude`; all but `pingbus` are copied from
   `files/opt/claude-yolo/optional/agent-bus/`, the tree the ccy image stages too.
 - Units, copied from `files/etc/systemd/system/`: `agent-bus-hs@.service`,
-  `agent-bus-backup@.service`, `agent-bus-backup@.timer`; and the resolver stub
+  `agent-bus-backup@.service`, `agent-bus-backup@.timer`, `agent-bus-hs-health@.service`,
+  `agent-bus-hs-health@.timer` (section 3.7, Plan 00203); and the resolver stub
   `/usr/local/share/agent-bus/resolv.conf` (section 3.5).
 - `--bus-address <bus_ip>` (optional, host-wide): a NetworkManager `dummy` connection
   `agentbus0` holding `<bus_ip>/32`, persistent across boots. This is the address local
@@ -281,8 +282,9 @@ and unique on the host. `humans` uses `[a-z][a-z0-9_-]{0,31}`.
    `registration_shared_secret` (64 random bytes hex, created once, written with no
    trailing newline: the admin tool reads it under the token-file rules, one line of
    printable ASCII with no newline, and refuses anything else).
-3. firewalld rules (section 3.3), the unit drop-in, `daemon-reload`, enable
-   `agent-bus-hs@<team>.service` and `agent-bus-backup@<team>.timer`, and start the unit;
+3. firewalld rules (section 3.3), the unit drop-in, `daemon-reload`, start the unit, then
+   enable it and enable and start `agent-bus-backup@<team>.timer` and
+   `agent-bus-hs-health@<team>.timer` (after the unit: a missed backup fires at once);
    it is restarted only when a rendered file (`tuwunel.toml`, the drop-in) or the binary
    changed, and only then does the run print `CHANGED`, so a play run with nothing new
    leaves the homeserver alone.
@@ -304,7 +306,7 @@ and unique on the host. `humans` uses `[a-z][a-z0-9_-]{0,31}`.
    that group, so a `team` run outside the play, whoever runs it, keeps the play's group;
    with no record `team` fails rather than fall back to root's group.
 
-`remove --team <team>` stops and disables both units, removes the drop-in, the firewalld
+`remove --team <team>` stops and disables the unit and both timers, removes the drop-in, the firewalld
 rules and the applied stamp; data stays unless `--purge`. `check --team <team>` is read-only and prints each
 construction fact P1-P3 check (section 10), for the owner and for other projects' IaC.
 
@@ -313,11 +315,15 @@ construction fact P1-P3 check (section 10), for the owner and for other projects
 `agent-bus-hs@.service`: `User=agent-bus`, `Group=agent-bus`,
 `Environment=TUWUNEL_CONFIG=/var/lib/agent-bus/%i/tuwunel.toml`,
 `ExecStart=/usr/local/lib/agent-bus/tuwunel`,
-`TimeoutStopSec=330`, `After=network-online.target`. The restart policy, `Restart=on-failure`,
-`RestartSec=5s` and `StartLimitIntervalSec=0` (so a WireGuard address that is not up yet
-at boot is bound once it is, instead of the unit hitting the start limit and staying
-failed), lives only in the drop-in that `agent-bus render dropin` writes; the base unit
-(U16) does not repeat it. The drop-in also adds `After=` and
+`TimeoutStopSec=330`, `After=network-online.target`, `Type=notify` with `WatchdogSec=30s`
+and `TimeoutAbortSec=30s` (Plan 00203: Tuwunel 1.9.4's `systemd` feature, on in the release
+asset, sends READY=1 once its database is open and pings the watchdog; a frozen process is
+aborted, then killed). The restart policy, `Restart=always` (Tuwunel exits 0 on SIGTERM and
+on an admin `server shutdown`; only `systemctl stop` leaves it down), `RestartSec=5s`
+growing over `RestartSteps=5` to `RestartMaxDelaySec=60s`, and `StartLimitIntervalSec=0`
+(so a WireGuard address that is not up yet at boot is bound once it is, instead of the unit
+hitting the start limit and staying failed), lives only in the drop-in that
+`agent-bus render dropin` writes; the base unit (U16) does not repeat it. The drop-in also adds `After=` and
 `Wants=` on `sys-subsystem-net-devices-<if>.device` for every interface carrying a
 `listen` address (`agentbus0`, a WireGuard interface, any other). Sandboxing: `NoNewPrivileges`,
 `ProtectSystem=strict`,
@@ -334,8 +340,7 @@ the unit puts `TemporaryFileSystem=/run/systemd/resolve:ro` over that directory 
 `/run/systemd/resolve/stub-resolv.conf` and `/run/systemd/resolve/resolv.conf`, plus
 `InaccessiblePaths=-/run/dbus`, so a lookup fails inside the host. Probe H3 confirms, on
 Fedora Workstation and Fedora Server both, that `/etc/resolv.conf` inside the unit reads the
-stub and that Tuwunel starts with it. `Type=notify` if H3 shows Tuwunel sends readiness;
-otherwise `simple` plus the readiness poll.
+stub and that Tuwunel starts with it. The readiness poll stays after `Type=notify`'s start.
 
 ### 3.6 `tuwunel.toml`, every key
 
@@ -429,6 +434,13 @@ so a per-room display name can still be set (only Element shows it; pingbus neve
   `agent-bus-install backup-now --team <team>` runs the same once, and
   `agent-bus-install backups --team <team>` lists, read-only, each backup that has both its
   parts (`BACKUP<TAB><id><TAB><time>`), which `ccy-teams restore` offers.
+- **Health** (Plan 00203): `agent-bus-hs-health@<team>.timer` runs `agent-bus health check --team <team>` (`helpers/agent_bus/health.py`) every minute as root. It probes the client
+  API on loopback and restarts a homeserver that misses three probes ten seconds apart,
+  notes systemd's own restarts, and judges the backups (the service failed; the newest
+  usable backup older than 36 h; none once the timer has run). It writes
+  `/var/lib/agent-bus-applied/health/<team>.json` (the stamps' group and modes, no secret,
+  with the time it stops being current), which `ccy-teams` shows on the team's row and
+  `agent-bus health status`, run as the desktop user, prints.
 - **Restore:** `agent-bus-install restore --team <team> --backup <id>` stops the unit,
   restores the tar (refused unless it holds only those members as plain files and directories with no
   setuid, setgid or sticky bit; extracted without its owners and modes, then given to `agent-bus`),

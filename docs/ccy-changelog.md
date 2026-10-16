@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.1 — container 2.68
+## 3.99.2 — container 2.69
 
 - **One seat keeper holds every agent-bus seat** (Plan 00203 M1). `pingbus seat exec` starts
   `pingbus seat keep`, which takes each seat's lock and is the only process that holds one;
@@ -25,16 +25,15 @@ Two version numbers move independently — see
   longer keep a seat after the session ends (audit F5). A session told the keeper stopped
   says so at its next prompt. pingbus also learns `seat retire` and `reach`, for the hot
   control milestones that follow. The image carries the new pingbus, so it is rebuilt once.
-
-## 3.99.0 — container 2.67
-
 - **The agent team bus kit in every session started in ccy's tmux** (Plan 00203 M2, the
   launch half of hot control). Each such session is labelled `ccy-session=<name>` and gets
   its desired membership (the `--teams` seats, or none) written by `ccy-teams internal membership-init` under `$XDG_RUNTIME_DIR/ccy/membership/<name>/` and mounted read-only at
   `/run/ccy/membership`, relabelled per session on SELinux; `PINGBUS_MEMBERSHIP` names it.
-  On no team the kit is inert: every hook is a shell guard on a flag the claim keeps, and
-  the status line runs the session's own one with no Python. `ccy --no-bus` leaves the kit
-  out. `PINGBUS_SEATS` and the `ccy-seats` label are retired for ccy (cc keeps the variable
+  On no team the kit is inert: every hook is a shell guard on a flag the claim keeps, the
+  status line runs the session's own one with no Python, and the session accepts no inbound,
+  so it has no inbox socket (joining a team will relaunch it once). A settings file whose
+  status line cannot be read is named at launch and the session starts with Claude Code's own
+  status line. `ccy --no-bus` leaves the kit out. `PINGBUS_SEATS` and the `ccy-seats` label are retired for ccy (cc keeps the variable
   until its own milestone); an image older than this launcher is rebuilt, and an old launcher
   meeting this image is refused rather than started teamless. Plugin 1.3.0.
 

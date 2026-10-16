@@ -31,6 +31,20 @@ Branch `feat/hot-control-m1-pingbus`, from F44 (with M0), with M2
 - How pingbus re-runs itself: the zipapp it was loaded from, else the source tree
   (`cli.pingbus_argv`), independent of `sys.argv[0]`.
 
+## Second merge: M2's Fable fixes (2c505f9d) and F44
+
+- One `seat exec`, keeper-based, carrying M2's fixes: `SettingsUnreadable` is a warning (the
+  session starts with Claude Code's own status line), and `session_settings(seated=...)`
+  sets `crossSessionInbound` only when the launch holds a seat.
+- The keeper respects a no-inbound session on no team: it may take a seat added later (the
+  lock, the link, the `active` flag), but the settings file is the launch's and never
+  changes, so inbound stays off until M3's relaunch on the first join. Test:
+  `test_a_seat_the_keeper_takes_later_never_turns_inbound_on`. Until M3 exists, such a
+  session's hooks run once a seat is applied and, having no socket, say so (`no_socket`).
+- `_acceptance-m1.inc.bash`, after M2's legs: (a) the helper tests; (b) a throwaway plain
+  session in which the keeper is the only pingbus process and the only lock holder.
+- CCY 3.99.2, container 2.69.
+
 ## Interface notes for M2 and later
 
 - `PINGBUS_TEAMS` is still set for a seated membership session (M2's behaviour), because

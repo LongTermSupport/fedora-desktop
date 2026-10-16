@@ -49,19 +49,40 @@ session-side part of the team system recover by itself.
   Notes: [subagent-reports/261016-hot-control-design-opus.md](subagent-reports/261016-hot-control-design-opus.md).
 - [ ] ⬜ **Task 1.3**: Milestones for the build, from 1.1 and 1.2, each one shippable.
 
-### Phase 2: build (the spec's milestones, tests first)
+### Phase 2: server-side robustness (audit gaps 3, 4, 9, 10)
 
-- [x] ✅ **Task 2.2**: M1, pingbus: the 3.1 and 3.2 parsers with `checkout` (`membership.py`,
-  the one reader, M2's folded in), `active_teams` from `PINGBUS_MEMBERSHIP` (H4, H8), `pingbus seat keep` as the only lock holder for every seat with `LOCK_UN` and its H10 hook line
-  (D4, H9, H10; audit F5), an empty membership in `seat exec`, `seat retire`, `reach`. CCY
-  3.99.1, container 2.68. Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M1. Notes:
+Built on `fix/teams-server-robustness`; design and evidence in
+`subagent-reports/261016-server-robustness-opus.md`, host proof in [ACCEPTANCE.md](ACCEPTANCE.md)
+(`acceptance.bash`, R1-R9; B1-B2 after a reboot).
+
+- [ ] 🔄 **Task 2.1** (gap 4): homeserver readiness, watchdog and restart on every exit; a
+  minutely health check that restarts one whose client API stops answering.
+- [ ] 🔄 **Task 2.2** (gap 3): `agent-bus seat check`/`take` wait, bounded, for a starting
+  homeserver.
+- [ ] 🔄 **Task 2.3** (gap 10): stale or failed backups and restarts on the board and in
+  `agent-bus health status`; the sign-in limits said where a password is issued.
+- [ ] 🔄 **Task 2.4** (gap 9): `service: true` LXC members run as a unit in their container.
+- [ ] ⬜ **Task 2.5**: host acceptance passed (meta-deploy), and B1-B2 after a reboot.
+
+### Phase 3: hot control build (the spec's milestones, tests first)
+
+- [x] ✅ **Task 3.0** (M1; its commits call it Task 2.2): pingbus. The 3.1 and 3.2 parsers with
+  `checkout` (`membership.py`, the one reader, M2's folded in), `active_teams` from
+  `PINGBUS_MEMBERSHIP` (H4, H8), `pingbus seat keep` as the only lock holder for every seat with
+  `LOCK_UN` and its H10 hook line (D4, H9, H10; audit F5), an empty membership in `seat exec`
+  (one `seat exec`, keeping M2's launch-time inbound rule), `seat retire`, `reach`. With M2
+  merged: CCY 3.99.2, container 2.69. Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M1,
+  `_acceptance-m1.inc.bash`. Notes:
   [subagent-reports/261016-m1-pingbus-opus.md](subagent-reports/261016-m1-pingbus-opus.md).
-
-- [x] ✅ **Task 2.3**: M2, the launcher and the entrypoint: the membership directory and its
+- [x] ✅ **Task 3.1** (M2; its commits call it Task 2.3): the launcher and the entrypoint: the membership directory and its
   read-only relabelled mount, the `ccy-session` label, `PINGBUS_MEMBERSHIP`, `ccy-teams internal membership-init`, the kit in every named session under the inert contract, `--no-bus`,
   `PINGBUS_SEATS` and `ccy-seats` retired for ccy; the H34 spike (Claude Code does not re-read
-  `--settings`; the spec's fallback is built). CCY 3.99.0, container 2.67, plugin 1.3.0.
-  Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M2, `acceptance.bash`, queued in
+  `--settings`, so inbound is decided at launch: a session on no team gets none, and its first
+  join relaunches it once). Fixed after the Fable review
+  ([subagent-reports/261016-m2-review-fable.md](subagent-reports/261016-m2-review-fable.md)).
+  CCY 3.99.1, container 2.68, plugin 1.3.0. Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M2,
+  `acceptance.bash` (a dispatcher; `_acceptance-m2.inc.bash` starts its own throwaway
+  sessions), then the Plan 00201 and 00161 acceptances, ported to the membership, all queued in
   meta-deploy. Notes: [subagent-reports/261016-m2-launcher-opus.md](subagent-reports/261016-m2-launcher-opus.md).
 
 ## Decisions
@@ -73,7 +94,10 @@ may reverse any of them.** Full detail: SPEC-hot-control.md section 8.
    opt-out. This holds only if the inert contract is met and tested in M2:
    - a flag-file guard in `hooks.json`;
    - no per-second Python status line;
-   - no `crossSessionInbound` accept unless the session is on a team;
+   - no `crossSessionInbound` accept unless the session is on a team. Claude Code reads it only
+     at launch (the M2 spike), so a session launched on no team has no inbox socket, and its
+     first join relaunches it once, automatically, through the restart path; every later
+     change is hot (SPEC H22, H34);
    - exactly one resident process, the keeper.
 2. Hot control is control, not isolation, within a checkout. **A remove does not revoke the
    token.** `--revoke` is deferred behind audit F7.

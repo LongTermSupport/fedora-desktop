@@ -1,0 +1,12 @@
+# Every minute: the health check of the agent team bus homeserver of team %i (Plan 00203).
+# Enabled and started by `agent-bus-install team`, stopped and disabled by `remove`.
+[Unit]
+Description=Minutely health check of the agent team bus homeserver of team %i
+
+[Timer]
+OnActiveSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
