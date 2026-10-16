@@ -163,7 +163,7 @@ RUN
 lib_run() {
     : >"$FAKE_BUS_LOG"
     (cd "$work" && LIB_DIR="$LIB_DIR" PATH="$bus_bin:$PATH" CCY_MOUNT_RELABEL="${CCY_MOUNT_RELABEL-z}" \
-        bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
+        XDG_RUNTIME_DIR="$work/run" bash "$work/lib-run.bash" "$@" 2>"$work/lib.err")
 }
 INIT="ccy-teams internal membership-init"
 MOUNT="-v|/run/user/1000/ccy/membership/ccy-proj-1:/run/ccy/membership:ro,Z|-e|PINGBUS_MEMBERSHIP=/run/ccy/membership"
@@ -219,6 +219,18 @@ check "no SELinux relabel (Permissive off, or a forwarded agent): the mount is p
 check "--no-bus in ccy's tmux: the label, PINGBUS_MEMBERSHIP=off, no mount (H33b)" \
     "--label|ccy-session=ccy-proj-1|-e|PINGBUS_MEMBERSHIP=off|rc=0" "$(lib_run take_and_show "" false true yolo-1)"
 check "  nothing is called" "none" "$(bus_calls)"
+# Fable's M6 review B1: tmux reuses a name once its session ends, so a --no-bus launch removes
+# the membership an earlier session left under its name; with no name it has none to remove.
+stale="$work/run/ccy/membership/ccy-proj-1"
+mkdir -p "$stale" "$work/run/ccy/membership/yolo-1"
+printf '{}\n' >"$stale/membership.json"
+lib_run take_and_show "" false true yolo-1 >/dev/null
+check "--no-bus in ccy's tmux removes the membership left under its name" "no" "$(yes_no test -e "$stale")"
+FAKE_SESSION='' lib_run take_and_show "" false true yolo-1 >/dev/null
+check "  outside ccy's tmux it has no name, and nothing is removed" "yes" "$(yes_no test -d "$work/run/ccy/membership/yolo-1")"
+mkdir -p "$stale"
+lib_run take_and_show "" false false yolo-1 >/dev/null
+check "  a launch on the bus leaves its directory to membership-init" "yes" "$(yes_no test -d "$stale")"
 check "--no-bus with seats (a Quick Launch team): refused 64 before any seat is taken" "rc=64" \
     "$(lib_run ccy_seats_take dev1@team-a false true yolo-1)"
 check "  nothing is called" "none" "$(bus_calls)"
@@ -363,7 +375,7 @@ run_ccy() {
     : >"$FAKE_BUS_LOG"
     : >"$work/tools.log"
     RC=0
-    (cd "$repo" && env HOME="$home" PATH="$path" CCY_CONTAINER_ENGINE=podman TERM=dumb \
+    (cd "$repo" && env HOME="$home" PATH="$path" CCY_CONTAINER_ENGINE=podman TERM=dumb XDG_RUNTIME_DIR="$work/run" \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
         bash "$LAUNCHER" "$@" </dev/null >"$work/ccy.out" 2>"$work/ccy.err") || RC=$?
 }

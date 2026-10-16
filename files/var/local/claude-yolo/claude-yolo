@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.99.12.1"  # Container 2.77.1: cc --teams and cc --bus sessions are hot-controlled like ccy ones (ccy-teams session add/remove/move/role/list); cc --bus refuses team messages until restarted on a team. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.12.2"  # Container 2.77.1: cc --teams and cc --bus sessions are hot-controlled like ccy ones; a --no-bus launch removes the membership an earlier session left under its name. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

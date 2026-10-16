@@ -133,7 +133,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   system prompt that names no team, and `ccy-teams session add|remove|move|role|list` (and
   the M5 picker) finding cc sessions on ccy's tmux server. `cc --bus` refuses team messages
   until it is restarted on its first team (Decision 7). Repair is refused for cc (exit 78),
-  and the record follows each change. CCY 3.99.12.1, container 2.77.1. Host
+  and the record follows each change. CCY 3.99.12.2, container 2.77.1. Host
   acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M6, `_acceptance-m6.inc.bash`. As built, and what
   is not: SPEC-hot-control.md H32 (Decision 7). Notes:
   [subagent-reports/261016-m6-opus.md](subagent-reports/261016-m6-opus.md). Fable said

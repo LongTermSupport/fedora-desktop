@@ -17,10 +17,17 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.1 — container 2.77.1
+## 3.99.12.2 — container 2.77.1
 
-Includes 3.99.12 (container 2.77), never deployed. 3.99.12.1 makes `cc --bus` refuse team
-messages until it is started again on a team (below) and takes back the image's `pingbus seat exec --accepts-inbound`, which 3.99.12 added for the opposite choice.
+Includes 3.99.12 and 3.99.12.1, never deployed. 3.99.12.2: a `ccy --no-bus` launch in ccy's tmux
+removes the desired membership an earlier session left under its tmux name, which tmux reuses
+once a session ends; `ccy-teams` also counts a membership only while the record of its name
+carries the bus, so a plain `cc` or a `--no-bus` ccy under a reused name is never shown on, or
+holding a claim to, the earlier session's seats (Plan 00203, Fable's M6 review B1).
+
+3.99.12.1 (container 2.77.1) makes `cc --bus` refuse team messages until it is started again on
+a team (below) and takes back the image's `pingbus seat exec --accepts-inbound`, which 3.99.12
+(container 2.77) added for the opposite choice. 3.99.12:
 
 - **cc sessions are hot-controlled too** (Plan 00203 M6). A `cc --teams` session, and one
   started with the new `cc --bus` (on no team, after the same Element consent), can be put in
