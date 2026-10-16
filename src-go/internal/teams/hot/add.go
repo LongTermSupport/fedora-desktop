@@ -301,6 +301,16 @@ func (x *Hot) alreadyIn(ctx context.Context, t *target, s membership.Seat, given
 	if given != "" && given != s.Seat {
 		return x.usageError(fmt.Sprintf("%s is already in %s as seat %s: one seat per team per session; remove it first.", t.session, s.Team, s.Seat))
 	}
+	pending, err := membership.RelaunchPending(t.dir)
+	if err != nil {
+		x.mark(markFailed, "session: "+err.Error())
+		return term.ExitFailure
+	}
+	if pending {
+		x.mark(markFailed, "session: in "+s.Team+" as seat "+s.Seat+", but not relaunched yet: team messages cannot wake it "+
+			"until it relaunches at its next idle moment (the request stays); remove "+s.Team+" to withdraw it")
+		return term.ExitFailure
+	}
 	held, _, err := x.seatHeld(ctx, t, s.Team, s.Seat)
 	rep, repErr := membership.ReadReport(t.checkout(), t.session)
 	if err != nil || repErr != nil || !held || !rep.Holds(s.Team, s.Seat) {

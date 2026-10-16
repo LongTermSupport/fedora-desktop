@@ -122,3 +122,20 @@ func WriteRelaunch(dir string, generation int, now time.Time) error {
 func removeRelaunch(dir string) error {
 	return fsx.RemoveIfPresent(filepath.Join(dir, RelaunchFile))
 }
+
+// RelaunchPending is whether the session whose membership is in dir has a relaunch request
+// it has not answered yet.
+func RelaunchPending(dir string) (bool, error) {
+	_, err := os.Lstat(filepath.Join(dir, RelaunchFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not check for a relaunch request: %w", err)
+	}
+	return true, nil
+}
+
+// WithdrawRelaunch drops a relaunch request no longer wanted (the session left its only
+// team before the relaunch came).
+func WithdrawRelaunch(dir string) error { return removeRelaunch(dir) }

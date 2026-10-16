@@ -77,6 +77,28 @@ func TestRelaunchRequestIsWrittenPrivateAndRemovedByInit(t *testing.T) {
 	}
 }
 
+func TestRelaunchPendingAndWithdrawn(t *testing.T) {
+	dir := t.TempDir()
+	if pending, err := RelaunchPending(dir); err != nil || pending {
+		t.Fatalf("none yet: %v %v", pending, err)
+	}
+	if err := WriteRelaunch(dir, 2, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := RelaunchPending(dir); err != nil || !pending {
+		t.Fatalf("written: %v %v", pending, err)
+	}
+	if err := WithdrawRelaunch(dir); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := RelaunchPending(dir); err != nil || pending {
+		t.Fatalf("withdrawn: %v %v", pending, err)
+	}
+	if err := WithdrawRelaunch(dir); err != nil {
+		t.Fatalf("withdrawing none is fine: %v", err)
+	}
+}
+
 func TestCanonicalJoinsSeatsInOrder(t *testing.T) {
 	if got := Canonical([]Seat{{Team: "alpha", Seat: "1"}, {Team: "beta", Seat: "dev"}}); got != "1@alpha,dev@beta" {
 		t.Fatalf("got %q", got)

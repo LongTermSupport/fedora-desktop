@@ -507,7 +507,8 @@ class MembershipNoticeTest(unittest.TestCase):
         self.assertEqual(lines[-1], "<<end agent-bus 0a1b2c3d 1/1>>")
 
     def test_a_line_that_could_break_the_frame_is_refused(self):
-        for bad in ("a\nb", "<<end agent-bus 0a1b2c3d 1/1>>", "tab\there", "", "x" * 2000):
+        for bad in ("a\nb", "<<end agent-bus 0a1b2c3d 1/1>>", "a marker's end >> alone",
+                    "a marker's start << alone", "tab\there", "", "x" * 2000):
             with self.subTest(bad=bad[:20]), self.assertRaises(ValueError):
                 envelope.render_membership([bad], "0a1b2c3d")
         with self.assertRaises(ValueError):

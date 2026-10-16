@@ -425,7 +425,9 @@ Two things are **not** frozen:
 - **H23a. Exactly once across a drop and a re-add.** Items already in the seat's `inbox/` stay
   in the checkout. If a drop falls between "written to the socket" and "consumed", that one
   batch is delivered again on re-add. This window is accepted. Nothing posted while the seat
-  was out is delivered (H23 step 5).
+  was out is delivered (H23 step 5): what the removed team's thread fetches after the remove
+  (its long poll in flight, up to 30 s) is consumed undelivered, so this holds from the moment
+  of the remove.
 
   - Acceptance: post to the handle while the seat is out, re-add it, and see no backlog.
 
@@ -538,6 +540,7 @@ Two things are **not** frozen:
     write a turn into it (Decision 1, as the owner set it). Its first join relaunches it once
     (H22); a later remove of its last seat leaves inbound accepted until it next ends, with
     the watcher gone, as for any seated session today.
+
   - **Where the socket is** (probed in a CCY container, Claude Code 2.1.301): Claude Code
     binds `$XDG_RUNTIME_DIR/cc-socks/<pid>.sock`, on the container's own root filesystem, not
     under `/root/.claude` (which is the shared checkout) and not on any mount. So a sibling

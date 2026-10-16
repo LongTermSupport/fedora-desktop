@@ -136,4 +136,8 @@ model's prose.
 | (g)  | In ccy's tmux, in a checkout of a team on this machine, start a plain `ccy` and leave it idle. From another terminal: `ccy-teams session add <session> <team> --yes`. Then post to it in Element. | The add prints its own line, "relaunched once to accept team messages (it started on no team)", and exits 0. The session resumes the same conversation, says it joined, shows `bus: <team>`, and the Element message reaches it. |
 
 A headless acceptance session runs without the supervisor, so it cannot exercise the relaunch:
-that is why (g) is yours.
+that is why (g) is yours. After the relaunch the session is told its teams by the session-start
+context, not by a "you joined" notice: that is what "says it joined" means here.
+
+Run one `ccy-teams session` command at a time per session. Until H20's locks land (M4), two at
+once on the same session can undo each other.

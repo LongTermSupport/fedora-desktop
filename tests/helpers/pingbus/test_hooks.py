@@ -34,7 +34,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, hooks, inbox, inject, membership, notify, protocol, relay, seat
+from helpers.pingbus import cli, envelope, hooks, inbox, inject, membership, notify, protocol, relay, seat
 
 TEAM, SN = "team-a", "team-a.agent-bus.internal"
 TEAM_B, SN_B = "team-b", "team-b.agent-bus.internal"
@@ -773,6 +773,23 @@ class MembershipNoticeHookTest(MembershipHookCase):
     def test_nothing_changed_nothing_is_said(self):
         self.start()
         self.assertEqual(self.prompt(), [])
+
+    def test_a_description_with_a_marker_end_leaves_out_its_line_not_the_notice(self):
+        """N1: `>>` (like `<<`) cannot go into a notice, so the about line is left out and the
+        rest of the notice is still delivered."""
+        self.seats([(TEAM_B, "2")])
+        self.start()
+        self.state.save_about("Builds >> the example site")
+        self.seats([(TEAM_B, "2"), (TEAM, "1")])
+        told: list[str] = []
+
+        def deliver(lines: list[str]) -> bool:
+            told.append(envelope.render_membership(lines, "0a1b2c3d"))
+            return True
+
+        self.assertTrue(hooks.tell_membership(self.env, deliver))
+        self.assertIn(hooks.fill("joined", team=TEAM, seat="1", handle=self.HANDLE_A), told[0])
+        self.assertNotIn("Builds", told[0])
 
 
 # ── SessionEnd: the goodbye ────────────────────────────────────────────────────────────

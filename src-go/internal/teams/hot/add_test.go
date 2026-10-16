@@ -145,6 +145,29 @@ func TestAddWhoseRelaunchDoesNotComeSaysWhatToDo(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); err != nil {
 		t.Fatalf("the relaunch request stays: %v", err)
 	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("a rerun while the relaunch is pending: exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✗ session: in alpha as seat 3, but not relaunched yet: team messages cannot wake it "+
+		"until it relaunches at its next idle moment (the request stays); remove alpha to withdraw it")
+	if strings.Contains(r.ErrOut.String(), "Nothing to do") {
+		t.Fatalf("a pending relaunch is not nothing to do:\n%s", r.ErrOut.String())
+	}
+}
+
+func TestRemoveOfTheLastTeamWithdrawsAPendingRelaunch(t *testing.T) {
+	r := newRig(t)
+	r.m.relaunch = false
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if code := r.run(t, "remove", session, "alpha", "--yes"); code != term.ExitOK {
+		t.Fatalf("remove exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ relaunch: request withdrawn (the session is on no team now)")
+	if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); !os.IsNotExist(err) {
+		t.Fatalf("the relaunch request is withdrawn: %v", err)
+	}
 }
 
 func TestReachFailureStopsTheAdd(t *testing.T) {

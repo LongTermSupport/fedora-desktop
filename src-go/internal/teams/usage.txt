@@ -182,7 +182,9 @@ Usage:
                                    line per step on stderr (✓, ✗, or - for already so); asks
                                    first, --yes required with no terminal. Exit 75 for a seat
                                    held elsewhere, 78 for a session that cannot be changed
-                                   while it runs. ccy-teams session --help says more
+                                   while it runs. Run one session command at a time per
+                                   session: two at once on the same session can undo each
+                                   other. ccy-teams session --help says more
   ccy-teams choose-seat <team>     choose which seat this session takes in the team (gum), then
                                    whether the seat is the team's coordinator, a worker, or
                                    stops being the coordinator; prints SEAT@TEAM on stdout, the

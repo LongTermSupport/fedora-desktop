@@ -1307,6 +1307,30 @@ class _Waiting:
     failures: list[tuple[str, Exception]] = dataclasses.field(default_factory=list)
 
 
+class _TeamStop(threading.Event):
+    """One team's thread's stop: set when the watcher or waiter ends, or `remove`d when the
+    owner took the team out of the session (Plan 00203 H11)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.removed = False
+
+    def remove(self) -> None:
+        self.removed = True
+        self.set()
+
+
+def _discarded(seat: _Seat, stop: threading.Event, batch: syncer.Batch) -> bool:
+    """H23a: whether the team was removed while this batch's long poll was in flight; if so,
+    what it fetched is consumed undelivered, so nothing posted after the remove reaches the
+    session on a re-add. A thread stopped because its process ends keeps what it fetched."""
+    if not (isinstance(stop, _TeamStop) and stop.removed):
+        return False
+    for event_id in batch.accepted:
+        seat.state.consume(event_id)
+    return True
+
+
 def _long_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting,
                stop: threading.Event | None = None) -> None:
     """One team's thread: long-poll until stopped (all, or this team by `stop`) or the
@@ -1320,6 +1344,8 @@ def _long_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting,
             if remaining_ms <= 0:
                 return
             batch = seat.syncer.sync_once(min(rt.long_poll_ms, remaining_ms))
+            if _discarded(seat, stop, batch):
+                return
             if batch.drops:
                 waiting.drops.put((seat.member.team, batch.drops))
             if batch.accepted:
@@ -1386,8 +1412,8 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     held: list[tuple[_Seat, inbox.Lock]] = []
     pending: _Drops = {}
     handed_over: set[str] = set()
-    stops: dict[str, threading.Event] = {}
-    following = _Following(environ, err)
+    stops: dict[str, _TeamStop] = {}
+    following = _Following(environ, err, rt)
     try:
         for member in members:
             seat = _seat(member, environ, rt, err, reads=True)
@@ -1410,7 +1436,7 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
         for seat in seats:
             seat.syncer.publish_status(until)
         for seat, lock in held:
-            stops[seat.member.team] = threading.Event()
+            stops[seat.member.team] = _TeamStop()
             thread = threading.Thread(target=_long_poll, args=(seat, lock, rt, waiting, stops[seat.member.team]),
                                       daemon=True, name=f"pingbus-wait-{seat.member.team}")
             rt.threads.append(thread)
@@ -1495,6 +1521,8 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
             try:
                 batch = seat.syncer.sync_once(timeout_ms)
                 timeout_ms = rt.long_poll_ms
+                if _discarded(seat, stop, batch):
+                    return
                 if batch.drops:
                     waiting.drops.put((team, batch.drops))
                 now = rt.clock_ms()
@@ -1904,8 +1932,8 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
     held: list[tuple[_Seat, inbox.Lock]] = []
     pending: _Drops = {}
     handed_over: set[str] = set()
-    stops: dict[str, threading.Event] = {}
-    following = _Following(environ, err)
+    stops: dict[str, _TeamStop] = {}
+    following = _Following(environ, err, rt)
 
     def start_team(member: config.Member) -> _Seat | None:
         """Hold one team's lock as a watcher and start its thread; None, said, when busy."""
@@ -1917,7 +1945,7 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
                       "sync lock\n")
             return None
         held.append((seat, lock))
-        stops[member.team] = threading.Event()
+        stops[member.team] = _TeamStop()
         thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, err, stops[member.team]),
                                   daemon=True, name=f"pingbus-watch-{member.team}")
         rt.threads.append(thread)
@@ -2009,16 +2037,24 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
 class _Following:
     """Plan 00203 H11: a watcher or waiter under `PINGBUS_MEMBERSHIP` follows the session's
     active teams as the owner changes them, each tick: a team that went is stopped (its
-    thread releases the sync lock after the long poll in flight) and no longer delivered; a
-    team that came is started. A team dropped for a permanent failure is not started again
-    until it has left and come back. Without the membership, nothing changes at runtime."""
+    thread releases the sync lock after the long poll in flight, and what that poll fetched
+    is discarded) and no longer delivered; a team that came is started. A team whose sync
+    lock is busy (a `wait` took it first) is tried again with the watcher's backoff until it
+    starts. A team dropped for a permanent failure is not started again until it has left
+    and come back. Without the membership, nothing changes at runtime."""
 
-    def __init__(self, environ: Mapping[str, str], err: TextIO) -> None:
-        self.environ, self.err = environ, err
+    def __init__(self, environ: Mapping[str, str], err: TextIO, rt: Runtime) -> None:
+        self.environ, self.err, self.rt = environ, err, rt
         marker = environ.get(membership.MEMBERSHIP_VAR)
         self.on = marker is not None and marker != membership.MEMBERSHIP_OFF
         self.failed: set[str] = set()
+        self.busy: dict[str, tuple[_Backoff, float]] = {}
         self._refused = False
+
+    def _retry_later(self, team: str) -> None:
+        """A busy lock is transient (H11): the team is tried again after the next backoff."""
+        backoff, _ = self.busy.get(team) or (_Backoff(self.rt.outage_retry_s, self.rt.outage_retry_max_s), 0.0)
+        self.busy[team] = (backoff, self.rt.monotonic() + backoff.next())
 
     def active(self) -> tuple[str, ...] | None:
         """The active teams now; None, said once, while the files are refused (the seats
@@ -2034,24 +2070,27 @@ class _Following:
         self._refused = False
         return teams
 
-    def follow(self, seats: list[_Seat], stops: Mapping[str, threading.Event],
+    def follow(self, seats: list[_Seat], stops: Mapping[str, _TeamStop],
                start: Callable[[config.Member], _Seat | None] | None) -> list[_Seat]:
         teams = self.active()
         if teams is None:
             return seats
         self.failed &= set(teams)
+        self.busy = {team: due for team, due in self.busy.items() if team in teams}
         kept = []
         for seat in seats:
             if seat.member.team in teams:
                 kept.append(seat)
                 continue
-            stops[seat.member.team].set()
+            stops[seat.member.team].remove()
             self.err.write(f"{PROG}: team {seat.member.team}: removed from this session: no longer watched\n")
         if start is None:
             return kept
         watched = {seat.member.team for seat in kept}
         for team in teams:
             if team in watched or team in self.failed:
+                continue
+            if team in self.busy and self.rt.monotonic() < self.busy[team][1]:
                 continue
             try:
                 member = config.load_bundle(config.resolve_home(self.environ), team)
@@ -2061,10 +2100,11 @@ class _Following:
                 continue
             seat = start(member)
             if seat is not None:
+                self.busy.pop(team, None)
                 self.err.write(f"{PROG}: team {team}: added to this session: watched\n")
                 kept.append(seat)
             else:
-                self.failed.add(team)
+                self._retry_later(team)
         return kept
 
 

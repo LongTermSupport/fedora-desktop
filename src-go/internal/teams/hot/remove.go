@@ -33,6 +33,7 @@ func (x *Hot) remove(ctx context.Context, r request) term.ExitCode {
 		return term.ExitFailure
 	}
 	up := state == systemd.HomeserverUp
+	last := in && len(t.desired.Seats) == 1
 	if in {
 		if code, ok := x.takeOut(ctx, t, r, seat, up); !ok {
 			return code
@@ -42,7 +43,29 @@ func (x *Hot) remove(ctx context.Context, r request) term.ExitCode {
 		x.mark(markSkip, "record: "+r.team+" already left out")
 		x.mark(markSkip, "session: seat "+seat+" already released")
 	}
+	if last {
+		if code, ok := x.withdrawRelaunch(t); !ok {
+			return code
+		}
+	}
 	return x.farewell(ctx, t, r.team, seat, up)
+}
+
+// withdrawRelaunch drops a first-join relaunch still pending once the session is on no team:
+// it would relaunch for nothing.
+func (x *Hot) withdrawRelaunch(t *target) (term.ExitCode, bool) {
+	pending, err := membership.RelaunchPending(t.dir)
+	if err == nil && pending {
+		err = membership.WithdrawRelaunch(t.dir)
+	}
+	if err != nil {
+		x.mark(markFailed, "relaunch: "+err.Error())
+		return term.ExitFailure, false
+	}
+	if pending {
+		x.mark(markDone, "relaunch: request withdrawn (the session is on no team now)")
+	}
+	return term.ExitOK, true
 }
 
 // takeOut is H23 steps 2 to 4: the role check, the record and the desired file, and the wait

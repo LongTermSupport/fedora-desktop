@@ -87,6 +87,9 @@ its sync position cleared (nothing posted while it is out is delivered on a late
 listening status expired and its goodbye posted. The seat's token stays valid: remove stops this
 session's pingbus, it does not revoke. Each asks first; with no terminal, --yes is required.
 
+Run one session command at a time per session: two at once on the same session can undo each
+other (an add can be rolled back over another add that already said it was done).
+
 Exit codes:
   0   done, or already so
   1   a step failed (the report says which)

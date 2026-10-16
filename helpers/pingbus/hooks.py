@@ -314,6 +314,12 @@ def _farewell_key(desired: membership.Desired, team: str, seat_name: str) -> str
     return "removed"
 
 
+def _fits_a_notice(description: str | None) -> bool:
+    """Whether a team's description can go into a membership notice: neither of a marker's
+    `<<` and `>>`, which render_membership refuses (the line is left out, not the notice)."""
+    return bool(description) and "<<" not in description and ">>" not in description
+
+
 def membership_notice(previous: membership.ToldRecord | None, now: membership.ToldRecord,
                       desired: membership.Desired, views: Mapping[str, TeamView]
                       ) -> tuple[membership.ToldRecord, list[str]]:
@@ -334,7 +340,7 @@ def membership_notice(previous: membership.ToldRecord | None, now: membership.To
         if key not in before:
             changed = True
             lines.append(fill("joined", team=team.team, seat=team.seat, handle=team.handle))
-            lines += about_lines((view,)) if view.description and "<<" not in view.description else []
+            lines += about_lines((view,)) if _fits_a_notice(view.description) else []
             lines += role_lines((view,))
         elif team.role != before[key].role and team.role != membership.UNKNOWN_ROLE:
             lines += role_lines((view,))
