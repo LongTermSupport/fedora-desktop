@@ -151,7 +151,8 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
     # filling it from HEAD below is what makes that fall out: the versions
     # compare equal, and the gate rejects.
     STAGED_VERSION=""
-    if git diff --cached --name-only -- "$CCY_SCRIPT" | grep -q .; then
+    # --quiet exits 1 when the launcher is staged: no pipe, so no SIGPIPE.
+    if ! git diff --cached --quiet -- "$CCY_SCRIPT"; then
         ccy_staged_src=$(git show ":$CCY_SCRIPT")
         STAGED_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_staged_src")
     fi
@@ -163,21 +164,19 @@ if [ ${#CCY_STAGED[@]} -gt 0 ]; then
     fi
 
     # A lib-only commit leaves the version exactly as HEAD has it.
-    if [ -z "$STAGED_VERSION" ]; then
-        STAGED_VERSION="$HEAD_VERSION"
-    fi
+    STAGED_VERSION="${STAGED_VERSION:-$HEAD_VERSION}"
 
     # If file exists in HEAD and version hasn't changed
     if [ -n "$HEAD_VERSION" ] && [ "$STAGED_VERSION" = "$HEAD_VERSION" ]; then
         # Check if any REAL code line changed (added/removed) in ANY staged CCY
         # file, ignoring the +++/--- diff headers and lines that are only
         # comments or blank.
-        # grep -q . succeeds (exit 0) iff at least one real code line remains.
-        if git diff --cached HEAD -- "${CCY_STAGED[@]}" \
-            | grep -E '^[+-]' \
-            | grep -vE '^[+-]{3}' \
-            | grep -vE '^[+-][[:space:]]*(#|$)' \
-            | grep -q .; then
+        # awk succeeds iff at least one real code line remains. The diff is captured first, for
+        # the reason given at the CCY_VERSION extraction above: a reader that stops at the first
+        # hit SIGPIPEs a git still writing a large diff, and under pipefail the check read false.
+        ccy_diff=$(git diff --cached HEAD -- "${CCY_STAGED[@]}")
+        if awk '/^[+-]/ && !/^[+-][+-][+-]/ && !/^[+-][[:space:]]*(#|$)/ { found = 1; exit }
+            END { exit !found }' <<<"$ccy_diff"; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}COMMIT REJECTED: CCY version bump required${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -277,12 +276,14 @@ if [ ${#CCY_IMAGE_STAGED[@]} -gt 0 ]; then
     if [ -n "$HEAD_LABEL" ] && [ "$STAGED_LABEL" = "$HEAD_LABEL" ]; then
         # Any changed line that is not blank counts. A `#` line is skipped as a comment only in
         # code (.py, .sh, .bash, or no extension) and never as a shebang: in a SKILL.md or a
-        # .txt guide it is a heading. A deletion is all `-` lines, so it counts too.
-        if git diff --cached HEAD -- "${CCY_IMAGE_STAGED[@]}" | awk '
+        # .txt guide it is a heading. A deletion is all `-` lines, so it counts too. Captured
+        # first, not piped: see the CCY_VERSION extraction above.
+        image_diff=$(git diff --cached HEAD -- "${CCY_IMAGE_STAGED[@]}")
+        if awk '
             /^diff --git / { prose = ($NF ~ /\.[^\/]+$/ && $NF !~ /\.(py|sh|bash)$/); next }
             /^(---|\+\+\+) (a\/|b\/|\/dev\/null)/ { next }
             /^[+-]/ && (prose ? $0 !~ /^[+-][[:space:]]*$/ : $0 !~ /^[+-][[:space:]]*(#([^!]|$)|$)/) { found = 1; exit }
-            END { exit !found }'; then
+            END { exit !found }' <<<"$image_diff"; then
             echo -e "${RED}COMMIT REJECTED: CCY container version bump required${NC}"
             echo ""
             echo "These files are baked into the image, and a running container only"
@@ -302,8 +303,10 @@ FOUND_ISSUES=0
 
 # Check each staged file
 for FILE in "${STAGED_FILE_LIST[@]}"; do
-    # Skip binary files (numstat reports '-' for added/removed lines on binaries)
-    if git diff --cached --numstat -- "$FILE" | grep -q '^-'; then
+    # Skip binary files (numstat reports '-' for added/removed lines on binaries). Captured, not
+    # piped into `grep -q`, so a git failure stops the hook instead of reading as "not binary".
+    numstat=$(git diff --cached --numstat -- "$FILE")
+    if [[ "$numstat" == -* ]]; then
         continue
     fi
 
@@ -362,7 +365,7 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
         echo -e "${YELLOW}Issue: $DESCRIPTION${NC}"
 
         # Show context (up to 3 matching lines)
-        echo "$MATCH_LINES" | head -3 | while IFS=: read -r LINE_NUM LINE_CONTENT; do
+        head -3 <<<"$MATCH_LINES" | while IFS=: read -r LINE_NUM LINE_CONTENT; do
             echo "  Line $LINE_NUM: ${LINE_CONTENT:0:100}"
         done
         echo -e "  ${YELLOW}→ Fix:${NC} $GUIDANCE"
@@ -422,7 +425,8 @@ else
         ALL_STAGED_CONTENT=""
         for FILE in "${STAGED_FILE_LIST[@]}"; do
             # A `-` in the numstat columns marks a binary blob — nothing to scan.
-            if git diff --cached --numstat -- "$FILE" | grep -q '^-'; then
+            numstat=$(git diff --cached --numstat -- "$FILE")
+            if [[ "$numstat" == -* ]]; then
                 continue
             fi
             if ! FILE_CONTENT=$(git show ":$FILE"); then

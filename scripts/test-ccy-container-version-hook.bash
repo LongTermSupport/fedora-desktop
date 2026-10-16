@@ -206,6 +206,28 @@ write_launcher 1.0.1 2.0
 check "a one-key agent change with CCY_VERSION bumped passes" "0" "$(hook_status)"
 baseline
 
+echo "=== a diff larger than a pipe buffer is still judged ==="
+
+# Both gates read `git diff` through a pipe into a reader that stops at the first changed code
+# line. With a diff bigger than the pipe buffer, git is still writing when the reader exits, so
+# git dies of SIGPIPE; under `set -o pipefail` the check then read false and the change passed.
+# big_py <file> <value> — 20000 code lines, so rewriting every one is a diff of about a megabyte.
+big_py() { awk -v v="$2" 'BEGIN { for (i = 0; i < 20000; i++) printf "VALUE_%05d = \"%s\"\n", i, v }' >"$1"; }
+for big in helpers/pingbus/big.py helpers/ssh_agent_filter/big.py; do
+    big_py "$repo/$big" old
+done
+git -C "$repo" add -A
+git -C "$repo" commit -q --no-verify -m 'add large image files'
+big_py "$repo/helpers/pingbus/big.py" new
+check "a large helpers/pingbus change without a container bump is rejected" "1" "$(hook_status)"
+check "…and says to bump the container version" "yes" "$(has 'container version bump required')"
+git -C "$repo" show HEAD:helpers/pingbus/big.py >"$repo/helpers/pingbus/big.py"
+big_py "$repo/helpers/ssh_agent_filter/big.py" new
+check "a large one-key agent change without a CCY_VERSION bump is rejected" "1" "$(hook_status)"
+check "…and says to bump CCY_VERSION" "yes" "$(has 'CCY version bump required')"
+git -C "$repo" show HEAD:helpers/ssh_agent_filter/big.py >"$repo/helpers/ssh_agent_filter/big.py"
+baseline
+
 printf 'unrelated\n' >"$repo/README.txt"
 check "a commit touching no image file is not judged" "0" "$(hook_status)"
 check "…and prints no container check" "no" "$(has 'container version bump requirement')"

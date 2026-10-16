@@ -133,6 +133,15 @@ EMPTY_DL="${TMPROOT}/empty.tsv"
 assert_scan "an empty denylist reports nothing" "" "${EMPTY_DL}" "acme is everywhere"
 assert_scan "empty text reports nothing" "" "${DL}" ""
 
+# The match stops grep at the token, while the text it reads is still being written to it. With
+# text bigger than a pipe buffer the writer died of SIGPIPE and, under `set -o pipefail`, the
+# match read as no match: an identifier near the top of a large commit was not reported.
+# Many lines, not one: grep reads a whole line before it matches, so one long line is read to
+# its end and never leaves the writer anything to be cut off from.
+LARGE_TEXT="acme leads"$'\n'"$(seq 1 200000)"
+assert_scan "a token near the top of text larger than a pipe buffer is caught" \
+    "lastpass_accounts" "${DL}" "${LARGE_TEXT}"
+
 # ── the derived GNOME extension UUID exemption ───────────────────────────────────────────
 #
 # A GNOME extension UUID is shaped exactly like an email address, so the email pattern
