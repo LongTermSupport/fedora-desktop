@@ -123,12 +123,20 @@ func (x *Hot) ccReach(ctx context.Context, t *target, team string) (term.ExitCod
 	return term.ExitOK, true
 }
 
-// ccNoInbound is the end of an add to a cc session that does not accept team messages (a cc
-// older than M6): nothing can relaunch it, so the owner is told how.
-func (x *Hot) ccNoInbound(seat string) term.ExitCode {
-	x.mark(markFailed, "session: it holds seat "+seat+", but it was started without accepting team messages: "+
-		"end it (/exit) and start it again from ccy-sessions, which takes seat "+seat)
+// ccNoInbound is the end of an add to a cc session launched on no team (Decision 7): Claude Code
+// read its settings once, refusing team messages, and cc has no supervisor to relaunch it, so the
+// seat and the record stay and the owner is told to start cc again, which starts it in the seat.
+func (x *Hot) ccNoInbound(t *target, team, seat string) term.ExitCode {
+	x.mark(markFailed, "session: "+t.session+" is in "+team+" as seat "+seat+", but it started on no team (cc --bus), "+
+		"so team messages cannot reach it until cc is started again, and cc has nothing that can restart it: "+
+		"end it (/exit) and start it again from ccy-sessions, which starts it in seat "+seat)
 	return term.ExitFailure
+}
+
+// ccRefusing is whether a cc session's keeper reports that it was launched refusing team
+// messages (cc --bus, Decision 7).
+func ccRefusing(t *target, rep membership.Report) bool {
+	return t.cc() && rep.Inbound != nil && !*rep.Inbound
 }
 
 // ccRepair is repair for a cc session: its keeper ends with its claude (it watches its parent),

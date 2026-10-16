@@ -120,7 +120,8 @@ seat is created through agent-bus seat take, which asks for sudo), and waits for
 hold it. --role sets the seat's role on the way; a coordinator while another seat holds the role
 needs --demote-current, which makes that seat a worker first. A session started on no team
 relaunches once, at its next idle moment, to accept team messages; every later change is made
-while it runs.
+while it runs. A cc session started with --bus cannot relaunch itself: its first add keeps the
+seat and exits 1, saying to end cc and start it again from ccy-sessions.
 
 remove takes it out: the seat is released, its sync position cleared (nothing posted while it is
 out is delivered on a later add), its listening status expired and its goodbye posted. If the

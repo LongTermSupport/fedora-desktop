@@ -17,19 +17,21 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12 — container 2.77
+## 3.99.12.1 — container 2.77.1
+
+Includes 3.99.12 (container 2.77), never deployed. 3.99.12.1 makes `cc --bus` refuse team
+messages until it is started again on a team (below) and takes back the image's `pingbus seat exec --accepts-inbound`, which 3.99.12 added for the opposite choice.
 
 - **cc sessions are hot-controlled too** (Plan 00203 M6). A `cc --teams` session, and one
   started with the new `cc --bus` (on no team, after the same Element consent), can be put in
-  a team, taken out, moved and re-roled while it runs, from `ccy-teams session add|remove|move|
-  role`, and `session list` shows it with kind `cc`. Its desired membership lives in
+  a team, taken out, moved and re-roled while it runs, from `ccy-teams session add|remove|move| role`, and `session list` shows it with kind `cc`. Its desired membership lives in
   `$XDG_RUNTIME_DIR/pingbus/membership/<session>/`; it runs as you, so unlike a ccy session it
   could write that file itself (cc's weaker authority, accepted). Its prompt line names no team:
   its teams are in the session context and may change. A cc session is not repaired from the
   host: end it and start it again.
-- The image's pingbus: `pingbus seat exec --accepts-inbound`, cc's, for a session whose own
-  settings accept team messages, so its keeper reports so on no team and its first join needs
-  no relaunch.
+- `cc --bus` starts refusing team messages, as a ccy session on no team does. cc cannot
+  relaunch itself, so its first `ccy-teams session add` keeps the seat and exits 1, saying to
+  end cc and start it again from `ccy-sessions`, which starts it in that seat.
 - `ccy-teams describe-seats --sentence` is gone; nothing names a cc session's handles in its
   prompt any more.
 

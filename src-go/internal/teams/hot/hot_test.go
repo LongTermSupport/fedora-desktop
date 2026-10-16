@@ -133,7 +133,7 @@ func newRigAs(t *testing.T, kind, name string, seats ...membership.Seat) *rig {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	r.m.inbound = len(seats) > 0 || kind == membership.KindCC
+	r.m.inbound = len(seats) > 0
 	r.writeReport(t)
 	r.x = New(w.Host, flow.New(w.Host))
 	r.x.Now = func() time.Time { return r.now }

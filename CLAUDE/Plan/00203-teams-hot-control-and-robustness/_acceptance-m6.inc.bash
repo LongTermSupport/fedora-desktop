@@ -33,10 +33,11 @@
 #   (b) audit F5: A's stand-in claude started `setsid sleep 600`; with A's claude ended, its seat
 #       is free within 5 s while that sleep still runs, and B, started at once in the same seat,
 #       holds it
-#   (c) cc --bus: C starts on no team; its keeper reports inbound; `session add C acc-m6a --yes`
-#       is hot ("Nothing restarted", no relaunch request); with C's keeper killed, the list says
-#       "unguarded: end it ..." and `session repair C --yes` exits 78; `session remove C acc-m6a
-#       --yes` leaves its record on --bus
+#   (c) cc --bus (Decision 7): C starts on no team refusing team messages; `session add C acc-m6a`
+#       exits 1 saying cc must be started again, keeping seat and record, and says so again on a
+#       re-run; restarted on its record's seat, C accepts and the add is "Nothing to do"; with
+#       C's keeper killed, the list says "unguarded: end it ..." and repair exits 78; `session
+#       remove C acc-m6a --yes` leaves its record on --bus
 
 readonly M6_TEAM_A="acc-m6a"
 readonly M6_TEAM_B="acc-m6b"
@@ -171,9 +172,11 @@ source /var/local/claude-yolo/lib/tmux-session.bash
 source /var/local/claude-code/cc-teams.bash
 checkout="$(git rev-parse --show-toplevel)"
 tmp="$(mktemp -d "${XDG_RUNTIME_DIR:?}/cc-teams.XXXXXX")"
+if [[ -n "$1" ]]; then cc_teams_split_args --teams "$1"; else cc_teams_split_args --bus; fi
 CC_TEAMS_SEATS="$1"
 cc_teams_ccy_dir "${checkout}"
 cc_teams_settings "${tmp}/settings.json"
+cp -- "${tmp}/settings.json" "${M6_SETTINGS_COPY:?}"
 cc_teams_command "${tmp}" "${checkout}"
 status=0
 PATH="${M6_STANDIN_DIR:?}:${CC_TEAMS_KIT}:${PATH}" "${CC_TEAMS_CMD[@]}" || status=$?
@@ -245,10 +248,11 @@ m6_up() {
 # The pane's shell runs it as a child, never exec'd, so tmux keeps the pane (_acceptance-m2).
 m6_launch() {
     local name="$1" seats="$2" command
-    local -a record=(--bus) env=("M6_STANDIN_DIR=${M6_STANDIN_DIR}" "M6_STANDIN_PID=$(m6_ev "${name}.claude.pid")")
+    local -a record=(--bus) env=("M6_STANDIN_DIR=${M6_STANDIN_DIR}" "M6_STANDIN_PID=$(m6_ev "${name}.claude.pid")"
+        "M6_SETTINGS_COPY=$(m6_ev "${name}.settings.json")")
     [[ -z "${seats}" ]] || record=(--teams "${seats}")
     [[ -z "${3:-}" ]] || env+=("M6_DETACH=$(m6_ev "${name}.detached.pid")")
-    M6_NAMES+=("${name}")
+    [[ " ${M6_NAMES[*]} " == *" ${name} "* ]] || M6_NAMES+=("${name}")
     m6_record "${name}" "${record[@]}" || return 1
     command="$(printf '%q ' env "${env[@]}" bash "${M6_DRIVER}" "${seats}")" || return 1
     command+=">$(printf '%q' "$(m6_ev "${name}.out")") 2>$(printf '%q' "$(m6_ev "${name}.err")")"
@@ -292,9 +296,28 @@ m6_check_detached() {
     m6_desired_is "${M6_B}" "${seat}"
 }
 
+# m6_inbound <session> <true|false> — the session was launched with crossSessionInbound accept
+# (true) or refuse (false): its settings say so and its keeper reports the same.
 m6_inbound() {
-    python3 -I -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("inbound") is True else 1)' \
-        "${M6_REPORTS}/$1/applied.json" || { printf '[FAIL] the keeper of %s does not report inbound\n' "$1" >&2; return 1; }
+    local want=refuse
+    [[ "$2" == false ]] || want=accept
+    python3 -I -c 'import json, sys
+settings, report, want = json.load(open(sys.argv[1])), json.load(open(sys.argv[2])), sys.argv[3]
+sys.exit(0 if settings.get("crossSessionInbound") == want and report.get("inbound") is (want == "accept") else 1)' \
+        "$(m6_ev "$1.settings.json")" "${M6_REPORTS}/$1/applied.json" "${want}" ||
+        { printf '[FAIL] %s was not launched with crossSessionInbound %s, or its keeper says otherwise\n' "$1" "${want}" >&2; return 1; }
+}
+
+# m6_restart <session> <seats> — the session ended and started again on its record's seats, as
+# the owner does from ccy-sessions: its pane, claude and last report gone first.
+m6_restart() {
+    if tmux -L ccy has-session -t "=$1"; then
+        tmux -L ccy kill-session -t "=$1" || return 1
+    fi
+    m6_stop "$(m6_ev "$1.claude.pid")" || return 1
+    rm -f -- "$(m6_ev "$1.status")" "$(m6_ev "$1.claude.pid")" "${M6_REPORTS:?}/$1/applied.json" || return 1
+    m4_poll 20 "seat $2 free once $1 ended" m6_seat_is "${2#*@}" "${2%@*}" free || return 1
+    m6_launch "$1" "$2"
 }
 
 m6_keeper_gone() {
@@ -304,14 +327,24 @@ m6_keeper_gone() {
 }
 
 m6_check_bus() {
-    local keeper
+    local keeper seat
     m6_launch "${M6_C}" "" || return 1
     m6_desired_is "${M6_C}" "" || return 1
-    m6_inbound "${M6_C}" || return 1
-    m6_run bus-add 0 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
-    m6_said bus-add 'Nothing restarted\.$' || return 1
-    m6_said bus-add 'relaunch' no || return 1
+    m6_inbound "${M6_C}" false || return 1
+    m6_run bus-add 1 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
+    m6_said bus-add "^✗ session: ${M6_C} is in ${M6_TEAM_A} as seat [0-9]+, but it started on no team" || return 1
+    m6_said bus-add "and cc has nothing that can restart it" || return 1
+    m6_said bus-add 'Nothing restarted' no || return 1
     [[ ! -e "$(m6_membership "${M6_C}")/relaunch.json" ]] || { printf '[FAIL] a relaunch was asked of the cc session %s\n' "${M6_C}" >&2; return 1; }
+    seat="$(m6_desired "${M6_C}")" || return 1
+    [[ "${seat}" == *"@${M6_TEAM_A}" && "${seat}" != *,* ]] || { printf '[FAIL] %s desires %s, not one seat of %s\n' "${M6_C}" "${seat}" "${M6_TEAM_A}" >&2; return 1; }
+    grep -qx -- "arg=${seat}" "${M6_RECORDS}/${M6_C}" || { printf '[FAIL] the record of %s does not name %s\n' "${M6_C}" "${seat}" >&2; return 1; }
+    m6_run bus-again 1 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
+    m6_said bus-again "and cc has nothing that can restart it" || return 1
+    m6_restart "${M6_C}" "${seat}" || return 1
+    m6_inbound "${M6_C}" true || return 1
+    m6_run bus-joined 0 add "${M6_C}" "${M6_TEAM_A}" --yes || return 1
+    m6_said bus-joined "^Nothing to do: ${M6_C} is already in ${M6_TEAM_A} as seat ${seat%@*}\\.$" || return 1
     m4_poll 20 "session list showing ${M6_C} as a cc session, ok" m6_list_state "${M6_C}" ok || return 1
     keeper="$(m6_keeper_of "${M6_C}")" || return 1
     [[ -n "${keeper}" ]] || { printf '[FAIL] no seat keeper under the claude of %s\n' "${M6_C}" >&2; return 1; }
@@ -375,7 +408,7 @@ acceptance_m6() {
     plan_deploy_leg "a throwaway cc session on 1@${M6_TEAM_A} in ccy's tmux" m6_start
     check_leg "(a) move: a cc session moved between teams while it runs" m6_check_move
     check_leg "(b) audit F5: a detached process keeps no seat; the seat is free at once" m6_check_detached
-    check_leg "(c) cc --bus: the first join is hot; no repair; left on the bus" m6_check_bus
+    check_leg "(c) cc --bus: refuses until restarted on its first team; no repair; left on the bus" m6_check_bus
     plan_deploy_leg "remove the throwaway cc sessions and teams" m6_cleanup
     m2_note "M6: (a)-(c) passed; cc's own launch (token chooser, consent, a real claude) is the owner's step in ACCEPTANCE.md"
 }

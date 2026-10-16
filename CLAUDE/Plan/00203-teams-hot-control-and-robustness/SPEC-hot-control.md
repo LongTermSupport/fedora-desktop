@@ -562,9 +562,13 @@ Two things are **not** frozen:
     - Liveness is the session's pane on ccy's tmux server; the keeper is found in the process
       tree under that pane (`pingbus ... seat keep`). The route check runs on the host:
       `pingbus reach --team T`, "this host reaches T's homeserver".
-    - cc's settings already accept cross-session inbound (H34), so `seat exec --accepts-inbound`
-      tells the keeper so: the report says `inbound` with no team, and `cc --bus`'s first join
-      is hot. cc has no supervisor to relaunch it; Decision 7 in PLAN.md is that call.
+    - Inbound follows Decision 1, as for ccy (PLAN.md Decision 7): a cc launched with seats
+      accepts cross-session inbound; `cc --bus` adds `crossSessionInbound: refuse` to its
+      settings, and its keeper reports no inbound, as a ccy keeper on no team does. cc has no
+      supervisor to relaunch it, so its first `session add` keeps the seat, the desired file
+      and the record, asks no relaunch, and exits 1 saying cc must be ended and started again
+      from `ccy-sessions`, which starts it in that seat, accepting. A re-run says the same,
+      never "Nothing to do", until it has been restarted.
     - `session repair` refuses a cc session (exit 78): its keeper ends with its claude, and one
       started from the host would outlive the session. The list's state for a cc session with
       no keeper is `unguarded: end it and start it again from ccy-sessions`.
@@ -576,8 +580,9 @@ Two things are **not** frozen:
     - Not in M6: agent-bus's own H21 liveness (a running container) does not count a cc session,
       so `agent-bus seat take` from another launcher does not see a cc session's desired seat
       until its keeper locks it; `ccy-teams` does. pingbus still reads `PINGBUS_SEATS`, which no
-      launcher now sets. The picker (M5) shows cc sessions through `hot`'s session list and
-      `discover.RunningCC`, with no change to its UI.
+      launcher now sets. The picker (M5) shows cc sessions through `hot.Sessions`, which adds
+      the running cc sessions (`discover.RunningCC`), with no change to its UI: a cc row is
+      controllable, and never `Unguarded`, so the picker offers no Repair for it.
 
 ### The inert contract, and who can be hot-controlled
 

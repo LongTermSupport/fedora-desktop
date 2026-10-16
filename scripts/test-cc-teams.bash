@@ -196,8 +196,13 @@ echo "=== the settings: the kit's, plus cc's deny rules ==="
 
 CC_TEAMS_KIT="$KIT_SRC"
 CC_TEAMS_DENY_SETTINGS="$DENY"
+CC_TEAMS_BUS=true
+cc_teams_settings "$work/settings-bus.json" 2>"$work/err"
+check "cc --bus, on no team, refuses team messages until it is started with a team (Decision 7)" "refuse|true" \
+    "$(jq -r '.crossSessionInbound' "$work/settings-bus.json")|$(jq '.permissions.deny | length > 0' "$work/settings-bus.json")"
+CC_TEAMS_BUS=false
 cc_teams_settings "$work/settings.json" 2>"$work/err"
-check "the bus can wake an idle session" "accept" "$(jq -r .crossSessionInbound "$work/settings.json")"
+check "a session started with seats lets the bus wake it" "accept" "$(jq -r .crossSessionInbound "$work/settings.json")"
 # Claude Code's home-relative rule form, a literal tilde.
 home_rel=\~
 for path in .var/app/im.riot.Riot/** .config/Element/** .config/Element-*/**; do
@@ -267,7 +272,7 @@ echo "=== the command line ==="
 CC_TEAMS_SEATS="2@dev-team,1@other"
 cc_teams_command "$work/tmp" "$checkout" --resume abc 2>"$work/err"
 got=$(printf '%s\n' "${CC_TEAMS_CMD[@]}")
-want=$(printf '%s\n' env -u PINGBUS_SEATS "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC/pingbus" seat exec --accepts-inbound \
+want=$(printf '%s\n' env -u PINGBUS_SEATS "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC/pingbus" seat exec \
     --root "$checkout/.claude/ccy/pingbus/seats" --home "$work/tmp/pingbus-home" -- claude --plugin-dir "$KIT_SRC/plugin/pingbus" \
     --settings "$work/tmp/settings.json" --append-system-prompt "$CC_TEAMS_PROMPT" --resume abc)
 check "the keeper follows the membership; claude gets the plugin, the settings and the prompt (H31)" "$want" "$got"

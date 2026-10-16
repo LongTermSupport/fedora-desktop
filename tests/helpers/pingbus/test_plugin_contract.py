@@ -54,7 +54,7 @@ GUARD_PREFIX = 'if [ "$PINGBUS_DELIVERY" = relay ]; then exec '
 GUARD_SUFFIX = "; fi"
 #: Plan 00203 H33, the inert contract: a session launched under a desired membership
 #: (PINGBUS_MEMBERSHIP set) runs a hook only while its `active` flag says a seat is held, so a
-#: ccy session on no team starts no Python. A session without the marker (`cc --teams`, an
+#: ccy or cc session on no team starts no Python. A session without the marker (an
 #: `agent-bus-claude` member) runs every hook as before.
 INERT_HEAD = '[ -z "$PINGBUS_MEMBERSHIP" ] || [ -e "$PINGBUS_HOME/active" ] || '
 INERT_GUARD = INERT_HEAD + "exit 0; "
@@ -192,7 +192,7 @@ class HooksJsonTest(unittest.TestCase):
                 self.assertEqual(started, f"pingbus hook {REGISTERED[event]}\n")
 
     def test_a_session_without_the_marker_runs_each_hook_as_before(self) -> None:
-        """`cc --teams` and `agent-bus-claude` pass no PINGBUS_MEMBERSHIP and keep no flag."""
+        """`agent-bus-claude` passes no PINGBUS_MEMBERSHIP and keeps no flag."""
         for event, (command,) in self.commands().items():
             with self.subTest(event=event):
                 done, started, _ = self.run_hook(command, active=False, membership=False)

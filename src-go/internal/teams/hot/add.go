@@ -319,7 +319,7 @@ func (x *Hot) apply(ctx context.Context, t *target, team string, c choice, alloc
 		return term.ExitOK
 	}
 	if t.cc() {
-		return x.ccNoInbound(c.seat)
+		return x.ccNoInbound(t, team, c.seat)
 	}
 	if code := x.relaunch(ctx, t, team, c.seat); code != term.ExitOK {
 		return code
@@ -447,6 +447,9 @@ func (x *Hot) alreadyIn(ctx context.Context, t *target, s membership.Seat, given
 		}
 		x.say("Done. " + t.session + " is in " + s.Team + " as seat " + s.Seat + ".")
 		return term.ExitOK
+	}
+	if ccRefusing(t, rep) {
+		return x.ccNoInbound(t, s.Team, s.Seat)
 	}
 	x.mark(markSkip, "team "+s.Team+": already joined")
 	x.mark(markSkip, "seat "+s.Seat+": already this session's")

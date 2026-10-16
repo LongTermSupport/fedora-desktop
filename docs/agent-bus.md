@@ -552,7 +552,9 @@ put in a team, taken out, moved and re-roled while it runs, from `ccy-teams sess
 kind `cc`. It runs as you, so unlike a ccy session it could change its own desired membership
 (`$XDG_RUNTIME_DIR/pingbus/membership/<session>/`): for cc this is guidance, not a wall, as
 below. Its prompt line names no team: its teams are in the session context and the latest
-membership notice. A cc session whose seat keeper stopped is not repaired from the host: end
+membership notice. A `cc --bus` session refuses team messages until it is on a team, and cc
+cannot restart itself: its first `session add` keeps the seat and says to end cc and start it
+again from `ccy-sessions`, which starts it in that seat. A cc session whose seat keeper stopped is not repaired from the host: end
 it and start it again.
 
 On a terminal `ccy-teams choose-teams --type=host` asks, and prints the launch block once

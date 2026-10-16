@@ -502,8 +502,7 @@ class Keeper:
                  home: pathlib.Path, clock_ms: Callable[[], int], err: TextIO,
                  sleep: Callable[[float], object] = time.sleep, uid: int | None = None,
                  user_home: pathlib.Path | None = None, environ: Mapping[str, str] | None = None,
-                 spawn_watcher: Callable[[Mapping[str, str], pathlib.Path], object] | None = None,
-                 inbound: bool | None = None) -> None:
+                 spawn_watcher: Callable[[Mapping[str, str], pathlib.Path], object] | None = None) -> None:
         self.source, self.root, self.home = source, pathlib.Path(root), pathlib.Path(home)
         self._clock_ms, self._sleep, self._err = clock_ms, sleep, err
         self._uid, self._user_home = uid, user_home
@@ -513,9 +512,7 @@ class Keeper:
         self._stamp: object = None
         self._told_stamp: object = None
         self._want: Want | None = None
-        #: Whether the session accepts team messages: given by a launcher whose own settings
-        #: accept (cc), else the launch's seats, or (Repair) the session's settings.
-        self._inbound: bool | None = inbound
+        self._inbound: bool | None = None
 
     # The life of the keeper.
 

@@ -58,36 +58,33 @@ func TestACCSessionIsAddedMovedAndRemovedWhileItRuns(t *testing.T) {
 	wantLines(t, r.ErrOut.String(), "✓ record: no --teams (cc keeps --bus)")
 }
 
-// cc --bus is launched with cc's own settings, which accept team messages (its keeper says so),
-// so its first join is hot: no relaunch, which a cc session has no supervisor to make.
-func TestTheFirstJoinOfACCBusSessionIsHot(t *testing.T) {
+// Decision 7: cc --bus starts on no team refusing team messages, as a ccy session does. cc has no
+// supervisor to relaunch it, so its first join keeps the seat and the record (a restart from
+// ccy-sessions starts it in that seat, accepting) and says plainly that cc must be started again,
+// exiting non-zero. A re-run says it again rather than "Nothing to do".
+func TestTheFirstJoinOfACCBusSessionAsksForARestart(t *testing.T) {
 	r := newCCRig(t)
-	if code := r.run(t, "add", ccSession, "alpha/3", "--yes"); code != term.ExitOK {
+	want := "✗ session: " + ccSession + " is in alpha as seat 3, but it started on no team (cc --bus), so team messages " +
+		"cannot reach it until cc is started again, and cc has nothing that can restart it: end it (/exit) and start it " +
+		"again from ccy-sessions, which starts it in seat 3"
+	if code := r.run(t, "add", ccSession, "alpha/3", "--yes"); code != term.ExitFailure {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	wantLines(t, r.ErrOut.String(), "Done. The session is told it joined alpha as proj.3+local.host. Nothing restarted.")
+	wantLines(t, r.ErrOut.String(), "✓ record: --teams 3@alpha", want)
+	if strings.Contains(r.ErrOut.String(), "Nothing restarted") {
+		t.Fatalf("the first join of a cc --bus session is not hot:\n%s", r.ErrOut.String())
+	}
 	if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); err == nil {
 		t.Fatal("a cc session is never asked to relaunch")
 	}
 	if got := r.recordArgs(t); !slices.Equal(got, []string{"--model", "x", "--teams", "3@alpha"}) {
 		t.Fatalf("record %v", got)
 	}
-}
-
-// A cc session whose keeper says it does not accept team messages (a cc older than M6) cannot be
-// relaunched by the host: the add is kept, and the owner is told to start cc again.
-func TestACCSessionThatRefusesTeamMessagesIsToldToStartAgain(t *testing.T) {
-	r := newCCRig(t)
-	r.m.inbound = false
-	r.writeReport(t)
+	r.ErrOut.Reset()
 	if code := r.run(t, "add", ccSession, "alpha/3", "--yes"); code != term.ExitFailure {
-		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+		t.Fatalf("again: exit %d:\n%s", code, r.ErrOut.String())
 	}
-	wantLines(t, r.ErrOut.String(), "✗ session: it holds seat 3, but it was started without accepting team messages: "+
-		"end it (/exit) and start it again from ccy-sessions, which takes seat 3")
-	if _, err := os.Lstat(filepath.Join(r.dir(), membership.RelaunchFile)); err == nil {
-		t.Fatal("a cc session is never asked to relaunch")
-	}
+	wantLines(t, r.ErrOut.String(), want)
 }
 
 func TestACCSessionThatEndsDuringAnAddIsRolledBack(t *testing.T) {

@@ -129,9 +129,11 @@ Built on `fix/teams-server-robustness`; design and evidence in
   [subagent-reports/261016-m5-opus.md](subagent-reports/261016-m5-opus.md).
 - [ ] 🔄 **Task 3.5** (M6): cc, built on `feat/hot-control-m6`, review and host acceptance to
   come. `cc --teams` and the new `cc --bus` sessions are hot-controlled like ccy ones (H31,
-  H32): a `kind: cc` membership under the session's tmux name, a keeper that follows it
-  (`seat exec --accepts-inbound`), a system prompt that names no team, and `ccy-teams session add|remove|move|role|list` finding cc sessions on ccy's tmux server. Repair is refused for
-  cc (exit 78), and the record follows each change. CCY 3.99.12, container 2.77. Host
+  H32): a `kind: cc` membership under the session's tmux name, a keeper that follows it, a
+  system prompt that names no team, and `ccy-teams session add|remove|move|role|list` (and
+  the M5 picker) finding cc sessions on ccy's tmux server. `cc --bus` refuses team messages
+  until it is restarted on its first team (Decision 7). Repair is refused for cc (exit 78),
+  and the record follows each change. CCY 3.99.12.1, container 2.77.1. Host
   acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M6, `_acceptance-m6.inc.bash`. As built, and what
   is not: SPEC-hot-control.md H32 (Decision 7). Notes:
   [subagent-reports/261016-m6-opus.md](subagent-reports/261016-m6-opus.md).
@@ -187,13 +189,14 @@ These are not settled. Each runs on the interim default below until the owner de
 
 ### Open: for the owner (from M6)
 
-7. **A `cc --bus` session accepts cross-session inbound from launch, on no team.** Decision 1
-   launches a ccy session on no team with `refuse` and relaunches it on its first join. cc has
-   no supervisor to do that relaunch, and its settings already accept inbound (H31's weaker
-   authority), so the interim default is: `cc --bus` starts accepting, and its first join is
-   hot. Until then any process of the owner's uid can post into it. The alternative: launch it
-   with `refuse`, and have the first `session add` refuse (exit 78) and say to end cc and start
-   it again from `ccy-sessions`, which takes its new seat.
+7. **A `cc --bus` session on no team refuses cross-session inbound until it is on a team.**
+   Interim default, set by the coordinator to match Decision 1: `cc --bus` starts with
+   `crossSessionInbound: refuse`. cc has no supervisor to do the relaunch a ccy session gets,
+   so its first `session add` keeps the seat, the desired file and the record, and exits 1
+   saying plainly that cc must be ended and started again from `ccy-sessions`, which starts it
+   in that seat, accepting. The alternative: `cc --bus` accepts from launch (cc's settings
+   already do for `--teams`), so its first join is hot with no restart, and until then any
+   process of the owner's uid can post into it.
 
 ## Success Criteria
 

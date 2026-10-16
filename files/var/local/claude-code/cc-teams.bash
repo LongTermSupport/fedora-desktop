@@ -116,11 +116,12 @@ cc_teams_ccy_dir() {
 }
 
 # cc_teams_settings <out> — the session's settings: the kit's (the bus may wake an idle
-# session, from the start, so a first join is never a relaunch) with cc's deny rules on
-# Element's sign-in, written owner-only.
+# session) with cc's deny rules on Element's sign-in, written owner-only. Claude Code reads
+# them once, so `cc --bus` (no team yet) refuses team messages, as a ccy session on no team
+# does: its first join asks for cc to be started again (Plan 00203 Decision 7).
 cc_teams_settings() {
     local out="${1:?cc_teams_settings requires an output path}" merged
-    merged=$(jq -s '.[0] * .[1]' "$CC_TEAMS_KIT/settings.json" "$CC_TEAMS_DENY_SETTINGS") || { print_error "Could not merge $CC_TEAMS_KIT/settings.json and $CC_TEAMS_DENY_SETTINGS."; return 78; }
+    merged=$(jq -s --argjson bus "$CC_TEAMS_BUS" '.[0] * .[1] * if $bus then {crossSessionInbound: "refuse"} else {} end' "$CC_TEAMS_KIT/settings.json" "$CC_TEAMS_DENY_SETTINGS") || { print_error "Could not merge $CC_TEAMS_KIT/settings.json and $CC_TEAMS_DENY_SETTINGS."; return 78; }
     (umask 077 && printf '%s\n' "$merged" >"$out")
 }
 
@@ -128,8 +129,7 @@ cc_teams_settings() {
 # session, once generation 1 of its desired membership (CC_TEAMS_SEATS, none for --bus) is
 # written under its session name. The seat keeper of pingbus takes the seats it names and
 # follows it, the session home is built in <tmp> (private to this cc), and pingbus becomes
-# claude with the plugin, the settings (which accept team messages, as the keeper is told) and
-# the prompt line.
+# claude with the plugin, the settings and the prompt line.
 cc_teams_command() {
     local tmp="${1:?}" checkout="${2:?}" session dir
     shift 2
@@ -138,7 +138,7 @@ cc_teams_command() {
     dir=$("$CC_TEAMS_CCY_TEAMS" internal membership-init --kind=cc "${session:-cc.$$}" "$checkout" "$CC_TEAMS_SEATS") || return
     CC_TEAMS_CMD=()
     CC_TEAMS_CMD+=(
-        env -u PINGBUS_SEATS "PINGBUS_MEMBERSHIP=$dir" "$CC_TEAMS_KIT/pingbus" seat exec --accepts-inbound
+        env -u PINGBUS_SEATS "PINGBUS_MEMBERSHIP=$dir" "$CC_TEAMS_KIT/pingbus" seat exec
         --root "$checkout/$CC_TEAMS_SEATS_DIR" --home "$tmp/pingbus-home" --
         claude --plugin-dir "$CC_TEAMS_KIT/plugin/pingbus" --settings "$tmp/settings.json"
         --append-system-prompt "$CC_TEAMS_PROMPT" "$@"
