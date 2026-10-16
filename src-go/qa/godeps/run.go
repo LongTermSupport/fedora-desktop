@@ -45,8 +45,48 @@ const (
 const govulncheckFound = 3
 
 // goEnv is the environment of every go command (G10): no -mod or other flag from the caller,
-// no workspace, and the installed toolchain only.
-var goEnv = []string{"GOFLAGS=", "GOWORK=off", "GOTOOLCHAIN=local"}
+// no workspace, the installed toolchain only, and the public module proxy and checksum database
+// with no module exempted from either, so nothing in the caller's environment changes a verdict
+// or its wording.
+var goEnv = []string{
+	"GOFLAGS=", "GOWORK=off", "GOTOOLCHAIN=local",
+	"GOPROXY=https://proxy.golang.org,direct", "GOSUMDB=sum.golang.org",
+	"GONOSUMDB=", "GONOPROXY=", "GOPRIVATE=", "GOINSECURE=",
+}
+
+// checksumMismatch is in go's output when a module's content disagrees with go.sum or the
+// checksum database: a finding, whatever else the output says.
+const checksumMismatch = "SECURITY ERROR"
+
+// unreachableMarks are in go's output when it could not fetch a module (a cold module cache
+// with no network, or a proxy that does not answer): the step could not judge (G12).
+var unreachableMarks = []string{
+	"module lookup disabled", "dial tcp", "no such host", "connection refused",
+	"network is unreachable", "i/o timeout", "TLS handshake timeout", "proxyconnect",
+}
+
+// unreachable is whether a failed go command's output says it could not fetch a module.
+func unreachable(output string) bool {
+	if strings.Contains(output, checksumMismatch) {
+		return false
+	}
+	for _, mark := range unreachableMarks {
+		if strings.Contains(output, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+// failed records a go command that failed: a step that could not reach the module proxy could not
+// judge; any other failure is the finding what says.
+func (v *verdict) failed(step, what, output string) {
+	if unreachable(output) {
+		v.unjudged = append(v.unjudged, step+" could not reach the module proxy, so it could not judge:\n"+output)
+		return
+	}
+	v.findings = append(v.findings, what+":\n"+output)
+}
 
 // Env is everything the commands touch outside the repository tree.
 type Env struct {
@@ -140,12 +180,21 @@ func deps(root string, env Env, out, errOut *emit.Emitter) ExitCode {
 		errOut.Line("ERROR: " + err.Error())
 		return ExitCannotRun
 	}
-	if len(v.findings) > 0 {
-		errOut.Line(fmt.Sprintf("ERROR: %d finding(s) on src-go's dependencies (CLAUDE/Plan/00204-go-tui-polish/SPEC-qa-go-deps.md):", len(v.findings)))
-		for _, f := range v.findings {
+	report := func(heading string, items []string) {
+		errOut.Line(heading)
+		for _, f := range items {
 			errOut.Line("  " + strings.TrimRight(strings.ReplaceAll(f, "\n", "\n    "), " \n"))
 		}
+	}
+	if len(v.unjudged) > 0 {
+		report(fmt.Sprintf("ERROR: %d step(s) could not judge src-go's dependencies (no network or proxy, and the module cache is cold):", len(v.unjudged)), v.unjudged)
+	}
+	if len(v.findings) > 0 {
+		report(fmt.Sprintf("ERROR: %d finding(s) on src-go's dependencies (CLAUDE/Plan/00204-go-tui-polish/SPEC-qa-go-deps.md):", len(v.findings)), v.findings)
 		return ExitFailed
+	}
+	if len(v.unjudged) > 0 {
+		return ExitCannotRun
 	}
 	out.Line(fmt.Sprintf("GO-DEPS-OK %d module(s) allowlisted (%d at a pseudo-version, %d replaced); go.sum verified, tidy, vendor/ in sync (%d files)",
 		v.modules, v.pseudo, v.replaced, files))
@@ -182,7 +231,7 @@ func syncFindings(root string, env Env, v *verdict) (int, error) {
 		argv []string
 		what string
 	}{
-		{[]string{"go", "mod", "verify"}, "go mod verify failed: a module in the cache does not match go.sum"},
+		{[]string{"go", "mod", "verify"}, "go mod verify failed: a module in the cache has changed since it was downloaded (go.sum is checked by tidy and vendor)"},
 		{[]string{"go", "mod", "tidy", "-diff"}, "go.mod or go.sum is not tidy (fix: cd src-go && go mod tidy && go mod vendor)"},
 	} {
 		res, runErr := goRun(env, srcGo, step.argv...)
@@ -190,7 +239,7 @@ func syncFindings(root string, env Env, v *verdict) (int, error) {
 			return 0, runErr
 		}
 		if res.Code != 0 {
-			v.findings = append(v.findings, step.what+":\n"+res.Stdout)
+			v.failed(strings.Join(step.argv, " "), step.what, res.Stdout)
 		}
 	}
 	scratch, err := env.TempDir()
@@ -212,7 +261,7 @@ func vendorFindings(root string, env Env, written string, v *verdict) (int, erro
 		return 0, err
 	}
 	if res.Code != 0 {
-		v.findings = append(v.findings, "go mod vendor failed, so vendor/ could not be compared:\n"+res.Stdout)
+		v.failed("go mod vendor", "go mod vendor failed, so vendor/ could not be compared", res.Stdout)
 		return 0, nil
 	}
 	diffs, files, err := compareTrees(written, filepath.Join(root, vendorDir))

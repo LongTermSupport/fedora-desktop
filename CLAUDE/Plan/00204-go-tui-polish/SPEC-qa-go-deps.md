@@ -38,18 +38,32 @@ second statement of a version would drift.
 - **G6.** A row that `go.mod` does not need is a finding, so the allowlist stays the exact list:
   a `module` row for a module not required, a `pseudo` row for a module required at a tag (or not
   at all), a `replace` row with no such directive.
-- **G7.** `go mod verify` passes: every module in the cache matches `go.sum`.
+- **G7.** `go mod verify` passes: no module in the cache has changed since it was downloaded
+  (it compares the cache with the hashes recorded at download time, not with `go.sum`; `go.sum`
+  is checked by G8 and G9, which fail with `SECURITY ERROR` on a hash that disagrees).
 - **G8.** `go mod tidy -diff` prints nothing: `go.mod` and `go.sum` hold exactly what the imports
   need.
 - **G9.** `go mod vendor -o <scratch>` reproduces `src-go/vendor/` byte for byte. Each file
   missing from `vendor/`, extra in it, or different is a finding naming the path. A tree that is
   absent counts as empty, so a module with no requirements and no `vendor/` agrees.
 - **G10.** Every go command runs in `src-go` through `qa/internal/proc`, with `GOFLAGS` empty (a
-  `-mod` from the caller's environment cannot change the verdict), `GOWORK=off` and
-  `GOTOOLCHAIN=local`. A go command that cannot be started is exit 2; one that fails is a finding
-  carrying its output. The scratch directory is removed whatever the outcome.
+  `-mod` from the caller's environment cannot change the verdict), `GOWORK=off`,
+  `GOTOOLCHAIN=local`, `GOPROXY=https://proxy.golang.org,direct`, `GOSUMDB=sum.golang.org`, and
+  `GONOSUMDB`, `GONOPROXY`, `GOPRIVATE` and `GOINSECURE` empty, so no module is exempted from
+  the proxy or the checksum database by the caller's environment. A go command that cannot be
+  started is exit 2; one that fails is a finding carrying its output (but see G12). The scratch
+  directory is removed whatever the outcome.
 - **G11.** Every finding is reported on stderr before the exit, not only the first. Pass: one
   stdout line, `GO-DEPS-OK <n> module(s) allowlisted (<p> at a pseudo-version, <r> replaced); go.sum verified, tidy, vendor/ in sync (<f> files)`.
+- **G12.** A go command that failed because it could not fetch a module (its output says the
+  lookup was disabled, a dial, DNS, proxy or TLS failure, or a timeout; a cold module cache with
+  no network) could not judge, and says so. With no other finding the gate is exit 2; a definite
+  finding (G3-G9) outranks it and the gate is exit 1, naming both. Output carrying
+  `SECURITY ERROR` is always a finding.
+- **G13.** The pre-commit secret scan skips `src-go/vendor` only when this gate passes over the
+  staged tree: when anything under `src-go/vendor/` is staged, `scripts/git-hooks/lib/staged-scan-list.bash`
+  checks the staged `src-go` out of the index into a scratch directory and runs
+  `qa-go-deps.bash --root` over it; a failure fails the commit.
 
 ## qa-go-vuln
 
@@ -60,7 +74,8 @@ second statement of a version would drift.
 - **V2.** govulncheck's status 0 is a pass: one stdout line, `GO-VULN-OK src-go: govulncheck found no vulnerability the code reaches`. Status 3 (it found a vulnerability the code calls)
   is exit 1 with its report on stderr. Any other status, including a vulnerability database it
   could not fetch, is exit 2 with its output: the gate could not judge, which is never a pass.
-- **V3.** The environment is G10's.
+- **V3.** The environment is G10's. govulncheck keeps no database cache, so every run fetches
+  `vuln.go.dev`; offline it is exit 2 by V2.
 
 ## Both
 

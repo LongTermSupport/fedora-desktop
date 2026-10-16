@@ -81,11 +81,13 @@ checkout, offline (`-mod=vendor`, Go's default when `vendor/` exists, and set ex
 - **Add or bump** with `go get <module>@<tag>`, then `go mod tidy` and `go mod vendor`, and
   commit `go.mod`, `go.sum`, `vendor/` and the allowlist together; the diff of `vendor/` is the
   review of the new code. Never edit a file under `vendor/`.
-- **Gates**: `scripts/qa-go-deps.bash` (the allowlist, pinning, `go mod verify`, `go mod tidy`
-  and `vendor/` byte for byte what `go mod vendor` writes) and `scripts/qa-go-vuln.bash`
+- **Gates**: `scripts/qa-go-deps.bash` (the allowlist, pinning, `go mod verify` (the module
+  cache unchanged since download), `go mod tidy` and `vendor/` byte for byte what
+  `go mod vendor` writes, the last two checking every module against `go.sum`) and `scripts/qa-go-vuln.bash`
   (`govulncheck` over this module, reading `vendor/`), both in `qa-all` and `qa-changed`.
   govulncheck itself is pinned by the `tool` directive of `qa/go.mod` and runs as
-  `go tool govulncheck`.
+  `go tool govulncheck`. The pre-commit secret scan skips `vendor/` only when `qa-go-deps`
+  passes over the staged tree.
 - **Only `internal/ui` imports the TUI libraries** (Charm: Bubble Tea, Bubbles, Lip Gloss); the
   flows build semantic screens. `internal/ui/frame` is their first user. A project rule will
   hold this (`project_seam_imports`, Plan 00204 Task 2.2); until it lands, review holds it.
@@ -274,9 +276,12 @@ and real-file-system tests (symlinks, the live manifest) in the command package.
 `qa/godeps` + `qa/cmd/qa-go-deps` and `qa/cmd/qa-go-vuln` (same nested module) are
 `scripts/qa-go-deps.bash` and `scripts/qa-go-vuln.bash`, the gates on this module's dependencies
 ([Dependencies](#dependencies)): the scripts only build and run the commands. `go.mod` is parsed
-with `x/mod/modfile`; the go commands (`go mod verify`, `go mod tidy -diff`, `go mod vendor -o`
-into a scratch tree compared byte for byte, `go tool govulncheck`) run through
-`qa/internal/proc` with `GOFLAGS` emptied, `GOWORK=off` and `GOTOOLCHAIN=local`. A reachable
+with `x/mod/modfile`; the go commands (`go mod verify`, which checks the module cache against the
+hashes recorded at download, `go mod tidy -diff` and `go mod vendor -o` into a scratch tree
+compared byte for byte, which check `go.sum`, and `go tool govulncheck`) run through
+`qa/internal/proc` with `GOFLAGS` emptied, `GOWORK=off`, `GOTOOLCHAIN=local`, the public proxy and
+checksum database pinned and no module exempted from them. A go command that could not reach the
+proxy (a cold cache offline) could not judge: exit 2, unless a definite finding makes it exit 1. A reachable
 vulnerability is exit 1; a govulncheck that could not judge (no vulnerability database) is exit
 2, never a pass. Plan 00204's `SPEC-qa-go-deps.md` is the specification, proven by unit tests
 over a fake go and by the real go over a module with no dependencies.

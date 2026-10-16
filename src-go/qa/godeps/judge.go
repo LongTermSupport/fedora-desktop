@@ -11,6 +11,8 @@ import (
 // line reports.
 type verdict struct {
 	findings []string
+	// unjudged are the steps that could not judge (G12): exit 2 unless there is a finding.
+	unjudged []string
 	modules  int
 	pseudo   int
 	replaced int

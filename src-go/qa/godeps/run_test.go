@@ -21,6 +21,15 @@ const (
 // vendorTree is what go mod vendor writes for goodGoMod, and what a repository in step holds.
 var vendorTree = map[string]string{"modules.txt": "# ex.com/a v1.0.0\n## explicit\nex.com/a\n", vendoredFile: "package a\n"}
 
+// pinnedEnv is every variable the go commands are given, whatever the caller's environment holds
+// (G10): no flag, workspace or toolchain switch, and the public proxy and checksum database with
+// no module exempt from either.
+var pinnedEnv = []string{
+	"GOFLAGS=", "GOWORK=off", "GOTOOLCHAIN=local",
+	"GOPROXY=https://proxy.golang.org,direct", "GOSUMDB=sum.golang.org",
+	"GONOSUMDB=", "GONOPROXY=", "GOPRIVATE=", "GOINSECURE=",
+}
+
 // fakeGo answers the go commands: a status and output per subcommand, and go mod vendor -o
 // writes the tree it is given.
 type fakeGo struct {
@@ -136,7 +145,7 @@ func TestTheGoCommandsRunInSrcGoUnderAFixedEnvironment(t *testing.T) {
 		if c.Dir != filepath.Join(r.root, "src-go") {
 			t.Errorf("%v ran in %s", c.Argv, c.Dir)
 		}
-		for _, want := range []string{"GOFLAGS=", "GOWORK=off", "GOTOOLCHAIN=local"} {
+		for _, want := range pinnedEnv {
 			if !slices.Contains(c.Env, want) {
 				t.Errorf("%v has no %s in %v", c.Argv, want, c.Env)
 			}
@@ -303,7 +312,7 @@ func TestVulnRunsThePinnedGovulncheckOverSrcGo(t *testing.T) {
 	if c.Dir != filepath.Join(srcGo, "qa") {
 		t.Fatalf("dir = %s", c.Dir)
 	}
-	for _, want := range []string{"GOFLAGS=", "GOWORK=off", "GOTOOLCHAIN=local"} {
+	for _, want := range pinnedEnv {
 		if !slices.Contains(c.Env, want) {
 			t.Errorf("no %s in %v", want, c.Env)
 		}
@@ -333,5 +342,65 @@ func TestVulnThatCannotStartIsExitTwo(t *testing.T) {
 	r.goFake.failRun = "govulncheck"
 	if code := r.vuln(t); code != ExitCannotRun {
 		t.Fatalf("code %d", code)
+	}
+}
+
+// G7, G8, G9: a go command that could not reach the module proxy (an offline cold cache) could
+// not judge, so the gate is exit 2 and says so; it is not reported as "not tidy".
+func TestAGoCommandThatCannotReachTheProxyIsExitTwo(t *testing.T) {
+	for _, out := range []string{
+		"go: charm.land/bubbles/v2@v2.2.1: module lookup disabled by GOPROXY=off\n",
+		"go: example: Get \"https://proxy.golang.org/x/@v/list\": dial tcp: lookup proxy.golang.org: no such host\n",
+		"go: example: Get \"https://proxy.golang.org/x\": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused\n",
+	} {
+		for _, step := range []string{"verify", "tidy", "vendor"} {
+			r := inStep(t)
+			r.goFake.codes[step] = 1
+			r.goFake.outputs[step] = out
+			if code := r.deps(t); code != ExitCannotRun {
+				t.Errorf("%s with %q: code %d, want %d", step, out, code, ExitCannotRun)
+			}
+			if !strings.Contains(r.err.String(), "could not judge") || strings.Contains(r.err.String(), "not tidy") {
+				t.Errorf("%s with %q: stderr %s", step, out, r.err.String())
+			}
+		}
+	}
+}
+
+// A checksum mismatch is a finding, whatever else the output says.
+func TestAChecksumMismatchIsAFindingNotUnreachable(t *testing.T) {
+	r := inStep(t)
+	r.goFake.codes["tidy"] = 1
+	r.goFake.outputs["tidy"] = "verifying ex.com/a@v1.0.0: checksum mismatch\nSECURITY ERROR\nThis download does NOT match the one reported by the checksum server.\n"
+	if code := r.deps(t); code != ExitFailed {
+		t.Fatalf("code %d", code)
+	}
+}
+
+// A definite finding outranks a step that could not judge: the gate is exit 1 and names both.
+func TestADefiniteFindingOutranksAStepThatCouldNotJudge(t *testing.T) {
+	r := inStep(t)
+	writeTree(t, filepath.Join(r.root, "src-go"), map[string]string{"go-deps.allowlist": "module\tex.com/other\twhy\n"})
+	r.goFake.codes["verify"] = 1
+	r.goFake.outputs["verify"] = "go: module lookup disabled by GOPROXY=off\n"
+	if code := r.deps(t); code != ExitFailed {
+		t.Fatalf("code %d", code)
+	}
+	for _, want := range []string{"ex.com/other", "could not judge"} {
+		if !strings.Contains(r.err.String(), want) {
+			t.Errorf("stderr lacks %q:\n%s", want, r.err.String())
+		}
+	}
+}
+
+// N1: go mod verify checks the module cache against the hashes recorded when each module was
+// downloaded; go.sum is checked by tidy and vendor. The wording says what it checks.
+func TestAFailedVerifySaysWhatItChecks(t *testing.T) {
+	r := inStep(t)
+	r.goFake.codes["verify"] = 1
+	r.goFake.outputs["verify"] = "ex.com/a v1.0.0: dir has been modified\n"
+	r.deps(t)
+	if !strings.Contains(r.err.String(), "changed since it was downloaded") || strings.Contains(r.err.String(), "does not match go.sum") {
+		t.Fatalf("stderr = %s", r.err.String())
 	}
 }

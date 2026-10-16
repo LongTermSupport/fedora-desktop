@@ -77,8 +77,6 @@ declare -a SENSITIVE_PATTERNS=(
     "10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}::Private IP address (10.x.x.x)::Use a reserved documentation IP — ${RESERVED_IPS}. See ${EXAMPLE_DOC}"
 )
 
-echo "🔍 Scanning staged changes for sensitive information..."
-
 # Get list of staged files (exclude deletions). A failure of this listing must
 # fail the hook (this is a security gate), so no error suppression here.
 #
@@ -98,10 +96,14 @@ echo "🔍 Scanning staged changes for sensitive information..."
 # recorded as D+A instead, in which case the add WAS scanned — which is why this
 # hole was easy to miss: it appears and disappears with file size.
 #
-# src-go/vendor is not scanned: it is third-party Go source exactly as `go mod vendor` writes it
-# (Plan 00204), so its authors' contact addresses are not ours to replace, and qa-go-deps fails
-# any byte that differs from the module go.sum checksums. gitleaks in CI still reads it.
-mapfile -t STAGED_FILE_LIST < <(git diff --cached --name-only --diff-filter=ACMRT -- . ':(exclude)src-go/vendor')
+# The list, and the scan banner, come from lib/staged-scan-list.bash. It leaves out src-go/vendor
+# (third-party Go source, Plan 00204) only after qa-go-deps passes over the staged tree; a failed
+# gate fails the assignment below and so the hook. gitleaks in CI still reads src-go/vendor.
+# Split on newlines only, so an empty list is no element rather than one empty path (which
+# `mapfile` from a here-string would give); `read -d ''` ends at end of input with status 1,
+# which the `!` keeps from stopping the hook.
+STAGED_SCAN_TEXT="$("${HOOK_LIB%/*}/staged-scan-list.bash")"
+! IFS=$'\n' read -r -d '' -a STAGED_FILE_LIST <<<"$STAGED_SCAN_TEXT"
 # The version gates judge deletions too: a file deleted from the repo is still in the image.
 mapfile -t STAGED_CHANGE_LIST < <(git diff --cached --name-only --diff-filter=ACDMRT)
 
