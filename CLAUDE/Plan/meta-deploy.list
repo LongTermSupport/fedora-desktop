@@ -36,3 +36,10 @@ playbooks/imports/play-claude-yolo.yml
 # their headless sessions, all removed after. Needs ccy launched interactively here once
 # (Quick Launch).
 00203-teams-hot-control-and-robustness
+# Plan 00203: read-only triage of why team homeservers stop. Changes nothing; reads as root
+# (sudo -n): the whole journal, each team's tuwunel.toml (secret values substituted), its
+# database size, filesystem and free space, the coredumps, and each running ccy container's
+# watcher log. Lists every stop of every agent-bus-hs@ unit with its cause (exit, signal,
+# watchdog, OOM, core dump) and who asked (a play, a deploy, an acceptance run, a reboot, the
+# health check), then counts deliberate against not deliberate stops per team.
+00203-teams-hot-control-and-robustness/triage-hs.bash
