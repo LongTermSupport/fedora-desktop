@@ -28,6 +28,9 @@ playbooks/imports/optional/common/play-md-viewer.yml
 # same container name: each launch claims its name (ccy-teams internal claim-container-name,
 # under $XDG_RUNTIME_DIR/ccy/container-names/) before podman creates it. Running sessions are
 # not touched.
+# Plan 00135: it also rebuilds ccy-sessions, so ccy-sessions-set-going.service no longer fails a
+# boot for a restored session left to a person (waiting at its SSH passphrase prompt, attached,
+# or with text typed); it still fails, naming each, for a real fault such as a launcher that exited.
 playbooks/imports/play-claude-yolo.yml
 # Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.10.2. M2 starts its two
 # throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the

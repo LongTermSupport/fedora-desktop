@@ -65,6 +65,8 @@ type Config struct {
 	CompactFloor       TokenFloor
 	PassphraseFile     string
 	BootIDFile         string
+	// ProcStatFile is where this boot's start time (btime) is read; empty means the kernel's.
+	ProcStatFile string
 }
 
 // loadConfig reads the knobs, each a whole or fractional number of seconds. A value that is not
@@ -73,7 +75,7 @@ func loadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		CcyLib: getenv("CCY_LIB"), CompactFloor: ParseTokenFloor(getenv("CCY_RESTORE_COMPACT_FLOOR_TOKENS")),
 		PassphraseFile: getenv(unlockFileEnv), BootIDFile: getenv("CCY_BOOT_ID_FILE"),
-		TakeOverWaitTenths: 50,
+		ProcStatFile: getenv("CCY_PROC_STAT_FILE"), TakeOverWaitTenths: 50,
 	}
 	if cfg.CcyLib == "" {
 		cfg.CcyLib = defaultLib
