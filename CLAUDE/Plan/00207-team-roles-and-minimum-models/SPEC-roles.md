@@ -952,8 +952,11 @@ between them. Under either one:
 - **One team only.** A note goes only to the management room of the team whose open question
   it answers. With several possible teams nothing is posted automatically, and one team's
   terminal input is never posted to another's room.
-- **When:** only while a question is open, or within `terminal_note_window_s` (1800) of the
-  coordinator's last brief or question (D24).
+- **When:**
+  - Option (a): only while the question `Q<n>` it names is open. `note` refuses otherwise.
+  - Option (b): while a question is open, or within `terminal_note_window_s` (1800) of the
+    coordinator's last brief or question (D24).
+  - The D24 window applies to option (b) only.
 
 Fable's review found two things wrong with inferring "the human typed this" inside the
 session:
@@ -1030,7 +1033,7 @@ mitigations below).
 
   - **Which human:** `terminal_human` (D23).
   - **The excerpt:** the line's first 160 characters, after pingbus's secret-shape check. A line
-    that fails it is posted as `(text withheld: it looked like a secret)` (D22).
+    that fails it is discarded and nothing is posted (D22, and the mitigations below).
   - With (b) the coordinator has no `note` command at all.
 
 - **Reserved name.** `notary` is added to `protocol.RESERVED_LOCALPARTS` (today
