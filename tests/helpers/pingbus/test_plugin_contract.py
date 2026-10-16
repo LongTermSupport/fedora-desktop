@@ -52,6 +52,19 @@ MATCHERS = {"PostToolUse": "Bash"}
 #: The PostToolUse command runs only in relay mode; behaviour is tested in test_relay_hooks.
 GUARD_PREFIX = 'if [ "$PINGBUS_DELIVERY" = relay ]; then exec '
 GUARD_SUFFIX = "; fi"
+#: Plan 00203 H33, the inert contract: a session launched under a desired membership
+#: (PINGBUS_MEMBERSHIP set) runs a hook only while its `active` flag says a seat is held, so a
+#: ccy session on no team starts no Python. A session without the marker (`cc --teams`, an
+#: `agent-bus-claude` member) runs every hook as before.
+INERT_HEAD = '[ -z "$PINGBUS_MEMBERSHIP" ] || [ -e "$PINGBUS_HOME/active" ] || '
+INERT_GUARD = INERT_HEAD + "exit 0; "
+#: SessionStart's inert branch records the inbox socket for the keeper (H11), in the shell.
+SESSION_START_INERT = (
+    INERT_HEAD + '{ [ -z "$CLAUDE_CODE_MESSAGING_SOCKET" ] || (umask 077 && jq -n '
+    "'env | {v: 1, socket: .CLAUDE_CODE_MESSAGING_SOCKET, token: .CLAUDE_CODE_MESSAGING_TOKEN}' "
+    '> "$PINGBUS_HOME/.socket.json.tmp" && mv -f "$PINGBUS_HOME/.socket.json.tmp" "$PINGBUS_HOME/socket.json") '
+    "|| exit 1; exit 0; }; "
+)
 
 #: The commands an agent runs by hand, each of which the skill must name.
 AGENT_COMMANDS = ("send", "say", "recv", "wait", "inbox", "status", "history", "config check", "validate")
@@ -135,14 +148,82 @@ class HooksJsonTest(unittest.TestCase):
         for event, commands in self.commands().items():
             self.assertEqual(len(commands), 1, event)
             command = commands[0]
+            head = SESSION_START_INERT if event == "SessionStart" else INERT_GUARD
+            self.assertTrue(command.startswith(head), f"{event}: {command}")
+            command = command[len(head):]
             if event == "PostToolUse":  # guarded in shell: off mode starts no Python process
                 self.assertTrue(command.startswith(GUARD_PREFIX) and command.endswith(GUARD_SUFFIX), command)
-                command = command[len(GUARD_PREFIX):-len(GUARD_SUFFIX)]
+                command = "exec " + command[len(GUARD_PREFIX):-len(GUARD_SUFFIX)]
             argv = shlex.split(command)
+            self.assertEqual(argv[:1], ["exec"], event)
+            argv = argv[1:]
             self.assertEqual(argv, ["pingbus", "hook", REGISTERED[event]], event)
             self.assertIn(argv[2], hooks.EVENTS)
             self.assertEqual(hooks.HOOK_EVENT_NAMES[argv[2]], event)
             self.assertTrue(parses(argv[1:]), commands[0])
+
+    def run_hook(self, command: str, *, active: bool, membership: bool,
+                 extra: dict[str, str] | None = None) -> tuple[subprocess.CompletedProcess, str, pathlib.Path]:
+        """`command` under sh, as Claude Code runs it, with recorders for pingbus and python3
+        first on PATH; the result, what the recorders saw, and the session home."""
+        tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        home, bin_dir, log = tmp / "home", tmp / "bin", tmp / "started"
+        home.mkdir(mode=0o700)
+        bin_dir.mkdir()
+        for name in ("pingbus", "python3"):
+            (bin_dir / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "{log}"\n', encoding="ascii")
+            (bin_dir / name).chmod(0o755)
+        if active:
+            (home / "active").write_text("", encoding="ascii")
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "PINGBUS_HOME": str(home), "PINGBUS_DELIVERY": "relay"}
+        if membership:
+            env["PINGBUS_MEMBERSHIP"] = "/run/ccy/membership"
+        env.update(extra or {})
+        done = subprocess.run(["sh", "-c", command], env=env, input='{"session_id": "s"}',
+                              capture_output=True, text=True, check=False)
+        started = log.read_text(encoding="ascii") if log.exists() else ""
+        return done, started, home
+
+    def test_a_session_on_no_team_runs_no_hook_process_and_answers_nothing(self) -> None:
+        """H33: the flag absent under the membership marker, every hook is an empty answer
+        and starts neither pingbus nor python3."""
+        for event, (command,) in self.commands().items():
+            with self.subTest(event=event):
+                done, started, _ = self.run_hook(command, active=False, membership=True)
+                self.assertEqual((done.returncode, done.stdout, done.stderr, started), (0, "", "", ""))
+
+    def test_a_session_holding_a_seat_runs_each_hook(self) -> None:
+        for event, (command,) in self.commands().items():
+            with self.subTest(event=event):
+                done, started, _ = self.run_hook(command, active=True, membership=True)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(started, f"pingbus hook {REGISTERED[event]}\n")
+
+    def test_a_session_without_the_marker_runs_each_hook_as_before(self) -> None:
+        """`cc --teams` and `agent-bus-claude` pass no PINGBUS_MEMBERSHIP and keep no flag."""
+        for event, (command,) in self.commands().items():
+            with self.subTest(event=event):
+                done, started, _ = self.run_hook(command, active=False, membership=False)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(started, f"pingbus hook {REGISTERED[event]}\n")
+
+    @unittest.skipUnless(shutil.which("jq"), "the image and the host both have jq; this machine has not")
+    def test_session_start_on_no_team_records_the_inbox_socket_privately(self) -> None:
+        (command,) = self.commands()["SessionStart"]
+        socket_env = {"CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/s.sock", "CLAUDE_CODE_MESSAGING_TOKEN": "t0k"}
+        done, started, home = self.run_hook(command, active=False, membership=True, extra=socket_env)
+        self.assertEqual((done.returncode, done.stdout, started), (0, "", ""), done.stderr)
+        recorded = home / "socket.json"
+        self.assertEqual(json.loads(recorded.read_text(encoding="utf-8")),
+                         {"v": 1, "socket": "/tmp/s.sock", "token": "t0k"})
+        self.assertEqual(recorded.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(sorted(p.name for p in home.iterdir()), ["socket.json"])
+
+    def test_session_start_on_no_team_without_a_socket_records_nothing(self) -> None:
+        (command,) = self.commands()["SessionStart"]
+        done, started, home = self.run_hook(command, active=False, membership=True)
+        self.assertEqual((done.returncode, done.stdout, started), (0, "", ""))
+        self.assertEqual(list(home.iterdir()), [])
 
     def test_session_end_without_a_session_id_or_a_poster_does_nothing(self) -> None:
         err = io.StringIO()

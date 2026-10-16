@@ -56,7 +56,9 @@ DESIRED_KEYS = frozenset({"v", "session", "kind", "checkout", "generation", "wri
 APPLIED_KEYS = frozenset({"v", "generation", "seats", "refused"})
 APPLIED_OPTIONAL = frozenset({"told"})
 
-_SESSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+#: The registry name grammar the host's writer uses (src-go/internal/teams/membership); never
+#: `.` or `..`, and no `/`, since it names the report's directory (3.3).
+_SESSION_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.@+-]{0,254}")
 _CHECKOUT_RE = re.compile(r"/[^\x00-\x1f\x7f]{0,4095}")
 _HOLDER_RE = re.compile(r"[a-z-]{1,32}")
 
@@ -306,7 +308,7 @@ def read_desired(directory: pathlib.Path) -> Desired:
     path = desired_path(directory)
     data = _read_json(path)
     if data is None:
-        raise MembershipError(f"{path}: no such file: the host writes it at launch")
+        raise MembershipError(f"{MEMBERSHIP_VAR}: {path}: no such file: the host writes it at launch")
     return parse_desired(data, str(path))
 
 

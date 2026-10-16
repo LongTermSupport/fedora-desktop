@@ -358,6 +358,16 @@ class TeamState:
         except ValueError:
             raise StateError(f"{self.path / SYNC_FILE} holds a malformed sync token") from None
 
+    def forget_sync_token(self) -> bool:
+        """Drop the saved `next_batch`, so the next sync is a first sync (§9) and nothing
+        posted meanwhile is fetched (Plan 00203 H23 step 5); whether there was one."""
+        path = self.path / SYNC_FILE
+        if not os.path.lexists(path):
+            return False
+        os.unlink(path)
+        _fsync_dir(self.path)
+        return True
+
     def pending(self, ctx: protocol.Context, self_user_id: str, *, human_text: bool) -> Pending:
         """Every inbox item that still passes the offline validator, oldest first."""
         if not self.inbox_dir.is_dir():

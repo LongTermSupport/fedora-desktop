@@ -380,7 +380,8 @@ class ClaimTest(SeatCase):
     def test_the_session_home_is_private_with_one_link_per_seat(self):
         self.assertEqual(self.claim()[0], 0)
         self.assertEqual(stat.S_IMODE(self.session_home.stat().st_mode), 0o700)
-        self.assertEqual(sorted(p.name for p in self.session_home.iterdir()), [TEAM_A, TEAM_B])
+        self.assertEqual(sorted(p.name for p in self.session_home.iterdir() if p.is_symlink()),
+                         [TEAM_A, TEAM_B])
         self.assertEqual(os.readlink(self.session_home / TEAM_A), str(self.dev1))
         self.assertEqual(os.readlink(self.session_home / TEAM_B), str(self.qa2))
 
@@ -490,57 +491,6 @@ class ClaimTest(SeatCase):
         self.assertEqual(self.execs[0][1], ["claude", "--plugin-dir", "/x"])
 
 
-class MembershipClaimTest(SeatCase):
-    """`seat exec` with `PINGBUS_MEMBERSHIP` (Plan 00203 H8, H9): the desired file names
-    the seats, an empty membership is valid, and `PINGBUS_TEAMS` is not set."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.make_seat("dev1")
-        self.mount = self.tmp / "membership"
-        self.mount.mkdir()
-        self.env[membership.MEMBERSHIP_VAR] = str(self.mount)
-
-    def write_desired(self, seats: list[dict[str, str]]) -> None:
-        write_desired(self.mount, seats, generation=1, checkout=str(self.tmp / "checkout"))
-
-    def test_the_desired_seats_are_taken_and_pingbus_teams_is_not_set(self):
-        self.write_desired([{"team": TEAM_A, "seat": "dev1"}])
-        code, _, err = self.run_cli("seat", "exec", "--", "claude",
-                                    env=dict(self.env, PINGBUS_TEAMS="team-z"))
-        self.assertEqual(code, 0, err)
-        ((_, _, env),) = self.execs
-        self.assertEqual(env["PINGBUS_HOME"], str(self.session_home))
-        self.assertNotIn("PINGBUS_TEAMS", env)
-        self.assertEqual(env[membership.MEMBERSHIP_VAR], str(self.mount))
-        self.assertEqual(inbox.probe_lock_at(self.lock_of("dev1")), inbox.SEAT_KIND)
-        self.assertEqual(config.active_teams(env), (TEAM_A,))
-
-    def test_an_empty_membership_makes_the_home_and_holds_nothing(self):
-        self.write_desired([])
-        env = dict(self.env, PATH=fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp, "logged-out")))
-        code, _, err = self.run_cli("seat", "exec", "--", "claude", env=env)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(len(self.execs), 1)
-        self.assertNotIn("agent team bus", err)
-        self.assertEqual(stat.S_IMODE(self.session_home.stat().st_mode), 0o700)
-        self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
-        self.assertFalse((self.session_home / membership.FLAG_FILE).exists())
-        self.assertEqual(inbox.probe_lock_at(self.session_home / seat.KEEPER_LOCK), inbox.KEEPER_KIND)
-
-    def test_no_desired_file_is_refused_78(self):
-        code, _, err = self.run_cli("seat", "exec", "--", "claude")
-        self.assertEqual(code, EX_CONFIG)
-        self.assertIn(membership.DESIRED_FILE, err)
-        self.assertEqual(self.execs, [])
-
-    def test_off_is_refused_78(self):
-        code, _, err = self.run_cli("seat", "exec", "--", "claude",
-                                    env=dict(self.env, **{membership.MEMBERSHIP_VAR: "off"}))
-        self.assertEqual(code, EX_CONFIG)
-        self.assertIn("--no-bus", err)
-
-
 def write_desired(directory: pathlib.Path, seats: list[dict[str, str]], *, generation: int,
                   checkout: str, farewell: list[dict[str, str]] | None = None,
                   session: str = "ccy-myrepo-1") -> None:
@@ -550,6 +500,65 @@ def write_desired(directory: pathlib.Path, seats: list[dict[str, str]], *, gener
     temp = directory / f".membership.{generation}.tmp"
     temp.write_text(json.dumps(data), encoding="utf-8")
     os.replace(temp, directory / membership.DESIRED_FILE)
+
+
+def membership_text(seats: list[dict[str, str]] | None = None, **change: object) -> str:
+    """A desired membership file (Plan 00203 SPEC-hot-control.md section 3.1)."""
+    data: dict[str, object] = {
+        "v": 1, "session": "ccy-proj-1", "kind": "ccy", "checkout": "/home/u/code/proj",
+        "generation": 1, "written_ms": T0_MS, "seats": [] if seats is None else seats, "farewell": [],
+    }
+    data.update(change)
+    return json.dumps(data) + "\n"
+
+
+class ParseMembershipTest(unittest.TestCase):
+    """The launch's seats as the keeper reads them from the desired file: membership.py is
+    the one reader (its own tests cover each key); these are the launch's cases."""
+
+    def parse_membership(self, text: str) -> tuple[seat.SeatRef, ...]:
+        directory = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (directory / membership.DESIRED_FILE).write_text(text, encoding="utf-8")
+        return seat.MembershipFile(directory).read().refs
+
+    def test_the_seats_in_the_files_order(self):
+        text = membership_text([{"team": TEAM_B, "seat": "qa2"}, {"team": TEAM_A, "seat": "1"}])
+        self.assertEqual(self.parse_membership(text), (seat.SeatRef("qa2", TEAM_B), seat.SeatRef("1", TEAM_A)))
+
+    def test_no_seats_is_a_valid_membership(self):
+        self.assertEqual(self.parse_membership(membership_text()), ())
+
+    def test_a_farewell_entry_is_read_past(self):
+        farewell = [{"team": TEAM_A, "seat": "1", "reason": "removed"}]
+        self.assertEqual(self.parse_membership(membership_text(farewell=farewell)), ())
+
+    def test_what_is_not_a_version_1_membership_is_refused_78(self):
+        good = json.loads(membership_text())
+        missing = {k: v for k, v in good.items() if k != "checkout"}
+        cases = {
+            "not JSON": "{",
+            "not an object": "[]",
+            "an unknown key": membership_text(extra=1),
+            "a missing key": json.dumps(missing),
+            "version 2": membership_text(v=2),
+            "a version that is a string": membership_text(v="1"),
+            "a version that is true": membership_text(v=True),
+            "seats not a list": membership_text(seats={}),
+            "a seat entry with an extra key": membership_text([{"team": TEAM_A, "seat": "1", "role": "worker"}]),
+            "a seat entry missing its seat": membership_text([{"team": TEAM_A}]),
+            "a seat that is not a seat name": membership_text([{"team": TEAM_A, "seat": "Dev"}]),
+            "a team that is not a team name": membership_text([{"team": "Team", "seat": "1"}]),
+            "a team twice": membership_text([{"team": TEAM_A, "seat": "1"}, {"team": TEAM_A, "seat": "2"}]),
+            "farewell not a list": membership_text(farewell={}),
+            "a generation of zero": membership_text(generation=0),
+            "a relative checkout": membership_text(checkout="code/proj"),
+            "an empty session": membership_text(session=""),
+            "another kind": membership_text(kind="lxc"),
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name), self.assertRaises(config.ConfigError) as caught:
+                self.parse_membership(text)
+            self.assertNotIsInstance(caught.exception, config.UsageError, name)
 
 
 class KeeperTest(SeatCase):
@@ -751,6 +760,175 @@ class SourceTest(unittest.TestCase):
             with self.subTest(env=env), self.assertRaises(config.ConfigError) as caught:
                 seat.desired_source(env)
             self.assertIn(needle, str(caught.exception))
+class MembershipClaimTest(SeatCase):
+    """A ccy launch since Plan 00203 M2 passes PINGBUS_MEMBERSHIP, the read-only directory with
+    the session's desired membership, instead of PINGBUS_SEATS; a session on no team is valid.
+    The keeper takes the seats (M1); `seat exec` writes the session's settings (H34)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.dev1 = self.make_seat("dev1")
+        self.qa2 = self.make_seat("qa2", TEAM_B)
+        self.desired = self.tmp / "run" / "ccy" / "membership"
+        self.desired.mkdir(parents=True)
+        self.project = self.tmp / "checkout"
+        self.user = self.tmp / "dot-claude"
+        self.user.mkdir()
+        self.env[seat.MEMBERSHIP_VAR] = str(self.desired)
+        self.env["CLAUDE_CONFIG_DIR"] = str(self.user)
+        self.write_desired([{"team": TEAM_A, "seat": "dev1"}, {"team": TEAM_B, "seat": "qa2"}])
+        cwd = os.getcwd()
+        os.chdir(self.project)
+        self.addCleanup(os.chdir, cwd)
+
+    def write_desired(self, seats: list[dict[str, str]] | None, **change: object) -> None:
+        (self.desired / seat.MEMBERSHIP_FILE).write_text(membership_text(seats, **change), encoding="utf-8")
+
+    def claim(self, env: dict[str, str] | None = None) -> tuple[int, str, str]:
+        return self.run_cli("seat", "exec", "--", "claude", env=env)
+
+    def home_file(self, name: str) -> str:
+        return (self.session_home / name).read_text(encoding="utf-8")
+
+    def write_settings(self, path: pathlib.Path, data: object) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_the_desired_seats_are_claimed_and_the_session_is_marked_active(self):
+        code, out, err = self.claim()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "")
+        ((_, argv, env),) = self.execs
+        self.assertEqual(argv, ["claude"])
+        self.assertEqual(env["PINGBUS_HOME"], str(self.session_home))
+        self.assertEqual(env["PINGBUS_TEAMS"], "team-a,team-b")
+        self.assertEqual(env[seat.MEMBERSHIP_VAR], str(self.desired))
+        self.assertNotIn(seat.SEATS_VAR, env)
+        self.assertEqual(inbox.probe_lock_at(self.lock_of("dev1")), inbox.SEAT_KIND)
+        self.assertEqual(os.readlink(self.session_home / TEAM_B), str(self.qa2))
+        self.assertTrue((self.session_home / seat.ACTIVE_FLAG).is_file())
+        self.assertIn("✓ agent team bus: dev1@team-a", err)
+        self.assertEqual(config.active_teams(env), (TEAM_A, TEAM_B), "H8: applied ∩ desired")
+
+    def test_an_empty_membership_makes_the_home_holds_nothing_and_asks_no_gh(self):
+        self.write_desired(None)
+        env = dict(self.env, PATH=fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp, "logged-out")))
+        code, _, err = self.claim(env=env)
+        self.assertEqual(code, 0, err)
+        ((_, _, child_env),) = self.execs
+        self.assertEqual(child_env["PINGBUS_HOME"], str(self.session_home))
+        self.assertNotIn("PINGBUS_TEAMS", child_env)
+        self.assertEqual(stat.S_IMODE(self.session_home.stat().st_mode), 0o700)
+        self.assertEqual(sorted(p.name for p in self.session_home.iterdir()),
+                         sorted([membership.APPLIED_FILE, seat.KEEPER_LOCK, seat.KEEPER_LOG,
+                                 seat.SESSION_SETTINGS, seat.STATUS_LINE_INNER]))
+        self.assertEqual(inbox.probe_lock_at(self.session_home / seat.KEEPER_LOCK), inbox.KEEPER_KIND)
+        self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
+        self.assertIn("no team", err)
+
+    def test_the_session_settings_accept_inbound_and_guard_the_status_line(self):
+        """H34 with the M2 spike's answer (Claude Code does not re-read --settings): inbound is
+        accepted from the start, and the status line is a shell guard that runs no Python for
+        a session on no team."""
+        self.assertEqual(self.claim()[0], 0)
+        settings = json.loads(self.home_file(seat.SESSION_SETTINGS))
+        self.assertEqual(settings, {
+            "crossSessionInbound": "accept",
+            "statusLine": {"type": "command", "command": seat.STATUS_LINE_GUARD, "refreshInterval": 1},
+        })
+        for name in (seat.SESSION_SETTINGS, seat.STATUS_LINE_INNER, seat.ACTIVE_FLAG):
+            self.assertEqual(stat.S_IMODE((self.session_home / name).stat().st_mode), 0o600, name)
+
+    def test_the_inner_status_line_is_the_one_the_session_would_have_had(self):
+        local = self.project / ".claude" / "settings.local.json"
+        project = self.project / ".claude" / "settings.json"
+        user = self.user / "settings.json"
+        self.write_settings(user, {"statusLine": {"type": "command", "command": "user-line"}})
+        self.write_settings(project, {"statusLine": {"type": "command", "command": "project-line",
+                                                     "refreshInterval": 5, "padding": 2}})
+        self.write_settings(local, {"model": "x"})
+        self.write_desired(None)
+        self.assertEqual(self.claim()[0], 0)
+        self.assertEqual(self.home_file(seat.STATUS_LINE_INNER), "project-line\n")
+        line = json.loads(self.home_file(seat.SESSION_SETTINGS))["statusLine"]
+        self.assertEqual(line, {"type": "command", "command": seat.STATUS_LINE_GUARD,
+                                "refreshInterval": 5, "padding": 2})
+
+    def test_the_local_settings_outrank_the_project_and_the_user(self):
+        self.write_settings(self.user / "settings.json", {"statusLine": {"type": "command", "command": "u"}})
+        self.write_settings(self.project / ".claude" / "settings.local.json",
+                            {"statusLine": {"type": "command", "command": "l"}})
+        self.assertEqual(seat.inner_status_line(seat.settings_sources(self.env, self.project))["command"], "l")
+        (self.project / ".claude" / "settings.local.json").unlink()
+        self.assertEqual(seat.inner_status_line(seat.settings_sources(self.env, self.project))["command"], "u")
+
+    def test_no_status_line_anywhere_leaves_the_inner_one_empty(self):
+        self.write_desired(None)
+        self.assertEqual(self.claim()[0], 0)
+        self.assertEqual(self.home_file(seat.STATUS_LINE_INNER), "")
+        self.assertNotIn("refreshInterval", json.loads(self.home_file(seat.SESSION_SETTINGS))["statusLine"])
+
+    def test_a_settings_file_that_is_not_json_is_refused_78(self):
+        (self.project / ".claude" / "settings.json").write_text("{", encoding="utf-8")
+        code, _, err = self.claim()
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn("settings.json", err)
+        self.assertEqual(self.execs, [])
+        self.assertFalse(self.session_home.exists())
+        self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
+
+    def test_a_refused_claim_leaves_no_home(self):
+        self.qa2.chmod(0o750)
+        self.addCleanup(self.qa2.chmod, 0o700)
+        self.assertEqual(self.claim()[0], EX_CONFIG)
+        self.assertFalse(self.session_home.exists())
+
+    def test_what_the_marker_cannot_mean_is_refused_78(self):
+        cases = {
+            "off (a --no-bus launch never claims)": {seat.MEMBERSHIP_VAR: seat.MEMBERSHIP_OFF},
+            "a relative directory": {seat.MEMBERSHIP_VAR: "run/ccy/membership"},
+            "no membership file": {seat.MEMBERSHIP_VAR: str(self.tmp)},
+            "beside PINGBUS_SEATS (a mixed deploy)": {seat.SEATS_VAR: "dev1@team-a"},
+        }
+        for name, change in cases.items():
+            with self.subTest(case=name):
+                code, _, err = self.claim(env=dict(self.env, **change))
+                self.assertEqual(code, EX_CONFIG, err)
+                self.assertIn(seat.MEMBERSHIP_VAR, err)
+        self.assertEqual(self.execs, [])
+        self.assertFalse(self.session_home.exists())
+
+    def test_a_membership_with_an_unknown_key_is_refused_78(self):
+        self.write_desired(None, extra=1)
+        code, _, err = self.claim()
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn("extra", err)
+
+
+class StatusLineGuardTest(SeatCase):
+    """The status line command is a shell guard (H34): with no `active` flag it runs the inner
+    status line and no pingbus, so a plain session starts no Python each second."""
+
+    def run_guard(self, *, active: bool) -> str:
+        home = self.tmp / "home"
+        home.mkdir()
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "pingbus").write_text("#!/bin/sh\necho pingbus \"$@\"\n", encoding="ascii")
+        (bin_dir / "pingbus").chmod(0o755)
+        (home / seat.STATUS_LINE_INNER).write_text("echo inner; cat\n", encoding="ascii")
+        if active:
+            (home / seat.ACTIVE_FLAG).write_text("", encoding="ascii")
+        result = subprocess.run(["sh", "-c", seat.STATUS_LINE_GUARD], input="{}", capture_output=True,
+                                text=True, check=True,
+                                env={"PATH": f"{bin_dir}:/usr/bin:/bin", "PINGBUS_HOME": str(home)})
+        return result.stdout
+
+    def test_without_the_flag_the_inner_status_line_runs_and_reads_the_input(self):
+        self.assertEqual(self.run_guard(active=False), "inner\n{}")
+
+    def test_with_the_flag_pingbus_draws_it(self):
+        self.assertEqual(self.run_guard(active=True), "pingbus status-line\n")
 
 
 class RealExecTest(SeatCase):

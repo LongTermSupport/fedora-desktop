@@ -19,11 +19,20 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00194 watcher fix: deploys the ccy launcher 3.98.12, which requires container 2.67, so
-# the next ccy launch rebuilds the image once. The team watcher in ccy sessions survives a
-# homeserver restart (it waits, retries and catches up, with one log line at the start and one
-# at the end of an outage) and runs under a supervisor that starts it again if it dies.
+# Plans 00194 and 00203 (M0, M1, M2): rebuilds ccy 3.99.1, ccy-teams and the ccy image
+# (container 2.68; the first launch after it rebuilds the image once). The team watcher
+# survives a homeserver restart and runs supervised. Every ccy session started in ccy's tmux
+# carries the agent team bus kit, idle on no team (no hooks run, its own status line), with its
+# membership mounted read-only; `ccy --no-bus` leaves the kit out. Each session's seats are now
+# held by one seat keeper process, so a stray background process can no longer keep a seat.
+# Running sessions are unaffected until they are relaunched.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00194 watcher fix: agent-bus-install software puts the same pingbus in the kit for
-# `cc --teams` sessions and LXC members. No firewall rule changes.
+# Plans 00194 and 00203 M1: agent-bus-install software puts the same pingbus in the kit for
+# `cc --teams` sessions and LXC members (the seat keeper, `seat retire`, `reach`). No firewall
+# rule changes.
 playbooks/imports/play-agent-bus.yml
+# Plan 00203 M2 acceptance (read-only): before it runs, start three sessions in ccy's tmux and
+# leave them idle: `ccy --teams 1@<team>`, a plain `ccy`, and `ccy --no-bus` (ACCEPTANCE.md,
+# M2). It checks the seats, the read-only mount, the inert kit, idle CPU, the image version and
+# --no-bus, on an Enforcing host, and exits 2 naming any session it could not find.
+00203-teams-hot-control-and-robustness

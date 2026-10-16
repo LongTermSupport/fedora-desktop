@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pingbus hook session-start"
+            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || { [ -z \"$CLAUDE_CODE_MESSAGING_SOCKET\" ] || (umask 077 && jq -n 'env | {v: 1, socket: .CLAUDE_CODE_MESSAGING_SOCKET, token: .CLAUDE_CODE_MESSAGING_TOKEN}' > \"$PINGBUS_HOME/.socket.json.tmp\" && mv -f \"$PINGBUS_HOME/.socket.json.tmp\" \"$PINGBUS_HOME/socket.json\") || exit 1; exit 0; }; exec pingbus hook session-start"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pingbus hook prompt"
+            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || exit 0; exec pingbus hook prompt"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ \"$PINGBUS_DELIVERY\" = relay ]; then exec pingbus hook post-tool; fi"
+            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || exit 0; if [ \"$PINGBUS_DELIVERY\" = relay ]; then exec pingbus hook post-tool; fi"
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pingbus hook stop"
+            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || exit 0; exec pingbus hook stop"
           }
         ]
       }
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pingbus hook session-end",
+            "command": "[ -z \"$PINGBUS_MEMBERSHIP\" ] || [ -e \"$PINGBUS_HOME/active\" ] || exit 0; exec pingbus hook session-end",
             "timeout": 6
           }
         ]

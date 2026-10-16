@@ -85,7 +85,7 @@ Two things are **not** frozen:
     so nothing is inherited and claude's tree holds none.
   - It also:
     - makes the session home, even with no seat;
-    - keeps the flag file and the session's settings (H34);
+    - keeps the flag file (H34; the session's settings are fixed at launch, per the M2 spike);
     - reconciles the read-only file against its locks and the home links;
     - starts the watcher when the first seat is applied (H11).
   - Release is an explicit `flock(LOCK_UN)` before the close. Today's `Lock.release` truncates
@@ -199,6 +199,10 @@ Two things are **not** frozen:
   - It writes generation 1 from the canonical `--teams` list, with empty `seats` when there is
     none. It does this through `ccy-teams internal membership-init <session> <checkout> <list>`, so no bash grows.
   - Test: `scripts/test-ccy-teams.bash` sees the mount with the relabel token, and the label.
+  - As built in M2: a `--teams` launch with no registry name (a plain terminal, H35) still gets
+    its seats through a membership directory, named after its container instead; it has no
+    `ccy-session` label, so it is not hot-controllable. A plain launch with no name gets
+    `PINGBUS_MEMBERSHIP=off`, as `--no-bus` does.
 
 - **H2.** The launcher states the bus choice explicitly:
   `-e PINGBUS_MEMBERSHIP=/run/ccy/membership`, or `-e PINGBUS_MEMBERSHIP=off` for `--no-bus`.
@@ -498,6 +502,11 @@ Two things are **not** frozen:
 - **H33. Inert hooks.** The keeper keeps a flag file, `$PINGBUS_HOME/active`, which exists if
   and only if at least one seat is applied. Every hook command in `hooks.json` becomes
   `[ -e "$PINGBUS_HOME/active" ] || exit 0; exec pingbus hook <event>`.
+  - As built in M2 the guard is `[ -z "$PINGBUS_MEMBERSHIP" ] || [ -e "$PINGBUS_HOME/active" ] || exit 0`:
+    the kit's `hooks.json` is shared with `cc --teams` and `agent-bus-claude` members, which
+    set no `PINGBUS_MEMBERSHIP` and keep no flag, and run every hook as before.
+    SessionStart's inert branch writes `$PINGBUS_HOME/socket.json` (`{v, socket, token}`,
+    mode 0600) with `jq`, reading the socket and token from the environment, never argv.
   - SessionStart is the exception: it still runs, so it can record `socket.json` (H11). It does
     that in the shell, with no Python, when the flag is absent.
   - Test: the plugin contract test runs every hook with the flag absent and sees no `python3`
@@ -510,19 +519,30 @@ Two things are **not** frozen:
     settings, and writes it to `statusline-inner`. So a plain session starts no per-second
     Python, and keeps the status line it would have had.
 
-  - **Cross-session inbound.** `crossSessionInbound: accept` is present only while a seat is
-    applied. The keeper rewrites the file atomically on the first add and the last remove.
+  - **Cross-session inbound.** The session is launched with `crossSessionInbound: accept`, on a
+    team or not, and the watcher, which runs only while a seat is applied (H11), is the only
+    writer the kit starts. docs/ccy.md names the exposure: in a container, the agent could
+    inject into its own session, which it can already do.
 
-  - **M2 spike, before M3 is built:** prove whether Claude Code re-reads a changed `--settings`
-    file. If it does not:
+  - **M2 spike result: Claude Code does not re-read a `--settings` file mid-session** (2.1.301,
+    probed in a real interactive session in a CCY container, no prompt sent). A status line in
+    the file at start ran each second. An atomic replace (temp file, then rename), an in-place
+    rewrite and a removal of the `statusLine` were all ignored for 20-30 s each: the first
+    command kept running. A file with no status line at start never gained one when one was
+    added, by either kind of write. `crossSessionInbound` could not be observed directly; it is
+    read from the same file at the same time. So the settings are fixed at launch:
 
-    - the session is launched with inbound accepted, and the watcher, which runs only while a
-      seat is applied (H11), is the only writer;
-    - the exposure is named in docs/ccy.md: in a container, the agent could inject into its own
-      session, which it can already do.
-
-    The spike's result is recorded in the plan journal, and this requirement is revised to
-    match it.
+    - the fallback above stands (inbound accepted from the start), and the keeper does **not**
+      rewrite `settings.json` on the first add or the last remove;
+    - the status line command is the guard from launch, so it follows the `active` flag without
+      a reload;
+    - its `refreshInterval` is fixed at launch too: a seated launch gets 1 s, as before; a
+      session launched on no team keeps the inner status line's own interval (none, if it has
+      none), so after a hot add its `bus:` segment refreshes at that interval, or on Claude
+      Code's own events. M3 accepts this, or launches every kit session at 1 s once the guard
+      makes a per-second render cost only a shell `[ -e ]` and the inner line.
+    - In M2 the claim (`pingbus seat exec`) writes `settings.json`, `statusline-inner` and the
+      flag, once, before it execs claude; M1's keeper takes the flag over.
 - **H33a. One resident process.** A plain session runs exactly one bus process, the keeper.
   - Acceptance (M2): `podman exec <c> ps` shows one `pingbus` process.
   - Acceptance (M2): the session's idle CPU over a minute is unchanged from before M2

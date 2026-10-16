@@ -17,7 +17,12 @@ take`, run by the launcher); this module never does.
   and writes the applied membership, the host's report and the flag file. With
   `PINGBUS_MEMBERSHIP` it follows the desired file as it changes; without it, the launch's
   `PINGBUS_SEATS`. Every lock is close-on-exec, so the session's processes hold none and a
-  detached one cannot keep a seat (audit F5); release is an explicit `LOCK_UN`.
+  detached one cannot keep a seat (audit F5); release is an explicit `LOCK_UN`. A ccy
+  launch names its seats (possibly none) in the read-only desired file (membership.py);
+  `cc --teams` still passes `PINGBUS_SEATS`.
+- `session_settings` and its helpers: under the desired membership, `seat exec` writes the
+  session's settings and its inner status line into the home (H34); the keeper keeps the
+  `active` flag the plugin's hooks are guarded on (H33).
 - `seat_lines`: the `SEAT` report lines (`pingbus status`, and `agent-bus seat list` on the
   host), read offline from each seat's lock and `member.json`.
 - `session_seats`: what the SessionStart hook says about this session's seats and their
@@ -27,13 +32,14 @@ take`, run by the launcher); this module never does.
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import pathlib
 import re
 import secrets
 import stat
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import TextIO
 
 from helpers.pingbus import config, inbox, membership, protocol
@@ -47,6 +53,19 @@ KEEPER_LOG = "keeper.log"
 SESSIONS_DIR = "sessions"
 #: How often the keeper looks at the desired file and at its parent (H9: within 2 s).
 KEEP_TICK_S = 0.5
+#: Kept here for the names other modules and tests use; membership.py owns them.
+MEMBERSHIP_VAR = membership.MEMBERSHIP_VAR
+MEMBERSHIP_OFF = membership.MEMBERSHIP_OFF
+MEMBERSHIP_FILE = membership.DESIRED_FILE
+#: In the session home: present exactly while a seat is held (H33), kept by the keeper; the
+#: settings the session is launched with, and the status line it would have had without the
+#: kit (H34), written by `seat exec`.
+ACTIVE_FLAG = membership.FLAG_FILE
+SESSION_SETTINGS = "settings.json"
+STATUS_LINE_INNER = "statusline-inner"
+STATUS_LINE_GUARD = (f'[ -e "$PINGBUS_HOME/{ACTIVE_FLAG}" ] || exec sh "$PINGBUS_HOME/{STATUS_LINE_INNER}"; '
+                     "exec pingbus status-line")
+_SESSION_FILE_MODE = 0o600
 #: The session home a claim builds inside the container (D50), private to the session.
 SESSION_HOME = pathlib.Path("/tmp/pingbus-home")
 SESSION_HOME_MODE = 0o700
@@ -333,11 +352,11 @@ def desired_source(environ: Mapping[str, str]) -> LaunchSeats | MembershipFile:
         raise config.ConfigError(str(exc)) from None
 
 
-def _launch_seats(environ: Mapping[str, str]) -> tuple[SeatRef, ...]:
+def _launch_seats(environ: Mapping[str, str]) -> tuple[SeatRef | TeamRef, ...]:
     raw = environ.get(SEATS_VAR, "")
     if not raw:
         raise config.ConfigError(
-            f"{SEATS_VAR} is not set: the launch named no seat (ccy --teams <seat>@<team>[,...])"
+            f"{SEATS_VAR} is not set: the launch named no seat (cc --teams <seat>@<team>[,...])"
         )
     try:
         return parse_seat_list(raw)
@@ -379,6 +398,77 @@ def check_seat_dir(root: pathlib.Path, ref: SeatRef) -> None:
         raise SeatRefused(ref, "no-bundle", config.ConfigError(
             f"seat {ref.text}: no bundle (member.json is missing); the launch on the host "
             f"creates it: end this session and run `ccy --teams {ref.text}` again"))
+
+
+# ── the session's settings (H34) ─────────────────────────────────────────────────────────
+
+
+def settings_sources(environ: Mapping[str, str], project: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """The settings files a Claude Code session in `project` reads, highest precedence first:
+    the project's local file, the project's file, the user's (`CLAUDE_CONFIG_DIR`, else
+    `~/.claude`). A flag file (`--settings`) outranks all three; it is the one written here."""
+    sources = [project / ".claude" / "settings.local.json", project / ".claude" / "settings.json"]
+    user_dir = environ.get("CLAUDE_CONFIG_DIR") or (
+        os.path.join(environ["HOME"], ".claude") if environ.get("HOME") else "")
+    if user_dir:
+        sources.append(pathlib.Path(user_dir) / "settings.json")
+    return tuple(sources)
+
+
+def inner_status_line(sources: Sequence[pathlib.Path]) -> dict[str, object] | None:
+    """The status line the session would have had without the kit: the `statusLine` of the
+    first source that has one, when it is a command; None when there is none. A source that
+    cannot be read or parsed is refused (78): guessing would hide the owner's status line."""
+    for path in sources:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise config.ConfigError(f"cannot read {path}: {exc.strerror or exc}") from None
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise config.ConfigError(f"{path} is not JSON ({exc.msg}), so the status line it "
+                                     "sets cannot be kept beside the agent team bus kit") from None
+        if not isinstance(data, dict) or "statusLine" not in data:
+            continue
+        line = data["statusLine"]
+        if (isinstance(line, dict) and line.get("type") == "command"
+                and isinstance(line.get("command"), str) and line["command"].strip()):
+            return line
+        return None
+    return None
+
+
+def session_settings(inner: Mapping[str, object] | None, *, seated: bool) -> dict[str, object]:
+    """The settings the session is launched with (H34). Claude Code reads a `--settings` file
+    once, at start (the M2 spike), so inbound is accepted from the start and the watcher, which
+    runs only while a seat is held, is its only writer. The status line is a shell guard: the
+    inner one with no `active` flag, `pingbus status-line` with it. A seated session refreshes
+    each second as before; a plain one keeps the inner line's own interval and padding."""
+    line: dict[str, object] = {"type": "command", "command": STATUS_LINE_GUARD}
+    if seated:
+        line["refreshInterval"] = 1
+    elif inner is not None and "refreshInterval" in inner:
+        line["refreshInterval"] = inner["refreshInterval"]
+    if inner is not None and "padding" in inner:
+        line["padding"] = inner["padding"]
+    return {"crossSessionInbound": "accept", "statusLine": line}
+
+
+def _write_private(path: pathlib.Path, text: str) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, _SESSION_FILE_MODE)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def write_session_files(home: pathlib.Path, inner: Mapping[str, object] | None, *, seated: bool) -> None:
+    """The session's settings and its inner status line, in the home the keeper made. The
+    `active` flag is the keeper's (H33)."""
+    settings = session_settings(inner, seated=seated)
+    _write_private(home / SESSION_SETTINGS, json.dumps(settings, indent=2) + "\n")
+    _write_private(home / STATUS_LINE_INNER, "" if inner is None else f"{inner['command']}\n")
 
 
 # ── the keeper ───────────────────────────────────────────────────────────────────────────

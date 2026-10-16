@@ -49,6 +49,21 @@ session-side part of the team system recover by itself.
   Notes: [subagent-reports/261016-hot-control-design-opus.md](subagent-reports/261016-hot-control-design-opus.md).
 - [ ] ⬜ **Task 1.3**: Milestones for the build, from 1.1 and 1.2, each one shippable.
 
+### Phase 2: build (the spec's milestones, tests first)
+
+- [x] ✅ **Task 2.2**: M1, pingbus: the 3.1 and 3.2 parsers with `checkout` (`membership.py`,
+  the one reader, M2's folded in), `active_teams` from `PINGBUS_MEMBERSHIP` (H4, H8), `pingbus seat keep` as the only lock holder for every seat with `LOCK_UN` and its H10 hook line
+  (D4, H9, H10; audit F5), an empty membership in `seat exec`, `seat retire`, `reach`. CCY
+  3.99.1, container 2.68. Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M1. Notes:
+  [subagent-reports/261016-m1-pingbus-opus.md](subagent-reports/261016-m1-pingbus-opus.md).
+
+- [x] ✅ **Task 2.3**: M2, the launcher and the entrypoint: the membership directory and its
+  read-only relabelled mount, the `ccy-session` label, `PINGBUS_MEMBERSHIP`, `ccy-teams internal membership-init`, the kit in every named session under the inert contract, `--no-bus`,
+  `PINGBUS_SEATS` and `ccy-seats` retired for ccy; the H34 spike (Claude Code does not re-read
+  `--settings`; the spec's fallback is built). CCY 3.99.0, container 2.67, plugin 1.3.0.
+  Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M2, `acceptance.bash`, queued in
+  meta-deploy. Notes: [subagent-reports/261016-m2-launcher-opus.md](subagent-reports/261016-m2-launcher-opus.md).
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner

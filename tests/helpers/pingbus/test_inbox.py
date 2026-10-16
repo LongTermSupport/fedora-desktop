@@ -431,6 +431,17 @@ class LockAtPathTest(unittest.TestCase):
         self.assertTrue(os.get_inheritable(lock.fileno()))
 
 
+class ForgetSyncTokenTest(StateCase):
+    """Plan 00203 H23 step 5: a removed seat's sync position is dropped, so its next sync is
+    a first sync; the inbox stays as it is."""
+
+    def test_the_token_goes_and_the_answer_says_whether_there_was_one(self):
+        self.state.commit_batch([], "s1")
+        self.assertTrue(self.state.forget_sync_token())
+        self.assertIsNone(self.state.sync_token())
+        self.assertFalse(self.state.forget_sync_token())
+
+
 class LockProcessTest(StateCase):
     def test_another_process_holds_then_dies(self):
         self.state.commit_batch([], "s1")

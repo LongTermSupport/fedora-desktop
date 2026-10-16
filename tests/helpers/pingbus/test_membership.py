@@ -67,6 +67,11 @@ class DesiredParseTest(unittest.TestCase):
         self.assertEqual(got.seats, (membership.SeatEntry("team-b", "2"), membership.SeatEntry("team-a", "1")))
         self.assertEqual(got.farewell, (membership.Farewell("team-c", "3", "removed"),))
 
+    def test_every_session_name_the_host_writes_is_read(self) -> None:
+        for name in ("ccy-proj-1", "_x", "a.b@c+d", "x" * 255):
+            with self.subTest(name=name):
+                self.assertEqual(membership.parse_desired(desired(session=name)).session, name)
+
     def test_an_empty_membership_is_valid(self) -> None:
         got = membership.parse_desired(desired(seats=[], farewell=[]))
         self.assertEqual((got.seats, got.farewell), ((), ()))
@@ -99,7 +104,7 @@ class DesiredParseTest(unittest.TestCase):
 
     def test_each_key_keeps_its_grammar(self) -> None:
         cases = {
-            "session": ("", "-lead", "a/b", "..", "x" * 129, 5),
+            "session": ("", "-lead", "a/b", "..", ".", "x" * 256, 5),
             "kind": ("podman", "", None),
             "checkout": ("relative/path", "", "/with\nnewline", 1),
             "generation": (0, -1, "7", True, 1.5),

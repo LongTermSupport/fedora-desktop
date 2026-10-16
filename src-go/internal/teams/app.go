@@ -11,6 +11,7 @@
 //	choose  choose-seat and describe-seats: the launcher's seat and role questions
 //	chooser choose-teams: which team the launcher's session joins, then its seat through choose
 //	shutdown shutdown: every session of a team sent /exit, and the team row's menu line
+//	membership internal membership-init: the launcher writes a session's desired membership
 //
 // App only wires them over one host.Host and dispatches.
 package teams
@@ -32,6 +33,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/picker"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
@@ -59,6 +61,8 @@ type App struct {
 	Picker  *picker.Picker
 	// Shutdown ends every session of a team.
 	Shutdown *shutdown.Shutdown
+	// Membership is `internal membership-init`, the launcher's.
+	Membership *membership.Init
 	// Interrupted makes the run's context: Ctrl-C cancels it instead of ending the process,
 	// so the sudo credential is still dropped (review L-A).
 	Interrupted func(context.Context) (context.Context, context.CancelFunc)
@@ -98,7 +102,7 @@ func Wire(h *host.Host) *App {
 	return &App{
 		Host: h, Board: b, Ops: o, Login: l, Seats: s, Create: c, Lxc: x, Find: find.New(h), Choose: pick,
 		Chooser: chooser.New(h, pick.PickSeat, c.RunForChooser, o.ApplyTeams),
-		Picker:  list, Shutdown: down,
+		Picker:  list, Shutdown: down, Membership: membership.New(h),
 		Interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
 		},
@@ -132,7 +136,7 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	switch sub {
 	case "", "create", "lxc-add", "apply", "remove", "backup", "restore", "shutdown", "for-checkout", "record-seats",
-		"choose-seat", "describe-seats", subChooseTeams:
+		"choose-seat", "describe-seats", subChooseTeams, subInternal:
 	case "-l", "--list":
 		if len(args) > 1 {
 			return a.usageError(fmt.Sprintf("'%s' takes no further arguments.", sub))
@@ -145,6 +149,9 @@ func (a *App) run(ctx context.Context, args []string) term.ExitCode {
 	}
 	if !a.CcyInstalled() {
 		return term.ExitFailure
+	}
+	if sub == subInternal {
+		return a.internal(ctx, args[1:])
 	}
 	return a.dispatch(ctx, sub, args[min(1, len(args)):])
 }
@@ -181,6 +188,17 @@ func (a *App) dispatch(ctx context.Context, sub string, rest []string) term.Exit
 	default:
 		return a.Picker.Run(ctx)
 	}
+}
+
+// subInternal groups the commands only ccy's launcher runs.
+const subInternal = "internal"
+
+// internal dispatches `ccy-teams internal <command>`.
+func (a *App) internal(ctx context.Context, rest []string) term.ExitCode {
+	if len(rest) == 0 || rest[0] != "membership-init" {
+		return a.usageError("'internal' takes a command: internal membership-init <session> <checkout> <seats>.")
+	}
+	return a.Membership.Run(ctx, rest[1:])
 }
 
 // inCheckout runs a flow that needs to be in a checkout, or fails (NeedCheckout has said why).
