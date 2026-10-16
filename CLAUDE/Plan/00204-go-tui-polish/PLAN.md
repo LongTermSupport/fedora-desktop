@@ -1,6 +1,6 @@
 # Plan 00204: go tui polish
 
-**Status**: In Progress (research done; waiting on the owner's decisions D1-D8)
+**Status**: In Progress (D1 and D2 decided; Task 2.1, the dependency infrastructure, built; D3-D8 open)
 **Created**: 2026-10-16
 **Owner**: joseph
 **Priority**: Medium
@@ -30,10 +30,11 @@ fzf flags as well. Nobody chose the look as a design. This plan is that later ph
 proposal: the research is in [RESEARCH.md](RESEARCH.md), and nothing is built until the owner
 decides.
 
-The hard constraint is the rule that `src-go/go.mod` stays dependency-free, "because the
+The hard constraint was the rule that `src-go/go.mod` stays dependency-free, "because the
 shipped binaries are built on the host with plain `go build`". A vendored dependency keeps
 that true: the build stays plain, offline and reproducible. The cost is one flag in
-`tasks/build-go-command.yml` and a vendor tree in the repository (RESEARCH §2).
+`tasks/build-go-command.yml` and a vendor tree in the repository (RESEARCH §2). The owner
+allowed it (D2, below).
 
 ## Goals
 
@@ -87,7 +88,36 @@ The design is in [RESEARCH §4](RESEARCH.md#4-the-design-for-ccy-teams-and-ccy-s
 - before and after sketches of the teams list, the add-LXC-member wizard and the
   `ccy-sessions` menu.
 
-## Decisions for the owner
+## Decisions
+
+The owner, on D1 and D2 (speech to text, verbatim):
+
+> vendor dependencies are fine. I'm coming from PHP where we'd have a composer.json file and
+> then we'd have all of our dependencies very clearly laid out. What is the Go equivalent? I
+> don't like the idea of having to install stuff at a system level, I think that's ugly, and
+> you end up into dependency problems. so just go with Go best practice and bring in
+> dependencies by all means as long as they're high quality and we're being sensible and
+> secure and we're pinning them as well.
+
+- **D2 is approved: vendored, pinned dependencies.** Built in Task 2.1.
+- **D1: the recommended stack (Bubble Tea v2, Bubbles, Lip Gloss) is accepted** as "go with
+  Go best practice". The owner may reverse it; nothing outside `internal/ui/frame` uses it yet.
+- **D3-D8 stay open.**
+
+**The Go equivalent of Composer**, for the owner:
+
+| PHP                                      | Go, in `src-go/`                                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `composer.json` (what we depend on)      | `go.mod`: each module and its exact version                                                                                                                         |
+| `composer.lock` (exactly what was taken) | `go.sum`: a checksum of every module's content, checked on every download against Go's public checksum database                                                     |
+| a committed `vendor/`                    | `vendor/`, written by `go mod vendor` and committed: the dependencies' source is in the repository, and every bump is a reviewable diff                             |
+| an allowlist you would review by hand    | `go-deps.allowlist`: every module with the reason it is here; a gate fails on any module not listed, an unpinned (untagged) version or a `replace` without a reason |
+
+Nothing is installed system-wide. The host builds from `vendor/` with no network, so every
+binary carries exactly its pinned versions. The scanner, `govulncheck`, is itself pinned in
+the QA module's `go.mod` and runs as `go tool govulncheck`.
+
+### The decisions as proposed
 
 | #   | Decision                                                                                                              | Recommendation                                                                                                                                                                                                                                                                                                                                                                                                       |
 | --- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -107,7 +137,7 @@ The design is in [RESEARCH §4](RESEARCH.md#4-the-design-for-ccy-teams-and-ccy-s
 - [x] ✅ **Task 0.1**: Research: the current UI and its history, the dependency constraint
   and the cost of vendoring (measured), the options, the screen design with sketches, the
   quick wins and the migration. [RESEARCH.md](RESEARCH.md).
-- [ ] ⬜ **Task 0.2**: The owner decides D1-D8.
+- [ ] 🔄 **Task 0.2**: The owner decides D1-D8. D1 and D2 decided (above); D3-D8 open.
 
 ### Phase 1: The seam, on fzf and gum (D4)
 
@@ -120,11 +150,20 @@ The design is in [RESEARCH §4](RESEARCH.md#4-the-design-for-ccy-teams-and-ccy-s
 - [ ] ⬜ **Task 1.3**: Breadcrumbs in every title, one Confirm everywhere, and column
   explanations moved to help.
 
-### Phase 2: The dependency route (if D2 allows)
+### Phase 2: The dependency route (D2 approved)
 
-- [ ] ⬜ **Task 2.1**: The vendor gate and the allowlist (test first), the `qa-trees.tsv`
-  row, `-mod=vendor` in `tasks/build-go-command.yml` for in-repository builds, and the rule's
-  new wording in GoProjectRules.md, src-go/CLAUDE.md and QA.md.
+- [x] ✅ **Task 2.1**: The dependency infrastructure, on branch `feat/go-vendored-deps`:
+  - `src-go/go.mod` requires Bubble Tea v2.1.0, Bubbles v2.2.1 and Lip Gloss v2.0.6 (18
+    modules in all), with `go.sum` and a committed `vendor/`; `internal/ui/frame` (a Lip
+    Gloss breadcrumb title and a minimal Bubble Tea model, unit tested) makes the tree real.
+  - The gates `qa-go-deps` (allowlist `src-go/go-deps.allowlist`, pinning, `go mod verify`,
+    tidy, `vendor/` in sync) and `qa-go-vuln` (govulncheck v1.9.0, pinned by the `tool`
+    directive of `src-go/qa/go.mod`), test first, in `qa-gates.tsv`, `qa-routing.tsv` and
+    `qa-changed`: [SPEC-qa-go-deps.md](SPEC-qa-go-deps.md).
+  - `-mod=vendor` in `tasks/build-go-command.yml` for in-repository builds (md-viewer keeps
+    `-mod=readonly`); `src-go/vendor` in `qa-trees.tsv` and the bash-limits exemptions; the
+    `toolchain go1.26.9` line CI's `setup-go` reads.
+  - The rule's new wording in GoProjectRules.md, src-go/CLAUDE.md and QA.md.
 - [ ] ⬜ **Task 2.2**: The `project_seam_imports` rule (only `internal/ui` imports the TUI
   library), and `project_hidden_bindings` extended to `key.Binding` (RESEARCH §5.3).
 
@@ -160,10 +199,12 @@ The design is in [RESEARCH §4](RESEARCH.md#4-the-design-for-ccy-teams-and-ccy-s
   footer of labelled actions. No action is reachable only by a key (the rule passes on the
   real tree).
 - [ ] The add-LXC-member wizard shows its answered steps and `step N of M` throughout.
-- [ ] The host build stays a plain, offline `go build` (if D2 allows dependencies: from
-  `vendor/`, with the gate green).
+- [ ] The host build stays a plain, offline `go build`: from `vendor/`, with the gates green
+  (proven in the container with `GOFLAGS=-mod=vendor GOPROXY=off`; the host's first run is the
+  next `play-claude-yolo.yml`).
 - [ ] The owner, at a host terminal, calls it clean.
 
 ## Delivery & Milestones
 
 - Research and proposal: the first commit on branch `research/go-tui`.
+- The dependency infrastructure (Task 2.1): branch `feat/go-vendored-deps`.

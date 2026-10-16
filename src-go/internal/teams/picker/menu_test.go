@@ -228,7 +228,7 @@ func TestASeatsMenuOffersMakingItTheCoordinator(t *testing.T) {
 	h := newRig(t)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Make coordinator") {
+	if !slices.Contains(labels, "Make it the coordinator (alpha has none)") {
 		t.Fatalf("seat menu %q", labels)
 	}
 	if slices.Contains(labels, "Stop being coordinator") {
@@ -246,8 +246,24 @@ func TestTheCoordinatorsSeatMenuOffersToStopBeingIt(t *testing.T) {
 		"MEMBER\tproj.1+local.podman\tdev", "MEMBER\tproj.1+local.podman\tcoordinator", 1), 0)
 	r := h.run1(t)
 	labels := h.labels(r, h.row(t, r.snap, "1"))
-	if !slices.Contains(labels, "Stop being coordinator") || slices.Contains(labels, "Make coordinator") {
+	if !slices.Contains(labels, "Stop being coordinator") || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
 		t.Fatalf("seat menu %q", labels)
+	}
+}
+
+func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
+	h := newRig(t)
+	h.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList,
+		"MEMBER\tproj.box+role.lxc\tops", "MEMBER\tproj.box+role.lxc\tcoordinator", 1), 0)
+	r := h.run1(t)
+	row := h.row(t, r.snap, "1")
+	labels := h.labels(r, row)
+	at := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Replace the coordinator, proj.box+role.lxc (") })
+	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
+		t.Fatalf("seat menu %q", labels)
+	}
+	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat 1 from alpha") }); remove < 0 || at < remove {
+		t.Fatalf("the takeover is less prominent than the ordinary choices, after Remove seat: %q", labels)
 	}
 }
 

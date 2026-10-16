@@ -80,11 +80,19 @@ file by the play unchanged (`play-agent-bus.yml:183` passes every key, R§7).
 - **S-A14** `ccy-teams create` asks "What is this team for?" (one line, `gum input`, S-A1's
   rule checked as typed, bounded re-ask per CLAUDE/InteractiveScripts.md), shows it in the
   summary, and passes `--description`. `--yes` requires `--description` (exit 64).
-- **S-A15** The ccy-teams picker's first pass asks, once per present team without a
-  description, "Team alpha (for any repository of example-org) has no description. Write
-  one now?" Yes: the input, `declare describe`, then `Ops.ApplyTeams` for that team. No:
-  remembered under `$XDG_STATE_HOME/ccy-teams/declined/description-<team>`, as the path-limit
-  answer is (`picker/offers.go:38-104`).
+- **S-A15** The ccy-teams picker's first pass offers, per present team without a description,
+  "Team alpha (for any repository of example-org) has no description." with three visible
+  choices: "Describe alpha now" (the cursor starts there), "Not now (ask again next time)",
+  and "Never ask about alpha". Now: the input "What is team alpha for?", `declare describe`,
+  then `Ops.ApplyTeams` for that team. Not now, and Esc: nothing is kept, and the next start
+  asks again. Never: kept under `$XDG_STATE_HOME/ccy-teams/declined/description-<team>`,
+  holding `never v2`. The path-limit offer has the same three choices ("Remove alpha's limit
+  now", "Not now (ask again next time)", "Keep alpha's limit and never ask again") and its
+  marker `declined/path-limit-<team>`. A marker the old yes/no prompt kept (an empty file,
+  written for a no when there was no "later" to choose) is taken as not now, once: it is
+  removed, said, and the offer is made again, so nobody resets state by hand. A team marked
+  never has "Ask me to describe alpha again" (and "Ask me about alpha's limit again") in its
+  row's menu, which removes the marker (`picker/offers.go`). Owner feedback, Plan 00203.
 - **S-A16** Quick Launch's `Team:` line (`ccy-teams describe-seats`) shows each seat as
   `1@alpha (worker): <description>`.
 
@@ -167,6 +175,15 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
   already handle several. What changes is choosing, showing and addressing.
 - **S-C1** Several teams are chosen at launch by S-B3's marks or by an explicit
   `--teams 1@alpha,qa2@beta` (unchanged). One seat per team (D48, unchanged).
+  Every question of a team's sequence names the team and its place among the teams being
+  joined: the scope question ("Team 2 of 3: beta · scope: beta does not trust ..."), the seat
+  question ("Team 2 of 3: beta · seat: which seat does this session take?") and the role
+  question ("Team 2 of 3: beta · role of seat 1: ..."). One team is headed "Team beta". The
+  heading is also said on its own line before the team's questions, so a team's lines (the
+  "references external" note, "Taking seat ...") sit under its own heading and never under
+  another team's. In a given list, the place counts every item, named seats included.
+  Owner feedback, Plan 00203. A shared screen heading in the ui layer would take this text:
+  it is built once, by `chooser.heading`, and handed to the seat chooser through `SeatFunc`.
 - **S-C2** A session's teams change only by a new launch; there is no join-while-running.
 - **S-C3** Restart, restore and Quick Launch replay the whole canonical list (unchanged;
   verified by a test with two teams).

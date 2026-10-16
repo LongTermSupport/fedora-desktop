@@ -17,7 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.9 — container 2.77.7
+## 3.99.12.8 — container 2.77.6
+
+Follows 3.99.12.4 (container 2.77.3).
 
 - **The agent-bus status line wraps instead of being cut.** `pingbus status-line` appended
   `| bus: A,B` to the last row of the session's own status line. The hooks daemon's status line
@@ -26,6 +28,21 @@ Two version numbers move independently — see
   after a comma at `COLUMNS`, and are never cut; with no `COLUMNS` they are one unbroken row.
 - **`bus:` is now 👥**, the team counterpart of the hooks daemon's 👤 account segment:
   `👥 alpha,beta`, `👥 <team>(down)`, and `👥 no record ...` in red.
+
+## 3.99.12.4 — container 2.77.3
+
+Follows 3.99.12.3 (container 2.77.2).
+
+- **Two coordinator paths** (Plan 00203, owner feedback). A team has one coordinator. On a
+  team with none, making a member the coordinator is offered plainly. On a team that has one,
+  it is a takeover: the question names the current coordinator, says whether it is running,
+  says it loses the role, and starts on No. This holds in `ccy-teams session add --role` and
+  `session role`, the picker, the launch role question and `ccy-teams lxc-add`. With no
+  terminal, or with `--yes`, a takeover needs `--demote-current`.
+- **`declare lxc-role`** (the image carries `helpers/agent_bus/declare.py`): sets one declared
+  LXC member's role. lxc-add's takeover uses it to make a declared coordinator a worker.
+- **The picker's offers** to describe a team or lift a path limit are now three choices: now,
+  not now, or never. Only never is remembered. An old "no" is asked again once.
 
 ## 3.99.12.3 — container 2.77.2
 

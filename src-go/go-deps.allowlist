@@ -1,0 +1,37 @@
+# The modules src-go/go.mod may require, each with the reason it is here (Plan 00204 decision D2:
+# vendored, pinned, allowlisted). Judged by scripts/qa-go-deps.bash (src-go/qa/godeps), which
+# fails on a module not listed, on a pseudo-version or a replace directive without its own row,
+# and on a row go.mod does not need. Versions live in go.mod and content hashes in go.sum, never
+# here. Specification: CLAUDE/Plan/00204-go-tui-polish/SPEC-qa-go-deps.md.
+#
+#   kind <TAB> module path <TAB> reason
+#
+#   module   may be required, directly or indirectly
+#   pseudo   may be required at a pseudo-version (an untagged commit) instead of a tag
+#   replace  go.mod may carry a replace directive for it
+#
+# Adding a module is a decision: say why it is needed and who needs it. A module pulled in by
+# another one names the module that requires it.
+
+# The Charm TUI stack (D1): one vendor, MIT licensed, the libraries gum itself is built on.
+module	charm.land/bubbletea/v2	The TUI engine: one long-running program per tool run, model, update and view (D1).
+module	charm.land/bubbles/v2	The standard components on Bubble Tea: key bindings and the help footer now; list, text input and viewport for the frame's body.
+module	charm.land/lipgloss/v2	Styling and layout of the frame: colours by terminal index, borders, joins.
+module	github.com/charmbracelet/x/ansi	ANSI-aware string width, truncation and stripping; required by all three Charm libraries, and the frame's tests strip styling with it.
+
+# Required by the Charm libraries.
+module	github.com/charmbracelet/colorprofile	Detects the terminal's colour support and downsamples styled output to it, so NO_COLOR and dumb terminals get plain text (Bubble Tea, Lip Gloss).
+module	github.com/charmbracelet/ultraviolet	Bubble Tea v2's cell-based renderer and input decoder (Bubble Tea, Lip Gloss).
+pseudo	github.com/charmbracelet/ultraviolet	Charm has never tagged it; Bubble Tea v2.1.0 and Lip Gloss v2.0.6 require commits of it, and this is the newer of the two (Lip Gloss's). Re-check at every Charm bump.
+module	github.com/charmbracelet/x/term	Raw mode and window size of the terminal (Bubble Tea).
+module	github.com/charmbracelet/x/termios	The termios calls behind raw mode on Linux (Ultraviolet).
+module	github.com/charmbracelet/x/windows	The Windows console calls of Ultraviolet; listed in go.mod by the module graph, never compiled for Linux.
+module	github.com/clipperhouse/displaywidth	The display width of a string in terminal cells (Lip Gloss).
+module	github.com/clipperhouse/uax29/v2	Unicode grapheme segmentation, so a combined character counts as one cell (x/ansi).
+module	github.com/lucasb-eyer/go-colorful	Colour conversion for downsampling and blending (Bubble Tea, Lip Gloss).
+module	github.com/mattn/go-runewidth	The cell width of East Asian and other wide runes (x/ansi).
+module	github.com/muesli/cancelreader	A cancellable terminal read, so Bubble Tea can hand the terminal to a child process and take it back (Bubble Tea).
+module	github.com/rivo/uniseg	Unicode grapheme clusters and widths (Lip Gloss).
+module	github.com/xo/terminfo	Reads the terminfo database to learn the terminal's colour support (colorprofile).
+module	golang.org/x/sync	errgroup, from the Go project (Ultraviolet).
+module	golang.org/x/sys	The ioctl and system calls of terminal handling, from the Go project (Bubble Tea, x/term, Ultraviolet).

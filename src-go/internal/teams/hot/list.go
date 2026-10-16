@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sessprobe"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
@@ -308,15 +309,34 @@ func (x *Hot) launchedWithBus() (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	records, err := readableRecords(store)
+	if err != nil {
+		return nil, err
+	}
+	bus := make(map[string]bool, len(records))
+	for _, rec := range records {
+		bus[rec.Name] = discover.LaunchedWithBus(rec)
+	}
+	return bus, nil
+}
+
+// readableRecords is every session record, or an error naming each one that cannot be read
+// (Fable's M6 re-check R2): whether a session's launch carried the bus is read from its record,
+// so an unreadable one must stop the command rather than make its session one off the bus.
+func readableRecords(store *registry.Store) ([]registry.Record, error) {
 	listing, err := store.List()
 	if err != nil {
 		return nil, fmt.Errorf("the session records: %w", err)
 	}
-	bus := make(map[string]bool, len(listing.Records))
-	for _, rec := range listing.Records {
-		bus[rec.Name] = discover.LaunchedWithBus(rec)
+	if len(listing.Unreadable) > 0 {
+		paths := make([]string, 0, len(listing.Unreadable))
+		for _, name := range listing.Unreadable {
+			paths = append(paths, filepath.Join(store.Dir(), name))
+		}
+		return nil, fmt.Errorf("the session record %s could not be read, so whether its session carries the agent team bus "+
+			"cannot be told; fix or remove it", strings.Join(paths, ", "))
 	}
-	return bus, nil
+	return listing.Records, nil
 }
 
 // TakeOut is `session remove <session> <team>` for a team being taken down (H29): the

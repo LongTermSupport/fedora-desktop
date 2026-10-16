@@ -25,6 +25,7 @@ type rig struct {
 	payload *bytes.Buffer
 
 	seatsAsked []string // "<team>/<type>"
+	headings   []string // the heading each seat question was given
 	seatLeft   map[string]bool
 	seatCode   term.ExitCode
 	created    string
@@ -53,8 +54,10 @@ func newRig(t *testing.T, choices string) *rig {
 	}
 	r := &rig{World: w, Console: console, payload: &bytes.Buffer{}, seatLeft: map[string]bool{}}
 	r.c = New(w.Host,
-		func(_ context.Context, team, memberType string) (string, term.ExitCode) {
+		func(_ context.Context, team, memberType, heading string) (string, term.ExitCode) {
 			r.seatsAsked = append(r.seatsAsked, team+"/"+memberType)
+			r.headings = append(r.headings, heading)
+			r.say(heading + " (seat chosen)")
 			if r.seatLeft[team] {
 				return "", term.ExitOK
 			}
@@ -73,6 +76,11 @@ func newRig(t *testing.T, choices string) *rig {
 		})
 	r.c.Payload = r.payload
 	return r
+}
+
+// say is a line on stderr, as the seat chooser prints its own.
+func (r *rig) say(line string) {
+	r.Host.Print(r.Host.Stderr, line+"\n")
 }
 
 func (r *rig) run(args ...string) term.ExitCode {

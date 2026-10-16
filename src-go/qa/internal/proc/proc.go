@@ -1,7 +1,7 @@
 // Package proc is the one place the QA module starts a process: every command a QA tool runs
 // (git, the gates, the checked tools) goes through a Runner, so a test can substitute a fake
-// and see the argv. The nested QA module cannot import the main module's execx (its go.mod
-// must stay dependency-free), so this is its own seam, shared by qa/bashlimits and qa/changed.
+// and see the argv. The nested QA module cannot import the main module's execx (an internal
+// package of another module), so this is its own seam, shared by qa/bashlimits and qa/changed.
 package proc
 
 import (

@@ -17,6 +17,8 @@ import (
 var addedAfterPort = []struct{ name, reason string }{
 	{"meta-deploy-queue", "Plan 00192, meta-deploy.list: the queue suite gets its own row instead of running inside the planlib suite"},
 	{"ccy-container-name", "Plan 00203, the container name race: ccy's name claim (ccy-teams internal claim-container-name) gets its own suite"},
+	{"go-deps", "Plan 00204 D2: src-go may have dependencies, vendored, pinned and allowlisted, and this gate holds them to that"},
+	{"go-vuln", "Plan 00204 D2: govulncheck over src-go's vendored dependencies"},
 }
 
 func isAddedAfterPort(name string) bool {
@@ -26,6 +28,16 @@ func isAddedAfterPort(name string) bool {
 		}
 	}
 	return false
+}
+
+// passingReply is what an added gate prints when it passes: its captured wording for a gate read
+// by a detail pattern, else a case count.
+func passingReply(t *testing.T, g gates.Gate) string {
+	t.Helper()
+	if slices.ContainsFunc(g.Readers, func(r gates.Reader) bool { return r.Detail != nil }) {
+		return realWording(t, g.Name)
+	}
+	return "passed: 1\n"
 }
 
 // withoutAddedGates removes the stage lines of the added gates from the runner's stdout.

@@ -52,14 +52,11 @@ func (x *Hot) addTo(ctx context.Context, t *target, r request, team, given strin
 			c.seat, team, len(roster.Members)))
 		return term.ExitFailure
 	}
-	question := fmt.Sprintf("Add %s to %s as seat %s", t.session, team, c.seat)
-	if c.handle != "" {
-		question += " (" + c.handle + ")"
+	question, takeover, pathCode, ok := x.addQuestion(ctx, t, r, roster, team, c)
+	if !ok {
+		return pathCode
 	}
-	if r.role != "" {
-		question += ", " + r.role
-	}
-	if askCode, proceed := x.confirm(ctx, question+"?", r.yes); !proceed {
+	if askCode, proceed := x.confirm(ctx, question, r.yes); !proceed {
 		return askCode
 	}
 	if madeCode, made := x.makeSeat(ctx, t, team, &c); !made {
@@ -72,11 +69,32 @@ func (x *Hot) addTo(ctx context.Context, t *target, r request, team, given strin
 	if r.role != "" {
 		var roleCode term.ExitCode
 		var set bool
-		if undo, roleCode, set = x.setRoleTo(ctx, team, c.handle, r.role, r.demoteCurrent); !set {
+		if undo, roleCode, set = x.setRoleTo(ctx, team, c.handle, r.role, r.demoteCurrent || takeover); !set {
 			return roleCode
 		}
 	}
 	return x.apply(ctx, t, team, c, alloc, undo)
+}
+
+// addQuestion is the add's question, naming the coordinator path a --role=coordinator takes
+// (coordinatorPath), and whether the current coordinator is demoted.
+func (x *Hot) addQuestion(ctx context.Context, t *target, r request, roster agentbus.Roster, team string, c choice) (string, bool, term.ExitCode, bool) {
+	question := fmt.Sprintf("Add %s to %s as seat %s", t.session, team, c.seat)
+	if c.handle != "" {
+		question += " (" + c.handle + ")"
+	}
+	offer, takeover, code, ok := x.coordinatorPath(ctx, t, r, roster, team, c.handle, t.session)
+	switch {
+	case !ok:
+		return "", false, code, false
+	case offer != "":
+		question += ". " + offer
+	case r.role != "":
+		question += ", " + r.role + "?"
+	default:
+		question += "?"
+	}
+	return question, takeover, term.ExitOK, true
 }
 
 // teamUp is H22 step 2 (H26, H27): the team's homeserver is up, and its roster read.
@@ -234,17 +252,17 @@ func (x *Hot) claimsElsewhere(ctx context.Context, t *target) (claims, error) {
 	live := func(name string) bool {
 		return slices.ContainsFunc(sessions, func(s tmuxccy.Session) bool { return s.Name == name })
 	}
-	listing, err := t.store.List()
+	records, err := readableRecords(t.store)
 	if err != nil {
-		return c, fmt.Errorf("the session records: %w", err)
+		return c, err
 	}
 	// Only a membership its session's own launch wrote names seats (B1: a reused name).
-	for _, d := range discover.Current(desired, listing.Records) {
+	for _, d := range discover.Current(desired, records) {
 		if d.Session != t.session && live(d.Session) {
 			c.live.AddDesired(d)
 		}
 	}
-	for _, rec := range listing.Records {
+	for _, rec := range records {
 		if rec.Name != t.session && rec.Restore && rec.Dir == t.checkout() && !live(rec.Name) {
 			c.restored.AddRecord(rec)
 		}
