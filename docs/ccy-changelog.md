@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.98.12 — container 2.67
+
+- **The team watcher survives a homeserver restart** (Plan 00194). A Tuwunel upgrade, or a
+  homeserver still starting after a reboot, no longer ends a session's live delivery: the
+  watcher waits, retries with a backoff and catches up from where it was, with one
+  `watch.log` line when the outage starts and one when it ends, and an error in one team (a
+  full disk) no longer stops the others. The hooks now start it under a small supervisor
+  that starts it again if it dies, so an idle session stays reachable; the next prompt or
+  Stop also starts a supervisor that is gone. Stop no longer asks the agent to run
+  `pingbus wait` by hand in a session with the inbox socket. The image carries the new
+  pingbus, so it is rebuilt once.
+
 ## 3.98.11 — container 2.66
 
 - **Teams final review fixes** (Plan 00201). The agent's avatar appears under a human's

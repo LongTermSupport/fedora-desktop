@@ -77,6 +77,10 @@ GOODBYE_OTHER = "other"
 SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 WATCH_LOG = "watch.log"
 NO_WAKER_EVERY_S = 600
+#: After the hooks start the watcher: how long it is given to take its lock, and how long
+#: before one that died again is started again rather than reported (SPEC-inject E26).
+WATCHER_START_GRACE_S = 30
+WATCHER_RESPAWN_EVERY_S = 300
 FAILURE_EVERY_S = 600
 INPUT_MAX_BYTES = 1 << 20
 
@@ -102,6 +106,8 @@ TEMPLATES = {
     "no_waker": ("agent-bus: {free} of {teams} active teams have no watcher or waiter, so nothing "
                  "will wake this session. Run `pingbus wait` with run_in_background."),
     "watcher_started": "agent-bus: the wake path is the inbox socket; the watcher was started.",
+    "watcher_restarted": ("agent-bus: this session's watcher had stopped, so it was started again; "
+                          "messages arrive through the inbox socket as before."),
     "seat_held": ("agent-bus: {held} of {teams} active teams already have a watcher or waiter "
                   "(this session's own, or another process of this seat: run `pingbus status`)."),
     "seat_self": "agent-bus: this session holds seat {seat}@{team}, as {handle}.",
@@ -390,9 +396,10 @@ def watch_argv(environ: Mapping[str, str]) -> list[str]:
 
 
 def spawn_watcher(environ: Mapping[str, str], log_path: pathlib.Path) -> None:
-    """Start `pingbus watch` detached, in its own session, with the hook's environment
-    (which carries the inbox socket's variables); its stderr is appended to `log_path`."""
-    argv = watch_argv(environ)
+    """Start `pingbus watch --supervise` detached, in its own session, with the hook's
+    environment (which carries the inbox socket's variables); its stderr is appended to
+    `log_path`. The supervisor restarts the watcher it runs (SPEC-inject E26)."""
+    argv = [*watch_argv(environ), "--supervise"]
     fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
         subprocess.Popen(  # detached on purpose: it outlives the hook, until the socket goes
@@ -553,21 +560,51 @@ class _Hook:
         if session is None:
             lines.append(TEMPLATES["no_socket"])
         elif held < teams:
-            try:
-                self.spawn(self.environ, config.resolve_home(self.environ) / WATCH_LOG)
-            except OSError as exc:
-                self.err.write(f"pingbus: hook session-start: the watcher did not start: {exc.strerror or exc}\n")
-                lines.append(TEMPLATES["watcher_failed"])
-            else:
-                lines.append(TEMPLATES["watcher_started"])
+            started = self._spawn(inject.Marks(config.resolve_home(self.environ), session[0]))
+            lines.append(TEMPLATES["watcher_started" if started else "watcher_failed"])
         if held:
             lines.append(TEMPLATES["seat_held"].format(held=held, teams=teams))
         return lines
 
+    def _spawn(self, marks: inject.Marks) -> bool:
+        """Start the supervised watcher and note when (E26); False, said on stderr, when it
+        could not be started."""
+        try:
+            self.spawn(self.environ, config.resolve_home(self.environ) / WATCH_LOG)
+            marks.set_spawned(self.now_ms)
+        except OSError as exc:
+            self.err.write(f"pingbus: hook {self.event}: the watcher did not start: {exc.strerror or exc}\n")
+            return False
+        return True
+
+    def _revive(self, surveyed: Survey) -> str | None:
+        """Start this session's watcher again when it is gone (E26): `restarted`; `failed`
+        when it could not be started, or died again within `WATCHER_RESPAWN_EVERY_S` of the
+        last start (reported, not restarted in a loop); None when there is nothing to do: no
+        socket, every team woken, the session's watch lock held, or a start in its grace."""
+        if not surveyed.injecting or not surveyed.without_waker():
+            return None
+        marks = inject.Marks(config.resolve_home(self.environ), surveyed.socket_path)
+        try:
+            if inbox.probe_lock_at(marks.watch_lock_path()) is not None:
+                return None
+        except inbox.StateError as exc:
+            self.err.write(f"pingbus: hook {self.event}: the session's watch lock is unusable: {exc}\n")
+            return "failed"
+        last = marks.spawned_ms()
+        since_ms = None if last is None else self.now_ms - last
+        if since_ms is not None and 0 <= since_ms < WATCHER_START_GRACE_S * 1000:
+            return None
+        if since_ms is not None and 0 <= since_ms < WATCHER_RESPAWN_EVERY_S * 1000:
+            return "failed"
+        return "restarted" if self._spawn(marks) else "failed"
+
     def prompt(self) -> dict:
         surveyed = survey(self.environ)
         self._record_transcript(surveyed)
-        return _context(self.event, self._pending_and_failure(surveyed))
+        revived = self._revive(surveyed)
+        lines = [] if revived is None else [TEMPLATES[f"watcher_{revived}"]]
+        return _context(self.event, lines + self._pending_and_failure(surveyed))
 
     def _record_transcript(self, surveyed: Survey) -> None:
         """Socket delivery: tell the watcher where this session's transcript is, so it can
@@ -628,6 +665,15 @@ class _Hook:
             surveyed = survey(self.environ)
         except _Failure as failure:
             return self.stop_failure(failure.cls, guard)
+        revived = self._revive(surveyed)
+        decision = self._stop_block(surveyed, guard, revived)
+        if revived == "restarted":
+            return {**decision, "systemMessage": TEMPLATES["watcher_restarted"]}
+        return decision
+
+    def _stop_block(self, surveyed: Survey, guard: _Guard, revived: str | None) -> dict:
+        """The guard's block, if any. A session with a socket is never told to arm `wait` by
+        hand: its watcher is started again instead, and only one that keeps dying is said."""
         total, humans, peers, pings = surveyed.counts()
         if surveyed.delivery_active:
             total = 0  # they are being delivered; blocking would only duplicate
@@ -647,6 +693,10 @@ class _Hook:
         if failure is not None:
             return self.stop_failure(failure, guard)
         free = 0 if surveyed.relaying else surveyed.without_waker()
+        if surveyed.injecting:
+            if revived == "failed" and guard.allow("no_waker_ms", self.now_ms, NO_WAKER_EVERY_S):
+                return _block(TEMPLATES["watcher_failed"])
+            return {}
         if free and guard.allow("no_waker_ms", self.now_ms, NO_WAKER_EVERY_S):
             return _block(TEMPLATES["no_waker"].format(free=free, teams=len(surveyed.teams)))
         return {}

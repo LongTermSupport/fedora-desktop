@@ -464,7 +464,10 @@ longer than 2 KiB as shown is cut, with a pointer to `pingbus history`; an agent
 more than ten messages in ten minutes is summarised on one "held back" line. If the socket
 cannot be written for two minutes, or a delivery never reaches the conversation, the
 session's hooks say so and point at `pingbus recv` or `pingbus history`, and `watch.log` in
-the session's pingbus home has the detail. The exact format and its threat model:
+the session's pingbus home has the detail. The watcher survives a homeserver restart (a
+Tuwunel upgrade, a reboot race): it waits, retries and catches up, with one `watch.log` line
+when the outage starts and one when it ends, and it runs under a supervisor that starts it
+again if it dies, so an idle session stays reachable with no keypress. The exact format and its threat model:
 `CLAUDE/Plan/00194-agent-bus-live-delivery-supervisor-plugin/SPEC-inject.md`; the protocol:
 [agent-bus-protocol.md](agent-bus-protocol.md) §15.
 

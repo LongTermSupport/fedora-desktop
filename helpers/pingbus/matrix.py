@@ -44,12 +44,15 @@ _ERRCODE_RE = re.compile(r"M_[A-Z0-9_]{1,64}")
 
 
 class MatrixError(Exception):
-    """A request the homeserver did not serve: exit 7 unless a subclass says otherwise."""
+    """A request the homeserver did not serve: exit 7 unless a subclass says otherwise.
+
+    `transient` is what a homeserver restart looks like (no connection, a 5xx, a 429 past
+    its retries): worth trying again later, where any other failure is an answer."""
 
     exit_code = 7
 
     def __init__(self, where: str, status: int | None = None, errcode: str | None = None,
-                 detail: str | None = None) -> None:
+                 detail: str | None = None, *, transient: bool | None = None) -> None:
         parts = [where]
         if status is not None:
             parts.append(f"HTTP {status}" + (f" {errcode}" if errcode else ""))
@@ -57,6 +60,7 @@ class MatrixError(Exception):
             parts.append(detail)
         super().__init__(": ".join(parts))
         self.where, self.status, self.errcode = where, status, errcode
+        self.transient = (status is not None and 500 <= status < 600) if transient is None else transient
 
 
 class Unreachable(MatrixError):
@@ -130,7 +134,7 @@ def _read_bounded(response: object, where: str) -> bytes:
     try:
         raw = response.read(MAX_RESPONSE_BYTES + 1)
     except (OSError, http.client.HTTPException) as exc:
-        raise Unreachable(where, detail=type(exc).__name__) from None
+        raise Unreachable(where, detail=type(exc).__name__, transient=True) from None
     if len(raw) > MAX_RESPONSE_BYTES:
         raise Unreachable(where, detail=f"answer over {MAX_RESPONSE_BYTES} bytes")
     return raw
@@ -207,7 +211,7 @@ class Client:
                 if status == 429:
                     wait = limits.server_retry_wait_s(headers, answer)
                     if attempt == limits.SERVER_429_MAX_TRIES or wait > limits.SERVER_429_WAIT_MAX_S:
-                        raise RateLimited(where, status, _errcode(answer)) from None
+                        raise RateLimited(where, status, _errcode(answer), transient=True) from None
                     self._sleep(wait)
                     continue
                 if 300 <= status < 400:
@@ -215,7 +219,7 @@ class Client:
                 error = _STATUS_ERRORS.get(status, MatrixError)
                 raise error(where, status, _errcode(answer)) from None
             except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
-                raise Unreachable(where, detail=type(exc).__name__) from None
+                raise Unreachable(where, detail=type(exc).__name__, transient=True) from None
             with response:
                 status = getattr(response, "status", None)
                 raw = _read_bounded(response, where)
