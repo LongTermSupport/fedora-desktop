@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00206-deployed-tools-never-run-from-checkout](00206-deployed-tools-never-run-from-checkout/) - Not Started. What the desktop runs is a deployed, versioned copy installed by its play, never the live checkout; audit (7 runtime offenders), design, a gate, and the moves riskiest first, with owner decisions D1-D7
+
 - [00196-team-coordinator-role](00196-team-coordinator-role/) - In Progress. One agent per team is the coordinator: copied on what workers tell humans, addressable with `--to-coordinator`, set from `ccy-teams` and bare `ccy --teams`
 
 - [00197-agent-bus-seat-broker-daemon](00197-agent-bus-seat-broker-daemon/) - Not Started. A host daemon that grants team seats on the owner's approval, so `ccy --teams` inside an LXC container joins with no config edit
@@ -47,6 +49,7 @@ Use these Unicode icons in plan documents:
 - [00200-repo-watch-list](00200-repo-watch-list/) - In Progress. A list of external public repositories scanned at intervals for ideas, with a `watchlist` Go command, a scout agent and a `/watchlist` skill; findings become issues or plans
 
 - [00203-teams-hot-control-and-robustness](00203-teams-hot-control-and-robustness/) - In Progress. Add, remove, move and re-role a running ccy session's teams from `ccy-teams` without a relaunch, and make every server-side and session-side part of the team system recover by itself
+
 - [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - In Progress. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX, with its own GUI as the primary surface: a band, a ccy pane (Health, Mounts, Deploy) and a Teams pane (Status, Who, Pending, Homeserver); research and owner decisions, nothing built yet
 
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
