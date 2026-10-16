@@ -17,6 +17,11 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.3 — container 2.70
+
+- **Plan 00203 M1 and M2 together with the health check fix of 3.98.13.** The image carries all
+  three, so it is rebuilt once.
+
 ## 3.99.2 — container 2.69
 
 - **One seat keeper holds every agent-bus seat** (Plan 00203 M1). `pingbus seat exec` starts
@@ -36,6 +41,13 @@ Two version numbers move independently — see
   status line. `ccy --no-bus` leaves the kit out. `PINGBUS_SEATS` and the `ccy-seats` label are retired for ccy (cc keeps the variable
   until its own milestone); an image older than this launcher is rebuilt, and an old launcher
   meeting this image is refused rather than started teamless. Plugin 1.3.0.
+
+## 3.98.13 — container 2.68
+
+- **The agent-bus health check works** (Plan 00203). The image carries the agent-bus helpers,
+  and their health check asked the homeserver service for the backup timer's properties, so
+  every run failed. It now asks each unit only for properties its type has. The image is
+  rebuilt once to carry the fixed copy.
 
 ## 3.98.12 — container 2.67
 

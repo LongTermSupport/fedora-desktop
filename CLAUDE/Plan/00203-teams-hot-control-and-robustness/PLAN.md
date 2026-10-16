@@ -71,7 +71,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   `PINGBUS_MEMBERSHIP` (H4, H8), `pingbus seat keep` as the only lock holder for every seat with
   `LOCK_UN` and its H10 hook line (D4, H9, H10; audit F5), an empty membership in `seat exec`
   (one `seat exec`, keeping M2's launch-time inbound rule), `seat retire`, `reach`. With M2
-  merged: CCY 3.99.2, container 2.69. Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M1,
+  merged and F44's health check fix: CCY 3.99.3, container 2.70. Host acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M1,
   `_acceptance-m1.inc.bash`. Notes:
   [subagent-reports/261016-m1-pingbus-opus.md](subagent-reports/261016-m1-pingbus-opus.md).
 - [x] ✅ **Task 3.1** (M2; its commits call it Task 2.3): the launcher and the entrypoint: the membership directory and its

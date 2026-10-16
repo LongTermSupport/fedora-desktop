@@ -35,6 +35,13 @@ NOW = 1_791_000_000.0
 HOUR = 3600.0
 
 
+#: What systemd's D-Bus API gives every unit (org.freedesktop.systemd1.Unit) and each type
+#: (.Service, .Timer) of the properties the check reads; `systemctl show` prints no other.
+UNIT_PROPS = frozenset({"ActiveState", "SubState", "InvocationID", "ActiveEnterTimestampMonotonic"})
+TYPE_PROPS = {"service": frozenset({"Result", "NRestarts"}),
+              "timer": frozenset({"Result", "LastTriggerUSec", "NextElapseUSecRealtime"})}
+
+
 def unit(**props: str) -> dict[str, str]:
     base = {"ActiveState": "active", "SubState": "running", "Result": "success",
             "InvocationID": "inv-1", "ActiveEnterTimestampMonotonic": str(int(1_000 * 1e6)),
@@ -60,6 +67,7 @@ class FakeHost:
         self.now = NOW
         self.mono = 2_000.0
         self.said: list[str] = []
+        self.shown: list[tuple[str, tuple[str, ...]]] = []
         self.state_root = root / "state"
         self.install_root = root / "install"
         self.health_dir = root / "applied" / "health"
@@ -68,10 +76,15 @@ class FakeHost:
         (self.state_root / TEAM / "team.json").write_text(json.dumps({"team": TEAM, "port": 8448}), encoding="utf-8")
 
     def show(self, name: str, props: Sequence[str]) -> dict[str, str]:
+        """As real `systemctl show --property=...` does: a property the unit's type does not have
+        is left out of the output, not refused, and the real parser judges what came back."""
+        self.shown.append((name, tuple(props)))
         found = self.units[name]
         if isinstance(found, list):
             found = found.pop(0) if len(found) > 1 else found[0]
-        return {key: found[key] for key in props}
+        has = UNIT_PROPS | TYPE_PROPS[name.rsplit(".", 1)[1]]
+        out = "".join(f"{key}={found[key]}\n" for key in props if key in has)
+        return health.parse_show(name, props, out)
 
     def get(self, url: str, timeout: float) -> bool:
         self.probes.append((url, timeout))
@@ -120,6 +133,30 @@ class HealthTestCase(unittest.TestCase):
 
     def problems(self) -> list[str]:
         return [problem["what"] for problem in self.host.record()["problems"]]
+
+
+class UnitPropertiesTest(HealthTestCase):
+    """The host's first run: every unit was asked for every property, and systemctl leaves a
+    timer's properties out of a .service's answer, so each check failed with exit 78."""
+
+    def test_a_property_systemctl_left_out_is_refused_by_name(self):
+        out = "ActiveState=active\nSubState=running\n"
+        with self.assertRaisesRegex(health.HealthError,
+                                    r"^systemctl show agent-bus-hs@team-a.service gave no LastTriggerUSec, "
+                                    r"NextElapseUSecRealtime$"):
+            health.parse_show(HS, ("ActiveState", "SubState", "LastTriggerUSec", "NextElapseUSecRealtime"), out)
+
+    def test_each_unit_is_asked_only_what_its_type_has(self):
+        self.check()
+        for name, props in self.host.shown:
+            with self.subTest(unit=name):
+                self.assertLessEqual(set(props), UNIT_PROPS | TYPE_PROPS[name.rsplit(".", 1)[1]])
+        self.assertEqual({name for name, _ in self.host.shown}, {HS, BACKUP, TIMER})
+
+    def test_a_healthy_team_checks_clean_and_reports_healthy(self):
+        self.check()
+        lines, problems = health.status([TEAM], self.host.system())
+        self.assertEqual(problems, 0, lines)
 
 
 class LivenessTest(HealthTestCase):
