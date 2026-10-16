@@ -24,6 +24,7 @@ var Exemptions = []Exemption{
 	{"CLAUDE/Plan/[0-9]*/", "plan-folder scripts are plan-local scaffolding that CLAUDE/PlanScriptStandards.md requires; shared plan tooling sits directly in CLAUDE/Plan/ and is not exempt"},
 	{"CLAUDE/Plan/Completed/", "completed plans' scaffolding, kept as history"},
 	{"CLAUDE/Plan/Cancelled/", "cancelled plans' scaffolding, kept as history"},
+	{"src-go/vendor/", "third-party Go modules as go mod vendor writes them (Plan 00204); never edited here, and qa-go-deps fails any byte that differs"},
 	{".claude/init.sh", "daemon-owned file, replaced on every hooks-daemon upgrade"},
 	{".claude/provision.sh", "daemon-owned file, replaced on every hooks-daemon upgrade"},
 	{".claude/skills/hooks-daemon/", "daemon-owned skill scripts, replaced on every hooks-daemon upgrade"},

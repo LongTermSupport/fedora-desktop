@@ -13,8 +13,8 @@
 # (GO_COVERAGE_FLOOR), golangci-lint run. golangci-lint fmt exits 0 when it
 # prints a diff, so the verdict is "printed nothing", not its exit code.
 #
-# Two modules, because the shipped binaries are built with plain `go build` and src-go/go.mod
-# must stay dependency-free: src-go/qa is the nested module holding the project rules
+# Two modules, so the QA tooling's dependencies stay out of the shipped binaries (src-go's own
+# are vendored and judged by qa-go-deps.bash): src-go/qa is the nested module holding the project rules
 # (go/analysis analyzers, which need golang.org/x/tools). It gets the same steps, first, so
 # the rules are proven before they judge anything. The rules then run over src-go as a final
 # hard step, over both modules: the driver is built once and used as `go vet -vettool`. Catalogue:

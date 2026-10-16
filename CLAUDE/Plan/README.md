@@ -50,7 +50,7 @@ Use these Unicode icons in plan documents:
 
 - [00205-ssh-team-members](00205-ssh-team-members/) - In Progress (research done; owner decisions open). Team members reached over plain ssh instead of only `lxc-attach`, with no need to know how the member is virtualised; options and a recommendation, nothing built
 
-- [00204-go-tui-polish](00204-go-tui-polish/) - In Progress. What the Go tools' TUI should be: a frame with a breadcrumb, a context line and a footer of visible actions, wizards that keep their answers, and Bubble Tea v2 as a vendored dependency; research and owner decisions, nothing built yet
+- [00204-go-tui-polish](00204-go-tui-polish/) - In Progress. What the Go tools' TUI should be: a frame with a breadcrumb, a context line and a footer of visible actions, wizards that keep their answers, and Bubble Tea v2 as a vendored dependency; D1 and D2 decided, the dependency infrastructure (vendored, pinned, allowlisted, govulncheck) built, the UI not yet
 
 - [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - In Progress. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX, with its own GUI as the primary surface: a band, a ccy pane (Health, Mounts, Deploy) and a Teams pane (Status, Who, Pending, Homeserver); research and owner decisions, nothing built yet
 

@@ -97,7 +97,11 @@ echo "🔍 Scanning staged changes for sensitive information..."
 # Note a smaller file may fall below the rename-similarity threshold and be
 # recorded as D+A instead, in which case the add WAS scanned — which is why this
 # hole was easy to miss: it appears and disappears with file size.
-mapfile -t STAGED_FILE_LIST < <(git diff --cached --name-only --diff-filter=ACMRT)
+#
+# src-go/vendor is not scanned: it is third-party Go source exactly as `go mod vendor` writes it
+# (Plan 00204), so its authors' contact addresses are not ours to replace, and qa-go-deps fails
+# any byte that differs from the module go.sum checksums. gitleaks in CI still reads it.
+mapfile -t STAGED_FILE_LIST < <(git diff --cached --name-only --diff-filter=ACMRT -- . ':(exclude)src-go/vendor')
 # The version gates judge deletions too: a file deleted from the repo is still in the image.
 mapfile -t STAGED_CHANGE_LIST < <(git diff --cached --name-only --diff-filter=ACDMRT)
 

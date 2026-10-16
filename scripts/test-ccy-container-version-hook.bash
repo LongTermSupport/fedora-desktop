@@ -375,6 +375,20 @@ while IFS= read -r path; do
     probe "$path" "0 no" "a change to host-only $path needs no container bump"
 done <"$work/host-files"
 
+echo "=== the secret scan's scope ==="
+# Vendored Go modules are third-party files exactly as go mod vendor writes them (Plan 00204):
+# their authors' contact addresses are not ours to rewrite, and qa-go-deps fails any byte that
+# differs from the checksummed module. The same address anywhere else is still rejected. The
+# address is assembled from two halves so this file's own commit is not rejected.
+email="maintainer@""gmail.com"
+mkdir -p "$repo/src-go/vendor/example.org/mod" "$repo/src-go/internal"
+printf 'Report to %s\n' "$email" >"$repo/src-go/vendor/example.org/mod/SECURITY.md"
+check "an address in a vendored Go module is not scanned" "0" "$(hook_status)"
+printf 'Report to %s\n' "$email" >"$repo/src-go/internal/NOTES.md"
+check "the same address outside src-go/vendor is rejected" "1 yes" "$(hook_status) $(has 'Email address')"
+rm -rf "$repo/src-go"
+git -C "$repo" add -A
+
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

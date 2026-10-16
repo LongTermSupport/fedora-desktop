@@ -60,11 +60,35 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 
 - **Secrets never in argv.** A password goes to its consumer on stdin.
 
-- **Project rules.** `qa/` is a nested module (so this `go.mod` stays dependency-free) of
-  `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
+- **Project rules.** `qa/` is a nested module (so the QA tooling's dependencies stay out of
+  this `go.mod` and out of the binaries) of `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
   tmux target forms, no wall clock in tests, one home abbreviation, a `WaitDelay` that names
   its error. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.
+
+## Dependencies
+
+This module may depend on third-party modules, vendored, pinned and allowlisted (Plan 00204
+decision D2). `go.mod` names each module and its version, `go.sum` locks the content of each,
+and `vendor/` holds their source, committed, so every build compiles only what is in the
+checkout, offline (`-mod=vendor`, Go's default when `vendor/` exists, and set explicitly by
+`tasks/build-go-command.yml`). Nothing is installed system-wide.
+
+- **Every module is on `go-deps.allowlist` with its reason**: the direct ones and every module
+  they pull in. A pseudo-version (an untagged commit) or a `replace` directive needs a row of
+  its own saying why. A row nothing needs is removed. Adding a module is a decision: high
+  quality, maintained, and worth its weight in the binaries.
+- **Add or bump** with `go get <module>@<tag>`, then `go mod tidy` and `go mod vendor`, and
+  commit `go.mod`, `go.sum`, `vendor/` and the allowlist together; the diff of `vendor/` is the
+  review of the new code. Never edit a file under `vendor/`.
+- **Gates**: `scripts/qa-go-deps.bash` (the allowlist, pinning, `go mod verify`, `go mod tidy`
+  and `vendor/` byte for byte what `go mod vendor` writes) and `scripts/qa-go-vuln.bash`
+  (`govulncheck` over this module, reading `vendor/`), both in `qa-all` and `qa-changed`.
+  govulncheck itself is pinned by the `tool` directive of `qa/go.mod` and runs as
+  `go tool govulncheck`.
+- **Only `internal/ui` imports the TUI libraries** (Charm: Bubble Tea, Bubbles, Lip Gloss); the
+  flows build semantic screens. `internal/ui/frame` is their first user. A project rule will
+  hold this (`project_seam_imports`, Plan 00204 Task 2.2); until it lands, review holds it.
 
 ## How a port is built: spec first, tests first
 
@@ -103,7 +127,8 @@ already listed. Behaviour the golden pins is changed in the same commit as its d
 ## Build and deploy
 
 `tasks/build-go-command.yml` builds a command on the host from the checkout
-(`go build -trimpath -buildvcs=false`, as the login user, into `~/.cache/ccy-go-build`) and
+(`go build -trimpath -buildvcs=false` with `GOFLAGS=-mod=vendor`, offline from `vendor/`, as
+the login user, into `~/.cache/ccy-go-build`) and
 installs it with a checksum-compared `copy`; it takes the command name, install path, mode and
 optional ldflags. `playbooks/imports/play-claude-yolo.yml` imports it for both ccy binaries
 (`ccy-teams` also gets `-ldflags "-X main.RootDir=<checkout>"` and refuses to run without it),
@@ -245,6 +270,16 @@ types and unknown keys are findings); the `var: value` line form is the one
 exit 2; a wrong manifest or pin is exit 1, and every finding is reported. It starts no process.
 `SPEC-qa-version-pins.md` (V1-V25) is the specification, proven by unit tests over in-memory trees
 and real-file-system tests (symlinks, the live manifest) in the command package.
+
+`qa/godeps` + `qa/cmd/qa-go-deps` and `qa/cmd/qa-go-vuln` (same nested module) are
+`scripts/qa-go-deps.bash` and `scripts/qa-go-vuln.bash`, the gates on this module's dependencies
+([Dependencies](#dependencies)): the scripts only build and run the commands. `go.mod` is parsed
+with `x/mod/modfile`; the go commands (`go mod verify`, `go mod tidy -diff`, `go mod vendor -o`
+into a scratch tree compared byte for byte, `go tool govulncheck`) run through
+`qa/internal/proc` with `GOFLAGS` emptied, `GOWORK=off` and `GOTOOLCHAIN=local`. A reachable
+vulnerability is exit 1; a govulncheck that could not judge (no vulnerability database) is exit
+2, never a pass. Plan 00204's `SPEC-qa-go-deps.md` is the specification, proven by unit tests
+over a fake go and by the real go over a module with no dependencies.
 
 `qa/sttrules` + `qa/cmd/qa-speech-to-text-rules` (same nested module) are
 `scripts/qa-speech-to-text-rules.bash`, the gate for the rules in `.semgrep/speech-to-text.yml`:
