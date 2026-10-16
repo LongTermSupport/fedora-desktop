@@ -67,6 +67,13 @@ playbooks/imports/play-claude-yolo.yml
 # watchdog, OOM, core dump) and who asked (a play, a deploy, an acceptance run, a reboot, the
 # health check), then counts deliberate against not deliberate stops per team.
 00203-teams-hot-control-and-robustness/triage-hs.bash
+# Plan 00208: speech-to-text no longer pastes the previous dictation. Deploys wsi-stream and
+# rebuilds the wsi binary: the paste key is pressed only once the clipboard reads back as this
+# dictation's text; a copy that never takes is killed and retried within 3 s, then nothing is
+# pasted and a notification that stays points at Copy Last Transcription. Restarts the
+# wsi-stream-server (its handler). No extension change, so no log-out is needed. A wl-copy
+# left running by the bad dictation is not touched (each run kills only copies it started).
+playbooks/imports/optional/common/play-speech-to-text.yml
 # Plan 00170: clears the play ledger's BROKEN marker (runs check_freshness --clear-broken).
 # A private play run on 10-12 from a linked worktree was outside that worktree's root, and
 # the ledger marked itself BROKEN over it. The ledger now skips such a play with one

@@ -20,7 +20,16 @@ const (
 	focusSettlePolls      = 5
 	enterDelayAfterRetake = time.Second
 	enterDelay            = 300 * time.Millisecond
-	selectionDelay        = 50 * time.Millisecond
+)
+
+// The selection read-back that gates the paste keys (W32): wl-copy can return, or hang,
+// without the compositor ever giving it the selection, and the keys would then paste the
+// text that was there before. clipboardReads bounds the reads; the timeout is the deadline.
+const (
+	clipboardTimeout = 3 * time.Second
+	clipboardPoll    = 50 * time.Millisecond
+	clipboardReads   = 60
+	wlPasteBin       = "wl-paste"
 )
 
 // The window the paste goes to, as the panel last described it.
@@ -225,7 +234,9 @@ func (r *run) autoPaste(ctx context.Context, text string) error {
 	if !r.knownSession() {
 		return r.fail(ctx, "Unknown window manager for clipboard: "+r.session)
 	}
-	if err := r.copyOrFail(ctx, selection, text, true); err != nil {
+	cctx, cancel := context.WithTimeout(ctx, clipboardTimeout)
+	defer cancel()
+	if err := r.copyOrFail(cctx, selection, text, true); err != nil {
 		return err
 	}
 	if r.target != targetReady {
@@ -234,7 +245,9 @@ func (r *run) autoPaste(ctx context.Context, text string) error {
 		r.panel.notify(ctx, "Nothing was pasted: "+why+". The text is on the clipboard: Ctrl+V.", errorIcon, notifyStaysMS)
 		return err
 	}
-	r.env.Sleep(selectionDelay)
+	if err := r.confirmSelection(cctx, ctx, selection, text); err != nil {
+		return err
+	}
 	keys, name := keysShiftIns, "key"
 	switch r.pasteWithShift {
 	case "1":
@@ -252,6 +265,55 @@ func (r *run) autoPaste(ctx context.Context, text string) error {
 	r.enterAndSave(ctx)
 	r.panel.notifyState(ctx, stateSuccess, preview(text), "")
 	return nil
+}
+
+// confirmSelection is W32's gate: the selection is read back until it holds text; cctx
+// carries the deadline, ctx outlives it for the failure's own messages.
+func (r *run) confirmSelection(cctx, ctx context.Context, selection, text string) error {
+	held := "nothing yet"
+	for read := 1; read <= clipboardReads; read++ {
+		got, why := r.readSelection(cctx, selection)
+		if why == "" && (got == text || got == text+"\n") {
+			r.log.debug(fmt.Sprintf("The %s selection holds the text (read %d)", selection, read))
+			return nil
+		}
+		held = fmt.Sprintf("other text, %d characters", len([]rune(got)))
+		if why != "" {
+			held = "nothing readable: " + why
+		}
+		if cctx.Err() != nil {
+			break
+		}
+		r.env.Sleep(clipboardPoll)
+	}
+	why := fmt.Sprintf("Nothing was pasted: the %s selection did not take the text of this dictation within %d s (it still held %s)",
+		selection, int(clipboardTimeout/time.Second), held)
+	err := r.fail(ctx, why)
+	r.panel.notify(ctx, why+". Copy Last Transcription in the panel menu has the text.", errorIcon, notifyStaysMS)
+	return err
+}
+
+// readSelection is what the selection holds now, or why it could not be read.
+func (r *run) readSelection(ctx context.Context, selection string) (string, string) {
+	cmd := execx.Cmd{Name: wlPasteBin, Args: []string{"-n"}}
+	if selection == selectionPrimary {
+		cmd.Args = append(cmd.Args, "-p")
+	}
+	if r.session == sessionX11 {
+		cmd = execx.Cmd{Name: xselBin, Args: []string{"-ob"}}
+		if selection == selectionPrimary {
+			cmd.Args = []string{"-op"}
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if _, err := r.env.Runner.Run(ctx, cmd); err != nil {
+		if why := strings.TrimSpace(stderr.String()); why != "" {
+			return "", cmd.Name + ": " + why
+		}
+		return "", err.Error()
+	}
+	return stdout.String(), ""
 }
 
 // beforeEnter is W33's wait, and the second question after a retake.
