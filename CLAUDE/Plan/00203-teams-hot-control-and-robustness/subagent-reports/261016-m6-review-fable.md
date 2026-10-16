@@ -138,3 +138,120 @@ M6 but worth the same fix in the ccy launcher, in its own commit.
   `--journal` run should not re-sort.
 - N3. The 07:49 journal entry says Decision 7's interim default is "accepts from launch"; the
   08:22 entry corrects it. Fine as an append-only record.
+
+## Re-check
+
+Branch `feat/hot-control-m6` at 43a7e79f: 71644ded (B1 in Go), 6f9375e3 (ccy `--no-bus`
+removes its name's directory), 0ccf32d2 (`PINGBUS_SEATS` gone), 43a7e79f (journal). Read-only;
+no qa-all.
+
+### Verdict: MERGE
+
+B1 is closed by a different mechanism than the one prescribed, and the mechanism is sound. One
+edge (R1) can still judge a real bus cc session not-bus; it needs a `--` in cc's argv, is
+pre-dated by the same reading in `TeamsList`, and does not let a seat be taken: a follow-up
+commit, not a merge blocker.
+
+### What was run
+
+- `go test ./internal/teams/... ./internal/registry/...`: pass.
+- `python3 -I -m pytest -q tests/helpers/pingbus/test_seat.py`: 101 passed.
+- `bash scripts/test-cc-teams.bash`: 80 passed. `bash scripts/test-ccy-teams.bash`: 189 passed.
+
+### Is "the record carries the bus" a single source of truth?
+
+Yes, because of where the record is written and removed, which I traced rather than took from
+the commit message:
+
+- `ccy_tmux_insulate` (`tmux-session.bash:505-527`) picks the first free name and writes the
+  record **before** `ccy_tmux_start_detached`; the pane then writes the membership. So at the
+  moment any membership is written, the record of its name is this launch's. No launch-mid-way
+  window exists in which a membership is present and the record is an earlier session's.
+- The record is removed only by the trampoline when the launcher returns
+  (`session-registry.bash:610-615`), by a failed start (`tmux-session.bash:523`), and by two Go
+  paths that first kill the tmux session (`sessions/picker.go:218-227`,
+  `teams/shutdown/stop.go:217-230`). Nothing removes a live session's record, so a live bus
+  session cannot lose its record while it runs.
+- A reused name: tmux refuses a duplicate name on one server and `ccy_tmux_next_name` takes
+  only a free one, so "a non-bus launch rewrites the record while the old bus session under the
+  same name still runs" cannot occur; the rewrite happens only once the old session has ended.
+- A crash or a reboot: the record stays (that is the registry's design), the membership is
+  tmpfs and gone. `ccy-sessions restore` relaunches from the record without rewriting it, and
+  the relaunch writes a fresh membership under the same name: record and membership agree.
+  The restored launcher runs inside tmux, so `ccy_tmux_insulate` returns at once
+  (`tmux-session.bash:440-447`) and writes nothing.
+- The hot-control rewrite (`registry.go:228-268`, `SetTeams`/`SetCCTeams`) keeps a cc record on
+  `--teams` or `--bus` and never adds `--no-bus` to a ccy one, so a record a hot add just
+  changed still reads as bus.
+- The non-zero-exit pane (`read -r` holds the window): record removed, pane live, membership
+  present. Judged not-bus, correctly: the session has ended. Before the fix it showed as an
+  "unguarded" cc row.
+- `ccy_membership_args` (`agent-bus-membership.bash:45-50`) removes only
+  `ccy/membership/<session>` where `<session>` is the pane's own name
+  (`ccy_tmux_current_session` answers only when the pane's first process is this launcher or
+  its trampoline, `tmux-session.bash:574-581`), so a `ccy --no-bus` typed inside another
+  session's pane cannot remove that session's membership.
+- The board already required a live tmux session of the membership's name
+  (`board/snapshot.go:196-199`), so container-named memberships of plain-terminal or headless
+  `ccy --teams` launches were never attributed; `Current` takes nothing from them.
+
+### Could a real live bus session be judged not-bus?
+
+- **R1 (edge, non-blocking).** `LaunchedWithBus` (`discover.go:265-276`) cuts the arguments at
+  the first `--` for cc as well as ccy, but cc has no option terminator:
+  `cc_teams_split_args` (`cc-teams.bash:56-78`) scans every word, and
+  `ccy_registry_replay_args` for prefix `cc` records every word including `--`. Two ways in:
+  `cc -- --teams 1@alpha` is a bus session whose record reads not-bus (the test `cc-after`
+  in `discover_test.go:305` fixes this reading in); and `cc --teams 1@alpha -- <prompt>`, after
+  a hot add, has its record rewritten by `SetTeams` with `--teams` appended **after** the `--`
+  (`registry.go:246-248`), so a session hot control just put on a team is then not listed, in
+  no team (`SessionsIn`), not reserving its seats in `claimsElsewhere`, and every command on
+  it exits 78 "started without --teams or --bus", which is false. Its seat is not lost: the
+  keeper holds the lock and the token exists, so another add meets the held/exists checks, not
+  a free seat. Fix: for `rec.Prefix == membership.KindCC` do not cut at `--` (match cc's own
+  parser), and make `SetTeams` insert `--teams` before the first `--` rather than append; the
+  latter also stops a ccy record `ccy -- <claude args>` from handing `--teams` to claude on
+  restore (pre-existing, from M3). Add the `cc --teams X -- p` case to `TestCurrent...` and a
+  `SetTeams` case with a `--` in `registry_test.go`.
+- **R2 (minor).** `hot.launchedWithBus` (`list.go:596-610`), `runningCC` (`cc.go:167-176`) and
+  `claimsElsewhere` (`add.go:238-245`) read `listing.Records` and ignore `listing.Unreadable`,
+  so a session whose record cannot be read is now silently not-bus: hidden from the list and
+  the picker, its seats unreserved. The board reports it (`collect.go:216-219`); the hot paths
+  should fail on `Unreadable` rather than drop it (fail fast). Records are written whole and
+  moved into place, so this needs a corrupt file or a key an older Go reader refuses.
+
+### Is removing `PINGBUS_SEATS` safe for every launcher path?
+
+Yes. The only places that build a `seat exec` command are `cc_teams_command`
+(`cc-teams.bash:138-145`, `PINGBUS_MEMBERSHIP=$dir` always) and the entrypoint's AGENT-BUS
+block, fed by `ccy_membership_args` (`PINGBUS_MEMBERSHIP` as a mount or `off`; the entrypoint
+refuses a missing marker and a leftover `PINGBUS_SEATS`, `entrypoint.sh:555-578`,
+`test-ccy-agent-bus.bash:251-268`). LXC members are made by `play-agent-bus.yml` and have no
+launcher in this repository that runs `seat exec` (`docs/agent-bus-lxc-members.md` names
+neither variable). No file under `files/`, `playbooks/` or `helpers/` sets `PINGBUS_SEATS` any
+longer; the remaining mentions are the entrypoint's refusal, its tests, and history.
+`desired_source` now raises 78 with the three launchers named (`seat.py:327-338`), and
+`test_seat.py:439-442` and `:847` prove it.
+
+### Do the tests prove the fix?
+
+Yes for what the fix claims: `TestCurrentKeepsOnlyTheMembershipsTheirRecordsLaunchedWithTheBus`
+(the rule), `TestAPlainCCUnderTheNameOfAnEndedOneOwnsNoMembership` (list, `SessionsIn`, add 78,
+no `agent-bus seat` and no `sudo` called), `TestAddRefusesASeatAnotherLiveSessionWants` (the
+75 reservation goes once the record says `--no-bus`), `TestAddToACcyNoBusSessionUnderAReusedNameIsRefused`,
+`TestListReadsNoMembershipForACcyNoBusUnderAReusedName`,
+`TestCollectSessionsSkipsAMembershipLeftUnderAReusedName`; test-ccy-teams covers the
+`--no-bus` removal against a runtime directory of its own. Acceptance (d)
+(`_acceptance-m6.inc.bash:375-391`) is the production path: a real membership under D's name,
+a plain record written by `ccy_registry_write` as cc writes it, a live pane; it judges `session list` output, exit 78 with the exact sentence, and that B's add of the same seat succeeds
+without "named by session D". The gap is R1's `--` case, which no test exercises.
+
+### Merge note: hard-coded versions
+
+Beyond `claude-yolo` (`CCY_VERSION`, `REQUIRED_CONTAINER_VERSION`) and the Dockerfile
+`LABEL`, the numbers 3.99.12.x / 2.77.x appear only in prose: `docs/ccy-changelog.md` (the
+3.99.12.3 heading and its text), `ACCEPTANCE.md` (one line), `PLAN.md` (one line),
+`CLAUDE/Plan/meta-deploy.list` (the play's description), the 26-10-16 journal (two entries,
+append-only, leave as written) and `subagent-reports/261016-m6-opus.md`. No script, test or
+Go file carries them, so the renumber at merge touches the two version files, the changelog
+heading, the ACCEPTANCE/PLAN sentence and the meta-deploy description.
