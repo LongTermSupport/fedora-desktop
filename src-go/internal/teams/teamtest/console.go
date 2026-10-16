@@ -12,12 +12,16 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-const gumProgram = "gum"
+const (
+	gumProgram = "gum"
+	fzfProgram = "fzf"
+)
 
 var colourCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // Script stands in for fzf and gum: each fzf call takes the next answer of Fzf, "<key>|<choice>"
-// where choice is text the chosen row contains, YES, EXIT or ABORT; each gum call takes the
+// where choice is text the chosen row contains, YES, EXIT, ABORT, or TYPED:<text> (text typed
+// into a --print-query picker that matches no row: exit 1 with the text); each gum call takes the
 // next of Gum, "YES", "NO" or "CANCEL".
 type Script struct {
 	T       *testing.T
@@ -36,7 +40,7 @@ type Script struct {
 // Run answers fzf and gum and fails the test for anything else.
 func (s *Script) Run(_ context.Context, c execx.Cmd) (execx.Result, error) {
 	switch c.Name {
-	case "fzf":
+	case fzfProgram:
 		return s.runFzf(c)
 	case gumProgram:
 		return s.runGum(c)
@@ -64,31 +68,14 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 	if !found {
 		s.T.Fatalf("fzf answer %q has no |", answer)
 	}
-	row := ""
-	switch choice {
-	case "ABORT":
-		return execx.Result{ExitCode: 130}, &execx.ExitError{Name: "fzf", Code: 130}
-	case "EXIT":
-		row = rows[len(rows)-1]
-	case "YES":
-		for _, r := range rows {
-			if strings.HasPrefix(r, "Yes, ") {
-				row = r
-				break
-			}
-		}
-	default:
-		// Several marks (fzf --multi) are choices joined with "&&", answered in the order given.
-		var marked []string
-		for want := range strings.SplitSeq(choice, "&&") {
-			at := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, want) })
-			if at < 0 {
-				s.T.Fatalf("no row contains %q in %q", want, rows)
-			}
-			marked = append(marked, rows[at])
-		}
-		row = strings.Join(marked, "\n")
+	expects := slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") })
+	if typed, ok := strings.CutPrefix(choice, "TYPED:"); ok {
+		return typedAnswer(typed, key, expects), &execx.ExitError{Name: fzfProgram, Code: 1}
 	}
+	if choice == "ABORT" {
+		return execx.Result{ExitCode: 130}, &execx.ExitError{Name: fzfProgram, Code: 130}
+	}
+	row := s.chosenRow(choice, rows)
 	if row == "" {
 		s.T.Fatalf("no row contains %q in %q", choice, rows)
 	}
@@ -96,10 +83,58 @@ func (s *Script) runFzf(c execx.Cmd) (execx.Result, error) {
 	if s.Rewrite != nil {
 		out = s.Rewrite(out)
 	}
-	if slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") }) {
+	if expects {
 		out = key + "\n" + out
 	}
+	if slices.Contains(c.Args, "--print-query") {
+		out = queryOf(c.Args) + "\n" + out
+	}
 	return execx.Result{Stdout: []byte(out)}, nil
+}
+
+// chosenRow is the row an answer names: the last (EXIT), the first "Yes, " row (YES), or those
+// containing each choice; several marks (fzf --multi) are choices joined with "&&", in order.
+func (s *Script) chosenRow(choice string, rows []string) string {
+	switch choice {
+	case "EXIT":
+		return rows[len(rows)-1]
+	case "YES":
+		for _, r := range rows {
+			if strings.HasPrefix(r, "Yes, ") {
+				return r
+			}
+		}
+		return ""
+	}
+	var marked []string
+	for want := range strings.SplitSeq(choice, "&&") {
+		at := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, want) })
+		if at < 0 {
+			s.T.Fatalf("no row contains %q in %q", want, rows)
+		}
+		marked = append(marked, rows[at])
+	}
+	return strings.Join(marked, "\n")
+}
+
+// typedAnswer is fzf's output when what was typed matches no row: the text, then the key when
+// keys are expected (exit 1).
+func typedAnswer(typed, key string, expects bool) execx.Result {
+	out := typed + "\n"
+	if expects {
+		out += key + "\n"
+	}
+	return execx.Result{ExitCode: 1, Stdout: []byte(out)}
+}
+
+// queryOf is the text a typed fzf call started with, which a row answer leaves as it was.
+func queryOf(args []string) string {
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, "--query="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 func (s *Script) runGum(c execx.Cmd) (execx.Result, error) {

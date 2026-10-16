@@ -20,17 +20,31 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Agent teams: joins the LXC members declared in agent_bus_lxc_members. A team with two LXC
+# members whose checkouts are two different repositories, both leaving host and seat to be
+# derived, failed here ("gives seat 1 of team <team> to two containers"): seat 1 of one repo and
+# seat 1 of another are two handles, and the check between entries now says so. Runs on the
+# host_vars as they are; members already joined keep their handles.
+# Plan 00201 Task 2.15: helpers/agent_bus/ (declare.py's `settings` and `set`, the team file's
+# `removed_humans`) is part of the admin zipapp, so every team reads "out of date (software)"
+# until this runs. It installs the new zipapp and stamps each team again. No unit, firewall or
+# rendered config changes, so no homeserver is restarted.
+playbooks/imports/play-agent-bus.yml
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
-# ccy 3.99.12.9, container 2.77.6 (each project's image is rebuilt once, at its next ccy
+# ccy 3.99.12.10, container 2.77.7 (each project's image is rebuilt once, at its next ccy
 # launch): deploys cc, cc-teams.bash and the ccy launcher, and rebuilds ccy-teams.
 # The agent-bus status line shows its teams as 👥 A,B on rows of their own, wrapped at the
 # terminal's width, instead of `bus: A,B` appended to the last row, where Claude Code cut it.
+# ccy-teams lxc-add: the Checkout step offers the checkouts found in the user's home and walks
+# the container's directories with Tab completion, every question names team, step, container
+# and user, and the end says how the member starts (agent-bus-claude), whether a running
+# session must be restarted, and how to check it live. A container on any LXC store is read.
 # Every picker action is a visible, named choice and a key only its shortcut
 # (project_hidden_bindings): ccy-sessions gives each session a menu and names its keys in the
-# header, and the launcher's detached-session offer has a "Start a new session here" row where
-# Ctrl-N was the only way.
+# header, the launcher's detached-session offer has a "Start a new session here" row where
+# Ctrl-N was the only way, and lxc-add's Tab completion is a listed row with Tab beside it.
 # Making a coordinator is one of two questions: a team with none is offered one plainly; a team
 # that has one gets a takeover naming the current coordinator, on No (lxc-add too). The picker's
 # describe offer is now, not now or never (an old no is asked again once). Launch questions are
@@ -50,11 +64,6 @@ playbooks/imports/optional/common/play-md-viewer.yml
 # Plan 00201 Task 2.15 (ccy 3.99.12.5, container 2.77.4): Enter on a team, then Edit settings,
 # opens one screen of the team's fields to change, save and apply (ACCEPTANCE-owner.md step 13).
 playbooks/imports/play-claude-yolo.yml
-# Plan 00201 Task 2.15: helpers/agent_bus/ (declare.py's `settings` and `set`, the team file's
-# `removed_humans`) is part of the admin zipapp, so every team reads "out of date (software)"
-# until this runs. It installs the new zipapp and stamps each team again. No unit, firewall or
-# rendered config changes, so no homeserver is restarted.
-playbooks/imports/play-agent-bus.yml
 # Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.12.8. M2 starts its two
 # throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the
 # same container name and the second failed at podman's create (exit 125). Then M1, M3, M4,

@@ -146,6 +146,31 @@ func TestListerReadCheckoutAFailureCarriesTheReadersWords(t *testing.T) {
 	}
 }
 
+func TestListerLxcPathIsWhereRootsLxcKeepsItsContainers(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte("/var/lib/lxc\n")})
+	got, err := newLister(f).LxcPath(context.Background())
+	if err != nil || got != "/var/lib/lxc" {
+		t.Fatalf("%q %v", got, err)
+	}
+	g := &execx.Fake{}
+	g.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte("relative\n")})
+	if _, err = newLister(g).LxcPath(context.Background()); err == nil {
+		t.Fatal("a relative lxcpath was accepted")
+	}
+}
+
+func TestListerReadCheckoutAFailedHomeSearchNamesTheHomeNotADash(t *testing.T) {
+	f := &execx.Fake{}
+	f.On([]string{"sudo", "-n", "lxc-config", "lxc.lxcpath"}, execx.Result{Stdout: []byte("/var/lib/lxc\n")})
+	f.On([]string{"sudo", "-n", "python3", "-I", "-c", readerScript, "checkouts", "/var/lib/lxc", "box-a", "agent", "-"},
+		exit1("container box-a has no /etc/passwd\n"))
+	_, err := newLister(f).ReadCheckout(context.Background(), readerScript, "checkouts", "box-a", "agent", "-")
+	if err == nil || !strings.HasPrefix(err.Error(), "the home of agent@box-a could not be read from the host: ") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestListerReadCheckoutAFailureCannotSteerTheTerminal(t *testing.T) {
 	f := &execx.Fake{}
 	reader(f, "/var/lib/lxc\n", exit1("/srv/p/\x1b[2J\x07 is a symbolic link\n"))

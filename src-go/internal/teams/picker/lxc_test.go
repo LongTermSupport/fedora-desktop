@@ -18,6 +18,8 @@ func (noLxc) Containers(context.Context) ([]string, []string, error) {
 	return nil, nil, errors.New("LXC is not installed on this host (missing: lxc-ls)")
 }
 
+func (noLxc) LxcPath(context.Context) (string, error) { return "", errors.New("not asked") }
+
 func (noLxc) Users(context.Context, string) ([]string, error) { return nil, errors.New("not asked") }
 
 func (noLxc) ReadCheckout(context.Context, string, string, string, string, string) (string, error) {

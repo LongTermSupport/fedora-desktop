@@ -149,7 +149,7 @@ def active_teams(environ: Mapping[str, str]) -> tuple[str, ...]:
         return _membership_teams(environ, marker)
     raw = environ.get("PINGBUS_TEAMS", "")
     if not raw:
-        raise ConfigError("PINGBUS_TEAMS is not set: no team is active")
+        raise ConfigError("PINGBUS_TEAMS is not set: no team is active" + _env_file_hint(environ))
     teams = tuple(raw.split(","))
     for position, name in enumerate(teams, start=1):
         if not protocol.is_team_name(name):
@@ -157,6 +157,30 @@ def active_teams(environ: Mapping[str, str]) -> tuple[str, ...]:
     if len(set(teams)) != len(teams):
         raise ConfigError("PINGBUS_TEAMS lists a team more than once")
     return teams
+
+
+def member_env_file(environ: Mapping[str, str]) -> pathlib.Path | None:
+    """The env file `agent-bus-claude` reads: `${PINGBUS_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/pingbus/env}`
+    (a relative XDG_CONFIG_HOME ignored), or None when no absolute path can be made."""
+    explicit = environ.get("PINGBUS_ENV", "")
+    if explicit:
+        return pathlib.Path(explicit) if os.path.isabs(explicit) else None
+    xdg = environ.get("XDG_CONFIG_HOME", "")
+    if xdg and os.path.isabs(xdg):
+        return pathlib.Path(xdg) / "pingbus" / "env"
+    home = environ.get("HOME", "")
+    return pathlib.Path(home) / ".config" / "pingbus" / "env" if os.path.isabs(home) else None
+
+
+def _env_file_hint(environ: Mapping[str, str]) -> str:
+    """How to run pingbus in a shell that has not read the member's env file. pingbus never
+    reads that file itself: `agent-bus-claude` is its one reader (a shell file, sourced), and
+    a second reading here could disagree with it."""
+    env_file = member_env_file(environ)
+    if env_file is None or not env_file.is_file():
+        return ""
+    return (f". {env_file} lists this member's teams, but only agent-bus-claude reads it; to run pingbus "
+            f"in this shell, read it first: set -a; . {env_file}; set +a")
 
 
 def _membership_teams(environ: Mapping[str, str], marker: str) -> tuple[str, ...]:

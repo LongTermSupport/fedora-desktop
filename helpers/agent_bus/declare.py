@@ -102,8 +102,9 @@ trusted reference may name any path in the team's repositories (a team narrows i
         by helpers/agent_bus_lxc/derive.py's rule (ccy's), from the checkout as the host-side
         reader printed it (--probe) and the team's members; exit 64 when it cannot be derived
     python3 -m helpers.agent_bus.declare lxc-checkouts --file <localhost.yml> --scan JSON
-        CHECKOUT<TAB><path in the container><TAB><owner/repo> for each checkout the reader found
-        in the user's home whose origin is on GitHub
+        CHECKOUT<TAB><path in the container><TAB><owner/repo><TAB><ccy or -> for each checkout the
+        reader found in the user's home whose origin is on GitHub, ccy projects (a .claude/ccy
+        directory) first; then TIMEDOUT when the search stopped at its time limit
     python3 -m helpers.agent_bus.declare lxc-script --name root-read
         the script the host runs as root to read a container's checkout (derive.ROOT_READ_PY)
 
@@ -1350,11 +1351,13 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         return EXIT_OK
     if args.command == "lxc-checkouts":
         try:
-            found = derive.parse_checkouts(args.scan)
+            found, cut = derive.parse_checkouts(args.scan)
         except derive.DeriveError as exc:
             raise UsageError(str(exc)) from None
-        out.writelines(f"CHECKOUT\t{path}\t{repo}\n" for path, origin in found
+        out.writelines(f"CHECKOUT\t{path}\t{repo}\t{'ccy' if ccy else '-'}\n" for path, origin, ccy in found
                        if origin is not None and (repo := github_remote(origin)) is not None)
+        if cut:
+            out.write("TIMEDOUT\n")
         return EXIT_OK
     if args.command == "lxc-derive":
         out.write("DERIVED\t" + "\t".join(derive_lxc(text, args)) + "\n")
