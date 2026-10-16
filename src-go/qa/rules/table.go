@@ -20,8 +20,8 @@ import (
 
 // execOwners are the only packages that may start a process: every external command goes
 // through the runner of one of them so a fake sees it. src-go has internal/execx; the nested
-// qa module (which src-go's dependency-free go.mod cannot import) has its own seam,
-// qa/internal/proc.
+// qa module (a separate module, which cannot import src-go's internal packages) has its own
+// seam, qa/internal/proc.
 var execOwners = []string{"internal/execx", "qa/internal/proc"}
 
 // execOwnerNames is the owners as a message says them.

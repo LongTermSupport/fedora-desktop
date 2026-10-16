@@ -39,13 +39,15 @@ func (c *Chooser) settle(ctx context.Context, repo string, taken []entry) ([]ent
 		"(sudo may ask for your password). There is no homeserver restart, and every member of the team then trusts " + repo + ".")
 	var kept []entry
 	var adds []string
-	for _, e := range taken {
+	for at, e := range taken {
 		if e.Standing != declare.StandingWiden {
 			kept = append(kept, e)
 			continue
 		}
 		o := scopeOptions(repo, e.Team)
-		answer, err := c.Gum.Choose(ctx, e.Team+" does not trust "+repo+". Add "+repo+" (any branch) to it?", o.add, []string{o.add, o.join, o.leave})
+		head := heading(at, len(taken), e.Team) + " · scope"
+		c.say(head)
+		answer, err := c.Gum.Choose(ctx, head+": "+e.Team+" does not trust "+repo+". Add "+repo+" (any branch) to it?", o.add, []string{o.add, o.join, o.leave})
 		if errors.Is(err, ui.ErrCancelled) {
 			c.say(nothingChosen)
 			return nil, term.ExitOK, false
@@ -107,8 +109,8 @@ func (c *Chooser) widen(ctx context.Context, repo string, teams []string) term.E
 // starts nothing.
 func (c *Chooser) seats(ctx context.Context, memberType string, taken []entry) term.ExitCode {
 	refs := make([]string, 0, len(taken))
-	for _, e := range taken {
-		ref, code := c.Seat(ctx, e.Team, memberType)
+	for at, e := range taken {
+		ref, code := c.Seat(ctx, e.Team, memberType, heading(at, len(taken), e.Team))
 		if code != term.ExitOK {
 			return code
 		}

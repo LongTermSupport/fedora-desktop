@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -68,20 +69,67 @@ func (x *Hot) setRoleTo(ctx context.Context, team, handle, want string, demote b
 }
 
 // demoting is the coordinator a new coordinator replaces ("" for none), with demote said or
-// asked on a terminal; agreed is false when it is not to be demoted.
+// asked on a terminal; agreed is false when it is not to be demoted. The commands decide the
+// takeover before anything changes (coordinatorPath); this is the guard for a coordinator that
+// appeared since, and for the role handed on by a remove.
 func (x *Hot) demoting(ctx context.Context, roster agentbus.Roster, team, handle, want string, demote bool) (string, term.ExitCode, bool) {
-	current, held := roster.Coordinator()
-	if want != agentbus.RoleCoordinator || !held || current.Handle == handle {
+	current, held := coordinator.Of(roster, handle)
+	if want != agentbus.RoleCoordinator || !held {
 		return "", term.ExitOK, true
 	}
 	if demote {
 		return current.Handle, term.ExitOK, true
 	}
+	h := coordinator.Holder{Handle: current.Handle, Running: coordinator.Unknown}
 	if !x.interactive() {
-		return "", x.usageError(current.Handle + " is " + team + "'s coordinator: add --demote-current to make it a worker first."), false
+		return "", x.usageError(coordinator.Refusal(team, handle, h, optDemote)), false
 	}
-	code, yes := x.ask(ctx, current.Handle+" is "+team+"'s coordinator, and becomes a worker. Go on?", false)
+	code, yes := x.ask(ctx, coordinator.OfferTakeover(team, handle, h), false)
 	return current.Handle, code, yes
+}
+
+// coordinatorPath is which of the two paths a change to r.role takes, decided before anything
+// changes: none (not a coordinator), the plain offer (the team has no coordinator), or the
+// takeover (another member holds the role), which needs --demote-current where nothing can be
+// asked, --yes included. The question names the path; takeover is whether the holder is demoted.
+func (x *Hot) coordinatorPath(ctx context.Context, t *target, r request, roster agentbus.Roster, team, handle, who string) (string, bool, term.ExitCode, bool) {
+	if r.role != agentbus.RoleCoordinator {
+		return "", false, term.ExitOK, true
+	}
+	if m, found := roster.Member(handle); found && m.Role == agentbus.RoleCoordinator {
+		return handle + " is already " + team + "'s coordinator, so its role stays. Go on?", false, term.ExitOK, true
+	}
+	h := coordinator.Holding(roster, handle, x.running(ctx, t))
+	if h.Handle == "" {
+		return coordinator.OfferNone(team, who), false, term.ExitOK, true
+	}
+	if !r.demoteCurrent && (r.yes || !x.interactive()) {
+		return "", false, x.usageError(coordinator.Refusal(team, who, h, optDemote)), false
+	}
+	return coordinator.OfferTakeover(team, who, h), true, term.ExitOK, true
+}
+
+// running is what the seat lists of this session's checkout, and of every checkout a session
+// record names, say of a member's session. A list that cannot be read leaves its members
+// unknown, which the question says.
+func (x *Hot) running(ctx context.Context, t *target) coordinator.Lookup {
+	return func(m agentbus.Member) coordinator.Running {
+		dirs := []string{t.checkout()}
+		if listing, err := t.store.List(); err == nil {
+			for _, rec := range listing.Records {
+				if !slices.Contains(dirs, rec.Dir) {
+					dirs = append(dirs, rec.Dir)
+				}
+			}
+		}
+		var seats []agentbus.Seat
+		for _, dir := range dirs {
+			if found, _, err := x.Host.Bus.SeatList(ctx, dir); err == nil {
+				seats = append(seats, found...)
+			}
+		}
+		return coordinator.FromSeats(seats)(m)
+	}
 }
 
 // changeRole is setRoleTo for a change that is never undone.
@@ -122,16 +170,36 @@ func (x *Hot) setRole(ctx context.Context, t *target, r request) term.ExitCode {
 	}
 	member, found := roster.Member(handle)
 	changed := !found || member.Role != r.role
+	demote := r.demoteCurrent
 	if changed {
-		question := fmt.Sprintf("Make %s (seat %s of %s) %s?", handle, seat, t.session, roleWords(r.team, r.role))
+		question, takeover, pathCode, ok := x.roleQuestion(ctx, t, r, roster, seat, handle)
+		if !ok {
+			return pathCode
+		}
 		if askCode, proceed := x.confirm(ctx, question, r.yes); !proceed {
 			return askCode
 		}
+		demote = demote || takeover
 	}
-	if roleCode, set := x.changeRole(ctx, r.team, handle, r.role, r.demoteCurrent); !set {
+	if roleCode, set := x.changeRole(ctx, r.team, handle, r.role, demote); !set {
 		return roleCode
 	}
 	return x.waitTold(ctx, t, r.team, handle, r.role, changed)
+}
+
+// roleQuestion is role's question: one of the two coordinator paths (coordinatorPath), or a
+// worker's, which says when the team is left with no coordinator.
+func (x *Hot) roleQuestion(ctx context.Context, t *target, r request, roster agentbus.Roster, seat, handle string) (string, bool, term.ExitCode, bool) {
+	who := fmt.Sprintf("%s (seat %s, %s)", t.session, seat, handle)
+	question, takeover, code, ok := x.coordinatorPath(ctx, t, r, roster, r.team, handle, who)
+	if !ok || question != "" {
+		return question, takeover, code, ok
+	}
+	question = fmt.Sprintf("Make %s %s?", who, roleWords(r.team, r.role))
+	if m, found := roster.Member(handle); found && m.Role == agentbus.RoleCoordinator {
+		question += " " + r.team + " then has no coordinator."
+	}
+	return question, false, term.ExitOK, true
 }
 
 // handleOf is the seat's handle, as agent-bus seat list has it; "" has been said.
@@ -187,45 +255,46 @@ type leaving func(context.Context) (term.ExitCode, bool)
 
 // leaveRole decides H23 step 2 before anything changes: a worker leaves as it is; the
 // coordinator needs --coordinator (asked on a terminal, demote by default).
-func (x *Hot) leaveRole(ctx context.Context, r request, team, seat, handle string, up bool) (leaving, term.ExitCode, bool) {
+func (x *Hot) leaveRole(ctx context.Context, r request, team, seat, handle string, up bool) (leaving, string, term.ExitCode, bool) {
 	if !up {
 		x.mark(markSkip, "role: not checked (the homeserver is down)")
-		return nil, term.ExitOK, true
+		return nil, "", term.ExitOK, true
 	}
 	roster, err := x.Host.Bus.List(ctx, team)
 	if err != nil {
 		x.mark(markFailed, "role: the members of "+team+" could not be read: "+lastLine(err))
-		return nil, term.ExitFailure, false
+		return nil, "", term.ExitFailure, false
 	}
 	if m, found := roster.Member(handle); !found || m.Role != agentbus.RoleCoordinator {
 		x.mark(markDone, "role: seat "+seat+" is a worker")
-		return nil, term.ExitOK, true
+		return nil, "", term.ExitOK, true
 	}
 	choice := r.coordinator
 	if choice == "" {
 		if !x.interactive() {
-			return nil, x.usageError("seat " + seat + " is " + team + "'s coordinator: say what becomes of the role with " +
+			return nil, "", x.usageError("seat " + seat + " is " + team + "'s coordinator: say what becomes of the role with " +
 				"--coordinator=demote (no one has it) or --coordinator=hand-to=<seat>."), false
 		}
 		code, yes := x.ask(ctx, "Seat "+seat+" is "+team+"'s coordinator. Make it a worker as it leaves (the role goes to no one)? "+
 			"To hand the role to another seat instead, say no and use --coordinator=hand-to=<seat>.", true)
 		if !yes {
-			return nil, code, false
+			return nil, "", code, false
 		}
 		choice = coordDemote
 	}
+	said := "Seat " + seat + " is " + team + "'s coordinator: "
 	if choice == coordDemote {
 		return func(ctx context.Context) (term.ExitCode, bool) {
 			return x.changeRole(ctx, team, handle, agentbus.RoleWorker, false)
-		}, term.ExitOK, true
+		}, said + "it becomes a worker, and " + team + " has no coordinator.", term.ExitOK, true
 	}
 	heir, why := handTo(roster, strings.TrimPrefix(choice, coordHandTo), handle)
 	if why != "" {
-		return nil, x.usageError(why), false
+		return nil, "", x.usageError(why), false
 	}
 	return func(ctx context.Context) (term.ExitCode, bool) {
 		return x.changeRole(ctx, team, heir, agentbus.RoleCoordinator, true)
-	}, term.ExitOK, true
+	}, said + heir + " becomes " + team + "'s coordinator instead.", term.ExitOK, true
 }
 
 // handTo is the member hand-to names: its full handle, or the one active member (not the one

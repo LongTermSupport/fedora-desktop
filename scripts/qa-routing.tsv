@@ -123,6 +123,14 @@ also	playbooks/*.yml,playbooks/*.yaml	version-pins	-
 # to it runs the go check.
 also	helpers/version_pins/manifest.py	go	-
 also	scripts/qa-version-pins.bash,src-go/qa/versionpins/*,src-go/qa/cmd/qa-version-pins/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	version-pins	-
+# The dependency gates (Plan 00204) judge src-go's go.mod, go.sum, the allowlist and the vendor
+# tree, and run whole when one changes or is deleted, or their wrappers, Go package or commands
+# change. govulncheck's own pin is the qa module's go.mod, so a change to it runs go-vuln. The
+# allowlist counts as covered by go-deps; the src-go row below covers the rest and runs the go check.
+also	src-go/go-deps.allowlist	go-deps	covered
+also	src-go/go.mod,src-go/go.sum,src-go/vendor/*	go-deps,go-vuln	-
+also	src-go/qa/go.mod,src-go/qa/go.sum	go-vuln	-
+also	scripts/qa-go-deps.bash,scripts/qa-go-vuln.bash,src-go/qa/godeps/*,src-go/qa/cmd/qa-go-deps/*,src-go/qa/cmd/qa-go-vuln/*,scripts/lib/go-tool.bash,src-go/qa/internal/emit/*,src-go/qa/internal/rootargs/*,src-go/qa/internal/cmdmain/*	go-deps,go-vuln	-
 # The speech-to-text rules gate runs over each changed JavaScript and Python file by name (the
 # *.js, *.mjs and @py rows below), and runs whole over every published file when its rules,
 # fixtures, wrapper, Go package, command, the shared discovery or the trees table change; the
@@ -158,4 +166,4 @@ first	@sh	bash-syntax,shellcheck,shell-directives,semgrep,ready-wait-files	cover
 post	any:@sh	bash-limits	-
 post	any:@sh,any:@py	toolchain	-
 post	any:@sh,any:@py	hidden-bindings	-
-perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-hidden-bindings
+perfile-gate	qa-bash qa-python qa-patterns qa-ansible qa-ansible-syntax qa-js qa-docs qa-go qa-bash-limits qa-toolchain qa-deployed-drift qa-helper-tests qa-nokill-containerwatch qa-ansible-pause qa-gh-scopes qa-ready-wait-rules qa-plan-script-logging qa-version-pins qa-speech-to-text-rules qa-vmtest-manifest qa-go-deps qa-go-vuln qa-hidden-bindings

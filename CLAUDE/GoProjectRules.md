@@ -13,10 +13,12 @@ also red-tested against the ways round it: a rule that holds only against the or
 spelling of the defect is documentation, not a gate.
 
 The rules live in their own module (`src-go/qa`, its own `go.mod`, depending on
-`golang.org/x/tools`) because the shipped binaries are built on the host with plain `go build`
-and `src-go/go.mod` must stay dependency-free. `qa-go.bash` checks that module too (format,
-vet, test, coverage, lint). This file is under `CLAUDE/` because the markdown guard allows no
-`.md` beside the Go code.
+`golang.org/x/tools`) so that the QA tooling's dependencies never enter the shipped binaries.
+`src-go/go.mod` itself takes only the dependencies the binaries need, vendored, pinned and
+allowlisted (Plan 00204 decision D2; [src-go/CLAUDE.md](../src-go/CLAUDE.md#dependencies)), so
+the host build stays a plain, offline `go build`. `qa-go.bash` checks the `qa` module too
+(format, vet, test, coverage, lint). This file is under `CLAUDE/` because the markdown guard
+allows no `.md` beside the Go code.
 
 ## Fit with go-qa-ci
 
@@ -24,7 +26,7 @@ go-qa-ci documents project analyzers as a project driver package, analyzers prov
 `analysistest`, and one page per analyzer under its `docs_dir`. The analyzers and their
 `analysistest` proofs match, and the names are identifier-only (`project_*`), so adopting it is
 a change of driver (`driver.Main(rules.All()...)` in place of `unitchecker.Main`). Gaps, because
-of the dependency-free constraint on `src-go/go.mod`: go-qa-ci expects the driver in the
+the analyzers' `golang.org/x/tools` is kept out of `src-go/go.mod`: go-qa-ci expects the driver in the
 project's own module (`[analyzers] driver`) and here it sits in the nested `src-go/qa` module,
 which its per-module run (`modules` in `qa/go-qa.toml`) must be told about; and the per-rule
 pages are not written, this catalogue stands in until adoption.

@@ -45,6 +45,8 @@ func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, er
 		return r.addLxc(ctx, row.Team)
 	case actShutdown:
 		return r.p.Shutdown.Offer(ctx, row.Team)
+	case actAskDescription, actAskLimit:
+		return r.askAgainOf(ctx, id, row.Team)
 	}
 	r.p.Kit.Tell(nothingOnThisRow)
 	r.p.Kit.BackToList(ctx)

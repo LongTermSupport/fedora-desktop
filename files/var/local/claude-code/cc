@@ -75,9 +75,10 @@ set -- "${CC_ARGS[@]}"
 # restore.
 unset CCY_SESSION_RESTORE
 
-# `--teams [<team>|<seat>@<team>[,...]]` is cc's own and never reaches claude: the session joins
-# the teams as a `host` member in a seat of this checkout each, chosen as ccy does it
-# (cc-teams.bash, Plan 00177 Task 4.10, Plan 00201).
+# `--teams [<team>|<seat>@<team>[,...]]` and `--bus` are cc's own and never reach claude: the
+# session joins the teams as a `host` member in a seat of this checkout each, chosen as ccy does
+# it, or (--bus) starts on no team; either way ccy-teams can change its teams while it runs
+# (cc-teams.bash, Plan 00177 Task 4.10, Plan 00201, Plan 00203 M6).
 # shellcheck source=cc-teams.bash
 source "/var/local/claude-code/cc-teams.bash"
 cc_teams_split_args "$@" || exit $?

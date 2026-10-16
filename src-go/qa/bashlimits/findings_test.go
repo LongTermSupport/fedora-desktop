@@ -240,6 +240,7 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		".claude/provision.sh",
 		".claude/skills/hooks-daemon/scripts/x.sh",
 		".claude/skills/docs-qa/scripts/x.sh",
+		"src-go/vendor/golang.org/x/sys/unix/mkall.sh",
 	}
 	checked := []string{
 		"run.bash",
@@ -251,6 +252,7 @@ func TestOnlyTestSuitesPlansAndVendoredTreesAreExempt(t *testing.T) {
 		"CLAUDE/Plan/_planlib.inc.bash",
 		".claude/skills/other/scripts/x.sh",
 		"scripts/qa-all.bash",
+		"src-go/vendorish/x.sh",
 	}
 	for _, p := range exempt {
 		if _, ok, err := ExemptionFor(p); err != nil || !ok {

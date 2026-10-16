@@ -2,7 +2,8 @@
 // SPEC-hot-control.md section 7). A seat's identity is (checkout, team, seat): seat 1 of a team
 // exists once per checkout. Two sources name a seat's session: a session record's --teams (what
 // a restore or restart replays) and a session's desired membership under
-// $XDG_RUNTIME_DIR/ccy/membership/<session>/ (what a hot add wrote, live). The board, shutdown and
+// $XDG_RUNTIME_DIR/ccy/membership/<session>/, or a cc session's under
+// $XDG_RUNTIME_DIR/pingbus/membership/<session>/ (what a hot add wrote, live). The board, shutdown and
 // `ccy-teams session add` all ask this package, so they cannot disagree.
 package discover
 
@@ -42,13 +43,15 @@ func New() *Index {
 // IsLauncher is whether a record's prefix is one of the two launchers that hold seats.
 func IsLauncher(prefix string) bool { return prefix == "ccy" || prefix == "cc" }
 
-// TeamsList is the --teams value in a launcher's arguments, up to a bare "--"; the last wins.
-func TeamsList(args []string) string {
+// RecordTeams is the --teams value of a record's launch, read from its launcher's own words
+// (launcherArgs): ccy's up to a bare "--", every word of cc's.
+func RecordTeams(rec registry.Record) string { return teamsIn(launcherArgs(rec)) }
+
+// teamsIn is the last --teams value among the words, all of them the launcher's; the last wins.
+func teamsIn(args []string) string {
 	list := ""
 	for i, arg := range args {
 		switch {
-		case arg == "--":
-			return list
 		case arg == ccyenv.FlagTeams:
 			list = ""
 			if i+1 < len(args) {
@@ -67,7 +70,7 @@ func (ix *Index) AddRecord(rec registry.Record) {
 	if !IsLauncher(rec.Prefix) {
 		return
 	}
-	for ref := range strings.SplitSeq(TeamsList(rec.Args), ",") {
+	for ref := range strings.SplitSeq(RecordTeams(rec), ",") {
 		seat, team, ok := strings.Cut(ref, "@")
 		if !ok || seat == "" || team == "" {
 			continue
@@ -142,13 +145,85 @@ func compare(a, b Key) int {
 	return cmp.Or(strings.Compare(a.Dir, b.Dir), strings.Compare(a.Team, b.Team), strings.Compare(a.Seat, b.Seat))
 }
 
-// ReadDesired is every session's desired membership under runtimeDir, and a line for each one
-// that could not be read. No membership directory is none.
+// ReadDesired is every session's desired membership under runtimeDir, ccy's then cc's (H31),
+// and a line for each one that could not be read. No membership directory is none.
 func ReadDesired(runtimeDir string) ([]membership.Desired, []string, error) {
 	if !filepath.IsAbs(runtimeDir) {
 		return nil, nil, fmt.Errorf("XDG_RUNTIME_DIR %q is not an absolute path", runtimeDir)
 	}
-	top := filepath.Dir(membership.Dir(runtimeDir, "x"))
+	var found []membership.Desired
+	var unreadable []string
+	for _, kind := range []string{membership.KindCcy, membership.KindCC} {
+		some, bad, err := readKind(runtimeDir, kind)
+		if err != nil {
+			return nil, nil, err
+		}
+		found, unreadable = append(found, some...), append(unreadable, bad...)
+	}
+	return found, unreadable, nil
+}
+
+// Current is the desired memberships still owned by the launch of their name (Fable's M6 review
+// B1). tmux reuses a session name once it ends, and each launch rewrites the record of its
+// name, so a membership counts only while that record carries the bus: a cc record with
+// --teams or --bus, a ccy record without --no-bus. A plain cc or a ccy --no-bus under a reused
+// name, or a session with no record, owns no membership left behind under it.
+func Current(desired []membership.Desired, records []registry.Record) []membership.Desired {
+	bus := make(map[string]bool, len(records))
+	for _, rec := range records {
+		bus[rec.Name] = LaunchedWithBus(rec)
+	}
+	return slices.DeleteFunc(slices.Clone(desired), func(d membership.Desired) bool { return !bus[d.Session] })
+}
+
+const (
+	// flagBus is cc's launch on the bus with no team; flagNoBus is ccy's launch without it.
+	flagBus   = "--bus"
+	flagNoBus = "--no-bus"
+)
+
+// LaunchedWithBus is whether a record's launch carries the agent team bus, judged on its
+// launcher's own words (launcherArgs).
+func LaunchedWithBus(rec registry.Record) bool {
+	args := launcherArgs(rec)
+	if rec.Prefix != membership.KindCC {
+		return !slices.Contains(args, flagNoBus)
+	}
+	return slices.ContainsFunc(args, func(a string) bool {
+		return a == ccyenv.FlagTeams || a == flagBus || strings.HasPrefix(a, ccyenv.FlagTeams+"=")
+	})
+}
+
+// launcherArgs is the words of a record that are its launcher's (Fable's M6 re-check R1): ccy's
+// up to a bare "--", after which they are claude's; every word of cc's, which has no option
+// terminator and reads each word as its own.
+func launcherArgs(rec registry.Record) []string {
+	if rec.Prefix == membership.KindCC {
+		return rec.Args
+	}
+	if end := slices.Index(rec.Args, "--"); end >= 0 {
+		return rec.Args[:end]
+	}
+	return rec.Args
+}
+
+// RunningCC is every cc session with a desired membership whose tmux session is live (on ccy's
+// server, where cc starts its sessions), and a line for each cc membership that could not be
+// read: the cc sessions hot control can change (H31, section 5.1).
+func RunningCC(runtimeDir string, live func(string) bool) ([]membership.Desired, []string, error) {
+	if !filepath.IsAbs(runtimeDir) {
+		return nil, nil, fmt.Errorf("XDG_RUNTIME_DIR %q is not an absolute path", runtimeDir)
+	}
+	all, unreadable, err := readKind(runtimeDir, membership.KindCC)
+	if err != nil {
+		return nil, nil, err
+	}
+	return slices.DeleteFunc(all, func(d membership.Desired) bool { return !live(d.Session) }), unreadable, nil
+}
+
+// readKind reads the membership directories of one kind of session, each by its name.
+func readKind(runtimeDir, kind string) ([]membership.Desired, []string, error) {
+	top := filepath.Dir(membership.DirOf(runtimeDir, kind, "x"))
 	entries, err := os.ReadDir(top)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil
@@ -169,6 +244,8 @@ func ReadDesired(runtimeDir string) ([]membership.Desired, []string, error) {
 			unreadable = append(unreadable, err.Error())
 		case d.Session != e.Name():
 			unreadable = append(unreadable, "the membership in "+filepath.Join(top, e.Name())+" names another session, "+d.Session)
+		case d.Kind != kind:
+			unreadable = append(unreadable, "the membership in "+filepath.Join(top, e.Name())+" is a "+d.Kind+" session's, among "+kind+"'s")
 		default:
 			found = append(found, d)
 		}

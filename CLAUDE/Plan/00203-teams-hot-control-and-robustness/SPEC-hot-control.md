@@ -363,7 +363,8 @@ Two things are **not** frozen:
 - **H19.** Idempotent. Re-running a command whose result already holds changes nothing,
   prints every step as `-`, and exits 0. Re-running after a partial failure finishes the
   remaining steps. A goodbye or a re-baseline still owed stays as a farewell entry (3.1) and
-  is done on the re-run.
+  is done on the re-run. A role that already holds asks nothing: the coordinator paths of
+  H25, and a takeover's `--demote-current`, matter only when the role would change.
 
 - **H20.** One change at a time per session, and one allocation at a time per checkout.
 
@@ -398,8 +399,8 @@ Two things are **not** frozen:
       discovery gives a seat to the live session that wants it over another session's record.
     - `hand-to=<seat>` is resolved in the team's roster: a full handle, or the one active
       member other than the leaving seat whose handle has that seat; several is exit 64,
-      asking for the handle. `add --role=coordinator` over another coordinator needs
-      `--demote-current`, as `role` does. Interactively, a coordinator's remove asks
+      asking for the handle. `add --role=coordinator` over another coordinator is H25's
+      takeover, as `role` is. Interactively, a coordinator's remove asks
       demote-or-not (yes by default); handing over is by the option.
     - `session list` reads a session's roles from its keeper's report (what it was told), so it
       needs no sudo; "unguarded" is no `pingbus seat keep` process in `podman top`.
@@ -481,9 +482,48 @@ Two things are **not** frozen:
 
 - **H25. Role.** Runs `sudo agent-bus set-role` for the seat's handle.
 
-  - Making a seat coordinator while another holds the role needs `--demote-current`.
-    Interactively it is asked, naming the current coordinator. The current one is demoted
-    first, as `seats.ChangeRole` does.
+  - A team has one coordinator, so making a member the coordinator takes one of two paths,
+    decided before anything changes and worded in one place (package `teams/coordinator`),
+    which every place that can make a coordinator uses: `session add --role` and `session role`, the picker's seat menu and its Running sessions view, the launch role question of
+    `ccy --teams`, `cc --teams` and a ccy-sessions restart (`choose-seat`), and
+    `seats.ChangeRole` (owner feedback on M5, 2026-10).
+    - **The team has no coordinator.** Offered plainly: "<team> has no coordinator. Make
+      <session> its coordinator?" In a list of roles it is "Make it the coordinator (<team>
+      has none)".
+    - **The team has one: a takeover.** A different, rarer proposition: "<team>'s coordinator
+      is <current> (running). A team has one coordinator. Remove <current> as coordinator and
+      make <session> the coordinator instead?" The words after the handle say what is known of
+      it: `running` (a live process holds its seat), `not running` (no process holds it),
+      `parked`, or `whether it is running is not known here` (no seat list here names it, as
+      for an LXC member). The question starts on No. In a list of roles, worker stays first and
+      the takeover is its own item, "Replace the coordinator, <current> (running): it becomes a
+      worker...", never a plain "coordinator"; the seat menu lists it after the ordinary
+      actions.
+    - With no terminal, or with `--yes`, a takeover needs `--demote-current`; without it,
+      exit 64 with "<team>'s coordinator is <current> (running). A team has one coordinator:
+      to remove <current> as coordinator and make <session> the coordinator instead, add
+      --demote-current. Nothing was changed." `add` refuses it before the seat is made or the
+      route checked. On a terminal the takeover is asked once, `--demote-current` or not,
+      unless `--yes` is given with it.
+    - A chosen seat whose own handle already holds the role is neither path: `add` says "<h>
+      is already <team>'s coordinator, so its role stays.", and the picker shows "coordinator
+      (now)" (Fable's N1).
+    - The current one is demoted first, as `seats.ChangeRole` does.
+  - A remove of the coordinator says in its question where the role goes: "Seat <n> is
+    <team>'s coordinator: it becomes a worker, and <team> has no coordinator." or "...:
+    <heir> becomes <team>'s coordinator instead."
+  - `agent-bus set-role` and `add-member` keep their own refusal of a second coordinator
+    ("team <team> already has a coordinator: <current>; it must stop being coordinator
+    first"): it cannot take the role silently.
+  - `ccy-teams lxc-add` asks the role the same two ways: worker first, then the plain offer, or
+    the takeover of `<user>@<container>` (a declared LXC coordinator) or `<handle>` (a member
+    of the live team), whose question names it and starts on No (Esc is No too). A takeover makes the
+    declared coordinator's entry a worker (`declare lxc-role`), or the live one a worker
+    (`sudo agent-bus set-role`), before the new entry is written, and puts it back if that
+    write fails; the summary's Role line names who becomes a worker. If the apply then
+    fails, it says the old coordinator is a worker now and the team has none until
+    `ccy-teams apply <team>` succeeds. Before, lxc-add made
+    the member a worker without asking when the team had a coordinator.
   - Every session on the team whose role changed gets the notice (H12) from its own watcher's
     next sync.
   - The command waits up to 10 s for the target session's report (3.3) to show the new role in
@@ -553,6 +593,47 @@ Two things are **not** frozen:
   - A cc session launched without `--teams` or `--bus` is not hot-controllable (the plugin is
     not loaded). `cc --bus` starts one with an empty membership, after the same Element
     consent.
+  - As built in M6 (H31, H32):
+    - The directory is named for the session's own name in ccy's tmux (`cc-<id>`, as its
+      registry record is), written by `ccy-teams internal membership-init --kind=cc`; its
+      `membership.json` says `kind: cc`, and every reader refuses a kind that does not match its
+      directory. A cc started outside ccy's tmux has no name, so its directory is `cc.<pid>`: it
+      follows the file, but no host command can find it (H35).
+    - Liveness is the session's pane on ccy's tmux server; the keeper is found in the process
+      tree under that pane (`pingbus ... seat keep`). The route check runs on the host:
+      `pingbus reach --team T`, "this host reaches T's homeserver".
+    - Inbound follows Decision 1, as for ccy (PLAN.md Decision 7): a cc launched with seats
+      accepts cross-session inbound; `cc --bus` adds `crossSessionInbound: refuse` to its
+      settings, and its keeper reports no inbound, as a ccy keeper on no team does. cc has no
+      supervisor to relaunch it, so its first `session add` keeps the seat, the desired file
+      and the record, asks no relaunch, and exits 1 saying cc must be ended and started again
+      from `ccy-sessions`, which starts it in that seat, accepting. A re-run says the same,
+      never "Nothing to do", until it has been restarted.
+    - `session repair` refuses a cc session (exit 78): its keeper ends with its claude, and one
+      started from the host would outlive the session. The list's state for a cc session with
+      no keeper is `unguarded: end it and start it again from ccy-sessions`.
+    - The record follows the change (`registry.SetCCTeams`): `--teams <seats>` while it has
+      seats, `--bus` when it has none, so a restart from `ccy-sessions` starts where the last
+      hot change left it. cc refuses `--bus` with `--teams` (64).
+    - A membership counts only while its session's own launch wrote it (Fable's M6 review B1):
+      tmux reuses a name once its session ends, and a cc membership is never removed, so a
+      plain cc reusing the name of an ended `cc --teams` would find one. Each launch rewrites
+      the record of its name, so `discover.Current` keeps a membership only while that record
+      carries the bus (a cc record with `--teams` or `--bus`; a ccy record without `--no-bus`).
+      `session list`, the picker, the board, seat allocation (`claimsElsewhere`) and every
+      `session` command use it; a command on a plain cc exits 78, "it was started without
+      --teams or --bus". The rule is in Go because cc's bash is at its allowlist record; the
+      directories left behind are inert, in the runtime directory, until logout or the next bus
+      launch under the name. A ccy `--no-bus` launch also removes its name's directory (the
+      launcher's half, within its limits).
+    - The chooser's `choose-teams --type=host --bus` asks the consent alone and prints nothing;
+      `describe-seats --sentence` is gone, with the system prompt that named the handles.
+    - Not in M6: agent-bus's own H21 liveness (a running container) does not count a cc session,
+      so `agent-bus seat take` from another launcher does not see a cc session's desired seat
+      until its keeper locks it; `ccy-teams` does. pingbus no longer reads `PINGBUS_SEATS`:
+      every launcher names a desired membership, and `seat exec` refuses a launch without one. The picker (M5) shows cc sessions through `hot.Sessions`, which adds
+      the running cc sessions (`discover.RunningCC`), with no change to its UI: a cc row is
+      controllable, and never `Unguarded`, so the picker offers no Repair for it.
 
 ### The inert contract, and who can be hot-controlled
 
@@ -683,7 +764,7 @@ shows Running sessions. Every action is a named choice (InteractiveScripts.md ru
    beta    "<description>"   up     3 agents
    gamma   "<description>"   down   (cannot add: homeserver down)
  Seat in alpha:   3 (free)  ·  6 (new)            [lowest free]
- Role:            worker  ·  coordinator (alpha's is <handle>; it becomes a worker)
+ Role:            worker  ·  Replace the coordinator, <handle> (running): it becomes a worker...
  ─────────────────────────────────────────
  Add ccy-<project-a>-2 to alpha as seat 3 (<repo-a>.3+<host>.podman), worker? [y/N]
  ✓ session running, can be hot-controlled
@@ -788,8 +869,10 @@ M5 as built (sections 5.1 to 5.3), with the small gaps of the spec settled:
   - The seat question offers the lowest free seat first (no seat word: the command chooses
     it, H21), then each seat `agent-bus seat choose` offers that is not held. A seat that
     another session names is refused by the command (75).
-  - The role question: worker, or coordinator. When the board's roster names a current
-    coordinator, the line says it becomes a worker, and choosing it passes `--demote-current`.
+  - The role question: worker first, then the coordinator's role in one of H25's two paths:
+    "Make it the coordinator (<team> has none)", or, when the board's roster names a current
+    coordinator, "Replace the coordinator, <current> (running): it becomes a worker...",
+    which passes `--demote-current`; the command then asks the takeover, starting on No.
     A worker in a chosen existing seat passes `--role=worker`, so a free seat whose handle
     still holds the role (Decision 5's case) is made a worker explicitly. Otherwise no
     `--role` is passed; a new member is a worker.

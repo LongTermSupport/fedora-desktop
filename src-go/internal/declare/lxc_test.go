@@ -85,6 +85,18 @@ func TestLxcAddDryRunReturnsTheEntryLines(t *testing.T) {
 	}
 }
 
+func TestLxcSetRoleNamesTheMemberAndTheRole(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "lxc-role", "CHANGED\tLXC member agent@container-a in team alpha is now worker, in /hv.yml\n")
+	change, err := newClient(f).LxcSetRole(context.Background(), LxcMember{Team: "alpha", Container: "container-a", User: "agent"}, "worker")
+	if err != nil || !change.Changed {
+		t.Fatalf("%+v %v", change, err)
+	}
+	if line := lastLine(t, f); line != prefix+" lxc-role --file /hv.yml --team alpha --container container-a --user agent --role worker" {
+		t.Fatalf("ran %q", line)
+	}
+}
+
 func TestLxcMembersReadsADashAsNoHost(t *testing.T) {
 	f := &execx.Fake{}
 	script(f, "lxc-members", "LXCMEMBER\talpha\tcontainer-a\tagent\t-\tworker\tpresent\n")

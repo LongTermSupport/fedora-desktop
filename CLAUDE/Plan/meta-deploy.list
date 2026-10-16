@@ -20,11 +20,53 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Rebuilds ccy-teams and ccy-sessions and installs CCY 3.99.10.2 (Plan 00203 M5 and the
-# hidden-bindings fix): every picker action is a visible, named choice and a key only its
-# shortcut; ccy-sessions gives each session a menu; the launcher's detached-session offer has
-# a "Start a new session here" row where Ctrl-N was the only way.
+# md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
+# and font size settings); asserts `md-viewer --version` carries the new commit.
+playbooks/imports/optional/common/play-md-viewer.yml
+# ccy 3.99.12.6, container 2.77.3 (each project's image is rebuilt once, at its next ccy
+# launch): deploys cc, cc-teams.bash and the ccy launcher, and rebuilds ccy-teams.
+# Every picker action is a visible, named choice and a key only its shortcut
+# (project_hidden_bindings): ccy-sessions gives each session a menu and names its keys in the
+# header, and the launcher's detached-session offer has a "Start a new session here" row where
+# Ctrl-N was the only way.
+# Making a coordinator is one of two questions: a team with none is offered one plainly; a team
+# that has one gets a takeover naming the current coordinator, on No (lxc-add too). The picker's
+# describe offer is now, not now or never (an old no is asked again once). Launch questions are
+# headed by their team ("Team 2 of 3: <team> · ...").
+# Plan 00203 M6: cc --teams and the new cc --bus sessions are hot-controlled like ccy ones, also
+# from the picker (cc --bus refuses team messages until it is restarted on its first team); a
+# membership counts only while its session record carries the bus; pingbus reads no
+# PINGBUS_SEATS. Two ccy launches started together in one
+# project no longer choose the same container name: each launch claims its name (ccy-teams
+# internal claim-container-name, under $XDG_RUNTIME_DIR/ccy/container-names/) before podman
+# creates it. The image's pingbus status line, cancelled just as it starts the session's own
+# status line command, now still kills that command's whole group. Running sessions are not
+# touched.
+# Plan 00135: it also rebuilds ccy-sessions, so ccy-sessions-set-going.service no longer fails a
+# boot for a restored session left to a person (waiting at its SSH passphrase prompt, attached,
+# or with text typed); it still fails, naming each, for a real fault such as a launcher that exited.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.12.3. M2 starts its two
+# throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the
+# same container name and the second failed at podman's create (exit 125). Then M1, M3, M4,
+# the new M6 (three throwaway cc sessions on two throwaway teams) and R1-R9, on throwaway teams
+# acc-m3a, acc-m3b, acc-m4a, acc-m4b and acc-robust and their sessions, all removed after.
+# Prompts for sudo once. Needs ccy launched interactively here once (Quick Launch).
+00203-teams-hot-control-and-robustness
+# Plan 00203: read-only triage of why team homeservers stop. Changes nothing; reads as root
+# (sudo -n): the whole journal, each team's tuwunel.toml (secret values substituted), its
+# database size, filesystem and free space, the coredumps, and each running ccy container's
+# watcher log. Lists every stop of every agent-bus-hs@ unit with its cause (exit, signal,
+# watchdog, OOM, core dump) and who asked (a play, a deploy, an acceptance run, a reboot, the
+# health check), then counts deliberate against not deliberate stops per team.
+00203-teams-hot-control-and-robustness/triage-hs.bash
+# Plan 00170: clears the play ledger's BROKEN marker (runs check_freshness --clear-broken).
+# A private play run on 10-12 from a linked worktree was outside that worktree's root, and
+# the ledger marked itself BROKEN over it. The ledger now skips such a play with one
+# LEDGER-PLAY-NOT-TRACKED line on stderr, so the cause is fixed. Safe: that worktree is gone,
+# and only a marker whose reason is that outside-root refusal is cleared; a marker with any
+# other reason stays and this entry FAILS, naming it. No marker: nothing to do.
+00170-unifi-network-tooling/clear-ledger-broken.bash
 # Installs wsi-model-manager with on-screen buttons for download, remove, refresh, clear filter
 # and quit (the keys stay as shortcuts), and upgrades textual to 0.85 or later for them.
 playbooks/imports/optional/common/play-speech-to-text.yml

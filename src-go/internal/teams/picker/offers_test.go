@@ -16,15 +16,16 @@ import (
 
 const limitedLegacy = "LIMITED\talpha\tdocs/, CLAUDE/\tany repository of example-org\n"
 
-func (h rig) marker(team string) string {
-	return filepath.Join(h.p.StateDir, "declined", "path-limit-"+team)
+// marker is alpha's limit marker.
+func (h rig) marker() string {
+	return filepath.Join(h.p.StateDir, "declined", "path-limit-alpha")
 }
 
 func TestPathLimitYesDropsTheLimitAndAppliesTheTeam(t *testing.T) {
 	h := newRig(t)
 	h.OnDeclare("limited", limitedLegacy)
 	h.OnDeclare("drop-limit", "CHANGED\talpha\n")
-	h.Script.Gum = []string{"YES"}
+	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
 	if err := h.p.offerPathLimits(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -34,30 +35,32 @@ func TestPathLimitYesDropsTheLimitAndAppliesTheTeam(t *testing.T) {
 	if h.plays() != 1 {
 		t.Fatalf("the apply play ran %d times, want once", h.plays())
 	}
-	if want := "gum confirm --default=true Remove the limit, so any path in its repositories can be named?"; h.Script.GumLog[0] != want {
+	if want := "gum choose --header Remove alpha's limit, so any path in its repositories can be named? --selected Remove alpha's limit now " +
+		"Remove alpha's limit now Not now (ask again next time) Keep alpha's limit and never ask again"; h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
 	for _, want := range []string{
-		"One question about a team already on this machine, asked once, whichever checkout you are in.\n",
+		"One question about a team already on this machine, whichever checkout you are in.\n",
 		"Team alpha (for any repository of example-org) was made when teams were limited to some folders: its agents may only point each other at files under docs/, CLAUDE/.\n",
 	} {
 		if !strings.Contains(h.ErrOut.String(), want) {
 			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
 		}
 	}
-	if _, err := os.Stat(h.marker("alpha")); err == nil {
+	if _, err := os.Stat(h.marker()); err == nil {
 		t.Fatal("a limit that was removed leaves no marker")
 	}
 }
 
-// declinedOnce is a declined offer: remembered in marker, said, and not made again.
+// declinedOnce is an offer answered never: remembered in marker as never, said, and not made
+// again.
 func declinedOnce(t *testing.T, h rig, offer func() error, marker, said string) {
 	t.Helper()
 	if err := offer(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("marker: %v", err)
+	if body, err := os.ReadFile(filepath.Clean(marker)); err != nil || string(body) != neverRecord {
+		t.Fatalf("marker %q: %v", body, err)
 	}
 	if !strings.Contains(h.ErrOut.String(), said) {
 		t.Fatalf("stderr %q", h.ErrOut.String())
@@ -70,12 +73,70 @@ func declinedOnce(t *testing.T, h rig, offer func() error, marker, said string) 
 	}
 }
 
-func TestPathLimitNoIsRememberedAndNeverAskedAgain(t *testing.T) {
+// notNow is an offer answered not now (or left with Esc): nothing kept, asked again next time.
+func notNow(t *testing.T, h rig, offer func() error, marker, answer string) {
+	t.Helper()
+	h.Script.Gum = []string{answer, answer}
+	for range 2 {
+		if err := offer(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("not now keeps no marker: %v", err)
+		}
+	}
+	if len(h.Script.GumLog) != 2 || h.plays() != 0 {
+		t.Fatalf("not asked again: %v, plays %d", h.Script.GumLog, h.plays())
+	}
+	if !strings.Contains(h.ErrOut.String(), "Not now: ccy-teams asks again next time.\n") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+}
+
+func TestPathLimitNeverIsRememberedAndNeverAskedAgain(t *testing.T) {
 	h := newRig(t)
 	h.OnDeclare("limited", limitedLegacy)
-	h.Script.Gum = []string{"NO"}
-	declinedOnce(t, h, func() error { return h.p.offerPathLimits(context.Background()) }, h.marker("alpha"),
-		"Kept. ccy-teams will not ask about alpha's limit again.\n")
+	h.Script.Gum = []string{"CHOOSE:Keep alpha's limit and never ask again"}
+	declinedOnce(t, h, func() error { return h.p.offerPathLimits(context.Background()) }, h.marker(),
+		"Kept. ccy-teams will not ask about alpha's limit again; the menu of alpha's row has Ask me about alpha's limit again.\n")
+}
+
+func TestPathLimitNotNowAndEscAreAskedAgain(t *testing.T) {
+	for _, answer := range []string{"CHOOSE:Not now (ask again next time)", "CANCEL"} {
+		h := newRig(t)
+		h.OnDeclare("limited", limitedLegacy)
+		notNow(t, h, func() error { return h.p.offerPathLimits(context.Background()) }, h.marker(), answer)
+	}
+}
+
+// An answer the old yes/no prompt kept (an empty marker) was given with no "later" to choose:
+// it is taken as not now, once, and the offer is made again (the owner's feedback on Plan 00201).
+func TestAnOldNoIsTakenAsNotNow(t *testing.T) {
+	for _, tc := range []struct {
+		name, marker, answer string
+		offer                func(h rig) error
+	}{
+		{"description", "description-alpha", "CHOOSE:Not now (ask again next time)", func(h rig) error { return h.p.offerDescriptions(context.Background()) }},
+		{"limit", "path-limit-alpha", "CHOOSE:Not now (ask again next time)", func(h rig) error { return h.p.offerPathLimits(context.Background()) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newRig(t)
+			h.OnDeclare("limited", limitedLegacy)
+			h.OnDeclare("undescribed", undescribedAlpha)
+			marker := filepath.Join(h.p.StateDir, "declined", tc.marker)
+			teamtest.MustWrite(t, marker, "")
+			h.Script.Gum = []string{tc.answer}
+			if err := tc.offer(h); err != nil {
+				t.Fatal(err)
+			}
+			if len(h.Script.GumLog) != 1 {
+				t.Fatalf("an old no is asked again: %q", h.Script.GumLog)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("the old marker is gone: %v", err)
+			}
+		})
+	}
 }
 
 func TestPathLimitFailuresAreFatal(t *testing.T) {
@@ -89,18 +150,10 @@ func TestPathLimitFailuresAreFatal(t *testing.T) {
 	h = newRig(t)
 	h.OnDeclare("limited", limitedLegacy)
 	h.OnErr(h.DeclarePrefix("drop-limit"), "declare: refused", 78)
-	h.Script.Gum = []string{"YES"}
+	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
 	err = h.p.offerPathLimits(context.Background())
 	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitFailure || h.plays() != 0 {
 		t.Fatalf("drop-limit failing: %v, plays %d", err, h.plays())
-	}
-
-	h = newRig(t)
-	h.OnDeclare("limited", limitedLegacy)
-	h.Script.Gum = []string{"CANCEL"}
-	err = h.p.offerPathLimits(context.Background())
-	if code, ok := flow.ExitCodeOf(err); !ok || code != term.ExitCancelled {
-		t.Fatalf("cancelled: %v", err)
 	}
 }
 
@@ -109,7 +162,7 @@ func TestPathLimitApplyFailureIsSaidAndGoesOn(t *testing.T) {
 	h.OnDeclare("limited", limitedLegacy)
 	h.OnDeclare("drop-limit", "CHANGED\talpha\n")
 	h.OnErr(h.Host.Play, "play failed", 1)
-	h.Script.Gum = []string{"YES"}
+	h.Script.Gum = []string{"CHOOSE:Remove alpha's limit now"}
 	if err := h.p.offerPathLimits(context.Background()); err != nil {
 		t.Fatalf("a failed apply does not end the picker: %v", err)
 	}
@@ -120,8 +173,8 @@ func TestPathLimitApplyFailureIsSaidAndGoesOn(t *testing.T) {
 
 const undescribedAlpha = "UNDESCRIBED\talpha\tany repository of example-org\n"
 
-func (h rig) declined(team string) string {
-	return filepath.Join(h.p.StateDir, "declined", "description-"+team)
+func (h rig) declined() string {
+	return filepath.Join(h.p.StateDir, "declined", "description-alpha")
 }
 
 func TestDescriptionYesAsksChecksDescribesAndAppliesTheTeam(t *testing.T) {
@@ -129,14 +182,15 @@ func TestDescriptionYesAsksChecksDescribesAndAppliesTheTeam(t *testing.T) {
 	h.OnDeclare("undescribed", undescribedAlpha)
 	h.OnDeclare("check", "")
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
-	h.Script.Gum = []string{"YES", "CHOOSE:Builds the example site"}
+	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:Builds the example site"}
 	if err := h.p.offerDescriptions(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if want := "gum confirm --default=true Team alpha (for any repository of example-org) has no description. Write one now?"; h.Script.GumLog[0] != want {
+	if want := "gum choose --header Team alpha (for any repository of example-org) has no description. --selected Describe alpha now " +
+		"Describe alpha now Not now (ask again next time) Never ask about alpha"; h.Script.GumLog[0] != want {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
-	if !strings.HasPrefix(h.Script.GumLog[1], "gum input --header What is this team for?") {
+	if !strings.HasPrefix(h.Script.GumLog[1], "gum input --header What is team alpha for?") {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
 	if !h.Fake.Called(h.DeclarePrefix("describe") + " --file " + h.Host.HostVars + " --team alpha --description Builds the example site") {
@@ -145,17 +199,56 @@ func TestDescriptionYesAsksChecksDescribesAndAppliesTheTeam(t *testing.T) {
 	if h.plays() != 1 {
 		t.Fatalf("the apply play ran %d times, want once", h.plays())
 	}
-	if _, err := os.Stat(h.declined("alpha")); err == nil {
+	if _, err := os.Stat(h.declined()); err == nil {
 		t.Fatal("a description that was written leaves no marker")
 	}
 }
 
-func TestDescriptionNoIsRememberedAndNeverAskedAgain(t *testing.T) {
+func TestDescriptionNeverIsRememberedAndNeverAskedAgain(t *testing.T) {
 	h := newRig(t)
 	h.OnDeclare("undescribed", undescribedAlpha)
-	h.Script.Gum = []string{"NO"}
-	declinedOnce(t, h, func() error { return h.p.offerDescriptions(context.Background()) }, h.declined("alpha"),
-		"Kept. ccy-teams will not ask about alpha's description again.\n")
+	h.Script.Gum = []string{"CHOOSE:Never ask about alpha"}
+	declinedOnce(t, h, func() error { return h.p.offerDescriptions(context.Background()) }, h.declined(),
+		"Kept. ccy-teams will not ask about alpha's description again; the menu of alpha's row has Ask me to describe alpha again.\n")
+}
+
+func TestDescriptionNotNowAndEscAreAskedAgain(t *testing.T) {
+	for _, answer := range []string{"CHOOSE:Not now (ask again next time)", "CANCEL"} {
+		h := newRig(t)
+		h.OnDeclare("undescribed", undescribedAlpha)
+		notNow(t, h, func() error { return h.p.offerDescriptions(context.Background()) }, h.declined(), answer)
+	}
+}
+
+func TestATeamMarkedNeverCanBeAskedAboutAgainFromItsRowMenu(t *testing.T) {
+	h := newRig(t)
+	teamtest.MustWrite(t, h.declined(), neverRecord)
+	teamtest.MustWrite(t, h.marker(), neverRecord)
+	r := h.run1(t)
+	at := slices.IndexFunc(r.snap.Rows, func(row board.Row) bool { return row.Kind == board.KindTeam && row.Team == "alpha" })
+	if at < 0 {
+		t.Fatal("no team row for alpha")
+	}
+	row := r.snap.Rows[at]
+	labels := h.labels(r, row)
+	for _, want := range []string{"Ask me to describe alpha again", "Ask me about alpha's limit again"} {
+		if !slices.Contains(labels, want) {
+			t.Fatalf("team menu %q lacks %q", labels, want)
+		}
+	}
+	for _, id := range []string{actAskDescription, actAskLimit} {
+		if _, err := r.do(context.Background(), id, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, marker := range []string{h.declined(), h.marker()} {
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("%s is still kept: %v", marker, err)
+		}
+	}
+	if labels := h.labels(r, row); slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Ask me") }) {
+		t.Fatalf("a team not marked never offers no undo: %q", labels)
+	}
 }
 
 func TestARefusedDescriptionIsAskedAgainWithWhatWasTyped(t *testing.T) {
@@ -164,7 +257,7 @@ func TestARefusedDescriptionIsAskedAgainWithWhatWasTyped(t *testing.T) {
 	h.OnDeclare("check", "")
 	h.OnErr(h.DeclarePrefix("check")+" --file "+h.Host.HostVars+" --description bad", "declare: --description: nope", 64)
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
-	h.Script.Gum = []string{"YES", "CHOOSE:bad", "CHOOSE:Good one"}
+	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:bad", "CHOOSE:Good one"}
 	if err := h.p.offerDescriptions(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +275,7 @@ func TestADescriptionWhoseApplyFailsFailsTheFlowAndNamesTheRetry(t *testing.T) {
 	h.OnDeclare("check", "")
 	h.OnDeclare("describe", "CHANGED\tteam alpha description\n")
 	h.OnErr(h.Host.Play, "play failed", 1)
-	h.Script.Gum = []string{"YES", "CHOOSE:Builds the example site"}
+	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "CHOOSE:Builds the example site"}
 	err := h.p.offerDescriptions(context.Background())
 	code, left := flow.ExitCodeOf(err)
 	if !left || code != term.ExitFailure {
@@ -196,7 +289,7 @@ func TestADescriptionWhoseApplyFailsFailsTheFlowAndNamesTheRetry(t *testing.T) {
 func TestCancellingTheDescriptionQuestionLeavesNothingWritten(t *testing.T) {
 	h := newRig(t)
 	h.OnDeclare("undescribed", undescribedAlpha)
-	h.Script.Gum = []string{"YES", "ABORT"}
+	h.Script.Gum = []string{"CHOOSE:Describe alpha now", "ABORT"}
 	if err := h.p.offerDescriptions(context.Background()); err == nil {
 		t.Fatal("Ctrl-C ends the picker")
 	}

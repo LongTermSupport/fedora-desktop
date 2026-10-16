@@ -41,6 +41,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -277,6 +278,47 @@ class TestRunEndToEnd(unittest.TestCase):
         )
         self.run_main(module)
         self.assertIn("the distinguishing message", self.stream.getvalue())
+
+    def test_the_session_environment_is_removed_before_any_module_loads(self):
+        # The runner is hermetic on its own, not only through tests/helpers/__init__.py: a
+        # module it is handed from anywhere sees no agent-bus session, even at import.
+        module = self.write_module(
+            "t_hermetic",
+            """
+            import os
+            import unittest
+
+            SEEN = sorted(k for k in os.environ if k.startswith(("PINGBUS_", "AGENT_BUS_")) or k == "CCY_SESSION_NAME")
+
+            class T(unittest.TestCase):
+                def test_one(self):
+                    self.assertEqual(SEEN, [])
+            """,
+        )
+        session = {"PINGBUS_MEMBERSHIP": "/nonexistent", "AGENT_BUS_CLI": "x", "CCY_SESSION_NAME": "s"}
+        with mock.patch.dict(os.environ, session):
+            code, _ = self.run_main(module)
+        self.assertEqual(code, 0, self.stream.getvalue())
+
+    def test_a_test_that_leaves_a_session_variable_behind_fails_the_run(self):
+        # Every later test would inherit it: the leak this runner refuses. The counts are still
+        # written, and the variable is named.
+        module = self.write_module(
+            "t_leaks",
+            """
+            import os
+            import unittest
+
+            class T(unittest.TestCase):
+                def test_one(self):
+                    os.environ["PINGBUS_HOME"] = "/left/behind"
+            """,
+        )
+        with mock.patch.dict(os.environ, {}):
+            code, counts_file = self.run_main(module)
+        self.assertEqual(code, 1)
+        self.assertIn("PINGBUS_HOME", self.stream.getvalue())
+        self.assertEqual(counts_file.read_text(encoding="utf-8"), "tests=1\nskipped=0\nmodules=1\ntracked=1\n")
 
     def test_a_module_that_cannot_be_imported_is_a_failure_not_an_empty_run(self):
         # `loadTestsFromNames` turns an import error into a synthetic failing test rather

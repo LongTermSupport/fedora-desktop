@@ -6,7 +6,9 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
@@ -25,6 +27,10 @@ const (
 	actLxc         = "lxc-add"
 	actElementAll  = "element-all"
 	actShutdown    = "shutdown"
+	// actAskDescription and actAskLimit undo a never answer to an offer: menu lines of a team
+	// marked never, with no shortcut.
+	actAskDescription = "ask-description"
+	actAskLimit       = "ask-limit"
 )
 
 // The shortcut keys, as fzf names them. Attaching, the coordinator role, adding an LXC
@@ -78,21 +84,32 @@ func (r *run) kindActions(row board.Row) []action {
 	help := action{actHelp, keyHelp, "What the columns and keys mean", "help"}
 	switch row.Kind {
 	case board.KindTeam:
-		return []action{
+		return append(append([]action{
 			open,
 			{actElementAll, "", "Open every team in Element, a window each", "open every team in Element"},
 			start,
 			{actUpdate, keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
 			{actShutdown, "", "Shut down every session of " + team, "shut down " + team + "'s sessions"},
 			{actRemove, keyRemove, "Take " + team + " down", "take " + team + " down"},
-			help,
-		}
+		}, r.askAgainActions(team)...), help)
 	case board.KindHuman:
 		return r.humanActions(row, open, start, help)
 	case board.KindCcy:
 		return r.seatActions(row, open, start, help)
 	}
 	return []action{{actRemove, keyRemove, "Park " + row.Handle, "park it"}, open, start, help}
+}
+
+// askAgainActions undo a never answer to the description or limit offer of team.
+func (r *run) askAgainActions(team string) []action {
+	var acts []action
+	if r.snap.Description[team] == "" && saidNever(r.p.descriptionMarker(team)) {
+		acts = append(acts, action{actAskDescription, "", askDescriptionLabel(team), "be asked to describe " + team + " again"})
+	}
+	if saidNever(r.p.pathLimitMarker(team)) {
+		acts = append(acts, action{actAskLimit, "", askLimitLabel(team), "be asked about " + team + "'s limit again"})
+	}
+	return acts
 }
 
 // humanActions are a person's: signing in when they never have, else Element first, and a new
@@ -118,20 +135,36 @@ func (r *run) seatActions(row board.Row, open, start, help action) []action {
 		}
 		acts = append(acts, restore)
 	}
-	acts = append(acts, start, open, r.coordinatorAction(row))
-	if row.Dir == "-" {
-		return append(acts, action{actRemove, keyRemove, "Park " + row.Handle, "park it"}, help)
+	role, takeover := r.coordinatorAction(row)
+	if !takeover {
+		acts = append(acts, start, open, role)
+	} else {
+		acts = append(acts, start, open)
 	}
-	return append(acts, action{actRemove, keyRemove, "Remove this seat", "remove this seat"}, help)
+	remove := action{actRemove, keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
+	if row.Dir == "-" {
+		remove = action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
+	}
+	acts = append(acts, remove)
+	if takeover {
+		acts = append(acts, role)
+	}
+	return append(acts, help)
 }
 
 // coordinatorAction is making the seat's member the team's coordinator, or, when it is, stopping it
-// being: the role is read from the pass the list was drawn from.
-func (r *run) coordinatorAction(row board.Row) action {
+// being: the role is read from the pass the list was drawn from. The two paths are worded apart
+// (package coordinator); takeover is a team that has another coordinator, a rarer choice that
+// the menu lists after the ordinary ones.
+func (r *run) coordinatorAction(row board.Row) (action, bool) {
 	if r.snap.RoleOf(row.Team, row.Handle) == agentbus.RoleCoordinator {
-		return action{actCoordinator, "", "Stop being coordinator", "stop it being the coordinator"}
+		return action{actCoordinator, "", "Stop being coordinator", "stop it being the coordinator"}, false
 	}
-	return action{actCoordinator, "", "Make coordinator", "make it the coordinator"}
+	holder := coordinator.Holding(r.snap.Members[row.Team], row.Handle, seats.SnapshotRunning(r.snap))
+	if holder.Handle != "" {
+		return action{actCoordinator, "", coordinator.TakeoverChoice(holder), "replace the coordinator"}, true
+	}
+	return action{actCoordinator, "", coordinator.NoneChoice(row.Team), "make it the coordinator"}, false
 }
 
 // menuFor is Enter on a row: everything that can be done to it, in words, each with its shortcut.

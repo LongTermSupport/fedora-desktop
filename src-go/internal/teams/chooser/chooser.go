@@ -31,14 +31,27 @@ const maxRounds = 3
 
 // Flags and member types.
 const (
-	flagType   = "--type"
+	flagType = "--type"
+	// flagBus is `cc --bus`'s: a host session on no team, so only the consent is asked.
+	flagBus    = "--bus"
 	typePodman = "podman"
 	typeHost   = "host"
 )
 
 // SeatFunc chooses the seat for a team and offers its role: the SEAT@TEAM ref, or "" with ExitOK
-// when the person left a question.
-type SeatFunc func(ctx context.Context, team, memberType string) (string, term.ExitCode)
+// when the person left a question. heading names the team and its place in the sequence
+// ("Team 2 of 3: alpha"); every question of the team carries it.
+type SeatFunc func(ctx context.Context, team, memberType, heading string) (string, term.ExitCode)
+
+// heading is the context line of a team's questions: which team, and where it stands among the
+// n the launch joins (the owner's feedback: with several teams it was not clear which one a
+// question was about). A shared screen heading in the ui layer would take this text.
+func heading(at, n int, team string) string {
+	if n <= 1 {
+		return "Team " + team
+	}
+	return fmt.Sprintf("Team %d of %d: %s", at+1, n, team)
+}
 
 // CreateFunc runs the create wizard for this checkout: the team it made, or "" and the code.
 type CreateFunc func(ctx context.Context) (string, term.ExitCode)
@@ -75,9 +88,13 @@ func New(h *host.Host, seat SeatFunc, create CreateFunc, apply ApplyFunc) *Choos
 
 // Run is choose-teams with the arguments after its name.
 func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
-	memberType, list, ok := c.parse(args)
+	bus := slices.Contains(args, flagBus)
+	memberType, list, ok := c.parse(slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == flagBus }))
 	if !ok {
 		return term.ExitUsage
+	}
+	if bus {
+		return c.busOnly(ctx, memberType, list)
 	}
 	if !c.attended() && !allSeats(list) {
 		c.say("ccy-teams: 'choose-teams' asks its questions on a terminal; with none, name the seats: --teams SEAT@TEAM.")
@@ -87,6 +104,17 @@ func (c *Chooser) Run(ctx context.Context, args []string) term.ExitCode {
 		return c.resolve(ctx, memberType, list)
 	}
 	return c.bare(ctx, memberType)
+}
+
+// busOnly is `choose-teams --type=host --bus` (Plan 00203 H32): `cc --bus` starts a session on
+// no team, which the owner puts in a team later from ccy-teams, so only the owner's Element
+// consent is asked; the payload is empty.
+func (c *Chooser) busOnly(ctx context.Context, memberType, list string) term.ExitCode {
+	if memberType != typeHost || list != "" {
+		c.usage("'" + flagBus + "' is a host session on no team: --type=host, and no list.")
+		return term.ExitUsage
+	}
+	return c.consent(ctx, nil)
 }
 
 // attended is whether a person is at a terminal to be asked.
@@ -151,14 +179,15 @@ func (c *Chooser) printList(refs []string) term.ExitCode {
 // person chooses for it, in order.
 func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.ExitCode {
 	var refs []string
-	for item := range strings.SplitSeq(list, ",") {
+	items := strings.Split(list, ",")
+	for at, item := range items {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			c.usage("the list '" + list + "' has an empty item.")
 			return term.ExitUsage
 		}
 		if !strings.Contains(item, "@") {
-			ref, code := c.Seat(ctx, item, memberType)
+			ref, code := c.Seat(ctx, item, memberType, heading(at, len(items), item))
 			if code != term.ExitOK {
 				return code
 			}

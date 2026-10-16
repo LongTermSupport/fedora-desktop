@@ -70,6 +70,9 @@ Runner = Callable[[str, bytes, Mapping[str, str], "pathlib.Path | None"], tuple[
 
 #: The inner command's process while it runs, for the cancel handler.
 _running: subprocess.Popen | None = None
+#: True while Popen is starting the inner command, and a cancel that landed meanwhile.
+_starting = False
+_cancel_pending: int | None = None
 
 
 class SettingsError(Exception):
@@ -167,12 +170,23 @@ def run_command(command: str, raw: bytes, environ: Mapping[str, str], cwd: pathl
     """Run a status line command as Claude Code does: through the shell, the payload on stdin,
     stderr left to the caller's. In its own process group, killed whole at `timeout` (status
     TIMED_OUT) or when this process is cancelled (`main`)."""
-    global _running
+    global _running, _starting, _cancel_pending
     env = dict(environ, **{INNER_VAR: "1"})
     directory = cwd if cwd is not None and cwd.is_dir() else None
-    proc = subprocess.Popen(["/bin/sh", "-c", command], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            env=env, cwd=directory, start_new_session=True)
-    _running = proc
+    # The inner command runs before Popen returns, so a cancel can land while the handler cannot
+    # name its process yet: the handler leaves it pending and it is carried out here, once known.
+    _starting = True
+    try:
+        proc = subprocess.Popen(["/bin/sh", "-c", command], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                env=env, cwd=directory, start_new_session=True)
+        _running = proc
+    finally:
+        _starting = False
+        pending, _cancel_pending = _cancel_pending, None
+    if pending is not None:
+        _kill_group(proc)
+        _running = None
+        raise SystemExit(128 + pending)
     try:
         out, _ = proc.communicate(raw, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -309,6 +323,10 @@ def render(raw: bytes, environ: Mapping[str, str], run: Runner = run_command) ->
 
 
 def _cancelled(signum: int, _frame: object) -> None:
+    global _cancel_pending
+    if _starting:
+        _cancel_pending = signum  # run_command carries it out once Popen has returned
+        return
     if _running is not None:
         _kill_group(_running)
     raise SystemExit(128 + signum)

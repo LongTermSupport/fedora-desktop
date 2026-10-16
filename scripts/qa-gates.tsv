@@ -26,6 +26,10 @@
 gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
 # src-go/: format, vet, race tests, golangci-lint, project rules.
 gate	go	scripts/qa-go.bash	Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)	detail:GO-OK [0-9]+ package[(]s[)]
+# src-go's dependencies (Plan 00204 D2): allowlisted, pinned and vendored in step; then no known
+# vulnerability the code reaches.
+gate	go-deps	scripts/qa-go-deps.bash	src-go's dependencies are not all allowlisted, pinned and vendored in step with go.mod	detail:GO-DEPS-OK [0-9]+ module[(]s[)] allowlisted .+
+gate	go-vuln	scripts/qa-go-vuln.bash	govulncheck found a vulnerability src-go reaches, or could not judge	detail:GO-VULN-OK .+
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
 # The seven report stages. Their reports are merged into the machine report.
@@ -66,6 +70,7 @@ gate	ccy-gpu-device	scripts/test-ccy-gpu-device.bash	ccy gpu-device unit tests f
 gate	ccy-container-menus	scripts/test-ccy-container-menus.bash	ccy container menu tests failed	count
 gate	ccy-flag-check	scripts/test-ccy-flag-check.bash	ccy flag check tests failed	count
 gate	ccy-restart-request	scripts/test-ccy-restart-request.bash	ccy restart-request unit tests failed	count
+gate	ccy-container-name	scripts/test-ccy-container-name.bash	ccy container-name claim tests failed	count
 gate	ccy-container-version-hook	scripts/test-ccy-container-version-hook.bash	ccy container version hook tests failed	count
 gate	ccy-project-env	scripts/test-ccy-project-env.bash	ccy project env tests failed	count
 gate	ccy-git-preflight	scripts/test-ccy-git-preflight.bash	ccy entrypoint git preflight tests failed	count
