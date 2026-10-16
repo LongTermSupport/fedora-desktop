@@ -17,7 +17,7 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.5 — container 2.72
+## 3.99.6 — container 2.73
 
 - **Hot add and remove** (Plan 00203 M3). `ccy-teams session add <session> <team>[/<seat>]` puts
   a running ccy session into a team and `session remove` takes it out, one line per step. The
@@ -28,6 +28,14 @@ Two version numbers move independently — see
   A session launched on no team relaunches once, by itself, on its first join (the lifecycle
   supervisor plugin, now loaded in every bus session that has a supervisor); a restart takes its
   seats from the session's record (`ccy-teams internal restart-args`).
+- The image also carries 3.99.4's agent-bus timer-state fix.
+
+## 3.99.4 — container 2.71
+
+- **A new team is not reported as missing a backup it never had** (Plan 00203). The daily
+  backup timer keeps its last run across a removal, so a team made again under an old name
+  inherited it. Removal now clears that state, and the health check ignores a run from before
+  the team was made. The image carries the agent-bus helpers, so it is rebuilt once.
 
 ## 3.99.3 — container 2.70
 

@@ -20,8 +20,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plans 00194 and 00203 (M0, M1, M2, M3, the board, the health check fix): rebuilds ccy 3.99.5, ccy-teams and the ccy
-# image (container 2.72; the first launch after it rebuilds the image once). M3: `ccy-teams
+# Plans 00194 and 00203 (M0, M1, M2, M3, the board, the health check fix): rebuilds ccy 3.99.6, ccy-teams and the ccy
+# image (container 2.73; the first launch after it rebuilds the image once). M3: `ccy-teams
 # session add` and `remove` change a running ccy session's teams without a restart (a session
 # started on no team relaunches once, by itself, on its first join), and the session is told
 # in its conversation and on its status line. The team watcher
