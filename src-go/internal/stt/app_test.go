@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -30,15 +31,45 @@ type seg struct {
 	Text  string  `json:"text"`
 }
 
-// fakeServer is the warm server's socket: FILE_START records the request, and each
-// FILE_PROGRESS is answered by finish, called with the paths of the job.
+// fakeServer is the warm server's socket. FILE_START records the request and names a new job.
+// FILE_PROGRESS must name that job; finish, called with the job's paths, is the job's end, and
+// a "done" job's segments are handed out one a poll from the `since` asked for, as "running",
+// so a client that does not keep its place gets the text twice or never finishes.
 type fakeServer struct {
 	mu     sync.Mutex
 	starts []map[string]any
 	paths  []string
+	job    string
 	polls  int
 	finish func(paths []string) map[string]any
 	start  func() map[string]any
+}
+
+const maxPolls = 200
+
+func (s *fakeServer) progress(t *testing.T, params map[string]any) map[string]any {
+	t.Helper()
+	s.polls++
+	since, ok := params["since"].(float64)
+	switch {
+	case params["job"] != s.job:
+		return map[string]any{"status": "error", "message": fmt.Sprintf("no such file job: %v", params["job"])}
+	case !ok || s.polls > maxPolls:
+		t.Errorf("FILE_PROGRESS since %v after %d polls", params["since"], s.polls)
+		return map[string]any{"status": "error", "message": "bad since"}
+	}
+	end := s.finish(s.paths)
+	segs, isDone := end["segments"].([]seg)
+	if !isDone || end["status"] != "done" {
+		return end
+	}
+	from := int(since)
+	if from < len(segs) {
+		return map[string]any{"status": "running", "segments": segs[from : from+1], "count": from + 1}
+	}
+	reply := maps.Clone(end)
+	reply["segments"] = segs[from:]
+	return reply
 }
 
 func (s *fakeServer) serve(t *testing.T, l net.Listener) {
@@ -78,17 +109,13 @@ func (s *fakeServer) answer(t *testing.T, conn net.Conn) {
 	case "FILE_START":
 		s.starts = append(s.starts, req.Params)
 		s.paths = stringsOf(t, req.Params["paths"])
-		reply = map[string]any{"status": "running"}
+		s.job = fmt.Sprintf("job-%d", len(s.starts))
+		reply = map[string]any{"status": "running", "job": s.job}
 		if s.start != nil {
 			reply = s.start()
 		}
 	case "FILE_PROGRESS":
-		s.polls++
-		if s.polls%2 == 1 {
-			reply = map[string]any{"status": "running", "segments": []seg{}, "count": 0}
-		} else {
-			reply = s.finish(s.paths)
-		}
+		reply = s.progress(t, req.Params)
 	default:
 		reply = map[string]any{"status": "error", "message": "unknown"}
 	}
@@ -319,17 +346,60 @@ func TestNoSpeechIsSaidInTheSidecar(t *testing.T) {
 	}
 }
 
+// earlierSidecar is a transcript an earlier run wrote.
+const earlierSidecar = "---\nsource: \"dictation-1\"\n---\n\n**[00:00:00]** Earlier.\n"
+
 // S4. A recording that has its sidecar is done: nothing is sent, and the server is not ensured.
 func TestADoneRecordingIsNotTranscribedAgain(t *testing.T) {
 	w := newWorld(t)
 	rec := w.recording("dictation-1", "COMPLETE", "aaa")
-	w.write("dictation-1.stt.md", "earlier transcript")
+	w.write("dictation-1.stt.md", earlierSidecar)
 	wantCode(t, w.run(w.root), term.ExitOK, w)
 	if len(w.starts()) != 0 || w.runner.Called(binDir+"/wsi-stream") {
 		t.Fatal("a done recording was transcribed again")
 	}
-	if w.read(rec+".stt.md") != "earlier transcript" {
+	if w.read(rec+".stt.md") != earlierSidecar {
 		t.Fatal("the sidecar was overwritten")
+	}
+}
+
+// S4. A sidecar that is empty, or not one stt wrote (no front matter), is not done: it is a
+// failure, so a recording is never hidden by a file cut short or emptied by someone else.
+func TestAnEmptyOrForeignSidecarIsAFailureNotDone(t *testing.T) {
+	for name, body := range map[string]string{"empty": "", "no front matter": "notes\n"} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			rec := w.recording("dictation-1", "COMPLETE", "aaa")
+			w.write("dictation-1.stt.md", body)
+			wantCode(t, w.run(w.root), term.ExitFailure, w)
+			if !strings.Contains(w.stderr.String(), "stt: "+rec+": its sidecar "+rec+".stt.md is not a transcript") {
+				t.Fatalf("stderr:\n%s", w.stderr.String())
+			}
+			if len(w.starts()) != 0 || w.read(rec+".stt.md") != body {
+				t.Fatal("a foreign sidecar was transcribed over")
+			}
+			w.stdout.Reset()
+			wantCode(t, w.run("--list", w.root), term.ExitOK, w)
+			if !strings.HasPrefix(w.stdout.String(), "corrupt\t"+rec+"\t") {
+				t.Fatalf("--list: %q", w.stdout.String())
+			}
+		})
+	}
+}
+
+// S1. The parts go in the manifest's order, whatever their names sort as.
+func TestPartsGoInManifestOrder(t *testing.T) {
+	w := newWorld(t)
+	w.write("rec/b.ogg", "bbb")
+	w.write("rec/a.ogg", "aaa")
+	sumA, sumB := md5.Sum([]byte("aaa")), md5.Sum([]byte("bbb"))
+	w.write("rec/manifest.json", fmt.Sprintf(`{"state": "COMPLETE", "recordedMillis": 9000, "segments": [
+		{"name": "b.ogg", "bytes": 3, "md5": %q}, {"name": "a.ogg", "bytes": 3, "md5": %q}]}`,
+		hex.EncodeToString(sumB[:]), hex.EncodeToString(sumA[:])))
+	wantCode(t, w.run(w.root), term.ExitOK, w)
+	got := w.pathsOf(w.starts()[0])
+	if want := []string{w.root + "/rec/b.ogg", w.root + "/rec/a.ogg"}; strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("paths %q, want manifest order %q", got, want)
 	}
 }
 
@@ -531,7 +601,7 @@ func TestProgressGoesToStderr(t *testing.T) {
 func TestListShowsEachRecordingAndRunsNothing(t *testing.T) {
 	w := newWorld(t)
 	doneRec := w.recording("dictation-1", "COMPLETE", "aaa")
-	w.write("dictation-1.stt.md", "x")
+	w.write("dictation-1.stt.md", earlierSidecar)
 	pending := w.recording("dictation-2", "COMPLETE", "bbb")
 	waiting := w.recording("dictation-3", "RECORDING", "ccc")
 	wantCode(t, w.run("--list", w.root), term.ExitOK, w)
@@ -626,7 +696,7 @@ func TestMinSecondsAndReportUsage(t *testing.T) {
 func TestTheSummary(t *testing.T) {
 	w := newWorld(t)
 	w.recording("dictation-1", "COMPLETE", "aaa")
-	w.write("dictation-1.stt.md", "x")
+	w.write("dictation-1.stt.md", earlierSidecar)
 	w.recording("dictation-2", "COMPLETE", "bbb")
 	w.recording("dictation-3", "RECORDING", "ccc")
 	wantCode(t, w.run(w.root), term.ExitOK, w)

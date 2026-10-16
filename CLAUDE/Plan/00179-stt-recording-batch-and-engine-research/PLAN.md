@@ -91,9 +91,11 @@ one.
   sends each pending one to the server, writes the sidecar atomically; `--list`, `--short`.
 - [x] ✅ **Task 0.4**: `play-speech-to-text.yml` builds and installs `stt`; docs in
   `docs/features/speech-to-text.md`.
-- [ ] ⬜ **Task 0.5**: Owner deploys the play, then transcribes the recordings folder with
-  `stt`; the first sidecars are read for accuracy before any tuning (beam, VAD settings,
-  paragraph pause).
+- [ ] 🔄 **Task 0.5**: Deploy, then transcribe the recordings folder with `stt`. Accepted on a
+  local copy first (paragraphs now also break at a sentence end after a minute); the play
+  has run on the host. Still to check: a dictation during a long file job (latency and GPU
+  memory with both running), and the first real sidecars read for accuracy before any
+  tuning (beam, VAD settings, paragraph rules).
 - [ ] ⬜ **Task 0.6**: Let a CCY container ask the desktop to transcribe (owner: "would be
   cool", not required). Needs a narrow host bridge; nothing like it exists today.
 
@@ -131,7 +133,8 @@ one.
 
 - [x] ✅ **Task 4.1**: The recordings folder as an rclone mount, reachable in project
   containers; a generic tool marks a recording done so it is transcribed once. Done by the
-  existing rclone mount, a project's `.claude/ccy/mounts` line, and Phase 0's sidecars.
+  existing rclone mount, a project's `.claude/ccy/mounts` line, and Phase 0's sidecars. The
+  line is declared; that a container sees the folder is shown at its next launch.
 - [ ] ⬜ **Task 4.2**: `play-speech-to-text.yml` installs the engine Task 2.1 chose for
   hosts without NVIDIA, and the CUDA wheels only where a GPU is present.
 - [ ] ⬜ **Task 4.3**: `deploy.bash`, `acceptance.bash`, an entry in `meta-deploy.bash`, and

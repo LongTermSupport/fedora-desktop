@@ -24,7 +24,7 @@ Commands, one JSON line each way over a Unix socket:
     START {max_seconds, silence_seconds, continuous}   KEEPALIVE   PROGRESS {with_text}
     STOP (closes the microphone, drains; PROGRESS then reports the text)   ABORT   PING
     PASTED {chars} (a client pasting in chunks has pasted that much of the text)
-    FILE_START {paths, language}   FILE_PROGRESS {since}   (the `stt` command: one
+    FILE_START {paths, language} -> {job}   FILE_PROGRESS {job, since}   (the `stt` command: one
     recording's audio files transcribed by the same model, so one model is ever loaded;
     see FileJob)
 A recording stops itself when the client's KEEPALIVEs stop (15 s), after
@@ -900,6 +900,8 @@ class FileJob:
     """
 
     def __init__(self, model, paths, language):
+        # FILE_PROGRESS names the job it asks about, so a client never reads another's text
+        self.job_id = os.urandom(8).hex()
         self._model = model
         self._paths = paths
         self._language = language
@@ -1279,14 +1281,20 @@ def handle_file_start_command(client_socket, params):
     file_job = FileJob(transcriber.model, paths, language)
     file_job.start()
     log(f"File transcription started: {len(paths)} files, language {language or 'detected'}")
-    send_response(client_socket, {"status": "running"})
+    send_response(client_socket, {"status": "running", "job": file_job.job_id})
 
 
 def handle_file_progress_command(client_socket, params):
-    """FILE_PROGRESS {since}: the file job's state and its segments from index `since`."""
+    """FILE_PROGRESS {job, since}: the job's state and its segments from index `since`.
+
+    Only the current job answers: a job another FILE_START has replaced is refused, never
+    reported with the newer job's text.
+    """
     update_activity()
-    if file_job is None:
-        refuse(client_socket, "FILE_PROGRESS", "No file is being transcribed")
+    if file_job is None or params.get("job") != file_job.job_id:
+        refuse(client_socket, "FILE_PROGRESS",
+               f"No such file job: {params.get('job')!r} (another transcription replaced it, "
+               "or the server restarted)")
         return
     since = params.get("since", 0)
     if not isinstance(since, int) or isinstance(since, bool) or since < 0:

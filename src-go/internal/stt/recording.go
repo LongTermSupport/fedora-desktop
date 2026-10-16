@@ -16,7 +16,9 @@ import (
 const (
 	manifestName  = "manifest.json"
 	sidecarSuffix = ".stt.md"
-	complete      = "COMPLETE"
+	// frontMatter is how every sidecar stt writes begins (render).
+	frontMatter = "---\n"
+	complete    = "COMPLETE"
 )
 
 var audioExtensions = []string{".ogg", ".opus", ".oga", ".m4a", ".mp3", ".wav", ".flac", ".webm", ".aac"}
@@ -152,10 +154,8 @@ type check struct {
 
 // state is S4-S7 and S17: done, waiting, short, corrupt or pending, with the reason.
 func (r *recording) state(c check) (state, string) {
-	if _, err := os.Stat(r.sidecar); err == nil {
-		return stateDone, ""
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return stateCorrupt, "cannot check for its sidecar: " + err.Error()
+	if st, reason, found := r.sidecarState(); found {
+		return st, reason
 	}
 	if !r.manifest {
 		return statePending, ""
@@ -179,6 +179,32 @@ func (r *recording) state(c check) (state, string) {
 		r.parts = append(r.parts, part)
 	}
 	return statePending, ""
+}
+
+// sidecarState is S4: a sidecar that opens with stt's front matter is done; one that is empty
+// or does not (cut short, emptied, or someone else's file) is corrupt, never quietly done.
+// found is false when there is no sidecar.
+func (r *recording) sidecarState() (state, string, bool) {
+	f, err := os.Open(r.sidecar)
+	if errors.Is(err, os.ErrNotExist) {
+		return statePending, "", false
+	}
+	if err != nil {
+		return stateCorrupt, "cannot read its sidecar: " + err.Error(), true
+	}
+	head := make([]byte, len(frontMatter))
+	n, err := io.ReadFull(f, head)
+	if cerr := f.Close(); cerr != nil {
+		return stateCorrupt, "cannot read its sidecar: " + cerr.Error(), true
+	}
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return stateCorrupt, "cannot read its sidecar: " + err.Error(), true
+	}
+	if string(head[:n]) != frontMatter {
+		return stateCorrupt, "its sidecar " + r.sidecar + " is not a transcript (empty, or not written by stt); " +
+			"move it aside to transcribe again", true
+	}
+	return stateDone, "", true
 }
 
 // checkPart is one part against its manifest entry: there yet, its size, and with verify its MD5.

@@ -1045,7 +1045,8 @@ Scripts:
   ~/.local/bin/
     ├── wsi                  - Main backend (batch mode)
     ├── wsi-stream           - Streaming mode backend
-    ├── wsi-stream-server    - Warm server for streaming Server mode
+    ├── wsi-stream-server    - Warm server for streaming Server mode and stt
+    ├── stt                  - Recordings into .stt.md sidecars (warm server's model)
     ├── wsi-setting          - Prints one of the extension's settings
     ├── wsi-stop-grace       - Prints the stop grace (stop-grace-seconds)
     ├── wsi-resolve-model    - Prints the model a recording loads (what auto means)

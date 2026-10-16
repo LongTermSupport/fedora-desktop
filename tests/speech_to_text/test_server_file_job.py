@@ -101,10 +101,18 @@ class FileJobCase(unittest.TestCase):
         self.assertEqual(len(sock.replies), 1, sock.replies)
         return sock.replies[0]
 
+    def start(self, params):
+        reply = self.command("FILE_START", params)
+        self.job = reply.get("job")
+        return reply
+
+    def progress(self, since):
+        return self.command("FILE_PROGRESS", {"job": self.job, "since": since})
+
     def finished(self, since=0):
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            reply = self.command("FILE_PROGRESS", {"since": since})
+            reply = self.progress(since)
             if reply["status"] != "running":
                 return reply
             time.sleep(0.01)
@@ -114,8 +122,9 @@ class FileJobCase(unittest.TestCase):
 class FileJobTest(FileJobCase):
 
     def test_the_parts_are_one_stream_through_the_warm_model_with_long_form_settings(self):
-        reply = self.command("FILE_START", {"paths": self.parts, "language": "en"})
+        reply = self.start({"paths": self.parts, "language": "en"})
         self.assertEqual(reply["status"], "running", reply)
+        self.assertRegex(reply["job"], r"^[0-9a-f]{16}$")
         self.finished()
         call = self.model.calls[0]
         self.assertEqual(call["audio"], "rec-001.ogg|rec-002.ogg")
@@ -125,29 +134,38 @@ class FileJobTest(FileJobCase):
         self.assertGreaterEqual(call["beam_size"], 5)
 
     def test_progress_reports_the_segments_with_words_then_done(self):
-        self.command("FILE_START", {"paths": self.parts, "language": "en"})
+        self.start({"paths": self.parts, "language": "en"})
         reply = self.finished()
         self.assertEqual(reply, {"status": "done", "segments": [
             {"start": 0.0, "end": 2.0, "text": "Hello."}, {"start": 9.0, "end": 11.0, "text": "Again."}],
             "count": 2, "duration": 12.0, "language": "en", "model": "distil-large-v3.5"})
-        self.assertEqual(self.command("FILE_PROGRESS", {"since": 1})["segments"],
-                         [{"start": 9.0, "end": 11.0, "text": "Again."}])
+        self.assertEqual(self.progress(1)["segments"], [{"start": 9.0, "end": 11.0, "text": "Again."}])
+
+    def test_a_job_another_start_replaced_is_refused_not_answered_with_its_text(self):
+        self.start({"paths": self.parts, "language": "en"})
+        self.finished()
+        first = self.job
+        self.start({"paths": self.parts, "language": "en"})
+        self.finished()
+        reply = self.command("FILE_PROGRESS", {"job": first, "since": 0})
+        self.assertEqual(reply["status"], "error")
+        self.assertNotIn("segments", reply)
 
     def test_no_language_is_detection(self):
-        self.command("FILE_START", {"paths": self.parts, "language": None})
+        self.start({"paths": self.parts, "language": None})
         self.assertEqual(self.finished()["language"], "de")
         self.assertIsNone(self.model.calls[0]["language"])
 
     def test_a_failure_part_way_is_failed_with_the_reason(self):
         self.model.fail_after = 2
-        self.command("FILE_START", {"paths": self.parts, "language": "en"})
+        self.start({"paths": self.parts, "language": "en"})
         reply = self.finished()
         self.assertEqual(reply["status"], "failed")
         self.assertIn("out of memory", reply["error"])
 
     def test_a_second_file_job_is_refused_while_one_runs(self):
         self.model.gate = threading.Semaphore(0)
-        self.command("FILE_START", {"paths": self.parts, "language": "en"})
+        self.start({"paths": self.parts, "language": "en"})
         reply = self.command("FILE_START", {"paths": self.parts, "language": "en"})
         self.assertEqual(reply["status"], "error")
         self.assertEqual(reply["busy"], "file")
@@ -157,7 +175,7 @@ class FileJobTest(FileJobCase):
 
     def test_a_running_file_job_holds_off_the_idle_timeout_but_not_dictation(self):
         self.model.gate = threading.Semaphore(0)
-        self.command("FILE_START", {"paths": self.parts, "language": "en"})
+        self.start({"paths": self.parts, "language": "en"})
         with mock.patch.object(server, "idle_timeout", 1), mock.patch.object(server, "last_activity_time", 0):
             self.assertFalse(server.check_idle_timeout(), "the idle timeout must wait for a file job")
             self.assertFalse(server.is_busy(), "a file job must not make a dictation START refused")
@@ -176,12 +194,15 @@ class FileJobTest(FileJobCase):
                 self.assertEqual(reply["status"], "error", reply)
         self.assertEqual(self.model.calls, [])
 
-    def test_progress_with_no_job_or_a_bad_since_is_refused(self):
-        self.assertEqual(self.command("FILE_PROGRESS", {"since": 0})["status"], "error")
-        self.command("FILE_START", {"paths": self.parts, "language": "en"})
+    def test_progress_with_no_job_a_wrong_job_or_a_bad_since_is_refused(self):
+        self.assertEqual(self.command("FILE_PROGRESS", {"job": "0" * 16, "since": 0})["status"], "error")
+        self.start({"paths": self.parts, "language": "en"})
+        for params in ({"since": 0}, {"job": "f" * 16, "since": 0}):
+            with self.subTest(params=params):
+                self.assertEqual(self.command("FILE_PROGRESS", params)["status"], "error")
         for since in (-1, "0", True):
             with self.subTest(since=since):
-                self.assertEqual(self.command("FILE_PROGRESS", {"since": since})["status"], "error")
+                self.assertEqual(self.progress(since)["status"], "error")
         self.finished()
 
     def test_no_model_loaded_is_refused(self):

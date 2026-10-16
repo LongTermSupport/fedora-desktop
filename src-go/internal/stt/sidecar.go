@@ -19,7 +19,7 @@ const (
 // render is the sidecar, S2 and S3: YAML front matter, then the timed paragraphs.
 func render(r recording, done reply, segments []segment, now time.Time) string {
 	var b strings.Builder
-	b.WriteString("---\n")
+	b.WriteString(frontMatter)
 	for _, field := range []struct {
 		key   string
 		value any
@@ -60,6 +60,7 @@ func paragraphs(segments []segment) string {
 		switch {
 		case prev == nil:
 			fmt.Fprintf(&b, "**[%s]** %s", clock(s.Start), s.Text)
+			opened = s.Start
 		case s.Start-prev.End >= paragraphPause,
 			s.Start-opened >= paragraphLongest && endsSentence(prev.Text):
 			fmt.Fprintf(&b, "\n\n**[%s]** %s", clock(s.Start), s.Text)

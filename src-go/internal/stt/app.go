@@ -9,13 +9,17 @@
 //
 //   - S1. Each pending recording's parts, in manifest order, go to the server in one
 //     FILE_START (absolute paths), after `<dir>/wsi-stream --ensure-server` (dir: this
-//     binary's) has started the server if need be. The sidecar is written beside the
-//     recording, atomically; its path is the line on stdout.
+//     binary's) has started the server if need be. Each FILE_PROGRESS names the job FILE_START
+//     returned and the count of segments already read, so the text is neither repeated nor
+//     another recording's. The sidecar is written beside the recording, atomically; its path
+//     is the line on stdout.
 //   - S2. The sidecar is YAML front matter (source, parts, duration, language, model,
 //     transcribed) and the text in paragraphs, a new one after a pause of 3 s or more, each
 //     opened by its time: `**[00:04:12]**`.
 //   - S3. No speech is a sidecar saying so, so the recording is not sent again.
-//   - S4. A recording with its sidecar is done and is not sent.
+//   - S4. A recording whose sidecar opens with stt's front matter is done and is not sent; a
+//     sidecar that is empty or does not (cut short, emptied, someone else's file) is a
+//     failure, never quietly done.
 //   - S5. A manifest whose state is not COMPLETE, or a part not there yet, is waiting: a line
 //     on stderr, not a failure.
 //   - S6. A part whose size or MD5 is not the manifest's is a failure.
@@ -344,9 +348,13 @@ func (a App) transcribe(ctx context.Context, r recording, language string) error
 	if reply.Status != "running" {
 		return a.fail(r, "the speech-to-text server refused the recording: "+reply.Message)
 	}
+	if reply.Job == "" {
+		return a.fail(r, "the speech-to-text server named no job (it is older than this stt; re-run play-speech-to-text.yml)")
+	}
+	job := reply.Job
 	var segments []segment
 	for {
-		reply, err = a.ask(ctx, "FILE_PROGRESS", map[string]any{"since": len(segments)})
+		reply, err = a.ask(ctx, "FILE_PROGRESS", map[string]any{"job": job, "since": len(segments)})
 		if err != nil {
 			return a.fail(r, err.Error())
 		}
@@ -378,6 +386,7 @@ func (a App) transcribe(ctx context.Context, r recording, language string) error
 // reply is the part of the server's answers this reads.
 type reply struct {
 	Status   string    `json:"status"`
+	Job      string    `json:"job"`
 	Message  string    `json:"message"`
 	Error    string    `json:"error"`
 	Segments []segment `json:"segments"`
