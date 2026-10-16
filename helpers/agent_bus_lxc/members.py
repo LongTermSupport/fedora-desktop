@@ -427,10 +427,12 @@ def parse_members(data: object) -> tuple[Member, ...]:
 
 def _check_between(found: Sequence[Member]) -> None:
     """The rules between entries. A host or seat not yet derived (None) is not judged; it is,
-    once resolve_members has given it a value."""
+    once resolve_members has given it a value. A seat is numbered within its `<repo>` and
+    `<host>` (the handle is `<repo>.<seat>+<host>.lxc`, as derive_seat counts it), so two
+    containers clash on a seat only in one repo, or when either entry's repo is not known."""
     entries: dict[tuple[str, str, str], int] = {}
     hosts: dict[tuple[str, str], str] = {}
-    seats: dict[tuple[str, str, str], str] = {}
+    seats: dict[tuple[str, str, str], list[Member]] = {}
     coordinators: dict[str, int] = {}
     sessions: dict[tuple[str, str], Member] = {}
     for position, member in enumerate(found, start=1):
@@ -450,10 +452,14 @@ def _check_between(found: Sequence[Member]) -> None:
         if member.host is not None and hosts.setdefault((member.container, member.user), member.host) != member.host:
             raise MemberError(f"agent_bus_lxc_members gives {member.label} two hosts; its env file "
                               f"sets one {ROLE_VAR}")
-        if member.host is not None and member.seat is not None and \
-                seats.setdefault((member.team, member.host, member.seat), member.container) != member.container:
-            raise MemberError(f"agent_bus_lxc_members gives seat {member.seat} of team {member.team} "
-                              f"to two containers; set seat on one")
+        if member.host is not None and member.seat is not None:
+            holders = seats.setdefault((member.team, member.host, member.seat), [])
+            if any(other.container != member.container
+                   and (other.repo is None or member.repo is None or other.repo == member.repo)
+                   for other in holders):
+                raise MemberError(f"agent_bus_lxc_members gives seat {member.seat} of team {member.team} "
+                                  f"to two containers; set seat on one")
+            holders.append(member)
         if member.state == "present" and member.role == protocol.ROLE_COORDINATOR:
             if coordinators.setdefault(member.team, position) != position:
                 raise MemberError(f"agent_bus_lxc_members entries {coordinators[member.team]} and {position} "

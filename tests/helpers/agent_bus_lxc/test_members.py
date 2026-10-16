@@ -354,10 +354,20 @@ class ParseMembersTest(unittest.TestCase):
             "declared twice": [entry(), entry(seat="other")],
             "one user, two hosts": [entry(), entry(team=OTHER_TEAM, host="other")],
             "one seat, two containers": [entry(seat="dev"), entry(container="box2", seat="dev")],
+            "one seat, two containers, one repo": [entry(seat="dev", repo="proj"),
+                                                   entry(container="box2", seat="dev", repo="proj")],
+            "one seat, two containers, one repo unknown": [entry(seat="dev", repo="proj"),
+                                                           entry(container="box2", seat="dev")],
         }
         for label, data in cases.items():
             with self.subTest(label), self.assertRaises(members.MemberError):
                 members.parse_members(data)
+
+    def test_one_seat_number_in_two_repos_is_two_handles_so_two_containers_may_hold_it(self) -> None:
+        # proj-a.dev+box.lxc and proj-b.dev+box.lxc: a seat is numbered within its repo and host.
+        found = members.parse_members([entry(seat="dev", repo="proj-a"),
+                                       entry(container="box2", seat="dev", repo="proj-b")])
+        self.assertEqual([m.seat for m in found], ["dev", "dev"])
 
 
 # ── the decisions ────────────────────────────────────────────────────────────────────────
@@ -666,6 +676,26 @@ class ResolveMembersTest(unittest.TestCase):
                                  entry(host=None, seat=None, container="box-b")])
         self.assertEqual((one.seat, two.seat), ("1", "2"))
 
+    def test_two_containers_one_user_two_repos_each_take_seat_one_of_their_own_repo(self) -> None:
+        # The shape lxc-add writes for a second container: no host, no seat, the same user name,
+        # a checkout of another repository. Each handle is numbered within its own repo and host.
+        identities = {"/srv/proj-a": derive.Identity("proj-a", "box"), "/srv/proj-b": derive.Identity("proj-b", "box")}
+        one, two = members.resolve_members(
+            members.parse_members([entry(host=None, seat=None, container="box-a", checkout="/srv/proj-a"),
+                                   entry(host=None, seat=None, container="box-b", checkout="/srv/proj-b")]),
+            identify=lambda member: identities[member.checkout], roster=lambda team: {},
+            bundle=lambda member: None)
+        self.assertEqual((one.handle(one.repo), two.handle(two.repo)), ("proj-a.1+box.lxc", "proj-b.1+box.lxc"))
+
+    def test_a_member_joined_first_keeps_its_seat_when_an_earlier_entry_is_added_before_it(self) -> None:
+        # Derivation never renumbers a joined member: its bundle names its seat, wherever it is in
+        # the file, and the new entry takes the next seat free of it.
+        new, joined = self.resolve([entry(host=None, seat=None, container="box-b"),
+                                    entry(host=None, seat=None, container="box-a")],
+                                   roster={"proj.1+box.lxc": False, "proj.2+box.lxc": True},
+                                   bundles={"box-a": "proj.1+box.lxc"})
+        self.assertEqual((new.seat, joined.seat), ("2", "1"))
+
     def test_an_explicit_seat_is_kept_and_not_given_to_another(self) -> None:
         one, two = self.resolve([entry(host=None, seat=None, container="box-a"),
                                  entry(host=None, seat="1", container="box-b")])
@@ -834,6 +864,55 @@ class DerivedPresentPhaseTest(Fixture):
         self.guest.suggest = "--repo=proj --host=other --type=lxc"
         with self.assertRaisesRegex(members.MemberError, "suggest-handle gives --host=other"):
             self.run_phase("present", [self.derived()])
+
+
+class SecondContainerTest(Fixture):
+    """A team given a second LXC member by `ccy-teams lxc-add`: two seatless, hostless entries of
+    one user name, in two containers, as the host_vars hold them (placeholder names)."""
+
+    ENTRIES = [
+        {"team": TEAM, "container": "container-a", "user": "agent", "checkout": "/srv/agent/repo-a"},
+        {"team": TEAM, "container": "container-b", "user": "agent", "checkout": "/srv/agent/repo-b"},
+    ]
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.origins = {"/srv/agent/repo-a": "proj-a", "/srv/agent/repo-b": "proj-b"}
+        self.guests = {"container-a": FakeGuest(self.tmp / "guest-a"),
+                       "container-b": FakeGuest(self.tmp / "guest-b")}
+
+    def host(self) -> members.Host:
+        return dataclasses.replace(super().host(), guest=lambda name: self.guests[name])
+
+    def read_checkout(self, container: str, user: str, path: str) -> str:
+        self.remote_config = f'[remote "origin"]\n\turl = https://github.com/example-org/{self.origins[path]}.git\n'
+        self.guests[container].suggest = f"--repo={self.origins[path]} --host=box --type=lxc"
+        return super().read_checkout(container, user, path)
+
+    def test_two_repos_join_each_as_its_own_seat_one_and_a_second_run_changes_nothing(self) -> None:
+        self.run_phase("present", self.ENTRIES)
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc", "proj-b.1+box.lxc"])
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
+        self.assertEqual(self.bus.minted, 2)
+
+    def test_the_second_container_of_one_repo_takes_the_next_seat_and_the_first_keeps_its_own(self) -> None:
+        self.origins["/srv/agent/repo-b"] = "proj-a"
+        self.run_phase("present", self.ENTRIES[:1])
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc"])
+        self.run_phase("present", self.ENTRIES)
+        self.assertEqual(sorted(self.bus.members), ["proj-a.1+box.lxc", "proj-a.2+box.lxc"])
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
+        self.assertEqual(self.bus.minted, 2)
+
+    def test_a_member_joined_first_is_never_renumbered_by_an_entry_written_before_it(self) -> None:
+        self.origins["/srv/agent/repo-b"] = "proj-a"
+        self.run_phase("present", self.ENTRIES[1:])
+        self.run_phase("present", self.ENTRIES)
+        held = {name: json.loads((self.tmp / name / "home" / "agent" / ".config" / "pingbus" / TEAM /
+                                  "member.json").read_text())["user_id"] for name in ("guest-a", "guest-b")}
+        self.assertEqual(held, {"guest-a": f"@proj-a.2+box.lxc:{TEAM}.agent-bus.internal",
+                                "guest-b": f"@proj-a.1+box.lxc:{TEAM}.agent-bus.internal"})
+        self.assertEqual(self.run_phase("present", self.ENTRIES), [])
 
 
 class ServiceTest(Fixture):

@@ -20,6 +20,12 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
+# Agent teams: joins the LXC members declared in agent_bus_lxc_members. A team with two LXC
+# members whose checkouts are two different repositories, both leaving host and seat to be
+# derived, failed here ("gives seat 1 of team <team> to two containers"): seat 1 of one repo and
+# seat 1 of another are two handles, and the check between entries now says so. Runs on the
+# host_vars as they are; members already joined keep their handles.
+playbooks/imports/play-agent-bus.yml
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
