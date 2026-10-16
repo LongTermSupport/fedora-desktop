@@ -861,14 +861,15 @@ cmd_remove() {
     local hs timer
     hs=$(hs_unit "$team")
     timer=$(timer_unit "$team")
-    local enabled=0
     if systemctl is-enabled --quiet "$hs" || systemctl is-enabled --quiet "$timer" \
         || [[ $(unit_state "$hs") == active || $(unit_state "$timer") == active ]]; then
-        enabled=1
-    fi
-    if ((enabled)); then
         systemctl disable --now "$hs" "$timer" "agent-bus-hs-health@$team.timer" >&2
         changed "stopped and disabled $hs, $timer and its health check"
+    fi
+    # Persistent=true keeps the last run in a stamp, which a new team of this name would inherit.
+    if [[ -e $PREFIX/var/lib/systemd/timers/stamp-$timer ]]; then
+        systemctl clean --what=state "$timer" >&2
+        changed "cleared the last-run time of $timer"
     fi
     remove_firewall "$team"
     if [[ -d $(dropin_dir "$team") ]]; then

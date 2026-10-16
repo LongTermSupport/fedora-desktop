@@ -17,6 +17,13 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.4 — container 2.71
+
+- **A new team is not reported as missing a backup it never had** (Plan 00203). The daily
+  backup timer keeps its last run across a removal, so a team made again under an old name
+  inherited it. Removal now clears that state, and the health check ignores a run from before
+  the team was made. The image carries the agent-bus helpers, so it is rebuilt once.
+
 ## 3.99.3 — container 2.70
 
 - **Plan 00203 M1 and M2 together with the health check fix of 3.98.13.** The image carries all

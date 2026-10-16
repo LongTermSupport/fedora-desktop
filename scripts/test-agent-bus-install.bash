@@ -128,6 +128,13 @@ case $cmd in
             fi
         done ;;
     stop) for u in "${args[@]}"; do rm -f "$units/$u.active"; done ;;
+    clean)
+        # As systemd: only a stopped unit, and --what=state removes a Persistent= timer's stamp.
+        [[ $* == *--what=state* ]] || { echo "systemctl stub: clean without --what=state" >&2; exit 99; }
+        for u in "${args[@]}"; do
+            [[ ! -e $units/$u.active ]] || { echo "Failed to clean unit $u: Unit is active" >&2; exit 1; }
+            rm -f "$AGENT_BUS_INSTALL_TEST_PREFIX/var/lib/systemd/timers/stamp-$u"
+        done ;;
     kill)
         # SIGUSR2: the homeserver runs admin_signal_execute and writes a numbered backup.
         team=${args[0]#agent-bus-hs@}; team=${team%.service}
@@ -939,7 +946,13 @@ cp "$SCRATCH/good.tar" "$TAR"
 echo "== remove"
 mkdir -p "$ROOT/var/lib/agent-bus-applied/health"
 touch "$ROOT/var/lib/agent-bus-applied/health/alpha.json"
+mkdir -p "$ROOT/var/lib/systemd/timers"
+touch "$ROOT/var/lib/systemd/timers/stamp-agent-bus-backup@alpha.timer"
 run remove --team alpha
+check "the backup timer's last-run state goes, so a new team alpha starts without it" "no" \
+    "$(exists "$ROOT/var/lib/systemd/timers/stamp-agent-bus-backup@alpha.timer")"
+check "  through systemctl clean, after the timer is stopped" "yes" \
+    "$(says '^systemctl clean --what=state agent-bus-backup@alpha.timer$' "$(LOG)")"
 check "the team's health record is removed with its stamp (Plan 00203)" "no" \
     "$(exists "$ROOT/var/lib/agent-bus-applied/health/alpha.json")"
 check "remove succeeds" "0" "$RC"

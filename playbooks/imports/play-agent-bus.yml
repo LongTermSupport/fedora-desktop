@@ -340,6 +340,17 @@
       changed_when: true
       tags: [agent-bus]
 
+    # The backup timer is Persistent=true: a team removed before agent-bus-install cleared its
+    # stamp left it, and a new team of that name would inherit a backup run it never made.
+    - name: Clear the timer state of agent-bus teams that are not installed
+      ansible.builtin.command:
+        argv: [python3, -m, helpers.agent_bus.timer_state]
+        chdir: "{{ root_dir }}" # repo root on sys.path so the helpers package imports
+      register: agent_bus_timer_state
+      changed_when: agent_bus_timer_state.stdout_lines | select('match', agent_bus_changed_re) | list | length > 0
+      when: not ansible_check_mode
+      tags: [agent-bus]
+
     # README.lxc's steps for each present entry; a member already joined is left alone.
     - name: Join the LXC members declared present to their teams
       ansible.builtin.command:

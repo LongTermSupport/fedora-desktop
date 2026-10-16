@@ -164,7 +164,9 @@ def newest_backup(meta_names: Iterable[str], tar_times: Mapping[int, float]) -> 
 
 
 def backup_problems(team: str, newest: Backup | None, service: Mapping[str, str],
-                    timer: Mapping[str, str], now: float) -> list[Problem]:
+                    timer: Mapping[str, str], now: float, made: float) -> list[Problem]:
+    """`made` is when the team was last built or changed: a timer run from before then is
+    another team's of the same name, its Persistent=true state left behind, or none at all."""
     svc = backup_service(team)
     retry = f"sudo systemctl start {svc}, then journalctl -u {svc} -n 40 --no-pager if it fails"
     problems = []
@@ -175,7 +177,8 @@ def backup_problems(team: str, newest: Backup | None, service: Mapping[str, str]
         problems.append(Problem(f"the last backup failed ({service['Result']})",
                                 f"journalctl -u {svc} -n 40 --no-pager says why; then sudo systemctl start {svc}"))
     if newest is None:
-        if unix_time(timer["LastTriggerUSec"]) is not None:
+        ran = unix_time(timer["LastTriggerUSec"])
+        if ran is not None and ran >= made:
             problems.append(Problem("no backup exists, though the daily backup has run", retry))
     elif now - newest.time > BACKUP_MAX_AGE:
         problems.append(Problem(
@@ -337,6 +340,16 @@ def _meta_names(team: str, system: HealthSystem) -> list[str]:
     return [path.name for path in meta.iterdir()] if meta.is_dir() else []
 
 
+def _made(team: str, system: HealthSystem) -> float:
+    """When agent-bus-install last built or changed the team: its applied stamp's time."""
+    stamp = system.health_dir.parent / f"{team}.json"
+    try:
+        return stamp.stat().st_mtime
+    except FileNotFoundError:
+        raise HealthError(f"team {team} has no applied stamp {stamp}: ccy-teams apply {team} writes it, "
+                          f"or the team is removed and its health check timer outlived it") from None
+
+
 def _read_record(team: str, system: HealthSystem) -> dict | None:
     path = system.health_dir / f"{team}.json"
     try:
@@ -386,7 +399,8 @@ def check(team: str, system: HealthSystem) -> None:
     timer = system.show(backup_timer(team), _TIMER_SHOW)
     newest = newest_backup(_meta_names(team, system), _tar_times(team, system))
     problems = event_problems(team, events)
-    problems += backup_problems(team, newest, system.show(backup_service(team), _BACKUP_SHOW), timer, now)
+    problems += backup_problems(team, newest, system.show(backup_service(team), _BACKUP_SHOW), timer, now,
+                                _made(team, system))
     for problem in problems:
         system.say(f"team {team}: {problem.what} (do: {problem.fix})")
     record = build_record(team, now, problems, newest, unix_time(timer["NextElapseUSecRealtime"]), events,

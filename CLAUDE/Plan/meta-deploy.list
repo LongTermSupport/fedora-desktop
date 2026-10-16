@@ -20,8 +20,9 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plans 00194 and 00203 (M0, M1, M2, the board, the health check fix): rebuilds ccy 3.99.3, ccy-teams and the ccy
-# image (container 2.70; the first launch after it rebuilds the image once). The team watcher
+# Plans 00194 and 00203 (M0, M1, M2, the board, the health check and timer state fixes):
+# rebuilds ccy 3.99.4, ccy-teams and the ccy image (container 2.71; the first launch after it
+# rebuilds the image once). The team watcher
 # survives a homeserver restart and runs supervised. Every ccy session started in ccy's tmux
 # carries the agent team bus kit, idle on no team (no hooks run, its own status line, no inbox
 # socket), with its membership mounted read-only; `ccy --no-bus` leaves the kit out. Each
@@ -40,7 +41,10 @@ playbooks/imports/play-claude-yolo.yml
 # supervised unit for any LXC member entry with service: true. The health check asks each unit
 # only for properties its type has (before the fix every run failed with exit 78), and the play
 # clears failed health check runs from systemctl --failed, including the removed acc-robust
-# team's. No firewall rule changes.
+# team's. Removing a team now clears its backup timer's last-run time (Persistent=true), the
+# health check ignores a backup run from before the team's applied stamp, and the play clears
+# the last-run time of every agent-bus timer whose team is not installed, so a team made again
+# under an old name does not inherit one. No firewall rule changes.
 playbooks/imports/play-agent-bus.yml
 # Plan 00203 acceptance, every milestone in turn. M2: two throwaway headless ccy sessions in
 # ccy's tmux in this checkout (plain and --no-bus, idle, no turn sent), removed after; checks
@@ -51,7 +55,7 @@ playbooks/imports/play-agent-bus.yml
 # R1-R9), on a throwaway team acc-robust it removes: kills, ends and freezes its homeserver and
 # times its return, shows a stale backup on the board, times seat check waiting for a starting
 # homeserver, checks any LXC member unit; its teardown also clears acc-robust's units from
-# systemctl --failed.
+# systemctl --failed and its backup timer's last-run time.
 00203-teams-hot-control-and-robustness
 # Plan 00201 M7 acceptance again, ported to the M2 launcher (seated sessions found by their
 # membership, not the retired ccy-seats label): two throwaway teams, ccy --teams on both, then
