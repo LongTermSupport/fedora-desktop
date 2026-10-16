@@ -92,10 +92,11 @@ one.
 - [x] ✅ **Task 0.4**: `play-speech-to-text.yml` builds and installs `stt`; docs in
   `docs/features/speech-to-text.md`.
 - [ ] 🔄 **Task 0.5**: Deploy, then transcribe the recordings folder with `stt`. Accepted on a
-  local copy first (paragraphs now also break at a sentence end after a minute); the play
-  has run on the host. Still to check: a dictation during a long file job (latency and GPU
-  memory with both running), and the first real sidecars read for accuracy before any
-  tuning (beam, VAD settings, paragraph rules).
+  local copy first (paragraphs now also break at a sentence end after a minute), the play
+  run on the host, and the real folder transcribed: seven sidecars, identical to the
+  accepted ones, two taps skipped. Still to check: a dictation during a long file job
+  (latency and GPU memory with both running), and the owner reading the sidecars for
+  accuracy before any tuning (beam, VAD settings, paragraph rules).
 - [ ] ⬜ **Task 0.6**: Let a CCY container ask the desktop to transcribe (owner: "would be
   cool", not required). Needs a narrow host bridge; nothing like it exists today.
 
