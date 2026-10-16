@@ -28,7 +28,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from helpers.pingbus import cli, config, inbox, protocol, seat
+from helpers.pingbus import cli, config, inbox, membership, protocol, seat
 from tests.helpers.pingbus import fake_gh
 
 TEAM_A, SN_A = "team-a", "team-a.agent-bus.internal"
@@ -179,7 +179,8 @@ class SeatCase(unittest.TestCase):
         self.session_home = self.tmp / "session" / "pingbus-home"
         self.session_home.parent.mkdir()
         self.execs: list[tuple[str, list[str], dict[str, str]]] = []
-        self.env = {"PATH": fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp)), "HOME": str(self.tmp)}
+        self.keeper_argvs = []
+        self.env ={"PATH": fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp)), "HOME": str(self.tmp)}
 
     def make_seat(self, name: str, team: str = TEAM_A, *, member: bool = True) -> pathlib.Path:
         sn = SN_A if team == TEAM_A else SN_B
@@ -201,8 +202,26 @@ class SeatCase(unittest.TestCase):
         def execvpe(file: str, argv: list[str], env: dict[str, str]) -> None:
             self.execs.append((file, list(argv), dict(env)))
 
+        def spawn_keeper(argv: list[str], env: dict[str, str]) -> subprocess.Popen:
+            """The real keeper, a child of this test process; ended at cleanup."""
+            self.keeper_argvs.append(list(argv))
+            proc = cli.spawn_keeper(argv, env)
+            self.addCleanup(self.end_keeper, proc)
+            return proc
+
         return cli.Runtime(clock_ms=lambda: T0_MS, sleep=lambda _s: None, seats_root=self.root,
-                           session_home=self.session_home, execvpe=execvpe)
+                           session_home=self.session_home, execvpe=execvpe, spawn_keeper=spawn_keeper)
+
+    keeper_argvs: list[list[str]]
+
+    @staticmethod
+    def end_keeper(proc: subprocess.Popen) -> None:
+        if proc.poll() is None:
+            proc.terminate()
+        proc.wait(10)
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                stream.close()
 
     def run_cli(self, *argv: str, env: dict[str, str] | None = None) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -311,22 +330,17 @@ class SeatLinesTest(SeatCase):
 
 
 class ClaimTest(SeatCase):
+    """`seat exec` forks the seat keeper, which takes every seat (Plan 00203 D4), then
+    replaces itself with the command. The keeper here is a real process."""
+
     def setUp(self) -> None:
         super().setUp()
         self.dev1 = self.make_seat("dev1")
         self.qa2 = self.make_seat("qa2", TEAM_B)
         self.env[seat.SEATS_VAR] = "dev1@team-a,qa2@team-b"
-        self.addCleanup(self.release_claim)
 
     def claim(self, *command: str, env: dict[str, str] | None = None) -> tuple[int, str, str]:
         return self.run_cli("seat", "exec", "--", *(command or ("claude", "--resume")), env=env)
-
-    @staticmethod
-    def release_claim() -> None:
-        """An in-process claim keeps its locks for the program it execs; drop them."""
-        for lock in seat.held_locks():
-            lock.release()
-        seat.forget_held_locks()
 
     def test_every_seat_is_claimed_and_the_command_execd_with_the_session_home(self):
         code, out, err = self.claim("claude", "--resume")
@@ -341,13 +355,27 @@ class ClaimTest(SeatCase):
         self.assertIn(f"✓ agent team bus: dev1@team-a ({handle_of('dev1')}), "
                       f"qa2@team-b ({handle_of('qa2')})", err)
 
-    def test_the_locks_hold_the_seat_kind_and_the_claim_time_and_are_inheritable(self):
+    def test_the_keeper_holds_every_seat_with_the_seat_kind_and_the_claim_time(self):
         self.assertEqual(self.claim()[0], 0)
         for path in (self.lock_of("dev1"), self.lock_of("qa2", TEAM_B)):
-            self.assertEqual(path.read_text(encoding="ascii"), f"seat {T0_MS}")
+            self.assertRegex(path.read_text(encoding="ascii"), r"\Aseat [0-9]{13}\Z")
             self.assertEqual(inbox.probe_lock_at(path), inbox.SEAT_KIND)
-        self.assertEqual(len(seat.held_locks()), 2)
-        self.assertTrue(all(os.get_inheritable(lock.fileno()) for lock in seat.held_locks()))
+        self.assertEqual(inbox.probe_lock_at(self.session_home / seat.KEEPER_LOCK), inbox.KEEPER_KIND)
+
+    def test_the_keeper_is_started_for_this_launch_with_its_parent(self):
+        self.assertEqual(self.claim()[0], 0)
+        ((*_, keep, launch, parent_opt, parent, root_opt, root, home_opt, home),) = self.keeper_argvs
+        self.assertEqual((keep, launch, parent_opt, root_opt, home_opt),
+                         ("keep", "--launch", "--parent", "--root", "--home"))
+        self.assertEqual((parent, root, home), (str(os.getpid()), str(self.root), str(self.session_home)))
+
+    def test_the_keeper_writes_the_applied_membership_and_the_flag(self):
+        self.assertEqual(self.claim()[0], 0)
+        applied = membership.read_applied(self.session_home)
+        self.assertEqual(applied.generation, 0)
+        self.assertEqual([(s.team, s.seat, s.handle) for s in applied.seats],
+                         [(TEAM_A, "dev1", handle_of("dev1")), (TEAM_B, "qa2", handle_of("qa2"))])
+        self.assertTrue((self.session_home / membership.FLAG_FILE).exists())
 
     def test_the_session_home_is_private_with_one_link_per_seat(self):
         self.assertEqual(self.claim()[0], 0)
@@ -418,8 +446,13 @@ class ClaimTest(SeatCase):
         self.assertIn("seat `qa2@team-b` is held by another session", err)
         self.assertEqual(self.execs, [])
         self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")), "the first seat was kept")
-        self.assertEqual(seat.held_locks(), ())
         self.assertFalse(self.session_home.exists())
+
+    def test_both_launch_variables_at_once_are_refused_78(self):
+        code, _, err = self.claim(env=dict(self.env, **{membership.MEMBERSHIP_VAR: str(self.tmp)}))
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn(membership.MEMBERSHIP_VAR, err)
+        self.assertEqual((self.execs, self.keeper_argvs), ([], []))
 
     def test_a_bundle_that_fails_config_check_is_refused_78(self):
         self.qa2.chmod(0o750)
@@ -457,9 +490,273 @@ class ClaimTest(SeatCase):
         self.assertEqual(self.execs[0][1], ["claude", "--plugin-dir", "/x"])
 
 
+class MembershipClaimTest(SeatCase):
+    """`seat exec` with `PINGBUS_MEMBERSHIP` (Plan 00203 H8, H9): the desired file names
+    the seats, an empty membership is valid, and `PINGBUS_TEAMS` is not set."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.make_seat("dev1")
+        self.mount = self.tmp / "membership"
+        self.mount.mkdir()
+        self.env[membership.MEMBERSHIP_VAR] = str(self.mount)
+
+    def write_desired(self, seats: list[dict[str, str]]) -> None:
+        write_desired(self.mount, seats, generation=1, checkout=str(self.tmp / "checkout"))
+
+    def test_the_desired_seats_are_taken_and_pingbus_teams_is_not_set(self):
+        self.write_desired([{"team": TEAM_A, "seat": "dev1"}])
+        code, _, err = self.run_cli("seat", "exec", "--", "claude",
+                                    env=dict(self.env, PINGBUS_TEAMS="team-z"))
+        self.assertEqual(code, 0, err)
+        ((_, _, env),) = self.execs
+        self.assertEqual(env["PINGBUS_HOME"], str(self.session_home))
+        self.assertNotIn("PINGBUS_TEAMS", env)
+        self.assertEqual(env[membership.MEMBERSHIP_VAR], str(self.mount))
+        self.assertEqual(inbox.probe_lock_at(self.lock_of("dev1")), inbox.SEAT_KIND)
+        self.assertEqual(config.active_teams(env), (TEAM_A,))
+
+    def test_an_empty_membership_makes_the_home_and_holds_nothing(self):
+        self.write_desired([])
+        env = dict(self.env, PATH=fake_gh.path_with(fake_gh.fake_gh_dir(self.tmp, "logged-out")))
+        code, _, err = self.run_cli("seat", "exec", "--", "claude", env=env)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.execs), 1)
+        self.assertNotIn("agent team bus", err)
+        self.assertEqual(stat.S_IMODE(self.session_home.stat().st_mode), 0o700)
+        self.assertIsNone(inbox.probe_lock_at(self.lock_of("dev1")))
+        self.assertFalse((self.session_home / membership.FLAG_FILE).exists())
+        self.assertEqual(inbox.probe_lock_at(self.session_home / seat.KEEPER_LOCK), inbox.KEEPER_KIND)
+
+    def test_no_desired_file_is_refused_78(self):
+        code, _, err = self.run_cli("seat", "exec", "--", "claude")
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn(membership.DESIRED_FILE, err)
+        self.assertEqual(self.execs, [])
+
+    def test_off_is_refused_78(self):
+        code, _, err = self.run_cli("seat", "exec", "--", "claude",
+                                    env=dict(self.env, **{membership.MEMBERSHIP_VAR: "off"}))
+        self.assertEqual(code, EX_CONFIG)
+        self.assertIn("--no-bus", err)
+
+
+def write_desired(directory: pathlib.Path, seats: list[dict[str, str]], *, generation: int,
+                  checkout: str, farewell: list[dict[str, str]] | None = None,
+                  session: str = "ccy-myrepo-1") -> None:
+    """The host's write: a temporary file in the same directory, then a rename (3.1)."""
+    data = {"v": 1, "session": session, "kind": "ccy", "checkout": checkout,
+            "generation": generation, "written_ms": T0_MS, "seats": seats, "farewell": farewell or []}
+    temp = directory / f".membership.{generation}.tmp"
+    temp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(temp, directory / membership.DESIRED_FILE)
+
+
+class KeeperTest(SeatCase):
+    """The keeper in process, with a fake clock (Plan 00203 D4, H9): it reconciles its
+    locks and the home's links against the desired file, records each refusal and goes on,
+    and writes the applied file, the host's report and the flag file."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.dev1 = self.make_seat("dev1")
+        self.qa2 = self.make_seat("qa2", TEAM_B)
+        self.one = self.make_seat("1")
+        self.mount = self.tmp / "membership"
+        self.mount.mkdir()
+        self.checkout = str(self.tmp / "checkout")
+        self.generation = 0
+        self.log = io.StringIO()
+
+    def desire(self, *refs: str, farewell: list[dict[str, str]] | None = None) -> None:
+        self.generation += 1
+        seats = [{"team": ref.split("@")[1], "seat": ref.split("@")[0]} for ref in refs]
+        write_desired(self.mount, seats, generation=self.generation, checkout=self.checkout,
+                      farewell=farewell)
+
+    def keeper(self, source: object = None) -> seat.Keeper:
+        keeper = seat.Keeper(source or seat.MembershipFile(self.mount), root=self.root,
+                             home=self.session_home, clock_ms=lambda: T0_MS,
+                             sleep=lambda _s: None, err=self.log)
+        self.addCleanup(keeper.release_all)
+        return keeper
+
+    def held(self, name: str, team: str = TEAM_A) -> bool:
+        return inbox.probe_lock_at(self.lock_of(name, team)) == inbox.SEAT_KIND
+
+    def applied(self) -> membership.Applied:
+        return membership.read_applied(self.session_home)
+
+    def report(self) -> membership.Applied | None:
+        return membership.read_applied(self.root.parent / seat.SESSIONS_DIR / "ccy-myrepo-1")
+
+    def test_the_launch_takes_the_desired_seats_and_writes_every_record(self):
+        self.desire("dev1@team-a")
+        self.keeper().start(launch=True)
+        self.assertTrue(self.held("dev1"))
+        self.assertEqual(self.lock_of("dev1").read_text(encoding="ascii"), f"seat {T0_MS}")
+        self.assertEqual(os.readlink(self.session_home / TEAM_A), str(self.dev1))
+        self.assertEqual(inbox.probe_lock_at(self.session_home / seat.KEEPER_LOCK), inbox.KEEPER_KIND)
+        applied = self.applied()
+        self.assertEqual((applied.generation, applied.refused), (1, ()))
+        self.assertEqual(applied.seats, (membership.AppliedSeat(TEAM_A, "dev1", handle_of("dev1")),))
+        self.assertEqual(self.report(), applied)
+        self.assertTrue((self.session_home / membership.FLAG_FILE).exists())
+
+    def test_an_added_seat_is_taken_on_the_next_poll(self):
+        self.desire("dev1@team-a")
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        self.assertFalse(keeper.poll(), "nothing changed")
+        self.desire("dev1@team-a", "qa2@team-b")
+        self.assertTrue(keeper.poll())
+        self.assertTrue(self.held("qa2", TEAM_B))
+        self.assertEqual(os.readlink(self.session_home / TEAM_B), str(self.qa2))
+        self.assertEqual([s.team for s in self.applied().seats], [TEAM_A, TEAM_B])
+        self.assertEqual(self.report().generation, 2)
+
+    def test_a_removed_seat_is_unlinked_and_unlocked(self):
+        self.desire("dev1@team-a", "qa2@team-b")
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        self.desire("qa2@team-b", farewell=[{"team": TEAM_A, "seat": "dev1", "reason": "removed"}])
+        self.assertTrue(keeper.poll())
+        self.assertFalse(self.held("dev1"))
+        self.assertFalse(os.path.lexists(self.session_home / TEAM_A))
+        self.assertTrue(self.held("qa2", TEAM_B))
+        self.desire()
+        keeper.poll()
+        self.assertFalse(self.held("qa2", TEAM_B))
+        self.assertEqual(self.applied().seats, ())
+        self.assertFalse((self.session_home / membership.FLAG_FILE).exists())
+
+    def test_a_seat_swapped_within_a_team_moves_the_link(self):
+        self.desire("dev1@team-a")
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        self.desire("1@team-a")
+        keeper.poll()
+        self.assertFalse(self.held("dev1"))
+        self.assertTrue(self.held("1"))
+        self.assertEqual(os.readlink(self.session_home / TEAM_A), str(self.one))
+
+    def test_a_refusal_is_recorded_with_its_class_and_does_not_stop_the_others(self):
+        self.hold_elsewhere("qa2", TEAM_B)
+        (self.one / "member.json").unlink()
+        self.desire()
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        self.desire("dev1@team-a", "qa2@team-b")
+        keeper.poll()
+        self.assertTrue(self.held("dev1"))
+        self.assertEqual(self.applied().refused,
+                         (membership.Refused(TEAM_B, "qa2", "held-elsewhere", inbox.SEAT_KIND),))
+        self.assertFalse(os.path.lexists(self.session_home / TEAM_B))
+        self.desire("1@team-a", "pm@team-b")
+        keeper.poll()
+        self.assertEqual({(r.seat, r.why) for r in self.applied().refused},
+                         {("1", "no-bundle"), ("pm", "no-bundle")})
+
+    def test_a_bundle_that_fails_its_check_is_refused_and_its_lock_released(self):
+        self.desire()
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        self.qa2.chmod(0o750)
+        self.addCleanup(self.qa2.chmod, 0o700)
+        self.desire("qa2@team-b")
+        keeper.poll()
+        self.assertEqual(self.applied().refused, (membership.Refused(TEAM_B, "qa2", "bundle-invalid"),))
+        self.assertFalse(self.held("qa2", TEAM_B))
+        self.assertFalse(os.path.lexists(self.session_home / TEAM_B))
+
+    def test_the_launch_is_all_or_nothing(self):
+        self.hold_elsewhere("qa2", TEAM_B)
+        self.desire("dev1@team-a", "qa2@team-b")
+        with self.assertRaises(seat.SeatHeld):
+            self.keeper().start(launch=True)
+        self.assertFalse(self.held("dev1"))
+        self.assertFalse(self.session_home.exists())
+
+    def test_a_launch_into_an_existing_home_is_refused(self):
+        self.session_home.mkdir()
+        self.desire("dev1@team-a")
+        with self.assertRaises(config.ConfigError):
+            self.keeper().start(launch=True)
+        self.assertFalse(self.held("dev1"))
+
+    def test_a_second_keeper_for_one_home_is_busy(self):
+        self.desire("dev1@team-a")
+        self.keeper().start(launch=True)
+        with self.assertRaises(inbox.Busy) as caught:
+            self.keeper().start(launch=False)
+        self.assertEqual(caught.exception.holder, inbox.KEEPER_KIND)
+
+    def test_a_repair_keeper_retakes_every_seat_in_the_existing_home(self):
+        """A keeper that died dropped every seat; Repair (`seat keep` with no `--launch`)
+        takes them all again and clears a link no seat backs."""
+        self.desire("dev1@team-a", "qa2@team-b")
+        first = self.keeper()
+        first.start(launch=True)
+        first.release_all()
+        self.assertFalse(self.held("dev1"))
+        self.desire("dev1@team-a")
+        self.keeper().start(launch=False)
+        self.assertTrue(self.held("dev1"))
+        self.assertFalse(self.held("qa2", TEAM_B))
+        self.assertFalse(os.path.lexists(self.session_home / TEAM_B))
+
+    def test_a_malformed_desired_file_keeps_the_seats_and_is_logged(self):
+        self.desire("dev1@team-a")
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        (self.mount / membership.DESIRED_FILE).write_text("{", encoding="utf-8")
+        self.assertFalse(keeper.poll())
+        self.assertTrue(self.held("dev1"))
+        self.assertIn(membership.DESIRED_FILE, self.log.getvalue())
+
+    def test_the_launch_list_is_generation_0_with_no_report(self):
+        keeper = self.keeper(seat.LaunchSeats(seat.parse_seat_list("dev1@team-a")))
+        keeper.start(launch=True)
+        self.assertTrue(self.held("dev1"))
+        self.assertEqual(self.applied().generation, 0)
+        self.assertFalse(keeper.poll())
+        self.assertFalse((self.root.parent / seat.SESSIONS_DIR).exists())
+
+    def test_the_keeper_ends_when_its_parent_changes_and_releases_everything(self):
+        self.desire("dev1@team-a")
+        keeper = self.keeper()
+        keeper.start(launch=True)
+        parents = iter([42, 42, 1])
+        code = seat.keep(keeper, parent=42, getppid=lambda: next(parents), sleep=lambda _s: None,
+                         tick_s=0)
+        self.assertEqual(code, 0)
+        self.assertFalse(self.held("dev1"))
+        self.assertIsNone(inbox.probe_lock_at(self.session_home / seat.KEEPER_LOCK))
+
+
+class SourceTest(unittest.TestCase):
+    """Which list the keeper follows: `PINGBUS_MEMBERSHIP` when set, else `PINGBUS_SEATS`
+    (until Plan 00203 M2 retires it); never both."""
+
+    def test_the_choice(self):
+        self.assertIsInstance(seat.desired_source({seat.SEATS_VAR: "dev1@team-a"}), seat.LaunchSeats)
+        self.assertIsInstance(seat.desired_source({membership.MEMBERSHIP_VAR: "/run/x"}),
+                              seat.MembershipFile)
+
+    def test_refusals(self):
+        for env, needle in (({}, seat.SEATS_VAR),
+                            ({seat.SEATS_VAR: "x@team-a", membership.MEMBERSHIP_VAR: "/run/x"}, "both"),
+                            ({membership.MEMBERSHIP_VAR: "off"}, "--no-bus"),
+                            ({membership.MEMBERSHIP_VAR: "relative"}, "absolute")):
+            with self.subTest(env=env), self.assertRaises(config.ConfigError) as caught:
+                seat.desired_source(env)
+            self.assertIn(needle, str(caught.exception))
+
+
 class RealExecTest(SeatCase):
-    """The claim's descriptors survive a real `exec`: the session's processes hold every
-    seat until the last of them exits, a detached one included."""
+    """Across a real `exec`: the keeper holds every seat while the session runs; the
+    session's own processes hold none, so a detached one cannot keep a seat (Plan 00203
+    D4, audit F5), and the seats are free as soon as the session ends."""
 
     def driver(self, *command: str) -> str:
         return textwrap.dedent(f"""
@@ -481,30 +778,29 @@ class RealExecTest(SeatCase):
         self.addCleanup(child.stdin.close)
         return child
 
-    def test_the_locks_are_held_by_the_session_until_its_last_process_exits(self):
+    def test_the_keeper_holds_the_seats_while_the_session_runs_and_the_session_holds_none(self):
         self.make_seat("dev1")
         self.make_seat("qa2", TEAM_B)
         session = textwrap.dedent("""
-            import os, subprocess, sys
-            helper = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"],
-                                      stdin=subprocess.PIPE, close_fds=False)
-            print(os.environ["PINGBUS_HOME"], os.environ["PINGBUS_TEAMS"], flush=True)
+            import os, sys
+            held = [os.readlink(f"/proc/self/fd/{fd}") for fd in os.listdir("/proc/self/fd")
+                    if os.path.exists(f"/proc/self/fd/{fd}")]
+            print(os.environ["PINGBUS_HOME"], os.environ["PINGBUS_TEAMS"],
+                  sum(path.endswith("seat.lock") for path in held), flush=True)
             sys.stdin.readline()
-            helper.stdin.close()
-            helper.wait()
         """)
         child = self.start("dev1@team-a,qa2@team-b", sys.executable, "-c", session)
         line = child.stdout.readline().split()
-        self.assertEqual(line, [str(self.session_home), "team-a,team-b"])
+        self.assertEqual(line, [str(self.session_home), "team-a,team-b", "0"])
         for name, team in (("dev1", TEAM_A), ("qa2", TEAM_B)):
             self.assertEqual(inbox.probe_lock_at(self.lock_of(name, team)), inbox.SEAT_KIND)
         child.stdin.write("\n")
         child.stdin.close()
         self.assertEqual(child.wait(10), 0)
         for name, team in (("dev1", TEAM_A), ("qa2", TEAM_B)):
-            self.assertIsNone(inbox.probe_lock_at(self.lock_of(name, team)))
+            self.wait_free(self.lock_of(name, team))
 
-    def test_a_detached_process_keeps_the_seat_until_it_exits(self):
+    def test_a_detached_process_does_not_keep_the_seat(self):
         self.make_seat("dev1")
         session = textwrap.dedent("""
             import subprocess, sys
@@ -514,10 +810,8 @@ class RealExecTest(SeatCase):
         """)
         child = self.start("dev1@team-a", sys.executable, "-c", session)
         self.assertEqual(child.wait(10), 0)
-        self.assertEqual(inbox.probe_lock_at(self.lock_of("dev1")), inbox.SEAT_KIND,
-                         "the detached process inherited the seat")
-        child.stdin.close()
         self.wait_free(self.lock_of("dev1"))
+        child.stdin.close()
 
 
 class ProtocolDocTest(unittest.TestCase):

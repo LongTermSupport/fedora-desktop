@@ -409,6 +409,20 @@ class LockAtPathTest(unittest.TestCase):
         with self.assertRaises(inbox.StateError):
             inbox.probe_lock_at(self.path)
 
+    def test_release_unlocks_even_when_the_descriptor_was_duplicated(self):
+        """Plan 00203 D4: release is an explicit LOCK_UN, so a lock shared through a copy of
+        its descriptor (an inherited one, a dup) is free once released; truncate and close
+        alone left it held by the copy."""
+        lock = inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=1)
+        copy = os.dup(lock.fileno())
+        self.addCleanup(os.close, copy)
+        lock.release()
+        self.assertIsNone(inbox.probe_lock_at(self.path))
+
+    def test_the_keeper_kind_is_a_path_lock_kind(self):
+        with inbox.acquire_lock_at(self.path, inbox.KEEPER_KIND):
+            self.assertEqual(inbox.probe_lock_at(self.path), "keeper")
+
     def test_the_descriptor_can_be_made_inheritable(self):
         lock = inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=1)
         self.addCleanup(lock.release)

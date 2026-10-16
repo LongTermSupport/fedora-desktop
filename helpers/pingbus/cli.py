@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import contextlib
+import ctypes
 import dataclasses
 import functools
 import hashlib
@@ -30,6 +31,8 @@ import pathlib
 import queue
 import re
 import secrets
+import selectors
+import signal
 import stat
 import subprocess
 import sys
@@ -695,6 +698,63 @@ class Runtime:
     supervise_retry_max_s: float = 60.0
     run_child: Callable[[Sequence[str], Mapping[str, str]], int] = (
         lambda argv, environ: _run_child(argv, environ))
+    #: How to run pingbus again (the seat keeper `seat exec` starts), and how it is started.
+    keeper_argv: Callable[[], list[str]] = lambda: pingbus_argv()
+    spawn_keeper: Callable[[Sequence[str], Mapping[str, str]], subprocess.Popen] = (
+        lambda argv, environ: spawn_keeper(argv, environ))
+    #: The keeper's ties to its process: dying with its parent, and its output once running.
+    die_with_parent: Callable[[], object] = lambda: die_with_parent()
+    detach: Callable[[pathlib.Path, bool], object] = lambda log, ready: detach_keeper(log, ready)
+
+
+def pingbus_argv() -> list[str]:
+    """How to run this pingbus again: the zipapp it was loaded from, else its source tree."""
+    top = pathlib.Path(__file__).resolve().parents[2]
+    if top.is_file():
+        return [sys.executable, str(top)]
+    start = (f"import sys; sys.path.insert(0, {str(top)!r}); "
+             "from helpers.pingbus.cli import main; sys.exit(main())")
+    return [sys.executable, "-c", start]
+
+
+def spawn_keeper(argv: Sequence[str], environ: Mapping[str, str]) -> subprocess.Popen:
+    """Start the seat keeper in a session of its own, so no terminal signal reaches it. It
+    reports on its stdout and stderr until it is ready (`detach_keeper`)."""
+    return subprocess.Popen(list(argv), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=dict(environ), close_fds=True,
+                            start_new_session=True)
+
+
+#: prctl's option that sends the caller a signal when its parent dies (Linux).
+PR_SET_PDEATHSIG = 1
+
+
+def die_with_parent() -> None:
+    """Have the kernel end this process when its parent does, so a `cc --teams` session's
+    seats are free the moment the session ends."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
+
+
+KEEPER_READY = b"READY\n"
+#: How long `seat exec` waits for its keeper to say the seats are taken.
+KEEPER_READY_S = 30.0
+
+
+def detach_keeper(log_path: pathlib.Path, ready: bool) -> None:
+    """From here the keeper's stderr is its log in the session home and its stdout goes
+    nowhere; a launch's keeper says READY on its stdout in between, which tells `seat
+    exec` that the seats are taken."""
+    sys.stderr.flush()
+    fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    os.dup2(fd, 2)
+    os.close(fd)
+    if ready:
+        os.write(1, KEEPER_READY)
+    null = os.open(os.devnull, os.O_WRONLY | os.O_CLOEXEC)
+    os.dup2(null, 1)
+    os.close(null)
 
 
 def _run_child(argv: Sequence[str], environ: Mapping[str, str]) -> int:

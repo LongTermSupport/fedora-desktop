@@ -28,7 +28,7 @@ import urllib.parse
 from collections.abc import Callable, Mapping, Sequence
 from typing import BinaryIO
 
-from helpers.pingbus import limits, protocol
+from helpers.pingbus import limits, membership, protocol
 
 MIN_PYTHON = (3, 11)
 ADMIN_LOCALPART = "admin"
@@ -140,7 +140,13 @@ def resolve_home(environ: Mapping[str, str]) -> pathlib.Path:
 
 
 def active_teams(environ: Mapping[str, str]) -> tuple[str, ...]:
-    """The comma-separated team names in `PINGBUS_TEAMS`, in order."""
+    """The session's active teams, read again on every call (Plan 00203 H8). With
+    `PINGBUS_MEMBERSHIP` set: the seats the keeper holds (`applied.json` in the home) that
+    the desired file names, in desired order. Without it: the comma-separated team names in
+    `PINGBUS_TEAMS`, in order (an `agent-bus-claude` member, or a launcher before Plan 00203)."""
+    marker = environ.get(membership.MEMBERSHIP_VAR)
+    if marker is not None:
+        return _membership_teams(environ, marker)
     raw = environ.get("PINGBUS_TEAMS", "")
     if not raw:
         raise ConfigError("PINGBUS_TEAMS is not set: no team is active")
@@ -150,6 +156,18 @@ def active_teams(environ: Mapping[str, str]) -> tuple[str, ...]:
             raise ConfigError(f"PINGBUS_TEAMS entry {position} is not a team name")
     if len(set(teams)) != len(teams):
         raise ConfigError("PINGBUS_TEAMS lists a team more than once")
+    return teams
+
+
+def _membership_teams(environ: Mapping[str, str], marker: str) -> tuple[str, ...]:
+    try:
+        teams = membership.active(membership.read_desired(membership.mount_dir(marker)),
+                                  membership.read_applied(resolve_home(environ)))
+    except membership.MembershipError as exc:
+        raise ConfigError(str(exc)) from None
+    if not teams:
+        raise ConfigError("no team is active: this session is on no team, or its seat keeper "
+                          "has not taken its seats yet")
     return teams
 
 
@@ -163,7 +181,8 @@ def select_teams(active: Sequence[str], team: str | None, single: bool = False) 
         if not protocol.is_team_name(team):
             raise UsageError("--team is not a team name")
         if team not in active:
-            raise UsageError(f"--team {team} is not in PINGBUS_TEAMS")
+            raise UsageError(f"--team {team}: not a member of `{team}` (not one of this "
+                             "session's active teams)")
         return (team,)
     if single and len(active) > 1:
         raise UsageError("several teams are active: name one with --team")
@@ -312,7 +331,7 @@ def load_active(
     uid: int | None = None,
     user_home: pathlib.Path | None = None,
 ) -> tuple[Member, ...]:
-    """Every bundle the command covers, validated, in `PINGBUS_TEAMS` order.
+    """Every bundle the command covers, validated, in `active_teams` order.
 
     Also refuses two bundles that share an account or a token: accounts on different
     teams never share a token (DESIGN.md section 2).
@@ -321,6 +340,12 @@ def load_active(
     home = resolve_home(environ)
     selected = select_teams(active_teams(environ), team, single)
     members = tuple(load_bundle(home, name, uid=uid, user_home=user_home) for name in selected)
+    check_distinct(members, uid=uid)
+    return members
+
+
+def check_distinct(members: Sequence[Member], *, uid: int | None = None) -> None:
+    """Refuse two bundles that share an account or a token."""
     seen_users: dict[str, str] = {}
     seen_tokens: dict[str, str] = {}
     for member in members:
@@ -330,7 +355,6 @@ def load_active(
         first = seen_tokens.setdefault(read_token(member, uid=uid), member.team)
         if first != member.team:
             raise ConfigError(f"teams {first} and {member.team}: the bundles share one token")
-    return members
 
 
 def _home_of(uid: int) -> pathlib.Path:

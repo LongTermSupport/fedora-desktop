@@ -9,11 +9,15 @@ take`, run by the launcher); this module never does.
 - `parse_seat_list`: the `<seat>@<team>[,…]` list with section 5.5's rules, each refusal a
   usage error (exit 64) naming the item and the rule; `canonical` is the list as passed on.
   The launcher's `agent-bus seat check` and `seat take` and the container's claim all use it.
-- `claim`, run by `pingbus seat exec`: reads `PINGBUS_SEATS`, takes every seat's lock
-  without waiting (kind `seat` and the claim time in the file; never a PID), builds the
-  session home (one link per seat, D50) and checks every bundle. The locks are made
-  inheritable, so the program that replaces the process, and everything it starts, hold
-  the seats until the last of them exits.
+- `Keeper`, run as `pingbus seat keep` (Plan 00203 D4, H9): the only process that holds a
+  seat lock, for every seat of the session, launch seats included. `pingbus seat exec`
+  starts it before it replaces itself with the session. It makes the session home (even
+  with no seat), takes each desired seat's lock without waiting (kind `seat` and the claim
+  time in the file; never a PID), links the seat into the home (D50), checks its bundle,
+  and writes the applied membership, the host's report and the flag file. With
+  `PINGBUS_MEMBERSHIP` it follows the desired file as it changes; without it, the launch's
+  `PINGBUS_SEATS`. Every lock is close-on-exec, so the session's processes hold none and a
+  detached one cannot keep a seat (audit F5); release is an explicit `LOCK_UN`.
 - `seat_lines`: the `SEAT` report lines (`pingbus status`, and `agent-bus seat list` on the
   host), read offline from each seat's lock and `member.json`.
 - `session_seats`: what the SessionStart hook says about this session's seats and their
@@ -26,13 +30,23 @@ import dataclasses
 import os
 import pathlib
 import re
+import secrets
 import stat
 import time
 from collections.abc import Callable, Mapping
+from typing import TextIO
 
-from helpers.pingbus import config, inbox, protocol
+from helpers.pingbus import config, inbox, membership, protocol
 
 SEATS_VAR = "PINGBUS_SEATS"
+#: The keeper's lock in the session home: held while it runs (H10).
+KEEPER_LOCK = "keeper.lock"
+#: Where the keeper's diagnostics go once it is running, in the session home.
+KEEPER_LOG = "keeper.log"
+#: Beside a checkout's seats: the keeper's report for the host, per session (3.3).
+SESSIONS_DIR = "sessions"
+#: How often the keeper looks at the desired file and at its parent (H9: within 2 s).
+KEEP_TICK_S = 0.5
 #: The session home a claim builds inside the container (D50), private to the session.
 SESSION_HOME = pathlib.Path("/tmp/pingbus-home")
 SESSION_HOME_MODE = 0o700
@@ -254,25 +268,69 @@ def seat_lines(root: pathlib.Path, home: pathlib.Path | None) -> tuple[list[str]
     return lines, failures
 
 
-# ── the claim ────────────────────────────────────────────────────────────────────────────
-
-#: The locks a claim handed on to the program that replaces the process: kept open.
-_HELD: list[inbox.Lock] = []
-
-
-def held_locks() -> tuple[inbox.Lock, ...]:
-    return tuple(_HELD)
-
-
-def forget_held_locks() -> None:
-    _HELD.clear()
+# ── what the keeper follows ──────────────────────────────────────────────────────────────
 
 
 @dataclasses.dataclass(frozen=True)
-class Claimed:
+class Want:
+    """What the keeper should hold: the generation, the seats in order, and the session's
+    registry name when the host wrote one (where the report goes)."""
+
+    generation: int
     refs: tuple[SeatRef, ...]
-    environ: dict[str, str]
-    members: tuple[config.Member, ...]
+    session: str | None = None
+
+
+class LaunchSeats:
+    """The launch's `PINGBUS_SEATS` (until Plan 00203 M2 retires it): generation 0, fixed."""
+
+    def __init__(self, refs: tuple[SeatRef | TeamRef, ...]) -> None:
+        if not all(isinstance(ref, SeatRef) for ref in refs):
+            raise config.ConfigError(f"{SEATS_VAR} names a team without its seat")
+        self._want = Want(0, tuple(refs))
+
+    def stamp(self) -> object:
+        return None
+
+    def read(self) -> Want:
+        return self._want
+
+
+class MembershipFile:
+    """The host's desired file (3.1) in `directory`, read again whenever its inode, size or
+    modification time changes (H9)."""
+
+    def __init__(self, directory: pathlib.Path) -> None:
+        self.directory = pathlib.Path(directory)
+
+    def stamp(self) -> object:
+        try:
+            info = os.stat(membership.desired_path(self.directory), follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+        return (info.st_ino, info.st_mtime_ns, info.st_size)
+
+    def read(self) -> Want:
+        try:
+            desired = membership.read_desired(self.directory)
+        except membership.MembershipError as exc:
+            raise config.ConfigError(str(exc)) from None
+        return Want(desired.generation, tuple(SeatRef(e.seat, e.team) for e in desired.seats),
+                    desired.session)
+
+
+def desired_source(environ: Mapping[str, str]) -> LaunchSeats | MembershipFile:
+    """`PINGBUS_MEMBERSHIP` when the launcher set it, else `PINGBUS_SEATS`; never both."""
+    marker = environ.get(membership.MEMBERSHIP_VAR)
+    if marker is None:
+        return LaunchSeats(_launch_seats(environ))
+    if environ.get(SEATS_VAR) is not None:
+        raise config.ConfigError(f"both {SEATS_VAR} and {membership.MEMBERSHIP_VAR} are set: "
+                                 "a launcher passes one of them")
+    try:
+        return MembershipFile(membership.mount_dir(marker))
+    except membership.MembershipError as exc:
+        raise config.ConfigError(str(exc)) from None
 
 
 def _launch_seats(environ: Mapping[str, str]) -> tuple[SeatRef, ...]:
@@ -287,83 +345,264 @@ def _launch_seats(environ: Mapping[str, str]) -> tuple[SeatRef, ...]:
         raise config.ConfigError(f"{SEATS_VAR} is malformed: {exc}") from None
 
 
-def _check_seat_dir(root: pathlib.Path, ref: SeatRef) -> None:
+class SeatRefused(Exception):
+    """A desired seat the keeper did not take: its class (3.2 `why`), the kind of the lock's
+    holder for `held-elsewhere`, and the error a launch reports for it."""
+
+    def __init__(self, ref: SeatRef, why: str, error: Exception,
+                 holder: str = membership.NO_HOLDER) -> None:
+        super().__init__(str(error))
+        self.ref, self.why, self.error, self.holder = ref, why, error, holder
+
+
+class KeeperBusy(inbox.Busy):
+    """Another keeper holds this session home (exit 75)."""
+
+    def __init__(self, home: pathlib.Path) -> None:
+        Exception.__init__(self, f"another seat keeper is running for the session home {home}")
+        self.holder = inbox.KEEPER_KIND
+
+
+def check_seat_dir(root: pathlib.Path, ref: SeatRef) -> None:
+    """The seat's directory is a real directory holding a `member.json`: `SeatRefused`,
+    `no-bundle` or `bundle-invalid`, naming the host's launch that makes it, if not."""
     directory = seat_dir(root, ref)
     try:
         _real_dir(directory)
     except FileNotFoundError:
-        raise config.ConfigError(
+        raise SeatRefused(ref, "no-bundle", config.ConfigError(
             f"seat {ref.text} has no directory under {root}: seats are created on the host, "
-            f"by the launch `ccy --teams {ref.text}`"
-        ) from None
+            f"by the launch `ccy --teams {ref.text}`")) from None
     except inbox.StateError as exc:
-        raise config.ConfigError(str(exc)) from None
+        raise SeatRefused(ref, "bundle-invalid", config.ConfigError(str(exc))) from None
     if not os.path.lexists(directory / config.MEMBER_FILE):
-        raise config.ConfigError(
+        raise SeatRefused(ref, "no-bundle", config.ConfigError(
             f"seat {ref.text}: no bundle (member.json is missing); the launch on the host "
-            f"creates it: end this session and run `ccy --teams {ref.text}` again"
-        )
+            f"creates it: end this session and run `ccy --teams {ref.text}` again"))
 
 
-def _make_home(home: pathlib.Path, root: pathlib.Path, refs: tuple[SeatRef, ...]) -> None:
-    try:
-        os.mkdir(home, SESSION_HOME_MODE)
-    except FileExistsError:
-        raise config.ConfigError(
-            f"the session home {home} already exists: a session claims its seats once"
-        ) from None
-    os.chmod(home, SESSION_HOME_MODE)
-    for ref in refs:
-        os.symlink(seat_dir(root, ref), home / ref.team)
+# ── the keeper ───────────────────────────────────────────────────────────────────────────
 
 
-def _remove_home(home: pathlib.Path, refs: tuple[SeatRef, ...]) -> None:
-    for ref in refs:
-        link = home / ref.team
-        if link.is_symlink():
-            link.unlink()
-    home.rmdir()
+class Keeper:
+    """The session's only seat lock holder (D4). `start` makes or adopts the session home
+    and applies what the source wants; `poll` applies it again when it changes (H9);
+    `release_all` lets every lock go, as the keeper's death would."""
 
+    def __init__(self, source: LaunchSeats | MembershipFile, *, root: pathlib.Path,
+                 home: pathlib.Path, clock_ms: Callable[[], int], err: TextIO,
+                 sleep: Callable[[float], object] = time.sleep, uid: int | None = None,
+                 user_home: pathlib.Path | None = None) -> None:
+        self.source, self.root, self.home = source, pathlib.Path(root), pathlib.Path(home)
+        self._clock_ms, self._sleep, self._err = clock_ms, sleep, err
+        self._uid, self._user_home = uid, user_home
+        self._held: dict[SeatRef, tuple[inbox.Lock, config.Member]] = {}
+        self._keeper_lock: inbox.Lock | None = None
+        self._stamp: object = None
+        self._want: Want | None = None
 
-def claim(
-    environ: Mapping[str, str],
-    *,
-    root: pathlib.Path = CCY_SEATS_ROOT,
-    home: pathlib.Path = SESSION_HOME,
-    clock_ms: Callable[[], int],
-    sleep: Callable[[float], object] = time.sleep,
-) -> Claimed:
-    """Claim every seat `PINGBUS_SEATS` names and build the session home; return the
-    environment for the program that follows (`PINGBUS_HOME`, `PINGBUS_TEAMS` set) and
-    each seat's checked member. Any failure releases what was taken and removes the home."""
-    refs = _launch_seats(environ)
-    for ref in refs:
-        _check_seat_dir(root, ref)
-    locks: list[inbox.Lock] = []
-    made_home = False
-    try:
-        for ref in refs:
+    # The life of the keeper.
+
+    def start(self, *, launch: bool) -> None:
+        """Take the session home and the keeper lock, then the seats. A launch (`seat
+        exec`'s keeper) makes a new home and is all or nothing: the first refusal is raised
+        and nothing is kept. Otherwise (Repair) the home may exist, and a refusal is
+        recorded while the other seats are still taken."""
+        made = self._make_home(launch)
+        try:
             try:
-                locks.append(inbox.acquire_lock_at(lock_path(root, ref), inbox.SEAT_KIND,
-                                                   claimed_ms=clock_ms(), sleep=sleep))
+                self._keeper_lock = inbox.acquire_lock_at(self.home / KEEPER_LOCK, inbox.KEEPER_KIND,
+                                                          sleep=self._sleep)
             except inbox.Busy:
-                raise SeatHeld(ref) from None
-        _make_home(home, root, refs)
-        made_home = True
-        child_env = dict(environ)
-        child_env["PINGBUS_HOME"] = str(home)
-        child_env["PINGBUS_TEAMS"] = ",".join(ref.team for ref in refs)
-        members = config.load_active(child_env)
-    except BaseException:
-        for lock in locks:
+                raise KeeperBusy(self.home) from None
+            self._stamp = self.source.stamp()
+            self._apply(self.source.read(), strict=launch)
+        except BaseException:
+            self.release_all()
+            if made:
+                self._remove_home()
+            raise
+
+    def poll(self) -> bool:
+        """Apply the desired membership again if it changed since it was last read; whether
+        anything was applied. A file that is refused leaves the seats as they are."""
+        stamp = self.source.stamp()
+        if stamp == self._stamp:
+            return False
+        self._stamp = stamp
+        try:
+            want = self.source.read()
+        except config.ConfigError as exc:
+            self._say(f"the desired membership is refused, so the seats stay as they are: {exc}")
+            return False
+        if want == self._want:
+            return False
+        self._apply(want, strict=False)
+        return True
+
+    def release_all(self) -> None:
+        """Let every lock go, the keeper's own last. The links stay, as after a death."""
+        for lock, _ in self._held.values():
             lock.release()
-        if made_home:
-            _remove_home(home, refs)
-        raise
-    for lock in locks:
-        lock.set_inheritable()
-    _HELD.extend(locks)
-    return Claimed(refs, child_env, members)
+        self._held.clear()
+        if self._keeper_lock is not None:
+            self._keeper_lock.release()
+            self._keeper_lock = None
+
+    # Applying a membership.
+
+    def _apply(self, want: Want, *, strict: bool) -> None:
+        wanted = {ref.team: ref for ref in want.refs}
+        for ref in list(self._held):
+            if wanted.get(ref.team) != ref:
+                self._drop(ref)
+        refused: list[membership.Refused] = []
+        taken: list[SeatRef] = []
+        try:
+            for ref in want.refs:
+                if ref in self._held:
+                    continue
+                try:
+                    self._take(ref)
+                except SeatRefused as refusal:
+                    if strict:
+                        raise refusal.error from None
+                    self._say(f"seat {ref.text} not taken ({refusal.why}): {refusal.error}")
+                    refused.append(membership.Refused(ref.team, ref.seat, refusal.why, refusal.holder))
+                    continue
+                taken.append(ref)
+            if strict:
+                config.check_distinct(tuple(member for _, member in self._held.values()), uid=self._uid)
+        except BaseException:
+            for ref in taken:
+                self._drop(ref)
+            raise
+        self._clear_stray_links()
+        self._want = want
+        seats = tuple(membership.AppliedSeat(ref.team, ref.seat, self._held[ref][1].handle)
+                      for ref in want.refs if ref in self._held)
+        self._publish(membership.Applied(want.generation, seats, tuple(refused), self._told()),
+                      want.session, strict)
+
+    def _take(self, ref: SeatRef) -> None:
+        check_seat_dir(self.root, ref)
+        try:
+            lock = inbox.acquire_lock_at(lock_path(self.root, ref), inbox.SEAT_KIND,
+                                         claimed_ms=self._clock_ms(), sleep=self._sleep)
+        except inbox.Busy as exc:
+            raise SeatRefused(ref, "held-elsewhere", SeatHeld(ref), exc.holder) from None
+        except inbox.StateError as exc:
+            raise SeatRefused(ref, "bundle-invalid", config.ConfigError(str(exc))) from None
+        try:
+            self._link(ref)
+            member = config.load_bundle(self.home, ref.team, uid=self._uid, user_home=self._user_home)
+        except (config.ConfigError, OSError) as exc:
+            self._unlink(ref)
+            lock.release()
+            error = exc if isinstance(exc, config.ConfigError) else config.ConfigError(
+                f"seat {ref.text}: the session home's link was not made: {exc.strerror or exc}")
+            raise SeatRefused(ref, "bundle-invalid", error) from None
+        self._held[ref] = (lock, member)
+
+    def _drop(self, ref: SeatRef) -> None:
+        lock, _ = self._held.pop(ref)
+        self._unlink(ref)
+        lock.release()
+
+    def _link(self, ref: SeatRef) -> None:
+        """The home's link for the seat's team, made atomically: a temporary link, then a rename."""
+        temp = self.home / f".{ref.team}.{secrets.token_hex(8)}.tmp"
+        os.symlink(seat_dir(self.root, ref), temp)
+        try:
+            os.replace(temp, self.home / ref.team)
+        except BaseException:
+            os.unlink(temp)
+            raise
+
+    def _unlink(self, ref: SeatRef) -> None:
+        link = self.home / ref.team
+        if link.is_symlink() and os.readlink(link) == str(seat_dir(self.root, ref)):
+            link.unlink()
+
+    def _clear_stray_links(self) -> None:
+        """A team link no held seat backs (left by a keeper that died) goes."""
+        teams = {ref.team for ref in self._held}
+        for entry in os.scandir(self.home):
+            if entry.is_symlink() and protocol.is_team_name(entry.name) and entry.name not in teams:
+                os.unlink(entry.path)
+
+    def _told(self) -> membership.Told | None:
+        """`told` is not the keeper's (H12, H13): carried over from the file as it is."""
+        try:
+            current = membership.read_applied(self.home)
+        except membership.MembershipError:
+            return None
+        return None if current is None else current.told
+
+    def _publish(self, applied: membership.Applied, session: str | None, strict: bool) -> None:
+        """The applied file and the flag file; then, when the host named the session, the
+        report beside the checkout's seats (3.3), which is never authority."""
+        try:
+            membership.write_applied(self.home / membership.APPLIED_FILE, applied)
+            self._flag(bool(applied.seats))
+        except OSError as exc:
+            if strict:
+                raise config.ConfigError(f"the session home {self.home}: {exc.strerror or exc}") from None
+            self._say(f"the applied membership was not written: {exc.strerror or exc}")
+        if session is None:
+            return
+        report = self.root.parent / SESSIONS_DIR / session
+        try:
+            os.makedirs(report, mode=SESSION_HOME_MODE, exist_ok=True)
+            membership.write_applied(report / membership.APPLIED_FILE, applied)
+        except OSError as exc:
+            self._say(f"the report for the host was not written: {exc.strerror or exc}")
+
+    def _flag(self, on: bool) -> None:
+        path = self.home / membership.FLAG_FILE
+        if on:
+            os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600))
+        elif os.path.lexists(path):
+            os.unlink(path)
+
+    # The home.
+
+    def _make_home(self, launch: bool) -> bool:
+        """Whether this keeper made the home. A launch must make it; Repair adopts it."""
+        try:
+            os.mkdir(self.home, SESSION_HOME_MODE)
+        except FileExistsError:
+            if launch:
+                raise config.ConfigError(
+                    f"the session home {self.home} already exists: a session claims its seats once"
+                ) from None
+            _real_dir(self.home)
+            return False
+        os.chmod(self.home, SESSION_HOME_MODE)
+        return True
+
+    def _remove_home(self) -> None:
+        for name in (KEEPER_LOCK, membership.APPLIED_FILE, membership.FLAG_FILE):
+            if os.path.lexists(self.home / name):
+                os.unlink(self.home / name)
+        self.home.rmdir()
+
+    def _say(self, text: str) -> None:
+        self._err.write(f"pingbus seat keep: {text}\n")
+        self._err.flush()
+
+
+def keep(keeper: Keeper, *, parent: int | None, getppid: Callable[[], int] = os.getppid,
+         sleep: Callable[[float], object] = time.sleep, tick_s: float = KEEP_TICK_S) -> int:
+    """Run a started keeper until its parent changes (with `parent`; else until it is
+    killed, which in a container is the container's end), then let every seat go."""
+    try:
+        while parent is None or getppid() == parent:
+            keeper.poll()
+            sleep(tick_s)
+    finally:
+        keeper.release_all()
+    return 0
 
 
 # ── what the SessionStart hook says ──────────────────────────────────────────────────────

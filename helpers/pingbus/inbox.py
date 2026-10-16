@@ -77,8 +77,10 @@ WAKER_KINDS = ("watch", "wait")
 #: What a session writes into each `seat.lock` it claims, followed by the claim time in
 #: milliseconds (DESIGN.md section 5.5); never a sync lock's kind.
 SEAT_KIND = "seat"
+#: What the seat keeper writes into the session home's `keeper.lock` (Plan 00203 D4, H10).
+KEEPER_KIND = "keeper"
 #: Every kind the one lock primitive writes.
-PATH_LOCK_KINDS = (*LOCK_KINDS, SEAT_KIND)
+PATH_LOCK_KINDS = (*LOCK_KINDS, SEAT_KIND, KEEPER_KIND)
 #: Enough for a kind, a space and a claim time.
 KIND_READ_MAX = 64
 #: A held lock whose file does not (yet) name a kind.
@@ -741,11 +743,15 @@ class Lock:
         os.set_inheritable(self.fileno(), True)
 
     def release(self) -> None:
+        """Empty the file, unlock it, close it. The explicit LOCK_UN frees the lock for
+        every copy of the descriptor (Plan 00203 D4); a close alone frees it only when the
+        copy closed is the last."""
         if self._fd is None:
             return
         fd, self._fd = self._fd, None
         try:
             os.ftruncate(fd, 0)
+            fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 
