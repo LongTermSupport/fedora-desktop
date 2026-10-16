@@ -12,7 +12,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/hostcheckout"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
@@ -31,12 +31,14 @@ var errReported = errors.New("already reported on stderr")
 type Collector struct {
 	config.Config
 
-	Systemd  *systemd.Systemd
-	Declare  *declare.Client
-	Tmux     *tmuxccy.Tmux
-	Git      *gitx.Git
-	Bus      *agentbus.Client
-	Registry func() (*registry.Store, error)
+	Systemd *systemd.Systemd
+	Declare *declare.Client
+	Tmux    *tmuxccy.Tmux
+	// Checkouts says whether the folder the command runs in is the host's checkout (its seats
+	// are read) or an LXC container's (they are not: that checkout is the container's).
+	Checkouts *hostcheckout.Finder
+	Bus       *agentbus.Client
+	Registry  func() (*registry.Store, error)
 
 	Term   *term.Term
 	Out    *term.Printer
@@ -44,6 +46,8 @@ type Collector struct {
 	Stderr io.Writer
 	// NeedCheckout refuses, saying why, when the checkout ccy-teams was built from has gone.
 	NeedCheckout func() error
+	// Columns is how wide a terminal stream is, 0 when unknown: the table is laid out to fit it.
+	Columns func(any) int
 	// Now is the clock a health record's age is judged by.
 	Now func() time.Time
 	// Getenv is the environment: XDG_RUNTIME_DIR, where the sessions' desired memberships are.
@@ -52,19 +56,22 @@ type Collector struct {
 	// devices is who is signed in to Element, by "<team>|<person>", read once and kept until
 	// ForgetDevices: one sudo process per person is too much to pay on every redraw.
 	devices map[string]int
-	// workTree is what git said of the folder the command was run in, asked once.
+	// workTree is the checkout the command was run in, asked once: why is set when whose
+	// checkout it is could not be told, and it is then left out.
 	workTree struct {
-		asked, inside bool
-		top           string
+		asked bool
+		here  hostcheckout.Checkout
+		why   string
 	}
 }
 
 // New is the Collector of a host.
 func New(h *host.Host) *Collector {
 	return &Collector{
-		Config: h.Config, Systemd: h.Systemd, Declare: h.Declare, Tmux: h.Tmux, Git: h.Git, Bus: h.Bus,
+		Config: h.Config, Systemd: h.Systemd, Declare: h.Declare, Tmux: h.Tmux, Checkouts: h.Checkouts, Bus: h.Bus,
 		Registry: h.Registry, Term: h.Term, Out: h.Out, Stdout: h.Stdout, Stderr: h.Stderr,
 		NeedCheckout: h.NeedCheckout, Now: time.Now, Getenv: h.Getenv,
+		Columns: func(v any) int { return h.Columns(v) },
 	}
 }
 
@@ -223,10 +230,7 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 		s.addRecord(rec)
 	}
 	c.addDesired(s, listing.Records)
-	if err := c.addWorkTree(ctx, s); err != nil {
-		c.Term.PrintError(err.Error())
-		return errReported
-	}
+	c.addWorkTree(ctx, s)
 	return nil
 }
 
@@ -262,33 +266,23 @@ func signedInWord(devices int) string {
 	return strconv.Itoa(devices) + " signed in"
 }
 
-// addWorkTree notes the checkout the command was run in, if it is in one. The folder does not
-// change while the command runs, so the work tree is asked about once.
-func (c *Collector) addWorkTree(ctx context.Context, s *Snapshot) error {
+// addWorkTree notes the checkout the command was run in, if it is the host's. The folder does
+// not change while the command runs, so it is asked about once, and a failure said once.
+func (c *Collector) addWorkTree(ctx context.Context, s *Snapshot) {
 	if !c.workTree.asked {
-		if err := c.askWorkTree(ctx); err != nil {
-			return err
+		here, err := c.Checkouts.Find(ctx, "")
+		if err != nil {
+			c.workTree.why = "this folder's checkout is unknown"
+			c.Term.PrintError(err.Error() + "; its seats are left out.")
 		}
+		c.workTree.here, c.workTree.asked = here, true
 	}
-	if c.workTree.inside {
-		s.addCheckout(c.workTree.top)
+	if c.workTree.why != "" {
+		s.Incomplete = c.workTree.why
 	}
-	return nil
-}
-
-func (c *Collector) askWorkTree(ctx context.Context) error {
-	here, err := c.Git.ProjectHere(ctx, "")
-	if err != nil {
-		return err
+	if c.workTree.here.Host() {
+		s.addCheckout(c.workTree.here.Top)
 	}
-	c.workTree.inside = here
-	if here {
-		if c.workTree.top, err = c.Git.TopLevel(ctx, ""); err != nil {
-			return err
-		}
-	}
-	c.workTree.asked = true
-	return nil
 }
 
 // collectMembers reads team's roster, and each person's Element sessions, as root without

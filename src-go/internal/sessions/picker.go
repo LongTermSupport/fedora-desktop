@@ -42,9 +42,12 @@ func leave(code term.ExitCode) step { return step{done: true, code: code} }
 
 // pickState is what the picker knows for its whole run.
 type pickState struct {
-	here        string
-	projectHere bool
-	header      string
+	here string
+	// unavailable is why ccy cannot start here, as the new-session row says it, "" when it can;
+	// refusal is the same said in full when Ctrl-N is pressed; outside a project noProject is set.
+	unavailable, refusal string
+	noProject            bool
+	header               string
 	// newAction is the list's own row that starts ccy here, unavailable outside a project.
 	newAction ui.Action
 	// detachedFrom is the sessions a take-over was tried on without attaching here: it may have
@@ -116,11 +119,21 @@ func (a *App) newPickState(ctx context.Context) *pickState {
 		}
 	}
 	here := term.AbbrevHome(pwd, a.Getenv("HOME"))
-	project, err := a.Git.ProjectHere(ctx, "")
-	st := &pickState{here: here, projectHere: err == nil && project}
+	st := &pickState{here: here}
+	switch checkout, err := a.Checkouts.Find(ctx, ""); {
+	case err != nil:
+		st.unavailable, st.refusal = err.Error(), err.Error()+"."
+	case checkout.Top == "":
+		st.noProject = true
+		st.unavailable = here + " is not a project folder (no git repository)"
+		st.refusal = st.unavailable + ", so ccy cannot be started here."
+	case !checkout.Host():
+		st.refusal = checkout.Refusal(term.AbbrevHome(checkout.Top, a.Getenv("HOME")))
+		st.unavailable = st.refusal
+	}
 	st.newAction = ui.Action{ID: actNew, Label: "Start a new ccy session in " + here, Key: "ctrl-n"}
-	if !st.projectHere {
-		st.newAction.Label = "Start a new ccy session here: unavailable, " + here + " is not a project folder (no git repository)"
+	if st.unavailable != "" {
+		st.newAction.Label = "Start a new ccy session here: unavailable, " + st.unavailable
 	}
 	st.header = ui.Header("Enter lists what can be done to the session   Ctrl-T take it over   Ctrl-X end it   Ctrl-N start a new one   Esc or q quit",
 		`"open elsewhere" is attached in another terminal: taking it over detaches that terminal and attaches this one; the session keeps running`,
@@ -166,8 +179,11 @@ func sessionMenu(r tableRow) ui.Menu {
 // noSessions is what the picker does when nothing is running: offer to start ccy in a project
 // folder, or say how.
 func (a *App) noSessions(ctx context.Context, st *pickState) term.ExitCode {
-	if !st.projectHere {
+	if st.unavailable != "" {
 		a.sayf("No CCY or cc sessions are running. Start one with ccy or cc in a project directory.\n")
+		if !st.noProject {
+			a.sayf("%s\n", st.refusal)
+		}
 		return term.ExitOK
 	}
 	yes, err := a.Picker.Confirm(ctx, "CCY sessions", "No sessions are running. Start ccy in "+st.here+"?", "start ccy here", false)
@@ -215,12 +231,12 @@ func (a *App) act(ctx context.Context, st *pickState, picked ui.Picked, rows []t
 	return leave(term.ExitFailure)
 }
 
-// newHere starts ccy in this folder, when it is a project.
+// newHere starts ccy in this folder, when it is the host's own checkout.
 func (a *App) newHere(st *pickState) step {
-	if st.projectHere {
+	if st.unavailable == "" {
 		return a.startHere(st)
 	}
-	a.sayf("%s is not a project folder (no git repository), so ccy cannot be started here.\n", st.here)
+	a.sayf("%s\n", st.refusal)
 	return tried
 }
 

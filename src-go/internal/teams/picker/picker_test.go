@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -86,13 +85,73 @@ func TestPickerHeaderSaysCtrlNIsUnavailableOutsideAProjectAndRestoreOn(t *testin
 	}
 }
 
+func TestPickerHeaderNeverOffersCtrlNInAContainersCheckout(t *testing.T) {
+	h := newRig(t)
+	top := h.InLxcCheckout()
+	h.Script.Fzf = []string{"|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	header := h.HeaderOf(0)
+	if strings.Contains(header, "Ctrl-N starts a new ccy session") {
+		t.Fatalf("a host session is offered in a container's files: %q", header)
+	}
+	if !strings.Contains(header, "Ctrl-N unavailable: "+top+" is LXC container "+teamtest.LxcContainer+"'s checkout") ||
+		!strings.Contains(header, "ccy-teams lxc-add") {
+		t.Fatalf("header %q", header)
+	}
+	if len(h.Script.GumLog) != 0 {
+		t.Fatalf("a session is offered there on the way in: %q", h.Script.GumLog)
+	}
+	if !strings.Contains(h.ErrOut.String(), top+" is LXC container "+teamtest.LxcContainer+"'s checkout") {
+		t.Fatalf("the way in says nothing of it: %q", h.ErrOut.String())
+	}
+}
+
 func TestPickerHeaderHeadingIsBoldOnAColourTerminal(t *testing.T) {
 	h := newRig(t)
 	delete(h.Env, "NO_COLOR")
 	h.Script.Fzf = []string{"|ABORT"}
 	h.run()
-	if !strings.HasSuffix(h.HeaderOf(0), term.Bold+board.HeadingText()+term.Reset+"\n") {
+	if !strings.HasSuffix(h.HeaderOf(0), term.Reset+"\n") || !strings.Contains(h.HeaderOf(0), "\n"+term.Bold+"TEAM ") {
 		t.Fatalf("header %q", h.HeaderOf(0))
+	}
+}
+
+// The rows are laid out together, each seat by its whole handle, and on a terminal too narrow
+// for every column the row keeps what it is and its header carries the rest.
+func TestPickerShowsWholeHandlesAndMovesColumnsToTheHeaderWhenNarrow(t *testing.T) {
+	h := newRig(t)
+	h.Script.Fzf = []string{"|ABORT"}
+	h.run()
+	rows := strings.Join(h.Script.Rows[0], "\n")
+	for _, want := range []string{"alpha  proj.1+local.podman ", "alpha  proj.dev+local.podman ", "up to date"} {
+		if !strings.Contains(rows, want) {
+			t.Fatalf("rows %q lack %q", rows, want)
+		}
+	}
+	if !strings.Contains(h.HeaderOf(0), "APPLIED") || strings.Contains(strings.Join(h.Script.FzfArgs[0], "\n"), "This row: APPLIED") {
+		t.Fatal("a table that fits keeps its columns on the rows")
+	}
+
+	h = newRig(t)
+	h.Host.Columns = func(any) int { return 50 + ui.RowChrome }
+	h.Script.Fzf = []string{"|ABORT"}
+	h.run()
+	lines := strings.Split(strings.TrimSuffix(h.HeaderOf(0), "\n"), "\n")
+	if heading := lines[len(lines)-1]; !strings.HasPrefix(heading, "TEAM ") || !strings.HasSuffix(heading, "STATE") {
+		t.Fatalf("the narrow heading is TEAM MEMBER KIND STATE: %q", heading)
+	}
+	for _, row := range h.Script.Rows[0][:8] {
+		if strings.Contains(row, "up to date") {
+			t.Fatalf("a narrow row keeps the moved columns: %q", row)
+		}
+	}
+	if !strings.Contains(strings.Join(h.Script.Rows[0], "\n"), "alpha  proj.1+local.podman ") {
+		t.Fatalf("the handle stays whole: %q", h.Script.Rows[0])
+	}
+	if !strings.Contains(strings.Join(h.Script.FzfArgs[0], "\n"), "This row: APPLIED up to date   SESSION -") {
+		t.Fatalf("the team row's header carries its moved columns: %q", h.Script.FzfArgs[0])
 	}
 }
 

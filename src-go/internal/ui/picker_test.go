@@ -11,6 +11,23 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
+// RowChrome is what the frame takes from each side of a row: margin, border and padding on
+// both, and the pointer's gutter.
+func TestRowChromeIsWhatTheFrameTakesFromTheTerminal(t *testing.T) {
+	args, err := PickSpec{Title: "t", Rows: []string{"a"}}.fzfArgs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--margin=1,2", "--padding=1,2", "--border=rounded", "--pointer=▶"} {
+		if !slices.Contains(args, want) {
+			t.Fatalf("args %q lack %s", args, want)
+		}
+	}
+	if RowChrome != 2*(2+1+2)+2 {
+		t.Fatalf("RowChrome %d", RowChrome)
+	}
+}
+
 func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\n")})

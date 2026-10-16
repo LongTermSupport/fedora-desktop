@@ -46,6 +46,7 @@ func newRig(t *testing.T, choices string) *rig {
 	w := teamtest.New(t)
 	console := teamtest.Interactive(t, w)
 	w.On("git rev-parse --is-inside-work-tree", "true\n", 0)
+	w.On("git rev-parse --show-toplevel", w.Checkout()+"\n", 0)
 	w.On("git remote get-url origin", "git@example.com:example-org/proj.git\n", 0)
 	w.OnDeclare("github-remote", repo+"\n")
 	w.OnDeclare("choices", choices)
@@ -326,6 +327,21 @@ func TestOutsideAGitHubCheckoutEveryTeamIsListedAndJoinedWithoutWidening(t *test
 	}
 	if r.payload.String() != "1@beta\n" || len(r.Script.GumLog) != 0 || r.Fake.Called("env PYTHONPATH="+r.Host.RootDir+" python3 -P -m helpers.agent_bus.declare choices") {
 		t.Fatalf("payload %q gum %v", r.payload.String(), r.Script.GumLog)
+	}
+}
+
+// A session is never chosen for in an LXC container's checkout seen from the host, whichever
+// way the seats are given: it would run on the container's files as the host user.
+func TestNoSessionIsChosenForInAContainersCheckout(t *testing.T) {
+	for _, args := range [][]string{{"--type=podman"}, {"--type=host", "1@alpha"}, {"--type=host", "--bus"}} {
+		r := newRig(t, alphaCovers+betaWiden)
+		top := r.InLxcCheckout()
+		exit(t, r.run(args...), term.ExitFailure, r)
+		contains(t, "stderr", r.stderr(), top+" is LXC container "+teamtest.LxcContainer+"'s checkout", "ccy-teams lxc-add")
+		r.lacksOutput(t)
+		if len(r.Script.Rows) != 0 || len(r.seatsAsked) != 0 {
+			t.Fatalf("%v: rows %q seats %v", args, r.Script.Rows, r.seatsAsked)
+		}
 	}
 }
 

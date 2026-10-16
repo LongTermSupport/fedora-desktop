@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
@@ -28,85 +29,165 @@ func TestWordColour(t *testing.T) {
 	}
 }
 
-func TestRowTextUsesTheColumnWidths(t *testing.T) {
-	r := Row{Team: "alpha", Member: "-", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"}
-	want := "alpha" + strings.Repeat(" ", 19) + "  -" + strings.Repeat(" ", 35) + "  team    up             up to date          -" +
-		strings.Repeat(" ", 25) + "  -        port 6167"
-	if got := r.Text(); got != want {
-		t.Fatalf("got  %q\nwant %q", got, want)
+// sample is a team with a seat of a long handle that is its coordinator, a worker seat of
+// another checkout with the same seat number, a member with no checkout, and a person.
+func sample() []Row {
+	return []Row{
+		{Team: "alpha", Member: "Builds the site", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
+		{
+			Team: "alpha", Member: "1", Kind: KindCcy, State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: "~/proj",
+			Handle: "a-rather-long-repository-name.1+build-host.podman", Dir: "/proj", Role: "coordinator",
+		},
+		{
+			Team: "alpha", Member: "1", Kind: KindCcy, State: "unknown", Applied: "-", Session: "x(stopped)", Restore: "no", Where: "~/other",
+			Handle: "other.1+local.podman", Dir: "/other", Role: "worker",
+		},
+		{
+			Team: "alpha", Member: "proj.2+local.podman", Kind: KindCcy, State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "worker",
+			Handle: "proj.2+local.podman", Dir: "-", Role: "worker",
+		},
+		{Team: "alpha", Member: "owner", Kind: KindHuman, State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element", Handle: "-", Dir: "-"},
+	}
+}
+
+// starts is where each heading begins on the line.
+func starts(t *testing.T, heading string) []int {
+	t.Helper()
+	at := make([]int, 0, len(headings))
+	for _, h := range headings {
+		i := strings.Index(heading, h)
+		if i < 0 {
+			t.Fatalf("heading %q lacks %s", heading, h)
+		}
+		at = append(at, utf8.RuneCountInString(heading[:i]))
+	}
+	return at
+}
+
+func TestEverySeatShowsItsWholeHandleAndTheCoordinatorItsRole(t *testing.T) {
+	rows := sample()
+	tb := Layout(rows, 0)
+	for i, want := range []string{
+		"a-rather-long-repository-name.1+build-host.podman (coordinator)", "other.1+local.podman  ",
+		"proj.2+local.podman  ", "owner  ",
+	} {
+		if got := tb.Text(rows[i+1]); !strings.Contains(got, "alpha  "+want) {
+			t.Errorf("row %d %q lacks %q", i+1, got, want)
+		}
+	}
+	if strings.Contains(tb.Text(rows[2]), "coordinator") || strings.Contains(tb.Text(rows[3]), "(worker)") {
+		t.Fatal("a worker is marked")
+	}
+	if strings.Contains(tb.Text(rows[1]), "…") {
+		t.Fatal("a handle is cut")
+	}
+}
+
+func TestEachColumnIsAsWideAsItsLongestValueSoNoRowShifts(t *testing.T) {
+	rows := sample()
+	tb := Layout(rows, 0)
+	at := starts(t, tb.Heading())
+	for _, r := range rows {
+		line := tb.Text(r)
+		for i, c := range r.cells() {
+			if i == colMember && r.Kind == KindTeam {
+				continue
+			}
+			got := []rune(line)
+			n := utf8.RuneCountInString(c)
+			if at[i]+n > len(got) || string(got[at[i]:at[i]+n]) != c {
+				t.Errorf("column %s of %q does not start under its heading at %d", headings[i], line, at[i])
+			}
+		}
+		if painted := ansi.ReplaceAllString(tb.Painted(r), ""); painted != line {
+			t.Errorf("painted %q strips to %q, want %q", tb.Painted(r), painted, line)
+		}
+	}
+	if !strings.HasPrefix(tb.Heading(), "TEAM   MEMBER") {
+		t.Fatalf("TEAM is as wide as its longest value: %q", tb.Heading())
 	}
 }
 
 func TestALongDescriptionIsCutOnATerminalAndWholeWhenPiped(t *testing.T) {
 	long := "Coordinates the release of every example service across all regions"
-	r := Row{Team: "alpha", Member: long, Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"}
-	if !strings.Contains(r.Text(), long) {
-		t.Fatalf("the plain row (--list piped) keeps it whole: %q", r.Text())
+	rows := []Row{{Team: "alpha", Member: long, Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"}}
+	if piped := Layout(rows, 0).Text(rows[0]); !strings.Contains(piped, long) {
+		t.Fatalf("the plain row (--list piped) keeps it whole: %q", piped)
 	}
-	painted := ansi.ReplaceAllString(r.Painted(), "")
-	cut := long[:35] + "…"
-	if !strings.Contains(painted, cut+"  team ") || strings.Contains(painted, long) {
-		t.Fatalf("the painted row (a terminal, the picker) cuts it to 36 characters with an ellipsis: %q", painted)
+	tb := Layout(rows, 500)
+	cut := long[:descriptionWidth-1] + "…"
+	for _, line := range []string{tb.Text(rows[0]), ansi.ReplaceAllString(tb.Painted(rows[0]), "")} {
+		if !strings.Contains(line, cut+"  team ") || strings.Contains(line, long) {
+			t.Fatalf("on a terminal it is cut to %d characters with an ellipsis: %q", descriptionWidth, line)
+		}
 	}
-	r.Member = "Short one"
-	if ansi.ReplaceAllString(r.Painted(), "") != r.Text() {
+	rows[0].Member = "Short one"
+	if Layout(rows, 500).Text(rows[0]) != Layout(rows, 0).Text(rows[0]) {
 		t.Fatal("a description that fits is not cut")
 	}
 }
 
-func TestPaintedRowTextEqualsThePlainRow(t *testing.T) {
-	rows := []Row{
-		{Team: "alpha", Member: "-", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167"},
-		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes", Where: "~/proj"},
-		{Team: "alpha", Member: "owner", Kind: "human", State: "in room", Applied: "-", Session: "never signed in", Restore: "-", Where: "Element"},
-		{Team: "alpha", Member: "1", Kind: "ccy", State: "unknown", Applied: "-", Session: "x(stopped)", Restore: "no", Where: "~/p"},
+func TestADescriptionIsCutToTheMemberColumnNotPastIt(t *testing.T) {
+	rows := sample()
+	rows[0].Member = strings.Repeat("d", 80)
+	tb := Layout(rows, 500)
+	line := tb.Text(rows[0])
+	at := starts(t, tb.Heading())
+	if []rune(line)[at[colKind]-3] != '…' || !strings.Contains(line, "…  team ") {
+		t.Fatalf("the description ends at the MEMBER column's edge: %q", line)
+	}
+}
+
+func TestTheTeamRowIsBoldAndItsWordsColoured(t *testing.T) {
+	rows := sample()
+	tb := Layout(rows, 0)
+	if !strings.Contains(tb.Painted(rows[0]), term.Bold+"alpha") || !strings.Contains(tb.Painted(rows[0]), cGreen+"up ") {
+		t.Fatalf("the team row is bold and its words coloured: %q", tb.Painted(rows[0]))
+	}
+	if strings.Contains(tb.Painted(rows[1]), term.Bold) {
+		t.Fatalf("only a team row is bold: %q", tb.Painted(rows[1]))
+	}
+}
+
+func TestATableTooWideForTheTerminalKeepsTheRowWholeAndMovesTheRestOff(t *testing.T) {
+	rows := sample()
+	full := Layout(rows, 0)
+	width := len([]rune(full.Text(rows[1]))) - 1
+	tb := Layout(rows, width)
+	if !tb.Narrow() || full.Narrow() || Layout(rows, width+60).Narrow() {
+		t.Fatal("only a table wider than the terminal is narrow")
+	}
+	heading := tb.Heading()
+	if heading != strings.TrimRight(heading, " ") || strings.Contains(heading, "APPLIED") || !strings.Contains(heading, "STATE") {
+		t.Fatalf("the narrow heading is TEAM MEMBER KIND STATE: %q", heading)
 	}
 	for _, r := range rows {
-		painted := r.Painted()
-		if got := ansi.ReplaceAllString(painted, ""); got != r.Text() {
-			t.Errorf("painted %q strips to %q, want %q", painted, got, r.Text())
+		line := tb.Text(r)
+		if len([]rune(line)) > width {
+			t.Errorf("a narrow row is wider than %d: %q", width, line)
+		}
+		if ansi.ReplaceAllString(tb.Painted(r), "") != line {
+			t.Errorf("painted %q is not %q", tb.Painted(r), line)
+		}
+		rest := tb.Rest(r)
+		for _, want := range []string{"APPLIED " + r.Applied, "SESSION " + r.Session, "RESTORE " + r.Restore, "WHERE " + r.Where} {
+			if !strings.Contains(rest, want) {
+				t.Errorf("the rest of %q lacks %q: %q", line, want, rest)
+			}
 		}
 	}
-	if !strings.Contains(rows[0].Painted(), term.Bold+"alpha") || !strings.Contains(rows[0].Painted(), cGreen+"up ") {
-		t.Fatalf("the team row is bold and its words coloured: %q", rows[0].Painted())
+	if !strings.Contains(tb.Text(rows[1]), "a-rather-long-repository-name.1+build-host.podman (coordinator)") {
+		t.Fatalf("the handle stays whole: %q", tb.Text(rows[1]))
 	}
-	if strings.Contains(rows[1].Painted(), term.Bold) {
-		t.Fatalf("only a team row is bold: %q", rows[1].Painted())
-	}
-}
-
-func TestTheCoordinatorsSeatRowSaysSoAndPaintsTheSame(t *testing.T) {
-	r := Row{
-		Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Restore: "yes",
-		Where: "~/proj", Dir: "/proj", Role: "coordinator",
-	}
-	if !strings.Contains(r.Text(), "1 (coordinator)") {
-		t.Fatalf("got %q", r.Text())
-	}
-	if got := ansi.ReplaceAllString(r.Painted(), ""); got != r.Text() {
-		t.Fatalf("painted %q strips to %q, want %q", r.Painted(), got, r.Text())
-	}
-	r.Role = "worker"
-	if strings.Contains(r.Text(), "coordinator") {
-		t.Fatalf("a worker's row says coordinator: %q", r.Text())
+	if full.Rest(rows[1]) != "" {
+		t.Fatal("a table that fits moves nothing off its rows")
 	}
 }
 
-func TestAMemberWithNoCheckoutKeepsItsHandleAndSaysTheRoleInWhere(t *testing.T) {
-	r := Row{
-		Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "active", Applied: "-", Session: "-",
-		Restore: "-", Where: "coordinator", Dir: "-", Role: "coordinator",
-	}
-	if strings.Contains(r.Text(), "(coordinator)") {
-		t.Fatalf("a long handle must not be widened: %q", r.Text())
-	}
-}
-
-func TestHeading(t *testing.T) {
-	h := HeadingText()
-	for _, w := range []string{"TEAM", "MEMBER", "KIND", "STATE", "APPLIED", "SESSION", "RESTORE", "WHERE"} {
-		if !strings.Contains(h, w) {
-			t.Fatalf("heading %q lacks %s", h, w)
-		}
+func TestAHandleWiderThanEvenTheNarrowTableIsStillWhole(t *testing.T) {
+	rows := sample()
+	tb := Layout(rows, 20)
+	if !tb.Narrow() || !strings.Contains(tb.Text(rows[1]), "a-rather-long-repository-name.1+build-host.podman (coordinator)") {
+		t.Fatalf("got %q", tb.Text(rows[1]))
 	}
 }

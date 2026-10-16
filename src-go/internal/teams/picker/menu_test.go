@@ -281,7 +281,7 @@ func TestASeatsMenuOnATeamWithACoordinatorOffersTheTakeoverLast(t *testing.T) {
 	if at < 0 || slices.ContainsFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Make it the coordinator") }) {
 		t.Fatalf("seat menu %q", labels)
 	}
-	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat 1 from alpha") }); remove < 0 || at < remove {
+	if remove := slices.IndexFunc(labels, func(l string) bool { return strings.HasPrefix(l, "Remove seat proj.1+local.podman from alpha") }); remove < 0 || at < remove {
 		t.Fatalf("the takeover is less prominent than the ordinary choices, after Remove seat: %q", labels)
 	}
 }

@@ -25,7 +25,7 @@ func TestAKeyOrAMenuLineRoutesToTheFlowThatOwnsIt(t *testing.T) {
 		{"", "owner", "What to do with owner in alpha"},
 		{"?", "owner", "Each team is a bold row"},
 		{"", board.NoDescription, "What to do with team alpha"},
-		{"", "dev", "What to do with dev in alpha"},
+		{"", "dev", "What to do with proj.dev+local.podman in alpha"},
 		{"attach", "dev", "has no running session to attach"},
 		{"", "proj.box+role.lxc", "What to do with proj.box+role.lxc in alpha"},
 		{"ctrl-z", "1", nothingOnThisRow},
@@ -34,7 +34,7 @@ func TestAKeyOrAMenuLineRoutesToTheFlowThatOwnsIt(t *testing.T) {
 		h := newRig(t)
 		h.Script.Gum = []string{"NO"}
 		r := h.run1(t)
-		row := h.row(t, r.snap, c.member).Text()
+		row := h.text(t, r.snap, c.member)
 		switch c.key {
 		case "attach":
 			h.Script.Fzf = []string{"|" + row, "|Attach this terminal", "|EXIT"}
@@ -69,7 +69,7 @@ func TestUpdateAllIsApplyAll(t *testing.T) {
 	h := newRig(t)
 	h.outdatedUntilApplied("unstamped")
 	r := h.run1(t)
-	h.Script.Fzf = []string{"ctrl-u|" + h.row(t, r.snap, board.NoDescription).Text()}
+	h.Script.Fzf = []string{"ctrl-u|" + h.text(t, r.snap, board.NoDescription)}
 	if err := r.listPass(context.Background()); err != nil {
 		t.Fatal(err)
 	}

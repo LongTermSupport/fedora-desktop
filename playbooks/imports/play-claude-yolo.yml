@@ -865,6 +865,22 @@
         - scripts
         - launchers
 
+    # Before offering a session in a checkout, both commands ask where root's LXC keeps its
+    # containers, so a checkout inside one (seen from the host) is never taken for the host's.
+    # This rule lets them ask without a password; the file says why it is safe.
+    - name: Let ccy-teams and ccy-sessions read where LXC keeps its containers without a password (a scoped sudoers rule)
+      become: true
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/etc/sudoers.d/ccy-lxc-path.j2"
+        dest: /etc/sudoers.d/ccy-lxc-path
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+      tags:
+        - scripts
+        - launchers
+
     # =========================================================================
     # Restore ccy sessions after a reboot — OPT-IN (Plan 00135, issue #44)
     # =========================================================================

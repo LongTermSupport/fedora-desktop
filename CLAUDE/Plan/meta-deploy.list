@@ -28,3 +28,12 @@
 # could not be registered. THE EXTENSION CHANGED: LOG OUT AND BACK IN after this run (Wayland
 # reloads extension code only at login); the scripts and binaries apply at once.
 playbooks/imports/optional/common/play-speech-to-text.yml
+# Plan 00201 Task 2.17: ccy-teams shows every seat by its whole handle (<repo>.<seat>+<host>.<type>,
+# the coordinator's with (coordinator) beside it) in the list, --list and the menus; sizes the
+# table's columns to their longest value, and on a narrow terminal keeps TEAM, MEMBER, KIND and
+# STATE on the row and shows the rest above the headings. ccy-teams and ccy-sessions no longer
+# offer a host or podman session in a checkout inside an LXC container's files (they point to
+# ccy-teams lxc-add instead), and a new sudoers rule, /etc/sudoers.d/ccy-lxc-path, lets them ask
+# where LXC keeps its containers (lxc-config lxc.lxcpath) without a password. Rebuilds both
+# binaries; nothing to restart.
+playbooks/imports/play-claude-yolo.yml

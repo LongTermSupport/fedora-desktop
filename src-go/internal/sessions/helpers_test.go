@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -34,6 +35,8 @@ type harness struct {
 	interruptAt int
 	tty         bool
 	signals     chan os.Signal
+	// lxcInstalled puts the LXC tools on PATH; without it this host has no LXC.
+	lxcInstalled bool
 	// p is the pair of projects a test scripted, when it did.
 	p pair
 }
@@ -81,6 +84,12 @@ func newHarness(t *testing.T) *harness {
 		InContainer: func() bool { return false },
 		Executable:  isExecutable,
 		Getuid:      os.Getuid,
+		LookPath: func(name string) (string, error) {
+			if h.lxcInstalled {
+				return "/usr/bin/" + name, nil
+			}
+			return "", exec.ErrNotFound
+		},
 	}
 	h.app.wire()
 	h.app.Probe = &sessprobe.Probe{

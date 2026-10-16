@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // ExitCode is a tool's exit status. Every run function returns one; only a main turns it
@@ -83,6 +85,20 @@ func FileIsTerminal(v any) bool {
 	}
 	null, err := os.Stat(os.DevNull)
 	return err != nil || !os.SameFile(info, null)
+}
+
+// FileColumns is how many columns wide the terminal v is attached to is: 0 when v is not an
+// *os.File on a terminal, or the terminal does not say, which callers take as no limit.
+func FileColumns(v any) int {
+	f, ok := v.(*os.File)
+	if !ok || !FileIsTerminal(f) {
+		return 0
+	}
+	size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	if err != nil {
+		return 0
+	}
+	return int(size.Col)
 }
 
 // YesNo is a flag's word in the tools' record files: "yes" or "no".

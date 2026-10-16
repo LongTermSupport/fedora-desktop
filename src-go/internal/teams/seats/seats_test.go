@@ -57,7 +57,7 @@ func TestAttachSessionAttachesALiveSessionByName(t *testing.T) {
 
 func TestAttachSeatRefusesWhatCannotBeAttached(t *testing.T) {
 	cases := map[string]string{
-		"dev":                 "Seat dev@alpha has no running session to attach. Ctrl-N starts one.\n",
+		"dev":                 "Seat proj.dev+local.podman in alpha has no running session to attach. Ctrl-N starts one.\n",
 		"proj.2+local.podman": "proj.2+local.podman is a ccy member whose checkout is not known here, so there is no session to attach.\n",
 	}
 	for member, want := range cases {
@@ -118,7 +118,7 @@ func TestNewSessionOffersFreeSeatsAndANewOneAndExecsTheLauncherInTheTop(t *testi
 	if code, ok := flow.ExitCodeOf(err); !ok || code != 0 || res != flow.Done {
 		t.Fatalf("%v %v: %s", res, err, h.ErrOut.String())
 	}
-	if want := []string{"Seat dev@alpha   free\tdev@alpha", "Seat 3@alpha   new\t3@alpha", "Exit"}; !slices.Equal(h.Script.Rows[0], want) {
+	if want := []string{"proj.dev+local.podman   free\tdev@alpha", "Seat 3@alpha   new\t3@alpha", "Exit"}; !slices.Equal(h.Script.Rows[0], want) {
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 	if len(h.Execs) != 1 || h.Execs[0].Dir != h.Checkout() || h.Execs[0].Path != "/x/launcher" ||
@@ -167,6 +167,34 @@ func TestNewSessionCancelledStartsNothing(t *testing.T) {
 	res, err := h.s.NewSession(context.Background(), snap, "alpha")
 	if err != nil || res != flow.Done || len(h.Execs) != 0 {
 		t.Fatalf("%v %v %v", res, err, h.Execs)
+	}
+}
+
+func TestNewSessionNeverStartsInAContainersCheckout(t *testing.T) {
+	h := newRig(t)
+	top := h.InLxcCheckout()
+	snap := h.pass(t)
+	res, err := h.s.NewSession(context.Background(), snap, "alpha")
+	if err != nil || res != flow.Refused || len(h.Execs) != 0 {
+		t.Fatalf("%v %v %+v", res, err, h.Execs)
+	}
+	if !strings.Contains(h.ErrOut.String(), top+" is LXC container "+teamtest.LxcContainer+"'s checkout") ||
+		!strings.Contains(h.ErrOut.String(), "ccy-teams lxc-add") {
+		t.Fatalf("stderr %q", h.ErrOut.String())
+	}
+	if len(h.Script.Rows) != 0 {
+		t.Fatalf("seats were offered: %q", h.Script.Rows)
+	}
+}
+
+func TestNewSessionRefusesWhenItCannotTellWhoseCheckoutItIs(t *testing.T) {
+	h := newRig(t)
+	h.InLxcCheckout()
+	h.OnErr("sudo -n lxc-config lxc.lxcpath", "sudo: a password is required\n", 1)
+	snap := h.pass(t)
+	res, err := h.s.NewSession(context.Background(), snap, "alpha")
+	if err != nil || res != flow.Refused || len(h.Execs) != 0 || !strings.Contains(h.ErrOut.String(), "password is required") {
+		t.Fatalf("%v %v %+v %q", res, err, h.Execs, h.ErrOut.String())
 	}
 }
 

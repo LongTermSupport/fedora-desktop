@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# ccy-teams and ccy-sessions never offer a host or podman session in a checkout that lies in an
+# LXC container's files (its root filesystem as the host sees it, under root's LXC path): an
+# agent there would work on the container's files as the host user. To tell, they ask where
+# root's LXC keeps its containers. This lets them ask without a password: exactly one command
+# with exactly one argument, which prints a directory name and changes nothing. No other
+# argument matches, and this grants no general root.
+{{ user_login }} ALL=(root) NOPASSWD: /usr/bin/lxc-config lxc.lxcpath

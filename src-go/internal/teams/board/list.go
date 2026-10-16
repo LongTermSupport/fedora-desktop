@@ -34,19 +34,33 @@ func (c *Collector) List(ctx context.Context) term.ExitCode {
 	return term.ExitOK
 }
 
-// printTable writes the heading and the rows to stdout: coloured on a terminal, otherwise
-// plain with a blank line under the heading.
+// restIndent starts the line under a row of a narrow table, with the columns moved off it.
+const restIndent = "    "
+
+// printTable writes the heading and the rows to stdout, laid out together: coloured on a
+// terminal, otherwise plain with a blank line under the heading. On a terminal too narrow for
+// every column, each row is followed by the columns moved off it, indented.
 func (c *Collector) printTable(s *Snapshot) error {
+	width := 0
+	if c.Term.IsTerminal(c.Stdout) {
+		width = c.Columns(c.Stdout)
+	}
+	table := Layout(s.Rows, width)
+	colour := c.Term.ColourOn(c.Stdout)
 	var b strings.Builder
-	if c.Term.ColourOn(c.Stdout) {
-		b.WriteString(term.Bold + HeadingText() + term.Reset + "\n")
-		for _, r := range s.Rows {
-			b.WriteString(r.Painted() + "\n")
-		}
+	if colour {
+		b.WriteString(term.Bold + table.Heading() + term.Reset + "\n")
 	} else {
-		b.WriteString(HeadingText() + "\n\n")
-		for _, r := range s.Rows {
-			b.WriteString(r.Text() + "\n")
+		b.WriteString(table.Heading() + "\n\n")
+	}
+	for _, r := range s.Rows {
+		if colour {
+			b.WriteString(table.Painted(r) + "\n")
+		} else {
+			b.WriteString(table.Text(r) + "\n")
+		}
+		if rest := table.Rest(r); rest != "" {
+			b.WriteString(restIndent + rest + "\n")
 		}
 	}
 	if _, err := fmt.Fprint(c.Stdout, b.String()); err != nil {
