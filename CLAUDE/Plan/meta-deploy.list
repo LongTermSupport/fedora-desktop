@@ -80,6 +80,12 @@ playbooks/imports/play-claude-yolo.yml
 # goes to the clipboard, the transcription stays as it was), and a notification at login if a
 # record key could not be registered. THE EXTENSION CHANGED: LOG OUT AND BACK IN after this run
 # (Wayland reloads extension code only at login); the scripts and binaries apply at once.
+# Plan 00208 Phase 4: builds and installs wsi-claude-token, which wsi-claude-process now asks
+# for the Claude account. Settings gains "Use the token with the most allowance left" (off by
+# default, so nothing changes until it is ticked): each post-processing then runs as the token
+# with the most 5-hour and weekly allowance left, read with ccy --token-usage (one small request
+# per token, cached 15 minutes). When none has any left it fails, the notification names each
+# token and its reset, and the panel shows an amber warning icon and a menu item to clear it.
 playbooks/imports/optional/common/play-speech-to-text.yml
 # Plan 00170: clears the play ledger's BROKEN marker (runs check_freshness --clear-broken).
 # A private play run on 10-12 from a linked worktree was outside that worktree's root, and

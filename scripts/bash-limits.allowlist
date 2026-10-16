@@ -46,7 +46,7 @@ files/home/.local/bin/ssh-keys-rekey	228	5	252	-
 files/home/.local/bin/ssh-with-agent.bash	108	6	109	-
 files/home/.local/bin/ssh-with-key	87	2	98	-
 files/home/.local/bin/vmtest-bridge-watcher	53	8	59	-
-files/home/.local/bin/wsi-claude-process	125	3	138	-
+files/home/.local/bin/wsi-claude-process	105	2	113	-
 files/home/.local/share/vmtest/guest-acceptance-desktop.bash	203	2	250	data
 files/home/.local/share/vmtest/guest-acceptance-server-github-token.bash	184	3	186	-
 files/home/.local/share/vmtest/guest-acceptance-server-host-health-kernel-change.bash	265	7	247	data

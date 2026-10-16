@@ -355,6 +355,7 @@
         - panelLook.js
         - recorderLaunch.js
         - postProcess.js
+        - tokenWarning.js
         - stt-hourglass-symbolic.svg
         - prefs.js
         - metadata.json
@@ -398,6 +399,16 @@
       vars:
         go_command_name: wsi-postprocess
         go_command_dest: "/home/{{ user_login }}/.local/bin/wsi-postprocess"
+        go_command_mode: "0755"
+
+    # The one chooser of the Claude account post-processing runs as (src-go/cmd/wsi-claude-token,
+    # Plan 00208): the named token, or the one with the most allowance left, read through ccy's
+    # launcher (play-claude-yolo.yml). wsi-claude-process runs it from the directory it is in.
+    - name: Build and Install the wsi-claude-token Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: wsi-claude-token
+        go_command_dest: "/home/{{ user_login }}/.local/bin/wsi-claude-token"
         go_command_mode: "0755"
 
     # The one reader of the extension's GSettings keys for the recorder scripts

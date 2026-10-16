@@ -18,3 +18,4 @@ ftp-camera	qa-go
 watermark	qa-go
 wsi	scripts/test-wsi-stop-grace.bash
 wsi-postprocess	qa-go
+wsi-claude-token	qa-go
