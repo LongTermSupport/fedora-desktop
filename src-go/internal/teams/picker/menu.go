@@ -1,24 +1,42 @@
 package picker
 
 import (
-	"context"
-	"errors"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
-// The actions, by the key fzf reports for their shortcut. Attaching has none: it is what the
-// menu of a seat does.
+// The actions on a row, by ID. Every one is a line of the row's menu (Enter); some also have a
+// shortcut key, which ui prints beside the line and accepts on the row from the list.
+const (
+	actNew         = "new"
+	actRestore     = "restore"
+	actRemove      = "remove"
+	actElement     = "element"
+	actPassword    = "password"
+	actUpdate      = "update"
+	actHelp        = "help"
+	actAttach      = "attach"
+	actCoordinator = "coordinator"
+	actLxc         = "lxc-add"
+	actElementAll  = "element-all"
+	actShutdown    = "shutdown"
+	actSettings    = "settings"
+	// actAskDescription and actAskLimit undo a never answer to an offer: menu lines of a team
+	// marked never, with no shortcut.
+	actAskDescription = "ask-description"
+	actAskLimit       = "ask-limit"
+)
+
+// The shortcut keys, as fzf names them. Attaching, the coordinator role, adding an LXC
+// container's agent, opening every team and shutting a team's sessions down have none: they are
+// menu lines only, and a key that ends sessions is too easy to press by mistake.
 const (
 	keyNew      = "ctrl-n"
 	keyRestore  = "ctrl-r"
@@ -27,103 +45,71 @@ const (
 	keyPassword = "ctrl-p"
 	keyUpdate   = "ctrl-u"
 	keyHelp     = "?"
-	keyAttach   = "attach"
-	// keyCoordinator, like keyAttach, has no shortcut: it is what the menu of a seat offers.
-	keyCoordinator = "coordinator"
-	// keyLxc is the same: adding an LXC container's agent has no shortcut, only its menu line.
-	keyLxc = "lxc-add"
-	// keyElementAll, opening every team in Element, is a team row's menu line with no shortcut.
-	keyElementAll = "element-all"
-	// keyShutdown, shutting every session of the team down, is a team row's menu line with no
-	// shortcut: a key that ends sessions is too easy to press by mistake.
-	keyShutdown = "shutdown"
-	// keySettings, a team's settings screen, is a team row's menu line with no shortcut.
-	keySettings = "settings"
-	// keyAskDescription and keyAskLimit undo a never answer to an offer: a team row's menu
-	// lines, with no shortcut, shown only on a team marked never.
-	keyAskDescription = "ask-description"
-	keyAskLimit       = "ask-limit"
 )
 
-// backToList is the last line of every menu: leaving it does nothing and shows the list.
+// backToList is the last line of every question: leaving it does nothing and shows the list.
 const backToList = "Back to the list"
 
-// action is one thing that can be done to a row: its key, what it is called in the menu, and
-// the few words the footer gives it.
+// action is one thing that can be done to a row: its ID, its shortcut ("" for none), what it is
+// called in the menu, and the few words the footer gives it.
 type action struct {
-	key string
+	id, key string
 	// label is the menu line; short is the footer's wording.
 	label, short string
 }
 
-// shown is the shortcut as a person reads it ("Ctrl-E"); empty when there is none.
-func (a action) shown() string {
-	switch a.key {
-	case keyAttach, keyCoordinator, keyLxc, keyElementAll, keyShutdown, keySettings, keyAskDescription, keyAskLimit:
-		return ""
-	case keyHelp:
-		return "?"
-	}
-	return "Ctrl-" + strings.ToUpper(strings.TrimPrefix(a.key, "ctrl-"))
-}
-
-// line is the menu line: the words, with the shortcut beside them.
-func (a action) line() string {
-	if a.shown() == "" {
-		return a.label
-	}
-	return a.label + "   (" + a.shown() + ")"
-}
+// ui is the action as the picker lists it.
+func (a action) ui() ui.Action { return ui.Action{ID: a.id, Label: a.label, Key: a.key} }
 
 // footerPart is the action as the footer says it: the shortcut and what it does.
 func (a action) footerPart() string {
-	if a.shown() == "" {
+	if a.key == "" {
 		return a.short + " via Enter"
 	}
-	return a.shown() + " " + a.short
+	return ui.KeyName(a.key) + " " + a.short
 }
 
 // actionsFor is everything that can be done to row, the likeliest first. Every row offers
 // adding an LXC container's agent to its team, just after starting a ccy session in it.
 func (r *run) actionsFor(row board.Row) []action {
 	acts := r.kindActions(row)
-	lxc := action{keyLxc, "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
-	return slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.key == keyNew })+1, lxc)
+	lxc := action{actLxc, "", "Add an LXC container's agent to " + row.Team, "add an LXC container to " + row.Team}
+	return slices.Insert(acts, slices.IndexFunc(acts, func(a action) bool { return a.id == actNew })+1, lxc)
 }
 
 // kindActions is what can be done to row because of what it is.
 func (r *run) kindActions(row board.Row) []action {
 	team := row.Team
-	open := action{keyElement, "Open " + team + " in Element", "open " + team + " in Element"}
-	start := action{keyNew, "Start a ccy session in " + team + ", in this folder", "start a session in " + team}
-	help := action{keyHelp, "What the columns and keys mean", "help"}
+	open := action{actElement, keyElement, "Open " + team + " in Element", "open " + team + " in Element"}
+	start := action{actNew, keyNew, "Start a ccy session in " + team + ", in this folder", "start a session in " + team}
+	help := action{actHelp, keyHelp, "What the columns and keys mean", "help"}
 	switch row.Kind {
 	case board.KindTeam:
 		return append(append([]action{
 			open,
-			{keyElementAll, "Open every team in Element, a window each", "open every team in Element"},
+			{actElementAll, "", "Open every team in Element, a window each", "open every team in Element"},
 			start,
-			{keySettings, "Edit settings", "edit " + team + "'s settings"},
-			{keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
-			{keyShutdown, "Shut down every session of " + team, "shut down " + team + "'s sessions"},
-			{keyRemove, "Take " + team + " down", "take " + team + " down"},
+			{actSettings, "", "Edit settings", "edit " + team + "'s settings"},
+			{actUpdate, keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
+			{actShutdown, "", "Shut down every session of " + team, "shut down " + team + "'s sessions"},
+			{actRemove, keyRemove, "Take " + team + " down", "take " + team + " down"},
 		}, r.askAgainActions(team)...), help)
 	case board.KindHuman:
 		return r.humanActions(row, open, start, help)
 	case board.KindCcy:
 		return r.seatActions(row, open, start, help)
 	}
-	return []action{{keyRemove, "Park " + row.Handle, "park it"}, open, start, help}
+	return []action{{actRemove, keyRemove, "Park " + row.Handle, "park it"}, open, start, help}
 }
 
 // askAgainActions undo a never answer to the description or limit offer of team.
 func (r *run) askAgainActions(team string) []action {
 	var acts []action
 	if r.snap.Description[team] == "" && saidNever(r.p.descriptionMarker(team)) {
-		acts = append(acts, action{keyAskDescription, askDescriptionLabel(team), "be asked to describe " + team + " again"})
+		acts = append(acts, action{actAskDescription, "", askDescriptionLabel(team), "be asked to describe " + team + " again"})
 	}
 	if saidNever(r.p.pathLimitMarker(team)) {
-		acts = append(acts, action{keyAskLimit, askLimitLabel(team), "be asked about " + team + "'s limit again"})
+		acts = append(acts, action{actAskLimit, "", askLimitLabel(team), "be asked about " + team + "'s limit again"})
 	}
 	return acts
 }
@@ -133,21 +119,21 @@ func (r *run) askAgainActions(team string) []action {
 func (r *run) humanActions(row board.Row, open, start, help action) []action {
 	count, known := r.snap.SessionsOf(row.Team, row.Member)
 	if known && count == 0 {
-		signIn := action{keyPassword, "Sign in: set a password (shown once)", "set a password"}
+		signIn := action{actPassword, keyPassword, "Sign in: set a password (shown once)", "set a password"}
 		return []action{signIn, open, start, help}
 	}
-	password := action{keyPassword, "New password — " + login.SignOutPhrase(r.snap, row.Team, row.Member), "new password"}
+	password := action{actPassword, keyPassword, "New password — " + login.SignOutPhrase(r.snap, row.Team, row.Member), "new password"}
 	return []action{open, password, start, help}
 }
 
 // seatActions are a ccy seat's: attaching its session, then restore, a session of the team,
 // Element, whether it is the team's coordinator, and taking the seat away.
 func (r *run) seatActions(row board.Row, open, start, help action) []action {
-	acts := []action{{keyAttach, "Attach this terminal to the seat's session", "attach its session"}}
+	acts := []action{{actAttach, "", "Attach this terminal to the seat's session", "attach its session"}}
 	if current, recorded := r.snap.SeatRestore[row.Dir+"|"+row.Member+"@"+row.Team]; recorded {
-		restore := action{keyRestore, "Start its session again after a reboot", "turn restore on"}
+		restore := action{actRestore, keyRestore, "Start its session again after a reboot", "turn restore on"}
 		if current {
-			restore = action{keyRestore, "Stop starting its session again after a reboot", "turn restore off"}
+			restore = action{actRestore, keyRestore, "Stop starting its session again after a reboot", "turn restore off"}
 		}
 		acts = append(acts, restore)
 	}
@@ -157,9 +143,9 @@ func (r *run) seatActions(row board.Row, open, start, help action) []action {
 	} else {
 		acts = append(acts, start, open)
 	}
-	remove := action{keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
+	remove := action{actRemove, keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
 	if row.Dir == "-" {
-		remove = action{keyRemove, "Park " + row.Handle, "park it"}
+		remove = action{actRemove, keyRemove, "Park " + row.Handle, "park it"}
 	}
 	acts = append(acts, remove)
 	if takeover {
@@ -174,45 +160,32 @@ func (r *run) seatActions(row board.Row, open, start, help action) []action {
 // the menu lists after the ordinary ones.
 func (r *run) coordinatorAction(row board.Row) (action, bool) {
 	if r.snap.RoleOf(row.Team, row.Handle) == agentbus.RoleCoordinator {
-		return action{keyCoordinator, "Stop being coordinator", "stop it being the coordinator"}, false
+		return action{actCoordinator, "", "Stop being coordinator", "stop it being the coordinator"}, false
 	}
 	holder := coordinator.Holding(r.snap.Members[row.Team], row.Handle, seats.SnapshotRunning(r.snap))
 	if holder.Handle != "" {
-		return action{keyCoordinator, coordinator.TakeoverChoice(holder), "replace the coordinator"}, true
+		return action{actCoordinator, "", coordinator.TakeoverChoice(holder), "replace the coordinator"}, true
 	}
-	return action{keyCoordinator, coordinator.NoneChoice(row.Team), "make it the coordinator"}, false
+	return action{actCoordinator, "", coordinator.NoneChoice(row.Team), "make it the coordinator"}, false
 }
 
-// menu is Enter on a row: everything that can be done to it, in words, each with its shortcut.
+// menuFor is Enter on a row: everything that can be done to it, in words, each with its shortcut.
 // Leaving the menu does nothing.
-func (r *run) menu(ctx context.Context, row board.Row) (flow.Result, error) {
-	p := r.p
+func (r *run) menuFor(row board.Row) ui.Menu {
 	acts := r.actionsFor(row)
-	lines := make([]string, len(acts))
-	tags := make([]string, len(acts))
+	items := make([]ui.Action, len(acts))
 	for i, a := range acts {
-		lines[i], tags[i] = a.line(), strconv.Itoa(i)
+		items[i] = a.ui()
 	}
 	subject := row.Member + " in " + row.Team
 	if row.Kind == board.KindTeam {
 		subject = "team " + row.Team
 	}
-	picked, err := p.Kit.Choose(ctx, ui.PickSpec{
-		Title: subject, Rows: lines, Tags: tags, ExitLabel: backToList,
-		Header: ui.Header("Enter choose   Esc or q back to the list", "What to do with "+subject+":", aboutLine(row)),
-	})
-	if errors.Is(err, ui.ErrLeave) {
-		return flow.Done, p.Kit.Interrupted(ctx)
+	return ui.Menu{
+		Title:   subject,
+		Header:  ui.Header("Enter choose   Esc or q back to the list", "What to do with "+subject+":", aboutLine(row)),
+		Actions: items,
 	}
-	if err != nil {
-		return flow.Done, err
-	}
-	i, err := strconv.Atoi(picked.Tag)
-	if err != nil || i < 0 || i >= len(acts) {
-		p.Kit.Term.PrintError("the menu returned a choice that is not in it: " + picked.Tag)
-		return flow.Done, flow.Leave(term.ExitFailure)
-	}
-	return r.do(ctx, acts[i].key, row)
 }
 
 // aboutLine is a team row's description, whole, for the header of its menu; "" for any other row.

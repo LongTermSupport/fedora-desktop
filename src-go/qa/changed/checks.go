@@ -83,6 +83,7 @@ var checkDefs = []checkDef{
 	{id: "ansible-pause", fixed: "whole gate (every pause registers its answer or says why it waits)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runAnsiblePause},
 	{id: "gh-scopes", fixed: "gh-scope-outside-ssot rule, whole gate", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runGhScopes},
 	{id: "ready-wait", fixed: "whole gate (no wait ignores the exit of the process it waits for)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runReadyWait},
+	{id: "hidden-bindings", fixed: "whole gate (no action reachable only by a key)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolPython}, run: runHiddenBindings},
 	{id: "plan-script-logging", fixed: "whole gate (no active plan script uses the un-waitable run-log pattern; no plan-local logs/ dir)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runPlanScriptLogging},
 	{id: "stt-rules", fixed: "whole gate (no model judged present without its weights, no dropdown label that explains itself)", gate: true, whole: true, tools: []string{toolBash, toolGo, toolSemgrep}, run: runSttRules},
 	{id: "version-pins", fixed: "whole gate (the version-pin manifest is well formed and every pin still resolves to a declared var)", gate: true, whole: true, tools: []string{toolBash, toolGo}, run: runVersionPins},
@@ -161,6 +162,10 @@ func runReadyWaitFiles(ctx context.Context, s *session, cp *checkPlan) (checkRes
 
 func runReadyWait(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
 	return s.script(ctx, nil, "qa-ready-wait-rules.bash")
+}
+
+func runHiddenBindings(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {
+	return s.script(ctx, nil, "qa-hidden-bindings.bash")
 }
 
 func runPlanScriptLogging(ctx context.Context, s *session, _ *checkPlan) (checkResult, error) {

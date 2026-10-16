@@ -193,10 +193,8 @@ func TestEveryKeyIsInTheMenuOfTheRowsItActsOn(t *testing.T) {
 			t.Fatalf("every row can open Element, start a session and show help: %s %v", row.Member, keys)
 		}
 	}
-	for _, key := range pickerKeys {
-		// Tab switches the list to the running sessions: it acts on no row, and the header's key
-		// line names it.
-		if !seen[key] && key != keyTab {
+	for _, key := range []string{keyNew, keyRestore, keyRemove, keyElement, keyPassword, keyUpdate, keyHelp} {
+		if !seen[key] {
 			t.Fatalf("%s is in no row's menu", key)
 		}
 	}
@@ -215,7 +213,7 @@ func (h rig) labels(r *run, row board.Row) []string {
 	acts := r.actionsFor(row)
 	out := make([]string, len(acts))
 	for i, a := range acts {
-		out[i] = a.line()
+		out[i] = a.ui().Line()
 	}
 	return out
 }
@@ -294,7 +292,7 @@ func TestChoosingMakeCoordinatorChangesTheRoleThroughSudo(t *testing.T) {
 	h.On(teamtest.SudoBus+"set-role alpha", "", 0)
 	h.Script.Fzf = []string{"|YES"}
 	r := h.run1(t)
-	if _, err := r.do(context.Background(), keyCoordinator, h.row(t, r.snap, "1")); err != nil {
+	if _, err := r.do(context.Background(), actCoordinator, h.row(t, r.snap, "1")); err != nil {
 		t.Fatal(err)
 	}
 	if !h.Fake.Called(teamtest.SudoBus + "set-role alpha proj.1+local.podman --role=coordinator") {

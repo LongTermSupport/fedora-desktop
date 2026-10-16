@@ -92,9 +92,10 @@ func TestTypeAPathOpensTheContainersDirectoriesToWalkWithArrowsAndEnter(t *testi
 		t.Fatalf("declared %q", got)
 	}
 	rows := r.Script.Rows[0]
+	// Each line carries its place in the list; Tab is the shortcut of a row of its own.
 	want := []string{
-		"project/   (a git checkout)\tdir:project", "src/\tdir:src", "srv/\tdir:srv", "Use " + home + " as the checkout\tuse",
-		"../   (up to /home)\tup", "Cancel",
+		"project/   (a git checkout)\t0", "src/\t1", "srv/\t2", "Use " + home + " as the checkout\t3",
+		"../   (up to /home)\t4", "Complete what is typed as a path   (Tab)\t5", "Cancel",
 	}
 	if !slices.Equal(rows, want) {
 		t.Fatalf("rows %q\nwant %q", rows, want)
@@ -112,7 +113,7 @@ func TestTypeAPathOpensTheContainersDirectoriesToWalkWithArrowsAndEnter(t *testi
 		t.Fatalf("args %q", r.Script.FzfArgs[0])
 	}
 	// Inside a checkout, using it is the first row.
-	if first := r.Script.Rows[1][0]; first != "Use "+home+"/project as the checkout   (a git checkout)\tuse" {
+	if first := r.Script.Rows[1][0]; first != "Use "+home+"/project as the checkout   (a git checkout)\t0" {
 		t.Fatalf("rows in the checkout %q", r.Script.Rows[1])
 	}
 	if !slices.Contains(r.lxc.reads, "dirs container-a agent "+home) {

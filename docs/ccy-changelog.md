@@ -17,6 +17,15 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.10 — container 2.77.7
+
+Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
+
+- **Every picker action is a visible choice, not a key alone** (Plan 00203,
+  `project_hidden_bindings`). The "a session is detached here" offer has a `Start a new session here` row where Ctrl-N was the only way. `ccy-sessions` gives each session a menu (Enter) of
+  attach, take over (Ctrl-T) and end (Ctrl-X), and a row of its own to start a new session
+  (Ctrl-N); its header names those keys. In `ccy-teams` a shortcut is accepted only where its
+  line is listed. A key is now only a shortcut, printed beside the line it chooses.
 ## 3.99.12.9 — container 2.77.7
 
 Follows 3.99.12.8 (container 2.77.6).

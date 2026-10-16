@@ -96,6 +96,21 @@ the former, fail fast on the latter.
     `[ -t 2 ]` (or `[ -t 1 ]`). Output piped to a file or another program must be
     plain text, never raw terminal escape codes.
 
+14. **TUI must be UX controls, not magic keys. Keys are OK, but they MUST NOT BE THE ONLY
+    CONTROL SURFACE.** Every action is a visible, named choice in a menu or list, reached
+    with the arrows and Enter. A key is only an accelerator for such a choice: each
+    shortcut is printed on screen beside the action it chooses (in the choice's text
+    or the header), and does nothing where that action is not offered. An action
+    reachable only by a key is a defect. Navigation is not an action: the arrows, page
+    and home/end, Enter on the highlighted row, Tab marking rows in a multi-select list,
+    editing the filter, changing only how the rows are shown (sort order, preview), and
+    Esc/q beside a visible "Back" or "Exit" row. This binds every full-screen or list
+    tool, the Go ones in `src-go/` (`ccy-teams`, `ccy-sessions`, the freeze tools)
+    included. Enforced by the rule
+    [`project_hidden_bindings`](GoProjectRules.md#project_hidden_bindings): in Go a key
+    reaches fzf only as the `Key` of a `ui.Action` (a row, or a line of the row's menu);
+    shell fzf and Python Textual apps are held by `scripts/qa-hidden-bindings.bash`.
+
 ## Canonical patterns
 
 Reuse these shapes verbatim so every script behaves identically.

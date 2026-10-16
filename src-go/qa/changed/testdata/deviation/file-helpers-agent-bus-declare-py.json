@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: helpers/agent_bus/declare.py\ncheck stt-rules-files: helpers/agent_bus/declare.py\ncheck ruff: helpers/agent_bus/declare.py\ncheck go\nnote: helpers/agent_bus/declare.py: no mirrored unit test (tests/helpers/agent_bus/test_declare.py)\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck ready-wait-files: helpers/agent_bus/declare.py\ncheck stt-rules-files: helpers/agent_bus/declare.py\ncheck ruff: helpers/agent_bus/declare.py\ncheck go\ncheck hidden-bindings\nnote: helpers/agent_bus/declare.py: no mirrored unit test (tests/helpers/agent_bus/test_declare.py)\n",
  "stderr": "",
  "status": 0,
  "log": []

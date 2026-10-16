@@ -1,5 +1,5 @@
 {
- "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/qa-bash-limits.bash\ncheck shellcheck: scripts/qa-bash-limits.bash\ncheck shell-directives: scripts/qa-bash-limits.bash\ncheck semgrep: scripts/qa-bash-limits.bash\ncheck ready-wait-files: scripts/qa-bash-limits.bash\ncheck bash-limits\n",
+ "stdout": "plan: 1 changed file(s) vs HEAD\ncheck toolchain\ncheck bash-syntax: scripts/qa-bash-limits.bash\ncheck shellcheck: scripts/qa-bash-limits.bash\ncheck shell-directives: scripts/qa-bash-limits.bash\ncheck semgrep: scripts/qa-bash-limits.bash\ncheck ready-wait-files: scripts/qa-bash-limits.bash\ncheck bash-limits\ncheck hidden-bindings\n",
  "stderr": "",
  "status": 0,
  "log": []

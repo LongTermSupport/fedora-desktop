@@ -121,10 +121,12 @@ Built on `fix/teams-server-robustness`; design and evidence in
   [subagent-reports/261016-m4-opus.md](subagent-reports/261016-m4-opus.md).
 
 - [ ] 🔄 **Task 3.4** (M5): hot control from the picker, built on `feat/hot-control-m5`. In
-  `ccy-teams`, Tab switches to Running sessions (the sessions `session list` shows). There:
-  Ctrl-A adds a session to a team (team, seat, role), Ctrl-X removes it (the coordinator's
-  role goes to no one or to another member), Ctrl-O changes its role, and Enter opens its menu,
-  which adds move, attach and, for an unguarded session, Repair. Every change runs the M4
+  `ccy-teams`, the teams list's last row, Running sessions (or Tab, printed beside it), lists
+  the sessions `session list` shows. Enter on one lists what can be done to it, in words: Add
+  to a team, Remove from `<team>` (the coordinator's role goes to no one or to another
+  member), Change role in `<team>`, Move to another team, Attach and, for an unguarded session,
+  Repair. No action is reached by a key alone (InteractiveScripts.md rule 14; the owner
+  rejected the first build's Ctrl-A/X/O). Every change runs the M4
   `ccy-teams session` command with the words a person would type, so the questions, steps,
   locks and rollback are the same. A refused answer is said and asked again, 3 times at most.
   ccy-teams only: no launcher or container change, so no version bump. Fable review and the

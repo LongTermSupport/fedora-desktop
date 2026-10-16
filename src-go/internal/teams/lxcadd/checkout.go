@@ -25,8 +25,9 @@ const (
 	// typePath is the choice that opens the directory list.
 	typePath = "Type a path…"
 
-	// completeKey completes what is typed, or opens the highlighted directory as Enter does.
-	completeKey = "tab"
+	// actComplete completes what is typed, or opens the highlighted directory as Enter does: a
+	// row of the list, with Tab its shortcut, as a shell has it.
+	actComplete = "complete"
 
 	// maxBrowse is how many moves the directory list takes before the run gives up.
 	maxBrowse = 200
@@ -293,9 +294,10 @@ func (a *Adder) browseSpec(ans *answers, b *browser, back string) ui.PickSpec {
 		notes = append(notes, fmt.Sprintf("%d name that cannot be shown safely is left out.", b.shown.unshown))
 	}
 	return ui.PickSpec{
-		Title:  a.context(ans, "Checkout"),
-		Header: ui.Header("Enter open or choose   Tab complete   Esc back", notes...),
-		Keys:   []string{completeKey}, Rows: rows, Tags: tags, ExitLabel: back,
+		Title:   a.context(ans, "Checkout"),
+		Header:  ui.Header("Enter open or choose   Tab complete   Esc back", notes...),
+		Actions: []ui.Action{{ID: actComplete, Label: "Complete what is typed as a path", Key: "tab"}},
+		Rows:    rows, Tags: tags, ExitLabel: back,
 		Typed: true, Prompt: b.dir, Query: b.query,
 	}
 }
@@ -305,7 +307,7 @@ func (a *Adder) browseSpec(ans *answers, b *browser, back string) ui.PickSpec {
 func (a *Adder) move(ctx context.Context, ans *answers, b *browser, picked ui.Picked) (string, bool) {
 	b.query = ""
 	switch {
-	case picked.Key == completeKey && picked.Query != "":
+	case picked.Action == actComplete && picked.Query != "":
 		// Tab completes what is typed, whichever row fzf highlights for it.
 		a.complete(ctx, ans, b, picked.Query)
 	case picked.Tag == tagUse:
@@ -314,7 +316,7 @@ func (a *Adder) move(ctx context.Context, ans *answers, b *browser, picked ui.Pi
 		b.dir = withSlash(path.Dir(listed(b.dir)))
 	case strings.HasPrefix(picked.Tag, tagDir):
 		b.dir += strings.TrimPrefix(picked.Tag, tagDir) + "/"
-	case picked.Key == completeKey:
+	case picked.Action == actComplete && picked.Tag == "":
 		// Tab with nothing typed and no row: nothing to complete.
 	default:
 		typed := resolve(b.dir, picked.Query)

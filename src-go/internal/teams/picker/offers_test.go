@@ -236,8 +236,8 @@ func TestATeamMarkedNeverCanBeAskedAboutAgainFromItsRowMenu(t *testing.T) {
 			t.Fatalf("team menu %q lacks %q", labels, want)
 		}
 	}
-	for _, key := range []string{keyAskDescription, keyAskLimit} {
-		if _, err := r.do(context.Background(), key, row); err != nil {
+	for _, id := range []string{actAskDescription, actAskLimit} {
+		if _, err := r.do(context.Background(), id, row); err != nil {
 			t.Fatal(err)
 		}
 	}
