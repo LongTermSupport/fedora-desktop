@@ -67,9 +67,11 @@ type Shutdown struct {
 	Bus      *agentbus.Client
 	Registry func() (*registry.Store, error)
 
-	Term       *term.Term
-	Out        *term.Printer
-	Stderr     io.Writer
+	Term   *term.Term
+	Out    *term.Printer
+	Stderr io.Writer
+	// Payload is where --help prints.
+	Payload    io.Writer
 	Stdin      io.Reader
 	IsTerminal func(any) bool
 	Home       string
@@ -83,16 +85,31 @@ type Shutdown struct {
 func New(h *host.Host, kit *flow.Kit, b *board.Collector) *Shutdown {
 	return &Shutdown{
 		Kit: kit, Collect: b.Collect, Tmux: h.Tmux, Bus: h.Bus, Registry: h.Registry,
-		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
+		Term: h.Term, Out: h.Out, Stderr: h.Stderr, Payload: h.Payload, Stdin: h.Stdin, IsTerminal: h.IsTerminal, Home: h.Home,
 		Now: time.Now, Sleep: time.Sleep, Waits: DefaultWaits,
 	}
 }
+
+const helpText = `Usage: ccy-teams shutdown <team> [--yes]
+
+Sends /exit to every ccy session of the team, as if typed, and waits for each to end;
+a session that has not ended within 60 s is stopped (its tmux session killed), and its
+seat is released. The homeserver keeps running. Without --yes it asks first.
+
+Exit codes:
+  0   every session exited cleanly or stopped, or nothing was shut down on request
+  1   a session failed, or a member is not reachable from here (an LXC member)
+  64  usage error
+`
 
 // Run is `ccy-teams shutdown <team> [--yes]` (SD1).
 func (s *Shutdown) Run(ctx context.Context, args []string) term.ExitCode {
 	team, yes := "", false
 	for _, a := range args {
 		switch {
+		case a == "-h" || a == "--help":
+			s.Out.Print(s.Payload, helpText)
+			return term.ExitOK
 		case a == "--yes":
 			yes = true
 		case strings.HasPrefix(a, "-"):
