@@ -114,8 +114,12 @@ owner's decisions D1-D5: `subagent-reports/261016-stt-token-auto-research.md`.
   `claude-token-auto` on, the token with the most room by `ccy --token-usage --json`; none
   with room: every token's state and reset in the reason, and the warning file
 - [x] ✅ **Task 4.3**: `wsi-claude-process` calls it in place of its own token code (the
-  bash shrinks, 125 to 105 code lines), and names the account in its debug log and failure
-  reason. Tests: `tests/speech_to_text/test_claude_process.py`, over a stub chooser
+  bash shrinks, 125 to 104 code lines), and names the account in its debug log and failure
+  reason. Its 170 s limit covers the chooser too: claude gets what is left, so a slow usage
+  read never pushes the run past the callers' 180 s. Tests:
+  `tests/speech_to_text/test_claude_process.py`, over a stub chooser
+- [x] ✅ **Task 4.6**: Fable review fixes (`subagent-reports/261016-token-auto-review-fable.md`):
+  the queue merged with F44's; the time limit above; ccy's first stderr line in the K5 reason
 - [x] ✅ **Task 4.4**: Settings switch "Use the token with the most allowance left"; the
   panel's warning icon and its clearing menu item while the warning file exists
   (`tokenWarning.js`; tests: `tests/extensions/test-stt-token-warning.mjs`)

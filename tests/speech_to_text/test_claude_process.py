@@ -16,6 +16,7 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 # STT_TEST_BIN points at another copy of the scripts, e.g. an older revision, for a
@@ -32,6 +33,7 @@ case "$STUB_CLAUDE_MODE" in
     ok) echo "Rewritten by Claude." ;;
     logged-out) echo "Not logged in · Please run /login"; exit 1 ;;
     empty) ;;
+    slow) sleep 10; echo "Too late." ;;
 esac
 """
 
@@ -54,18 +56,22 @@ class ClaudeProcessTest(unittest.TestCase):
         (prompts / "claude-prompt-corporate.txt").write_text("Rewrite: {TRANSCRIPTION}")
         (self.home / ".local/share/speech-to-text").mkdir(parents=True)
 
-    def chooser(self, token_file="", fail=""):
-        """The stub wsi-claude-token: prints token_file, or fails saying `fail`."""
+    def chooser(self, token_file="", fail="", seconds=0):
+        """The stub wsi-claude-token: takes `seconds`, then prints token_file, or fails
+        saying `fail`."""
         stub = self.bin / "wsi-claude-token"
         if fail:
             stub.write_text(f"#!/bin/bash\necho 'wsi-claude-token: {fail}' >&2\nexit 1\n")
         else:
-            stub.write_text(f"#!/bin/bash\necho 'using the stub account' >&2\nprintf '%s' '{token_file}'\n")
+            stub.write_text(f"#!/bin/bash\nsleep {seconds}\necho 'using the stub account' >&2\n"
+                            f"printf '%s' '{token_file}'\n")
         stub.chmod(0o755)
 
-    def run_script(self, mode="ok"):
+    def run_script(self, mode="ok", budget=None):
         env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
                "STUB_CLAUDE_MODE": mode}
+        if budget is not None:
+            env["WSI_CLAUDE_TIMEOUT_SECONDS"] = str(budget)
         return subprocess.run([str(self.bin / "wsi-claude-process"), "raw words"],
                               capture_output=True, text=True, env=env, timeout=30, check=False)
 
@@ -117,6 +123,27 @@ class ClaudeProcessTest(unittest.TestCase):
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertEqual(result.stderr.strip(), "wsi-claude-process: no Claude token has allowance "
                          "left: work: 5-hour 3%, 7-day 100%")
+        self.assertFalse((self.home / "claude-saw-token").exists())
+
+    def test_claude_gets_only_the_time_choosing_the_token_left(self):
+        # The callers stop waiting at 180 s; the script's own limit (170 s) covers the
+        # chooser too, so a slow usage read cannot push claude past the callers' limit and
+        # turn the real reason into the caller's generic timeout.
+        self.chooser(seconds=2)
+        started = time.monotonic()
+        result = self.run_script("slow", budget=4)
+        took = time.monotonic() - started
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertRegex(result.stderr, r"claude failed as the desktop login \(exit 124\): "
+                         r"no answer within [12] s of the 4 s this run has")
+        self.assertLess(took, 4.5, "claude was given the whole limit after the chooser had used half")
+
+    def test_a_chooser_that_used_up_the_limit_leaves_claude_unrun(self):
+        self.chooser(seconds=3)
+        result = self.run_script(budget=2)
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertRegex(result.stderr, r"choosing the token took [3-9] s of the 2 s this run has; "
+                         r"claude was not run")
         self.assertFalse((self.home / "claude-saw-token").exists())
 
 

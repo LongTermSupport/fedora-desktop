@@ -27,8 +27,9 @@ CONFIG_DIR="${HOME}/.config/speech-to-text"
 LOG_DIR="${HOME}/.local/share/speech-to-text"
 LOG_FILE="${LOG_DIR}/debug.log"
 TOKEN_CHOOSER="$(dirname "$(readlink -f "$0")")/wsi-claude-token"
-# Below the callers' own limits (180 s), so this script reports the timeout itself
-CLAUDE_TIMEOUT_SECONDS=170
+# The whole run, choosing the token included, stays below the callers' own limits
+# (180 s), so this script reports a timeout itself; claude gets what is left of it
+CLAUDE_TIMEOUT_SECONDS="${WSI_CLAUDE_TIMEOUT_SECONDS:-170}"
 DEBUG_MODE=false
 CLAUDE_MODEL="sonnet"
 STYLE="corporate"
@@ -76,10 +77,7 @@ error_exit() {
 }
 
 # Preflight checks
-log "Starting Claude Code post-processing"
-log "Model: $CLAUDE_MODEL"
-log "Style: $STYLE"
-log "Transcription length: ${#TRANSCRIPTION} chars"
+log "Starting Claude Code post-processing: model $CLAUDE_MODEL, style $STYLE, ${#TRANSCRIPTION} chars"
 
 # Check if transcription is provided
 if [[ -z "$TRANSCRIPTION" ]]; then
@@ -125,31 +123,34 @@ fi
 
 # Read prompt template
 PROMPT_TEMPLATE=$(cat "$PROMPT_FILE")
-log "Loaded prompt template (${#PROMPT_TEMPLATE} chars)"
 
 # Replace {TRANSCRIPTION} placeholder
 FULL_PROMPT="${PROMPT_TEMPLATE//\{TRANSCRIPTION\}/$TRANSCRIPTION}"
 
 # Replace {TWEAK} placeholder (used by article prompt; no-op for others)
+TWEAK_LINE=""
 if [[ -n "$TWEAK" ]]; then
     TWEAK_LINE=$'\nAdditional instruction: '"$TWEAK"
-else
-    TWEAK_LINE=""
 fi
 FULL_PROMPT="${FULL_PROMPT//\{TWEAK\}/$TWEAK_LINE}"
 
-log "Constructed full prompt (${#FULL_PROMPT} chars)"
+log "Constructed full prompt (${#FULL_PROMPT} chars, from a ${#PROMPT_TEMPLATE}-char template)"
 
-# Call Claude CLI in headless mode
-log "Calling claude with model=$CLAUDE_MODEL as the $ACCOUNT"
+# Call Claude CLI in headless mode, within what choosing the token left (SECONDS counts
+# from the start of this script; `timeout 0` would mean no limit at all)
+CLAUDE_BUDGET=$((CLAUDE_TIMEOUT_SECONDS - SECONDS))
+if (( CLAUDE_BUDGET < 1 )); then
+    error_exit "choosing the token took ${SECONDS} s of the ${CLAUDE_TIMEOUT_SECONDS} s this run has; claude was not run"
+fi
+log "Calling claude with model=$CLAUDE_MODEL as the $ACCOUNT, within ${CLAUDE_BUDGET} s"
 claude_rc=0
 RESULT=$(printf '%s\n' "$FULL_PROMPT" |
-    timeout "$CLAUDE_TIMEOUT_SECONDS" claude -p --model "$CLAUDE_MODEL" 2>"$CLAUDE_ERR") || claude_rc=$?
+    timeout "$CLAUDE_BUDGET" claude -p --model "$CLAUDE_MODEL" 2>"$CLAUDE_ERR") || claude_rc=$?
 if [[ "$claude_rc" -ne 0 ]]; then
     reason=$(tr '\n' ' ' <"$CLAUDE_ERR")
     [[ -n "$reason" ]] || reason="$RESULT"
     if [[ "$claude_rc" -eq 124 ]]; then
-        reason="no answer within ${CLAUDE_TIMEOUT_SECONDS} s"
+        reason="no answer within ${CLAUDE_BUDGET} s of the ${CLAUDE_TIMEOUT_SECONDS} s this run has"
     fi
     error_exit "claude failed as the $ACCOUNT (exit $claude_rc): ${reason:-no message}"
 fi

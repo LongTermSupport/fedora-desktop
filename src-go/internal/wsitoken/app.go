@@ -17,9 +17,9 @@
 //     value is never printed.
 //   - K5. On: every token's usage is read with `<ccy> --token-usage --json` (Plan 00101: one
 //     small Haiku request per token unless read in the last 15 minutes). Exit 0 or 1 with a
-//     schema 1 document are figures; anything else: `cannot read the tokens' usage (...;
-//     re-run play-claude-yolo.yml)`, exit 1, the warning file left as it was (a broken
-//     reader says nothing about the tokens).
+//     schema 1 document are figures; anything else: `cannot read the tokens' usage (...: exit
+//     N: <ccy's first stderr line>; re-run play-claude-yolo.yml)`, exit 1, the warning file
+//     left as it was (a broken reader says nothing about the tokens).
 //   - K6. A token has room when its status is `ok`, at least one of its 5-hour and 7-day
 //     percentages is reported, and each reported one is below 100; its room is 100 less the
 //     larger. The most room wins; a tie goes to the lower 7-day figure, then the name. Its
@@ -62,7 +62,7 @@ const (
 	tool         = "wsi-claude-token"
 	tokenDir     = ".claude-tokens/ccy/tokens"
 	warningFile  = ".local/share/speech-to-text/claude-tokens-exhausted"
-	usageTimeout = 90 * time.Second
+	usageTimeout = 60 * time.Second // ccy gives each fetch 20 s; claude gets the rest of 170 s
 	full         = 100.0
 	oatPrefix    = "sk-ant-oat01-"
 	minTokenLen  = 90
@@ -242,15 +242,24 @@ func (a App) mostRoom(ctx context.Context) (string, error) {
 func (a App) readUsage(ctx context.Context) (report, error) {
 	ctx, cancel := context.WithTimeout(ctx, usageTimeout)
 	defer cancel()
-	var stdout, stderr bytes.Buffer
-	_, err := a.Env.Runner.Run(ctx, execx.Cmd{
-		Name: a.Env.CCY, Args: []string{"--token-usage", "--json"}, Stdout: &stdout, Stderr: &stderr,
+	var stdout bytes.Buffer
+	res, err := a.Env.Runner.Run(ctx, execx.Cmd{
+		Name: a.Env.CCY, Args: []string{"--token-usage", "--json"}, Stdout: &stdout,
 	})
-	if exit, ok := errors.AsType[*execx.ExitError](err); ok && exit.Code == 1 {
+	exit, isExit := errors.AsType[*execx.ExitError](err)
+	if isExit && exit.Code == 1 {
 		err = nil // no token's usage was read: still a document, and K7's to say why
 	}
 	if err != nil {
-		return report{}, err
+		reason := err.Error()
+		if isExit {
+			reason = fmt.Sprintf("exit %d", exit.Code)
+		}
+		// ccy's own first line says why; the rest would not fit one notification
+		if line := firstLine(string(res.Stderr)); line != "" {
+			reason += ": " + line
+		}
+		return report{}, errors.New(reason)
 	}
 	var rep report
 	if err := json.Unmarshal(stdout.Bytes(), &rep); err != nil {
@@ -260,6 +269,16 @@ func (a App) readUsage(ctx context.Context) (report, error) {
 		return report{}, errors.New("not a schema 1 report")
 	}
 	return rep, nil
+}
+
+// firstLine is the first line of text that is not blank, trimmed; "" when there is none.
+func firstLine(text string) string {
+	for line := range strings.Lines(text) {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // exhausted is K7.

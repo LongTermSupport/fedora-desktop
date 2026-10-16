@@ -258,6 +258,18 @@ func TestK5UsageThatCannotBeReadFailsAndLeavesTheWarningAlone(t *testing.T) {
 	}
 }
 
+func TestK5CcysOwnFirstLineOfStderrIsInTheReason(t *testing.T) {
+	k := newKit(t)
+	k.auto(true)
+	k.run.On([]string{ccyPath, "--token-usage", "--json"},
+		execx.Result{Stderr: []byte("ccy: the token library is missing\nsecond line\n"), ExitCode: 2})
+	k.want(k.exec(), term.ExitFailure, "")
+	k.wantStderr("(" + ccyPath + " --token-usage --json: exit 2: ccy: the token library is missing; re-run play-claude-yolo.yml)")
+	if strings.Contains(k.errb.String(), "second line") {
+		t.Fatalf("stderr %q carries more than ccy's first line", k.errb.String())
+	}
+}
+
 // K6
 
 func TestK6TheTokenWithTheMostRoomIsChosenAndTheWarningCleared(t *testing.T) {

@@ -98,7 +98,7 @@ ccy does not yet offer), and choose again only if the figures now show the chose
 past 100%. That is still a decision on measured data, bounded to one, and it is a decision
 for the owner (D3 below), not built here.
 
-## Design built (Phase 2)
+## Design built (Phase 4)
 
 - **Setting** `claude-token-auto` (boolean, default off). Settings: a switch "Use the token
   with the most allowance left" beside the token choice, its subtitle stating the cost; the
