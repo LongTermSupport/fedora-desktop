@@ -47,7 +47,7 @@ func TestWaitDelay(t *testing.T) {
 }
 
 func TestHiddenBindings(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), HiddenBindings, "fix/internal/ui", "fix/internal/badbind", "fix/qa/rules",
+	analysistest.Run(t, analysistest.TestData(), HiddenBindings, "fix/internal/ui", "fix/internal/ui/notab", "fix/internal/badbind", "fix/qa/rules",
 		"fix/qa/hiddenbindings", "fix/internal/badtea", "fix/internal/ui/frame")
 }
 
