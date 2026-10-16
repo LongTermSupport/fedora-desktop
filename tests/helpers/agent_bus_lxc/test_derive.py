@@ -225,10 +225,40 @@ class ProbeScriptTest(unittest.TestCase):
         self.lxc.write_config()
         self.refused("unprivileged")
 
-    def test_a_rootfs_that_is_not_a_directory_is_refused(self) -> None:
-        self.lxc.config_lines = ["lxc.rootfs.path = overlayfs:/a:/b"]
+    def test_a_btrfs_rootfs_is_read_as_the_directory_it_names(self) -> None:
+        # LXC's btrfs store keeps the rootfs as a subvolume: a directory on the host.
+        self.lxc.config_lines = [f"lxc.rootfs.path = btrfs:{self.lxc.rootfs}"]
         self.lxc.write_config()
-        self.refused("not a directory")
+        self.assertEqual(self.probed().origin, REMOTE)
+        run = self.lxc.checkouts()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(derive.parse_checkouts(run.stdout), [(CHECKOUT, REMOTE)])
+
+    def test_a_bare_rootfs_path_is_a_directory(self) -> None:
+        self.lxc.config_lines = [f"lxc.rootfs.path = {self.lxc.rootfs}"]
+        self.lxc.write_config()
+        self.assertEqual(self.probed().origin, REMOTE)
+
+    def test_a_host_directory_store_that_names_no_absolute_path_is_refused(self) -> None:
+        self.lxc.config_lines = ["lxc.rootfs.path = btrfs:relative/rootfs"]
+        self.lxc.write_config()
+        self.refused("btrfs rootfs that is not an absolute path")
+
+    def test_a_store_the_host_does_not_mount_is_refused_naming_it(self) -> None:
+        for value in ("overlay:/var/lib/lxc/base/rootfs:/var/lib/lxc/devbox/delta0", "overlayfs:/a:/b",
+                      "zfs:lxc/devbox", "lvm:/dev/lxc/devbox", "loop:/var/lib/lxc/devbox/rootdev"):
+            with self.subTest(value):
+                self.lxc.config_lines = [f"lxc.rootfs.path = {value}"]
+                self.lxc.write_config()
+                store = value.split(":", 1)[0]
+                self.refused(f"keeps its root filesystem in LXC's {store} store")
+                self.refused(f"lxc.rootfs.path = {value}")
+
+    def test_a_store_lxc_does_not_have_is_refused_naming_it(self) -> None:
+        self.lxc.config_lines = ["lxc.rootfs.path = ceph:/pool/devbox"]
+        self.lxc.write_config()
+        self.refused("a storage backend this does not know (ceph")
+        self.refused("lxc.rootfs.path = ceph:/pool/devbox")
 
     def test_a_bind_mounted_checkout_is_read_from_its_source(self) -> None:
         # The checkout lives on a desktop path the config binds in, not in the rootfs.

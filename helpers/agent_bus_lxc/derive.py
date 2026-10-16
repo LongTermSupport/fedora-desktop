@@ -60,6 +60,10 @@ _ROOT_READ_TEMPLATE = r'''
 import json, os, re, stat, sys
 mode, lxcpath, container, user, path = sys.argv[1:6]
 CAP = @CAP@
+# Stores whose rootfs is a directory on this host (a btrfs store's is a subvolume), and the
+# other stores LXC has, whose rootfs is mounted only inside the running container.
+HOST_DIRECTORY_STORES = ("dir", "btrfs")
+UNMOUNTED_STORES = ("overlay", "overlayfs", "zfs", "lvm", "loop", "rbd", "nbd")
 FLAGS = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
 
 def die(message):
@@ -129,9 +133,22 @@ for raw in slurp(os.path.join(lxcpath, container, "config")).splitlines():
     if key == "lxc.idmap":
         die("container " + container + " is unprivileged (lxc.idmap); only rootful containers are read")
     if key in ("lxc.rootfs.path", "lxc.rootfs"):
-        rootfs = value[4:] if value.startswith("dir:") else value
+        # LXC writes the backing store as a "<store>:" prefix; a bare path is the dir store.
+        store, colon, rest = ("dir", "", value) if value.startswith("/") else value.partition(":")
+        if colon and store in HOST_DIRECTORY_STORES:
+            rootfs = rest
+        elif not colon:
+            rootfs = value
+        elif store in UNMOUNTED_STORES:
+            die("container " + container + " keeps its root filesystem in LXC's " + store + " store (lxc.rootfs.path = " +
+                value + "), which this host does not mount outside the container, so it cannot be read from here; " +
+                "only the dir and btrfs stores are read")
+        else:
+            die("container " + container + " has a rootfs in a storage backend this does not know (" + store +
+                ", from lxc.rootfs.path = " + value + "); only the dir and btrfs stores are read")
         if not rootfs.startswith("/"):
-            die("container " + container + " has a rootfs that is not a directory (" + value + ")")
+            die("container " + container + " has a " + store + " rootfs that is not an absolute path (lxc.rootfs.path = " +
+                value + ")")
     elif key == "lxc.mount.entry":
         fields = value.split()
         options = fields[3].split(",") if len(fields) >= 4 else []
