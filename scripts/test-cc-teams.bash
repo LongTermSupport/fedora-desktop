@@ -74,14 +74,15 @@ case "$1 $2" in
 esac
 EOF
 # A fake ccy-teams: choose-teams prints $FAKE_WORK/chosen (exit FAKE_CHOOSE_RC) and notes its
-# argv; describe-seats prints a block or a sentence for the list it is given.
+# argv; describe-seats prints a block for the list it is given; internal membership-init prints
+# the session's membership directory under $FAKE_WORK (exit FAKE_INIT_RC).
 cat >"$bin/ccy-teams" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$FAKE_WORK/ccy-teams.calls"
 case "$1 $2" in
     "choose-teams "*) cat "$FAKE_WORK/chosen"; exit "${FAKE_CHOOSE_RC:-0}" ;;
     "describe-seats --block") printf 'This session is on teams: %s\n' "$3" ;;
-    "describe-seats --sentence") [ -z "${FAKE_SENTENCE_RC:-}" ] || exit "$FAKE_SENTENCE_RC"; printf 'You are h in %s.\n' "$3" ;;
+    "internal membership-init") [ -z "${FAKE_INIT_RC:-}" ] || exit "$FAKE_INIT_RC"; printf '%s\n' "$FAKE_WORK/membership/$4" ;;
     *) exit 64 ;;
 esac
 EOF
@@ -89,6 +90,8 @@ chmod 755 "$bin/agent-bus" "$bin/ccy-teams"
 export PATH="$bin:$PATH" FAKE_WORK="$work"
 CC_TEAMS_AGENT_BUS="$bin/agent-bus"
 CC_TEAMS_CCY_TEAMS="$bin/ccy-teams"
+# tmux-session.bash names the session cc runs as in ccy's tmux; here, FAKE_SESSION ("" unnamed).
+ccy_tmux_current_session() { printf '%s\n' "${FAKE_SESSION-cc-proj}"; }
 
 echo "=== the arguments ==="
 
@@ -107,6 +110,14 @@ check "--teams= is a chooser launch too" "true||--model x" "$CC_TEAMS_GIVEN|$CC_
 rc=0
 cc_teams_split_args --teams a --teams b 2>"$work/err" || rc=$?
 check "--teams twice is refused 64" "64" "$rc"
+cc_teams_split_args --bus --resume abc 2>"$work/err"
+check "--bus is the bus on no team (Plan 00203 M6)" "true|true||--resume abc" "$CC_TEAMS_GIVEN|$CC_TEAMS_BUS|$CC_TEAMS_LIST|${CC_TEAMS_REST[*]}"
+cc_teams_split_args --teams 1@a 2>"$work/err"
+check "--teams alone is not --bus" "true|false" "$CC_TEAMS_GIVEN|$CC_TEAMS_BUS"
+rc=0
+cc_teams_split_args --bus --teams 1@a 2>"$work/err" || rc=$?
+check "--bus then --teams is refused 64" "64" "$rc"
+CC_TEAMS_BUS=false
 
 echo "=== the chooser: attended only, host type, then agent-bus checks the list ==="
 
@@ -154,23 +165,32 @@ FAKE_CHECK_RC=64 cc_teams_choose 2>"$work/err" || rc=$?
 check "agent-bus refusing the list is cc's exit" "64" "$rc"
 check "the library has no attended or --resolved branch left" "0" "$(grep -c 'attended\|resolved' "$LIB")"
 
-echo "=== the seats: taken as host, the block shown, the sentence made ==="
+: >"$work/ccy-teams.calls"
+: >"$work/agent-bus.calls"
+CC_TEAMS_BUS=true CC_TEAMS_LIST="" CC_TEAMS_SEATS=""
+rc=0
+cc_teams_choose >"$work/out" 2>"$work/err" || rc=$?
+check "--bus asks the chooser only the consent, with the list (none)" "0|choose-teams --type=host --bus " "$rc|$(cat "$work/ccy-teams.calls")"
+check "--bus makes no seat and checks none" "|0" "$CC_TEAMS_SEATS|$(grep -c . "$work/agent-bus.calls")"
+rc=0
+(FAKE_CHOOSE_RC=1 cc_teams_choose) 2>"$work/err" || rc=$?
+check "--bus with a declined consent is cc's exit" "1" "$rc"
+CC_TEAMS_BUS=false
+
+echo "=== the seats: taken as host, the block shown ==="
 
 checkout="$work/checkout"
 mkdir -p "$checkout"
 rm -f "$work/agent-bus.calls"
 : >"$work/ccy-teams.calls"
 CC_TEAMS_SEATS="2@dev-team,1@other"
-(cd "$checkout" && cc_teams_take >"$work/out" 2>"$work/err" && printf '%s\n' "$CC_TEAMS_SENTENCE" >"$work/sentence")
+(cd "$checkout" && cc_teams_take >"$work/out" 2>"$work/err")
 check "take names every seat and the host type" "seat take 2@dev-team,1@other --type=host" "$(cat "$work/agent-bus.calls")"
 check "the seats exist" "yes|yes" "$(yes_no test -d "$checkout/.claude/ccy/pingbus/seats/dev-team/2")|$(yes_no test -d "$checkout/.claude/ccy/pingbus/seats/other/1")"
 check "the launch block is asked for the seats" "yes" "$(yes_no grep -qx 'describe-seats --block 2@dev-team,1@other' "$work/ccy-teams.calls")"
 check "the block and take's report go to stderr, none to stdout" "" "$(cat "$work/out")"
 check "the block is on stderr" "yes" "$(yes_no grep -q 'This session is on teams: 2@dev-team,1@other' "$work/err")"
-check "the sentence is made for the same seats" "You are h in 2@dev-team,1@other." "$(cat "$work/sentence")"
-rc=0
-(cd "$checkout" && FAKE_SENTENCE_RC=78 cc_teams_take) >"$work/out" 2>"$work/err" || rc=$?
-check "a sentence that cannot be made stops the launch with its code" "78" "$rc"
+check "no sentence naming the handles is made: the teams may change (H32)" "0" "$(grep -c -- '--sentence' "$work/ccy-teams.calls")"
 
 echo "=== the settings: the kit's, plus cc's deny rules ==="
 
@@ -211,8 +231,9 @@ check "the settings file is the owner's alone" "600" "$(stat -c %a "$work/settin
 
 echo "=== what the session reads ==="
 
-prompt=$(cc_teams_prompt "You are myrepo.2+local.host in dev-team and myrepo.1+local.host in other.")
-check "it names its own handles and teams" "yes" "$(yes_no grep -qF 'myrepo.2+local.host in dev-team and myrepo.1+local.host in other' <<<"$prompt")"
+prompt=$CC_TEAMS_PROMPT
+check "it names no team: they are in the session context and may change (H32)" "yes" \
+    "$(yes_no grep -qF 'Your agent-bus teams and seats are given in the session context and may change while you run; the latest agent-bus membership notice is current.' <<<"$prompt")"
 check "it says to post through pingbus" "yes" "$(yes_no grep -q pingbus <<<"$prompt")"
 check "it never mentions Element, sign-ins or other people's accounts" "no" \
     "$(yes_no grep -qiE 'element|riot|matrix session|sign|login|log in|owner|human|as anyone|impersonat' <<<"$prompt")"
@@ -224,30 +245,42 @@ echo "=== the checkout's .claude/ccy/ ==="
 fresh="$work/fresh"
 mkdir -p "$fresh"
 git -C "$fresh" init -q
-(cd "$fresh" && cc_teams_ccy_dir >"$work/out" 2>"$work/err")
+cc_teams_ccy_dir "$fresh" >"$work/out" 2>"$work/err"
 check "a repo never used with ccy gets .claude/ccy/ (0700)" "700" "$(stat -c %a "$fresh/.claude/ccy")"
 check "seats' tree is ignored by git, so seat take may place a token there" "0" \
     "$(cd "$fresh" && git check-ignore -q .claude/ccy/pingbus/ && echo 0 || echo 1)"
 check "creating it says nothing on stdout" "" "$(cat "$work/out")"
 echo marker >"$fresh/.claude/ccy/keep"
-(cd "$fresh" && cc_teams_ccy_dir 2>"$work/err")
+cc_teams_ccy_dir "$fresh" 2>"$work/err"
 check "an existing .claude/ccy/ is left as it is" "marker" "$(cat "$fresh/.claude/ccy/keep")"
 linked="$work/linked"
 mkdir -p "$linked/.claude" "$work/elsewhere-dir"
 git -C "$linked" init -q
 ln -s "$work/elsewhere-dir" "$linked/.claude/ccy"
 rc=0
-(cd "$linked" && cc_teams_ccy_dir) 2>"$work/err" || rc=$?
+cc_teams_ccy_dir "$linked" 2>"$work/err" || rc=$?
 check ".claude/ccy as a symlink is refused 78" "78" "$rc"
 
 echo "=== the command line ==="
 
-cc_teams_command "$work/tmp" "$checkout" "2@dev-team,1@other" "You are h in x." --resume abc
+: >"$work/ccy-teams.calls"
+CC_TEAMS_SEATS="2@dev-team,1@other"
+cc_teams_command "$work/tmp" "$checkout" --resume abc 2>"$work/err"
 got=$(printf '%s\n' "${CC_TEAMS_CMD[@]}")
-want=$(printf '%s\n' env "PINGBUS_SEATS=2@dev-team,1@other" "$KIT_SRC/pingbus" seat exec --root "$checkout/.claude/ccy/pingbus/seats" \
-    --home "$work/tmp/pingbus-home" -- claude --plugin-dir "$KIT_SRC/plugin/pingbus" \
-    --settings "$work/tmp/settings.json" --append-system-prompt "$(cc_teams_prompt 'You are h in x.')" --resume abc)
-check "pingbus seat exec claims the checkout's seats, then claude with plugin and settings" "$want" "$got"
+want=$(printf '%s\n' env -u PINGBUS_SEATS "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$KIT_SRC/pingbus" seat exec --accepts-inbound \
+    --root "$checkout/.claude/ccy/pingbus/seats" --home "$work/tmp/pingbus-home" -- claude --plugin-dir "$KIT_SRC/plugin/pingbus" \
+    --settings "$work/tmp/settings.json" --append-system-prompt "$CC_TEAMS_PROMPT" --resume abc)
+check "the keeper follows the membership; claude gets the plugin, the settings and the prompt (H31)" "$want" "$got"
+check "the membership is written first, kind cc, under the session's name, with its seats" \
+    "internal membership-init --kind=cc cc-proj $checkout 2@dev-team,1@other" "$(cat "$work/ccy-teams.calls")"
+: >"$work/ccy-teams.calls"
+CC_TEAMS_SEATS=""
+FAKE_SESSION="" cc_teams_command "$work/tmp" "$checkout" 2>"$work/err"
+check "a cc outside ccy's tmux names its membership cc.<pid>, on no team for --bus" \
+    "internal membership-init --kind=cc cc.$$ $checkout " "$(cat "$work/ccy-teams.calls")"
+rc=0
+FAKE_INIT_RC=78 cc_teams_command "$work/tmp" "$checkout" 2>"$work/err" || rc=$?
+check "a membership that cannot be written stops the launch with its code" "78" "$rc"
 
 echo "=== the session records its teams for the status line ==="
 
@@ -275,13 +308,14 @@ CC_TEAMS_LIST=""
 : >"$work/agent-bus.calls"
 : >"$work/ccy-teams.calls"
 rc=0
-(cd "$prep_repo" && cc_teams_prepare "$work/prep-tmp" --resume x && printf '%s\n' "${CC_TEAMS_CMD[1]}" >"$work/cmd1") >"$work/out" 2>"$work/err" || rc=$?
+(cd "$prep_repo" && cc_teams_prepare "$work/prep-tmp" --resume x && printf '%s\n' "${CC_TEAMS_CMD[3]}" >"$work/cmd1") >"$work/out" 2>"$work/err" || rc=$?
 check "prepare succeeds" "0" "$rc"
-check "chooser first, then agent-bus check, then take" "choose-teams --type=host |describe-seats --block 1@dev-team|describe-seats --sentence 1@dev-team" \
+check "chooser first, then agent-bus check, then take, then the membership" \
+    "choose-teams --type=host |describe-seats --block 1@dev-team|internal membership-init --kind=cc cc-proj $prep_repo 1@dev-team" \
     "$(paste -sd'|' "$work/ccy-teams.calls")"
 check "agent-bus saw check then take" "seat check 1@dev-team|seat take 1@dev-team --type=host" "$(paste -sd'|' "$work/agent-bus.calls")"
 check "the seat exists" "yes" "$(yes_no test -d "$prep_repo/.claude/ccy/pingbus/seats/dev-team/1")"
-check "the command was built for the seats" "PINGBUS_SEATS=1@dev-team" "$(cat "$work/cmd1")"
+check "the command follows the membership" "PINGBUS_MEMBERSHIP=$work/membership/cc-proj" "$(cat "$work/cmd1")"
 rm -rf "$prep_repo/.claude/ccy/pingbus"
 : >"$work/agent-bus.calls"
 rc=0
@@ -303,6 +337,17 @@ rc=0
 (cd "$untouched_link" && cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
 check ".claude/ccy as a symlink is refused (78) before any seat is taken" "78|0" \
     "$rc|$(grep -c 'seat take' "$work/agent-bus.calls")"
+bus_repo="$work/prep-bus"
+mkdir -p "$bus_repo"
+git -C "$bus_repo" init -q
+: >"$work/agent-bus.calls"
+: >"$work/ccy-teams.calls"
+rc=0
+(cd "$bus_repo" && CC_TEAMS_BUS=true cc_teams_prepare "$work/prep-tmp") >"$work/out" 2>"$work/err" || rc=$?
+check "--bus: the consent, no seat, then a membership on no team (H32)" \
+    "0|choose-teams --type=host --bus |internal membership-init --kind=cc cc-proj $bus_repo |0" \
+    "$rc|$(paste -sd'|' "$work/ccy-teams.calls")|$(grep -c . "$work/agent-bus.calls")"
+check "--bus still makes the checkout's .claude/ccy/, where the keeper reports" "yes" "$(yes_no test -d "$bus_repo/.claude/ccy")"
 CC_TEAMS_KIT="$KIT_SRC"
 
 echo "=== cc and pingbus name the same acceptance record ==="

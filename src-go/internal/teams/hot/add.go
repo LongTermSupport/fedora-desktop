@@ -178,7 +178,7 @@ func (x *Hot) chooseSeat(ctx context.Context, t *target, team, given string, sea
 		}
 		return c, taken(given), nil
 	}
-	offered, err := x.Host.Bus.SeatChooseIn(ctx, t.checkout(), team, memberType)
+	offered, err := x.Host.Bus.SeatChooseIn(ctx, t.checkout(), team, t.memberType())
 	if err != nil {
 		return choice{}, "", fmt.Errorf("agent-bus seat choose %s: %w", team, err)
 	}
@@ -258,7 +258,7 @@ func (x *Hot) makeSeat(ctx context.Context, t *target, team string, c *choice) (
 		return term.ExitOK, true
 	}
 	noPrompt := !x.Host.IsTerminal(x.Host.Stdin)
-	if err := x.Host.Bus.SeatTakeAllocated(ctx, t.checkout(), c.seat+"@"+team, memberType, noPrompt); err != nil {
+	if err := x.Host.Bus.SeatTakeAllocated(ctx, t.checkout(), c.seat+"@"+team, t.memberType(), noPrompt); err != nil {
 		x.mark(markFailed, "seat "+c.seat+": agent-bus seat take: "+lastLine(err))
 		if errors.Is(err, agentbus.ErrBusy) {
 			return exitBusy, false
@@ -275,8 +275,11 @@ func (x *Hot) makeSeat(ctx context.Context, t *target, team string, c *choice) (
 	return term.ExitOK, true
 }
 
-// reach is H22 step 5 (H30): the route from inside the container.
+// reach is H22 step 5 (H30): the route from inside the container (a cc session's, the host's).
 func (x *Hot) reach(ctx context.Context, t *target, team string) (term.ExitCode, bool) {
+	if t.cc() {
+		return x.ccReach(ctx, t, team)
+	}
 	if err := sessprobe.ExecIn(ctx, x.Host.Runner, t.container, "pingbus", "reach", "--team", team); err != nil {
 		x.mark(markFailed, "route: "+lastLine(err))
 		return term.ExitFailure, false
@@ -314,6 +317,9 @@ func (x *Hot) apply(ctx context.Context, t *target, team string, c choice, alloc
 	if inbound {
 		x.say("Done. The session is told it joined " + team + " as " + c.handle + ". Nothing restarted.")
 		return term.ExitOK
+	}
+	if t.cc() {
+		return x.ccNoInbound(c.seat)
 	}
 	if code := x.relaunch(ctx, t, team, c.seat); code != term.ExitOK {
 		return code

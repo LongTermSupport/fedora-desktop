@@ -18,8 +18,9 @@ take`, run by the launcher); this module never does.
   `PINGBUS_MEMBERSHIP` it follows the desired file as it changes; without it, the launch's
   `PINGBUS_SEATS`. Every lock is close-on-exec, so the session's processes hold none and a
   detached one cannot keep a seat (audit F5); release is an explicit `LOCK_UN`. A ccy
-  launch names its seats (possibly none) in the read-only desired file (membership.py);
-  `cc --teams` still passes `PINGBUS_SEATS`.
+  launch names its seats (possibly none) in the read-only desired file (membership.py); so
+  does `cc --teams` or `cc --bus`, in a directory of its own on the host (Plan 00203 M6). No
+  launcher passes `PINGBUS_SEATS` any more.
 - `session_settings` and its helpers: under the desired membership, `seat exec` writes the
   session's settings and its inner status line into the home (H34); the keeper keeps the
   `active` flag the plugin's hooks are guarded on (H33).
@@ -501,7 +502,8 @@ class Keeper:
                  home: pathlib.Path, clock_ms: Callable[[], int], err: TextIO,
                  sleep: Callable[[float], object] = time.sleep, uid: int | None = None,
                  user_home: pathlib.Path | None = None, environ: Mapping[str, str] | None = None,
-                 spawn_watcher: Callable[[Mapping[str, str], pathlib.Path], object] | None = None) -> None:
+                 spawn_watcher: Callable[[Mapping[str, str], pathlib.Path], object] | None = None,
+                 inbound: bool | None = None) -> None:
         self.source, self.root, self.home = source, pathlib.Path(root), pathlib.Path(home)
         self._clock_ms, self._sleep, self._err = clock_ms, sleep, err
         self._uid, self._user_home = uid, user_home
@@ -511,7 +513,9 @@ class Keeper:
         self._stamp: object = None
         self._told_stamp: object = None
         self._want: Want | None = None
-        self._inbound: bool | None = None
+        #: Whether the session accepts team messages: given by a launcher whose own settings
+        #: accept (cc), else the launch's seats, or (Repair) the session's settings.
+        self._inbound: bool | None = inbound
 
     # The life of the keeper.
 

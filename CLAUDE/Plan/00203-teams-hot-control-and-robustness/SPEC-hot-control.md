@@ -553,6 +553,31 @@ Two things are **not** frozen:
   - A cc session launched without `--teams` or `--bus` is not hot-controllable (the plugin is
     not loaded). `cc --bus` starts one with an empty membership, after the same Element
     consent.
+  - As built in M6 (H31, H32):
+    - The directory is named for the session's own name in ccy's tmux (`cc-<id>`, as its
+      registry record is), written by `ccy-teams internal membership-init --kind=cc`; its
+      `membership.json` says `kind: cc`, and every reader refuses a kind that does not match its
+      directory. A cc started outside ccy's tmux has no name, so its directory is `cc.<pid>`: it
+      follows the file, but no host command can find it (H35).
+    - Liveness is the session's pane on ccy's tmux server; the keeper is found in the process
+      tree under that pane (`pingbus ... seat keep`). The route check runs on the host:
+      `pingbus reach --team T`, "this host reaches T's homeserver".
+    - cc's settings already accept cross-session inbound (H34), so `seat exec --accepts-inbound`
+      tells the keeper so: the report says `inbound` with no team, and `cc --bus`'s first join
+      is hot. cc has no supervisor to relaunch it; Decision 7 in PLAN.md is that call.
+    - `session repair` refuses a cc session (exit 78): its keeper ends with its claude, and one
+      started from the host would outlive the session. The list's state for a cc session with
+      no keeper is `unguarded: end it and start it again from ccy-sessions`.
+    - The record follows the change (`registry.SetCCTeams`): `--teams <seats>` while it has
+      seats, `--bus` when it has none, so a restart from `ccy-sessions` starts where the last
+      hot change left it. cc refuses `--bus` with `--teams` (64).
+    - The chooser's `choose-teams --type=host --bus` asks the consent alone and prints nothing;
+      `describe-seats --sentence` is gone, with the system prompt that named the handles.
+    - Not in M6: agent-bus's own H21 liveness (a running container) does not count a cc session,
+      so `agent-bus seat take` from another launcher does not see a cc session's desired seat
+      until its keeper locks it; `ccy-teams` does. pingbus still reads `PINGBUS_SEATS`, which no
+      launcher now sets. The picker (M5) shows cc sessions through `hot`'s session list and
+      `discover.RunningCC`, with no change to its UI.
 
 ### The inert contract, and who can be hot-controlled
 

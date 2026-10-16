@@ -154,6 +154,10 @@ Usage:
                                    run (exit 1); with no terminal and no valid record
                                    (yours, mode 600, in your closed folder) it exits 78
                                    before any seat is made. ccy --teams and cc --teams call it
+  ccy-teams choose-teams --type=host --bus
+                                   only that once-per-user question, for cc --bus: a session
+                                   on no team that you add to teams later (ccy-teams session
+                                   add). Prints nothing; declining ends the run (exit 1)
   ccy-teams record-seats <session> <seats>
                                    put the seats (a canonical --teams list) into the record of
                                    the session, so its restore replays them. ccy calls it, naming
@@ -165,6 +169,12 @@ Usage:
                                    private to you, and print that directory, which ccy mounts
                                    read-only into the container. ccy calls it at each launch
                                    that carries the bus kit (Plan 00203)
+  ccy-teams internal membership-init --kind=cc <session> <checkout> <seats>
+                                   the same for cc --teams and cc --bus, into
+                                   $XDG_RUNTIME_DIR/pingbus/membership/<session>/, which the
+                                   session reads directly (it runs as you, so it could write it
+                                   too); the seats also go into the session's record. cc calls
+                                   it at each such launch
   ccy-teams internal restart-args <session>
                                    read a relaunch's arguments, NUL separated, on stdin and
                                    print them with the --teams of <session>'s record ("" for an
@@ -208,9 +218,6 @@ Usage:
                                    print "This session is on N teams:" and, per seat, its
                                    team, seat, role and what the team is for: the block a
                                    launch shows once its seats are taken
-  ccy-teams describe-seats --sentence <list>
-                                   print "You are <handle> in <team>, ... and <handle> in
-                                   <team>.": the line cc adds to a host session's prompt
   ccy-teams -h|--help              this text
 
 Backups stay on this machine (docs/agent-bus.md, "Backups are the root of trust").

@@ -88,6 +88,39 @@ func TestDesiredFilesNameSeatsTooAndARecordWins(t *testing.T) {
 	}
 }
 
+// Plan 00203 M6 (H31): a cc session's desired membership lives under pingbus/membership/, and
+// names its seats as a ccy session's does, so allocation and the board count it too.
+func TestReadDesiredReadsCCSessionsToo(t *testing.T) {
+	runtime := t.TempDir()
+	teamtest.MustWrite(t, filepath.Join(membership.Dir(runtime, "ccy-a"), membership.File),
+		`{"v":1,"session":"ccy-a","kind":"ccy","checkout":"/h","generation":1,"written_ms":1,"seats":[],"farewell":[]}`)
+	teamtest.MustWrite(t, filepath.Join(membership.CCDir(runtime, "cc-b"), membership.File),
+		`{"v":1,"session":"cc-b","kind":"cc","checkout":"/h","generation":3,"written_ms":1,"seats":[{"team":"alpha","seat":"2"}],"farewell":[]}`)
+	teamtest.MustWrite(t, filepath.Join(membership.CCDir(runtime, "cc-c"), membership.File),
+		`{"v":1,"session":"cc-c","kind":"ccy","checkout":"/h","generation":1,"written_ms":1,"seats":[],"farewell":[]}`)
+	desired, unreadable, err := ReadDesired(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(desired))
+	for _, d := range desired {
+		names = append(names, d.Session+":"+d.Kind)
+	}
+	if !reflect.DeepEqual(names, []string{"ccy-a:ccy", "cc-b:cc"}) {
+		t.Fatalf("desired %v", names)
+	}
+	if len(unreadable) != 1 || !strings.Contains(unreadable[0], "cc-c") {
+		t.Fatalf("a ccy membership among cc's is unreadable there: %v", unreadable)
+	}
+	running, _, err := RunningCC(runtime, func(name string) bool { return name != "cc-gone" })
+	if err != nil || len(running) != 1 || running[0].Session != "cc-b" {
+		t.Fatalf("running cc %v %v", running, err)
+	}
+	if running, _, err = RunningCC(runtime, func(string) bool { return false }); err != nil || len(running) != 0 {
+		t.Fatalf("a cc session not on ccy's tmux is not running: %v %v", running, err)
+	}
+}
+
 func TestReadDesiredOfNoDirectoryIsNothing(t *testing.T) {
 	desired, unreadable, err := ReadDesired(t.TempDir())
 	if err != nil || len(desired) != 0 || len(unreadable) != 0 {

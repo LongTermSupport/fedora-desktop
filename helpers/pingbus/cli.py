@@ -2365,13 +2365,15 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
 
 def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
     """Start the seat keeper, which takes every seat of the launch (the desired membership
-    `PINGBUS_MEMBERSHIP` names, or `PINGBUS_SEATS` from `cc --teams`), builds the session home
+    `PINGBUS_MEMBERSHIP` names, or a launch list in `PINGBUS_SEATS`), builds the session home
     and checks every bundle; check the forge credential source as `config check` does when a
     seat is held; then replace this process with the command. The keeper holds every seat
     lock and the command holds none (Plan 00203 D4). A membership with no seat is a session
     on no team: the home and its settings, nothing held.
-    `--root` and `--home` are for a launch on the host (`cc --teams`), where the checkout
-    is not /workspace and /tmp is shared."""
+    `--root` and `--home` are for a launch on the host (`cc --teams`, `cc --bus`), where the
+    checkout is not /workspace and /tmp is shared. `--accepts-inbound` is cc's: claude runs
+    with cc's own settings, which accept team messages, so the session accepts them even on no
+    team and its keeper reports so (Plan 00203 M6)."""
     rt: Runtime = args.runtime
     command = list(args.command)
     if command[:1] == ["--"]:
@@ -2394,13 +2396,14 @@ def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
                             "segment; fix the file and relaunch to get it")
     if want.refs:
         forge_credential_source(environ)
-    _start_keeper(rt, environ, root, home, err)
+    _start_keeper(rt, environ, root, home, err, accepts_inbound=args.accepts_inbound)
     applied = membership.read_applied(home)
     seats = () if applied is None else applied.seats
     if from_membership:
         # Inbound is decided here, once (H33b): a session launched on no team accepts none,
-        # whatever the keeper takes later; its first join relaunches it (M3).
-        seating.write_session_files(home, inner, seated=bool(seats), guard=guard)
+        # whatever the keeper takes later, and its first join relaunches it (M3); cc's own
+        # settings accept from the start.
+        seating.write_session_files(home, inner, seated=bool(seats) or args.accepts_inbound, guard=guard)
     child_env = dict(environ)
     child_env["PINGBUS_HOME"] = str(home)
     child_env.pop("PINGBUS_TEAMS", None)
@@ -2431,11 +2434,11 @@ def _seat_paths(args: argparse.Namespace, rt: Runtime, name: str) -> tuple[pathl
 
 
 def _start_keeper(rt: Runtime, environ: Mapping[str, str], root: pathlib.Path, home: pathlib.Path,
-                  err: TextIO) -> None:
+                  err: TextIO, *, accepts_inbound: bool) -> None:
     """Start this launch's seat keeper (Plan 00203 D4) and wait for it to say the seats are
     taken. A keeper that refuses is this command's failure, with its message and exit code."""
     argv = [*rt.keeper_argv(), "seat", "keep", "--launch", "--parent", str(os.getpid()),
-            "--root", str(root), "--home", str(home)]
+            *(["--accepts-inbound"] if accepts_inbound else []), "--root", str(root), "--home", str(home)]
     proc = rt.spawn_keeper(argv, environ)
     with selectors.DefaultSelector() as selector:
         selector.register(proc.stdout, selectors.EVENT_READ)
@@ -2478,7 +2481,7 @@ def cmd_seat_keep(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
             return EXIT_OK
     keeper = seating.Keeper(seating.desired_source(environ), root=root, home=home,
                             clock_ms=rt.clock_ms, err=err, sleep=rt.sleep, environ=environ,
-                            spawn_watcher=rt.spawn)
+                            spawn_watcher=rt.spawn, inbound=True if args.accepts_inbound else None)
     keeper.start(launch=args.launch)
     try:
         rt.detach(home / seating.KEEPER_LOG, args.launch)
@@ -2684,6 +2687,9 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                            help="the checkout's seats (default: ccy's, under /workspace)")
     seat_exec.add_argument("--home", metavar="DIR",
                            help="the session home to make (default: ccy's, under /tmp)")
+    seat_exec.add_argument("--accepts-inbound", action="store_true",
+                           help="CMD's own settings accept team messages (cc's): the session "
+                                "accepts them on no team too, and its keeper says so")
     seat_exec.add_argument("command", nargs=argparse.REMAINDER, metavar="CMD")
     seat_exec.set_defaults(handler=cmd_seat_exec)
 
@@ -2702,6 +2708,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                            help="end, letting every seat go, when this parent is gone")
     seat_keep.add_argument("--launch", action="store_true",
                            help="seat exec's keeper: a new home, all or nothing, READY on stdout")
+    seat_keep.add_argument("--accepts-inbound", action="store_true",
+                           help="seat exec's, for a session whose own settings accept team messages")
     seat_keep.set_defaults(handler=cmd_seat_keep)
     seat_retire = seat_commands.add_parser(
         "retire", help="on the host, for a seat removed from a session: clear its sync position "

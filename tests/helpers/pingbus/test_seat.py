@@ -793,6 +793,21 @@ class KeeperM3Test(KeeperTest):
             os.unlink(self.session_home / name)
         self.session_home.rmdir()
 
+    def test_a_launch_whose_own_settings_accept_says_so_with_no_team(self):
+        """Plan 00203 M6 (H31, H32): `cc --bus` is launched with cc's own settings, which
+        accept team messages, so its keeper reports inbound on no team, and the host makes its
+        first join without the relaunch a ccy session on no team needs."""
+        self.desire()
+        keeper = seat.Keeper(seat.MembershipFile(self.mount), root=self.root, home=self.session_home,
+                             clock_ms=lambda: T0_MS, sleep=lambda _s: None, err=self.log,
+                             inbound=True)
+        self.addCleanup(keeper.release_all)
+        keeper.start(launch=True)
+        self.assertIs(self.report().inbound, True)
+        self.desire("dev1@team-a")
+        keeper.poll()
+        self.assertIs(self.report().inbound, True)
+
     def test_inbound_stays_what_the_launch_was_after_a_join(self):
         self.desire()
         keeper = self.keeper()
@@ -949,6 +964,18 @@ class MembershipClaimTest(SeatCase):
         settings = json.loads(self.home_file(seat.SESSION_SETTINGS))
         self.assertEqual(settings["crossSessionInbound"], "refuse")
         self.assertEqual(settings["statusLine"]["command"], seat.STATUS_LINE_GUARD)
+
+    def test_accepts_inbound_is_for_a_launcher_whose_own_settings_accept(self):
+        """Plan 00203 M6: `cc --bus` passes --accepts-inbound, because claude runs with cc's own
+        settings (the kit's, which accept, and cc's deny rules), not the session's. The keeper
+        is told, so its report says inbound on no team, and the session's settings agree."""
+        self.write_desired(None)
+        code, _, err = self.run_cli("seat", "exec", "--accepts-inbound", "--", "claude")
+        self.assertEqual(code, 0, err)
+        ((*_, flag, _root_opt, _root, _home_opt, _home),) = self.keeper_argvs
+        self.assertEqual(flag, "--accepts-inbound")
+        self.assertIs(membership.read_applied(self.session_home).inbound, True)
+        self.assertEqual(json.loads(self.home_file(seat.SESSION_SETTINGS))["crossSessionInbound"], "accept")
 
     def test_a_seat_the_keeper_takes_later_never_turns_inbound_on(self):
         """H33b with the keeper: a session launched on no team keeps no inbound when the keeper
@@ -1148,7 +1175,7 @@ class ProtocolDocTest(unittest.TestCase):
 
     def test_section_13_names_seat_exec_and_the_seat_line(self):
         body = self.section(13)
-        self.assertIn("`seat exec [--root DIR] [--home DIR] [--] CMD…`", body)
+        self.assertIn("`seat exec [--accepts-inbound] [--root DIR] [--home DIR] [--] CMD…`", body)
         self.assertIn("`SEAT` (team, seat, `held` or `free`, `self` or `-`, handle)", body)
 
     def test_section_14_gives_75_to_a_held_seat(self):

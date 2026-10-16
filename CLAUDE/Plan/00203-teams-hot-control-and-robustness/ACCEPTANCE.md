@@ -174,3 +174,36 @@ check is judged from what `ccy-teams` printed and exited, the membership files, 
 | (g)  | Two checkouts of team repositories on this machine, both of one team. In each, in ccy's tmux, start a plain `ccy`. From another terminal: `ccy-teams session add <session-1> <team>/1 --yes`, then `ccy-teams session add <session-2> <team>/1 --yes`. | Both exit 0: seat 1 of one checkout is not seat 1 of the other (H21). `ccy-teams session list` shows each session in `<team> (1, worker)`.             |
 | (h)  | On a terminal, with a session that is a team's coordinator: `ccy-teams session remove <session> <team>` (no `--yes`, no `--coordinator`).                                                                                                              | It asks first whether the seat becomes a worker as it leaves (yes by default), then the remove's own question. Answering no to either changes nothing. |
 | (i)  | `ccy-teams session list` on a terminal.                                                                                                                                                                                                                | A table (SESSION, CHECKOUT, TEAMS (seat, role), STATE) and one line saying only sessions started through ccy's tmux can be changed.                    |
+
+## M6: cc sessions
+
+After `meta-deploy.bash` has run `play-claude-yolo.yml` and `play-agent-bus.yml` (CCY 3.99.12,
+container 2.77). M6 runs on the host only: a cc session has no container. It needs the Element
+consent record (`~/.config/pingbus/element-accepted`); with none, it stops at once and says to
+run `cc --teams` once from a terminal and accept.
+
+### What runs by itself (`_acceptance-m6.inc.bash`)
+
+After M4, `acceptance.bash` builds two throwaway teams, `acc-m6a` and `acc-m6b` (human
+`tester`), declared only in a host_vars file in the run directory, and starts throwaway cc
+sessions in ccy's tmux, each with a record (`restore=no`) as cc's own tmux start writes one.
+Each pane runs the deployed `cc-teams.bash` from its seats on (`cc_teams_command`), so the
+membership is written by `ccy-teams internal membership-init --kind=cc`, and `pingbus seat exec`
+and its keeper are the production ones. Two steps are not cc's: the seats are taken from this
+terminal, where sudo is primed, and `claude` is a stand-in that records its pid and sleeps. It
+removes the sessions, their records, membership directories and reports, both teams and their
+seat directories on the way out, however the run ends.
+
+| Step | What passes                                                                                                                                                                                                                                                                                                                                                             |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a)  | `session move A acc-m6a acc-m6b --yes` on cc session A exits 0 with `✓ route: this host reaches acc-m6b's homeserver` and `Moved: ...`; A desires one seat of acc-m6b only, its record names it, seat `1@acc-m6a` reads free, and `session list` shows A as kind `cc`, `ok` (H31).                                                                                      |
+| (b)  | Audit F5: A's stand-in claude started a detached `setsid sleep 600`. With A's claude ended, its seat reads free within 5 s while the sleep still runs; B, started at once on the same seat, holds it.                                                                                                                                                                   |
+| (c)  | `cc --bus`: C starts on no team and its keeper reports `inbound`. `session add C acc-m6a --yes` exits 0, "Nothing restarted", no relaunch asked (H32). With C's keeper killed, the list says `unguarded: end it ...` and `session repair C --yes` exits 78 (a cc keeper cannot be started from outside). `session remove C acc-m6a --yes` leaves the record on `--bus`. |
+
+### The owner's steps
+
+| Step | What to do                                                                                                                                                                            | What passes                                                                                                                      |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| (d)  | In a team repository, in ccy's tmux, start `cc --teams <team>` and pick a token. From another terminal: `ccy-teams session move cc-<id> <team> <other-team>`, answering the question. | It exits 0; the session is told it moved, and `pingbus status` in it shows only `<other-team>`. Its seat in `<team>` reads free. |
+| (e)  | Start `cc --bus` in ccy's tmux. It asks the consent alone (no team list). Then `ccy-teams session add cc-<id> <team> --yes`.                                                          | The add exits 0 without restarting cc; the session is told it joined, and a message from the team reaches it.                    |
+| (f)  | End a `cc --teams` session with `/exit`, then restart it from `ccy-sessions`.                                                                                                         | It starts on the seats its record names, the ones the last hot change left, not its first `--teams`.                             |

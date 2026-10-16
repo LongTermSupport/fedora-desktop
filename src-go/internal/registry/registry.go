@@ -247,6 +247,27 @@ func (s *Store) SetTeams(name, seats string) error {
 	return s.Write(rec)
 }
 
+// flagBus is cc's opt-in to the agent team bus with no team (Plan 00203 M6).
+const flagBus = "--bus"
+
+// SetCCTeams is SetTeams for a cc session, which carries the bus only when launched with
+// --teams or --bus, never both: on no team its record has --bus, so a restore brings it back
+// where the owner can put it in a team again; with seats, --teams alone.
+func (s *Store) SetCCTeams(name, seats string) error {
+	if err := s.SetTeams(name, seats); err != nil {
+		return err
+	}
+	rec, err := s.Get(name)
+	if err != nil {
+		return err
+	}
+	rec.Args = slices.DeleteFunc(rec.Args, func(a string) bool { return a == flagBus })
+	if seats == "" {
+		rec.Args = append(rec.Args, flagBus)
+	}
+	return s.Write(rec)
+}
+
 // Remove deletes a session's record. An absent record is not an error: the session may have
 // been started before the registry existed.
 func (s *Store) Remove(name string) error {

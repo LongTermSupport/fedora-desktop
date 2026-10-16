@@ -30,10 +30,12 @@ type sessionRow struct {
 // teamCell is one team of a session: its seat and the role the session was told ("-" before).
 type teamCell struct{ team, seat, role string }
 
-// listCache keeps what several sessions share: a checkout's seats and a team's homeserver.
+// listCache keeps what several sessions share: a checkout's seats and a team's homeserver; and
+// each running cc session's pane.
 type listCache struct {
 	seats map[string][]agentbus.Seat
 	up    map[string]bool
+	panes map[string]int
 }
 
 // list is `session list` (H17, H18, section 5.1): every running session ccy's tmux started.
@@ -49,12 +51,25 @@ func (x *Hot) list(ctx context.Context) term.ExitCode {
 		return term.ExitFailure
 	}
 	running := runningSessions(out)
+	cc, unreadable, err := x.runningCC(ctx, runtime)
+	if err != nil {
+		x.Host.Term.PrintError("the cc sessions could not be listed: " + err.Error())
+		return term.ExitFailure
+	}
+	for _, why := range unreadable {
+		x.mark(markSkip, why+"; that cc session is not listed")
+	}
+	for name := range cc {
+		if _, taken := running[name]; !taken {
+			running[name] = ""
+		}
+	}
+	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]bool{}, panes: cc}
 	names := make([]string, 0, len(running))
 	for name := range running {
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]bool{}}
 	rows := make([]sessionRow, 0, len(names))
 	for _, name := range names {
 		rows = append(rows, x.sessionRow(ctx, runtime, running[name], name, cache))
@@ -107,10 +122,12 @@ func (x *Hot) table(rows []sessionRow) term.ExitCode {
 	return term.ExitOK
 }
 
-// sessionRow reads one running session: its membership, its keeper, its seats and roles.
+// sessionRow reads one running session: its membership, its keeper, its seats and roles. A cc
+// session has no container ("").
 func (x *Hot) sessionRow(ctx context.Context, runtime, container, name string, cache listCache) sessionRow {
 	row := sessionRow{name: name, kind: "ccy", checkout: "-"}
-	d, err := membership.Read(membership.Dir(runtime, name))
+	kind := kindOf(container)
+	d, err := membership.Read(membership.DirOf(runtime, kind, name))
 	if errors.Is(err, os.ErrNotExist) {
 		row.state = "old or --no-bus: relaunch it to change it while it runs"
 		return row
@@ -145,8 +162,8 @@ func (x *Hot) sessionRow(ctx context.Context, runtime, container, name string, c
 			unheld = append(unheld, s.Seat+"@"+s.Team)
 		}
 	}
-	alive, aliveErr := x.keeperAlive(ctx, container)
-	row.state = stateWord(name, alive, aliveErr, seatsErr, down, unheld)
+	alive, aliveErr := x.sessionKeeper(ctx, container, cache.panes[name])
+	row.state = rowState(name, kind, alive, aliveErr, seatsErr, down, unheld)
 	return row
 }
 
@@ -213,9 +230,17 @@ func (x *Hot) SessionsIn(ctx context.Context, team string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("podman could not list the sessions' containers: %s", lastLine(err))
 	}
+	cc, _, err := x.runningCC(ctx, runtime)
+	if err != nil {
+		return nil, fmt.Errorf("the cc sessions could not be listed: %w", err)
+	}
+	names := runningSessions(out)
+	for name := range cc {
+		names[name] = ""
+	}
 	var in []string
-	for name := range runningSessions(out) {
-		d, readErr := membership.Read(membership.Dir(runtime, name))
+	for name, container := range names {
+		d, readErr := membership.Read(membership.DirOf(runtime, kindOf(container), name))
 		if readErr == nil && slices.ContainsFunc(d.Seats, func(s membership.Seat) bool { return s.Team == team }) {
 			in = append(in, name)
 		}
@@ -237,25 +262,45 @@ func (x *Hot) keeperAlive(ctx context.Context, container string) (bool, error) {
 		return false, err
 	}
 	for line := range strings.Lines(out) {
-		if strings.Contains(line, "pingbus") && strings.Contains(line, " seat keep") {
+		if keeperLine(line) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
+// keeperOf is whether the session's seat keeper runs: in its container, or in a cc session's
+// pane.
+func (x *Hot) keeperOf(ctx context.Context, t *target) (bool, error) {
+	if t.cc() {
+		return x.ccKeeperAlive(ctx, t.pane)
+	}
+	return x.keeperAlive(ctx, t.container)
+}
+
+// kindOf is the kind of a running session by its container: a cc session has none.
+func kindOf(container string) string {
+	if container == "" {
+		return membership.KindCC
+	}
+	return membership.KindCcy
+}
+
 // repair is `session repair` (H10): a session whose seat keeper stopped gets one again, with no
 // parent in the container, and it takes back every seat the session is in.
 func (x *Hot) repair(ctx context.Context, t *target, r request) term.ExitCode {
-	alive, err := x.keeperAlive(ctx, t.container)
+	alive, err := x.keeperOf(ctx, t)
 	if err != nil {
-		x.mark(markFailed, "keeper: podman could not list the session's processes: "+lastLine(err))
+		x.mark(markFailed, "keeper: the session's processes could not be listed: "+lastLine(err))
 		return term.ExitFailure
 	}
 	if alive {
 		x.mark(markSkip, "keeper: running")
 		x.say("Nothing to do: " + t.session + "'s seat keeper is running.")
 		return term.ExitOK
+	}
+	if t.cc() {
+		return x.ccRepair(t)
 	}
 	if code, proceed := x.confirm(ctx, "Start "+t.session+"'s seat keeper again? It takes back every seat the session is in.", r.yes); !proceed {
 		return code

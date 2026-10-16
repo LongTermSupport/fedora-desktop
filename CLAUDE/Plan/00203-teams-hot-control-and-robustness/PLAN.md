@@ -116,6 +116,14 @@ Built on `fix/teams-server-robustness`; design and evidence in
   [ACCEPTANCE.md](ACCEPTANCE.md) M4, `_acceptance-m4.inc.bash`. As built, and what is not:
   SPEC-hot-control.md H21. Notes:
   [subagent-reports/261016-m4-opus.md](subagent-reports/261016-m4-opus.md).
+- [ ] 🔄 **Task 3.5** (M6): cc, built on `feat/hot-control-m6`, review and host acceptance to
+  come. `cc --teams` and the new `cc --bus` sessions are hot-controlled like ccy ones (H31,
+  H32): a `kind: cc` membership under the session's tmux name, a keeper that follows it
+  (`seat exec --accepts-inbound`), a system prompt that names no team, and `ccy-teams session add|remove|move|role|list` finding cc sessions on ccy's tmux server. Repair is refused for
+  cc (exit 78), and the record follows each change. CCY 3.99.12, container 2.77. Host
+  acceptance: [ACCEPTANCE.md](ACCEPTANCE.md) M6, `_acceptance-m6.inc.bash`. As built, and what
+  is not: SPEC-hot-control.md H32 (Decision 7). Notes:
+  [subagent-reports/261016-m6-opus.md](subagent-reports/261016-m6-opus.md).
 
 ## Decisions
 
@@ -165,6 +173,16 @@ These are not settled. Each runs on the interim default below until the owner de
    relaunch (tmux alive, container down) can take that session's seat; the returning keeper
    is then refused `held-elsewhere`. The alternative: agent-bus applies ccy-teams' two tests,
    excluding by name the session being launched.
+
+### Open: for the owner (from M6)
+
+7. **A `cc --bus` session accepts cross-session inbound from launch, on no team.** Decision 1
+   launches a ccy session on no team with `refuse` and relaunches it on its first join. cc has
+   no supervisor to do that relaunch, and its settings already accept inbound (H31's weaker
+   authority), so the interim default is: `cc --bus` starts accepting, and its first join is
+   hot. Until then any process of the owner's uid can post into it. The alternative: launch it
+   with `refuse`, and have the first `session add` refuse (exit 78) and say to end cc and start
+   it again from `ccy-sessions`, which takes its new seat.
 
 ## Success Criteria
 
