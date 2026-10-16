@@ -119,7 +119,7 @@ TEMPLATES = {
     "team_about": "agent-bus: team {team} is for: {description}",
     "session_teams": "agent-bus: this session is on teams {team_list}.",
     "record_failed": ("agent-bus: this session's teams could not be recorded for the status line, which "
-                      "shows `bus: no record` in red until they are. Tell the human; the reason is in "
+                      "shows `👥 no record` in red until they are. Tell the human; the reason is in "
                       "the SessionStart hook's stderr."),
     "role_coordinator": ("agent-bus: in team {team} you are the coordinator. Workers report to you and copy you "
                          "on what they tell humans; when a human asks you to get something done, work out "

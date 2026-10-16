@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.7 — container 2.77.6
+
+- **The agent-bus status line wraps instead of being cut.** `pingbus status-line` appended
+  `| bus: A,B` to the last row of the session's own status line. The hooks daemon's status line
+  already wraps its rows to the terminal's width, so that row was often full and Claude Code
+  cut it with an ellipsis (`bus: de…`). The teams now go on rows of their own below it, wrapped
+  after a comma at `COLUMNS`, and are never cut; with no `COLUMNS` they are one unbroken row.
+- **`bus:` is now 👥**, the team counterpart of the hooks daemon's 👤 account segment:
+  `👥 alpha,beta`, `👥 <team>(down)`, and `👥 no record ...` in red.
+
 ## 3.99.12.3 — container 2.77.2
 
 Includes 3.99.12 to 3.99.12.2, never deployed, and 3.99.10.2 and 3.99.10.3 below (the

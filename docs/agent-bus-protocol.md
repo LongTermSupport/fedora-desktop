@@ -746,11 +746,13 @@ hook timeout is 1500 ms, so the kit's `"timeout": 6` is load-bearing.
   `pingbus status-line` is the status line command the member kit's `settings.json` sets: it runs
   the `statusLine` command the session would otherwise have had (the first of the project's
   `.claude/settings.local.json`, `.claude/settings.json`, then `$CLAUDE_CONFIG_DIR` or
-  `~/.claude` `settings.json`; never itself) with the same stdin, prints its output and ends the
-  last line with `| bus: A,B` from the record for the payload's `session_id`. It always exits 0
+  `~/.claude` `settings.json`; never itself) with the same stdin, prints its output and adds
+  `👥 A,B` on rows of its own below it, from the record for the payload's `session_id`
+  (wrapped after a comma at `COLUMNS`, one unbroken row when `COLUMNS` is not a positive
+  number; never cut). It always exits 0
   (a non-zero exit blanks Claude Code's status line): that command's non-zero exit, a 10 s
   timeout (its process group is then killed, as it is when `status-line` itself gets SIGTERM,
-  SIGINT or SIGHUP) or an unreadable settings file is shown as red text. With `PINGBUS_TEAMS` set and no usable record it shows `bus: no record of this session's teams (pingbus status)` in red instead; with neither, nothing is added. `recv`, `wait`, `watch`, `inbox` and `status` cover every active
+  SIGINT or SIGHUP) or an unreadable settings file is shown as red text. With `PINGBUS_TEAMS` set and no usable record it shows `👥 no record of this session's teams (pingbus status)` in red instead; with neither, nothing is added. `recv`, `wait`, `watch`, `inbox` and `status` cover every active
   team unless `--team` is given; `wait` and `watch` long-poll every team at once, one
   thread per team, and a team whose lock another process holds is reported busy on its own
   (exit 75 only when every team is busy). `wait` gives a `recv` holder up to 5 s to finish

@@ -512,7 +512,7 @@ class SessionStartTest(HookCase):
 
     def test_a_record_that_was_not_written_is_told_to_the_session_not_only_to_stderr(self):
         """A failed record must not look like a session on no team: the session is told, and
-        the status line shows `bus: no record` in red (test_statusline)."""
+        the status line shows `👥 no record` in red (test_statusline)."""
         directory = self.sessions_env()
         directory.mkdir(mode=0o777)
         directory.chmod(0o777)

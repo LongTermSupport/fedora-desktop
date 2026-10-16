@@ -2665,7 +2665,7 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     hook.add_argument("event", choices=hooks.EVENTS, metavar="EVENT",
                       help=" | ".join(hooks.EVENTS))
     command("status-line", cmd_status_line,
-            "the Claude Code status line: the session's own, then bus: <teams> (the kit's statusLine)")
+            "the Claude Code status line: the session's own, then 👥 <teams> on rows of their own (the kit's statusLine)")
     seat_parser = commands.add_parser("seat", help="this ccy session's seats")
     team_option(seat_parser, argparse.SUPPRESS)
     seat_commands = seat_parser.add_subparsers(dest="seat_command", metavar="SUBCOMMAND",

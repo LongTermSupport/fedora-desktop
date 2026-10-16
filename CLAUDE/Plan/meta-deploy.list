@@ -23,8 +23,10 @@
 # md-viewer: rebuild and install at main tip 22a55582735d (text on its baseline, dark mode
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
-# ccy 3.99.12.3, container 2.77.2 (each project's image is rebuilt once, at its next ccy
+# ccy 3.99.12.7, container 2.77.6 (each project's image is rebuilt once, at its next ccy
 # launch): deploys cc, cc-teams.bash and the ccy launcher, and rebuilds ccy-teams.
+# The agent-bus status line shows its teams as 👥 A,B on rows of their own, wrapped at the
+# terminal's width, instead of `bus: A,B` appended to the last row, where Claude Code cut it.
 # Plan 00203 M6: cc --teams and the new cc --bus sessions are hot-controlled like ccy ones, also
 # from the picker (cc --bus refuses team messages until it is restarted on its first team); a
 # membership counts only while its session record carries the bus; pingbus reads no
@@ -38,7 +40,7 @@ playbooks/imports/optional/common/play-md-viewer.yml
 # boot for a restored session left to a person (waiting at its SSH passphrase prompt, attached,
 # or with text typed); it still fails, naming each, for a real fault such as a launcher that exited.
 playbooks/imports/play-claude-yolo.yml
-# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.12.3. M2 starts its two
+# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.12.7. M2 starts its two
 # throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the
 # same container name and the second failed at podman's create (exit 125). Then M1, M3, M4,
 # the new M6 (three throwaway cc sessions on two throwaway teams) and R1-R9, on throwaway teams
