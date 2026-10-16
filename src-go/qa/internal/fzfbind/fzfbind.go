@@ -7,9 +7,10 @@
 // deselecting rows (Tab's toggle in a multi picker), editing the query, changing only how
 // the same rows are shown (sort order, preview and its window, prompt, header and border
 // label, wrapping, tracking), and leaving (Esc, q, abort), which the pickers also offer as a
-// visible Exit row. Any key accepting the highlighted row chooses the visible row: without
-// --expect (which only ui builds) fzf cannot tell the caller which key it was, so it is
-// Enter. fzf events (start, load, focus, change, ...) are not keys: nobody presses them. Every
+// visible Exit row. A key that only accepts the highlighted row chooses the visible row:
+// without --expect (which only ui builds) fzf cannot tell the caller which key it was, so it is
+// Enter. A query edit or a select-all chained before the accept is not: --print-query or
+// --multi hands the change back, so the caller reads the key's action off the answer. fzf events (start, load, focus, change, ...) are not keys: nobody presses them. Every
 // other action on a key (become, execute, reload, print, transform-*, an action fzf adds
 // later) does something the screen does not show.
 package fzfbind
@@ -57,8 +58,22 @@ var navigation = setOf(
 	"change-preview-window", "change-preview", "preview", "change-prompt", "change-header",
 	"change-border-label", "track", "untrack", "toggle-track", "toggle-search",
 	// choosing the highlighted row: without --expect (which only ui builds) fzf cannot tell the
-	// caller which key accepted, so any key that accepts is Enter on the visible row
+	// caller which key accepted, so a key that only accepts is Enter on the visible row (a
+	// carrier before the accept makes it an action: see carriers)
 	"accept", "accept-non-empty",
+)
+
+// accepts are the actions that end fzf with its answer.
+var accepts = setOf("accept", "accept-non-empty")
+
+// carriers change the answer fzf gives without the person seeing it chosen: the query, which
+// --print-query hands back, and every row at once, which --multi hands back. Chained before an
+// accept on one key, they turn the key into a hidden action the caller reads back.
+var carriers = setOf(
+	"backward-delete-char", "backward-delete-char/eof", "backward-kill-word", "delete-char",
+	"delete-char/eof", "kill-line", "kill-word", "unix-line-discard", "unix-word-rubout",
+	"yank", "clear-query", "put", "next-history", "prev-history",
+	"select-all", "toggle-all",
 )
 
 func setOf(names ...string) map[string]bool {
@@ -189,16 +204,23 @@ func ClosesThenBinds(delimiter, text string) bool {
 }
 
 // HiddenAction is the first action of b that a key does without the screen showing it, or ""
-// when b is an event or every action is navigation.
+// when b is an event or every action is navigation. An accept after a carrier is hidden too,
+// named "carrier+accept": the caller reads the change back from fzf's answer.
 func HiddenAction(b Binding) string {
 	if events[b.Trigger] {
 		return ""
 	}
+	carrier := ""
 	for _, a := range b.Actions {
-		if navigation[a] {
-			continue
+		switch {
+		case accepts[a] && carrier != "":
+			return carrier + "+" + a
+		case carriers[a] && carrier == "":
+			carrier = a
 		}
-		return a
+		if !navigation[a] {
+			return a
+		}
 	}
 	return ""
 }

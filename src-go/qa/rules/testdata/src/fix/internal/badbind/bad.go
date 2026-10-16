@@ -14,8 +14,10 @@ func pickerArgs() []string {
 // bindArgs binds keys straight to fzf actions that do something.
 func bindArgs() []string {
 	return []string{
-		"--bind=ctrl-a:become(x)",                    // want `fzf --bind ctrl-a:become: a key bound to an action`
-		"--bind=ctrl-x:execute(ccy-teams rm {})",     // want `fzf --bind ctrl-x:execute: a key bound to an action`
+		"--bind=ctrl-a:become(x)",                         // want `fzf --bind ctrl-a:become: a key bound to an action`
+		"--bind=ctrl-x:execute(ccy-teams rm {})",          // want `fzf --bind ctrl-x:execute: a key bound to an action`
+		"--print-query", "--bind=ctrl-s:put(sync)+accept", // want `fzf --bind ctrl-s:put\+accept: a key bound to an action`
+		"--multi", "--bind=ctrl-a:select-all+accept", // want `fzf --bind ctrl-a:select-all\+accept: a key bound to an action`
 		"--bind", "ctrl-o:become(ccy-teams role {})", // want `fzf --bind ctrl-o:become: a key bound to an action`
 		"--bind=ctrl-j:down,ctrl-r:reload(ls)", // want `fzf --bind ctrl-r:reload: a key bound to an action`
 		"--bind=tab:toggle+execute(x)",         // want `fzf --bind tab:execute: a key bound to an action`

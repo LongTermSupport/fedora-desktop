@@ -240,9 +240,13 @@ both checkers read): moving the cursor or the page, selecting rows (Tab's toggle
 multi-select list, whose screen says so), editing the query, changing only how the same rows
 are shown (sort order, the preview, its window and its command, the prompt, header and border
 label, wrapping, tracking, search on or off), and leaving (Esc, q, abort) beside the visible
-Exit row. Any key that accepts the highlighted row chooses the visible row: without
-`--expect`, which only ui builds, fzf cannot tell the caller which key accepted, so it is the
-same as Enter. fzf events (`start`, `focus`, `load`, `change`, ...) are not keys. In Textual,
+Exit row. A key that only accepts chooses the highlighted row: without `--expect`, which only
+ui builds, fzf cannot tell the caller which key accepted, so it is the same as Enter. It is not
+the same when the key first changes what fzf answers: a query edit (`put`, `yank`,
+`clear-query`, a deletion, history) before an accept is handed back by `--print-query`, and
+`select-all` or `toggle-all` before an accept by `--multi`, so the caller reads the key's
+action off the answer. Such a chain is an action (`put+accept` in the message), whichever key
+it is on. fzf events (`start`, `focus`, `load`, `change`, ...) are not keys. In Textual,
 an action named `focus*`, `scroll*` or `cursor*` moves focus, the cursor or the view, and
 `dismiss` and `pop_screen` leave the screen as fzf's abort leaves the list. fzf's query editing is
 navigation because it acts on the line being typed in, which always has the focus; a Textual
@@ -294,12 +298,12 @@ builds no fzf argv (`--expect` is a flag of other programs too). The fixtures in
 **Calibration recorded here** (the project had none): the sweep scope is all first-party Go,
 shell and Python git would publish, generated and vendored trees excluded (`scripts/qa-trees.tsv`),
 plus the GNOME Shell extensions read by hand; display-only actions (fzf's `toggle-sort`,
-`change-preview-window`, `toggle-track`, `preview`, ...) and any key that accepts count as
+`change-preview-window`, `toggle-track`, `preview`, ...) and any key that only accepts count as
 navigation.
 
 - Red, fixture: `testdata/src/fix/internal/badbind` (`bad.go`: the originating Ctrl-A/X/O
   `--expect`, keys bound to `execute`, `become`, `reload`, a chained `toggle+execute`, split
-  `--expect`; navigation, any key accepting, display-only actions and events clean; `evade.go`: a constant, a variable, split
+  `--expect`; a query edit or select-all chained before accept; navigation, any key that only accepts, display-only actions and events clean; `evade.go`: a constant, a variable, split
   `--bind` words with a literal, a run-time and no binding, `slices.Concat`, an appended
   literal slice, `Sprintf`, a run-time SPEC, a folded `"--exp" + "ect=..."`, a binding hidden
   after a run-time argument, a hidden key ahead of a run-time tail, a flag that `strings.Cut`,

@@ -15,6 +15,9 @@ pick() {
     fzf --bind="${spec}" # finding
     fzf --bind="focus:transform-header^${header}^,ctrl-o:become(x)" # finding
     fzf "${opts[@]}" --bind='q:abort' --bind=ctrl-a:accept --bind=ctrl-w:change-preview-window --bind=ctrl-r:toggle-sort --bind='tab:toggle+down'
+    fzf --print-query --bind='ctrl-s:put(sync)+accept' # finding
+    fzf --multi --bind=ctrl-a:select-all+accept # finding
+    fzf --multi --bind='tab:toggle+accept' --bind='ctrl-y:accept+yank'
     fzf --bind='start:transform-query:printf %s query'
     fzf --bind="focus:transform-header^${header};; esac^"
 }

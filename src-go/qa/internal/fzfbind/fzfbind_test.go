@@ -74,6 +74,15 @@ func TestHiddenAction(t *testing.T) {
 		{Binding{Trigger: "alt-p", Actions: []string{"change-preview", "change-prompt", "change-header", "change-border-label"}}, ""},
 		{Binding{Trigger: "alt-t", Actions: []string{"track", "untrack", "toggle-search"}}, ""},
 		{Binding{Trigger: "ctrl-o", Actions: []string{"accept", "become"}}, "become"},
+		// A query edit or a select-all before accepting is read back by the caller
+		// (--print-query, --multi): the key carries an action out (Fable's re-check, F1).
+		{Binding{Trigger: "ctrl-s", Actions: []string{"put", "accept"}}, "put+accept"},
+		{Binding{Trigger: "enter", Actions: []string{"clear-query", "accept"}}, "clear-query+accept"},
+		{Binding{Trigger: "ctrl-a", Actions: []string{"select-all", "accept"}}, "select-all+accept"},
+		{Binding{Trigger: "ctrl-t", Actions: []string{"toggle-all", "down", "accept-non-empty"}}, "toggle-all+accept-non-empty"},
+		{Binding{Trigger: "ctrl-y", Actions: []string{"accept", "yank"}}, ""},
+		{Binding{Trigger: "ctrl-d", Actions: []string{"put"}}, ""},
+		{Binding{Trigger: "tab", Actions: []string{"toggle", "accept"}}, ""},
 		{Binding{Trigger: "ctrl-x", Actions: []string{"execute"}}, "execute"},
 		{Binding{Trigger: "ctrl-h", Actions: []string{"transform-header"}}, "transform-header"},
 		{Binding{Trigger: "ctrl-z", Actions: []string{"some-future-action"}}, "some-future-action"},
