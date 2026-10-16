@@ -66,16 +66,97 @@ class KeyOnlyActions(unittest.TestCase):
                 from textual.binding import Binding
                 from textual.widgets import Button
 
+                from textual.containers import Horizontal
+                from textual.screen import ModalScreen
+
                 class A(App):
-                    BINDINGS = [Binding("d", "download", "Download"), ("y", "screen.confirm", "Yes")]
+                    BINDINGS = [Binding("d", "download", "Download"), ("f5", "refresh", "")]
 
                     def compose(self):
-                        yield Button("Download (d)", action="app.download")
+                        with Horizontal():
+                            yield Button("Download (d)", action="app.download")
+                        yield Button("Refresh (F5)", action="refresh")
+
+                class Ask(ModalScreen):
+                    BINDINGS = [("y", "confirm", "Yes")]
+
+                    def compose(self):
                         yield Button("Yes (y)", action="screen.confirm")
                 """
             ),
             [],
         )
+
+    def test_a_button_on_another_screen_pairs_nothing(self):
+        found = judge(
+            """
+            from textual.app import App
+            from textual.screen import Screen
+            from textual.widgets import Button
+
+            class Ask(Screen):
+                BINDINGS = [("x", "erase", "Erase")]
+
+            class A(App):
+                def compose(self):
+                    yield Button("Erase (x)", action="app.erase")
+            """
+        )
+        self.assertEqual(
+            [m.split(":")[0] for _, m in found], ["Textual binding x -> erase"]
+        )
+
+    def test_a_button_in_the_wrong_namespace_pairs_nothing(self):
+        found = judge(
+            """
+            from textual.app import App
+            from textual.screen import Screen
+            from textual.widgets import Button
+
+            class Ask(Screen):
+                BINDINGS = [("y", "confirm", "Yes")]
+
+                def compose(self):
+                    yield Button("Yes (y)", action="app.confirm")
+            """
+        )
+        self.assertEqual(len(found), 1)
+
+    def test_a_button_the_screen_never_composes_pairs_nothing(self):
+        found = judge(
+            """
+            from textual.app import App
+            from textual.widgets import Button
+
+            class A(App):
+                BINDINGS = [("p", "purge", "Purge")]
+
+                def spare(self):
+                    return Button("Purge (p)", action="app.purge")
+            """
+        )
+        self.assertEqual(len(found), 1)
+
+    def test_a_bind_call_is_paired_within_its_own_class(self):
+        found = judge(
+            """
+            from textual.app import App
+            from textual.screen import Screen
+            from textual.widgets import Button
+
+            class A(App):
+                def compose(self):
+                    yield Button("Export (e)", action="app.export")
+
+                def on_mount(self):
+                    self.bind("e", "export")
+
+            class S(Screen):
+                def on_mount(self):
+                    self.bind("e", "export")
+            """
+        )
+        self.assertEqual([line for line, _ in found], [15])
 
     def test_navigation_needs_no_button(self):
         self.assertEqual(

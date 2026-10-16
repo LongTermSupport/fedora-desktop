@@ -6,9 +6,17 @@ as code, and nothing runs it.
 
 from textual.app import App
 from textual.binding import Binding
+from textual.screen import Screen
 from textual.widgets import Button
 
 ACTION = "erase"
+
+
+class Ask(Screen):
+    BINDINGS = [("y", "confirm", "Yes"), ("p", "purge", "Purge")]  # finding
+
+    def compose(self):
+        yield Button("Yes (y)", action="screen.confirm")
 
 
 class Manager(App):
@@ -24,6 +32,7 @@ class Manager(App):
     def compose(self):
         yield Button("Download (d)", action="app.download")
         yield Button("Quit (q)", action="app.quit")
+        yield Button("Purge (p)", action="app.purge")
 
     def on_mount(self):
         self.bind("e", "export")  # finding

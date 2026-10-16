@@ -55,5 +55,18 @@ func readsArgv(args []string) bool {
 			return true
 		}
 	}
+	if rest, ok := strings.CutPrefix(args[0], "--expect="); ok {
+		return rest != ""
+	}
 	return slices.Contains(args, "--expect")
+}
+
+// trimmedIntoArgv returns what a reader function makes of its first argument, which becomes argv.
+func trimmedIntoArgv() []string {
+	before, after, found := strings.Cut("--bind=ctrl-k:execute(rm {})|x", "|") // want `fzf --bind ctrl-k:execute`
+	rest, ok := strings.CutPrefix("x--bind=ctrl-j:accept", "x")                 // want `fzf --bind ctrl-j:accept`
+	if !found || !ok {
+		return nil
+	}
+	return []string{strings.TrimPrefix("x--expect=ctrl-z", "x"), before, after, rest} // want `fzf --expect outside the ui Action builder`
 }

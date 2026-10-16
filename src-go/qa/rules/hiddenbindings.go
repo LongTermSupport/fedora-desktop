@@ -88,6 +88,7 @@ func (s *bindScan) visit(n ast.Node) bool {
 		s.judgeList(n.Elts)
 	case *ast.CallExpr:
 		s.judgeList(n.Args)
+		s.judgeTrimmed(n)
 	case *ast.BinaryExpr:
 		return s.judgeConcat(n)
 	case *ast.BasicLit:
@@ -185,18 +186,8 @@ func (s *bindScan) judgeSpec(expr ast.Expr, prefix string) {
 		s.pass.Reportf(expr.Pos(), "fzf --bind with a binding built at run time: the rule cannot judge it; spell it as a constant")
 		return
 	}
-	bindings, open, err := fzfbind.Read(strings.TrimPrefix(head, prefix))
-	if err != nil {
-		s.pass.Reportf(expr.Pos(), "fzf --bind %q cannot be read as bindings: spell it as fzf documents it", head)
-		return
-	}
-	for _, b := range bindings {
-		if a := fzfbind.HiddenAction(b); a != "" {
-			s.pass.Reportf(expr.Pos(), "fzf --bind %s:%s: a key bound to an action no visible choice offers; offer it as a ui.Action", b.Trigger, a)
-			return
-		}
-	}
-	if len(leaves) == 1 {
+	open, clean := s.judgeBindings(expr, head, prefix)
+	if !clean || len(leaves) == 1 {
 		return
 	}
 	if open == "" {
@@ -208,6 +199,43 @@ func (s *bindScan) judgeSpec(expr ast.Expr, prefix string) {
 			s.pass.Reportf(expr.Pos(), "fzf --bind with a binding after a run-time argument: the rule cannot judge it")
 			return
 		}
+	}
+}
+
+// judgeBindings reports the first binding of head (after prefix) that is not navigation, at
+// at. It returns the argument delimiter head leaves open, and whether every binding was clean.
+func (s *bindScan) judgeBindings(at ast.Expr, head, prefix string) (string, bool) {
+	bindings, open, err := fzfbind.Read(strings.TrimPrefix(head, prefix))
+	if err != nil {
+		s.pass.Reportf(at.Pos(), "fzf --bind %q cannot be read as bindings: spell it as fzf documents it", head)
+		return "", false
+	}
+	for _, b := range bindings {
+		if a := fzfbind.HiddenAction(b); a != "" {
+			s.pass.Reportf(at.Pos(), "fzf --bind %s:%s: a key bound to an action no visible choice offers; offer it as a ui.Action", b.Trigger, a)
+			return "", false
+		}
+	}
+	return open, true
+}
+
+// judgeTrimmed judges what strings.TrimPrefix or CutPrefix makes of a constant: the flag can
+// appear only once the prefix is gone.
+func (s *bindScan) judgeTrimmed(call *ast.CallExpr) {
+	fn := calledFunc(s.pass, call)
+	if len(call.Args) != 2 || (!isPkgFunc(fn, stringsPkg, trimPrefixFn) && !isPkgFunc(fn, stringsPkg, cutPrefixFn)) {
+		return
+	}
+	text, isText := stringConst(s.pass, call.Args[0])
+	prefix, isPrefix := stringConst(s.pass, call.Args[1])
+	if !isText || !isPrefix || !strings.HasPrefix(text, prefix) || prefix == "" {
+		return
+	}
+	switch rest := strings.TrimPrefix(text, prefix); {
+	case isExpect(rest):
+		s.judgeExpect(call.Args[0])
+	case strings.HasPrefix(rest, bindFlag+"="):
+		s.judgeBindings(call.Args[0], rest, bindFlag+"=")
 	}
 }
 
@@ -239,14 +267,23 @@ func stringConst(pass *analysis.Pass, expr ast.Expr) (string, bool) {
 	return constant.StringVal(tv.Value), true
 }
 
+const (
+	trimPrefixFn = "TrimPrefix"
+	cutPrefixFn  = "CutPrefix"
+)
+
 // argvReaders are the functions whose string arguments are searched for, not built into argv.
 var argvReaders = map[string][]string{
-	stringsPkg: {"HasPrefix", "HasSuffix", "Contains", "Index", "Cut", "CutPrefix", "TrimPrefix", "EqualFold"},
+	stringsPkg: {"HasPrefix", "HasSuffix", "Contains", "Index", "Cut", cutPrefixFn, trimPrefixFn, "EqualFold"},
 	"slices":   {"Contains", "Index"},
 }
 
+// valueReaders are the argvReaders whose first argument becomes their result, so it can become
+// argv: only the prefix or separator they search for is read.
+var valueReaders = []string{"Cut", cutPrefixFn, trimPrefixFn}
+
 // readingLiterals is the string literals of f that read argv rather than build it: operands
-// of == and !=, switch cases, and arguments of argvReaders.
+// of == and !=, switch cases, and the searched-for arguments of argvReaders.
 func readingLiterals(pass *analysis.Pass, f *ast.File) map[ast.Expr]bool {
 	read := map[ast.Expr]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -260,15 +297,25 @@ func readingLiterals(pass *analysis.Pass, f *ast.File) map[ast.Expr]bool {
 				read[e] = true
 			}
 		case *ast.CallExpr:
-			if fn := calledFunc(pass, n); fn != nil && fn.Pkg() != nil && slices.Contains(argvReaders[fn.Pkg().Path()], fn.Name()) {
-				for _, a := range n.Args {
-					read[a] = true
-				}
+			for _, a := range readArgs(pass, n) {
+				read[a] = true
 			}
 		}
 		return true
 	})
 	return read
+}
+
+// readArgs is the arguments of call that an argvReader searches for rather than returns.
+func readArgs(pass *analysis.Pass, call *ast.CallExpr) []ast.Expr {
+	fn := calledFunc(pass, call)
+	if fn == nil || fn.Pkg() == nil || !slices.Contains(argvReaders[fn.Pkg().Path()], fn.Name()) {
+		return nil
+	}
+	if fn.Pkg().Path() == stringsPkg && slices.Contains(valueReaders, fn.Name()) && len(call.Args) > 0 {
+		return call.Args[1:]
+	}
+	return call.Args
 }
 
 // checkAction reports a ui.Action literal that has a Key and no Label: a key with no words.

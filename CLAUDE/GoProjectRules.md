@@ -239,7 +239,11 @@ multi-select list, whose screen says so), editing the query, changing only how t
 are shown (sort order, preview, wrapping), and leaving (Esc, q, abort) beside the visible Exit
 row; Enter, Ctrl-M and a double click accepting the highlighted row choose the visible row.
 fzf events (`start`, `focus`, `load`, `change`, ...) are not keys. In Textual, an action named
-`focus*`, `scroll*` or `cursor*` moves focus, the cursor or the view.
+`focus*`, `scroll*` or `cursor*` moves focus, the cursor or the view. fzf's query editing is
+navigation because it acts on the line being typed in, which always has the focus; a Textual
+action that clears a filter from anywhere on the screen (Esc in the model manager) changes
+what the list shows from outside the widget being typed in, so it is an action and gets its
+Button.
 
 **What it flags.**
 
@@ -257,8 +261,11 @@ fzf events (`start`, `focus`, `load`, `change`, ...) are not keys. In Textual, a
   array.
 - Python (`qa-hidden-bindings.bash`, every tracked Python file that imports textual): each
   `BINDINGS` entry (`Binding(...)` or a tuple) and each `.bind(key, action)` must be navigation
-  or the action of a `Button(..., action=...)` in the same file; a binding or `BINDINGS` value
-  that is not a literal is a finding.
+  or the action of a `Button(..., action=...)` on the same screen: built in the `compose()` of
+  the class that binds the key, with an action that runs there (no namespace, `app.` in an App,
+  `screen.` in a screen). A binding or `BINDINGS` value that is not a literal is a finding.
+  The Footer's list of bindings is not the visible choice: it is a hint line, not a control
+  that takes focus and Enter, so a binding the Footer shows still needs its Button.
 
 Every finding names `project_hidden_bindings`; this section is what it resolves to.
 
@@ -267,7 +274,10 @@ Every finding names `project_hidden_bindings`; this section is what it resolves 
 starts fzf), so they are not judged (`bindingSubjects`; the fixtures `fix/qa/rules` and
 `fix/qa/hiddenbindings` prove the exclusion reaches nothing else). A literal compared with argv (`==`, `!=`, a switch case, an argument of
 `strings.HasPrefix`, `Contains`, `slices.Contains`, ...) reads argv something else built, so it
-cannot become a binding (`teamtest/console.go`, the fake fzf, is the one real case). A
+cannot become a binding (`teamtest/console.go`, the fake fzf, is the one real case). Of
+`strings.Cut`, `CutPrefix` and `TrimPrefix` only the separator or prefix is read: the first
+argument is what they return, so it is judged, and what a constant prefix leaves of a constant
+is judged as the flag it becomes. A
 `_test.go` file is never built into a tool a person runs. A shell file that never runs fzf
 builds no fzf argv (`--expect` is a flag of other programs too). The fixtures in
 `tests/fixtures/hidden-bindings` carry the pattern on purpose and are not code.
@@ -282,11 +292,14 @@ as navigation.
   split `--expect`; navigation and events clean; `evade.go`: a constant, a variable, split
   `--bind` words with a literal, a run-time and no binding, `slices.Concat`, an appended
   literal slice, `Sprintf`, a run-time SPEC, a folded `"--exp" + "ect=..."`, a binding hidden
-  after a run-time argument, a hidden key ahead of a run-time tail; comparisons clean),
+  after a run-time argument, a hidden key ahead of a run-time tail, a flag that `strings.Cut`,
+  `CutPrefix` or `TrimPrefix` hands back; comparisons clean),
   `fix/internal/ui` (the builder clean, a second `--expect` in ui flagged, `Action` literals
   with a key and no label, keyed, blank and positional, flagged) and `fix/qa/rules` (clean).
   The shell and Python halves are proven against `tests/fixtures/hidden-bindings/fixture.bash`
-  and `fixture.py` on every gate run, and by `src-go/qa/hiddenbindings` and
+  and `fixture.py` on every gate run (`fixture.py` includes a binding whose Button is on
+  another screen; `fixture.bash` keeps unmarked lines of what is not caught,
+  `FZF_DEFAULT_OPTS` and a `read -n1`), and by `src-go/qa/hiddenbindings` and
   `tests/helpers/qa_environment/test_textual_bindings.py`.
 - Red, real tree (commits `8022a152` and `9e40ea6e`): Go, `internal/ui/picker.go:105`, the one
   `--expect` every keyed picker went through (`PickSpec.Keys`: the `ccy-teams` list and
