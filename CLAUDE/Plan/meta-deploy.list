@@ -19,3 +19,17 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# ccy 3.99.10.2 (container 2.75.1 unchanged, so no image rebuild): rebuilds ccy-teams and
+# deploys the launcher. Two ccy launches started together in one project no longer choose the
+# same container name: each launch claims its name (ccy-teams internal claim-container-name,
+# under $XDG_RUNTIME_DIR/ccy/container-names/) before podman creates it. Running sessions are
+# not touched.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00203 acceptance again, every milestone in turn, on ccy 3.99.10.2. M2 starts its two
+# throwaway headless sessions (plain and --no-bus) back to back; on 3.99.10.1 both chose the
+# same container name and the second failed at podman's create (exit 125). Then M1, M3, M4 and
+# R1-R9 as before, on throwaway teams acc-m3a, acc-m3b, acc-m4a, acc-m4b and acc-robust and
+# their headless sessions, all removed after. Needs ccy launched interactively here once
+# (Quick Launch).
+00203-teams-hot-control-and-robustness
