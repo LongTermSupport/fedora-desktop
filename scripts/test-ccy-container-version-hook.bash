@@ -375,6 +375,67 @@ while IFS= read -r path; do
     probe "$path" "0 no" "a change to host-only $path needs no container bump"
 done <"$work/host-files"
 
+echo "=== the secret scan's scope ==="
+# Vendored Go modules are third-party files exactly as go mod vendor writes them (Plan 00204):
+# their authors' contact addresses are not ours to rewrite. The scan list comes from
+# scripts/git-hooks/lib/staged-scan-list.bash, which skips src-go/vendor only
+# when qa-go-deps passes over the STAGED tree (vendor/ byte for byte what go.mod and go.sum
+# describe); the same address anywhere else is still rejected. The repository here has the real
+# layout (scripts/git-hooks) and a stand-in qa-go-deps.bash that logs the vendored file it was
+# shown under --root and exits as told. The address is assembled from two halves so this file's
+# own commit is not rejected.
+scan="$work/scan"
+mkdir -p "$scan/scripts" "$scan/src-go/vendor/example.org/mod" "$scan/src-go/internal"
+cp -R "$HOOK_DIR" "$scan/scripts/git-hooks"
+cat >"$scan/scripts/qa-go-deps.bash" <<'GATE'
+#!/usr/bin/env bash
+set -euo pipefail
+root=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--root" ]; then root="$2"; shift; fi
+    shift
+done
+cat "$root/src-go/vendor/example.org/mod/SECURITY.md" >>"$GATE_LOG"
+exit "$(cat "$GATE_RC")"
+GATE
+chmod 755 "$scan/scripts/qa-go-deps.bash"
+export GATE_LOG="$work/gate.log" GATE_RC="$work/gate.rc"
+git -C "$scan" init -q
+git -C "$scan" config user.name test
+git -C "$scan" config user.email test@example.com
+printf 'package internal\n' >"$scan/src-go/internal/a.go"
+git -C "$scan" add -A
+git -C "$scan" commit -q --no-verify -m baseline
+# scan_status — stage everything, run the real hook in the scan repository, print its status.
+scan_status() {
+    local rc=0
+    git -C "$scan" add -A
+    (cd "$scan" && bash scripts/git-hooks/pre-commit) >"$work/hook.out" 2>&1 || rc=$?
+    echo "$rc"
+}
+email="maintainer@""gmail.com"
+vendored="$scan/src-go/vendor/example.org/mod/SECURITY.md"
+: >"$GATE_LOG"
+echo 0 >"$GATE_RC"
+printf 'Report to %s\n' "$email" >"$vendored"
+check "an address in a vendored Go module passes when qa-go-deps passes" "0" "$(scan_status)"
+check "…and the gate was shown the staged vendored file" "yes" "$(grep -q -F "$email" "$GATE_LOG" && echo yes || echo no)"
+echo 1 >"$GATE_RC"
+check "a vendored change qa-go-deps rejects fails the commit" "1 yes" "$(scan_status) $(has 'qa-go-deps')"
+echo 0 >"$GATE_RC"
+: >"$GATE_LOG"
+git -C "$scan" add -A
+printf 'Report to someone else\n' >"$vendored"
+(cd "$scan" && bash scripts/git-hooks/pre-commit) >"$work/hook.out" 2>&1
+check "the gate judges the staged content, not the working tree" "yes" "$(grep -q -F "$email" "$GATE_LOG" && echo yes || echo no)"
+git -C "$scan" add -A
+git -C "$scan" commit -q --no-verify -m vendored
+: >"$GATE_LOG"
+printf 'package internal\n\nvar B = 1\n' >"$scan/src-go/internal/a.go"
+check "a commit staging nothing under src-go/vendor does not run the gate" "0 0" "$(scan_status) $(wc -c <"$GATE_LOG")"
+printf 'Report to %s\n' "$email" >"$scan/src-go/internal/NOTES.md"
+check "the same address outside src-go/vendor is rejected" "1 yes" "$(scan_status) $(has 'Email address')"
+
 echo
 printf 'passed: %s  failed: %s\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]
