@@ -50,6 +50,8 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
 	case keyLxc:
 		return r.addLxc(ctx, row.Team)
+	case keyShutdown:
+		return r.p.Shutdown.Offer(ctx, row.Team)
 	}
 	r.p.Kit.Tell("That key does nothing here. Enter lists what can be done to a row. ? shows every key.")
 	r.p.Kit.BackToList(ctx)

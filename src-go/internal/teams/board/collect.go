@@ -218,7 +218,7 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 	}
 	for _, sess := range sessions {
 		s.Live[sess.Name] = sess.Attached
-		if strings.HasPrefix(sess.Name, "ccy-") {
+		if prefix, _, ok := strings.Cut(sess.Name, "-"); ok && isLauncherPrefix(prefix) {
 			s.addCheckout(sess.Path)
 		}
 	}
@@ -436,6 +436,6 @@ func (c *Collector) seatRow(s *Snapshot, team string, sa seatAt, activity map[st
 	return Row{
 		Team: team, Member: sa.seat.Seat, Kind: KindCcy, State: state, Applied: "-", Session: session, Record: record,
 		Restore: restore, Where: term.AbbrevHome(sa.dir, c.Home), Handle: sa.seat.Handle, Dir: sa.dir,
-		Role: s.RoleOf(team, sa.seat.Handle),
+		Role: s.RoleOf(team, sa.seat.Handle), Held: sa.seat.Held,
 	}
 }

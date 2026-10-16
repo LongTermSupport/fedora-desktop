@@ -25,7 +25,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import hooks, relay, sentlog
+from helpers.pingbus import hooks, notify, relay, sentlog
 from tests.helpers.pingbus import test_hooks as base
 
 TEAM, ME_LP = base.TEAM, "myrepo.1+workstation.podman"
@@ -39,6 +39,10 @@ class RelayHookCase(base.HookCase):
 
     def off_env(self) -> dict[str, str]:
         return {k: v for k, v in self.env.items() if k != "PINGBUS_DELIVERY"}
+
+    def off_socketless_env(self) -> dict[str, str]:
+        """Off, and no inbox socket: with one, Stop would start the watcher (E26)."""
+        return {k: v for k, v in self.off_env().items() if k not in (notify.SOCKET_ENV, notify.TOKEN_ENV)}
 
     def sent(self, n: int = 1, text: str = "all done") -> str:
         eid = base.event_id(900 + n)
@@ -149,7 +153,8 @@ class StalledRelayTest(RelayHookCase):
         self.assertFalse(self.blocked(self.stop(active=True)))
 
     def test_off_ignores_a_stale_marker(self):
-        self.assertEqual(self.stop(env=self.off_env()).get("decision"), "block", "off: the no-waker block")
+        self.assertEqual(self.stop(env=self.off_socketless_env()).get("decision"), "block",
+                         "off: the no-waker block")
         self.assertNotIn(hooks.TEMPLATES["relay"], self.context(self.hook("prompt", env=self.off_env())))
 
 
@@ -233,7 +238,7 @@ class StopDrainTest(RelayHookCase):
 
     def test_off_drains_nothing(self):
         self.sent()
-        self.assertNotIn("systemMessage", self.stop(env=self.off_env()))
+        self.assertNotIn("systemMessage", self.stop(env=self.off_socketless_env()))
 
 
 class GoodbyeRelayTest(base.GoodbyeTest):

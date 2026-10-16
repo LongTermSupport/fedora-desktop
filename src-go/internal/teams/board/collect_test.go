@@ -111,8 +111,11 @@ func TestCollectSessionsGathersLiveRecordsAndCheckouts(t *testing.T) {
 	sessions := filepath.Join(h.Root, "home/.local/state/ccy/sessions")
 	teamtest.MustWrite(t, filepath.Join(sessions, "ccy-other"),
 		"ccy-session-record 1\nname=ccy-other\ndir=/elsewhere\nlauncher=/x/ccy\nprefix=ccy\nrestore=no\narg=--teams=dev@alpha,2@alpha\narg=--\narg=--teams\narg=9@alpha\n")
-	teamtest.MustWrite(t, filepath.Join(sessions, "cc-skip"),
-		"ccy-session-record 1\nname=cc-skip\ndir=/skipped\nlauncher=/x/cc\nprefix=cc\nrestore=no\n")
+	teamtest.MustWrite(t, filepath.Join(sessions, "cc-host"),
+		"ccy-session-record 1\nname=cc-host\ndir=/hosted\nlauncher=/x/cc\nprefix=cc\nrestore=no\narg=--teams\narg=3@alpha\n")
+	teamtest.MustWrite(t, filepath.Join(sessions, "other-skip"),
+		"ccy-session-record 1\nname=other-skip\ndir=/skipped\nlauncher=/x/other\nprefix=other\nrestore=no\narg=--teams\narg=4@alpha\n")
+	h.On("tmux -L ccy list-sessions", "ccy-proj 0 "+checkout+"\ncc-desk 1 /desk\nplain 0 /plain\n", 0)
 	teamtest.MustWrite(t, filepath.Join(sessions, "ccy-bad"), "garbage")
 	h.On("git rev-parse --is-inside-work-tree", "true\n", 0)
 	h.On("git rev-parse --show-toplevel", checkout+"\n", 0)
@@ -120,7 +123,7 @@ func TestCollectSessionsGathersLiveRecordsAndCheckouts(t *testing.T) {
 	if err := h.c.collectSessions(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{checkout, "/elsewhere"}; !reflect.DeepEqual(s.Checkouts, want) {
+	if want := []string{checkout, "/desk", "/hosted", "/elsewhere"}; !reflect.DeepEqual(s.Checkouts, want) {
 		t.Fatalf("checkouts %v, want %v", s.Checkouts, want)
 	}
 	if s.SeatSession[checkout+"|1@alpha"] != "ccy-proj" || !s.SeatRestore[checkout+"|1@alpha"] ||
@@ -129,6 +132,12 @@ func TestCollectSessionsGathersLiveRecordsAndCheckouts(t *testing.T) {
 	}
 	if restores, recorded := s.SeatRestore["/elsewhere|2@alpha"]; !recorded || restores {
 		t.Fatalf("a record that says restore=no is recorded as not restoring: %v", s.SeatRestore)
+	}
+	if s.SeatSession["/hosted|3@alpha"] != "cc-host" {
+		t.Fatalf("a cc session's seats are its record's too: %v", s.SeatSession)
+	}
+	if _, ok := s.SeatSession["/skipped|4@alpha"]; ok {
+		t.Fatal("a record of neither launcher names no seat")
 	}
 	if _, ok := s.SeatSession["/elsewhere|9@alpha"]; ok {
 		t.Fatal("launcher args after -- are not the launcher's")
@@ -230,7 +239,7 @@ func TestCollectBuildsTheRows(t *testing.T) {
 	shown := term.AbbrevHome(checkout, h.c.Home)
 	want := []Row{
 		{Team: "alpha", Member: "(no description)", Kind: KindTeam, State: "up", Applied: "up to date", Session: "-", Restore: "-", Where: "port 6167", Handle: "-", Dir: "-"},
-		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev"},
+		{Team: "alpha", Member: "1", Kind: "ccy", State: "active", Applied: "-", Session: "ccy-proj", Record: "ccy-proj", Restore: "yes", Where: shown, Handle: "proj.1+local.podman", Dir: checkout, Role: "dev", Held: true},
 		{Team: "alpha", Member: "dev", Kind: "ccy", State: "unknown", Applied: "-", Session: "free", Restore: "-", Where: shown, Handle: "proj.dev+local.podman", Dir: checkout},
 		{Team: "alpha", Member: "proj.2+local.podman", Kind: "ccy", State: "parked", Applied: "-", Session: "-", Restore: "-", Where: "dev", Handle: "proj.2+local.podman", Dir: "-", Role: "dev"},
 		{Team: "alpha", Member: "proj.box+role.lxc", Kind: "lxc", State: "active", Applied: "-", Session: "-", Restore: "-", Where: "ops", Handle: "proj.box+role.lxc", Dir: "-", Role: "ops"},

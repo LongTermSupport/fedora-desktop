@@ -204,6 +204,26 @@ Each is numbered so a test, a review finding or a host check can name it.
   sentence with them.
 - **E24. The full board stays.** `recv`, `wait`, `history`, `say` and `send` are unchanged in
   what they print and do, apart from E12's lock.
+- **E25. A homeserver restart drops nothing.** Each team's thread runs its first sync and
+  status publish itself, so a homeserver not answering yet at start is waited for. A
+  transient fault (no connection, a 5xx, a 429 past its retries: `MatrixError.transient`)
+  and any other error in one team, a full disk among them, are retried with a backoff of
+  1 s doubling to 30 s from the stored sync token, so each item is still stored and
+  delivered once. `watch.log` gets one line when the fault starts and one when the team
+  syncs again. Only a permanent failure (401, 403, lost trust, a broken bundle or state)
+  drops a team; an error in a delivery pass is said once and the next tick tries again.
+- **E26. A dead watcher comes back without a keypress.** The hooks start
+  `pingbus watch --supervise`, which holds the session's watch lock
+  (`inject/<key>.watch`) and runs `watch --child` until the socket goes (the child exits 0,
+  which it does only then, a refusing socket file left by a killed session included, or the
+  file is gone), starting it again
+  after any other exit with a backoff of 1 s doubling to 60 s, except after 8, 10, 64 or 78
+  (a restart cannot change those). The child inherits the lock, so a second supervisor or a
+  plain `watch` of the same session exits 75 even on a free team. UserPromptSubmit and Stop
+  start the supervisor again, saying so once, when the lock is free and a team has no waker;
+  a start is given 30 s to take the lock, and one that died again within 300 s is reported
+  (`watcher_failed`, Stop blocks once per window) rather than restarted in a loop. Stop's
+  "run `pingbus wait`" block is for a session with no socket only.
 
 ## 3. The envelope, exactly
 

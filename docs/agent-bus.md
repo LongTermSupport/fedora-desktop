@@ -121,6 +121,16 @@ that play.
    keeps the team's data (its whole room history); deleting the data as well needs the
    team's name typed.
 
+**Shut down a team's sessions** (the team stays up). `ccy-teams shutdown <team>` (or Enter on
+the team, then **Shut down every session of `<team>`**) lists the team's sessions on this host
+and the members it cannot reach, asks (default No; `--yes` where there is no terminal), then
+types `/exit` into each session's tmux pane, as you would (Escape first if it is busy). A
+session still running after 60 s is stopped as ccy-sessions' End stops it; each seat must then
+be free. Each member is reported: exited cleanly, stopped, failed, or not shut down (an LXC
+agent, a session on another machine, a `cc --teams <team>` session whose record lacks its seat:
+end those where they run). A session with unsent text in its input box, or whose screen cannot
+be read, is left alone. Local only: nothing goes on the bus. Spec: Plan 00201 `SPEC-shutdown.md`.
+
 `ccy-teams` lists each team (its homeserver up, down or not installed yet, its port, and
 APPLIED: up to date, out of date, not built, or decide), then its members. They are ccy seats, each with the session holding it and whether it is
 restored after a reboot; LXC and other members, active or parked; and the people, in the
@@ -454,7 +464,10 @@ longer than 2 KiB as shown is cut, with a pointer to `pingbus history`; an agent
 more than ten messages in ten minutes is summarised on one "held back" line. If the socket
 cannot be written for two minutes, or a delivery never reaches the conversation, the
 session's hooks say so and point at `pingbus recv` or `pingbus history`, and `watch.log` in
-the session's pingbus home has the detail. The exact format and its threat model:
+the session's pingbus home has the detail. The watcher survives a homeserver restart (a
+Tuwunel upgrade, a reboot race): it waits, retries and catches up, with one `watch.log` line
+when the outage starts and one when it ends, and it runs under a supervisor that starts it
+again if it dies, so an idle session stays reachable with no keypress. The exact format and its threat model:
 `CLAUDE/Plan/00194-agent-bus-live-delivery-supervisor-plugin/SPEC-inject.md`; the protocol:
 [agent-bus-protocol.md](agent-bus-protocol.md) §15.
 

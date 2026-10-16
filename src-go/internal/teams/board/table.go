@@ -46,6 +46,8 @@ type Row struct {
 	// Role is the member's role in the team (worker, coordinator), empty for a row that is not a
 	// member or whose members could not be read.
 	Role string
+	// Held is a seat that a live process holds, whichever session it is.
+	Held bool
 }
 
 // memberWidth is the MEMBER column's width, which a team row's description is cut to on a
