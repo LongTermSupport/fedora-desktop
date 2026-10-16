@@ -11,19 +11,16 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
-func TestPickReturnsKeyAndRowAndTreatsExitAsLeave(t *testing.T) {
+func TestPickReturnsTheRowAndTreatsExitAsLeave(t *testing.T) {
 	f := &execx.Fake{}
-	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("ctrl-e\nalpha   up\n")})
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\n")})
 	p := &Picker{Runner: f}
-	got, err := p.Pick(context.Background(), PickSpec{
-		Title: "Agent teams", Header: "legend", Keys: []string{"ctrl-e", "?"},
-		Rows: []string{"alpha   up"},
-	})
-	if err != nil || got.Key != "ctrl-e" || got.Row != "alpha   up" {
+	got, err := p.Pick(context.Background(), PickSpec{Title: "Agent teams", Header: "legend", Rows: []string{"alpha   up"}})
+	if err != nil || got.Row != "alpha   up" || got.Action != "" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	c := f.Calls()[0]
-	if !slices.Contains(c.Args, "--expect=ctrl-e,?") || !slices.Contains(c.Args, "--border-label= Agent teams ") {
+	if !slices.Contains(c.Args, "--border-label= Agent teams ") || slices.ContainsFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--expect") }) {
 		t.Fatalf("args %v", c.Args)
 	}
 	if slices.Contains(c.Args, "--bind=start:last") {

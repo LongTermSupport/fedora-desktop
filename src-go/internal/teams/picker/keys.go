@@ -2,7 +2,6 @@ package picker
 
 import (
 	"context"
-	"slices"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
@@ -12,34 +11,18 @@ import (
 // nothingOnThisRow is what a key that is not one of the row's shortcuts says.
 const nothingOnThisRow = "That key does nothing on this row. Enter lists what can be done to it, each with its key."
 
-// act does what key asks of row: the key that was pressed, or "" for Enter, and the row it
-// was pressed on. Enter opens the menu of what can be done to the row; a key is a shortcut to
-// one entry of that menu, shown beside it there and in the row's footer, and does nothing on a
-// row whose menu does not have it (CLAUDE/InteractiveScripts.md).
-func (r *run) act(ctx context.Context, key string, row board.Row) (flow.Result, error) {
-	if key == "" {
-		return r.menu(ctx, row)
-	}
-	if !slices.ContainsFunc(r.actionsFor(row), func(a action) bool { return a.key == key }) {
-		r.p.Kit.Tell(nothingOnThisRow)
-		r.p.Kit.BackToList(ctx)
-		return flow.Done, nil
-	}
-	return r.do(ctx, key, row)
-}
-
-// do is one action on row: a key of the menu, which is also the shortcut for it.
-func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, error) {
-	switch key {
-	case keyNew:
+// do is one action on row, chosen from its menu or by the shortcut ui shows beside it there.
+func (r *run) do(ctx context.Context, id string, row board.Row) (flow.Result, error) {
+	switch id {
+	case actNew:
 		return r.p.Seats.NewSession(ctx, r.snap, row.Team)
-	case keyRestore:
+	case actRestore:
 		return r.p.Seats.ToggleRestore(ctx, r.snap, row)
-	case keyRemove:
+	case actRemove:
 		return r.p.Seats.RemoveOrPark(ctx, r.snap, row)
-	case keyElement:
+	case actElement:
 		return r.p.Login.OpenElement(ctx, r.snap, row.Team)
-	case keyElementAll:
+	case actElementAll:
 		// Unlike one team's Ctrl-E, this can name several teams with no profile, so it waits
 		// for Enter before the list is redrawn over what it said.
 		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
@@ -47,20 +30,20 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 			r.p.Kit.BackToList(ctx)
 		}
 		return res, err
-	case keyPassword:
+	case actPassword:
 		return r.p.Login.PasswordRow(ctx, r.snap, row)
-	case keyUpdate:
+	case actUpdate:
 		return r.updateAll(ctx)
-	case keyHelp:
+	case actHelp:
 		r.p.showHelp(ctx)
 		return flow.Done, nil
-	case keyAttach:
+	case actAttach:
 		return r.p.Seats.AttachSeat(ctx, r.snap, row)
-	case keyCoordinator:
+	case actCoordinator:
 		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
-	case keyLxc:
+	case actLxc:
 		return r.addLxc(ctx, row.Team)
-	case keyShutdown:
+	case actShutdown:
 		return r.p.Shutdown.Offer(ctx, row.Team)
 	}
 	r.p.Kit.Tell(nothingOnThisRow)

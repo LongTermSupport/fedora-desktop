@@ -187,9 +187,10 @@ var dynamicNames = []allowance{
 	},
 }
 
-// bindingSubjects are not judged by project_hidden_bindings: the rules package names the
-// fzf flags as the text it looks for and builds no fzf argv (it starts no process).
-var bindingSubjects = []string{"qa/rules"}
+// bindingSubjects are not judged by project_hidden_bindings: the rules package and the
+// shell gate of the same rule name the fzf flags as the text they look for and build no fzf
+// argv (neither starts fzf).
+var bindingSubjects = []string{"qa/rules", "qa/hiddenbindings"}
 
 // expectBuilders are the only functions that may build fzf's --expect: the keys fzf hands
 // back for the caller to act on. Each takes its keys from ui.Action values, whose Label ui

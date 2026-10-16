@@ -67,7 +67,8 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
 - **Project rules.** `qa/` is a nested module (so this `go.mod` stays dependency-free) of
   `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
   tmux target forms, no wall clock in tests, one home abbreviation, a `WaitDelay` that names
-  its error. [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
+  its error, no action reachable only by a key (a key reaches fzf only as a `ui.Action`).
+  [GoProjectRules.md](../CLAUDE/GoProjectRules.md) is the catalogue.
   A new defect class found here gets a rule there before its fix.
 
 ## How a port is built: spec first, tests first

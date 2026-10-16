@@ -37,11 +37,11 @@ func TestPickerEscLeavesWithTheHouseStyleArgvAndTaggedRows(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	args := h.Script.FzfArgs[0]
-	if !slices.Contains(args, "--expect=ctrl-n,ctrl-r,ctrl-x,ctrl-e,ctrl-p,ctrl-u,?,tab") ||
+	if !slices.Contains(args, "--expect=tab,ctrl-e,ctrl-n,ctrl-u,ctrl-x,?,ctrl-r,ctrl-p") ||
 		!slices.Contains(args, "--border-label= Agent teams ") || !slices.Contains(args, "--with-nth=1") {
 		t.Fatalf("args %q", args)
 	}
-	if len(h.Script.Rows[0]) != 8+2 || h.Script.Rows[0][8] != sessionsRow+"\t"+tagSessions || h.Script.Rows[0][9] != "Exit" {
+	if len(h.Script.Rows[0]) != 8+2 || h.Script.Rows[0][8] != sessionsAction.Line()+"\t8" || h.Script.Rows[0][9] != "Exit" {
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 	if !strings.HasPrefix(h.Script.Rows[0][0], "alpha ") || !strings.HasSuffix(h.Script.Rows[0][0], "\t0") {
@@ -247,19 +247,17 @@ func TestPickerRowOfTellsIdenticalRowsApartByTheirTag(t *testing.T) {
 	}
 }
 
-func TestPickerChangedRowRefreshesAfterBackToList(t *testing.T) {
+// Each row carries its place in the list through fzf (SPEC-ccy-teams 9.20), so a row fzf hands
+// back that the list never showed is a failure, said as one, never a silent redraw.
+func TestPickerARowTheListNeverShowedIsAFailure(t *testing.T) {
 	h := newRig(t)
 	h.Script.Fzf = []string{"|owner", "|ABORT"}
 	h.Script.Rewrite = func(out string) string { return strings.Replace(out, "\t5", "\t99", 1) }
-	if code := h.run(); code != term.ExitOK {
+	if code := h.run(); code != term.ExitFailure {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(h.ErrOut.String(), "That row has changed; the list has been refreshed.\n") ||
-		!strings.Contains(h.ErrOut.String(), "Press Enter to go back to the list.\n") {
+	if !strings.Contains(h.ErrOut.String(), "a row that is not in the list") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
-	}
-	if len(h.Script.Rows) != 2 {
-		t.Fatalf("the list was drawn %d times", len(h.Script.Rows))
 	}
 }
 

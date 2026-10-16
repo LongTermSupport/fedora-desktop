@@ -8,7 +8,9 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 )
 
-func TestActRoutesKeyAndKindToTheFlowThatOwnsThem(t *testing.T) {
+// The whole list is driven through ui: a key on a row, or Enter on a row and a line of its
+// menu, so what a key does is what ui resolves it to on that row.
+func TestAKeyOrAMenuLineRoutesToTheFlowThatOwnsIt(t *testing.T) {
 	cases := []struct {
 		key, member, want string
 	}{
@@ -24,16 +26,24 @@ func TestActRoutesKeyAndKindToTheFlowThatOwnsThem(t *testing.T) {
 		{"?", "owner", "Each team is a bold row"},
 		{"", board.NoDescription, "What to do with team alpha"},
 		{"", "dev", "What to do with dev in alpha"},
-		{keyAttach, "dev", "has no running session to attach"},
+		{"attach", "dev", "has no running session to attach"},
 		{"", "proj.box+role.lxc", "What to do with proj.box+role.lxc in alpha"},
 		{"ctrl-z", "1", nothingOnThisRow},
 	}
 	for _, c := range cases {
 		h := newRig(t)
 		h.Script.Gum = []string{"NO"}
-		h.Script.Fzf = []string{"|EXIT"}
 		r := h.run1(t)
-		if _, err := r.act(context.Background(), c.key, h.row(t, r.snap, c.member)); err != nil {
+		row := h.row(t, r.snap, c.member).Text()
+		switch c.key {
+		case "attach":
+			h.Script.Fzf = []string{"|" + row, "|Attach this terminal", "|EXIT"}
+		case "":
+			h.Script.Fzf = []string{"|" + row, "|EXIT"}
+		default:
+			h.Script.Fzf = []string{c.key + "|" + row, "|EXIT"}
+		}
+		if err := r.listPass(context.Background()); err != nil {
 			t.Fatalf("%q on %s: %v", c.key, c.member, err)
 		}
 		seen := h.ErrOut.String() + strings.Join(h.headerLines(), "\n")
@@ -59,7 +69,8 @@ func TestUpdateAllIsApplyAll(t *testing.T) {
 	h := newRig(t)
 	h.outdatedUntilApplied("unstamped")
 	r := h.run1(t)
-	if _, err := r.act(context.Background(), "ctrl-u", h.row(t, r.snap, board.NoDescription)); err != nil {
+	h.Script.Fzf = []string{"ctrl-u|" + h.row(t, r.snap, board.NoDescription).Text()}
+	if err := r.listPass(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if h.plays() != 1 {

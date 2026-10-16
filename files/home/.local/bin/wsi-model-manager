@@ -10,13 +10,11 @@ are on disk. Progress goes to stderr; stdout carries one line per model,
 Exit 0 when all are downloaded, 1 when the resolver cannot choose, a download fails or
 the weights are still missing, 2 on a usage error.
 
-Keys:
-  d / Enter  Download selected model
-  r          Remove selected model from cache
-  /          Focus filter box
-  Esc        Clear filter / close confirmation
-  F5         Refresh installed status
-  q          Quit
+Every action is a button on screen, with its key beside it as a shortcut
+(CLAUDE/InteractiveScripts.md rule 14): Download (d, or Enter on a row), Remove (r),
+Refresh (F5), Clear filter (Esc) and Quit (q). / moves to the filter box; Tab moves
+between the filter, the list and the buttons. Removing asks first, with Yes (y) and
+No (n, Esc) buttons.
 """
 
 from __future__ import annotations
@@ -35,8 +33,9 @@ from pathlib import Path
 try:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
+    from textual.containers import Horizontal
     from textual.screen import Screen
-    from textual.widgets import DataTable, Footer, Header, Input, Static
+    from textual.widgets import Button, DataTable, Footer, Header, Input, Static
     from textual import work
     from rich.text import Text
 except ImportError:
@@ -197,10 +196,13 @@ class ConfirmScreen(Screen):
             f'\n  Remove model: [bold]{self._model_id}[/bold]\n\n'
             f'  Size on disk: {size}\n\n'
             f'  This deletes the model from the HuggingFace cache.\n'
-            f'  You can re-download it at any time.\n\n'
-            f'  Press [bold green]Y[/bold green] to confirm, '
-            f'[bold]N[/bold] or [bold]Esc[/bold] to cancel.\n',
+            f'  You can re-download it at any time.\n',
             markup=True,
+        )
+        yield Horizontal(
+            Button('Yes, remove it  (y)', action='screen.confirm', variant='error'),
+            Button('No, keep it  (n, Esc)', action='screen.cancel'),
+            id='answers',
         )
 
     def action_confirm(self) -> None:
@@ -234,6 +236,9 @@ class ModelManagerApp(App):
         background: $surface;
         color: $text-muted;
     }
+    #actions {
+        height: auto;
+    }
     """
 
     BINDINGS = [
@@ -260,6 +265,14 @@ class ModelManagerApp(App):
         yield Input(placeholder='Filter models...  (press / to focus)', id='filter')
         yield DataTable(id='table', cursor_type='row', zebra_stripes=True)
         yield Static('', id='status')
+        yield Horizontal(
+            Button('Download  (d)', action='app.download', variant='primary'),
+            Button('Remove  (r)', action='app.remove'),
+            Button('Refresh  (F5)', action='app.refresh'),
+            Button('Clear filter  (Esc)', action='app.clear_filter'),
+            Button('Quit  (q)', action='app.quit'),
+            id='actions',
+        )
         yield Footer()
 
     def on_mount(self) -> None:

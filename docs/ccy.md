@@ -163,13 +163,13 @@ tmux menu ([tmux sessions](tmux-sessions.md)). Otherwise nothing changes — unt
 terminal dies.
 Then `ccy` in the project directory finds the detached session and offers it in a picker:
 the same bordered list `ccy-sessions` uses, with the session name, its state and its
-directory. Enter re-attaches, Ctrl-N starts a new session instead, and the last row is
-always Exit (Esc or `q` do the same).
+directory. Enter re-attaches; a `Start a new session here` row starts a new one instead,
+and the last row is always Exit (Esc or `q` do the same).
 A launch with `--teams` is offered only the detached sessions that hold one of its seats,
 each shown with the seats it holds, so Enter never attaches it to a session in other seats.
 When there are detached sessions but none holds them, one line says so and a new session
 starts.
-Every key acts on its own; nothing needs Enter after it. A session that is open in
+Every action is a row; no key does anything a row does not offer. A session that is open in
 another terminal is named in the header and is not offered: **a session can be attached
 from one terminal only** (`ccy-sessions` can take one over, below). The tmux server
 enforces it too — a second client attaching to an open session is detached again at once —
@@ -189,16 +189,19 @@ none, `-` when there is no container to ask. A CPU column says how busy each ses
 CPU used by everything it runs, container and host side, over a one-second sample, where 100%
 is one whole core (so the list takes a second to appear). `ccy-sessions --list` (or `-l`) prints the same
 table with a heading on stdout and exits, opening nothing and needing no terminal.
-Arrow keys choose, Enter attaches a detached one, Ctrl-X ends one (it
-asks first), Ctrl-N starts a new `ccy` session in the current directory, and the last
-row is always Exit (Esc or `q` do the same). Every yes/no question is the same picker,
-starting on Exit so Enter alone is the safe answer. A session that is open in another
-terminal says so and Enter on it is refused; **Ctrl-T takes it over**. It asks first,
+Arrow keys choose, and Enter on a session lists what can be done to it: attach it here,
+take it over (Ctrl-T) or end it (Ctrl-X, which asks first). A row of its own starts a new
+`ccy` session in the current directory (Ctrl-N), and the last row is always Exit (Esc or
+`q` do the same). Each key is a shortcut, printed beside the line it chooses. Every yes/no
+question is the same picker, starting on Exit so Enter alone is the safe answer. A session
+that is open in another terminal says so and its menu does not offer attaching; **taking
+it over does** (Ctrl-T). It asks first,
 naming the other terminal and how long it has been idle, then detaches that terminal and
 attaches this one — the way back from an SSH connection that dropped while still holding
 the session. Only the other terminal is detached; the session and everything in it keep
-running. Ctrl-T on a detached session attaches it, as Enter does. Ctrl-N only
-works from a project folder (a git repository) and simply runs `ccy` the normal way, with
+running. Taking over a detached session attaches it, as Attach does. Starting a new
+session only works from a project folder (a git repository), as its row says, and simply
+runs `ccy` the normal way, with
 every check and prompt it always has. It is how you get back to work after a crash without
 remembering which projects were open.
 
@@ -1733,8 +1736,8 @@ absent supervisor and `--no-supervise`; both announce themselves at launch. See
 | Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                                                                                                                                                                                                      |
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                                                                                                                                                                                          |
 | Terminal died; where is my session?           | Still running, detached. `cd` to the project and run `ccy` — it offers to re-attach. `ccy-sessions` lists them all. See [Sessions Survive the Terminal](#sessions-survive-the-terminal).                                                                                                                                                                                                                                    |
-| `ccy` offers a session I do not want          | Answer `n` for a fresh one, or end the old one from `ccy-sessions` (choose it, Ctrl-X).                                                                                                                                                                                                                                                                                                                                     |
-| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there (F12, Detach), or take it over from `ccy-sessions` (choose it, then Ctrl-T).                                                                                                                                                                                                                                                                              |
+| `ccy` offers a session I do not want          | Choose `Start a new session here`, or end the old one from `ccy-sessions` (choose it, then End it).                                                                                                                                                                                                                                                                                                                                     |
+| "open in another terminal" when attaching     | A session can be attached from one terminal only. Detach it there (F12, Detach), or take it over from `ccy-sessions` (choose it, then Take it over here).                                                                                                                                                                                                                                                                              |
 | "tmux is not installed"                       | `play-tmux-sessions.yml` has not run on this host. It is part of `playbook-main.yml`.                                                                                                                                                                                                                                                                                                                                       |
 | Sessions did not come back after a reboot     | Restore is opt-in: `ccy_restore_sessions: true` in `host_vars`, then the play. If it is on, `ccy-sessions verify-restore` names each session's state, and `journalctl --user -u ccy-sessions-restore -b --no-pager` shows what the restore did.                                                                                                                                                                             |
 | `ccy-sessions reboot` refuses                 | logind does not let this account reboot unattended (`CanReboot: challenge`, any login outside the desktop session): use `sudo /usr/local/bin/reboot-with-update --in N`. Or a live session's project has no hooks-daemon CLI, or its CLI cannot run where it is reached (in the container for ccy, on the host for cc): every such session is named; end it or install the daemon there. Nothing was signalled or rebooted. |
