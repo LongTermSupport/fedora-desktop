@@ -165,6 +165,27 @@ Usage:
                                    private to you, and print that directory, which ccy mounts
                                    read-only into the container. ccy calls it at each launch
                                    that carries the bus kit (Plan 00203)
+  ccy-teams internal restart-args <session>
+                                   read a relaunch's arguments, NUL separated, on stdin and
+                                   print them with the --teams of <session>'s record ("" for an
+                                   unnamed launch: unchanged), so a supervisor restart replays a
+                                   membership changed while the session ran. ccy calls it
+  ccy-teams session add <session> <team>[/<seat>] [--yes]
+  ccy-teams session remove <session> <team> [--yes]
+                                   Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with
+                                   --teams or --bus, can be changed while they run. add puts
+                                   the running session into the team, in the seat given or the
+                                   lowest free one, and waits for it to hold the seat; a session
+                                   started on no team relaunches once, at its next idle moment,
+                                   to accept team messages. remove releases the seat, clears its
+                                   sync position, expires its listening status and posts its
+                                   goodbye; the token stays valid (remove does not revoke). One
+                                   line per step on stderr (✓, ✗, or - for already so); asks
+                                   first, --yes required with no terminal. Exit 75 for a seat
+                                   held elsewhere, 78 for a session that cannot be changed
+                                   while it runs. Run one session command at a time per
+                                   session: two at once on the same session can undo each
+                                   other. ccy-teams session --help says more
   ccy-teams choose-seat <team>     choose which seat this session takes in the team (gum), then
                                    whether the seat is the team's coordinator, a worker, or
                                    stops being the coordinator; prints SEAT@TEAM on stdout, the

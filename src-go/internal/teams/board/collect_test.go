@@ -150,6 +150,31 @@ func TestCollectSessionsGathersLiveRecordsAndCheckouts(t *testing.T) {
 	}
 }
 
+func TestCollectSessionsTakesALiveSessionsDesiredMembership(t *testing.T) {
+	h := populated(t)
+	runtime := t.TempDir()
+	h.Env["XDG_RUNTIME_DIR"] = runtime
+	desired := func(session, checkout, seat string) {
+		teamtest.MustWrite(t, filepath.Join(runtime, "ccy", "membership", session, "membership.json"),
+			`{"v":1,"session":"`+session+`","kind":"ccy","checkout":"`+checkout+`","generation":2,"written_ms":1,"seats":[{"team":"alpha","seat":"`+seat+`"}],"farewell":[]}`)
+	}
+	desired("ccy-proj", h.Checkout(), "7")
+	desired("ccy-gone", "/gone", "8")
+	s := NewSnapshot()
+	if err := h.c.collectSessions(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	if s.SeatSession[h.Checkout()+"|7@alpha"] != "ccy-proj" || s.SeatSession[h.Checkout()+"|1@alpha"] != "ccy-proj" {
+		t.Fatalf("a hot-added seat names its live session: %v", s.SeatSession)
+	}
+	if _, ok := s.SeatSession["/gone|8@alpha"]; ok {
+		t.Fatal("the membership of a session that is not running names no seat")
+	}
+	if _, recorded := s.SeatRestore[h.Checkout()+"|7@alpha"]; recorded {
+		t.Fatal("a seat no record names has no restore flag")
+	}
+}
+
 func TestCollectSessionsFailures(t *testing.T) {
 	h := newRig(t)
 	h.OnErr("tmux -L ccy list-sessions", "protocol version mismatch", 1)

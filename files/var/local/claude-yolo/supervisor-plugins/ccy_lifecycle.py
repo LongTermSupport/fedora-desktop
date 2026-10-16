@@ -21,6 +21,12 @@ Two independent features, both off unless configured:
                        has gone out, the maximum-age restart stands down: a session that
                        has been told to wrap up is not restarted into a fresh container.
 
+  first-join relaunch  (Plan 00203 H22) A session launched on no team accepts no team
+                       messages, so its first join relaunches it once: ccy-teams writes
+                       relaunch.json into the session's read-only membership directory
+                       (PINGBUS_MEMBERSHIP), and at the next idle point the plugin asks for
+                       an exit for restart. The next launch's membership-init removes it.
+
 Configuration arrives in the environment (the ccy launcher passes it through):
 
   CCY_LIFECYCLE_LAUNCH_ID          one value per container launch; required when a feature
@@ -72,12 +78,17 @@ from typing import Any
 PLUGIN_API = 1
 
 PLUGIN_NAME = "ccy-lifecycle"
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "1.1.0"
 
 ENV_LAUNCH_ID = "CCY_LIFECYCLE_LAUNCH_ID"
 ENV_MAX_AGE = "CCY_LIFECYCLE_MAX_AGE_SECONDS"
 ENV_DEADLINE = "CCY_LIFECYCLE_DEADLINE_EPOCH"
 ENV_WARN_MINUTES = "CCY_LIFECYCLE_WARN_MINUTES"
+#: Plan 00203 H22: the session's read-only membership directory, and the owner's request in it.
+ENV_MEMBERSHIP = "PINGBUS_MEMBERSHIP"
+RELAUNCH_FILE = "relaunch.json"
+RELAUNCH_MAX_BYTES = 4096
+RELAUNCH_REASON = "joined a team: relaunching once to accept team messages"
 
 MAX_AGE_MIN_SECONDS = 30 * 60
 MAX_AGE_MAX_SECONDS = 30 * 24 * 3600
@@ -259,6 +270,7 @@ class LifecycleHalf:
         # nothing, which is the whole of "off".
         self._active: _Active | None = None
         self._restart_audited = False
+        self._relaunch_audited = False
 
     # -- supervisor hooks ---------------------------------------------------------------
 
@@ -281,6 +293,9 @@ class LifecycleHalf:
         )
 
     def on_idle(self, tick: Any) -> Any:
+        relaunch = self._relaunch_result()
+        if relaunch is not None:
+            return relaunch
         active = self._active
         if active is None:
             return None
@@ -294,6 +309,33 @@ class LifecycleHalf:
         return self._max_age_result(active, now)
 
     # -- features -----------------------------------------------------------------------
+
+    def _relaunch_result(self) -> Any:
+        """Plan 00203 H22: the owner asked, through the session's read-only membership
+        directory, for the one relaunch a first team join needs. A request that is not a
+        regular file holding a version 1 object is ignored: only the host can write there."""
+        marker = self._environ.get(ENV_MEMBERSHIP, "")
+        if not marker.startswith("/"):
+            return None
+        path = Path(marker) / RELAUNCH_FILE
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except OSError:
+            return None
+        with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                return None
+            raw = handle.read(RELAUNCH_MAX_BYTES + 1)
+        try:
+            data: object = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            return None
+        if not isinstance(data, dict) or data.get("v") != 1 or len(raw) > RELAUNCH_MAX_BYTES:
+            return None
+        if not self._relaunch_audited:
+            self._relaunch_audited = True
+            self._api.audit("relaunch requested: the session joined a team and accepts no team messages yet")
+        return self._api.ExitForRestart(RELAUNCH_REASON)
 
     def _deadline_result(self, active: _Active, now: float, session_id: str | None) -> Any:
         deadline = active.config.deadline

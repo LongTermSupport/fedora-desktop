@@ -19,3 +19,43 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00203 M3: rebuilds ccy 3.99.8, ccy-teams and the ccy image (container 2.73; the first
+# launch after it rebuilds the image once). `ccy-teams session add` and `remove` change a running
+# ccy session's teams without a restart (a session started on no team relaunches once, by
+# itself, on its first join), and the session is told in its conversation and on its status
+# line. Running sessions are unaffected until they are relaunched: relaunch every team session
+# after.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00203 M3, the agent team bus kit's pingbus for `cc --teams` and LXC members: the watcher
+# follows a session's teams as the owner changes them (a busy team is retried, a removed one let
+# go with nothing it fetched after the remove delivered), the membership notice and its hook
+# fallback, `seat farewell`, and `seat retire` waiting for the sync lock. No unit or firewall
+# changes; homeservers are not restarted by this change.
+playbooks/imports/play-agent-bus.yml
+# Plan 00203 acceptance, every milestone in turn. M2: two throwaway headless ccy sessions in
+# ccy's tmux in this checkout (plain and --no-bus, idle, no turn sent), removed after; checks
+# the read-only mount, its relabel by labels (Z asked, container_file_t at the container's own
+# level; on a Permissive host it says enforcement was not exercised), the inert kit, no inbound
+# on no team, idle CPU, the image version and --no-bus. Needs ccy launched interactively here
+# once (Quick Launch). M1: the helper tests, then a third throwaway plain session: the seat
+# keeper is its only pingbus process and only lock holder. M3: two throwaway teams acc-m3a and
+# acc-m3b and a throwaway headless session on acc-m3a: hot add of acc-m3b, the notice, a human
+# message, hot remove with its goodbye, no backlog on re-add, an idempotent re-run; all removed
+# after (the first-join relaunch of an interactive session is the owner's step M3 (g) in
+# ACCEPTANCE.md). Then the server robustness checks (ACCEPTANCE.md R1-R9), on a throwaway team
+# acc-robust it removes: kills, ends and freezes its homeserver and times its return, shows a
+# stale backup on the board, times seat check waiting for a starting homeserver, checks any LXC
+# member unit; its teardown also clears acc-robust's units from systemctl --failed and its
+# backup timer's last-run time.
+00203-teams-hot-control-and-robustness
+# Plan 00201 M7 acceptance again: two throwaway teams, ccy --teams on both, then all removed.
+# Its sessions are launched unnamed whatever terminal runs it, so its plain session must say
+# PINGBUS_MEMBERSHIP=off. This is M2's check (a) that ccy --teams works as before, and with M1 that the
+# keeper takes the seats.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/acceptance.bash
+# Plan 00161 acceptance again (U20's seated headless sessions), its sessions launched unnamed
+# the same way, each seat with a membership directory of its own, then (M2.11) seat accb once
+# more as a NAMED session in a tmux session of its own on ccy's server: its own throwaway team,
+# removed after. Also M2's check (a).
+00161-agent-team-bus-matrix/acceptance.bash

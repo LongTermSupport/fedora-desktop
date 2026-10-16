@@ -17,6 +17,7 @@ connection's bytes; `watch` runs against the U08 fake homeserver as in test_cli.
 from __future__ import annotations
 
 import errno
+import io
 import json
 import os
 import pathlib
@@ -26,12 +27,13 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, inject, matrix, notify, protocol, syncer
+from helpers.pingbus import cli, inbox, inject, matrix, membership, notify, protocol, syncer
 from tests.helpers.pingbus import test_cli as bus
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
@@ -796,6 +798,190 @@ class WatchOutageTest(WatchCase):
         self.assertEqual(code, cli.EXIT_AUTH)
         self.assertIn("no longer watched", err)
         self.assertNotIn(self.OUTAGE, err)
+
+
+class WatchMembershipTest(WatchCase):
+    """Plan 00203 H11, H12, H15: under PINGBUS_MEMBERSHIP the watcher follows the session's
+    teams as the owner changes them (the keeper's applied file and the host's desired file),
+    and tells the session in its own conversation, as a MEMBERSHIP envelope, once."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.add_team()
+        self.mount = self.tmp / "membership"
+        self.mount.mkdir()
+        self.generation = 0
+        self.member(bus.TEAM_A, bus.TEAM_B)
+        self.joined()
+        self.member(bus.TEAM_A)
+        del self.env["PINGBUS_TEAMS"]
+        self.env[membership.MEMBERSHIP_VAR] = str(self.mount)
+        membership.write_told(self.home, membership.ToldRecord(self.generation, (
+            membership.ToldTeam(bus.TEAM_A, "1", bus.ME_LP, "worker"),)))
+
+    def member(self, *teams: str, farewell: tuple[str, ...] = ()) -> None:
+        """The host writes the desired file, then the keeper takes the seats: seat 1 of each."""
+        self.generation += 1
+        desired = {"v": 1, "session": "ccy-myrepo-1", "kind": "ccy", "checkout": "/srv/myrepo",
+                   "generation": self.generation, "written_ms": 1,
+                   "seats": [{"team": t, "seat": "1"} for t in teams],
+                   "farewell": [{"team": t, "seat": "1", "reason": "removed"} for t in farewell]}
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps(desired), encoding="utf-8")
+        membership.write_applied(self.home / membership.APPLIED_FILE, membership.Applied(
+            self.generation, tuple(membership.AppliedSeat(t, "1", bus.ME_LP) for t in teams), ()))
+
+    def notices(self) -> list[str]:
+        return [text for text in self.sock.texts() if "kind: MEMBERSHIP" in text]
+
+    def test_a_team_added_is_watched_and_the_session_is_told(self):
+        self.start_watch()
+        self.assertIsNone(inbox.probe_lock(self.b.state))
+        self.member(bus.TEAM_A, bus.TEAM_B)
+        self.until(lambda: inbox.probe_lock(self.b.state) == "watch", "the added team was never watched")
+        self.until(lambda: self.notices(), "no membership notice")
+        (notice,) = self.notices()
+        self.assertIn(f"agent-bus: you joined team {bus.TEAM_B} as seat 1, {bus.ME_LP}.", notice)
+        self.assertIn(f"agent-bus: this session's teams are now: {bus.TEAM_A}, {bus.TEAM_B}.", notice)
+        self.until(lambda: membership.read_told(self.home).generation == self.generation, "not recorded")
+        self.b.ping(self.b.orch, "review", ref=bus.PATH_REF)
+        self.until(lambda: any(f"team: {bus.TEAM_B}" in t and "kind: PING" in t for t in self.sock.texts()),
+                   "a message from the added team was not delivered")
+
+    def test_a_team_removed_is_let_go_and_its_items_are_not_delivered(self):
+        self.member(bus.TEAM_A, bus.TEAM_B)
+        membership.write_told(self.home, membership.ToldRecord(self.generation, (
+            membership.ToldTeam(bus.TEAM_A, "1", bus.ME_LP, "worker"),
+            membership.ToldTeam(bus.TEAM_B, "1", bus.ME_LP, "worker"))))
+        self.start_watch()
+        self.until(lambda: inbox.probe_lock(self.b.state) == "watch", "team b was not watched")
+        self.member(bus.TEAM_A, farewell=(bus.TEAM_B,))
+        self.until(lambda: inbox.probe_lock(self.b.state) is None, "the removed team's lock was kept")
+        self.until(lambda: self.notices(), "no membership notice")
+        self.assertIn(f"agent-bus: you left team {bus.TEAM_B}: removed by the owner.", self.notices()[0])
+        self.b.ping(self.b.orch, "review", ref=bus.PATH_REF)
+        self.a.ping(self.a.orch, "review", ref=bus.PATH_REF)
+        self.until(lambda: any(f"team: {bus.TEAM_A}" in t and "kind: PING" in t for t in self.sock.texts()),
+                   "team a stopped delivering")
+        self.assertFalse(any(f"team: {bus.TEAM_B}" in t and "kind: PING" in t for t in self.sock.texts()))
+
+    def test_the_last_team_removed_is_told_then_the_watcher_exits_0(self):
+        self.start_watch()
+        self.member(farewell=(bus.TEAM_A,))
+        self.watcher.join(10)
+        self.assertFalse(self.watcher.is_alive(), "the watcher kept running on no team")
+        self.assertEqual(self.result[0][0], cli.EXIT_OK, self.result)
+        self.assertEqual(len(self.notices()), 1)
+        self.assertIn("agent-bus: this session is on no team now", self.notices()[0])
+        self.watcher = None
+        self.settle()  # its team's thread lets the lock go after the long poll in flight
+        self.assertIsNone(inbox.probe_lock(self.a.state))
+
+    def test_a_removed_team_is_refused_64_with_the_reason(self):
+        self.member(farewell=(bus.TEAM_A,))
+        code, _, err = self.run_cli("--team", bus.TEAM_A, "say", stdin="hi")
+        self.assertEqual(code, cli.EXIT_USAGE, err)
+        self.assertIn(f"not a member of `{bus.TEAM_A}` (removed by the owner)", err)
+
+    def test_wait_lets_a_removed_team_go_and_ends_0_on_no_team(self):
+        waiter: list[tuple[int, str, str]] = []
+        thread = threading.Thread(target=lambda: waiter.append(self.run_cli("wait", "--timeout", "30")),
+                                  daemon=True)
+        thread.start()
+        self.until(lambda: inbox.probe_lock(self.a.state) == "wait", "wait never held the lock")
+        self.member(farewell=(bus.TEAM_A,))
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(waiter[0][0], cli.EXIT_OK, waiter)
+        self.settle()
+        self.assertIsNone(inbox.probe_lock(self.a.state))
+
+    def test_a_team_added_while_its_lock_is_busy_is_retried_until_watched(self):
+        """H11: a Busy sync lock (a `pingbus wait` that took the new team first) is transient:
+        the watcher tries again with its backoff, and never drops the team for good."""
+        self.start_watch()
+        busy = inbox.acquire_lock(self.b.state, "wait")
+        try:
+            self.member(bus.TEAM_A, bus.TEAM_B)
+            time.sleep(0.5)  # ten watcher ticks: the add is tried while the lock is busy
+            self.assertEqual(inbox.probe_lock(self.b.state), "wait")
+        finally:
+            busy.release()
+        self.until(lambda: inbox.probe_lock(self.b.state) == "watch",
+                   "the team added while busy was never watched")
+
+
+class _FakeSyncer:
+    """A syncer whose one sync is in flight when the owner removes the team: it stores an
+    item, the removal lands, and the batch comes back."""
+
+    def __init__(self, stop: cli._TeamStop, removed: bool) -> None:
+        self.stop, self.removed, self.calls = stop, removed, 0
+
+    def sync_once(self, timeout_ms: int) -> syncer.Batch:
+        self.calls += 1
+        if self.removed:
+            self.stop.remove()
+        else:
+            self.stop.set()
+        return syncer.Batch(False, 1, ("$fetched",), {})
+
+    def publish_status(self, until_ms: int) -> None:
+        pass
+
+
+class _FakeState:
+    def __init__(self) -> None:
+        self.consumed: list[str] = []
+
+    def consume(self, event_id: str) -> bool:
+        self.consumed.append(event_id)
+        return True
+
+
+class _FakeLock:
+    def __init__(self) -> None:
+        self.released = False
+
+    def release(self) -> None:
+        self.released = True
+
+
+class RemovedTeamFetchTest(unittest.TestCase):
+    """Plan 00203 H23a: what a removed team's thread fetches after the remove (its long poll
+    in flight, up to 30 s) is discarded, so nothing posted after the remove is delivered on a
+    re-add. A thread stopped because the watcher or waiter ends keeps what it fetched."""
+
+    def poll(self, target, removed: bool) -> tuple[_FakeState, _FakeLock, bool]:
+        stop = cli._TeamStop()
+        state, lock = _FakeState(), _FakeLock()
+        seat = types.SimpleNamespace(member=types.SimpleNamespace(team="t"), state=state,
+                                     syncer=_FakeSyncer(stop, removed))
+        rt = cli.Runtime(outage_retry_s=0.01, outage_retry_max_s=0.01)
+        waiting = cli._Waiting(rt.monotonic() + 60)
+        if target is cli._watch_poll:
+            target(seat, lock, rt, waiting, io.StringIO(), stop)
+        else:
+            target(seat, lock, rt, waiting, stop)
+        return state, lock, waiting.woke.is_set()
+
+    def test_the_watchers_removed_team_discards_what_it_fetched(self):
+        state, lock, woke = self.poll(cli._watch_poll, removed=True)
+        self.assertEqual(state.consumed, ["$fetched"])
+        self.assertTrue(lock.released)
+        self.assertFalse(woke)
+
+    def test_the_waiters_removed_team_discards_what_it_fetched(self):
+        state, lock, woke = self.poll(cli._long_poll, removed=True)
+        self.assertEqual(state.consumed, ["$fetched"])
+        self.assertTrue(lock.released)
+        self.assertFalse(woke)
+
+    def test_a_thread_stopped_at_the_end_keeps_what_it_fetched(self):
+        for target in (cli._watch_poll, cli._long_poll):
+            with self.subTest(target=target.__name__):
+                state, lock, _ = self.poll(target, removed=False)
+                self.assertEqual(state.consumed, [])
+                self.assertTrue(lock.released)
 
 
 class WatchSuperviseTest(WatchCase):

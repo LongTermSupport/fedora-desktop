@@ -702,6 +702,9 @@ class Runtime:
     keeper_argv: Callable[[], list[str]] = lambda: pingbus_argv()
     spawn_keeper: Callable[[Sequence[str], Mapping[str, str]], subprocess.Popen] = (
         lambda argv, environ: spawn_keeper(argv, environ))
+    #: How long `seat retire` and `seat farewell` wait for a removed team's sync lock: its
+    #: watcher thread lets it go once the long poll in flight ends (Plan 00203 H11, H23).
+    sync_wait_s: float = limits.SYNC_LONG_POLL_S + 10.0
     #: The keeper's ties to its process: dying with its parent, and its output once running.
     die_with_parent: Callable[[], object] = lambda: die_with_parent()
     detach: Callable[[pathlib.Path, bool], object] = lambda log, ready: detach_keeper(log, ready)
@@ -1095,15 +1098,19 @@ def post_goodbye(rt: Runtime, environ: Mapping[str, str], err: TextIO, team: str
     is free. A refusal or homeserver failure is `hooks.GoodbyeFailed` with the command's own one-line message.
     It is never written to the sent log: a goodbye is not an echo the session is owed."""
     try:
-        member = _one_member(environ, team)
-        seat = _seat(member, environ, rt, err)
-        record = seat.syncer.verify_room()
-        ctx = record.context(member.server_name)
-        coordinators = [user for user in protocol.coordinators(ctx.roles) if user != member.user_id]
-        to = list(dict.fromkeys([*sorted(ctx.humans), *coordinators]))[:protocol.MAX_TEXT_TO]
-        _send_text(seat, ctx, to, text, rt)
+        _post_to_humans_and_coordinators(_one_member(environ, team), environ, rt, err, text)
     except FAILURES as exc:
         raise hooks.GoodbyeFailed(failure(exc)[1]) from None
+
+
+def _post_to_humans_and_coordinators(member: config.Member, environ: Mapping[str, str], rt: Runtime,
+                                     err: TextIO, text: str) -> None:
+    seat = _seat(member, environ, rt, err)
+    record = seat.syncer.verify_room()
+    ctx = record.context(member.server_name)
+    coordinators = [user for user in protocol.coordinators(ctx.roles) if user != member.user_id]
+    to = list(dict.fromkeys([*sorted(ctx.humans), *coordinators]))[:protocol.MAX_TEXT_TO]
+    _send_text(seat, ctx, to, text, rt)
 
 
 def _refetch(seat: _Seat, ctx: protocol.Context, event_id: str) -> tuple[protocol.Outcome, object]:
@@ -1300,16 +1307,45 @@ class _Waiting:
     failures: list[tuple[str, Exception]] = dataclasses.field(default_factory=list)
 
 
-def _long_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting) -> None:
-    """One team's thread: long-poll until stopped or the deadline, waking the main thread
-    on every batch that stored an item. It owns `lock` and releases it when it ends. A
-    failure is handed to the main thread, which reports it and exits with its code."""
+class _TeamStop(threading.Event):
+    """One team's thread's stop: set when the watcher or waiter ends, or `remove`d when the
+    owner took the team out of the session (Plan 00203 H11)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.removed = False
+
+    def remove(self) -> None:
+        self.removed = True
+        self.set()
+
+
+def _discarded(seat: _Seat, stop: threading.Event, batch: syncer.Batch) -> bool:
+    """H23a: whether the team was removed while this batch's long poll was in flight; if so,
+    what it fetched is consumed undelivered, so nothing posted after the remove reaches the
+    session on a re-add. A thread stopped because its process ends keeps what it fetched."""
+    if not (isinstance(stop, _TeamStop) and stop.removed):
+        return False
+    for event_id in batch.accepted:
+        seat.state.consume(event_id)
+    return True
+
+
+def _long_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting,
+               stop: threading.Event | None = None) -> None:
+    """One team's thread: long-poll until stopped (all, or this team by `stop`) or the
+    deadline, waking the main thread on every batch that stored an item. It owns `lock` and
+    releases it when it ends. A failure is handed to the main thread, which reports it and
+    exits with its code."""
+    stop = stop or waiting.stop
     try:
-        while not waiting.stop.is_set():
+        while not waiting.stop.is_set() and not stop.is_set():
             remaining_ms = int((waiting.deadline - rt.monotonic()) * 1000)
             if remaining_ms <= 0:
                 return
             batch = seat.syncer.sync_once(min(rt.long_poll_ms, remaining_ms))
+            if _discarded(seat, stop, batch):
+                return
             if batch.drops:
                 waiting.drops.put((seat.member.team, batch.drops))
             if batch.accepted:
@@ -1376,6 +1412,8 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
     held: list[tuple[_Seat, inbox.Lock]] = []
     pending: _Drops = {}
     handed_over: set[str] = set()
+    stops: dict[str, _TeamStop] = {}
+    following = _Following(environ, err, rt)
     try:
         for member in members:
             seat = _seat(member, environ, rt, err, reads=True)
@@ -1398,8 +1436,9 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
         for seat in seats:
             seat.syncer.publish_status(until)
         for seat, lock in held:
-            thread = threading.Thread(target=_long_poll, args=(seat, lock, rt, waiting), daemon=True,
-                                      name=f"pingbus-wait-{seat.member.team}")
+            stops[seat.member.team] = _TeamStop()
+            thread = threading.Thread(target=_long_poll, args=(seat, lock, rt, waiting, stops[seat.member.team]),
+                                      daemon=True, name=f"pingbus-wait-{seat.member.team}")
             rt.threads.append(thread)
             handed_over.add(seat.member.team)
             thread.start()
@@ -1407,9 +1446,16 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
             waiting.woke.wait(max(0.0, min(waiting.deadline - rt.monotonic(), rt.tick_s)))
             waiting.woke.clear()
             _collect_drops(waiting, pending)
-            if waiting.failures:
+            if following.on:
+                seats = following.follow(seats, stops, None)
+                if not seats:
+                    err.write(f"{PROG}: this session is on no team now: wait ends\n")
+                    return EXIT_OK
+            failures = [(team, exc) for team, exc in waiting.failures
+                        if any(seat.member.team == team for seat in seats)]
+            if failures:
                 _emit_drops(pending, out, err)
-                team, exc = waiting.failures[0]
+                team, exc = failures[0]
                 if not isinstance(exc, FAILURES):
                     raise exc
                 code, message = failure(exc)
@@ -1422,6 +1468,8 @@ def cmd_wait(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, 
                 return EXIT_NOTHING
     finally:
         waiting.stop.set()
+        for stop in stops.values():
+            stop.set()
         for seat, lock in held:
             if seat.member.team not in handed_over:
                 lock.release()
@@ -1453,22 +1501,28 @@ def _describe(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, err: TextIO) -> None:
+def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, err: TextIO,
+                stop: threading.Event | None = None) -> None:
     """One team's watcher thread: a first sync, then long-poll until stopped, waking the
     main thread on every batch that stored an item, and keeping the `listening` status
     fresh. A transient fault, from the very first sync on, is retried with a backoff from
     the stored sync token, said once when it starts and once when it ends (E25); only a
-    permanent one is handed to the main thread. It owns `lock` and releases it when it ends."""
+    permanent one is handed to the main thread. `stop` ends this team alone (the owner
+    removed it, Plan 00203 H11), after the long poll in flight. It owns `lock` and releases
+    it when it ends."""
     team = seat.member.team
+    stop = stop or waiting.stop
     backoff = _Backoff(rt.outage_retry_s, rt.outage_retry_max_s)
     status_ms: int | None = None
     timeout_ms = 0
     outage: str | None = None
     try:
-        while not waiting.stop.is_set():
+        while not waiting.stop.is_set() and not stop.is_set():
             try:
                 batch = seat.syncer.sync_once(timeout_ms)
                 timeout_ms = rt.long_poll_ms
+                if _discarded(seat, stop, batch):
+                    return
                 if batch.drops:
                     waiting.drops.put((team, batch.drops))
                 now = rt.clock_ms()
@@ -1490,7 +1544,7 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                             else "this team's sync failed")
                     err.write(f"{PROG}: team {team}: {what} ({outage}): retrying, the team stays "
                               "watched\n")
-                waiting.stop.wait(backoff.next())
+                stop.wait(backoff.next())
     except Exception as exc:
         waiting.failures.append((team, exc))
         waiting.woke.set()
@@ -1820,8 +1874,12 @@ def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runt
     while True:
         started = rt.monotonic()
         code = rt.run_child(argv, environ)
-        if code == EXIT_OK or not notify.socket_present(path):
+        if not notify.socket_present(path):
             err.write(f"{PROG}: the session socket is gone: the supervisor exits\n")
+            return EXIT_OK
+        if code == EXIT_OK:
+            err.write(f"{PROG}: the watcher ended (the session is on no team, or its socket refuses "
+                      "connections): the supervisor exits\n")
             return EXIT_OK
         if code in SUPERVISE_FINAL:
             err.write(f"{PROG}: the watcher was refused (exit {code}), which a restart cannot change: "
@@ -1874,18 +1932,32 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
     held: list[tuple[_Seat, inbox.Lock]] = []
     pending: _Drops = {}
     handed_over: set[str] = set()
+    stops: dict[str, _TeamStop] = {}
+    following = _Following(environ, err, rt)
+
+    def start_team(member: config.Member) -> _Seat | None:
+        """Hold one team's lock as a watcher and start its thread; None, said, when busy."""
+        seat = _seat(member, environ, rt, err, reads=True)
+        try:
+            lock = _take_waiter_lock(seat.state, rt, "watch")
+        except inbox.Busy as busy:
+            err.write(f"{PROG}: team {member.team}: busy: a {busy.holder} process holds the "
+                      "sync lock\n")
+            return None
+        held.append((seat, lock))
+        stops[member.team] = _TeamStop()
+        thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, err, stops[member.team]),
+                                  daemon=True, name=f"pingbus-watch-{member.team}")
+        rt.threads.append(thread)
+        handed_over.add(member.team)
+        thread.start()
+        return seat
+
     try:
-        for member in members:
-            seat = _seat(member, environ, rt, err, reads=True)
-            try:
-                held.append((seat, _take_waiter_lock(seat.state, rt, "watch")))
-            except inbox.Busy as busy:
-                err.write(f"{PROG}: team {member.team}: busy: a {busy.holder} process holds the "
-                          "sync lock\n")
-        if not held:
+        seats = [seat for seat in map(start_team, members) if seat is not None]
+        if not seats:
             err.write(f"{PROG}: every active team is busy: another watcher or waiter holds the seat\n")
             return EXIT_BUSY
-        seats = [seat for seat, _ in held]
         home = config.resolve_home(environ)
         ledger = _RelayLedger(relay.Spool(home), relay.Stall(rt.monotonic))
         marks = inject.Marks(home, path)
@@ -1897,12 +1969,6 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
             inject.DeliveryCheck(marks, rt.monotonic, quiet_s=rt.delivery.missing_quiet_s,
                                  give_up_s=rt.delivery.missing_give_up_s),
             envelope.SenderBudget(rt.monotonic))
-        for seat, lock in held:
-            thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, err),
-                                      daemon=True, name=f"pingbus-watch-{seat.member.team}")
-            rt.threads.append(thread)
-            handed_over.add(seat.member.team)
-            thread.start()
         reported = 0
         first_failure: int | None = None
         pass_failing = False
@@ -1916,6 +1982,17 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
             waiting.woke.wait(rt.tick_s)
             waiting.woke.clear()
             _collect_drops(waiting, pending)
+            if following.on:
+                seats = following.follow(seats, stops, start_team)
+                try:
+                    if injector is not None:
+                        _tell(environ, injector, rt, err)
+                except notify.SocketGone as gone:
+                    err.write(f"{PROG}: {gone}: the watcher exits\n")
+                    return EXIT_OK
+                if not seats:
+                    err.write(f"{PROG}: this session is on no team now: the watcher exits\n")
+                    return EXIT_OK
             try:
                 if relaying:
                     _relay_pass(seats, ledger, rt, pending, err)
@@ -1936,20 +2013,123 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
             while len(waiting.failures) > reported:
                 team, exc = waiting.failures[reported]
                 reported += 1
+                if all(seat.member.team != team for seat in seats):
+                    continue  # a team the owner removed meanwhile
                 if not isinstance(exc, FAILURES):
                     raise exc
                 code, message = failure(exc)
                 err.write(f"{PROG}: team {team}: {message}: this team is no longer watched\n")
                 first_failure = first_failure or code
+                following.failed.add(team)
                 seats = [seat for seat in seats if seat.member.team != team]
             if not seats:
                 err.write(f"{PROG}: no team is left to watch: the watcher exits\n")
                 return first_failure
     finally:
         waiting.stop.set()
+        for stop in stops.values():
+            stop.set()
         for seat, lock in held:
             if seat.member.team not in handed_over:
                 lock.release()
+
+
+class _Following:
+    """Plan 00203 H11: a watcher or waiter under `PINGBUS_MEMBERSHIP` follows the session's
+    active teams as the owner changes them, each tick: a team that went is stopped (its
+    thread releases the sync lock after the long poll in flight, and what that poll fetched
+    is discarded) and no longer delivered; a team that came is started. A team whose sync
+    lock is busy (a `wait` took it first) is tried again with the watcher's backoff until it
+    starts. A team dropped for a permanent failure is not started again until it has left
+    and come back. Without the membership, nothing changes at runtime."""
+
+    def __init__(self, environ: Mapping[str, str], err: TextIO, rt: Runtime) -> None:
+        self.environ, self.err, self.rt = environ, err, rt
+        marker = environ.get(membership.MEMBERSHIP_VAR)
+        self.on = marker is not None and marker != membership.MEMBERSHIP_OFF
+        self.failed: set[str] = set()
+        self.busy: dict[str, tuple[_Backoff, float]] = {}
+        self._refused = False
+
+    def _retry_later(self, team: str) -> None:
+        """A busy lock is transient (H11): the team is tried again after the next backoff."""
+        backoff, _ = self.busy.get(team) or (_Backoff(self.rt.outage_retry_s, self.rt.outage_retry_max_s), 0.0)
+        self.busy[team] = (backoff, self.rt.monotonic() + backoff.next())
+
+    def active(self) -> tuple[str, ...] | None:
+        """The active teams now; None, said once, while the files are refused (the seats
+        then stay as they are, as the keeper keeps them)."""
+        try:
+            desired = membership.read_desired(membership.mount_dir(self.environ[membership.MEMBERSHIP_VAR]))
+            teams = membership.active(desired, membership.read_applied(config.resolve_home(self.environ)))
+        except membership.MembershipError as exc:
+            if not self._refused:
+                self.err.write(f"{PROG}: the membership is refused, so the teams stay as they are: {exc}\n")
+            self._refused = True
+            return None
+        self._refused = False
+        return teams
+
+    def follow(self, seats: list[_Seat], stops: Mapping[str, _TeamStop],
+               start: Callable[[config.Member], _Seat | None] | None) -> list[_Seat]:
+        teams = self.active()
+        if teams is None:
+            return seats
+        self.failed &= set(teams)
+        self.busy = {team: due for team, due in self.busy.items() if team in teams}
+        kept = []
+        for seat in seats:
+            if seat.member.team in teams:
+                kept.append(seat)
+                continue
+            stops[seat.member.team].remove()
+            self.err.write(f"{PROG}: team {seat.member.team}: removed from this session: no longer watched\n")
+        if start is None:
+            return kept
+        watched = {seat.member.team for seat in kept}
+        for team in teams:
+            if team in watched or team in self.failed:
+                continue
+            if team in self.busy and self.rt.monotonic() < self.busy[team][1]:
+                continue
+            try:
+                member = config.load_bundle(config.resolve_home(self.environ), team)
+            except config.ConfigError as exc:
+                self.err.write(f"{PROG}: team {team}: added, but its bundle is refused: {exc}\n")
+                self.failed.add(team)
+                continue
+            seat = start(member)
+            if seat is not None:
+                self.busy.pop(team, None)
+                self.err.write(f"{PROG}: team {team}: added to this session: watched\n")
+                kept.append(seat)
+            else:
+                self._retry_later(team)
+        return kept
+
+
+def _tell(environ: Mapping[str, str], inj: _Injector, rt: Runtime, err: TextIO) -> None:
+    """H12: tell the session, through its socket, what changed in its teams, once per change.
+    A write that fails is left to the next prompt's hook (H13); the socket gone ends the
+    watcher (`SocketGone`)."""
+
+    def deliver(lines: list[str]) -> bool:
+        text = envelope.render_membership(lines, secrets.token_hex(4))
+        try:
+            notify.send_notice(inj.path, inj.token, text, timeout_s=rt.delivery.send_timeout_s)
+        except notify.SocketGone:
+            raise
+        except OSError as exc:
+            err.write(f"{PROG}: the membership notice was not written ({exc.strerror or exc}): the next "
+                      "prompt's hook tells it\n")
+            return False
+        inj.last_sent = rt.monotonic()
+        return True
+
+    try:
+        hooks.tell_membership(environ, deliver)
+    except (hooks.Failure, membership.MembershipError, OSError, ValueError) as exc:
+        err.write(f"{PROG}: the membership notice could not be built ({type(exc).__name__})\n")
 
 
 # ---------------------------------------------------------------- history
@@ -2272,7 +2452,8 @@ def cmd_seat_keep(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
             err.write(f"{PROG} seat keep: the session it was started for has ended\n")
             return EXIT_OK
     keeper = seating.Keeper(seating.desired_source(environ), root=root, home=home,
-                            clock_ms=rt.clock_ms, err=err, sleep=rt.sleep)
+                            clock_ms=rt.clock_ms, err=err, sleep=rt.sleep, environ=environ,
+                            spawn_watcher=rt.spawn)
     keeper.start(launch=args.launch)
     try:
         rt.detach(home / seating.KEEPER_LOG, args.launch)
@@ -2317,10 +2498,25 @@ def cmd_seat_retire(args: argparse.Namespace, environ: Mapping[str, str], out: T
     nothing posted meanwhile is delivered, then publish an expired `listening` status. The
     seat's lock is held throughout, so no session can take the seat half retired."""
     rt: Runtime = args.runtime
-    root, _ = _seat_paths(argparse.Namespace(root=args.root, home=None), rt, "seat retire")
+    with _free_seat(args, rt, "seat retire") as member:
+        ref = f"{args.seat}"
+        state = inbox.TeamState.for_member(member)
+        with _sync_lock_waited(state, rt):
+            cleared = state.forget_sync_token()
+        err.write(f"✓ seat {ref}: sync position {'cleared' if cleared else 'already clear'}\n")
+        _seat(member, environ, rt, err).syncer.publish_status(rt.clock_ms())
+        err.write(f"✓ seat {ref}: listening status expired\n")
+    return EXIT_OK
+
+
+@contextlib.contextmanager
+def _free_seat(args: argparse.Namespace, rt: Runtime, name: str) -> Iterator[config.Member]:
+    """The one `<seat>@<team>` named, held by this process (so no session takes it
+    meanwhile), as its member; `SeatHeld` (75) when a session holds it."""
+    root, _ = _seat_paths(argparse.Namespace(root=args.root, home=None), rt, name)
     refs = seating.parse_seat_list(args.seat)
     if len(refs) != 1 or not isinstance(refs[0], seating.SeatRef):
-        raise config.UsageError(f"{PROG} seat retire: name one <seat>@<team>")
+        raise config.UsageError(f"{PROG} {name}: name one <seat>@<team>")
     ref = refs[0]
     try:
         seating.check_seat_dir(root, ref)
@@ -2332,13 +2528,35 @@ def cmd_seat_retire(args: argparse.Namespace, environ: Mapping[str, str], out: T
     except inbox.Busy:
         raise seating.SeatHeld(ref) from None
     with lock:
-        member = config.read_member(ref.team, seating.seat_dir(root, ref))
-        state = inbox.TeamState.for_member(member)
-        with inbox.acquire_lock(state, "recv", sleep=rt.sleep):
-            cleared = state.forget_sync_token()
-        err.write(f"✓ seat {ref.text}: sync position {'cleared' if cleared else 'already clear'}\n")
-        _seat(member, environ, rt, err).syncer.publish_status(rt.clock_ms())
-        err.write(f"✓ seat {ref.text}: listening status expired\n")
+        yield config.read_member(ref.team, seating.seat_dir(root, ref))
+
+
+def _sync_lock_waited(state: inbox.TeamState, rt: Runtime) -> inbox.Lock:
+    """The team's sync lock as `recv`, waited for up to `rt.sync_wait_s`: a removed team's
+    watcher thread lets it go once its long poll ends. Still held then: `Busy` (75)."""
+    give_up = rt.monotonic() + rt.sync_wait_s
+    while True:
+        try:
+            return inbox.acquire_lock(state, "recv", sleep=rt.sleep)
+        except inbox.Busy:
+            if rt.monotonic() >= give_up:
+                raise
+        rt.sleep(RECV_HOLD_RETRY_S * 5)
+
+
+#: Plan 00203 H23 step 6: the goodbye of a seat the owner removed from a session.
+FAREWELL_TEXT = "{handle} left the team: removed by the owner"
+
+
+def cmd_seat_farewell(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Post the goodbye of a seat removed from a session (Plan 00203 H23 step 6), on the host,
+    once the seat is free: a fixed text from the seat's own member, to the team's humans and
+    coordinator(s), as the session-end goodbye is. The seat is held throughout."""
+    rt: Runtime = args.runtime
+    with _free_seat(args, rt, "seat farewell") as member:
+        _post_to_humans_and_coordinators(member, environ, rt, err,
+                                         FAREWELL_TEXT.format(handle=member.handle))
+    err.write(f"✓ seat {args.seat}: goodbye posted\n")
     return EXIT_OK
 
 
@@ -2467,6 +2685,13 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     seat_retire.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
     seat_retire.add_argument("seat", metavar="SEAT@TEAM")
     seat_retire.set_defaults(handler=cmd_seat_retire)
+    seat_farewell = seat_commands.add_parser(
+        "farewell", help="on the host, for a seat removed from a session: post its goodbye to the "
+                         "team's humans and coordinator(s)")
+    team_option(seat_farewell, argparse.SUPPRESS)
+    seat_farewell.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
+    seat_farewell.add_argument("seat", metavar="SEAT@TEAM")
+    seat_farewell.set_defaults(handler=cmd_seat_farewell)
     reach = command("reach", cmd_reach, "whether this environment reaches --team's homeserver (3 s)")
     reach.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
     return parser

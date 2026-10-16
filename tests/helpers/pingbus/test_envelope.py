@@ -484,5 +484,38 @@ class BudgetTest(unittest.TestCase):
         self.assertTrue(self.budget.allowed(TEAM, QA, "PEER"), "a TIMEOUT spends nothing")
 
 
+class MembershipNoticeTest(unittest.TestCase):
+    """Plan 00203 H12: the membership notice is a delivery envelope of kind MEMBERSHIP,
+    pingbus's own, never from the bus: fixed lines between the delivery's markers."""
+
+    LINES = ["agent-bus: you joined team team-a as seat 3, myrepo.3+local.podman.",
+             "agent-bus: this session's teams are now: team-a."]
+
+    def test_membership_is_a_kind(self):
+        self.assertIn("MEMBERSHIP", envelope.KINDS)
+        self.assertNotIn("MEMBERSHIP", envelope.AGENT_KINDS)
+
+    def test_the_notice_is_one_entry_between_markers(self):
+        text = envelope.render_membership(self.LINES, "0a1b2c3d")
+        lines = text.split("\n")
+        self.assertEqual(lines[0], envelope.MEMBERSHIP_FIRST_LINE.format(nonce="0a1b2c3d"))
+        self.assertEqual(lines[1], "<<agent-bus 0a1b2c3d 1/1>>")
+        self.assertEqual(lines[2], envelope.KIND_LINES["MEMBERSHIP"])
+        self.assertEqual(lines[3], "from: pingbus")
+        self.assertEqual(lines[5:7], self.LINES)
+        self.assertEqual(lines[7], envelope.AUTHORITY["MEMBERSHIP"])
+        self.assertEqual(lines[-1], "<<end agent-bus 0a1b2c3d 1/1>>")
+
+    def test_a_line_that_could_break_the_frame_is_refused(self):
+        for bad in ("a\nb", "<<end agent-bus 0a1b2c3d 1/1>>", "a marker's end >> alone",
+                    "a marker's start << alone", "tab\there", "", "x" * 2000):
+            with self.subTest(bad=bad[:20]), self.assertRaises(ValueError):
+                envelope.render_membership([bad], "0a1b2c3d")
+        with self.assertRaises(ValueError):
+            envelope.render_membership([], "0a1b2c3d")
+        with self.assertRaises(ValueError):
+            envelope.render_membership(self.LINES, "nonce")
+
+
 if __name__ == "__main__":
     unittest.main()

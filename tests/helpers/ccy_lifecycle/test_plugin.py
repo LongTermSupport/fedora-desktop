@@ -700,5 +700,54 @@ class SupervisorHarnessContractTests(unittest.TestCase):
             self.harness(env(CCY_LIFECYCLE_MAX_AGE_SECONDS="junk"))
 
 
+class MembershipRelaunchTests(PluginTestCase):
+    """Plan 00203 H22: a session launched on no team accepts no team messages (Claude Code
+    reads crossSessionInbound only at launch), so its first join relaunches it once. The
+    owner's ccy-teams writes relaunch.json into the session's read-only membership directory;
+    at the next idle point the plugin asks the supervisor to exit for a restart, which the
+    launcher replays with the record's --teams. The new launch's membership-init removes it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.mount = pathlib.Path(self._tmp.name) / "membership"
+        self.mount.mkdir()
+
+    def relaunch_env(self) -> dict[str, str]:
+        return {"PINGBUS_MEMBERSHIP": str(self.mount)}
+
+    def request(self, text: str = '{"v": 1, "generation": 2, "written_ms": 1}') -> pathlib.Path:
+        path = self.mount / "relaunch.json"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_a_request_asks_for_a_restart_with_no_other_feature(self) -> None:
+        half = self.half(self.relaunch_env())
+        self.assertIsNone(half.on_idle(FakeTick(T0)))
+        self.request()
+        result = half.on_idle(FakeTick(T0))
+        self.assertIsInstance(result, FakeExitForRestart)
+        self.assertIn("team", result.reason)
+
+    def test_a_malformed_or_linked_request_is_not_acted_on(self) -> None:
+        half = self.half(self.relaunch_env())
+        self.request("{")
+        self.assertIsNone(half.on_idle(FakeTick(T0)))
+        (self.mount / "relaunch.json").unlink()
+        target = self.mount / "elsewhere.json"
+        target.write_text('{"v": 1, "generation": 2, "written_ms": 1}', encoding="utf-8")
+        (self.mount / "relaunch.json").symlink_to(target)
+        self.assertIsNone(half.on_idle(FakeTick(T0)))
+
+    def test_without_the_membership_there_is_nothing_to_watch(self) -> None:
+        self.request()
+        for environ in ({}, {"PINGBUS_MEMBERSHIP": "off"}, {"PINGBUS_MEMBERSHIP": "relative"}):
+            with self.subTest(environ=environ):
+                self.assertIsNone(self.half(environ).on_idle(FakeTick(T0)))
+
+    def test_the_lifecycle_features_still_work_beside_it(self) -> None:
+        half = self.half({**env(CCY_LIFECYCLE_MAX_AGE_SECONDS="1800"), **self.relaunch_env()})
+        self.assertIsInstance(half.on_idle(FakeTick(T0 + 1801)), FakeExitForRestart)
+
+
 if __name__ == "__main__":
     unittest.main()

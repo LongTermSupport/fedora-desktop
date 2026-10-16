@@ -12,6 +12,7 @@ import os
 import pathlib
 import shutil
 import sys
+import time
 import urllib.parse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -95,6 +96,68 @@ class RetireTest(SeatBusCase):
         code, _, err = self.run_cli("seat", "retire", "--root", str(self.root), "9@team-a")
         self.assertEqual(code, cli.EXIT_CONFIG)
         self.assertIn("9@team-a", err)
+
+
+class RetireWaitTest(SeatBusCase):
+    """H23 step 5 after H11: the removed team's watcher thread lets its sync lock go only
+    after the long poll in flight ends, so retire waits for it, bounded, instead of failing."""
+
+    def runtime(self, *args, **kwargs) -> cli.Runtime:
+        rt = super().runtime(*args, **kwargs)
+        rt.sleep = time.sleep
+        rt.sync_wait_s = 1.0
+        return rt
+
+    def test_a_sync_lock_let_go_soon_is_waited_for(self):
+        self.joined()
+        lock = inbox.acquire_lock(self.a.state, "watch")
+        self.later(0.3, lock.release)
+        code, _, err = self.run_cli("seat", "retire", "--root", str(self.root), "1@team-a")
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertIsNone(self.a.state.sync_token())
+
+    def test_a_sync_lock_kept_past_the_wait_is_75_and_changes_nothing(self):
+        self.joined()
+        lock = inbox.acquire_lock(self.a.state, "watch")
+        self.addCleanup(lock.release)
+        code, _, err = self.run_cli("seat", "retire", "--root", str(self.root), "1@team-a")
+        self.assertEqual(code, cli.EXIT_BUSY, err)
+        self.assertIsNotNone(self.a.state.sync_token())
+        self.assertIsNone(inbox.probe_lock_at(seat.lock_path(self.root, seat.SeatRef("1", bus.TEAM_A))))
+
+    def test_the_default_wait_outlasts_a_long_poll(self):
+        self.assertGreater(cli.Runtime().sync_wait_s, cli.limits.SYNC_LONG_POLL_S)
+
+
+class FarewellTest(SeatBusCase):
+    """H23 step 6: the goodbye of a removed seat, posted from the host with the seat's own
+    bundle, to the team's humans and coordinator(s): a fixed template, the seat held meanwhile."""
+
+    def farewell(self) -> tuple[int, str, str]:
+        return self.run_cli("seat", "farewell", "--root", str(self.root), "1@team-a")
+
+    def test_the_goodbye_is_posted_as_the_seat(self):
+        self.joined()
+        code, out, err = self.farewell()
+        self.assertEqual(code, cli.EXIT_OK, err)
+        self.assertEqual(out, "")
+        (content,) = self.a.messages_from_me()
+        self.assertIn(f"{bus.ME_LP} left the team: removed by the owner", content["body"])
+        self.assertEqual(set(content["m.mentions"]["user_ids"]), {self.a.alice, self.a.orch})
+        self.assertIsNone(inbox.probe_lock_at(seat.lock_path(self.root, seat.SeatRef("1", bus.TEAM_A))))
+
+    def test_a_held_seat_is_refused_75(self):
+        lock = inbox.acquire_lock_at(seat.lock_path(self.root, seat.SeatRef("1", bus.TEAM_A)),
+                                     inbox.SEAT_KIND, claimed_ms=1)
+        self.addCleanup(lock.release)
+        self.assertEqual(self.farewell()[0], cli.EXIT_BUSY)
+        self.assertEqual(self.a.messages_from_me(), [])
+
+    def test_a_homeserver_down_fails_and_says_so(self):
+        self.a.write_bundle(base_url=f"http://127.0.0.1:{bus.free_port()}")
+        code, _, err = self.farewell()
+        self.assertNotEqual(code, cli.EXIT_OK)
+        self.assertIn("homeserver", err)
 
 
 class ReachTest(SeatBusCase):

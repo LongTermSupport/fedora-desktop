@@ -26,7 +26,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, hooks, protocol, statusline
+from helpers.pingbus import cli, config, hooks, membership, protocol, statusline
 
 CYAN, RED, RESET = "\033[36m", "\033[31m", "\033[0m"
 
@@ -260,6 +260,73 @@ class StatusLineTest(unittest.TestCase):
         self.assertEqual(statusline.SESSION_ID_RE.pattern, hooks.SESSION_ID_RE.pattern)
         self.assertEqual(statusline.INPUT_MAX_BYTES, hooks.INPUT_MAX_BYTES)
         self.assertIs(hooks.sessions_dir, statusline.sessions_dir)
+
+
+class MembershipSegmentTest(unittest.TestCase):
+    """Plan 00203 H14: under PINGBUS_MEMBERSHIP the segment is the seats held in the session
+    home's applied file that the desired file names, read on every render, never the
+    SessionStart record; the copy of the intersection is pinned equal to `config.active_teams`."""
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.mount = self.tmp / "membership"
+        self.mount.mkdir()
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.env = {"PINGBUS_MEMBERSHIP": str(self.mount), "PINGBUS_HOME": str(self.home),
+                    "HOME": str(self.tmp), "PINGBUS_STATUS_LINE_INNER": "1",
+                    hooks.SESSIONS_DIR_VAR: str(self.tmp / "sessions")}
+
+    def write(self, desired: list[tuple[str, str]], held: list[tuple[str, str]]) -> None:
+        (self.mount / membership.DESIRED_FILE).write_text(json.dumps({
+            "v": 1, "session": "ccy-x-1", "kind": "ccy", "checkout": "/srv/x", "generation": 3,
+            "written_ms": 1, "seats": [{"team": t, "seat": s} for t, s in desired], "farewell": []}),
+            encoding="utf-8")
+        membership.write_applied(self.home / membership.APPLIED_FILE, membership.Applied(
+            3, tuple(membership.AppliedSeat(t, s, "myrepo.1+local.podman") for t, s in held), ()))
+
+    def segment(self) -> str:
+        return statusline.render(json.dumps({"session_id": "sess-1"}).encode(), self.env)[0]
+
+    def test_the_teams_held_and_desired_in_desired_order(self) -> None:
+        self.write([("beta", "2"), ("alpha", "1")], [("alpha", "1"), ("beta", "2"), ("gamma", "1")])
+        self.assertEqual(self.segment(), f"{CYAN}bus: beta,alpha{RESET}")
+
+    def test_a_change_shows_on_the_next_render(self) -> None:
+        self.write([("alpha", "1")], [("alpha", "1")])
+        self.assertEqual(self.segment(), f"{CYAN}bus: alpha{RESET}")
+        self.write([("alpha", "1"), ("beta", "2")], [("alpha", "1"), ("beta", "2")])
+        self.assertEqual(self.segment(), f"{CYAN}bus: alpha,beta{RESET}")
+
+    def test_no_team_no_segment(self) -> None:
+        self.write([], [])
+        self.assertEqual(self.segment(), "")
+
+    def test_an_unreadable_membership_is_said_in_red(self) -> None:
+        (self.mount / membership.DESIRED_FILE).write_text("{", encoding="utf-8")
+        self.assertEqual(self.segment(), f"{RED}{statusline.NO_MEMBERSHIP}{RESET}")
+
+    def test_the_copied_names_agree(self) -> None:
+        self.assertEqual((statusline.MEMBERSHIP_VAR, statusline.MEMBERSHIP_OFF, statusline.DESIRED_FILE,
+                          statusline.APPLIED_FILE, statusline.MAX_MEMBERSHIP_BYTES),
+                         (membership.MEMBERSHIP_VAR, membership.MEMBERSHIP_OFF, membership.DESIRED_FILE,
+                          membership.APPLIED_FILE, membership.MAX_FILE_BYTES))
+
+    def test_the_copy_agrees_with_config_active_teams(self) -> None:
+        cases = [
+            ([("beta", "2"), ("alpha", "1")], [("alpha", "1"), ("beta", "2")]),
+            ([("alpha", "1")], [("alpha", "9")]),
+            ([("alpha", "1"), ("beta", "2")], [("beta", "2"), ("gamma", "1")]),
+            ([("alpha", "1")], []),
+        ]
+        for desired, held in cases:
+            with self.subTest(desired=desired, held=held):
+                self.write(desired, held)
+                try:
+                    expected = list(config.active_teams(self.env))
+                except config.ConfigError:
+                    expected = []
+                self.assertEqual(statusline.membership_teams(self.env), expected)
 
 
 if __name__ == "__main__":

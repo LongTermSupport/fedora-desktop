@@ -129,6 +129,11 @@ func (m *Init) Run(_ context.Context, args []string) term.ExitCode {
 		m.Host.ReportErr(err)
 		return term.ExitFailure
 	}
+	// A launch answers any relaunch the host asked of the session before it (H22).
+	if err := removeRelaunch(dir); err != nil {
+		m.Host.ReportErr(err)
+		return term.ExitFailure
+	}
 	m.Host.Print(m.Host.Stdout, dir+"\n")
 	return term.ExitOK
 }

@@ -661,8 +661,7 @@ elif [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]]; then
         # Say so. An absent supervisor is a normal state, but after 3.42.0 it is
         # also the state with no ctrl+z guard at all — and a silence there reads
         # as "protected" to anyone who does not know the patch was removed.
-        echo "Supervisor: not present at $CCY_SUPERVISOR_PATH — ctrl+z is UNGUARDED in this session." >&2
-        echo "  Install the hooks daemon in this project to get the guard back." >&2
+        printf 'Supervisor: not present at %s — ctrl+z is UNGUARDED in this session.\n  Install the hooks daemon in this project to get the guard back.\n' "$CCY_SUPERVISOR_PATH" >&2
     fi
 fi
 
@@ -712,15 +711,13 @@ ccy_lifecycle_extend_wrapper() {
         return 1
     fi
     if [[ ! -f "$plugin" ]]; then
-        echo "✗ CCY: the lifecycle plugin is missing from this image ($plugin)." >&2
-        echo "  Rebuild the image: ccy --rebuild" >&2
+        printf '✗ CCY: the lifecycle plugin is missing from this image (%s).\n  Rebuild the image: ccy --rebuild\n' "$plugin" >&2
         return 1
     fi
     # A supervisor older than the plugin API rejects --plugin as an unknown argument and the
     # container exits with an argparse error, so read its declared API major first.
     if [[ ! -f "$supervisor" ]]; then
-        echo "✗ CCY: the supervisor the wrapper runs is not there: $supervisor" >&2
-        echo "    (the wrapper is: $CCY_CLAUDE_WRAPPER)" >&2
+        printf '✗ CCY: the supervisor the wrapper runs is not there: %s\n    (the wrapper is: %s)\n' "$supervisor" "$CCY_CLAUDE_WRAPPER" >&2
         return 1
     fi
     if ! want=$(awk '/^PLUGIN_API = [0-9]+$/ {print $3; exit}' "$plugin") || [[ -z "$want" ]]; then
@@ -732,13 +729,11 @@ ccy_lifecycle_extend_wrapper() {
         return 1
     fi
     if [[ -z "$have" ]]; then
-        echo "✗ CCY: this project's supervisor predates the plugin API that --max-age/--run-for/--until need." >&2
-        echo "  upgrade the hooks daemon in this project to a release with the supervisor plugin API, or drop the option." >&2
+        printf '✗ CCY: this project'\''s supervisor predates the plugin API that --max-age/--run-for/--until need.\n  upgrade the hooks daemon in this project to a release with the supervisor plugin API, or drop the option.\n' >&2
         return 1
     fi
     if [[ "$have" != "$want" ]]; then
-        echo "✗ CCY: this project's supervisor speaks plugin API $have, and the lifecycle plugin speaks plugin API $want." >&2
-        echo "  Update ccy, or upgrade the hooks daemon in this project, so the two agree; or drop the option." >&2
+        printf '✗ CCY: this project'\''s supervisor speaks plugin API %s, and the lifecycle plugin speaks plugin API %s.\n  Update ccy, or upgrade the hooks daemon in this project, so the two agree; or drop the option.\n' "$have" "$want" >&2
         return 1
     fi
     _ccy_wrapper=("${_ccy_wrapper[@]:0:$last}" --plugin "ccy-lifecycle=$plugin" --)
@@ -747,8 +742,12 @@ ccy_lifecycle_extend_wrapper() {
 # Execute the command.
 if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     read -ra _ccy_wrapper <<< "$CCY_CLAUDE_WRAPPER"
+    # A bus session also gets the plugin for its first-join relaunch (Plan 00203 H22), when
+    # the supervisor takes plugins; without it the session starts, and is told why below.
     if ccy_lifecycle_wanted; then
         ccy_lifecycle_extend_wrapper || exit 1
+    elif [[ "${PINGBUS_MEMBERSHIP:-off}" != off ]] && ! ccy_lifecycle_extend_wrapper 2>/tmp/ccy-relaunch-plugin.why; then
+        printf '⚠ CCY: a first team join cannot relaunch this session by itself, so it will need a relaunch by hand: %s\n' "$(tr '\n' ' ' </tmp/ccy-relaunch-plugin.why)" >&2
     fi
     exec "${_ccy_seat_exec[@]}" "${_ccy_wrapper[@]}" "$@"
 fi

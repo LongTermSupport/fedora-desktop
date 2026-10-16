@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ccyenv"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/gitx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/sudo"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/config"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/tmuxccy"
@@ -46,6 +46,8 @@ type Collector struct {
 	NeedCheckout func() error
 	// Now is the clock a health record's age is judged by.
 	Now func() time.Time
+	// Getenv is the environment: XDG_RUNTIME_DIR, where the sessions' desired memberships are.
+	Getenv func(string) string
 
 	// devices is who is signed in to Element, by "<team>|<person>", read once and kept until
 	// ForgetDevices: one sudo process per person is too much to pay on every redraw.
@@ -62,7 +64,7 @@ func New(h *host.Host) *Collector {
 	return &Collector{
 		Config: h.Config, Systemd: h.Systemd, Declare: h.Declare, Tmux: h.Tmux, Git: h.Git, Bus: h.Bus,
 		Registry: h.Registry, Term: h.Term, Out: h.Out, Stdout: h.Stdout, Stderr: h.Stderr,
-		NeedCheckout: h.NeedCheckout, Now: time.Now,
+		NeedCheckout: h.NeedCheckout, Now: time.Now, Getenv: h.Getenv,
 	}
 }
 
@@ -132,25 +134,6 @@ func (c *Collector) keepDevices(key string, count int) {
 	c.devices[key] = count
 }
 
-// teamsListOf is the --teams value in a launcher's arguments, up to a bare "--"; the last wins.
-func teamsListOf(args []string) string {
-	list := ""
-	for i, arg := range args {
-		switch {
-		case arg == "--":
-			return list
-		case arg == ccyenv.FlagTeams:
-			list = ""
-			if i+1 < len(args) {
-				list = args[i+1]
-			}
-		case strings.HasPrefix(arg, "--teams="):
-			list = strings.TrimPrefix(arg, "--teams=")
-		}
-	}
-	return list
-}
-
 // reportErr prints why something failed, as the tool that failed said it.
 func (c *Collector) reportErr(err error) {
 	c.Out.Print(c.Stderr, err.Error()+"\n")
@@ -218,7 +201,7 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 	}
 	for _, sess := range sessions {
 		s.Live[sess.Name] = sess.Attached
-		if prefix, _, ok := strings.Cut(sess.Name, "-"); ok && isLauncherPrefix(prefix) {
+		if prefix, _, ok := strings.Cut(sess.Name, "-"); ok && discover.IsLauncher(prefix) {
 			s.addCheckout(sess.Path)
 		}
 	}
@@ -239,11 +222,35 @@ func (c *Collector) collectSessions(ctx context.Context, s *Snapshot) error {
 	for _, rec := range listing.Records {
 		s.addRecord(rec)
 	}
+	c.addDesired(s)
 	if err := c.addWorkTree(ctx, s); err != nil {
 		c.Term.PrintError(err.Error())
 		return errReported
 	}
 	return nil
+}
+
+// addDesired notes the seats live sessions' desired memberships name (a hot add's, before or
+// beside its record). With no runtime directory there are none to read.
+func (c *Collector) addDesired(s *Snapshot) {
+	runtime := ""
+	if c.Getenv != nil {
+		runtime = c.Getenv("XDG_RUNTIME_DIR")
+	}
+	if runtime == "" {
+		return
+	}
+	desired, unreadable, err := discover.ReadDesired(runtime)
+	if err != nil {
+		unreadable = append(unreadable, err.Error())
+	}
+	for _, why := range unreadable {
+		c.Term.PrintError(why + "; its seats show no session.")
+		s.Incomplete = "a session membership is unreadable"
+	}
+	for _, d := range desired {
+		s.addDesired(d)
+	}
 }
 
 // signedInWord is a person's SESSION column: how many Element sessions they have.

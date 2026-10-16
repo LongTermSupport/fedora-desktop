@@ -171,18 +171,51 @@ def _membership_teams(environ: Mapping[str, str], marker: str) -> tuple[str, ...
     return teams
 
 
-def select_teams(active: Sequence[str], team: str | None, single: bool = False) -> tuple[str, ...]:
+def _active_or_none(environ: Mapping[str, str]) -> tuple[str, ...]:
+    """The active teams for a command that names one: under the membership, none active is
+    "not a member" of the team named, not a refusal of the whole session."""
+    try:
+        return active_teams(environ)
+    except ConfigError:
+        if environ.get(membership.MEMBERSHIP_VAR) in (None, membership.MEMBERSHIP_OFF):
+            raise
+        return ()
+
+
+def removed_reason(environ: Mapping[str, str], team: str) -> str | None:
+    """Why this session is not on `team` any more, when the owner removed it (Plan 00203
+    H15): a farewell for it in the desired file, or a removal the session was told of."""
+    marker = environ.get(membership.MEMBERSHIP_VAR)
+    if marker is None or marker == membership.MEMBERSHIP_OFF:
+        return None
+    try:
+        desired = membership.read_desired(membership.mount_dir(marker))
+        told = membership.read_told(resolve_home(environ))
+    except (membership.MembershipError, ConfigError):
+        return None
+    for entry in desired.farewell:
+        if entry.team == team:
+            return membership.FAREWELL_REASONS[entry.reason]
+    for left, why in () if told is None else told.left:
+        if left == team:
+            return membership.FAREWELL_REASONS[why]
+    return None
+
+
+def select_teams(active: Sequence[str], team: str | None, single: bool = False,
+                 reason: str | None = None) -> tuple[str, ...]:
     """The teams a command covers: `--team` alone, else every active team.
 
     `single` is for a command that acts on exactly one team (`send`), which needs
-    `--team` when more than one team is active.
+    `--team` when more than one team is active. `reason` is why `--team` is not active,
+    when that is known (Plan 00203 H15: "removed by the owner").
     """
     if team is not None:
         if not protocol.is_team_name(team):
             raise UsageError("--team is not a team name")
         if team not in active:
-            raise UsageError(f"--team {team}: not a member of `{team}` (not one of this "
-                             "session's active teams)")
+            why = reason or "not one of this session's active teams"
+            raise UsageError(f"--team {team}: not a member of `{team}` ({why})")
         return (team,)
     if single and len(active) > 1:
         raise UsageError("several teams are active: name one with --team")
@@ -338,7 +371,9 @@ def load_active(
     """
     check_python(sys.version_info)
     home = resolve_home(environ)
-    selected = select_teams(active_teams(environ), team, single)
+    active = active_teams(environ) if team is None else _active_or_none(environ)
+    reason = None if team is None or team in active else removed_reason(environ, team)
+    selected = select_teams(active, team, single, reason)
     members = tuple(load_bundle(home, name, uid=uid, user_home=user_home) for name in selected)
     check_distinct(members, uid=uid)
     return members

@@ -42,6 +42,9 @@ declare -A M2_FD=() M2_CTR=()
 
 m2_note() { printf '%s\n' "$*" | tee -a "${REPORT}"; }
 
+# m2_adopt <name> <fd> — a session another milestone launched, for m2_cleanup to remove.
+m2_adopt() { M2_NAMES+=("$1"); M2_FD[$1]="$2"; }
+
 # m2_transcripts — the checkout's transcript files, sorted (to move only what this run made).
 m2_transcripts() {
     if [[ -d "${M2_TRANSCRIPTS}" ]]; then

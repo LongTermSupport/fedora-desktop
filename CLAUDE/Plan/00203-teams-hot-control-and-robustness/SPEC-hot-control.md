@@ -433,7 +433,9 @@ Two things are **not** frozen:
 - **H23a. Exactly once across a drop and a re-add.** Items already in the seat's `inbox/` stay
   in the checkout. If a drop falls between "written to the socket" and "consumed", that one
   batch is delivered again on re-add. This window is accepted. Nothing posted while the seat
-  was out is delivered (H23 step 5).
+  was out is delivered (H23 step 5): what the removed team's thread fetches after the remove
+  (its long poll in flight, up to 30 s) is consumed undelivered, so this holds from the moment
+  of the remove.
 
   - Acceptance: post to the handle while the seat is out, re-add it, and see no backlog.
 

@@ -224,7 +224,7 @@ func (s *Store) SetRestore(name string, restore bool) error {
 
 // SetTeams makes seats (the canonical --teams list) the only --teams in session name's record,
 // keeping everything else, so a restore or restart of the session replays the seats it was
-// launched into. A session with no record is an error.
+// launched into; empty seats leave no --teams at all. A session with no record is an error.
 func (s *Store) SetTeams(name, seats string) error {
 	rec, err := s.Get(name)
 	if err != nil {
@@ -240,7 +240,9 @@ func (s *Store) SetTeams(name, seats string) error {
 			kept = append(kept, rec.Args[i])
 		}
 	}
-	kept = append(kept, "--teams", seats)
+	if seats != "" {
+		kept = append(kept, "--teams", seats)
+	}
 	rec.Args = kept
 	return s.Write(rec)
 }

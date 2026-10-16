@@ -393,6 +393,15 @@ printf 'stage=%s oauth=%s gh=%s compose=%s/%s\n' "${CCY_KEY_STAGE_DIR-unset}" \
     "${CCY_COMPOSE_CMD-unset}" >"$STUB_RECORD.inherit"
 STUB
 chmod +x "$work/stub/claude-yolo"
+# ccy-teams' restart-args takes the seats from the session's record (Go-tested in
+# internal/teams/find); here it passes the argv through and says it was asked.
+mkdir -p "$work/bin"
+cat >"$work/bin/ccy-teams" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_RECORD.teams"
+cat
+STUB
+chmod +x "$work/bin/ccy-teams"
 cat >"$work/update-stub.bash" <<'STUB'
 update_claude_inplace() { echo "$1" >>"$STUB_UPDATES"; return "$STUB_UPDATE_RC"; }
 cleanup() { echo cleaned >>"$STUB_CLEANUPS"; }
@@ -408,6 +417,10 @@ source "$HC_LIB_DIR/session-registry.bash"
 source "$HC_LIB_DIR/restart-request.bash"
 source "$HC_WORK/handler.bash"
 source "$HC_WORK/update-stub.bash"
+if [ -n "${HC_BUILDER_FAILS:-}" ]; then
+    # A relaunch-args builder that writes part of an argv, then fails.
+    ccy_restart_relaunch_args() { printf '%s\0' --no-ssh; return 1; }
+fi
 cd "$HC_PROJ"
 SELECTED_TOKEN="$HC_TOKEN"
 GITHUB_SSH_443="$HC_443"
@@ -446,7 +459,8 @@ handler_case() {
     [ "$body" = "-" ] || printf '%s' "$body" >"$proj/.claude/ccy/state/restart-request.json"
     local rc=0
     SCRIPT_DIR="$work/stub" VERSION_CHECK_CACHE="$work/cache-$name" IMAGE_NAME="img:tag" \
-        CCY_RESTART_HISTORY_DIR="$hist_dir" \
+        CCY_RESTART_HISTORY_DIR="$hist_dir" PATH="$work/bin:$PATH" CCY_SESSION_NAME="ccy-named" \
+        HC_BUILDER_FAILS="${HC_BUILDER_FAILS:-}" \
         HC_LIB_DIR="$LIB_DIR" HC_WORK="$work" HC_PROJ="$proj" \
         HC_TOKEN="${HC_TOKEN-$TOK}" HC_KEYS="${HC_KEYS:-}" HC_NETWORK="${HC_NETWORK:-}" \
         HC_443="${HC_443:-0}" HC_NO_NETWORK="${HC_NO_NETWORK:-false}" HC_PP_FILE="${HC_PP_FILE:-}" \
@@ -469,6 +483,8 @@ check "a valid request: updates, execs the launcher, consumes the file" \
 check "…the relaunch carries the token file the session used, not the name it was given" \
     "--token|$TOK|--no-ssh|--resume|$SID" "$(paste -sd'|' "$work/ok.argv")"
 check "…the update was of the launcher's image" "img:tag" "$(cat "$work/ok.updates")"
+check "…the relaunch arguments went through ccy-teams' restart-args for the session the launcher named" \
+    "internal restart-args ccy-named" "$(cat "$work/ok.argv.teams")"
 check "…the relaunch is marked unattended, with its stdin closed here" \
     "marker=$SID passphrase-file=unset stdin-is-null=yes" "$(cat "$work/ok.argv.env")"
 check "…this launch's staged files are cleaned up before the exec (exec skips the EXIT trap)" \
@@ -543,6 +559,11 @@ check "a history directory that cannot be created stops the restart" \
 
 check "a failed image update stops the restart, no relaunch" \
     "rc=1 update=1 exec=no request=gone" "$(handler_case updfail "$GOOD" 1 0)"
+
+check "a relaunch-args builder that fails part way stops the restart, though ccy-teams passed its words on" \
+    "rc=1 update=0 exec=no request=gone" "$(HC_BUILDER_FAILS=1 handler_case builderfail "$GOOD" 0 0)"
+check "…and says it could not build the relaunch arguments" "yes" \
+    "$(grep -q 'could not build the relaunch arguments' "$work/builderfail.err" && echo yes || echo no)"
 
 echo "=== a relaunch's arguments, read by the launcher's own parser and prompt gates ==="
 

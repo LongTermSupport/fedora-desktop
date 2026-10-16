@@ -176,6 +176,11 @@ var dynamicNames = []allowance{
 		reason: "runs the root command its caller names; every caller is itself judged as a program runner",
 	},
 	{
+		pkg:    "internal/teams/hot",
+		fn:     "Hot.pingbus",
+		reason: "the host's pingbus from the agent team bus kit, whose path is configuration (CCY_TEAMS_PINGBUS)",
+	},
+	{
 		pkg:    ftpcameraPkg,
 		fn:     "cli.execVault",
 		reason: "the checkout's vault.bash, whose path is REPO_PATH in /etc/ftp-camera/config",

@@ -16,14 +16,16 @@ refusal is a `MembershipError` (exit 78); `config` turns it into a `ConfigError`
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import fcntl
 import json
 import os
 import pathlib
 import re
 import secrets
 import stat
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 
 from helpers.pingbus import protocol
 
@@ -54,7 +56,14 @@ ROLES = ("worker", "coordinator")
 DESIRED_KEYS = frozenset({"v", "session", "kind", "checkout", "generation", "written_ms", "seats",
                           "farewell"})
 APPLIED_KEYS = frozenset({"v", "generation", "seats", "refused"})
-APPLIED_OPTIONAL = frozenset({"told"})
+APPLIED_OPTIONAL = frozenset({"told", "inbound"})
+#: What the session was last told about its teams (H12, H13), in the session home, and the
+#: lock its two tellers (the watcher, the prompt hook) take in turn.
+TOLD_FILE = "told.json"
+TOLD_LOCK = "told.lock"
+TOLD_KEYS = frozenset({"v", "generation", "teams", "left"})
+#: A told team whose role the session has not been told, its record not read yet.
+UNKNOWN_ROLE = "-"
 
 #: The registry name grammar the host's writer uses (src-go/internal/teams/membership); never
 #: `.` or `..`, and no `/`, since it names the report's directory (3.3).
@@ -132,6 +141,9 @@ class Applied:
     seats: tuple[AppliedSeat, ...]
     refused: tuple[Refused, ...]
     told: Told | None = None
+    #: Whether the session was launched accepting team messages (`crossSessionInbound`): a
+    #: session launched on no team was not, and its first join relaunches it (H22, H34).
+    inbound: bool | None = None
 
     def to_json(self) -> dict[str, object]:
         data: dict[str, object] = {
@@ -139,6 +151,8 @@ class Applied:
             "seats": [dataclasses.asdict(seat) for seat in self.seats],
             "refused": [dataclasses.asdict(entry) for entry in self.refused],
         }
+        if self.inbound is not None:
+            data["inbound"] = self.inbound
         if self.told is not None:
             data["told"] = {"generation": self.told.generation,
                             "roles": [{"team": team, "handle": handle, "role": role}
@@ -253,7 +267,60 @@ def parse_applied(data: object, where: str = APPLIED_FILE) -> Applied:
             raise MembershipError(f"{where}: refused: an entry's why or holder is refused")
         refused.append(Refused(team, seat, entry["why"], holder))
     told = _told(obj["told"], where) if "told" in obj else None
-    return Applied(obj["generation"], tuple(seats), tuple(refused), told)
+    inbound = obj.get("inbound")
+    if "inbound" in obj and type(inbound) is not bool:
+        raise MembershipError(f"{where}: inbound is not true or false")
+    return Applied(obj["generation"], tuple(seats), tuple(refused), told, inbound)
+
+
+@dataclasses.dataclass(frozen=True)
+class ToldTeam:
+    team: str
+    seat: str
+    handle: str
+    role: str
+
+
+@dataclasses.dataclass(frozen=True)
+class ToldRecord:
+    """What the session was last told (H12, H13): the desired generation, each team it was
+    told it is on, with its seat, handle and role (`-` until its record is read), and each
+    team it was told it left, with the farewell reason."""
+
+    generation: int
+    teams: tuple[ToldTeam, ...]
+    left: tuple[tuple[str, str], ...] = ()
+
+    def said(self) -> Told:
+        """The roles told, as the keeper copies them into the applied file (3.2)."""
+        return Told(self.generation, tuple((t.team, t.handle, t.role) for t in self.teams
+                                           if t.role in ROLES))
+
+    def to_json(self) -> dict[str, object]:
+        return {"v": VERSION, "generation": self.generation,
+                "teams": [dataclasses.asdict(team) for team in self.teams],
+                "left": [{"team": team, "reason": reason} for team, reason in self.left]}
+
+
+def parse_told(data: object, where: str = TOLD_FILE) -> ToldRecord:
+    obj = _object(data, TOLD_KEYS, where)
+    _version(obj, where)
+    if not _is_int(obj["generation"], 0):
+        raise MembershipError(f"{where}: generation is not a non-negative integer")
+    teams = []
+    for item in _list(obj, "teams", where, MAX_SEATS):
+        entry = _object(item, frozenset({"team", "seat", "handle", "role"}), f"{where}: teams")
+        team, seat = _names(entry, "teams", where)
+        if protocol.parse_handle(entry["handle"]) is None or entry["role"] not in (*ROLES, UNKNOWN_ROLE):
+            raise MembershipError(f"{where}: teams: an entry's handle or role is refused")
+        teams.append(ToldTeam(team, seat, entry["handle"], entry["role"]))
+    left = []
+    for item in _list(obj, "left", where, MAX_FAREWELLS):
+        entry = _object(item, frozenset({"team", "reason"}), f"{where}: left")
+        if not protocol.is_team_name(entry["team"]) or entry["reason"] not in FAREWELL_REASONS:
+            raise MembershipError(f"{where}: left: an entry's team or reason is refused")
+        left.append((entry["team"], entry["reason"]))
+    return ToldRecord(obj["generation"], tuple(teams), tuple(left))
 
 
 # ── the files ────────────────────────────────────────────────────────────────────────────
@@ -321,9 +388,43 @@ def read_applied(home: pathlib.Path) -> Applied | None:
 
 def write_applied(path: pathlib.Path, applied: Applied) -> None:
     """Write `applied` to `path` atomically, mode 0600: a temporary file beside it, then a rename."""
-    path = pathlib.Path(path)
+    _write_json(pathlib.Path(path), applied.to_json())
+
+
+def read_told(home: pathlib.Path) -> ToldRecord | None:
+    """What the session was last told about its teams; None before anything was."""
+    path = pathlib.Path(home) / TOLD_FILE
+    data = _read_json(path)
+    return None if data is None else parse_told(data, str(path))
+
+
+def write_told(home: pathlib.Path, record: ToldRecord) -> None:
+    _write_json(pathlib.Path(home) / TOLD_FILE, record.to_json())
+
+
+@contextlib.contextmanager
+def telling(home: pathlib.Path) -> Iterator[bool]:
+    """Hold the session's told lock while the session is told: True when it was had, False
+    (without waiting) when another teller holds it, which is then telling the same change."""
+    fd = os.open(pathlib.Path(home) / TOLD_LOCK,
+                 os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _write_json(path: pathlib.Path, obj: Mapping[str, object]) -> None:
     temp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
-    data = (json.dumps(applied.to_json(), ensure_ascii=True, sort_keys=True) + "\n").encode("ascii")
+    data = (json.dumps(obj, ensure_ascii=True, sort_keys=True) + "\n").encode("ascii")
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
         with os.fdopen(fd, "wb") as handle:

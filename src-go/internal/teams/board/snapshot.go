@@ -8,6 +8,8 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/discover"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 )
 
 // Words the table and the callers compare against.
@@ -37,7 +39,10 @@ type Snapshot struct {
 	Live        map[string]int    // tmux session name -> attached clients
 	SeatSession map[string]string // "<dir>|<seat>@<team>" -> registry session name
 	SeatRestore map[string]bool   // same key -> whether the session is started again after a reboot
-	Checkouts   []string
+	// Seats is the one lookup of which session names a seat (records and desired memberships);
+	// SeatSession and SeatRestore are its answers keyed for the table.
+	Seats     *discover.Index
+	Checkouts []string
 
 	Members        map[string]agentbus.Roster
 	MembersUnknown map[string]string // team -> why its members are not shown
@@ -58,7 +63,7 @@ func NewSnapshot() *Snapshot {
 		Port: map[string]string{}, URL: map[string]string{}, Server: map[string]string{}, Description: map[string]string{},
 		DescriptionState: map[string]declare.DescriptionState{},
 		Loaded:           map[string]bool{}, Active: map[string]string{}, Status: map[string]declare.Status{},
-		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{},
+		Live: map[string]int{}, SeatSession: map[string]string{}, SeatRestore: map[string]bool{}, Seats: discover.New(),
 		Members: map[string]agentbus.Roster{}, MembersUnknown: map[string]string{}, SignedIn: map[string]string{},
 		Sessions: map[string]int{},
 	}
@@ -176,23 +181,37 @@ func (s *Snapshot) addCheckout(dir string) {
 }
 
 // addRecord notes the checkout of a ccy or cc session record and the seats its launcher was
-// given. A cc record names its seats only when cc was given them whole: cc chooses a team named
-// alone after tmux has recorded its arguments.
+// given (discover.Index.AddRecord).
 func (s *Snapshot) addRecord(rec registry.Record) {
-	if !isLauncherPrefix(rec.Prefix) {
+	if !discover.IsLauncher(rec.Prefix) {
 		return
 	}
 	s.addCheckout(rec.Dir)
-	for ref := range strings.SplitSeq(teamsListOf(rec.Args), ",") {
-		if ref != "" {
-			s.SeatSession[rec.Dir+"|"+ref] = rec.Name
-			s.SeatRestore[rec.Dir+"|"+ref] = rec.Restore
+	s.Seats.AddRecord(rec)
+	s.fillSeats()
+}
+
+// addDesired notes a live session's desired membership: a seat a hot add gave it that its record
+// does not name yet.
+func (s *Snapshot) addDesired(d membership.Desired) {
+	if _, live := s.Live[d.Session]; !live {
+		return
+	}
+	s.addCheckout(d.Checkout)
+	s.Seats.AddDesired(d)
+	s.fillSeats()
+}
+
+// fillSeats keys the index's answers for the table.
+func (s *Snapshot) fillSeats() {
+	for _, k := range s.Seats.Keys() {
+		key := k.Dir + "|" + k.Ref()
+		s.SeatSession[key] = s.Seats.SessionOf(k)
+		if restores, recorded := s.Seats.Restore(k); recorded {
+			s.SeatRestore[key] = restores
 		}
 	}
 }
-
-// isLauncherPrefix is whether a session prefix is one of the two launchers that hold seats.
-func isLauncherPrefix(prefix string) bool { return prefix == "ccy" || prefix == "cc" }
 
 // addMemberRows appends a team's seats, its other members and its people.
 func (s *Snapshot) addMemberRows(c *Collector, team string, seats []seatAt) {

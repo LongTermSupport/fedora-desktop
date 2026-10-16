@@ -132,11 +132,28 @@ func (c *Client) SeatChoose(ctx context.Context, team string) (Choices, error) {
 // SeatChooseAs is SeatChoose for the member type of the launcher asking ("podman" or "host");
 // "" leaves it to agent-bus's default.
 func (c *Client) SeatChooseAs(ctx context.Context, team, memberType string) (Choices, error) {
+	return c.SeatChooseIn(ctx, "", team, memberType)
+}
+
+// SeatTake is "agent-bus seat take <list> --type=<type>" run as the user in the checkout dir: it
+// creates each named seat the checkout lacks (sudo, asked first unless noPrompt) and refuses a
+// held one (ErrBusy).
+func (c *Client) SeatTake(ctx context.Context, dir, list, memberType string, noPrompt bool) error {
+	args := []string{"seat", "take", list, "--type=" + memberType}
+	if noPrompt {
+		args = append(args, "--no-prompt")
+	}
+	_, err := c.userRun(ctx, dir, args...)
+	return err
+}
+
+// SeatChooseIn is SeatChooseAs run in the checkout dir ("" is the working directory).
+func (c *Client) SeatChooseIn(ctx context.Context, dir, team, memberType string) (Choices, error) {
 	args := []string{"seat", "choose", team}
 	if memberType != "" {
 		args = append(args, "--type="+memberType)
 	}
-	res, err := c.userRun(ctx, "", args...)
+	res, err := c.userRun(ctx, dir, args...)
 	if err != nil {
 		return Choices{}, err
 	}

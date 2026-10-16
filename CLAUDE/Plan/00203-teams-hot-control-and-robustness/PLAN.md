@@ -89,6 +89,15 @@ Built on `fix/teams-server-robustness`; design and evidence in
   session's identity: the U20 abort); the relabel is proved by labels on a Permissive host too;
   the 00201 and 00161 launches are unnamed by construction, and U20 M2.11 proves a named seated
   session.
+- [x] ✅ **Task 3.2** (M3): the first end-to-end hot add and remove. `ccy-teams session add` and
+  `remove` (per-step ✓/✗, idempotent, rolled back; re-baseline and goodbye on remove; the first
+  join of a zero-seat session relaunches once through the supervisor's restart replay), one
+  shared session discovery (`internal/teams/discover`, the shutdown lookup folded in), the
+  watcher and waiter following the membership with the keeper starting the watcher (H11), the
+  `MEMBERSHIP` kind with its hook fallback (H12, H13), the status line (H14), mid-turn removal
+  (H15, H16). CCY 3.99.8, container 2.73, lifecycle plugin 1.1.0. Host acceptance:
+  [ACCEPTANCE.md](ACCEPTANCE.md) M3, `_acceptance-m3.inc.bash`. Notes:
+  [subagent-reports/261016-m3-opus.md](subagent-reports/261016-m3-opus.md).
 
 ## Decisions
 
