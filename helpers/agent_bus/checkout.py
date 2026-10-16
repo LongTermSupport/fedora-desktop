@@ -759,10 +759,12 @@ def alloc_lock_name(resolved: str) -> str:
 def allocation(top: pathlib.Path, system: System, what: str) -> Iterator[None]:
     """Hold the checkout's seat allocation lock, under the owner's runtime directory (never in
     the checkout, which every session of it can write), waiting a bounded time for another
-    allocation; the holder's line says what holds it. No runtime directory: no lock to share."""
+    allocation; the holder's line says what holds it. With no runtime directory there is no
+    lock to take, so the allocation is refused rather than run unlocked (CheckoutError)."""
     if not system.runtime_dir or not os.path.isabs(system.runtime_dir):
-        yield
-        return
+        raise CheckoutError(
+            "XDG_RUNTIME_DIR is not an absolute path, so the checkout's seat allocation lock cannot be "
+            "taken and no seat is created; run it from your desktop login session")
     directory = pathlib.Path(system.runtime_dir, "ccy", "alloc")
     os.makedirs(directory, mode=DIR_MODE, exist_ok=True)
     fd = os.open(directory / alloc_lock_name(os.path.realpath(top)),

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/registry"
@@ -133,6 +134,46 @@ func TestAddWhenTheSessionEndsMidwayIsRolledBack(t *testing.T) {
 	}
 	if got := r.recordArgs(t); !slices.Equal(got, []string{"--no-ssh"}) {
 		t.Fatalf("record %v", got)
+	}
+}
+
+// Fable's M4 B2: a record that cannot be restored must not stop the desired file's removal.
+func TestAnEndedSessionLeavesNoDesiredFileEvenWhenItsRecordCannotBeRestored(t *testing.T) {
+	r := newRig(t)
+	r.Fake.OnFunc([]string{"podman", "exec"}, func(execx.Cmd) (execx.Result, error) {
+		r.m.container = ""
+		r.m.onPs = func() { r.breakRecords(t) }
+		return execx.Result{}, nil
+	})
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ membership: removed (the session is not running; its next launch writes it)")
+	if !strings.Contains(r.ErrOut.String(), "✗ record: ") {
+		t.Fatalf("the failed record write is not said:\n%s", r.ErrOut.String())
+	}
+	if _, err := membership.Read(r.dir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("an ended session keeps no desired membership (H28): %v", err)
+	}
+}
+
+func TestARefusedAddRestoresTheDesiredFileEvenWhenItsRecordCannotBeRestored(t *testing.T) {
+	r := newRig(t)
+	r.m.keeper = false
+	sleep := r.x.Sleep
+	r.x.Sleep = func(d time.Duration) {
+		if r.m.onPs == nil {
+			r.m.onPs = func() {}
+			r.breakRecords(t)
+		}
+		sleep(d)
+	}
+	if code := r.run(t, "add", session, "alpha/3", "--yes"); code != term.ExitFailure {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ membership: generation 3 written (restored)")
+	if d := r.desired(t); d.Generation != 3 || len(d.Seats) != 0 {
+		t.Fatalf("the desired file was not restored: %+v", d)
 	}
 }
 

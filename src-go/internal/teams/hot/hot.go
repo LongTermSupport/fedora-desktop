@@ -387,7 +387,10 @@ func (x *Hot) resolve(ctx context.Context, r request) (*target, term.ExitCode, b
 		x.notKit(session, os.ErrNotExist)
 		return nil, exitConfig, false
 	}
-	t.lock, err = takeLock(filepath.Join(dir, changeLockFile), holderOf(r))
+	lockPath, err := changePath(runtime, session)
+	if err == nil {
+		t.lock, err = takeLock(lockPath, holderOf(r))
+	}
 	if busy, ok := errors.AsType[*busyError](err); ok {
 		x.mark(markFailed, "session "+session+": another change to it is in progress: "+busy.holder)
 		return nil, exitBusy, false

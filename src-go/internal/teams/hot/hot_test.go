@@ -2,6 +2,7 @@ package hot
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,16 +41,27 @@ type machine struct {
 	relaunch  bool              // a relaunch request makes a new container
 	roles     map[string]string // team\thandle -> role, for the checkout's seats and others
 	others    map[string]int    // team -> members of other checkouts, beside roles
+	onPs      func()            // run at each podman ps, when set
 }
 
 type rig struct {
 	*teamtest.World
 
-	x       *Hot
-	m       *machine
-	runtime string
-	store   *registry.Store
-	now     time.Time
+	x        *Hot
+	m        *machine
+	runtime  string
+	storeDir string
+	store    *registry.Store
+	now      time.Time
+}
+
+// breakRecords makes every later record write fail: the registry's directory becomes a file.
+func (r *rig) breakRecords(t *testing.T) {
+	t.Helper()
+	if err := os.RemoveAll(r.storeDir); err != nil {
+		t.Fatal(err)
+	}
+	teamtest.MustWrite(t, r.storeDir, "not a directory\n")
 }
 
 // refParts is a seat@team as its seat and team.
@@ -72,7 +84,8 @@ func seatOfRef(ref string) string { return strings.SplitN(ref, "@", 2)[0] }
 func newRig(t *testing.T, seats ...membership.Seat) *rig {
 	t.Helper()
 	w := teamtest.New(t)
-	r := &rig{World: w, runtime: t.TempDir(), store: registry.New(t.TempDir()), now: time.UnixMilli(1760000000000)}
+	r := &rig{World: w, runtime: t.TempDir(), storeDir: t.TempDir(), now: time.UnixMilli(1760000000000)}
+	r.store = registry.New(r.storeDir)
 	if err := os.MkdirAll(w.Checkout(), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -166,6 +179,9 @@ func (r *rig) podmanPs(t *testing.T) execx.Result {
 	t.Helper()
 	r.m.mu.Lock()
 	defer r.m.mu.Unlock()
+	if r.m.onPs != nil {
+		r.m.onPs()
+	}
 	request := filepath.Join(r.dir(), membership.RelaunchFile)
 	if _, err := os.Lstat(request); err == nil && r.m.relaunch {
 		if err := os.Remove(request); err != nil {
@@ -376,7 +392,11 @@ func TestRefusals(t *testing.T) {
 
 func TestAChangeInProgressRefusesAnotherOnTheSameSession(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
-	held, err := takeLock(filepath.Join(r.dir(), changeLockFile), "ccy-teams session add ccy-proj alpha (pid 41)")
+	lockPath, err := changePath(r.runtime, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := takeLock(lockPath, "ccy-teams session add ccy-proj alpha (pid 41)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +421,10 @@ func TestAChangeInProgressRefusesAnotherOnTheSameSession(t *testing.T) {
 	if code := r.run(t, "add", session, "alpha", "--yes"); code != term.ExitOK {
 		t.Fatalf("free again: exit %d:\n%s", code, r.ErrOut.String())
 	}
-	data, err := os.ReadFile(filepath.Clean(filepath.Join(r.dir(), changeLockFile)))
+	if _, statErr := os.Lstat(filepath.Join(r.dir(), ".change.lock")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("a change lock was made in the mounted membership directory: %v", statErr)
+	}
+	data, err := os.ReadFile(filepath.Clean(lockPath))
 	if err != nil || !strings.HasPrefix(string(data), "ccy-teams session add ccy-proj alpha (pid ") {
 		t.Fatalf("the change names itself in the lock: %q %v", data, err)
 	}

@@ -322,17 +322,22 @@ func (x *Hot) apply(ctx context.Context, t *target, team string, c choice, alloc
 	return term.ExitOK
 }
 
-// restore puts the record and the desired file back as they were (a failure at step 8).
+// restore puts the record and the desired file back as they were (a failure at step 8). Each
+// is put back whether or not the other could be, so a failed record write never leaves the
+// keeper holding a seat the change gave up.
 func (x *Hot) restore(t *target, seats []membership.Seat, farewell []membership.Farewell) {
-	if err := x.commit(t, seats, farewell, "restored"); err != nil {
+	recordErr := x.writeRecord(t, seats, "restored")
+	if errors.Join(recordErr, x.writeDesired(t, seats, farewell, "restored")) != nil {
 		x.say("The record or the membership could not be restored (above): run the same command again, or remove the team from the session.")
 	}
 }
 
 // restoreEnded is restore for a session that ended during the change: the record goes back,
-// and no desired file is left for a session that is not running (H28).
+// and no desired file is left for a session that is not running (H28), whatever the record
+// write did.
 func (x *Hot) restoreEnded(t *target, seats []membership.Seat) {
-	if x.writeRecord(t, seats, "restored") != nil || x.dropDesired(t) != nil {
+	recordErr := x.writeRecord(t, seats, "restored")
+	if errors.Join(recordErr, x.dropDesired(t)) != nil {
 		x.say("The record or the membership could not be restored (above): the session's next launch replays its record.")
 	}
 }

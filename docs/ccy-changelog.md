@@ -17,10 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.10 — container 2.75
+## 3.99.10.1 — container 2.75.1
 
-Includes 3.99.9 (container 2.74) and 3.99.9.1 (container 2.74.1, F44's refuse-inbound fix
-merged in), which were never released on their own.
+Includes 3.99.9 (container 2.74), 3.99.9.1 (container 2.74.1, F44's refuse-inbound fix
+merged in) and 3.99.10 (container 2.75), which were never released on their own.
 
 - **The full non-interactive hot-control surface** (Plan 00203 M4). `ccy-teams session role`
   makes a running session's seat a worker or the coordinator and waits for the session to be
@@ -31,7 +31,8 @@ merged in), which were never released on their own.
   unguarded); `session repair` restarts a stopped seat keeper.
 - **One change at a time.** A second change to the same session is refused (exit 75), naming
   the first; a seat allocation holds a per-checkout lock under the runtime directory, which
-  `agent-bus seat take` waits for (its `helpers/agent_bus`). A seat a running
+  `agent-bus seat take` waits for (its `helpers/agent_bus`), and without which it refuses
+  rather than allocate unlocked; both locks are outside every container's reach. A seat a running
   session's desired membership names, or a stopped session's record that a restore replays,
   is never handed to another session; `agent-bus seat choose` offers it as held.
 - A team's roster at 64 agents refuses a new member; a session that ends while an add waits

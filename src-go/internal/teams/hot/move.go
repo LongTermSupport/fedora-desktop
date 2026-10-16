@@ -2,6 +2,7 @@ package hot
 
 import (
 	"context"
+	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
@@ -29,11 +30,13 @@ func (x *Hot) move(ctx context.Context, t *target, r request) term.ExitCode {
 	return term.ExitOK
 }
 
-// coordinatorSaid refuses, before the add changes anything, a move of the old team's
-// coordinator with no --coordinator and no terminal to ask on (H23 step 2).
+// coordinatorSaid refuses, before the add changes anything, what the remove half would refuse
+// for the old team's coordinator: no --coordinator and no terminal to ask on, or a hand-to
+// that names no member or several (H23 step 2).
 func (x *Hot) coordinatorSaid(ctx context.Context, t *target, r request) (term.ExitCode, bool) {
 	seat, in := seatOf(t.desired.Seats, r.team)
-	if !in || r.coordinator != "" || x.interactive() {
+	handingTo := strings.HasPrefix(r.coordinator, coordHandTo)
+	if !in || r.coordinator == coordDemote || (r.coordinator == "" && x.interactive()) {
 		return term.ExitOK, true
 	}
 	state, err := x.Host.Systemd.HomeserverState(ctx, r.team)
@@ -48,9 +51,15 @@ func (x *Hot) coordinatorSaid(ctx context.Context, t *target, r request) (term.E
 	if err != nil {
 		return term.ExitOK, true
 	}
-	if m, found := roster.Member(handle); found && m.Role == agentbus.RoleCoordinator {
+	if m, found := roster.Member(handle); !found || m.Role != agentbus.RoleCoordinator {
+		return term.ExitOK, true
+	}
+	if !handingTo {
 		return x.usageError("seat " + seat + " is " + r.team + "'s coordinator: say what becomes of the role with " +
 			"--coordinator=demote (no one has it) or --coordinator=hand-to=<seat>; nothing was changed."), false
+	}
+	if _, why := handTo(roster, strings.TrimPrefix(r.coordinator, coordHandTo), handle); why != "" {
+		return x.usageError(why + " Nothing was changed."), false
 	}
 	return term.ExitOK, true
 }

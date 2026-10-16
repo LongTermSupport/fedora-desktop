@@ -367,9 +367,13 @@ Two things are **not** frozen:
 
 - **H20.** One change at a time per session, and one allocation at a time per checkout.
 
-  - A session change takes `flock` on `<membership dir>/.change.lock`.
-  - A seat allocation takes `flock` on `.claude/ccy/pingbus/seats/.alloc.lock`.
+  - A session change takes `flock` on `$XDG_RUNTIME_DIR/ccy/change/<session>.lock`.
+  - A seat allocation takes `flock` on `$XDG_RUNTIME_DIR/ccy/alloc/<checkout digest>.lock`.
   - Either one busy gives exit 75, naming who holds it.
+  - Neither lock lives where a container can reach it. `flock` needs no write permission, so
+    a process in the session could hold a lock in its read-only membership mount, or in the
+    checkout, until the container stops, and freeze the owner out. The membership directory
+    carries only files the container may see.
 
 - **H21.** Allocation authority. A seat `(checkout, team, seat)` is free only if its lock is
   free **and** no live session's desired file names the same triple. `agent-bus seat take` and
@@ -383,7 +387,9 @@ Two things are **not** frozen:
       checkout is writable by every session of it (a symlink there would redirect the host's
       write; a container could hold it for good). `ccy-teams session add` holds it from
       choosing the seat to writing the desired file and runs `agent-bus seat take --alloc-held`; `seat take` otherwise waits for it up to 15 s, then exits 75 naming the
-      holder. `.change.lock` is in the membership directory, as specified.
+      holder. With no absolute `XDG_RUNTIME_DIR`, `seat take` refuses (exit 78) rather than
+      allocate unlocked. The change lock was first built in the membership directory, as this
+      spec then said; Fable's M4 review (B1) moved it to `ccy/change/` for the reason above.
     - "Live" is, for ccy-teams, a session on ccy's tmux server (as the board has it), and for
       agent-bus a session whose container runs (its `ccy-session` label). So a launcher's own
       desired file, written just before its `seat take`, is never counted against it.

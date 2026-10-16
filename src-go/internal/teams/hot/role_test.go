@@ -3,6 +3,7 @@ package hot
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -29,6 +30,24 @@ func TestRoleMakesTheSeatCoordinatorAndWaitsForTheSessionToBeTold(t *testing.T) 
 	if len(r.setRoles()) != 1 {
 		t.Fatal("a rerun changes no role")
 	}
+}
+
+// Fable's M4 N1: on the wall clock no two readings are equal, so the no-op must not depend on
+// the clock standing still between them.
+func TestARoleThatAlreadyHoldsIsANoOpOnAClockThatMovesOnEveryReading(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.roles["alpha\tproj.3+local.podman"] = coord
+	r.writeReport(t)
+	r.x.Now = func() time.Time {
+		r.now = r.now.Add(time.Millisecond)
+		return r.now
+	}
+	if code := r.run(t, "role", session, "alpha", coord, "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	onlySkips(t, r.ErrOut.String())
+	wantLines(t, r.ErrOut.String(), "- session: told it is alpha's coordinator",
+		"Nothing to do: proj.3+local.podman is alpha's coordinator, and the session knows it.")
 }
 
 func TestRoleToWorker(t *testing.T) {

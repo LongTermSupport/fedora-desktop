@@ -157,13 +157,14 @@ func roleWords(team, role string) string {
 }
 
 // waitTold waits for the session's report to show it was told its role (H25, H12); changed is
-// whether this run changed it.
+// whether this run changed it. A role this run did not change, already told at the first
+// look, is the H19 no-op.
 func (x *Hot) waitTold(ctx context.Context, t *target, team, handle, role string, changed bool) term.ExitCode {
 	start := x.Now()
-	for {
+	for first := true; ; first = false {
 		rep, err := membership.ReadReport(t.checkout(), t.session)
 		if err == nil && rep.ToldRole(team, handle) == role {
-			if !changed && x.Now().Equal(start) {
+			if !changed && first {
 				x.mark(markSkip, "session: told it is "+roleWords(team, role))
 				x.say("Nothing to do: " + handle + " is " + roleWords(team, role) + ", and the session knows it.")
 				return term.ExitOK

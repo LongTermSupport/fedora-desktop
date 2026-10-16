@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
 )
 
 func TestALockHeldRefusesASecondTakerAndNamesTheHolder(t *testing.T) {
@@ -80,6 +82,35 @@ func TestTheAllocationLockIsOnePerCheckoutWhateverItsPath(t *testing.T) {
 	}
 	if filepath.Dir(direct) != filepath.Join(runtime, "ccy", "alloc") || !strings.HasSuffix(direct, ".lock") {
 		t.Fatalf("path %q", direct)
+	}
+}
+
+// Fable's M4 B1: the membership directory is mounted into the session's container, and flock
+// needs no write permission, so a change lock there could be held for good from inside.
+func TestTheChangeLockIsOutsideTheMountedMembershipDirectory(t *testing.T) {
+	runtime := t.TempDir()
+	path, err := changePath(runtime, "ccy-proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(runtime, "ccy", "change", "ccy-proj-1.lock") {
+		t.Fatalf("path %q", path)
+	}
+	mounted := membership.Dir(runtime, "ccy-proj-1")
+	if rel, relErr := filepath.Rel(mounted, path); relErr == nil && !strings.HasPrefix(rel, "..") {
+		t.Fatalf("the change lock %q is under the mounted %q", path, mounted)
+	}
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil || info.Mode().Perm() != lockDirMode {
+		t.Fatalf("the lock directory: %v %v", info, err)
+	}
+}
+
+func TestAChangeLockNeedsASessionNameThatIsOneFileName(t *testing.T) {
+	for _, name := range []string{"", ".", "..", "a/b", "../x"} {
+		if _, err := changePath(t.TempDir(), name); err == nil {
+			t.Fatalf("%q was taken as a lock name", name)
+		}
 	}
 }
 

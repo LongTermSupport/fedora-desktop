@@ -73,3 +73,23 @@ func TestMoveOfTheCoordinatorNeedsTheOptionBeforeAnythingChanges(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
 }
+
+// Fable's M4 N3: a hand-to that names no member, or several, is a usage error known before
+// the add, so the session is never left in both teams for it.
+func TestMoveOfTheCoordinatorToAnUnresolvableHeirChangesNothing(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	r.m.roles["beta\tproj.1+local.podman"] = coord
+	r.m.roles["beta\tone.7+local.podman"] = worker
+	r.m.roles["beta\ttwo.7+local.podman"] = worker
+	for _, heir := range []string{"9", "7"} {
+		if code := r.run(t, "move", session, "beta", "alpha", "--coordinator=hand-to="+heir, "--yes"); code != term.ExitUsage {
+			t.Fatalf("hand-to=%s: exit %d:\n%s", heir, code, r.ErrOut.String())
+		}
+		if !strings.Contains(r.ErrOut.String(), "--coordinator=hand-to="+heir) {
+			t.Fatalf("hand-to=%s: the refusal does not name the option:\n%s", heir, r.ErrOut.String())
+		}
+		if r.desired(t).Generation != 1 || len(r.setRoles()) != 0 {
+			t.Fatalf("hand-to=%s: something changed before the refusal", heir)
+		}
+	}
+}

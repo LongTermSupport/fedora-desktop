@@ -14,12 +14,12 @@ import (
 
 // The two locks of SPEC-hot-control.md H20: one change at a time per session, one seat
 // allocation at a time per checkout. Each is an flock taken without waiting; the holder writes
-// what it is into the file, so a refused taker can say who holds it.
+// what it is into the file, so a refused taker can say who holds it. Both live in the owner's
+// runtime directory, never where a container can reach: flock needs no write permission, so a
+// lock in a mounted directory could be held for good from inside.
 const (
-	// changeLockFile is the session's lock, in its membership directory.
-	changeLockFile = ".change.lock"
-	lockFileMode   = 0o600
-	lockDirMode    = 0o700
+	lockFileMode = 0o600
+	lockDirMode  = 0o700
 	// holderMax bounds what a refused taker reads of the holder's line.
 	holderMax = 512
 )
@@ -72,6 +72,19 @@ func (l *lock) release() error {
 		unlockErr = fmt.Errorf("could not unlock %s: %w", f.Name(), unlockErr)
 	}
 	return errors.Join(unlockErr, f.Close())
+}
+
+// changePath is the session's change lock, beside the allocation locks and not in its
+// membership directory, which the session's container mounts.
+func changePath(runtime, session string) (string, error) {
+	if session == "" || session == "." || session == ".." || strings.ContainsRune(session, filepath.Separator) {
+		return "", fmt.Errorf("%q is not a session name a lock can be named after", session)
+	}
+	dir := filepath.Join(runtime, "ccy", "change")
+	if err := os.MkdirAll(dir, lockDirMode); err != nil {
+		return "", fmt.Errorf("could not make %s: %w", dir, err)
+	}
+	return filepath.Join(dir, session+".lock"), nil
 }
 
 // allocName is a checkout's allocation lock's file name: the first 32 hex digits of the sha256

@@ -177,6 +177,8 @@ class CheckoutTestCase(unittest.TestCase):
         self.seats = self.top / ".claude" / "ccy" / "pingbus" / "seats"
         self.held: list[inbox.Lock] = []
         self.addCleanup(self.release_held)
+        self.runtime = pathlib.Path(tmp.name).resolve() / "runtime"
+        self.runtime.mkdir(mode=0o700)
 
     def git(self, *args: str) -> None:
         subprocess.run(["git", "-C", str(self.top), *args], check=True, capture_output=True)
@@ -191,7 +193,8 @@ class CheckoutTestCase(unittest.TestCase):
                                bus_address=self.host.bus_address,
                                agent_bus=self.host.agent_bus, forget_sudo=self.host.forget_sudo,
                                clock_ms=lambda: T0_MS, sleep=self.host.sleep,
-                               monotonic=self.host.monotonic, progress=self.host.progress.append)
+                               monotonic=self.host.monotonic, progress=self.host.progress.append,
+                               runtime_dir=str(self.runtime))
 
     def run_cli(self, *argv: str, system: checkout.System | None = None) -> tuple[int, str, str]:
         out, err = io.BytesIO(), io.StringIO()
@@ -1003,6 +1006,23 @@ class AllocationAuthorityTest(CheckoutTestCase):
         (directory / "membership.json").write_text(json.dumps(
             {"v": 1, "session": session, "kind": "ccy", "checkout": str(checkout_dir or self.top), "generation": 2,
              "written_ms": 1, "seats": entries, "farewell": []}), encoding="utf-8")
+
+    def test_take_with_no_runtime_directory_is_refused_not_run_unlocked(self):
+        """Fable's M4 N5: an allocation that cannot take the checkout's lock does not run."""
+        for runtime in (None, "", "relative/run"):
+            with self.subTest(runtime=runtime):
+                system = dataclasses.replace(self.system(), runtime_dir=runtime)
+                code, out, err = self.run_cli("seat", "take", "dev1@team-a", system=system)
+                self.assertEqual(code, checkout.CheckoutError.EXIT_CODE, err)
+                self.assertIn("XDG_RUNTIME_DIR", err)
+                self.assertEqual((out, self.host.calls), ("", []))
+                self.assertFalse((self.seats / "team-a" / "dev1").exists())
+
+    def test_take_for_a_caller_holding_the_lock_needs_no_runtime_directory_of_its_own(self):
+        system = dataclasses.replace(self.system(), runtime_dir=None)
+        code, out, err = self.run_cli("seat", "take", "dev1@team-a", "--alloc-held", system=system)
+        self.assertEqual(code, 0, err)
+        self.assertIn("CHANGED\tseat dev1@team-a", out)
 
     def test_the_lock_name_is_the_one_ccy_teams_computes(self):
         # src-go/internal/teams/hot/lock_test.go pins the same value.

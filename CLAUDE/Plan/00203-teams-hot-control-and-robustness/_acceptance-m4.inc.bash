@@ -21,7 +21,9 @@
 #   (a) role: session A made acc-m4a's coordinator, the session told; the same again is a no-op
 #   (b) the coordinator: remove without --coordinator is refused (64, nothing changed); move
 #       A from acc-m4a to acc-m4b handing the role to B's seat; the same move again is a no-op
-#   (c) two changes at once on one session: the second is refused (75, naming the first)
+#   (c) two changes at once on one session: with A's keeper killed the first holds the lock
+#       through its 10 s wait; the second is refused (75, naming the first); the first is
+#       rolled back, and after a repair the add is made for real
 #   (d) a homeserver down: A's status line says acc-m4b(down); add and role refused, nothing
 #       changed (H26); remove releases the seat with the goodbye owed (exit 1); with the
 #       homeserver back the same remove finishes
@@ -271,11 +273,15 @@ m4_wait_line() {
     done
 }
 
+# (c): the first add is held in a known window: with A's seat keeper killed it commits, then
+# waits its 10 s for the seat to be held, holding the change lock, and is rolled back. The
+# second add is run inside that window. Then the keeper is repaired and the add made for real.
 m4_check_two_at_once() {
     local first status=0
+    m4_kill_keeper "${M4_A}" || return 1
     m4_teams session add "${M4_A}" "${M4_TEAM_A}" --yes </dev/null 2>"$(m4_ev concurrent-1.err)" &
     first=$!
-    if ! m4_wait_line "$(m4_ev concurrent-1.err)" 'running, can be hot-controlled' "${first}" \
+    if ! m4_wait_line "$(m4_ev concurrent-1.err)" '^✓ membership: generation' "${first}" \
         || ! m4_run concurrent-2 75 add "${M4_A}" "${M4_TEAM_A}" --yes \
         || ! m4_said concurrent-2 'another change to it is in progress: ccy-teams session add'; then
         wait "${first}"
@@ -283,13 +289,18 @@ m4_check_two_at_once() {
     fi
     wait "${first}" || status=$?
     cat -- "$(m4_ev concurrent-1.err)"
-    [[ "${status}" -eq 0 ]] || { printf '[FAIL] the first add exited %d\n' "${status}" >&2; return 1; }
+    [[ "${status}" -eq 1 ]] || { printf '[FAIL] the held first add exited %d, not 1 (rolled back)\n' "${status}" >&2; return 1; }
+    m4_desired_is "${M4_A}" "${M4_TEAM_B}" || return 1
+    m4_run concurrent-repair 0 repair "${M4_A}" --yes || return 1
+    m4_run concurrent-again 0 add "${M4_A}" "${M4_TEAM_A}" --yes || return 1
     m4_desired_is "${M4_A}" "${M4_TEAM_B},${M4_TEAM_A}" || return 1
 }
 
 m4_hs_up() { systemctl is-active --quiet "agent-bus-hs@${M4_TEAM_B}.service" || return 3; }
 
-# m4_status_down — A's own status line, as its claude renders it, marks acc-m4b down (H26).
+# m4_status_down — `pingbus status-line` run under podman exec in A's container, with the
+# session home given by hand, marks acc-m4b down (H26). It proves the status line's code path
+# over the watcher's real mark; it is not claude's own rendering of its status line.
 m4_status_down() {
     local line
     line="$(podman exec -i -e PINGBUS_HOME=/tmp/pingbus-home -e PINGBUS_STATUS_LINE_INNER=1 "${M2_CTR[${M4_A}]}" \
@@ -354,6 +365,10 @@ m4_check_session_ends() {
     m4_said ended 'session ended during the add' || return 1
     m4_said ended '^✓ membership: removed' || return 1
     m4_desired_is "${M4_A}" gone || return 1
+    if [[ ! -f "${M4_RECORDS}/${M4_A}" ]]; then
+        printf '[FAIL] the record of %s is gone: the add did not restore it\n' "${M4_A}" >&2
+        return 1
+    fi
     if grep -qF -- "${M4_TEAM_B}" "${M4_RECORDS}/${M4_A}"; then
         printf '[FAIL] the record of %s still names %s\n' "${M4_A}" "${M4_TEAM_B}" >&2
         return 1
