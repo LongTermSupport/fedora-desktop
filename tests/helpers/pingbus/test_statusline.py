@@ -18,11 +18,13 @@ import json
 import os
 import pathlib
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -197,12 +199,20 @@ class StatusLineTest(unittest.TestCase):
         while time.monotonic() < deadline:
             try:
                 state = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-            except FileNotFoundError:
-                return
+            except (FileNotFoundError, ProcessLookupError):
+                return  # gone before the open, or reaped between the open and the read (ESRCH)
             if state in ("Z", "X"):
                 return
             time.sleep(0.02)
         self.fail(f"process {pid} outlived the status line")
+
+    def test_a_process_that_vanishes_mid_read_counts_as_gone(self) -> None:
+        """The /proc race: the stat file opens, then the process is reaped before the read, and
+        the read raises ESRCH. That is the process gone, never a failure."""
+        for error in (ProcessLookupError, FileNotFoundError):
+            with self.subTest(error=error.__name__), \
+                    mock.patch.object(pathlib.Path, "read_text", side_effect=error):
+                self.assertGone(os.getpid())
 
     def test_it_never_runs_itself(self) -> None:
         self.record("sess-1", "alpha")
@@ -311,6 +321,42 @@ class MembershipSegmentTest(unittest.TestCase):
                           statusline.APPLIED_FILE, statusline.MAX_MEMBERSHIP_BYTES),
                          (membership.MEMBERSHIP_VAR, membership.MEMBERSHIP_OFF, membership.DESIRED_FILE,
                           membership.APPLIED_FILE, membership.MAX_FILE_BYTES))
+
+    def test_a_team_whose_homeserver_is_down_says_so(self) -> None:
+        """H26: the watcher keeps a team whose homeserver does not answer, and marks it down."""
+        self.write([("alpha", "1"), ("beta", "2")], [("alpha", "1"), ("beta", "2")])
+        statusline.set_team_down(self.home, "beta", True)
+        self.assertEqual(self.segment(), f"{CYAN}bus: alpha,beta(down){RESET}")
+        statusline.set_team_down(self.home, "beta", False)
+        self.assertEqual(self.segment(), f"{CYAN}bus: alpha,beta{RESET}")
+
+    def test_a_stale_down_mark_is_not_believed(self) -> None:
+        """A watcher killed during an outage leaves its mark; one its retries stopped refreshing
+        no longer counts."""
+        self.write([("alpha", "1")], [("alpha", "1")])
+        statusline.set_team_down(self.home, "alpha", True)
+        old = time.time() - statusline.DOWN_FRESH_S - 1
+        os.utime(self.home / statusline.DOWN_DIR / "alpha", (old, old))
+        self.assertEqual(self.segment(), f"{CYAN}bus: alpha{RESET}")
+
+    def test_marking_down_refreshes_and_clearing_is_idempotent(self) -> None:
+        statusline.set_team_down(self.home, "alpha", True)
+        mark = self.home / statusline.DOWN_DIR / "alpha"
+        old = time.time() - 100
+        os.utime(mark, (old, old))
+        statusline.set_team_down(self.home, "alpha", True)
+        self.assertGreater(mark.stat().st_mtime, old + 50, "a retry did not refresh the mark")
+        self.assertEqual(stat.S_IMODE(mark.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(mark.parent.stat().st_mode), 0o700)
+        statusline.set_team_down(self.home, "alpha", False)
+        statusline.set_team_down(self.home, "alpha", False)
+        self.assertFalse(mark.exists())
+
+    def test_a_down_mark_that_is_not_a_regular_file_is_ignored(self) -> None:
+        self.write([("alpha", "1")], [("alpha", "1")])
+        (self.home / statusline.DOWN_DIR).mkdir(mode=0o700)
+        (self.home / statusline.DOWN_DIR / "alpha").symlink_to(self.home / membership.APPLIED_FILE)
+        self.assertEqual(self.segment(), f"{CYAN}bus: alpha{RESET}")
 
     def test_the_copy_agrees_with_config_active_teams(self) -> None:
         cases = [

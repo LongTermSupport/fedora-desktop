@@ -399,9 +399,13 @@ Two things are **not** frozen:
       needs no sudo; "unguarded" is no `pingbus seat keep` process in `podman top`.
     - `ccy-teams remove <team>` stays terminal-only (never `--yes`, its own rule): H29's offer
       is a question in that flow, and each session is taken off with `--coordinator=demote`.
-    - Not built in M4: the in-session `bus: <team>(down)` status (H26; it needs the watcher to
-      publish a team's health, in pingbus), and docker-engine sessions (H30; only podman
-      sessions carry the `ccy-session` label hot control finds them by).
+    - The in-session `bus: <team>(down)` (H26): while a team's homeserver does not answer, the
+      watcher keeps `PINGBUS_HOME/down/<team>` (0600), refreshed on each retry and removed when
+      the team syncs again or its thread ends; the status line appends `(down)` for a mark
+      younger than 300 s, so one a killed watcher left stops counting. Another kind of sync
+      failure (a full disk) is not a homeserver down and is not marked.
+    - Not built in M4: docker-engine sessions (H30; only podman sessions carry the
+      `ccy-session` label hot control finds them by).
 
 - **H22. Add.** The steps, in order:
 

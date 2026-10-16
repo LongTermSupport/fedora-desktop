@@ -20,8 +20,8 @@
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
 
-# Plan 00203 M3 and M4, with the third acceptance fixes: rebuilds ccy 3.99.9, ccy-teams and the
-# ccy image (container 2.74; the first launch after it rebuilds the image once).
+# Plan 00203 M3 and M4, with the third acceptance fixes: rebuilds ccy 3.99.10, ccy-teams and the
+# ccy image (container 2.75; the first launch after it rebuilds the image once).
 # `ccy-teams session add` and `remove` change a running ccy session's teams without a restart (a
 # session started on no team relaunches once, by itself, on its first join); M4 adds `session
 # role`, `move`, `list` and `repair`, the coordinator options, one change at a time per session
@@ -34,8 +34,9 @@ playbooks/imports/play-claude-yolo.yml
 # members on the host: the watcher follows a session's teams as the owner changes them, the
 # membership notice and its hook fallback, `seat farewell`, `seat retire` waiting for the sync
 # lock; and (M4) `agent-bus seat take` and `seat choose` refusing a seat a running session's
-# desired membership names, under the checkout's allocation lock. No unit or firewall changes;
-# homeservers are not restarted.
+# desired membership names, under the checkout's allocation lock; the status line marks a team
+# whose homeserver is down, as `<team>(down)`. No unit or firewall changes; homeservers are not
+# restarted.
 playbooks/imports/play-agent-bus.yml
 # Plan 00203 acceptance, every milestone in turn. M2: two throwaway headless ccy sessions in
 # ccy's tmux in this checkout (plain and --no-bus, idle, no turn sent), removed after; checks
@@ -51,7 +52,7 @@ playbooks/imports/play-agent-bus.yml
 # relaunch of an interactive session is the owner's step M3 (g) in ACCEPTANCE.md). M4: two
 # throwaway teams acc-m4a and acc-m4b and two throwaway headless sessions: re-role, move handing
 # the coordinator role on, two changes at once (75), a stopped homeserver (it stops and starts
-# acc-m4b's), a killed seat keeper repaired, a session killed mid-add; all removed after. Then
+# acc-m4b's; the session's status line says acc-m4b(down)), a killed seat keeper repaired, a session killed mid-add; all removed after. Then
 # the server robustness checks (ACCEPTANCE.md R1-R9), on a throwaway team acc-robust it removes:
 # kills, ends and freezes its homeserver and times its return, shows a stale backup on the
 # board, times seat check waiting for a starting homeserver, checks any LXC member unit; its

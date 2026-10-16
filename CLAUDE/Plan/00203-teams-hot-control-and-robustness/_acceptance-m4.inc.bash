@@ -22,8 +22,9 @@
 #   (b) the coordinator: remove without --coordinator is refused (64, nothing changed); move
 #       A from acc-m4a to acc-m4b handing the role to B's seat; the same move again is a no-op
 #   (c) two changes at once on one session: the second is refused (75, naming the first)
-#   (d) a homeserver down: add and role refused, nothing changed (H26); remove releases the
-#       seat with the goodbye owed (exit 1); with the homeserver back the same remove finishes
+#   (d) a homeserver down: A's status line says acc-m4b(down); add and role refused, nothing
+#       changed (H26); remove releases the seat with the goodbye owed (exit 1); with the
+#       homeserver back the same remove finishes
 #   (e) B's seat keeper killed: list says unguarded; repair; list says ok; then remove B's
 #       launch seat
 #   (f) A's container ended while an add waits for its keeper (H28): the add is rolled back,
@@ -202,7 +203,7 @@ m4_launch() {
     fifo="$(m4_ev "${name}.stdin")"
     mkfifo -- "${fifo}" || return 1
     exec {fd}<>"${fifo}" || return 1
-    m2_adopt "${name}" "${fd}"
+    m2_adopt "${name}" "${fd}" "$(m4_ev "${name}")"
     command="$(printf '%q ' env "CCY_TEAMS_HOST_VARS=${M4_HOST_VARS}" "${M2_LAUNCHER}" --headless --no-restore \
         --no-supervise --teams "${seat}@${M4_TEAM_A}" --prompt "Plan 00203 M4 acceptance" -- --input-format stream-json \
         --output-format stream-json --verbose --model haiku)" || return 1
@@ -288,11 +289,21 @@ m4_check_two_at_once() {
 
 m4_hs_up() { systemctl is-active --quiet "agent-bus-hs@${M4_TEAM_B}.service" || return 3; }
 
+# m4_status_down — A's own status line, as its claude renders it, marks acc-m4b down (H26).
+m4_status_down() {
+    local line
+    line="$(podman exec -i -e PINGBUS_HOME=/tmp/pingbus-home -e PINGBUS_STATUS_LINE_INNER=1 "${M2_CTR[${M4_A}]}" \
+        pingbus status-line <<<'{}')" || return 1
+    printf '%s\n' "${line}" >"$(m4_ev status-line)"
+    [[ "${line}" == *"${M4_TEAM_B}(down)"* ]] || return 3
+}
+
 m4_check_homeserver_down() {
     local seat
     seat="$(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print([s["seat"] for s in d["seats"] if s["team"] == sys.argv[2]][0])' \
         "${XDG_RUNTIME_DIR:?}/ccy/membership/${M4_A}/membership.json" "${M4_TEAM_B}")" || return 1
     sudo -n systemctl stop "agent-bus-hs@${M4_TEAM_B}.service" || return 1
+    m4_poll 60 "${M4_A}'s status line marking ${M4_TEAM_B} down" m4_status_down || return 1
     m4_run down-add 1 add "${M4_B}" "${M4_TEAM_B}" --yes || return 1
     m4_said down-add "homeserver for ${M4_TEAM_B} is down" || return 1
     m4_desired_is "${M4_B}" "${M4_TEAM_A}" || return 1
