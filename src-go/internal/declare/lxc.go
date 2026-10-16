@@ -127,18 +127,18 @@ func (c *Client) LxcDerive(ctx context.Context, e LxcEntry, probe, roster string
 	return Derived{Repo: f[1], Host: f[2], Seat: f[3], Handle: f[4]}, nil
 }
 
-// Checkout is a checkout in a container's user home whose origin is on GitHub.
+// Checkout is a checkout in a container whose origin is on GitHub.
 type Checkout struct {
 	Path string // inside the container
 	Repo string // OWNER/REPO, lower case
 	Ccy  bool   // it has a .claude/ccy directory: a ccy project
 }
 
-// Checkouts is what the search of a user's home found, ccy projects first, and whether it
-// stopped at its time limit before it was done.
+// Checkouts is what the search of a container (the user's home, /var/www, /srv, /opt) found,
+// ccy projects first, and whether it is partial: it stopped at its time or count limit.
 type Checkouts struct {
-	Found    []Checkout
-	TimedOut bool
+	Found   []Checkout
+	Partial bool
 }
 
 // LxcCheckouts are the checkouts with a GitHub remote among those the root-side reader found
@@ -152,11 +152,11 @@ func (c *Client) LxcCheckouts(ctx context.Context, scan string) (Checkouts, erro
 	if err != nil {
 		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
 	}
-	cut, err := marker.Fields(out, "TIMEDOUT", 1)
+	cut, err := marker.Fields(out, "PARTIAL", 1)
 	if err != nil {
 		return Checkouts{}, fmt.Errorf("declare lxc-checkouts: %w", err)
 	}
-	found := Checkouts{Found: make([]Checkout, 0, len(rows)), TimedOut: len(cut) > 0}
+	found := Checkouts{Found: make([]Checkout, 0, len(rows)), Partial: len(cut) > 0}
 	for _, f := range rows {
 		found.Found = append(found.Found, Checkout{Path: f[1], Repo: f[2], Ccy: f[3] == "ccy"})
 	}

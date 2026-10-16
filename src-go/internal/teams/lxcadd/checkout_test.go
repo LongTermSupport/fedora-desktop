@@ -1,37 +1,56 @@
 package lxcadd
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui/pathinput"
 )
 
 // The directories the container shows, as the host-side reader lists them. home is the rig's
-// user's home, where the directory list opens.
+// user's home.
 const (
 	home = "/home/" + "agent"
 
 	homeListing = `{"path": "` + home + `", "exists": true, "git": false, "truncated": false, "dirs": [` +
-		`{"name": ".cache", "git": false}, {"name": "project", "git": true}, {"name": "src", "git": false}, ` +
-		`{"name": "srv", "git": false}]}`
-	projectListing = `{"path": "` + home + `/project", "exists": true, "git": true, "truncated": false, "dirs": [` +
-		`{"name": "docs", "git": false}]}`
-	emptyListing = `"exists": true, "git": false, "truncated": false, "dirs": []}`
+		`{"name": ".cache", "git": false}, {"name": "project", "git": true}, {"name": "src", "git": false}]}`
 )
 
-// browsing is a rig whose user has no checkout found in the home, so the Checkout step opens
-// the directory list at once, and whose answers after it are the role and the yes.
-func browsing(t *testing.T, fzf ...string) *rig {
-	t.Helper()
-	r := newRig(t)
-	r.OnDeclare("lxc-checkouts", "")
-	r.lxc.dirs = map[string]string{home: homeListing, home + "/project": projectListing}
-	r.answers(choose("container-a"), choose("agent"), choose("worker"), "YES")
-	r.Script.Fzf = fzf
-	return r
+// paths is the checkout line as a test answers it. Each Ask takes the next answer; with none
+// left it takes the line's starting value, as Enter on it would.
+type paths struct {
+	specs   []pathinput.Spec
+	answers []func(pathinput.Spec) (string, error)
+}
+
+func (p *paths) Ask(_ context.Context, s pathinput.Spec) (string, error) {
+	p.specs = append(p.specs, s)
+	if len(p.answers) == 0 {
+		if s.Value == "/" {
+			return "", errors.New("the test gave the checkout line no answer")
+		}
+		return s.Value, nil
+	}
+	next := p.answers[0]
+	p.answers = p.answers[1:]
+	return next(s)
+}
+
+// give queues paths typed and taken, one per Ask.
+func (p *paths) give(typed ...string) {
+	for _, path := range typed {
+		p.answers = append(p.answers, func(pathinput.Spec) (string, error) { return path, nil })
+	}
+}
+
+// then queues an answer that does something with the line first, as Tab would.
+func (p *paths) then(answer func(pathinput.Spec) (string, error)) {
+	p.answers = append(p.answers, answer)
 }
 
 // checkoutWritten runs the flow and is the checkout it declared.
@@ -47,15 +66,18 @@ func (r *rig) checkoutWritten(t *testing.T) string {
 	return checkout
 }
 
-func (r *rig) fzfArg(t *testing.T, call int, prefix string) string {
+// listed runs the flow, reading the directory dir through the line's List as Tab would, and is
+// what came back.
+func listed(t *testing.T, r *rig, dir string) (pathinput.Listing, error) {
 	t.Helper()
-	for _, a := range r.Script.FzfArgs[call] {
-		if v, ok := strings.CutPrefix(a, prefix); ok {
-			return v
-		}
-	}
-	t.Fatalf("fzf call %d has no %s: %q", call, prefix, r.Script.FzfArgs[call])
-	return ""
+	var got pathinput.Listing
+	var err error
+	r.paths.then(func(s pathinput.Spec) (string, error) {
+		got, err = s.List(context.Background(), dir)
+		return "/srv/agent/one", nil
+	})
+	r.checkoutWritten(t)
+	return got, err
 }
 
 func TestEveryQuestionShowsTheTeamTheStepTheContainerAndTheUser(t *testing.T) {
@@ -67,13 +89,15 @@ func TestEveryQuestionShowsTheTeamTheStepTheContainerAndTheUser(t *testing.T) {
 	wants := []string{
 		"--header Add an LXC member to alpha · step 1/4 Container\n",
 		"--header Add an LXC member to alpha · step 2/4 User · container-a\n",
-		"--header Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent\n",
 		"--header Add an LXC member to alpha · step 4/4 Role · container-a, user agent\n",
 	}
 	for i, want := range wants {
 		if !strings.Contains(r.Script.GumLog[i], want) {
 			t.Fatalf("question %d lacks its context %q: %q", i+1, want, r.Script.GumLog[i])
 		}
+	}
+	if got := r.paths.specs[0].Heading; got != "Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent" {
+		t.Fatalf("the checkout line's heading %q", got)
 	}
 	said := r.ErrOut.String()
 	for _, want := range []string{
@@ -86,245 +110,148 @@ func TestEveryQuestionShowsTheTeamTheStepTheContainerAndTheUser(t *testing.T) {
 	}
 }
 
-func TestTypeAPathOpensTheContainersDirectoriesToWalkWithArrowsAndEnter(t *testing.T) {
-	r := browsing(t, "|project/", "|Use "+home+"/project")
-	if got := r.checkoutWritten(t); got != home+"/project" {
+func TestTheCheckoutLineStartsWithTheFirstFoundAndSuggestsThemAllCcyProjectsFirst(t *testing.T) {
+	r := newRig(t)
+	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/two\texample-org/two\tccy\nCHECKOUT\t/var/www/one\texample-org/one\t-\n")
+	r.happy()
+	if got := r.checkoutWritten(t); got != "/srv/agent/two" {
 		t.Fatalf("declared %q", got)
 	}
-	rows := r.Script.Rows[0]
-	// Each line carries its place in the list; Tab is the shortcut of a row of its own.
-	want := []string{
-		"project/   (a git checkout)\t0", "src/\t1", "srv/\t2", "Use " + home + " as the checkout\t3",
-		"../   (up to /home)\t4", "Complete what is typed as a path   (Tab)\t5", "Cancel",
+	s := r.paths.specs[0]
+	want := []pathinput.Suggestion{
+		{Path: "/srv/agent/two", Note: "example-org/two, a ccy project"},
+		{Path: "/var/www/one", Note: "example-org/one"},
 	}
-	if !slices.Equal(rows, want) {
-		t.Fatalf("rows %q\nwant %q", rows, want)
+	if s.Value != "/srv/agent/two" || !slices.Equal(s.Suggestions, want) || s.Prompt != "Checkout in container-a: " {
+		t.Fatalf("spec %+v", s)
 	}
-	if got := r.fzfArg(t, 0, "--prompt="); got != home+"/" {
-		t.Fatalf("prompt %q", got)
+}
+
+func TestWithNothingFoundTheLineStartsAtTheRootAndSaysWhereItLooked(t *testing.T) {
+	r := newRig(t)
+	r.OnDeclare("lxc-checkouts", "")
+	r.happy()
+	r.paths.give("/srv/agent/one")
+	r.checkoutWritten(t)
+	if s := r.paths.specs[0]; s.Value != "/" || len(s.Suggestions) != 0 {
+		t.Fatalf("spec %+v", s)
 	}
-	if got := r.fzfArg(t, 0, "--border-label="); !strings.Contains(got, "Add an LXC member to alpha · step 3/4 Checkout · container-a, user agent") {
-		t.Fatalf("title %q", got)
+	if !strings.Contains(r.ErrOut.String(), "No checkout with a GitHub remote was found in container-a (the home of agent, /var/www, /srv, /opt)") {
+		t.Fatalf("stderr %s", r.ErrOut.String())
 	}
-	if got := r.HeaderOf(0); !strings.Contains(got, "Tab complete") || !strings.Contains(got, "Enter open or choose") {
-		t.Fatalf("header %q", got)
-	}
-	if !slices.Contains(r.Script.FzfArgs[0], "--expect=tab") || !slices.Contains(r.Script.FzfArgs[0], "--print-query") {
-		t.Fatalf("args %q", r.Script.FzfArgs[0])
-	}
-	// Inside a checkout, using it is the first row.
-	if first := r.Script.Rows[1][0]; first != "Use "+home+"/project as the checkout   (a git checkout)\t0" {
-		t.Fatalf("rows in the checkout %q", r.Script.Rows[1])
+}
+
+func TestTabReadsTheContainersDirectoriesFromTheHostSide(t *testing.T) {
+	r := newRig(t)
+	r.lxc.dirs = map[string]string{home: homeListing}
+	r.happy()
+	got, err := listed(t, r, home+"/")
+	want := []pathinput.Entry{{Name: ".cache"}, {Name: "project", Note: "a git checkout"}, {Name: "src"}}
+	if err != nil || !slices.Equal(got.Entries, want) || got.Note != "" {
+		t.Fatalf("listing %+v %v", got, err)
 	}
 	if !slices.Contains(r.lxc.reads, "dirs container-a agent "+home) {
 		t.Fatalf("reads %v", r.lxc.reads)
 	}
 }
 
-func TestTabOnARowOpensItAsEnterDoes(t *testing.T) {
-	r := browsing(t, "tab|project/", "|Use "+home+"/project")
-	if got := r.checkoutWritten(t); got != home+"/project" {
-		t.Fatalf("declared %q", got)
+func TestTabAtTheRootAsksForTheRoot(t *testing.T) {
+	r := newRig(t)
+	r.lxc.dirs = map[string]string{"/": `{"path": "/", "exists": true, "git": false, "truncated": false, "dirs": [{"name": "srv", "git": false}]}`}
+	r.happy()
+	if got, err := listed(t, r, "/"); err != nil || len(got.Entries) != 1 {
+		t.Fatalf("listing %+v %v", got, err)
+	}
+	if !slices.Contains(r.lxc.reads, "dirs container-a agent /") {
+		t.Fatalf("reads %v", r.lxc.reads)
 	}
 }
 
-func TestTabCompletesTypedTextThatMatchesOneDirectory(t *testing.T) {
-	r := browsing(t, "tab|TYPED:pro", "|Use "+home+"/project")
-	if got := r.checkoutWritten(t); got != home+"/project" {
-		t.Fatalf("declared %q", got)
-	}
-	if got := r.fzfArg(t, 1, "--prompt="); got != home+"/project/" {
-		t.Fatalf("prompt after the completion %q", got)
-	}
-}
-
-func TestTabCompletesTypedTextToWhatSeveralDirectoriesShare(t *testing.T) {
-	r := browsing(t, "tab|TYPED:s", "|srv/", "|Use "+home+"/srv")
-	r.lxc.dirs[home+"/srv"] = `{"path": "` + home + `/srv", ` + emptyListing
-	if got := r.checkoutWritten(t); got != home+"/srv" {
-		t.Fatalf("declared %q", got)
-	}
-	if got := r.fzfArg(t, 1, "--query="); got != "sr" {
-		t.Fatalf("the query after the completion is %q, want the shared sr", got)
-	}
-}
-
-func TestTabWithTypedTextCompletesItEvenWhenARowIsHighlighted(t *testing.T) {
-	// fzf highlights the first row the text matches; Tab still completes the text, so typing
-	// "sr" beside src/ and srv/ never opens src/.
-	r := browsing(t, "tab|TYPED:s", "tab|src/", "|srv/", "|Use "+home+"/srv")
-	r.lxc.dirs[home+"/srv"] = `{"path": "` + home + `/srv", ` + emptyListing
-	if got := r.checkoutWritten(t); got != home+"/srv" {
-		t.Fatalf("declared %q", got)
-	}
-	if got := r.fzfArg(t, 2, "--query="); got != "sr" {
-		t.Fatalf("Tab on a highlighted row did not complete the text: query %q", got)
-	}
-	if got := r.fzfArg(t, 2, "--prompt="); got != home+"/" {
-		t.Fatalf("Tab on a highlighted row opened it: prompt %q", got)
-	}
-}
-
-func TestTheSharedPrefixOfNamesNeverEndsInsideACharacter(t *testing.T) {
-	if got := sharedPrefix([]string{"café-a", "caféb", "cafè"}); got != "caf" {
-		t.Fatalf("got %q", got)
-	}
-	if got := sharedPrefix([]string{"ñandú", "ñandu"}); got != "ñand" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestTabCompletesAnAbsolutePathThroughItsParent(t *testing.T) {
-	r := browsing(t, "tab|TYPED:/srv/ag", "|Use /srv/agent")
-	r.lxc.dirs["/srv"] = `{"path": "/srv", "exists": true, "git": false, "truncated": false, "dirs": [{"name": "agent", "git": false}]}`
-	r.lxc.dirs["/srv/agent"] = `{"path": "/srv/agent", ` + emptyListing
-	if got := r.checkoutWritten(t); got != "/srv/agent" {
-		t.Fatalf("declared %q", got)
-	}
-}
-
-func TestTabCompletesAHiddenDirectoryThatIsNotListed(t *testing.T) {
-	r := browsing(t, "tab|TYPED:.ca", "|Use "+home+"/.cache")
-	r.lxc.dirs[home+"/.cache"] = `{"path": "` + home + `/.cache", ` + emptyListing
-	if got := r.checkoutWritten(t); got != home+"/.cache" {
-		t.Fatalf("declared %q", got)
-	}
-}
-
-func TestTabWithNothingToCompleteSaysSo(t *testing.T) {
-	r := browsing(t, "tab|TYPED:zz", "|TYPED:/srv/agent/one")
-	if got := r.checkoutWritten(t); got != "/srv/agent/one" {
-		t.Fatalf("declared %q", got)
-	}
-	if !strings.Contains(r.ErrOut.String(), "Nothing in "+home+"/ starts with zz.") {
-		t.Fatalf("stderr %s", r.ErrOut.String())
-	}
-}
-
-func TestEnterOnTypedTextTakesItAsThePathOrOpensItWithASlash(t *testing.T) {
-	r := browsing(t, "|TYPED:project/", "|TYPED:../src/../project")
-	if got := r.checkoutWritten(t); got != home+"/project" {
-		t.Fatalf("declared %q", got)
-	}
-	if got := r.fzfArg(t, 1, "--prompt="); got != home+"/project/" {
-		t.Fatalf("a typed path ending in / was not opened: %q", got)
-	}
-}
-
-func TestTheUpRowGoesToTheParent(t *testing.T) {
-	r := browsing(t, "|../", "|Use /home as")
-	r.lxc.dirs["/home"] = `{"path": "/home", "exists": true, "git": false, "truncated": false, "dirs": [{"name": "agent", "git": false}]}`
-	if got := r.checkoutWritten(t); got != "/home" {
-		t.Fatalf("declared %q", got)
-	}
-}
-
-func TestLeavingTheDirectoryListGoesBackToTheCheckoutsFound(t *testing.T) {
-	for _, leave := range []string{"|ABORT", "|EXIT"} {
-		r := newRig(t)
-		r.lxc.dirs = map[string]string{home: homeListing}
-		r.answers(choose("container-a"), choose("agent"), choose(typePath), choose(oneRow), choose("worker"), "YES")
-		r.Script.Fzf = []string{leave}
-		if got := r.checkoutWritten(t); got != "/srv/agent/one" {
-			t.Fatalf("%s: declared %q", leave, got)
-		}
-		if last := r.Script.Rows[0][len(r.Script.Rows[0])-1]; last != "Back to the checkouts found" {
-			t.Fatalf("%s: the way back is not a row: %q", leave, last)
-		}
-	}
-}
-
-func TestLeavingTheDirectoryListWithNothingFoundToGoBackToCancels(t *testing.T) {
-	r := browsing(t, "|ABORT")
-	if code := r.run("alpha"); code != term.ExitCancelled {
-		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
-	}
-	if r.addLine() != "" {
-		t.Fatalf("declared %q", r.addLine())
-	}
-}
-
-func TestADirectoryThatCannotBeListedIsSaidAndTheListStaysWhereItWas(t *testing.T) {
-	r := browsing(t, "|src/", "|project/", "|Use "+home+"/project")
-	r.lxc.dirsErr = map[string]error{home + "/src": errors.New(home + "/src is a symbolic link")}
-	if got := r.checkoutWritten(t); got != home+"/project" {
-		t.Fatalf("declared %q", got)
-	}
-	if !strings.Contains(r.ErrOut.String(), home+"/src is a symbolic link") {
-		t.Fatalf("stderr %s", r.ErrOut.String())
-	}
-	if got := r.fzfArg(t, 1, "--prompt="); got != home+"/" {
-		t.Fatalf("the list moved after a failed listing: %q", got)
-	}
-}
-
-func TestAContainerWhoseDirectoriesCannotBeReadEndsTheRunSayingWhy(t *testing.T) {
-	r := browsing(t)
-	r.lxc.dirsErr = map[string]error{home: errors.New("container container-a has no /etc/passwd")}
-	if code := r.run("alpha"); code != term.ExitFailure {
-		t.Fatalf("exit %d", code)
-	}
-	if !strings.Contains(r.ErrOut.String(), "has no /etc/passwd") || r.addLine() != "" {
-		t.Fatalf("stderr %s", r.ErrOut.String())
-	}
-}
-
-func TestAHomeThatDoesNotExistIsSaidAndTheListOpensAtItsParent(t *testing.T) {
-	r := browsing(t, "|TYPED:/srv/agent/one")
-	r.lxc.dirs = map[string]string{"/home": `{"path": "/home", ` + emptyListing}
-	if got := r.checkoutWritten(t); got != "/srv/agent/one" {
-		t.Fatalf("declared %q", got)
-	}
-	if !strings.Contains(r.ErrOut.String(), home+"/ does not exist in container-a") {
-		t.Fatalf("stderr %s", r.ErrOut.String())
-	}
-	if got := r.fzfArg(t, 0, "--prompt="); got != "/home/" {
-		t.Fatalf("prompt %q", got)
+func TestADirectoryThatDoesNotExistIsSaid(t *testing.T) {
+	r := newRig(t)
+	r.happy()
+	if _, err := listed(t, r, "/nope/"); err == nil || err.Error() != "/nope/ does not exist in container-a" {
+		t.Fatalf("listing error %v", err)
 	}
 }
 
 func TestAListingCutAtItsLimitSaysSo(t *testing.T) {
-	r := browsing(t, "|TYPED:/srv/agent/one")
-	r.lxc.dirs[home] = strings.Replace(homeListing, `"truncated": false`, `"truncated": true`, 1)
-	r.checkoutWritten(t)
-	if got := r.HeaderOf(0); !strings.Contains(got, "Only the first") {
-		t.Fatalf("header %q", got)
+	r := newRig(t)
+	r.lxc.dirs = map[string]string{home: strings.Replace(homeListing, `"truncated": false`, `"truncated": true`, 1)}
+	r.happy()
+	if got, err := listed(t, r, home+"/"); err != nil || !strings.Contains(got.Note, "Only the first") {
+		t.Fatalf("listing %+v %v", got, err)
 	}
 }
 
-func TestAListingThatIsNotWhatTheReaderPrintsEndsTheRun(t *testing.T) {
+func TestANameThatCouldSteerTheTerminalIsNotListed(t *testing.T) {
+	r := newRig(t)
+	r.lxc.dirs = map[string]string{home: `{"path": "` + home + `", "exists": true, "git": false, "truncated": false, "dirs": [` +
+		`{"name": "red\u001b[31m", "git": false}, {"name": "plain", "git": false}]}`}
+	r.happy()
+	got, err := listed(t, r, home+"/")
+	if err != nil || !slices.Equal(got.Entries, []pathinput.Entry{{Name: "plain"}}) || !strings.Contains(got.Note, "1 name that cannot be shown") {
+		t.Fatalf("listing %+v %v", got, err)
+	}
+}
+
+func TestAListingThatIsNotWhatTheReaderPrintsIsAnError(t *testing.T) {
 	for _, bad := range []string{
 		`{`, `{"path": "` + home + `", "exists": true}`,
 		`{"path": "` + home + `", "exists": true, "git": false, "truncated": false, "dirs": [{"name": "a/b", "git": false}]}`,
 		`{"path": "` + home + `", "exists": true, "git": false, "truncated": false, "dirs": [{"name": "..", "git": false}]}`,
 	} {
-		r := browsing(t)
-		r.lxc.dirs[home] = bad
-		if code := r.run("alpha"); code != term.ExitFailure {
-			t.Fatalf("%s: exit %d", bad, code)
+		r := newRig(t)
+		r.lxc.dirs = map[string]string{home: bad}
+		r.happy()
+		if _, err := listed(t, r, home+"/"); err == nil {
+			t.Fatalf("%s: no error", bad)
 		}
 	}
 }
 
-func TestANameThatCouldSteerTheTerminalIsNotShown(t *testing.T) {
-	r := browsing(t, "|TYPED:/srv/agent/one")
-	r.lxc.dirs[home] = `{"path": "` + home + `", "exists": true, "git": false, "truncated": false, "dirs": [` +
-		`{"name": "red\u001b[31m", "git": false}, {"name": "plain", "git": false}]}`
-	r.checkoutWritten(t)
-	for _, row := range r.Script.Rows[0] {
-		if strings.Contains(row, "red") {
-			t.Fatalf("rows %q", r.Script.Rows[0])
+func TestAListingThatFailsOrTakesTooLongIsAnErrorSayingSo(t *testing.T) {
+	r := newRig(t)
+	r.lxc.dirsErr = map[string]error{home: errors.New(home + "/src is a symbolic link")}
+	r.happy()
+	if _, err := listed(t, r, home+"/"); err == nil || !strings.Contains(err.Error(), "is a symbolic link") {
+		t.Fatalf("listing error %v", err)
+	}
+	slow := newRig(t)
+	slow.lxc.hangDirs = true
+	slow.a.ReadTimeout = 1
+	slow.happy()
+	if _, err := listed(t, slow, home+"/"); err == nil || !strings.Contains(err.Error(), "took longer than") {
+		t.Fatalf("listing error %v", err)
+	}
+}
+
+func TestEscOrCtrlCOnTheLineCancelsWithNothingWritten(t *testing.T) {
+	for _, left := range []error{ui.ErrLeave, ui.ErrCancelled} {
+		r := newRig(t)
+		r.answers(choose("container-a"), choose("agent"))
+		r.paths.then(func(pathinput.Spec) (string, error) { return "", left })
+		if code := r.run("alpha"); code != term.ExitCancelled || r.addLine() != "" {
+			t.Fatalf("%v: exit %d, add %q", left, code, r.addLine())
 		}
 	}
-	if got := r.HeaderOf(0); !strings.Contains(got, "1 name that cannot be shown") {
-		t.Fatalf("header %q", got)
+}
+
+func TestALineThatCannotRunEndsTheRunSayingWhy(t *testing.T) {
+	r := newRig(t)
+	r.answers(choose("container-a"), choose("agent"))
+	r.paths.then(func(pathinput.Spec) (string, error) { return "", errors.New("could not open a terminal") })
+	if code := r.run("alpha"); code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), "could not open a terminal") {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
 	}
 }
 
 func TestAHomeSearchPastItsTimeIsSaidAndThePathIsTyped(t *testing.T) {
-	r := browsing(t, "|TYPED:/srv/agent/one")
+	r := newRig(t)
 	r.lxc.hang = true
 	r.a.ReadTimeout = 1
+	r.happy()
+	r.paths.give("/srv/agent/one")
 	if got := r.checkoutWritten(t); got != "/srv/agent/one" {
 		t.Fatalf("declared %q", got)
 	}
@@ -333,9 +260,9 @@ func TestAHomeSearchPastItsTimeIsSaidAndThePathIsTyped(t *testing.T) {
 	}
 }
 
-func TestASearchStoppedAtItsLimitSaysItMayHaveMissedSome(t *testing.T) {
+func TestASearchStoppedAtALimitSaysItMayHaveMissedSome(t *testing.T) {
 	r := newRig(t)
-	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nTIMEDOUT\n")
+	r.OnDeclare("lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nPARTIAL\n")
 	r.happy()
 	if got := r.checkoutWritten(t); got != "/srv/agent/one" {
 		t.Fatalf("declared %q", got)

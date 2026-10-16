@@ -103,8 +103,9 @@ trusted reference may name any path in the team's repositories (a team narrows i
         reader printed it (--probe) and the team's members; exit 64 when it cannot be derived
     python3 -m helpers.agent_bus.declare lxc-checkouts --file <localhost.yml> --scan JSON
         CHECKOUT<TAB><path in the container><TAB><owner/repo><TAB><ccy or -> for each checkout the
-        reader found in the user's home whose origin is on GitHub, ccy projects (a .claude/ccy
-        directory) first; then TIMEDOUT when the search stopped at its time limit
+        reader found (in the user's home, /var/www, /srv and /opt) whose origin is on GitHub, ccy
+        projects (a .claude/ccy directory) first; then PARTIAL when the search stopped at its
+        time or count limit
     python3 -m helpers.agent_bus.declare lxc-script --name root-read
         the script the host runs as root to read a container's checkout (derive.ROOT_READ_PY)
 
@@ -1357,7 +1358,7 @@ def lxc_command(args: argparse.Namespace, out: TextIO, err: TextIO) -> int:
         out.writelines(f"CHECKOUT\t{path}\t{repo}\t{'ccy' if ccy else '-'}\n" for path, origin, ccy in found
                        if origin is not None and (repo := github_remote(origin)) is not None)
         if cut:
-            out.write("TIMEDOUT\n")
+            out.write("PARTIAL\n")
         return EXIT_OK
     if args.command == "lxc-derive":
         out.write("DERIVED\t" + "\t".join(derive_lxc(text, args)) + "\n")

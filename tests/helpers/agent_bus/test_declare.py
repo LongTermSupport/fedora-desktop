@@ -1531,7 +1531,7 @@ class LxcCheckoutsTest(CommandCase):
     def scan(self, *items: tuple[str, str | None], ccy: tuple[str, ...] = (), cut: bool = False) -> str:
         return json.dumps({"checkouts": [{"path": path, "ccy": path in ccy, "git_config": None if url is None else
                                           f'[remote "origin"]\n\turl = {url}\n'} for path, url in items],
-                           "timed_out": cut})
+                           "partial": cut})
 
     def test_only_checkouts_with_a_github_remote_are_listed_with_their_repository(self) -> None:
         scan = self.scan(("/srv/agent/one", "git@github.com:Example-Org/One.git"),
@@ -1549,10 +1549,10 @@ class LxcCheckoutsTest(CommandCase):
         self.assertEqual((code, out), (0, "CHECKOUT\t/srv/agent/two\texample-org/two\tccy\n"
                                           "CHECKOUT\t/srv/agent/one\texample-org/one\t-\n"))
 
-    def test_a_search_that_ran_out_of_time_says_so(self) -> None:
+    def test_a_search_that_stopped_at_a_limit_says_it_is_partial(self) -> None:
         scan = self.scan(("/srv/agent/one", "git@github.com:example-org/one.git"), cut=True)
         code, out, _ = self.run_cmd("lxc-checkouts", "--scan", scan)
-        self.assertEqual((code, out), (0, "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nTIMEDOUT\n"))
+        self.assertEqual((code, out), (0, "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nPARTIAL\n"))
 
     def test_nothing_found_prints_nothing(self) -> None:
         self.assertEqual(self.run_cmd("lxc-checkouts", "--scan", self.scan())[:2], (0, ""))

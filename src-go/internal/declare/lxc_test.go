@@ -169,9 +169,9 @@ func TestLxcCheckoutsReadsThePathAndRepository(t *testing.T) {
 		t.Fatal("a short line was accepted")
 	}
 	h := &execx.Fake{}
-	script(h, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nTIMEDOUT\n")
-	if got, err = newClient(h).LxcCheckouts(context.Background(), "[]"); err != nil || !got.TimedOut || len(got.Found) != 1 {
-		t.Fatalf("a search past its time: %+v %v", got, err)
+	script(h, "lxc-checkouts", "CHECKOUT\t/srv/agent/one\texample-org/one\t-\nPARTIAL\n")
+	if got, err = newClient(h).LxcCheckouts(context.Background(), "[]"); err != nil || !got.Partial || len(got.Found) != 1 {
+		t.Fatalf("a search stopped at a limit: %+v %v", got, err)
 	}
 }
 
@@ -295,7 +295,7 @@ func TestRealDerivedHandleFromWhatTheReaderPrinted(t *testing.T) {
 func TestRealCheckoutsOfferedAreThoseWithAGitHubRemote(t *testing.T) {
 	c := realCopy(t)
 	scan := `{"checkouts": [{"path": "/srv/a", "ccy": true, "git_config": "[remote \"origin\"]\n\turl = git@github.com:Example-Org/A.git\n"},` +
-		`{"path": "/srv/b", "ccy": false, "git_config": null}], "timed_out": false}`
+		`{"path": "/srv/b", "ccy": false, "git_config": null}], "partial": false}`
 	got, err := c.LxcCheckouts(context.Background(), scan)
 	if err != nil || !reflect.DeepEqual(got, Checkouts{Found: []Checkout{{Path: "/srv/a", Repo: "example-org/a", Ccy: true}}}) {
 		t.Fatalf("%+v %v", got, err)

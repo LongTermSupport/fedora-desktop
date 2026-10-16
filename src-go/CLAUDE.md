@@ -98,7 +98,9 @@ checkout, offline (`-mod=vendor`, Go's default when `vendor/` exists, and set ex
   `go tool govulncheck`. The pre-commit secret scan skips `vendor/` only when `qa-go-deps`
   passes over the staged tree.
 - **Only `internal/ui` imports the TUI libraries** (Charm: Bubble Tea, Bubbles, Lip Gloss); the
-  flows build semantic screens. `internal/ui/frame` is their first user. A project rule will
+  flows build semantic screens. `internal/ui/frame` is their first user, and
+  `internal/ui/pathinput` (a path line with Tab completion, `ccy-teams lxc-add`'s Checkout
+  step) the first a command runs. A project rule will
   hold this (`project_seam_imports`, Plan 00204 Task 2.2); until it lands, review holds it.
 
 ## How a port is built: spec first, tests first

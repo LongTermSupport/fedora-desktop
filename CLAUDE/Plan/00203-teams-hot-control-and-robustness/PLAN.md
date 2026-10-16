@@ -174,6 +174,15 @@ Built on `fix/teams-server-robustness`; design and evidence in
   container 2.75.1. Host acceptance: the M2 leg of `acceptance.bash`, queued in meta-deploy.
   Notes: [subagent-reports/261016-name-race-opus.md](subagent-reports/261016-name-race-opus.md).
 
+- [ ] 🔄 **Task 3.8** (owner feedback on lxc-add in 3.99.12.10): the Checkout step is a typed
+  line with Tab completion from the container's tree (`internal/ui/pathinput`, the first
+  Bubble Tea screen a command runs; a hint line says Tab completes), built on
+  `fix/lxc-checkout-typed`. The checkout search also covers `/var/www`, `/srv` and `/opt`,
+  bounded by depth, count and time, and says when it is partial; what it found is suggested
+  under the line. Preceded by Plan 00204 Task 2.3 (`project_hidden_bindings` over Bubble
+  Tea). CCY 3.99.12.14, container 2.77.8. Host acceptance: `ccy-teams lxc-add <team>` after
+  meta-deploy.
+
 ## Decisions
 
 These were settled by the coordinator under the owner's standing "do not gate on me". **The owner

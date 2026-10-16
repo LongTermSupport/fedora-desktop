@@ -41,11 +41,14 @@ MEMBER_TYPE = "lxc"
 #: A file read from a container is at most this large; `ccy.env.local` and `.git/config` are
 #: a few lines.
 FILE_MAX_BYTES = 65536
-#: How many checkouts the suggestion lists, and how deep below the home it looks.
-CHECKOUTS_MAX = 30
+#: Where checkouts are looked for besides the user's home: the common web and service roots.
+#: A root that is missing or a symbolic link is not searched.
+CHECKOUTS_ROOTS = ("/var/www", "/srv", "/opt")
+#: How many checkouts the suggestion lists, and how deep below each root it looks.
+CHECKOUTS_MAX = 50
 CHECKOUTS_DEPTH = 4
 #: How long the search may take before it stops and says so, with what it found by then.
-CHECKOUTS_SECONDS = 5.0
+CHECKOUTS_SECONDS = 8.0
 #: Trees the search never enters: dependencies and build output, never a checkout of one's own.
 CHECKOUTS_SKIPPED = ("node_modules", "vendor", "venv", "__pycache__", "site-packages")
 #: How many directories one listing for the checkout path's completion gives.
@@ -73,6 +76,7 @@ HOST_DIRECTORY_STORES = ("dir", "btrfs")
 UNMOUNTED_STORES = ("overlay", "overlayfs", "zfs", "lvm", "loop", "rbd", "nbd")
 FLAGS = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
 SKIPPED = @SKIPPED@
+ROOTS = @ROOTS@
 
 def die(message):
     # A name from the container's tree can be anything: no control character reaches a terminal.
@@ -306,7 +310,8 @@ if mode == "probe":
         env_text, env_uid = read_regular(env, path + "/.claude/ccy/ccy.env.local")
     print(json.dumps({"path": path, "uid": uid, "git_config": text, "env_uid": env_uid, "env_local": env_text}))
 elif mode == "checkouts":
-    found, cut = [], []
+    # The home, then the web and service roots; partial when time or the count ran out first.
+    found, seen, cut = [], set(), []
     deadline = time.monotonic() + @SECONDS@
     def scan(fd, shown, depth):
         if time.monotonic() >= deadline:
@@ -315,6 +320,12 @@ elif mode == "checkouts":
         names = subdirs(fd)
         dot = child(fd, ".git", shown + "/.git")
         if dot is not None and stat.S_ISDIR(os.fstat(dot).st_mode):
+            if shown in seen:
+                return
+            if len(found) >= @MAX@:
+                cut.append(shown)
+                return
+            seen.add(shown)
             config = child(dot, "config", shown + "/.git/config")
             claude = real_dir(fd, ".claude")
             found.append({"path": shown, "git_config": None if config is None else read_regular(config, shown + "/.git/config")[0],
@@ -323,18 +334,29 @@ elif mode == "checkouts":
         if depth <= 0:
             return
         for name in names:
-            if len(found) >= @MAX@ or cut:
+            if cut:
                 return
             if name.startswith(".") or name in SKIPPED:
                 continue
             sub = child(fd, name, shown + "/" + name)
             if sub is not None:
                 scan(sub, shown + "/" + name, depth - 1)
-    base, rest = locate(split(home))
-    start = walk(root_fd(base), rest, home) if rest else root_fd(base)
-    if start is not None:
-        scan(start, home.rstrip("/"), @DEPTH@)
-    print(json.dumps({"checkouts": found, "timed_out": bool(cut)}))
+    def search_root(root):
+        # A root that is missing, or a link anywhere on its way, is not searched.
+        base, rest = locate(split(root))
+        fd = root_fd(base)
+        for part in rest:
+            sub = real_dir(fd, part)
+            os.close(fd)
+            if sub is None:
+                return None
+            fd = sub
+        return fd
+    for root in [home] + [r for r in ROOTS if r != home.rstrip("/")]:
+        start = None if cut else search_root(root)
+        if start is not None:
+            scan(start, root.rstrip("/"), @DEPTH@)
+    print(json.dumps({"checkouts": found, "partial": bool(cut)}))
 elif mode == "dirs":
     parts = [] if path == "/" else split(path)
     base, rest = locate(parts)
@@ -382,7 +404,7 @@ def root_read_script(*, seconds: float = CHECKOUTS_SECONDS, dirs_max: int = DIRS
     """The host-side reader with its bounds filled in (a test gives smaller ones)."""
     return (_ROOT_READ_TEMPLATE.replace("@CAP@", str(FILE_MAX_BYTES)).replace("@MAX@", str(CHECKOUTS_MAX))
             .replace("@DEPTH@", str(CHECKOUTS_DEPTH)).replace("@SECONDS@", repr(float(seconds)))
-            .replace("@SKIPPED@", repr(CHECKOUTS_SKIPPED)).replace("@DIRS_MAX@", str(int(dirs_max))))
+            .replace("@SKIPPED@", repr(CHECKOUTS_SKIPPED)).replace("@ROOTS@", repr(CHECKOUTS_ROOTS)).replace("@DIRS_MAX@", str(int(dirs_max))))
 
 
 ROOT_READ_PY = root_read_script()
@@ -485,13 +507,14 @@ def parse_probe(text: str) -> Probe:
 
 def parse_checkouts(text: str) -> tuple[list[tuple[str, str | None, bool]], bool]:
     """The (path, origin, is a ccy project) of each checkout `ROOT_READ_PY checkouts` printed,
-    ccy projects first, and whether the search ran out of time before it was done."""
+    ccy projects first, and whether the search is partial: it reached its time or count limit
+    before it was done."""
     try:
         data = json.loads(text)
     except ValueError:
         raise DeriveError("the checkout search printed something that is not JSON") from None
-    if not isinstance(data, dict) or set(data) != {"checkouts", "timed_out"} or type(data["timed_out"]) is not bool:
-        raise DeriveError("the checkout search printed something other than its checkouts and whether it timed out")
+    if not isinstance(data, dict) or set(data) != {"checkouts", "partial"} or type(data["partial"]) is not bool:
+        raise DeriveError("the checkout search printed something other than its checkouts and whether it is partial")
     items = data["checkouts"]
     if not isinstance(items, list) or len(items) > CHECKOUTS_MAX:
         raise DeriveError(f"the checkout search printed something other than a list of at most {CHECKOUTS_MAX}")
@@ -504,7 +527,7 @@ def parse_checkouts(text: str) -> tuple[list[tuple[str, str | None, bool]], bool
             raise DeriveError("the checkout search printed a .git/config that is not bounded text")
         found.append((_path(item["path"], "a checkout path"),
                       None if config is None else origin_from_git_config(config), item["ccy"]))
-    return sorted(found, key=lambda f: (not f[2], f[0])), data["timed_out"]
+    return sorted(found, key=lambda f: (not f[2], f[0])), data["partial"]
 
 
 # ── the rule ─────────────────────────────────────────────────────────────────────────────

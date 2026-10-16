@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.14 — container 2.77.8
+
+Follows 3.99.12.10 (container 2.77.7). The image carries `declare.py`, whose checkout-search
+marker changed (`PARTIAL`), so it is rebuilt once.
+
+- **`ccy-teams lxc-add` takes the checkout on a typed line with Tab completion** (Plan
+  00203). The Checkout step is an editable line: type the path, Tab completes a directory
+  name from the container's tree as a shell does (listing the candidates when several
+  match), and a hint line says so. It replaces the directory list that started in the
+  user's home and could not be typed into.
+- **The checkout search looks beyond the home**: `/var/www`, `/srv` and `/opt` too, bounded
+  by depth, count and time; what it found is suggested under the line (the arrows put one in
+  it), and a search stopped at a limit says it may have missed some.
+- The line is the first `ccy-teams` screen built on Bubble Tea, in `internal/ui`, and
+  `project_hidden_bindings` now covers Bubble Tea keys (Plan 00204 Task 2.3).
+
 ## 3.99.12.10 — container 2.77.7
 
 Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
@@ -26,6 +42,7 @@ Follows 3.99.12.9 (container 2.77.7); the image is unchanged.
   attach, take over (Ctrl-T) and end (Ctrl-X), and a row of its own to start a new session
   (Ctrl-N); its header names those keys. In `ccy-teams` a shortcut is accepted only where its
   line is listed. A key is now only a shortcut, printed beside the line it chooses.
+
 ## 3.99.12.9 — container 2.77.7
 
 Follows 3.99.12.8 (container 2.77.6).
