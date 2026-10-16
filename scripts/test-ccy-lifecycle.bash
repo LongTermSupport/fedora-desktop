@@ -14,6 +14,9 @@
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
 set -uo pipefail
+# Run from inside a team session, PINGBUS_MEMBERSHIP would make the entrypoint add the plugin
+# for its first-join relaunch, and the "no option" wrapper lines would not be what they test.
+unset PINGBUS_MEMBERSHIP
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
