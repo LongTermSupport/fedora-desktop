@@ -2,7 +2,8 @@
 # CCY agent team bus membership: what a launch tells its container about the bus (Plan 00203
 # SPEC-hot-control.md D1, D5, H1, H2, H33b, H35).
 #
-# A session started inside ccy's tmux has a registry name (the one ccy-sessions lists). It is
+# A session whose own pane ccy's tmux started has a registry name (the one ccy-sessions lists;
+# ccy_tmux_current_session, never the name of a pane it was merely run from). It is
 # labelled ccy-session=<name>, the host's only map from a session to its container, bus or not.
 # Unless launched with --no-bus it also carries the agent team bus kit, even on no team, so the
 # owner can put it in one later: `ccy-teams internal membership-init` writes generation 1 of its

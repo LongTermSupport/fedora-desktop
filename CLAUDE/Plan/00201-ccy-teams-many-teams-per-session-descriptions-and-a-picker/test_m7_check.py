@@ -388,10 +388,33 @@ class PlainTest(TempDir):
     def test_a_plain_session_carries_no_seats(self) -> None:
         labels = self.write("labels", json.dumps({"ccy": "true", "ccy-project": "x"}))
         env = self.write("env", json.dumps(["PATH=/usr/bin", "HOME=/root"]))
-        self.assertEqual(run("expect-plain", labels, env)[0], 0)
+        self.assertEqual(run("expect-plain", labels, env, "-")[0], 0)
         # Plan 00203 M2: a launch outside ccy's tmux with no --teams states PINGBUS_MEMBERSHIP=off.
         off = self.write("off", json.dumps(["PATH=/usr/bin", "PINGBUS_MEMBERSHIP=off"]))
-        self.assertEqual(run("expect-plain", labels, off)[0], 0)
+        rc, out, _ = run("expect-plain", labels, off, "-")
+        self.assertEqual((rc, out.strip()), (0, "off"))
+
+    def test_a_plain_session_in_its_own_tmux_session_carries_an_idle_kit(self) -> None:
+        # Plan 00203 M2: a plain ccy whose pane was started for it is a named session, so it
+        # gets its (seatless) membership mounted and the idle kit.
+        labels = self.write("labels", json.dumps({"ccy": "true", "ccy-session": "ccy-x-2"}))
+        kit = self.write("kit", json.dumps(["PATH=/usr/bin", "PINGBUS_MEMBERSHIP=/run/ccy/membership"]))
+        empty = self.write("membership.json", json.dumps({"v": 1, "session": "ccy-x-2", "seats": []}))
+        rc, out, _ = run("expect-plain", labels, kit, empty)
+        self.assertEqual((rc, out.strip()), (0, "kit"))
+
+    def test_a_kit_marker_needs_a_seatless_membership(self) -> None:
+        labels = self.write("labels", json.dumps({"ccy": "true"}))
+        kit = self.write("kit", json.dumps(["PINGBUS_MEMBERSHIP=/run/ccy/membership"]))
+        seated = self.write("seated.json", json.dumps(
+            {"v": 1, "seats": [{"seat": 1, "team": TEAM_A}]}))
+        self.assertEqual(run("expect-plain", labels, kit, "-")[0], 1, "no membership file to read")
+        self.assertEqual(run("expect-plain", labels, kit, seated)[0], 1, "it holds a seat")
+        off = self.write("off", json.dumps(["PINGBUS_MEMBERSHIP=off"]))
+        empty = self.write("empty.json", json.dumps({"v": 1, "seats": []}))
+        self.assertEqual(run("expect-plain", labels, off, empty)[0], 1, "off, yet a membership mounted")
+        other = self.write("other", json.dumps(["PINGBUS_MEMBERSHIP=/elsewhere"]))
+        self.assertEqual(run("expect-plain", labels, other, empty)[0], 1)
 
     def test_a_seat_label_or_bus_variable_fails(self) -> None:
         seated = self.write(
@@ -400,11 +423,13 @@ class PlainTest(TempDir):
         plain = self.write("plain", json.dumps({"ccy": "true"}))
         clean = self.write("env", json.dumps(["PATH=/usr/bin"]))
         bus = self.write("bus", json.dumps(["PINGBUS_SEATS=1@x"]))
-        kit = self.write("kit", json.dumps(["PINGBUS_MEMBERSHIP=/run/ccy/membership"]))
-        self.assertEqual(run("expect-plain", seated, clean)[0], 1)
-        self.assertEqual(run("expect-plain", plain, bus)[0], 1)
-        self.assertEqual(run("expect-plain", plain, kit)[0], 1)
-        self.assertEqual(run("expect-plain", self.write("none", "{}"), clean)[0], 1)
+        empty = self.write("empty.json", json.dumps({"v": 1, "seats": []}))
+        self.assertEqual(run("expect-plain", seated, clean, "-")[0], 1)
+        self.assertEqual(run("expect-plain", plain, bus, "-")[0], 1)
+        for extra in ("PINGBUS_SEATS=1@x", "PINGBUS_TEAMS=x", "PINGBUS_HOME=/tmp/h"):
+            env = self.write("extra", json.dumps(["PINGBUS_MEMBERSHIP=/run/ccy/membership", extra]))
+            self.assertEqual(run("expect-plain", plain, env, empty)[0], 1, extra)
+        self.assertEqual(run("expect-plain", self.write("none", "{}"), clean, "-")[0], 1)
 
 
 class UsageTest(unittest.TestCase):

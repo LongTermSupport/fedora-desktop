@@ -7,7 +7,9 @@
 # RUN ON THE HOST, as the desktop user, through acceptance.bash (_acceptance-m2.inc.bash), on
 # the throwaway sessions it starts.
 #
-#   selinux                  the host is Enforcing
+#   selinux <container>      (H1) the membership bind asks for Z and its files carry container_file_t
+#                            at the container's level; Enforcing: the container reads them;
+#                            Permissive: says enforcement was not exercised
 #   plain <container>        (b) (c) the membership reads; a write and a remount fail; the kit is
 #                            idle: no active flag, the guarded status line, a hook that starts no
 #                            process; at most one pingbus process (the keeper, once M1 ships)
@@ -40,11 +42,42 @@ env_of() {
     printf 'unset\n'
 }
 
+# cmd_selinux <container> — H1's relabel, proved by what holds in Enforcing and Permissive
+# alike: the bind asks for the private relabel (Z), and the mount's directory and file on the
+# host (the same inodes the container sees) carry container_file_t at the container's own MCS
+# level, not user_tmp_t. Enforcing also proves the container reads through it. A container run
+# with labelling disabled (an SSH key forwarded from the agent) is unconfined: the launcher asks
+# no relabel, so its bind must carry none.
 cmd_selinux() {
-    local mode
+    local ctr="${1:?selinux needs the container}" mode json opts process src path context
     mode="$(getenforce)"
-    [[ "${mode}" == Enforcing ]] || fail "SELinux is ${mode}; M2's acceptance is on an Enforcing host (H1's relabel)"
-    ok "SELinux is Enforcing"
+    [[ "${mode}" != Disabled ]] || fail "SELinux is Disabled on this host: there is no label to prove (H1)"
+    json="$(podman inspect "${ctr}")"
+    opts="$(jq -r --arg m "${MOUNT}" '.[0] | ([.HostConfig.Binds[]? | split(":") | select(.[1] == $m) | .[2] // ""]
+        + [.Mounts[]? | select(.Destination == $m) | (.Options // []) | join(",")]) | join(",")' <<<"${json}")"
+    process="$(jq -r '.[0].ProcessLabel // ""' <<<"${json}")"
+    src="$(jq -r --arg m "${MOUNT}" '.[0].Mounts[]? | select(.Destination == $m) | .Source' <<<"${json}")"
+    [[ -n "${src}" ]] || fail "(H1) nothing is mounted at ${MOUNT}"
+    if [[ -z "${process}" ]]; then
+        [[ ",${opts}," != *,Z,* ]] || fail "(H1) the container runs with labelling disabled, yet its membership bind asks for a relabel: ${opts}"
+        ok "(H1) this session runs unconfined (labelling disabled, as for an SSH key forwarded from the agent), so its membership bind carries no relabel: ${opts:-no options}"
+        return 0
+    fi
+    [[ ",${opts}," == *,Z,* ]] || fail "(H1) the membership bind does not ask for the private relabel Z: ${opts:-no options}"
+    for path in "${src}" "${src}/membership.json"; do
+        context="$(stat -c %C -- "${path}")"
+        [[ "$(cut -d: -f3 <<<"${context}")" == container_file_t ]] \
+            || fail "(H1) ${path} is labelled ${context}, not container_file_t: the relabel did not happen"
+        [[ "$(cut -d: -f4- <<<"${context}")" == "$(cut -d: -f4- <<<"${process}")" ]] \
+            || fail "(H1) ${path} is labelled ${context}, not at the container's own level (${process}): not the private relabel"
+    done
+    ok "(H1) the membership bind asks for Z (${opts}); its directory and file are ${context}, the container's own level (${process})"
+    if [[ "${mode}" == Enforcing ]]; then
+        podman exec "${ctr}" cat "${MOUNT}/membership.json" >/dev/null || fail "(H1) SELinux is Enforcing and the container cannot read its membership"
+        ok "(H1) SELinux is Enforcing, and the container reads its membership through the relabel"
+    else
+        ok "(H1) SELinux is ${mode} on this host, so enforcement was not exercised: the labels above are what Enforcing would judge"
+    fi
 }
 
 # write_fails <container> <what> <command...> — the command, run in the container, must fail

@@ -164,8 +164,15 @@ attach-session)
     fi
     ;;
 set-hook) ;;
-# The session the asking process runs in, which tmux finds from the TMUX the process carries.
-display-message) printf '%s\n' "$TEST_TMUX_CURRENT" ;;
+# The pane named by -t (the asker's TMUX_PANE), whose first process is TEST_TMUX_PANE_PID:
+# the format names the session only when it compares pane_pid with that pid (real tmux's
+# evaluation of it is test-ccy-tmux-targets.bash's).
+display-message)
+    case "${!#}" in
+    *"#{pane_pid},${TEST_TMUX_PANE_PID:?}}"*) printf '%s\n' "$TEST_TMUX_CURRENT" ;;
+    *) printf '\n' ;;
+    esac
+    ;;
 *)
     echo "fake tmux: unexpected call: $*" >&2
     exit 97
@@ -348,13 +355,24 @@ reset "ccy-a:/dev/pts/3"
 err="$(TEST_TMUX_RACE_ATTACH=1 ccy_tmux_take_over ccy-a 2>&1 >/dev/null)"
 check "a take-over whose attach was kicked returns 3, not 0" "3" "$?"
 
-echo "== which CCY session this process runs in (where a launcher records its SSH key)"
+echo "== which CCY session this launcher IS (its label, its membership, where it records its SSH key)"
+ccy_sock="/tmp/tmux-1000/$CCY_TMUX_SOCKET,123,0"
 reset "ccy-a"
-check "inside CCY's server: the session's name" "ccy-a" \
-    "$(TMUX="/tmp/tmux-1000/$CCY_TMUX_SOCKET,123,0" TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session)"
+check "the pane's own process (tmux ran the launcher itself): the session's name" "ccy-a" \
+    "$(TMUX="$ccy_sock" TMUX_PANE=%3 TEST_TMUX_PANE_PID=$$ TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session)"
+check "tmux is asked about this pane, not its most recent session" "1" "$(grep -c '^display-message -p -t %3 ' "$LOG")"
+reset "ccy-a"
+check "the pane's process is the trampoline that started the launcher: the session's name" "ccy-a" \
+    "$(TMUX="$ccy_sock" TMUX_PANE=%3 TEST_TMUX_PANE_PID=$PPID TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session)"
+reset "ccy-a"
+check "a launcher started from within another session's pane (an agent's shell there): nothing" "" \
+    "$(TMUX="$ccy_sock" TMUX_PANE=%3 TEST_TMUX_PANE_PID=1 TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session)"
+reset "ccy-a"
+check "TMUX with no TMUX_PANE: nothing, and tmux is not asked" ":0" \
+    "$(env -u TMUX_PANE TMUX="$ccy_sock" TEST_TMUX_PANE_PID=$$ TEST_TMUX_CURRENT=ccy-a bash -c "$(printf 'source %q; source %q; ccy_tmux_current_session' "$LIB_DIR/common-pure.bash" "$LIB_DIR/tmux-session.bash")"):$(grep -c '^display-message' "$LOG")"
 reset "ccy-a"
 check "inside a user's own tmux: nothing, and tmux is not asked" ":0" \
-    "$(TMUX="/tmp/tmux-1000/default,123,0" TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session):$(grep -c '^display-message' "$LOG")"
+    "$(TMUX="/tmp/tmux-1000/default,123,0" TMUX_PANE=%3 TEST_TMUX_PANE_PID=$$ TEST_TMUX_CURRENT=ccy-a ccy_tmux_current_session):$(grep -c '^display-message' "$LOG")"
 check "outside tmux: nothing" "" "$(env -u TMUX TEST_TMUX_CURRENT=ccy-a bash -c "$(printf 'source %q; source %q; ccy_tmux_current_session' "$LIB_DIR/common-pure.bash" "$LIB_DIR/tmux-session.bash")")"
 
 echo "== the single-attach hook names its session safely"

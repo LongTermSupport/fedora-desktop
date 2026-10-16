@@ -360,6 +360,9 @@ u20_launch() {
         for fd in "${U20_FD[@]}"; do
             exec {fd}>&-
         done
+        # Unnamed whatever tmux pane this run is in: without TMUX a launch takes no session
+        # identity, so each seat gets a membership directory of its own, named after its container.
+        unset TMUX TMUX_PANE
         cd -- "${PLAN_REPO_ROOT}" && exec "${CCY_LAUNCHER}" "${args[@]}"
     ) <"${ev}/stdin.fifo" >"${ev}/session.out" 2>"${ev}/session.err" &
     U20_PID[${s}]=$!
@@ -810,6 +813,7 @@ u20_refused() {
         for fd in "${U20_FD[@]}"; do
             exec {fd}>&-
         done
+        unset TMUX TMUX_PANE
         cd -- "${PLAN_REPO_ROOT}" && exec timeout "${U20_REFUSED_S}" "${CCY_LAUNCHER}" --headless --no-restore --no-supervise \
             --teams "${value}" --prompt "${U20_PROMPT}" -- --input-format stream-json --output-format stream-json \
             --verbose --model "${U20_MODEL}"
