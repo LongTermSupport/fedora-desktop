@@ -134,7 +134,7 @@ Built on `fix/teams-server-robustness`; design and evidence in
   coordinator (SPEC-hot-control.md H25). With it, the picker's describe and path-limit offers
   become now, not now or never, and an old no is asked again once (Plan 00201 S-A15).
   lxc-add gets the same two paths (a new `declare lxc-role`, which the image carries): CCY
-  3.99.12.2, container 2.77.2. Owner's steps: [ACCEPTANCE.md](ACCEPTANCE.md), the two
+  3.99.12.4, container 2.77.3. Owner's steps: [ACCEPTANCE.md](ACCEPTANCE.md), the two
   sections after M5. Notes:
   [subagent-reports/261016-coordinator-ux-opus.md](subagent-reports/261016-coordinator-ux-opus.md).
 

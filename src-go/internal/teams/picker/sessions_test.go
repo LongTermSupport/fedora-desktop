@@ -323,3 +323,39 @@ func TestMoveFromTheMenuRunsSessionMove(t *testing.T) {
 	}
 	h.wantRuns(t, []string{"move", proj, "alpha", "beta"})
 }
+
+// Ctrl-O on a team with no coordinator: worker (now), then the plain offer, which passes no
+// --demote-current.
+func TestRoleOnATeamWithNoCoordinatorIsOfferedPlainly(t *testing.T) {
+	h := newRig(t)
+	h.ses.list = []hot.Session{h.seated()}
+	h.Script.Fzf = []string{"tab|alpha", "ctrl-o|ccy-proj", "|alpha has none", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	rows := h.Script.Rows[2]
+	if !strings.HasPrefix(rows[0], "worker (now)") ||
+		!slices.ContainsFunc(rows, func(r string) bool { return strings.HasPrefix(r, "Make it the coordinator (alpha has none)") }) {
+		t.Fatalf("role rows %q", rows)
+	}
+	h.wantRuns(t, []string{"role", proj, "alpha", "coordinator"})
+}
+
+// Fable's N1: a chosen seat whose handle already holds the role is not offered as a team with
+// none: it is the coordinator now.
+func TestAddOfASeatWhoseHandleIsTheCoordinatorSaysItIsOneNow(t *testing.T) {
+	h := newRig(t)
+	h.On("agent-bus seat choose alpha --type=podman", "CHOICE\t2\tfree\tproj.2+local.podman\tw\nDEFAULT\t2\n", 0)
+	h.coordinatorOfAlpha("proj.2+local.podman")
+	h.ses.list = []hot.Session{h.plain()}
+	h.Script.Fzf = []string{"tab|alpha", "ctrl-a|ccy-proj", "|alpha", "|seat 2", "|coordinator (now)", "|ABORT", "|ABORT"}
+	if code := h.run(); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	rows := h.Script.Rows[4]
+	if !slices.ContainsFunc(rows, func(r string) bool { return strings.HasPrefix(r, "coordinator (now)") }) ||
+		slices.ContainsFunc(rows, func(r string) bool { return strings.Contains(r, "has none") || strings.HasPrefix(r, "Replace") }) {
+		t.Fatalf("role rows %q", rows)
+	}
+	h.wantRuns(t, []string{"add", proj, "alpha/2", "--role=coordinator"})
+}

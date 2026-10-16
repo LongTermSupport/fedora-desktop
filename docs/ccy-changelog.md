@@ -17,7 +17,9 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.2 — container 2.77.2
+## 3.99.12.4 — container 2.77.3
+
+Follows 3.99.12.3 (container 2.77.2).
 
 - **Two coordinator paths** (Plan 00203, owner feedback). A team has one coordinator. On a
   team with none, making a member the coordinator is offered plainly. On a team that has one,

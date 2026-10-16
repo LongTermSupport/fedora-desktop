@@ -167,3 +167,20 @@ func TestRemoveOfTheCoordinatorSaysWhereTheRoleGoes(t *testing.T) {
 		t.Fatalf("question %q, want %q", c.Script.GumLog[1], want)
 	}
 }
+
+// Fable's N1: a seat whose handle already holds the role is not "a team with no coordinator".
+func TestAddAsCoordinatorOfASeatThatAlreadyHoldsTheRoleSaysSo(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "beta", Seat: "1"})
+	r.m.roles["alpha\tproj.3+local.podman"] = coord
+	c := r.interactive(t, "YES")
+	if code := r.run(t, "add", session, "alpha/3", "--role=coordinator"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	q := c.Script.GumLog[0]
+	if !strings.Contains(q, "proj.3+local.podman is already alpha's coordinator, so its role stays.") || strings.Contains(q, "has no coordinator") {
+		t.Fatalf("question %q", q)
+	}
+	if len(r.setRoles()) != 0 {
+		t.Fatalf("set-role %q", r.setRoles())
+	}
+}

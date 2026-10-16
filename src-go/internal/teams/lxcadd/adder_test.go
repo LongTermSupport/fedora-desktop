@@ -429,8 +429,9 @@ const declaredCoordinator = "LXCMEMBER\talpha\tcontainer-b\tagent\tworker\tcoord
 func TestOnATeamWithACoordinatorWorkerIsTheOrdinaryChoiceAndNothingChangesSilently(t *testing.T) {
 	takeover := coordinator.TakeoverChoice(coordinator.Holder{Handle: "agent@container-b", Running: coordinator.Unknown})
 	for name, answers := range map[string][]string{
-		"worker":            {choose("worker"), "YES"},
-		"takeover, then no": {choose(takeover), "NO", "YES"},
+		"worker":             {choose("worker"), "YES"},
+		"takeover, then no":  {choose(takeover), "NO", "YES"},
+		"takeover, then Esc": {choose(takeover), "CANCEL", "YES"},
 	} {
 		r := newRig(t)
 		r.OnDeclare("lxc-members", declaredCoordinator)
@@ -810,5 +811,20 @@ func TestRefusalFromDeclarePyThatIsNotATypedAnswerEndsTheRunWithItsCode(t *testi
 	}
 	if !strings.Contains(r.ErrOut.String(), "declare: team alpha is gone") || len(r.applied) != 0 {
 		t.Fatalf("stderr %s", r.ErrOut.String())
+	}
+}
+
+// Fable's N2: an apply that fails after a live takeover says the old coordinator is a worker now.
+func TestAnApplyThatFailsAfterATakeoverSaysTheOldCoordinatorIsAWorker(t *testing.T) {
+	r := newRig(t)
+	r.roster = agentbus.Roster{Members: []agentbus.Member{{Handle: "proj.1+local.podman", Role: agentbus.RoleCoordinator}}}
+	r.a.ApplyTeams = func(context.Context, ...string) error { return errors.New("play failed") }
+	h := coordinator.Holder{Handle: "proj.1+local.podman", Running: coordinator.Unknown}
+	r.answers(choose("container-a"), choose("agent"), choose("/srv/agent/one"), choose(coordinator.TakeoverChoice(h)), "YES", "YES")
+	if code := r.run("alpha"); code != term.ExitFailure {
+		t.Fatalf("exit %d: %s", code, r.ErrOut.String())
+	}
+	if want := "proj.1+local.podman is a worker now, so alpha has no coordinator until ccy-teams apply alpha succeeds."; !strings.Contains(r.ErrOut.String(), want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, r.ErrOut.String())
 	}
 }

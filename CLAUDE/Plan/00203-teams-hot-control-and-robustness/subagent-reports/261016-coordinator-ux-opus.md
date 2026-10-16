@@ -1,7 +1,7 @@
 # The coordinator's two paths, and three-way picker offers
 
 Branch `fix/coordinator-two-paths`, from F44. The image carries `helpers/agent_bus/declare.py`
-(new `lxc-role`), so the versions are bumped: CCY 3.99.12.2 and container 2.77.2, with a
+(new `lxc-role`), so the versions are bumped: CCY 3.99.12.4 and container 2.77.3, with a
 changelog entry. Queued: `playbooks/imports/play-claude-yolo.yml` in
 `CLAUDE/Plan/meta-deploy.list`. Owner's steps: ACCEPTANCE.md, the two sections after M5.
 

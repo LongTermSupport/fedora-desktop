@@ -96,6 +96,9 @@ func (x *Hot) coordinatorPath(ctx context.Context, t *target, r request, roster 
 	if r.role != agentbus.RoleCoordinator {
 		return "", false, term.ExitOK, true
 	}
+	if m, found := roster.Member(handle); found && m.Role == agentbus.RoleCoordinator {
+		return handle + " is already " + team + "'s coordinator, so its role stays. Go on?", false, term.ExitOK, true
+	}
 	h := coordinator.Holding(roster, handle, x.running(ctx, t))
 	if h.Handle == "" {
 		return coordinator.OfferNone(team, who), false, term.ExitOK, true

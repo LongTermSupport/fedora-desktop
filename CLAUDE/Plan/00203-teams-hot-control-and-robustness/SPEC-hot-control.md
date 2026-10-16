@@ -505,6 +505,9 @@ Two things are **not** frozen:
       --demote-current. Nothing was changed." `add` refuses it before the seat is made or the
       route checked. On a terminal the takeover is asked once, `--demote-current` or not,
       unless `--yes` is given with it.
+    - A chosen seat whose own handle already holds the role is neither path: `add` says "<h>
+      is already <team>'s coordinator, so its role stays.", and the picker shows "coordinator
+      (now)" (Fable's N1).
     - The current one is demoted first, as `seats.ChangeRole` does.
   - A remove of the coordinator says in its question where the role goes: "Seat <n> is
     <team>'s coordinator: it becomes a worker, and <team> has no coordinator." or "...:
@@ -514,10 +517,12 @@ Two things are **not** frozen:
     first"): it cannot take the role silently.
   - `ccy-teams lxc-add` asks the role the same two ways: worker first, then the plain offer, or
     the takeover of `<user>@<container>` (a declared LXC coordinator) or `<handle>` (a member
-    of the live team), whose question names it and starts on No. A takeover makes the
+    of the live team), whose question names it and starts on No (Esc is No too). A takeover makes the
     declared coordinator's entry a worker (`declare lxc-role`), or the live one a worker
     (`sudo agent-bus set-role`), before the new entry is written, and puts it back if that
-    write fails; the summary's Role line names who becomes a worker. Before, lxc-add made
+    write fails; the summary's Role line names who becomes a worker. If the apply then
+    fails, it says the old coordinator is a worker now and the team has none until
+    `ccy-teams apply <team>` succeeds. Before, lxc-add made
     the member a worker without asking when the team had a coordinator.
   - Every session on the team whose role changed gets the notice (H12) from its own watcher's
     next sync.

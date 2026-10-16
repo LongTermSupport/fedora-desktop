@@ -24,7 +24,7 @@
 # and font size settings); asserts `md-viewer --version` carries the new commit.
 playbooks/imports/optional/common/play-md-viewer.yml
 
-# ccy 3.99.12.2 (container 2.77.2: the image's declare.py gains lxc-role; the next ccy launch
+# ccy 3.99.12.4 (container 2.77.3: the image's declare.py gains lxc-role; the next ccy launch
 # rebuilds it) and ccy-teams: rebuild and install with the two coordinator paths (no coordinator: offered
 # plainly; a coordinator already: a takeover naming it, on No; lxc-add too) and the picker offers of
 # now, not now or never (an old no is asked again once). Plan 00203.

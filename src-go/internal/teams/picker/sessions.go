@@ -245,7 +245,11 @@ func (r *run) addToTeam(ctx context.Context, s hot.Session) (flow.Result, error)
 		return res, err
 	}
 	holder := coordinator.Holding(r.snap.Members[team.value], seat.handle, seats.SnapshotRunning(r.snap))
-	role, res, ok, err := r.ask(ctx, title, "Role in "+team.value+":", roleOptions(team.value, "", holder))
+	current := ""
+	if seat.handle != "" && r.snap.RoleOf(team.value, seat.handle) == roleCoordinator {
+		current = roleCoordinator // the seat's handle holds the role already (Fable's N1)
+	}
+	role, res, ok, err := r.ask(ctx, title, "Role in "+team.value+":", roleOptions(team.value, current, holder))
 	if !ok {
 		return res, err
 	}

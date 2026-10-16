@@ -447,8 +447,8 @@ func (a *Adder) askRole(ctx context.Context, ans *answers, held holding) error {
 	}
 	if held.holder != "" {
 		yes, err := a.Gum.Confirm(ctx, coordinator.OfferTakeover(ans.team, ans.label(), held.named()), false)
-		if err != nil {
-			return a.gumErr(err)
+		if err != nil && !errors.Is(err, ui.ErrCancelled) { // Esc is No (Fable's N3)
+			return err
 		}
 		if !yes {
 			a.term.Printf("%s stays %s's coordinator; %s joins as a worker.\n", held.holder, ans.team, ans.label())
@@ -646,6 +646,10 @@ func (a *Adder) write(ctx context.Context, ans answers) error {
 		return fmt.Errorf("write the result: %w", err)
 	}
 	if err = a.ApplyTeams(ctx, ans.team); err != nil {
+		if ans.takeover.holder != "" {
+			a.term.Printf("%s is a worker now, so %s has no coordinator until ccy-teams apply %s succeeds.\n",
+				ans.takeover.holder, ans.team, ans.team)
+		}
 		return a.failed(ans.label() + " is declared in " + term.AbbrevHome(a.HostVars, a.Home) + " but not joined. " +
 			"If the cause above is about gh, log in inside the container as " + ans.user + ":\n" +
 			"  sudo lxc-attach -n " + ans.container + " -- su - " + ans.user + "     (then gh auth login, and exit)\n" +
