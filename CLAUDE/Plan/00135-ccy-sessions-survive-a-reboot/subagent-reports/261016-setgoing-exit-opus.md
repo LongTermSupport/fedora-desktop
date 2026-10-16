@@ -55,6 +55,27 @@ built: yes.
 - The bash oracle `scripts/test-ccy-sessions-reboot.bash` (builds the Go binary) has its
   pinned lines updated in the same commit, and passes.
 
+## Review fixes (Fable, FIX-FIRST)
+
+- **B1, busy was asserted, not observed.** A spinner alone no longer counts as expected:
+  `expectedWhy()` gives no why for busy. `setOne` resolves the transcript and asks
+  `TookInputSince(file, btime)`, where btime is this boot's start from `/proc/stat`
+  (`CCY_PROC_STAT_FILE` overrides it, for tests). The manifest records no write time, and a
+  restored session cannot take input before the boot, so the boot is the earliest sound
+  bound. Input taken: expected (`busy-before-set-going`, why "it has taken input since this
+  boot began and is working on it"). None: waited on as `busy-without-input`, set going
+  once idle, a fault as `busy-without-input-after-<N>s` at the deadline. A boot time that
+  cannot be read is the fault `boot-time-unreadable`, and a transcript that cannot be read is
+  `transcript-unreadable`.
+- `TestAnUnknownLookIsNeverExpected` pins that an unknown look kind (and ready, unreadable,
+  dead, not drawn and busy) has no why.
+- A launch prompt after a compaction has its own why: the session restarted during its
+  compaction.
+- Red: with only the new constant added, five tests fail (the busy wait, deadline and
+  boot-time tests, the unknown-look test, the after-compaction table). Green: go test, vet,
+  golangci-lint. `test-ccy-sessions-reboot.bash` splits its busy case (input taken: expected,
+  exit 0; no input at the deadline: fault, exit 1), 286 passed.
+
 ## Docs
 
 SPEC-ccy-sessions.md 4.7 (Plan 00191) carries the departure and the classification table;

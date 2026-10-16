@@ -37,6 +37,13 @@ func goingHost(t *testing.T) *harness {
 	h.env["CCY_SESSIONS_SET_GOING_WAIT"] = "0"
 	h.env["CCY_SESSIONS_SUBMIT_DELAY"] = "0"
 	h.fake.On([]string{"tmux", "-L", "ccy", "send-keys"}, execx.Result{})
+	// This boot began an hour before the harness clock.
+	procStat := filepath.Join(h.root, "proc-stat")
+	content := fmt.Sprintf("cpu  1 2 3 4\nbtime %d\nprocesses 9\n", h.clock.Add(-time.Hour).Unix())
+	if err := os.WriteFile(procStat, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.env["CCY_PROC_STAT_FILE"] = procStat
 	return h
 }
 
@@ -245,7 +252,6 @@ func TestSetGoingLeavesABusyOrAttachedOrTypedOrUndrawnSessionAlone(t *testing.T)
 		want     string
 		exit     term.ExitCode
 	}{
-		{"busy", "✻ Thinking… (3s · esc to interrupt)\n" + promptScreen, 0, "left ccy-a alone, as expected: busy-before-set-going; " + whyBusy, 0},
 		{"attached", promptScreen, 1, "left ccy-a alone, as expected: attached; " + whyAttached, 0},
 		{"typed", rule + "\n❯ half a thought\n" + rule + "\n", 0, "left ccy-a alone, as expected: input-box-not-empty; " + whyTyped, 0},
 		{"not drawn", "Building image...\n", 0, "left ccy-a untouched: prompt-not-drawn-after-0s", 1},
@@ -264,6 +270,92 @@ func TestSetGoingLeavesABusyOrAttachedOrTypedOrUndrawnSessionAlone(t *testing.T)
 		}
 		if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingUntouched {
 			t.Fatalf("%s: recorded %+v, want untouched", c.name, e)
+		}
+	}
+}
+
+const busyScreen = "✻ Thinking… (3s · esc to interrupt)\n"
+
+// busyHost is one pending session ccy-a in <root>/a whose transcript is written; its screen is
+// the test's to set.
+func busyHost(t *testing.T) *harness {
+	t.Helper()
+	h := goingHost(t)
+	a := realDir(t, h, "a")
+	writeTranscript(t, ccyTranscript(a), 5000)
+	writeEntries(t, h, pending("ccy-a", "ccy", a))
+	h.sessions("ccy-a 0 " + a)
+	return h
+}
+
+func busyTranscript(h *harness) string {
+	return ccyTranscript(filepath.Join(h.root, "a"))
+}
+
+// A spinner is not evidence of work: busy is expected only when the transcript shows input
+// taken since this boot began.
+func TestSetGoingLeavesABusySessionThatTookInputSinceTheBootAlone(t *testing.T) {
+	h := busyHost(t)
+	tookInput(h, busyTranscript(h))
+	showScreen(h, "ccy-a", busyScreen+promptScreen)
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	contains(t, "busy with input", h.stderr(), "left ccy-a alone, as expected: busy-before-set-going; "+whyBusy+"\n")
+	if typedInto(h, "ccy-a") != "" {
+		t.Fatal("nothing typed over its work")
+	}
+	if e := entryNamed(t, h, "ccy-a"); e.Going != restore.GoingUntouched || e.Detail != "busy-before-set-going" {
+		t.Fatalf("%+v", e)
+	}
+}
+
+// A spinner with no input since the boot (a launch still loading) is waited on, and the session
+// is set going once its prompt is idle.
+func TestSetGoingWaitsOnABusySessionWithNoInputAndSetsItGoingWhenIdle(t *testing.T) {
+	h := busyHost(t)
+	// Input from before this boot is the conversation's past, not work since the restore.
+	appendTo(t, busyTranscript(h), `{"type":"user","timestamp":"`+stamp(h, -2*time.Hour)+`","message":{"content":"old"}}`)
+	h.env["CCY_SESSIONS_SET_GOING_WAIT"] = "30"
+	looks := 0
+	h.fake.OnFunc([]string{"tmux", "-L", "ccy", "capture-pane"}, func(execx.Cmd) (execx.Result, error) {
+		looks++
+		if looks < 2 {
+			return execx.Result{Stdout: []byte(busyScreen + promptScreen)}, nil
+		}
+		return execx.Result{Stdout: []byte(promptScreen)}, nil
+	})
+	exitCodeIs(t, h.run("set-going"), 0, h)
+	if typedInto(h, "ccy-a") != "-l continue|Enter" || looks != 2 {
+		t.Fatalf("typed %q after %d looks", typedInto(h, "ccy-a"), looks)
+	}
+}
+
+// Still busy with no input when the wait runs out: a fault (a hung turn looks like this).
+func TestSetGoingFailsForABusySessionWithNoInputAtTheDeadline(t *testing.T) {
+	h := busyHost(t)
+	h.env["CCY_SESSIONS_SET_GOING_WAIT"] = "5"
+	showScreen(h, "ccy-a", busyScreen+promptScreen)
+	exitCodeIs(t, h.run("set-going"), 1, h)
+	contains(t, "busy at deadline", h.stderr(), "left ccy-a untouched: busy-without-input-after-5s\n",
+		"ERROR: 1 restored session(s) could not be set going: ccy-a (busy-without-input-after-5s).")
+}
+
+// Without this boot's start time a spinner cannot be judged: a fault, named.
+func TestSetGoingFailsForABusySessionWhenTheBootTimeCannotBeRead(t *testing.T) {
+	h := busyHost(t)
+	tookInput(h, busyTranscript(h))
+	missing := filepath.Join(h.root, "no-proc-stat")
+	h.env["CCY_PROC_STAT_FILE"] = missing
+	showScreen(h, "ccy-a", busyScreen+promptScreen)
+	exitCodeIs(t, h.run("set-going"), 1, h)
+	contains(t, "no boot time", h.stderr(), "this boot's start time could not be read from "+missing,
+		"left ccy-a untouched: boot-time-unreadable\n")
+}
+
+// A look set-going does not know is never an expected outcome: leaving it alone is a fault.
+func TestAnUnknownLookIsNeverExpected(t *testing.T) {
+	for _, k := range []lookKind{lookKind(99), lookReady, lookUnreadable, lookDead, lookNotDrawn, lookBusy} {
+		if why := (look{kind: k}).expectedWhy(); why != "" {
+			t.Fatalf("look %d: why %q, want none", k, why)
 		}
 	}
 }
@@ -623,7 +715,7 @@ func TestAfterACompactionWhatTheScreenShowsDecidesWhatHappens(t *testing.T) {
 		{"attached", promptScreen, 1, "left cc-c alone, as expected: attached-after-compaction; " + whyAttached + "\n", restore.GoingUntouched, 0},
 		{"typed", rule + "\n❯ half\n" + rule + "\n", 0, "left cc-c alone, as expected: typed-after-compaction; " + whyTyped + "\n", restore.GoingUntouched, 0},
 		{"dead", "cc exited with status 1. Press Enter to close this session.\n", 0, "left cc-c untouched: launcher-exited-after-compaction\n", restore.GoingUntouched, 1},
-		{"waiting", "Select token\n", 0, "left cc-c alone, as expected: token-select-after-compaction; " + whyWaitingAtPrompt + "\n", restore.GoingUntouched, 0},
+		{"waiting", "Select token\n", 0, "left cc-c alone, as expected: token-select-after-compaction; " + whyWaitingAfterCompaction + "\n", restore.GoingUntouched, 0},
 	}
 	for _, c := range cases {
 		h := goingHost(t)

@@ -1122,8 +1122,14 @@ check "and says where the floor comes from" "yes" \
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf '%s\n' "✻ Thinking… (3s · esc to interrupt)" "$PROMPT_SCREEN" >"$VR/screens/ccy-a"
 set_going
-check "already busy when its prompt drew: left alone, as expected, and the run succeeds" "0:" "$rc:$(cat "$LOG")"
+check "busy when its prompt drew, input taken since the boot: left alone, as expected" "0:" "$rc:$(cat "$LOG")"
 check "and named" "yes" "$([[ "$why" == *"left ccy-a alone, as expected: busy-before-set-going; "* ]] && echo yes || echo "no: $why")"
+transcript "$T_A" 208525
+manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
+set_going
+check "busy with no input since the boot, still at the deadline: a fault, nothing typed" "1:" "$rc:$(cat "$LOG")"
+check "and named" "yes" "$([[ "$why" == *"left ccy-a untouched: busy-without-input-after-0s"* ]] && echo yes || echo "no: $why")"
+took_input "$T_A"
 manifest_full this-boot ccy-a ccy "$A" pending "" "" ""
 printf 'Building image...\n' >"$VR/screens/ccy-a"
 set_going

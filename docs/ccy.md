@@ -366,13 +366,16 @@ A session left alone is one of two things:
 
 - **Expected, and the unit still succeeds.** The session is still at a
   launch prompt when the wait ends, such as a desktop's SSH passphrase. Or someone is
-  attached, or there is text in its input box, or it is already busy. Or it shares its
+  attached, or there is text in its input box. Or it is busy and its transcript shows it
+  took input after this boot began, so it is working. Or it shares its
   conversation with a session already set going: two sessions in one project that both
   `--continue` resume the same conversation, so only the first to draw its prompt is set
   going. The journal says `left <name> alone, as expected: <reason>; <why>`.
 - **A fault, and the unit fails**, naming each one: the launcher exited or the session died, a
   screen or transcript that cannot be read, keys that cannot be sent, or a prompt or
-  compaction that never comes in the time. A dead launcher fails the unit too, for now; see
+  compaction that never comes in the time. A session that shows a spinner but took no input
+  since the boot is waited on: it is set going once its prompt goes idle, and is a fault
+  (`busy-without-input`) if it is still busy when the wait ends. A dead launcher fails the unit too, for now; see
   Plan 00135.
 
 If the restore wrote no manifest for the boot, set-going says so and fails rather than guess.

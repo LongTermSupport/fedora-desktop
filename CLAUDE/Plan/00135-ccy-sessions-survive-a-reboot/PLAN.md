@@ -218,11 +218,14 @@ trains the owner to ignore it.
 
 - [x] ✅ **Task 11.1**: Tests first, then the fix (`src-go/internal/sessions/setgoing.go`):
   each session left alone is either expected, named with why and not failing the unit (at a
-  launch prompt, attached, text typed, already busy, sharing a conversation), or a fault,
+  launch prompt, attached, text typed, busy with input since the boot, sharing a
+  conversation), or a fault,
   named in the unit's failure (dead or exited launcher, unreadable screen or transcript,
-  send failed, a prompt or compaction that never came). The classification table is in
-  SPEC-ccy-sessions.md 4.7 (Plan 00191); docs/ccy.md matches. Report:
-  [261016-setgoing-exit-opus.md](subagent-reports/261016-setgoing-exit-opus.md).
+  send failed, a prompt or compaction that never came, busy with no input at the deadline).
+  The classification table is in SPEC-ccy-sessions.md 4.7 (Plan 00191); docs/ccy.md
+  matches. Report: [261016-setgoing-exit-opus.md](subagent-reports/261016-setgoing-exit-opus.md);
+  Fable's review B1 (busy was asserted, not observed) fixed:
+  [261016-setgoing-exit-review-fable.md](subagent-reports/261016-setgoing-exit-review-fable.md).
 - [ ] ⬜ **Task 11.2**: Owner decision: should one dead launcher fail the whole unit? Interim
   default: yes, a dead or exited launcher is a fault and fails the unit (it is named, and
   `verify-restore` reports it too). The alternative is to report it and let the unit pass,

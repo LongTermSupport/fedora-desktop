@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -51,12 +53,15 @@ const (
 	whyWaitingAtPrompt = "it waits at a launch prompt only a person can answer (an SSH key or passphrase, a token); answer it in the session"
 	whyAttached        = "a person is attached to it, so nothing is typed over them"
 	whyTyped           = "its input box holds text a person typed, so nothing is typed over it"
-	whyBusy            = "it was already working, so there is nothing to set going"
+	whyBusy            = "it has taken input since this boot began and is working on it, so there is nothing to set going"
+	// A launch prompt after this run typed /compact: the session restarted mid-compaction.
+	whyWaitingAfterCompaction = "it restarted during its compaction and now waits at a launch prompt only a person can answer; answer it in the session"
 )
 
 // expectedWhy is why leaving a session that looks like this alone is expected: it is a person's
-// (at a prompt, attached, text typed) or already working. Empty for every other look, which is
-// a fault when the session is left alone.
+// (at a prompt, attached, text typed). Empty for every other look, which is a fault when the
+// session is left alone. Busy is not here: a spinner is no evidence of work (a launch still
+// loading, or a hung turn), so setOne asks the transcript instead.
 func (l look) expectedWhy() string {
 	switch l.kind {
 	case lookWaiting:
@@ -65,9 +70,7 @@ func (l look) expectedWhy() string {
 		return whyAttached
 	case lookTyped:
 		return whyTyped
-	case lookBusy:
-		return whyBusy
-	case lookReady, lookUnreadable, lookDead, lookNotDrawn:
+	case lookReady, lookUnreadable, lookDead, lookNotDrawn, lookBusy:
 	}
 	return ""
 }
@@ -452,7 +455,7 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 		return g.leaveAlone(name, restore.GoingPending, "session-not-running")
 	}
 	l := g.lookAt(ctx, name, e.Prefix, attached)
-	if reason, wait, ready := g.notReady(l); !ready {
+	if reason, wait, ready := g.notReady(l); !ready && l.kind != lookBusy {
 		if wait {
 			g.waited[name] = waitedOn{reason: reason, why: l.expectedWhy()}
 			return nil
@@ -463,6 +466,9 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 	if err != nil {
 		g.app.failErr(err)
 		return g.leaveAlone(name, restore.GoingPending, "no-transcript")
+	}
+	if l.kind == lookBusy {
+		return g.judgeBusy(name, file)
 	}
 	if owner := g.conversationOwner(file, name); owner != "" {
 		return g.leaveAsExpected(name, restore.GoingPending, "shares-conversation-with-"+owner,
@@ -490,6 +496,53 @@ func (g *goingRun) setOne(ctx context.Context, name string, live bool, attached 
 	g.app.sayf("set %s going: %s (context %d tokens, compact floor %s, supervised: %s).\n",
 		name, going, tokens, g.app.cfg.CompactFloor, term.YesNo(e.Supervised))
 	return g.goingSet(name, restore.GoingPending, going, at, strconv.FormatInt(tokens, 10), file)
+}
+
+// judgeBusy decides a pending session showing a spinner by what its transcript shows. Input
+// taken since this boot began means it is working: left alone, as expected. None means the
+// spinner is a launch still loading or a hung turn: waited on, so an idle prompt is set going
+// on a later pass and one still busy at the deadline is a fault.
+func (g *goingRun) judgeBusy(name, file string) error {
+	since, err := g.bootStart()
+	if err != nil {
+		g.app.failErr(err)
+		return g.leaveAlone(name, restore.GoingPending, "boot-time-unreadable")
+	}
+	took, err := g.app.Transcripts.TookInputSince(file, since)
+	if err != nil {
+		g.app.failErr(err)
+		return g.leaveAlone(name, restore.GoingPending, "transcript-unreadable")
+	}
+	if took {
+		return g.leaveAsExpected(name, restore.GoingPending, "busy-before-set-going", whyBusy)
+	}
+	g.waited[name] = waitedOn{reason: "busy-without-input"}
+	return nil
+}
+
+// bootStart is when this boot began (Unix seconds, btime in /proc/stat): the earliest moment a
+// restored session can have taken input, so input at or after it is work since the restore and
+// input before it is the conversation's past.
+func (g *goingRun) bootStart() (int64, error) {
+	path := g.app.cfg.ProcStatFile
+	if path == "" {
+		path = "/proc/stat"
+	}
+	unreadable := errors.New("this boot's start time could not be read from " + path)
+	raw, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return 0, fmt.Errorf("%w: %w", unreadable, err)
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if value, found := strings.CutPrefix(line, "btime "); found {
+			start, convErr := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+			if convErr != nil || start <= 0 {
+				return 0, fmt.Errorf("%w: btime %q is not a time", unreadable, value)
+			}
+			return start, nil
+		}
+	}
+	return 0, fmt.Errorf("%w: it has no btime line", unreadable)
 }
 
 // notReady says why a pending session cannot be typed into yet: reason, and whether it is only
@@ -561,7 +614,9 @@ func (g *goingRun) continueAfterCompaction(ctx context.Context, name string, liv
 	case lookNotDrawn:
 		g.waited[name] = waitedOn{reason: "prompt-not-back-after-compaction"}
 		return nil
-	case lookAttached, lookTyped, lookDead, lookWaiting, lookUnreadable:
+	case lookWaiting:
+		return g.leaveAsExpected(name, restore.GoingCompacting, l.afterCompactionReason(), whyWaitingAfterCompaction)
+	case lookAttached, lookTyped, lookDead, lookUnreadable:
 		return g.leave(name, restore.GoingCompacting, l.afterCompactionReason(), l.expectedWhy())
 	}
 	return nil
