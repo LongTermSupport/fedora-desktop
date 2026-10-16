@@ -309,7 +309,7 @@ Every instance was examined and fixed individually. None was fixed by pattern.
   - "Start a new ccy session in HERE" (Ctrl-N) is a row. Outside a project it says why it is
     unavailable.
 - **A2:** `ccy_tmux_offer` lists a "Start a new session here" row, and `ccy_tmux_pick` takes no
-  keys. It ships as CCY 3.99.12.9 (container 2.77.6, unchanged). The branch first used
+  keys. It ships as CCY 3.99.12.10 (container 2.77.7, unchanged). The branch first used
   3.99.10.2, which F44 had already used; it was renumbered when F44 was merged.
 - **History search:** the start-up binding is spelt in the call. Ctrl-R `toggle-sort` stays, as
   navigation.
@@ -470,3 +470,21 @@ The qa-changed routing deviation became B49, because F44 took B48.
 - `qa-changed.bash`
 - Suites: teams 191, take-over 82, reboot 286, tmux-targets 24, teams-command 371, lifecycle
   215, history 23 and 9, qa-changed 121.
+
+## After Fable's re-check (FIX-FIRST: F1, F2)
+
+- **F1, `f028b571`:** N1's "any key that accepts is Enter" had an escape. A query edit (`put`,
+  `yank`, `clear-query`, a deletion, history) chained before an accept is handed back by
+  `--print-query`, and `select-all` or `toggle-all` before an accept by `--multi`. `fzfbind`
+  now reports such a chain as `carrier+accept`. The unit test failed first. Fixture lines were
+  added to the Go rule and the shell gate, and the catalogue reasoning is corrected.
+- **F2, `5d676753`:** F44 was merged a third time, at `baad4539`.
+  - F44's Typed picker sits on `ui.Action`, and `Picked` carries both `Action` and `Query`.
+  - lxc-add's Tab completion, a key alone through `PickSpec.Keys`, is now a listed row with
+    Tab beside it.
+  - CCY 3.99.12.10 with container 2.77.7 unchanged. The queue and the journal keep F44's side
+    whole.
+- **Checks, with `PINGBUS_*` unset:**
+  - `qa-go.bash`: GO-OK, 63 packages; qa module 60.
+  - `qa-hidden-bindings.bash`: 446 shell files, 338 Python files.
+  - Suites: test-qa-changed 121, teams 191, teams-command 371, take-over 82, lifecycle 215.
