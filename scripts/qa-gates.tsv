@@ -26,6 +26,10 @@
 gate	toolchain	scripts/qa-toolchain.bash	QA tool versions do not match .qa-versions — verdicts below are not comparable	detail:TOOLCHAIN-OK .+
 # src-go/: format, vet, race tests, golangci-lint, project rules.
 gate	go	scripts/qa-go.bash	Go format, vet, tests or golangci-lint failed (or go/golangci-lint missing)	detail:GO-OK [0-9]+ package[(]s[)]
+# src-go's dependencies (Plan 00204 D2): allowlisted, pinned and vendored in step; then no known
+# vulnerability the code reaches.
+gate	go-deps	scripts/qa-go-deps.bash	src-go's dependencies are not all allowlisted, pinned and vendored in step with go.mod	detail:GO-DEPS-OK [0-9]+ module[(]s[)] allowlisted .+
+gate	go-vuln	scripts/qa-go-vuln.bash	govulncheck found a vulnerability src-go reaches, or could not judge	detail:GO-VULN-OK .+
 # Tooling is Go: every bash file within the limits or on the ratchet allowlist.
 gate	bash-limits	scripts/qa-bash-limits.bash	a bash file breaks the limits in src-go/CLAUDE.md, or the allowlist grew	detail:BASH-LIMITS-OK [0-9]+ bash files: .+
 # The seven report stages. Their reports are merged into the machine report.

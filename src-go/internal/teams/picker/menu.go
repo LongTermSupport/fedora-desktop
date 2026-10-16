@@ -9,8 +9,10 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -37,6 +39,10 @@ const (
 	keyShutdown = "shutdown"
 	// keySettings, a team's settings screen, is a team row's menu line with no shortcut.
 	keySettings = "settings"
+	// keyAskDescription and keyAskLimit undo a never answer to an offer: a team row's menu
+	// lines, with no shortcut, shown only on a team marked never.
+	keyAskDescription = "ask-description"
+	keyAskLimit       = "ask-limit"
 )
 
 // backToList is the last line of every menu: leaving it does nothing and shows the list.
@@ -53,7 +59,7 @@ type action struct {
 // shown is the shortcut as a person reads it ("Ctrl-E"); empty when there is none.
 func (a action) shown() string {
 	switch a.key {
-	case keyAttach, keyCoordinator, keyLxc, keyElementAll, keyShutdown, keySettings:
+	case keyAttach, keyCoordinator, keyLxc, keyElementAll, keyShutdown, keySettings, keyAskDescription, keyAskLimit:
 		return ""
 	case keyHelp:
 		return "?"
@@ -93,7 +99,7 @@ func (r *run) kindActions(row board.Row) []action {
 	help := action{keyHelp, "What the columns and keys mean", "help"}
 	switch row.Kind {
 	case board.KindTeam:
-		return []action{
+		return append(append([]action{
 			open,
 			{keyElementAll, "Open every team in Element, a window each", "open every team in Element"},
 			start,
@@ -101,14 +107,25 @@ func (r *run) kindActions(row board.Row) []action {
 			{keyUpdate, "Update every team that is out of date or not built", "update out-of-date teams"},
 			{keyShutdown, "Shut down every session of " + team, "shut down " + team + "'s sessions"},
 			{keyRemove, "Take " + team + " down", "take " + team + " down"},
-			help,
-		}
+		}, r.askAgainActions(team)...), help)
 	case board.KindHuman:
 		return r.humanActions(row, open, start, help)
 	case board.KindCcy:
 		return r.seatActions(row, open, start, help)
 	}
 	return []action{{keyRemove, "Park " + row.Handle, "park it"}, open, start, help}
+}
+
+// askAgainActions undo a never answer to the description or limit offer of team.
+func (r *run) askAgainActions(team string) []action {
+	var acts []action
+	if r.snap.Description[team] == "" && saidNever(r.p.descriptionMarker(team)) {
+		acts = append(acts, action{keyAskDescription, askDescriptionLabel(team), "be asked to describe " + team + " again"})
+	}
+	if saidNever(r.p.pathLimitMarker(team)) {
+		acts = append(acts, action{keyAskLimit, askLimitLabel(team), "be asked about " + team + "'s limit again"})
+	}
+	return acts
 }
 
 // humanActions are a person's: signing in when they never have, else Element first, and a new
@@ -134,20 +151,36 @@ func (r *run) seatActions(row board.Row, open, start, help action) []action {
 		}
 		acts = append(acts, restore)
 	}
-	acts = append(acts, start, open, r.coordinatorAction(row))
-	if row.Dir == "-" {
-		return append(acts, action{keyRemove, "Park " + row.Handle, "park it"}, help)
+	role, takeover := r.coordinatorAction(row)
+	if !takeover {
+		acts = append(acts, start, open, role)
+	} else {
+		acts = append(acts, start, open)
 	}
-	return append(acts, action{keyRemove, "Remove this seat", "remove this seat"}, help)
+	remove := action{keyRemove, "Remove seat " + row.Member + " from " + row.Team, "remove seat " + row.Member}
+	if row.Dir == "-" {
+		remove = action{keyRemove, "Park " + row.Handle, "park it"}
+	}
+	acts = append(acts, remove)
+	if takeover {
+		acts = append(acts, role)
+	}
+	return append(acts, help)
 }
 
 // coordinatorAction is making the seat's member the team's coordinator, or, when it is, stopping it
-// being: the role is read from the pass the list was drawn from.
-func (r *run) coordinatorAction(row board.Row) action {
+// being: the role is read from the pass the list was drawn from. The two paths are worded apart
+// (package coordinator); takeover is a team that has another coordinator, a rarer choice that
+// the menu lists after the ordinary ones.
+func (r *run) coordinatorAction(row board.Row) (action, bool) {
 	if r.snap.RoleOf(row.Team, row.Handle) == agentbus.RoleCoordinator {
-		return action{keyCoordinator, "Stop being coordinator", "stop it being the coordinator"}
+		return action{keyCoordinator, "Stop being coordinator", "stop it being the coordinator"}, false
 	}
-	return action{keyCoordinator, "Make coordinator", "make it the coordinator"}
+	holder := coordinator.Holding(r.snap.Members[row.Team], row.Handle, seats.SnapshotRunning(r.snap))
+	if holder.Handle != "" {
+		return action{keyCoordinator, coordinator.TakeoverChoice(holder), "replace the coordinator"}, true
+	}
+	return action{keyCoordinator, coordinator.NoneChoice(row.Team), "make it the coordinator"}, false
 }
 
 // menu is Enter on a row: everything that can be done to it, in words, each with its shortcut.

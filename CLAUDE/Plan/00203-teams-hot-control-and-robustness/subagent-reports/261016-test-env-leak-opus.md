@@ -90,3 +90,33 @@ The other bash suites that mention the bus (`test-cc-teams`, `test-ccy-agent-bus
 qa-all gate runner (`src-go/qa/all`), starting every suite with the session variables removed.
 That would change the gate's process environment, which its golden replay pins, so it is larger
 than this fix. It is the follow-up if another bash suite shows the leak.
+
+## Follow-up: test_notify's two timing flakes (races in the tests)
+
+The coordinator saw "two teams in one delivery" fail about 1 module run in 3. My first 10 runs
+failed a sibling instead: `test_one_agent_cannot_flood_the_session` (`5 != 8`). Both have the
+same shape. The case sends several items, starts the watcher, and expects the watcher's first
+delivery to carry all of them. The watcher makes no such promise. Each pass delivers what is
+stored at that moment, and later items join the next delivery (E13). Each team syncs in its own
+thread. `commit_batch` writes and fsyncs one inbox file at a time, and a team's items are not
+candidates until that seat's own first sync has verified its record.
+
+- **Flood:** a pass ran while the batch of 13 was half stored.
+- **Two teams:** a pass ran after team A's sync but before team B's.
+
+Neither is a product defect: deliveries stay ordered, and each item is delivered once.
+
+A scratch harness proved both windows: inbox writes 50 ms slower, and team B's sync 300 ms
+later. Both cases then failed every time (`1 != 8`; `('1','1','0') != ('2','2','0')`).
+
+Fixes, in the tests only:
+
+- **Flood:** a new `WatchCase.stored()` syncs every team once before the watcher starts, the
+  pattern test_relay_cli and test_cli_status already use. All 13 items are stored before the
+  first pass.
+- **Two teams:** pacing now runs on a clock the case controls. The test delivers one opener,
+  sends both items, waits until both are stored, then moves the clock past the interval. The
+  next delivery carries both. This is E13 exactly, with no wait on real time.
+
+Both pass under the harness. 20 runs of the whole module under 22 busy loops (load 42-46):
+0/20 failures.

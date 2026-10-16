@@ -82,6 +82,12 @@ func (c *Client) LxcAdd(ctx context.Context, e LxcEntry) (Change, error) {
 	return c.edit(ctx, "lxc-add", e.args()...)
 }
 
+// LxcSetRole sets a declared member's role in its entry (a backup of the file is kept beside
+// it): lxc-add's takeover makes the declared coordinator a worker with it first.
+func (c *Client) LxcSetRole(ctx context.Context, m LxcMember, role string) (Change, error) {
+	return c.edit(ctx, "lxc-role", "--team", m.Team, "--container", m.Container, "--user", m.User, "--role", role)
+}
+
 // LxcAddDryRun is the entry LxcAdd would add, as the lines it would write; nothing is written.
 func (c *Client) LxcAddDryRun(ctx context.Context, e LxcEntry) (string, error) {
 	return c.runFile(ctx, "lxc-add", append(e.args(), "--dry-run")...)

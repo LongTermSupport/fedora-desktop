@@ -136,8 +136,8 @@ This section supersedes the version numbers and the queue notes above.
   usage all say a removed name can never be added back. Removed people is shown as a fixed
   field. Tests first: test_teamfile `RemovedHumansTest`, test_declare
   `test_a_removed_person_is_recorded_and_can_never_return`, and the real-declare.py Go test.
-- **Versions.** F44 `0976d613` is merged in. The versions are now CCY 3.99.12.6 and container
-  2.77.5, with the changelog section on top.
+- **Versions.** F44 `0976d613`, then `f01d993a`, is merged in. The versions are now CCY
+  3.99.12.5 and container 2.77.4, with the changelog section on top.
 - **meta-deploy.list.** It holds F44's five entries, plus `play-agent-bus.yml` with its comment,
   directly after `play-claude-yolo.yml`. The 00161 acceptance is not restored.
 - **Non-blocking fixes.**
@@ -146,3 +146,20 @@ This section supersedes the version numbers and the queue notes above.
     those on disk at save time, and a value that became unreadable stops the save.
   - A `set` that changes nothing now says "Nothing to save".
   - The fake refusal in the test quotes the real limit, 16.
+
+## After F44 f01d993a (the coordinator two paths)
+
+- **The Coordinator field follows H25**, using the words of package `coordinator`.
+  - The row names the holder and whether it runs.
+  - With no coordinator, the list offers one plainly and has no "No coordinator" row.
+  - With one, it names the holder and whether it runs, says choosing another member is a
+    takeover that makes the holder a worker and starts on No, and offers "No coordinator".
+  - Each choice is one `seats.ChangeRole(…, look)` call. It asks the question itself, and
+    demotes and promotes with roll-back.
+  - `Settings.Edit` takes the running state, `seats.SnapshotRunning` from the picker.
+  - Test first: three new screen tests.
+- **Picker.** `keySettings` sits beside `keyAskDescription` and `keyAskLimit`, none of them with
+  a shortcut. The team-row actions moved into `doTeam`, because `do` went over the complexity
+  limit.
+- **Versions.** CCY 3.99.12.5 and container 2.77.4, with the changelog on top. meta-deploy.list
+  keeps F44's entries plus `play-agent-bus.yml`.

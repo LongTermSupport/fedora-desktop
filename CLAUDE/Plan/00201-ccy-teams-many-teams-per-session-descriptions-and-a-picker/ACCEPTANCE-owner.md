@@ -11,7 +11,9 @@ Do these in order, once. Each step names what you should see.
    folder: inside a checkout it may offer to start a session there (default Yes), or to create
    a team for it (default No). Every team row should read **up** and **up to date**. If it opens
    with "Not as declared: ..." and "Update them now (play-agent-bus.yml)?", answer Yes. If it
-   asks "Team ... has no description. Write one now?", write one line or answer No. Note every
+   says "Team ... has no description.", choose "Describe <team> now" and write one line, or
+   "Not now (ask again next time)" (Esc is the same); only "Never ask about <team>" stops it
+   asking, and the team row's menu has "Ask me to describe <team> again" to undo that. Note every
    **held** seat: each is a running session to relaunch in step 3. Leave with `q`.
 3. **Relaunch every team session.** In every session on a team (ccy, `cc --teams`, an LXC
    container's agent), let it finish its turn, then `/exit` and start it again. Why: a

@@ -17,6 +17,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
@@ -41,19 +42,21 @@ type Settings struct {
 	Bus     *agentbus.Client
 	// Apply is ops.ApplyTeams: the apply play for those teams, as ccy-teams apply runs it.
 	Apply func(context.Context, []string) error
-	// ChangeRole is seats.ChangeRole, the one code path that changes a member's role.
-	ChangeRole func(ctx context.Context, team, handle string, want bool) (bool, error)
+	// ChangeRole is seats.ChangeRole, the one code path that changes a member's role: it asks the
+	// plain offer or the takeover (package coordinator), and demotes and promotes with roll-back.
+	ChangeRole func(ctx context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error)
 }
 
 // New is the screen over a host, applying through apply and changing roles through changeRole.
 func New(h *host.Host, kit *flow.Kit, apply func(context.Context, []string) error,
-	changeRole func(ctx context.Context, team, handle string, want bool) (bool, error),
+	changeRole func(ctx context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error),
 ) *Settings {
 	return &Settings{Kit: kit, Declare: h.Declare, Bus: h.Bus, Apply: apply, ChangeRole: changeRole}
 }
 
 // screen is one visit to a team's settings: the entry as declared, the changes not yet saved
-// (JSON by key), the team's members, and the line saying what the last choice did.
+// (JSON by key), the team's members and what is known of their sessions, and the line saying
+// what the last choice did.
 type screen struct {
 	s        *Settings
 	team     string
@@ -61,17 +64,20 @@ type screen struct {
 	pending  map[string]string
 	roster   agentbus.Roster
 	rosterOK bool
+	look     coordinator.Lookup
 	notice   string
 }
 
-// Edit is the team's settings screen, until Back, or Save and apply.
-func (s *Settings) Edit(ctx context.Context, team string) (flow.Result, error) {
+// Edit is the team's settings screen, until Back, or Save and apply. look is what the caller
+// knows of each member's session (the picker's seat rows), so a takeover can say whether the
+// current coordinator runs.
+func (s *Settings) Edit(ctx context.Context, team string, look coordinator.Lookup) (flow.Result, error) {
 	declared, err := s.Declare.Settings(ctx, team)
 	if err != nil {
 		s.Kit.ReportErr(err)
 		return s.Kit.Note(ctx, "The settings of "+team+" could not be read; nothing was changed.")
 	}
-	sc := &screen{s: s, team: team, declared: declared, pending: map[string]string{}}
+	sc := &screen{s: s, team: team, declared: declared, pending: map[string]string{}, look: look}
 	sc.readRoster(ctx)
 	for {
 		if err := s.Kit.Interrupted(ctx); err != nil {
@@ -198,10 +204,16 @@ func (sc *screen) coordinatorName() string {
 	if !sc.rosterOK {
 		return "unknown (the members could not be read)"
 	}
-	if holder, held := sc.roster.Coordinator(); held {
-		return holder.Handle
+	if holder := sc.holder(); holder.Handle != "" {
+		return holder.Named()
 	}
 	return none
+}
+
+// holder is the team's coordinator with what is known of its session; an empty Handle when
+// the team has none.
+func (sc *screen) holder() coordinator.Holder {
+	return coordinator.Holding(sc.roster, "", sc.look)
 }
 
 // unreadable names the fields whose value ccy-teams cannot read; the entry is then not edited.
@@ -437,21 +449,21 @@ func (sc *screen) coordinator(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	holder, held := sc.roster.Coordinator()
+	// One ChangeRole call either way: it asks the plain offer or the takeover itself (on No), and
+	// a takeover's demote and promote happen inside it, with the holder put back if the promote
+	// fails. Nothing here demotes on its own except No coordinator, which is that choice.
+	holder := sc.holder()
 	var changed bool
 	said := picked + " is now the coordinator of " + sc.team + "."
 	switch {
-	case picked == tagNoOne && !held:
-		sc.notice = sc.team + " has no coordinator."
-		return nil
 	case picked == tagNoOne:
-		changed, err = sc.s.ChangeRole(ctx, sc.team, holder.Handle, false)
+		changed, err = sc.s.ChangeRole(ctx, sc.team, holder.Handle, false, sc.look)
 		said = sc.team + " has no coordinator now; " + holder.Handle + " is a worker."
-	case held && holder.Handle == picked:
+	case holder.Handle == picked:
 		sc.notice = picked + " is already the coordinator of " + sc.team + "."
 		return nil
 	default:
-		changed, err = sc.s.ChangeRole(ctx, sc.team, picked, true)
+		changed, err = sc.s.ChangeRole(ctx, sc.team, picked, true, sc.look)
 	}
 	switch {
 	case err != nil:
@@ -465,14 +477,23 @@ func (sc *screen) coordinator(ctx context.Context) error {
 	return nil
 }
 
-// pickCoordinator is the member chosen to coordinate, or tagNoOne; ui.ErrLeave for Back.
+// pickCoordinator is the member chosen to coordinate, or tagNoOne; ui.ErrLeave for Back. The
+// two paths of package coordinator: a team with none is offered one plainly; a team with one is
+// a takeover, which names it, says whether it runs and that it becomes a worker, and offers No
+// coordinator.
 func (sc *screen) pickCoordinator(ctx context.Context) (string, error) {
+	holder := sc.holder()
 	rows := make([]string, 0, 1+len(sc.roster.Members))
 	tags := make([]string, 0, 1+len(sc.roster.Members))
-	rows, tags = append(rows, "No coordinator"), append(tags, tagNoOne)
+	about := sc.team + " has no coordinator. Choose the member to make its coordinator."
+	if holder.Handle != "" {
+		rows, tags = append(rows, "No coordinator"), append(tags, tagNoOne)
+		about = sc.team + "'s coordinator is " + holder.Named() + ". A team has one coordinator: choosing " +
+			"another member is a takeover, " + holder.Handle + " becomes a worker, and the question starts on No."
+	}
 	for _, m := range sc.roster.Members {
 		row := m.Handle
-		if m.Role == agentbus.RoleCoordinator {
+		if m.Handle == holder.Handle {
 			row += "   (coordinator now)"
 		}
 		if m.Parked {
@@ -483,7 +504,7 @@ func (sc *screen) pickCoordinator(ctx context.Context) (string, error) {
 	picked, err := sc.s.Kit.Choose(ctx, ui.PickSpec{
 		Title: sc.title("Coordinator"), Rows: rows, Tags: tags, ExitLabel: "Back to the settings",
 		Header: ui.Header("Enter choose   Esc or q back to the settings",
-			"Changed at once, not by Save and apply. Who coordinates "+sc.team+"?"),
+			"Changed at once, not by Save and apply.", about),
 	})
 	return picked.Tag, err
 }

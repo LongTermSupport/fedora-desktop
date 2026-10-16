@@ -1,0 +1,1 @@
+GO-VULN-OK src-go: govulncheck found no vulnerability the code reaches

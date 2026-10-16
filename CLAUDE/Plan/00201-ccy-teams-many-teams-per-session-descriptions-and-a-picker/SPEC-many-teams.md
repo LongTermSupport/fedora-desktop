@@ -80,11 +80,19 @@ file by the play unchanged (`play-agent-bus.yml:183` passes every key, R§7).
 - **S-A14** `ccy-teams create` asks "What is this team for?" (one line, `gum input`, S-A1's
   rule checked as typed, bounded re-ask per CLAUDE/InteractiveScripts.md), shows it in the
   summary, and passes `--description`. `--yes` requires `--description` (exit 64).
-- **S-A15** The ccy-teams picker's first pass asks, once per present team without a
-  description, "Team alpha (for any repository of example-org) has no description. Write
-  one now?" Yes: the input, `declare describe`, then `Ops.ApplyTeams` for that team. No:
-  remembered under `$XDG_STATE_HOME/ccy-teams/declined/description-<team>`, as the path-limit
-  answer is (`picker/offers.go:38-104`).
+- **S-A15** The ccy-teams picker's first pass offers, per present team without a description,
+  "Team alpha (for any repository of example-org) has no description." with three visible
+  choices: "Describe alpha now" (the cursor starts there), "Not now (ask again next time)",
+  and "Never ask about alpha". Now: the input "What is team alpha for?", `declare describe`,
+  then `Ops.ApplyTeams` for that team. Not now, and Esc: nothing is kept, and the next start
+  asks again. Never: kept under `$XDG_STATE_HOME/ccy-teams/declined/description-<team>`,
+  holding `never v2`. The path-limit offer has the same three choices ("Remove alpha's limit
+  now", "Not now (ask again next time)", "Keep alpha's limit and never ask again") and its
+  marker `declined/path-limit-<team>`. A marker the old yes/no prompt kept (an empty file,
+  written for a no when there was no "later" to choose) is taken as not now, once: it is
+  removed, said, and the offer is made again, so nobody resets state by hand. A team marked
+  never has "Ask me to describe alpha again" (and "Ask me about alpha's limit again") in its
+  row's menu, which removes the marker (`picker/offers.go`). Owner feedback, Plan 00203.
 - **S-A16** Quick Launch's `Team:` line (`ccy-teams describe-seats`) shows each seat as
   `1@alpha (worker): <description>`.
 
@@ -167,6 +175,15 @@ chooser logic in bash (the bash ratchet, R§1, forbids growing `claude-yolo` or
   already handle several. What changes is choosing, showing and addressing.
 - **S-C1** Several teams are chosen at launch by S-B3's marks or by an explicit
   `--teams 1@alpha,qa2@beta` (unchanged). One seat per team (D48, unchanged).
+  Every question of a team's sequence names the team and its place among the teams being
+  joined: the scope question ("Team 2 of 3: beta · scope: beta does not trust ..."), the seat
+  question ("Team 2 of 3: beta · seat: which seat does this session take?") and the role
+  question ("Team 2 of 3: beta · role of seat 1: ..."). One team is headed "Team beta". The
+  heading is also said on its own line before the team's questions, so a team's lines (the
+  "references external" note, "Taking seat ...") sit under its own heading and never under
+  another team's. In a given list, the place counts every item, named seats included.
+  Owner feedback, Plan 00203. A shared screen heading in the ui layer would take this text:
+  it is built once, by `chooser.heading`, and handed to the seat chooser through `SeatFunc`.
 - **S-C2** A session's teams change only by a new launch; there is no join-while-running.
 - **S-C3** Restart, restore and Quick Launch replay the whole canonical list (unchanged;
   verified by a test with two teams).
@@ -325,10 +342,17 @@ the facts kept elsewhere, as built:
   fails says the change is saved in the host_vars but not applied, and that `ccy-teams apply <team>` applies it.
 - **S-F11** Discard changes forgets every pending change. Back with pending changes asks first
   (title `… › Back`, No the default); No stays on the screen.
-- **S-F12** Choosing the coordinator lists `No coordinator` and every member (the current one
-  and parked ones marked), titled `… › Coordinator`. A choice is made at once through
-  `seats.ChangeRole` (its own question, sudo and roll-back), not by Save and apply; the screen
-  then says what changed. Members that cannot be read make the row say so.
+- **S-F12** The coordinator follows the two paths of Plan 00203 SPEC-hot-control.md H25, in
+  the words of package `coordinator`. The row reads `Coordinator: <handle> (running | not running | parked | whether it is running is not known here)` or `(none)`; the running state is
+  the picker's seat rows (`seats.SnapshotRunning`), passed in. Choosing it lists every member
+  (the current one and parked ones marked), titled `… › Coordinator`. With no coordinator, the
+  header offers one plainly ("<team> has no coordinator") and there is no `No coordinator` row.
+  With one, the header names it and whether it runs, says choosing another member is a takeover
+  that makes it a worker and that the question starts on No, and `No coordinator` is offered. A
+  choice is one `seats.ChangeRole` call, given the running state: it asks the plain offer or the
+  takeover (default No) itself, and a takeover's demote and promote happen inside it, with the
+  holder put back if the promote fails. Nothing is demoted apart from a promote, except by `No coordinator`, which is that choice. It happens at once, not by Save and apply; the screen then
+  says what changed. Members that cannot be read make the row say so.
 - **S-F13** An entry with a value ccy-teams cannot read (vault-encrypted or not in the form it
   writes) shows it as such, and choosing an editable field says to change the entry by hand.
   Save and apply reads the settings again first: the summary's old values are those on disk

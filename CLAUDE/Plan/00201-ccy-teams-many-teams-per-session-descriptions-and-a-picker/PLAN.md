@@ -174,7 +174,7 @@ a repository is no longer offered for a checkout of it. Report:
   play-claude-yolo.yml); the owner's check is in ACCEPTANCE-owner.md.
 - [ ] 🔄 **Task 2.15**: a team's settings from ccy-teams (the owner: "a single update config
   thing … that then opens a pane that then has all of the different things editable"), branch
-  `feat/team-settings`, CCY 3.99.12.6 / container 2.77.5 (helpers/agent_bus is in the image). A removed person
+  `feat/team-settings`, CCY 3.99.12.5 / container 2.77.4 (helpers/agent_bus is in the image). A removed person
   is recorded in `removed_humans` and the team file refuses the name for good (S-F14, Fable's
   FIX-FIRST, `subagent-reports/261016-team-settings-review-fable.md`). Spec: [SPEC-many-teams.md](SPEC-many-teams.md) section
   F (S-F1 to S-F14, with the field table). A team row's **Edit settings** opens one screen of

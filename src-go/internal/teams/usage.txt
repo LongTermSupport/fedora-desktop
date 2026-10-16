@@ -53,9 +53,10 @@ changes at once; the name, port, listen addresses, server name, forge API and re
 are fixed. A person removed is deactivated for good and their name can never be added back.
 A team has at most one coordinator, an agent that takes the humans' requests, dispatches them
 to the workers and is copied on what workers tell humans. Its seat's MEMBER shows
-"(coordinator)". The menu of a seat has Make coordinator or Stop being coordinator (no
-shortcut): it asks first, names the current coordinator, who becomes a worker, and runs
-agent-bus set-role as root.
+"(coordinator)". The menu of a seat has Make it the coordinator (<team> has none), Stop
+being coordinator, or, on a team that has a coordinator, Replace the coordinator, listed
+last (no shortcut): a takeover names the current coordinator and whether it runs, says it
+loses the role, and defaults to no. Each asks first and runs agent-bus set-role as root.
   Esc, q   leave
 Every row's menu also has Add an LXC container's agent to <team> (no shortcut): the same as
 `ccy-teams lxc-add <team>` below.
@@ -102,7 +103,8 @@ Usage:
                                    gum, for the container, its user (the container's ordinary
                                    users are suggested), the checkout inside it (those in the
                                    user's home with a GitHub remote are suggested) and the role
-                                   (worker; coordinator only when the team has none). The
+                                   (worker first; the coordinator on a team with none, or on a
+                                   team that has one a takeover that names it, on No). The
                                    handle's repo, host and seat are never asked: they come from
                                    the checkout as ccy derives them (repo from its origin, host
                                    from .claude/ccy/ccy.env.local else local, the next free
@@ -223,8 +225,10 @@ Usage:
                                    per checkout), 78 for a session that cannot be changed while
                                    it runs. ccy-teams session --help says more
   ccy-teams choose-seat <team>     choose which seat this session takes in the team (gum), then
-                                   whether the seat is the team's coordinator, a worker, or
-                                   stops being the coordinator; prints SEAT@TEAM on stdout, the
+                                   whether the seat is the team's coordinator (offered plainly
+                                   when the team has none; when it has one, a takeover that
+                                   names it, defaulting to no), a worker, or stops being the
+                                   coordinator; prints SEAT@TEAM on stdout, the
                                    rest on stderr. Leaving the chooser prints nothing and
                                    succeeds. The role is asked only for a seat that exists, and
                                    sudo only when you change it. choose-teams uses the same

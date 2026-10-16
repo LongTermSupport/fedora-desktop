@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/agentbus"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/coordinator"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
@@ -32,6 +34,8 @@ const alphaSettings = "SETTING\tteam\t\"alpha\"\n" +
 type roleCall struct {
 	team, handle string
 	want         bool
+	// running is what the Lookup it was given says of the first member, proj.1+local.podman.
+	running coordinator.Running
 }
 
 type rig struct {
@@ -40,6 +44,8 @@ type rig struct {
 
 	s     *Settings
 	roles []roleCall
+	// look is the running state the picker hands the screen: proj.1 runs, the rest do not.
+	look coordinator.Lookup
 }
 
 func newRig(t *testing.T) *rig {
@@ -55,16 +61,31 @@ func newRig(t *testing.T) *rig {
 	w.OnDeclare("settings", alphaSettings)
 	w.OnDeclare("set", "")
 	r := &rig{World: w, Console: c}
-	r.s = New(h, kit, o.ApplyTeams, func(_ context.Context, team, handle string, want bool) (bool, error) {
-		r.roles = append(r.roles, roleCall{team, handle, want})
+	r.look = func(m agentbus.Member) coordinator.Running {
+		if m.Handle == "proj.1+local.podman" {
+			return coordinator.Active
+		}
+		return coordinator.Stopped
+	}
+	r.s = New(h, kit, o.ApplyTeams, func(_ context.Context, team, handle string, want bool, look coordinator.Lookup) (bool, error) {
+		running := coordinator.Unknown
+		if look != nil {
+			running = look(agentbus.Member{Handle: "proj.1+local.podman"})
+		}
+		r.roles = append(r.roles, roleCall{team, handle, want, running})
 		return true, nil
 	})
 	return r
 }
 
+// coordinatorIs makes the roster name handle the team's coordinator.
+func (r *rig) coordinatorIs(handle string) {
+	r.On(teamtest.SudoBus+"list alpha", strings.Replace(teamtest.BusList, "MEMBER\t"+handle+"\tdev", "MEMBER\t"+handle+"\tcoordinator", 1), 0)
+}
+
 func (r *rig) edit(t *testing.T) {
 	t.Helper()
-	if _, err := r.s.Edit(context.Background(), "alpha"); err != nil {
+	if _, err := r.s.Edit(context.Background(), "alpha", r.look); err != nil {
 		t.Fatalf("%v: %s", err, r.ErrOut.String())
 	}
 }
@@ -310,15 +331,20 @@ func TestAFailedApplySaysTheChangeIsSavedButNotApplied(t *testing.T) {
 	}
 }
 
-// S-F12: the coordinator is changed at once through the one role path (seats.ChangeRole).
-func TestTheCoordinatorIsChangedAtOnceThroughChangeRole(t *testing.T) {
+// S-F12, H25's plain path: a team with no coordinator is offered one plainly, and the choice is
+// made at once through the one role path (seats.ChangeRole), given the running state.
+func TestATeamWithNoCoordinatorIsOfferedOnePlainly(t *testing.T) {
 	r := newRig(t)
 	r.Script.Fzf = []string{"|Coordinator:", "|proj.1+local.podman", "|EXIT"}
 	r.edit(t)
-	if r.title(1) != "Team alpha › Settings › Coordinator" || !slices.Contains(r.rows(1), "No coordinator") {
+	if r.title(1) != "Team alpha › Settings › Coordinator" || slices.Contains(r.rows(1), "No coordinator") {
 		t.Fatalf("title %q rows %q", r.title(1), r.rows(1))
 	}
-	if len(r.roles) != 1 || r.roles[0] != (roleCall{"alpha", "proj.1+local.podman", true}) {
+	if h := r.HeaderOf(1); !strings.Contains(h, "alpha has no coordinator.") || strings.Contains(h, "worker") {
+		t.Fatalf("header %q", h)
+	}
+	want := roleCall{"alpha", "proj.1+local.podman", true, coordinator.Active}
+	if len(r.roles) != 1 || r.roles[0] != want {
 		t.Fatalf("roles %+v", r.roles)
 	}
 	if !strings.Contains(r.HeaderOf(2), "proj.1+local.podman is now the coordinator of alpha.") {
@@ -326,6 +352,45 @@ func TestTheCoordinatorIsChangedAtOnceThroughChangeRole(t *testing.T) {
 	}
 	if len(r.saves()) != 0 {
 		t.Fatal("a role change is not a host_vars change")
+	}
+}
+
+// S-F12, H25's takeover: with a coordinator set, the field and the list name it and whether it
+// runs, and say it becomes a worker; choosing another member is one ChangeRole call (which asks
+// the takeover question, on No, and demotes and promotes with its roll-back), never a demote
+// made apart from the promote.
+func TestReplacingACoordinatorIsATakeoverThatNamesIt(t *testing.T) {
+	r := newRig(t)
+	r.coordinatorIs("proj.1+local.podman")
+	r.Script.Fzf = []string{"|Coordinator:", "|proj.box+role.lxc", "|EXIT"}
+	r.edit(t)
+	if !slices.Contains(r.rows(0), "Coordinator: proj.1+local.podman (running)   (changed at once)") {
+		t.Fatalf("rows %q", r.rows(0))
+	}
+	h := r.HeaderOf(1)
+	for _, want := range []string{"alpha's coordinator is proj.1+local.podman (running)", "becomes a worker", "starts on No"} {
+		if !strings.Contains(h, want) {
+			t.Fatalf("the takeover header lacks %q: %q", want, h)
+		}
+	}
+	want := roleCall{"alpha", "proj.box+role.lxc", true, coordinator.Active}
+	if len(r.roles) != 1 || r.roles[0] != want {
+		t.Fatalf("roles %+v", r.roles)
+	}
+}
+
+// With a coordinator set, No coordinator is offered, and it is that member made a worker.
+func TestNoCoordinatorMakesTheCurrentOneAWorker(t *testing.T) {
+	r := newRig(t)
+	r.coordinatorIs("proj.1+local.podman")
+	r.Script.Fzf = []string{"|Coordinator:", "|No coordinator", "|EXIT"}
+	r.edit(t)
+	want := roleCall{"alpha", "proj.1+local.podman", false, coordinator.Active}
+	if len(r.roles) != 1 || r.roles[0] != want {
+		t.Fatalf("roles %+v", r.roles)
+	}
+	if !strings.Contains(r.HeaderOf(2), "alpha has no coordinator now") {
+		t.Fatalf("header %q", r.HeaderOf(2))
 	}
 }
 
