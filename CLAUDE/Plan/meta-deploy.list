@@ -19,39 +19,3 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-
-# Agent teams: joins the LXC members declared in agent_bus_lxc_members. The last run failed at
-# `pingbus suggest-handle` ("env: pingbus: Permission denied"): a new container's
-# /usr/local/share/agent-bus was made 0700 under the 077 umask lxc-attach handed on, so the
-# agent user could not reach the kit. The kit and unit scripts now set umask 022 and the agent's
-# bundle and env scripts umask 077; a root-owned kit directory left 0700 is repaired to 0755
-# (said as `kit repaired <path> from 0700 to 0755`), so this run fixes that container as it is.
-# A team with two LXC
-# members whose checkouts are two different repositories, both leaving host and seat to be
-# derived, failed here ("gives seat 1 of team <team> to two containers"): seat 1 of one repo and
-# seat 1 of another are two handles, and the check between entries now says so. Runs on the
-# host_vars as they are; members already joined keep their handles.
-# Plan 00201 Task 2.15: helpers/agent_bus/ (declare.py's `settings` and `set`, the team file's
-# `removed_humans`) is part of the admin zipapp, so every team reads "out of date (software)"
-# until this runs. It installs the new zipapp and stamps each team again. No unit, firewall or
-# rendered config changes, so no homeserver is restarted.
-playbooks/imports/play-agent-bus.yml
-# ccy 3.99.12.10 (container 2.77.7 unchanged, so no image rebuild): rebuilds ccy-teams and
-# ccy-sessions and deploys the launcher. Every picker action is a visible, named choice and a key
-# only its shortcut (project_hidden_bindings): ccy-sessions gives each session a menu and names
-# its keys in the header, the launcher's detached-session offer has a "Start a new session here"
-# row where Ctrl-N was the only way, and lxc-add's Tab completion is a listed row with Tab beside
-# it. Running sessions are not touched.
-playbooks/imports/play-claude-yolo.yml
-# Plan 00208: speech-to-text no longer pastes the previous dictation. Deploys wsi-stream and
-# rebuilds the wsi binary: the paste key is pressed only once the clipboard reads back as this
-# dictation's text; a copy that never takes is killed and retried within 3 s, then nothing is
-# pasted and a notification that stays points at Copy Last Transcription. Restarts the
-# wsi-stream-server (its handler). No extension change, so no log-out is needed. A wl-copy
-# left running by the bad dictation is not touched (each run kills only copies it started).
-# It also installs wsi-model-manager with on-screen buttons for download, remove, refresh, clear
-# filter and quit (the keys stay as shortcuts), and upgrades textual to 0.85 or later for them.
-playbooks/imports/optional/common/play-speech-to-text.yml
-# Installs the Ctrl+R history search with its start-up binding spelt in the fzf call
-# (behaviour unchanged).
-playbooks/imports/play-basic-configs.yml
