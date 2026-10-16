@@ -233,6 +233,11 @@ class Client:
 
     # ── the endpoints pingbus uses ───────────────────────────────────────────────────────
 
+    def versions(self, *, timeout: float = REQUEST_TIMEOUT_S) -> dict:
+        """The client-server API versions the homeserver serves, asked without the token: a
+        reachability probe (Plan 00203 H22 step 5)."""
+        return self.call("GET", "/_matrix/client/versions", auth=False, timeout=timeout)
+
     def whoami(self) -> dict:
         return self.call("GET", path("account", "whoami"))
 

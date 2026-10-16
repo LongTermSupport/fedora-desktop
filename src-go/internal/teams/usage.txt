@@ -158,6 +158,13 @@ Usage:
                                    the ccy session this runs in (from TMUX), so its restore
                                    replays them. ccy calls it when Quick Launch brings a saved
                                    team back; it fails if the session cannot be named
+  ccy-teams internal membership-init <session> <checkout> <seats>
+                                   write generation 1 of the session's desired agent team
+                                   bus membership (<seats>: the canonical --teams list, empty
+                                   for none) into $XDG_RUNTIME_DIR/ccy/membership/<session>/,
+                                   private to you, and print that directory, which ccy mounts
+                                   read-only into the container. ccy calls it at each launch
+                                   that carries the bus kit (Plan 00203)
   ccy-teams choose-seat <team>     choose which seat this session takes in the team (gum), then
                                    whether the seat is the team's coordinator, a worker, or
                                    stops being the coordinator; prints SEAT@TEAM on stdout, the

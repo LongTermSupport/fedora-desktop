@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.98.14"  # Container 2.69: the agent-bus health check ignores a backup run from before its team was made. See docs/ccy-changelog.md.
+CCY_VERSION="3.99.4"  # Container 2.71: the agent-bus health check ignores a backup run from before its team was made. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # from lib/ (see CCY_HASH), because a hand-written list of what the program
 # consists of is a list that goes stale — this one omitted common-pure.bash,
 # which common.bash sources, for two months.
-CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-seats)
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health session-registry restart-request session-lifecycle tmux-session agent-bus-membership agent-bus-seats)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
@@ -68,6 +68,8 @@ source "$SCRIPT_DIR/lib/restart-request.bash"
 source "$SCRIPT_DIR/lib/session-lifecycle.bash"
 # shellcheck source=lib/tmux-session.bash
 source "$SCRIPT_DIR/lib/tmux-session.bash"
+# shellcheck source=lib/agent-bus-membership.bash
+source "$SCRIPT_DIR/lib/agent-bus-membership.bash"
 # shellcheck source=lib/agent-bus-seats.bash
 source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 
@@ -76,7 +78,7 @@ source "$SCRIPT_DIR/lib/agent-bus-seats.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.69"
+REQUIRED_CONTAINER_VERSION="2.71"
 
 set -e
 
@@ -149,8 +151,7 @@ CCY_RESTART_HISTORY_DIR="$HOME/.cache/claude-yolo-restart-history"
 
 # Show version if requested
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-    echo "ccy version $CCY_VERSION"
-    echo "Hash: $CCY_HASH"
+    printf 'ccy version %s\nHash: %s\n' "$CCY_VERSION" "$CCY_HASH"
     exit 0
 fi
 
@@ -216,9 +217,11 @@ Options:
                          alone ccy asks the seat (lowest free is the default); name it
                          (--teams 1@dev-team,qa2@other-team; quote a list with spaces)
                          to skip the question, as a launch with nobody to ask must. A
-                         seat is created on first use (sudo agent-bus add-member) and
-                         held by one session. Without --teams a session is in no team.
-                         Needs play-agent-bus.yml; Quick Launch keeps seats and roles.
+                         seat is created on first use (sudo agent-bus add-member) and held
+                         by one session. Needs play-agent-bus.yml; Quick Launch keeps both.
+  --no-bus               Leave the agent team bus kit out. Without --teams a session started
+                         in ccy's tmux is on no team but carries the kit idle (no hooks run,
+                         its own status line, no inbox socket; joining a team relaunches it).
   --supervise            Force the PTY supervisor on and ARMED — it injects a
                          real /compact when context goes red while idle. The
                          supervisor already runs UNARMED by default whenever the
@@ -616,6 +619,7 @@ NEXT_IS_COMPOSE=false
 HEADLESS_MODE=false
 SUPERVISE_MODE=false
 NO_SUPERVISE_MODE=false
+NO_BUS_MODE=false
 PROMPT_TEXT=""
 NEXT_IS_MAX_AGE=false
 NEXT_IS_RUN_FOR=false
@@ -764,6 +768,8 @@ for arg in "$@"; do
         SUPERVISE_MODE=true
     elif [ "$arg" = "--no-supervise" ]; then
         NO_SUPERVISE_MODE=true
+    elif [ "$arg" = "--no-bus" ]; then
+        NO_BUS_MODE=true
     elif [ "$arg" = "--no-restore" ]; then
         # The session registry's opt-out (lib/session-registry.bash): consumed by the tmux
         # insulation on the way into the session. It is only still here on the paths where
@@ -835,7 +841,9 @@ done
 # checkout, then asks for the seat and role) and prints the seats. The canonical list then
 # replaces the one given in this launch's arguments, so tmux's session record (a restore) and
 # a restart replay the seat. Without --teams nothing here runs and agent-bus is never called.
-# The Quick Launch (below) calls this too, for the team it saved.
+# The Quick Launch (below) calls this too, for the team it saved. --no-bus cannot be given
+# with --teams (lib/agent-bus-membership.bash).
+ccy_no_bus_check "$NO_BUS_MODE" "${TEAMS_GIVEN%false}" || exit $?
 CCY_SEATS=""
 ccy_launch_teams() {
     local rc=0 attended=false next
@@ -952,7 +960,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         if [ ${#unknown[@]} -gt 0 ]; then
             ccy_flags=(
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
-                --headless --supervise --no-supervise --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
+                --headless --supervise --no-supervise --no-bus --no-restore --ssh-agent --prompt --debug --engine --ssh-key --token --create-token
                 --max-age --run-for --until
                 --teams
                 --update-token --list-tokens --token-usage --export-token --network --compose --connect --disconnect
@@ -3678,13 +3686,8 @@ fi
 CCY_LABEL_GITHUB="${GITHUB_USERNAME:-none}"
 CCY_LABEL_TOKEN="${TOKEN_NAME_FOR_CONFIG:-none}"
 CCY_LABEL_SSH_KEYS="none"
-if [ "${#SSH_KEYS[@]}" -gt 0 ]; then
-    ccy_key_basenames=()
-    for ccy_key in "${SSH_KEYS[@]}"; do
-        ccy_key_basenames+=("$(basename "$ccy_key")")
-    done
-    CCY_LABEL_SSH_KEYS="${ccy_key_basenames[*]}"
-fi
+# Each key's basename (the expansion strips every element), joined by spaces.
+[ "${#SSH_KEYS[@]}" -eq 0 ] || CCY_LABEL_SSH_KEYS="${SSH_KEYS[*]##*/}"
 
 # --- which MACHINE this session is running on --------------------------------
 #
@@ -3873,11 +3876,11 @@ ccy_lifecycle_finalize || exit 1
 # The agent team bus seats of a launch with --teams are taken here, as late as possible, so a
 # seat is created (sudo agent-bus add-member) only for a launch that is about to start; a held
 # seat or one that cannot be made stops it with agent-bus's code. With nobody to answer
-# (headless, a restore, a restart) sudo never prompts. A plain launch calls nothing and its
-# container gets no bus variable and no ccy-seats label (lib/agent-bus-seats.bash).
-_ccy_seats_unattended="$CCY_UNATTENDED_LAUNCH"
-[ "$HEADLESS_MODE" = true ] && _ccy_seats_unattended=true
-ccy_seats_take "$CCY_SEATS" "$_ccy_seats_unattended" || exit $?
+# (headless, a restore, a restart) sudo never prompts. A plain launch takes no seat. Either
+# way the container is told about the bus (lib/agent-bus-membership.bash): in ccy's tmux, the
+# ccy-session label and, unless --no-bus, the read-only membership mount and PINGBUS_MEMBERSHIP.
+# Unattended: a headless launch (HEADLESS_MODE true), else whatever CCY_UNATTENDED_LAUNCH says.
+ccy_seats_take "$CCY_SEATS" "${HEADLESS_MODE/false/$CCY_UNATTENDED_LAUNCH}" "$NO_BUS_MODE" "$CONTAINER_NAME" || exit $?
 container_rc=0
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \

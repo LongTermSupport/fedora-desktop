@@ -389,6 +389,9 @@ class PlainTest(TempDir):
         labels = self.write("labels", json.dumps({"ccy": "true", "ccy-project": "x"}))
         env = self.write("env", json.dumps(["PATH=/usr/bin", "HOME=/root"]))
         self.assertEqual(run("expect-plain", labels, env)[0], 0)
+        # Plan 00203 M2: a launch outside ccy's tmux with no --teams states PINGBUS_MEMBERSHIP=off.
+        off = self.write("off", json.dumps(["PATH=/usr/bin", "PINGBUS_MEMBERSHIP=off"]))
+        self.assertEqual(run("expect-plain", labels, off)[0], 0)
 
     def test_a_seat_label_or_bus_variable_fails(self) -> None:
         seated = self.write(
@@ -397,8 +400,10 @@ class PlainTest(TempDir):
         plain = self.write("plain", json.dumps({"ccy": "true"}))
         clean = self.write("env", json.dumps(["PATH=/usr/bin"]))
         bus = self.write("bus", json.dumps(["PINGBUS_SEATS=1@x"]))
+        kit = self.write("kit", json.dumps(["PINGBUS_MEMBERSHIP=/run/ccy/membership"]))
         self.assertEqual(run("expect-plain", seated, clean)[0], 1)
         self.assertEqual(run("expect-plain", plain, bus)[0], 1)
+        self.assertEqual(run("expect-plain", plain, kit)[0], 1)
         self.assertEqual(run("expect-plain", self.write("none", "{}"), clean)[0], 1)
 
 

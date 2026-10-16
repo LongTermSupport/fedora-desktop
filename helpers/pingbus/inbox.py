@@ -77,8 +77,10 @@ WAKER_KINDS = ("watch", "wait")
 #: What a session writes into each `seat.lock` it claims, followed by the claim time in
 #: milliseconds (DESIGN.md section 5.5); never a sync lock's kind.
 SEAT_KIND = "seat"
+#: What the seat keeper writes into the session home's `keeper.lock` (Plan 00203 D4, H10).
+KEEPER_KIND = "keeper"
 #: Every kind the one lock primitive writes.
-PATH_LOCK_KINDS = (*LOCK_KINDS, SEAT_KIND)
+PATH_LOCK_KINDS = (*LOCK_KINDS, SEAT_KIND, KEEPER_KIND)
 #: Enough for a kind, a space and a claim time.
 KIND_READ_MAX = 64
 #: A held lock whose file does not (yet) name a kind.
@@ -355,6 +357,16 @@ class TeamState:
             return _check_sync_token(data["next_batch"])
         except ValueError:
             raise StateError(f"{self.path / SYNC_FILE} holds a malformed sync token") from None
+
+    def forget_sync_token(self) -> bool:
+        """Drop the saved `next_batch`, so the next sync is a first sync (§9) and nothing
+        posted meanwhile is fetched (Plan 00203 H23 step 5); whether there was one."""
+        path = self.path / SYNC_FILE
+        if not os.path.lexists(path):
+            return False
+        os.unlink(path)
+        _fsync_dir(self.path)
+        return True
 
     def pending(self, ctx: protocol.Context, self_user_id: str, *, human_text: bool) -> Pending:
         """Every inbox item that still passes the offline validator, oldest first."""
@@ -741,11 +753,15 @@ class Lock:
         os.set_inheritable(self.fileno(), True)
 
     def release(self) -> None:
+        """Empty the file, unlock it, close it. The explicit LOCK_UN frees the lock for
+        every copy of the descriptor (Plan 00203 D4); a close alone frees it only when the
+        copy closed is the last."""
         if self._fd is None:
             return
         fd, self._fd = self._fd, None
         try:
             os.ftruncate(fd, 0)
+            fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 

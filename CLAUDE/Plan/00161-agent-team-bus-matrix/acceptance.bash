@@ -96,7 +96,7 @@
 # run is that empty directory after an interrupted first run: the next run finds it present.
 # M2 adds the acceptance seats to this checkout's git-ignored .claude/ccy/pingbus/seats/ (removed
 # by `agent-bus seat remove`, and deleted first if an interrupted run left them), its sessions'
-# containers (found by their ccy-seats label, removed first too) and transcripts (moved into the
+# containers (found by their membership mount, removed first too) and transcripts (moved into the
 # run directory), and three podman members of the team (gone with it).
 # The run directory keeps the evidence (each member's stdout and stderr, the team file, the
 # human's message, acceptance-report.md); the tokens leave it once each member holds its own.

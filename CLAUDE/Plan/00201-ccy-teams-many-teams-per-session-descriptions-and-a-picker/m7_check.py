@@ -24,7 +24,7 @@ the model's prose. Standard library only, and only `bus-ports` imports from this
   turns STREAM                       turns that ended (`result` lines) in a session's stdout
   session-id STREAM                  the session ID of its `init` line; exit 3 while none
   expect-held SEAT_LIST SEAT@TEAM[,...]   every one is held in `agent-bus seat list`; 3 if not
-  seat-containers TEAM[,TEAM...]     stdin "ID<TAB>ccy-seats label": those holding a seat of one
+  seat-containers TEAM[,TEAM...]     stdin "ID<TAB>seats" (the session's desired seats): those holding a seat of one
   expect-list-row LIST TEAM DESCRIPTION   `ccy-teams --list` (piped) shows it whole on the team row
   expect-block STDERR (SEAT TEAM DESCRIPTION)...   the launch block names exactly those seats
   status-ready STATUS TEAM...        `pingbus status`: each team trusted with an ABOUT line; 3 if not
@@ -33,7 +33,7 @@ the model's prose. Standard library only, and only `bus-ports` imports from this
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
   expect-kit-status-line SETTINGS    the kit's settings.json makes `pingbus status-line` the status line
   expect-segment OUT TEAMS           `pingbus status-line` printed the session's own line, then | bus: TEAMS
-  expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable
+  expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
 64 usage.
@@ -446,10 +446,12 @@ def expect_plain(labels: object, env: object) -> None:
     problems = []
     if "ccy-seats" in labels:
         problems.append(f"the container carries ccy-seats={labels['ccy-seats']!r}")
+    # Plan 00203 M2: the one bus variable a plain launch carries is the marker saying it has no
+    # kit, PINGBUS_MEMBERSHIP=off (a headless launch outside ccy's tmux, no --teams).
     bus = [
         item.split("=", 1)[0]
         for item in (env if isinstance(env, list) else [])
-        if isinstance(item, str) and item.startswith("PINGBUS_")
+        if isinstance(item, str) and item.startswith("PINGBUS_") and item != "PINGBUS_MEMBERSHIP=off"
     ]
     if bus:
         problems.append(f"the container's environment sets {bus}")

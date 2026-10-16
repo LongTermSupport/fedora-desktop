@@ -9,7 +9,8 @@
 # calls check right after its argument parsing and take just before the container starts, and
 # exits with their code when either refuses: 64 a malformed list, 75 a held seat, 78 anything
 # else that stops the seats being had (a team not running here, a seat that cannot be made).
-# A launch without --teams calls neither and passes the container no bus variable.
+# A launch without --teams calls neither. What the container is told about the bus, seats or
+# none, is lib/agent-bus-membership.bash's (Plan 00203).
 #
 # A team named alone (`ccy --teams long-term-support`, Plan 00177 Task 4.8) is the normal
 # form on a terminal: the launcher has `ccy-teams choose-teams` show the checkout's seats in
@@ -19,7 +20,8 @@
 # replays the seat. A launch with nobody to choose (headless, no terminal, a restore, a
 # restart) checks with `--resolved`, which refuses a team alone.
 #
-# Requires print_error (common-pure.bash, always loaded first).
+# Requires print_error (common-pure.bash, always loaded first) and ccy_membership_args
+# (agent-bus-membership.bash).
 
 # The agent-bus wrapper, which play-agent-bus.yml installs on every desktop.
 CCY_AGENT_BUS_COMMAND="agent-bus"
@@ -60,28 +62,30 @@ ccy_seats_check() {
     printf '%s\n' "$canonical"
 }
 
-# ccy_seats_take <canonical-list> <unattended> — claim the launch's seats on the host, creating
-# any that do not exist, and fill CCY_SEAT_RUN_ARGS with what the container then gets:
-# PINGBUS_SEATS and the ccy-seats label. An empty list (a plain launch) calls nothing and
-# leaves CCY_SEAT_RUN_ARGS empty. Unattended (true: headless, a restore or a restart), sudo
-# never prompts. take's own report goes to stderr, so a headless session's stdout stays its own;
-# so does the launch block `ccy-teams describe-seats --block` prints after it (every team the
-# session is on, with its seat, role and what the team is for; a failure of it stops the launch).
+# ccy_seats_take <canonical-list> <unattended> <no-bus> <container> — fill CCY_SEAT_RUN_ARGS
+# with what the container gets about the bus (ccy_membership_args, lib/agent-bus-membership.bash:
+# the ccy-session label, the read-only membership mount and PINGBUS_MEMBERSHIP), then claim
+# the launch's seats on the host, creating any that do not exist. An empty list (a plain
+# launch) takes nothing and calls no agent-bus. Unattended (true: headless, a restore or a
+# restart), sudo never prompts. take's own report goes to stderr, so a headless session's stdout
+# stays its own; so does the launch block `ccy-teams describe-seats --block` prints after it
+# (every team the session is on, with its seat, role and what the team is for; a failure of it
+# stops the launch).
 #   status 0   the seats are ready
-#   otherwise  agent-bus seat take's code (75 a held seat, 78 a seat that cannot be made), or
-#              78 when agent-bus is missing, or ccy-teams describe-seats --block's own code
-#              (the seats are then already taken); the reason on stderr
+#   otherwise  ccy_membership_args's code, agent-bus seat take's (75 a held seat, 78 a seat
+#              that cannot be made), 78 when agent-bus is missing, or ccy-teams describe-seats
+#              --block's own code (the seats are then already taken); the reason on stderr
 ccy_seats_take() {
     local canonical="${1?ccy_seats_take requires the canonical list, or an empty one}"
     local unattended="${2:?ccy_seats_take requires true or false}" rc
-    CCY_SEAT_RUN_ARGS=()
+    ccy_membership_args "$canonical" "${3:?ccy_seats_take requires --no-bus true or false}" \
+        "${4:?ccy_seats_take requires the container name}" || return
     [ -n "$canonical" ] || return 0
     _ccy_seats_need_agent_bus || return
     local take=("$CCY_AGENT_BUS_COMMAND" seat take "$canonical")
     [ "$unattended" != true ] || take+=(--no-prompt)
     "${take[@]}" >&2 || { rc=$?; print_error "Not starting: agent-bus seat take could not seat this session in $canonical (exit $rc; the reason is above).
   End the session that holds a seat, choose another seat, or launch without --teams."; return "$rc"; }
-    CCY_SEAT_RUN_ARGS+=(-e "PINGBUS_SEATS=$canonical" --label "ccy-seats=$canonical")
     ccy-teams describe-seats --block "$canonical" >&2 || { rc=$?; print_error "Not starting: ccy-teams describe-seats --block failed (exit $rc; the reason is above)."; return "$rc"; }
 }
 

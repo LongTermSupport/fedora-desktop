@@ -85,7 +85,7 @@ Two things are **not** frozen:
     so nothing is inherited and claude's tree holds none.
   - It also:
     - makes the session home, even with no seat;
-    - keeps the flag file and the session's settings (H34);
+    - keeps the flag file (H34; the session's settings are fixed at launch, per the M2 spike);
     - reconciles the read-only file against its locks and the home links;
     - starts the watcher when the first seat is applied (H11).
   - Release is an explicit `flock(LOCK_UN)` before the close. Today's `Lock.release` truncates
@@ -199,6 +199,10 @@ Two things are **not** frozen:
   - It writes generation 1 from the canonical `--teams` list, with empty `seats` when there is
     none. It does this through `ccy-teams internal membership-init <session> <checkout> <list>`, so no bash grows.
   - Test: `scripts/test-ccy-teams.bash` sees the mount with the relabel token, and the label.
+  - As built in M2: a `--teams` launch with no registry name (a plain terminal, H35) still gets
+    its seats through a membership directory, named after its container instead; it has no
+    `ccy-session` label, so it is not hot-controllable. A plain launch with no name gets
+    `PINGBUS_MEMBERSHIP=off`, as `--no-bus` does.
 
 - **H2.** The launcher states the bus choice explicitly:
   `-e PINGBUS_MEMBERSHIP=/run/ccy/membership`, or `-e PINGBUS_MEMBERSHIP=off` for `--no-bus`.
@@ -382,6 +386,18 @@ Two things are **not** frozen:
      generation.
   9. Report what the session will be told.
 
+  **The first join of a session launched on no team relaunches it, once** (H34, Decision 1).
+  Such a session was launched without `crossSessionInbound`, which Claude Code reads only at
+  start, so it has no inbox socket. Step 7 is then followed by a relaunch through the existing
+  restart path (the supervisor's restart request, `lib/restart-request.bash`, which replays
+  the record's `--teams`, now naming the new seat): the session comes back in the same tmux
+  session, resumed, in its seat, with inbound accepted. Every later change to it is hot. The
+  per-step report says so before it happens and when it is done:
+  `✓ session: relaunched once to accept team messages (it started on no team): resumed, seat 3 held (14 s)`.
+  The keeper's report (3.3) carries `"inbound": true|false`, so ccy-teams knows which path a
+  session needs without guessing; until M1's keeper writes it, the launch membership's seats
+  (none means no inbound) answer the same question.
+
   A failure at steps 1 to 6 changes nothing. A failure at 8 restores the record and the
   desired file, and reports the keeper's `why`.
 
@@ -498,6 +514,11 @@ Two things are **not** frozen:
 - **H33. Inert hooks.** The keeper keeps a flag file, `$PINGBUS_HOME/active`, which exists if
   and only if at least one seat is applied. Every hook command in `hooks.json` becomes
   `[ -e "$PINGBUS_HOME/active" ] || exit 0; exec pingbus hook <event>`.
+  - As built in M2 the guard is `[ -z "$PINGBUS_MEMBERSHIP" ] || [ -e "$PINGBUS_HOME/active" ] || exit 0`:
+    the kit's `hooks.json` is shared with `cc --teams` and `agent-bus-claude` members, which
+    set no `PINGBUS_MEMBERSHIP` and keep no flag, and run every hook as before.
+    SessionStart's inert branch writes `$PINGBUS_HOME/socket.json` (`{v, socket, token}`,
+    mode 0600) with `jq`, reading the socket and token from the environment, never argv.
   - SessionStart is the exception: it still runs, so it can record `socket.json` (H11). It does
     that in the shell, with no Python, when the flag is absent.
   - Test: the plugin contract test runs every hook with the flag absent and sees no `python3`
@@ -510,27 +531,49 @@ Two things are **not** frozen:
     settings, and writes it to `statusline-inner`. So a plain session starts no per-second
     Python, and keeps the status line it would have had.
 
-  - **Cross-session inbound.** `crossSessionInbound: accept` is present only while a seat is
-    applied. The keeper rewrites the file atomically on the first add and the last remove.
+  - **Cross-session inbound.** A session launched with at least one seat is launched with
+    `crossSessionInbound: accept`, and the watcher, which runs only while a seat is applied
+    (H11), is the only writer the kit starts. A session launched on no team is launched
+    **without** it, so Claude Code binds no inbox socket and nothing in the container can
+    write a turn into it (Decision 1, as the owner set it). Its first join relaunches it once
+    (H22); a later remove of its last seat leaves inbound accepted until it next ends, with
+    the watcher gone, as for any seated session today.
+  - **Where the socket is** (probed in a CCY container, Claude Code 2.1.301): Claude Code
+    binds `$XDG_RUNTIME_DIR/cc-socks/<pid>.sock`, on the container's own root filesystem, not
+    under `/root/.claude` (which is the shared checkout) and not on any mount. So a sibling
+    container of the same checkout cannot reach it; only processes in the session's own
+    container can.
 
-  - **M2 spike, before M3 is built:** prove whether Claude Code re-reads a changed `--settings`
-    file. If it does not:
+  - **M2 spike result: Claude Code does not re-read a `--settings` file mid-session** (2.1.301,
+    probed in a real interactive session in a CCY container, no prompt sent). A status line in
+    the file at start ran each second. An atomic replace (temp file, then rename), an in-place
+    rewrite and a removal of the `statusLine` were all ignored for 20-30 s each: the first
+    command kept running. A file with no status line at start never gained one when one was
+    added, by either kind of write. `crossSessionInbound` could not be observed directly; it is
+    read from the same file at the same time. So the settings are fixed at launch:
 
-    - the session is launched with inbound accepted, and the watcher, which runs only while a
-      seat is applied (H11), is the only writer;
-    - the exposure is named in docs/ccy.md: in a container, the agent could inject into its own
-      session, which it can already do.
-
-    The spike's result is recorded in the plan journal, and this requirement is revised to
-    match it.
+    - inbound is decided at launch (above): accepted for a seated launch, absent for a
+      launch on no team, whose first join relaunches it; the keeper does **not** rewrite
+      `settings.json`;
+    - the status line command is the guard from launch, so it follows the `active` flag without
+      a reload;
+    - its `refreshInterval` is fixed at launch too: a seated launch gets 1 s, as before; a
+      session launched on no team keeps the inner status line's own interval (none, if it has
+      none). Its first join relaunches it seated, so it then gets 1 s.
+    - A settings file the inner status line cannot be read from (not JSON, unreadable) does
+      not stop the session: the claim names the file on stderr and launches with no
+      `statusLine` of its own, so Claude Code's applies and there is no bus segment.
+    - In M2 the claim (`pingbus seat exec`) writes `settings.json`, `statusline-inner` and the
+      flag, once, before it execs claude; M1's keeper takes the flag over.
 - **H33a. One resident process.** A plain session runs exactly one bus process, the keeper.
   - Acceptance (M2): `podman exec <c> ps` shows one `pingbus` process.
   - Acceptance (M2): the session's idle CPU over a minute is unchanged from before M2
     (`top -b -n 2`).
 - **H33b. `--no-bus`.** `ccy --no-bus` launches without the plugin, the settings (so no status
   line wrapper and no inbound), the keeper and the mount, and with `PINGBUS_MEMBERSHIP=off`.
-  Under H33, H33a and H34, a plain session and a `--no-bus` session differ only by the mount
-  and the keeper process. The usage text says so, so the owner can choose. A `--no-bus` session
+  Under H33, H33a and H34, a plain session and a `--no-bus` session both have no inbound and
+  no inbox socket, and differ by the mount, the keeper process, the plugin (whose hooks end in
+  the shell) and the status line wrapper (which runs the session's own). The usage text says so, so the owner can choose. A `--no-bus` session
   is refused hot control with exit 78.
 - **H35. Who can be hot-controlled.** Only a ccy session that ccy-sessions knows: one started
   inside ccy's tmux, which has a registry name and record. A `ccy` run in a plain terminal has
@@ -637,6 +680,10 @@ host through `meta-deploy.bash`.
 | M6  | cc: H31, H32, `cc --bus`                                                                                                                                                                                                                                                                                                                                                                                   | cc reaches parity, with its documented weaker authority                                          | (a) `cc --teams <team>`, then `ccy-teams session move cc-<id> ...` from another terminal. (b) Audit F5: `setsid sleep 600` from a `cc --teams` Bash tool, quit, relaunch into the same seat at once: it is free                                                                                                                                                                                                                                                      |
 | M7  | Docs: docs/agent-bus.md (seats, hot control, "remove does not revoke"), docs/ccy.md (the mount, the label, `--no-bus`, inbound), the usage text (H35), the protocol §12 additions (`PINGBUS_MEMBERSHIP`, `applied.json`)                                                                                                                                                                                   | documentation                                                                                    | qa-reviewer, then the owner reads it                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
+M1 builds on what M2 shipped in pingbus rather than beside it: `seat.parse_membership` (the
+strict 3.1 reader), the empty membership in `seat exec`, and the claim's session files
+(`settings.json`, `statusline-inner`, the `active` flag). The keeper takes the flag over.
+
 ## 7. Interaction with work in flight
 
 - **fix/watcher-survives-homeserver-restart** is M0, shipped as it is. It brings:
@@ -689,7 +736,9 @@ Settled by the coordinator under the owner's standing "do not gate on me", and r
 PLAN.md and the plan journal. **The owner may reverse any of them.**
 
 1. **The bus kit is loaded in every named ccy session, with a `--no-bus` opt-out.** This holds
-   on the condition that the inert contract (H33, H33a, H34) is met and tested in M2.
+   on the condition that the inert contract (H33, H33a, H34) is met and tested in M2. Inbound
+   is decided at launch (the M2 spike): none for a session launched on no team, whose first
+   join relaunches it once (H22).
 2. **Control, not isolation, within a checkout** (D6). A remove does not revoke the token.
    `--revoke` is deferred behind audit F7.
 3. **cc's weaker authority (H31) is accepted**, and so is the new `cc --bus`.

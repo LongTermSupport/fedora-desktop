@@ -131,6 +131,8 @@ TEMPLATES = {
     "role_worker_alone": "agent-bus: in team {team} you are a worker; the team has no coordinator.",
     "no_socket": ("agent-bus: this session has no inbox socket. To be woken, run `pingbus wait` "
                   "with run_in_background."),
+    "keeper_stopped": ("agent-bus: the seat keeper has stopped; every seat is released; the owner can "
+                       "repair it from ccy-teams."),
     "watcher_failed": ("agent-bus: the watcher could not be started. Run `pingbus status`; "
                        "meanwhile run `pingbus wait` with run_in_background."),
     "config": "agent-bus: the pingbus configuration was refused. Run `pingbus config check`.",
@@ -512,9 +514,23 @@ class _Hook:
     spawn: Callable[[Mapping[str, str], pathlib.Path], object]
     err: TextIO
 
+    def _keeper_lines(self) -> list[str]:
+        """Plan 00203 H10: the session's seat keeper is gone (its lock free) while the
+        session runs, so no seat is held. A session with no keeper (an `agent-bus-claude`
+        member) has no `keeper.lock` and is told nothing."""
+        path = config.resolve_home(self.environ) / seat.KEEPER_LOCK
+        if not os.path.lexists(path):
+            return []
+        try:
+            stopped = inbox.probe_lock_at(path) is None
+        except inbox.StateError as exc:
+            self.err.write(f"pingbus: hook {self.event}: the seat keeper's lock is unusable: {exc}\n")
+            stopped = True
+        return [TEMPLATES["keeper_stopped"]] if stopped else []
+
     def session_start(self) -> dict:
         surveyed = survey(self.environ)
-        lines = self._session_teams_lines(surveyed)
+        lines = self._keeper_lines() + self._session_teams_lines(surveyed)
         lines += [] if surveyed.relaying else self._wake_lines(surveyed)
         if surveyed.injecting:
             lines.append(TEMPLATES["inject_frame"])
@@ -603,7 +619,8 @@ class _Hook:
         surveyed = survey(self.environ)
         self._record_transcript(surveyed)
         revived = self._revive(surveyed)
-        lines = [] if revived is None else [TEMPLATES[f"watcher_{revived}"]]
+        lines = self._keeper_lines()
+        lines += [] if revived is None else [TEMPLATES[f"watcher_{revived}"]]
         return _context(self.event, lines + self._pending_and_failure(surveyed))
 
     def _record_transcript(self, surveyed: Survey) -> None:
