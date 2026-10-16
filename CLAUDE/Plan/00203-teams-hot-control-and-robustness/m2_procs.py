@@ -5,7 +5,8 @@ THE SESSION'S CONTAINER: `podman exec <c> python3 -I <this> <check> /proc`.
 A bus process is a program, not a word in an argv: claude itself names the plugin directory
 `.../plugin/pingbus` in its argv, and a prompt may say "pingbus". So a process is a bus process
 when its program is the pingbus or agent-bus entry point: argv[0], or argv[1] when argv[0] is a
-python interpreter (the kernel runs a script's shebang that way), by basename.
+python interpreter (the kernel runs a script's shebang that way), by basename. A pingbus run
+from a source tree (`python3 -c ...`) is out of scope: a ccy container runs the zipapp.
 
   keeper-only     (M1 b) exactly one bus process, `pingbus seat keep --launch --parent ...`,
                   holding keeper.lock; no other process holds keeper.lock or seat.lock

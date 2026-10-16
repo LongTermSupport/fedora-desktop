@@ -29,8 +29,10 @@
 # THE CHECKOUT comes out as it went in: `ccy.env.local`, the seats in `.claude/ccy/pingbus/`,
 # `git status --porcelain=v1` and HEAD are recorded before M2.0 and compared at M2.10, after
 # `agent-bus seat remove` of every acceptance seat. Seats of other teams are never touched.
-# The named session's keeper report (sessions/u20-named-<pid>/) goes with its teardown, and
-# the ones an earlier run left are removed before M2.0; no other session's report is touched.
+# Each seated session's keeper report goes with the teardown: the named one's
+# (sessions/u20-named-<pid>/), and the unnamed ones' (sessions/<container name>/) when that
+# name was not there before M2.0. Stale u20-named-* reports are removed before M2.0; no other
+# session's report is touched.
 #
 # Reads acceptance.bash's globals (TEAM, HUMAN, CHECK, AGENT_BUS, PINGBUS, REPORT, TEAM_PRESENT,
 # PLAN_*), and the M1 slice's: REF_PATH, REF_COMMIT, REF_BRANCH, A_HANDLE (M1's member a, the host
@@ -70,6 +72,8 @@ declare -gA U20_PID=() U20_FD=() U20_SEAT_OF=() U20_CTR=() U20_TRANSCRIPT=() U20
 #: Whether this run launched a session into this checkout, so its cleanup has work to do.
 U20_STARTED=0
 U20_TOKEN_NAME=""
+#: The names the seated sessions' keepers report under (their container names), in launch order.
+U20_REPORT_NAMES=()
 U20_REVIEW1=""
 U20_ACK1=""
 U20_REVIEW3=""
@@ -166,6 +170,7 @@ u20_remove_containers() {
     u20_seat_label_listing "${listing}" || return 1
     ids="$("${U20[@]}" seat-containers "${TEAM}" <"${listing}")" || return 1
     for id in ${ids}; do
+        u20_note_report "${id}" || return 1
         podman rm -f -t 10 -- "${id}" >/dev/null || return 1
         printf '==> removed the ccy container %s (an acceptance seat)\n' "${id}"
     done
@@ -401,6 +406,37 @@ u20_container_up() {
         return 1
     fi
     U20_CTR[${s}]="${ids}"
+    if [[ -n "${seat}" ]]; then
+        u20_note_report "${ids}" || return 1
+    fi
+}
+
+# u20_note_report <container> — remember the name a seated session's keeper reports under:
+# an unnamed launch's membership directory, and so its report, is named after its container
+# (`ccy-teams internal membership-init "${session:-$container}"`), the mount's basename.
+u20_note_report() {
+    local src
+    src="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/run/ccy/membership"}}{{.Source}}{{end}}{{end}}' "$1")" || return 1
+    [[ -n "${src}" ]] || { printf '[FAIL] container %s has no membership mount\n' "$1" >&2; return 1; }
+    U20_REPORT_NAMES+=("$(basename -- "${src}")")
+}
+
+# u20_remove_launch_reports — the reports of the seated sessions this run launched, each only
+# when its name was not in .claude/ccy/pingbus/ before M2.0 (a report already there is from an
+# earlier session in the same container slot; this run's rewrite leaves the listing unchanged).
+u20_remove_launch_reports() {
+    local name before
+    before="$(u20_ev before)/pingbus.list"
+    [[ "${#U20_REPORT_NAMES[@]}" -gt 0 ]] || return 0
+    [[ -f "${before}" ]] || { printf '[FAIL] sessions were launched but %s was never recorded\n' "${before}" >&2; return 1; }
+    for name in "${U20_REPORT_NAMES[@]}"; do
+        if ! grep -qxF "sessions/${name}"$'\t'"d" "${before}"; then
+            rm -rf -- "${U20_REPORTS:?}/${name}" || return 1
+        fi
+    done
+    if [[ "${U20_REPORTS_FOUND}" -eq 0 && -d "${U20_REPORTS}" ]]; then
+        rmdir --ignore-fail-on-non-empty -- "${U20_REPORTS}" || return 1
+    fi
 }
 
 # u20_seat_held <seat> — `seat list` shows it held; 3 while it is not yet.
@@ -1070,11 +1106,14 @@ readonly U20_NAMED="u20-named-$$"
 readonly U20_NAMED_DIR="${XDG_RUNTIME_DIR:?}/ccy/membership/${U20_NAMED}"
 #: Its registry record: a launch in ccy's tmux writes one, `--no-restore` or not.
 readonly U20_NAMED_RECORD="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions/${U20_NAMED}"
-# A named session's keeper reports to .claude/ccy/pingbus/sessions/<name>/ (Plan 00203 SPEC
-# 3.3). The report outlives the session as designed: it is never authority, only a running
-# session's is read, and the next keeper of that name rewrites it at its start. So this run
-# removes its own, and before M2.0 the ones an earlier run left (this name pattern only, none
-# whose session runs); M2.10 then compares the checkout strictly.
+# Every seated session's keeper reports to .claude/ccy/pingbus/sessions/<name>/ (Plan 00203
+# SPEC 3.3): the named one under its tmux session's name, the unnamed M2.0 sessions under their
+# container's name (only the named one is hot-controllable, but both report). The report
+# outlives the session as designed: it is never authority, only a running session's is read,
+# and the next keeper of that name rewrites it at its start. So this run removes the reports
+# of its own sessions (u20_named_down, u20_remove_launch_reports), and before M2.0 the
+# u20-named-* ones an earlier run left (none whose session runs); M2.10 then compares the
+# checkout strictly.
 readonly U20_REPORTS="${U20_BUS_DIR}/sessions"
 readonly U20_OWN_NAMES='^u20-named-[0-9]+$'
 #: Whether sessions/ was there before M2.0: the named session's teardown removes it only if
@@ -1238,6 +1277,7 @@ u20_cleanup() {
     done
     u20_named_down || return 1
     u20_remove_containers || return 1
+    u20_remove_launch_reports || return 1
     list="$(u20_present_seats)"
     if [[ -n "${list}" ]]; then
         u20_seat_cmd remove "${list}" || return 1
@@ -1275,6 +1315,7 @@ u20_teardown_after_stop() {
         u20_keep_transcript "${s}" || failed=1
     done
     u20_remove_containers || failed=1
+    u20_remove_launch_reports || failed=1
     list="$(u20_present_seats)"
     if [[ -n "${list}" ]] && { [[ "${TEAM_PRESENT}" -ne 1 ]] || ! u20_seat_cmd remove "${list}"; }; then
         printf '[WARN] the acceptance seats could not be parked; deleting %s, as the team is purged next\n' "${U20_TEAM_SEATS}" >&2
