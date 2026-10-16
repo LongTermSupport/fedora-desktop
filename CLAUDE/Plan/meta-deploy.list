@@ -24,8 +24,17 @@
 # and no image rebuild). In `ccy-teams`, Tab now shows the running sessions: add one to a team
 # (Ctrl-A), remove it (Ctrl-X), change its role (Ctrl-O), move it, attach it, or repair a
 # stopped seat keeper, each by running the `ccy-teams session` command for you. Running sessions
-# are not touched.
+# are not touched. Plan 00201 Task 2.15 rides on the same play: Enter on a team, then Edit
+# settings, opens one screen of the team's fields to change, save and apply (ACCEPTANCE-owner.md
+# step 13). It does bump the launcher and image (CCY 3.99.10.2, container 2.75.2), because
+# declare.py is in the image's agent_bus copy: the next ccy launch rebuilds the image once.
+# Running sessions are not touched.
 playbooks/imports/play-claude-yolo.yml
+# Plan 00201 Task 2.15: helpers/agent_bus/declare.py gained `settings` and `set`, and it is part
+# of the admin zipapp, so every team reads "out of date (software)" until this runs. It installs
+# the new zipapp and stamps each team again. No unit, firewall or rendered config changes, so no
+# homeserver is restarted.
+playbooks/imports/play-agent-bus.yml
 # Plan 00203 acceptance again, on the M5 ccy-teams: every milestone in turn (M2, M1, M3, M4,
 # then R1-R9; throwaway teams acc-m3a, acc-m3b, acc-m4a, acc-m4b, acc-robust and throwaway
 # headless sessions in ccy's tmux, all removed after). M4 (e) re-proves `ccy-teams session

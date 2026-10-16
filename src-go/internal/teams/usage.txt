@@ -46,6 +46,10 @@ too (? there shows every key, explained). The shortcuts:
            with its question and its steps. Tab or Esc comes back to the teams
 The menu of a team row also has Shut down every session of <team> (no shortcut): the same as
 `ccy-teams shutdown <team>` below.
+The menu of a team row also has Edit settings (no shortcut): every field of the team's entry
+with its value. Each editable one is checked as it is typed; Save and apply writes the changes
+to the host_vars in one edit and applies the team, as ccy-teams apply does. The coordinator
+changes at once; the name, port, listen addresses, server name and forge API are fixed.
 A team has at most one coordinator, an agent that takes the humans' requests, dispatches them
 to the workers and is copied on what workers tell humans. Its seat's MEMBER shows
 "(coordinator)". The menu of a seat has Make coordinator or Stop being coordinator (no

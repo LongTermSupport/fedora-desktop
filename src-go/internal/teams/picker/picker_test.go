@@ -60,7 +60,7 @@ func TestPickerHeaderNamesTheCheckoutTopNotTheSubdirectory(t *testing.T) {
 	header := h.HeaderOf(0)
 	for _, want := range []string{
 		"↑↓ choose   Enter lists what can be done to the row   Tab running sessions   ? help   Esc or q quit\n",
-		"This row: Ctrl-E open alpha in Element   open every team in Element via Enter   Ctrl-N start a session in alpha   add an LXC container to alpha via Enter   Ctrl-U update out-of-date teams   shut down alpha's sessions via Enter   Ctrl-X take alpha down   ? help\n",
+		"This row: Ctrl-E open alpha in Element   open every team in Element via Enter   Ctrl-N start a session in alpha   add an LXC container to alpha via Enter   edit alpha's settings via Enter   Ctrl-U update out-of-date teams   shut down alpha's sessions via Enter   Ctrl-X take alpha down   ? help\n",
 		"Ctrl-N starts a new ccy session in the row's team, in " + h.Checkout() + "\n",
 		"session restore on this machine is off (ccy_restore_sessions)\n",
 		"TEAM ",

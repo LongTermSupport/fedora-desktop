@@ -52,6 +52,8 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 		return r.addLxc(ctx, row.Team)
 	case keyShutdown:
 		return r.p.Shutdown.Offer(ctx, row.Team)
+	case keySettings:
+		return r.p.Settings.Edit(ctx, row.Team)
 	}
 	r.p.Kit.Tell("That key does nothing here. Enter lists what can be done to a row. ? shows every key.")
 	r.p.Kit.BackToList(ctx)

@@ -17,6 +17,14 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.10.2 — container 2.75.2
+
+- **A team's settings from ccy-teams** (Plan 00201 Task 2.15). Enter on a team row, then Edit
+  settings, opens one screen of the team's fields. You edit them, then save and apply them in
+  one step. The image changes only because `helpers/agent_bus/declare.py` (its new `settings`
+  and `set` commands) is part of the agent_bus copy it carries. Nothing in a session behaves
+  differently.
+
 ## 3.99.10.1 — container 2.75.1
 
 Includes 3.99.9 (container 2.74), 3.99.9.1 (container 2.74.1, F44's refuse-inbound fix
