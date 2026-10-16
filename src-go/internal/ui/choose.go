@@ -30,7 +30,7 @@ func (p *Picker) Choose(ctx context.Context, h Heading, s ChooseSpec) ([]string,
 	if s.Multi {
 		args = append(args, "--multi")
 	}
-	args = append(args, "--height="+s.Height, "--reverse", "--prompt="+s.Prompt, "--header="+h.above(s.Header, false))
+	args = append(args, "--height="+s.Height, "--reverse", "--prompt="+s.Prompt, "--header="+h.above(s.Header, false, headingWidth(p.Columns)))
 	var stdin io.Reader = strings.NewReader(strings.Join(s.Rows, "\n") + "\n")
 	res, err := p.Runner.Run(ctx, execx.Cmd{Name: "fzf", Args: args, Stdin: stdin, Stderr: p.Stderr})
 	if err != nil {

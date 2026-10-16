@@ -103,9 +103,6 @@ func TestTheSeatAndRoleQuestionsCarryTheHeadingTheyAreGiven(t *testing.T) {
 		!strings.Contains(h.gumHeader(1), "--header Role of seat 1: ") {
 		t.Fatalf("gum %q", h.Script.GumLog)
 	}
-	if !strings.HasPrefix(h.ErrOut.String(), "New session › Team 2 of 3: alpha\n") {
-		t.Fatalf("the team's lines are not under its heading: %q", h.ErrOut.String())
-	}
 }
 
 func TestTheDefaultSeatIsTheOneTheWrapperNames(t *testing.T) {

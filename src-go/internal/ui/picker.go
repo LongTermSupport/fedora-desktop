@@ -107,6 +107,8 @@ type Picker struct {
 	Stderr io.Writer
 	// Plain draws the heading without colour: NO_COLOR, or not a terminal.
 	Plain bool
+	// Columns is the terminal's width, which the heading is wrapped to; 0 reads it.
+	Columns int
 }
 
 // Pick shows the rows and the actions under the heading h and returns what was chosen. Esc, q
@@ -118,7 +120,7 @@ func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error
 	if len(s.Tags) > 0 && len(s.Tags) != len(s.Rows) {
 		return Picked{}, errTagCount
 	}
-	args, err := s.fzfArgs(h, !p.Plain)
+	args, err := s.fzfArgs(h, !p.Plain, headingWidth(p.Columns))
 	if err != nil {
 		return Picked{}, err
 	}
@@ -161,8 +163,8 @@ func placeOf(line string, n int) (string, int, error) {
 }
 
 // fzfArgs is the house style, the header under the heading h, and the keys the screen declares.
-func (s PickSpec) fzfArgs(h Heading, colour bool) ([]string, error) {
-	headerArgs, err := s.headerArgs(h, colour)
+func (s PickSpec) fzfArgs(h Heading, colour bool, width int) ([]string, error) {
+	headerArgs, err := s.headerArgs(h, colour, width)
 	if err != nil {
 		return nil, err
 	}
@@ -248,11 +250,11 @@ func splitLine(text string) (string, string) {
 // headerArgs is the fzf arguments that set the header, each under the heading h: the one
 // given, or the first row's when each row has its own, which then follows the cursor. A heading
 // that names no place is ErrNoHeading.
-func (s PickSpec) headerArgs(h Heading, colour bool) ([]string, error) {
+func (s PickSpec) headerArgs(h Heading, colour bool, width int) ([]string, error) {
 	if err := h.check(); err != nil {
 		return nil, err
 	}
-	headed := func(text string) string { return h.above(text, colour) }
+	headed := func(text string) string { return h.above(text, colour, width) }
 	if len(s.RowHeaders) == 0 {
 		return []string{"--header=" + headed(s.Header) + "\n"}, nil
 	}

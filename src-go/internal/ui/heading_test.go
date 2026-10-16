@@ -3,14 +3,116 @@ package ui
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 )
 
 var lxcStep = Here("Teams", "alpha", "Add LXC member").AtStep(3, 4, "Checkout").About("container-a · user agent")
+
+// TestMain stands in a terminal whose width cannot be read, so a picker or gum made with no
+// Columns wraps its heading to fallbackHeadingWidth whatever terminal runs the tests.
+func TestMain(m *testing.M) {
+	terminalColumns = func() int { return 0 }
+	os.Exit(m.Run())
+}
+
+// fzf and gum truncate a header line that is too wide (the owner's rule: wrap, never
+// truncate), so a heading is broken at its separators into lines that fit: a 40-column
+// terminal, less the picker's frame, leaves 30.
+func TestALongHeadingWrapsAtItsSeparatorsToTheWidth(t *testing.T) {
+	want := "Teams › alpha › Add LXC member\n· step 3/4 Checkout\ncontainer-a · user agent\n" + strings.Repeat("─", 30)
+	if got := lxcStep.render(false, 30); got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	long := Here("Teams", "alpha", "Running sessions", "dev-session").Push("Move coordinator").
+		About("session dev-session · team alpha · seat 2 · now worker · coordinator agent@container-b (running)")
+	for width := narrowestHeading; width <= 80; width++ {
+		got := long.render(false, width)
+		for l := range strings.SplitSeq(got, "\n") {
+			if n := utf8.RuneCountInString(l); n > width {
+				t.Fatalf("width %d: a line of %d: %q", width, n, l)
+			}
+		}
+		// Nothing is lost or reordered: the text, less spaces and separator marks, is the same.
+		bare := strings.NewReplacer(" ", "", "\n", "", "›", "", "·", "", "─", "")
+		if bare.Replace(got) != bare.Replace(long.Trail()+long.Context) {
+			t.Fatalf("width %d lost text:\n%s", width, got)
+		}
+		if strings.Contains(got, "…") || strings.Contains(got, "..") {
+			t.Fatalf("width %d elides:\n%s", width, got)
+		}
+	}
+}
+
+func TestACrumbLongerThanTheWidthIsHardWrappedNotCut(t *testing.T) {
+	got := Here("abcdefghijklmnopqrstuvwxyz0123456789").render(false, 16)
+	want := "abcdefghijklmnop\nqrstuvwxyz012345\n6789\n" + strings.Repeat("─", 16)
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestTheRuleIsAsLongAsTheLongestLine(t *testing.T) {
+	h := Here("Teams").About("a context line of forty characters, long")
+	lines := strings.Split(h.render(false, 100), "\n")
+	if rule := lines[len(lines)-1]; utf8.RuneCountInString(rule) != 40 {
+		t.Fatalf("rule %q", rule)
+	}
+	if rule := strings.Split(Here("A").render(false, 100), "\n")[1]; utf8.RuneCountInString(rule) != shortestRule {
+		t.Fatalf("a short heading still has a rule of %d: %q", shortestRule, rule)
+	}
+}
+
+func TestAWrappedHeadingColoursOnlyItsCrumbs(t *testing.T) {
+	lines := strings.Split(lxcStep.render(true, 30), "\n")
+	if lines[0] != headingColour+"Teams › alpha › Add LXC member"+colourReset || lines[1] != "· step 3/4 Checkout" {
+		t.Fatalf("coloured %q", lines)
+	}
+}
+
+func TestTheHeadingWidthIsTheTerminalsLessTheFrame(t *testing.T) {
+	if got := headingWidth(40); got != 30 {
+		t.Fatalf("40 columns: %d", got)
+	}
+	if got := headingWidth(12); got != narrowestHeading {
+		t.Fatalf("12 columns: %d", got)
+	}
+	if got := headingWidth(0); got != fallbackHeadingWidth {
+		t.Fatalf("an unreadable width: %d", got)
+	}
+	terminalColumns = func() int { return 120 }
+	t.Cleanup(func() { terminalColumns = func() int { return 0 } })
+	if got := headingWidth(0); got != 110 {
+		t.Fatalf("a 120-column terminal: %d", got)
+	}
+}
+
+func TestAPickerAndGumWrapTheHeadingToTheirColumns(t *testing.T) {
+	ctx := context.Background()
+	f := &execx.Fake{}
+	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
+	f.On([]string{"gum"}, execx.Result{})
+	head := lxcStep.render(false, 30) + "\n"
+	p := &Picker{Runner: f, Plain: true, Columns: 40}
+	if _, err := p.Pick(ctx, lxcStep, PickSpec{Title: "t", Header: "legend", Rows: []string{"r"}}); !errors.Is(err, ErrLeave) {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Calls()[0].Args, "--header="+head+"legend\n") {
+		t.Fatalf("pick header %q", f.Calls()[0].Args)
+	}
+	g := &Gum{Runner: f, Plain: true, Columns: 40}
+	if _, err := g.Confirm(ctx, lxcStep, "Add it?", true); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Calls()[1].Args, head+"Add it?") {
+		t.Fatalf("confirm %q", f.Calls()[1].Args)
+	}
+}
 
 func TestHeadingTrailNamesThePathAndTheStep(t *testing.T) {
 	if got := lxcStep.Trail(); got != "Teams › alpha › Add LXC member · step 3/4 Checkout" {
@@ -22,7 +124,7 @@ func TestHeadingTrailNamesThePathAndTheStep(t *testing.T) {
 }
 
 func TestHeadingRendersTrailContextAndARulePlainOrInColour(t *testing.T) {
-	plain := lxcStep.render(false)
+	plain := lxcStep.render(false, fallbackHeadingWidth)
 	lines := strings.Split(plain, "\n")
 	if len(lines) != 3 || lines[0] != lxcStep.Trail() || lines[1] != "container-a · user agent" {
 		t.Fatalf("plain heading %q", plain)
@@ -33,11 +135,11 @@ func TestHeadingRendersTrailContextAndARulePlainOrInColour(t *testing.T) {
 	if strings.Contains(plain, "\x1b") {
 		t.Fatalf("plain has no colour: %q", plain)
 	}
-	coloured := lxcStep.render(true)
+	coloured := lxcStep.render(true, fallbackHeadingWidth)
 	if !strings.HasPrefix(coloured, "\x1b[1;33mTeams › alpha › Add LXC member\x1b[0m") {
 		t.Fatalf("the crumbs are bold in the accent: %q", coloured)
 	}
-	if got := Here("A").render(false); strings.Count(got, "\n") != 1 {
+	if got := Here("A").render(false, fallbackHeadingWidth); strings.Count(got, "\n") != 1 {
 		t.Fatalf("no context line when there is no context: %q", got)
 	}
 }
@@ -70,7 +172,7 @@ func TestEveryScreenRefusesToDrawWithoutAHeading(t *testing.T) {
 			return err
 		},
 	} {
-		for _, h := range []Heading{{}, {Crumbs: []string{"Teams", ""}}} {
+		for _, h := range []Heading{{}, {Crumbs: []string{"Teams", ""}}, {Crumbs: []string{"Teams", " \t"}}} {
 			if err := call(h); !errors.Is(err, ErrNoHeading) {
 				t.Errorf("%s with heading %+v: got %v, want ErrNoHeading", name, h, err)
 			}
@@ -86,7 +188,7 @@ func TestTheHeadingIsOnTopOfEveryGumQuestion(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"gum"}, execx.Result{Stdout: []byte("a\n")})
 	g := &Gum{Runner: f, Plain: true}
-	head := lxcStep.render(false) + "\n"
+	head := lxcStep.render(false, fallbackHeadingWidth) + "\n"
 	if _, err := g.Confirm(ctx, lxcStep, "Add it?", true); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +215,7 @@ func TestTheHeadingIsOnTopOfEveryFzfHeader(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
 	p := &Picker{Runner: f, Plain: true}
-	head := lxcStep.render(false) + "\n"
+	head := lxcStep.render(false, fallbackHeadingWidth) + "\n"
 	if _, err := p.Pick(ctx, lxcStep, PickSpec{Title: "t", Header: "legend", Rows: []string{"r"}}); !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}

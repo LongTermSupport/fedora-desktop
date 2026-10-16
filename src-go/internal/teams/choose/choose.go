@@ -95,7 +95,6 @@ func (c *Choose) PickSeat(ctx context.Context, h ui.Heading, team, memberType st
 		c.say("  Or name the seat yourself: --teams " + choices.Default + "@" + team)
 		return "", exitConfig
 	}
-	c.say(h.Trail()) // the team's lines sit under its trail
 	picked, ok, code := c.pickSeat(ctx, h.AtStep(1, 2, "Seat").About("team "+team), team, choices)
 	if !ok {
 		return "", code

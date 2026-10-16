@@ -15,6 +15,9 @@ import (
 const (
 	gumProgram = "gum"
 	fzfProgram = "fzf"
+	// wideTerminal is the width the fake terminal reports: wide enough that no heading wraps,
+	// so a test asserts a heading as one trail and one context line (ui tests the wrapping).
+	wideTerminal = 400
 )
 
 var colourCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -271,8 +274,8 @@ func Interactive(t *testing.T, w *World) *Console {
 	h := w.Host
 	h.IsTerminal = func(any) bool { return true }
 	h.Term.IsTerminal = h.IsTerminal
-	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true}
-	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true}
+	h.Gum = &ui.Gum{Runner: c.Script, Stdin: h.Stdin, Stderr: w.ErrOut, Plain: true, Columns: wideTerminal}
+	h.Picker = &ui.Picker{Runner: c.Script, Stderr: w.ErrOut, Plain: true, Columns: wideTerminal}
 	h.LookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
 	h.OpenTTY = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(c.TTY)), nil }
 	h.Exec = func(path string, argv []string, dir string) error {

@@ -149,7 +149,13 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
   `ccy-teams`, `ccy --teams` (`New session › Team 2 of 3: <team>`), `ccy-sessions`, the freeze
   tools and `ftp-camera`. InteractiveScripts.md rule 15; owner steps in
   [ACCEPTANCE.md](ACCEPTANCE.md); report `subagent-reports/261016-context-headings-opus.md`.
-  Branch `fix/context-headings`, from `dbf/hidden-bindings`.
+  Branch `fix/context-headings`, from `dbf/hidden-bindings`. A heading wider than the
+  terminal (less the picker's frame) is wrapped at its `›` and `·` separators, never
+  truncated (Fable's review, B1).
+
+- [ ] ⬜ **Task 1.0a**: Head the bash pickers too. `lib/tmux-session.bash`'s screens still have
+  no heading (Fable's review of Task 1.0, N2); give them the same trail, context line and rule,
+  or move them onto the Go `ui` when that library is ported.
 
 - [x] ✅ **Task 1.1**: `ui.Action{ID, Label, Key}` lands with `project_hidden_bindings`
   (branch `dbf/hidden-bindings`). `ccy-sessions`' Ctrl-T, Ctrl-X and Ctrl-N, and `ccy-teams`'
