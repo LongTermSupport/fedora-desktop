@@ -60,6 +60,9 @@ that play.
    ([The human's account](#the-humans-account)). Element starts apart from `ccy-teams`,
    which stays on the list. Every choice shows its shortcut (Ctrl-P, Ctrl-E, ...) beside
    it, and the header names the selected row's actions, so no key has to be guessed.
+   Every screen starts with where you are and what it acts on, for example
+   `Teams › alpha › Add LXC member · step 3/4 Checkout` over
+   `into team alpha · container container-a · user agent`.
    **Each team opens in its own Element window**, like a separate Slack sign-in: each team
    is its own Matrix server, and an Element window is signed in to one account (GNOME groups
    the windows under one dock icon; Super+\` cycles them). Enter on a team row has *Open
@@ -73,7 +76,8 @@ that play.
    repository to its scope (it edits the host_vars and runs `play-agent-bus.yml` for that team,
    no homeserver restart), to join without adding, or to leave it out; it needs a terminal.
    **A session can be on several teams:** the list is a multi-select (Tab marks several, Enter
-   takes them or the highlighted one), each marked team gets its own seat question, and the
+   takes them or the highlighted one), each marked team gets its own seat question, headed
+   with which team it is (`New session › Team 2 of 3: beta`), and the
    launch prints which teams the session is on, with seat, role and what each is for; the status
    line shows `bus: alpha,beta`, in any checkout (see
    [A session's status line](#a-sessions-status-line)). With several teams, pingbus's send and say commands work out the

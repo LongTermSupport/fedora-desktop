@@ -73,11 +73,21 @@ func (s *Session[R]) menu() ([]string, []string) {
 	return keys, labels
 }
 
+// groupLine is what the menu calls the group key: its description ("" when it has gone).
+func (s *Session[R]) groupLine(key string) string {
+	for _, g := range s.Engine.Groups(s.inv) {
+		if g.Key == key {
+			return g.Description
+		}
+	}
+	return ""
+}
+
 // screen is the drill-down for a group: the "all" row, then one line per member that still
 // resolves. Names holds only the members actually shown, so a vanished one cannot shift the
 // numbering.
-func (s *Session[R]) screen(group []string) MemberScreen {
-	m := MemberScreen{Lines: []string{fmt.Sprintf(allRowFmt, AllRowKey, s.inv.TargetEffect(s.Action, group...))}}
+func (s *Session[R]) screen(line string, group []string) MemberScreen {
+	m := MemberScreen{Group: line, Lines: []string{fmt.Sprintf(allRowFmt, AllRowKey, s.inv.TargetEffect(s.Action, group...))}}
 	for _, name := range group {
 		e, ok := s.inv.Entry(name)
 		if !ok {

@@ -86,6 +86,8 @@ func TestChoosingASeatKeepingItsRolePrintsTheSeatAndChangesNothing(t *testing.T)
 	if !strings.Contains(h.ErrOut.String(), "Taking seat 1@alpha: "+handleOne+" (a ccy seat).") {
 		t.Fatalf("stderr %q", h.ErrOut.String())
 	}
+	h.Script.HeadingAt(0, "New session › Team alpha · step 1/2 Seat\nteam alpha")
+	h.Script.HeadingAt(1, "New session › Team alpha · step 2/2 Role\nteam alpha · seat 1 · "+handleOne)
 }
 
 func TestTheDefaultSeatIsTheOneTheWrapperNames(t *testing.T) {

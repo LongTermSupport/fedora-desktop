@@ -270,7 +270,7 @@ func (a *App) wire() {
 		a.Git = gitx.New(a.Runner)
 	}
 	if a.Picker == nil {
-		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr}
+		a.Picker = &ui.Picker{Runner: a.Runner, Stderr: a.Stderr, Plain: !a.Term.ColourOn(a.Stderr)}
 	}
 	if a.Transcripts == nil {
 		a.Transcripts = transcript.NewCache()

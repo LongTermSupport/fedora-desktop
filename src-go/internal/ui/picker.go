@@ -85,11 +85,14 @@ const tagDelimiter = "\t"
 type Picker struct {
 	Runner execx.Runner
 	Stderr io.Writer
+	// Plain draws the heading without colour: NO_COLOR, or not a terminal.
+	Plain bool
 }
 
-// Pick shows the rows and returns the one chosen. Esc, q and the Exit row are ErrLeave.
-func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
-	headerArgs, err := s.headerArgs()
+// Pick shows the rows under the heading h and returns the one chosen. Esc, q and the Exit row
+// are ErrLeave.
+func (p *Picker) Pick(ctx context.Context, h Heading, s PickSpec) (Picked, error) {
+	headerArgs, err := s.headerArgs(h, !p.Plain)
 	if err != nil {
 		return Picked{}, err
 	}
@@ -149,20 +152,29 @@ func (p *Picker) Pick(ctx context.Context, s PickSpec) (Picked, error) {
 	return picked, nil
 }
 
-// headerArgs is the fzf arguments that set the header: the one given, or the first row's when
-// each row has its own, which then follows the cursor.
-func (s PickSpec) headerArgs() ([]string, error) {
+// headerArgs is the fzf arguments that set the header, each under the heading h: the one
+// given, or the first row's when each row has its own, which then follows the cursor. A heading
+// that names no place is ErrNoHeading.
+func (s PickSpec) headerArgs(h Heading, colour bool) ([]string, error) {
+	if err := h.check(); err != nil {
+		return nil, err
+	}
+	headed := func(text string) string { return h.above(text, colour) }
 	if len(s.RowHeaders) == 0 {
-		return []string{"--header=" + s.Header + "\n"}, nil
+		return []string{"--header=" + headed(s.Header) + "\n"}, nil
 	}
 	if len(s.RowHeaders) != len(s.Rows) {
 		return nil, errHeaderCount
 	}
-	first := s.RowHeaders[0]
-	if s.CursorLast {
-		first = s.Header
+	rowHeaders := make([]string, len(s.RowHeaders))
+	for i, rh := range s.RowHeaders {
+		rowHeaders[i] = headed(rh)
 	}
-	follow := headerFollowsCursor(s.RowHeaders, s.Header)
+	first := rowHeaders[0]
+	if s.CursorLast {
+		first = headed(s.Header)
+	}
+	follow := headerFollowsCursor(rowHeaders, headed(s.Header))
 	if len(follow) > maxBindingBytes {
 		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", errHeadersTooLarge, len(follow), maxBindingBytes)
 	}
@@ -207,12 +219,15 @@ func parsePicked(out string, withKey bool) (Picked, error) {
 	return Picked{Key: key, Row: row}, nil
 }
 
-// Confirm is a yes/no in the picker, so no prompt is a bare read: one "Yes, <action>" row
-// above Exit. The cursor starts on Exit unless defaultYes (a harmless step the person came
-// to take). Leaving is a no.
-func (p *Picker) Confirm(ctx context.Context, title, question, action string, defaultYes bool) (bool, error) {
-	picked, err := p.Pick(ctx, PickSpec{
-		Title: title, Header: Header("Enter choose   Esc or q exit", question),
+// Confirm is a yes/no in the picker under the heading h, so no prompt is a bare read: one
+// "Yes, <action>" row above Exit. The frame is titled with the heading's first crumb. The cursor
+// starts on Exit unless defaultYes (a harmless step the person came to take). Leaving is a no.
+func (p *Picker) Confirm(ctx context.Context, h Heading, question, action string, defaultYes bool) (bool, error) {
+	if err := h.check(); err != nil {
+		return false, err
+	}
+	picked, err := p.Pick(ctx, h, PickSpec{
+		Title: h.Crumbs[0], Header: Header("Enter choose   Esc or q exit", question),
 		Rows: []string{"Yes, " + action}, CursorLast: !defaultYes,
 	})
 	if errors.Is(err, ErrLeave) {

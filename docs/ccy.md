@@ -176,8 +176,9 @@ enforces it too — a second client attaching to an open session is detached aga
 so two terminals can never mirror one `claude`, whoever wins a race.
 
 `ccy-sessions` (a Go binary built from `src-go/cmd/ccy-sessions` by `play-claude-yolo.yml`)
-is the view across every project: a picker listing each session with its
-state, its container network and its directory. The network is asked of the container
+is the view across every project: a picker, headed `Sessions` with how many run and where a
+new one would start (and `Sessions › <name> › End` or `› Take over` on its questions), listing
+each session with its state, its container network and its directory. The network is asked of the container
 engine, so it reflects a later [`--connect`](#networking) and not only the launch flags:
 a name is the network the session's container is on, `none` means no named network
 (`--no-network`, or a default that is not one), `no container` means there is nothing to

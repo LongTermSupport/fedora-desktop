@@ -217,6 +217,18 @@ func TestAddToATeamRunsSessionAdd(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	h.wantRuns(t, []string{"add", proj, "alpha"})
+	// Every screen names where it is; the wizard's steps carry the team chosen so far, so the
+	// seat and the role are never asked without saying which team they are in.
+	for i, want := range []string{
+		"Teams\n1 team",
+		"Teams › Running sessions\n1 session running",
+		"Teams › Running sessions › ccy-proj\nsession ccy-proj · ok · in no team",
+		"Teams › Running sessions › ccy-proj › Add to a team · step 1/3 Team\nsession ccy-proj",
+		"Teams › Running sessions › ccy-proj › Add to a team · step 2/3 Seat\nsession ccy-proj · team alpha",
+		"Teams › Running sessions › ccy-proj › Add to a team · step 3/3 Role\nsession ccy-proj · team alpha · the lowest free seat",
+	} {
+		h.Script.HeadingAt(i, want)
+	}
 	if !slices.ContainsFunc(h.Script.Rows[3], func(r string) bool {
 		return strings.HasPrefix(r, "alpha ") && strings.Contains(r, "up") && strings.Contains(r, "3 agents")
 	}) {
@@ -350,6 +362,7 @@ func TestChangeRoleInATeamRunsSessionRole(t *testing.T) {
 		t.Fatalf("role rows %q", h.Script.Rows[3])
 	}
 	h.wantRuns(t, []string{"role", proj, "alpha", "coordinator", "--demote-current"})
+	h.Script.HeadingAt(3, "Teams › Running sessions › ccy-proj › Role in alpha\nsession ccy-proj · seat 1 in team alpha · now worker")
 }
 
 func TestRepairIsInTheMenuOfAnUnguardedSession(t *testing.T) {
@@ -405,4 +418,6 @@ func TestMoveOfTheCoordinatorAsksWhereTheRoleGoes(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
 	}
 	h.wantRuns(t, []string{"move", proj, "alpha", "beta", "--coordinator=demote"})
+	h.Script.HeadingAt(3, "Teams › Running sessions › ccy-proj › Move from alpha\nsession ccy-proj · seat 1 in team alpha")
+	h.Script.HeadingAt(4, "Teams › Running sessions › ccy-proj › Move from alpha › Coordinator role\nsession ccy-proj · from team alpha to team beta")
 }

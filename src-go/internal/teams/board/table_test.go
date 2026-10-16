@@ -110,3 +110,19 @@ func TestHeading(t *testing.T) {
 		}
 	}
 }
+
+func TestACrumbNamesASeatAsASeatAndAnyoneElseByName(t *testing.T) {
+	for _, c := range []struct {
+		row  Row
+		want string
+	}{
+		{Row{Kind: KindCcy, Member: "1", Dir: "/srv/proj"}, "seat 1"},
+		{Row{Kind: KindCcy, Member: "proj.1+local.podman", Dir: "-"}, "proj.1+local.podman"},
+		{Row{Kind: KindHuman, Member: "owner"}, "owner"},
+		{Row{Kind: "lxc", Member: "proj.box+role.lxc"}, "proj.box+role.lxc"},
+	} {
+		if got := c.row.Crumb(); got != c.want {
+			t.Errorf("%+v: crumb %q, want %q", c.row, got, c.want)
+		}
+	}
+}

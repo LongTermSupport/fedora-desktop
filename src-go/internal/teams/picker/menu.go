@@ -161,7 +161,7 @@ func (r *run) menu(ctx context.Context, row board.Row) (flow.Result, error) {
 	if row.Kind == board.KindTeam {
 		subject = "team " + row.Team
 	}
-	picked, err := p.Kit.Choose(ctx, ui.PickSpec{
+	picked, err := p.Kit.Choose(ctx, rowHeading(row), ui.PickSpec{
 		Title: subject, Rows: lines, Tags: tags, ExitLabel: backToList,
 		Header: ui.Header("Enter choose   Esc or q back to the list", "What to do with "+subject+":", aboutLine(row)),
 	})
@@ -177,6 +177,15 @@ func (r *run) menu(ctx context.Context, row board.Row) (flow.Result, error) {
 		return flow.Done, flow.Leave(term.ExitFailure)
 	}
 	return r.do(ctx, acts[i].key, row)
+}
+
+// rowHeading is the heading of a row's menu: Teams › team, and the member for a member's row,
+// with what the row is as its context.
+func rowHeading(row board.Row) ui.Heading {
+	if row.Kind == board.KindTeam {
+		return flow.Here(row.Team).About("team " + row.Team + " · " + row.State)
+	}
+	return flow.Here(row.Team, row.Crumb()).About(string(row.Kind) + " " + row.Member + " in team " + row.Team + " · " + row.State)
 }
 
 // aboutLine is a team row's description, whole, for the header of its menu; "" for any other row.

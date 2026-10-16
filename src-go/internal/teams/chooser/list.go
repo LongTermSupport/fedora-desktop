@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
@@ -33,7 +34,7 @@ func (c *Chooser) take(ctx context.Context, repo string, entries []entry, first 
 	}
 	shown := slices.DeleteFunc(slices.Clone(entries), func(e entry) bool { return inTeams(held, e.Team) })
 	rows := listRows(repo, shown)
-	answer, err := c.Picker.Choose(ctx, ui.ChooseSpec{Prompt: "Team> ", Header: listHeader, Height: "50%", Multi: true, Rows: rows})
+	answer, err := c.Picker.Choose(ctx, listHeading(repo, held), ui.ChooseSpec{Prompt: "Team> ", Header: listHeader, Height: "50%", Multi: true, Rows: rows})
 	switch {
 	case errors.Is(err, ui.ErrLeave):
 		c.say(nothingChosen)
@@ -69,6 +70,19 @@ func (c *Chooser) take(ctx context.Context, repo string, entries []entry, first 
 		return taken, term.ExitOK, true
 	}
 	return taken, term.ExitOK, false
+}
+
+// listHeading is the team list's heading: the launch, the checkout it is for, and the teams
+// already marked in an earlier round.
+func listHeading(repo string, held []entry) ui.Heading {
+	context := "for " + repo + " (this checkout)"
+	if repo == "" {
+		context = notGitHub
+	}
+	if len(held) > 0 {
+		context += " · marked: " + teamNames(held)
+	}
+	return ui.Here(flow.LaunchCrumb, "Teams").About(context)
 }
 
 // judge reads the marked rows: the teams that can be taken (after the held ones), whether the

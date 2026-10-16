@@ -160,6 +160,17 @@ func TestHappyPathAsksOnlyTheContainerUserCheckoutAndRoleThenWritesAndAppliesAnd
 	if len(r.Script.GumLog) != 5 {
 		t.Fatalf("%d questions were asked, want 5:\n%s", len(r.Script.GumLog), strings.Join(r.Script.GumLog, "\n"))
 	}
+	// Each question names the team it adds to, its step, and the answers so far; the last is
+	// the review of what joins which team.
+	for i, want := range []string{
+		"Teams › alpha › Add LXC member · step 1/4 Container\ninto team alpha",
+		"Teams › alpha › Add LXC member · step 2/4 User\ninto team alpha · container container-a",
+		"Teams › alpha › Add LXC member · step 3/4 Checkout\ninto team alpha · container container-a · user agent",
+		"Teams › alpha › Add LXC member · step 4/4 Role\ninto team alpha · container container-a · user agent · checkout /srv/agent/one",
+		"Teams › alpha › Add LXC member › Review\nagent@container-a joins team alpha · role worker",
+	} {
+		r.Script.HeadingAt(i, want)
+	}
 }
 
 func TestNoQuestionIsAskedAboutAHostWordOrASeat(t *testing.T) {

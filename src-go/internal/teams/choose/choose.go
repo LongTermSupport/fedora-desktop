@@ -82,7 +82,7 @@ func (c *Choose) Seat(ctx context.Context, args []string) term.ExitCode {
 		c.say("ccy-teams: 'choose-seat' takes one team. See ccy-teams --help.")
 		return term.ExitUsage
 	}
-	ref, code := c.PickSeat(ctx, args[0], "")
+	ref, code := c.PickSeat(ctx, flow.LaunchTeam(1, 1, args[0]), args[0], "")
 	if ref != "" {
 		c.Host.Print(c.Host.Stdout, ref+"\n")
 	}
@@ -90,9 +90,10 @@ func (c *Choose) Seat(ctx context.Context, args []string) term.ExitCode {
 }
 
 // PickSeat chooses the seat this session takes in team, for a launcher of memberType ("" for
-// agent-bus's default), then offers its role. The ref is SEAT@TEAM; it is empty with ExitOK when
-// the person left a question, and nothing is started.
-func (c *Choose) PickSeat(ctx context.Context, team, memberType string) (string, term.ExitCode) {
+// agent-bus's default), then offers its role, each question under h (which team of the launch
+// this is). The ref is SEAT@TEAM; it is empty with ExitOK when the person left a question, and
+// nothing is started.
+func (c *Choose) PickSeat(ctx context.Context, h ui.Heading, team, memberType string) (string, term.ExitCode) {
 	choices, err := c.Bus.SeatChooseAs(ctx, team, memberType)
 	if err != nil {
 		return "", c.listFailed(team, err)
@@ -102,12 +103,13 @@ func (c *Choose) PickSeat(ctx context.Context, team, memberType string) (string,
 		c.say("  Or name the seat yourself: --teams " + choices.Default + "@" + team)
 		return "", exitConfig
 	}
-	picked, ok, code := c.pickSeat(ctx, team, choices)
+	picked, ok, code := c.pickSeat(ctx, h.AtStep(1, 2, "Seat").About("team "+team), team, choices)
 	if !ok {
 		return "", code
 	}
 	c.say("Taking seat " + picked.Seat + "@" + team + ": " + picked.Handle + " (" + picked.Words + ").")
-	if code := c.offerRole(ctx, team, picked); code != term.ExitOK {
+	head := h.AtStep(2, 2, "Role").About("team " + team + " · seat " + picked.Seat + " · " + picked.Handle)
+	if code := c.offerRole(ctx, head, team, picked); code != term.ExitOK {
 		return "", code
 	}
 	return picked.Seat + "@" + team, term.ExitOK
@@ -269,7 +271,7 @@ func (c *Choose) listFailed(team string, err error) term.ExitCode {
 
 // pickSeat asks which of the choices; ok is false when the person left (no error: nothing is
 // started) or the question could not be asked, with the code to exit with.
-func (c *Choose) pickSeat(ctx context.Context, team string, choices agentbus.Choices) (agentbus.Choice, bool, term.ExitCode) {
+func (c *Choose) pickSeat(ctx context.Context, h ui.Heading, team string, choices agentbus.Choices) (agentbus.Choice, bool, term.ExitCode) {
 	rows := make([]string, len(choices.Rows))
 	var def string
 	for i, r := range choices.Rows {
@@ -278,7 +280,7 @@ func (c *Choose) pickSeat(ctx context.Context, team string, choices agentbus.Cho
 			def = rows[i]
 		}
 	}
-	answer, err := c.Gum.Choose(ctx, "Team "+team+": which seat does this session take?", def, rows)
+	answer, err := c.Gum.Choose(ctx, h, "Team "+team+": which seat does this session take?", def, rows)
 	if errors.Is(err, ui.ErrCancelled) {
 		c.say("No seat chosen; nothing started.")
 		return agentbus.Choice{}, false, term.ExitOK
@@ -298,7 +300,7 @@ func (c *Choose) pickSeat(ctx context.Context, team string, choices agentbus.Cho
 
 // offerRole asks what the seat's role should be and changes it when the person says so. A seat
 // that is new has no member yet, so it cannot be given a role until the launch has made it.
-func (c *Choose) offerRole(ctx context.Context, team string, seat agentbus.Choice) term.ExitCode {
+func (c *Choose) offerRole(ctx context.Context, h ui.Heading, team string, seat agentbus.Choice) term.ExitCode {
 	if seat.State == stateNew {
 		c.say("Seat " + seat.Seat + "@" + team + " is new: it joins as a worker. To make it the coordinator, " +
 			"choose Make coordinator on its row in ccy-teams, or in this chooser the next time.")
@@ -317,7 +319,7 @@ func (c *Choose) offerRole(ctx context.Context, team string, seat agentbus.Choic
 	}
 	holder, held := roster.Coordinator()
 	options, wantCoordinator := roleOptions(member, holder, held)
-	answer, err := c.Gum.Choose(ctx, roleHeader(team, seat, member, holder, held), options[0], options)
+	answer, err := c.Gum.Choose(ctx, h, roleHeader(team, seat, member, holder, held), options[0], options)
 	if errors.Is(err, ui.ErrCancelled) {
 		c.say(noRoleAsked)
 		return term.ExitOK

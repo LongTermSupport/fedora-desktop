@@ -22,4 +22,6 @@
 
 # Rebuilds ccy-teams (Plan 00203 M5 rework): every picker action is a visible, named choice;
 # Running sessions is the teams list's last row; Ctrl-A/X/O are gone; a key acts only where shown.
+# Also rebuilds ccy-teams and ccy-sessions with Plan 00204's context heading: every screen says
+# where it is (Teams › alpha › Add LXC member · step 3/4 Checkout) and what it acts on.
 playbooks/imports/play-claude-yolo.yml

@@ -105,6 +105,14 @@ the former, fail fast on the latter.
     "Exit" row are navigation, not actions. This binds every full-screen or list tool,
     the Go ones in `src-go/` (`ccy-teams`, `ccy-sessions`, the freeze tools) included.
 
+15. **Every screen says where it is and what it acts on.** A question, list or confirmation
+    starts with a heading: the path that led to it, and a wizard's step
+    (`Teams › alpha › Add LXC member · step 3/4 Checkout`), then a line naming what it acts
+    on, with the answers given so far (`into team alpha · container container-a · user agent`). When one run asks the same questions for several things in turn, the heading
+    names which one, and which of how many (`New session › Team 2 of 3: beta`). In `src-go/`
+    the heading is `ui.Heading`, a required argument of every `ui` question and pick, drawn
+    the same way by fzf and gum; a screen without one is refused (`ui.ErrNoHeading`).
+
 ## Canonical patterns
 
 Reuse these shapes verbatim so every script behaves identically.

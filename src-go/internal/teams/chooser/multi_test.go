@@ -35,6 +35,12 @@ func TestTwoMarkedTeamsGetASeatEachInListOrder(t *testing.T) {
 	if !slices.Equal(r.seatsAsked, []string{"alpha/podman", "beta/podman"}) {
 		t.Fatalf("seats %v", r.seatsAsked)
 	}
+	// Each team's questions say which of the teams it is, so a seat is never chosen blind.
+	if want := []string{"New session › Team 1 of 2: alpha", "New session › Team 2 of 2: beta"}; !slices.Equal(r.seatTrails, want) {
+		t.Fatalf("seat headings %q, want %q", r.seatTrails, want)
+	}
+	r.Script.HeadingAt(0, "New session › Teams\nfor "+repo+" (this checkout)")
+	r.Script.HeadingAt(1, "New session › Team 2 of 2: beta › Scope\nteam beta · does not cover "+repo+" (this checkout)")
 }
 
 // S-B9: every Add of one run is applied by one play run.

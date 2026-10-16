@@ -172,6 +172,7 @@ func TestThePickerOffersCtrlTAndListensForTheKeys(t *testing.T) {
 		t.Fatalf("%v", rig.argv)
 	}
 	contains(t, "argv", rig.argv[0], "--expect=ctrl-t,ctrl-x,ctrl-n", "--border-label= CCY sessions ",
+		"--header=Sessions\n1 running · ~/proj is not a project folder\n───",
 		"Enter attach   Ctrl-T take over   Ctrl-X end   Ctrl-N new   Esc or q quit",
 		"Ctrl-N unavailable: ~/proj is not a project folder (no git repository)",
 		`"open elsewhere" is attached in another terminal: Ctrl-T detaches that terminal and attaches this one; the session keeps running`,
@@ -267,7 +268,8 @@ func TestCtrlTTakesOverAnOpenSessionAfterAYes(t *testing.T) {
 		t.Fatalf("%v", h.ran())
 	}
 	contains(t, "question", rig.argv[1], "It is open on /dev/pts/3 (idle 3 h). That terminal is detached, not closed, and the session keeps running.",
-		"--border-label= Take over ccy-a? ", "--bind=start:last")
+		"--border-label= Sessions ", "--bind=start:last",
+		"--header=Sessions › ccy-a › Take over\nsession ccy-a · open on /dev/pts/3 (idle 3 h)\n───", "Take over ccy-a? It is open")
 	contains(t, "yes row", rig.shown[1], "Yes, take over 'ccy-a'")
 	if h.count("tmux -L ccy kill") != 0 {
 		t.Fatal("no session is killed")
@@ -424,7 +426,8 @@ func TestCtrlXEndsASessionAndItsRecordAfterAYesAndCostsNoTry(t *testing.T) {
 		t.Fatal("the record goes with the session")
 	}
 	contains(t, "ended", h.stderr(), "Ended 'ccy-a'.", "Kept 'ccy-b'.")
-	contains(t, "question", rig.argv[7], "Everything running in it will be killed.", "--border-label= End ccy-a? ")
+	contains(t, "question", rig.argv[7], "End ccy-a? Everything running in it will be killed.", "--border-label= Sessions ",
+		"--header=Sessions › ccy-a › End\nsession ccy-a\n───")
 }
 
 func TestCtrlXOnASessionThatAlreadyEndedRemovesItsRecordAndGoesOn(t *testing.T) {
@@ -516,7 +519,8 @@ func TestWithNoSessionsInAProjectItOffersToStartCcy(t *testing.T) {
 	inProject(h)
 	rig := newPickerRig(h, "|YES")
 	exitCodeIs(t, h.run(), 0, h)
-	contains(t, "offer", rig.argv[0], "No sessions are running. Start ccy in ~/proj?", "--border-label= CCY sessions ")
+	contains(t, "offer", rig.argv[0], "No sessions are running. Start ccy in ~/proj?", "--border-label= Sessions ",
+		"--header=Sessions › Start ccy\n0 running · in ~/proj\n───")
 	contains(t, "yes row", rig.shown[0], "Yes, start ccy here")
 	if len(h.fake.Execs()) != 1 {
 		t.Fatalf("execs %v", h.fake.Execs())

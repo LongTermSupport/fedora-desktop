@@ -369,6 +369,19 @@ cat >"$GUMBIN/gum" <<'EOF'
 set -euo pipefail
 sub="$1"
 shift
+# ui draws a heading (its lines, then a rule of ─) on top of a question's header or prompt: it
+# is logged on a line of its own, "heading <lines joined by |>", and the call without it.
+rule=$'\n─'
+args=()
+for arg in "$@"; do
+    if [[ "$arg" == *"$rule"* ]]; then
+        heading="${arg%%"$rule"*}"
+        printf 'heading %s\n' "${heading//$'\n'/ | }" >>"$TEST_LOG"
+        arg="${arg#*─$'\n'}"
+    fi
+    args+=("$arg")
+done
+set -- "${args[@]}"
 printf 'gum %s %s\n' "$sub" "$*" >>"$TEST_LOG"
 env | awk '/^GUM_/' | sort >"$TEST_STATE/gum-env"
 next() {
@@ -1099,6 +1112,10 @@ check_has "  then the repository, defaulting to this checkout's remote, lower-ca
 check "    checked on GitHub for push access" "yes" "$(logged 'gh api repos/example-org/proj --jq .permissions.push')"
 check_has "  then the name, defaulting to the repository's" "--value proj" "$(grep -F -- '--header Team name' <<<"$inputs")"
 check_has "  the login name is offered as the people's default" "--value owner" "$(grep -F -- '--header People' <<<"$inputs")"
+headings="$(grep '^heading ' "$LOG")"
+check_has "  each question is headed with where it is: the wizard and its step" "New team" "$headings"
+check_has "    the step, numbered" " · step 3/6 Team name" "$headings"
+check_has "    and the answers so far" " · step 5/6 People | works on example-org/proj · team proj" "$headings"
 check_has "  each explanation is printed, wrapped, before its question" "installer creates the accounts" \
     "$(grep -F 'gum style --width' "$LOG")"
 check "  and every header is one short line" "0" \

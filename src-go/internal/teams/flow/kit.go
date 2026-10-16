@@ -49,6 +49,26 @@ func ExitCodeOf(err error) (term.ExitCode, bool) {
 	return req.Code, true
 }
 
+// TeamsCrumb is the first crumb of every ccy-teams screen.
+const TeamsCrumb = "Teams"
+
+// Here is the heading of a ccy-teams screen at Teams › crumbs.
+func Here(crumbs ...string) ui.Heading {
+	return ui.Here(append([]string{TeamsCrumb}, crumbs...)...)
+}
+
+// LaunchCrumb is the first crumb of the questions `ccy --teams` asks through ccy-teams.
+const LaunchCrumb = "New session"
+
+// LaunchTeam is the heading of the questions about team, the i-th of the n teams a launch joins:
+// "New session › Team 2 of 3: alpha", or "New session › Team alpha" when it joins one.
+func LaunchTeam(i, n int, team string) ui.Heading {
+	if n > 1 {
+		return ui.Here(LaunchCrumb, fmt.Sprintf("Team %d of %d: %s", i, n, team))
+	}
+	return ui.Here(LaunchCrumb, "Team "+team)
+}
+
 // Kit is the person-facing side of a run. Every field is a seam a test replaces.
 type Kit struct {
 	Term   *term.Term
@@ -121,9 +141,9 @@ func (k *Kit) NeedFzf() error {
 	return nil
 }
 
-// AskYes is a yes/no question in gum. Ctrl-C ends the picker.
-func (k *Kit) AskYes(ctx context.Context, question string, defaultYes bool) (bool, error) {
-	yes, err := k.Gum.Confirm(ctx, question, defaultYes)
+// AskYes is a yes/no question in gum, under the heading h. Ctrl-C ends the picker.
+func (k *Kit) AskYes(ctx context.Context, h ui.Heading, question string, defaultYes bool) (bool, error) {
+	yes, err := k.Gum.Confirm(ctx, h, question, defaultYes)
 	if errors.Is(err, ui.ErrCancelled) {
 		return false, k.Cancelled()
 	}
@@ -134,12 +154,13 @@ func (k *Kit) AskYes(ctx context.Context, question string, defaultYes bool) (boo
 	return yes, nil
 }
 
-// Choose is one pick from the picker. Leaving it (Esc, q, the Exit row) is ui.ErrLeave.
-func (k *Kit) Choose(ctx context.Context, spec ui.PickSpec) (ui.Picked, error) {
+// Choose is one pick from the picker, under the heading h. Leaving it (Esc, q, the Exit row)
+// is ui.ErrLeave.
+func (k *Kit) Choose(ctx context.Context, h ui.Heading, spec ui.PickSpec) (ui.Picked, error) {
 	if err := k.NeedFzf(); err != nil {
 		return ui.Picked{}, err
 	}
-	picked, err := k.Picker.Pick(ctx, spec)
+	picked, err := k.Picker.Pick(ctx, h, spec)
 	if err != nil && !errors.Is(err, ui.ErrLeave) {
 		k.ReportErr(err)
 		return ui.Picked{}, Leave(term.ExitFailure)
@@ -147,12 +168,12 @@ func (k *Kit) Choose(ctx context.Context, spec ui.PickSpec) (ui.Picked, error) {
 	return picked, err
 }
 
-// Confirm is a yes/no in the picker: no, Esc and q are all a no.
-func (k *Kit) Confirm(ctx context.Context, title, question, action string, defaultYes bool) (bool, error) {
+// Confirm is a yes/no in the picker, under the heading h: no, Esc and q are all a no.
+func (k *Kit) Confirm(ctx context.Context, h ui.Heading, question, action string, defaultYes bool) (bool, error) {
 	if err := k.NeedFzf(); err != nil {
 		return false, err
 	}
-	yes, err := k.Picker.Confirm(ctx, title, question, action, defaultYes)
+	yes, err := k.Picker.Confirm(ctx, h, question, action, defaultYes)
 	if err != nil {
 		k.ReportErr(err)
 		return false, Leave(term.ExitFailure)

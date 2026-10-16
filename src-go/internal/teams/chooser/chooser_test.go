@@ -11,6 +11,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
 )
 
 const repo = "example-org/proj"
@@ -25,6 +26,8 @@ type rig struct {
 	payload *bytes.Buffer
 
 	seatsAsked []string // "<team>/<type>"
+	// seatTrails is the heading each seat question was given, as its trail.
+	seatTrails []string
 	seatLeft   map[string]bool
 	seatCode   term.ExitCode
 	created    string
@@ -53,8 +56,9 @@ func newRig(t *testing.T, choices string) *rig {
 	}
 	r := &rig{World: w, Console: console, payload: &bytes.Buffer{}, seatLeft: map[string]bool{}}
 	r.c = New(w.Host,
-		func(_ context.Context, team, memberType string) (string, term.ExitCode) {
+		func(_ context.Context, h ui.Heading, team, memberType string) (string, term.ExitCode) {
 			r.seatsAsked = append(r.seatsAsked, team+"/"+memberType)
+			r.seatTrails = append(r.seatTrails, h.Trail())
 			if r.seatLeft[team] {
 				return "", term.ExitOK
 			}
@@ -430,6 +434,9 @@ func TestSeatsInTheListAreKeptAndTeamsAloneAreResolvedInOrder(t *testing.T) {
 	}
 	if !slices.Equal(r.seatsAsked, []string{"beta/podman"}) {
 		t.Fatalf("seats %v", r.seatsAsked)
+	}
+	if want := []string{"New session › Team 2 of 3: beta"}; !slices.Equal(r.seatTrails, want) {
+		t.Fatalf("seat headings %q, want %q", r.seatTrails, want)
 	}
 }
 

@@ -64,6 +64,12 @@ interactive tools (Plan 00191, Plan 00192). `ccy-teams`, `ccy-sessions`, `podfre
   a named row or menu line; a key is only an accelerator, printed beside its action
   ([InteractiveScripts.md](../CLAUDE/InteractiveScripts.md) rule 14).
 
+- **Every screen has a heading.** Each `ui` question and pick takes a `ui.Heading` (crumbs,
+  a wizard's step, a context line with the answers so far) as a required argument, and refuses
+  to draw without crumbs (`ui.ErrNoHeading`); ccy-teams screens start from `flow.Here`, the
+  `ccy --teams` questions from `flow.LaunchTeam` (rule 15 of the same file). `teamtest`'s
+  `Script.HeadingAt` asserts a screen's heading.
+
 - **Project rules.** `qa/` is a nested module (so this `go.mod` stays dependency-free) of
   `go/analysis` rules for the defect classes the ports hit: one process seam, owned programs,
   tmux target forms, no wall clock in tests, one home abbreviation, a `WaitDelay` that names

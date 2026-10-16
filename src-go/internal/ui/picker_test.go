@@ -15,7 +15,7 @@ func TestPickReturnsKeyAndRowAndTreatsExitAsLeave(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("ctrl-e\nalpha   up\n")})
 	p := &Picker{Runner: f}
-	got, err := p.Pick(context.Background(), PickSpec{
+	got, err := p.Pick(context.Background(), testHead, PickSpec{
 		Title: "Agent teams", Header: "legend", Keys: []string{"ctrl-e", "?"},
 		Rows: []string{"alpha   up"},
 	})
@@ -35,11 +35,11 @@ func TestPickReturnsKeyAndRowAndTreatsExitAsLeave(t *testing.T) {
 	}
 
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
-	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"r"}}); !errors.Is(err, ErrLeave) {
+	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"r"}}); !errors.Is(err, ErrLeave) {
 		t.Fatalf("the Exit row leaves, got %v", err)
 	}
 	f.On([]string{"fzf"}, execx.Result{ExitCode: 130})
-	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"r"}}); !errors.Is(err, ErrLeave) {
+	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"r"}}); !errors.Is(err, ErrLeave) {
 		t.Fatalf("Esc or q leaves, got %v", err)
 	}
 }
@@ -48,14 +48,17 @@ func TestConfirmInPickerDefaultsToExitUnlessAskedForYes(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Yes, copy the password\n")})
 	p := &Picker{Runner: f}
-	yes, err := p.Confirm(context.Background(), "Copy the password?", "Put it on the clipboard.", "copy the password", true)
+	yes, err := p.Confirm(context.Background(), Here("Teams", "Copy the password?"), "Put it on the clipboard.", "copy the password", true)
 	if err != nil || !yes {
 		t.Fatalf("got %v, %v", yes, err)
 	}
 	if slices.Contains(f.Calls()[0].Args, "--bind=start:last") {
 		t.Fatal("a yes-default question starts on Yes")
 	}
-	if _, err := p.Confirm(context.Background(), "t", "q", "do it", false); err != nil {
+	if !slices.Contains(f.Calls()[0].Args, "--border-label= Teams ") {
+		t.Fatalf("the frame is titled with the heading's first crumb: %q", f.Calls()[0].Args)
+	}
+	if _, err := p.Confirm(context.Background(), testHead, "q", "do it", false); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(f.Calls()[1].Args, "--bind=start:last") {
@@ -67,7 +70,7 @@ func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("alpha   up\t1\n")})
 	p := &Picker{Runner: f}
-	got, err := p.Pick(context.Background(), PickSpec{
+	got, err := p.Pick(context.Background(), testHead, PickSpec{
 		Title: "t", Rows: []string{"alpha   up", "alpha   up"}, Tags: []string{"0", "1"},
 	})
 	if err != nil || got.Row != "alpha   up" || got.Tag != "1" {
@@ -82,11 +85,11 @@ func TestTaggedRowsCarryAHiddenTailThatComesBack(t *testing.T) {
 		t.Fatalf("rows fed %q, %v", in, err)
 	}
 
-	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a", "b"}, Tags: []string{"0"}}); err == nil {
+	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a", "b"}, Tags: []string{"0"}}); err == nil {
 		t.Fatal("tags must match the rows one for one")
 	}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
-	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a"}, Tags: []string{"0"}}); !errors.Is(err, ErrLeave) {
+	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a"}, Tags: []string{"0"}}); !errors.Is(err, ErrLeave) {
 		t.Fatalf("the untagged Exit row still leaves, got %v", err)
 	}
 }
@@ -95,18 +98,18 @@ func TestPickSurfacesAFzfThatFailedAndOneThatIsMissing(t *testing.T) {
 	spec := PickSpec{Title: "t", Rows: []string{"r"}}
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{ExitCode: 1})
-	if _, err := (&Picker{Runner: f}).Pick(context.Background(), spec); !errors.Is(err, ErrLeave) {
+	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, spec); !errors.Is(err, ErrLeave) {
 		t.Fatalf("fzf exit 1 (no match) leaves, got %v", err)
 	}
 	// Spec bug 9.2: an fzf that crashed or was given a bad option is not the person pressing Esc.
 	f.On([]string{"fzf"}, execx.Result{ExitCode: 2, Stderr: []byte("unknown option")})
-	_, err := (&Picker{Runner: f}).Pick(context.Background(), spec)
+	_, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, spec)
 	if err == nil || errors.Is(err, ErrLeave) {
 		t.Fatalf("fzf exit 2 is a failure, not a leave: %v", err)
 	}
 	// Spec bug 9.1: a missing fzf is a failure with the install hint, not a leave.
 	f.OnError([]string{"fzf"}, &execx.NotInstalledError{Name: "fzf"})
-	_, err = (&Picker{Runner: f}).Pick(context.Background(), spec)
+	_, err = (&Picker{Runner: f}).Pick(context.Background(), testHead, spec)
 	if !errors.Is(err, ErrFzfMissing) || errors.Is(err, ErrLeave) {
 		t.Fatalf("a missing fzf is ErrFzfMissing, got %v", err)
 	}
@@ -119,7 +122,7 @@ func TestPickSurfacesAFzfThatFailedAndOneThatIsMissing(t *testing.T) {
 func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("r\n")})
-	if _, err := (&Picker{Runner: f}).Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"r"}}); err != nil {
+	if _, err := (&Picker{Runner: f}).Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"r"}}); err != nil {
 		t.Fatal(err)
 	}
 	if slices.Contains(f.Calls()[0].Args, "--with-nth=1") {
@@ -130,8 +133,8 @@ func TestUntaggedPicksPassNoDelimiter(t *testing.T) {
 func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Exit\n")})
-	p := &Picker{Runner: f}
-	_, err := p.Pick(context.Background(), PickSpec{
+	p := &Picker{Runner: f, Plain: true}
+	_, err := p.Pick(context.Background(), testHead, PickSpec{
 		Title: "t", Header: "base", Rows: []string{"a", "b"},
 		RowHeaders: []string{"for a (it's)", "for b"},
 	})
@@ -139,18 +142,18 @@ func TestRowHeadersFollowTheCursorAndTheExitRowKeepsTheBaseHeader(t *testing.T) 
 		t.Fatal(err)
 	}
 	args := f.Calls()[0].Args
-	if !slices.Contains(args, "--header=for a (it's)\n") {
+	if !slices.Contains(args, "--header="+testHeadText+"for a (it's)\n") {
 		t.Fatalf("the first row's header is shown at the start: %q", args)
 	}
-	want := "--bind=focus:transform-header^case {n} in 0) printf '%s\\n' 'for a (it'\\''s)';; " +
-		"1) printf '%s\\n' 'for b';; *) printf '%s\\n' 'base';; esac^"
+	want := "--bind=focus:transform-header^case {n} in 0) printf '%s\\n' '" + testHeadText + "for a (it'\\''s)';; " +
+		"1) printf '%s\\n' '" + testHeadText + "for b';; *) printf '%s\\n' '" + testHeadText + "base';; esac^"
 	if !slices.Contains(args, want) {
 		t.Fatalf("args %q lack %q", args, want)
 	}
 	if !slices.Contains(f.Calls()[0].Env, "SHELL=/bin/sh") {
 		t.Fatalf("the binding is sh, whatever the login shell is: %q", f.Calls()[0].Env)
 	}
-	if _, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a"}, RowHeaders: []string{"x", "y"}}); err == nil {
+	if _, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a"}, RowHeaders: []string{"x", "y"}}); err == nil {
 		t.Fatal("headers that do not pair up with rows are refused")
 	}
 }
@@ -162,7 +165,7 @@ func TestRowHeadersTooLargeForOneArgumentAreRefusedNotTruncated(t *testing.T) {
 	for i := range rows {
 		rows[i], headers[i] = "r", strings.Repeat("x", 1000)
 	}
-	_, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: rows, RowHeaders: headers})
+	_, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: rows, RowHeaders: headers})
 	if !errors.Is(err, errHeadersTooLarge) {
 		t.Fatalf("got %v", err)
 	}
@@ -172,7 +175,7 @@ func TestExitLabelNamesTheLastRow(t *testing.T) {
 	f := &execx.Fake{}
 	f.On([]string{"fzf"}, execx.Result{Stdout: []byte("Back to the list\n")})
 	p := &Picker{Runner: f}
-	_, err := p.Pick(context.Background(), PickSpec{Title: "t", Rows: []string{"a"}, ExitLabel: "Back to the list"})
+	_, err := p.Pick(context.Background(), testHead, PickSpec{Title: "t", Rows: []string{"a"}, ExitLabel: "Back to the list"})
 	if !errors.Is(err, ErrLeave) {
 		t.Fatal(err)
 	}

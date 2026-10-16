@@ -82,6 +82,9 @@ type Adder struct {
 	Home     string // for the ~ abbreviation
 
 	term *term.Term
+	// head is the heading of the question being asked, and asked the steps so far.
+	head  ui.Heading
+	asked int
 	// script is the host-side reader, fetched from declare.py once per run; roster is the
 	// team's members as declare.py reads them, for the seat.
 	script, roster string
@@ -118,10 +121,29 @@ func (a answers) entry() declare.LxcEntry {
 
 func (a answers) label() string { return a.user + "@" + a.container }
 
+// addCrumb is the crumb of every question that adds an LXC member.
+const addCrumb = "Add LXC member"
+
+// context is the answers so far on one line, for the heading: the team, then what is chosen.
+func (a answers) context() string {
+	parts := []string{"into team " + a.team}
+	if a.container != "" {
+		parts = append(parts, "container "+a.container)
+	}
+	if a.user != "" {
+		parts = append(parts, "user "+a.user)
+	}
+	if a.checkout != "" {
+		parts = append(parts, "checkout "+a.checkout)
+	}
+	return strings.Join(parts, " · ")
+}
+
 // Run is ccy-teams lxc-add with the arguments after "lxc-add". It returns the exit code:
 // 0 done, 1 refused or failed, 64 usage, 130 cancelled, or declare.py's own refusal code.
 func (a *Adder) Run(ctx context.Context, args []string) term.ExitCode {
 	a.term = a.NewTerm()
+	a.asked = 0
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return a.usage(usageText)
 	}
@@ -298,16 +320,20 @@ func (a *Adder) ask(ctx context.Context, ans *answers, running []string, held co
 	return a.askRole(ctx, ans, held)
 }
 
-func (a *Adder) step(ctx context.Context, title, hint string) error {
+// step starts the next question: its numbered title and hint on the terminal, and the heading
+// its prompt carries (the team, the step, and the answers so far).
+func (a *Adder) step(ctx context.Context, ans *answers, title, hint string) error {
+	a.asked++
+	a.head = flow.Here(ans.team, addCrumb).AtStep(a.asked, a.term.Steps, title).About(ans.context())
 	a.term.Step(title)
 	return a.Gum.Explain(ctx, hint, 5)
 }
 
 func (a *Adder) askContainer(ctx context.Context, ans *answers, running []string) error {
-	if err := a.step(ctx, "Container", "The LXC container whose agent joins "+ans.team+". It must already exist and be running; this never makes one."); err != nil {
+	if err := a.step(ctx, ans, "Container", "The LXC container whose agent joins "+ans.team+". It must already exist and be running; this never makes one."); err != nil {
 		return err
 	}
-	choice, err := a.Gum.Choose(ctx, "Container", running[0], running)
+	choice, err := a.Gum.Choose(ctx, a.head, "Container", running[0], running)
 	if err != nil {
 		return a.gumErr(err)
 	}
@@ -326,7 +352,7 @@ func (a *Adder) askUser(ctx context.Context, ans *answers) error {
 		suggestion = users[0]
 		hint += " It has: " + strings.Join(users, ", ") + "."
 	}
-	if err = a.step(ctx, "User", hint); err != nil {
+	if err = a.step(ctx, ans, "User", hint); err != nil {
 		return err
 	}
 	user, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
@@ -349,7 +375,7 @@ func (a *Adder) askCheckout(ctx context.Context, ans *answers) error {
 	hint := "Where the agent's repository is checked out, inside the container: its top directory, an absolute path. " +
 		"The handle's repo, host and seat come from it as ccy derives them: the repo from its origin, the host from " +
 		".claude/ccy/ccy.env.local (else local), the seat the next free one." + listed
-	if err := a.step(ctx, "Checkout", hint); err != nil {
+	if err := a.step(ctx, ans, "Checkout", hint); err != nil {
 		return err
 	}
 	path, err := a.askValid(ctx, func(ctx context.Context, answer string) (bool, error) {
@@ -414,10 +440,10 @@ func (a *Adder) askRole(ctx context.Context, ans *answers, held coordinator) err
 		a.term.Printf("\nRole: worker. %s already has a coordinator (%s); a team has one.\n", ans.team, held.holder)
 		return nil
 	}
-	if err := a.step(ctx, "Role", "A worker does the work it is given. The coordinator takes the humans' requests, dispatches them to the workers and is copied on what workers tell humans; "+ans.team+" has none yet."); err != nil {
+	if err := a.step(ctx, ans, "Role", "A worker does the work it is given. The coordinator takes the humans' requests, dispatches them to the workers and is copied on what workers tell humans; "+ans.team+" has none yet."); err != nil {
 		return err
 	}
-	role, err := a.Gum.Choose(ctx, "Role", roleWorker, []string{roleWorker, roleCoordinator})
+	role, err := a.Gum.Choose(ctx, a.head, "Role", roleWorker, []string{roleWorker, roleCoordinator})
 	if err != nil {
 		return a.gumErr(err)
 	}
@@ -434,7 +460,7 @@ type checker func(ctx context.Context, answer string) (bool, error)
 // as the next try's value, as typed.
 func (a *Adder) askValid(ctx context.Context, check checker, header, placeholder, value string) (string, error) {
 	for range maxTries {
-		answer, err := a.Gum.Input(ctx, header, placeholder, value)
+		answer, err := a.Gum.Input(ctx, a.head, header, placeholder, value)
 		if err != nil {
 			return "", a.gumErr(err)
 		}
@@ -501,7 +527,8 @@ func (a *Adder) summary(ctx context.Context, ans answers) error {
 		ans.derived.Repo, ans.derived.Host, ans.derived.Seat)
 	question := "Add " + ans.label() + " to " + ans.team + "? (saved to " + term.AbbrevHome(a.HostVars, a.Home) +
 		", then " + ans.team + " is applied: sudo asks for your password)"
-	yes, err := a.Gum.Confirm(ctx, question, true)
+	head := flow.Here(ans.team, addCrumb, "Review").About(ans.label() + " joins team " + ans.team + " · role " + ans.role)
+	yes, err := a.Gum.Confirm(ctx, head, question, true)
 	if err != nil {
 		return a.gumErr(err)
 	}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/declare"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/systemd"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/host"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/ui"
@@ -38,7 +39,8 @@ const (
 
 // SeatFunc chooses the seat for a team and offers its role: the SEAT@TEAM ref, or "" with ExitOK
 // when the person left a question.
-type SeatFunc func(ctx context.Context, team, memberType string) (string, term.ExitCode)
+// h is the heading of its questions: which team of the launch this is.
+type SeatFunc func(ctx context.Context, h ui.Heading, team, memberType string) (string, term.ExitCode)
 
 // CreateFunc runs the create wizard for this checkout: the team it made, or "" and the code.
 type CreateFunc func(ctx context.Context) (string, term.ExitCode)
@@ -151,14 +153,15 @@ func (c *Chooser) printList(refs []string) term.ExitCode {
 // person chooses for it, in order.
 func (c *Chooser) resolve(ctx context.Context, memberType, list string) term.ExitCode {
 	var refs []string
-	for item := range strings.SplitSeq(list, ",") {
+	items := strings.Split(list, ",")
+	for i, item := range items {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			c.usage("the list '" + list + "' has an empty item.")
 			return term.ExitUsage
 		}
 		if !strings.Contains(item, "@") {
-			ref, code := c.Seat(ctx, item, memberType)
+			ref, code := c.Seat(ctx, flow.LaunchTeam(i+1, len(items), item), item, memberType)
 			if code != term.ExitOK {
 				return code
 			}

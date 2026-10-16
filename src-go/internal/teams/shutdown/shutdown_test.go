@@ -209,6 +209,7 @@ func TestTheQuestionDefaultsToNo(t *testing.T) {
 	if !strings.Contains(args, "Shut down 1 session of alpha?") || !slices.Contains(c.Script.Rows[0], "Yes, shut down 1 session") {
 		t.Fatalf("question %q rows %q", args, c.Script.Rows[0])
 	}
+	c.Script.HeadingAt(0, "Teams › alpha › Shut down\nteam alpha · 1 session running")
 }
 
 func TestYesShutsDown(t *testing.T) {
