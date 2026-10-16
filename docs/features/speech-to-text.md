@@ -660,6 +660,16 @@ named tokens in `~/.claude-tokens/ccy/tokens/`, the same ones `cc` and `ccy` off
 **Desktop login** (empty) uses the host's own login, which `cc` parks aside while a
 named-token session is open, so post-processing fails then with "Not logged in".
 
+**Use the token with the most allowance left** (`claude-token-auto`, off by default) picks
+the token instead, at each post-processing: the one with the most 5-hour and weekly
+allowance left, as `ccy --token-usage --json` reports it (one small request per token,
+unless read in the last 15 minutes). When no token has any left, post-processing fails,
+the notification lists each token and when its limit resets, and the panel shows an amber
+warning icon with a menu item saying the same; click the item to clear it, or it clears
+itself when a later post-processing finds a token with room. The choice is made by
+`~/.local/bin/wsi-claude-token`; why this measure and not retrying on a limit error is in
+Plan 00208's `subagent-reports/261016-stt-token-auto-research.md`.
+
 If post-processing fails for any reason, **nothing is pasted**. The raw transcript goes
 on the clipboard (Ctrl+V), the icon turns red, and the panel menu (and a notification,
 if notifications are on) says why.
