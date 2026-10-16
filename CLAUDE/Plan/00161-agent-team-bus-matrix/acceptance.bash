@@ -53,7 +53,8 @@
 #        woken by its watcher's notice and acks it;
 #   M2.2 a second review reaches accb once its inbox is empty: a second notice with the same
 #        count and the next number, within 20 s of the first, and accb acks it;
-#   M2.3 accc's watcher is stopped; the Stop guard blocks once, accc waits with a background
+#   M2.3 accc's watcher supervisor and watcher are stopped (again, if the hooks start them
+#        once more); the hooks report watcher_failed, accc waits with a background
 #        `pingbus wait`; a review ends it and accc acks, with no notice ever reaching it;
 #   M2.4 the human's message mentioning acca only is acked by acca alone;
 #   M2.5 a launch on a held seat (75), naming two seats of the team (64), or with a trailing

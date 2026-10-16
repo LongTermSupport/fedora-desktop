@@ -88,7 +88,10 @@ Built on `fix/teams-server-robustness`; design and evidence in
   unnamed and writes no session's record, `record-seats` included (it had taken the outer
   session's identity: the U20 abort); the relabel is proved by labels on a Permissive host too;
   the 00201 and 00161 launches are unnamed by construction, and U20 M2.11 proves a named seated
-  session.
+  session. After the second (F44 7fd72106): M2's and U20 M2.11's tmux sessions run ccy under the
+  pane's own shell, never `exec`'d (with every stream redirected, tmux hung up a pane nothing
+  held, before ccy started), and record its exit status; U20 M2.3 stops the supervised watcher
+  (SPEC-inject E26) and proves the `watcher_failed` path to `pingbus wait`.
 
 ## Decisions
 

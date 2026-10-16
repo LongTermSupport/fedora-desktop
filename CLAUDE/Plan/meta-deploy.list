@@ -19,3 +19,24 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00203 acceptance, every milestone in turn (nothing is deployed: the fixes are in the
+# acceptance scripts). M2: two throwaway headless ccy sessions in ccy's tmux in this checkout
+# (plain and --no-bus, idle, no turn sent), removed after. They are now started under the
+# pane's own shell, so tmux no longer hangs them up before ccy starts; a session that ends
+# early has its exit status and stderr printed. Checks the read-only mount and its relabel
+# (on a Permissive host it says enforcement was not exercised), the inert kit, no inbound on no
+# team, idle CPU, the image version and --no-bus. Needs ccy launched interactively here once
+# (Quick Launch). M1: the helper tests, then a third throwaway plain session: the seat keeper
+# is its only pingbus process and only lock holder. Then the server robustness checks
+# (ACCEPTANCE.md R1-R9) on a throwaway team acc-robust, which it removes.
+00203-teams-hot-control-and-robustness
+# Plan 00201 M7 acceptance again: two throwaway teams, ccy --teams on both, then all removed.
+# It passed last time; it runs again as M2's check (a) that ccy --teams works as before.
+00201-ccy-teams-many-teams-per-session-descriptions-and-a-picker/acceptance.bash
+# Plan 00161 acceptance again (U20's seated headless sessions on its own throwaway team,
+# removed after). M2.3 now stops the session's watcher supervisor and its watcher (twice if
+# the hooks start it again, about a minute apart) and checks that the hooks report the
+# watcher failed and that a background pingbus wait wakes the session. M2.11 starts seat accb
+# once more as a NAMED session in a tmux session of its own, under that pane's own shell.
+00161-agent-team-bus-matrix/acceptance.bash

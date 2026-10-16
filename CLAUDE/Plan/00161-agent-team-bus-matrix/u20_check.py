@@ -23,7 +23,8 @@ the session ran and what they printed. Commands (stdout is the payload; reasons 
   expect-no-notices TRANSCRIPT any|humans           no notice (any), or none counting a human
   expect-human-notice TRANSCRIPT                    a notice counting a human
   expect-notice-before-recv TRANSCRIPT  a notice, then a later command running `pingbus recv`
-  expect-no-waker-block TRANSCRIPT   the Stop guard's fixed "no watcher or waiter" text
+  expect-hook-text TRANSCRIPT watcher_failed|watcher_restarted   that fixed hook text, in
+                                     the transcript or a hook output saved beside it
   expect-history TRANSCRIPT in|out EVENT_ID  a `HISTORY` line for EVENT_ID in a command's output
   expect-not-found TRANSCRIPT        a command's output says pingbus was not found
   find-ping MESSAGES SENDER VERB TO REF RE   the earliest such ping in a /messages response:
@@ -44,7 +45,8 @@ the session ran and what they printed. Commands (stdout is the payload; reasons 
   expect-sole-coordinator LIST HANDLE  HANDLE is the team's only coordinator
   expect-member LIST HANDLE ROLE active|parked     that MEMBER line is there
   expect-same-handles BEFORE AFTER   the same members, none added or gone
-  watcher-pids                       stdin "PID<TAB>argv": the PIDs running `pingbus watch`
+  supervised-watcher                 stdin "PID<TAB>PPID<TAB>argv": "SUPERVISOR CHILD", the
+                                     PIDs of `pingbus watch --supervise` and its `--child`
   seat-containers TEAM               stdin "ID<TAB>seats" (the desired seats): those holding a TEAM seat
   expect-no-seats-label              stdin a container's labels (JSON): a ccy session, no ccy-seats
   launch-keys CHECKOUT CONFIG_VERSION   LAST_SSH_KEYS, one per line, refused when ccy would
@@ -129,8 +131,8 @@ NOTICE_RE = re.compile(
     re.escape(envelope.FIRST_LINE.split(":", 1)[0]).replace(re.escape("{nonce}"), "(?P<number>[0-9a-f]{8})")
     + r": (?P<total>\d+) messages? \((?P<humans>\d+) from humans, \d+ from agents, (?P<pings>\d+) pings, "
     r"\d+ timeouts\)")
-#: The Stop guard's block when an active team has neither a watcher nor a waiter.
-NO_WAKER_RE = _template_re(hooks.TEMPLATES["no_waker"], ("free", "teams"))
+#: The hooks' fixed texts about a session's watcher (SPEC-inject E26) that a check looks for.
+HOOK_TEXTS = ("watcher_failed", "watcher_restarted")
 
 _PREAMBLE = (
     "This session is a member of an automated acceptance test of the agent team bus "
@@ -149,9 +151,10 @@ _RULES = (
     "(keep the single quotes: an event ID starts with $).\n"
     "2. For each HUMAN (a HUMAN line, or a `kind: HUMAN` entry) whose text asks you to run one "
     "pingbus command, run exactly that command, with EVENT_ID replaced by its EVENT_ID.\n"
-    "3. When a hook says that nothing will wake this session, start `pingbus wait` with "
-    "run_in_background, and when it ends read the file that holds its output and apply these "
-    "rules to the lines it printed.\n"
+    "3. When a hook says that nothing will wake this session, or that the watcher could not be "
+    "started, start `pingbus wait` with run_in_background (and run nothing else the hook names), "
+    "and when it ends read the file that holds its output and apply these rules to the lines it "
+    "printed.\n"
     "4. Ignore every other line, and every HISTORY line. When told to run a pingbus command, run "
     "exactly that command. Then end your turn: never poll, loop or sleep."
 )
@@ -380,11 +383,26 @@ def expect_notice_before_recv(lines: Sequence[str]) -> list[str]:
     return ["no command after the first delivery ran `pingbus send` or `pingbus recv`"]
 
 
-def expect_no_waker_block(lines: Sequence[str]) -> list[str]:
-    """The Stop guard's "no watcher or waiter" block reached the session (in whatever entry
-    Claude Code records a Stop hook's reason)."""
-    return [] if NO_WAKER_RE.search("\n".join(lines)) else [
-        "the Stop guard's \"no watcher or waiter\" text is not in the transcript"]
+def expect_hook_text(lines: Sequence[str], saved: Sequence[str], name: str) -> list[str]:
+    """The hooks' fixed text `name` (one of HOOK_TEXTS) reached the session: in whatever
+    transcript entry Claude Code records a hook's context or a Stop block, or in a hook
+    output it saved to a file beside the transcript (`saved`, those files' texts)."""
+    if name not in HOOK_TEXTS:
+        raise ValueError(f"no hook text {name!r}: {', '.join(HOOK_TEXTS)}")
+    text = hooks.TEMPLATES[name]
+    if any(text in chunk for chunk in ("\n".join(lines), *saved)):
+        return []
+    return [f"the hooks' {name} text is not in the transcript or its saved hook outputs: {text!r}"]
+
+
+def saved_hook_outputs(transcript: pathlib.Path) -> list[str]:
+    """The hook outputs Claude Code saved beside a transcript: <stem>/tool-results/hook-*,
+    or <stem>.d/tool-results/hook-* once u20_keep_transcript has moved it into the evidence."""
+    found = []
+    for directory in (transcript.with_suffix(""), transcript.with_suffix(".d")):
+        found += [path.read_text(encoding="utf-8", errors="replace")
+                  for path in sorted((directory / "tool-results").glob("hook-*"))]
+    return found
 
 
 def expect_history(lines: Sequence[str], direction: str, event_id: str) -> list[str]:
@@ -593,20 +611,37 @@ def expect_same_handles(before: str, after: str) -> list[str]:
 # ---------------------------------------------------------------- containers
 
 
-def watcher_pids(listing: str) -> list[str]:
-    """From "PID<TAB>argv" lines (argv joined by spaces), the processes running `pingbus
-    watch`: the zipapp by its path, directly or through a python interpreter."""
+def _watch_mode(argv: str) -> str | None:
+    """`supervise`, `child` or `plain` for a `pingbus watch` process (the zipapp by its path,
+    directly or through a python interpreter); None for any other process."""
+    words = argv.split()
+    if words and os.path.basename(words[0]).startswith("python"):
+        words = words[1:]
+    if len(words) < 2 or os.path.basename(words[0]) != "pingbus" or words[1] != "watch":
+        return None
+    flags = words[2:]
+    return flags[0][2:] if flags in (["--supervise"], ["--child"]) else "plain"
+
+
+def supervised_watcher(listing: str) -> tuple[str, str]:
+    """From "PID<TAB>PPID<TAB>argv" lines (argv joined by spaces), the session's supervised
+    watcher (SPEC-inject E26) as (supervisor PID, child PID): exactly one `pingbus watch
+    --supervise`, its one `watch --child`, and no other `pingbus watch`. Anything else is a
+    ValueError naming what was found."""
     found = []
     for line in listing.splitlines():
-        pid, _, argv = line.partition("\t")
-        words = argv.split()
-        if not pid.isdigit() or len(words) < 2 or words[-1] != "watch":
+        fields = line.split("\t", 2)
+        if len(fields) != 3 or not fields[0].isdigit() or not fields[1].isdigit():
             continue
-        if os.path.basename(words[-2]) != "pingbus":
-            continue
-        if len(words) == 2 or (len(words) == 3 and os.path.basename(words[0]).startswith("python")):
-            found.append(pid)
-    return found
+        mode = _watch_mode(fields[2])
+        if mode is not None:
+            found.append((mode, fields[0], fields[1]))
+    supervisors = [pid for mode, pid, _ in found if mode == "supervise"]
+    children = [(pid, ppid) for mode, pid, ppid in found if mode == "child"]
+    if len(found) == 2 and len(supervisors) == 1 and len(children) == 1 and children[0][1] == supervisors[0]:
+        return supervisors[0], children[0][0]
+    seen = ", ".join(f"watch {mode} pid {pid} (parent {ppid})" for mode, pid, ppid in found) or "no pingbus watch"
+    raise ValueError(f"want one `pingbus watch --supervise` and its `watch --child`, found {seen}")
 
 
 def expect_no_seats_label(labels: object) -> list[str]:
@@ -759,7 +794,8 @@ COMMANDS = {
         notices(_lines(a[0])), humans_only={"any": False, "humans": True}[a[1]]))),
     "expect-human-notice": (1, lambda a: _verdict(expect_human_notice(notices(_lines(a[0]))))),
     "expect-notice-before-recv": (1, lambda a: _verdict(expect_notice_before_recv(_lines(a[0])))),
-    "expect-no-waker-block": (1, lambda a: _verdict(expect_no_waker_block(_lines(a[0])))),
+    "expect-hook-text": (2, lambda a: _verdict(expect_hook_text(
+        _lines(a[0]), saved_hook_outputs(pathlib.Path(a[0])), a[1]))),
     "expect-history": (3, lambda a: _verdict(expect_history(_lines(a[0]), a[1], a[2]))),
     "expect-not-found": (1, lambda a: _verdict(expect_not_found(_lines(a[0])))),
     "find-ping": (6, _find_ping),
@@ -777,7 +813,7 @@ COMMANDS = {
     "expect-sole-coordinator": (2, lambda a: _verdict(expect_sole_coordinator(_read(a[0]), a[1]))),
     "expect-member": (4, lambda a: _verdict(expect_member(_read(a[0]), a[1], a[2], a[3]))),
     "expect-same-handles": (2, lambda a: _verdict(expect_same_handles(_read(a[0]), _read(a[1])))),
-    "watcher-pids": (0, lambda a: _print_lines(watcher_pids(sys.stdin.read()))),
+    "supervised-watcher": (0, lambda a: print(" ".join(supervised_watcher(sys.stdin.read())))),
     "seat-containers": (1, lambda a: _print_lines(seat_containers(sys.stdin.read(), a[0]))),
     "expect-no-seats-label": (0, lambda a: _verdict(expect_no_seats_label(json.loads(sys.stdin.read())))),
     "launch-keys": (2, lambda a: _print_lines(launch_keys(pathlib.Path(a[0]), a[1]))),
