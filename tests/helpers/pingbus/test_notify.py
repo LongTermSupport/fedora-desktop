@@ -29,6 +29,7 @@ import threading
 import time
 import types
 import unittest
+from collections.abc import Callable
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
@@ -213,6 +214,9 @@ class WatchCase(bus.BusCase):
         self.watcher: threading.Thread | None = None
         self.timing = cli.DeliveryTiming(retry_s=0.1, stall_after_s=0.3, missing_quiet_s=0.3,
                                          held_back_every_s=0.0)
+        # No pacing, on the real clock, unless a case sets its own (E13).
+        self.notice_interval_s = 0.0
+        self.clock: Callable[[], float] | None = None
 
     def tearDown(self) -> None:
         self.end_session()
@@ -244,6 +248,14 @@ class WatchCase(bus.BusCase):
                 self.fail(f"{message}: {self.result}")
             time.sleep(0.02)
 
+    def stored(self) -> None:
+        """Sync every active team once, so what was sent is in the inbox before the watcher
+        starts. A watcher delivers what is stored when each pass runs (E13), and its teams
+        sync in their own threads, one file at a time: a case that wants several items in ONE
+        delivery stores them first, or the first pass may find only some of them."""
+        for member in cli.config.load_active(self.env):
+            cli._seat(member, self.env, self.runtime(), io.StringIO()).syncer.sync_once(0)
+
     def pending(self, team=None) -> int:
         team = team or self.a
         record = protocol.parse_team_record(team.record, team.sn, team.name)
@@ -270,7 +282,9 @@ class WatchCase(bus.BusCase):
 
     def runtime(self, *args, **kwargs) -> cli.Runtime:
         rt = super().runtime(*args, **kwargs)
-        rt.notice_interval_s = 0.0
+        rt.notice_interval_s = self.notice_interval_s
+        if self.clock is not None:
+            rt.monotonic = self.clock
         rt.delivery = self.timing
         rt.outage_retry_s, rt.outage_retry_max_s = 0.01, 0.05
         # The test polls the lock with `probe_lock`, whose brief shared hold a starting
@@ -448,12 +462,22 @@ class WatchDeliveryTest(WatchCase):
     """SPEC-inject.md E9-E20 through `pingbus watch` in socket mode."""
 
     def test_two_teams_arrive_in_one_delivery(self):
+        """Items stored within the pacing interval join the next delivery (E13), whatever team
+        they came from (E20). Each team syncs in its own thread, so which is stored first is
+        not fixed; the interval runs on a clock the case moves only once both are stored."""
         b = self.add_team()
         self.joined()
+        now = [0.0]
+        self.clock = lambda: now[0]
+        self.notice_interval_s = 2.0
+        self.start_watch()
+        self.a.human("opens the interval")
+        self.sock.wait_for(1)
         self.a.human("for a")
         b.human("for b")
-        self.start_watch()
-        (text,) = self.sock.wait_for(1)
+        self.until(lambda: self.pending() == 1 and self.pending(b) == 1, "the two items were never stored")
+        now[0] += self.notice_interval_s + 1
+        text = self.sock.wait_for(2)[1]
         self.assertEqual(summary(text), ("2", "2", "0"))
         lines = text.splitlines()
         self.assertIn(f"team: {bus.TEAM_A}", lines)
@@ -535,6 +559,7 @@ class WatchDeliveryTest(WatchCase):
         self.joined()
         for n in range(13):
             self.a.send(self.a.peer, protocol.build_text([self.a.me], f"note {n}"))
+        self.stored()
         self.start_watch()
         texts = self.sock.wait_for(2)
         self.until(lambda: self.pending() == 0, "the flood was not consumed")

@@ -46,7 +46,10 @@ jobs:
         with:
           node-version: "20"
 
-      # The Go version is src-go/go.mod's own; golangci-lint is installed at the pin below.
+      # The Go version is src-go/go.mod's own: its toolchain line (the release the CCY image's
+      # GO_VERSION and Fedora carry), so govulncheck judges the standard library CI builds with.
+      # src-go builds from its committed vendor/; the qa module and govulncheck (its tool
+      # directive) come from the module proxy. golangci-lint is installed at the pin below.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

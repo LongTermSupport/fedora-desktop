@@ -17,9 +17,10 @@ Two version numbers move independently — see
 
 ---
 
-## 3.99.12.5 — container 2.77.4
+## 3.99.12.7 — container 2.77.5
 
-Follows 3.99.12.4 (container 2.77.3).
+Follows 3.99.12.6 (team settings 3.99.12.5 with container 2.77.4, then the DBF hidden-bindings
+change, container unchanged).
 
 - **`ccy-teams lxc-add` finds the checkout and keeps its place visible** (Plan 00203). The
   Checkout step offers the git checkouts a bounded search of the user's home found (ccy

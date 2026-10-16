@@ -3,6 +3,7 @@ package ftpcamera
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -27,6 +28,7 @@ type kit struct {
 	out, err bytes.Buffer
 	env      map[string]string
 	onPath   map[string]bool
+	base     string
 	upload   string
 	config   string
 	stdin    string
@@ -130,6 +132,7 @@ func newKit(t *testing.T) *kit {
 	base := t.TempDir()
 	k := &kit{
 		t:      t,
+		base:   base,
 		fake:   &execx.Fake{},
 		env:    map[string]string{"HOME": filepath.Join(base, "home")},
 		onPath: map[string]bool{},
@@ -276,20 +279,50 @@ func (k *kit) put(rel string, data []byte, mtime time.Time) {
 	}
 }
 
+// systemDirs are the host directories the vsftpd session creates as root. On the fake machine
+// they are recorded, never made: the test must not write the real /run.
+var systemDirs = map[string]bool{"/run/vsftpd/empty": true, overrideDir: true}
+
 // realRoot makes the root mkdir, mv, rm and find do what they say on the temporary tree, so a
-// test sees the files land where the tool put them.
+// test sees the files land where the tool put them. A path outside the temporary tree fails the
+// test, except a mkdir of one of systemDirs, which is recorded only.
 func (k *kit) realRoot() {
 	k.fake.OnFunc([]string{"sudo", "-n", "mkdir", "-p"}, func(c execx.Cmd) (execx.Result, error) {
-		return execx.Result{}, os.MkdirAll(c.Args[len(c.Args)-1], 0o755)
+		dir := c.Args[len(c.Args)-1]
+		if systemDirs[dir] {
+			return execx.Result{}, nil
+		}
+		if err := k.inTree(dir); err != nil {
+			return execx.Result{}, err
+		}
+		return execx.Result{}, os.MkdirAll(dir, 0o755)
 	})
 	k.fake.OnFunc([]string{"sudo", "-n", "mv"}, func(c execx.Cmd) (execx.Result, error) {
 		src, dir := c.Args[2], c.Args[3]
+		if err := k.inTree(src, dir); err != nil {
+			return execx.Result{}, err
+		}
 		return execx.Result{}, os.Rename(src, filepath.Join(dir, filepath.Base(src)))
 	})
 	k.fake.OnFunc([]string{"sudo", "-n", "rm", "-f"}, func(c execx.Cmd) (execx.Result, error) {
+		if err := k.inTree(c.Args[3]); err != nil {
+			return execx.Result{}, err
+		}
 		return execx.Result{}, os.Remove(c.Args[3])
 	})
 	k.fake.On([]string{"sudo", "-n", "find"}, execx.Result{})
+}
+
+// inTree fails the test, and returns an error, for any path outside the kit's temporary tree.
+func (k *kit) inTree(paths ...string) error {
+	for _, p := range paths {
+		rel, err := filepath.Rel(k.base, p)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
+			k.t.Errorf("root command on %q, outside the test tree %q", p, k.base)
+			return fmt.Errorf("outside the test tree: %s", p)
+		}
+	}
+	return nil
 }
 
 // exifDates answers the capture-date question from a map of base name to date.

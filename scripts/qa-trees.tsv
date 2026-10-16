@@ -24,6 +24,9 @@
 # .claude/skills: installed skill payloads.
 # .claude/worktrees: checkouts of other branches, gated on their own branch.
 # roles/vendor: vendored Ansible roles.
+# src-go/vendor: third-party Go modules exactly as `go mod vendor` writes them (Plan 00204), with
+#   their own shell scripts, YAML and READMEs; judged whole by qa-go-deps (the vendor tree must be
+#   byte for byte what go.mod and go.sum describe) and qa-go-vuln, never edited, so never linted.
 # .semgrep: annotated rule FIXTURES, deliberately full of the broken patterns the rules must
 #   catch; validated by `semgrep --test` in qa-patterns.bash, which is the check that belongs to it.
 shell	.git
@@ -34,6 +37,7 @@ shell	.claude/ccy
 shell	.claude/skills
 shell	.claude/worktrees
 shell	roles/vendor
+shell	src-go/vendor
 shell	.semgrep
 shell	node_modules
 shell	untracked
@@ -46,6 +50,7 @@ python	.claude/ccy/projects
 python	.claude/worktrees
 python	.claude/skills
 python	roles/vendor
+python	src-go/vendor
 python	node_modules
 python	untracked
 python	__pycache__

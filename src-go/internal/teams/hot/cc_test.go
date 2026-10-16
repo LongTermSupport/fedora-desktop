@@ -169,6 +169,36 @@ func TestAPlainCCUnderTheNameOfAnEndedOneOwnsNoMembership(t *testing.T) {
 	}
 }
 
+// Fable's M6 re-check R2: whether a session's launch carried the bus is read from its record, so
+// a record that cannot be read must not quietly make its session one off the bus: list, add and
+// the session lookup stop, naming the record.
+func TestAnUnreadableRecordStopsTheCommandNamingIt(t *testing.T) {
+	for _, kind := range []string{membership.KindCcy, membership.KindCC} {
+		t.Run(kind, func(t *testing.T) {
+			name := session
+			if kind == membership.KindCC {
+				name = ccSession
+			}
+			r := newRigAs(t, kind, name, membership.Seat{Team: "beta", Seat: "1"})
+			r.labelled("abc123\trunning\t" + session + "\n")
+			bad := filepath.Join(r.storeDir, "ccy-broken")
+			if err := os.WriteFile(bad, []byte("not a session record\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, args := range [][]string{{"list"}, {"add", name, "alpha/3", "--yes"}} {
+				code := r.run(t, args...)
+				if code != term.ExitFailure || !strings.Contains(r.ErrOut.String(), bad) {
+					t.Fatalf("%v: exit %d, stderr does not name %s:\n%s", args, code, bad, r.ErrOut.String())
+				}
+				r.ErrOut.Reset()
+			}
+			if _, err := r.x.SessionsIn(t.Context(), "beta"); err == nil || !strings.Contains(err.Error(), bad) {
+				t.Fatalf("SessionsIn: %v", err)
+			}
+		})
+	}
+}
+
 func TestListShowsRunningCCSessions(t *testing.T) {
 	r := newCCRig(t, membership.Seat{Team: "beta", Seat: "1"})
 	r.labelled("")

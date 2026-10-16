@@ -43,13 +43,15 @@ func New() *Index {
 // IsLauncher is whether a record's prefix is one of the two launchers that hold seats.
 func IsLauncher(prefix string) bool { return prefix == "ccy" || prefix == "cc" }
 
-// TeamsList is the --teams value in a launcher's arguments, up to a bare "--"; the last wins.
-func TeamsList(args []string) string {
+// RecordTeams is the --teams value of a record's launch, read from its launcher's own words
+// (launcherArgs): ccy's up to a bare "--", every word of cc's.
+func RecordTeams(rec registry.Record) string { return teamsIn(launcherArgs(rec)) }
+
+// teamsIn is the last --teams value among the words, all of them the launcher's; the last wins.
+func teamsIn(args []string) string {
 	list := ""
 	for i, arg := range args {
 		switch {
-		case arg == "--":
-			return list
 		case arg == ccyenv.FlagTeams:
 			list = ""
 			if i+1 < len(args) {
@@ -68,7 +70,7 @@ func (ix *Index) AddRecord(rec registry.Record) {
 	if !IsLauncher(rec.Prefix) {
 		return
 	}
-	for ref := range strings.SplitSeq(TeamsList(rec.Args), ",") {
+	for ref := range strings.SplitSeq(RecordTeams(rec), ",") {
 		seat, team, ok := strings.Cut(ref, "@")
 		if !ok || seat == "" || team == "" {
 			continue
@@ -180,19 +182,29 @@ const (
 	flagNoBus = "--no-bus"
 )
 
-// LaunchedWithBus is whether a record's launch carries the agent team bus, judged on the
-// arguments before any "--" (those are claude's).
+// LaunchedWithBus is whether a record's launch carries the agent team bus, judged on its
+// launcher's own words (launcherArgs).
 func LaunchedWithBus(rec registry.Record) bool {
-	args := rec.Args
-	if end := slices.Index(args, "--"); end >= 0 {
-		args = args[:end]
-	}
+	args := launcherArgs(rec)
 	if rec.Prefix != membership.KindCC {
 		return !slices.Contains(args, flagNoBus)
 	}
 	return slices.ContainsFunc(args, func(a string) bool {
 		return a == ccyenv.FlagTeams || a == flagBus || strings.HasPrefix(a, ccyenv.FlagTeams+"=")
 	})
+}
+
+// launcherArgs is the words of a record that are its launcher's (Fable's M6 re-check R1): ccy's
+// up to a bare "--", after which they are claude's; every word of cc's, which has no option
+// terminator and reads each word as its own.
+func launcherArgs(rec registry.Record) []string {
+	if rec.Prefix == membership.KindCC {
+		return rec.Args
+	}
+	if end := slices.Index(rec.Args, "--"); end >= 0 {
+		return rec.Args[:end]
+	}
+	return rec.Args
 }
 
 // RunningCC is every cc session with a desired membership whose tmux session is live (on ccy's

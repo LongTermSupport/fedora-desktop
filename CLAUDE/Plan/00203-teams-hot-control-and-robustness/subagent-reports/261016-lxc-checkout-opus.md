@@ -102,9 +102,10 @@ Each step heading reads like `3/4  Checkout · Add an LXC member to <team> · <c
 
 ## Versions, deploy, QA
 
-- **Versions.** CCY 3.99.12.5 and container 2.77.4 (`helpers/pingbus` and `helpers/agent_bus`
-  are baked into the image), after F44 (`1d3c65bb`, 3.99.12.4 and 2.77.3) was merged into the
-  branch. The changelog section sits above F44's. lxc-add's takeover offer carries the Role
+- **Versions.** CCY 3.99.12.7 and container 2.77.5 (`helpers/pingbus` and `helpers/agent_bus`
+  are baked into the image). F44 (`1d3c65bb`, then `f01d993a`; 3.99.12.4 and 2.77.3) is merged
+  into the branch. This branch merges after team settings (3.99.12.5, 2.77.4) and DBF
+  (3.99.12.6), so their changelog sections go between. The changelog section sits above F44's. lxc-add's takeover offer carries the Role
   context line too.
 - **After Fable's review.** The attach hints carry `-P <lxcpath>` (read once through the new
   `lxcfreeze.Lister.LxcPath`). An `lxc-info` that never answers is refused naming it, not a
