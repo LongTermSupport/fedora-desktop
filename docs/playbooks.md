@@ -948,7 +948,9 @@ below):
   `python3 -m helpers.play_ledger.check_freshness --clear-broken`, which is the command the
   finding prints. It never clears itself. Clearing does not recover the plays that ran
   unrecorded, so re-run any you rely on being judged. An ad-hoc `ansible -m` or
-  `ansible-console` command does not mark it
+  `ansible-console` command does not mark it, nor does a play outside the checkout (a
+  private play run from a linked worktree): that play gets no record, and one
+  `LEDGER-PLAY-NOT-TRACKED` line on stderr names it
 - **Silent when clean.** Nothing is shown on a healthy login — a check that speaks every
   time gets muted
 - A check that *could not run* is reported as a finding, never as a pass. That is the
