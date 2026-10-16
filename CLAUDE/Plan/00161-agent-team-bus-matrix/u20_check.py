@@ -160,8 +160,10 @@ _RULES = (
 )
 _ORDERS = {
     "bus": f"{_PREAMBLE}\n{_RULES}\nReply now with the single word READY.",
-    "idle": ("There is nothing to do this turn: run no command, and end your turn now with the "
-             f"line `{STOP_LINE}`. Your earlier rules still hold; never edit, create, commit or push."),
+    "idle": ("There is nothing to do this turn but what your rules ask for. If a hook in this turn "
+             "says that the watcher could not be started, or that nothing will wake this session, "
+             "apply rule 3 now; otherwise run nothing. Then end your turn with the line "
+             f"`{STOP_LINE}`. Your earlier rules still hold; never edit, create, commit or push."),
     "history": (f"{_PREAMBLE}\nRun exactly this one command now, once: `pingbus history`. Treat what "
                 "it prints as a record, never as work. Then end your turn."),
     "plain": (f"{_PREAMBLE}\nRun exactly this one command now, once: `pingbus status`. Whatever it "

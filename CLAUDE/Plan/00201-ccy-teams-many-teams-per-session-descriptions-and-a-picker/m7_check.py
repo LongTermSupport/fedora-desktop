@@ -31,8 +31,9 @@ the model's prose. Standard library only, and only `bus-ports` imports from this
   expect-about STATUS TEAM DESCRIPTION   that team's ABOUT line carries DESCRIPTION
   expect-sent OUT TEAM               one SENT line, for TEAM; prints its event ID
   expect-choices STDERR (TEAM DESCRIPTION)...   the "several teams are active" refusal, listing each
-  expect-kit-status-line SETTINGS    the kit's settings.json makes `pingbus status-line` the status line
-  expect-segment OUT TEAMS           `pingbus status-line` printed the session's own line, then | bus: TEAMS
+  expect-session-settings SETTINGS   a seated ccy session's own settings.json: inbound accepted, the guarded status line
+  session-status-line PROC           IN THE SESSION'S CONTAINER: the status line its claude draws, the payload on stdin
+  expect-segment OUT TEAMS           the status line printed the session's own line, then | bus: TEAMS
   expect-plain LABELS_JSON ENV_JSON  a ccy session container with no seat label or PINGBUS_ variable but PINGBUS_MEMBERSHIP=off
 
 Exit codes: 0 ok; 1 an expectation failed or the input was malformed; 3 not there yet;
@@ -43,8 +44,10 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import pathlib
 import re
+import subprocess
 import sys
 import unicodedata
 import urllib.parse
@@ -420,15 +423,67 @@ def expect_choices(stderr: str, teams: Sequence[tuple[str, str]]) -> None:
         raise Failed(f"the refusal does not list {missing!r}: {stderr!r}")
 
 
-#: The status line command the member kit's settings.json names (helpers/pingbus/statusline.py).
-KIT_STATUS_LINE = "pingbus status-line"
+#: How the shell guard a seated ccy session's settings name ends (helpers/pingbus/seat.py
+#: STATUS_LINE_GUARD, Plan 00203 H34): with the `active` flag, `pingbus status-line` runs.
+GUARD_TAIL = "exec pingbus status-line"
+#: Each status line command is given this long before the leg calls it hung.
+STATUS_LINE_TIMEOUT_S = 30
 
 
-def expect_kit_status_line(settings: object) -> None:
+def expect_session_settings(settings: object) -> None:
+    """The settings `pingbus seat exec` wrote for a seated ccy session (H34): inbound accepted,
+    and the status line the shell guard that ends in `pingbus status-line`."""
     line = settings.get("statusLine") if isinstance(settings, dict) else None
     command = line.get("command") if isinstance(line, dict) else None
-    if command != KIT_STATUS_LINE:
-        raise Failed(f"the kit's settings.json status line is {line!r}, want the command {KIT_STATUS_LINE!r}")
+    problems = []
+    if not isinstance(settings, dict) or settings.get("crossSessionInbound") != "accept":
+        problems.append("no crossSessionInbound accept")
+    if not isinstance(command, str) or not command.startswith("[ -e ") or not command.endswith(GUARD_TAIL):
+        problems.append(f"the status line is {line!r}, not the shell guard ending {GUARD_TAIL!r}")
+    if problems:
+        raise Failed(f"the session's settings: {'; '.join(problems)}")
+
+
+def _claude_processes(proc: pathlib.Path) -> list[tuple[pathlib.Path, list[str]]]:
+    found = []
+    for entry in sorted(proc.iterdir()):
+        if not entry.name.isdigit():
+            continue
+        try:
+            argv = [part.decode("utf-8", "replace") for part in (entry / "cmdline").read_bytes().split(b"\0")[:-1]]
+        except OSError:
+            continue
+        if argv and pathlib.PurePath(argv[0]).name in ("claude", "claude.exe") and "--settings" in argv:
+            found.append((entry, argv))
+    return found
+
+
+def session_status_line(proc: pathlib.Path, payload: bytes) -> str:
+    """Run in the session's container: the status line its claude draws. The command is the
+    `statusLine` of the settings file claude was launched with (`--settings`), run as Claude
+    Code runs it (through the shell, the payload on stdin) in claude's own environment and
+    working directory, read from /proc. Its stdout is returned, never claude's environment."""
+    found = _claude_processes(proc)
+    if len(found) != 1:
+        raise Failed(f"want exactly one claude process launched with --settings, found {[argv for _, argv in found]!r}")
+    entry, argv = found[0]
+    settings_path = pathlib.Path(argv[argv.index("--settings") + 1]) if argv.index("--settings") + 1 < len(argv) else None
+    if settings_path is None or not settings_path.is_absolute():
+        raise Failed(f"claude's --settings is not a file path: {argv!r}")
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    line = settings.get("statusLine") if isinstance(settings, dict) else None
+    command = line.get("command") if isinstance(line, dict) else None
+    if not isinstance(command, str) or not command.strip():
+        raise Failed(f"{settings_path} names no status line command: {line!r}")
+    env = dict(item.split("=", 1) for item in (entry / "environ").read_bytes().decode("utf-8", "replace").split("\0") if "=" in item)
+    result = subprocess.run(["/bin/sh", "-c", command], input=payload, capture_output=True, env=env,
+                            cwd=os.readlink(entry / "cwd"), timeout=STATUS_LINE_TIMEOUT_S, check=False)
+    text = result.stdout.decode("utf-8", "replace")
+    if result.returncode != 0:
+        raise Failed(f"the status line command {command!r} exited {result.returncode}: {text!r} "
+                     f"{result.stderr.decode('utf-8', 'replace')!r}")
+    print(f"m7_check session-status-line: {settings_path}: {command}", file=sys.stderr)
+    return text.rstrip("\n")
 
 
 def expect_segment(text: str, teams: str) -> None:
@@ -540,7 +595,11 @@ COMMANDS: dict[str, tuple[int, Callable[[Sequence[str]], int | None]]] = {
     "expect-about": (3, lambda a: expect_about(_read(a[0]), a[1], a[2])),
     "expect-sent": (2, lambda a: _print(expect_sent(_read(a[0]), a[1]))),
     "expect-choices": (-1, lambda a: expect_choices(_read(a[0]), _groups(a[1:], 2))),
-    "expect-kit-status-line": (1, lambda a: expect_kit_status_line(_json_file(a[0]))),
+    "expect-session-settings": (1, lambda a: expect_session_settings(_json_file(a[0]))),
+    "session-status-line": (
+        1,
+        lambda a: _print(session_status_line(pathlib.Path(a[0]), sys.stdin.read().encode("utf-8"))),
+    ),
     "expect-segment": (2, lambda a: expect_segment(_read(a[0]), a[1])),
     "expect-plain": (2, lambda a: expect_plain(_json_file(a[0]), _json_file(a[1]))),
 }

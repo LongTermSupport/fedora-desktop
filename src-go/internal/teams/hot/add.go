@@ -383,8 +383,9 @@ func whyNot(rep membership.Report, repErr error, team, seat string, generation i
 	return "the seat keeper did not apply generation " + strconv.Itoa(generation)
 }
 
-// relaunch is H22's first join of a session launched on no team: it has no inbox socket, so it
-// is asked to relaunch once, through the supervisor's restart, which replays the record.
+// relaunch is H22's first join of a session launched on no team: its inbox socket refuses every
+// message (H34), so it is asked to relaunch once, through the supervisor's restart, which
+// replays the record.
 func (x *Hot) relaunch(ctx context.Context, t *target, team, seat string) term.ExitCode {
 	x.say("  " + t.session + " started on no team, so it relaunches once, at its next idle moment, to accept team messages (up to " +
 		seconds(x.Waits.Relaunch) + ").")

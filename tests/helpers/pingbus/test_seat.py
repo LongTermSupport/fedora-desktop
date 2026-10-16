@@ -939,13 +939,15 @@ class MembershipClaimTest(SeatCase):
         for name in (seat.SESSION_SETTINGS, seat.STATUS_LINE_INNER, seat.ACTIVE_FLAG):
             self.assertEqual(stat.S_IMODE((self.session_home / name).stat().st_mode), 0o600, name)
 
-    def test_a_session_launched_on_no_team_accepts_no_inbound(self):
-        """H33b, Decision 1: a session on no team has no inbox socket at all, so nothing in the
-        container can write a user turn into it. Its first join relaunches it once (M3)."""
+    def test_a_session_launched_on_no_team_refuses_inbound(self):
+        """H34, Decision 1: Claude Code binds its inbox socket in every session, so a session on
+        no team is launched with `crossSessionInbound: refuse`: a message on the socket is
+        dropped, never a turn and never a review for the human. A `--settings` value outranks
+        the user's settings, which the session could write. Its first join relaunches it (M3)."""
         self.write_desired(None)
         self.assertEqual(self.claim()[0], 0)
         settings = json.loads(self.home_file(seat.SESSION_SETTINGS))
-        self.assertNotIn("crossSessionInbound", settings)
+        self.assertEqual(settings["crossSessionInbound"], "refuse")
         self.assertEqual(settings["statusLine"]["command"], seat.STATUS_LINE_GUARD)
 
     def test_a_seat_the_keeper_takes_later_never_turns_inbound_on(self):
@@ -961,7 +963,7 @@ class MembershipClaimTest(SeatCase):
             time.sleep(0.05)
         self.assertEqual(inbox.probe_lock_at(self.lock_of("dev1")), inbox.SEAT_KIND)
         self.assertEqual(self.home_file(seat.SESSION_SETTINGS), before)
-        self.assertNotIn("crossSessionInbound", json.loads(before))
+        self.assertEqual(json.loads(before)["crossSessionInbound"], "refuse")
 
     def test_the_inner_status_line_is_the_one_the_session_would_have_had(self):
         local = self.project / ".claude" / "settings.local.json"

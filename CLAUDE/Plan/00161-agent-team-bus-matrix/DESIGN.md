@@ -1481,7 +1481,9 @@ replaces the throwaway `git init` checkouts.
     `watcher_failed`, which says to run `pingbus wait` meanwhile; Stop's "no waker" block is
     for a session with no socket only. Once `accc`'s watcher is live, the harness stops the
     supervisor, then its child (`podman exec` into `accc`'s container, a signal to each,
-    found by argv and parent), then sends `accc` an input that gives it nothing to do. If the
+    found by argv and parent), then sends `accc` an input that gives it nothing to do but
+    what its rules ask for (so rule 3 still holds: an input that forbade every command
+    would forbid the `pingbus wait` the hooks then ask for). If the
     hooks start the watcher again (`watcher_restarted`), the harness waits out their 30 s
     grace, stops it again and sends a second such input, inside their 300 s. Either way the
     hooks report `watcher_failed` and `accc` runs `pingbus wait` in the background; M1's

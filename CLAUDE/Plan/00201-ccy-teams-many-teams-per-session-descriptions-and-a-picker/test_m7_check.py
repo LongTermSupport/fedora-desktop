@@ -375,13 +375,71 @@ class SegmentTest(TempDir):
         self.assertEqual(run("expect-segment", alone, "a,b")[0], 1, "the session's own line is missing")
         self.assertEqual(run("expect-segment", broken, "a,b")[0], 1)
 
-    def test_expect_kit_status_line(self) -> None:
+    def test_expect_session_settings(self) -> None:
+        guard = '[ -e "$PINGBUS_HOME/active" ] || exec sh "$PINGBUS_HOME/statusline-inner"; exec pingbus status-line'
+        seated = self.write("seated.json", json.dumps({
+            "crossSessionInbound": "accept",
+            "statusLine": {"type": "command", "command": guard, "refreshInterval": 1}}))
         kit = self.write("kit.json", json.dumps({
             "crossSessionInbound": "accept",
             "statusLine": {"type": "command", "command": "pingbus status-line"}}))
-        old = self.write("old.json", json.dumps({"crossSessionInbound": "accept"}))
-        self.assertEqual(run("expect-kit-status-line", kit)[0], 0)
-        self.assertEqual(run("expect-kit-status-line", old)[0], 1)
+        plain = self.write("plain.json", json.dumps({"statusLine": {"type": "command", "command": guard}}))
+        self.assertEqual(run("expect-session-settings", seated)[0], 0)
+        self.assertEqual(run("expect-session-settings", kit)[0], 1, "not the shell guard")
+        self.assertEqual(run("expect-session-settings", plain)[0], 1, "no inbound accept")
+
+
+class SessionStatusLineTest(TempDir):
+    """M3 runs the status line the session's claude was launched with, in claude's own
+    environment, as Claude Code does: a `podman exec` carries the container's environment, not
+    the one `pingbus seat exec` gave claude (PINGBUS_HOME), so running `pingbus status-line`
+    from it renders a status line no session ever shows."""
+
+    def proc(self, pid: str, argv: list[str], env: dict[str, str]) -> None:
+        base = self.dir / "proc" / pid
+        base.mkdir(parents=True)
+        (base / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+        (base / "environ").write_bytes(b"".join(f"{k}={v}\0".encode() for k, v in env.items()))
+        (base / "cwd").symlink_to(self.dir)
+
+    def settings(self, command: str) -> str:
+        return self.write("settings.json", json.dumps({"statusLine": {"type": "command", "command": command}}))
+
+    def render(self, payload: bytes = b'{"session_id": "s1"}') -> str:
+        return mc.session_status_line(self.dir / "proc", payload)
+
+    def test_runs_the_launch_settings_command_in_claudes_environment(self) -> None:
+        path = self.settings('printf "%s|" "$PINGBUS_HOME"; cat')
+        self.proc("1", ["catatonit", "--", "entrypoint"], {"PINGBUS_HOME": "/wrong"})
+        self.proc("2", ["claude", "--dangerously-skip-permissions", "--settings", path, "-p", "x"],
+                  {"PINGBUS_HOME": "/tmp/pingbus-home", "PATH": "/usr/bin:/bin"})
+        self.proc("9", ["python3", "sup.py", "--", "claude", "--settings", "/elsewhere"], {})
+        self.assertEqual(self.render(b'{"session_id": "s1"}'), '/tmp/pingbus-home|{"session_id": "s1"}')
+
+    def test_no_claude_or_two_fail(self) -> None:
+        path = self.settings("echo x")
+        self.proc("1", ["bash"], {})
+        with self.assertRaises(mc.Failed):
+            self.render()
+        self.proc("2", ["claude", "--settings", path], {"PATH": "/usr/bin:/bin"})
+        self.proc("3", ["/usr/local/bin/claude", "--settings", path], {"PATH": "/usr/bin:/bin"})
+        with self.assertRaises(mc.Failed):
+            self.render()
+
+    def test_a_failing_command_or_no_status_line_fails(self) -> None:
+        path = self.settings("echo half; exit 4")
+        self.proc("2", ["claude", "--settings", path], {"PATH": "/usr/bin:/bin"})
+        with self.assertRaises(mc.Failed):
+            self.render()
+        pathlib.Path(path).write_text("{}", encoding="utf-8")
+        with self.assertRaises(mc.Failed):
+            self.render()
+
+    def test_command_line(self) -> None:
+        path = self.settings("cat")
+        self.proc("2", ["claude", "--settings", path], {"PATH": "/usr/bin:/bin"})
+        status, out, _ = run("session-status-line", str(self.dir / "proc"), stdin='{"a": 1}')
+        self.assertEqual((status, out), (0, '{"a": 1}\n'))
 
 
 class PlainTest(TempDir):

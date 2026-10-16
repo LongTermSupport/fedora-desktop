@@ -420,8 +420,8 @@ Two things are **not** frozen:
   9. Report what the session will be told.
 
   **The first join of a session launched on no team relaunches it, once** (H34, Decision 1).
-  Such a session was launched without `crossSessionInbound`, which Claude Code reads only at
-  start, so it has no inbox socket. Step 7 is then followed by a relaunch through the existing
+  Such a session was launched with `crossSessionInbound: refuse`, which Claude Code reads only
+  at start, so its inbox socket drops every message. Step 7 is then followed by a relaunch through the existing
   restart path (the supervisor's restart request, `lib/restart-request.bash`, which replays
   the record's `--teams`, now naming the new seat): the session comes back in the same tmux
   session, resumed, in its seat, with inbound accepted. Every later change to it is hot. The
@@ -568,11 +568,25 @@ Two things are **not** frozen:
 
   - **Cross-session inbound.** A session launched with at least one seat is launched with
     `crossSessionInbound: accept`, and the watcher, which runs only while a seat is applied
-    (H11), is the only writer the kit starts. A session launched on no team is launched
-    **without** it, so Claude Code binds no inbox socket and nothing in the container can
-    write a turn into it (Decision 1, as the owner set it). Its first join relaunches it once
+    (H11), is the only writer the kit starts. A session launched on no team is launched with
+    **`crossSessionInbound: refuse`**, so nothing in the container can write a turn into it
+    (Decision 1, as the owner set it). Its first join relaunches it once
     (H22); a later remove of its last seat leaves inbound accepted until it next ends, with
     the watcher gone, as for any seated session today.
+
+  - **The socket is always there; the setting decides what it delivers** (Claude Code 2.1.301,
+    read from its code and seen on the host: every claude process, the host's own included,
+    owns `cc-socks/<pid>.sock`). The socket path is derived from the pid and bound whatever
+    `crossSessionInbound` says, so the socket's presence proves nothing about inbound. The
+    setting is `accept`, `hold` or `refuse`, taken from the first of the managed (policy),
+    `--settings` (flag) and user settings that sets it; the project and local settings may
+    only tighten it. Unset, a session that bypasses permissions holds a message for the human
+    to review (`bypass-default`), and one that prompts accepts it. So an earlier version of
+    this section, which said a session launched without the setting "binds no inbox socket",
+    was wrong: such a session had a socket that held messages for review. `refuse` drops them,
+    and as a `--settings` value it outranks the user's settings, which live in the shared
+    checkout the session can write. M2's acceptance (b) proves inbound by the settings claude
+    was launched with, not by the socket.
 
   - **Where the socket is** (probed in a CCY container, Claude Code 2.1.301): Claude Code
     binds `$XDG_RUNTIME_DIR/cc-socks/<pid>.sock`, on the container's own root filesystem, not
@@ -606,9 +620,11 @@ Two things are **not** frozen:
   - Acceptance (M2): the session's idle CPU over a minute is unchanged from before M2
     (`top -b -n 2`).
 - **H33b. `--no-bus`.** `ccy --no-bus` launches without the plugin, the settings (so no status
-  line wrapper and no inbound), the keeper and the mount, and with `PINGBUS_MEMBERSHIP=off`.
-  Under H33, H33a and H34, a plain session and a `--no-bus` session both have no inbound and
-  no inbox socket, and differ by the mount, the keeper process, the plugin (whose hooks end in
+  line wrapper and no inbound setting), the keeper and the mount, and with `PINGBUS_MEMBERSHIP=off`.
+  Under H33, H33a and H34, neither a plain session nor a `--no-bus` session takes a message on
+  its inbox socket as a turn: the plain one refuses it, and the `--no-bus` one, launched in
+  bypass mode with no setting, holds it for the human's review (Claude Code's default, unless
+  the user's settings say otherwise). They also differ by the mount, the keeper process, the plugin (whose hooks end in
   the shell) and the status line wrapper (which runs the session's own). The usage text says so, so the owner can choose. A `--no-bus` session
   is refused hot control with exit 78.
 - **H35. Who can be hot-controlled.** Only a ccy session that ccy-sessions knows: one started

@@ -35,8 +35,9 @@ set -euo pipefail
 #      their seats and descriptions;
 #   D3 that session's `pingbus status` trusts both teams and prints each one's ABOUT line;
 #   M2 its per-session record (pingbus SessionStart) lists both teams;
-#   M3 the kit's settings make `pingbus status-line` the session's status line, and in the
-#      session's container it prints the checkout's own line then `bus: accept201a,accept201b`;
+#   M3 the session's own settings make the guarded `pingbus status-line` its status line, and
+#      run as its claude runs it (claude's environment) it prints the checkout's own line then
+#      `bus: accept201a,accept201b`;
 #   R1 `pingbus say --to m7solo.1` (a member of accept201a only), no --team: SENT in accept201a;
 #   R2 `pingbus say --to m7peer.1` (a member of both): exit 64, both teams listed with their
 #      descriptions;

@@ -35,10 +35,12 @@ readonly M7_APPLIED="/var/lib/agent-bus-applied"
 #: The checkout as a ccy container sees it (claude-yolo mounts $PWD there).
 readonly M7_CTR_ROOT="/workspace"
 readonly M7_CTR_RUN_DIR="${M7_CTR_ROOT}/${PLAN_RUN_DIR#"${PLAN_REPO_ROOT}"/}"
-#: The member kit's settings in the image, which the entrypoint passes to a bus session's claude.
-readonly M7_CTR_KIT_SETTINGS="/opt/claude-yolo/optional/agent-bus/settings.json"
 #: The session home `pingbus seat exec` builds in a container (helpers/pingbus/seat.py).
 readonly M7_CTR_PINGBUS_HOME="/tmp/pingbus-home"
+#: The settings `pingbus seat exec` writes there, which the entrypoint passes to claude (H34).
+readonly M7_CTR_SESSION_SETTINGS="${M7_CTR_PINGBUS_HOME}/settings.json"
+#: This checker as the container sees it, for the one command that runs in there.
+readonly M7_CTR_CHECK="${M7_CTR_ROOT}/${PLAN_SCRIPT_DIR#"${PLAN_REPO_ROOT}"/}/m7_check.py"
 #: Members added by hand, to address: a short name in both teams, and one in team A only.
 readonly M7_PEER_REPO="m7peer"
 readonly M7_SOLO_REPO="m7solo"
@@ -632,22 +634,26 @@ m7_check_record() {
     evidence "M2 the per-session record of ${SESSION_ID} lists ${record}: multi/record.out"
 }
 
-# M3 — the session's status line command is the kit's `pingbus status-line`, which prints this
-# checkout's own status line and then `bus: A,B` for this session ID: the same in any checkout.
+# M3 — the session's own settings (Plan 00203 H34, written by `pingbus seat exec`) make the
+# shell guard its status line, which runs `pingbus status-line` while a seat is held: this
+# checkout's own status line, then `bus: A,B`. The leg runs the command claude was launched
+# with, in claude's own environment read from /proc (m7_check session-status-line), because
+# a bare `podman exec` lacks what `seat exec` gave claude (PINGBUS_HOME): run from there,
+# `pingbus status-line` reports the membership unreadable, which no session ever shows.
 m7_check_segment() {
     local payload
-    m7_exec kit-settings /dev/null cat "${M7_CTR_KIT_SETTINGS}" || { m7_show kit-settings; return 1; }
-    "${CHECK[@]}" expect-kit-status-line "$(m7_ev multi/kit-settings.out)" || return 1
+    m7_exec session-settings /dev/null cat "${M7_CTR_SESSION_SETTINGS}" || { m7_show session-settings; return 1; }
+    "${CHECK[@]}" expect-session-settings "$(m7_ev multi/session-settings.out)" || return 1
     payload="$(m7_ev multi/status-line.in)"
     printf '{"session_id": "%s", "workspace": {"project_dir": "%s"}}\n' "${SESSION_ID}" "${M7_CTR_ROOT}" >"${payload}"
-    if ! m7_exec status-line "${payload}" env "CLAUDE_PROJECT_DIR=${M7_CTR_ROOT}" "PINGBUS_TEAMS=${TEAM_A},${TEAM_B}" pingbus status-line; then
+    if ! m7_exec status-line "${payload}" python3 -I "${M7_CTR_CHECK}" session-status-line /proc; then
         m7_show status-line
-        printf '[FAIL] pingbus status-line failed in the container (the reason is above)\n' >&2
+        printf '[FAIL] the session'\''s status line failed in the container (the reason is above)\n' >&2
         return 1
     fi
     m7_show status-line
     "${CHECK[@]}" expect-segment "$(m7_ev multi/status-line.out)" "${TEAM_A},${TEAM_B}" || return 1
-    evidence "M3 the kit's settings make pingbus status-line the status line (multi/kit-settings.out), and it prints this checkout's own status line then bus: ${TEAM_A},${TEAM_B} for ${SESSION_ID}: multi/status-line.out"
+    evidence "M3 the session's settings make the guarded pingbus status-line its status line (multi/session-settings.out), and run as claude runs it, it prints this checkout's own status line then bus: ${TEAM_A},${TEAM_B} for ${SESSION_ID}: multi/status-line.out"
 }
 
 # R1 — `say --to` a seat on team A only, no --team: the team is inferred and the SENT line names A.
