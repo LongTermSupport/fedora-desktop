@@ -255,7 +255,9 @@ what the list shows from outside the widget being typed in, so it is an action a
 Button. In a Bubble Tea text input the same holds: moving, editing the line, accepting and
 leaving are navigation, and so is **Tab completing the line**, decided by the owner: "Tab
 completion is acceptable as a magic key because it's standard UX", provided the screen shows a
-hint line saying Tab completes. Any other key a ui component takes is an action, matched
+hint line saying Tab completes. The rule holds that condition by a shape it can see: Tab or
+Shift+Tab taken by hand is navigation only in a package that binds Tab with constant help (the
+binding ui's hint line is drawn from). Any other key a ui component takes is an action, matched
 through a `key.Binding` with help that ui draws.
 
 **What it flags.**
@@ -269,12 +271,16 @@ through a `key.Binding` with help that ui draws.
   is judged wherever it is spelt: a literal, a constant, a variable, an `append` or
   `slices.Concat` element, a `Sprintf` format, a folded concatenation.
 - Go, Bubble Tea (`qa/rules/teakeys.go`, same analyzer): a `key.NewBinding` with no
-  `key.WithHelp`, an empty one, or one whose key or words are not constants; a Bubble Tea key
-  message type (`KeyMsg`, `KeyPressMsg`, `KeyReleaseMsg`, `Key`) named outside `internal/ui` and
-  its subpackages (only ui's components take keys); and a key compared by hand (its `String`,
-  `Keystroke`, `Code` or `Text` against a constant, in `==`, `!=` or a switch case) unless the
-  key is line editing or navigation (`lineKeys`, `lineCodes`: arrows, Home/End, paging,
-  Backspace/Delete, the readline edits, Tab, Shift+Tab, Enter, Esc, Ctrl-C).
+  `key.WithHelp`, an empty one, or one whose key or words are not constants, and a
+  `key.Binding{}` struct literal (it can carry no help); a Bubble Tea key message type
+  (`KeyMsg`, `KeyPressMsg`, `KeyReleaseMsg`, `Key`) named outside `internal/ui` and its
+  subpackages (only ui's components take keys); and a key compared by hand: its `String`,
+  `Keystroke`, `Code` or `Text`, or a variable assigned one (`k := msg.String()`, a switch's
+  `s := msg.String(); s`), against a constant in `==`, `!=`, a switch case or a searching
+  `strings` function (`HasPrefix`, `Contains`, ...), unless the key is line editing or
+  navigation (`lineKeys`, `lineCodes`: arrows, Home/End, paging, Backspace/Delete, the readline
+  edits, Enter, Esc, Ctrl-C). Tab and Shift+Tab by hand are allowed only where the package binds
+  Tab with help (above); elsewhere "Tab taken by hand with no key.Binding for it".
 - Shell (`qa-hidden-bindings.bash`, every tracked shell file that runs fzf, by name, path or
   behind `command`/`env`): every `--expect` (shell has no `ui.Action`), and `--bind` judged as
   above, in any command or array assignment of the file, since fzf argv is often built in an
@@ -342,8 +348,12 @@ navigation.
   `FZF_DEFAULT_OPTS` set in Go or in a shell file that does not run fzf, a binding assembled
   only from non-constant pieces, a key Go code reads other than through Bubble Tea
   (a raw terminal read; none in `src-go`), whether a ui component actually draws a
-  `key.Binding`'s help (ui's tests hold that), a Bubble Tea key read through a type the rule
-  does not list, an `Action` whose `Label` ui
+  `key.Binding`'s help, and so whether the Tab binding a package has is the hint on the screen
+  that takes Tab (ui's tests hold that; the next wider rule below), a Bubble Tea key read
+  through a type the rule does not list, a key read that leaves through a function's result, a
+  struct field, an argument or a map index (`actions[msg.String()]`), a key compared with a value
+  that is not a constant, a zero `var b key.Binding` or help changed at run time (`SetHelp`,
+  `SetKeys`), an `Action` whose `Label` ui
   does not show (ui's tests hold that), single-key `read -n1` menus in bash (every one found
   prints its choices), and GNOME Shell keybindings (below).
 
@@ -355,6 +365,13 @@ syntax tree, and the search found no instance in a terminal tool. The GNOME spee
 extension's global shortcuts (start, stop and abort a recording, with no panel menu item for
 them) are the case it would decide; whether desktop-wide shortcuts are in the class is the
 owner's decision, referred with this remediation.
+
+For Bubble Tea the next wider rule is narrower and buildable: **every `key.Binding` a ui
+component matches is one its view draws** (the bindings handed to `key.Matches` in `Update`
+are the bindings handed to the help view in `View`), which would tie the Tab exception to the
+hint on the same screen rather than to the package. Not built yet: it needs the two methods of
+one model read together, and `internal/ui/pathinput` is its only case; Plan 00204 Task 2.4
+tracks it.
 
 ## Defect classes that cannot be a rule
 
@@ -396,4 +413,9 @@ Its Bubble Tea clauses (Plan 00204 Task 2.3) were red at `727810c8` (`TestHidden
 wants unmet over the fixtures `fix/internal/ui/teakeys.go` and `fix/internal/badtea`, with
 stubs of Bubble Tea and Bubbles key under `testdata`) and green at the next commit; the
 fixture `fix/internal/ui/frame` proves a ui subpackage may read keys. The independent search
-made before the rule found no instance, and the sweep over both modules found none.
+made before the rule found no instance, and the sweep over both modules found none. The
+evasions Fable's review and the DBF conformance review found (a key read held in a variable, a
+switch on one, `strings.HasPrefix`/`Contains` on one, a `key.Binding{}` literal, Tab by hand
+with no Tab binding) were red at `f66868db` (7 wants unmet, fixtures
+`fix/internal/ui/evasions.go` and `fix/internal/ui/notab`) and green at the next commit; the
+sweep again found none.

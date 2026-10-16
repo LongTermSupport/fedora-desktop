@@ -193,6 +193,13 @@ the QA module's `go.mod` and runs as `go tool govulncheck`.
   fixture with a key-only `KeyMsg` case. In the same commit, the catalogue sentence in
   GoProjectRules.md that excuses Go key reads ("no first-party Go reads raw keys; there is no
   terminal library in `src-go`") changes: it stops being true when Bubble Tea is a dependency.
+  The reviewers' evasions (a key read in a variable or a switch init, `strings` searches on one,
+  a `key.Binding{}` literal, Tab by hand with no Tab binding) were closed red `f66868db`, green
+  the next commit; what is still not caught is listed in the catalogue.
+- [ ] ⬜ **Task 2.4**: The next wider Bubble Tea rule (named in GoProjectRules.md): every
+  `key.Binding` a ui model matches in `Update` is one its `View` hands the help view, so the
+  Tab exception is tied to the hint on the same screen, not to the package. DBF, red first on a
+  model that matches a binding it never draws.
 
 ### Phase 3: The frame, `ccy-sessions` first (D1, D5)
 

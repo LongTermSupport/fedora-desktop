@@ -47,11 +47,14 @@ variable, an append or slices.Concat element, a Sprintf format, a folded concate
   - a ui.Action literal with a Key and no Label.
 
 Bubble Tea (teakeys.go): a key.NewBinding with no key.WithHelp, an empty one, or one whose key
-or words are not constants; a Bubble Tea key message (KeyMsg, KeyPressMsg, KeyReleaseMsg, Key)
-named outside internal/ui and its subpackages; and a key compared by hand (its String,
-Keystroke, Code or Text against a constant, in == / != or a switch case) unless the key is line
-editing or navigation: moving, editing the text, Tab completing it, accepting and leaving
-(lineKeys, lineCodes), standard UX the owner accepted with a hint line saying Tab completes.
+or words are not constants, and a key.Binding struct literal (it carries no help); a Bubble Tea
+key message (KeyMsg, KeyPressMsg, KeyReleaseMsg, Key) named outside internal/ui and its
+subpackages; and a key compared by hand (its String, Keystroke, Code or Text, or a variable
+assigned one, against a constant in == / !=, a switch case or a searching strings function)
+unless the key is line editing or navigation: moving, editing the text, accepting and leaving
+(lineKeys, lineCodes). Tab and Shift+Tab are navigation only in a package that binds Tab with
+constant help (the hint ui draws that Tab works, the owner's condition); elsewhere taking Tab
+by hand is a finding.
 
 A literal compared with argv (==, a switch case, strings.HasPrefix, slices.Contains, ...) reads
 argv something else built and is not judged; test files are not judged.
@@ -70,11 +73,11 @@ func runHiddenBindings(pass *analysis.Pass) {
 	if ownedByAny(pass.Pkg.Path(), bindingSubjects) {
 		return
 	}
+	judgeTeaKeys(pass)
 	for _, f := range pass.Files {
 		if isTestFile(pass, f) {
 			continue
 		}
-		judgeTeaKeys(pass, f)
 		skip := readingLiterals(pass, f)
 		for _, decl := range f.Decls {
 			s := &bindScan{pass: pass, fn: funcName(decl), skip: skip}
