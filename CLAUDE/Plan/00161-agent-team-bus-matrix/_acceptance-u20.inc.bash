@@ -29,6 +29,8 @@
 # THE CHECKOUT comes out as it went in: `ccy.env.local`, the seats in `.claude/ccy/pingbus/`,
 # `git status --porcelain=v1` and HEAD are recorded before M2.0 and compared at M2.10, after
 # `agent-bus seat remove` of every acceptance seat. Seats of other teams are never touched.
+# The named session's keeper report (sessions/u20-named-<pid>/) goes with its teardown, and
+# the ones an earlier run left are removed before M2.0; no other session's report is touched.
 #
 # Reads acceptance.bash's globals (TEAM, HUMAN, CHECK, AGENT_BUS, PINGBUS, REPORT, TEAM_PRESENT,
 # PLAN_*), and the M1 slice's: REF_PATH, REF_COMMIT, REF_BRANCH, A_HANDLE (M1's member a, the host
@@ -285,7 +287,8 @@ u20_prerequisites() {
     printf '==> ccy %s (image %s), saved launch choices of this version, ccy token %s, %s SSH key choice(s) usable unattended\n' \
         "${ccy_version}" "${have}" "${U20_TOKEN_NAME}" "$(wc -w <<<"${keys}")"
     u20_remove_containers || return 1
-    u20_remove_leftover_seats
+    u20_remove_leftover_seats || return 1
+    u20_remove_stale_reports
 }
 
 # ── the checkout, before and after ───────────────────────────────────────────────────────
@@ -1065,6 +1068,39 @@ u20_check_plain() {
 # is a fifo this run holds; it is never sent a turn.
 readonly U20_NAMED="u20-named-$$"
 readonly U20_NAMED_DIR="${XDG_RUNTIME_DIR:?}/ccy/membership/${U20_NAMED}"
+#: Its registry record: a launch in ccy's tmux writes one, `--no-restore` or not.
+readonly U20_NAMED_RECORD="${XDG_STATE_HOME:-${HOME}/.local/state}/ccy/sessions/${U20_NAMED}"
+# A named session's keeper reports to .claude/ccy/pingbus/sessions/<name>/ (Plan 00203 SPEC
+# 3.3). The report outlives the session as designed: it is never authority, only a running
+# session's is read, and the next keeper of that name rewrites it at its start. So this run
+# removes its own, and before M2.0 the ones an earlier run left (this name pattern only, none
+# whose session runs); M2.10 then compares the checkout strictly.
+readonly U20_REPORTS="${U20_BUS_DIR}/sessions"
+readonly U20_OWN_NAMES='^u20-named-[0-9]+$'
+#: Whether sessions/ was there before M2.0: the named session's teardown removes it only if
+#: this run made it.
+U20_REPORTS_FOUND=1
+
+# u20_remove_stale_reports — the reports of named sessions an earlier run left.
+u20_remove_stale_reports() {
+    local dir name ids
+    if [[ -d "${U20_REPORTS}" ]]; then
+        for dir in "${U20_REPORTS}"/*/; do
+            [[ -d "${dir}" ]] || continue
+            name="$(basename -- "${dir}")"
+            [[ "${name}" =~ ${U20_OWN_NAMES} ]] || continue
+            ids="$(podman ps --filter "label=ccy-session=${name}" --filter status=running --format '{{.ID}}')" || return 1
+            if [[ -n "${ids}" ]] || tmux -L ccy has-session -t "=${name}" 2>/dev/null; then
+                printf '==> %s is running, so its report stays: %s\n' "${name}" "${dir}"
+                continue
+            fi
+            rm -rf -- "${dir}" || return 1
+            printf '==> removed the report of %s, left by an earlier run\n' "${name}"
+        done
+        rmdir --ignore-fail-on-non-empty -- "${U20_REPORTS}" || return 1
+    fi
+    [[ -d "${U20_REPORTS}" ]] || U20_REPORTS_FOUND=0
+}
 
 u20_named_launch() {
     local ev fd command
@@ -1109,8 +1145,8 @@ u20_named_up() {
     return 1
 }
 
-# u20_named_down — its tmux session, container and membership directory gone, whatever state
-# the run left them in.
+# u20_named_down — its tmux session, container, membership directory, registry record and
+# keeper report gone (and sessions/ when this run made it), whatever state the run left them in.
 u20_named_down() {
     local id
     if tmux -L ccy has-session -t "=${U20_NAMED}" 2>/dev/null; then
@@ -1119,7 +1155,11 @@ u20_named_down() {
     for id in $(podman ps -a --filter "label=ccy-session=${U20_NAMED}" --format '{{.ID}}'); do
         podman rm -f -t 10 -- "${id}" >/dev/null || return 1
     done
-    rm -rf -- "${U20_NAMED_DIR}"
+    rm -rf -- "${U20_NAMED_DIR}" "${U20_REPORTS:?}/${U20_NAMED}" || return 1
+    rm -f -- "${U20_NAMED_RECORD}" || return 1
+    if [[ "${U20_REPORTS_FOUND}" -eq 0 && -d "${U20_REPORTS}" ]]; then
+        rmdir --ignore-fail-on-non-empty -- "${U20_REPORTS}" || return 1
+    fi
 }
 
 # u20_named_end — its input closed, U20_EXIT_S for it to end by itself, then whatever is left

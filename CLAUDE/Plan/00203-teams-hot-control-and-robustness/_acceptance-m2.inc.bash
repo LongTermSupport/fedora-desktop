@@ -10,8 +10,10 @@
 # a membership, as an owner's session has), `--no-restore` so a reboot never brings them back:
 # m2-plain-<pid> (a plain `ccy`) and m2-nobus-<pid> (`ccy --no-bus`). Their stdin is a fifo this
 # run holds open, so each waits idle with no turn sent. On the way out: the fifo closed, the
-# tmux sessions and containers removed, their registry records and membership directories
-# deleted, and any transcript they left moved into the run directory. Never the owner's own
+# tmux sessions and containers removed, their registry records, membership directories and
+# keeper reports (.claude/ccy/pingbus/sessions/<name>/) deleted, and any transcript they left
+# moved into the run directory. Before it starts, the reports an earlier run of this acceptance
+# left (its own name patterns only, no running session's) are deleted. Never the owner's own
 # sessions.
 #
 # NEEDS from the owner: ccy launched interactively in this checkout once (Quick Launch saves
@@ -54,8 +56,51 @@ m2_transcripts() {
     fi
 }
 
+# A session's keeper reports to <checkout>/.claude/ccy/pingbus/sessions/<session>/ (SPEC 3.3).
+# The report outlives the session as designed: it is never authority, only a running session's
+# is read, and the next keeper of that name rewrites it at its start. So the run removes its
+# own sessions' reports, and, before it starts, those an earlier run left: only names this
+# acceptance makes, and none whose session is still running.
+readonly M2_REPORTS="${PLAN_REPO_ROOT}/.claude/ccy/pingbus/sessions"
+readonly M2_OWN_NAMES='^(m1-plain|m2-plain|m2-nobus|m3-hot|m4-a|m4-b)-[0-9]+$'
+#: Whether sessions/ was there at the start: the cleanup removes it only if this run made it.
+M2_REPORTS_FOUND=1
+
+# m2_running <name> — "yes" when a session of that name runs (its tmux session or its
+# container), else "no"; a podman that cannot answer is a failure, never a "no".
+m2_running() {
+    local ids
+    if tmux -L ccy has-session -t "=$1" 2>/dev/null; then
+        printf 'yes\n'
+        return 0
+    fi
+    ids="$(podman ps --filter "label=ccy-session=$1" --filter status=running --format '{{.ID}}')" || return 1
+    if [[ -n "${ids}" ]]; then printf 'yes\n'; else printf 'no\n'; fi
+}
+
+m2_remove_stale_reports() {
+    local dir name running
+    if [[ -d "${M2_REPORTS}" ]]; then
+        for dir in "${M2_REPORTS}"/*/; do
+            [[ -d "${dir}" ]] || continue
+            name="$(basename -- "${dir}")"
+            [[ "${name}" =~ ${M2_OWN_NAMES} ]] || continue
+            running="$(m2_running "${name}")" || return 1
+            if [[ "${running}" == yes ]]; then
+                printf '==> %s is running, so its report stays: %s\n' "${name}" "${dir}"
+                continue
+            fi
+            rm -rf -- "${dir}" || return 1
+            printf '==> removed the report of %s, left by an earlier acceptance run\n' "${name}"
+        done
+        rmdir --ignore-fail-on-non-empty -- "${M2_REPORTS}" || return 1
+    fi
+    [[ -d "${M2_REPORTS}" ]] || M2_REPORTS_FOUND=0
+}
+
 m2_prepare() {
     mkdir -p -- "${M2_EV}" || return 1
+    m2_remove_stale_reports || return 1
     m2_transcripts >"${M2_EV}/transcripts-before" || return 1
     [[ -x "${M2_LAUNCHER}" ]] || { printf '[FAIL] no ccy launcher at %s: run play-claude-yolo.yml\n' "${M2_LAUNCHER}" >&2; return 1; }
 }
@@ -152,8 +197,11 @@ m2_cleanup() {
             podman rm -f -t 10 -- "${id}" >/dev/null || status=1
         done
         rm -f -- "${records}/${name}" || status=1
-        rm -rf -- "${XDG_RUNTIME_DIR:?}/ccy/membership/${name}" || status=1
+        rm -rf -- "${XDG_RUNTIME_DIR:?}/ccy/membership/${name}" "${M2_REPORTS:?}/${name}" || status=1
     done
+    if [[ "${M2_REPORTS_FOUND}" -eq 0 && -d "${M2_REPORTS}" ]]; then
+        rmdir --ignore-fail-on-non-empty -- "${M2_REPORTS}" || status=1
+    fi
     if [[ -d "${M2_EV}" ]]; then
         mkdir -p -- "${M2_EV}/transcripts" || status=1
         mapfile -t made < <(m2_transcripts | LC_ALL=C comm -13 "${M2_EV}/transcripts-before" -) || status=1

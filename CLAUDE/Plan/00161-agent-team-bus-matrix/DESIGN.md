@@ -1523,7 +1523,10 @@ replaces the throwaway `git init` checkouts.
     `git status --porcelain=v1` and `HEAD` are as recorded before M2.0. The sessions ran
     with bypass permissions in the owner's checkout; their orders forbid edits, and this
     check proves none happened. `ccy.env.local` is also checked unchanged at M2.0, since no
-    step of the design writes it.
+    step of the design writes it. The M2.11 session's keeper report
+    (`sessions/u20-named-<pid>/`, Plan 00203 SPEC 3.3) outlives it as designed, so its
+    teardown deletes it with its registry record; the prerequisites delete reports an earlier
+    run left under that name pattern, none of a running session, before M2.0 is recorded.
 - **Cleanup**, on success and through `plan_on_cleanup` on any early stop, in this order:
   copy each session's watcher log out of its container
   (`podman exec <container> cat /tmp/pingbus-home/watch.log`, since the session home dies

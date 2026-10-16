@@ -19,3 +19,24 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+# Plan 00203 acceptance again, every milestone in turn (no play: only the acceptance scripts
+# changed, so ccy 3.99.10.1 and container 2.75.1 stay as deployed). M2: two throwaway headless
+# ccy sessions in ccy's tmux in this checkout (plain and --no-bus, idle), removed after; the
+# read-only mount and its relabel, the inert kit, inbound refused by what claude was started
+# with, idle CPU, the image version and --no-bus. A bus process is now its program (python3
+# running the pingbus or agent-bus entry point), so claude, whose argv names the plugin
+# directory .../plugin/pingbus, no longer counts as one in (c), (e) or M1 (b). Each run removes
+# its sessions' keeper reports (.claude/ccy/pingbus/sessions/<name>/), and first the ones
+# earlier acceptance runs left (m1-plain-, m2-plain-, m2-nobus-, m3-hot-, m4-a-, m4-b- names
+# only, never a running session's): the two m2-plain-* reports on this host go. M1: the helper
+# tests and a third throwaway plain session (the keeper is its only bus process and lock
+# holder). M3 and M4: throwaway teams acc-m3a, acc-m3b, acc-m4a, acc-m4b and their headless
+# sessions (hot add and remove, re-role, move, the locks, a stopped homeserver, a killed keeper
+# repaired, a session killed mid-add); then R1-R9 on the throwaway team acc-robust. All removed
+# after. Needs ccy launched interactively here once (Quick Launch).
+00203-teams-hot-control-and-robustness
+# Plan 00161 acceptance again (U20's seated headless sessions, then M2.11's named session).
+# M2.11's teardown now removes the named session's keeper report and registry record, and
+# the prerequisites remove u20-named-* reports an earlier run left (none of a running session)
+# before M2.0 records the checkout, so M2.10 compares it strictly and passes on a clean run.
+00161-agent-team-bus-matrix/acceptance.bash
