@@ -252,17 +252,17 @@ func (x *Hot) claimsElsewhere(ctx context.Context, t *target) (claims, error) {
 	live := func(name string) bool {
 		return slices.ContainsFunc(sessions, func(s tmuxccy.Session) bool { return s.Name == name })
 	}
-	listing, err := t.store.List()
+	records, err := readableRecords(t.store)
 	if err != nil {
-		return c, fmt.Errorf("the session records: %w", err)
+		return c, err
 	}
 	// Only a membership its session's own launch wrote names seats (B1: a reused name).
-	for _, d := range discover.Current(desired, listing.Records) {
+	for _, d := range discover.Current(desired, records) {
 		if d.Session != t.session && live(d.Session) {
 			c.live.AddDesired(d)
 		}
 	}
-	for _, rec := range listing.Records {
+	for _, rec := range records {
 		if rec.Name != t.session && rec.Restore && rec.Dir == t.checkout() && !live(rec.Name) {
 			c.restored.AddRecord(rec)
 		}

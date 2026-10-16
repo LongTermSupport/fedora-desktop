@@ -230,25 +230,54 @@ func (s *Store) SetTeams(name, seats string) error {
 	if err != nil {
 		return err
 	}
-	kept := make([]string, 0, len(rec.Args)+2)
-	for i := 0; i < len(rec.Args); i++ {
+	own, rest := launcherArgs(rec)
+	kept := make([]string, 0, len(own)+2)
+	for i := 0; i < len(own); i++ {
 		switch {
-		case rec.Args[i] == "--teams":
+		case own[i] == "--teams":
 			i++
-		case strings.HasPrefix(rec.Args[i], "--teams="):
+		case strings.HasPrefix(own[i], "--teams="):
 		default:
-			kept = append(kept, rec.Args[i])
+			kept = append(kept, own[i])
 		}
 	}
-	if seats != "" {
-		kept = append(kept, "--teams", seats)
-	}
-	rec.Args = kept
+	rec.Args = withBeforeDoubleDash(kept, rest, seats, "--teams", seats)
 	return s.Write(rec)
 }
 
-// flagBus is cc's opt-in to the agent team bus with no team (Plan 00203 M6).
-const flagBus = "--bus"
+// launcherArgs splits a record's arguments into the launcher's and claude's (Fable's M6
+// re-check R1). ccy stops at a bare "--": what follows is claude's, never touched. cc has no
+// terminator and reads every word as its own, so a cc record's arguments are all cc's (the
+// second part is empty).
+func launcherArgs(rec Record) ([]string, []string) {
+	if rec.Prefix == prefixCC {
+		return rec.Args, nil
+	}
+	if end := slices.Index(rec.Args, "--"); end >= 0 {
+		return rec.Args[:end], rec.Args[end:]
+	}
+	return rec.Args, nil
+}
+
+// withBeforeDoubleDash is the launcher's arguments with the words added (when cond is not empty)
+// before the first bare "--", then claude's arguments.
+func withBeforeDoubleDash(own, rest []string, cond string, words ...string) []string {
+	if cond != "" {
+		at := slices.Index(own, "--")
+		if at < 0 {
+			at = len(own)
+		}
+		own = slices.Insert(slices.Clone(own), at, words...)
+	}
+	return append(own, rest...)
+}
+
+const (
+	// flagBus is cc's opt-in to the agent team bus with no team (Plan 00203 M6).
+	flagBus = "--bus"
+	// prefixCC is a cc session's record prefix.
+	prefixCC = "cc"
+)
 
 // SetCCTeams is SetTeams for a cc session, which carries the bus only when launched with
 // --teams or --bus, never both: on no team its record has --bus, so a restore brings it back
@@ -261,10 +290,11 @@ func (s *Store) SetCCTeams(name, seats string) error {
 	if err != nil {
 		return err
 	}
-	rec.Args = slices.DeleteFunc(rec.Args, func(a string) bool { return a == flagBus })
+	bus := ""
 	if seats == "" {
-		rec.Args = append(rec.Args, flagBus)
+		bus = flagBus
 	}
+	rec.Args = withBeforeDoubleDash(slices.DeleteFunc(rec.Args, func(a string) bool { return a == flagBus }), nil, bus, flagBus)
 	return s.Write(rec)
 }
 
