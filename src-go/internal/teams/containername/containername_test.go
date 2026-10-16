@@ -304,6 +304,81 @@ func TestAnUnreadableClaimIsReportedNotIgnored(t *testing.T) {
 	}
 }
 
+func TestAClaimLeftUnfinishedByAKilledWriterIsRemoved(t *testing.T) {
+	// A claimant killed between creating its claim and writing it leaves an empty or partial
+	// file. The lock proves its writer is gone (a claim is written whole before the lock is
+	// released), and its name was never handed out, so it must not block any launch.
+	r := newRig(t)
+	r.alive(t, 101, 1)
+	teamtest.MustWrite(t, filepath.Join(r.reservations(), "proj_yolo"), "")
+	teamtest.MustWrite(t, filepath.Join(r.reservations(), "other_yolo"), "4242 17")
+	if got := mustClaim(t, r, "proj", "101"); got != "proj_yolo" {
+		t.Fatalf("got %q", got)
+	}
+	if got := mustClaim(t, r, "other", "101"); got != "other_yolo" {
+		t.Fatalf("got %q", got)
+	}
+	if got := claimFiles(t, r); !slices.Equal(got, []string{"other_yolo"}) {
+		t.Fatalf("claims left: %v", got)
+	}
+}
+
+func TestAClaimLeavesNoOtherFileInTheClaimsDirectory(t *testing.T) {
+	r := newRig(t)
+	r.alive(t, 101, 1)
+	mustClaim(t, r, "proj", "101")
+	if got := claimFiles(t, r); !slices.Equal(got, []string{"proj_yolo"}) {
+		t.Fatalf("files: %v", got)
+	}
+}
+
+func TestAFileNotNamedLikeAClaimIsNeitherJudgedNorRemoved(t *testing.T) {
+	r := newRig(t)
+	r.alive(t, 101, 1)
+	teamtest.MustWrite(t, filepath.Join(r.reservations(), "proj_yolo.tmp.99"), "")
+	teamtest.MustWrite(t, filepath.Join(r.reservations(), ".hidden"), "garbage")
+	if got := mustClaim(t, r, "proj", "101"); got != "proj_yolo" {
+		t.Fatalf("got %q", got)
+	}
+	if got := claimFiles(t, r); !slices.Equal(got, []string{".hidden", "proj_yolo", "proj_yolo.tmp.99"}) {
+		t.Fatalf("files: %v", got)
+	}
+}
+
+func TestAMalformedClaimOfADeadProcessIsRemoved(t *testing.T) {
+	r := newRig(t)
+	r.alive(t, 101, 1)
+	teamtest.MustWrite(t, filepath.Join(r.reservations(), "proj_yolo"), "4242 x\n")
+	if got := mustClaim(t, r, "proj", "101"); got != "proj_yolo" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAMalformedClaimOfALiveProcessFailsLoudly(t *testing.T) {
+	r := newRig(t)
+	r.alive(t, 101, 1)
+	r.alive(t, 102, 2)
+	path := filepath.Join(r.reservations(), "proj_yolo")
+	teamtest.MustWrite(t, path, "102 x\n")
+	code, out := r.run(t, "proj", "yolo", "101")
+	if code != term.ExitFailure || out != "" || !strings.Contains(r.ErrOut.String(), path) {
+		t.Fatalf("exit %d out %q err %q", code, out, r.ErrOut.String())
+	}
+}
+
+func claimFiles(t *testing.T, r rig) []string {
+	t.Helper()
+	entries, err := os.ReadDir(r.reservations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
 func TestASymlinkInPlaceOfTheClaimsDirectoryIsRefused(t *testing.T) {
 	r := newRig(t)
 	r.alive(t, 101, 1)

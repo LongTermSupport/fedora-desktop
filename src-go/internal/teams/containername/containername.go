@@ -10,6 +10,15 @@
 // removed. The lock is held only while the claims are read and one is written, never while the
 // session runs. The claimant's own earlier claim is given up first, so the restart path, which
 // execs the launcher again in the same process, can choose again.
+//
+// A claim is written whole, in place, while the lock is held, so no temporary file is ever left
+// in the directory. A claim found unfinished (empty, or a part of its line) was cut off by its
+// writer being killed: the lock proves the writer has gone and its name was never handed out, so
+// it is removed. Only files named like a container name are judged.
+//
+// One narrow window remains: a launcher that dies between this list of containers and the lock
+// leaves a container whose name the next claimant may choose, and the launcher's safety-net
+// `rm -f` would remove it.
 package containername
 
 import (
@@ -39,10 +48,17 @@ const (
 )
 
 var (
-	// projectName is what get_project_name can make that is also a file name: no slash, no
-	// leading dot.
-	projectName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}$`)
+	// projectName is what get_project_name can make (it turns every other character into an
+	// underscore): no slash, no dot.
+	projectName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,199}$`)
 	suffixName  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	// claimName is a file named like a claim: a name this command can hand out. Anything else
+	// in the directory is not a claim and is left alone.
+	claimName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,254}$`)
+	// unfinished is a claim line cut off before its newline: its writer was killed mid-write.
+	unfinished = regexp.MustCompile(`^[0-9]*( [0-9]*)?$`)
+	// claimPid is the pid at the head of a claim that is otherwise malformed.
+	claimPid = regexp.MustCompile(`^([0-9]+) `)
 )
 
 // Claim is the claim-container-name command. ProcRoot is where processes are looked up.
@@ -134,6 +150,9 @@ func (c *Claim) claimLocked(dir, base string, me owner, taken map[string]bool) (
 		return "", fmt.Errorf("could not read the container name claims in %s: %w", dir, err)
 	}
 	for _, e := range entries {
+		if !claimName.MatchString(e.Name()) {
+			continue
+		}
 		held, err := c.held(filepath.Join(dir, e.Name()), me)
 		if err != nil {
 			return "", err
@@ -146,22 +165,38 @@ func (c *Claim) claimLocked(dir, base string, me owner, taken map[string]bool) (
 	for n := 1; taken[name]; n++ {
 		name = base + "_" + strconv.Itoa(n)
 	}
-	if err := fsx.WriteAtomic(filepath.Join(dir, name), "container name claim", []byte(me.line()), fileMode); err != nil {
+	if err := writeClaim(filepath.Join(dir, name), me.line()); err != nil {
 		return "", err
 	}
 	return name, nil
 }
 
+// writeClaim writes the claim in place, in one write. The lock is held, so no reader can see it
+// half written; a writer killed mid-write leaves an unfinished claim, which held removes.
+func writeClaim(path, line string) error {
+	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, fileMode)
+	if err != nil {
+		return fmt.Errorf("could not write the container name claim %s: %w", path, err)
+	}
+	_, writeErr := f.WriteString(line)
+	if writeErr != nil {
+		writeErr = fmt.Errorf("could not write the container name claim %s: %w", path, writeErr)
+	}
+	return errors.Join(writeErr, f.Close())
+}
+
 // held reports whether the claim at path belongs to another running process. The claimant's
-// own claim and one whose process has gone are removed.
+// own claim, one whose process has gone and an unfinished one are removed; a malformed claim
+// whose process cannot be shown to be gone is an error naming the file.
 func (c *Claim) held(path string, me owner) (bool, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return false, fmt.Errorf("could not read the container name claim %s: %w", path, err)
 	}
+	text := string(data)
 	var o owner
-	if _, err := fmt.Sscanf(string(data), "%d %d\n", &o.pid, &o.start); err != nil || o.line() != string(data) {
-		return false, fmt.Errorf("the container name claim %s is not '<pid> <start>' (%q); remove it and launch again", path, string(data))
+	if _, scanErr := fmt.Sscanf(text, "%d %d\n", &o.pid, &o.start); scanErr != nil || o.line() != text {
+		return false, c.malformed(path, text)
 	}
 	if o != me {
 		now, alive, err := c.process(o.pid)
@@ -176,6 +211,41 @@ func (c *Claim) held(path string, me owner) (bool, error) {
 		return false, fmt.Errorf("could not remove the container name claim %s: %w", path, err)
 	}
 	return false, nil
+}
+
+// malformed removes an unfinished claim, or a malformed one whose pid is not running, and is an
+// error for any other.
+func (c *Claim) malformed(path, text string) error {
+	if !unfinished.MatchString(text) {
+		if err := c.deadOwner(path, text); err != nil {
+			return err
+		}
+	}
+	if err := fsx.RemoveIfPresent(path); err != nil {
+		return fmt.Errorf("could not remove the container name claim %s: %w", path, err)
+	}
+	return nil
+}
+
+// deadOwner is nil when the malformed claim's text names a pid that is not running, and an
+// error naming the file otherwise.
+func (c *Claim) deadOwner(path, text string) error {
+	m := claimPid.FindStringSubmatch(text)
+	if m == nil {
+		return fmt.Errorf("the container name claim %s is not '<pid> <start>' (%q) and its process cannot be told; remove it and launch again", path, text)
+	}
+	pid, err := strconv.Atoi(m[1])
+	if err != nil {
+		return fmt.Errorf("the container name claim %s names an unreadable process id (%q); remove it and launch again", path, text)
+	}
+	_, alive, err := c.process(pid)
+	if err != nil {
+		return err
+	}
+	if alive {
+		return fmt.Errorf("the container name claim %s is not '<pid> <start>' (%q) and process %d is running; remove it and launch again", path, text, pid)
+	}
+	return nil
 }
 
 // process is pid's start time from /proc/<pid>/stat (field 22, counted after the command

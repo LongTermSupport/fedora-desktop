@@ -30,6 +30,13 @@ Two version numbers move independently — see
   held only for the choice; a relaunch (the same process, by exec) chooses again freely.
   Docker sessions use the same claim. `scripts/test-ccy-container-name.bash` races launches
   over a fake engine.
+- **Every launch now needs `XDG_RUNTIME_DIR`**, plain and `--no-bus` launches included (before,
+  only a launch carrying the bus kit did, through `membership-init`). Every supported context
+  has it: a desktop login, ssh with pam_systemd, the restore unit and ccy's tmux. A launch
+  without it stops before the container starts, naming the variable.
+- A claim is written in place under the lock, so a launch killed mid-claim leaves no temporary
+  file; an unfinished claim is removed by the next launch, and a malformed one is removed only
+  when its process is gone (otherwise the launch stops, naming the file).
 
 ## 3.99.10.1 — container 2.75.1
 
