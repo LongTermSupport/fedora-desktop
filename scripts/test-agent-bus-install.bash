@@ -440,7 +440,8 @@ for kit_file in settings.json plugin/pingbus/.claude-plugin/plugin.json plugin/p
 done
 check "/usr/local/bin/agent-bus-claude points at the kit launcher" "$KIT/agent-bus-claude" \
     "$(readlink -f "$ROOT/usr/local/bin/agent-bus-claude")"
-for unit in agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer; do
+for unit in agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer \
+    agent-bus-hs-health@.service agent-bus-hs-health@.timer; do
     check "unit $unit is installed 0644" "644" "$(mode "$ROOT/etc/systemd/system/$unit")"
 done
 check "the resolver stub is installed" "nameserver 127.0.0.1" "$(grep -v '^#' "$ROOT/usr/local/share/agent-bus/resolv.conf")"
@@ -581,7 +582,13 @@ check "  and to the runtime configuration" "yes" \
 check "nothing else is opened" "1" "$(count '^firewall-cmd --permanent .*--add-' "$(LOG)")"
 check "the homeserver is enabled" "yes" "$(says '^systemctl enable agent-bus-hs@alpha.service' "$(LOG)")"
 check "the backup timer is enabled" "yes" "$(says '^systemctl enable agent-bus-backup@alpha.timer' "$(LOG)")"
+check "the health check timer is enabled (Plan 00203)" "yes" "$(says '^systemctl enable agent-bus-hs-health@alpha.timer' "$(LOG)")"
+check "  and started" "1" "$(count '^systemctl start agent-bus-hs-health@alpha.timer' "$(LOG)")"
 check "the homeserver is started" "1" "$(count '^systemctl (start|restart) agent-bus-hs@alpha.service' "$(LOG)")"
+hs_line=$(grep -nm1 '^systemctl start agent-bus-hs@alpha.service' "$(LOG)" | cut -d: -f1)
+timer_line=$(grep -nm1 '^systemctl start agent-bus-backup@alpha.timer' "$(LOG)" | cut -d: -f1)
+check "  before the backup timer, whose missed run needs it up" "yes" \
+    "$(yes_if test "${hs_line:-0}" -gt 0 -a "${hs_line:-0}" -lt "${timer_line:-0}")"
 check "readiness is polled" "yes" "$(says '^curl .*http://127.0.0.1:8448/_tuwunel/server_version' "$(LOG)")"
 check "bootstrap runs" "yes" "$(says '^agent-bus bootstrap alpha$' "$(LOG)")"
 check "the run says CHANGED" "yes" "$(says $'^CHANGED\t' "$OUT")"
@@ -930,10 +937,14 @@ check "the team's secret survived every refusal" "yes" \
 cp "$SCRATCH/good.tar" "$TAR"
 
 echo "== remove"
+mkdir -p "$ROOT/var/lib/agent-bus-applied/health"
+touch "$ROOT/var/lib/agent-bus-applied/health/alpha.json"
 run remove --team alpha
+check "the team's health record is removed with its stamp (Plan 00203)" "no" \
+    "$(exists "$ROOT/var/lib/agent-bus-applied/health/alpha.json")"
 check "remove succeeds" "0" "$RC"
-check "both units are disabled and stopped" "yes" \
-    "$(says '^systemctl disable --now agent-bus-hs@alpha.service agent-bus-backup@alpha.timer' "$(LOG)")"
+check "the homeserver and both timers are disabled and stopped" "yes" \
+    "$(says '^systemctl disable --now agent-bus-hs@alpha.service agent-bus-backup@alpha.timer agent-bus-hs-health@alpha.timer$' "$(LOG)")"
 check "the drop-in is gone" "no" "$(exists "$ROOT/etc/systemd/system/agent-bus-hs@alpha.service.d")"
 check "the rich rule is removed" "0" "$(count . "$STUB_DIR/fw/permanent.public")"
 check "the data stays without --purge" "yes" "$(exists "$ROOT/var/lib/agent-bus/alpha/db")"

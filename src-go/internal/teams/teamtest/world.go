@@ -89,6 +89,9 @@ func Populated(t *testing.T) *World {
 	w.On(SudoBus+"human devices alpha ghost", "DEVICE\ta\t-\n", 0)
 	MustWrite(t, filepath.Join(w.Root, "home/.local/state/ccy/sessions/ccy-proj"),
 		"ccy-session-record 1\nname=ccy-proj\ndir="+w.Checkout()+"\nlauncher=/x/ccy\nprefix=ccy\nrestore=yes\narg=--teams\narg=1@alpha\n")
+	// The root health check's record (helpers/agent_bus/health.py): no problem, current until 2100.
+	MustWrite(t, filepath.Join(w.Host.AppliedDir, "health", "alpha.json"),
+		`{"checked": 1791000000, "expires": 4102444800, "problems": []}`)
 	return w
 }
 

@@ -1,0 +1,28 @@
+# Health check of the agent team bus homeserver of team %i (Plan 00203; helpers/agent_bus/health.py).
+# Run every minute by agent-bus-hs-health@%i.timer, as root: probes the client API on loopback and
+# restarts a homeserver that misses every probe of a run, notes systemd's own restarts, judges the
+# backups, and writes /var/lib/agent-bus-applied/health/%i.json, which ccy-teams and
+# `agent-bus health status` read. A failure fails this unit; the record then goes stale, which
+# both readers report.
+[Unit]
+Description=Health check of the agent team bus homeserver of team %i
+After=agent-bus-hs@%i.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/lib/agent-bus/agent-bus.pyz health check --team %i
+TimeoutStartSec=120
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/agent-bus-applied
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# Reads the team's directories (agent-bus's and root's, 0700) and gives the record its group.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_CHOWN
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost

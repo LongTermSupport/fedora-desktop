@@ -43,7 +43,8 @@ readonly READY_TRIES=60
 readonly JOURNAL_LINES=40
 readonly BACKUP_WAIT_TRIES=60
 readonly TEAM_RE='^[a-z][a-z0-9-]{0,23}$'
-readonly UNIT_FILES=(agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer)
+readonly UNIT_FILES=(agent-bus-hs@.service agent-bus-backup@.service agent-bus-backup@.timer
+    agent-bus-hs-health@.service agent-bus-hs-health@.timer)
 # The member kit beside its pingbus, relative to files/opt/claude-yolo/optional/agent-bus.
 readonly KIT_FILES=(agent-bus-claude settings.json plugin/pingbus/.claude-plugin/plugin.json
     plugin/pingbus/hooks/hooks.json plugin/pingbus/skills/pingbus/SKILL.md
@@ -648,7 +649,8 @@ print_unit_journal() {
 # Poll the homeserver until it answers; fail as soon as its unit is not active (an unknown
 # tuwunel.toml key makes Tuwunel exit 1, error_on_unknown_config_opts). The verdict is the
 # unit's state, never a journal scan; the journal is printed only to explain a failure.
-# A Type=simple unit is "activating" only in auto-restart, after its process has exited.
+# The unit is Type=notify, so `systemctl start` returns once Tuwunel is ready; after that it
+# is "activating" only in auto-restart, after its process has exited.
 wait_ready() {
     local unit=$1 port=$2 try state sub answer=""
     local url=http://127.0.0.1:$port/_tuwunel/server_version
@@ -728,15 +730,10 @@ ensure_shared_secret() {
     changed "registration shared secret created"
 }
 
-# Start the team's homeserver, or restart it when RESTART is 1; enable both units.
+# Start the team's homeserver, or restart it when RESTART is 1; enable it and start and
+# enable its two timers, the daily backup and the minutely health check (Plan 00203).
 converge_units() {
     local team=$1 restart=$2 unit
-    for unit in "$(hs_unit "$team")" "$(timer_unit "$team")"; do
-        if ! systemctl is-enabled --quiet "$unit"; then
-            systemctl enable "$unit" >&2
-            changed "enabled $unit"
-        fi
-    done
     unit=$(hs_unit "$team")
     if [[ $(unit_state "$unit") != active ]]; then
         systemctl start "$unit"
@@ -745,11 +742,14 @@ converge_units() {
         systemctl restart "$unit"
         changed "restarted $unit"
     fi
-    unit=$(timer_unit "$team")
-    if [[ $(unit_state "$unit") != active ]]; then
-        systemctl start "$unit"
-        changed "started $unit"
-    fi
+    # The timers start after the homeserver: a missed backup fires at once and needs it up.
+    for unit in "$unit" "$(timer_unit "$team")" "agent-bus-hs-health@$team.timer"; do
+        if ! systemctl is-enabled --quiet "$unit"; then
+            systemctl enable "$unit" >&2
+            changed "enabled $unit"
+        fi
+        [[ $unit == *.service || $(unit_state "$unit") == active ]] || { systemctl start "$unit" && changed "started $unit"; }
+    done
 }
 
 cmd_team() {
@@ -845,10 +845,11 @@ cmd_team() {
 
 # unstamp <team> — the team no longer runs what a stamp says was applied (taken down, or
 # restored from a backup whose team.json may differ), so ccy-teams shows it to apply again.
+# Its health record (Plan 00203) goes too: the health check writes a new one within a minute.
 unstamp() {
-    if [[ -e $APPLIED_ROOT/$1.json ]]; then
-        rm -f -- "$APPLIED_ROOT/$1.json"
-        changed "removed the $1 applied stamp"
+    if [[ -e $APPLIED_ROOT/$1.json || -e $APPLIED_ROOT/health/$1.json ]]; then
+        rm -f -- "$APPLIED_ROOT/$1.json" "$APPLIED_ROOT/health/$1.json"
+        changed "removed the $1 applied stamp and health record"
     fi
 }
 
@@ -866,8 +867,8 @@ cmd_remove() {
         enabled=1
     fi
     if ((enabled)); then
-        systemctl disable --now "$hs" "$timer" >&2
-        changed "stopped and disabled $hs and $timer"
+        systemctl disable --now "$hs" "$timer" "agent-bus-hs-health@$team.timer" >&2
+        changed "stopped and disabled $hs, $timer and its health check"
     fi
     remove_firewall "$team"
     if [[ -d $(dropin_dir "$team") ]]; then

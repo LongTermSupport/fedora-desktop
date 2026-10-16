@@ -26,7 +26,14 @@ from helpers.pingbus import protocol
 STATE_ROOT = pathlib.PurePosixPath("/var/lib/agent-bus")
 BACKUPS_TO_KEEP = 7
 LOOPBACK_ALLOW = ("127.0.0.1/32", "::1/128")
+#: Every exit but `systemctl stop` is restarted: Tuwunel exits 0 on SIGTERM and on an admin
+#: `server shutdown`, which a homeserver nobody stopped must never stay down for. The delay
+#: grows from 5 s to 60 s over five steps, and there is no start limit: a limit that trips
+#: turns a late interface or a full disk into a unit that stays failed after the cause clears.
+RESTART = "always"
 RESTART_SEC = "5s"
+RESTART_STEPS = 5
+RESTART_MAX_DELAY = "60s"
 
 #: DESIGN.md section 3.6's key column; `toml_values` must produce exactly these.
 TOML_KEYS = (
@@ -188,8 +195,10 @@ def render_dropin(tf: teamfile.TeamFile, interfaces: Mapping[str, str]) -> str:
         unit += [f"After={' '.join(devices)}", f"Wants={' '.join(devices)}"]
     service = [
         "[Service]",
-        "Restart=on-failure",
+        f"Restart={RESTART}",
         f"RestartSec={RESTART_SEC}",
+        f"RestartSteps={RESTART_STEPS}",
+        f"RestartMaxDelaySec={RESTART_MAX_DELAY}",
         "IPAddressDeny=any",
         f"IPAddressAllow={' '.join(allow)}",
         "SocketBindDeny=any",

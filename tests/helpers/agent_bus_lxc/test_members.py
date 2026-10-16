@@ -134,6 +134,40 @@ class FakeGuest:
         self.gh_ok = True
         self.gh_checks: list[tuple[str, str]] = []
         self.agent_runs: list[tuple[str, str, tuple[str, ...]]] = []
+        # systemd inside the container, for a member's supervised session (Plan 00203 gap 9).
+        self.unit_dir = str(root / "etc" / "systemd" / "system")
+        self.systemd = True
+        self.tmux: str | None = "/usr/bin/tmux"
+        #: unit -> {"enabled": bool, "active": bool}, for the units systemctl has seen.
+        self.units: dict[str, dict[str, bool]] = {}
+        self.systemctl: list[tuple[str, ...]] = []
+
+    def _systemctl(self, args: Sequence[str]) -> bytes:
+        self.systemctl.append(tuple(args))
+        if not self.systemd:
+            raise members.MemberError(f"systemctl {args[0]} failed (exit 1): System has not been booted "
+                                      "with systemd as init system (PID 1). Can't operate.")
+        verb, rest = args[0], [a for a in args[1:] if not a.startswith("-")]
+        if verb == "daemon-reload":
+            return b""
+        unit = rest[-1]
+        state = self.units.setdefault(unit, {"enabled": False, "active": False})
+        loaded = (pathlib.Path(self.unit_dir) / unit).exists()
+        if verb == "show":
+            return (f"ActiveState={'active' if state['active'] else 'inactive'}\n"
+                    f"LoadState={'loaded' if loaded else 'not-found'}\n"
+                    f"UnitFileState={'enabled' if state['enabled'] else 'disabled'}\n").encode()
+        if verb == "enable":
+            state["enabled"] = True
+        elif verb in ("start", "restart"):
+            state["active"] = True
+        elif verb == "disable":
+            state["enabled"] = False
+            if "--now" in args:
+                state["active"] = False
+        else:
+            raise AssertionError(f"unexpected systemctl {args}")
+        return b""
 
     def home(self, user: str) -> str | None:
         if user not in self.users:
@@ -145,6 +179,16 @@ class FakeGuest:
     def root(self, argv: Sequence[str], what: str, stdin: bytes = b"") -> bytes:
         # Root never writes or reads in the agent's home: those scripts run as the agent.
         assert argv[3:4] not in ([s] for s in AGENT_SCRIPTS), f"{what} ran as root"
+        if argv[0] == "systemctl":
+            return self._systemctl(argv[1:])
+        if argv[3:4] == [members.SYSTEMD_PROBE_PY]:
+            return b"systemd\n" if self.systemd else b""
+        if list(argv) == ["sh", "-c", members.SERVICE_NEEDS_SH]:
+            if not self.systemd:
+                raise members.MemberError(f"{what} failed (exit 3): no systemd")
+            if self.tmux is None:
+                raise members.MemberError(f"{what} failed (exit 4): no tmux")
+            return f"{self.tmux}\n".encode()
         return self._run(argv, what, stdin, ())
 
     def agent(self, user: str, home: str, cwd: str, argv: Sequence[str], what: str,
@@ -201,6 +245,8 @@ class Fixture(unittest.TestCase):
         self.unreadable: str | None = None
         self.remote_config = '[remote "origin"]\n\turl = https://github.com/Example-Org/Proj.git\n'
         self.env_local: str | None = "export HOOKS_DAEMON_HOSTNAME=box\n"
+        #: The containers lxc-autostart starts at boot (lxc.start.auto = 1).
+        self.autostart = {"devbox"}
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -217,6 +263,7 @@ class Fixture(unittest.TestCase):
             kit_tar=lambda: members.kit_tar(self.kit_parent),
             guest=lambda name: self.guest,
             read_checkout=self.read_checkout,
+            autostarts=lambda name: name in self.autostart,
         )
 
     def read_checkout(self, container: str, user: str, path: str) -> str:
@@ -789,6 +836,139 @@ class DerivedPresentPhaseTest(Fixture):
             self.run_phase("present", [self.derived()])
 
 
+class ServiceTest(Fixture):
+    """Plan 00203 gap 9: an entry with `service: true` gets its session supervised inside the
+    container: a system unit, enabled in the container's multi-user.target, that runs
+    `agent-bus-claude` as the agent user under tmux and restarts it on any exit; the container
+    must start at host boot (lxc.start.auto) and run systemd, and tmux must be there."""
+
+    UNIT = "agent-bus-claude-agent.service"
+
+    def unit_file(self) -> pathlib.Path:
+        return pathlib.Path(self.guest.unit_dir) / self.UNIT
+
+    def test_the_session_is_supervised_and_a_second_run_changes_nothing(self) -> None:
+        changed = self.run_phase("present", [entry(service=True)])
+        text = self.unit_file().read_text(encoding="utf-8")
+        unit = parse_unit(text)
+        service = unit["Service"]
+        self.assertEqual(service["User"], ["agent"])
+        self.assertEqual(service["WorkingDirectory"], [CHECKOUT])
+        self.assertEqual(service["Restart"], ["always"])
+        self.assertEqual(service["Type"], ["forking"])
+        self.assertIn("/usr/bin/tmux -L agent-bus-claude new-session -d -s agent-bus-claude "
+                      f"{members.GUEST_BIN}/agent-bus-claude", service["ExecStart"][0])
+        self.assertEqual(unit["Unit"]["StartLimitIntervalSec"], ["0"])
+        self.assertEqual(unit["Install"]["WantedBy"], ["multi-user.target"])
+        self.assertEqual(stat.S_IMODE(self.unit_file().stat().st_mode), 0o644)
+        self.assertEqual(self.guest.units[self.UNIT], {"enabled": True, "active": True})
+        self.assertIn(f"container devbox: {self.UNIT} installed", changed)
+        self.assertIn(f"container devbox: {self.UNIT} enabled", changed)
+        self.assertIn(f"container devbox: {self.UNIT} started", changed)
+
+        self.guest.systemctl.clear()
+        self.assertEqual(self.run_phase("present", [entry(service=True)]), [])
+        self.assertEqual([call[0] for call in self.guest.systemctl], ["show"])
+
+    def test_a_changed_unit_restarts_the_session(self) -> None:
+        self.run_phase("present", [entry(service=True)])
+        changed = self.run_phase("present", [entry(service=True, checkout="/srv/other")])
+        self.assertIn(f"container devbox: {self.UNIT} restarted (its unit changed)", changed)
+        self.assertIn(("daemon-reload",), self.guest.systemctl)
+
+    def test_a_session_that_stopped_is_started(self) -> None:
+        self.run_phase("present", [entry(service=True)])
+        self.guest.units[self.UNIT]["active"] = False
+        self.assertEqual(self.run_phase("present", [entry(service=True)]),
+                         [f"container devbox: {self.UNIT} started"])
+
+    def test_turning_the_service_off_removes_the_unit(self) -> None:
+        self.run_phase("present", [entry(service=True)])
+        changed = self.run_phase("present", [entry()])
+        self.assertFalse(self.unit_file().exists())
+        self.assertEqual(self.guest.units[self.UNIT], {"enabled": False, "active": False})
+        self.assertIn(f"container devbox: {self.UNIT} stopped and removed", changed)
+        self.assertEqual(self.run_phase("present", [entry()]), [])
+
+    def test_leaving_the_last_team_removes_the_unit(self) -> None:
+        self.run_phase("present", [entry(service=True)])
+        changed = self.run_phase("absent", [entry(service=True, state="absent")])
+        self.assertFalse(self.unit_file().exists())
+        self.assertIn(f"container devbox: {self.UNIT} stopped and removed", changed)
+
+    def test_leaving_one_team_of_two_keeps_the_unit(self) -> None:
+        both = [entry(service=True), entry(service=True, team=OTHER_TEAM, state="absent")]
+        self.run_phase("present", [entry(service=True)], teams_present=(TEAM, OTHER_TEAM))
+        self.run_phase("absent", both, teams_present=(TEAM, OTHER_TEAM))
+        self.assertTrue(self.unit_file().exists())
+
+    def test_a_container_that_does_not_start_at_boot_is_refused_before_any_change(self) -> None:
+        self.autostart = set()
+        with self.assertRaisesRegex(members.MemberError, "lxc.start.auto = 1"):
+            self.run_phase("present", [entry(service=True)])
+        self.assertEqual(self.bus.calls, [])
+        self.assertFalse(self.unit_file().exists())
+
+    def test_systemd_and_tmux_are_required_before_any_change(self) -> None:
+        for attr, value, words in (("systemd", False, "systemd"), ("tmux", None, "tmux")):
+            with self.subTest(attr=attr):
+                setattr(self.guest, attr, value)
+                with self.assertRaisesRegex(members.MemberError, words):
+                    self.run_phase("present", [entry(service=True)])
+                self.assertEqual(self.bus.calls, [])
+                setattr(self.guest, attr, True if attr == "systemd" else "/usr/bin/tmux")
+
+    def test_an_entry_without_service_asks_nothing_of_the_container(self) -> None:
+        self.autostart = set()
+        self.guest.tmux = None
+        self.run_phase("present", [entry()])
+        self.assertEqual([call[0] for call in self.guest.systemctl], ["show"])
+
+    def test_a_container_without_systemd_is_fine_for_an_entry_without_service(self) -> None:
+        """Review B2: a member that never asked for a unit must not need systemd in its container."""
+        self.guest.systemd = False
+        self.assertIn(f"{HANDLE} joined team {TEAM} (agent@devbox)", self.run_phase("present", [entry()]))
+        self.run_phase("absent", [entry(state="absent")])
+        self.assertEqual(self.guest.systemctl, [])
+
+    def test_a_unit_file_left_in_a_container_without_systemd_is_removed(self) -> None:
+        self.guest.systemd = False
+        self.unit_file().parent.mkdir(parents=True)
+        self.unit_file().write_text("stale\n", encoding="utf-8")
+        changed = self.run_phase("present", [entry()])
+        self.assertFalse(self.unit_file().exists())
+        self.assertIn(f"container devbox: {self.UNIT} removed", changed)
+        self.assertEqual(self.guest.systemctl, [])
+
+    def test_entries_of_one_user_agree_on_the_service_and_its_checkout(self) -> None:
+        with self.assertRaisesRegex(members.MemberError, "service"):
+            members.parse_members([entry(service=True), entry(team=OTHER_TEAM, seat="x")])
+        with self.assertRaisesRegex(members.MemberError, "one checkout"):
+            members.parse_members([entry(service=True), entry(team=OTHER_TEAM, seat="x", service=True,
+                                                              checkout="/srv/other")])
+        with self.assertRaisesRegex(members.MemberError, "service must be true or false"):
+            members.parse_members([entry(service="yes")])
+
+    def test_a_path_systemd_would_read_otherwise_is_refused(self) -> None:
+        for bad in ("/srv/my proj", "/srv/100%", "/srv/a\\b"):
+            with self.subTest(bad=bad), self.assertRaises(members.MemberError):
+                members.render_member_unit("agent", "/srv/agent-home", bad, "/usr/bin/tmux")
+
+
+def parse_unit(text: str) -> dict[str, dict[str, list[str]]]:
+    sections: dict[str, dict[str, list[str]]] = {}
+    current: dict[str, list[str]] = {}
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("["):
+            current = sections.setdefault(line.strip("[]"), {})
+            continue
+        key, _, value = line.partition("=")
+        current.setdefault(key, []).append(value)
+    return sections
+
+
 class AbsentPhaseTest(Fixture):
     def test_parks_and_clears(self) -> None:
         self.run_phase("present", [entry(), entry(team=OTHER_TEAM)], (TEAM, OTHER_TEAM))
@@ -888,6 +1068,17 @@ class LxcGuestTest(unittest.TestCase):
     def test_root(self) -> None:
         self.guest.root(["getent", "group", "x"], "what")
         self.assertEqual(self.calls, [(self.PREFIX + ["getent", "group", "x"], b"")])
+
+    def test_autostart_is_read_from_the_containers_config(self) -> None:
+        for printed, starts in ((b"lxc.start.auto = 1\n", True), (b"lxc.start.auto = 0\n", False),
+                                (b"lxc.start.auto =\n", False)):
+            with self.subTest(printed=printed):
+                self.answer = (0, printed, b"")
+                self.assertIs(members._autostarts("devbox"), starts)
+        self.assertEqual(self.calls[0][0], ["lxc-info", "-n", "devbox", "-c", "lxc.start.auto"])
+        self.answer = (1, b"", b"no such container")
+        with self.assertRaisesRegex(members.MemberError, "no such container"):
+            members._autostarts("devbox")
 
     def test_agent_runs_as_the_user_in_its_directory(self) -> None:
         self.guest.agent("agent", "/home/<user>", CHECKOUT, ["python3", "-I", "-c", "S", "a"], "what",

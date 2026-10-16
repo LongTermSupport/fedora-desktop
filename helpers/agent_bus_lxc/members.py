@@ -17,7 +17,14 @@ in its order, after README.lxc's requirement is checked for every container befo
   4. `agent-bus add-member ... --seat=<seat> --out=-`, the bundle placed by the agent user
      as ~/.config/pingbus/<team>/ (directory 0700, files 0600);
   5. ~/.config/pingbus/env lists the team in PINGBUS_TEAMS and sets HOOKS_DAEMON_HOSTNAME;
-  6. `pingbus config check` as the agent user, on every run.
+  6. `pingbus config check` as the agent user, on every run;
+  7. with `service: true` (Plan 00203 gap 9), the session supervised inside the container: the
+     system unit `agent-bus-claude-<user>.service` (render_member_unit), enabled in the
+     container's multi-user.target, runs `agent-bus-claude` as the agent user in its checkout
+     under tmux (socket `agent-bus-claude`, so a person can attach) and restarts it on any exit.
+     It needs the container to start at host boot (`lxc.start.auto = 1`), systemd as its init
+     and tmux installed, each checked before any change. Without it, or once the user is in no
+     team, the unit is stopped and removed.
 
 The handle `<repo>.<seat>+<host>.lxc` is derived from the repository as ccy derives a podman
 seat's (derive.py): `<host>` and `<seat>` are overrides an entry may carry, and are otherwise
@@ -77,7 +84,12 @@ EXIT_REFUSED = 78
 REQUIRED_KEYS = frozenset({"team", "container", "user"})
 #: `host` and `seat` are overrides: left out, they are derived from the checkout as ccy
 #: derives them (derive.py).
-OPTIONAL_KEYS = frozenset({"host", "checkout", "seat", "role", "human_text", "repo", "state"})
+OPTIONAL_KEYS = frozenset({"host", "checkout", "seat", "role", "human_text", "repo", "state", "service"})
+GUEST_UNIT_DIR = "/etc/systemd/system"
+#: The tmux socket (`tmux -L`) and session the supervised session runs in.
+SERVICE_TMUX = "agent-bus-claude"
+#: What a rendered unit value may hold: no space, `%` (a systemd specifier), quote or backslash.
+_UNIT_VALUE_RE = re.compile(r"/[A-Za-z0-9._/@+-]*")
 _CONTAINER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
 _ENV_VALUE = r"[A-Za-z0-9,._-]*"
@@ -252,6 +264,49 @@ with os.fdopen(fd, "wb") as f:
 os.replace(tmp, path)
 '''
 
+#: As root: stdin written to PATH (0644) by a rename when it differs; prints `changed` when it did.
+UNIT_WRITE_PY = r'''
+import os, sys
+path = sys.argv[1]
+data = sys.stdin.buffer.read()
+try:
+    with open(path, "rb") as f:
+        same = f.read() == data and (os.stat(path).st_mode & 0o7777) == 0o644
+except FileNotFoundError:
+    same = False
+if not same:
+    os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+    tmp = path + ".agent-bus-new"
+    if os.path.lexists(tmp):
+        os.unlink(tmp)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+    print("changed")
+'''
+
+#: As root: PATH removed when it is there; prints `removed` when it was.
+UNIT_REMOVE_PY = r'''
+import os, sys
+if os.path.lexists(sys.argv[1]):
+    os.unlink(sys.argv[1])
+    print("removed")
+'''
+
+#: As root: prints `systemd` when systemd is the container's init (sd_booted's own test).
+SYSTEMD_PROBE_PY = r'''
+import os
+if os.path.isdir("/run/systemd/system"):
+    print("systemd")
+'''
+
+#: As root, before any change for a `service: true` entry: systemd is the container's init, and
+#: tmux's path.
+SERVICE_NEEDS_SH = ('test -d /run/systemd/system || { echo "systemd is not the init of this container" >&2; '
+                    'exit 3; }; command -v tmux || { echo "tmux is not installed" >&2; exit 4; }')
+
 #: As the agent: README.lxc step 6, with the env file read as agent-bus-claude reads it.
 CONFIG_CHECK_SH = f'set -a; . "$HOME/{PINGBUS_DIR}/env"; set +a; exec pingbus config check'
 #: As the agent, before any change: README.lxc's requirement, gh logged in to github.com
@@ -283,6 +338,8 @@ class Member:
     human_text: bool
     repo: str | None
     state: str
+    #: The session is supervised by a unit inside the container (step 7).
+    service: bool = False
 
     @property
     def label(self) -> str:
@@ -351,7 +408,10 @@ def _parse_entry(position: int, entry: object) -> Member:
     human_text = entry.get("human_text", True)
     if not isinstance(human_text, bool):
         raise MemberError(f"{where}: human_text must be true or false")
-    return Member(team, container, user, host, checkout_path, seat, role, human_text, repo, state)
+    service = entry.get("service", False)
+    if not isinstance(service, bool):
+        raise MemberError(f"{where}: service must be true or false")
+    return Member(team, container, user, host, checkout_path, seat, role, human_text, repo, state, service)
 
 
 def parse_members(data: object) -> tuple[Member, ...]:
@@ -372,7 +432,16 @@ def _check_between(found: Sequence[Member]) -> None:
     hosts: dict[tuple[str, str], str] = {}
     seats: dict[tuple[str, str, str], str] = {}
     coordinators: dict[str, int] = {}
+    sessions: dict[tuple[str, str], Member] = {}
     for position, member in enumerate(found, start=1):
+        if member.state == "present":
+            first = sessions.setdefault((member.container, member.user), member)
+            if first.service != member.service:
+                raise MemberError(f"agent_bus_lxc_members: the entries of {member.label} differ on service; "
+                                  "the user runs one session for all its teams, so set it alike on each")
+            if member.service and first.checkout != member.checkout:
+                raise MemberError(f"agent_bus_lxc_members: the entries of {member.label} with service: true "
+                                  "name two checkouts; its one supervised session runs in one checkout")
         key = (member.container, member.user, member.team)
         if key in entries:
             raise MemberError(f"agent_bus_lxc_members entries {entries[key]} and {position} both "
@@ -608,6 +677,49 @@ def parse_list(text: str) -> dict[str, tuple[str, bool]]:
     return found
 
 
+def service_unit(user: str) -> str:
+    return f"agent-bus-claude-{user}.service"
+
+
+def render_member_unit(user: str, home: str, checkout_path: str, tmux: str) -> str:
+    """Step 7's unit: `agent-bus-claude` as `user` in its checkout, under tmux, restarted on any
+    exit (the tmux server ends with the session, and with it the unit's main process), with a
+    delay growing from 10 s to 5 min and no start limit, so a session that cannot start yet (a
+    homeserver still starting, Claude logged out) is retried, slowly, until it can."""
+    for what, value in (("checkout", checkout_path), ("home", home), ("tmux", tmux)):
+        if not _UNIT_VALUE_RE.fullmatch(value):
+            raise MemberError(f"{user}'s {what} {value!r} is not an absolute path of letters, digits and "
+                              "._/@+-, which a systemd unit takes as written")
+    if not _USER_RE.fullmatch(user):
+        raise MemberError(f"{user!r} is not a user name")
+    tmux_args = f"-L {SERVICE_TMUX}"
+    return "\n".join([
+        "# Rendered by play-agent-bus.yml (helpers/agent_bus_lxc/members.py, agent_bus_lxc_members",
+        f"# service: true); do not edit. Attach: runuser -u {user} -- tmux {tmux_args} attach",
+        "[Unit]",
+        f"Description=Agent team member session of {user} (agent-bus-claude under tmux)",
+        "After=network-online.target",
+        "Wants=network-online.target",
+        "StartLimitIntervalSec=0",
+        "",
+        "[Service]",
+        "Type=forking",
+        f"User={user}",
+        f"WorkingDirectory={checkout_path}",
+        f"Environment=HOME={home}",
+        f"Environment=PATH={home}/.local/bin:{GUEST_PATH}",
+        f"ExecStart={tmux} {tmux_args} new-session -d -s {SERVICE_TMUX} {GUEST_BIN}/agent-bus-claude",
+        f"ExecStop={tmux} {tmux_args} kill-server",
+        "Restart=always",
+        "RestartSec=10s",
+        "RestartSteps=6",
+        "RestartMaxDelaySec=5min",
+        "",
+        "[Install]",
+        "WantedBy=multi-user.target",
+    ]) + "\n"
+
+
 # ── the executor ─────────────────────────────────────────────────────────────────────────
 
 
@@ -629,6 +741,8 @@ class Host:
     #: `derive.ROOT_READ_PY probe` for (container, user, checkout) as root, from the host's
     #: side: what it printed. A failure raises MemberError.
     read_checkout: Callable[[str, str, str], str]
+    #: Whether lxc-autostart starts the container at host boot (`lxc.start.auto = 1`).
+    autostarts: Callable[[str], bool]
 
 
 def _python(script: str, *args: str) -> list[str]:
@@ -766,6 +880,73 @@ def _join(host: Host, guest, member: Member, home: str, bus: str, emit: Callable
         emit(f"{handle} is now {member.role} in team {member.team}")
 
 
+def _check_service(host: Host, guest, container: str) -> str:
+    """Step 7's requirements, before any change: the container starts at host boot, runs
+    systemd and has tmux. Returns tmux's path in the container."""
+    if not host.autostarts(container):
+        raise MemberError(f"LXC container {container} does not start at host boot, so its supervised session "
+                          "(service: true) would not come back after a reboot: set lxc.start.auto = 1 in "
+                          "its config, then run the play again")
+    out = guest.root(["sh", "-c", SERVICE_NEEDS_SH],
+                     f"LXC container {container}: service: true needs systemd as the container's init "
+                     "and tmux installed in it (install tmux there); the check")
+    return out.decode().strip()
+
+
+def _service_state(guest, container: str, unit: str) -> dict[str, str]:
+    out = guest.root(["systemctl", "show", "--property=LoadState", "--property=UnitFileState",
+                      "--property=ActiveState", unit], f"container {container}: systemctl show {unit}")
+    found = dict(line.split("=", 1) for line in out.decode().splitlines() if "=" in line)
+    if {"LoadState", "UnitFileState", "ActiveState"} - set(found):
+        raise MemberError(f"container {container}: systemctl show {unit} printed {out.decode().strip()!r}")
+    return found
+
+
+def _systemctl(guest, container: str, *args: str) -> None:
+    guest.root(["systemctl", *args], f"container {container}: systemctl {' '.join(args)}")
+
+
+def _ensure_service(guest, member: Member, home: str, tmux: str, emit: Callable[[str], None]) -> None:
+    """Step 7: the unit as rendered, enabled and running; restarted when it changed."""
+    unit = service_unit(member.user)
+    label = f"container {member.container}: {unit}"
+    state = _service_state(guest, member.container, unit)
+    text = render_member_unit(member.user, home, str(member.checkout), tmux)
+    wrote = guest.root(_python(UNIT_WRITE_PY, f"{guest.unit_dir}/{unit}"), f"{label}: writing it",
+                       stdin=text.encode()).strip() == b"changed"
+    if wrote:
+        _systemctl(guest, member.container, "daemon-reload")
+        emit(f"{label} {'installed' if state['LoadState'] == 'not-found' else 'updated'}")
+    if state["UnitFileState"] != "enabled":
+        _systemctl(guest, member.container, "enable", unit)
+        emit(f"{label} enabled")
+    if wrote and state["ActiveState"] == "active":
+        _systemctl(guest, member.container, "restart", unit)
+        emit(f"{label} restarted (its unit changed)")
+    elif state["ActiveState"] != "active":
+        _systemctl(guest, member.container, "start", unit)
+        emit(f"{label} started")
+
+
+def _drop_service(guest, container: str, user: str, emit: Callable[[str], None]) -> None:
+    """No supervised session for `user`: its unit stopped, disabled and removed, if there is one."""
+    unit = service_unit(user)
+    path = f"{guest.unit_dir}/{unit}"
+    if guest.root(_python(SYSTEMD_PROBE_PY), f"container {container}: is systemd its init?").strip() != b"systemd":
+        # No systemd, so no unit can be loaded or running: only a stray file can be left.
+        if guest.root(_python(UNIT_REMOVE_PY, path), f"container {container}: removing {unit}").strip() == b"removed":
+            emit(f"container {container}: {unit} removed")
+        return
+    loaded = _service_state(guest, container, unit)["LoadState"] != "not-found"
+    if loaded:
+        _systemctl(guest, container, "disable", "--now", unit)
+    removed = guest.root(_python(UNIT_REMOVE_PY, path),
+                         f"container {container}: removing {unit}").strip() == b"removed"
+    if loaded or removed:
+        _systemctl(guest, container, "daemon-reload")
+        emit(f"container {container}: {unit} stopped and removed")
+
+
 def _groups(members: Sequence[Member]) -> dict[tuple[str, str], list[Member]]:
     groups: dict[tuple[str, str], list[Member]] = {}
     for member in members:
@@ -804,11 +985,14 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
     _check_teams(members, teams_present, host)
     bus = host.bus_address()
     ready = []
+    tmux_of: dict[tuple[str, str], str] = {}
     for (container, user), group in _groups(members).items():
         guest = _guest_running(host, container)
         home = _home(guest, group[0])
         _check_gh(guest, group[0], home)
         _check_route(host, guest, group, bus)
+        if group[0].service:
+            tmux_of[(container, user)] = _check_service(host, guest, container)
         ready.append((container, user, group, guest, home))
     members = _derive_hosts_and_seats(members, host, {(c, u): (guest, home) for c, u, _, guest, home in ready})
     ready = [(c, u, group, *next((g, h) for cc, uu, _, g, h in ready if (cc, uu) == (c, u)))
@@ -835,6 +1019,10 @@ def run_present(members: Sequence[Member], teams_present: Sequence[str], host: H
             emit(f"{first.label}: {ENV_PATH} lists {', '.join(teams)}")
         guest.agent(user, home, home, ["sh", "-c", CONFIG_CHECK_SH],
                     f"{first.label}: pingbus config check (README.lxc step 6)")
+        if (container, user) in tmux_of:
+            _ensure_service(guest, first, home, tmux_of[(container, user)], emit)
+        else:
+            _drop_service(guest, container, user, emit)
 
 
 def _absent_one(host: Host, member: Member, teams_present: Sequence[str],
@@ -895,6 +1083,12 @@ def run_phase(phase: str, members: Sequence[Member], teams_present: Sequence[str
     for member in chosen:
         say(f"{member.label}: leaving team {member.team}")
         _absent_one(host, member, teams_present, emit)
+    # A user left in no team keeps no supervised session (step 7); one still declared present
+    # in another team is the present phase's to keep.
+    staying = {(member.container, member.user) for member in members if member.state == "present"}
+    for container, user in dict.fromkeys((member.container, member.user) for member in chosen):
+        if (container, user) not in staying and host.container_state(container) is not None:
+            _drop_service(_guest_running(host, container), container, user, emit)
 
 
 # ── the real host ────────────────────────────────────────────────────────────────────────
@@ -920,6 +1114,7 @@ class LxcGuest:
     container: str
     kit_parent: str = KIT_PARENT
     bin_dir: str = GUEST_BIN
+    unit_dir: str = GUEST_UNIT_DIR
     #: Who must own the kit's directories in the container: its root.
     kit_owner: int = 0
 
@@ -960,6 +1155,17 @@ def _container_state(name: str) -> str | None:
     if code != 0:
         raise _failed(f"lxc-info -n {name}", code, err)
     return out.decode().strip()
+
+
+def _autostarts(name: str) -> bool:
+    """`lxc-info -c lxc.start.auto`: `lxc.start.auto = 1` when lxc-autostart starts it at boot."""
+    code, out, err = _run(["lxc-info", "-n", name, "-c", "lxc.start.auto"])
+    if code != 0:
+        raise _failed(f"lxc-info -n {name} -c lxc.start.auto", code, err)
+    _key, sep, value = out.decode().partition("=")
+    if not sep:
+        raise MemberError(f"lxc-info -n {name} -c lxc.start.auto printed {out.decode().strip()!r}")
+    return value.strip() == "1"
 
 
 def _agent_bus(argv: Sequence[str]) -> bytes:
@@ -1025,7 +1231,7 @@ def real_host() -> Host:
                 is_bridge=lambda dev: pathlib.Path(f"/sys/class/net/{dev}/bridge").is_dir(),
                 team_active=system.team_active, bus_address=system.bus_address, team_file=_team_file,
                 kit_tar=lambda: kit_tar(pathlib.Path(KIT_PARENT)), guest=LxcGuest,
-                read_checkout=read_checkout)
+                read_checkout=read_checkout, autostarts=_autostarts)
 
 
 def main(argv: Sequence[str] | None = None, *, host_factory: Callable[[], Host] = real_host,

@@ -22,7 +22,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.agent_bus import render, teamfile
+from helpers.agent_bus import health, render, teamfile
 from helpers.pingbus import protocol
 
 #: Every key name Tuwunel 1.9.4's example config documents (DESIGN.md section 3.6), one per
@@ -199,10 +199,17 @@ class DropinTest(unittest.TestCase):
         self.assertEqual(service["SocketBindAllow"], ["tcp:8448"])
 
     def test_restart_policy(self) -> None:
+        """Plan 00203 gap 4: every exit but a deliberate stop is restarted (Tuwunel exits 0 on
+        SIGTERM and on an admin `server shutdown`, which `on-failure` left down for good), with
+        a backoff from 5 s to 60 s and no start limit, so a late interface or a full disk is
+        retried until it clears instead of leaving the unit failed."""
         unit = self.dropin()
-        self.assertEqual(unit["Service"]["Restart"], ["on-failure"])
+        self.assertEqual(unit["Service"]["Restart"], ["always"])
         self.assertEqual(unit["Service"]["RestartSec"], ["5s"])
+        self.assertEqual(unit["Service"]["RestartSteps"], ["5"])
+        self.assertEqual(unit["Service"]["RestartMaxDelaySec"], ["60s"])
         self.assertEqual(unit["Unit"]["StartLimitIntervalSec"], ["0"])
+
 
     def test_device_dependencies_escaped_and_deduplicated(self) -> None:
         tf = team(listen=["192.0.2.10", "192.0.2.11", "198.51.100.7"])
@@ -229,6 +236,56 @@ class DropinTest(unittest.TestCase):
         for bad in ("", ".", "..", "a/b", "a b", "x" * 16, "a\nb", "a:b"):
             with self.subTest(bad=bad), self.assertRaises(render.RenderError):
                 render.device_unit(bad)
+
+
+#: The installed homeserver unit and the health check's units (files/etc/systemd/system/).
+UNIT_DIR = pathlib.Path(__file__).resolve().parents[3] / "files" / "etc" / "systemd" / "system"
+
+
+class BaseUnitTest(unittest.TestCase):
+    """Plan 00203 gap 4: Tuwunel 1.9.4 is built with its `systemd` feature (a default one, and
+    the release-all asset has every feature), so it sends READY=1 once its database is open and
+    pings the watchdog every WatchdogSec/2 (src/router/run.rs). A process that stops answering
+    systemd, frozen or starved, is aborted and restarted."""
+
+    def unit(self) -> dict[str, dict[str, list[str]]]:
+        return parse_unit((UNIT_DIR / "agent-bus-hs@.service").read_text(encoding="utf-8"))
+
+    def test_readiness_is_notified(self) -> None:
+        service = self.unit()["Service"]
+        self.assertEqual(service["Type"], ["notify"])
+        self.assertEqual(service["NotifyAccess"], ["main"])
+
+    def test_watchdog_aborts_then_kills_a_hung_homeserver(self) -> None:
+        service = self.unit()["Service"]
+        self.assertEqual(service["WatchdogSec"], ["30s"])
+        # A stopped process holds SIGABRT pending; the abort timeout then sends SIGKILL, and the
+        # default would be TimeoutStopSec (330 s).
+        self.assertEqual(service["TimeoutAbortSec"], ["30s"])
+
+    def test_restart_policy_stays_in_the_dropin(self) -> None:
+        self.assertNotIn("Restart", self.unit()["Service"])
+
+
+class HealthUnitTest(unittest.TestCase):
+    """Plan 00203 gaps 4 and 10: the minutely root health check (helpers/agent_bus/health.py)."""
+
+    def test_the_timer_runs_every_minute(self) -> None:
+        timer = parse_unit((UNIT_DIR / "agent-bus-hs-health@.timer").read_text(encoding="utf-8"))
+        self.assertEqual(timer["Timer"]["OnUnitActiveSec"], ["60s"])
+        self.assertEqual(timer["Install"]["WantedBy"], ["timers.target"])
+
+    def test_the_service_runs_the_installed_admin_zipapp_as_root(self) -> None:
+        service = parse_unit((UNIT_DIR / "agent-bus-hs-health@.service").read_text(encoding="utf-8"))["Service"]
+        self.assertEqual(service["Type"], ["oneshot"])
+        self.assertEqual(service["ExecStart"],
+                         ["/usr/bin/python3 -I /usr/local/lib/agent-bus/agent-bus.pyz health check --team %i"])
+        self.assertNotIn("User", service)
+        self.assertEqual(service["ReadWritePaths"], ["/var/lib/agent-bus-applied"])
+        self.assertEqual(service["IPAddressAllow"], ["localhost"])
+        # The check's own probes and gap must fit in its start timeout.
+        budget = health.PROBE_TRIES * health.PROBE_TIMEOUT + (health.PROBE_TRIES - 1) * health.PROBE_GAP
+        self.assertLess(budget * 2, int(service["TimeoutStartSec"][0]))
 
 
 class ParseInterfacesTest(unittest.TestCase):

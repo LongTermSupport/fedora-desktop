@@ -49,9 +49,24 @@ session-side part of the team system recover by itself.
   Notes: [subagent-reports/261016-hot-control-design-opus.md](subagent-reports/261016-hot-control-design-opus.md).
 - [ ] ⬜ **Task 1.3**: Milestones for the build, from 1.1 and 1.2, each one shippable.
 
-### Phase 2: build (the spec's milestones, tests first)
+### Phase 2: server-side robustness (audit gaps 3, 4, 9, 10)
 
-- [x] ✅ **Task 2.3**: M2, the launcher and the entrypoint: the membership directory and its
+Built on `fix/teams-server-robustness`; design and evidence in
+`subagent-reports/261016-server-robustness-opus.md`, host proof in [ACCEPTANCE.md](ACCEPTANCE.md)
+(`acceptance.bash`, R1-R9; B1-B2 after a reboot).
+
+- [ ] 🔄 **Task 2.1** (gap 4): homeserver readiness, watchdog and restart on every exit; a
+  minutely health check that restarts one whose client API stops answering.
+- [ ] 🔄 **Task 2.2** (gap 3): `agent-bus seat check`/`take` wait, bounded, for a starting
+  homeserver.
+- [ ] 🔄 **Task 2.3** (gap 10): stale or failed backups and restarts on the board and in
+  `agent-bus health status`; the sign-in limits said where a password is issued.
+- [ ] 🔄 **Task 2.4** (gap 9): `service: true` LXC members run as a unit in their container.
+- [ ] ⬜ **Task 2.5**: host acceptance passed (meta-deploy), and B1-B2 after a reboot.
+
+### Phase 3: hot control build (the spec's milestones, tests first)
+
+- [x] ✅ **Task 3.1** (M2; its commits call it Task 2.3): the launcher and the entrypoint: the membership directory and its
   read-only relabelled mount, the `ccy-session` label, `PINGBUS_MEMBERSHIP`, `ccy-teams internal membership-init`, the kit in every named session under the inert contract, `--no-bus`,
   `PINGBUS_SEATS` and `ccy-seats` retired for ccy; the H34 spike (Claude Code does not re-read
   `--settings`, so inbound is decided at launch: a session on no team gets none, and its first
