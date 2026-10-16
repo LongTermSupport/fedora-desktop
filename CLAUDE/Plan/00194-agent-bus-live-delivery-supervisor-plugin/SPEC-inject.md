@@ -214,7 +214,9 @@ Each is numbered so a test, a review finding or a host check can name it.
   drops a team; an error in a delivery pass is said once and the next tick tries again.
 - **E26. A dead watcher comes back without a keypress.** The hooks start
   `pingbus watch --supervise`, which holds the session's watch lock
-  (`inject/<key>.watch`) and runs `watch --child` until the socket goes, starting it again
+  (`inject/<key>.watch`) and runs `watch --child` until the socket goes (the child exits 0,
+  which it does only then, a refusing socket file left by a killed session included, or the
+  file is gone), starting it again
   after any other exit with a backoff of 1 s doubling to 60 s, except after 8, 10, 64 or 78
   (a restart cannot change those). The child inherits the lock, so a second supervisor or a
   plain `watch` of the same session exits 75 even on a free team. UserPromptSubmit and Stop

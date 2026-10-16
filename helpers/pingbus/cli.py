@@ -1730,7 +1730,9 @@ def _session_socket(environ: Mapping[str, str]) -> tuple[str, str]:
 
 
 #: A supervised watcher's exits that a restart cannot change: the supervisor ends with them.
-SUPERVISE_FINAL = (EXIT_AUTH, EXIT_UNTRUSTED, EXIT_CONFIG, EXIT_USAGE)
+#: 0 is only ever "the session socket is gone" (missing, or refusing connections when a
+#: killed session left its file behind), so it is final too.
+SUPERVISE_FINAL = (EXIT_OK, EXIT_AUTH, EXIT_UNTRUSTED, EXIT_CONFIG, EXIT_USAGE)
 
 
 def _session_watch_lock(environ: Mapping[str, str], path: str, err: TextIO) -> inbox.Lock | None:
@@ -1758,7 +1760,7 @@ def _supervise(environ: Mapping[str, str], path: str, lock: inbox.Lock, rt: Runt
     while True:
         started = rt.monotonic()
         code = rt.run_child(argv, environ)
-        if not notify.socket_present(path):
+        if code == EXIT_OK or not notify.socket_present(path):
             err.write(f"{PROG}: the session socket is gone: the supervisor exits\n")
             return EXIT_OK
         if code in SUPERVISE_FINAL:

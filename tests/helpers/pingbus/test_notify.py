@@ -656,8 +656,12 @@ class WatchRefusalTest(WatchCase):
         self.joined()
         self.start_watch()
         b = self.add_team()
-        b_env = dict(self.env)
-        code, _, err = self.run_cli("watch", env=b_env)
+        second: list[tuple[int, str, str]] = []
+        runner = threading.Thread(target=lambda: second.append(self.run_cli("watch")), daemon=True)
+        runner.start()
+        runner.join(10)  # bounded: a second watcher that runs would hang, not fail
+        self.assertFalse(runner.is_alive(), "a second watcher of the session kept running")
+        code, _, err = second[0]
         self.assertEqual(code, cli.EXIT_BUSY)
         self.assertIn("this session already has a watcher", err)
         self.assertIsNone(inbox.probe_lock(b.state), "the second watcher took a team")
@@ -863,6 +867,13 @@ class WatchSuperviseTest(WatchCase):
         self.codes = [self.socket_closes(1)]
         self.assertEqual(self.run_cli("watch", "--supervise")[0], cli.EXIT_OK)
         self.assertEqual(len(self.children), 1)
+
+    def test_a_child_that_found_the_session_gone_is_not_restarted(self):
+        """A session killed without unlinking its socket: the file stays, the child gets
+        ECONNREFUSED and exits 0. Exit 0 always means the session ended."""
+        self.codes = [cli.EXIT_OK, cli.EXIT_OK]
+        self.assertEqual(self.run_cli("watch", "--supervise")[0], cli.EXIT_OK)
+        self.assertEqual(len(self.children), 1, "an orphan watcher was started again")
 
     def test_it_holds_the_sessions_watch_lock_while_the_child_runs(self):
         seen: list[object] = []
