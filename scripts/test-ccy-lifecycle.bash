@@ -389,6 +389,9 @@ wrapper_case() {
         exec 2>"$work/wrapper.err"
         # shellcheck source=/dev/null
         source "$work/exec-stub.bash"
+        # A team session running this suite has PINGBUS_MEMBERSHIP set, which adds the plugin
+        # with no option given; these cases are about the options alone.
+        unset PINGBUS_MEMBERSHIP
         if [ "$wrapper" = "-" ]; then unset CCY_CLAUDE_WRAPPER; else export CCY_CLAUDE_WRAPPER="$wrapper"; fi
         set -- "$@"
         # shellcheck source=/dev/null
