@@ -45,7 +45,7 @@ the session ran and what they printed. Commands (stdout is the payload; reasons 
   expect-member LIST HANDLE ROLE active|parked     that MEMBER line is there
   expect-same-handles BEFORE AFTER   the same members, none added or gone
   watcher-pids                       stdin "PID<TAB>argv": the PIDs running `pingbus watch`
-  seat-containers TEAM               stdin "ID<TAB>ccy-seats label": those holding a TEAM seat
+  seat-containers TEAM               stdin "ID<TAB>seats" (the desired seats): those holding a TEAM seat
   expect-no-seats-label              stdin a container's labels (JSON): a ccy session, no ccy-seats
   launch-keys CHECKOUT CONFIG_VERSION   LAST_SSH_KEYS, one per line, refused when ccy would
                                      discard the record (another format, a key missing)

@@ -336,8 +336,9 @@
         - skills
 
     # The agent team bus member kit (Plan 00161 DESIGN.md section 5.3): the plugin, its
-    # settings and the pingbus zipapp. Inert in the image unless the launch names seats with
-    # ccy --teams, which passes PINGBUS_SEATS. The non-ccy launcher agent-bus-claude is not staged: the entrypoint does
+    # settings and the pingbus zipapp. Loaded, idle, in every session started in ccy's tmux
+    # (PINGBUS_MEMBERSHIP, Plan 00203); a seat is held only when the session's desired
+    # membership names one. The non-ccy launcher agent-bus-claude is not staged: the entrypoint does
     # its job here. Add-only like the child-claude copies above.
     - name: Create Optional Agent-Bus Directories in Docker Build Context
       become: true
@@ -469,6 +470,7 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-registry.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/restart-request.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-lifecycle.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-membership.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/agent-bus-seats.bash"
         # ccy's one-key agent, run by path from ssh-handling.bash (stdlib Python, TDD'd in helpers/).
         - "{{ root_dir }}/helpers/ssh_agent_filter/ssh_agent_filter.py"

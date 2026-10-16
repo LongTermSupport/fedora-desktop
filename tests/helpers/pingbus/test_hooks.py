@@ -34,7 +34,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, hooks, inbox, inject, notify, protocol, relay
+from helpers.pingbus import cli, hooks, inbox, inject, notify, protocol, relay, seat
 
 TEAM, SN = "team-a", "team-a.agent-bus.internal"
 TEAM_B, SN_B = "team-b", "team-b.agent-bus.internal"
@@ -267,6 +267,31 @@ class PromptTest(HookCase):
 
 
 # ── socket delivery (Plan 00194 SPEC-inject.md E14-E18) ─────────────────────────────────
+
+
+class KeeperHookTest(HookCase):
+    """Plan 00203 H10: a session whose seat keeper has stopped (its `keeper.lock` free while
+    the session runs) is told so by every SessionStart and prompt hook."""
+
+    def keeper_lock(self) -> pathlib.Path:
+        return self.home / seat.KEEPER_LOCK
+
+    def test_a_free_keeper_lock_is_said(self):
+        self.keeper_lock().write_text("", encoding="ascii")
+        self.assertIn(hooks.TEMPLATES["keeper_stopped"], self.context(self.hook("prompt", {})).splitlines())
+        self.assertIn(hooks.TEMPLATES["keeper_stopped"], self.context(self.hook("session-start", {})).splitlines())
+
+    def test_a_held_keeper_lock_says_nothing(self):
+        lock = inbox.acquire_lock_at(self.keeper_lock(), inbox.KEEPER_KIND)
+        self.addCleanup(lock.release)
+        self.assertNotIn(hooks.TEMPLATES["keeper_stopped"], self.context(self.hook("prompt", {})))
+
+    def test_a_session_without_a_keeper_says_nothing(self):
+        self.assertNotIn(hooks.TEMPLATES["keeper_stopped"], self.context(self.hook("prompt", {})))
+
+    def test_the_line_names_the_repair(self):
+        self.assertIn("seat keeper has stopped", hooks.TEMPLATES["keeper_stopped"])
+        self.assertIn("ccy-teams", hooks.TEMPLATES["keeper_stopped"])
 
 
 class SocketDeliveryHookTest(HookCase):

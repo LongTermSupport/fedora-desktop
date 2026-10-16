@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import contextlib
+import ctypes
 import dataclasses
 import functools
 import hashlib
@@ -30,6 +31,8 @@ import pathlib
 import queue
 import re
 import secrets
+import selectors
+import signal
 import stat
 import subprocess
 import sys
@@ -39,8 +42,8 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import BinaryIO, TextIO
 
 from helpers.agent_bus import registry
-from helpers.pingbus import (config, envelope, forge, hooks, inbox, inject, limits, matrix, notify, protocol,
-                             relay, sentlog, syncer)
+from helpers.pingbus import (config, envelope, forge, hooks, inbox, inject, limits, matrix, membership, notify,
+                             protocol, relay, sentlog, syncer)
 from helpers.pingbus import seat as seating
 from helpers.pingbus import statusline
 
@@ -695,6 +698,63 @@ class Runtime:
     supervise_retry_max_s: float = 60.0
     run_child: Callable[[Sequence[str], Mapping[str, str]], int] = (
         lambda argv, environ: _run_child(argv, environ))
+    #: How to run pingbus again (the seat keeper `seat exec` starts), and how it is started.
+    keeper_argv: Callable[[], list[str]] = lambda: pingbus_argv()
+    spawn_keeper: Callable[[Sequence[str], Mapping[str, str]], subprocess.Popen] = (
+        lambda argv, environ: spawn_keeper(argv, environ))
+    #: The keeper's ties to its process: dying with its parent, and its output once running.
+    die_with_parent: Callable[[], object] = lambda: die_with_parent()
+    detach: Callable[[pathlib.Path, bool], object] = lambda log, ready: detach_keeper(log, ready)
+
+
+def pingbus_argv() -> list[str]:
+    """How to run this pingbus again: the zipapp it was loaded from, else its source tree."""
+    top = pathlib.Path(__file__).resolve().parents[2]
+    if top.is_file():
+        return [sys.executable, str(top)]
+    start = (f"import sys; sys.path.insert(0, {str(top)!r}); "
+             "from helpers.pingbus.cli import main; sys.exit(main())")
+    return [sys.executable, "-c", start]
+
+
+def spawn_keeper(argv: Sequence[str], environ: Mapping[str, str]) -> subprocess.Popen:
+    """Start the seat keeper in a session of its own, so no terminal signal reaches it. It
+    reports on its stdout and stderr until it is ready (`detach_keeper`)."""
+    return subprocess.Popen(list(argv), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=dict(environ), close_fds=True,
+                            start_new_session=True)
+
+
+#: prctl's option that sends the caller a signal when its parent dies (Linux).
+PR_SET_PDEATHSIG = 1
+
+
+def die_with_parent() -> None:
+    """Have the kernel end this process when its parent does, so a `cc --teams` session's
+    seats are free the moment the session ends."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
+
+
+KEEPER_READY = b"READY\n"
+#: How long `seat exec` waits for its keeper to say the seats are taken.
+KEEPER_READY_S = 30.0
+
+
+def detach_keeper(log_path: pathlib.Path, ready: bool) -> None:
+    """From here the keeper's stderr is its log in the session home and its stdout goes
+    nowhere; a launch's keeper says READY on its stdout in between, which tells `seat
+    exec` that the seats are taken."""
+    sys.stderr.flush()
+    fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    os.dup2(fd, 2)
+    os.close(fd)
+    if ready:
+        os.write(1, KEEPER_READY)
+    null = os.open(os.devnull, os.O_WRONLY | os.O_CLOEXEC)
+    os.dup2(null, 1)
+    os.close(null)
 
 
 def _run_child(argv: Sequence[str], environ: Mapping[str, str]) -> int:
@@ -2099,9 +2159,12 @@ def cmd_status(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO
 
 
 def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
-    """Claim every seat of the launch (`PINGBUS_SEATS`), build the session home, check
-    every bundle and the forge credential source as `config check` does, then replace this
-    process with the command, which inherits the seat locks (DESIGN.md section 5.5).
+    """Start the seat keeper, which takes every seat of the launch (the desired membership
+    `PINGBUS_MEMBERSHIP` names, or `PINGBUS_SEATS` from `cc --teams`), builds the session home
+    and checks every bundle; check the forge credential source as `config check` does when a
+    seat is held; then replace this process with the command. The keeper holds every seat
+    lock and the command holds none (Plan 00203 D4). A membership with no seat is a session
+    on no team: the home and its settings, nothing held.
     `--root` and `--home` are for a launch on the host (`cc --teams`), where the checkout
     is not /workspace and /tmp is shared."""
     rt: Runtime = args.runtime
@@ -2110,24 +2173,172 @@ def cmd_seat_exec(args: argparse.Namespace, environ: Mapping[str, str], out: Tex
         command = command[1:]
     if not command:
         raise config.UsageError(f"{PROG} seat exec: name the command to run")
-    paths = {}
-    for option, given, default in (("--root", args.root, rt.seats_root),
-                                   ("--home", args.home, rt.session_home)):
-        if given is not None and not os.path.isabs(given):
-            raise config.UsageError(f"{PROG} seat exec: {option} must be an absolute path")
-        paths[option] = default if given is None else pathlib.Path(given)
-    forge_credential_source(environ)
-    claimed = seating.claim(environ, root=paths["--root"], home=paths["--home"],
-                            clock_ms=rt.clock_ms, sleep=rt.sleep)
-    names = ", ".join(f"{ref.text} ({member.handle})"
-                      for ref, member in zip(claimed.refs, claimed.members, strict=True))
-    err.write(f"✓ agent team bus: {names}\n")
+    root, home = _seat_paths(args, rt, "seat exec")
+    source = seating.desired_source(environ)
+    want = source.read()
+    from_membership = isinstance(source, seating.MembershipFile)
+    if not want.refs and not from_membership:
+        raise config.ConfigError(f"{seating.SEATS_VAR} names no seat")
+    inner, guard, warnings = None, True, []
+    if from_membership:
+        try:
+            inner = seating.inner_status_line(seating.settings_sources(environ, pathlib.Path.cwd()))
+        except seating.SettingsUnreadable as exc:
+            guard = False
+            warnings.append(f"{exc}: the session keeps Claude Code's own status line, with no bus "
+                            "segment; fix the file and relaunch to get it")
+    if want.refs:
+        forge_credential_source(environ)
+    _start_keeper(rt, environ, root, home, err)
+    applied = membership.read_applied(home)
+    seats = () if applied is None else applied.seats
+    if from_membership:
+        # Inbound is decided here, once (H33b): a session launched on no team accepts none,
+        # whatever the keeper takes later; its first join relaunches it (M3).
+        seating.write_session_files(home, inner, seated=bool(seats), guard=guard)
+    child_env = dict(environ)
+    child_env["PINGBUS_HOME"] = str(home)
+    child_env.pop("PINGBUS_TEAMS", None)
+    if seats:
+        child_env["PINGBUS_TEAMS"] = ",".join(entry.team for entry in seats)
+    names = ", ".join(f"{entry.seat}@{entry.team} ({entry.handle})" for entry in seats)
+    for warning in warnings:
+        err.write(f"⚠ agent team bus: {warning}\n")
+    err.write(f"✓ agent team bus: {names or 'no team (the kit is loaded and idle)'}\n")
     err.flush()
     out.flush()
     try:
-        rt.execvpe(command[0], command, claimed.environ)
+        rt.execvpe(command[0], command, child_env)
     except OSError as exc:
         raise config.ConfigError(f"{PROG} seat exec: cannot run {command[0]}: {exc.strerror or exc}") from None
+    return EXIT_OK
+
+
+def _seat_paths(args: argparse.Namespace, rt: Runtime, name: str) -> tuple[pathlib.Path, pathlib.Path]:
+    """`--root` and `--home`, absolute, else ccy's."""
+    paths = []
+    for option, given, default in (("--root", args.root, rt.seats_root),
+                                   ("--home", args.home, rt.session_home)):
+        if given is not None and not os.path.isabs(given):
+            raise config.UsageError(f"{PROG} {name}: {option} must be an absolute path")
+        paths.append(default if given is None else pathlib.Path(given))
+    return paths[0], paths[1]
+
+
+def _start_keeper(rt: Runtime, environ: Mapping[str, str], root: pathlib.Path, home: pathlib.Path,
+                  err: TextIO) -> None:
+    """Start this launch's seat keeper (Plan 00203 D4) and wait for it to say the seats are
+    taken. A keeper that refuses is this command's failure, with its message and exit code."""
+    argv = [*rt.keeper_argv(), "seat", "keep", "--launch", "--parent", str(os.getpid()),
+            "--root", str(root), "--home", str(home)]
+    proc = rt.spawn_keeper(argv, environ)
+    with selectors.DefaultSelector() as selector:
+        selector.register(proc.stdout, selectors.EVENT_READ)
+        if not selector.select(KEEPER_READY_S):
+            proc.kill()
+            proc.wait()
+            raise config.ConfigError(f"{PROG} seat exec: the seat keeper did not answer within "
+                                     f"{KEEPER_READY_S:g} s")
+    ready = proc.stdout.readline() == KEEPER_READY
+    said = proc.stderr.read().decode("utf-8", errors="replace") if ready else ""
+    if not ready:
+        code = proc.wait()
+        said = proc.stderr.read().decode("utf-8", errors="replace")
+        err.write(said)
+        if code > 0:
+            raise _KeeperFailed(code)
+        raise config.ConfigError(f"{PROG} seat exec: the seat keeper ended without taking the seats")
+    err.write(said)
+
+
+class _KeeperFailed(Exception):
+    """The keeper refused the launch and said why on stderr; its exit code is this command's."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(f"the seat keeper exited {code}")
+        self.code = code
+
+
+def cmd_seat_keep(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """The seat keeper (Plan 00203 D4, H9, H10): take the session's seats and hold them,
+    following the desired membership, until the parent named by `--parent` is gone (or, with
+    no `--parent`, as Repair runs it in a container, until it is killed). `--launch` is `seat
+    exec`'s: a new home, all or nothing, and READY on stdout once the seats are taken."""
+    rt: Runtime = args.runtime
+    root, home = _seat_paths(args, rt, "seat keep")
+    if args.parent is not None:
+        rt.die_with_parent()
+        if os.getppid() != args.parent:
+            err.write(f"{PROG} seat keep: the session it was started for has ended\n")
+            return EXIT_OK
+    keeper = seating.Keeper(seating.desired_source(environ), root=root, home=home,
+                            clock_ms=rt.clock_ms, err=err, sleep=rt.sleep)
+    keeper.start(launch=args.launch)
+    try:
+        rt.detach(home / seating.KEEPER_LOG, args.launch)
+    except BaseException:
+        keeper.release_all()
+        raise
+    return seating.keep(keeper, parent=args.parent, sleep=rt.sleep)
+
+
+#: How long the route probe waits for the homeserver (Plan 00203 H22 step 5).
+REACH_TIMEOUT_S = 3.0
+
+
+def cmd_reach(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Whether this environment reaches the team's homeserver (Plan 00203 H22 step 5, run
+    by the host inside a session before a hot add): an unauthenticated versions request with
+    a 3 s limit, to the base URL of the team's seats in this checkout."""
+    rt: Runtime = args.runtime
+    team = getattr(args, "team", None)
+    if team is None:
+        raise config.UsageError(f"{PROG} reach: name the team with --team")
+    if not protocol.is_team_name(team):
+        raise config.UsageError(f"{PROG} reach: --team is not a team name")
+    root, _ = _seat_paths(argparse.Namespace(root=args.root, home=None), rt, "reach")
+    refs = seating.list_seats(root, team=team)
+    if not refs:
+        raise config.ConfigError(f"team {team}: no seat under {root}: the host creates one first")
+    member = config.read_member(team, seating.seat_dir(root, refs[0]))
+    started = rt.monotonic()
+    try:
+        matrix.Client.for_member(member, sleep=rt.sleep).versions(timeout=REACH_TIMEOUT_S)
+    except matrix.MatrixError as exc:
+        err.write(f"{PROG}: team {team}: {member.base_url} did not answer: {exc}\n")
+        return exc.exit_code
+    err.write(f"✓ team {team}: {member.base_url} answers ({(rt.monotonic() - started) * 1000:.0f} ms)\n")
+    return EXIT_OK
+
+
+def cmd_seat_retire(args: argparse.Namespace, environ: Mapping[str, str], out: TextIO, err: TextIO) -> int:
+    """Re-baseline a seat removed from a session (Plan 00203 H23 step 5), run on the host once
+    the seat is free: clear its sync position, so a later re-add starts as a first sync and
+    nothing posted meanwhile is delivered, then publish an expired `listening` status. The
+    seat's lock is held throughout, so no session can take the seat half retired."""
+    rt: Runtime = args.runtime
+    root, _ = _seat_paths(argparse.Namespace(root=args.root, home=None), rt, "seat retire")
+    refs = seating.parse_seat_list(args.seat)
+    if len(refs) != 1 or not isinstance(refs[0], seating.SeatRef):
+        raise config.UsageError(f"{PROG} seat retire: name one <seat>@<team>")
+    ref = refs[0]
+    try:
+        seating.check_seat_dir(root, ref)
+    except seating.SeatRefused as refusal:
+        raise refusal.error from None
+    try:
+        lock = inbox.acquire_lock_at(seating.lock_path(root, ref), inbox.SEAT_KIND,
+                                     claimed_ms=rt.clock_ms(), sleep=rt.sleep)
+    except inbox.Busy:
+        raise seating.SeatHeld(ref) from None
+    with lock:
+        member = config.read_member(ref.team, seating.seat_dir(root, ref))
+        state = inbox.TeamState.for_member(member)
+        with inbox.acquire_lock(state, "recv", sleep=rt.sleep):
+            cleared = state.forget_sync_token()
+        err.write(f"✓ seat {ref.text}: sync position {'cleared' if cleared else 'already clear'}\n")
+        _seat(member, environ, rt, err).syncer.publish_status(rt.clock_ms())
+        err.write(f"✓ seat {ref.text}: listening status expired\n")
     return EXIT_OK
 
 
@@ -2223,7 +2434,8 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
     seat_commands = seat_parser.add_subparsers(dest="seat_command", metavar="SUBCOMMAND",
                                                required=True)
     seat_exec = seat_commands.add_parser(
-        "exec", help="claim the seats in PINGBUS_SEATS, then run CMD holding them (ccy's entrypoint)")
+        "exec", help="claim the launch's seats (PINGBUS_MEMBERSHIP's desired membership, or PINGBUS_SEATS), "
+                     "then run CMD holding them (ccy's entrypoint, cc --teams)")
     team_option(seat_exec, argparse.SUPPRESS)
     seat_exec.add_argument("--root", metavar="DIR",
                            help="the checkout's seats (default: ccy's, under /workspace)")
@@ -2231,6 +2443,32 @@ def build_parser(stdout: TextIO) -> argparse.ArgumentParser:
                            help="the session home to make (default: ccy's, under /tmp)")
     seat_exec.add_argument("command", nargs=argparse.REMAINDER, metavar="CMD")
     seat_exec.set_defaults(handler=cmd_seat_exec)
+
+    def positive(text: str) -> int:
+        if not text.isdigit() or int(text) < 1:
+            raise argparse.ArgumentTypeError("not a process ID")
+        return int(text)
+
+    seat_keep = seat_commands.add_parser(
+        "keep", help="hold the session's seats, following its desired membership (seat exec starts it; "
+                     "run alone, it repairs a session whose keeper stopped)")
+    team_option(seat_keep, argparse.SUPPRESS)
+    seat_keep.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
+    seat_keep.add_argument("--home", metavar="DIR", help="the session home (default: ccy's)")
+    seat_keep.add_argument("--parent", type=positive, metavar="PID",
+                           help="end, letting every seat go, when this parent is gone")
+    seat_keep.add_argument("--launch", action="store_true",
+                           help="seat exec's keeper: a new home, all or nothing, READY on stdout")
+    seat_keep.set_defaults(handler=cmd_seat_keep)
+    seat_retire = seat_commands.add_parser(
+        "retire", help="on the host, for a seat removed from a session: clear its sync position "
+                       "and expire its listening status")
+    team_option(seat_retire, argparse.SUPPRESS)
+    seat_retire.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
+    seat_retire.add_argument("seat", metavar="SEAT@TEAM")
+    seat_retire.set_defaults(handler=cmd_seat_retire)
+    reach = command("reach", cmd_reach, "whether this environment reaches --team's homeserver (3 s)")
+    reach.add_argument("--root", metavar="DIR", help="the checkout's seats (default: ccy's)")
     return parser
 
 
@@ -2254,6 +2492,8 @@ def main(
         return args.handler(args, env, out, err)
     except _ParserExit as done:
         return done.status
+    except _KeeperFailed as failed:
+        return failed.code
     except FAILURES as exc:
         code, message = failure(exc)
         err.write(f"{PROG}: {message}\n")

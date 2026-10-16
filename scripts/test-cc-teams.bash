@@ -252,8 +252,9 @@ check "pingbus seat exec claims the checkout's seats, then claude with plugin an
 echo "=== the session records its teams for the status line ==="
 
 hooks_json="$KIT_SRC/plugin/pingbus/hooks/hooks.json"
-check "the plugin cc passes runs pingbus's SessionStart hook, which writes the per-session teams file" "pingbus hook session-start" \
-    "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$hooks_json")"
+# The command's inert guard (Plan 00203 H33) passes a session with no PINGBUS_MEMBERSHIP, as cc's is.
+check "the plugin cc passes runs pingbus's SessionStart hook, which writes the per-session teams file" "exec pingbus hook session-start" \
+    "$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$hooks_json" | grep -oF 'exec pingbus hook session-start')"
 check "cc passes that plugin directory" "yes" "$(yes_no grep -qF -- "--plugin-dir" <<<"$got")"
 check "cc puts the kit first on PATH so the hook runs the kit's pingbus" "yes" \
     "$(yes_no grep -qF "PATH=\"\$CC_TEAMS_KIT:\$PATH\"" "$REPO_ROOT/files/var/local/claude-code/cc")"

@@ -409,12 +409,37 @@ class LockAtPathTest(unittest.TestCase):
         with self.assertRaises(inbox.StateError):
             inbox.probe_lock_at(self.path)
 
+    def test_release_unlocks_even_when_the_descriptor_was_duplicated(self):
+        """Plan 00203 D4: release is an explicit LOCK_UN, so a lock shared through a copy of
+        its descriptor (an inherited one, a dup) is free once released; truncate and close
+        alone left it held by the copy."""
+        lock = inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=1)
+        copy = os.dup(lock.fileno())
+        self.addCleanup(os.close, copy)
+        lock.release()
+        self.assertIsNone(inbox.probe_lock_at(self.path))
+
+    def test_the_keeper_kind_is_a_path_lock_kind(self):
+        with inbox.acquire_lock_at(self.path, inbox.KEEPER_KIND):
+            self.assertEqual(inbox.probe_lock_at(self.path), "keeper")
+
     def test_the_descriptor_can_be_made_inheritable(self):
         lock = inbox.acquire_lock_at(self.path, inbox.SEAT_KIND, claimed_ms=1)
         self.addCleanup(lock.release)
         self.assertFalse(os.get_inheritable(lock.fileno()))
         lock.set_inheritable()
         self.assertTrue(os.get_inheritable(lock.fileno()))
+
+
+class ForgetSyncTokenTest(StateCase):
+    """Plan 00203 H23 step 5: a removed seat's sync position is dropped, so its next sync is
+    a first sync; the inbox stays as it is."""
+
+    def test_the_token_goes_and_the_answer_says_whether_there_was_one(self):
+        self.state.commit_batch([], "s1")
+        self.assertTrue(self.state.forget_sync_token())
+        self.assertIsNone(self.state.sync_token())
+        self.assertFalse(self.state.forget_sync_token())
 
 
 class LockProcessTest(StateCase):

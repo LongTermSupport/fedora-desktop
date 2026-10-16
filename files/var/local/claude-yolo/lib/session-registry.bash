@@ -124,7 +124,7 @@ CCY_REGISTRY_DROP_FLAGS=(--rebuild --create-token --list-tokens --token-usage --
     --help --version -h -v)
 CCY_REGISTRY_DROP_VALUE_FLAGS=(--update-token --export-token --connect --disconnect --prompt --run-for --until --compose)
 CCY_REGISTRY_KEEP_VALUE_FLAGS=(--token --ssh-key --network --engine --max-age --teams)
-CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise)
+CCY_REGISTRY_KEEP_FLAGS=(--no-ssh --github-443 --no-network --supervise --no-supervise --no-bus)
 
 # ccy_registry_flag_class <word> — drop, drop-value, keep-value, keep, or unknown.
 ccy_registry_flag_class() {

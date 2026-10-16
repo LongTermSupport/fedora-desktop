@@ -170,10 +170,38 @@ func TestDispatchChooseSeatAndDescribeSeatsAreTheChooseFlow(t *testing.T) {
 	}
 }
 
+func TestDispatchInternalMembershipInitIsTheMembershipCommand(t *testing.T) {
+	h := newHarness(t)
+	runtime := t.TempDir()
+	h.Env["XDG_RUNTIME_DIR"] = runtime
+	if code := h.app.Run([]string{"internal", "membership-init", "ccy-proj", "/c", "1@alpha"}); code != term.ExitOK {
+		t.Fatalf("exit %d: %s", code, h.ErrOut.String())
+	}
+	if want := filepath.Join(runtime, "ccy", "membership", "ccy-proj") + "\n"; h.Out.String() != want {
+		t.Fatalf("stdout %q, want %q", h.Out.String(), want)
+	}
+}
+
+func TestInternalNeedsOneOfItsCommands(t *testing.T) {
+	for _, args := range [][]string{{"internal"}, {"internal", "nope"}} {
+		h := newHarness(t)
+		if code := h.app.Run(args); code != term.ExitUsage {
+			t.Fatalf("%v: exit %d", args, code)
+		}
+		if !strings.Contains(h.ErrOut.String(), "internal membership-init") {
+			t.Fatalf("%v: stderr %q", args, h.ErrOut.String())
+		}
+	}
+}
+
 func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	h := newHarness(t)
 	h.app.Run([]string{"--help"})
-	for _, want := range []string{"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]"} {
+	wants := []string{
+		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]",
+		"ccy-teams internal membership-init <session> <checkout> <seats>",
+	}
+	for _, want := range wants {
 		if !strings.Contains(h.Out.String(), want) {
 			t.Fatalf("usage lacks %q", want)
 		}

@@ -1116,9 +1116,32 @@ keeps its team and a session launched without one restores without one. A seat t
 restore, a restart) must name the seat, and is refused (64) otherwise. Just before the container starts, `agent-bus seat take` creates any seat that does
 not exist yet (one `sudo agent-bus add-member`; a headless launch, a restore or a restart
 uses only sudo's cached credential) and refuses a seat another session holds (75). The
-container gets `PINGBUS_SEATS` and the `ccy-seats` label; its entrypoint claims every seat,
+seats go into the session's desired membership (below); its entrypoint claims every seat,
 puts `pingbus` on `PATH` and starts `claude` with the bus plugin. A restart or a restore
-comes back in the same seats. `agent-bus` comes from `play-agent-bus.yml`. Seats, their
+comes back in the same seats.
+
+**The bus kit in every session, and `--no-bus`** (Plan 00203). A session started in ccy's
+tmux (one `ccy-sessions` lists) carries the agent team bus kit even with no `--teams`, so it
+can be put in a team later without a relaunch. The launch writes the session's desired
+membership (its seats, or none) through `ccy-teams internal membership-init` into
+`$XDG_RUNTIME_DIR/ccy/membership/<session>/`, a directory only your own tools write, and
+mounts it read-only at `/run/ccy/membership` (relabelled per session on SELinux), with
+`PINGBUS_MEMBERSHIP=/run/ccy/membership`. On no team the kit is idle: every hook and the status
+line stay in the shell, no Python runs, and the session shows its own status line. Claude
+Code reads `crossSessionInbound` only at start, so it is decided at launch: a session launched
+with a seat accepts it (its inbox socket, `$XDG_RUNTIME_DIR/cc-socks/<pid>.sock` on the
+container's own filesystem, lets the watcher wake it; anything running in that container could
+use it too); a session launched on no team does not, so it has no inbox socket and nothing in
+the container can write a turn into it. Putting such a session in a team relaunches it once,
+resumed in the same tmux session (Plan 00203 M3); later changes need no relaunch. A settings
+file ccy cannot read the status line from is named at launch, and the session then shows
+Claude Code's own status line with no bus segment. `ccy --no-bus` leaves the kit out entirely
+(no plugin, no settings, no mount; `PINGBUS_MEMBERSHIP=off`) and cannot be combined with a
+team. A plain session and a `--no-bus` one both accept no inbound; they differ by the mount,
+the plugin (its hooks end in the shell), the status line wrapper and, later, the seat keeper
+process. A `ccy`
+run in a plain terminal has no session name: without `--teams` it carries no kit, and with
+`--teams` its membership is named after its container and cannot be changed while it runs. `agent-bus` comes from `play-agent-bus.yml`. Seats, their
 names and their reuse are in [agent-bus.md](agent-bus.md); the protocol is in
 [agent-bus-protocol.md](agent-bus-protocol.md).
 
@@ -1398,11 +1421,14 @@ can find and group sessions without parsing container names:
 | `ccy-github`   | the GitHub account this session is authenticated as |
 | `ccy-token`    | the stored Anthropic token label you picked         |
 | `ccy-ssh-keys` | the mounted SSH key basenames, space-separated      |
-| `ccy-seats`    | the agent team bus seats, `<seat>@<team>[,…]`       |
+| `ccy-session`  | the session's name, as `ccy-sessions` lists it      |
 
 `ccy-github`, `ccy-token` and `ccy-ssh-keys` are `none` when the axis does not apply, so "no
-GitHub identity" is stated rather than looking like an unlabelled container. `ccy-seats` is
-only on a session launched with `--teams`.
+GitHub identity" is stated rather than looking like an unlabelled container. `ccy-session` is
+only on a session started in ccy's tmux (from CCY 3.99.0): it is the host's map from a session
+to its container. The `ccy-seats` label of earlier versions is gone; a podman label cannot
+change while the container runs, and Plan 00203's hot control changes a session's seats while
+it runs.
 
 Do **not** use the image's `claude-yolo-version` label to find sessions. Image labels are
 inherited by anything built FROM the CCY image, so it identifies a lineage, not a session
