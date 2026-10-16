@@ -69,6 +69,37 @@ Transcription", and the run exits non-zero.
 - [ ] ⬜ **Task 2.1**: Port `wsi-stream` to Go when it is next reworked (CLAUDE.md "Tooling Is
   Go"); the read-back gate moves with it, sharing `wsi`'s
 
+### Phase 3: Ctrl+Insert / Alt+Insert, and post-processing after the fact
+
+The owner pressed Ctrl+Insert and saw no post-processed text. How it is meant to work, every
+way it can fail unseen, and the host commands to find which: `subagent-reports/261016-stt-postprocess-diagnosis.md`.
+
+- [x] ✅ **Task 3.1**: A failure notification that stays is shown with `--no-notify`. The panel
+  passes `--no-notify` unless Show Notifications is on (default off), and both recorders then
+  dropped the notification saying Claude failed (and wsi-stream's eight other staying failure
+  notices, wsi-article's included): a failed Ctrl+Insert was a 2 s ERROR flash. Fixed at the
+  one gate in each: `desktop_notification` (wsi-stream) and `panel.notify` (wsi, spec W10).
+  Tests: `tests/speech_to_text/test_claude_failure_report.py`, `TestW10...`, `TestW23...`
+  (red first, then green)
+- [x] ✅ **Task 3.2**: A record key the shell refused, or with no key set, is a notification at
+  enable, not a debug-log line only (`unusableKeybindings`, `postProcess.js`)
+- [x] ✅ **Task 3.3**: `wsi-postprocess` (Go, `src-go/internal/wsipost`, P1-P8): Claude
+  post-processing of `last-transcription.txt` on demand; the result is saved apart in
+  `last-postprocessed.txt` and printed; every failure is a stated reason and a non-zero exit
+- [x] ✅ **Task 3.4**: Menu items Post-Process Last Transcription: Corporate (as Ctrl+Insert) and
+  Natural (as Alt+Insert): the result goes to the clipboard (St.Clipboard) with a notification;
+  never pasted (a menu click leaves no window to paste into for sure). Copy Last Transcription
+  still gives the transcription. One run at a time; no transcription, Claude failing, a run
+  that cannot start or says nothing: each a notification. Tests:
+  `tests/extensions/test-stt-post-process.mjs`
+- [ ] ⬜ **Task 3.5**: Host: run the diagnosis commands in the report (read-only) and record why
+  the owner's Ctrl+Insert did not work
+- [ ] ⬜ **Task 3.6**: Deploy through meta-deploy (`play-speech-to-text.yml`), log out and in (the
+  extension changed), then try both menu items and a Ctrl+Insert dictation
+- [ ] ⬜ **Task 3.7**: Decide on the dead `claude-enabled` setting (Settings' "Enable Claude
+  processing" switch gates nothing) and on a visible control to start a recording in each
+  mode (today only the keys start one; rule 14)
+
 ## Success Criteria
 
 - [x] A selection that never takes the text pastes nothing and fails loudly (both recorders, tested)
@@ -78,3 +109,4 @@ Transcription", and the run exits non-zero.
 ## Delivery & Milestones
 
 - Phase 1 code: branch `fix/stt-paste-stale-clipboard`
+- Phase 3 code: branch `feat/stt-postprocess-button` (it merges Phase 1's branch)

@@ -25,6 +25,7 @@ import { PasteTargetPin } from './pasteTarget.js';
 import { PanelSession } from './panelSession.js';
 import { spawnWatched, killArgv, discardSignal } from './recorderLaunch.js';
 import { lookFor, isKnownState, recordingBadgeColor, articleBadgeColor, COLOURS } from './panelLook.js';
+import { POST_PROCESS_STYLES, LastTranscriptPostProcessor, unusableKeybindings } from './postProcess.js';
 
 // DBus interface for wsi communication
 const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
@@ -220,6 +221,20 @@ export default class SpeechToTextExtension extends Extension {
                 );
                 this._log(`Claude natural keybinding registration result: ${claudeNaturalBindingAdded}`);
 
+                // A key the shell refused, or with no key set, does nothing when pressed;
+                // the debug log above is off by default, so say it where it is seen
+                const unusable = unusableKeybindings([
+                    ['toggle-recording', bindingAdded],
+                    ['toggle-recording-claude', claudeBindingAdded],
+                    ['toggle-recording-claude-natural', claudeNaturalBindingAdded],
+                ].map(([name, action]) => ({name, action, accels: this._settings.get_strv(name)})),
+                Meta.KeyBindingAction.NONE);
+                if (unusable.length > 0) {
+                    this._log(`Unusable record keys: ${unusable.join('; ')}`);
+                    Main.notify('STT Error', `These record keys do nothing: ${unusable.join('; ')}. ` +
+                        'The menu items still work; the keys are set in Settings.');
+                }
+
                 // Note: abort-recording keybinding is added dynamically when recording starts
             } else {
                 Main.notify('STT Error', 'Schema lookup failed');
@@ -247,6 +262,13 @@ export default class SpeechToTextExtension extends Extension {
         this._hourglassIcon = Gio.FileIcon.new(
             Gio.File.new_for_path(`${this.path}/stt-hourglass-symbolic.svg`));
         this._panel = this._createPanelSession();
+        this._postProcessor = new LastTranscriptPostProcessor({
+            bin: GLib.get_home_dir() + '/.local/bin/',
+            run: (argv, done) => this._runCollectingOutput(argv, done),
+            setClipboard: text => St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text),
+            notify: message => Main.notify('Speech to Text', message),
+            log: message => this._log(message),
+        });
 
         // Ensure log directory exists
         this._ensureLogDirectory();
@@ -298,6 +320,11 @@ export default class SpeechToTextExtension extends Extension {
         if (this._panel) {
             this._panel.destroy();
             this._panel = null;
+        }
+        // A post-processing run still going finishes on its own; its result is dropped
+        if (this._postProcessor) {
+            this._postProcessor.destroy();
+            this._postProcessor = null;
         }
 
         // Cancel recording timer
@@ -404,6 +431,13 @@ export default class SpeechToTextExtension extends Extension {
         const copyItem = new PopupMenu.PopupMenuItem('Copy Last Transcription');
         copyItem.connect('activate', () => { this._copyLastTranscription(); });
         menu.addMenuItem(copyItem);
+
+        // Claude post-processing after the fact, one item per Ctrl/Alt+Insert style
+        for (const {style, label} of POST_PROCESS_STYLES) {
+            const item = new PopupMenu.PopupMenuItem(label);
+            item.connect('activate', () => { this._postProcessLast(style); });
+            menu.addMenuItem(item);
+        }
 
         const viewLogItem = new PopupMenu.PopupMenuItem('View Debug Log...');
         viewLogItem.connect('activate', () => { this._openLogViewer(); });
@@ -1409,6 +1443,31 @@ export default class SpeechToTextExtension extends Extension {
                 Main.notify('STT', `Cannot open log file: ${e2.message}`);
             }
         }
+    }
+
+    /** A Post-Process Last Transcription item: postProcess.js runs it and reports it. */
+    _postProcessLast(style) {
+        const model = this._knownOr(this._claudeModel, this._claudeModels.map(m => m[0]));
+        this._postProcessor?.start(style, model, this._debugEnabled);
+    }
+
+    /** Run `argv` without blocking the shell; `done(exitStatus, stdout, stderr, error)`
+     * once it has ended (exitStatus null, error set, if its output could not be read). */
+    _runCollectingOutput(argv, done) {
+        const proc = Gio.Subprocess.new(argv,
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+        proc.communicate_utf8_async(null, null, (source, result) => {
+            let stdout, stderr;
+            try {
+                [, stdout, stderr] = source.communicate_utf8_finish(result);
+            } catch (e) {
+                done(null, '', '', `its output could not be read: ${e.message}`);
+                return;
+            }
+            const status = source.get_if_exited() ? source.get_exit_status()
+                : `signal ${source.get_term_sig()}`;
+            done(status, stdout, stderr, null);
+        });
     }
 
     _copyLastTranscription() {

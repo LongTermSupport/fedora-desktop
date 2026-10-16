@@ -726,6 +726,7 @@ if (cd "$REPO_ROOT" && python3 -m unittest \
         tests/speech_to_text/test_paste_target.py \
         tests/speech_to_text/test_clipboard_confirm.py \
         tests/speech_to_text/test_claude_process.py \
+        tests/speech_to_text/test_claude_failure_report.py \
         tests/speech_to_text/test_article_client.py \
         tests/speech_to_text/test_resolve_model.py \
         tests/speech_to_text/test_keep_warm.py) > "$work/unit.out" 2>&1; then

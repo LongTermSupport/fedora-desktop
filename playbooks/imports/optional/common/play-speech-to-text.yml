@@ -356,6 +356,7 @@
         - panelSession.js
         - panelLook.js
         - recorderLaunch.js
+        - postProcess.js
         - stt-hourglass-symbolic.svg
         - prefs.js
         - metadata.json
@@ -389,6 +390,16 @@
       vars:
         go_command_name: wsi
         go_command_dest: "/home/{{ user_login }}/.local/bin/wsi"
+        go_command_mode: "0755"
+
+    # The panel menu's Post-Process Last Transcription items (src-go/cmd/wsi-postprocess,
+    # Plan 00208): Claude post-processing of the last transcription, after the dictation. It
+    # runs wsi-claude-process (deployed below) from the directory it is installed in.
+    - name: Build and Install the wsi-postprocess Command
+      ansible.builtin.import_tasks: "{{ root_dir }}/tasks/build-go-command.yml"
+      vars:
+        go_command_name: wsi-postprocess
+        go_command_dest: "/home/{{ user_login }}/.local/bin/wsi-postprocess"
         go_command_mode: "0755"
 
     # The one reader of the extension's GSettings keys for the recorder scripts

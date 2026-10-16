@@ -454,6 +454,9 @@ Click the extension icon in the top bar to access:
 
 - **Auto-paste at cursor** and **Debug Logging** — quick toggles
 - **Copy Last Transcription**, **View Debug Log...**, **Create Article...**
+- **Post-Process Last Transcription: Corporate** and **: Natural** — run the
+  [Claude post-processing](#claude-code-post-processing) of Ctrl+Insert or Alt+Insert on
+  the last transcription, after the dictation (see below)
 - **Manage Whisper Models...**, **Server Manager...**
 - **Settings...** — opens the extension's own Preferences window (language, model,
   streaming mode, Claude Code post-processing)
@@ -576,7 +579,26 @@ wsi --claude-process --claude-model sonnet --claude-style corporate
 2. Text logged to `~/.local/share/speech-to-text/debug.log`
 3. Claude Code processes text with style-specific prompt
 4. Enhanced text replaces raw transcription
-5. Result auto-pasted at cursor
+5. Result auto-pasted at cursor (no Enter after it), or with auto-paste off put on the
+   PRIMARY selection (middle-click)
+
+The style is chosen by the key that **starts** the recording; the key that stops it does
+not change it. If Claude fails, nothing is pasted, the raw text is on the clipboard
+(Ctrl+V) and a notification that stays says why, even with Show Notifications off.
+
+### Post-Processing After the Fact
+
+Forgot Ctrl+Insert? The menu's **Post-Process Last Transcription: Corporate (as
+Ctrl+Insert)** and **: Natural (as Alt+Insert)** run the same post-processing on the last
+transcription (the text Copy Last Transcription gives, less any `speech-to-text:"…"`
+marker), using the Claude model and token from Settings. A notification says it started;
+when Claude answers, its text is on the **clipboard** (Ctrl+V) and a notification shows
+the start of it. Nothing is pasted, since a menu click leaves no window to paste into for
+sure. The result is also saved to `~/.cache/speech-to-text/last-postprocessed.txt`;
+`last-transcription.txt`, and so Copy Last Transcription, keeps the transcription. No
+transcription yet, or Claude failing, is a notification saying so. The work is done by
+`~/.local/bin/wsi-postprocess --style corporate|natural [--model M]`, which can be run by
+hand too.
 
 ### Customizing Prompts
 
