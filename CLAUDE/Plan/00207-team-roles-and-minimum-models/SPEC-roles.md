@@ -182,6 +182,9 @@ record**, never on anything the message says about itself.
   dropped with reason `gate`: written to `dropped.log`, counted in `DROPPED`, never written
   to the inbox, so no envelope and no hook context ever carries it. This is the half that
   stops a member who bypasses its own pingbus.
+- **Also by the homeserver.** The owner decided that channel rooms enforce the same matrix at
+  the server, as defence in depth (§12). The two layers are kept in sync, and when they
+  disagree the message is denied (§13).
 - **Not by a prompt.** A rule in the skill tells the agent how to behave. It cannot stop text
   arriving. The gate stops the envelope before the conversation, which is the owner's
   requirement.
@@ -493,18 +496,20 @@ LXC teams running. It is a colleague, not a teammate.
 
 **How it differs from scope and external references:**
 
-|                    | External reference                                    | Outside collaborator                                                                                                                |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| What it is         | an artefact (a file in a repository outside the team) | a member (an agent that can talk)                                                                                                   |
-| Declared           | nowhere: anything not in `org`/`repos`                | a role in the registry, set by the owner                                                                                            |
-| Can it speak       | no                                                    | yes: text and answers, to the coordinator                                                                                           |
-| Authority          | none: read as information                             | none: a colleague's note                                                                                                            |
-| Changes team scope | no; widening is a separate, explicit choice           | no                                                                                                                                  |
-| Sees the room      | -                                                     | its account can read the room through the Matrix API (D6 of Plan 00203); pingbus delivers it only what names it and passes the gate |
+|                    | External reference                                    | Outside collaborator                                                                                              |
+| ------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| What it is         | an artefact (a file in a repository outside the team) | a member (an agent that can talk)                                                                                 |
+| Declared           | nowhere: anything not in `org`/`repos`                | a role in the registry, set by the owner                                                                          |
+| Can it speak       | no                                                    | yes: text and answers, to the coordinator                                                                         |
+| Authority          | none: read as information                             | none: a colleague's note                                                                                          |
+| Changes team scope | no; widening is a separate, explicit choice           | no                                                                                                                |
+| Sees the room      | -                                                     | only its own liaison room (§12.3), enforced by the homeserver; the workers room only with `collaborators-workers` |
 
-The last row matters. Membership is not a confidentiality boundary. If a team's room must
-stay private from the collaborator, the collaborator must not be a member. A separate
-liaison room is not designed here (D19).
+The last row matters. In one shared room, membership would not be a confidentiality boundary
+(Plan 00203 D6). The channel rooms of §12 give the collaborator a room of its own with the
+humans and the coordinator, so it cannot read the workers room. That only holds while its
+token stays out of every other seat's checkout, which is the usual case: a collaborator
+works from another repository or an LXC member.
 
 ## 6. Deployer
 
@@ -778,3 +783,385 @@ ccy-teams team policy alpha --show       # TAB-separated, one line per role and 
 - **R10** The pane's Roles, Communication and Deploy sections, each backed by a
   non-interactive command (§8).
 - **R11** The upgrade-first migration (§9).
+- **R12** The management room, the coordinator's briefs and questions, and the terminal-reply
+  confirmation (§11).
+- **R13** Channel rooms enforced by the homeserver, as defence in depth beside the pingbus
+  gate (§12).
+- **R14** One source of truth, one reconciler, loud drift detection, and deny on
+  disagreement (§13).
+
+## 11. The management room (coordinator and humans)
+
+The owner: "a separate chat room which is purely for coordinator versus human, where the
+coordinator can post terse, human-friendly summaries of what's going on, and where questions
+can be asked... If I respond directly in the session, a little confirmation should be posted
+into the chat room so that it's there. A high-level, skimmable management summary, not walls
+of text, very terse."
+
+### 11.1 Shape
+
+- **One room per team**, named `<team> · management`.
+- **Members:** the team's humans and the coordinator's seat account, and nobody else.
+  - The homeserver enforces the membership (§12): it is invite-only, and only `admin`
+    invites.
+  - No worker, reviewer, collaborator or deployer account is ever invited, so none can read
+    it or post in it, whatever its pingbus does.
+- **Power levels:** humans 50, the coordinator 0, `admin` as creator. The same shape as the
+  team room, so the coordinator cannot invite, kick or change state.
+- **Created** by the reconciler (§13) when the team has a coordinator. Its record copy is the
+  team record (§12.3).
+
+### 11.2 What the coordinator posts
+
+There are three kinds. Each is a new agent-text form with a format key, so receivers and
+Element both show it as a plain `m.notice`.
+
+| Command                 | What it is                                   | Format and cap                                                                                                                                              |
+| ----------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pingbus brief`         | a management summary                         | 1 headline plus up to 4 lines, each at most 120 characters, each starting with one of `Done:`, `Doing:`, `Blocked:`, `Needs you:`. At most 600 bytes in all |
+| `pingbus ask`           | a question for the humans                    | one question of at most 300 characters, with up to 4 numbered choices of at most 80 characters. pingbus numbers it `Q<n>` per team                          |
+| `pingbus note-terminal` | the confirmation of a terminal reply (§11.4) | one fixed-template line: `↩ <human> answered in the terminal: <excerpt>`, the excerpt being at most 160 characters                                          |
+
+An example brief, as Element shows it:
+
+```
+alpha · 3 of 5 plan tasks done
+Done: M1 ladder merged (dda6780d)
+Doing: M2 gate tests, worker 2
+Blocked: deployer waits for your go on 4c1e9a20
+Needs you: Q7, below
+```
+
+**Over a cap is refused** (exit 4, `body`) with the cap named, never truncated. The format
+is the point: a wall of text cannot be sent.
+
+**What stops it becoming noise:**
+
+- **A minimum interval between briefs**, `brief_min_interval_s` (900). A brief with a
+  `Needs you:` line, or a new `Blocked:` line, may go sooner.
+- **No repeat.** A brief whose lines equal the last one's is refused as a duplicate
+  (exit 9).
+- **A cap on open questions.** `ask` refuses a new question while `max_open_questions` (3)
+  are unanswered, and names them.
+- **Only the coordinator's account is in the room**, so workers' traffic cannot leak into it.
+- **The guidance is explicit.** `role_coordinator` gains: "Post a brief when something a
+  human would want to know has changed, not on a timer, and never a narrative."
+
+### 11.3 Human replies in the room
+
+- A human's message in the management room addressed to the coordinator, or a reply to one of
+  its posts, is delivered as kind `HUMAN` through the existing human path (§9 04h-12h), with
+  `room: management` in the envelope.
+- **The id verification is the same.** `pingbus --team T --room management history` shows it as
+  an `in HUMAN` line, and the skill's consequential-request rule applies unchanged.
+- **A reply to a question.** A reply event (`m.in_reply_to`) naming an `ask` post, or a body
+  starting `Q<n>`, is shown with that question beside it, so the coordinator knows what the
+  answer is to.
+
+### 11.4 Replies typed in the coordinator's terminal
+
+**How the coordinator knows the human typed it.** Claude Code runs `UserPromptSubmit` for a
+prompt submitted at the session's input. It never runs it for the model's own turns. The
+pingbus `hook prompt` already runs there. A submitted prompt still comes from one of four
+sources:
+
+1. **A pingbus delivery.** It carries pingbus's nonce-marked envelope, and pingbus knows its own
+   nonces (`inject` marks). It is not a human reply.
+2. **The ccy supervisor typing into the pane**: its fixed `/model` and continue prompts. The
+   supervisor records what it typed and when in its sidecar. A prompt matching a record from
+   the last few seconds is not a human reply.
+3. **A slash command.** Not a reply.
+4. **Anything else: the human at the terminal.**
+
+The M0 spike confirms that deliveries and supervisor typing reach `UserPromptSubmit` as
+described. Until it does, case 4 is labelled "terminal input" without claiming who typed it.
+
+**How the confirmation is posted.**
+
+- The hook never does network I/O on this path. It writes one queue entry,
+  `$PINGBUS_HOME/terminal-notes/<ts>.json`, holding the team, the excerpt and the open
+  question it answers.
+- The resident watcher posts it with `note-terminal` within a few seconds.
+- The coordinator itself never has to remember, and cannot forget.
+- **Which human.** The team file's `terminal_human` names the human whose terminal the
+  coordinator runs in (D23). The default is the first human in `humans`.
+- **Which team.** If the session coordinates one team, that team. If it coordinates several:
+  - the team whose question is the only one open;
+  - otherwise nothing is posted, and the hook tells the coordinator to run
+    `pingbus --team T note-terminal` itself.
+- One team's terminal input is never posted to another team's room.
+- **What is posted.**
+  - The excerpt is the prompt's first line, at most 160 characters, after the secret-shape check
+    pingbus already applies to agent text.
+  - A prompt that fails the check is noted as `↩ <human> answered in the terminal (text withheld: it looked like a secret)`.
+  - Posting the full text instead is D22.
+- **Only for prompts that answer something.** By default a terminal prompt is noted only while a
+  question is open, or within `terminal_note_window_s` (1800) after the coordinator's last
+  brief or question. Ordinary pairing at the terminal does not flood the room (D24).
+
+### 11.5 Element
+
+- Each human's Element account on the team's homeserver is invited by `admin`, as for the team
+  room today, and the room shows up beside it.
+- The one-window Element profile work (Plans 00201 and 00203) already signs the human in per
+  homeserver, so a second and third room need no new sign-in.
+- Acceptance includes the owner seeing the room, a brief, a question, replying in Element, and
+  seeing a terminal note.
+- Briefs use `m.notice`, so Element does not raise a notification for each.
+- A `Needs you:` line or a question mentions the humans (`m.mentions.user_ids`), so those do
+  notify.
+
+## 12. Rooms as defence in depth (decided by the owner)
+
+### 12.1 The owner's decision
+
+The owner, deciding between one room filtered by pingbus, rooms alone, and both: "regard matrix
+rooms as defense in depth. We don't have it as the only mechanism, but we have it as a mechanism
+at a certain level... a bit like private channels in Slack. That would be the model I would
+expect... enforce things at the matrix server level and also at the ping bus level as well...
+belt and braces... we just need to make sure everything's properly in sync."
+
+So the design is **both layers**:
+
+- private, invite-only **channel rooms**, enforced by the homeserver;
+- **the pingbus role gate** of §3, at send and delivery, unchanged.
+
+Neither layer is the only control. Section 13 keeps them in sync.
+
+The stack stays Matrix and Tuwunel. Plan 00203's research (`research/bus-stack`, its report
+`261016-bus-stack-research-opus.md`) recommended keeping it, and this plan does not reopen
+that.
+
+### 12.2 What the homeserver can enforce, from the code
+
+**Each seat has its own Matrix account. This is the fact that makes rooms worth having.**
+
+- `agent-bus add-member` creates one account per handle (`helpers/agent_bus/admin.py`
+  `add_member`): `api.create_account(user_id, handle)`, with a discarded password and a minted
+  token.
+- A parked seat keeps its account, and a returning seat gets a new token.
+- No two seats share an account, so room membership separates accounts.
+
+**But tokens are kept per checkout, not per session.** That limits what rooms can separate:
+
+- A seat's token is in its bundle, under `<checkout>/.claude/ccy/pingbus/seats/`, for both ccy
+  and cc (`cc-teams.bash` `CC_TEAMS_SEATS_DIR`).
+- Plan 00203 D6 already says any session in a checkout can read every seat's bundle there.
+- **So rooms do not separate two seats whose bundles sit in the same checkout.** A worker
+  container could read the deployer's token if the deployer's bundle lived in the worker's
+  checkout, and then read and post in the deployment room as the deployer.
+
+**What has to change for rooms to mean anything** (R12a):
+
+- **The deployer's bundle moves to a host-only seat store** that no container mounts:
+  `~/.local/state/agent-bus/seats/<team>/<seat>/`, with the directory mode 0700 and the
+  token 0600. `cc --teams` takes a deployer seat from there and never from the checkout.
+- **The coordinator's bundle should move there too** when the coordinator is a cc session
+  (D25). A coordinator in a ccy container keeps its seat in its own checkout, so it should not
+  share that checkout with workers.
+- **A host cc session runs as the owner's uid and can still read the host-only store.** Rooms
+  separate containers, LXC and VM members, and other checkouts from the deployer. They do not
+  separate two host cc sessions. That is the same limit as Plan 00203 H31.
+- ccy-teams warns when two seats of different room sets share a checkout, naming them.
+
+**What the homeserver enforces** (Tuwunel 1.9.4 as configured by
+`helpers/agent_bus/render.py`; room version 12):
+
+| Question                                             | Answer                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Can a non-member read or post?                       | No. The rooms are invite-only (`preset: private_chat`) and unfederated (`allow_federation = false`). Reading `/messages` or sending as a non-member is refused by the server                                                                                                                                                                                                                                  |
+| Can an agent invite itself or another account?       | No. `invite` needs power 100 and agents have 0. Only `admin`, the room's creator, holds that power                                                                                                                                                                                                                                                                                                            |
+| Can an agent join without an invite?                 | No. The join rule is `invite`. No room uses `restricted` joins, so membership of one room never grants another                                                                                                                                                                                                                                                                                                |
+| Can an agent raise its own power?                    | No. `m.room.power_levels` needs 100. pingbus also refuses a room whose power levels are not exactly the expected content                                                                                                                                                                                                                                                                                      |
+| Can an agent make a side room?                       | No. `allow_room_creation = false`, so only server admins create rooms, and only `admin` is one (`grant_admin_to_first_user = false`). Plan 00161 D63                                                                                                                                                                                                                                                          |
+| Who holds room admin?                                | `admin`, a host-side account. Its credentials are in root-owned `/var/lib/agent-bus/<team>/secrets/`. No agent account is ever given power. A host cc session (the owner's uid) cannot read them without sudo                                                                                                                                                                                                 |
+| Can a new member read history from before it joined? | With `private_chat` the history visibility is `shared`, so yes, everything. The new channel rooms set it explicitly (D21: `joined` for the deployment and liaison rooms, `shared` for workers and management)                                                                                                                                                                                                 |
+| Room ACLs (`m.room.server_acl`)?                     | Not relevant. They govern servers, and each team is one server with federation off                                                                                                                                                                                                                                                                                                                            |
+| E2EE?                                                | No. `allow_encryption = false`. Rooms are plain on purpose: the humans audit everything in Element, and the server is the team's own host. Encryption would not protect against the host and would stop pingbus's server-side reads                                                                                                                                                                           |
+| A kicked member?                                     | It can no longer read new events or post. What it already synced stays in its own cache                                                                                                                                                                                                                                                                                                                       |
+| Is Tuwunel current, and are there known issues?      | 1.9.4 is pinned (`files/usr/local/share/agent-bus/tuwunel.pin`). The bus-stack research found it was the latest release (2026-10-10) when it read the releases on 2026-10-16. Two issues are open: #653 (startup hangs after an unclean kill) and #649 (full disk). Neither concerns room authorisation. A membership-authorisation defect would defeat this layer, which is why pingbus stays the second one |
+
+**The honest assessment.**
+
+- The homeserver's check is stronger than the client filter. It holds against a member that
+  bypasses its own pingbus with raw API calls, and it also gives **confidentiality**: an
+  account outside a room cannot read it at all. The pingbus gate cannot give that (Plan 00203
+  D6).
+- It is only as strong as token custody. Today that is per checkout, which is why R12a is not
+  optional.
+- Where custody is separate (another checkout, LXC, VM or SSH members, the deployer in the
+  host-only store), rooms are a real wall.
+- Where it is shared, rooms add only a record, and the pingbus gate is the control.
+- Both layers, kept in sync, is the owner's decision. The facts support it.
+
+### 12.3 The rooms
+
+| Room                     | Members (accounts)                         | Created when                 | History (D21) |
+| ------------------------ | ------------------------------------------ | ---------------------------- | ------------- |
+| `workers` (today's room) | humans, coordinator, workers, reviewers    | exists                       | `shared`      |
+| `management`             | humans, coordinator                        | the team has a coordinator   | `shared`      |
+| `deployment`             | humans, coordinator, deployer(s)           | the deployer role is enabled | `joined`      |
+| `liaison-<seat>`         | humans, coordinator, that one collaborator | per collaborator             | `joined`      |
+
+- **Humans are in every room.** So the owner's original rule (Plan 00161 D63: all messaging
+  auditable by a human) still holds.
+- **One liaison room per collaborator.** Two collaborators from different outside repositories
+  never see each other, and none sees the workers room. This answers D19: a collaborator can no
+  longer read the team's room.
+- **Allowances add membership where they must:**
+  - `collaborators-workers` invites the collaborator into `workers`, and the pane says that
+    then lets it read the workers room;
+  - `workers-talk` and `reviewers-talk` need no room change, because those roles already share
+    `workers`, and the pingbus gate is what opens them.
+- **The team record is written to every room** by `admin`, identical in each. A member trusts a
+  room only when its record equals the record in its other rooms (§13.4).
+- **The bundle changes from one `room` to `rooms: {name: room_id}`**, and each room is checked
+  as §8 checks the one room today. `invite_acceptable` accepts an invite only to a room in the
+  bundle's `rooms`.
+- **Sending.** pingbus picks the room from the addressees: the one room every addressee and
+  the sender share, in which the gate allows the pair.
+  - A message whose addressees share no single room is refused (`gate`): "send one message per
+    channel". It is never split, as §3.1 says.
+  - Briefs and questions go to `management`. A `deploy` ping goes to `deployment`.
+
+## 13. Keeping the two layers in sync
+
+### 13.1 One source of truth
+
+The registry, sent as the team record, says each seat's role. The team file's policy says
+what each role may do. Room membership, per-room power levels and the pingbus gate are all
+**derived** from those two. Nothing else is a source:
+
+- not the rooms' membership;
+- not a bundle's `rooms`;
+- not anything a session writes.
+
+`rooms_for(role, policy)` is one pure function. It has a Python home (pingbus and the admin)
+and a Go mirror (ccy-teams), pinned equal by the parity test, like the ladder.
+
+### 13.2 One reconciler
+
+**The admin's sync, `agent-bus` `_sync_team`**, extended to `reconcile_rooms`, is the only code
+that changes room membership. Everything that changes a role or a policy already ends in it:
+
+- `ccy-teams apply`, which runs `play-agent-bus.yml` and `agent-bus-install team`;
+- `agent-bus add-member`, `set-role` and park;
+- the hot-control commands `ccy-teams session add|remove|move|role`, which call `set-role` and
+  `seat` commands;
+- the warden's demotion (§4.5).
+
+It does this:
+
+1. Computes the desired membership of every room from the registry and the policy.
+2. Creates any missing room with its power levels, history visibility and the record.
+3. Invites each account that should be in a room and is not.
+4. Kicks each account that is in a room it should not be in, with a reason naming the
+   change: `role changed: worker → deployer`.
+5. Writes the record and the power levels to every room, only where they differ.
+6. Returns the list of changes.
+
+Order matters. **It removes before it adds**, as the LXC coordinator handover does today
+(Plan 00196): a seat changing from worker to deployer is kicked from `workers` before it is
+invited to `deployment`, so it is never in both. The member's pingbus accepts the new invite
+through `invite_acceptable` once the record (which it re-reads first) names that room for its
+role.
+
+The hot-control commands wait for the reconciler's result and report each move:
+
+```
+✓ role: alpha/4 is now the deployer
+✓ rooms: left workers, joined deployment
+```
+
+### 13.3 Drift is detected and fails loudly
+
+**Drift** is any of:
+
+- an account in a room that `rooms_for` does not allow;
+- an account missing from a room it should be in;
+- power levels or history visibility that differ from the expected;
+- a room whose record differs from the others.
+
+It is caught in four places:
+
+- **The health check** (`agent-bus health`, run by its timer) reconciles in read-only mode and
+  reports each drift line. It fails, with a desktop notification, instead of fixing drift
+  silently. Repair is `ccy-teams apply`, which the notification names.
+- **The ccy-teams board** shows a drifted team in red, with the lines.
+- **Each member's pingbus** checks, on every sync, its own rooms against its role in the
+  record: whether it is in a room its role does not allow, or has been left out of one it
+  should be in. It reports `drift` in `pingbus status` and in the hook context.
+- **The test suite** pins every transition. For each role change, the reconciler's plan against
+  a fake homeserver is exactly the expected kicks and invites, and a read-only reconcile of the
+  result reports no drift.
+
+### 13.4 Disagreement means deny
+
+At delivery, pingbus checks an event against both layers:
+
+1. Is the sender's role, from the record, allowed in this room by `rooms_for`?
+2. Does the gate allow sender role → my role (§3)?
+
+It delivers only when both say yes. When the room says yes (the sender is a member) but the
+record says the sender's role should not be there, that is drift. The event is **dropped with
+the reason `drift`**, never delivered on the strength of whichever layer allows it:
+
+```
+pingbus: alpha: dropped 1 (drift): myrepo.3 posted in the deployment room, but its role, worker, is not allowed there.
+  The room's membership and the team record disagree; nothing was delivered.
+  The owner repairs it with: ccy-teams apply alpha
+```
+
+On send, pingbus refuses to post into a room that its own role is not allowed in, even when the
+server would accept the post (exit 4, `drift`). A room whose record differs from the member's
+other rooms is untrusted (exit 10) until the reconciler makes them equal.
+
+### 13.5 Migration from the single room
+
+1. **Upgrade first** (§9). The bundle's `rooms`, the per-room checks and `drift` ship in
+   pingbus before any second room exists. An older pingbus never sees a second room: it is
+   never invited, because the reconciler invites only members that report the new version.
+2. **Today's room becomes `workers`.** It keeps its room ID, its history and its members. The
+   bundle's `room` reads as `rooms: {workers: <room>}`, so nothing is re-issued for it.
+3. **New rooms appear when the policy enables them**: `management` when the team has a
+   coordinator, `deployment` when the deployer is enabled, a liaison room per collaborator.
+4. **Existing collaborators** (none yet: the role is new) start in their liaison room. A member
+   from the owner's earlier ad-hoc arrangement, an outside repository seated as a worker, is
+   re-roled by the owner, and the reconciler moves it out of `workers`.
+
+### 13.6 What the board and picker show
+
+- **The board.**
+  - Each seat's rooms are shown as letters: `W` workers, `M` management, `D` deployment, `L`
+    liaison.
+  - A drifted seat is red, with the drift line.
+  - A team row shows its rooms and whether the last reconcile was clean.
+- **The picker.**
+  - The role change step previews the room moves ("leaves workers, joins deployment; will not
+    see the workers room's new messages").
+  - The add flow says which rooms the seat will join.
+  - The pane's Communication section (§8) shows each allowance's room effect.
+
+### 13.7 Tests
+
+- **Unit tests** (fake homeserver):
+  - `rooms_for` for every role and allowance, against a table;
+  - the reconciler's plan for every role transition, with removes before adds;
+  - read-only reconcile reporting each drift kind;
+  - delivery dropping with `drift` for each disagreement;
+  - per-room trust (power levels, history visibility, equal records);
+  - `invite_acceptable` refusing a room not in `rooms`;
+  - the brief, question and terminal-note caps;
+  - the terminal-reply source classification (delivery nonce, supervisor record, slash command,
+    human).
+- **Host acceptance** (real Tuwunel), using a worker's token against the deployment room:
+  - `/messages` is refused with `M_FORBIDDEN`;
+  - a self-invite is refused;
+  - a join is refused;
+  - a power-levels write is refused;
+  - a role change moves the seat between rooms within the reconcile, and the old room refuses
+    its next post;
+  - a hand-made extra invite (made with `admin`) is reported as drift by the health check and
+    dropped by every member's pingbus;
+  - the owner sees the management room in Element, with a brief, a question, a reply and a
+    terminal note.

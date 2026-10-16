@@ -56,7 +56,7 @@ Use these Unicode icons in plan documents:
 
 - [00202-ccy-claude-code-mod](00202-ccy-claude-code-mod/) - In Progress. Design a ccy Claude Code mod as the one place ccy extends the Claude Code UX, with its own GUI as the primary surface: a band, a ccy pane (Health, Mounts, Deploy) and a Teams pane (Status, Who, Pending, Homeserver); research and owner decisions, nothing built yet
 
-- [00207-team-roles-and-minimum-models](00207-team-roles-and-minimum-models/) - Not Started (design; owner decisions D1-D19). Explicit team roles (coordinator, worker, reviewer, outside collaborator, deployer) with a minimum model and effort per role, enforced at assignment, launch and run time; hub-and-spoke communication gates with a hard deployer lock; the deployer's pre-deploy gate; per-team policy in the team settings pane
+- [00207-team-roles-and-minimum-models](00207-team-roles-and-minimum-models/) - Not Started (design; owner decisions D1-D25, D19 decided). Explicit team roles (coordinator, worker, reviewer, outside collaborator, deployer) with a minimum model and effort per role, enforced at assignment, launch and run time; hub-and-spoke communication gates with a hard deployer lock, backed by homeserver-enforced channel rooms kept in sync by one reconciler; a coordinator-and-humans management room; the deployer's pre-deploy gate; per-team policy in the team settings pane
 
 - [00190-docker-podman-coexistence-on-host](00190-docker-podman-coexistence-on-host/) - Not Started. The Docker/Podman coexistence concerns left on #41 after Plan 00091
 
