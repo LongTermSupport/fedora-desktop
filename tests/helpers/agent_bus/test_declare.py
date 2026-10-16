@@ -858,6 +858,140 @@ class UndescribedTest(CommandCase):
         self.assertEqual(out.count("UNDESCRIBED"), 3)
 
 
+class SettingsTest(CommandCase):
+    """S-F2: settings prints every key of a present team's entry, one SETTING line each."""
+
+    def test_every_key_in_order_as_json_or_dash(self) -> None:
+        code, out, err = self.run_cmd("settings", "--team", "alpha")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "".join(f"SETTING\t{key}\t{value}\n" for key, value in (
+            ("team", '"alpha"'), ("description", "-"), ("humans", '["owner"]'), ("org", '"example-org"'),
+            ("repos", "-"), ("exclude", "-"), ("path_prefixes", '["CLAUDE/Plan/", "docs/"]'),
+            ("allow_from", "[]"), ("port", "6167"), ("listen", '["192.0.2.10"]'),
+            ("server_name", '"alpha.agent-bus.internal"'), ("forge_api", '"https://api.github.com"'),
+            ("removed_humans", "-"))))
+
+    def test_repos_keep_their_branches_and_a_block_list_reads_as_a_list(self) -> None:
+        rows = dict(line.split("\t")[1:] for line in self.run_cmd("settings", "--team", "beta")[1].splitlines())
+        self.assertEqual(json.loads(rows["repos"]), [{"repo": "example-org/one", "branches": ["main"]}])
+        self.assertEqual(json.loads(rows["humans"]), ["owner", "second"])
+
+    def test_a_vaulted_value_is_marked_and_the_rest_still_shown(self) -> None:
+        rows = dict(line.split("\t")[1:] for line in self.run_cmd("settings", "--team", "vaulted")[1].splitlines())
+        self.assertEqual(rows["humans"], "!vaulted")
+        self.assertEqual(rows["org"], '"example-org"')
+
+    def test_a_team_not_declared_present_is_refused(self) -> None:
+        self.assertEqual(self.run_cmd("settings", "--team", "gamma")[0], 64)
+        self.assertEqual(self.run_cmd("settings", "--team", "nosuch")[0], 64)
+
+
+class SetTest(CommandCase):
+    """S-F3 to S-F6: set changes the editable keys of a present team in one write, judged
+    whole by the team file's rules, every other line as it was."""
+
+    def entry(self, index: int = 0) -> dict:
+        return declare.entry_of(declare.parse(self.path.read_text(encoding="utf-8")).teams[index])
+
+    def backups(self) -> int:
+        return len(list(self.tmp.glob("localhost.yml.backup.*")))
+
+    def test_a_flow_list_is_replaced_in_place(self) -> None:
+        before = self.entry()
+        code, out, err = self.run_cmd("set", "--team", "alpha", "--value", "humans", '["owner", "second"]')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam alpha: humans\n")
+        self.assertEqual(self.path.read_text(), STATUS_HV.replace('    humans: ["owner"]\n',
+                                                                  '    humans: ["owner", "second"]\n', 1))
+        self.assertEqual(self.entry(), dict(before, humans=["owner", "second"]))
+        self.assertEqual(self.backups(), 1)
+
+    def test_several_keys_are_one_write_and_a_new_key_follows_the_team_line(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "description", '"Builds the site"',
+                                    "--value", "exclude", '["secret"]', "--value", "allow_from", '["192.0.2.0/24"]')
+        self.assertEqual(code, 0, err)
+        text = self.path.read_text()
+        self.assertIn('  - team: alpha\n    description: "Builds the site"\n    exclude: ["secret"]\n    port: 6167\n', text)
+        self.assertIn('    allow_from: ["192.0.2.0/24"]\n', text)
+        self.assertEqual(self.backups(), 1)
+        self.assertEqual([t.team for t in declare.parse(text).teams], ["alpha", "beta", "gamma", "delta", "vaulted"])
+
+    def test_a_block_list_is_replaced_whole(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
+        self.assertEqual(code, 0, err)
+        self.assertIn('    allow_from: ["192.0.2.0/24"]\n    humans: ["owner"]\n    repos:\n', self.path.read_text())
+        self.assertEqual(self.entry(1)["humans"], ["owner"])
+
+    def test_an_empty_optional_value_removes_the_key(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "path_prefixes", "[]")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.path.read_text(), STATUS_HV.replace('    path_prefixes: ["CLAUDE/Plan/", "docs/"]\n', "", 1))
+
+    def test_repos_are_given_as_names_and_keep_the_branches_they_had(self) -> None:
+        code, _, err = self.run_cmd("set", "--team", "beta", "--value", "repos", '["example-org/one", "example-org/two"]')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.entry(1)["repos"], [{"repo": "example-org/one", "branches": ["main"]},
+                                                  {"repo": "example-org/two"}])
+
+    def test_check_judges_the_whole_entry_and_writes_nothing(self) -> None:
+        self.assertEqual(self.run_cmd("set", "--team", "alpha", "--check", "--value", "humans", '["second"]')[:2], (0, ""))
+        for argv in ((("org", '""'),),  # no org and no repos
+                     (("humans", "[]"),),
+                     (("description", '" padded"'),),
+                     (("allow_from", '["192.0.2.1"]'),),
+                     (("org", '""'), ("exclude", '["x"]'))):
+            flat = [part for key, value in argv for part in ("--value", key, value)]
+            for check in ((), ("--check",)):
+                with self.subTest(argv=argv, check=check):
+                    code, _, err = self.run_cmd("set", "--team", "alpha", *check, *flat)
+                    self.assertEqual(code, 64, err)
+                    self.assertIn("team file:", err)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+        self.assertEqual(self.backups(), 0)
+
+    def test_unchanged_when_every_value_is_already_that(self) -> None:
+        self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", "humans", '["owner"]')[:2],
+                         (0, "UNCHANGED\talpha\n"))
+        self.assertEqual(self.backups(), 0)
+
+    def test_a_key_that_is_not_editable_or_a_wrong_type_is_a_usage_mistake(self) -> None:
+        for key, value in (("port", "6200"), ("team", '"renamed"'), ("server_name", '"x.internal"'),
+                           ("humans", '"owner"'), ("org", '["a"]'), ("repos", '[{"repo": "a/b"}]'), ("humans", "not json")):
+            with self.subTest(key=key, value=value):
+                self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", key, value)[0], 64)
+        self.assertEqual(self.run_cmd("set", "--team", "gamma", "--value", "humans", '["owner"]')[0], 64)
+        self.assertEqual(self.run_cmd("set", "--team", "alpha", "--value", "humans", '["a"]', "--value", "humans", '["b"]')[0], 64)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+
+    def test_a_comment_the_edit_would_lose_is_refused(self) -> None:
+        text = STATUS_HV.replace('    humans: ["owner"]\n', '    humans: ["owner"]  # the owner\n', 1)
+        self.path.write_text(text, encoding="utf-8")
+        code, _, err = self.run_cmd("set", "--team", "alpha", "--value", "humans", '["second"]')
+        self.assertEqual(code, 78, err)
+        self.assertIn("comment", err)
+        self.assertEqual(self.path.read_text(), text)
+
+    def test_a_removed_person_is_recorded_and_can_never_return(self) -> None:
+        """S-F14: the play deactivates a removed person's account for good, so set records the
+        name in removed_humans, and the team file's rule refuses it in humans from then on."""
+        code, out, err = self.run_cmd("set", "--team", "beta", "--value", "humans", '["owner"]')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "CHANGED\tteam beta: humans, removed_humans\n")
+        self.assertEqual(self.entry(1)["removed_humans"], ["second"])
+        for check in ((), ("--check",)):
+            with self.subTest(check=check):
+                code, _, err = self.run_cmd("set", "--team", "beta", *check, "--value", "humans", '["owner", "second"]')
+                self.assertEqual(code, 64, err)
+                self.assertIn("can never return", err)
+        self.run_cmd("set", "--team", "beta", "--value", "humans", '["third"]')
+        self.assertEqual(self.entry(1)["removed_humans"], ["second", "owner"])
+        self.assertEqual(self.run_cmd("set", "--team", "beta", "--value", "removed_humans", "[]")[0], 64)
+
+    def test_a_vaulted_entry_is_refused(self) -> None:
+        self.assertEqual(self.run_cmd("set", "--team", "vaulted", "--value", "org", '"other-org"')[0], 78)
+        self.assertEqual(self.path.read_text(), STATUS_HV)
+
+
 class ElementTest(CommandCase):
     """Task 4.2: create declares the team's Element profile itself, in
     agent_bus_element_teams, so nobody edits localhost.yml for it."""

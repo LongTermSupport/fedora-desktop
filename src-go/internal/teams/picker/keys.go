@@ -6,6 +6,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/seats"
 )
 
 // act does what key asks of row: the key that was pressed, or "" for Enter, and the row it
@@ -29,18 +30,8 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 		return r.p.Seats.RemoveOrPark(ctx, r.snap, row)
 	case keyElement:
 		return r.p.Login.OpenElement(ctx, r.snap, row.Team)
-	case keyElementAll:
-		// Unlike one team's Ctrl-E, this can name several teams with no profile, so it waits
-		// for Enter before the list is redrawn over what it said.
-		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
-		if err == nil {
-			r.p.Kit.BackToList(ctx)
-		}
-		return res, err
 	case keyPassword:
 		return r.p.Login.PasswordRow(ctx, r.snap, row)
-	case keyUpdate:
-		return r.updateAll(ctx)
 	case keyHelp:
 		r.p.showHelp(ctx)
 		return flow.Done, nil
@@ -50,8 +41,27 @@ func (r *run) do(ctx context.Context, key string, row board.Row) (flow.Result, e
 		return r.p.Seats.ToggleCoordinator(ctx, r.snap, row)
 	case keyLxc:
 		return r.addLxc(ctx, row.Team)
+	}
+	return r.doTeam(ctx, key, row)
+}
+
+// doTeam is one of a team row's actions.
+func (r *run) doTeam(ctx context.Context, key string, row board.Row) (flow.Result, error) {
+	switch key {
+	case keyElementAll:
+		// Unlike one team's Ctrl-E, this can name several teams with no profile, so it waits
+		// for Enter before the list is redrawn over what it said.
+		res, err := r.p.Login.OpenEveryTeam(ctx, r.snap)
+		if err == nil {
+			r.p.Kit.BackToList(ctx)
+		}
+		return res, err
+	case keyUpdate:
+		return r.updateAll(ctx)
 	case keyShutdown:
 		return r.p.Shutdown.Offer(ctx, row.Team)
+	case keySettings:
+		return r.p.Settings.Edit(ctx, row.Team, seats.SnapshotRunning(r.snap))
 	case keyAskDescription, keyAskLimit:
 		return r.askAgainOf(ctx, key, row.Team)
 	}

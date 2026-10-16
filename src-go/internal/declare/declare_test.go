@@ -500,3 +500,57 @@ func TestApplyStatesAreDeclaresWords(t *testing.T) {
 		}
 	}
 }
+
+// SPEC-many-teams.md S-F2: a SETTING line per key; a key the entry does not set has no value.
+func TestSettingsParsesEachKeyAndItsJSONValue(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "settings", "SETTING\tteam\t\"alpha\"\nSETTING\tdescription\t-\nSETTING\thumans\t!vaulted\n"+
+		"SETTING\trepos\t[{\"repo\": \"a/b\", \"branches\": [\"main\"]}]\nSETTING\torg\t!invalid\n")
+	got, err := newClient(f).Settings(context.Background(), "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Setting{
+		{Key: "team", Value: []byte(`"alpha"`)},
+		{Key: "description"},
+		{Key: "humans", State: SettingVaulted},
+		{Key: "repos", Value: []byte(`[{"repo": "a/b", "branches": ["main"]}]`)},
+		{Key: "org", State: SettingInvalid},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+	if line := lastLine(t, f); line != prefix+" settings --file /hv.yml --team alpha" {
+		t.Fatalf("ran %q", line)
+	}
+}
+
+func TestSettingsRefusesAValueThatIsNotJSON(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "settings", "SETTING\thumans\t[owner\n")
+	if _, err := newClient(f).Settings(context.Background(), "alpha"); err == nil {
+		t.Fatal("a value that is not JSON was accepted")
+	}
+}
+
+// S-F3: every change is one --value pair of one set run; CheckSet adds --check.
+func TestSetPassesEveryValueInOneRun(t *testing.T) {
+	f := &execx.Fake{}
+	script(f, "set", "CHANGED\tteam alpha: humans, org\n")
+	c := newClient(f)
+	values := []Value{{Key: "humans", JSON: `["owner","second"]`}, {Key: "org", JSON: `""`}}
+	got, err := c.Set(context.Background(), "alpha", values)
+	if err != nil || !got.Changed || got.Text != "team alpha: humans, org" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	want := prefix + ` set --file /hv.yml --team alpha --value humans ["owner","second"] --value org ""`
+	if line := lastLine(t, f); line != want {
+		t.Fatalf("ran %q", line)
+	}
+	if err := c.CheckSet(context.Background(), "alpha", values); err != nil {
+		t.Fatal(err)
+	}
+	if line := lastLine(t, f); line != want+" --check" {
+		t.Fatalf("ran %q", line)
+	}
+}

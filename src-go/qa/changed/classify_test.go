@@ -779,6 +779,47 @@ func TestAVersionPinsEditRunsTheGate(t *testing.T) {
 	}
 }
 
+// The dependency gates (Plan 00204) run whole for src-go's go.mod, go.sum, allowlist and vendor
+// tree, and for their own wrappers and Go code; govulncheck's pin (the qa module's go.mod) runs
+// go-vuln. The allowlist is covered by go-deps; an ordinary src-go file runs neither.
+func TestADependencyChangeRunsTheDependencyGates(t *testing.T) {
+	for f, want := range map[string][]string{
+		"src-go/go-deps.allowlist":                     {"go-deps"},
+		"src-go/go.mod":                                {"go-deps", "go-vuln", "go"},
+		"src-go/go.sum":                                {"go-deps", "go-vuln", "go"},
+		"src-go/vendor/modules.txt":                    {"go-deps", "go-vuln", "go"},
+		"src-go/vendor/golang.org/x/sys/unix/mkall.sh": {"go-deps", "go-vuln"},
+		"src-go/qa/go.mod":                             {"go-vuln", "go"},
+		"scripts/qa-go-deps.bash":                      {"go-deps", "go-vuln"},
+		"scripts/qa-go-vuln.bash":                      {"go-deps", "go-vuln"},
+		"src-go/qa/godeps/run.go":                      {"go-deps", "go-vuln", "go"},
+		"src-go/qa/cmd/qa-go-vuln/main.go":             {"go-deps", "go-vuln", "go"},
+	} {
+		w := newWorld(t)
+		w.touch(f, "x\n")
+		p := w.classify([]string{f})
+		for _, check := range want {
+			if !p.has(check) {
+				t.Errorf("%s does not run %s: %v", f, check, keys(p))
+			}
+		}
+		if len(p.uncovered) != 0 {
+			t.Errorf("%s is uncovered: %v", f, p.uncovered)
+		}
+	}
+	for _, f := range []string{"src-go/internal/ui/frame/frame.go", "src-go/qa/versionpins/run.go"} {
+		w := newWorld(t)
+		w.touch(f, "x\n")
+		if p := w.classify([]string{f}); p.has("go-deps") || p.has("go-vuln") {
+			t.Errorf("%s must not run the dependency gates: %v", f, keys(p))
+		}
+	}
+	w := newWorld(t)
+	if p := w.classify(nil, "src-go/go.sum"); !p.has("go-deps") {
+		t.Errorf("a deleted go.sum owes the gate: %v", keys(p))
+	}
+}
+
 // Any deleted file owes the docs check: a document may link to it (SPEC-qa-changed B47).
 func TestAnyDeletionOwesTheDocsCheck(t *testing.T) {
 	for _, f := range []string{"scripts/gone.bash", "helpers/gone.py", "playbooks/gone.yml", "scripts/gone.tsv", "files/gone.json"} {
@@ -939,15 +980,15 @@ func TestAChangeToASharedCommandHelperRunsTheGatesBuiltOnIt(t *testing.T) {
 		"src-go/qa/internal/cmdmain/cmdmain.go": {
 			"bash", "python", "js", "ansible-syntax-gate", "patterns", "docs", "ansible-patterns", "nokill-containerwatch",
 			"ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest", "gh-scopes",
-			"deployed-drift", "ready-wait", "stt-rules", "bash-limits",
+			"deployed-drift", "ready-wait", "stt-rules", "bash-limits", "go-deps", "go-vuln",
 		},
 		"src-go/qa/internal/emit/emit.go": {
 			"nokill-containerwatch", "ansible-pause", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
-			"ansible-patterns",
+			"ansible-patterns", "go-deps", "go-vuln",
 		},
 		"src-go/qa/internal/rootargs/rootargs.go": {
 			"nokill-containerwatch", "toolchain", "plan-script-logging", "version-pins", "vmtest-manifest",
-			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs", "ansible-patterns",
+			"python", "js", "ansible-syntax-gate", "patterns", "gh-scopes", "docs", "ansible-patterns", "go-deps", "go-vuln",
 		},
 	}
 	for file, checks := range uses {

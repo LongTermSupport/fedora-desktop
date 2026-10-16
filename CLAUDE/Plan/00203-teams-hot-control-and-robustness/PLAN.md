@@ -158,7 +158,10 @@ Built on `fix/teams-server-robustness`; design and evidence in
   B1 (a membership left under a reused tmux name) is fixed, for cc and for ccy `--no-bus`, with
   the minor points; the re-check said MERGE, with two follow-ups: R1 (a cc session hot-added
   with a `--` in its command line is judged not on the bus) and R2 (an unreadable session
-  record is taken as not on the bus instead of failing).
+  record is taken as not on the bus instead of failing). Both are fixed on `fix/m6-followups`
+  (Go only): a record's launcher words are ccy's up to `--` and all of cc's, `SetTeams`
+  writes the seats before the first `--` (which also fixes M3's ccy restore of a command line
+  with `--`), and an unreadable record stops `session list`, `add` and the cc listing, naming it.
 
 - [ ] 🔄 **Task 3.5**: the container name race the M2 host run found, built on
   `fix/ccy-name-race`. Two ccy launches started together chose the same lowest free name and

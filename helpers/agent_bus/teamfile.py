@@ -36,13 +36,17 @@ LOOPBACK_LISTEN = "127.0.0.1"
 PORT_MIN = 1024
 PORT_MAX = 65535
 LISTEN_MAX = 16
+REMOVED_HUMANS_MAX = 256
 ALLOW_FROM_MAX = 32
 
 REQUIRED_KEYS = frozenset({"team", "port", "listen", "allow_from", "humans", "forge_api"})
 #: `org` and `repos` are each optional, but a team names at least one of them (spec §11).
 #: `path_prefixes` narrows the paths a trusted reference may name; absent, any path.
 #: `exclude` names repositories of the `org` the team never trusts (spec §11).
-OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "exclude", "repos", "path_prefixes", "description"})
+#: `removed_humans` names the people taken off the team: their accounts are deactivated for good,
+#: so none of them may be in `humans` again (Plan 00201 S-F14).
+OPTIONAL_KEYS = frozenset({"state", "server_name", "org", "exclude", "repos", "path_prefixes", "description",
+                           "removed_humans"})
 REPO_ENTRY_KEYS = frozenset({"repo", "branches"})
 
 _DNS_LABEL_RE = re.compile(DNS_LABEL_PATTERN)
@@ -79,6 +83,8 @@ class TeamFile:
     exclude: tuple[str, ...] = ()
     #: What the team is for (Plan 00201); None when the entry sets none.
     description: str | None = None
+    #: The people taken off the team, never to return (Plan 00201 S-F14); () when none.
+    removed_humans: tuple[str, ...] = ()
 
     def listen_addresses(self) -> tuple[str, ...]:
         """Every address the homeserver binds: loopback always, then `listen`."""
@@ -89,6 +95,7 @@ class TeamFile:
         exclude = {"exclude": list(self.exclude)} if self.exclude else {}
         prefixes = {"path_prefixes": list(self.path_prefixes)} if self.path_prefixes else {}
         description = {} if self.description is None else {"description": self.description}
+        removed = {"removed_humans": list(self.removed_humans)} if self.removed_humans else {}
         return {
             **org,
             **description,
@@ -102,6 +109,7 @@ class TeamFile:
             "humans": list(self.humans),
             "repos": [r.as_dict() for r in self.repos],
             **prefixes,
+            **removed,
             "forge_api": self.forge_api,
         }
 
@@ -195,6 +203,23 @@ def _humans(data: Mapping) -> tuple[str, ...]:
                 "humans",
                 f"{value!r} must match {protocol.HUMAN_LOCALPART_PATTERN} and not be reserved",
             )
+    return tuple(values)
+
+
+def _removed_humans(data: Mapping, humans: tuple[str, ...]) -> tuple[str, ...]:
+    """The people taken off the team. Bootstrap deactivated each one's account, and a
+    deactivated account can never return, so none of them may be listed in `humans` again:
+    the one rule the play and `declare set` share (admin.py refuses the account itself)."""
+    if "removed_humans" not in data:
+        return ()
+    values = _string_list(data, "removed_humans", 1, REMOVED_HUMANS_MAX)
+    for value in values:
+        if not protocol.is_human_localpart(value):
+            raise _fail("removed_humans", f"{value!r} must match {protocol.HUMAN_LOCALPART_PATTERN} and not be reserved")
+    back = [name for name in humans if name in values]
+    if back:
+        raise _fail("humans", f"{back[0]!r} was removed from the team earlier (removed_humans): its account is "
+                              "deactivated, and a removed name can never return; choose another name")
     return tuple(values)
 
 
@@ -311,6 +336,7 @@ def parse_team_file(data: object) -> TeamFile:
         raise _fail(missing[0], "required key missing")
     team = _team(data["team"])
     org, repos = _org(data), _repos(data)
+    humans = _humans(data)
     if org is None and not repos:
         raise _fail("org", "required: the GitHub owner whose repositories the team trusts (or list repos)")
     return TeamFile(
@@ -320,13 +346,14 @@ def parse_team_file(data: object) -> TeamFile:
         port=_port(data["port"]),
         listen=_listen(data),
         allow_from=_allow_from(data),
-        humans=_humans(data),
+        humans=humans,
         org=org,
         repos=repos,
         path_prefixes=_path_prefixes(data),
         forge_api=_forge_api(data["forge_api"]),
         exclude=_exclude(data, org, repos),
         description=_description(data),
+        removed_humans=_removed_humans(data, humans),
     )
 
 

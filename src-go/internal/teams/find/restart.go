@@ -72,7 +72,7 @@ func (f *Find) recordTeams(session string) (string, bool, term.ExitCode) {
 		f.Host.ReportErr(err)
 		return "", false, term.ExitFailure
 	}
-	return discover.TeamsList(rec.Args), true, term.ExitOK
+	return discover.RecordTeams(rec), true, term.ExitOK
 }
 
 // ReplaceTeams is args with every launcher --teams (before a bare "--") removed and, unless teams

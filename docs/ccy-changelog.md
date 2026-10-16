@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.5 — container 2.77.4
+
+- **A team's settings from ccy-teams** (Plan 00201 Task 2.15). Enter on a team row, then Edit
+  settings, opens one screen of the team's fields. You edit them, then save and apply them in
+  one step. A person removed from a team is recorded in its entry (`removed_humans`), and the
+  team file refuses that name ever again, because the account is deactivated for good. The
+  image changes only because `helpers/agent_bus/` (declare.py's new `settings` and `set`, the
+  team file's new key) is part of the agent_bus copy it carries. The Coordinator field follows
+  the two coordinator paths below: a plain offer on a team with none, a takeover on one that
+  has one.
+
 ## 3.99.12.4 — container 2.77.3
 
 Follows 3.99.12.3 (container 2.77.2).
