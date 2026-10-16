@@ -41,7 +41,7 @@ func TestPickerEscLeavesWithTheHouseStyleArgvAndTaggedRows(t *testing.T) {
 		!slices.Contains(args, "--border-label= Agent teams ") || !slices.Contains(args, "--with-nth=1") {
 		t.Fatalf("args %q", args)
 	}
-	if len(h.Script.Rows[0]) != 8+1 || h.Script.Rows[0][8] != "Exit" {
+	if len(h.Script.Rows[0]) != 8+2 || h.Script.Rows[0][8] != sessionsRow+"\t"+tagSessions || h.Script.Rows[0][9] != "Exit" {
 		t.Fatalf("rows %q", h.Script.Rows[0])
 	}
 	if !strings.HasPrefix(h.Script.Rows[0][0], "alpha ") || !strings.HasSuffix(h.Script.Rows[0][0], "\t0") {
@@ -59,7 +59,7 @@ func TestPickerHeaderNamesTheCheckoutTopNotTheSubdirectory(t *testing.T) {
 	}
 	header := h.HeaderOf(0)
 	for _, want := range []string{
-		"↑↓ choose   Enter lists what can be done to the row   Tab running sessions   ? help   Esc or q quit\n",
+		"↑↓ choose   Enter lists what can be done to the row   Tab running sessions (the last row)   ? help   Esc or q quit\n",
 		"This row: Ctrl-E open alpha in Element   open every team in Element via Enter   Ctrl-N start a session in alpha   add an LXC container to alpha via Enter   Ctrl-U update out-of-date teams   shut down alpha's sessions via Enter   Ctrl-X take alpha down   ? help\n",
 		"Ctrl-N starts a new ccy session in the row's team, in " + h.Checkout() + "\n",
 		"session restore on this machine is off (ccy_restore_sessions)\n",

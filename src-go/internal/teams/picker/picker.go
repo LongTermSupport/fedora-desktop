@@ -146,7 +146,7 @@ type frame struct {
 // footer is empty for the Exit row.
 func (f frame) header(footer string) string {
 	return ui.Header(
-		"Enter lists what can be done to the row   Tab running sessions   ? help   Esc or q quit",
+		"Enter lists what can be done to the row   Tab running sessions (the last row)   ? help   Esc or q quit",
 		footer, f.newLine, f.restoreLine, f.heading,
 	)
 }
@@ -183,13 +183,14 @@ func (p *Picker) pickerFrame(ctx context.Context) (frame, error) {
 	}, nil
 }
 
-// rowHeaders is the header of each row, with that row's actions in words.
+// rowHeaders is the header of each row, with that row's actions in words, and last the
+// Running sessions row's.
 func (r *run) rowHeaders() []string {
-	headers := make([]string, len(r.snap.Rows))
-	for i, row := range r.snap.Rows {
-		headers[i] = r.frame.header(r.footerFor(row))
+	headers := make([]string, 0, len(r.snap.Rows)+1)
+	for _, row := range r.snap.Rows {
+		headers = append(headers, r.frame.header(r.footerFor(row)))
 	}
-	return headers
+	return append(headers, r.frame.header("This row: Enter or Tab shows the running sessions, and what can be done to each"))
 }
 
 // loop shows the list, does what a key asks, and shows the list again, until a flow leaves.
@@ -237,7 +238,7 @@ func (r *run) once(ctx context.Context, first bool) error {
 	if err != nil {
 		return err
 	}
-	if picked.Key == keyTab {
+	if picked.Key == keyTab || picked.Tag == tagSessions {
 		r.view = viewSessions
 		return nil
 	}
@@ -268,26 +269,29 @@ func (r *run) count(res flow.Result) error {
 	return flow.Leave(term.ExitFailure)
 }
 
-// shownRows is the rows as fzf shows them: in colour where colour is on.
+// shownRows is the rows as fzf shows them, in colour where colour is on, then the Running
+// sessions row.
 func (r *run) shownRows() []string {
 	colour := r.p.Kit.Term.ColourOn(r.p.Stdout)
-	rows := make([]string, len(r.snap.Rows))
-	for i, row := range r.snap.Rows {
-		rows[i] = row.Text()
+	rows := make([]string, 0, len(r.snap.Rows)+1)
+	for _, row := range r.snap.Rows {
 		if colour {
-			rows[i] = row.Painted()
+			rows = append(rows, row.Painted())
+		} else {
+			rows = append(rows, row.Text())
 		}
 	}
-	return rows
+	return append(rows, sessionsRow)
 }
 
-// tags number the rows, so two rows that read the same are still two rows to choose from.
+// tags number the rows, so two rows that read the same are still two rows to choose from; the
+// Running sessions row is tagged by name.
 func (r *run) tags() []string {
-	tags := make([]string, len(r.snap.Rows))
-	for i := range tags {
-		tags[i] = strconv.Itoa(i)
+	tags := make([]string, 0, len(r.snap.Rows)+1)
+	for i := range r.snap.Rows {
+		tags = append(tags, strconv.Itoa(i))
 	}
-	return tags
+	return append(tags, tagSessions)
 }
 
 // collectWithSudo is a pass over the machine; when the members can only be read as root it asks

@@ -13,18 +13,20 @@ func TestActRoutesKeyAndKindToTheFlowThatOwnsThem(t *testing.T) {
 		key, member, want string
 	}{
 		{"ctrl-n", "owner", "is not a project folder"},
-		{"ctrl-r", "proj.box+role.lxc", "this row has no session"},
-		{"ctrl-x", "owner", "A team's people are"},
 		{"ctrl-e", board.NoDescription, "has no Element profile"},
-		{"ctrl-p", "1", "A new Element password is for one of the team's people"},
 		{"ctrl-p", "guest", "Sets a new password for guest"},
+		// A key acts only on a row whose menu and footer show it (CLAUDE/InteractiveScripts.md).
+		{"ctrl-r", "proj.box+role.lxc", nothingOnThisRow},
+		{"ctrl-x", "owner", nothingOnThisRow},
+		{"ctrl-p", "1", nothingOnThisRow},
+		{"ctrl-u", "dev", nothingOnThisRow},
 		{"", "owner", "What to do with owner in alpha"},
 		{"?", "owner", "Each team is a bold row"},
 		{"", board.NoDescription, "What to do with team alpha"},
 		{"", "dev", "What to do with dev in alpha"},
 		{keyAttach, "dev", "has no running session to attach"},
 		{"", "proj.box+role.lxc", "What to do with proj.box+role.lxc in alpha"},
-		{"ctrl-z", "1", "That key does nothing here"},
+		{"ctrl-z", "1", nothingOnThisRow},
 	}
 	for _, c := range cases {
 		h := newRig(t)
@@ -37,6 +39,9 @@ func TestActRoutesKeyAndKindToTheFlowThatOwnsThem(t *testing.T) {
 		seen := h.ErrOut.String() + strings.Join(h.headerLines(), "\n")
 		if !strings.Contains(seen, c.want) {
 			t.Fatalf("%q on %s: want %q in %q", c.key, c.member, c.want, seen)
+		}
+		if c.want == nothingOnThisRow && h.plays() != 0 {
+			t.Fatalf("%q on %s ran the apply play", c.key, c.member)
 		}
 	}
 }

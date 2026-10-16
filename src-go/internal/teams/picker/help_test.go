@@ -14,7 +14,7 @@ func TestHelpIsTheVerbatimTextOnStderrThenWaits(t *testing.T) {
 		t.Fatalf("start %q", got[:min(len(got), 160)])
 	}
 	for _, want := range []string{
-		"  Ctrl-U   update every team out of date or not built (never takes one down)\n",
+		"  Ctrl-U   on a team row: update every team out of date or not built (never takes one\n",
 		"  decide: absent      declared absent but still running; decide: undeclared, running but\n",
 		"Colours: green is working, yellow wants a look, red is not working.\n",
 		"\"need sudo\": reading the members needs root; play-agent-bus.yml installs a rule that\nlets ccy-teams read them without a password.\n",

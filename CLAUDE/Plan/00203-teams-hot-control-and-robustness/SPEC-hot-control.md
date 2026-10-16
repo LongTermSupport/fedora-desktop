@@ -647,7 +647,8 @@ Two things are **not** frozen:
 
 ### 5.1 The picker: a Running sessions view
 
-`ccy-teams`, then Tab, switches the list between Teams and Running sessions.
+`ccy-teams`, then the teams list's last row, "Running sessions" (or Tab, printed beside it),
+shows Running sessions. Every action is a named choice (InteractiveScripts.md rule 14).
 
 - The view lists the sessions ccy-sessions knows (started in ccy's tmux), and cc sessions
   started with `--teams` or `--bus`.
@@ -655,7 +656,7 @@ Two things are **not** frozen:
   footer says so once, in words.
 
 ```
- ccy-teams — Running sessions                                     Tab: Teams   ?: keys
+ ccy-teams — Running sessions          Enter: what can be done   ?: help   Esc: back to teams
  SESSION              CHECKOUT        TEAMS (seat, role)                         STATE
  ccy-<project-a>-1    <repo-a>        alpha (2, coordinator) · beta (1, worker)  ok
  ccy-<project-a>-2    <repo-a>        -                                          ok
@@ -664,16 +665,18 @@ Two things are **not** frozen:
  ccy-<project-c>-1    <repo-c>        cannot be hot-controlled: relaunch         old or --no-bus
  ccy-<project-d>-1    <repo-d>        alpha (3, worker)                          unguarded: Repair
  Only sessions started through ccy's tmux (the ones ccy-sessions lists) can be changed here.
- > Enter: menu   Ctrl-A add to team   Ctrl-X remove from team   Ctrl-O role   Esc: back
+ What this list shows   (?)
+ Back to the teams
 ```
 
 ### 5.2 The session menu, then the add flow
 
 ```
  ccy-<project-a>-2 — what to do
-   Add to a team...                 Ctrl-A
-   Attach                           Enter
-   Repair the seat keeper           (only when unguarded)
+   Add to a team
+   Attach
+   Repair (its seat keeper has stopped)      (only when unguarded)
+   Back to the list
  ─────────────────────────────────────────
  Add ccy-<project-a>-2 to which team?
    alpha   "<description>"   up    12 agents
@@ -753,15 +756,31 @@ M5 as built (sections 5.1 to 5.3), with the small gaps of the spec settled:
   argv a person would type, never `--yes`. So the command asks its own confirmation and prints
   its own steps, and takes the same locks (H20) and rollback. `session list` and the view read
   one `hot.Sessions` and lay it out with one `hot.SessionLines`.
-- **The view.** Tab on the teams switches to Running sessions, and Tab again switches back. Esc
-  there goes back to the teams; it does not quit. Tab acts on no row, so it is named in the
-  header's key line, not in a row's menu. The view lists the sessions `session list` does. cc
-  sessions carry no `ccy-session` label, so they join the view with M6.
-- **The session menu** offers add, then (when the session is on a team) remove, move and role,
-  then attach, then Repair, but only when the session is unguarded. A session that cannot be
-  changed (old, `--no-bus`, unreadable membership) offers attach only, and its shortcuts are
-  refused with its state and "relaunch it from ccy's tmux". Attach uses the session's tmux,
-  with a seat attach's checks, and ends the picker.
+- **Visible choices, no magic keys** (InteractiveScripts.md rule 14). Every action is a named
+  line in a list. The only shortcuts are the ones printed beside their choice.
+- **The view.** The teams list ends with a row, "Running sessions: change a session's teams
+  while it runs (Tab)". Choosing it, or pressing Tab (printed beside the row and in the
+  header), shows Running sessions. That list ends with "What this list shows (?)" (the help)
+  and "Back to the teams". Esc, or that row, goes back to the teams and does not quit. The
+  view's only key is `?`. The view lists the sessions `session list` does. cc sessions carry
+  no `ccy-session` label, so they join the view with M6.
+- **The session menu.** Enter on a session lists what can be done to it, in words, and in
+  this order:
+  1. "Add to a team".
+  2. For each of its teams, "Remove from <team>".
+  3. For each of its teams, "Change role in <team> (now <role>)".
+  4. "Move to another team". With several teams this is "Move from <team> to another team",
+     once per team.
+  5. "Attach".
+  6. "Repair (its seat keeper has stopped)", only when the session is unguarded.
+     The team is named in the line, so no flow asks which team it means. A session that cannot
+     be changed (old, `--no-bus`, unreadable membership) offers Attach only. Its menu's header
+     says it cannot be changed while it runs, and to relaunch it from ccy's tmux. Attach uses
+     the session's tmux, with a seat attach's checks, and ends the picker.
+- **The teams view's shortcuts** (Ctrl-N, -P, -E, -U, -R, -X, ?) are each a line of the
+  row's menu, printed beside it there and in the row's footer. A key does nothing on a row
+  whose menu does not offer it, so Ctrl-U (printed only on team rows) updates nothing from a
+  seat.
 - **Add (5.2).**
   - The team question lists every team. One the session is already in, one not installed, or
     one whose homeserver is down is refused with the reason, and the question is asked again,
@@ -778,9 +797,8 @@ M5 as built (sections 5.1 to 5.3), with the small gaps of the spec settled:
   the picker asks: "The role goes to no one", the default, or "Hand it to <handle>" for each
   active member. The answer becomes `--coordinator=demote|hand-to=<handle>`. With the roster
   unread (sudo refused, homeserver down), nothing is passed, and the command asks its own
-  question. A move asks for the team it leaves (when there are several) and the team it
-  joins, from the same refusing team list, but not for a seat: the new team's lowest free
-  seat is taken.
+  question. A move asks for the team it joins, from the same refusing team list, but not for
+  a seat: the new team's lowest free seat is taken.
 - **No host acceptance script for M5.** No tool can observe the picker without a person at it,
   and the view's data path, `session list`, is still checked by M4's acceptance (e). The
   owner's steps are ACCEPTANCE.md M5.

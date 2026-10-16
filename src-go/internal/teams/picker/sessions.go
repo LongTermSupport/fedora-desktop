@@ -25,22 +25,26 @@ type SessionControl interface {
 	Run(ctx context.Context, args []string) term.ExitCode
 }
 
-// The Running sessions view's keys, beside Ctrl-X (remove from a team) and ? (help), which mean
-// there what they mean on the teams.
+// keyTab is the shortcut for the teams list's Running sessions row, shown beside it.
+const keyTab = "tab"
+
+// The rows of the lists that are choices, not teams or sessions, by their hidden tags.
 const (
-	keyTab     = "tab"
-	keyAddTeam = "ctrl-a"
-	keyRole    = "ctrl-o"
-	// keyMove, keyRepair and keyAttachSession are menu lines with no shortcut.
-	keyMove          = "move"
-	keyRepair        = "repair"
-	keyAttachSession = "attach-session"
+	tagSessions = "sessions"
+	tagHelp     = "help"
 )
 
-// sessionKeys are the keys besides Enter that choose a session.
-var sessionKeys = []string{keyTab, keyAddTeam, keyRemove, keyRole, keyHelp}
+// The lines of those rows, each with its shortcut beside it.
+const (
+	sessionsRow     = "Running sessions: change a session's teams while it runs   (Tab)"
+	sessionsHelpRow = "What this list shows   (?)"
+)
 
-// view is which list the picker shows: the teams, or the running sessions (Tab switches).
+// sessionKeys are the keys besides Enter that choose a row of the Running sessions: only ?, the
+// shortcut of the help row.
+var sessionKeys = []string{keyHelp}
+
+// view is which list the picker shows: the teams, or the running sessions.
 type view int
 
 const (
@@ -49,7 +53,7 @@ const (
 )
 
 const (
-	sessionsKeyLine = "Enter menu   Ctrl-A add to a team   Ctrl-X remove from a team   Ctrl-O role   Tab teams   ? help   Esc back"
+	sessionsKeyLine = "Enter lists what can be done to the session   ? help   Esc back to the teams"
 	questionKeyLine = "Enter choose   Esc or q back to the list"
 	roleWorker      = agentbus.RoleWorker
 	roleCoordinator = agentbus.RoleCoordinator
@@ -72,13 +76,13 @@ func (r *run) sessionsPass(ctx context.Context) error {
 		}
 		return r.count(res)
 	}
-	tags := make([]string, len(lines))
-	for i := range tags {
-		tags[i] = strconv.Itoa(i)
+	tags := make([]string, 0, len(lines)+1)
+	for i := range lines {
+		tags = append(tags, strconv.Itoa(i))
 	}
 	picked, err := p.Kit.Choose(ctx, ui.PickSpec{
 		Title: "Running sessions", Header: ui.Header(sessionsKeyLine, hot.OnlyTmuxLine, heading),
-		Keys: sessionKeys, Rows: lines, Tags: tags, ExitLabel: "Back to the teams",
+		Keys: sessionKeys, Rows: append(lines, sessionsHelpRow), Tags: append(tags, tagHelp), ExitLabel: "Back to the teams",
 	})
 	if errors.Is(err, ui.ErrLeave) {
 		r.view = viewTeams
@@ -87,11 +91,7 @@ func (r *run) sessionsPass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	switch picked.Key {
-	case keyTab:
-		r.view = viewTeams
-		return nil
-	case keyHelp:
+	if picked.Key == keyHelp || picked.Tag == tagHelp {
 		p.showHelp(ctx)
 		return nil
 	}
@@ -101,73 +101,64 @@ func (r *run) sessionsPass(ctx context.Context) error {
 		p.Kit.BackToList(ctx)
 		return nil
 	}
-	res, err := r.sessionAct(ctx, picked.Key, sessions[i])
+	res, err := r.sessionMenu(ctx, sessions[i])
 	if err != nil {
 		return err
 	}
 	return r.count(res)
 }
 
-// sessionAct does what key asks of session s: "" is Enter, its menu.
-func (r *run) sessionAct(ctx context.Context, key string, s hot.Session) (flow.Result, error) {
-	switch key {
-	case "":
-		return r.sessionMenu(ctx, s)
-	case keyAttachSession:
-		return r.p.Seats.AttachSession(ctx, r.snap, s.Name)
-	}
-	if !s.Controllable {
-		return r.p.Kit.Refuse(ctx, s.Name+" cannot be changed while it runs ("+s.State+"). Relaunch it from ccy's tmux to change it.")
-	}
-	if key != keyAddTeam && key != keyRepair && len(s.Teams) == 0 {
-		return r.p.Kit.Refuse(ctx, s.Name+" is on no team. Ctrl-A adds it to one.")
-	}
-	switch key {
-	case keyAddTeam:
-		return r.addToTeam(ctx, s)
-	case keyRemove:
-		return r.removeFromTeam(ctx, s)
-	case keyRole:
-		return r.roleInTeam(ctx, s)
-	case keyMove:
-		return r.moveTeams(ctx, s)
-	case keyRepair:
-		return r.session(ctx, []string{"repair", s.Name})
-	}
-	return r.p.Kit.Note(ctx, "That key does nothing here. Enter lists what can be done to a session. ? shows every key.")
+// sessionChoice is one line of a session's menu: what it says, and what choosing it does.
+type sessionChoice struct {
+	line string
+	do   func(context.Context) (flow.Result, error)
 }
 
-// sessionActions is what can be done to s, as its menu lists it.
-func sessionActions(s hot.Session) []action {
-	var acts []action
+// sessionChoices is everything that can be done to s, in words, each naming the team it acts
+// on; nothing is reached by a key alone.
+func (r *run) sessionChoices(s hot.Session) []sessionChoice {
+	var cs []sessionChoice
 	if s.Controllable {
-		acts = append(acts, action{keyAddTeam, "Add to a team...", "add to a team"})
-		if len(s.Teams) > 0 {
-			acts = append(acts,
-				action{keyRemove, "Remove from a team...", "remove from a team"},
-				action{keyMove, "Move to another team...", "move to another team"},
-				action{keyRole, "Change its role in a team...", "change a role"})
+		cs = append(cs, sessionChoice{"Add to a team", func(ctx context.Context) (flow.Result, error) { return r.addToTeam(ctx, s) }})
+		for _, c := range s.Teams {
+			cs = append(cs, sessionChoice{"Remove from " + c.Team, func(ctx context.Context) (flow.Result, error) { return r.removeFromTeam(ctx, s, c) }})
+		}
+		for _, c := range s.Teams {
+			cs = append(cs, sessionChoice{"Change role in " + c.Team + " (now " + c.Role + ")", func(ctx context.Context) (flow.Result, error) { return r.roleInTeam(ctx, s, c) }})
+		}
+		for _, c := range s.Teams {
+			line := "Move to another team"
+			if len(s.Teams) > 1 {
+				line = "Move from " + c.Team + " to another team"
+			}
+			cs = append(cs, sessionChoice{line, func(ctx context.Context) (flow.Result, error) { return r.moveTeams(ctx, s, c) }})
 		}
 	}
-	acts = append(acts, action{keyAttachSession, "Attach this terminal to it", "attach it"})
+	cs = append(cs, sessionChoice{"Attach", func(ctx context.Context) (flow.Result, error) { return r.p.Seats.AttachSession(ctx, r.snap, s.Name) }})
 	if s.Unguarded {
-		acts = append(acts, action{keyRepair, "Repair the seat keeper (it has stopped)", "repair its seat keeper"})
+		cs = append(cs, sessionChoice{"Repair (its seat keeper has stopped)", func(ctx context.Context) (flow.Result, error) {
+			return r.session(ctx, []string{"repair", s.Name})
+		}})
 	}
-	return acts
+	return cs
 }
 
 // sessionMenu is Enter on a session: what can be done to it, in words. Leaving does nothing.
 func (r *run) sessionMenu(ctx context.Context, s hot.Session) (flow.Result, error) {
-	acts := sessionActions(s)
-	opts := make([]option, len(acts))
-	for i, a := range acts {
-		opts[i] = option{line: a.line(), value: a.key}
+	cs := r.sessionChoices(s)
+	opts := make([]option, len(cs))
+	for i, c := range cs {
+		opts[i] = option{line: c.line}
 	}
-	o, res, ok, err := r.ask(ctx, s.Name, s.Name+" — what to do ("+s.State+"):", opts)
+	question := s.Name + ": what to do (" + s.State + ")"
+	if !s.Controllable {
+		question += "\n" + s.Name + " cannot be changed while it runs. Relaunch it from ccy's tmux to change it."
+	}
+	o, res, ok, err := r.ask(ctx, s.Name, question, opts)
 	if !ok {
 		return res, err
 	}
-	return r.sessionAct(ctx, o.value, s)
+	return cs[o.at].do(ctx)
 }
 
 // option is one answer to a question: its line, the value it gives, whether it names a seat
@@ -328,30 +319,10 @@ func roleOptions(team, current, holder string, held bool) []option {
 	return []option{worker, coordinator}
 }
 
-// askTeamOf is one of s's teams: the only one, or the one chosen.
-func (r *run) askTeamOf(ctx context.Context, s hot.Session, title, question string) (hot.Cell, flow.Result, bool, error) {
-	if len(s.Teams) == 1 {
-		return s.Teams[0], flow.Done, true, nil
-	}
-	opts := make([]option, len(s.Teams))
-	for i, c := range s.Teams {
-		opts[i] = option{line: c.Team + " (seat " + c.Seat + ", " + c.Role + ")", value: c.Team}
-	}
-	o, res, ok, err := r.ask(ctx, title, question, opts)
-	if !ok {
-		return hot.Cell{}, res, false, err
-	}
-	return s.Teams[o.at], flow.Done, true, nil
-}
-
-// removeFromTeam is section 5.3: the team, what becomes of a coordinator's role, then
-// `session remove`.
-func (r *run) removeFromTeam(ctx context.Context, s hot.Session) (flow.Result, error) {
-	title := "Remove " + s.Name + " from a team"
-	cell, res, ok, err := r.askTeamOf(ctx, s, title, "Remove "+s.Name+" from which team?")
-	if !ok {
-		return res, err
-	}
+// removeFromTeam is section 5.3: what becomes of a coordinator's role, then `session remove`
+// for the team the menu line named.
+func (r *run) removeFromTeam(ctx context.Context, s hot.Session, cell hot.Cell) (flow.Result, error) {
+	title := "Remove " + s.Name + " from " + cell.Team
 	coordinator, res, ok, err := r.askCoordinator(ctx, s, cell, title)
 	if !ok {
 		return res, err
@@ -359,13 +330,9 @@ func (r *run) removeFromTeam(ctx context.Context, s hot.Session) (flow.Result, e
 	return r.session(ctx, append([]string{"remove", s.Name, cell.Team}, coordinator...))
 }
 
-// moveTeams is `session move`: the team it leaves, the team it joins, and a coordinator's role.
-func (r *run) moveTeams(ctx context.Context, s hot.Session) (flow.Result, error) {
+// moveTeams is `session move` out of the team from: the team it joins, and a coordinator's role.
+func (r *run) moveTeams(ctx context.Context, s hot.Session, from hot.Cell) (flow.Result, error) {
 	title := "Move " + s.Name + " to another team"
-	from, res, ok, err := r.askTeamOf(ctx, s, title, "Move "+s.Name+" out of which team?")
-	if !ok {
-		return res, err
-	}
 	to, res, ok, err := r.ask(ctx, title, "Move "+s.Name+" from "+from.Team+" to which team?", r.teamOptions(s, from.Team))
 	if !ok {
 		return res, err
@@ -398,13 +365,9 @@ func (r *run) askCoordinator(ctx context.Context, s hot.Session, cell hot.Cell, 
 	return []string{"--coordinator=" + o.value}, flow.Done, true, nil
 }
 
-// roleInTeam is `session role`: the team and the role.
-func (r *run) roleInTeam(ctx context.Context, s hot.Session) (flow.Result, error) {
-	title := "Change the role of " + s.Name
-	cell, res, ok, err := r.askTeamOf(ctx, s, title, "Change "+s.Name+"'s role in which team?")
-	if !ok {
-		return res, err
-	}
+// roleInTeam is `session role` in the team the menu line named: the role.
+func (r *run) roleInTeam(ctx context.Context, s hot.Session, cell hot.Cell) (flow.Result, error) {
+	title := "Change the role of " + s.Name + " in " + cell.Team
 	holder, held := r.snap.Members[cell.Team].Coordinator()
 	held = held && holder.Handle != r.seatHandle(s.Checkout, cell)
 	role, res, ok, err := r.ask(ctx, title, "Role of seat "+cell.Seat+" in "+cell.Team+":", roleOptions(cell.Team, cell.Role, holder.Handle, held))

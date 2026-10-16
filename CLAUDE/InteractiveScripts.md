@@ -96,6 +96,15 @@ the former, fail fast on the latter.
     `[ -t 2 ]` (or `[ -t 1 ]`). Output piped to a file or another program must be
     plain text, never raw terminal escape codes.
 
+14. **TUI must be UX controls, not magic keys. Keys are OK, but they MUST NOT BE THE ONLY
+    CONTROL SURFACE.** Every action is a visible, named choice in a menu or list, reached
+    with the arrows and Enter. A key is only an accelerator for such a choice: each
+    shortcut is printed on screen beside the action it chooses (in the choice's text
+    or the header), and does nothing where that action is not offered. An action
+    reachable only by a key is a defect. Arrows, Enter, Esc/q and a visible "Back" or
+    "Exit" row are navigation, not actions. This binds every full-screen or list tool,
+    the Go ones in `src-go/` (`ccy-teams`, `ccy-sessions`, the freeze tools) included.
+
 ## Canonical patterns
 
 Reuse these shapes verbatim so every script behaves identically.
