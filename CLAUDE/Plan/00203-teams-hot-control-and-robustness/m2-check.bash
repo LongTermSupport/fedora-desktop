@@ -27,6 +27,8 @@ readonly LAUNCHER=/var/local/claude-yolo/claude-yolo
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #: The inbound probe, relative to the checkout, which a ccy container sees at /workspace.
 readonly PROBE_REL="CLAUDE/Plan/${HERE#*/CLAUDE/Plan/}/m2_inbound.py"
+#: The bus-process probe, likewise.
+readonly PROCS_REL="CLAUDE/Plan/${HERE#*/CLAUDE/Plan/}/m2_procs.py"
 
 fail() {
     printf '[FAIL] %s\n' "$*" >&2
@@ -97,7 +99,7 @@ write_fails() {
 }
 
 cmd_plain() {
-    local ctr="${1:?plain needs the container}" json settings out rc=0 procs keepers
+    local ctr="${1:?plain needs the container}" json settings out rc=0
     json="$(podman exec "${ctr}" cat "${MOUNT}/membership.json")"
     [[ "$(jq -r '.v, (.seats | length)' <<<"${json}" | paste -sd' ')" == "1 0" ]] \
         || fail "the plain session's membership is not version 1 with no seat: ${json}"
@@ -127,12 +129,11 @@ cmd_plain() {
     out="$(podman exec -e PINGBUS_HOME="${HOME_IN}" -e PATH=/nonexistent "${ctr}" /bin/sh -c "${hook}" </dev/null 2>&1)" || rc=$?
     [[ "${rc}" -eq 0 && -z "${out}" ]] || fail "(c) a prompt's hook in the plain session did not end in the shell (exit ${rc}): ${out}"
     ok "(c) a prompt's hook ends in the shell: no python3, no pingbus, an empty answer"
-    procs="$(podman exec "${ctr}" ps -eo args)"
-    keepers="$(awk '/[p]ingbus/ { n++ } END { print n + 0 }' <<<"${procs}")"
-    if [[ "${keepers}" -gt 1 ]] || { [[ "${keepers}" -eq 1 ]] && ! grep -q '[p]ingbus seat keep' <<<"${procs}"; }; then
-        fail "(c) the plain session runs bus processes other than one keeper: $(grep '[p]ingbus' <<<"${procs}")"
-    fi
-    ok "(c) ${keepers} pingbus process in the plain session (the keeper, once M1 ships; none before)"
+    # A bus process is its program, never a word in its argv: claude's own names the plugin
+    # directory .../plugin/pingbus (m2_procs.py).
+    out="$(podman exec "${ctr}" python3 -I "/workspace/${PROCS_REL}" at-most-keeper /proc)" \
+        || fail "(c) the plain session runs bus processes other than one keeper (above)"
+    ok "(c) the plain session's only bus process is the keeper: ${out:-none}"
 }
 
 cmd_nobus() {
@@ -142,9 +143,11 @@ cmd_nobus() {
     if grep -qxF "${MOUNT}" <<<"${mounts}"; then fail "(e) the --no-bus session has the membership mount"; fi
     if podman exec "${ctr}" test -e /usr/local/bin/pingbus; then fail "(e) the --no-bus session has pingbus on PATH"; fi
     procs="$(podman exec "${ctr}" ps -eo args)"
-    if grep -qE -- '--plugin-dir|--settings|[p]ingbus' <<<"${procs}"; then
-        fail "(e) the --no-bus session loads the plugin or settings, or runs pingbus: $(grep -E -- '--plugin-dir|--settings|[p]ingbus' <<<"${procs}")"
+    if grep -qE -- '--plugin-dir|--settings' <<<"${procs}"; then
+        fail "(e) the --no-bus session loads the plugin or settings: $(grep -E -- '--plugin-dir|--settings' <<<"${procs}")"
     fi
+    podman exec "${ctr}" python3 -I "/workspace/${PROCS_REL}" none /proc >/dev/null \
+        || fail "(e) the --no-bus session runs a bus process (above)"
     ok "(e) --no-bus: PINGBUS_MEMBERSHIP=off, no mount, no pingbus, no plugin, no settings, no keeper"
 }
 
