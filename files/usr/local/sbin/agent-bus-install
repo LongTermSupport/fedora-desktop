@@ -845,10 +845,11 @@ cmd_team() {
 
 # unstamp <team> — the team no longer runs what a stamp says was applied (taken down, or
 # restored from a backup whose team.json may differ), so ccy-teams shows it to apply again.
+# Its health record (Plan 00203) goes too: the health check writes a new one within a minute.
 unstamp() {
-    if [[ -e $APPLIED_ROOT/$1.json ]]; then
-        rm -f -- "$APPLIED_ROOT/$1.json"
-        changed "removed the $1 applied stamp"
+    if [[ -e $APPLIED_ROOT/$1.json || -e $APPLIED_ROOT/health/$1.json ]]; then
+        rm -f -- "$APPLIED_ROOT/$1.json" "$APPLIED_ROOT/health/$1.json"
+        changed "removed the $1 applied stamp and health record"
     fi
 }
 

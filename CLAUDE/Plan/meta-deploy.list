@@ -19,3 +19,18 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00203 server robustness: each team's homeserver gets readiness and a 30 s watchdog, is
+# restarted after any exit but a deliberate stop, and gets a minutely health check (client API
+# probe, restart count, backup age). Every homeserver is backed up, then restarted once, to take
+# the new unit; a running team session's watcher still drops that team on a restart (the
+# watcher fix is a separate branch). Also: seat check waits for a starting homeserver,
+# `agent-bus health status`, and a supervised unit for any LXC member entry with service: true.
+playbooks/imports/play-agent-bus.yml
+# Plan 00203: rebuilds ccy-teams, whose board shows each team's health problems (a stale or
+# failed backup, restarts, a health check that stopped) on the team's row.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00203 acceptance (ACCEPTANCE.md R1-R9), on a throwaway team acc-robust that it removes:
+# kills, ends and freezes its homeserver and times its return, shows a stale backup on the
+# board, times seat check waiting for a starting homeserver, checks any LXC member unit.
+00203-teams-hot-control-and-robustness

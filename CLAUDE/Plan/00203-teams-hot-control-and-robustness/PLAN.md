@@ -46,6 +46,21 @@ session-side part of the team system recover by itself.
 - [ ] 🔄 **Task 1.2**: Hot control design and spec (`SPEC-hot-control.md`).
 - [ ] ⬜ **Task 1.3**: Milestones for the build, from 1.1 and 1.2, each one shippable.
 
+### Phase 2: server-side robustness (audit gaps 3, 4, 9, 10)
+
+Built on `fix/teams-server-robustness`; design and evidence in
+`subagent-reports/261016-server-robustness-opus.md`, host proof in [ACCEPTANCE.md](ACCEPTANCE.md)
+(`acceptance.bash`, R1-R9; B1-B2 after a reboot).
+
+- [ ] 🔄 **Task 2.1** (gap 4): homeserver readiness, watchdog and restart on every exit; a
+  minutely health check that restarts one whose client API stops answering.
+- [ ] 🔄 **Task 2.2** (gap 3): `agent-bus seat check`/`take` wait, bounded, for a starting
+  homeserver.
+- [ ] 🔄 **Task 2.3** (gap 10): stale or failed backups and restarts on the board and in
+  `agent-bus health status`; the sign-in limits said where a password is issued.
+- [ ] 🔄 **Task 2.4** (gap 9): `service: true` LXC members run as a unit in their container.
+- [ ] ⬜ **Task 2.5**: host acceptance passed (meta-deploy), and B1-B2 after a reboot.
+
 ## Success Criteria
 
 - [ ] The owner adds, removes, moves and re-roles a running ccy session from `ccy-teams`, and the

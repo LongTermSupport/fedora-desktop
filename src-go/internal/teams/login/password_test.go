@@ -153,6 +153,20 @@ func TestPasswordLoginOfATeamWithNoAddressSaysSo(t *testing.T) {
 	}
 }
 
+// Plan 00203 gap 10: signing in on several devices after a new password can reach the
+// per-account limit, which only Element would show and nothing can read; the person is told
+// first what it looks like and that it clears by itself.
+func TestPasswordLoginSaysWhatTheSignInLimitLooksLike(t *testing.T) {
+	h := newRig(t)
+	snap := h.pass(t)
+	h.l.showLogin(snap, "alpha", "owner", "pw")
+	for _, want := range []string{"Too many login attempts for this account", "clears by itself", "agent-bus health status"} {
+		if !strings.Contains(h.ErrOut.String(), want) {
+			t.Fatalf("stderr %q lacks %q", h.ErrOut.String(), want)
+		}
+	}
+}
+
 func TestPasswordIsBoldOnAColourTerminal(t *testing.T) {
 	h := newRig(t)
 	delete(h.Env, "NO_COLOR")

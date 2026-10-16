@@ -937,7 +937,11 @@ check "the team's secret survived every refusal" "yes" \
 cp "$SCRATCH/good.tar" "$TAR"
 
 echo "== remove"
+mkdir -p "$ROOT/var/lib/agent-bus-applied/health"
+touch "$ROOT/var/lib/agent-bus-applied/health/alpha.json"
 run remove --team alpha
+check "the team's health record is removed with its stamp (Plan 00203)" "no" \
+    "$(exists "$ROOT/var/lib/agent-bus-applied/health/alpha.json")"
 check "remove succeeds" "0" "$RC"
 check "the homeserver and both timers are disabled and stopped" "yes" \
     "$(says '^systemctl disable --now agent-bus-hs@alpha.service agent-bus-backup@alpha.timer agent-bus-hs-health@alpha.timer$' "$(LOG)")"
