@@ -379,8 +379,9 @@ echo "=== the secret scan's scope ==="
 # Vendored Go modules are third-party files exactly as go mod vendor writes them (Plan 00204):
 # their authors' contact addresses are not ours to rewrite. The scan list comes from
 # scripts/git-hooks/lib/staged-scan-list.bash, which skips src-go/vendor only
-# when qa-go-deps passes over the STAGED tree (vendor/ byte for byte what go.mod and go.sum
-# describe); the same address anywhere else is still rejected. The repository here has the real
+# when qa-go-deps passes over the STAGED tree (vendor/ byte for byte what the module's
+# requirements and checksums describe; the file names are not spelled here, because qa-changed
+# picks a suite whose text names a changed file's basename); the same address anywhere else is still rejected. The repository here has the real
 # layout (scripts/git-hooks) and a stand-in qa-go-deps.bash that logs the vendored file it was
 # shown under --root and exits as told. The address is assembled from two halves so this file's
 # own commit is not rejected.
