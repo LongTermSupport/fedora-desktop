@@ -14,6 +14,10 @@
 # `set -e` is deliberately NOT used: every case must run so the summary reports the full
 # picture, and each result is checked explicitly.
 set -uo pipefail
+# Run inside a ccy session, the suite would inherit that session's agent-bus membership and
+# lifecycle settings: PINGBUS_MEMBERSHIP alone puts the plugin on the "no option" wrapper line.
+# Each case sets what it tests (helpers/qa_environment/session_env.py has the list and why).
+unset "${!PINGBUS_@}" "${!AGENT_BUS_@}" "${!CCY_LIFECYCLE_@}" CCY_SESSION_NAME
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
