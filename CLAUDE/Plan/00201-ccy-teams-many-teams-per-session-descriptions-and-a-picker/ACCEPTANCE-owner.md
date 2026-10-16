@@ -49,7 +49,7 @@ Do these in order, once. Each step names what you should see.
    coordinator**, then Yes.
 6. **Check the session.** The launch prints "This session is on 1 team:" (or "on N teams:"),
    one line per seat with its role and the team's description. The status line ends
-   `bus: <team>` (several teams: `bus: <team>,<team>`); a red `bus: no record ...` is a
+   `👥 <team>` (several teams: `👥 <team>,<team>`); a red `👥 no record ...` is a
    fault (below). Next time in that checkout, plain `ccy` shows the seats on the **Team:**
    line under **Quick Launch Available**, and Enter takes them again.
 7. **Talk to an agent.** In the team's Element window type `@`, **pick the agent from the
@@ -66,7 +66,7 @@ If something is off:
 
 - No avatar under your message: you did not pick the agent from the `@` list, or its session is
   not running (`ccy-teams` shows the seat as held when it is), or it was not relaunched.
-- Status line `bus: no record ...` in red, or the agent says a delivery is "missing" or
+- Status line `👥 no record ...` in red, or the agent says a delivery is "missing" or
   "stalled": type `! pingbus status` in that session and send the output.
 - "is built on this host but its homeserver is not running": `ccy-teams apply <team>`. "there
   is no team ...": the message lists the teams here; check the name.
@@ -93,8 +93,8 @@ team covers, whose own status line is a hooks daemon's.
     a homeserver), and that both timestamps are unchanged afterwards.
 04. Each team asks for its seat; an existing seat then asks its role (choose **Keep as is**).
     The launch block reads "This session is on 2 teams:", with each seat and description.
-05. In the session, the status line ends with `bus: A,B`, after the checkout's own status line.
-    A red `bus: no record ...` fails this step. Type `! pingbus status`: two `TEAM` lines, and
+05. In the session, the status line shows `👥 A,B` on its own row, below the checkout's own status line.
+    A red `👥 no record ...` fails this step. Type `! pingbus status`: two `TEAM` lines, and
     an `ABOUT` line for each team that has a description.
 06. Ask the other agent on A to ping this session, then the one on B. The session is woken once
     for each, and its reply to each, inferred from `--re`, appears in the right team's room in
@@ -105,7 +105,7 @@ team covers, whose own status line is a hooks daemon's.
     consent question again, rename `~/.config/pingbus/element-accepted` first. The question
     names both handles: answer No once (nothing is started or recorded, and a checkout that had
     no `.claude/ccy/` still has none), then run it again and answer Yes.
-09. The cc session shows the launch block, and its status line ends with `bus: A,B`. While it
+09. The cc session shows the launch block, and its status line shows `👥 A,B` on its own row. While it
     runs, `ls /tmp/pingbus-sessions-$(id -u)/` (or `$PINGBUS_SESSIONS_DIR` when set) shows one
     file for it; after you end it, that file is gone. A file still there means SessionEnd did
     not remove it: this step fails.

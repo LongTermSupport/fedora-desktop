@@ -77,8 +77,8 @@ and that is check (a).
 ### What to look at yourself
 
 Start a plain `ccy` in ccy's tmux and look at it. Its status line is the checkout's own (the
-hooks daemon's, here), with no `bus:` segment, and a prompt is answered as in any session. A
-`ccy --no-bus` session looks the same. A `ccy --teams 1@<team>` session shows `bus: <team>`.
+hooks daemon's, here), with no `👥` segment, and a prompt is answered as in any session. A
+`ccy --no-bus` session looks the same. A `ccy --teams 1@<team>` session shows `👥 <team>`.
 
 ### What is not in M2
 
@@ -125,7 +125,7 @@ model's prose.
 | Step | What passes                                                                                                                                                                                                                      |
 | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | (a)  | `ccy-teams session add <session> acc-m3b --yes` exits 0, every step `✓` or `-`, and no relaunch (the session was launched on a team).                                                                                            |
-| (b)  | The transcript has the `kind: MEMBERSHIP` notice, "you joined team acc-m3b"; the status line says `bus: acc-m3a,acc-m3b`.                                                                                                        |
+| (b)  | The transcript has the `kind: MEMBERSHIP` notice, "you joined team acc-m3b"; the status line says `👥 acc-m3a,acc-m3b`.                                                                                                        |
 | (c)  | A message from the human in `acc-m3b` reaches the conversation as a `kind: HUMAN` delivery.                                                                                                                                      |
 | (d)  | `session remove <session> acc-m3b --yes` exits 0 with `✓ re-baseline`; the transcript says "you left team acc-m3b"; the room has the goodbye; the seat is `free`; `pingbus --team acc-m3b say` exits 64, "removed by the owner". |
 | (e)  | A message posted while the seat is out is not delivered when it is added again (H23a).                                                                                                                                           |
@@ -135,7 +135,7 @@ model's prose.
 
 | Step | What to do                                                                                                                                                                                        | What passes                                                                                                                                                                                                                      |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (g)  | In ccy's tmux, in a checkout of a team on this machine, start a plain `ccy` and leave it idle. From another terminal: `ccy-teams session add <session> <team> --yes`. Then post to it in Element. | The add prints its own line, "relaunched once to accept team messages (it started on no team)", and exits 0. The session resumes the same conversation, says it joined, shows `bus: <team>`, and the Element message reaches it. |
+| (g)  | In ccy's tmux, in a checkout of a team on this machine, start a plain `ccy` and leave it idle. From another terminal: `ccy-teams session add <session> <team> --yes`. Then post to it in Element. | The add prints its own line, "relaunched once to accept team messages (it started on no team)", and exits 0. The session resumes the same conversation, says it joined, shows `👥 <team>`, and the Element message reaches it. |
 
 A headless acceptance session runs without the supervisor, so it cannot exercise the relaunch:
 that is why (g) is yours. After the relaunch the session is told its teams by the session-start

@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.12.8 — container 2.77.6
+
+Follows 3.99.12.4 (container 2.77.3).
+
+- **The agent-bus status line wraps instead of being cut.** `pingbus status-line` appended
+  `| bus: A,B` to the last row of the session's own status line. The hooks daemon's status line
+  already wraps its rows to the terminal's width, so that row was often full and Claude Code
+  cut it with an ellipsis (`bus: de…`). The teams now go on rows of their own below it, wrapped
+  after a comma at `COLUMNS`, and are never cut; with no `COLUMNS` they are one unbroken row.
+- **`bus:` is now 👥**, the team counterpart of the hooks daemon's 👤 account segment:
+  `👥 alpha,beta`, `👥 <team>(down)`, and `👥 no record ...` in red.
+
 ## 3.99.12.5 — container 2.77.4
 
 - **A team's settings from ccy-teams** (Plan 00201 Task 2.15). Enter on a team row, then Edit
