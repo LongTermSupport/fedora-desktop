@@ -101,6 +101,21 @@ Built on `fix/teams-server-robustness`; design and evidence in
   (H15, H16). CCY 3.99.8, container 2.73, lifecycle plugin 1.1.0. Host acceptance:
   [ACCEPTANCE.md](ACCEPTANCE.md) M3, `_acceptance-m3.inc.bash`. Notes:
   [subagent-reports/261016-m3-opus.md](subagent-reports/261016-m3-opus.md).
+- [ ] 🔄 **Task 3.3** (M4): the full non-interactive surface, built on `feat/hot-control-m4`;
+  Fable's review said FIX-FIRST
+  ([subagent-reports/261016-m4-review-fable.md](subagent-reports/261016-m4-review-fable.md)).
+  B1, B2, N1, N3, N5 and the acceptance points are fixed; N2 and N4 are open for the owner
+  (Decisions 5 and 6). Host acceptance is still to come. `ccy-teams session role`, `move`, `list` and
+  `repair`, the coordinator options of remove and move (`--coordinator=demote|hand-to=<seat>`),
+  `add --role`, `remove --park` (H23-H25, H10); one change at a time per session and one seat
+  allocation at a time per checkout, `agent-bus seat take` and `seat choose` honouring both
+  (H20, H21, with Fable's N4: a stopped session's restorable record names its seats); the
+  roster limit (H27), the session ending mid-change (H28), `ccy-teams remove <team>` taking its
+  sessions off first (H29); the in-session `bus: <team>(down)` status (H26). With F44's third
+  acceptance fixes merged and Fable's fixes: CCY 3.99.10.1, container 2.75.1. Host acceptance:
+  [ACCEPTANCE.md](ACCEPTANCE.md) M4, `_acceptance-m4.inc.bash`. As built, and what is not:
+  SPEC-hot-control.md H21. Notes:
+  [subagent-reports/261016-m4-opus.md](subagent-reports/261016-m4-opus.md).
 
 ## Decisions
 
@@ -123,6 +138,33 @@ may reverse any of them.** Full detail: SPEC-hot-control.md section 8.
    is the new `cc --bus`.
 4. `PINGBUS_SEATS` and the `ccy-seats` label are retired in M2, together with the explicit
    `PINGBUS_MEMBERSHIP` marker.
+
+### Open: for the owner (from Fable's M4 review)
+
+These are not settled. Each runs on the interim default below until the owner decides.
+
+5. **N2: a coordinator removed while its homeserver is down.** Interim default: it keeps the
+   role. The remove releases the seat, and the goodbye and status stay owed (H26). The role is
+   not checked and is not owed, so the team record names a coordinator whose seat is free.
+   The re-run that sends the goodbye does not return to the role. The alternatives:
+
+   - the role is owed too: a `role` on the farewell entry, demoted on the re-run (what H19
+     would expect);
+   - such a remove is refused without `--coordinator=demote`, which then stays owed.
+
+6. **N4: "live" means different things in ccy-teams and agent-bus.** Interim default: they
+   stay different.
+
+   - ccy-teams counts a session on ccy's tmux server, and honours a stopped session's
+     restorable record.
+   - `agent-bus seat take` and `seat choose` count a running `ccy-session` container, and read
+     no records.
+
+   So the launcher's chooser can offer a seat that a stopped restorable session will replay.
+   A `ccy --teams` launched while another session is in its age-restart or first-join
+   relaunch (tmux alive, container down) can take that session's seat; the returning keeper
+   is then refused `held-elsewhere`. The alternative: agent-bus applies ccy-teams' two tests,
+   excluding by name the session being launched.
 
 ## Success Criteria
 

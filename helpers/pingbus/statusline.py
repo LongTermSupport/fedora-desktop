@@ -35,6 +35,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Mapping
 
 COMMAND = "pingbus status-line"
@@ -58,6 +59,11 @@ DESIRED_FILE = "membership.json"
 APPLIED_FILE = "applied.json"
 MAX_MEMBERSHIP_BYTES = 65536
 NO_MEMBERSHIP = "bus: this session's membership is unreadable (pingbus status)"
+#: Plan 00203 H26: `PINGBUS_HOME/down/<team>` is there while the watcher retries a team whose
+#: homeserver does not answer; each retry refreshes it (its backoff caps at 30 s), so a mark a
+#: killed watcher left stops counting after DOWN_FRESH_S.
+DOWN_DIR = "down"
+DOWN_FRESH_S = 300.0
 CANCEL_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 Runner = Callable[[str, bytes, Mapping[str, str], "pathlib.Path | None"], tuple[str, int]]
@@ -227,16 +233,47 @@ def membership_teams(environ: Mapping[str, str]) -> list[str] | None:
     return [team for team, seat in desired if (team, seat) in set(held)]
 
 
+def set_team_down(home: pathlib.Path, team: str, down: bool) -> None:
+    """The watcher's H26 mark for `team`: created or refreshed when `down`, removed otherwise.
+    The directory is made mode 0700 and the mark 0600, never followed through a symlink."""
+    path = pathlib.Path(home) / DOWN_DIR / team
+    if not down:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        os.utime(fd)
+    finally:
+        os.close(fd)
+
+
+def _is_down(environ: Mapping[str, str], team: str) -> bool:
+    home = environ.get("PINGBUS_HOME", "")
+    if not home.startswith("/"):
+        return False
+    try:
+        found = os.lstat(pathlib.Path(home) / DOWN_DIR / team)
+    except OSError:
+        return False
+    return stat.S_ISREG(found.st_mode) and time.time() - found.st_mtime < DOWN_FRESH_S
+
+
+def _teams_text(environ: Mapping[str, str], teams: list[str]) -> str:
+    shown = (f"{team}(down)" if _is_down(environ, team) else team for team in teams)
+    return f"{CYAN}bus: {','.join(shown)}{RESET}"
+
+
 def _segment(environ: Mapping[str, str], payload: dict) -> str:
     marker = environ.get(MEMBERSHIP_VAR)
     if marker is not None and marker != MEMBERSHIP_OFF and marker.startswith("/"):
         found = membership_teams(environ)
         if found is None:
             return f"{RED}{NO_MEMBERSHIP}{RESET}"
-        return f"{CYAN}bus: {','.join(found)}{RESET}" if found else ""
+        return _teams_text(environ, found) if found else ""
     teams = session_teams(environ, _session_id(payload))
     if teams is not None:
-        return f"{CYAN}bus: {','.join(teams)}{RESET}"
+        return _teams_text(environ, teams)
     if environ.get("PINGBUS_TEAMS"):
         return f"{RED}{NO_RECORD}{RESET}"
     return ""

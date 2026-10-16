@@ -224,8 +224,12 @@ func TestUsageTextNamesTheLauncherSubcommandsAndTheCoordinator(t *testing.T) {
 	wants := []string{
 		"choose-seat", "describe-seats", "coordinator", "ccy-teams shutdown <team> [--yes]",
 		"ccy-teams internal membership-init <session> <checkout> <seats>",
-		"ccy-teams internal restart-args <session>", "ccy-teams session add <session> <team>[/<seat>] [--yes]",
-		"ccy-teams session remove <session> <team> [--yes]",
+		"ccy-teams internal restart-args <session>", "ccy-teams session list",
+		"ccy-teams session add <session> <team>[/<seat>] [--role=worker|coordinator] [--demote-current] [--yes]",
+		"ccy-teams session remove <session> <team> [--coordinator=demote|hand-to=<seat>] [--park] [--yes]",
+		"ccy-teams session move <session> <from-team> <to-team>[/<seat>]",
+		"ccy-teams session role <session> <team> worker|coordinator [--demote-current] [--yes]",
+		"ccy-teams session repair <session> [--yes]",
 		"Only sessions started through ccy's tmux (listed by ccy-sessions), and cc sessions started with",
 	}
 	for _, want := range wants {

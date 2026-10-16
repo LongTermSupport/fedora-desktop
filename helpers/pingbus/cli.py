@@ -1501,21 +1501,36 @@ def _describe(exc: Exception) -> str:
     return type(exc).__name__
 
 
+def _mark_down(home: pathlib.Path | None, team: str, down: bool, err: TextIO) -> None:
+    """Set or clear the status line's H26 mark. It only decorates the status line, so a mark
+    that cannot be written is said on the watcher's stderr and the team stays watched."""
+    if home is None:
+        return
+    try:
+        statusline.set_team_down(home, team, down)
+    except OSError as exc:
+        err.write(f"{PROG}: team {team}: the status line's down mark was not "
+                  f"{'written' if down else 'removed'}: {_describe(exc)}\n")
+
+
 def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, err: TextIO,
-                stop: threading.Event | None = None) -> None:
+                stop: threading.Event | None = None, home: pathlib.Path | None = None) -> None:
     """One team's watcher thread: a first sync, then long-poll until stopped, waking the
     main thread on every batch that stored an item, and keeping the `listening` status
     fresh. A transient fault, from the very first sync on, is retried with a backoff from
     the stored sync token, said once when it starts and once when it ends (E25); only a
     permanent one is handed to the main thread. `stop` ends this team alone (the owner
     removed it, Plan 00203 H11), after the long poll in flight. It owns `lock` and releases
-    it when it ends."""
+    it when it ends. While its homeserver does not answer, the team is marked down in `home`
+    for the status line, the mark refreshed on each retry and removed once it syncs again or
+    the thread ends (Plan 00203 H26)."""
     team = seat.member.team
     stop = stop or waiting.stop
     backoff = _Backoff(rt.outage_retry_s, rt.outage_retry_max_s)
     status_ms: int | None = None
     timeout_ms = 0
     outage: str | None = None
+    marked = False
     try:
         while not waiting.stop.is_set() and not stop.is_set():
             try:
@@ -1533,11 +1548,17 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
                     err.write(f"{PROG}: team {team}: the team syncs again\n")
                     outage = None
                     backoff.reset()
+                if marked:
+                    _mark_down(home, team, False, err)
+                    marked = False
                 if batch.accepted:
                     waiting.woke.set()
             except Exception as exc:
                 if _permanent(exc):
                     raise
+                if isinstance(exc, matrix.MatrixError):
+                    _mark_down(home, team, True, err)
+                    marked = True
                 if outage is None:
                     outage = _describe(exc)
                     what = ("the homeserver does not answer" if isinstance(exc, matrix.MatrixError)
@@ -1549,6 +1570,8 @@ def _watch_poll(seat: _Seat, lock: inbox.Lock, rt: Runtime, waiting: _Waiting, e
         waiting.failures.append((team, exc))
         waiting.woke.set()
     finally:
+        if marked:
+            _mark_down(home, team, False, err)
         lock.release()
 
 
@@ -1934,6 +1957,7 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
     handed_over: set[str] = set()
     stops: dict[str, _TeamStop] = {}
     following = _Following(environ, err, rt)
+    down_home = config.resolve_home(environ)
 
     def start_team(member: config.Member) -> _Seat | None:
         """Hold one team's lock as a watcher and start its thread; None, said, when busy."""
@@ -1946,7 +1970,8 @@ def _watch(members: Sequence[config.Member], path: str, token: str, relaying: bo
             return None
         held.append((seat, lock))
         stops[member.team] = _TeamStop()
-        thread = threading.Thread(target=_watch_poll, args=(seat, lock, rt, waiting, err, stops[member.team]),
+        thread = threading.Thread(target=_watch_poll,
+                                  args=(seat, lock, rt, waiting, err, stops[member.team], down_home),
                                   daemon=True, name=f"pingbus-watch-{member.team}")
         rt.threads.append(thread)
         handed_over.add(member.team)

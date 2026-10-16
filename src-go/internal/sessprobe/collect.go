@@ -20,6 +20,7 @@ const (
 	unknownWord       = "unknown"
 	podmanEngine      = "podman"
 	formatFlag        = "--format"
+	filterFlag        = "--filter"
 )
 
 // Paner lists the panes of the tmux server (tmuxccy.Tmux does).
@@ -141,7 +142,7 @@ func ProcessTable(ctx context.Context, r execx.Runner) (string, error) {
 // enginePS is what one engine lists of its running CCY containers. Every CCY container carries
 // `--label ccy=true`, so this asks about those and nothing else on the host.
 func enginePS(ctx context.Context, r execx.Runner, engine, format string) (string, error) {
-	return execx.Combined(ctx, r, execx.Cmd{Name: engine, Args: []string{"ps", "--filter", "label=ccy=true", formatFlag, format}})
+	return execx.Combined(ctx, r, execx.Cmd{Name: engine, Args: []string{"ps", filterFlag, "label=ccy=true", formatFlag, format}})
 }
 
 // RunningContainerNames is the names of the running CCY containers of each engine. The engines
@@ -167,7 +168,7 @@ func RunningContainerNames(ctx context.Context, r execx.Runner, engines []string
 // "<id>\t<state>" line each, running or not, for a caller that finds a session's container
 // by its ccy-session label.
 func LabelledContainers(ctx context.Context, r execx.Runner, label string) (string, error) {
-	res, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: []string{"ps", "--filter", "label=" + label, formatFlag, "{{.ID}}\t{{.State}}"}})
+	res, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: []string{"ps", filterFlag, "label=" + label, formatFlag, "{{.ID}}\t{{.State}}"}})
 	return string(res.Stdout), err
 }
 
@@ -175,6 +176,29 @@ func LabelledContainers(ctx context.Context, r execx.Runner, label string) (stri
 // session's container to a homeserver).
 func ExecIn(ctx context.Context, r execx.Runner, container string, argv ...string) error {
 	_, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: append([]string{"exec", container}, argv...)})
+	return err
+}
+
+// LabelledSessions is podman's list of the containers carrying a ccy-session label, one
+// "<id>\t<state>\t<session>" line each, running or not.
+func LabelledSessions(ctx context.Context, r execx.Runner) (string, error) {
+	res, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: []string{
+		"ps", filterFlag, "label=ccy-session", formatFlag, "{{.ID}}\t{{.State}}\t{{index .Labels \"ccy-session\"}}",
+	}})
+	return string(res.Stdout), err
+}
+
+// ContainerProcesses is the command line of every process in a running podman container, as
+// `podman top <container> args` prints it (a COMMAND heading, then one line each).
+func ContainerProcesses(ctx context.Context, r execx.Runner, container string) (string, error) {
+	res, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: []string{"top", container, "args"}})
+	return string(res.Stdout), err
+}
+
+// ExecDetached starts argv inside a running podman container and does not wait for it (a
+// session's seat keeper started again by Repair).
+func ExecDetached(ctx context.Context, r execx.Runner, container string, argv ...string) error {
+	_, err := r.Run(ctx, execx.Cmd{Name: podmanEngine, Args: append([]string{"exec", "-d", container}, argv...)})
 	return err
 }
 

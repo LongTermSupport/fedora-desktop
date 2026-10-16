@@ -19,22 +19,46 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
-# Plan 00203 acceptance fixes (host run 3): rebuilds ccy 3.99.8.1 and the ccy image (container
-# 2.73.1; the first launch after it rebuilds the image once). A ccy session launched on no team
-# is now started with crossSessionInbound: refuse: Claude Code binds its inbox socket in every
-# session, and with no setting a bypass-mode session held a message on it for review instead of
-# dropping it. Seated sessions are unchanged. Running sessions keep their old settings until they
-# are relaunched.
+
+# Plan 00203 M3 and M4, with the third acceptance fixes: rebuilds ccy 3.99.10.1, ccy-teams and the
+# ccy image (container 2.75.1; the first launch after it rebuilds the image once).
+# `ccy-teams session add` and `remove` change a running ccy session's teams without a restart (a
+# session started on no team relaunches once, by itself, on its first join); M4 adds `session
+# role`, `move`, `list` and `repair`, the coordinator options, one change at a time per session
+# and one seat allocation at a time per checkout (both locks under $XDG_RUNTIME_DIR/ccy, out of
+# every container's reach). A session launched on no team is started with
+# crossSessionInbound: refuse, so a message on Claude Code's own inbox socket is dropped instead
+# of held for review. Running sessions are unaffected until they are relaunched: relaunch every
+# team session after.
 playbooks/imports/play-claude-yolo.yml
-# The same pingbus source for cc --teams and LXC members on the host. Nothing changes for them
-# (they never write the plain-session settings); this keeps the host's pingbus the checkout's.
-# No unit or firewall changes; homeservers are not restarted.
+# Plan 00203 M3 and M4, the agent team bus kit's pingbus and agent-bus for cc --teams and LXC
+# members on the host: the watcher follows a session's teams as the owner changes them, the
+# membership notice and its hook fallback, `seat farewell`, `seat retire` waiting for the sync
+# lock; and (M4) `agent-bus seat take` and `seat choose` refusing a seat a running session's
+# desired membership names, under the checkout's allocation lock; the status line marks a team
+# whose homeserver is down, as `<team>(down)`. No unit or firewall changes; homeservers are not
+# restarted.
 playbooks/imports/play-agent-bus.yml
-# Plan 00203 acceptance, every milestone in turn, as last time: M2's two throwaway headless
-# sessions (plain and --no-bus), whose check (b) now proves inbound by what the plain session's
-# claude was started with (its --settings say refuse, and no managed settings outrank them), and
-# only reports Claude Code's own inbox socket; then M1, M3 on throwaway teams acc-m3a and
-# acc-m3b, and R1-R9 on a throwaway team acc-robust. Everything it starts is removed after.
+# Plan 00203 acceptance, every milestone in turn. M2: two throwaway headless ccy sessions in
+# ccy's tmux in this checkout (plain and --no-bus, idle, no turn sent), removed after; checks
+# the read-only mount, its relabel by labels (Z asked, container_file_t at the container's own
+# level; on a Permissive host it says enforcement was not exercised), the inert kit, inbound
+# proved by what the plain session's claude was started with (its --settings say refuse, and no
+# managed settings outrank them; Claude Code's own inbox socket is only reported), idle CPU, the
+# image version and --no-bus. Needs ccy launched interactively here once (Quick Launch). M1: the
+# helper tests, then a third throwaway plain session: the seat keeper is its only pingbus process
+# and only lock holder. M3: two throwaway teams acc-m3a and acc-m3b and a throwaway headless
+# session on acc-m3a: hot add of acc-m3b, the notice, a human message, hot remove with its
+# goodbye, no backlog on re-add, an idempotent re-run; all removed after (the first-join
+# relaunch of an interactive session is the owner's step M3 (g) in ACCEPTANCE.md). M4: two
+# throwaway teams acc-m4a and acc-m4b and two throwaway headless sessions: re-role, move handing
+# the coordinator role on, two changes at once (75), a stopped homeserver (it stops and starts
+# acc-m4b's; the session's status line says acc-m4b(down)), a killed seat keeper repaired, a session killed mid-add; all removed after. Then
+# the server robustness checks (ACCEPTANCE.md R1-R9), on a throwaway team acc-robust it removes:
+# kills, ends and freezes its homeserver and times its return, shows a stale backup on the
+# board, times seat check waiting for a starting homeserver, checks any LXC member unit; its
+# teardown also clears acc-robust's units from systemctl --failed and its backup timer's
+# last-run time.
 00203-teams-hot-control-and-robustness
 # Plan 00201 M7 acceptance again: two throwaway teams, ccy --teams on both, then all removed.
 # M3 now runs the status line the session's claude was started with, in claude's own

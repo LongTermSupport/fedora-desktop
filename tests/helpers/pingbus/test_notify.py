@@ -33,7 +33,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
-from helpers.pingbus import cli, inbox, inject, matrix, membership, notify, protocol, syncer
+from helpers.pingbus import cli, inbox, inject, matrix, membership, notify, protocol, statusline, syncer
 from tests.helpers.pingbus import test_cli as bus
 
 SESSION_TOKEN = "session-token-0123456789abcdef"
@@ -730,6 +730,29 @@ class WatchOutageTest(WatchCase):
         code, _, err = self.end_session()
         self.assertEqual(code, cli.EXIT_OK)
         self.assertEqual(err.count(self.RECOVERED), 1, err)
+
+    def test_a_team_is_marked_down_for_the_status_line_while_its_homeserver_does_not_answer(self):
+        """Plan 00203 H26: the status line shows `<team>(down)` from the watcher's mark."""
+        self.joined()
+        self.start_watch()
+        mark = self.home / statusline.DOWN_DIR / self.a.name
+        self.assertFalse(mark.exists(), "a team that syncs was marked down")
+        self.a.fake.inject("GET", r"/sync$", 503, {"errcode": "M_UNKNOWN", "error": "restarting"}, times=40)
+        self.until(mark.is_file, "the outage did not mark the team down")
+        self.until(self.faults_spent, "the watcher stopped syncing during the outage")
+        self.until(lambda: not mark.exists(), "the team was still marked down once it synced again")
+        code, _, err = self.end_session()
+        self.assertEqual(code, cli.EXIT_OK)
+        self.assertEqual(err.count(self.RECOVERED), 1, err)
+
+    def test_a_team_that_stops_being_watched_is_not_left_marked_down(self):
+        self.joined()
+        self.start_watch()
+        self.a.fake.inject("GET", r"/sync$", 503, {"errcode": "M_UNKNOWN", "error": "restarting"}, times=10000)
+        mark = self.home / statusline.DOWN_DIR / self.a.name
+        self.until(mark.is_file, "the outage did not mark the team down")
+        self.end_session()
+        self.assertFalse(mark.exists(), "the watcher ended and left its team marked down")
 
     def test_an_unexpected_error_in_one_team_is_contained_and_retried(self):
         """A full disk is not a FAILURES exception; it must not end the watcher."""

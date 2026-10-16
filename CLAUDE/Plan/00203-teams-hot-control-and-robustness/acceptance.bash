@@ -6,6 +6,7 @@
 #   m2      _acceptance-m2.inc.bash      the bus kit in every ccy session (M2 a-f)
 #   m1      _acceptance-m1.inc.bash      the seat keeper (M1 a-b); uses M2's session launch
 #   m3      _acceptance-m3.inc.bash      hot add and remove (M3 a-f); uses M2's cleanup
+#   m4      _acceptance-m4.inc.bash      role, move, locks, edge cases (M4 a-f); uses M2's and M3's
 #   robust  _acceptance-robust.inc.bash  server-side robustness (gaps 3, 4, 9, 10), R1-R9
 #
 # WHERE TO RUN: on the HOST, as the desktop user (sudo for each root step), on an SELinux host
@@ -40,7 +41,9 @@ PLAN_USAGE="usage: acceptance.bash [-h|--help]
 Plan 00203's host acceptance, each milestone in turn (ACCEPTANCE.md): M2, the bus kit in every
 ccy session, on two throwaway headless sessions in ccy's tmux (plain and --no-bus); M1, the
 seat keeper (the helper tests, then a third throwaway plain session); M3, hot add and remove,
-on a throwaway headless session and the throwaway teams acc-m3a and acc-m3b; then server-side
+on a throwaway headless session and the throwaway teams acc-m3a and acc-m3b; M4, role, move,
+the locks and the edge cases, on two throwaway headless sessions and the throwaway teams
+acc-m4a and acc-m4b; then server-side
 robustness, R1-R9, on the throwaway team acc-robust. Every throwaway is removed on the way
 out. Exit 0 ACCEPTED, 1 REJECTED, 64 usage. Prompts for sudo once, before the run log opens."
 
@@ -75,6 +78,9 @@ source "${PLAN_SCRIPT_DIR}/_acceptance-m1.inc.bash"
 # shellcheck source=_acceptance-m3.inc.bash
 source "${PLAN_SCRIPT_DIR}/_acceptance-m3.inc.bash"
 # shellcheck source-path=SCRIPTDIR
+# shellcheck source=_acceptance-m4.inc.bash
+source "${PLAN_SCRIPT_DIR}/_acceptance-m4.inc.bash"
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=_acceptance-robust.inc.bash
 source "${PLAN_SCRIPT_DIR}/_acceptance-robust.inc.bash"
 
@@ -96,6 +102,7 @@ check_leg() {
 acceptance_m2
 acceptance_m1
 acceptance_m3
+acceptance_m4
 acceptance_robust
 printf '\nACCEPTED: every milestone passed\n' | tee -a "${REPORT}"
 plan_finish

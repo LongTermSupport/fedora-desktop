@@ -116,16 +116,19 @@ m3_prepare() {
 }
 
 # m3_start — the headless session on acc-m3a in ccy's tmux, its one turn, its session ID.
+# ccy runs as the pane shell's child, never exec'd, and the trailing status write keeps it so:
+# a lone command would be exec'd, and tmux would hang the pane up (m2_launch says why).
 m3_start() {
     local fifo fd command
     fifo="$(m3_ev stdin.fifo)"
     mkfifo -- "${fifo}" || return 1
     exec {fd}<>"${fifo}" || return 1
-    m2_adopt "${M3_NAME}" "${fd}"
-    command="$(printf '%q ' exec env "CCY_TEAMS_HOST_VARS=${M3_HOST_VARS}" "${M2_LAUNCHER}" --headless --no-restore \
+    m2_adopt "${M3_NAME}" "${fd}" "$(m3_ev session)"
+    command="$(printf '%q ' env "CCY_TEAMS_HOST_VARS=${M3_HOST_VARS}" "${M2_LAUNCHER}" --headless --no-restore \
         --no-supervise --teams "1@${M3_TEAM_A}" --prompt "Plan 00203 M3 acceptance" -- --input-format stream-json \
         --output-format stream-json --verbose --model haiku)" || return 1
     command+="<$(printf '%q' "${fifo}") >$(printf '%q' "$(m3_ev session.out)") 2>$(printf '%q' "$(m3_ev session.err)")"
+    command+="; echo \"\$?\" >$(printf '%q' "$(m3_ev session.status)")"
     tmux -L ccy new-session -d -s "${M3_NAME}" -c "${PLAN_REPO_ROOT}" "${command}" || return 1
     m2_container_up "${M3_NAME}" || return 1
     "${M3_CHECK[@]}" user-line "${M3_TURN}" >&"${fd}" || return 1

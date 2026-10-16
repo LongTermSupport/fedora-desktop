@@ -102,8 +102,48 @@ func (o *Ops) Remove(ctx context.Context, args []string) term.ExitCode {
 	return o.confirmDown(ctx, team, purge)
 }
 
-// heading is the framed title and what taking the team down means.
+// sessionsOff is H29: the team's running sessions are offered to be taken off it first (each a
+// session remove, so they keep running), and the team goes down only once none is left.
+func (o *Ops) sessionsOff(ctx context.Context, team string) (term.ExitCode, bool) {
+	if o.SessionsIn == nil {
+		return term.ExitOK, true
+	}
+	in, err := o.SessionsIn(ctx, team)
+	if err != nil {
+		o.Term.PrintError("the sessions in " + team + " could not be found (" + err.Error() + "), so it was not taken down.")
+		return term.ExitFailure, false
+	}
+	if len(in) == 0 {
+		return term.ExitOK, true
+	}
+	yes, err := o.Gum.Confirm(ctx, "Take "+strings.Join(in, ", ")+" off "+team+" first? They keep running.", true)
+	if err != nil {
+		return o.questionFailed(err), false
+	}
+	if !yes {
+		o.Term.Printf("Nothing was changed: a team is taken down once no running session is in it.\n")
+		return term.ExitFailure, false
+	}
+	for _, session := range in {
+		if !o.TakeOut(ctx, session, team) {
+			o.Term.PrintError(session + " is still in " + team + ", so " + team + " was not taken down (the steps above say why).")
+			return term.ExitFailure, false
+		}
+	}
+	left, err := o.SessionsIn(ctx, team)
+	if err != nil || len(left) > 0 {
+		o.Term.PrintError(strings.Join(left, ", ") + " still in " + team + ", so it was not taken down.")
+		return term.ExitFailure, false
+	}
+	return term.ExitOK, true
+}
+
+// heading is the team's running sessions taken off it first (H29), then the framed title and
+// what taking the team down means.
 func (o *Ops) heading(ctx context.Context, team string) (term.ExitCode, bool) {
+	if code, ok := o.sessionsOff(ctx, team); !ok {
+		return code, false
+	}
 	if err := o.Gum.Box(ctx, true, "Take team "+team+" down"); err != nil {
 		o.Term.PrintError(err.Error())
 		return term.ExitFailure, false

@@ -39,12 +39,13 @@ readonly M2_EV="${PLAN_RUN_DIR}/m2"
 readonly M2_TRANSCRIPTS="${PLAN_REPO_ROOT}/.claude/ccy/projects/-workspace"
 readonly M2_PROMPT="Plan 00203 M2 acceptance: an idle session; nothing to do."
 M2_NAMES=("m2-plain-$$" "m2-nobus-$$")
-declare -A M2_FD=() M2_CTR=()
+declare -A M2_FD=() M2_CTR=() M2_LOG=()
 
 m2_note() { printf '%s\n' "$*" | tee -a "${REPORT}"; }
 
-# m2_adopt <name> <fd> — a session another milestone launched, for m2_cleanup to remove.
-m2_adopt() { M2_NAMES+=("$1"); M2_FD[$1]="$2"; }
+# m2_adopt <name> <fd> <log> — a session another milestone launched, for m2_cleanup to remove;
+# <log> is the path its .status and .err files start with, for m2_ended_early.
+m2_adopt() { M2_NAMES+=("$1"); M2_FD[$1]="$2"; M2_LOG[$1]="$3"; }
 
 # m2_transcripts — the checkout's transcript files, sorted (to move only what this run made).
 m2_transcripts() {
@@ -72,8 +73,10 @@ m2_launch() {
     # never `exec`: the pane's shell stays ccy's parent, keeps the pane's terminal open and
     # records ccy's exit status. With all three streams redirected an exec'd ccy holds no
     # descriptor on the terminal, so tmux reads end of file, takes the pane as exited and sends
-    # SIGHUP before ccy writes a byte. ccy, the child of the pane's first process, is still that
-    # session (the registry trampoline's shape).
+    # SIGHUP before ccy writes a byte. The trailing status write is load-bearing, not only a
+    # record: a shell given one lone command execs it implicitly (dash does, and bash can),
+    # so dropping the `; echo` brings the SIGHUP back. ccy, the child of the pane's first
+    # process, is still that session (the registry trampoline's shape).
     command="$(printf '%q ' "${M2_LAUNCHER}" --headless --no-restore --no-supervise "$@" \
         --prompt "${M2_PROMPT}" -- --input-format stream-json --output-format stream-json --verbose --model haiku)" || return 1
     command+="<$(printf '%q' "${fifo}") >$(printf '%q' "${M2_EV}/${name}.out") 2>$(printf '%q' "${M2_EV}/${name}.err")"
@@ -85,13 +88,14 @@ m2_launch() {
 # m2_ended_early <name> — say how a session ended before its container started: ccy's exit
 # status as the pane's shell recorded it (none: the shell itself was killed) and its stderr.
 m2_ended_early() {
-    local name="$1" status="not written (the pane's shell was killed)"
-    if [[ -s "${M2_EV}/${name}.status" ]]; then
-        status="$(<"${M2_EV}/${name}.status")"
+    local name="$1" status="not written (the pane's shell was killed)" log
+    log="${M2_LOG[${name}]:-${M2_EV}/${name}}"
+    if [[ -s "${log}.status" ]]; then
+        status="$(<"${log}.status")"
     fi
     printf '[FAIL] the session %s ended before its container started: ccy exit status %s; its stderr (%s):\n' \
-        "${name}" "${status}" "${M2_EV}/${name}.err" >&2
-    cat -- "${M2_EV}/${name}.err" >&2
+        "${name}" "${status}" "${log}.err" >&2
+    cat -- "${log}.err" >&2
 }
 
 # m2_container_up <name> — the running container labelled ccy-session=<name>; 120 s at most.

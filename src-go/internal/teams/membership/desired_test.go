@@ -108,6 +108,22 @@ func TestCanonicalJoinsSeatsInOrder(t *testing.T) {
 	}
 }
 
+func TestRemoveDesiredLeavesNoMembershipForAnEndedSession(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "ccy", "membership", "ccy-proj")
+	if err := Write(dir, sample()); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveDesired(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the membership stays: %v", err)
+	}
+	if err := RemoveDesired(dir); err != nil {
+		t.Fatalf("a second removal is a no-op: %v", err)
+	}
+}
+
 func TestValidSession(t *testing.T) {
 	if !ValidSession("ccy-proj-2") || ValidSession("..") || ValidSession("a/b") || ValidSession("") {
 		t.Fatal("session names")

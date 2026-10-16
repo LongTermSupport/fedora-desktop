@@ -367,9 +367,13 @@ Two things are **not** frozen:
 
 - **H20.** One change at a time per session, and one allocation at a time per checkout.
 
-  - A session change takes `flock` on `<membership dir>/.change.lock`.
-  - A seat allocation takes `flock` on `.claude/ccy/pingbus/seats/.alloc.lock`.
+  - A session change takes `flock` on `$XDG_RUNTIME_DIR/ccy/change/<session>.lock`.
+  - A seat allocation takes `flock` on `$XDG_RUNTIME_DIR/ccy/alloc/<checkout digest>.lock`.
   - Either one busy gives exit 75, naming who holds it.
+  - Neither lock lives where a container can reach it. `flock` needs no write permission, so
+    a process in the session could hold a lock in its read-only membership mount, or in the
+    checkout, until the container stops, and freeze the owner out. The membership directory
+    carries only files the container may see.
 
 - **H21.** Allocation authority. A seat `(checkout, team, seat)` is free only if its lock is
   free **and** no live session's desired file names the same triple. `agent-bus seat take` and
@@ -377,6 +381,37 @@ Two things are **not** frozen:
 
   - Tests: a seat named in another session's desired file whose keeper has not locked it yet
     is refused. The same `team, seat` in a different checkout is not refused.
+  - As built in M4 (H20, H21):
+    - The allocation lock is `$XDG_RUNTIME_DIR/ccy/alloc/<first 32 hex of sha256(resolved checkout path)>.lock`, not `seats/.alloc.lock`: pingbus's `list_seats` refuses any entry
+      of `seats/` that is not a team (so every deployed image would break on it), and the
+      checkout is writable by every session of it (a symlink there would redirect the host's
+      write; a container could hold it for good). `ccy-teams session add` holds it from
+      choosing the seat to writing the desired file and runs `agent-bus seat take --alloc-held`; `seat take` otherwise waits for it up to 15 s, then exits 75 naming the
+      holder. With no absolute `XDG_RUNTIME_DIR`, `seat take` refuses (exit 78) rather than
+      allocate unlocked. The change lock was first built in the membership directory, as this
+      spec then said; Fable's M4 review (B1) moved it to `ccy/change/` for the reason above.
+    - "Live" is, for ccy-teams, a session on ccy's tmux server (as the board has it), and for
+      agent-bus a session whose container runs (its `ccy-session` label). So a launcher's own
+      desired file, written just before its `seat take`, is never counted against it.
+    - A stopped session's record that a restore replays (`restore=yes`, same checkout) also
+      names its seats (Fable's M3 note N4): `session add` refuses them, and the board's
+      discovery gives a seat to the live session that wants it over another session's record.
+    - `hand-to=<seat>` is resolved in the team's roster: a full handle, or the one active
+      member other than the leaving seat whose handle has that seat; several is exit 64,
+      asking for the handle. `add --role=coordinator` over another coordinator needs
+      `--demote-current`, as `role` does. Interactively, a coordinator's remove asks
+      demote-or-not (yes by default); handing over is by the option.
+    - `session list` reads a session's roles from its keeper's report (what it was told), so it
+      needs no sudo; "unguarded" is no `pingbus seat keep` process in `podman top`.
+    - `ccy-teams remove <team>` stays terminal-only (never `--yes`, its own rule): H29's offer
+      is a question in that flow, and each session is taken off with `--coordinator=demote`.
+    - The in-session `bus: <team>(down)` (H26): while a team's homeserver does not answer, the
+      watcher keeps `PINGBUS_HOME/down/<team>` (0600), refreshed on each retry and removed when
+      the team syncs again or its thread ends; the status line appends `(down)` for a mark
+      younger than 300 s, so one a killed watcher left stops counting. Another kind of sync
+      failure (a full disk) is not a homeserver down and is not marked.
+    - Not built in M4: docker-engine sessions (H30; only podman sessions carry the
+      `ccy-session` label hot control finds them by).
 
 - **H22. Add.** The steps, in order:
 

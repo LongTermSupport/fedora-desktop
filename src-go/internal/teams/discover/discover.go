@@ -28,14 +28,15 @@ func (k Key) Ref() string { return k.Seat + "@" + k.Team }
 
 // Index is every seat a record or a desired file names, and the session it names.
 type Index struct {
-	session map[Key]string
-	restore map[Key]bool
-	desired map[Key][]string
+	session  map[Key]string
+	restore  map[Key]bool
+	desired  map[Key][]string
+	recorded map[Key]string
 }
 
 // New is an empty Index.
 func New() *Index {
-	return &Index{session: map[Key]string{}, restore: map[Key]bool{}, desired: map[Key][]string{}}
+	return &Index{session: map[Key]string{}, restore: map[Key]bool{}, desired: map[Key][]string{}, recorded: map[Key]string{}}
 }
 
 // IsLauncher is whether a record's prefix is one of the two launchers that hold seats.
@@ -74,22 +75,33 @@ func (ix *Index) AddRecord(rec registry.Record) {
 		k := Key{Dir: rec.Dir, Team: team, Seat: seat}
 		ix.session[k] = rec.Name
 		ix.restore[k] = rec.Restore
+		ix.recorded[k] = rec.Name
 	}
 }
 
-// AddDesired notes the seats a session's desired membership names. A seat a record already
-// names keeps the record's session; DesiredBy still says this session wants it.
+// AddDesired notes the seats a live session's desired membership names (the caller adds only
+// live sessions'). The live session is the seat's session, over a record of another session that
+// names it (Fable's M3 note N4); RecordedBy still names that record, and its restore is not this
+// session's. The first live session to want a seat keeps it; DesiredBy lists them all.
 func (ix *Index) AddDesired(d membership.Desired) {
 	for _, s := range d.Seats {
 		k := Key{Dir: d.Checkout, Team: s.Team, Seat: s.Seat}
+		first := len(ix.desired[k]) == 0
 		if !slices.Contains(ix.desired[k], d.Session) {
 			ix.desired[k] = append(ix.desired[k], d.Session)
 		}
-		if _, named := ix.session[k]; !named {
-			ix.session[k] = d.Session
+		if !first || ix.session[k] == d.Session {
+			continue
 		}
+		if ix.recorded[k] != "" && ix.recorded[k] != d.Session {
+			delete(ix.restore, k)
+		}
+		ix.session[k] = d.Session
 	}
 }
+
+// RecordedBy is the session whose record names the seat, or "".
+func (ix *Index) RecordedBy(k Key) string { return ix.recorded[k] }
 
 // SessionOf is the session that names the seat, or "".
 func (ix *Index) SessionOf(k Key) string { return ix.session[k] }

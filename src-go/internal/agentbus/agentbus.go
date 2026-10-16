@@ -139,12 +139,13 @@ func (c *Client) SeatChooseAs(ctx context.Context, team, memberType string) (Cho
 // creates each named seat the checkout lacks (sudo, asked first unless noPrompt) and refuses a
 // held one (ErrBusy).
 func (c *Client) SeatTake(ctx context.Context, dir, list, memberType string, noPrompt bool) error {
-	args := []string{"seat", "take", list, "--type=" + memberType}
-	if noPrompt {
-		args = append(args, "--no-prompt")
-	}
-	_, err := c.userRun(ctx, dir, args...)
-	return err
+	return c.seatTake(ctx, dir, list, memberType, noPrompt)
+}
+
+// SeatTakeAllocated is SeatTake for a caller that already holds the checkout's seat
+// allocation lock (ccy-teams session add), which agent-bus would otherwise wait for.
+func (c *Client) SeatTakeAllocated(ctx context.Context, dir, list, memberType string, noPrompt bool) error {
+	return c.seatTake(ctx, dir, list, memberType, noPrompt, "--alloc-held")
 }
 
 // SeatChooseIn is SeatChooseAs run in the checkout dir ("" is the working directory).
@@ -256,6 +257,15 @@ func (c *Client) RemoveTeam(ctx context.Context, team string, purge bool) error 
 		argv = append(argv, "--purge")
 	}
 	return c.rootShow(ctx, installerName, argv...)
+}
+
+func (c *Client) seatTake(ctx context.Context, dir, list, memberType string, noPrompt bool, extra ...string) error {
+	args := []string{"seat", "take", list, "--type=" + memberType}
+	if noPrompt {
+		args = append(args, "--no-prompt")
+	}
+	_, err := c.userRun(ctx, dir, append(args, extra...)...)
+	return err
 }
 
 func (c *Client) userRun(ctx context.Context, dir string, args ...string) (execx.Result, error) {

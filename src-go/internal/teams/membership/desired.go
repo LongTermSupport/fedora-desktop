@@ -82,6 +82,12 @@ func (d Desired) check() error {
 	return nil
 }
 
+// RemoveDesired drops the desired membership of a session that is no longer running: its next
+// launch writes it again (SPEC-hot-control.md H28).
+func RemoveDesired(dir string) error {
+	return fsx.RemoveIfPresent(filepath.Join(dir, File))
+}
+
 // ValidSession is whether name is a session name a membership directory may carry.
 func ValidSession(name string) bool { return sessionName.MatchString(name) }
 

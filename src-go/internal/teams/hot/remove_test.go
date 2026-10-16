@@ -1,12 +1,15 @@
 package hot
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/execx"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/membership"
-	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/teamtest"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/term"
 )
 
@@ -63,13 +66,67 @@ func TestRemoveWhoseGoodbyeFailsKeepsItOwedAndTheRerunFinishes(t *testing.T) {
 	}
 }
 
-func TestRemoveOfTheCoordinatorWaitsForRoleOptions(t *testing.T) {
+func TestRemoveOfTheCoordinatorNeedsToBeToldWhatBecomesOfTheRole(t *testing.T) {
 	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
-	r.On(teamtest.SudoBus+"list alpha", "MEMBER\tproj.3+local.podman\tcoordinator\tjoin\tactive\n", 0)
+	r.m.roles["alpha\tproj.3+local.podman"] = coord
 	if code := r.run(t, "remove", session, "alpha", "--yes"); code != term.ExitUsage {
 		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
 	}
-	if r.desired(t).Generation != 1 {
-		t.Fatal("nothing written")
+	if !strings.Contains(r.ErrOut.String(), "--coordinator=demote") || r.desired(t).Generation != 1 {
+		t.Fatalf("nothing written, the options named:\n%s", r.ErrOut.String())
+	}
+	if code := r.run(t, "remove", session, "alpha", "--coordinator=demote", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ role: proj.3+local.podman set to worker")
+	if got := r.setRoles(); !slices.Equal(got, []string{"alpha proj.3+local.podman --role=worker"}) {
+		t.Fatalf("set-role %q", got)
+	}
+}
+
+func TestRemoveOfTheCoordinatorCanHandTheRoleToAnotherSeat(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.m.roles["alpha\tproj.3+local.podman"] = coord
+	r.m.roles["alpha\trepo.5+local.podman"] = worker
+	r.m.roles["alpha\tother.6+local.podman"] = worker
+	r.m.roles["alpha\tmore.6+local.lxc"] = worker
+	if code := r.run(t, "remove", session, "alpha", "--coordinator=hand-to=6", "--yes"); code != term.ExitUsage ||
+		!strings.Contains(r.ErrOut.String(), "more.6+local.lxc, other.6+local.podman") {
+		t.Fatalf("an ambiguous seat: exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if code := r.run(t, "remove", session, "alpha", "--coordinator=hand-to=9", "--yes"); code != term.ExitUsage {
+		t.Fatalf("no such seat: exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if code := r.run(t, "remove", session, "alpha", "--coordinator=hand-to=5", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	if got, want := r.setRoles(), []string{
+		"alpha proj.3+local.podman --role=worker", "alpha repo.5+local.podman --role=coordinator",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("set-role %q, want %q", got, want)
+	}
+}
+
+func TestRemoveWithParkParksTheHandle(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.On("agent-bus seat remove 3@alpha", "CHANGED\tseat 3@alpha proj.3+local.podman\n", 0)
+	if code := r.run(t, "remove", session, "alpha", "--park", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ park: proj.3+local.podman parked, seat 3 removed from the checkout")
+}
+
+func TestRemoveWhenTheSessionEndsMidwayLeavesNoMembership(t *testing.T) {
+	r := newRig(t, membership.Seat{Team: "alpha", Seat: "3"})
+	r.Fake.OnFunc(strings.Fields("/usr/local/share/agent-bus/kit/pingbus seat retire"), func(execx.Cmd) (execx.Result, error) {
+		r.m.container = ""
+		return execx.Result{}, nil
+	})
+	if code := r.run(t, "remove", session, "alpha", "--yes"); code != term.ExitOK {
+		t.Fatalf("exit %d:\n%s", code, r.ErrOut.String())
+	}
+	wantLines(t, r.ErrOut.String(), "✓ membership: removed (the session is not running; its next launch writes it)")
+	if _, err := membership.Read(r.dir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("H28: %v", err)
 	}
 }

@@ -154,6 +154,44 @@ func TestRemoveDeclaredKeepsDataAfterBackup(t *testing.T) {
 	}
 }
 
+func TestRemoveTakesTheTeamsLiveSessionsOffItFirst(t *testing.T) {
+	r := removeRig(t)
+	in := []string{"ccy-a", "ccy-b"}
+	var taken []string
+	r.ops.SessionsIn = func(context.Context, string) ([]string, error) { return in, nil }
+	r.ops.TakeOut = func(_ context.Context, session, team string) bool {
+		taken = append(taken, session+"@"+team)
+		in = in[1:]
+		return true
+	}
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 0 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if strings.Join(taken, " ") != "ccy-a@alpha ccy-b@alpha" {
+		t.Fatalf("taken off %v", taken)
+	}
+	if got := r.lines(); got[0] != "gum confirm --default=true Take ccy-a, ccy-b off alpha first? They keep running." {
+		t.Fatalf("first call %q", got[0])
+	}
+}
+
+func TestRemoveStopsWhileASessionIsStillInTheTeam(t *testing.T) {
+	r := removeRig(t)
+	r.ops.SessionsIn = func(context.Context, string) ([]string, error) { return []string{"ccy-a"}, nil }
+	r.ops.TakeOut = func(context.Context, string, string) bool { return false }
+	if code := r.ops.Remove(context.Background(), []string{"alpha"}); code != 1 {
+		t.Fatalf("code %d: %s", code, r.said())
+	}
+	if !strings.Contains(r.said(), "ccy-a is still in alpha, so alpha was not taken down") {
+		t.Fatalf("said %q", r.said())
+	}
+	for _, line := range r.lines() {
+		if strings.HasPrefix(line, opsDeclare) || strings.HasPrefix(line, opsInstaller) {
+			t.Fatalf("taken down with a session in it: %q", line)
+		}
+	}
+}
+
 func TestRemoveExplainWidthFollowsTheTerminal(t *testing.T) {
 	for _, c := range []struct {
 		cols int

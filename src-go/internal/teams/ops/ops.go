@@ -69,6 +69,12 @@ type Ops struct {
 	// whether a question may be asked: it offers, or says how to do, the sign-in of each
 	// person of them who has no Element session.
 	SignInGap func(ctx context.Context, teams []string, ask bool) error
+
+	// SessionsIn, when set, is every running session in the team (SPEC-hot-control.md H29), and
+	// TakeOut takes one off it while it runs (ccy-teams session remove), saying each step;
+	// whether it did.
+	SessionsIn func(ctx context.Context, team string) ([]string, error)
+	TakeOut    func(ctx context.Context, session, team string) bool
 }
 
 // ElementLauncher is the desktop file the Element play writes for a team.
