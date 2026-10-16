@@ -19,3 +19,11 @@
 # A line starting with # is a comment and is the description of the entry below it: it is how
 # the owner learns what a run will do, so write it. Blank lines are ignored. Any other line
 # that is not an entry is a fatal error naming its line number.
+
+# Plan 00203: read-only triage of why team homeservers stop. Changes nothing; reads as root
+# (sudo -n): the whole journal, each team's tuwunel.toml (secret values substituted), its
+# database size, filesystem and free space, the coredumps, and each running ccy container's
+# watcher log. Lists every stop of every agent-bus-hs@ unit with its cause (exit, signal,
+# watchdog, OOM, core dump) and who asked (a play, a deploy, an acceptance run, a reboot, the
+# health check), then counts deliberate against not deliberate stops per team.
+00203-teams-hot-control-and-robustness/triage-hs.bash
