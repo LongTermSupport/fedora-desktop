@@ -1,14 +1,19 @@
-# Plan 00203: host acceptance of the server-side robustness fixes
+# Plan 00203: host acceptance
 
-What proves each fix on the host. `acceptance.bash` runs R1-R9 by itself on a throwaway team
-(`acc-robust`, loopback only, removed on the way out), through `meta-deploy.bash` after
-`play-agent-bus.yml` and `play-claude-yolo.yml`. The reboot steps (B1, B2) need a reboot, so
-they are the owner's.
+What proves each milestone on the host, one section per milestone. `acceptance.bash` is a
+dispatcher: each milestone's checks live in its own `_acceptance-<milestone>.inc.bash`, and it
+runs them in turn through `meta-deploy.bash`, after `play-claude-yolo.yml` and
+`play-agent-bus.yml`.
+
+## Server-side robustness (`_acceptance-robust.inc.bash`)
+
+`acceptance.bash` runs R1-R9 by itself on a throwaway team (`acc-robust`, loopback only,
+removed on the way out). The reboot steps (B1, B2) need a reboot, so they are the owner's.
 
 The gaps are those of `subagent-reports/261016-robustness-audit-opus.md` section 5; the design
 and its evidence are in `subagent-reports/261016-server-robustness-opus.md`.
 
-## Run by acceptance.bash
+### Run by acceptance.bash
 
 | Check | Gap | What it does                                                                                                                                          | Passes when                                                                                                                      |
 | ----- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -22,7 +27,7 @@ and its evidence are in `subagent-reports/261016-server-robustness-opus.md`.
 | R8    | 3   | A runtime drop-in delays the homeserver's start by 25 s; `systemctl restart --no-block`; `agent-bus seat check 1@acc-robust` while it is `activating` | exit 0 after at least 15 s, its stderr saying `... is starting ...` and `... is up after N s`                                    |
 | R9    | 9   | Every running LXC container with systemd: each `agent-bus-claude-*.service` in it                                                                     | enabled, active, `Restart=always`, and the container's `lxc.start.auto = 1`; a host with none declared says so in the report     |
 
-## The owner's, after a reboot
+### The owner's, after a reboot
 
 - **B1 (gap 3).** With at least one ccy team session recorded for restore, reboot. Every recorded
   team session is up (`ccy-sessions`), and none of their tmux windows shows a `seat check`
@@ -35,7 +40,7 @@ and its evidence are in `subagent-reports/261016-server-robustness-opus.md`.
   as the agent user shows the session. Then end the session (`/exit` in it): it is running
   again within a minute.
 
-## Not provable on the host
+### Not provable on the host
 
 A per-account sign-in lockout leaves nothing a tool can read (Tuwunel 1.9.4 keeps the
 buckets in memory and logs a refusal only at a level the release build compiles out). What is
