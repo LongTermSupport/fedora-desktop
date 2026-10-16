@@ -80,6 +80,12 @@ Python helper sidesteps that entire class of breakage.
   which outrank both. Hosts sign every commit by default (Plan 00139), so a fixture
   commit that reads the machine's config depends on its signing key. The runner does the
   same, which covers a gate run but not a single module run by hand.
+- No helper test sees the agent-bus session it runs in (`PINGBUS_*`, `AGENT_BUS_*`,
+  `CCY_SESSION_NAME`): `tests/helpers/__init__.py`, the one regular package in the helper
+  trees, removes them before any test module loads, by hand or under the runner, and the runner
+  fails a run that leaves one in `os.environ`. A test that needs one sets it itself, in the
+  `env=` it passes or with `mock.patch.dict`. The list and why:
+  `helpers/qa_environment/session_env.py`.
 
 > **Do NOT use `python3 -m unittest discover -s tests`.** It reports
 > `Ran 0 tests … OK` and exits **0** — a false pass. These are namespace packages

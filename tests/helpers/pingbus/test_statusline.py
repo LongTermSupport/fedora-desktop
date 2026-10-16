@@ -194,6 +194,47 @@ class StatusLineTest(unittest.TestCase):
         proc.stdout.close()
         self.assertGone(grandchild)
 
+    def test_a_cancel_that_lands_while_the_inner_is_starting_still_kills_its_group(self) -> None:
+        """The window the test above can only hit under load, forced: the inner command has
+        started (and started its own child) but Popen has not yet returned, so the cancel
+        handler cannot know the process yet. The cancel must still kill the whole group and
+        end pingbus, never leave the inner running."""
+        pidfile = self.tmp / "grandchild"
+        real_popen = subprocess.Popen
+        started: list[subprocess.Popen] = []
+
+        def popen_then_cancel(*args: object, **kwargs: object) -> subprocess.Popen:
+            proc = real_popen(*args, **kwargs)
+            started.append(proc)
+            self.addCleanup(self.kill_group_if_alive, proc)
+            deadline = time.monotonic() + 10
+            while not (pidfile.exists() and pidfile.read_text().strip()) and time.monotonic() < deadline:
+                time.sleep(0.02)
+            statusline._cancelled(signal.SIGTERM, None)  # what the signal runs, landing here
+            return proc
+
+        with mock.patch.object(statusline.subprocess, "Popen", popen_then_cancel), \
+                self.assertRaises(SystemExit) as raised:
+            statusline.run_command(f"sleep 60 & echo $! > {pidfile}; wait", b"{}", self.env, None)
+        self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+        self.assertEqual(len(started), 1)
+        self.assertGone(int(pidfile.read_text()))
+        started[0].wait(timeout=10)
+
+    def test_a_cancel_with_no_inner_running_ends_pingbus_at_once(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            statusline._cancelled(signal.SIGTERM, None)
+        self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+
+    @staticmethod
+    def kill_group_if_alive(proc: subprocess.Popen) -> None:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=10)
+        for stream in (proc.stdin, proc.stdout):
+            if stream is not None:
+                stream.close()
+
     def assertGone(self, pid: int) -> None:
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:

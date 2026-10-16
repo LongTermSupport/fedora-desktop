@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.99.10.3 — container 2.75.2
+
+- **A status line cancelled as it starts no longer leaves its inner command running**
+  (Plan 00203). `pingbus status-line` runs the session's own status line command in a process
+  group and kills the group when Claude Code cancels it. The inner command starts before the
+  process that runs it is known to the cancel handler, so a cancel landing in that moment ended
+  pingbus and left the inner command, and anything it started, running. Such a cancel is now
+  held until the process is known, then carried out: the group is killed and pingbus exits as
+  before.
+
 ## 3.99.10.2 — container 2.75.1
 
 - **Two launches at once no longer collide on the container name** (Plan 00203). Each launch
