@@ -34,6 +34,16 @@ func world(t *testing.T) harness {
 	return harness{World: w, app: Wire(w.Host)}
 }
 
+// Plan 00203 M5: the picker's Running sessions view changes a session through the very
+// `ccy-teams session` command the App dispatches, so the picker and the command line cannot
+// differ.
+func TestThePickersRunningSessionsAreTheSessionCommand(t *testing.T) {
+	h := newHarness(t)
+	if h.app.Picker.Session != h.app.Session || h.app.Session == nil {
+		t.Fatalf("picker hot control %v, session command %v", h.app.Picker.Session, h.app.Session)
+	}
+}
+
 func TestHelpPrintsTheUsageToStdout(t *testing.T) {
 	for _, flag := range []string{"-h", "--help"} {
 		h := newHarness(t)

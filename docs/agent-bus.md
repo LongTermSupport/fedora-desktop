@@ -139,7 +139,9 @@ menu of what can be done to it, in words, each with its shortcut beside it. The 
 are Ctrl-N (start a session), Ctrl-U (apply every team out of date), Ctrl-R (toggle a
 restore), Ctrl-X (remove a seat, park a member after a yes/no, or take a team down, as
 `remove`), Ctrl-P (a person's new password), Ctrl-E (open Element), and `?` explains
-every key. Status words are in colour on a terminal, but
+every key. Tab switches to the running sessions, where a session is added to a team,
+removed, moved, re-roled or its seat keeper repaired while it runs: each is the
+`ccy-teams session` command, run for you. Status words are in colour on a terminal, but
 not with `NO_COLOR`. `ccy-teams --list` prints the same table, plain when piped. Reading
 the members needs root: `play-agent-bus.yml` installs a sudoers rule for exactly the two
 read-only `agent-bus` commands involved, so no password is asked. Until it has run, the

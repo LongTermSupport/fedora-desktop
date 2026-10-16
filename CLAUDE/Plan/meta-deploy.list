@@ -69,3 +69,14 @@ playbooks/imports/play-agent-bus.yml
 # M2.3's idle turn no longer forbids every command, so the session can follow its rule 3 and
 # start pingbus wait when the hooks say the watcher could not be started.
 00161-agent-team-bus-matrix/acceptance.bash
+# Plan 00203 M5: rebuilds ccy-teams only (no launcher or image change, so no ccy version bump
+# and no image rebuild). In `ccy-teams`, Tab now shows the running sessions: add one to a team
+# (Ctrl-A), remove it (Ctrl-X), change its role (Ctrl-O), move it, attach it, or repair a
+# stopped seat keeper, each by running the `ccy-teams session` command for you. Running sessions
+# are not touched.
+playbooks/imports/play-claude-yolo.yml
+# Plan 00203 acceptance again, on the M5 ccy-teams: every milestone in turn, as the entry above
+# describes (throwaway teams and headless sessions, all removed after). It re-proves
+# `ccy-teams session list` (M4 (e)), whose code the picker's view now shares. The picker
+# itself is the owner's steps, ACCEPTANCE.md M5 (a) to (f), on a terminal.
+00203-teams-hot-control-and-robustness

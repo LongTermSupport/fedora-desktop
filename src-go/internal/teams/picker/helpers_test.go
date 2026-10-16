@@ -9,6 +9,7 @@ import (
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/board"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/create"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/flow"
+	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/hot"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/login"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/lxcadd"
 	"github.com/LongTermSupport/fedora-desktop/src-go/internal/teams/ops"
@@ -27,6 +28,24 @@ type rig struct {
 	b *board.Collector
 	o *ops.Ops
 	p *Picker
+	// ses stands in for `ccy-teams session`: the sessions it lists and the commands it was run with.
+	ses *fakeSessions
+}
+
+// fakeSessions is hot control as the picker sees it: canned sessions, and every command line
+// it was asked to run, each answered with code.
+type fakeSessions struct {
+	list []hot.Session
+	err  error
+	runs [][]string
+	code term.ExitCode
+}
+
+func (f *fakeSessions) Sessions(context.Context) ([]hot.Session, error) { return f.list, f.err }
+
+func (f *fakeSessions) Run(_ context.Context, args []string) term.ExitCode {
+	f.runs = append(f.runs, args)
+	return f.code
 }
 
 func newRig(t *testing.T) rig {
@@ -43,7 +62,9 @@ func newRig(t *testing.T) rig {
 	w.OnDeclare("element-teams", "")
 	p := New(h, kit, b, o, create.New(h, o, l), l, s, lxcadd.New(h, kit, o))
 	p.Shutdown = shutdown.New(h, kit, b)
-	return rig{World: w, Console: c, b: b, o: o, p: p}
+	ses := &fakeSessions{}
+	p.Session = ses
+	return rig{World: w, Console: c, b: b, o: o, p: p, ses: ses}
 }
 
 // run1 is one collection of the machine, and the picker state the key handlers act on.

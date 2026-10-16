@@ -21,14 +21,23 @@ import (
 // keeperLog is where a session's seat keeper writes, inside its container.
 const keeperLog = "/tmp/pingbus-home/keeper.log"
 
-// sessionRow is one running session as `session list` shows it.
-type sessionRow struct {
-	name, kind, checkout, state string
-	teams                       []teamCell
+// Session is one running session as `session list` and the picker's Running sessions view
+// show it (section 5.1).
+type Session struct {
+	Name, Kind, Checkout, State string
+	Teams                       []Cell
+	// Controllable is a session whose membership can be changed while it runs (D5, H35): it has
+	// a readable desired membership of a ccy session.
+	Controllable bool
+	// Unguarded is a session whose seat keeper has stopped (H10): repair starts it again.
+	Unguarded bool
 }
 
-// teamCell is one team of a session: its seat and the role the session was told ("-" before).
-type teamCell struct{ team, seat, role string }
+// Cell is one team of a session: its seat and the role the session was told ("-" before).
+type Cell struct{ Team, Seat, Role string }
+
+// OnlyTmuxLine is what the list and the picker's view say once about who can be changed (H35).
+const OnlyTmuxLine = "Only sessions started through ccy's tmux (the ones ccy-sessions lists) can be changed here."
 
 // listCache keeps what several sessions share: a checkout's seats and a team's homeserver.
 type listCache struct {
@@ -36,17 +45,16 @@ type listCache struct {
 	up    map[string]bool
 }
 
-// list is `session list` (H17, H18, section 5.1): every running session ccy's tmux started.
-func (x *Hot) list(ctx context.Context) term.ExitCode {
+// Sessions is every running session ccy's tmux started, by name, read as `session list` reads
+// them: its membership, its keeper, its seats and the roles it was told.
+func (x *Hot) Sessions(ctx context.Context) ([]Session, error) {
 	runtime := x.Host.Getenv("XDG_RUNTIME_DIR")
 	if !filepath.IsAbs(runtime) {
-		x.Host.Term.PrintError("XDG_RUNTIME_DIR is not an absolute path, so no session's membership can be found; run from your desktop login session.")
-		return term.ExitFailure
+		return nil, errors.New("XDG_RUNTIME_DIR is not an absolute path, so no session's membership can be found; run from your desktop login session")
 	}
 	out, err := sessprobe.LabelledSessions(ctx, x.Host.Runner)
 	if err != nil {
-		x.Host.Term.PrintError("podman could not list the sessions' containers: " + lastLine(err))
-		return term.ExitFailure
+		return nil, errors.New("podman could not list the sessions' containers: " + lastLine(err))
 	}
 	running := runningSessions(out)
 	names := make([]string, 0, len(running))
@@ -55,71 +63,92 @@ func (x *Hot) list(ctx context.Context) term.ExitCode {
 	}
 	slices.Sort(names)
 	cache := listCache{seats: map[string][]agentbus.Seat{}, up: map[string]bool{}}
-	rows := make([]sessionRow, 0, len(names))
+	rows := make([]Session, 0, len(names))
 	for _, name := range names {
-		rows = append(rows, x.sessionRow(ctx, runtime, running[name], name, cache))
+		rows = append(rows, x.session(ctx, runtime, running[name], name, cache))
+	}
+	return rows, nil
+}
+
+// list is `session list` (H17, H18, section 5.1): every running session ccy's tmux started.
+func (x *Hot) list(ctx context.Context) term.ExitCode {
+	rows, err := x.Sessions(ctx)
+	if err != nil {
+		x.Host.Term.PrintError(err.Error() + ".")
+		return term.ExitFailure
 	}
 	if x.Host.IsTerminal(x.Host.Payload) {
 		return x.table(rows)
 	}
 	for _, row := range rows {
-		cells := make([]string, 0, len(row.teams))
-		for _, c := range row.teams {
-			cells = append(cells, c.team+"/"+c.seat+"/"+c.role)
+		cells := make([]string, 0, len(row.Teams))
+		for _, c := range row.Teams {
+			cells = append(cells, c.Team+"/"+c.Seat+"/"+c.Role)
 		}
 		teams := strings.Join(cells, ",")
 		if teams == "" {
 			teams = "-"
 		}
-		x.Host.Print(x.Host.Payload, strings.Join([]string{"SESSION", row.name, row.kind, row.checkout, teams, row.state}, "\t")+"\n")
+		x.Host.Print(x.Host.Payload, strings.Join([]string{"SESSION", row.Name, row.Kind, row.Checkout, teams, row.State}, "\t")+"\n")
 	}
 	return term.ExitOK
 }
 
 // table is the list for a person: aligned columns, and what cannot be listed said once.
-func (x *Hot) table(rows []sessionRow) term.ExitCode {
+func (x *Hot) table(rows []Session) term.ExitCode {
+	heading, lines, err := SessionLines(rows, x.Host.Home)
+	if err != nil {
+		x.Host.Term.PrintError(err.Error())
+		return term.ExitFailure
+	}
+	x.Host.Print(x.Host.Payload, strings.Join(append([]string{heading}, lines...), "\n")+"\n")
+	x.say(OnlyTmuxLine)
+	return term.ExitOK
+}
+
+// SessionLines is the heading and one line per session, in aligned columns: the table of
+// `session list` on a terminal, and the rows of the picker's Running sessions view.
+func SessionLines(rows []Session, home string) (string, []string, error) {
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	lines := make([]string, 0, 1+len(rows))
 	lines = append(lines, "SESSION\tCHECKOUT\tTEAMS (seat, role)\tSTATE")
 	for _, row := range rows {
-		cells := make([]string, 0, len(row.teams))
-		for _, c := range row.teams {
-			cells = append(cells, c.team+" ("+c.seat+", "+c.role+")")
+		cells := make([]string, 0, len(row.Teams))
+		for _, c := range row.Teams {
+			cells = append(cells, c.Team+" ("+c.Seat+", "+c.Role+")")
 		}
 		teams := strings.Join(cells, " · ")
 		if teams == "" {
 			teams = "-"
 		}
-		checkout := row.checkout
+		checkout := row.Checkout
 		if checkout != "-" {
-			checkout = term.AbbrevHome(checkout, x.Host.Home)
+			checkout = term.AbbrevHome(checkout, home)
 		}
-		lines = append(lines, row.name+"\t"+checkout+"\t"+teams+"\t"+row.state)
+		lines = append(lines, row.Name+"\t"+checkout+"\t"+teams+"\t"+row.State)
 	}
 	_, err := w.Write([]byte(strings.Join(lines, "\n") + "\n"))
 	if err = errors.Join(err, w.Flush()); err != nil {
-		x.Host.Term.PrintError(err.Error())
-		return term.ExitFailure
+		return "", nil, fmt.Errorf("lay out the sessions: %w", err)
 	}
-	x.Host.Print(x.Host.Payload, b.String())
-	x.say("Only sessions started through ccy's tmux (the ones ccy-sessions lists) can be changed here.")
-	return term.ExitOK
+	laid := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
+	return laid[0], laid[1:], nil
 }
 
-// sessionRow reads one running session: its membership, its keeper, its seats and roles.
-func (x *Hot) sessionRow(ctx context.Context, runtime, container, name string, cache listCache) sessionRow {
-	row := sessionRow{name: name, kind: "ccy", checkout: "-"}
+// session reads one running session: its membership, its keeper, its seats and roles.
+func (x *Hot) session(ctx context.Context, runtime, container, name string, cache listCache) Session {
+	row := Session{Name: name, Kind: kindCcy, Checkout: "-"}
 	d, err := membership.Read(membership.Dir(runtime, name))
 	if errors.Is(err, os.ErrNotExist) {
-		row.state = "old or --no-bus: relaunch it to change it while it runs"
+		row.State = "old or --no-bus: relaunch it to change it while it runs"
 		return row
 	}
 	if err != nil {
-		row.state = "membership unreadable: " + err.Error()
+		row.State = "membership unreadable: " + err.Error()
 		return row
 	}
-	row.kind, row.checkout = d.Kind, d.Checkout
+	row.Kind, row.Checkout, row.Controllable = d.Kind, d.Checkout, d.Kind == kindCcy
 	seats, seatsErr := x.checkoutSeats(ctx, d.Checkout, cache)
 	rep, repErr := membership.ReadReport(d.Checkout, name)
 	if repErr != nil {
@@ -127,17 +156,17 @@ func (x *Hot) sessionRow(ctx context.Context, runtime, container, name string, c
 	}
 	var down, unheld []string
 	for _, s := range d.Seats {
-		cell := teamCell{team: s.Team, seat: s.Seat, role: "-"}
+		cell := Cell{Team: s.Team, Seat: s.Seat, Role: "-"}
 		held := false
 		for _, have := range seats {
 			if have.Team == s.Team && have.Seat == s.Seat {
 				held = have.Held
 				if told := rep.ToldRole(s.Team, have.Handle); told != "" {
-					cell.role = told
+					cell.Role = told
 				}
 			}
 		}
-		row.teams = append(row.teams, cell)
+		row.Teams = append(row.Teams, cell)
 		if !x.teamIsUp(ctx, s.Team, cache) {
 			down = append(down, s.Team)
 		}
@@ -146,7 +175,8 @@ func (x *Hot) sessionRow(ctx context.Context, runtime, container, name string, c
 		}
 	}
 	alive, aliveErr := x.keeperAlive(ctx, container)
-	row.state = stateWord(name, alive, aliveErr, seatsErr, down, unheld)
+	row.Unguarded = aliveErr == nil && !alive
+	row.State = stateWord(name, alive, aliveErr, seatsErr, down, unheld)
 	return row
 }
 
